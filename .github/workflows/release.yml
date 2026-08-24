@@ -1,0 +1,154 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Lightweight vMAJOR.MINOR.PATCH tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.source.outputs.tag }}
+      commit_sha: ${{ steps.source.outputs.commit_sha }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload.outputs.artifact-digest }}
+    steps:
+      - name: Reject dispatches outside protected main
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+        run: test "$DISPATCH_REF" = refs/heads/main
+      - name: Check out reviewed dispatch source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: false
+          persist-credentials: false
+      - name: Verify lightweight tag identifies the reviewed main commit
+        id: source
+        env:
+          REPOSITORY_READ_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          REVIEWED_COMMIT: ${{ github.sha }}
+        run: |
+          git_auth=$(printf 'x-access-token:%s' "$REPOSITORY_READ_TOKEN" | base64 | tr -d '\n')
+          unset REPOSITORY_READ_TOKEN
+          GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $git_auth" \
+            sh scripts/verify-release-source.sh "$VERSION" "$REVIEWED_COMMIT" >>"$GITHUB_OUTPUT"
+      - name: Check out exact verified release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.source.outputs.commit_sha }}
+          fetch-depth: 1
+          fetch-tags: false
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify tagged source readiness
+        run: sh scripts/test-release-readiness.sh
+      - name: Build release assets
+        env:
+          TAG: ${{ steps.source.outputs.tag }}
+        run: sh scripts/build-release.sh "$TAG" "$RUNNER_TEMP/release"
+      - name: Verify release asset set
+        env:
+          TAG: ${{ steps.source.outputs.tag }}
+        run: |
+          expected_archives="$RUNNER_TEMP/expected-archives"
+          {
+            printf 'cortexium-runner-%s-darwin-amd64.tar.gz\n' "$TAG"
+            printf 'cortexium-runner-%s-darwin-arm64.tar.gz\n' "$TAG"
+            printf 'cortexium-runner-%s-linux-amd64.tar.gz\n' "$TAG"
+            printf 'cortexium-runner-%s-linux-arm64.tar.gz\n' "$TAG"
+          } >"$expected_archives"
+          { cat "$expected_archives"; printf 'SHA256SUMS\n'; } | sort >"$RUNNER_TEMP/expected-assets"
+          find "$RUNNER_TEMP/release" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort >"$RUNNER_TEMP/actual-assets"
+          diff -u "$RUNNER_TEMP/expected-assets" "$RUNNER_TEMP/actual-assets"
+          test "$(wc -l <"$RUNNER_TEMP/release/SHA256SUMS")" -eq 4
+          awk '{ print $2 }' "$RUNNER_TEMP/release/SHA256SUMS" | sort >"$RUNNER_TEMP/checksummed-assets"
+          diff -u "$expected_archives" "$RUNNER_TEMP/checksummed-assets"
+          cd "$RUNNER_TEMP/release"
+          sha256sum --check --strict SHA256SUMS
+      - name: Upload immutable verified release assets
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ steps.source.outputs.commit_sha }}
+          path: ${{ runner.temp }}/release/*
+          if-no-files-found: error
+          overwrite: false
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download verified release artifact by immutable ID
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/release
+          digest-mismatch: error
+      - name: Revalidate artifact, assets, and unchanged tag identity
+        env:
+          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
+          EXPECTED_ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact_digest }}
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          VERIFIED_COMMIT: ${{ needs.build.outputs.commit_sha }}
+        run: |
+          printf '%s\n' "$ARTIFACT_ID" | grep -Eq '^[1-9][0-9]*$'
+          printf '%s\n' "$EXPECTED_ARTIFACT_DIGEST" | grep -Eq '^[0-9a-f]{64}$'
+          printf '%s\n' "$VERIFIED_COMMIT" | grep -Eq '^[0-9a-f]{40}$'
+          actual_digest=$(gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID" --jq .digest)
+          test "$actual_digest" = "sha256:$EXPECTED_ARTIFACT_DIGEST"
+
+          expected_archives="$RUNNER_TEMP/expected-archives"
+          {
+            printf 'cortexium-runner-%s-darwin-amd64.tar.gz\n' "$TAG"
+            printf 'cortexium-runner-%s-darwin-arm64.tar.gz\n' "$TAG"
+            printf 'cortexium-runner-%s-linux-amd64.tar.gz\n' "$TAG"
+            printf 'cortexium-runner-%s-linux-arm64.tar.gz\n' "$TAG"
+          } >"$expected_archives"
+          { cat "$expected_archives"; printf 'SHA256SUMS\n'; } | sort >"$RUNNER_TEMP/expected-assets"
+          find "$RUNNER_TEMP/release" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort >"$RUNNER_TEMP/actual-assets"
+          diff -u "$RUNNER_TEMP/expected-assets" "$RUNNER_TEMP/actual-assets"
+          test "$(wc -l <"$RUNNER_TEMP/release/SHA256SUMS")" -eq 4
+          awk '{ print $2 }' "$RUNNER_TEMP/release/SHA256SUMS" | sort >"$RUNNER_TEMP/checksummed-assets"
+          diff -u "$expected_archives" "$RUNNER_TEMP/checksummed-assets"
+          cd "$RUNNER_TEMP/release"
+          sha256sum --check --strict SHA256SUMS
+
+      - name: Publish verified GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
+          VERIFIED_COMMIT: ${{ needs.build.outputs.commit_sha }}
+        run: |
+          tag_object=$(gh api "/repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '[.object.sha, .object.type] | join(" ")')
+          test "$tag_object" = "$VERIFIED_COMMIT commit"
+          gh release create "$TAG" \
+            "$RUNNER_TEMP"/release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --title "$TAG"

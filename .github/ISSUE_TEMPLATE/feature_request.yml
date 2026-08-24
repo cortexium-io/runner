@@ -1,0 +1,38 @@
+name: Feature proposal
+description: Propose a user-visible improvement for maintainer assessment.
+title: "[Proposal] "
+labels:
+  - needs-assessment
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Proposals begin in assessment. A maintainer must explicitly promote accepted work before the runner can execute it.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem or operational gap should be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable behavior and how success could be verified.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and alternatives
+      description: Note important safety boundaries, compatibility needs, or alternatives considered.
+    validations:
+      required: false
+  - type: checkboxes
+    id: expectations
+    attributes:
+      label: Contribution policy
+      options:
+        - label: I understand that external pull requests are not accepted and that opening this issue does not approve work for runner execution.
+          required: true

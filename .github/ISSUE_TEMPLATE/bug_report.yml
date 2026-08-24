@@ -1,0 +1,58 @@
+name: Bug report
+description: Report reproducible incorrect behavior in the Local GitHub Project Runner.
+title: "[Bug] "
+labels:
+  - needs-assessment
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Public reports are assessed before they can become runner work.
+        Do not include credentials, tokens, private repository content, or vulnerability details.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release, commit SHA, or build you used.
+      placeholder: v0.1.0 or abc1234
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Work source
+      options:
+        - GitHub Project intake or execution
+        - Setup or doctor
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest safe sequence that reproduces the problem.
+      placeholder: Commands, sanitized configuration, and relevant output.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Go version, GitHub CLI version, and harness/version when relevant.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed secrets and private data, and this is not a vulnerability disclosure.
+          required: true

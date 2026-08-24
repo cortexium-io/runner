@@ -1,0 +1,146 @@
+{
+  "config_version": 2,
+  "runner_id": "runr_local_replace_me",
+  "project_dir": "/absolute/path/to/repository",
+  "max_parallelism": 2,
+  "admission_budget": {
+    "window_seconds": 86400,
+    "max_attempts": 12,
+    "max_harness_seconds": 28800
+  },
+  "resource_limits": {
+    "snapshot_max_entries": 100000,
+    "snapshot_max_file_bytes": 67108864,
+    "snapshot_max_total_bytes": 1073741824
+  },
+  "github_project": {
+    "owner": "your-github-owner",
+    "number": 1,
+    "intake_repository": "your-github-owner/your-repository",
+    "intake_label": "needs-assessment",
+    "result_field": "Runner Result",
+    "approval_field": "Runner Approval",
+    "phase_field": "Runner Phase",
+    "qa_failures_field": "QA Failures",
+    "branch_field": "Runner Branch",
+    "pull_request_field": "Pull Request",
+    "qa_commit_field": "QA Commit",
+    "base_branch": "main",
+    "remote_name": "origin",
+    "auto_merge": false
+  },
+  "harnesses": [
+    {
+      "kind": "codex",
+      "command": "codex",
+      "enabled": true,
+      "workspace_write_root": "/absolute/path/outside/project/.runner-worktrees"
+    }
+  ],
+  "roles": {
+    "planner": {
+      "harness": "codex",
+      "access": "sandboxed",
+      "skills": [
+        "runner-planner"
+      ],
+      "reasoning": "high",
+      "timeout_seconds": 1200
+    },
+    "implementer": {
+      "harness": "codex",
+      "access": "sandboxed",
+      "skills": [
+        "runner-implementer"
+      ],
+      "reasoning": "high",
+      "timeout_seconds": 7200
+    },
+    "reviewer": {
+      "harness": "codex",
+      "access": "sandboxed",
+      "skills": [
+        "runner-reviewer"
+      ],
+      "reasoning": "high",
+      "timeout_seconds": 3600
+    }
+  },
+  "workflow": {
+    "intake_lane": "needs_assessment",
+    "approval_lane": "backlog",
+    "active_lane": "in_progress",
+    "lanes": {
+      "needs_assessment": {
+        "name": "Needs assessment"
+      },
+      "backlog": {
+        "name": "Backlog"
+      },
+      "plan": {
+        "name": "Plan",
+        "role": "planner",
+        "creates_in": "ready",
+        "transitions": {
+          "success": "done",
+          "needs_input": "blocked",
+          "error": "blocked"
+        }
+      },
+      "ready": {
+        "name": "Ready",
+        "role": "implementer",
+        "transitions": {
+          "success": "agent_qa",
+          "needs_input": "blocked",
+          "error": "blocked"
+        }
+      },
+      "in_progress": {
+        "name": "In Progress"
+      },
+      "agent_qa": {
+        "name": "Agent QA",
+        "role": "reviewer",
+        "reject_limit": 3,
+        "transitions": {
+          "success": "pr_ready",
+          "rejected": "ready",
+          "exhausted": "blocked",
+          "needs_input": "blocked",
+          "error": "blocked"
+        }
+      },
+      "pr_ready": {
+        "name": "PR Ready",
+        "on_enter": "publish_pull_request"
+      },
+      "blocked": {
+        "name": "Blocked"
+      },
+      "done": {
+        "name": "Done"
+      }
+    },
+    "events": [
+      {
+        "on": "pull_request.merged",
+        "to": "done"
+      },
+      {
+        "on": "pull_request.closed",
+        "to": "done"
+      },
+      {
+        "on": "pull_request.out_of_date",
+        "action": "update_branch",
+        "require_review": true,
+        "transitions": {
+          "updated": "ready",
+          "conflict": "ready",
+          "error": "blocked"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+.codex/
+/runner.config.json
+/cortexium-runner
+.DS_Store
