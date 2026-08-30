@@ -130,6 +130,32 @@ func TestCodexImplementerUsesScopedWritePermissionProfile(t *testing.T) {
 	}
 }
 
+func TestCodexProfilesUsePinnedSkillsAndFailClosedCodeModeHost(t *testing.T) {
+	for _, role := range []RoleContract{RolePlanner, RoleSynthesis, RoleReviewer, RoleProbe, RoleImplementer} {
+		profile, err := ProfileForRole(role)
+		if err != nil {
+			t.Fatalf("profile %s: %v", role, err)
+		}
+		workspace := profileWorkspace{Dir: "/neutral", ReadRoot: "/repo"}
+		if role == RoleImplementer {
+			workspace = profileWorkspace{Dir: "/worktree", ReadRoot: "/worktree"}
+		}
+		args := codexProfileArgs(profile, workspace, false, "codex")
+		if !containsArgPair(args, "--config", codexCodeModeHostConfig) {
+			t.Fatalf("Codex %s profile omitted the fail-closed code-mode host: %#v", role, args)
+		}
+		if !containsArgPair(args, "--config", codexSkipHostSkillDiscoveryConfig) {
+			t.Fatalf("Codex %s profile retained ambient host skill discovery: %#v", role, args)
+		}
+		if containsArgPair(args, "--disable", "code_mode_host") {
+			t.Fatalf("Codex %s profile disabled its required code-mode host: %#v", role, args)
+		}
+		if profile.Sandbox != SandboxFullAccess && (containsArgPair(args, "--sandbox", config.CodexSandboxDangerFullAccess) || contains(args, "--dangerously-bypass-approvals-and-sandbox")) {
+			t.Fatalf("Codex %s profile widened host access for code mode: %#v", role, args)
+		}
+	}
+}
+
 func TestCodexImplementerSafeToolsUseBoundedDevelopmentNetwork(t *testing.T) {
 	profile, _ := ProfileForRole(RoleImplementer)
 	joined := strings.Join(codexProfileArgs(profile, profileWorkspace{Dir: "/worktree", ReadRoot: "/worktree"}, true), " ")

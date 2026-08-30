@@ -20,6 +20,8 @@ const (
 	codexImplementationWritePermissionProfile    = "runner_implementation_write"
 	codexReviewerBrowserPermissionProfile        = "runner_reviewer_browser"
 	codexImplementerDevelopmentPermissionProfile = "runner_implementer_development"
+	codexCodeModeHostConfig                      = "features.code_mode_host={enabled=true,disable_in_process_fallback=true}"
+	codexSkipHostSkillDiscoveryConfig            = "features.skip_host_skill_discovery=true"
 )
 
 func requiresFullHarnessAccess(profile ExecutionProfile) bool {
@@ -98,10 +100,20 @@ func codexProfileArgs(profile ExecutionProfile, workspace profileWorkspace, safe
 		"browser_use_full_cdp_access", "computer_use", "image_generation", "in_app_browser",
 		"standalone_web_search", "multi_agent", "multi_agent_v2", "auth_elicitation",
 		"tool_call_mcp_elicitation", "request_permissions_tool", "code_mode",
-		"code_mode_only", "code_mode_buffered_exec", "code_mode_host",
+		"code_mode_only", "code_mode_buffered_exec",
 	} {
 		args = append(args, "--disable", feature)
 	}
+	// Current GPT-5.6 Codex models require the standalone code-mode host even
+	// when Runner supplies the surrounding tool and filesystem policy. The host
+	// only transports model tool calls; those calls remain subject to the fixed
+	// role profile above. Fail closed instead of silently using an in-process
+	// fallback when the installed Codex package is incomplete.
+	args = append(args, "--config", codexCodeModeHostConfig)
+	// Runner embeds and pins every role skill in the prompt. Do not discover
+	// host-installed skills, which are outside the assigned workspace and may
+	// contain unrelated operator instructions or dependencies.
+	args = append(args, "--config", codexSkipHostSkillDiscoveryConfig)
 	args = append(args, "--config", "mcp_servers={}")
 	if !profile.allowsTool(ToolReadShell) && !profile.allowsTool(ToolShell) {
 		for _, feature := range []string{
