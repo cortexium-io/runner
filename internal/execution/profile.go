@@ -392,9 +392,9 @@ func developmentToolReadPaths() []string {
 }
 
 // codexHelperReadPaths grants only the installed Codex launch directory and
-// its standalone package tree. Codex's built-in patch helper re-executes the
-// current CLI binary; without these read-only paths, sandboxed implementers can
-// run shell tools but cannot apply ordinary workspace patches.
+// its standalone package tree. Codex may re-execute the current CLI binary
+// while initializing a sandbox or invoking a built-in helper; without these
+// read-only paths, sandboxed roles cannot complete ordinary CLI startup.
 func codexHelperReadPaths(command string) []string {
 	command = strings.TrimSpace(command)
 	if command == "" {

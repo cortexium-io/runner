@@ -1,6 +1,8 @@
 package execution
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -69,6 +71,39 @@ func TestCodexProfileForcesReadOnlyPolicy(t *testing.T) {
 	}
 	if strings.Contains(joined, "danger-full-access") || strings.Contains(joined, "--sandbox") {
 		t.Fatalf("Codex repository-read profile used an ambient legacy sandbox: %s", joined)
+	}
+}
+
+func TestSandboxedCodexRolesCanReadInstalledCLI(t *testing.T) {
+	root := t.TempDir()
+	standalone := filepath.Join(root, ".codex", "packages", "standalone")
+	releaseBin := filepath.Join(standalone, "releases", "v1", "bin")
+	if err := os.MkdirAll(releaseBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(releaseBin, "codex")
+	if err := os.WriteFile(target, []byte("codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	launcherDir := filepath.Join(root, ".local", "bin")
+	if err := os.MkdirAll(launcherDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	launcher := filepath.Join(launcherDir, "codex")
+	if err := os.Symlink(target, launcher); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, role := range []RoleContract{RolePlanner, RoleReviewer, RoleImplementer} {
+		profile, err := ProfileForRole(role)
+		if err != nil {
+			t.Fatalf("profile %s: %v", role, err)
+		}
+		workspace := profileWorkspace{Dir: "/workspace", ReadRoot: "/repo"}
+		joined := strings.Join(codexProfileArgs(profile, workspace, false, launcher), " ")
+		if !strings.Contains(joined, strconv.Quote(standalone)+`="read"`) {
+			t.Fatalf("Codex %s profile cannot read its installed CLI: %s", role, joined)
+		}
 	}
 }
 

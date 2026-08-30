@@ -65,7 +65,7 @@ func codexProfileArgs(profile ExecutionProfile, workspace profileWorkspace, safe
 			}
 		}
 		readPaths := sandboxAdditionalReadPaths(workspace, safeTools)
-		if profile.Role == RoleImplementer && len(command) > 0 {
+		if len(command) > 0 {
 			readPaths = append(readPaths, codexHelperReadPaths(command[0])...)
 		}
 		filesystem = addCodexReadPaths(filesystem, minimalPathRoots(readPaths))
