@@ -10,15 +10,7 @@ import (
 	"github.com/cortexium-io/runner/internal/config"
 )
 
-func TestInteractiveClaudeModelMenuUsesReadableFamilies(t *testing.T) {
-	bin := t.TempDir()
-	path := filepath.Join(bin, "claude")
-	content := "#!/bin/sh\nprintf '%s\\n' \"--model accepts 'fable', 'opus', or 'sonnet'\"\n"
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-
+func TestInteractiveClaudeModelMenuUsesOfficialAliases(t *testing.T) {
 	var output bytes.Buffer
 	prompter := newInitPrompter(strings.NewReader("1\n"), &output)
 	model, err := prompter.model(t.Context(), "Model for all roles", config.HarnessClaudeCLI)
@@ -28,21 +20,17 @@ func TestInteractiveClaudeModelMenuUsesReadableFamilies(t *testing.T) {
 	if model != "opus" {
 		t.Fatalf("selected model = %q, want opus", model)
 	}
-	for _, expected := range []string{"1) Opus", "2) Sonnet", "3) Fable", "Use harness-native selection", "Enter a custom model ID"} {
+	for _, expected := range []string{"1) Opus", "2) Sonnet", "3) Use harness-native selection", "4) Enter a custom model ID"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("Claude model menu missing %q:\n%s", expected, output.String())
 		}
 	}
+	if strings.Contains(output.String(), "Fable") {
+		t.Fatalf("Claude model menu advertised an unsupported alias:\n%s", output.String())
+	}
 }
 
 func TestInteractiveModelMenuRetainsCustomIDEscapeHatch(t *testing.T) {
-	bin := t.TempDir()
-	path := filepath.Join(bin, "claude")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-
 	var output bytes.Buffer
 	prompter := newInitPrompter(strings.NewReader("4\nclaude-opus-4-8\n"), &output)
 	model, err := prompter.model(t.Context(), "Model", config.HarnessClaudeCLI)

@@ -62,7 +62,7 @@ func initModelOptions(ctx context.Context, harness, search string) []initModelOp
 	var options []initModelOption
 	switch strings.TrimSpace(harness) {
 	case config.HarnessClaudeCLI:
-		options = claudeModelOptions(ctx)
+		options = claudeModelOptions()
 	case config.HarnessCodexCLI:
 		options = codexModelOptions()
 	case config.HarnessPiCLI:
@@ -77,26 +77,11 @@ func initModelOptions(ctx context.Context, harness, search string) []initModelOp
 	)
 }
 
-func claudeModelOptions(ctx context.Context) []initModelOption {
-	help := commandOutput(ctx, 10*time.Second, "claude", "--help")
-	candidates := []initModelOption{
+func claudeModelOptions() []initModelOption {
+	return []initModelOption{
 		{Label: "Opus", Description: "Latest Opus available to Claude Code; suited to complex agentic coding", Value: "opus"},
 		{Label: "Sonnet", Description: "Latest Sonnet available to Claude Code; balanced speed and capability", Value: "sonnet"},
-		{Label: "Fable", Description: "Latest Fable available to Claude Code", Value: "fable"},
 	}
-	if help == "" {
-		return candidates[:2]
-	}
-	options := make([]initModelOption, 0, len(candidates))
-	for _, candidate := range candidates {
-		if strings.Contains(help, "'"+candidate.Value+"'") || strings.Contains(help, `"`+candidate.Value+`"`) {
-			options = append(options, candidate)
-		}
-	}
-	if len(options) == 0 {
-		return candidates[:2]
-	}
-	return options
 }
 
 func codexModelOptions() []initModelOption {

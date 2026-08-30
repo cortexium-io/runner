@@ -50,8 +50,8 @@ config is `.cortexium/runner.json`; Runner ensures it is ignored, adding its
 exact path to `.gitignore` when needed without staging or committing the
 change. An external path is also supported.
 Use the arrow keys and Enter for finite choices.
-The Claude menu uses the aliases advertised by Claude Code, such as Opus and
-Sonnet; it also offers the current harness-native selection and a custom-ID
+The Claude menu uses Claude Code's official rolling aliases, Opus and Sonnet;
+it also offers the current harness-native selection and a custom-ID
 escape hatch for pinned versions. Claude Code has no supported catalog-listing
 command equivalent to Codex's local catalog, so Runner does not depend on its
 private cache. Use `--dry-run` to preview the resulting local and GitHub
