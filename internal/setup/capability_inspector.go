@@ -23,15 +23,16 @@ type InspectionRequest struct {
 }
 
 type InspectionReport struct {
-	Ready           bool                      `json:"ready"`
-	Snapshot        CapabilitySnapshot        `json:"capability_snapshot"`
-	GitHubAuth      *GitHubAuthInspection     `json:"github_auth,omitempty"`
-	Harnesses       []HarnessInspection       `json:"harnesses"`
-	Project         *ProjectInspection        `json:"project,omitempty"`
-	GitHubProject   *github.ProjectInspection `json:"github_project,omitempty"`
-	RequiredMCPs    int                       `json:"required_mcps"`
-	Warnings        []string                  `json:"warnings,omitempty"`
-	Recommendations []string                  `json:"recommendations,omitempty"`
+	Ready            bool                        `json:"ready"`
+	Snapshot         CapabilitySnapshot          `json:"capability_snapshot"`
+	GitHubAuth       *GitHubAuthInspection       `json:"github_auth,omitempty"`
+	Harnesses        []HarnessInspection         `json:"harnesses"`
+	Project          *ProjectInspection          `json:"project,omitempty"`
+	GitHubRepository *GitHubRepositoryInspection `json:"github_repository,omitempty"`
+	GitHubProject    *github.ProjectInspection   `json:"github_project,omitempty"`
+	RequiredMCPs     int                         `json:"required_mcps"`
+	Warnings         []string                    `json:"warnings,omitempty"`
+	Recommendations  []string                    `json:"recommendations,omitempty"`
 }
 
 type GitHubAuthInspection struct {
@@ -162,6 +163,18 @@ func (i *Inspector) Inspect(ctx context.Context, request InspectionRequest) Insp
 		capabilityAvailable(capabilities, config.CapabilityTypeLocalTool, "gh") && githubAuth.Status == CapabilityAvailable
 	roleHarnessesReady, missingRoleHarnesses := roleHarnessReadiness(i.cfg, harnessReports, capabilities)
 	sourceReady := true
+	repositoryReady := true
+	var githubRepository *GitHubRepositoryInspection
+	if i.cfg.HasProject() && githubAuth.Status == CapabilityAvailable {
+		githubRepository = i.inspectGitHubRepository(ctx)
+		repositoryReady = githubRepository.Status == CapabilityAvailable
+		capabilities = upsertCapability(capabilities, CapabilityState{
+			ID: "github_repository", Type: config.CapabilityTypeProfile, Status: githubRepository.Status, Detail: stringPtr(githubRepository.Detail),
+		})
+		if githubRepository.AutoMergeRequested && githubRepository.ClassicProtection && !githubRepository.ProtectionDetailsKnown {
+			warnings = append(warnings, fmt.Sprintf("base branch %s/%s is protected, but the GitHub account cannot inspect classic protection details; verify that its merge rules allow %s", githubRepository.Repository, githubRepository.BaseBranch, githubRepository.MergeMethod))
+		}
+	}
 	var githubProject *github.ProjectInspection
 	if i.cfg.HasProject() && i.cfg.GitHubProject != nil {
 		inspection, err := github.NewProject(i.cfg.ResolveProject(), i.run).Inspect(ctx)
@@ -191,7 +204,7 @@ func (i *Inspector) Inspect(ctx context.Context, request InspectionRequest) Insp
 	if i.cfg.HasProject() {
 		harnessesReady = installedHarnesses > 0 && roleHarnessesReady
 	}
-	ready := coreReady && harnessesReady && projectReady && sourceReady && len(missing) == 0
+	ready := coreReady && harnessesReady && projectReady && repositoryReady && sourceReady && len(missing) == 0
 	sort.Slice(capabilities, func(a, b int) bool {
 		if capabilities[a].Type == capabilities[b].Type {
 			return capabilities[a].ID < capabilities[b].ID
@@ -202,10 +215,13 @@ func (i *Inspector) Inspect(ctx context.Context, request InspectionRequest) Insp
 	for _, missingHarness := range missingRoleHarnesses {
 		recommendations = append(recommendations, fmt.Sprintf("Install and set up %s with skill %q for the %s role, or select another supported harness for that role.", missingHarness.DisplayName, missingHarness.Skill, missingHarness.Role))
 	}
+	if githubRepository != nil && githubRepository.Recommendation != "" {
+		recommendations = append(recommendations, githubRepository.Recommendation)
+	}
 	return InspectionReport{
 		Ready:      ready,
 		Snapshot:   CapabilitySnapshot{RunnerID: i.cfg.RunnerID, CheckedAt: checkedAt, Capabilities: capabilities, MissingCapabilities: missing},
-		GitHubAuth: githubAuth, Harnesses: harnessReports, Project: project, GitHubProject: githubProject, RequiredMCPs: requiredMCPs, Warnings: warnings, Recommendations: recommendations,
+		GitHubAuth: githubAuth, Harnesses: harnessReports, Project: project, GitHubRepository: githubRepository, GitHubProject: githubProject, RequiredMCPs: requiredMCPs, Warnings: warnings, Recommendations: recommendations,
 	}
 }
 

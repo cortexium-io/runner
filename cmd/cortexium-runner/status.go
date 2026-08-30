@@ -124,7 +124,7 @@ func runStatus(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	mergeMode := "human merge required"
 	if cfg.GitHubProject.AutoMerge {
-		mergeMode = "automatic after GitHub requirements pass"
+		mergeMode = fmt.Sprintf("automatic %s after GitHub requirements pass", config.EffectiveMergeMethod(cfg.GitHubProject.MergeMethod))
 	}
 	fmt.Fprintf(stdout, "Pull request merge: %s\n", mergeMode)
 	if status.Metrics.Attempts > 0 {

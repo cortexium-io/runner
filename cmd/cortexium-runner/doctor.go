@@ -398,6 +398,46 @@ func writeDoctorReport(output io.Writer, report setup.InspectionReport, probes [
 		}
 		writeStateLine(output, tone, "  %s %s", marker, report.Project.Detail)
 	}
+	if report.GitHubRepository != nil {
+		repository := report.GitHubRepository
+		fmt.Fprintln(output)
+		fmt.Fprintln(output, "GitHub repository")
+		if repository.WriteAccess {
+			writeStateLine(output, toneSuccess, "  ✓ Write access to %s", repository.Repository)
+		} else {
+			writeStateLine(output, toneFailure, "  ✗ Write access to %s is required", repository.Repository)
+		}
+		if !repository.AutoMergeRequested {
+			writeStateLine(output, toneMuted, "  ○ Automatic merge is disabled in Runner config")
+		} else {
+			if repository.AutoMergeAllowed {
+				writeStateLine(output, toneSuccess, "  ✓ Repository auto-merge is enabled")
+			} else {
+				writeStateLine(output, toneFailure, "  ✗ Repository auto-merge is disabled")
+			}
+			if repository.MergeMethodAllowed && !(repository.RequiresLinearHistory && repository.MergeMethod == config.MergeMethodMerge) {
+				writeStateLine(output, toneSuccess, "  ✓ Merge method %s is allowed", repository.MergeMethod)
+			} else {
+				writeStateLine(output, toneFailure, "  ✗ Merge method %s conflicts with repository or branch policy", repository.MergeMethod)
+			}
+			if repository.ActiveRulesInspected {
+				writeStateLine(output, toneSuccess, "  ✓ Active base-branch rulesets were inspected")
+			} else {
+				writeStateLine(output, toneFailure, "  ✗ Active base-branch rulesets could not be inspected")
+			}
+		}
+		if repository.BaseBranchProtected {
+			if repository.ClassicProtection && repository.ProtectionDetailsKnown {
+				writeStateLine(output, toneSuccess, "  ✓ Base branch %s protection was inspected", repository.BaseBranch)
+			} else if repository.ClassicProtection {
+				writeStateLine(output, toneWarning, "  ! Base branch %s is protected; classic protection details require repository administration read access", repository.BaseBranch)
+			} else {
+				writeStateLine(output, toneSuccess, "  ✓ Base branch %s protection is covered by the inspected rulesets", repository.BaseBranch)
+			}
+		} else {
+			writeStateLine(output, toneMuted, "  ○ Base branch %s is not protected", repository.BaseBranch)
+		}
+	}
 	if report.GitHubProject != nil {
 		fmt.Fprintln(output)
 		fmt.Fprintln(output, "GitHub Project")

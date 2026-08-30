@@ -566,6 +566,24 @@ func TestConfigurationRequiresExplicitBaseUpdateReviewPolicy(t *testing.T) {
 	}
 }
 
+func TestConfigurationValidatesAndDefaultsMergeMethod(t *testing.T) {
+	cfg := explicitTestConfig()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("legacy empty merge method: %v", err)
+	}
+	if got := cfg.ResolveProject().MergeMethod; got != MergeMethodMerge {
+		t.Fatalf("legacy merge method = %q, want %q", got, MergeMethodMerge)
+	}
+	cfg.GitHubProject.MergeMethod = MergeMethodSquash
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("squash merge method: %v", err)
+	}
+	cfg.GitHubProject.MergeMethod = "octopus"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "merge_method") {
+		t.Fatalf("unsupported merge method was accepted: %v", err)
+	}
+}
+
 func TestRunnerActivityForRoleContract(t *testing.T) {
 	for contract, expected := range map[string]string{
 		WorkRolePlanner: "Planning", WorkRoleImplementer: "Implementing", WorkRoleReviewer: "Reviewing", "custom": "Running",

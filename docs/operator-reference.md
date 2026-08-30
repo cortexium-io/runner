@@ -140,6 +140,7 @@ config. This non-interactive example uses an external path:
   --max-parallelism 1 \
   --base-update-review required \
   --auto-merge=false \
+  --merge-method merge \
   --bootstrap-base-branch
 ```
 
@@ -195,7 +196,52 @@ rather than applied as a runtime default.
 Automatic merge is separately opt-in through `--auto-merge` or
 `github_project.auto_merge: true`. Runner binds the request to the exact
 QA-approved head commit, keeps GitHub checks and branch protections in force,
-and disarms automatic merge before rework or a branch update.
+and disarms automatic merge before rework or a branch update. The optional
+`--merge-method` flag and `github_project.merge_method` setting accept `merge`,
+`rebase`, or `squash`; omitted values preserve the original `merge` behavior.
+Runner never silently substitutes another method because that would change the
+repository's history policy.
+
+### GitHub repository and merge readiness
+
+Connected Doctor checks the configured repository and base branch before agent
+work starts. It verifies that the GitHub CLI account has write access, that
+repository auto-merge is enabled when requested, that the configured merge
+method is enabled, and that active rulesets permit that method. When the account
+can read classic branch-protection details, Doctor also rejects `merge` when
+the base branch requires linear history.
+
+The recommended Runner account has write rather than administration access.
+GitHub hides classic branch-protection details from that account even though it
+reveals that the branch is protected. Doctor therefore emits a warning with the
+exact setting to inspect; it does not claim the hidden policy is compatible.
+`doctor --fix` repairs only Runner-managed local skills. It never changes
+repository permissions, merge settings, branch protection, rulesets, required
+checks, or organization policy.
+
+Common readiness failures are:
+
+| Failure | Doctor behavior | Recovery |
+| --- | --- | --- |
+| GitHub CLI missing, logged out, or missing Project access | Blocks before work | Install `gh`, run `gh auth login`, and grant the `project` scope. Use persistent GitHub CLI login rather than relying only on an environment token for publication. |
+| Runner account lacks repository write access | Blocks before work | Grant the account or its team write access to the configured repository. Administration access is not required for normal operation. |
+| Configured repository, remote, or base branch disagrees | Blocks before work | Correct `intake_repository`, `remote_name`, or `base_branch`, then fetch the configured base. |
+| Repository auto-merge is disabled while Runner requests it | Blocks before work | Enable **Allow auto-merge**, or set `github_project.auto_merge` to `false`. |
+| Configured merge method is disabled | Blocks before work | Enable that repository merge method, or explicitly select an allowed `merge_method`. |
+| Linear history or a ruleset conflicts with `merge` | Blocks when visible; otherwise warns for protected branches | Remove **Require linear history** if merge commits are intended, or explicitly select `rebase` or `squash`. |
+| Required status check never reports | GitHub leaves the PR open; Doctor cannot prove that every future workflow will emit the configured check | Verify Actions is enabled and the required check name exactly matches the workflow's reported check. |
+| Harness login, model access, or structured-output support is unavailable | Ordinary Doctor checks the installed CLI surface; `--probe-harnesses` makes a minimal live call | Authenticate with the harness's native flow, choose an accessible model, and rerun the live probe. |
+| Global Git commit signing opens pinentry in repository tooling | Runner-owned commits disable signing, but external setup/test commands may still prompt | Configure test fixtures with `commit.gpgSign=false`, or ensure the operator GPG agent is available; do not give the agent the signing passphrase. |
+| Browser, Docker, database, or external-service prerequisites are repository-specific | Checked only when represented by an explicit capability or acceptance obligation | Document the repository's safe local entrypoint and add explicit Doctor requirements where a stable local capability exists. |
+
+For an organization-wide merge policy, create an organization branch ruleset
+targeting the default branch of the intended repositories, require pull requests,
+and set the allowed merge method explicitly. Organization rulesets are additive:
+they cannot relax an existing repository branch-protection rule. Migrate legacy
+classic rules once, then use the organization ruleset as the durable baseline.
+The repository must still enable the selected merge method and, when used,
+auto-merge. GitHub Team or Enterprise is required for organization rulesets
+covering private repositories.
 
 When the remote has no branches, `init` reports that state and the exact remedy.
 `--bootstrap-base-branch` authorizes it to push an existing local base branch or
@@ -1135,6 +1181,8 @@ for the complete v2 configuration generated by `init`.
 - `github_project.auto_merge` is an explicit opt-in. When true, Runner asks
   GitHub to merge after checks and branch protections pass; it never uses
   `--admin` or weakens repository requirements.
+- `github_project.merge_method` selects `merge`, `rebase`, or `squash` for that
+  request. Empty values retain `merge` for existing v2 configs.
 - The out-of-date event explicitly sets `require_review` to `true`; a clean
   base refresh remains local until the refreshed tree completes QA and records
   a replacement accepted tuple.

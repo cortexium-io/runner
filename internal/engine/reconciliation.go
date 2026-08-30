@@ -91,7 +91,7 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		if err != nil || blocked {
 			return blocked, err
 		}
-		if err := manager.RequestAutoMergeAuthorized(ctx, current, headCommit, s.baseBranch(), prepared.BaseRevision); err != nil {
+		if err := manager.RequestAutoMergeAuthorized(ctx, current, headCommit, s.baseBranch(), prepared.BaseRevision, s.cfg.GitHubProject.MergeMethod); err != nil {
 			summary := "Automatic merge could not be enabled after Agent QA passed."
 			return true, blockAutoMerge(current, laneID, summary, err)
 		}

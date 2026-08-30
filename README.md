@@ -177,7 +177,11 @@ pi --version
 `cortexium-runner init` checks the selected prerequisites without installing
 package managers or using `sudo`. If anything is missing, it prints manual
 recovery guidance. After initialization, `cortexium-runner doctor` verifies the
-GitHub connection, harness availability, configuration, and installed skills.
+GitHub connection, repository write access and merge compatibility, harness
+availability, configuration, and installed skills. A least-privileged GitHub
+account may be unable to read classic branch-protection details; Doctor reports
+that limitation and the exact policy to verify instead of assuming the branch
+is compatible.
 
 ## Interactive quick start
 

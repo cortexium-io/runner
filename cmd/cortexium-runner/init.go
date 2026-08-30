@@ -46,6 +46,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	baseBranch := flags.String("base-branch", "main", "pull request target branch")
 	remoteName := flags.String("remote", "origin", "Git remote used for publication")
 	autoMerge := flags.Bool("auto-merge", false, "ask GitHub to merge pull requests automatically after its requirements pass")
+	mergeMethod := flags.String("merge-method", config.MergeMethodMerge, "automatic pull request merge method: merge, rebase, or squash")
 	bootstrapBaseBranch := flags.Bool("bootstrap-base-branch", false, "push the local base branch or initialize it when the remote repository is empty")
 	defaultHarness := flags.String("harness", "", "default harness for all roles; overridden by a role-specific harness flag")
 	plannerHarness := flags.String("planner-harness", "", "planner harness; inferred only when exactly one supported harness is available")
@@ -126,7 +127,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		forbidden := map[string]bool{
 			"owner": true, "project-number": true, "create-project": true, "repository": true,
 			"intake-label": true, "project-visibility": true, "project-dir": true,
-			"max-parallelism": true, "qa-reject-limit": true, "base-branch": true, "auto-merge": true,
+			"max-parallelism": true, "qa-reject-limit": true, "base-branch": true, "auto-merge": true, "merge-method": true,
 			"admission-window": true, "max-admission-attempts": true, "max-admission-harness-time": true,
 			"max-admission-tokens": true, "max-admission-cost-usd": true,
 			"remote": true, "harness": true, "planner-harness": true, "implementer-harness": true,
@@ -275,7 +276,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 			Owner: strings.TrimSpace(*owner), Number: preflightProjectNumber, IntakeRepository: strings.TrimSpace(*repository), IntakeLabel: strings.TrimSpace(*intakeLabel),
 			ResultField: "Runner Result", ApprovalField: "Runner Approval",
 			PhaseField: "Runner Phase", QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request", QACommitField: "QA Commit",
-			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge,
+			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge, MergeMethod: strings.TrimSpace(*mergeMethod),
 		},
 		Harnesses: harnesses,
 		Roles:     roles, Workflow: &workflow,
@@ -388,7 +389,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 			Owner: resolvedOwner, Number: resolvedProjectNumber, IntakeRepository: resolvedRepository, IntakeLabel: strings.TrimSpace(*intakeLabel),
 			ResultField: "Runner Result", ApprovalField: "Runner Approval",
 			PhaseField: "Runner Phase", QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request", QACommitField: "QA Commit",
-			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge,
+			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge, MergeMethod: strings.TrimSpace(*mergeMethod),
 		},
 		Harnesses: harnesses,
 		Roles:     roles, Workflow: &workflow,

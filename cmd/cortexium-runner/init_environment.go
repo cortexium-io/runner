@@ -47,7 +47,7 @@ func prepareInitTools(cfg config.Config, dryRun bool, stdout io.Writer) error {
 	writeAdmissionBudgetSummary(stdout, cfg.AdmissionBudget)
 	mergeMode := "human review and merge"
 	if cfg.GitHubProject != nil && cfg.GitHubProject.AutoMerge {
-		mergeMode = "automatic after GitHub requirements pass"
+		mergeMode = fmt.Sprintf("automatic %s after GitHub requirements pass", config.EffectiveMergeMethod(cfg.GitHubProject.MergeMethod))
 	}
 	fmt.Fprintf(stdout, "Pull request merge: %s\n", mergeMode)
 	requiredTools, err := setup.RequiredToolsForHarnesses(harnesses)

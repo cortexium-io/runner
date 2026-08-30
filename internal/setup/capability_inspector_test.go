@@ -71,6 +71,16 @@ func (inspectorCommandRunner) Run(_ context.Context, command string, args []stri
 	if name == "gh" && strings.Join(args, " ") == "api user --jq .login" {
 		return subprocess.Result{Stdout: "octocat\n"}, nil
 	}
+	if name == "gh" && len(args) == 2 && args[0] == "api" {
+		switch {
+		case strings.Contains(args[1], "/rules/branches/"):
+			return subprocess.Result{Stdout: `[]`}, nil
+		case strings.Contains(args[1], "/branches/"):
+			return subprocess.Result{Stdout: `{"name":"main","protected":false}`}, nil
+		case strings.HasPrefix(args[1], "repos/"):
+			return subprocess.Result{Stdout: `{"allow_auto_merge":true,"allow_merge_commit":true,"allow_rebase_merge":true,"allow_squash_merge":true,"permissions":{"push":true}}`}, nil
+		}
+	}
 	return subprocess.Result{}, nil
 }
 
