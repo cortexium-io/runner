@@ -133,7 +133,8 @@ func TestPrivilegedGitProfileScrubsInheritedSelectorsAndPinsRepositoryPaths(t *t
 		"PATH=/usr/bin", "LANG=attacker", "LC_ALL=attacker", "HOME=/attacker", "XDG_CONFIG_HOME=/attacker/config", "GNUPGHOME=/attacker/gnupg",
 		"LD_PRELOAD=/attacker/library", "DYLD_INSERT_LIBRARIES=/attacker/library", "EMAIL=attacker@example.invalid",
 		"GIT_DIR=/attacker/repo", "GIT_INDEX_FILE=/attacker/index", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.hooksPath", "GIT_CONFIG_VALUE_0=/attacker/hooks",
-	})
+		"GH_CONFIG_DIR=/attacker/gh", "GH_TOKEN=attacker-token", "GITHUB_TOKEN=attacker-token",
+	}, false)
 	joined := strings.Join(environment, "\n")
 	for _, forbidden := range []string{"/attacker", "GIT_CONFIG_COUNT=", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"} {
 		if strings.Contains(joined, forbidden) {
@@ -173,17 +174,22 @@ func (delegatingGitRunner) Run(ctx context.Context, command string, args []strin
 }
 
 type recordingGitRunner struct {
-	command string
-	args    []string
+	command     string
+	args        []string
+	environment []string
 }
 
-func (r *recordingGitRunner) Run(_ context.Context, command string, args []string, _ string, _ time.Duration) (Result, error) {
+func (r *recordingGitRunner) Run(ctx context.Context, command string, args []string, _ string, _ time.Duration) (Result, error) {
 	r.command = command
 	r.args = append([]string(nil), args...)
+	r.environment = append([]string(nil), commandEnvironment(ctx)...)
 	return Result{}, nil
 }
 
 func TestPrivilegedNetworkGitPinsLiteralURLAndRejectsOtherOperations(t *testing.T) {
+	t.Setenv("GH_CONFIG_DIR", "/trusted/gh")
+	t.Setenv("GH_TOKEN", "must-not-reach-git")
+	t.Setenv("GITHUB_TOKEN", "must-not-reach-git")
 	root := t.TempDir()
 	profile, err := NewPrivilegedGitProfile(
 		filepath.Join(root, "worktree"), filepath.Join(root, "common", "worktrees", "task"), filepath.Join(root, "common"),
@@ -211,6 +217,37 @@ func TestPrivilegedNetworkGitPinsLiteralURLAndRejectsOtherOperations(t *testing.
 		if _, err := RunPrivilegedGitNetwork(t.Context(), runner, profile, args, 5*time.Second); err == nil {
 			t.Fatalf("privileged network Git accepted %#v", args)
 		}
+	}
+	environment := strings.Join(runner.environment, "\n")
+	for _, required := range []string{"GH_CONFIG_DIR=/trusted/gh", "GH_PROMPT_DISABLED=1", "GH_TELEMETRY=false"} {
+		if !strings.Contains(environment, required) {
+			t.Fatalf("privileged network Git omitted %q:\n%s", required, environment)
+		}
+	}
+	for _, forbidden := range []string{"GH_TOKEN=", "GITHUB_TOKEN=", "HOME=", "XDG_CONFIG_HOME="} {
+		if strings.Contains(environment, forbidden) {
+			t.Fatalf("privileged network Git retained %q:\n%s", forbidden, environment)
+		}
+	}
+}
+
+func TestGitHubCLIConfigDirectoryUsesDocumentedAbsolutePrecedence(t *testing.T) {
+	tests := []struct {
+		name        string
+		environment []string
+		want        string
+	}{
+		{name: "explicit", environment: []string{"GH_CONFIG_DIR=/operator/gh", "XDG_CONFIG_HOME=/operator/xdg", "HOME=/operator"}, want: "/operator/gh"},
+		{name: "xdg", environment: []string{"XDG_CONFIG_HOME=/operator/xdg", "HOME=/operator"}, want: "/operator/xdg/gh"},
+		{name: "home", environment: []string{"HOME=/operator"}, want: "/operator/.config/gh"},
+		{name: "relative values fail closed", environment: []string{"GH_CONFIG_DIR=relative", "XDG_CONFIG_HOME=relative", "HOME=relative"}, want: ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := githubCLIConfigDirectory(test.environment); got != test.want {
+				t.Fatalf("GitHub CLI config directory = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 

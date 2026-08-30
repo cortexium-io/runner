@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -146,7 +147,7 @@ func runPrivilegedGit(ctx context.Context, runner Runner, profile PrivilegedGitP
 		)
 	}
 	gitArgs = append(gitArgs, args...)
-	ctx = context.WithValue(ctx, commandEnvironmentContextKey{}, validated.environment(os.Environ()))
+	ctx = context.WithValue(ctx, commandEnvironmentContextKey{}, validated.environment(os.Environ(), repositoryURL != ""))
 	return RunFailClosed(ctx, runner, "git", gitArgs, validated.WorkTree, timeout, GitStdoutLimit, DiagnosticStderrLimit)
 }
 
@@ -203,7 +204,7 @@ func rejectPrivilegedGitSelectors(args []string) error {
 	return nil
 }
 
-func (profile PrivilegedGitProfile) environment(inherited []string) []string {
+func (profile PrivilegedGitProfile) environment(inherited []string, githubCredentials bool) []string {
 	environment := make([]string, 0, 18)
 	for _, entry := range inherited {
 		key, _, found := strings.Cut(entry, "=")
@@ -213,7 +214,7 @@ func (profile PrivilegedGitProfile) environment(inherited []string) []string {
 		}
 		environment = append(environment, entry)
 	}
-	return append(environment,
+	environment = append(environment,
 		"LANG=C",
 		"LC_ALL=C",
 		"GIT_DIR="+profile.GitDirectory,
@@ -232,6 +233,51 @@ func (profile PrivilegedGitProfile) environment(inherited []string) []string {
 		"GIT_LITERAL_PATHSPECS=1",
 		"GIT_TERMINAL_PROMPT=0",
 	)
+	if githubCredentials {
+		// Git invokes `gh auth git-credential` as a trusted helper. Preserve only
+		// the location of gh's operator-owned configuration, never HOME, XDG
+		// state, or token-bearing environment variables. This keeps credentials
+		// out of agent execution while allowing publication Git to authenticate.
+		if directory := githubCLIConfigDirectory(inherited); directory != "" {
+			environment = append(environment, "GH_CONFIG_DIR="+directory)
+		}
+		environment = append(environment, "GH_PROMPT_DISABLED=1", "GH_TELEMETRY=false")
+	}
+	return environment
+}
+
+func githubCLIConfigDirectory(environment []string) string {
+	values := map[string]string{}
+	for _, entry := range environment {
+		key, value, found := strings.Cut(entry, "=")
+		if !found {
+			continue
+		}
+		values[strings.ToUpper(strings.TrimSpace(key))] = strings.TrimSpace(value)
+	}
+	if directory := absoluteEnvironmentPath(values["GH_CONFIG_DIR"]); directory != "" {
+		return directory
+	}
+	if directory := absoluteEnvironmentPath(values["XDG_CONFIG_HOME"]); directory != "" {
+		return filepath.Join(directory, "gh")
+	}
+	if runtime.GOOS == "windows" {
+		if directory := absoluteEnvironmentPath(values["APPDATA"]); directory != "" {
+			return filepath.Join(directory, "GitHub CLI")
+		}
+	}
+	if directory := absoluteEnvironmentPath(values["HOME"]); directory != "" {
+		return filepath.Join(directory, ".config", "gh")
+	}
+	return ""
+}
+
+func absoluteEnvironmentPath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || !filepath.IsAbs(value) {
+		return ""
+	}
+	return filepath.Clean(value)
 }
 
 func RunGitHub(ctx context.Context, runner Runner, args []string, dir string, timeout time.Duration) (Result, error) {
