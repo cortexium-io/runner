@@ -48,13 +48,13 @@ func (e AgentExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 	if err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureInvalidConfiguration, RetryNone), err
 	}
-	if err := ValidateHarnessProfile(e.kind, role, e.config.RoleAccess); err != nil {
+	if err := ValidateHarnessProfile(e.kind, role, e.config.RoleAccess, e.config.HarnessConfigMode); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 	if role == RoleReviewer {
 		return executeSharedReviewer(ctx, e.kind, e.config, assignment, e.run)
 	}
-	if err := ensureHarnessAdvertisesProfile(ctx, e.run, strings.TrimSpace(e.cfg.Command), e.kind, role, e.config.RoleAccess); err != nil {
+	if err := ensureHarnessAdvertisesProfile(ctx, e.run, strings.TrimSpace(e.cfg.Command), e.kind, role, e.config.RoleAccess, e.config.HarnessConfigMode); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 	launchWorkspace, err := prepareProfileWorkspace(profile, e.cfg.WorkingDir, e.cfg.WorkspaceWriteRoot)
@@ -111,10 +111,10 @@ func (e AgentExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	if err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureInvalidConfiguration, RetryNone), err
 	}
-	if err := ValidateHarnessProfile(e.kind, RoleImplementer, e.config.RoleAccess); err != nil {
+	if err := ValidateHarnessProfile(e.kind, RoleImplementer, e.config.RoleAccess, e.config.HarnessConfigMode); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
-	if err := ensureHarnessAdvertisesProfile(ctx, e.run, strings.TrimSpace(e.cfg.Command), e.kind, RoleImplementer, e.config.RoleAccess); err != nil {
+	if err := ensureHarnessAdvertisesProfile(ctx, e.run, strings.TrimSpace(e.cfg.Command), e.kind, RoleImplementer, e.config.RoleAccess, e.config.HarnessConfigMode); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 
@@ -267,7 +267,7 @@ func (e AgentExecutor) runHarnessWithPiTransport(ctx context.Context, args []str
 			return subprocess.Result{}, "", metrics.Usage{}, HarnessFailureEvidence{}, err
 		}
 	}
-	if e.kind == config.HarnessPiCLI && e.config.SafeTools && piInvocationAllowsBrowser(args) {
+	if e.kind == config.HarnessPiCLI && e.config.SafeTools && piInvocationAllowsBrowser(args, inheritsHarnessConfiguration(e.config.HarnessConfigMode)) {
 		channel, browserErr := createPiBrowserExtension()
 		if browserErr != nil {
 			cleanupArtifacts()
@@ -276,7 +276,7 @@ func (e AgentExecutor) runHarnessWithPiTransport(ctx context.Context, args []str
 		cleanups = append(cleanups, func() { _ = channel.Close() })
 		artifactVerifiers = append(artifactVerifiers, channel.Verify)
 		var addErr error
-		args, addErr = addPiBrowserExtension(args, channel.path)
+		args, addErr = addPiBrowserExtensionForConfig(args, channel.path, e.config.HarnessConfigMode)
 		if addErr != nil {
 			cleanupArtifacts()
 			return subprocess.Result{}, "", metrics.Usage{}, HarnessFailureEvidence{}, addErr
@@ -320,12 +320,12 @@ func (e AgentExecutor) runHarnessWithPiTransport(ctx context.Context, args []str
 func (e AgentExecutor) profileProjectArgs(profile ExecutionProfile, workspace profileWorkspace, schema []byte) []string {
 	switch e.kind {
 	case config.HarnessClaudeCLI:
-		args := claudeProfileArgs(profile, workspace, e.config.SafeTools)
+		args := claudeProfileArgsForConfig(profile, workspace, e.config.SafeTools, e.config.HarnessConfigMode)
 		args = append(args, "--json-schema", string(schema))
 		args = appendHarnessModelArgs(args, e.cfg, true)
 		return args
 	case config.HarnessPiCLI:
-		args := piProfileArgsForModel(profile, e.cfg.Model)
+		args := piProfileArgsForModelAndConfig(profile, e.cfg.Model, e.config.HarnessConfigMode)
 		args = appendHarnessModelArgs(args, e.cfg, false)
 		if effort := strings.TrimSpace(e.cfg.ReasoningEffort); effort != "" {
 			args = append(args, "--thinking", effort)

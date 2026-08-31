@@ -14,13 +14,13 @@ import (
 func RoleTemplate(harness string) map[string]RoleConfig {
 	return map[string]RoleConfig{
 		WorkRolePlanner: {
-			Harness: harness, Access: RoleAccessSandboxed, Skills: []string{"runner-planner"}, Reasoning: "high", TimeoutSeconds: 1200,
+			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-planner"}, Reasoning: "high", TimeoutSeconds: 1200,
 		},
 		WorkRoleImplementer: {
-			Harness: harness, Access: RoleAccessSandboxed, Skills: []string{"runner-implementer"}, Reasoning: "high", PlanningSupport: PlanningSupportStandard, TimeoutSeconds: 7200,
+			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-implementer"}, Reasoning: "high", PlanningSupport: PlanningSupportStandard, TimeoutSeconds: 7200,
 		},
 		WorkRoleReviewer: {
-			Harness: harness, Access: RoleAccessSandboxed, Skills: []string{"runner-reviewer"}, Reasoning: "high", PlanningSupport: PlanningSupportStandard, TimeoutSeconds: 3600,
+			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-reviewer"}, Reasoning: "high", PlanningSupport: PlanningSupportStandard, TimeoutSeconds: 3600,
 		},
 	}
 }
@@ -241,8 +241,12 @@ func validateRoleConfigs(c Config, roles map[string]RoleConfig) error {
 			return fmt.Errorf("roles.%s.access must be sandboxed or host", id)
 		}
 		profile.Access = EffectiveRoleAccess(profile.Access)
-		if c.RoleContract(id) == WorkRolePlanner && profile.Access == RoleAccessHost {
-			return fmt.Errorf("roles.%s.access cannot be host because planners never need host access", id)
+		if !ValidHarnessConfigMode(profile.HarnessConfig) {
+			return fmt.Errorf("roles.%s.harness_config must be isolated or inherit", id)
+		}
+		profile.HarnessConfig = EffectiveHarnessConfigMode(profile.HarnessConfig)
+		if profile.Harness == HarnessPiCLI && profile.HarnessConfig == HarnessConfigModeInherit && profile.Access != RoleAccessHost {
+			return fmt.Errorf("roles.%s must use host access because Pi cannot safely inherit ambient configuration in sandboxed mode", id)
 		}
 		if active[id] && c.harnessDisabled(profile.Harness) {
 			return fmt.Errorf("roles.%s uses harness %q, but that harness is disabled", id, profile.Harness)
@@ -337,6 +341,9 @@ func mergeRoleProfile(parent, child RoleConfig) RoleConfig {
 	}
 	if child.Access != "" {
 		result.Access = child.Access
+	}
+	if child.HarnessConfig != "" {
+		result.HarnessConfig = child.HarnessConfig
 	}
 	if child.SafeTools != nil {
 		value := *child.SafeTools

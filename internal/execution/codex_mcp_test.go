@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
@@ -84,6 +85,21 @@ func TestCodexSafeToolsInjectPinnedLoopbackOnlyBrowserWithoutUserConfig(t *testi
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("Runner browser profile omitted %q: %s", expected, joined)
 		}
+	}
+}
+
+func TestInheritedCodexMCPAddsRunnerBrowserWithoutReplacingAmbientCatalog(t *testing.T) {
+	runner := &codexMCPListRunner{stdout: `[{"name":"operator_browser","enabled":true,"transport":{"type":"stdio","command":"operator-browser"}}]`}
+	args, err := codexMCPProfileArgsForConfig(t.Context(), runner, "codex", "/neutral", []string{"operator_browser"}, true, config.HarnessConfigModeInherit)
+	if err != nil {
+		t.Fatalf("build inherited Runner browser profile: %v", err)
+	}
+	joined := strings.Join(args, " ")
+	if runner.calls != 1 || !strings.Contains(joined, "mcp_servers.runner_browser={") || strings.Contains(joined, "mcp_servers={") || strings.Contains(joined, "operator-browser") {
+		t.Fatalf("inherited MCP profile replaced or inspected ambient catalog: args=%#v calls=%d", args, runner.calls)
+	}
+	if !strings.Contains(codexMCPPromptForConfig([]string{"operator_browser"}, true, config.HarnessConfigModeInherit), "ambient Codex MCP configuration") {
+		t.Fatal("inherited MCP prompt did not disclose ambient configuration")
 	}
 }
 

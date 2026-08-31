@@ -42,6 +42,7 @@
     "planner": {
       "harness": "codex",
       "access": "sandboxed",
+      "harness_config": "isolated",
       "skills": [
         "runner-planner"
       ],
@@ -51,6 +52,7 @@
     "implementer": {
       "harness": "codex",
       "access": "sandboxed",
+      "harness_config": "isolated",
       "skills": [
         "runner-implementer"
       ],
@@ -60,6 +62,7 @@
     "reviewer": {
       "harness": "codex",
       "access": "sandboxed",
+      "harness_config": "isolated",
       "skills": [
         "runner-reviewer"
       ],

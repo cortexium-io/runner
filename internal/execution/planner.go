@@ -42,6 +42,7 @@ func RunProbeWithUsage(ctx context.Context, kind string, cfg config.ExecutionCon
 	// A probe borrows model selection and timeout, never the configured role's
 	// broader access. This is especially important for host-access Pi roles.
 	cfg.RoleAccess = config.RoleAccessSandboxed
+	cfg.HarnessConfigMode = config.HarnessConfigModeIsolated
 	return runStructuredHarness(ctx, RoleProbe, kind, cfg, cfg.Harness.WorkingDir, prompt, schema, "prefer", run)
 }
 
@@ -59,10 +60,10 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 	if err != nil {
 		return failedStructuredHarnessResult(FailureInvalidConfiguration, RetryNone), err
 	}
-	if err := ValidateHarnessProfile(kind, role, cfg.RoleAccess); err != nil {
+	if err := ValidateHarnessProfile(kind, role, cfg.RoleAccess, cfg.HarnessConfigMode); err != nil {
 		return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 	}
-	if err := ensureHarnessAdvertisesProfile(ctx, run, strings.TrimSpace(cfg.Harness.Command), kind, role, cfg.RoleAccess); err != nil {
+	if err := ensureHarnessAdvertisesProfile(ctx, run, strings.TrimSpace(cfg.Harness.Command), kind, role, cfg.RoleAccess, cfg.HarnessConfigMode); err != nil {
 		return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 	}
 	workspace, err := prepareProfileWorkspace(profile, workingDir, cfg.Harness.WorkspaceWriteRoot)
@@ -74,7 +75,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		prompt += trustedSkillInstructions(cfg)
 	}
 	if kind == config.HarnessCodexCLI {
-		prompt += codexMCPPrompt(cfg.MCPServers, cfg.SafeTools)
+		prompt += codexMCPPromptForConfig(cfg.MCPServers, cfg.SafeTools, cfg.HarnessConfigMode)
 	} else if kind == config.HarnessClaudeCLI {
 		prompt += runnerBrowserPrompt(cfg.SafeTools)
 	}
@@ -89,11 +90,11 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		harness := cfg.Harness
 		command := strings.TrimSpace(harness.Command)
 		timeout := harnessTimeout(harness)
-		mcpArgs, err := codexMCPProfileArgs(ctx, run, command, workspace.Dir, cfg.MCPServers, cfg.SafeTools)
+		mcpArgs, err := codexMCPProfileArgsForConfig(ctx, run, command, workspace.Dir, cfg.MCPServers, cfg.SafeTools, cfg.HarnessConfigMode)
 		if err != nil {
 			return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryManual), err
 		}
-		args := codexProfileArgs(profile, workspace, cfg.SafeTools, command)
+		args := codexProfileArgsForConfig(profile, workspace, cfg.SafeTools, cfg.HarnessConfigMode, command)
 		args = append(args, mcpArgs...)
 		if harness.Model != nil && strings.TrimSpace(*harness.Model) != "" {
 			args = append(args, "--model", strings.TrimSpace(*harness.Model))
@@ -101,7 +102,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		if effort := strings.TrimSpace(harness.ReasoningEffort); effort != "" {
 			args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", effort))
 		}
-		args = append(args, codexExecIsolationArgs(profile, workspace)...)
+		args = append(args, codexExecArgsForConfig(profile, workspace, cfg.HarnessConfigMode)...)
 		args = append(args, "--output-last-message", artifacts.outputPath(), "--output-schema", artifacts.schemaPath())
 		startedAt := time.Now()
 		finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
@@ -130,14 +131,14 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		args := []string{}
 		piDirectNative := kind == config.HarnessPiCLI && role == RoleSynthesis && piUsesNativeStructuredOutput(executor.cfg.Model)
 		if kind == config.HarnessClaudeCLI {
-			args = claudeProfileArgs(profile, workspace, cfg.SafeTools)
+			args = claudeProfileArgsForConfig(profile, workspace, cfg.SafeTools, cfg.HarnessConfigMode)
 			args = append(args, "--json-schema", string(schema))
 			args = appendHarnessModelArgs(args, executor.cfg, true)
 		} else {
 			if piDirectNative {
-				args = piDirectNativeProfileArgs(profile)
+				args = piDirectNativeProfileArgsForConfig(profile, cfg.HarnessConfigMode)
 			} else {
-				args = piProfileArgsForModel(profile, executor.cfg.Model)
+				args = piProfileArgsForModelAndConfig(profile, executor.cfg.Model, cfg.HarnessConfigMode)
 			}
 			args = appendHarnessModelArgs(args, executor.cfg, false)
 			if effort := strings.TrimSpace(executor.cfg.ReasoningEffort); effort != "" {

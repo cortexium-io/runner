@@ -130,7 +130,7 @@ func ProfileForRole(role RoleContract, configuredAccess ...string) (ExecutionPro
 		return ExecutionProfile{}, fmt.Errorf("unknown Runner access mode %q", access)
 	}
 	if access == config.RoleAccessHost {
-		if role == RolePlanner || role == RoleSynthesis || role == RoleProbe {
+		if role == RoleProbe {
 			return ExecutionProfile{}, fmt.Errorf("Runner %s never permits host access", role)
 		}
 		profile.LocalResources = LocalResourcesFullAccess
@@ -166,8 +166,17 @@ func (profile ExecutionProfile) validate() error {
 		}
 		return nil
 	}
-	if profile.Workspace != WorkspaceNeutral || profile.Repository == RepositoryReadWrite || profile.LocalResources != LocalResourcesHarnessSandbox || profile.Approval != ApprovalNever || profile.Sandbox != SandboxReadOnly || profile.allowsTool(ToolShell) || profile.allowsTool(ToolEdit) {
+	if profile.Workspace != WorkspaceNeutral || profile.Repository == RepositoryReadWrite || profile.allowsTool(ToolShell) || profile.allowsTool(ToolEdit) {
 		return errors.New("read-only roles require a neutral workspace without mutating tools")
+	}
+	if profile.Sandbox == SandboxFullAccess {
+		if profile.LocalResources != LocalResourcesFullAccess || profile.Approval != ApprovalBypass {
+			return errors.New("host-access read-only roles require explicit full local-resource access and approval bypass")
+		}
+		return nil
+	}
+	if profile.LocalResources != LocalResourcesHarnessSandbox || profile.Approval != ApprovalNever || profile.Sandbox != SandboxReadOnly {
+		return errors.New("sandboxed read-only roles require native read-only isolation")
 	}
 	return nil
 }
@@ -187,6 +196,13 @@ func ValidateHarnessProfile(kind string, role RoleContract, configuredAccess ...
 	if len(configuredAccess) > 0 {
 		access = config.EffectiveRoleAccess(configuredAccess[0])
 	}
+	harnessConfigMode := config.HarnessConfigModeIsolated
+	if len(configuredAccess) > 1 {
+		harnessConfigMode = config.EffectiveHarnessConfigMode(configuredAccess[1])
+	}
+	if !config.ValidHarnessConfigMode(harnessConfigMode) {
+		return fmt.Errorf("unknown Runner harness configuration mode %q", harnessConfigMode)
+	}
 	if _, err := ProfileForRole(role, access); err != nil {
 		return err
 	}
@@ -197,6 +213,9 @@ func ValidateHarnessProfile(kind string, role RoleContract, configuredAccess ...
 	}
 	if kind == config.HarnessPiCLI && access != config.RoleAccessHost && (role == RoleImplementer || role == RoleReviewer) {
 		return fmt.Errorf("Pi CLI cannot enforce %s in sandboxed mode; set this role's access to host only on a trusted machine or inside an external sandbox", role)
+	}
+	if kind == config.HarnessPiCLI && harnessConfigMode == config.HarnessConfigModeInherit && access != config.RoleAccessHost {
+		return fmt.Errorf("Pi CLI cannot safely inherit ambient configuration in sandboxed mode; set this role's access to host only on a trusted machine or inside an external sandbox")
 	}
 	return nil
 }

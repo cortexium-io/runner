@@ -871,6 +871,7 @@ A role defines agent-specific execution settings:
   "reviewer": {
     "harness": "codex",
     "access": "sandboxed",
+    "harness_config": "isolated",
     "skills": ["runner-reviewer"],
     "reasoning": "high",
     "planning_support": "standard",
@@ -890,16 +891,48 @@ For an explicitly long-running project:
 ./cortexium-runner role edit implementer --config /absolute/operator/path/runner.json --timeout 6h
 ```
 
+`access` and `harness_config` are independent per-role policies:
+
+| `access` | `harness_config` | Effect |
+| --- | --- | --- |
+| `sandboxed` | `isolated` | Safe default: Runner containment and suppressed ambient harness configuration |
+| `sandboxed` | `inherit` | Native shell/filesystem sandbox remains, while ambient rules, tools, plugins, and MCP configuration load; supported by Codex and Claude |
+| `host` | `isolated` | No OS containment, but Runner still suppresses ambient harness configuration and fixes its tool envelope |
+| `host` | `inherit` | Unrestricted agent execution with the OS account's accessible files, processes, network, tools, and credentials |
+
+Pi rejects `sandboxed` plus `inherit` because Pi cannot provide an OS boundary
+around ambient tools. Runner's live readiness probe always remains
+`sandboxed` plus `isolated`, regardless of the role being probed.
+For Codex and Claude, inherited out-of-process MCP servers, plugins, hooks, and
+extensions can have their own OS permissions outside the harness's shell
+sandbox. Inspect those native definitions before enabling inheritance; use
+`isolated` when the sandbox must also exclude ambient helper processes.
+
 `execution_policy` is not a configuration field. Legacy init policy flags have
-no effect. `doctor` reports the Runner-owned profile and rejects an installed
-CLI that does not advertise every required isolation, config-suppression,
-tool-denial, approval, sandbox, and structured-result flag.
+no effect. `doctor` reports every effective role as
+`ROLE=ACCESS/HARNESS_CONFIG` and labels `host/inherit` as unrestricted. It also
+rejects an installed CLI that does not advertise every flag required by the
+selected mode.
 
 `model` is optional; absence uses the harness's native default. `init` accepts
 `--harness`, `--model`, and `--reasoning` as shared setup values. The
 corresponding `--planner-*`, `--implementer-*`, and `--reviewer-*` flags override
-the shared value for one role. Init also accepts `--implementer-access` and
-`--reviewer-access`; `role edit ROLE --access ...` changes an existing role.
+the shared value for one role. Init also accepts shared
+`--harness-config isolated|inherit` and the role-specific
+`--planner-harness-config`, `--implementer-harness-config`, and
+`--reviewer-harness-config` overrides. Per-role access is selected with
+`--planner-access`, `--implementer-access`, and `--reviewer-access`. For an
+existing config, use:
+
+```bash
+cortexium-runner role edit implementer --access host --harness-config inherit
+cortexium-runner role show implementer
+cortexium-runner doctor --config /absolute/operator/path/runner.json
+```
+
+The first command is an explicit unrestricted opt-in. Changing a config never
+changes an already-running harness process; restart Runner for later work to use
+the new policy.
 Implementer and reviewer roles also accept `planning_support`: `standard` uses
 the ordinary concise planning contract, while `high` asks the planner for
 smaller coherent slices, explicit boundaries and assumptions, literal acceptance
@@ -915,6 +948,7 @@ recognizes, for example:
   "reviewer": {
     "harness": "pi",
     "access": "host",
+    "harness_config": "isolated",
     "model": "provider/model-id",
     "preserve_reasoning": false,
     "skills": ["runner-reviewer"]
@@ -1076,18 +1110,20 @@ The supported matrix is fail-closed:
 
 | Harness | Planner | Implementer | Reviewer |
 | --- | --- | --- | --- |
-| Codex CLI | Scoped read policy in neutral cwd | Scoped worktree-write policy by default; optional host | Scoped read policy by default; optional host |
-| Claude Code | Native sandbox, home-read denial, and fixed tools in neutral cwd | Native OS sandbox with home-read denial by default; optional host | Native OS sandbox with home-read and repository-write denial by default; optional host |
-| Pi CLI | Fixed read-only tools in neutral cwd | Explicit host access with fixed tools | Explicit host access with fixed read/shell tools |
+| Codex CLI | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in |
+| Claude Code | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in |
+| Pi CLI | Isolated fixed read tools by default; inherited config requires host | Explicit host access; isolated fixed tools or inherited ambient config | Explicit host access; isolated fixed tools or inherited ambient config |
 
 The probe profile exposes only model invocation and Runner's structured output
-channel. Planner launches suppress capability-expanding native configuration.
-Reviewer and implementer launches use the configured per-role access boundary.
+channel and always suppresses ambient configuration. Work roles use both
+configured per-role policy dimensions.
 Runner supplies a neutral reviewer workspace or isolated implementation
 worktree and applies repository-integrity, candidate, QA, and publication checks
-after every harness. Host access changes containment, not the role's declared
-tools or the suppression of ambient plugins, ungranted MCP servers, skills, and project
-instructions.
+after every harness. Isolated mode suppresses ambient plugins, ungranted MCP
+servers, skills, hooks, and project instructions. Inherited mode deliberately
+loads them. Runner continues to pass unattended/non-interactive flags, its
+bundled role instructions, structured-result contract, and explicit model and
+reasoning selection in both modes.
 
 ### Browser-dependent verification
 
@@ -1138,8 +1174,9 @@ assessment rather than treating an unrun browser check as passed.
 
 Pi implementer and reviewer roles receive that same pinned browser through a
 temporary Runner-generated Pi extension with only navigate, evaluate, and
-screenshot tools. The extension is supplied explicitly while ambient Pi
-extensions remain disabled. Browser navigation remains loopback-only and uses
+screenshot tools. Ambient Pi extensions remain disabled in isolated mode; in
+inherited mode they are loaded alongside Runner's explicit extension. Browser
+navigation through Runner's extension remains loopback-only and uses
 an isolated headless profile. Pi itself still requires explicit `host` access
 because it does not provide a native OS sandbox for its shell and edit tools.
 
@@ -1215,10 +1252,10 @@ rejects skills outside this pinned catalog.
 Runner roles and native harness agent roles are separate concepts. A Runner
 role is the configured planner, implementer, or reviewer profile that selects a
 harness, skills, model, reasoning level, and timeout for a workflow lane. Runner
-invokes that harness's primary non-interactive CLI. Planner launches suppress
-native custom agents, plugins, and delegation; implementers and reviewers use
-the configured sandboxed or host boundary with Runner's workspace-integrity
-checks.
+invokes that harness's primary non-interactive CLI. Isolated launches suppress
+native custom agents, plugins, and delegation; inherited launches load them.
+All work roles use the configured sandboxed or host boundary with Runner's
+workspace-integrity checks.
 
 Each harness may run only the verification available through its active native
 configuration and Runner workspace. Agent results must report only checks
@@ -1262,8 +1299,10 @@ The repeatable `--mcp-server` option updates only the selected role;
 `--clear-mcp-servers` removes that role's override and restores any parent-role
 grant. Runner reads Codex's
 native MCP catalog, reconstructs only the selected definitions in the launch,
-and suppresses all unlisted servers and other ambient configuration. Missing or
-disabled grants fail before model work. Doctor automatically treats every role
+and suppresses all unlisted servers and other ambient configuration in isolated
+mode. In inherited mode, the native catalog remains available and the named
+grants document role expectations rather than forming the complete ceiling.
+Missing or disabled grants fail before model work. Doctor automatically treats every role
 grant as required, so the same capability does not need a duplicate
 `doctor_requirements` entry.
 

@@ -56,10 +56,14 @@ func runnerBrowserMCP() codexMCPServer {
 	}
 }
 
-// codexMCPProfileArgs turns an explicit role allowlist into one self-contained
-// Codex config override. User and project configuration remain suppressed, and
-// no unlisted MCP server is available to the model.
+// codexMCPProfileArgs turns an isolated role allowlist into one self-contained
+// Codex config override. The inherited variant leaves ambient servers loaded
+// and adds only Runner-owned safe tools.
 func codexMCPProfileArgs(ctx context.Context, run subprocess.Runner, command, cwd string, allowed []string, safeTools bool) ([]string, error) {
+	return codexMCPProfileArgsForConfig(ctx, run, command, cwd, allowed, safeTools, config.HarnessConfigModeIsolated)
+}
+
+func codexMCPProfileArgsForConfig(ctx context.Context, run subprocess.Runner, command, cwd string, allowed []string, safeTools bool, harnessConfigMode string) ([]string, error) {
 	if len(allowed) == 0 && !safeTools {
 		return nil, nil
 	}
@@ -82,10 +86,6 @@ func codexMCPProfileArgs(ctx context.Context, run subprocess.Runner, command, cw
 	}
 	selected := make([]codexMCPServer, 0, len(allowed)+1)
 	seen := map[string]bool{}
-	if safeTools {
-		selected = append(selected, runnerBrowserMCP())
-		seen[runnerBrowserMCPServer] = true
-	}
 	for _, name := range allowed {
 		name = strings.TrimSpace(name)
 		if !config.ValidMCPServerName(name) {
@@ -110,6 +110,20 @@ func codexMCPProfileArgs(ctx context.Context, run subprocess.Runner, command, cw
 		}
 		selected = append(selected, server)
 	}
+	if inheritsHarnessConfiguration(harnessConfigMode) {
+		if !safeTools {
+			return nil, nil
+		}
+		var encoded strings.Builder
+		encoded.WriteString("mcp_servers.")
+		encoded.WriteString(runnerBrowserMCPServer)
+		encoded.WriteByte('=')
+		writeCodexMCPServer(&encoded, runnerBrowserMCP())
+		return []string{"--config", encoded.String()}, nil
+	}
+	if safeTools {
+		selected = append(selected, runnerBrowserMCP())
+	}
 	sort.Slice(selected, func(i, j int) bool { return selected[i].Name < selected[j].Name })
 
 	var config strings.Builder
@@ -119,26 +133,38 @@ func codexMCPProfileArgs(ctx context.Context, run subprocess.Runner, command, cw
 			config.WriteByte(',')
 		}
 		config.WriteString(server.Name)
-		config.WriteString("={command=")
-		config.WriteString(strconv.Quote(strings.TrimSpace(server.Transport.Command)))
-		writeTOMLStringList(&config, "args", server.Transport.Args)
-		writeTOMLStringList(&config, "env_vars", server.Transport.EnvVars)
-		if server.Transport.CWD != nil && strings.TrimSpace(*server.Transport.CWD) != "" {
-			config.WriteString(",cwd=")
-			config.WriteString(strconv.Quote(strings.TrimSpace(*server.Transport.CWD)))
-		}
-		writeTOMLFloat(&config, "startup_timeout_sec", server.StartupTimeoutSeconds)
-		writeTOMLFloat(&config, "tool_timeout_sec", server.ToolTimeoutSeconds)
-		writeTOMLStringList(&config, "enabled_tools", server.EnabledTools)
-		writeTOMLStringList(&config, "disabled_tools", server.DisabledTools)
-		config.WriteString(",enabled=true,default_tools_approval_mode=\"approve\"}")
+		config.WriteByte('=')
+		writeCodexMCPServer(&config, server)
 	}
 	config.WriteByte('}')
 	return []string{"--config", config.String()}, nil
 }
 
+func writeCodexMCPServer(builder *strings.Builder, server codexMCPServer) {
+	builder.WriteString("{command=")
+	builder.WriteString(strconv.Quote(strings.TrimSpace(server.Transport.Command)))
+	writeTOMLStringList(builder, "args", server.Transport.Args)
+	writeTOMLStringList(builder, "env_vars", server.Transport.EnvVars)
+	if server.Transport.CWD != nil && strings.TrimSpace(*server.Transport.CWD) != "" {
+		builder.WriteString(",cwd=")
+		builder.WriteString(strconv.Quote(strings.TrimSpace(*server.Transport.CWD)))
+	}
+	writeTOMLFloat(builder, "startup_timeout_sec", server.StartupTimeoutSeconds)
+	writeTOMLFloat(builder, "tool_timeout_sec", server.ToolTimeoutSeconds)
+	writeTOMLStringList(builder, "enabled_tools", server.EnabledTools)
+	writeTOMLStringList(builder, "disabled_tools", server.DisabledTools)
+	builder.WriteString(",enabled=true,default_tools_approval_mode=\"approve\"}")
+}
+
 func codexMCPPrompt(allowed []string, safeTools bool) string {
+	return codexMCPPromptForConfig(allowed, safeTools, config.HarnessConfigModeIsolated)
+}
+
+func codexMCPPromptForConfig(allowed []string, safeTools bool, harnessConfigMode string) string {
 	if len(allowed) == 0 && !safeTools {
+		if inheritsHarnessConfiguration(harnessConfigMode) {
+			return "\n\nRunner is inheriting the operator's Codex configuration. Use ambient MCP servers only when their configured purpose is relevant to this assignment.\n"
+		}
 		return ""
 	}
 	names := append([]string{}, allowed...)
@@ -146,7 +172,13 @@ func codexMCPPrompt(allowed []string, safeTools bool) string {
 		names = append(names, runnerBrowserMCPServer)
 	}
 	sort.Strings(names)
-	return "\n\nRunner-granted Codex MCP servers: " + strings.Join(names, ", ") + ". Call their tools as direct MCP tool calls, not through Code Mode or a tools object. list_mcp_resources reports resources, not the available MCP tools, and an empty resource list does not mean the granted tools are unavailable. Do not use or search for any unlisted MCP server.\n" + runnerBrowserPrompt(safeTools)
+	message := "\n\nRunner-granted Codex MCP servers: " + strings.Join(names, ", ") + ". Call their tools as direct MCP tool calls, not through Code Mode or a tools object. list_mcp_resources reports resources, not the available MCP tools, and an empty resource list does not mean the granted tools are unavailable."
+	if inheritsHarnessConfiguration(harnessConfigMode) {
+		message += " Runner is also inheriting the operator's ambient Codex MCP configuration; use those servers only when relevant to this assignment.\n"
+	} else {
+		message += " Do not use or search for any unlisted MCP server.\n"
+	}
+	return message + runnerBrowserPrompt(safeTools)
 }
 
 func runnerBrowserPrompt(safeTools bool) string {

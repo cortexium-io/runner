@@ -33,8 +33,8 @@ func TestFixedProfilesCoverEveryRunnerLaunchRole(t *testing.T) {
 	}
 }
 
-func TestHostAccessIsExplicitAndPreservesRoleToolCeilings(t *testing.T) {
-	for _, role := range []RoleContract{RoleImplementer, RoleReviewer} {
+func TestHostAccessIsExplicitAndPreservesIsolatedRoleToolCeilings(t *testing.T) {
+	for _, role := range []RoleContract{RolePlanner, RoleImplementer, RoleReviewer} {
 		profile, err := ProfileForRole(role, config.RoleAccessHost)
 		if err != nil {
 			t.Fatalf("host profile %s: %v", role, err)
@@ -46,8 +46,57 @@ func TestHostAccessIsExplicitAndPreservesRoleToolCeilings(t *testing.T) {
 			t.Fatalf("reviewer host access expanded its tool ceiling: %#v", profile)
 		}
 	}
-	if _, err := ProfileForRole(RolePlanner, config.RoleAccessHost); err == nil {
-		t.Fatal("planner host access was accepted")
+}
+
+func TestInheritedHarnessConfigurationRetainsContainmentChoiceAndAmbientResources(t *testing.T) {
+	workspace := profileWorkspace{Dir: "/worktree", ReadRoot: "/worktree"}
+	profile, err := ProfileForRole(RoleImplementer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex := append(
+		codexProfileArgsForConfig(profile, workspace, true, config.HarnessConfigModeInherit, "codex"),
+		codexExecArgsForConfig(profile, workspace, config.HarnessConfigModeInherit)...,
+	)
+	joinedCodex := strings.Join(codex, " ")
+	for _, forbidden := range []string{"--ignore-user-config", "--ignore-rules", codexSkipHostSkillDiscoveryConfig, "mcp_servers={}", "--disable apps"} {
+		if strings.Contains(joinedCodex, forbidden) {
+			t.Fatalf("inherited Codex config retained isolation override %q: %s", forbidden, joinedCodex)
+		}
+	}
+	if !strings.Contains(joinedCodex, "runner_implementer_development") {
+		t.Fatalf("inherited Codex config lost the sandbox containment ceiling: %s", joinedCodex)
+	}
+
+	claude := claudeProfileArgsForConfig(profile, workspace, true, config.HarnessConfigModeInherit)
+	joinedClaude := strings.Join(claude, " ")
+	for _, forbidden := range []string{"--setting-sources", "--strict-mcp-config", "--disable-slash-commands", "--no-chrome", "--tools", "--allowedTools", `"disableAllHooks":true`} {
+		if strings.Contains(joinedClaude, forbidden) {
+			t.Fatalf("inherited Claude config retained isolation override %q: %s", forbidden, joinedClaude)
+		}
+	}
+	for _, required := range []string{"--permission-mode", "--settings", "--mcp-config"} {
+		if !contains(claude, required) {
+			t.Fatalf("inherited Claude config lost required sandbox or Runner browser flag %q: %#v", required, claude)
+		}
+	}
+
+	piProfile, err := ProfileForRole(RoleImplementer, config.RoleAccessHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pi := piProfileArgsForModelAndConfig(piProfile, nil, config.HarnessConfigModeInherit)
+	joinedPi := strings.Join(pi, " ")
+	for _, forbidden := range []string{"--no-extensions", "--no-skills", "--no-context-files", "--tools"} {
+		if strings.Contains(joinedPi, forbidden) {
+			t.Fatalf("inherited Pi config retained isolation override %q: %s", forbidden, joinedPi)
+		}
+	}
+	if err := ValidateHarnessProfile(config.HarnessPiCLI, RolePlanner, config.RoleAccessSandboxed, config.HarnessConfigModeInherit); err == nil {
+		t.Fatal("Pi inherited configuration was accepted without host access")
+	}
+	if err := ValidateHarnessProfile(config.HarnessPiCLI, RolePlanner, config.RoleAccessHost, config.HarnessConfigModeInherit); err != nil {
+		t.Fatalf("Pi inherited host configuration was rejected: %v", err)
 	}
 }
 

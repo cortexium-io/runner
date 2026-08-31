@@ -110,7 +110,7 @@ func TestProbeAlwaysUsesItsToolFreeSandboxedAccess(t *testing.T) {
 	run := &plannerCommandRunner{}
 	schema := []byte(`{"type":"object","required":["answer"],"properties":{"answer":{"type":"string"}},"additionalProperties":false}`)
 	cfg := config.ExecutionConfig{
-		RoleAccess: config.RoleAccessHost,
+		RoleAccess: config.RoleAccessHost, HarnessConfigMode: config.HarnessConfigModeInherit,
 		Harness: config.HarnessConfig{
 			Kind: config.HarnessPiCLI, Command: "pi", WorkingDir: t.TempDir(), TimeoutSeconds: 30,
 		},

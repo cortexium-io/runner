@@ -68,7 +68,7 @@ func TestInitInstallsRoleSkillsAndDoctorVerifiesReadiness(t *testing.T) {
 	if err := run(t.Context(), []string{"doctor", "--config", configPath}, strings.NewReader(""), &after); err != nil {
 		t.Fatalf("doctor after init: %v\n%s", err, after.String())
 	}
-	if !strings.Contains(after.String(), "Ready to run: yes") || !strings.Contains(after.String(), "authentication is managed by the harness and was not inspected") || !strings.Contains(after.String(), "Execution policy: Runner-owned role profile with explicit per-role access") {
+	if !strings.Contains(after.String(), "Ready to run: yes") || !strings.Contains(after.String(), "authentication is managed by the harness and was not inspected") || !strings.Contains(after.String(), "planner=sandboxed/isolated") || !strings.Contains(after.String(), "implementer=sandboxed/isolated") || !strings.Contains(after.String(), "reviewer=sandboxed/isolated") {
 		t.Fatalf("unexpected doctor output after init: %s", after.String())
 	}
 }
@@ -95,7 +95,7 @@ func TestInitCreatesStandaloneConfigAndCanSynchronizeIt(t *testing.T) {
 		t.Fatalf("init dry run created config: %v", err)
 	}
 	output.Reset()
-	if err := run(t.Context(), []string{"init", "--owner", "example", "--project-number", "7", "--repository", "example/repo", "--project-dir", project, "--config", configPath, "--max-parallelism", "3", "--admission-window", "24h", "--max-admission-attempts", "12", "--max-admission-harness-time", "8h", "--max-admission-tokens", "1000000", "--max-admission-cost-usd", "25", "--auto-merge", "--harness", "codex", "--model", "gpt-test", "--reasoning", "high", "--planning-support", "high", "--reviewer-harness", "pi", "--reviewer-access", "host", "--reviewer-model", "qwen/local", "--reviewer-reasoning", "xhigh", "--base-update-review", "required"}, strings.NewReader(""), &output); err != nil {
+	if err := run(t.Context(), []string{"init", "--owner", "example", "--project-number", "7", "--repository", "example/repo", "--project-dir", project, "--config", configPath, "--max-parallelism", "3", "--admission-window", "24h", "--max-admission-attempts", "12", "--max-admission-harness-time", "8h", "--max-admission-tokens", "1000000", "--max-admission-cost-usd", "25", "--auto-merge", "--harness", "codex", "--model", "gpt-test", "--reasoning", "high", "--planning-support", "high", "--reviewer-harness", "pi", "--reviewer-access", "host", "--reviewer-harness-config", "inherit", "--reviewer-model", "qwen/local", "--reviewer-reasoning", "xhigh", "--base-update-review", "required"}, strings.NewReader(""), &output); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 	if expected := "Agent admission: rolling 24h0m0s window · 12 attempt(s) · 8h0m0s harness time · 1000000 reported tokens · $25.0000 reported cost"; !strings.Contains(output.String(), expected) {
@@ -105,7 +105,7 @@ func TestInitCreatesStandaloneConfigAndCanSynchronizeIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load initialized config: %v", err)
 	}
-	if loaded.GitHubProject.Owner != "example" || loaded.GitHubProject.Number != 7 || loaded.MaxParallelism != 3 || !loaded.GitHubProject.AutoMerge || loaded.GitHubProject.MergeMethod != config.MergeMethodMerge || loaded.Workflow == nil || loaded.Workflow.Lanes["agent_qa"].RejectLimit != 3 || loaded.Workflow.Lanes["plan"].Name != "Plan" || loaded.Roles[config.WorkRolePlanner].Harness != config.HarnessCodexCLI || loaded.Roles[config.WorkRolePlanner].Model == nil || *loaded.Roles[config.WorkRolePlanner].Model != "gpt-test" || loaded.Roles[config.WorkRolePlanner].Reasoning != "high" || loaded.Roles[config.WorkRolePlanner].PlanningSupport != "" || loaded.Roles[config.WorkRoleImplementer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].Harness != config.HarnessPiCLI || loaded.Roles[config.WorkRoleReviewer].Access != config.RoleAccessHost || loaded.Roles[config.WorkRoleReviewer].Model == nil || *loaded.Roles[config.WorkRoleReviewer].Model != "qwen/local" || loaded.Roles[config.WorkRoleReviewer].Reasoning != "xhigh" || loaded.GitHubProject.IntakeRepository != "example/repo" {
+	if loaded.GitHubProject.Owner != "example" || loaded.GitHubProject.Number != 7 || loaded.MaxParallelism != 3 || !loaded.GitHubProject.AutoMerge || loaded.GitHubProject.MergeMethod != config.MergeMethodMerge || loaded.Workflow == nil || loaded.Workflow.Lanes["agent_qa"].RejectLimit != 3 || loaded.Workflow.Lanes["plan"].Name != "Plan" || loaded.Roles[config.WorkRolePlanner].Harness != config.HarnessCodexCLI || loaded.Roles[config.WorkRolePlanner].Model == nil || *loaded.Roles[config.WorkRolePlanner].Model != "gpt-test" || loaded.Roles[config.WorkRolePlanner].Reasoning != "high" || loaded.Roles[config.WorkRolePlanner].PlanningSupport != "" || loaded.Roles[config.WorkRoleImplementer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].Harness != config.HarnessPiCLI || loaded.Roles[config.WorkRoleReviewer].Access != config.RoleAccessHost || loaded.Roles[config.WorkRoleReviewer].HarnessConfig != config.HarnessConfigModeInherit || loaded.Roles[config.WorkRoleReviewer].Model == nil || *loaded.Roles[config.WorkRoleReviewer].Model != "qwen/local" || loaded.Roles[config.WorkRoleReviewer].Reasoning != "xhigh" || loaded.GitHubProject.IntakeRepository != "example/repo" {
 		t.Fatalf("unexpected initialized config %#v", loaded)
 	}
 	if loaded.AdmissionBudget == nil || loaded.AdmissionBudget.WindowSeconds != 86400 || loaded.AdmissionBudget.MaxAttempts != 12 || loaded.AdmissionBudget.MaxHarnessSeconds != 28800 || loaded.AdmissionBudget.MaxReportedTokens != 1000000 || loaded.AdmissionBudget.MaxReportedCostUSD == nil || *loaded.AdmissionBudget.MaxReportedCostUSD != 25 {
@@ -386,7 +386,7 @@ func TestInitInteractivelyCollectsMissingRequiredChoices(t *testing.T) {
 		"Smaller coherent tasks",
 		"Split independently verifiable behavior for less capable downstream models",
 		"planner: claude · model opus · reasoning xhigh",
-		"implementer: claude · model opus · reasoning xhigh · access sandboxed · task sizing small",
+		"implementer: claude · model opus · reasoning xhigh · access sandboxed · harness config isolated · task sizing small",
 		"How many independent cards may Runner work on at the same time?",
 		"1 concurrent card (recommended)",
 		"2 concurrent cards",
@@ -433,6 +433,26 @@ func TestInitRoleAccessDefaultsSafeAndRequiresExplicitPiHost(t *testing.T) {
 	}
 }
 
+func TestInitHarnessConfigurationDefaultsIsolatedAndAcceptsExplicitInheritance(t *testing.T) {
+	planner, implementer, reviewer := "", "", ""
+	if err := applyInitHarnessConfigDefaults("", &planner, &implementer, &reviewer); err != nil {
+		t.Fatal(err)
+	}
+	if planner != config.HarnessConfigModeIsolated || implementer != config.HarnessConfigModeIsolated || reviewer != config.HarnessConfigModeIsolated {
+		t.Fatalf("safe harness configuration defaults = %q/%q/%q", planner, implementer, reviewer)
+	}
+	planner, implementer, reviewer = "", config.HarnessConfigModeIsolated, ""
+	if err := applyInitHarnessConfigDefaults(config.HarnessConfigModeInherit, &planner, &implementer, &reviewer); err != nil {
+		t.Fatal(err)
+	}
+	if planner != config.HarnessConfigModeInherit || implementer != config.HarnessConfigModeIsolated || reviewer != config.HarnessConfigModeInherit {
+		t.Fatalf("explicit harness configuration defaults were not preserved: %q/%q/%q", planner, implementer, reviewer)
+	}
+	if err := applyInitHarnessConfigDefaults("ambient", &planner, &implementer, &reviewer); err == nil {
+		t.Fatal("unknown harness configuration mode was accepted")
+	}
+}
+
 func TestInitPlanningSupportDefaultsRemainOperatorControlled(t *testing.T) {
 	implementer, reviewer := "", ""
 	if err := applyInitPlanningSupportDefaults(config.PlanningSupportHigh, &implementer, &reviewer); err != nil {
@@ -473,6 +493,29 @@ func TestRoleEditChangesOnlyTheSelectedAccessBoundary(t *testing.T) {
 	output.Reset()
 	if err := run(t.Context(), []string{"role", "show", "reviewer", "--config", configPath}, strings.NewReader(""), &output); err != nil || !strings.Contains(output.String(), "Access: host") {
 		t.Fatalf("role show omitted resolved access: %v\n%s", err, output.String())
+	}
+}
+
+func TestRoleEditChangesOnlyTheSelectedHarnessConfiguration(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "runner.json")
+	cfg := completeCLITestConfig(t.TempDir())
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := run(t.Context(), []string{"role", "edit", "implementer", "--config", configPath, "--harness-config", "inherit"}, strings.NewReader(""), &output); err != nil {
+		t.Fatalf("edit implementer harness configuration: %v\n%s", err, output.String())
+	}
+	loaded, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Roles[config.WorkRoleImplementer].HarnessConfig != config.HarnessConfigModeInherit || loaded.Roles[config.WorkRoleReviewer].HarnessConfig != config.HarnessConfigModeIsolated {
+		t.Fatalf("role harness configuration edit changed another role: %#v", loaded.Roles)
+	}
+	output.Reset()
+	if err := run(t.Context(), []string{"role", "show", "implementer", "--config", configPath}, strings.NewReader(""), &output); err != nil || !strings.Contains(output.String(), "Harness configuration: inherit") {
+		t.Fatalf("role show omitted resolved harness configuration: %v\n%s", err, output.String())
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/securefs"
 )
 
@@ -222,7 +223,10 @@ export default function (pi) {
 	return &piBrowserChannel{artifacts: artifacts, path: artifacts.Path(piBrowserExtensionName)}, nil
 }
 
-func piInvocationAllowsBrowser(args []string) bool {
+func piInvocationAllowsBrowser(args []string, ambientToolsAllowed ...bool) bool {
+	if len(ambientToolsAllowed) > 0 && ambientToolsAllowed[0] {
+		return true
+	}
 	for index := 0; index+1 < len(args); index++ {
 		if args[index] != "--tools" {
 			continue
@@ -237,6 +241,10 @@ func piInvocationAllowsBrowser(args []string) bool {
 }
 
 func addPiBrowserExtension(args []string, path string) ([]string, error) {
+	return addPiBrowserExtensionForConfig(args, path, config.HarnessConfigModeIsolated)
+}
+
+func addPiBrowserExtensionForConfig(args []string, path, harnessConfigMode string) ([]string, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("Pi browser invocation requires an extension path")
 	}
@@ -255,6 +263,9 @@ func addPiBrowserExtension(args []string, path string) ([]string, error) {
 		break
 	}
 	if !added {
+		if inheritsHarnessConfiguration(harnessConfigMode) {
+			return append(result, "--extension", path), nil
+		}
 		return nil, errors.New("Pi browser invocation requires an explicit tool allowlist")
 	}
 	return append(result, "--extension", path), nil

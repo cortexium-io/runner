@@ -83,9 +83,12 @@ Add a role-specific flag such as
 `--reviewer-model claude-opus-4-8` when one role should differ, or use
 `cortexium-runner role edit ROLE` after initialization.
 
-The safest access default is `sandboxed`. Runner suppresses ambient Claude
-customization and uses Claude's native filesystem/process sandbox. Implementers
-run in the task worktree; reviewers use a private neutral directory with the
+The safest default is `access: sandboxed` with `harness_config: isolated`.
+Runner suppresses ambient Claude customization and uses Claude's native
+filesystem/process sandbox. Set `harness_config: inherit` only when the role
+must load native Claude user/project settings, hooks, tools, or MCP servers; the
+same sandbox boundary still applies until `access` is explicitly changed to
+`host`. Implementers run in the task worktree; reviewers use a private neutral directory with the
 repository added read-only. Operator-home reads are denied except for the
 assigned root and the implementer's npm cache. Claude still uses its existing
 login.

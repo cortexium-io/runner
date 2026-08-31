@@ -30,6 +30,7 @@ type RoleConfig struct {
 	Extends           string   `json:"extends,omitempty"`
 	Harness           string   `json:"harness,omitempty"`
 	Access            string   `json:"access,omitempty"`
+	HarnessConfig     string   `json:"harness_config,omitempty"`
 	SafeTools         *bool    `json:"safe_tools,omitempty"`
 	Skills            []string `json:"skills,omitempty"`
 	MCPServers        []string `json:"mcp_servers,omitempty"`
@@ -130,7 +131,7 @@ func (c Config) Harness(kind string) (HarnessConfig, bool) {
 }
 
 func (h HarnessConfig) ExecutionPolicySummary() string {
-	return "Runner-owned role profile with explicit per-role access"
+	return "explicit per-role access and harness configuration policy"
 }
 
 func validReasoningEffort(harness, value string) bool {

@@ -28,10 +28,19 @@ func requiresFullHarnessAccess(profile ExecutionProfile) bool {
 	return profile.Sandbox == SandboxFullAccess
 }
 
+func inheritsHarnessConfiguration(mode string) bool {
+	return config.EffectiveHarnessConfigMode(mode) == config.HarnessConfigModeInherit
+}
+
 // codexProfileArgs supplies Runner-owned policy for every role. Implementers
 // and reviewers default to native isolation. Host access is an explicit role
 // choice, never an implicit browser workaround.
 func codexProfileArgs(profile ExecutionProfile, workspace profileWorkspace, safeTools bool, command ...string) []string {
+	return codexProfileArgsForConfig(profile, workspace, safeTools, config.HarnessConfigModeIsolated, command...)
+}
+
+func codexProfileArgsForConfig(profile ExecutionProfile, workspace profileWorkspace, safeTools bool, harnessConfigMode string, command ...string) []string {
+	inherit := inheritsHarnessConfiguration(harnessConfigMode)
 	args := []string{"--ask-for-approval", config.CodexApprovalNever}
 	if requiresFullHarnessAccess(profile) {
 		args = append(args, "--sandbox", config.CodexSandboxDangerFullAccess)
@@ -90,32 +99,34 @@ func codexProfileArgs(profile ExecutionProfile, workspace profileWorkspace, safe
 	} else if !profile.MutationAllowed {
 		args = append(args, "--sandbox", config.CodexSandboxReadOnly)
 	}
-	// These features are unrelated to every fixed Runner role. Disabling them
-	// prevents project/user configuration from reintroducing privileged local
-	// resources while authentication remains available to the CLI.
-	for _, feature := range []string{
-		"apps", "plugins", "plugin_sharing", "remote_plugin", "hooks", "skill_search",
-		"skill_mcp_dependency_install", "shell_snapshot",
-		"workspace_dependencies", "browser_use", "browser_use_external",
-		"browser_use_full_cdp_access", "computer_use", "image_generation", "in_app_browser",
-		"standalone_web_search", "multi_agent", "multi_agent_v2", "auth_elicitation",
-		"tool_call_mcp_elicitation", "request_permissions_tool", "code_mode",
-		"code_mode_only", "code_mode_buffered_exec",
-	} {
-		args = append(args, "--disable", feature)
+	if !inherit {
+		// Isolated roles suppress ambient features while retaining harness
+		// authentication. Inherited roles deliberately leave these choices to
+		// the operator's user and project configuration.
+		for _, feature := range []string{
+			"apps", "plugins", "plugin_sharing", "remote_plugin", "hooks", "skill_search",
+			"skill_mcp_dependency_install", "shell_snapshot",
+			"workspace_dependencies", "browser_use", "browser_use_external",
+			"browser_use_full_cdp_access", "computer_use", "image_generation", "in_app_browser",
+			"standalone_web_search", "multi_agent", "multi_agent_v2", "auth_elicitation",
+			"tool_call_mcp_elicitation", "request_permissions_tool", "code_mode",
+			"code_mode_only", "code_mode_buffered_exec",
+		} {
+			args = append(args, "--disable", feature)
+		}
 	}
-	// Current GPT-5.6 Codex models require the standalone code-mode host even
-	// when Runner supplies the surrounding tool and filesystem policy. The host
-	// only transports model tool calls; those calls remain subject to the fixed
-	// role profile above. Fail closed instead of silently using an in-process
+	// Current GPT-5.6 Codex models require the standalone code-mode host. The
+	// host only transports model tool calls; it does not change the selected
+	// containment boundary. Fail closed instead of silently using an in-process
 	// fallback when the installed Codex package is incomplete.
 	args = append(args, "--config", codexCodeModeHostConfig)
-	// Runner embeds and pins every role skill in the prompt. Do not discover
-	// host-installed skills, which are outside the assigned workspace and may
-	// contain unrelated operator instructions or dependencies.
-	args = append(args, "--config", codexSkipHostSkillDiscoveryConfig)
-	args = append(args, "--config", "mcp_servers={}")
-	if !profile.allowsTool(ToolReadShell) && !profile.allowsTool(ToolShell) {
+	if !inherit {
+		// Runner embeds and pins every role skill in the prompt. Isolated roles
+		// do not discover host-installed skills or MCP servers.
+		args = append(args, "--config", codexSkipHostSkillDiscoveryConfig)
+		args = append(args, "--config", "mcp_servers={}")
+	}
+	if !inherit && !profile.allowsTool(ToolReadShell) && !profile.allowsTool(ToolShell) {
 		for _, feature := range []string{
 			"shell_tool", "shell_zsh_fork", "unified_exec", "unified_exec_zsh_fork",
 		} {
@@ -126,8 +137,14 @@ func codexProfileArgs(profile ExecutionProfile, workspace profileWorkspace, safe
 }
 
 func codexExecIsolationArgs(profile ExecutionProfile, workspace profileWorkspace) []string {
+	return codexExecArgsForConfig(profile, workspace, config.HarnessConfigModeIsolated)
+}
+
+func codexExecArgsForConfig(profile ExecutionProfile, workspace profileWorkspace, harnessConfigMode string) []string {
 	args := []string{"exec"}
-	args = append(args, "--ignore-user-config", "--ignore-rules")
+	if !inheritsHarnessConfiguration(harnessConfigMode) {
+		args = append(args, "--ignore-user-config", "--ignore-rules")
+	}
 	args = append(args, "--ephemeral", "--json", "--cd", workspace.Dir)
 	if profile.Workspace == WorkspaceNeutral {
 		args = append(args, "--skip-git-repo-check")
@@ -136,19 +153,30 @@ func codexExecIsolationArgs(profile ExecutionProfile, workspace profileWorkspace
 }
 
 func claudeProfileArgs(profile ExecutionProfile, workspace profileWorkspace, safeTools bool) []string {
+	return claudeProfileArgsForConfig(profile, workspace, safeTools, config.HarnessConfigModeIsolated)
+}
+
+func claudeProfileArgsForConfig(profile ExecutionProfile, workspace profileWorkspace, safeTools bool, harnessConfigMode string) []string {
+	inherit := inheritsHarnessConfiguration(harnessConfigMode)
 	args := []string{
 		"--print", "--output-format", "json", "--no-session-persistence",
 	}
 	// Claude Code safe mode disables MCP servers supplied explicitly through
 	// --mcp-config. Roles without Runner safe tools keep that stronger blanket
 	// suppression; safe-tool roles use the explicit controls below instead.
-	if !safeTools {
+	if !inherit && !safeTools {
 		args = append(args, "--safe-mode")
 	}
-	args = append(args,
-		"--setting-sources", "", "--strict-mcp-config",
-		"--mcp-config", claudeMCPConfig(safeTools), "--disable-slash-commands", "--no-chrome",
-	)
+	if inherit {
+		if safeTools {
+			args = append(args, "--mcp-config", claudeMCPConfig(true))
+		}
+	} else {
+		args = append(args,
+			"--setting-sources", "", "--strict-mcp-config",
+			"--mcp-config", claudeMCPConfig(safeTools), "--disable-slash-commands", "--no-chrome",
+		)
+	}
 	tools := claudeTools(profile)
 	allowedTools := tools
 	if safeTools && (profile.Role == RoleImplementer || profile.Role == RoleReviewer) {
@@ -162,12 +190,14 @@ func claudeProfileArgs(profile ExecutionProfile, workspace profileWorkspace, saf
 	} else {
 		args = append(args,
 			"--permission-mode", config.ClaudePermissionDontAsk,
-			"--settings", claudeSandboxSettings(profile, workspace, safeTools),
+			"--settings", claudeSandboxSettingsForConfig(profile, workspace, safeTools, harnessConfigMode),
 		)
 	}
-	args = append(args,
-		"--tools", tools, "--allowedTools", allowedTools,
-	)
+	if !inherit {
+		args = append(args,
+			"--tools", tools, "--allowedTools", allowedTools,
+		)
+	}
 	if workspace.ReadRoot != "" && filepath.Clean(workspace.ReadRoot) != filepath.Clean(workspace.Dir) {
 		args = append(args, "--add-dir", workspace.ReadRoot)
 	}
@@ -199,6 +229,10 @@ func claudeTools(profile ExecutionProfile) string {
 }
 
 func claudeSandboxSettings(profile ExecutionProfile, workspace profileWorkspace, safeTools bool) string {
+	return claudeSandboxSettingsForConfig(profile, workspace, safeTools, config.HarnessConfigModeIsolated)
+}
+
+func claudeSandboxSettingsForConfig(profile ExecutionProfile, workspace profileWorkspace, safeTools bool, harnessConfigMode string) string {
 	home, err := os.UserHomeDir()
 	if err != nil || !filepath.IsAbs(home) {
 		// A missing absolute home must fail closed. The explicit workspace
@@ -240,10 +274,10 @@ func claudeSandboxSettings(profile ExecutionProfile, workspace profileWorkspace,
 		}
 		sandbox["network"] = map[string]any{"allowLocalBinding": true, "allowedDomains": domains}
 	}
-	settings := map[string]any{
-		"autoMemoryEnabled": false,
-		"disableAllHooks":   true,
-		"sandbox":           sandbox,
+	settings := map[string]any{"sandbox": sandbox}
+	if !inheritsHarnessConfiguration(harnessConfigMode) {
+		settings["autoMemoryEnabled"] = false
+		settings["disableAllHooks"] = true
 	}
 	if environment := sandboxEnvironment(workspace); len(environment) > 0 {
 		settings["env"] = environment
@@ -346,16 +380,31 @@ func piProfileArgsForModel(profile ExecutionProfile, model *string) []string {
 	return piProfileArgsForResultMode(profile, true, piUsesNativeStructuredOutput(model))
 }
 
+func piProfileArgsForModelAndConfig(profile ExecutionProfile, model *string, harnessConfigMode string) []string {
+	return piProfileArgsForResultModeAndConfig(profile, true, piUsesNativeStructuredOutput(model), harnessConfigMode)
+}
+
 func piDirectNativeProfileArgs(profile ExecutionProfile) []string {
 	args := piProfileArgsForResultMode(profile, false, false)
 	return append(args, "--append-system-prompt", piDirectNativeStructuredResultSystemPrompt)
 }
 
+func piDirectNativeProfileArgsForConfig(profile ExecutionProfile, harnessConfigMode string) []string {
+	args := piProfileArgsForResultModeAndConfig(profile, false, false, harnessConfigMode)
+	return append(args, "--append-system-prompt", piDirectNativeStructuredResultSystemPrompt)
+}
+
 func piProfileArgsForResultMode(profile ExecutionProfile, structured, nativeStructured bool) []string {
-	args := []string{
-		"--print", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates",
-		"--no-themes", "--no-context-files", "--mode", "json",
+	return piProfileArgsForResultModeAndConfig(profile, structured, nativeStructured, config.HarnessConfigModeIsolated)
+}
+
+func piProfileArgsForResultModeAndConfig(profile ExecutionProfile, structured, nativeStructured bool, harnessConfigMode string) []string {
+	args := []string{"--print", "--no-session"}
+	inherit := inheritsHarnessConfiguration(harnessConfigMode)
+	if !inherit {
+		args = append(args, "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files")
 	}
+	args = append(args, "--mode", "json")
 	resultTool := piStructuredResultTool
 	resultPrompt := piStructuredResultSystemPrompt
 	if nativeStructured {
@@ -366,6 +415,9 @@ func piProfileArgsForResultMode(profile ExecutionProfile, structured, nativeStru
 		args = append(args, "--append-system-prompt", resultPrompt)
 	}
 	args = append(args, "--no-approve")
+	if inherit {
+		return args
+	}
 	resultToolSuffix := ""
 	if structured {
 		resultToolSuffix = "," + resultTool
@@ -408,29 +460,42 @@ func RequiredHarnessFlags(kind string, role RoleContract, configuredAccess ...st
 	if len(configuredAccess) > 0 {
 		access = config.EffectiveRoleAccess(configuredAccess[0])
 	}
-	if err := ValidateHarnessProfile(kind, role, access); err != nil {
+	harnessConfigMode := config.HarnessConfigModeIsolated
+	if len(configuredAccess) > 1 {
+		harnessConfigMode = config.EffectiveHarnessConfigMode(configuredAccess[1])
+	}
+	inherit := inheritsHarnessConfiguration(harnessConfigMode)
+	if err := ValidateHarnessProfile(kind, role, access, harnessConfigMode); err != nil {
 		return nil, nil, err
 	}
 	switch kind {
 	case config.HarnessCodexCLI:
 		if access == config.RoleAccessHost {
-			root = []string{"--ask-for-approval", "--sandbox", "--disable", "--config"}
+			root = []string{"--ask-for-approval", "--sandbox", "--config"}
 		} else {
-			root = []string{"--ask-for-approval", "--disable", "--config"}
+			root = []string{"--ask-for-approval", "--config"}
 			if role == RolePlanner || role == RoleReviewer || role == RoleImplementer {
 				root = append(root, "--strict-config")
 			}
+		}
+		if !inherit {
+			root = append(root, "--disable")
 		}
 		command = []string{"--ephemeral", "--json", "--cd", "--output-last-message", "--output-schema"}
 		if role != RoleImplementer {
 			command = append(command, "--skip-git-repo-check")
 		}
-		command = append(command, "--ignore-user-config", "--ignore-rules")
+		if !inherit {
+			command = append(command, "--ignore-user-config", "--ignore-rules")
+		}
 	case config.HarnessClaudeCLI:
-		command = []string{
-			"--print", "--output-format", "--no-session-persistence", "--json-schema",
-			"--safe-mode", "--setting-sources", "--strict-mcp-config", "--mcp-config",
-			"--disable-slash-commands", "--no-chrome", "--tools", "--allowedTools",
+		command = []string{"--print", "--output-format", "--no-session-persistence", "--json-schema"}
+		if !inherit {
+			command = append(command, "--safe-mode", "--setting-sources", "--strict-mcp-config", "--mcp-config", "--disable-slash-commands", "--no-chrome", "--tools", "--allowedTools")
+		} else {
+			// Inherited roles may still add Runner's safe browser through this
+			// non-strict, additive MCP configuration flag.
+			command = append(command, "--mcp-config")
 		}
 		if access == config.RoleAccessHost {
 			command = append(command, "--dangerously-skip-permissions")
@@ -441,15 +506,17 @@ func RequiredHarnessFlags(kind string, role RoleContract, configuredAccess ...st
 			command = append(command, "--add-dir")
 		}
 	case config.HarnessPiCLI:
-		command = []string{
-			"--print", "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates",
-			"--no-themes", "--no-context-files", "--mode", "--append-system-prompt", "--extension",
+		command = []string{"--print", "--no-session", "--mode", "--append-system-prompt", "--extension"}
+		if !inherit {
+			command = append(command, "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files")
 		}
 		command = append(command, "--no-approve")
-		if role == RoleProbe || role == RoleSynthesis {
-			command = append(command, "--no-tools")
-		} else {
-			command = append(command, "--tools")
+		if !inherit {
+			if role == RoleProbe || role == RoleSynthesis {
+				command = append(command, "--no-tools")
+			} else {
+				command = append(command, "--tools")
+			}
 		}
 	}
 	return root, command, nil
