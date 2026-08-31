@@ -232,6 +232,7 @@ Common readiness failures are:
 | Required status check never reports | GitHub leaves the PR open; Doctor cannot prove that every future workflow will emit the configured check | Verify Actions is enabled and the required check name exactly matches the workflow's reported check. |
 | Harness login, model access, or structured-output support is unavailable | Ordinary Doctor checks the installed CLI surface; `--probe-harnesses` makes a minimal live call | Authenticate with the harness's native flow, choose an accessible model, and rerun the live probe. |
 | Global Git commit signing opens pinentry in repository tooling | Runner-owned commits disable signing, but external setup/test commands may still prompt | Configure test fixtures with `commit.gpgSign=false`, or ensure the operator GPG agent is available; do not give the agent the signing passphrase. |
+| Chrome/Chromium is older than 149 | Doctor reports the optional browser capability as blocked; browser-dependent work will fail | Upgrade Chrome/Chromium. Runner keeps the 149+ requirement because its loopback-only MCP URL allowlist depends on that browser feature. |
 | Browser, Docker, database, or external-service prerequisites are repository-specific | Checked only when represented by an explicit capability or acceptance obligation | Document the repository's safe local entrypoint and add explicit Doctor requirements where a stable local capability exists. |
 
 For an organization-wide merge policy, create an organization branch ruleset
@@ -1098,7 +1099,9 @@ inside the native filesystem sandbox, npm-registry and loopback network access
 for implementers, and a pinned `runner_browser` server restricted to loopback
 pages with external name resolution disabled. The browser uses a temporary
 profile and mock keychain; it cannot attach to the operator's normal browser
-profile. Runner does not download Chrome. Ordinary `doctor` reports Chrome as
+profile. Runner does not download Chrome. Chrome or Chromium 149+ is required
+because the pinned MCP server's URL allowlist uses browser enforcement added in
+that release. Ordinary `doctor` reports Chrome as
 an optional safe-tool capability; its absence does not make the project
 unready unless `doctor_requirements` explicitly marks that browser capability
 as required.

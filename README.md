@@ -354,7 +354,8 @@ three-tool Chrome DevTools server with a temporary profile, mock keychain,
 disabled external name resolution, telemetry/CrUX, and redacted headers.
 Navigation is restricted to `localhost` and `127.0.0.1`. Runner never uses the
 operator's normal browser profile or downloads a browser; a compatible local
-Chrome installation is required only for browser checks. Ordinary `doctor`
+Chrome or Chromium 149+ installation is required only for browser checks.
+Ordinary `doctor`
 reports browser availability but does not fail a non-browser project merely
 because Chrome is absent, unless the operator explicitly requires that
 capability. The pinned MCP package may be fetched through `npx` on first use.

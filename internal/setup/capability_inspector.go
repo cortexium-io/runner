@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,11 @@ import (
 	"github.com/cortexium-io/runner/internal/subprocess"
 	bundledskills "github.com/cortexium-io/runner/skills"
 )
+
+// chrome-devtools-mcp's allowed URL patterns are the browser-level boundary
+// that keeps Runner's built-in browser on loopback. Chrome added the required
+// support in major version 149.
+const minimumRunnerBrowserChromeMajor = 149
 
 type InspectionRequest struct {
 	CheckedAt    time.Time
@@ -312,15 +318,40 @@ func (i *Inspector) inspectChrome(ctx context.Context) CapabilityState {
 		}
 		capability.Status = CapabilityAvailable
 		capability.Detail = stringPtr("isolated headless browser executable found at " + path)
-		if result, err := i.run.Run(ctx, path, []string{"--version"}, "", 5*time.Second); err == nil {
-			if version := firstNonEmptyLine(result.Stdout, result.Stderr); version != "" {
-				capability.Version = stringPtr(version)
-			}
+		result, err := i.run.Run(ctx, path, []string{"--version"}, "", 5*time.Second)
+		if err != nil {
+			capability.Status = CapabilityBlocked
+			capability.Detail = stringPtr("browser executable was found, but Runner could not determine its version")
+			return capability
+		}
+		version := firstNonEmptyLine(result.Stdout, result.Stderr)
+		major, ok := browserMajorVersion(version)
+		if !ok {
+			capability.Status = CapabilityBlocked
+			capability.Detail = stringPtr("browser executable was found, but its major version could not be determined")
+			return capability
+		}
+		capability.Version = stringPtr(version)
+		if major < minimumRunnerBrowserChromeMajor {
+			capability.Status = CapabilityBlocked
+			capability.Detail = stringPtr(fmt.Sprintf("Chrome or Chromium %d+ is required for Runner's loopback-only browser; found major version %d", minimumRunnerBrowserChromeMajor, major))
 		}
 		return capability
 	}
 	capability.Detail = stringPtr("compatible Chrome or Chromium executable not found")
 	return capability
+}
+
+func browserMajorVersion(version string) (int, bool) {
+	for _, field := range strings.Fields(version) {
+		candidate := strings.TrimLeft(field, "vV")
+		majorText, _, _ := strings.Cut(candidate, ".")
+		major, err := strconv.Atoi(majorText)
+		if err == nil && major > 0 {
+			return major, true
+		}
+	}
+	return 0, false
 }
 
 func (i *Inspector) inspectProject(ctx context.Context, projectDir string) *ProjectInspection {

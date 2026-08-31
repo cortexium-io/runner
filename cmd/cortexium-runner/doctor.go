@@ -522,6 +522,9 @@ func writeDoctorCapability(output io.Writer, capabilities []setup.CapabilityStat
 			version = " · " + *capability.Version
 		}
 		writeStateLine(output, tone, "  %s %s%s", marker, label, version)
+		if capability.Status != setup.CapabilityAvailable && capability.Detail != nil {
+			fmt.Fprintf(output, "    %s\n", *capability.Detail)
+		}
 		return
 	}
 	writeStateLine(output, toneFailure, "  ✗ %s", label)

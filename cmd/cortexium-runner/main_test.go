@@ -21,6 +21,7 @@ import (
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/github"
 	runnermetrics "github.com/cortexium-io/runner/internal/metrics"
+	"github.com/cortexium-io/runner/internal/setup"
 	"github.com/cortexium-io/runner/internal/subprocess"
 	bundledskills "github.com/cortexium-io/runner/skills"
 )
@@ -1389,6 +1390,20 @@ func TestDoctorRejectsLiveProbeInOfflineMode(t *testing.T) {
 	err := run(t.Context(), []string{"doctor", "--offline", "--probe-harnesses"}, strings.NewReader(""), io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
 		t.Fatalf("offline live probe error = %v", err)
+	}
+}
+
+func TestDoctorCapabilityExplainsBlockedTool(t *testing.T) {
+	detail := "Chrome or Chromium 149+ is required for Runner's loopback-only browser; found major version 140"
+	version := "Google Chrome 140.0.7339.208"
+	var output bytes.Buffer
+	writeDoctorCapability(&output, []setup.CapabilityState{{
+		ID: "chrome", Type: config.CapabilityTypeLocalTool, Status: setup.CapabilityBlocked,
+		Version: &version, Detail: &detail,
+	}}, config.CapabilityTypeLocalTool, "chrome", "isolated Chrome/Chromium")
+
+	if got := output.String(); !strings.Contains(got, version) || !strings.Contains(got, detail) {
+		t.Fatalf("blocked capability output omitted diagnosis: %q", got)
 	}
 }
 

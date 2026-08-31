@@ -105,6 +105,61 @@ func TestCapabilityInspectorRejectsHarnessWithoutConfiguredPolicyFlags(t *testin
 	}
 }
 
+type chromeVersionRunner struct {
+	version string
+	err     error
+}
+
+func (r chromeVersionRunner) Run(_ context.Context, _ string, args []string, _ string, _ time.Duration) (subprocess.Result, error) {
+	if !reflect.DeepEqual(args, []string{"--version"}) {
+		return subprocess.Result{}, errors.New("unexpected browser invocation")
+	}
+	return subprocess.Result{Stdout: r.version}, r.err
+}
+
+func TestInspectChromeRequiresLoopbackAllowlistSupport(t *testing.T) {
+	browser := filepath.Join(t.TempDir(), "chrome")
+	if err := os.WriteFile(browser, []byte("test"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		version string
+		status  string
+		detail  string
+	}{
+		{name: "supported", version: "Google Chrome 149.0.1\n", status: CapabilityAvailable, detail: "isolated headless browser"},
+		{name: "too old", version: "Google Chrome 140.0.7339.208\n", status: CapabilityBlocked, detail: "149+ is required"},
+		{name: "unknown", version: "Google Chrome unknown\n", status: CapabilityBlocked, detail: "could not be determined"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			inspector := NewInspector(config.Config{}, chromeVersionRunner{version: test.version})
+			inspector.lookPath = func(string) (string, error) { return browser, nil }
+			capability := inspector.inspectChrome(t.Context())
+			if capability.Status != test.status || capability.Detail == nil || !strings.Contains(*capability.Detail, test.detail) {
+				t.Fatalf("browser capability = %#v", capability)
+			}
+		})
+	}
+}
+
+func TestBrowserMajorVersion(t *testing.T) {
+	for input, want := range map[string]int{
+		"Google Chrome 149.0.1": 149,
+		"Chromium v150.2.3":     150,
+	} {
+		got, ok := browserMajorVersion(input)
+		if !ok || got != want {
+			t.Fatalf("browserMajorVersion(%q) = %d, %t; want %d, true", input, got, ok, want)
+		}
+	}
+	if got, ok := browserMajorVersion("Google Chrome unknown"); ok || got != 0 {
+		t.Fatalf("unknown browser version = %d, %t", got, ok)
+	}
+}
+
 type policyHelpRunner struct{ inspectorCommandRunner }
 
 func (policyHelpRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
