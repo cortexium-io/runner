@@ -1380,6 +1380,27 @@ func TestDirectProjectPlanStagesOnlyUntilExplicitCompleteBatchApproval(t *testin
 	}
 }
 
+func TestDirectProjectPlanFinalizesWhileProjectItemConnectionLags(t *testing.T) {
+	project := &fakeGitHubProjectRunner{hideCreatedFromList: true}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	staged, err := service.ApplyProjectPlan(t.Context(), directProjectPlanFixture())
+	if err != nil {
+		t.Fatalf("stage direct plan while Project item connection lags: %v", err)
+	}
+	if len(staged) != 2 || project.createCount != 2 {
+		t.Fatalf("staging did not retain the exact created batch: staged=%#v creates=%d", staged, project.createCount)
+	}
+	if len(staged[1].Dependencies) != 1 || staged[1].Dependencies[0] != staged[0].ID {
+		t.Fatalf("staging did not finalize exact-ID dependencies: %#v", staged[1])
+	}
+}
+
 func TestDirectProjectPlanApprovalRejectsCopiedCanonicalMetadataWithoutRunnerProvenance(t *testing.T) {
 	project := &fakeGitHubProjectRunner{}
 	service, err := New(completeEngineTestConfig(config.Config{

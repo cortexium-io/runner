@@ -213,6 +213,7 @@ type fakeGitHubProjectRunner struct {
 	clearApprovalWrites int
 	failBodyEditAt      int
 	bodyEditWrites      int
+	hideCreatedFromList bool
 	omitDraftContentID  bool
 	convertCount        int
 	failConvertAt       int
@@ -367,6 +368,9 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 			r.loadRemoteItems()
 			encodedItems := make([]string, 0, len(r.remoteItems))
 			for _, item := range r.remoteItems {
+				if r.hideCreatedFromList && strings.HasPrefix(item.ID, "PVTI_created") {
+					continue
+				}
 				encodedItems = append(encodedItems, projectItemJSON(item))
 			}
 			return subprocess.Result{Stdout: legacyItemsGraphQLJSON(`{"items":[` + strings.Join(encodedItems, ",") + `]}`)}, nil

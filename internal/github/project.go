@@ -1065,11 +1065,7 @@ func (s *Project) AuthenticateDirectPlanningBatch(ctx context.Context, expected 
 // ID-bound representation while the child remains non-executable in assessment.
 // It is idempotent so an interrupted batch finalization can safely resume.
 func (s *Project) FinalizeStaged(ctx context.Context, expected WorkItem, planned PlannedItem) (WorkItem, error) {
-	items, err := s.ListItems(ctx)
-	if err != nil {
-		return WorkItem{}, err
-	}
-	current, err := selectProjectItem(items, expected.ID)
+	current, err := s.itemByID(ctx, expected.ID)
 	if err != nil {
 		return WorkItem{}, err
 	}
