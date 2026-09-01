@@ -587,11 +587,11 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 	}
 	if currentBaseRevision != preparedBeforeImplementation.BaseRevision {
 		provider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
-		if _, candidateErr := provider.ConstructCandidate(ctx, preparedBeforeImplementation, item.Title); candidateErr != nil {
+		if _, candidateErr := provider.ConstructCandidateForMergeMethod(ctx, preparedBeforeImplementation, item.Title, s.cfg.GitHubProject.MergeMethod); candidateErr != nil {
 			return s.failExecution(ctx, action, lane, result, "Retained implementation candidate could not be committed before its base refresh", candidateErr,
 				integrityViolationOutput("Retained implementation candidate could not be committed before its base refresh", candidateErr))
 		}
-		refresh, refreshErr := provider.RefreshLocalBase(ctx, preparedBeforeImplementation, s.remoteName(), s.baseBranch())
+		refresh, refreshErr := provider.RefreshLocalBaseForMergeMethod(ctx, preparedBeforeImplementation, s.remoteName(), s.baseBranch(), s.cfg.GitHubProject.MergeMethod)
 		if refreshErr != nil {
 			return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be refreshed", refreshErr,
 				blockedExecutorOutput("Implementation candidate could not be refreshed", refreshErr))
@@ -703,7 +703,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 		}
 	}
 	if candidate.CommitOID == "" {
-		candidate, err = workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).ConstructCandidate(ctx, preparedWorkspace, item.Title)
+		candidate, err = workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).ConstructCandidateForMergeMethod(ctx, preparedWorkspace, item.Title, s.cfg.GitHubProject.MergeMethod)
 		if err != nil {
 			return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be committed for QA", err,
 				integrityViolationOutput("Implementation candidate could not be committed for QA", err, output))
@@ -793,7 +793,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 			transientExecutorOutput("Base revision could not be verified before QA"))
 	}
 	if currentBaseRevision != preparedWorkspace.BaseRevision {
-		refresh, refreshErr := github.NewPullRequestManager(s.run, s.source).RefreshUnpublishedBranchAuthorized(ctx, action, preparedWorkspace, s.baseBranch(), s.remoteName())
+		refresh, refreshErr := github.NewPullRequestManager(s.run, s.source).RefreshUnpublishedBranchAuthorized(ctx, action, preparedWorkspace, s.baseBranch(), s.remoteName(), s.cfg.GitHubProject.MergeMethod)
 		if refreshErr != nil {
 			return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be refreshed before QA", refreshErr,
 				blockedExecutorOutput("Implementation candidate could not be refreshed before QA", refreshErr))
@@ -817,7 +817,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		}
 		return result
 	}
-	candidate, err := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).ConstructCandidate(ctx, preparedWorkspace, item.Title)
+	candidate, err := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).ConstructCandidateForMergeMethod(ctx, preparedWorkspace, item.Title, s.cfg.GitHubProject.MergeMethod)
 	if err != nil {
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation candidate could not be committed for QA", err,
 			integrityViolationOutput("Implementation candidate could not be committed for QA", err), lane.Transitions[config.WorkflowOutcomeRejected])
@@ -984,7 +984,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		if !errors.Is(cause, workspace.ErrIdentityMismatch) && !errors.Is(cause, github.ErrPublicationBaseChanged) {
 			return RunResult{}, false
 		}
-		refresh, refreshErr := pullRequests.RefreshUnpublishedBranchAuthorized(ctx, action, preparedWorkspace, s.baseBranch(), s.remoteName())
+		refresh, refreshErr := pullRequests.RefreshUnpublishedBranchAuthorized(ctx, action, preparedWorkspace, s.baseBranch(), s.remoteName(), s.cfg.GitHubProject.MergeMethod)
 		if refreshErr != nil {
 			result.Error = appendError(result.Error, fmt.Errorf("refresh unpublished candidate after base move: %w", refreshErr))
 			return RunResult{}, false
@@ -1042,7 +1042,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	preparedWorkspace = validatedWorkspace
 	finishPublish := metrics.StartStage(ctx, metrics.StagePublishPullRequest)
-	published, err := pullRequests.PublishAuthorized(ctx, action, preparedWorkspace, publicationRecord, s.baseBranch(), s.remoteName(), qaReport)
+	published, err := pullRequests.PublishAuthorized(ctx, action, preparedWorkspace, publicationRecord, s.baseBranch(), s.remoteName(), s.cfg.GitHubProject.MergeMethod, qaReport)
 	if err != nil {
 		finishPublish(metrics.StageOutcomeFailed, string(execution.FailureTransientExternal), string(execution.RetryManual), metrics.Usage{})
 		if errors.Is(err, github.ErrPublicationBaseChanged) {

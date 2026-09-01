@@ -321,22 +321,33 @@ func validGitObjectID(value string) bool {
 	return true
 }
 
-func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, qaReport string) (PublishedPullRequest, error) {
+func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod, qaReport string) (PublishedPullRequest, error) {
 	item, err := requireAuthorizedAction(action)
 	if err != nil {
 		return PublishedPullRequest{}, err
 	}
 	baseBranch = strings.TrimSpace(baseBranch)
 	remoteName = strings.TrimSpace(remoteName)
+	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
 	if baseBranch == "" || remoteName == "" {
 		return PublishedPullRequest{}, errors.New("publication requires an explicit base branch and Git remote")
+	}
+	if !config.ValidMergeMethod(mergeMethod) {
+		return PublishedPullRequest{}, errors.New("publication requires merge, rebase, or squash merge method")
 	}
 	branch := strings.TrimPrefix(record.DestinationRef, "refs/heads/")
 	if err := validatePublicationAuthority(action, record); err != nil {
 		return PublishedPullRequest{}, err
 	}
+	pushPolicy := workspace.PublicationPushPolicy{MergeMethod: mergeMethod}
+	if mergeMethod == config.MergeMethodRebase && strings.TrimSpace(item.PullRequest) != "" {
+		if !validGitObjectID(item.QACommit) {
+			return PublishedPullRequest{}, errors.New("rebase-mode pull request publication requires the exact previously accepted remote commit")
+		}
+		pushPolicy.ExpectedRemoteOID = strings.TrimSpace(item.QACommit)
+	}
 	provider := workspace.NewGitProvider(m.run)
-	if err := provider.PublishAccepted(ctx, metadata, record, remoteName, baseBranch, func() error {
+	if err := provider.PublishAccepted(ctx, metadata, record, remoteName, baseBranch, pushPolicy, func() error {
 		refreshed, refreshErr := m.refreshAuthorizedAction(ctx, action)
 		if refreshErr != nil {
 			return refreshErr
@@ -434,8 +445,8 @@ func trustedPullRequestActor(actor, configuredActor string) bool {
 	return strings.EqualFold(strings.TrimSpace(actor), strings.TrimSpace(configuredActor))
 }
 
-func (m PullRequestManager) PublishAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, qaReport string) (PublishedPullRequest, error) {
-	return m.publish(ctx, action, metadata, record, baseBranch, remoteName, qaReport)
+func (m PullRequestManager) PublishAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod, qaReport string) (PublishedPullRequest, error) {
+	return m.publish(ctx, action, metadata, record, baseBranch, remoteName, mergeMethod, qaReport)
 }
 
 func validatePublicationAuthority(action AuthorizedAction, record workspace.PublicationRecord) error {
@@ -523,15 +534,15 @@ func (m PullRequestManager) findOpen(ctx context.Context, repository, branch, ba
 	return PublishedPullRequest{URL: url, Number: match.Number}, true, nil
 }
 
-func (m PullRequestManager) refreshBranch(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, baseBranch, remoteName string) (BranchRefreshResult, error) {
-	return m.refreshBranchMode(ctx, action, metadata, baseBranch, remoteName, true)
+func (m PullRequestManager) refreshBranch(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, baseBranch, remoteName, mergeMethod string) (BranchRefreshResult, error) {
+	return m.refreshBranchMode(ctx, action, metadata, baseBranch, remoteName, mergeMethod, true)
 }
 
-func (m PullRequestManager) refreshUnpublishedBranch(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, baseBranch, remoteName string) (BranchRefreshResult, error) {
-	return m.refreshBranchMode(ctx, action, metadata, baseBranch, remoteName, false)
+func (m PullRequestManager) refreshUnpublishedBranch(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, baseBranch, remoteName, mergeMethod string) (BranchRefreshResult, error) {
+	return m.refreshBranchMode(ctx, action, metadata, baseBranch, remoteName, mergeMethod, false)
 }
 
-func (m PullRequestManager) refreshBranchMode(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, baseBranch, remoteName string, published bool) (BranchRefreshResult, error) {
+func (m PullRequestManager) refreshBranchMode(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, baseBranch, remoteName, mergeMethod string, published bool) (BranchRefreshResult, error) {
 	item, err := requireAuthorizedAction(action)
 	if err != nil {
 		return BranchRefreshResult{}, err
@@ -541,11 +552,15 @@ func (m PullRequestManager) refreshBranchMode(ctx context.Context, action Author
 	branch = strings.TrimSpace(branch)
 	baseBranch = strings.TrimSpace(baseBranch)
 	remoteName = strings.TrimSpace(remoteName)
+	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
 	if branch == "" || strings.TrimSpace(metadata.WorktreePath) == "" {
 		return BranchRefreshResult{}, errors.New("branch refresh requires a worktree and branch")
 	}
 	if baseBranch == "" || remoteName == "" {
 		return BranchRefreshResult{}, errors.New("branch refresh requires an explicit base branch and Git remote")
+	}
+	if !config.ValidMergeMethod(mergeMethod) {
+		return BranchRefreshResult{}, errors.New("branch refresh requires merge, rebase, or squash merge method")
 	}
 	if branch != metadata.BranchName || !strings.EqualFold(repository, metadata.Identity.Repository) {
 		return BranchRefreshResult{}, errors.New("branch refresh workspace does not match the authorized repository and branch")
@@ -556,9 +571,9 @@ func (m PullRequestManager) refreshBranchMode(ctx context.Context, action Author
 	provider := workspace.NewGitProvider(m.run)
 	var refreshed workspace.BaseRefresh
 	if published {
-		refreshed, err = provider.RefreshBase(ctx, metadata, remoteName, baseBranch)
+		refreshed, err = provider.RefreshBaseForMergeMethod(ctx, metadata, remoteName, baseBranch, mergeMethod)
 	} else {
-		refreshed, err = provider.RefreshLocalBase(ctx, metadata, remoteName, baseBranch)
+		refreshed, err = provider.RefreshLocalBaseForMergeMethod(ctx, metadata, remoteName, baseBranch, mergeMethod)
 	}
 	if err != nil {
 		return BranchRefreshResult{}, err
@@ -566,12 +581,12 @@ func (m PullRequestManager) refreshBranchMode(ctx context.Context, action Author
 	return BranchRefreshResult{Updated: refreshed.Updated, Conflicted: refreshed.Conflicted, CommitSHA: refreshed.CommitOID, ConflictFiles: refreshed.ConflictFiles, Summary: refreshed.Summary}, nil
 }
 
-func (m PullRequestManager) RefreshBranchAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, baseBranch, remoteName string) (BranchRefreshResult, error) {
-	return m.refreshBranch(ctx, action, metadata, baseBranch, remoteName)
+func (m PullRequestManager) RefreshBranchAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, baseBranch, remoteName, mergeMethod string) (BranchRefreshResult, error) {
+	return m.refreshBranch(ctx, action, metadata, baseBranch, remoteName, mergeMethod)
 }
 
-func (m PullRequestManager) RefreshUnpublishedBranchAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, baseBranch, remoteName string) (BranchRefreshResult, error) {
-	return m.refreshUnpublishedBranch(ctx, action, metadata, baseBranch, remoteName)
+func (m PullRequestManager) RefreshUnpublishedBranchAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, baseBranch, remoteName, mergeMethod string) (BranchRefreshResult, error) {
+	return m.refreshUnpublishedBranch(ctx, action, metadata, baseBranch, remoteName, mergeMethod)
 }
 
 func (m PullRequestManager) validateRemoteRepository(ctx context.Context, workingDir, remoteName, expectedRepository string) error {

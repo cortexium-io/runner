@@ -358,7 +358,7 @@ func TestGitHubPullRequestManagerPublishesExactAcceptedTupleUnderSanitizedGit(t 
 	}
 	manager := NewPullRequestManager(runner, staticActionRefresher{})
 	qaReport := "**Verdict:** Accepted\n\n### Checks performed\n\n- All QA checks passed."
-	published, err := manager.PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", qaReport)
+	published, err := manager.PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, qaReport)
 	if err != nil {
 		t.Fatalf("publish: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestGitHubPullRequestManagerRejectsBaseMovementBeforePush(t *testing.T) {
 	advanceRemoteBase(t, repo, "base.txt", "new base\n")
 
 	_, err := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{}).PublishAuthorized(
-		t.Context(), action, metadata, record, "main", "origin", "Accepted")
+		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted")
 	if !errors.Is(err, ErrPublicationBaseChanged) {
 		t.Fatalf("publication accepted a changed base revision: %v", err)
 	}
@@ -412,7 +412,7 @@ func TestGitHubPullRequestManagerRefreshesAuthorityAfterFinalFetchBeforePush(t *
 	_, remote, metadata, record, action := acceptedPublicationTuple(t)
 	runner := &pullRequestTestRunner{publicationRemote: remote}
 	_, err := NewPullRequestManager(runner, staticActionRefresher{err: errors.New("Project action changed")}).PublishAuthorized(
-		t.Context(), action, metadata, record, "main", "origin", "Accepted")
+		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted")
 	if err == nil || !strings.Contains(err.Error(), "refresh Project authority") {
 		t.Fatalf("stale publication authority was accepted: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestGitHubPullRequestManagerRejectsDifferentRepositoryRemote(t *testing.T) 
 	_, remote, metadata, record, action := acceptedPublicationTupleWithSetup(t, func(repo, _ string) {
 		runGitTest(t, repo, "config", "remote.origin.url", "https://github.com/other/repo.git")
 	})
-	_, err := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", "accepted")
+	_, err := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "accepted")
 	if err == nil || !strings.Contains(err.Error(), "does not match Git remote") {
 		t.Fatalf("publication accepted a different repository remote: %v", err)
 	}
@@ -468,11 +468,11 @@ func TestGitHubPullRequestManagerReusesOpenPRAfterPartialPublication(t *testing.
 		viewHeadOID:       record.CommitOID,
 		viewBaseOID:       record.ApprovedBaseOID,
 	}
-	if _, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", "Accepted"); err != nil {
+	if _, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted"); err != nil {
 		t.Fatalf("initial push: %v", err)
 	}
 	runner.gitCalls = nil
-	published, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", "Accepted")
+	published, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted")
 	if err != nil {
 		t.Fatalf("reuse open pull request: %v", err)
 	}
@@ -494,7 +494,7 @@ func TestGitHubPullRequestManagerReusesOpenPRAfterPartialPublication(t *testing.
 func TestGitHubPullRequestManagerRejectsAmbiguousOpenPullRequests(t *testing.T) {
 	_, remote, metadata, record, action := acceptedPublicationTuple(t)
 	runner := &pullRequestTestRunner{ambiguousOpen: true, publicationRemote: remote}
-	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", "Accepted")
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted")
 	if err == nil || !strings.Contains(err.Error(), "2 open pull requests") {
 		t.Fatalf("ambiguous pull requests were accepted: %v", err)
 	}
@@ -512,7 +512,7 @@ func TestGitHubPullRequestManagerRejectsReusedOpenPRWithUnexpectedAcceptedTuple(
 		viewHeadOID:       strings.Repeat("d", 40),
 		viewBaseOID:       record.ApprovedBaseOID,
 	}
-	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", "Accepted")
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted")
 	if err == nil || !strings.Contains(err.Error(), "accepted publication tuple") || !strings.Contains(err.Error(), "head commit") {
 		t.Fatalf("reused pull request with mismatched accepted tuple was accepted: %v", err)
 	}
@@ -531,7 +531,7 @@ func TestGitHubPullRequestManagerRejectsMismatchedPersistedPR(t *testing.T) {
 		viewHeadOID:       record.CommitOID,
 		viewBaseOID:       record.ApprovedBaseOID,
 	}
-	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", "Accepted")
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted")
 	if err == nil || !strings.Contains(err.Error(), "accepted publication tuple") || !strings.Contains(err.Error(), "head branch") {
 		t.Fatalf("mismatched persisted pull request was accepted: %v", err)
 	}
@@ -556,7 +556,7 @@ func TestGitHubPullRequestManagerRejectsChangedTupleBeforePushOrGitHubMutation(t
 			changedRecord, changedAction := record, action
 			test.mutate(&changedRecord, &changedAction)
 			runner := &pullRequestTestRunner{publicationRemote: remote}
-			_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), changedAction, metadata, changedRecord, "main", "origin", "Accepted")
+			_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), changedAction, metadata, changedRecord, "main", "origin", config.MergeMethodMerge, "Accepted")
 			if err == nil {
 				t.Fatal("changed publication tuple was accepted")
 			}
@@ -574,7 +574,7 @@ func TestGitHubPullRequestManagerRefreshesBranchAndReportsConflicts(t *testing.T
 		advanceRemoteBase(t, repo, "base.txt", "base update\n")
 
 		manager := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{})
-		refresh, err := manager.RefreshBranchAuthorized(t.Context(), action, metadata, "main", "origin")
+		refresh, err := manager.RefreshBranchAuthorized(t.Context(), action, metadata, "main", "origin", config.MergeMethodMerge)
 		if err != nil || !refresh.Updated || refresh.Conflicted {
 			t.Fatalf("refresh = %#v, error = %v", refresh, err)
 		}
@@ -592,12 +592,179 @@ func TestGitHubPullRequestManagerRefreshesBranchAndReportsConflicts(t *testing.T
 		advanceRemoteBase(t, repo, "README.md", "base change\n")
 
 		manager := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{})
-		refresh, err := manager.RefreshBranchAuthorized(t.Context(), action, metadata, "main", "origin")
+		refresh, err := manager.RefreshBranchAuthorized(t.Context(), action, metadata, "main", "origin", config.MergeMethodMerge)
 		if err != nil || !refresh.Conflicted || refresh.Updated || len(refresh.ConflictFiles) != 1 || refresh.ConflictFiles[0] != "README.md" {
 			t.Fatalf("refresh = %#v, error = %v", refresh, err)
 		}
 		assertRefreshedWorkspaceReusable(t, repo, metadata, action)
 	})
+}
+
+func TestGitHubPullRequestManagerMergeAndSquashRefreshRetainMergeTopology(t *testing.T) {
+	for _, mergeMethod := range []string{config.MergeMethodMerge, config.MergeMethodSquash} {
+		t.Run(mergeMethod, func(t *testing.T) {
+			repo, remote, metadata, _, action := acceptedPublicationTuple(t)
+			runGitTest(t, metadata.WorktreePath, "push", "-u", "origin", "cortexium/task")
+			advanceRemoteBase(t, repo, "base.txt", "base update\n")
+			refresh, err := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{}).
+				RefreshBranchAuthorized(t.Context(), action, metadata, "main", "origin", mergeMethod)
+			if err != nil || !refresh.Updated || refresh.Conflicted {
+				t.Fatalf("refresh = %#v, error = %v", refresh, err)
+			}
+			parents := strings.Fields(runGitTest(t, metadata.WorktreePath, "rev-list", "--parents", "-n", "1", "HEAD"))
+			if len(parents) != 3 {
+				t.Fatalf("%s refresh parents = %v, want merge topology", mergeMethod, parents)
+			}
+		})
+	}
+}
+
+func TestGitHubPullRequestManagerPublishesLinearRebaseRefreshWithExactLease(t *testing.T) {
+	for _, conflicted := range []bool{false, true} {
+		name := "clean"
+		if conflicted {
+			name = "conflict"
+		}
+		t.Run(name, func(t *testing.T) {
+			remote, metadata, record, action, previousRemoteOID := acceptedRebaseRefreshTuple(t, conflicted)
+			runner := &pullRequestTestRunner{
+				publicationRemote: remote,
+				viewHeadOID:       record.CommitOID,
+				viewBaseOID:       record.ApprovedBaseOID,
+			}
+			published, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(
+				t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase, "Accepted")
+			if err != nil {
+				t.Fatalf("publish rebase refresh: %v", err)
+			}
+			if published.CommitSHA != record.CommitOID {
+				t.Fatalf("published commit = %q, want %q", published.CommitSHA, record.CommitOID)
+			}
+			remoteHead := strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", record.DestinationRef))
+			if remoteHead != record.CommitOID {
+				t.Fatalf("remote head = %q, want accepted %q", remoteHead, record.CommitOID)
+			}
+			wantLease := "push --porcelain --no-verify --force-with-lease=" + record.DestinationRef + ":" + previousRemoteOID +
+				" https://github.com/owner/repo.git " + record.CommitOID + ":" + record.DestinationRef
+			if !strings.Contains(strings.Join(runner.gitCalls, "\n"), wantLease) {
+				t.Fatalf("rebase publication did not use the exact expected-old-OID lease:\n%s", strings.Join(runner.gitCalls, "\n"))
+			}
+		})
+	}
+}
+
+func TestGitHubPullRequestManagerRejectsExternallyChangedRebaseDestination(t *testing.T) {
+	remote, metadata, record, action, previousRemoteOID := acceptedRebaseRefreshTuple(t, false)
+	externalOID := strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/main"))
+	runGitTest(t, "", "--git-dir", remote, "update-ref", record.DestinationRef, externalOID, previousRemoteOID)
+	runner := &pullRequestTestRunner{publicationRemote: remote}
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(
+		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase, "Accepted")
+	if err == nil || !strings.Contains(err.Error(), "publication destination changed externally") {
+		t.Fatalf("externally changed rebase destination was accepted: %v", err)
+	}
+	remoteHead := strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", record.DestinationRef))
+	if remoteHead != externalOID {
+		t.Fatalf("external destination was overwritten: got %s, want %s", remoteHead, externalOID)
+	}
+	if strings.Contains(strings.Join(runner.gitCalls, "\n"), " push ") {
+		t.Fatalf("externally changed destination reached push: %#v", runner.gitCalls)
+	}
+}
+
+func TestGitHubPullRequestManagerReusesAlreadyPublishedRebaseCandidate(t *testing.T) {
+	remote, metadata, record, action, previousRemoteOID := acceptedRebaseRefreshTuple(t, false)
+	runGitTest(t, metadata.WorktreePath, "push", "--force-with-lease="+record.DestinationRef+":"+previousRemoteOID,
+		"origin", record.CommitOID+":"+record.DestinationRef)
+	runner := &pullRequestTestRunner{
+		publicationRemote: remote,
+		viewHeadOID:       record.CommitOID,
+		viewBaseOID:       record.ApprovedBaseOID,
+	}
+	published, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(
+		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase, "Accepted")
+	if err != nil || published.CommitSHA != record.CommitOID {
+		t.Fatalf("reuse already-published rebase candidate: published=%#v error=%v", published, err)
+	}
+	if strings.Contains(strings.Join(runner.gitCalls, "\n"), " push ") {
+		t.Fatalf("already-published rebase candidate was pushed again: %#v", runner.gitCalls)
+	}
+}
+
+func acceptedRebaseRefreshTuple(t *testing.T, conflicted bool) (string, workspace.Metadata, workspace.PublicationRecord, AuthorizedAction, string) {
+	t.Helper()
+	repo, remote, metadata, _, action := acceptedPublicationTuple(t)
+	provider := workspace.NewGitProvider(subprocess.OSRunner{})
+	if conflicted {
+		if err := os.WriteFile(filepath.Join(metadata.WorktreePath, "README.md"), []byte("task change\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := provider.ConstructCandidate(t.Context(), metadata, "Change task file"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGitTest(t, metadata.WorktreePath, "push", "-u", "origin", "cortexium/task")
+	previousRemoteOID := strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/cortexium/task"))
+	action.Item.PullRequest = "https://github.com/owner/repo/pull/12"
+	action.Item.QACommit = previousRemoteOID
+	action = authorizedPullRequestTestAction(action.Item)
+	if conflicted {
+		advanceRemoteBase(t, repo, "README.md", "base change\n")
+	} else {
+		advanceRemoteBase(t, repo, "base.txt", "base change\n")
+	}
+	refresh, err := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{}).
+		RefreshBranchAuthorized(t.Context(), action, metadata, "main", "origin", config.MergeMethodRebase)
+	if err != nil {
+		t.Fatalf("refresh rebase candidate: %v", err)
+	}
+	if refresh.Conflicted != conflicted || refresh.Updated == conflicted {
+		t.Fatalf("rebase refresh = %#v, want conflicted=%t", refresh, conflicted)
+	}
+	content, err := action.DelegatedContent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err = provider.Prepare(t.Context(), workspace.Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Dir(metadata.WorktreePath), WorkID: filepath.Base(metadata.WorktreePath),
+		ItemID: action.Item.ID, DelegatedContentDigest: content.Digest, Repository: action.Item.Repository,
+		BranchName: metadata.BranchName, BaseRef: metadata.BaseRef,
+	})
+	if err != nil {
+		t.Fatalf("reopen refreshed workspace: %v", err)
+	}
+	if conflicted {
+		if err := os.WriteFile(filepath.Join(metadata.WorktreePath, "README.md"), []byte("resolved task and base\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	candidate, err := provider.ConstructCandidateForMergeMethod(t.Context(), metadata, "Accepted rebase refresh", config.MergeMethodRebase)
+	if err != nil {
+		t.Fatalf("construct rebase-compatible candidate: %v", err)
+	}
+	parents := strings.Fields(runGitTest(t, metadata.WorktreePath, "rev-list", "--parents", "-n", "1", candidate.CommitOID))
+	if len(parents) != 2 || parents[1] != metadata.BaseRevision {
+		t.Fatalf("rebase candidate parents = %v, want only base %s", parents, metadata.BaseRevision)
+	}
+	if got := runGitTest(t, metadata.WorktreePath, "show", candidate.CommitOID+":feature.txt"); got != "accepted implementation\n" {
+		t.Fatalf("rebase candidate lost task content: %q", got)
+	}
+	if conflicted {
+		if got := runGitTest(t, metadata.WorktreePath, "show", candidate.CommitOID+":README.md"); got != "resolved task and base\n" {
+			t.Fatalf("rebase candidate lost conflict resolution: %q", got)
+		}
+	} else if got := runGitTest(t, metadata.WorktreePath, "show", candidate.CommitOID+":base.txt"); got != "base change\n" {
+		t.Fatalf("rebase candidate lost base content: %q", got)
+	}
+	accepted, err := workspace.CaptureSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, metadata.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := provider.RecordPublicationAcceptance(t.Context(), metadata, accepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return remote, metadata, record, action, previousRemoteOID
 }
 
 func assertRefreshedWorkspaceReusable(t *testing.T, repo string, metadata workspace.Metadata, action AuthorizedAction) {
@@ -637,7 +804,7 @@ func TestGitHubPullRequestManagerKeepsBaseRefreshLocalUntilReplacementQA(t *test
 	runGitTest(t, metadata.WorktreePath, "config", "core.hooksPath", hooks)
 	runGitTest(t, metadata.WorktreePath, "config", "commit.gpgSign", "true")
 
-	refresh, err := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{err: errors.New("must not be called")}).RefreshBranchAuthorized(t.Context(), action, metadata, "main", "origin")
+	refresh, err := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{err: errors.New("must not be called")}).RefreshBranchAuthorized(t.Context(), action, metadata, "main", "origin", config.MergeMethodMerge)
 	if err != nil || !refresh.Updated {
 		t.Fatalf("local branch refresh failed: refresh=%#v error=%v", refresh, err)
 	}
@@ -655,7 +822,7 @@ func TestGitHubPullRequestManagerRejectsConfiguredBaseRefreshFilter(t *testing.T
 	runGitTest(t, metadata.WorktreePath, "push", "-u", "origin", "cortexium/task")
 	advanceRemoteBase(t, repo, "base.txt", "base update\n")
 	runGitTest(t, metadata.WorktreePath, "config", "filter.attacker.smudge", "sh -c 'exit 0'")
-	refresh, err := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{}).RefreshBranchAuthorized(t.Context(), action, metadata, "main", "origin")
+	refresh, err := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{}).RefreshBranchAuthorized(t.Context(), action, metadata, "main", "origin", config.MergeMethodMerge)
 	if err == nil || !strings.Contains(err.Error(), "refuses configured filters") || refresh.Updated || refresh.Conflicted {
 		t.Fatalf("configured base-refresh filter was accepted: refresh=%#v error=%v", refresh, err)
 	}
