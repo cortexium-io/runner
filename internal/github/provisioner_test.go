@@ -52,7 +52,7 @@ func (r *projectProvisionRunner) Run(_ context.Context, command string, args []s
 		additionalFields := ""
 		for _, field := range []struct{ name, id, dataType string }{
 			{"Runner Result", "F_result", "TEXT"}, {"Runner Approval", "F_approval", "TEXT"},
-			{"Runner Phase", "F_phase", "TEXT"}, {"Runner Activity", "F_activity", "TEXT"}, {"QA Failures", "F_qa", "NUMBER"},
+			{"Runner Phase", "F_phase", "TEXT"}, {"Runner Transition", "F_transition", "TEXT"}, {"Runner Activity", "F_activity", "TEXT"}, {"QA Failures", "F_qa", "NUMBER"},
 			{"Runner Branch", "F_branch", "TEXT"}, {"Pull Request", "F_pr", "TEXT"}, {"QA Commit", "F_qa_commit", "TEXT"},
 		} {
 			if dataType, exists := r.createdFields[field.name]; exists {
@@ -81,6 +81,9 @@ func (r *projectProvisionRunner) Run(_ context.Context, command string, args []s
 		}
 		if strings.Contains(joined, "visible_field_ids[]=F_phase") {
 			return subprocess.Result{}, errors.New("internal Runner Phase remained board-visible")
+		}
+		if strings.Contains(joined, "visible_field_ids[]=F_transition") {
+			return subprocess.Result{}, errors.New("internal Runner Transition remained board-visible")
 		}
 		r.visibleFieldsReady = true
 		r.phaseVisible = false
@@ -189,7 +192,7 @@ func provisionArgValue(args []string, name string) string {
 
 func provisionLifecycleFields() map[string]string {
 	return map[string]string{
-		"Runner Result": "TEXT", "Runner Approval": "TEXT", "Runner Phase": "TEXT", "Runner Activity": "TEXT",
+		"Runner Result": "TEXT", "Runner Approval": "TEXT", "Runner Phase": "TEXT", "Runner Transition": "TEXT", "Runner Activity": "TEXT",
 		"QA Failures": "NUMBER", "Runner Branch": "TEXT", "Pull Request": "TEXT", "QA Commit": "TEXT",
 	}
 }
@@ -223,6 +226,7 @@ func TestGitHubProjectProvisionerCreatesSelfSufficientProject(t *testing.T) {
 		"--name Runner Result --data-type TEXT",
 		"--name Runner Approval --data-type TEXT",
 		"--name Runner Phase --data-type TEXT",
+		"--name Runner Transition --data-type TEXT",
 		"--name Runner Activity --data-type TEXT",
 		"--name QA Failures --data-type NUMBER",
 		"--name Runner Branch --data-type TEXT",
@@ -407,7 +411,7 @@ func provisionTestRequest(owner, repository string) ProvisionRequest {
 	}
 	return ProvisionRequest{
 		Owner: owner, Repository: repository, Statuses: statuses,
-		ResultField: "Runner Result", ApprovalField: "Runner Approval", PhaseField: "Runner Phase",
+		ResultField: "Runner Result", ApprovalField: "Runner Approval", PhaseField: "Runner Phase", TransitionField: config.RunnerTransitionFieldName,
 		QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request",
 		QACommitField: "QA Commit", IntakeLabel: "needs-assessment",
 	}

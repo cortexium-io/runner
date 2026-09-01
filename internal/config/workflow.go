@@ -151,6 +151,7 @@ func (c Config) ResolveProject() ProjectConfig {
 		ActivityField:       RunnerActivityFieldName,
 		RunnerID:            strings.TrimSpace(c.RunnerID),
 	}
+	project.TransitionField = project.TransitionFieldName()
 	project.MergeMethod = EffectiveMergeMethod(project.MergeMethod)
 	workflow := c.resolvedWorkflow()
 	project.AssessmentStatus = workflow.Lanes[workflow.IntakeLane].Name

@@ -450,7 +450,7 @@ func writeDoctorReport(output io.Writer, report setup.InspectionReport, probes [
 		if report.GitHubProject.BoardLifecycleFields {
 			writeStateLine(output, toneSuccess, "  ✓ Runner Activity and QA Failures are visible on board cards")
 		} else {
-			writeStateLine(output, toneWarning, "  ! Runner Activity or QA Failures is hidden, or internal Runner Phase is visible; rerun init to restore the overview")
+			writeStateLine(output, toneWarning, "  ! Runner Activity or QA Failures is hidden, or an internal Runner field is visible; rerun init to restore the overview")
 		}
 		if report.GitHubProject.IntakeRepository && report.GitHubProject.IntakeLabel {
 			writeStateLine(output, toneSuccess, "  ✓ Public issue intake repository and assessment label are ready")
@@ -460,7 +460,7 @@ func writeDoctorReport(output io.Writer, report setup.InspectionReport, probes [
 		} else {
 			writeStateLine(output, toneFailure, "  ✗ Runner Approval field is missing")
 		}
-		if report.GitHubProject.PhaseField && report.GitHubProject.ActivityField && report.GitHubProject.QAFailuresField && report.GitHubProject.BranchField && report.GitHubProject.PullRequestField && report.GitHubProject.QACommitField {
+		if report.GitHubProject.PhaseField && report.GitHubProject.TransitionField && report.GitHubProject.ActivityField && report.GitHubProject.QAFailuresField && report.GitHubProject.BranchField && report.GitHubProject.PullRequestField && report.GitHubProject.QACommitField {
 			writeStateLine(output, toneSuccess, "  ✓ PR lifecycle, branch, and QA retry fields are ready")
 		} else {
 			writeStateLine(output, toneFailure, "  ✗ PR lifecycle, branch, or QA retry fields are missing")

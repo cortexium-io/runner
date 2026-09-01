@@ -190,7 +190,7 @@ func (i *Inspector) Inspect(ctx context.Context, request InspectionRequest) Insp
 			capabilities = upsertCapability(capabilities, CapabilityState{ID: config.GitHubProjectCapabilityID, Type: config.CapabilityTypeProfile, Status: CapabilityBlocked, Detail: stringPtr(err.Error())})
 		} else {
 			githubProject = &inspection
-			sourceReady = inspection.BoardView && inspection.StatusField && inspection.WorkflowStatuses && inspection.ApprovalField && inspection.PhaseField && inspection.ActivityField && inspection.QAFailuresField && inspection.BranchField && inspection.PullRequestField && inspection.QACommitField && inspection.IntakeRepository && inspection.IntakeLabel
+			sourceReady = inspection.BoardView && inspection.StatusField && inspection.WorkflowStatuses && inspection.ApprovalField && inspection.PhaseField && inspection.TransitionField && inspection.ActivityField && inspection.QAFailuresField && inspection.BranchField && inspection.PullRequestField && inspection.QACommitField && inspection.IntakeRepository && inspection.IntakeLabel
 			status := CapabilityAvailable
 			detail := "GitHub Project is readable and has a Kanban board with the configured Status options"
 			if !sourceReady {

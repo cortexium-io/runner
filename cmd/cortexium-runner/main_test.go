@@ -105,7 +105,7 @@ func TestInitCreatesStandaloneConfigAndCanSynchronizeIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load initialized config: %v", err)
 	}
-	if loaded.GitHubProject.Owner != "example" || loaded.GitHubProject.Number != 7 || loaded.MaxParallelism != 3 || !loaded.GitHubProject.AutoMerge || loaded.GitHubProject.MergeMethod != config.MergeMethodMerge || loaded.Workflow == nil || loaded.Workflow.Lanes["agent_qa"].RejectLimit != 3 || loaded.Workflow.Lanes["plan"].Name != "Plan" || loaded.Roles[config.WorkRolePlanner].Harness != config.HarnessCodexCLI || loaded.Roles[config.WorkRolePlanner].Model == nil || *loaded.Roles[config.WorkRolePlanner].Model != "gpt-test" || loaded.Roles[config.WorkRolePlanner].Reasoning != "high" || loaded.Roles[config.WorkRolePlanner].PlanningSupport != "" || loaded.Roles[config.WorkRoleImplementer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].Harness != config.HarnessPiCLI || loaded.Roles[config.WorkRoleReviewer].Access != config.RoleAccessHost || loaded.Roles[config.WorkRoleReviewer].HarnessConfig != config.HarnessConfigModeInherit || loaded.Roles[config.WorkRoleReviewer].Model == nil || *loaded.Roles[config.WorkRoleReviewer].Model != "qwen/local" || loaded.Roles[config.WorkRoleReviewer].Reasoning != "xhigh" || loaded.GitHubProject.IntakeRepository != "example/repo" {
+	if loaded.GitHubProject.Owner != "example" || loaded.GitHubProject.Number != 7 || loaded.GitHubProject.TransitionField != config.RunnerTransitionFieldName || loaded.MaxParallelism != 3 || !loaded.GitHubProject.AutoMerge || loaded.GitHubProject.MergeMethod != config.MergeMethodMerge || loaded.Workflow == nil || loaded.Workflow.Lanes["agent_qa"].RejectLimit != 3 || loaded.Workflow.Lanes["plan"].Name != "Plan" || loaded.Roles[config.WorkRolePlanner].Harness != config.HarnessCodexCLI || loaded.Roles[config.WorkRolePlanner].Model == nil || *loaded.Roles[config.WorkRolePlanner].Model != "gpt-test" || loaded.Roles[config.WorkRolePlanner].Reasoning != "high" || loaded.Roles[config.WorkRolePlanner].PlanningSupport != "" || loaded.Roles[config.WorkRoleImplementer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].Harness != config.HarnessPiCLI || loaded.Roles[config.WorkRoleReviewer].Access != config.RoleAccessHost || loaded.Roles[config.WorkRoleReviewer].HarnessConfig != config.HarnessConfigModeInherit || loaded.Roles[config.WorkRoleReviewer].Model == nil || *loaded.Roles[config.WorkRoleReviewer].Model != "qwen/local" || loaded.Roles[config.WorkRoleReviewer].Reasoning != "xhigh" || loaded.GitHubProject.IntakeRepository != "example/repo" {
 		t.Fatalf("unexpected initialized config %#v", loaded)
 	}
 	if loaded.AdmissionBudget == nil || loaded.AdmissionBudget.WindowSeconds != 86400 || loaded.AdmissionBudget.MaxAttempts != 12 || loaded.AdmissionBudget.MaxHarnessSeconds != 28800 || loaded.AdmissionBudget.MaxReportedTokens != 1000000 || loaded.AdmissionBudget.MaxReportedCostUSD == nil || *loaded.AdmissionBudget.MaxReportedCostUSD != 25 {
@@ -783,6 +783,7 @@ func TestCLIHelpVersionAndExitContract(t *testing.T) {
 		{name: "root help", args: []string{"--help"}, code: 0, want: "Usage:"},
 		{name: "version", args: []string{"--version"}, code: 0, want: "cortexium-runner "},
 		{name: "command help", args: []string{"run", "--help"}, code: 0, want: "Usage: cortexium-runner run"},
+		{name: "update help", args: []string{"update", "--help"}, code: 0, want: "Usage: cortexium-runner update"},
 		{name: "plan help", args: []string{"plan", "--help"}, code: 0, want: "Usage: cortexium-runner plan"},
 		{name: "role help", args: []string{"role", "add", "--help"}, code: 0, want: "Usage: cortexium-runner role add"},
 		{name: "unknown command", args: []string{"unknown"}, code: 1, want: "error: unknown command"},
@@ -823,7 +824,7 @@ func TestExecuteEscapesTerminalControlInErrors(t *testing.T) {
 
 func TestEveryCommandHelpReturnsSuccess(t *testing.T) {
 	commands := [][]string{
-		{"init", "--help"}, {"doctor", "--help"}, {"plan", "--help"}, {"approve", "--help"}, {"retry", "--help"}, {"status", "--help"}, {"run", "--help"},
+		{"init", "--help"}, {"doctor", "--help"}, {"update", "--help"}, {"plan", "--help"}, {"approve", "--help"}, {"retry", "--help"}, {"status", "--help"}, {"run", "--help"},
 		{"role", "--help"}, {"role", "list", "--help"}, {"role", "show", "--help"}, {"role", "add", "--help"}, {"role", "edit", "--help"}, {"role", "remove", "--help"},
 	}
 	for _, args := range commands {
@@ -836,6 +837,13 @@ func TestEveryCommandHelpReturnsSuccess(t *testing.T) {
 				t.Fatalf("help omitted usage: %s", output.String())
 			}
 		})
+	}
+}
+
+func TestUpdateRejectsCheckWithExactVersion(t *testing.T) {
+	err := run(t.Context(), []string{"update", "--check", "--version", "v0.2.0"}, strings.NewReader(""), io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "--check and --version cannot be used together") {
+		t.Fatalf("combined update modes error = %v", err)
 	}
 }
 
@@ -1107,6 +1115,17 @@ func TestApprovePreviewsExactAuthenticatedAssertionAndApprovesByDefault(t *testi
 	if !strings.Contains(string(calls), "--field-id F_approval --text "+assertionLine) {
 		t.Fatalf("displayed assertion was not the assertion written by apply: assertion=%q calls=%s", assertionLine, calls)
 	}
+	approvalCalls := string(calls[len(beforeJSON):])
+	lockAt := strings.Index(approvalCalls, "--field-id F_transition --text v1")
+	backlogAt := strings.Index(approvalCalls, "--single-select-option-id O_backlog")
+	approvalAt := strings.Index(approvalCalls, "--field-id F_approval --text "+assertionLine)
+	unlockAt := strings.Index(approvalCalls, "--field-id F_transition --clear")
+	if lockAt < 0 || backlogAt <= lockAt || approvalAt <= backlogAt || unlockAt <= approvalAt {
+		t.Fatalf("approval did not remain transition-locked through its final status and authority writes: %s", approvalCalls)
+	}
+	if strings.Contains(approvalCalls, "--single-select-option-id O_assessment") {
+		t.Fatalf("approval used Needs assessment as a transactional hop: %s", approvalCalls)
+	}
 }
 
 func TestRetryPreviewsAndReturnsBlockedItemToRecordedLane(t *testing.T) {
@@ -1165,6 +1184,17 @@ func TestRetryPreviewsAndReturnsBlockedItemToRecordedLane(t *testing.T) {
 	}
 	if !strings.Contains(string(calls), "--single-select-option-id O_qa") {
 		t.Fatalf("retry did not target Agent QA: %s", calls)
+	}
+	retryCalls := string(calls)
+	lockAt := strings.Index(retryCalls, "--field-id F_transition --text v1")
+	approvalAt := strings.Index(retryCalls, "--field-id F_approval --text")
+	qaAt := strings.Index(retryCalls, "--single-select-option-id O_qa")
+	unlockAt := strings.Index(retryCalls, "--field-id F_transition --clear")
+	if lockAt < 0 || approvalAt <= lockAt || qaAt <= approvalAt || unlockAt <= qaAt {
+		t.Fatalf("retry did not remain transition-locked until Agent QA was authoritative: %s", retryCalls)
+	}
+	if strings.Contains(retryCalls, "--single-select-option-id O_assessment") {
+		t.Fatalf("retry used Needs assessment as a transactional hop: %s", retryCalls)
 	}
 
 	output.Reset()
@@ -1300,7 +1330,7 @@ case "$1 $2" in
   "project view") printf '%s\n' '{"id":"PVT_test","number":7}' ;;
 	"api graphql")
 		case "$*" in
-			*"fields(first:100,after:"*) printf '%s\n' '{"data":{"node":{"fields":{"nodes":[{"__typename":"ProjectV2SingleSelectField","id":"F_status","name":"Status","dataType":"SINGLE_SELECT","options":[{"id":"O_assessment","name":"Needs assessment"},{"id":"O_backlog","name":"Backlog"},{"id":"O_plan","name":"Plan"},{"id":"O_ready","name":"Ready"},{"id":"O_running","name":"In Progress"},{"id":"O_qa","name":"Agent QA"},{"id":"O_pr_ready","name":"PR Ready"},{"id":"O_blocked","name":"Blocked"},{"id":"O_done","name":"Done"}]},{"__typename":"ProjectV2Field","id":"F_result","name":"Runner Result","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_approval","name":"Runner Approval","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_phase","name":"Runner Phase","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_activity","name":"Runner Activity","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_qa","name":"QA Failures","dataType":"NUMBER"},{"__typename":"ProjectV2Field","id":"F_branch","name":"Runner Branch","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_pr","name":"Pull Request","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_qa_commit","name":"QA Commit","dataType":"TEXT"}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}' ;;
+			*"fields(first:100,after:"*) printf '%s\n' '{"data":{"node":{"fields":{"nodes":[{"__typename":"ProjectV2SingleSelectField","id":"F_status","name":"Status","dataType":"SINGLE_SELECT","options":[{"id":"O_assessment","name":"Needs assessment"},{"id":"O_backlog","name":"Backlog"},{"id":"O_plan","name":"Plan"},{"id":"O_ready","name":"Ready"},{"id":"O_running","name":"In Progress"},{"id":"O_qa","name":"Agent QA"},{"id":"O_pr_ready","name":"PR Ready"},{"id":"O_blocked","name":"Blocked"},{"id":"O_done","name":"Done"}]},{"__typename":"ProjectV2Field","id":"F_result","name":"Runner Result","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_approval","name":"Runner Approval","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_phase","name":"Runner Phase","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_transition","name":"Runner Transition","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_activity","name":"Runner Activity","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_qa","name":"QA Failures","dataType":"NUMBER"},{"__typename":"ProjectV2Field","id":"F_branch","name":"Runner Branch","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_pr","name":"Pull Request","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_qa_commit","name":"QA Commit","dataType":"TEXT"}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}' ;;
 			*"items(first:100,after:"*)
 				if [ -n "${FAKE_GH_RETRY_APPROVAL:-}" ]; then
 					printf '{"data":{"node":{"items":{"nodes":[{"id":"PVTI_retry","status":{"name":"Blocked"},"approval":{"text":"%s"},"result":{"text":"Previous browser blocker."},"phase":{"text":"agent_qa"},"content":{"title":"Retry browser review","body":"Acceptance criteria","repository":{"nameWithOwner":"example/repo"},"url":"https://github.com/example/repo/issues/2"}}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}\n' "$FAKE_GH_RETRY_APPROVAL"
@@ -1384,7 +1414,7 @@ func TestRootHelpDescribesStandaloneWorkflow(t *testing.T) {
 	if err := run(t.Context(), []string{"--help"}, strings.NewReader(""), &output); err != nil {
 		t.Fatalf("help: %v", err)
 	}
-	for _, expected := range []string{"cortexium-runner doctor", "cortexium-runner plan", "cortexium-runner approve", "cortexium-runner retry", "--once", "--max-idle-interval DURATION", "No hosted control plane"} {
+	for _, expected := range []string{"cortexium-runner doctor", "cortexium-runner update", "cortexium-runner plan", "cortexium-runner approve", "cortexium-runner retry", "--once", "--max-idle-interval DURATION", "No hosted control plane"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("help missing %q: %s", expected, output.String())
 		}
@@ -1623,7 +1653,7 @@ func completeCLITestConfig(projectDir string) config.Config {
 		Workflow: &workflow,
 		GitHubProject: &config.GitHubProjectConfig{
 			Owner: "example", Number: 7, IntakeRepository: "example/repo", IntakeLabel: "needs-assessment",
-			ResultField: "Runner Result", ApprovalField: "Runner Approval", PhaseField: "Runner Phase",
+			ResultField: "Runner Result", ApprovalField: "Runner Approval", PhaseField: "Runner Phase", TransitionField: config.RunnerTransitionFieldName,
 			QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request",
 			QACommitField: "QA Commit", BaseBranch: "main", RemoteName: "origin",
 		},

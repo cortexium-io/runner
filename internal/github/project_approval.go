@@ -68,6 +68,9 @@ func (s *Project) PlanApproval(ctx context.Context, selector string) (ApprovalPl
 	if !s.approvableStatus(item.Status) {
 		return ApprovalPlan{}, fmt.Errorf("project item %s in status %q cannot be approved; move it to assessment and preview approval again", item.ID, item.Status)
 	}
+	if strings.TrimSpace(item.Transition) != "" {
+		return ApprovalPlan{}, errors.New("project item has an interrupted Runner transition; run Runner once to recover it before previewing approval again")
+	}
 	if HasRuntimeActionState(item) {
 		return ApprovalPlan{}, errors.New("project item contains prior Runner action state; inspect it, clear Runner Phase, Runner Activity, Result, QA failures, branch, pull request, and commit snapshot fields, then preview approval again")
 	}
@@ -92,7 +95,7 @@ func (s *Project) PlanApproval(ctx context.Context, selector string) (ApprovalPl
 // Runner attempt. Fresh intake and staged planning children must not authorize
 // that state as part of a new action.
 func HasRuntimeActionState(item WorkItem) bool {
-	return strings.TrimSpace(item.Result) != "" || strings.TrimSpace(item.Phase) != "" || strings.TrimSpace(item.Activity) != "" || item.QAFailures != 0 || strings.TrimSpace(item.Branch) != "" ||
+	return strings.TrimSpace(item.Result) != "" || strings.TrimSpace(item.Phase) != "" || strings.TrimSpace(item.Transition) != "" || strings.TrimSpace(item.Activity) != "" || item.QAFailures != 0 || strings.TrimSpace(item.Branch) != "" ||
 		strings.TrimSpace(item.PullRequest) != "" || strings.TrimSpace(item.QACommit) != ""
 }
 
@@ -135,40 +138,44 @@ func (s *Project) ApplyApproval(ctx context.Context, plan ApprovalPlan) (WorkIte
 	if removeLabel != plan.RemoveIntakeLabel {
 		return WorkItem{}, errors.New("project item intake label changed after the approval preview; review it and preview approval again")
 	}
-	// Assessment is the fail-closed recovery state. It is written before the
-	// label and assertion so an interrupted approval cannot create executable
-	// work. Re-running approve safely resumes from this state.
-	if err := s.setStatus(ctx, current.ID, s.assessmentStatus()); err != nil {
-		return WorkItem{}, fmt.Errorf("park item in assessment before approval; no approval was written, so fix Project access and retry: %w", err)
+	if err := s.beginTransition(ctx, current.ID); err != nil {
+		return WorkItem{}, fmt.Errorf("lock item before approval; no approval was written, so fix Project access and retry: %w", err)
 	}
+	current.Transition = transitionLockValue
 	if plan.RemoveIntakeLabel {
 		result, removeErr := s.gh(ctx, "issue", "edit", current.URL, "--remove-label", s.intakeLabel())
 		if removeErr != nil {
-			return WorkItem{}, fmt.Errorf("remove public assessment label; the item remains safely in assessment and approve can be retried: %w", commandFailure(removeErr, result))
+			return WorkItem{}, fmt.Errorf("remove public assessment label; the item remains safely transition-locked and approve can be retried: %w", commandFailure(removeErr, result))
 		}
 	}
-	current.Status = s.assessmentStatus()
 	if plan.RemoveIntakeLabel {
 		current.Labels = withoutNormalizedValue(current.Labels, s.intakeLabel())
 	}
 	issueBacked, err := s.ensureIssueBacked(ctx, []WorkItem{current})
 	if err != nil {
-		return WorkItem{}, fmt.Errorf("prepare approved item for discussion; the item remains safely in assessment: %w", err)
+		return WorkItem{}, fmt.Errorf("prepare approved item for discussion; the item remains safely transition-locked: %w", err)
 	}
 	current = issueBacked[0]
-	refreshed, err := s.signAction(current, plan.Role, approvalReadyState)
+	next := current
+	next.Status = s.backlogStatus()
+	next.Transition = ""
+	refreshed, err := s.signAction(next, plan.Role, approvalReadyState)
 	if err != nil {
 		return WorkItem{}, err
 	}
-	if err := s.setApproval(ctx, current.ID, refreshed.assertion); err != nil {
-		return WorkItem{}, fmt.Errorf("record authenticated approval; the item remains safely in assessment and approve can be retried: %w", err)
-	}
 	if err := s.setStatus(ctx, current.ID, s.backlogStatus()); err != nil {
-		return WorkItem{}, fmt.Errorf("move approved item to backlog; the item remains non-executable in assessment and approve can be retried: %w", err)
+		return WorkItem{}, fmt.Errorf("move approved item to backlog; the item remains safely transition-locked and approve can be retried: %w", err)
+	}
+	if err := s.setApproval(ctx, current.ID, refreshed.assertion); err != nil {
+		return WorkItem{}, fmt.Errorf("record authenticated approval; the item remains safely transition-locked and approve can be retried: %w", err)
+	}
+	if err := s.finishTransition(ctx, current.ID); err != nil {
+		return WorkItem{}, fmt.Errorf("approval committed but its transition lock could not be cleared; the next cycle will recover it: %w", err)
 	}
 	current.Approval = refreshed.assertion
 	current.Status = s.backlogStatus()
 	current.Role = refreshed.Role
+	current.Transition = ""
 	return current, nil
 }
 

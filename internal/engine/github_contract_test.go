@@ -39,6 +39,7 @@ func completeProjectTestConfig(project config.ProjectConfig) config.ProjectConfi
 	for destination, value := range map[*string]string{
 		&project.IntakeRepository: "owner/repo", &project.IntakeLabel: "needs-assessment",
 		&project.ResultField: "Runner Result", &project.ApprovalField: "Runner Approval", &project.PhaseField: "Runner Phase",
+		&project.TransitionField: config.RunnerTransitionFieldName,
 		&project.QAFailuresField: "QA Failures", &project.BranchField: "Runner Branch", &project.PullRequestField: "Pull Request",
 		&project.QACommitField: "QA Commit", &project.BaseBranch: "main", &project.RemoteName: "origin",
 		&project.AssessmentStatus: "Needs assessment", &project.BacklogStatus: "Backlog", &project.ReadyStatus: "Ready",
@@ -182,6 +183,7 @@ type fakeGitHubProjectRunner struct {
 	approval            string
 	approvalSet         bool
 	phase               string
+	transition          string
 	activity            string
 	qaFailures          int
 	branch              string
@@ -381,7 +383,7 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 		}
 		item := github.WorkItem{
 			ID: "PVTI_1", Title: "Implement the slice", Body: "Acceptance criteria", URL: "https://github.com/owner/repo/issues/1", Repository: "owner/repo", Status: status, Role: config.WorkRoleImplementer,
-			Result: r.result, Phase: r.phase, Activity: r.activity, QAFailures: r.qaFailures, Branch: r.branch, PullRequest: r.pullRequest, QACommit: r.qaCommit,
+			Result: r.result, Phase: r.phase, Transition: r.transition, Activity: r.activity, QAFailures: r.qaFailures, Branch: r.branch, PullRequest: r.pullRequest, QACommit: r.qaCommit,
 		}
 		approval := r.approval
 		if !r.approvalSet && status != "Needs assessment" && status != "Backlog" {
@@ -389,7 +391,7 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 		}
 		payload, _ := json.Marshal(map[string]any{"items": []any{map[string]any{
 			"id": item.ID, "title": item.Title, "status": status, "runnerApproval": approval,
-			"runnerResult": r.result, "runnerPhase": r.phase, "runnerActivity": r.activity, "qaFailures": r.qaFailures, "runnerBranch": r.branch, "pullRequest": r.pullRequest, "qaCommit": r.qaCommit,
+			"runnerResult": r.result, "runnerPhase": r.phase, "runnerTransition": r.transition, "runnerActivity": r.activity, "qaFailures": r.qaFailures, "runnerBranch": r.branch, "pullRequest": r.pullRequest, "qaCommit": r.qaCommit,
 			"content": map[string]any{"body": item.Body, "repository": item.Repository, "url": item.URL},
 		}}})
 		return subprocess.Result{Stdout: legacyItemsGraphQLJSON(string(payload))}, nil
@@ -446,6 +448,14 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 			r.phase = argumentValue(args, "--text")
 		}
 		r.updateRemoteItem(args, func(item *github.WorkItem) { item.Phase = r.phase })
+		return subprocess.Result{}, nil
+	case strings.Contains(joined, "--field-id F_transition"):
+		if strings.Contains(joined, "--clear") {
+			r.transition = ""
+		} else {
+			r.transition = argumentValue(args, "--text")
+		}
+		r.updateRemoteItem(args, func(item *github.WorkItem) { item.Transition = r.transition })
 		return subprocess.Result{}, nil
 	case strings.Contains(joined, "--field-id F_activity"):
 		if strings.Contains(joined, "--clear") {
@@ -538,7 +548,7 @@ func (r *fakeGitHubProjectRunner) loadRemoteItems() {
 		}
 		item := github.WorkItem{
 			ID: stringValue(raw["id"]), Title: stringValue(raw["title"]), Status: stringValue(raw["status"]),
-			Approval: stringValue(raw["runnerApproval"]), Result: stringValue(raw["runnerResult"]), Phase: stringValue(raw["runnerPhase"]), Activity: stringValue(raw["runnerActivity"]),
+			Approval: stringValue(raw["runnerApproval"]), Result: stringValue(raw["runnerResult"]), Phase: stringValue(raw["runnerPhase"]), Transition: stringValue(raw["runnerTransition"]), Activity: stringValue(raw["runnerActivity"]),
 			Branch: stringValue(raw["runnerBranch"]), PullRequest: stringValue(raw["pullRequest"]), QACommit: stringValue(raw["qaCommit"]),
 			DraftContentID: stringValue(content["id"]), Body: stringValue(content["body"]), URL: stringValue(content["url"]), Repository: repository,
 			QAFailures: int(numberValue(raw["qaFailures"])),
@@ -609,6 +619,7 @@ func projectFieldsGraphQLJSON() string {
 		`{"__typename":"ProjectV2Field","id":"F_result","name":"Runner Result","dataType":"TEXT"},` +
 		`{"__typename":"ProjectV2Field","id":"F_approval","name":"Runner Approval","dataType":"TEXT"},` +
 		`{"__typename":"ProjectV2Field","id":"F_phase","name":"Runner Phase","dataType":"TEXT"},` +
+		`{"__typename":"ProjectV2Field","id":"F_transition","name":"Runner Transition","dataType":"TEXT"},` +
 		`{"__typename":"ProjectV2Field","id":"F_activity","name":"Runner Activity","dataType":"TEXT"},` +
 		`{"__typename":"ProjectV2Field","id":"F_qa_failures","name":"QA Failures","dataType":"NUMBER"},` +
 		`{"__typename":"ProjectV2Field","id":"F_branch","name":"Runner Branch","dataType":"TEXT"},` +
@@ -641,7 +652,7 @@ func legacyItemsGraphQLJSON(encoded string) string {
 		nodes = append(nodes, map[string]any{
 			"id": raw["id"], "status": map[string]any{"name": raw["status"]},
 			"approval": map[string]any{"text": raw["runnerApproval"]}, "result": map[string]any{"text": raw["runnerResult"]},
-			"phase": map[string]any{"text": raw["runnerPhase"]}, "activity": map[string]any{"text": raw["runnerActivity"]}, "qaFailures": map[string]any{"number": raw["qaFailures"]},
+			"phase": map[string]any{"text": raw["runnerPhase"]}, "transition": map[string]any{"text": raw["runnerTransition"]}, "activity": map[string]any{"text": raw["runnerActivity"]}, "qaFailures": map[string]any{"number": raw["qaFailures"]},
 			"branch": map[string]any{"text": raw["runnerBranch"]}, "pullRequest": map[string]any{"text": raw["pullRequest"]},
 			"qaCommit": map[string]any{"text": raw["qaCommit"]},
 			"content":  map[string]any{"id": content["id"], "title": title, "body": content["body"], "url": content["url"], "repository": map[string]any{"nameWithOwner": repository}},
@@ -835,8 +846,8 @@ func TestGitHubProjectApprovalRejectsNonIssueContentBeforeExecution(t *testing.T
 	if _, err := source.ApplyApproval(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "is not an issue in configured intake repository") {
 		t.Fatalf("non-issue Project content became executable: %v", err)
 	}
-	if run.status != "Needs assessment" || run.approval != "" {
-		t.Fatalf("non-issue Project content did not remain safely unapproved: status=%q approval=%q", run.status, run.approval)
+	if run.status != "" || run.approval != "" || run.transition != "v1" {
+		t.Fatalf("non-issue Project content did not remain safely locked and unapproved: status=%q approval=%q transition=%q", run.status, run.approval, run.transition)
 	}
 }
 
@@ -906,7 +917,16 @@ func TestGitHubProjectApprovalRejectsHiddenPriorActionState(t *testing.T) {
 	}
 }
 
-func TestGitHubProjectApprovalParksBeforePartialWrites(t *testing.T) {
+func TestGitHubProjectApprovalDefersInterruptedTransitionToRecovery(t *testing.T) {
+	item := github.WorkItem{ID: "PVTI_transition", Title: "Recover me", Body: "Criteria", Status: "Needs assessment", Transition: "v1"}
+	run := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	source := newTestGitHubProjectSource(config.GitHubProjectConfig{Owner: "owner", Number: 4}, run)
+	if _, err := source.PlanApproval(t.Context(), item.ID); err == nil || !strings.Contains(err.Error(), "run Runner once to recover") {
+		t.Fatalf("interrupted transition lacked recovery guidance: %v", err)
+	}
+}
+
+func TestGitHubProjectApprovalLocksBeforePartialWrites(t *testing.T) {
 	item := github.WorkItem{ID: "PVTI_partial", Title: "Approve safely", Body: "Criteria", Status: "Needs assessment"}
 	run := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
 	source := newTestGitHubProjectSource(config.GitHubProjectConfig{Owner: "owner", Number: 4}, run)
@@ -915,15 +935,17 @@ func TestGitHubProjectApprovalParksBeforePartialWrites(t *testing.T) {
 		t.Fatalf("preview approval: %v", err)
 	}
 	run.failFieldID = "F_approval"
-	if _, err := source.ApplyApproval(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "remains safely in assessment") {
+	if _, err := source.ApplyApproval(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "remains safely transition-locked") {
 		t.Fatalf("partial approval failure lacked safe recovery guidance: %v", err)
 	}
-	if run.status != "Needs assessment" || run.approval != "" {
-		t.Fatalf("partial approval left executable state: status=%q approval=%q", run.status, run.approval)
+	if run.status != "Backlog" || run.approval != "" || run.transition != "v1" {
+		t.Fatalf("partial approval left executable state: status=%q approval=%q transition=%q", run.status, run.approval, run.transition)
 	}
-	assessmentWrite, approvalWrite, backlogWrite := -1, -1, -1
+	transitionWrite, approvalWrite, backlogWrite, assessmentWrite := -1, -1, -1, -1
 	for index, call := range run.calls {
 		switch {
+		case strings.Contains(call, "--field-id F_transition") && strings.Contains(call, "--text v1"):
+			transitionWrite = index
 		case strings.Contains(call, "--field-id F_status") && strings.Contains(call, "O_assessment"):
 			assessmentWrite = index
 		case strings.Contains(call, "--field-id F_approval"):
@@ -932,7 +954,7 @@ func TestGitHubProjectApprovalParksBeforePartialWrites(t *testing.T) {
 			backlogWrite = index
 		}
 	}
-	if assessmentWrite < 0 || approvalWrite < 0 || assessmentWrite > approvalWrite || backlogWrite >= 0 {
+	if transitionWrite < 0 || backlogWrite < 0 || approvalWrite < 0 || transitionWrite > backlogWrite || backlogWrite > approvalWrite || assessmentWrite >= 0 {
 		t.Fatalf("approval writes were not fail-closed: calls=%#v", run.calls)
 	}
 }
@@ -1695,7 +1717,7 @@ func approvedProjectItemJSON(id, title, status, body string) string {
 func projectItemJSON(item github.WorkItem) string {
 	payload := map[string]any{
 		"id": item.ID, "title": item.Title, "status": item.Status, "runnerApproval": item.Approval,
-		"runnerResult": item.Result, "runnerPhase": item.Phase, "runnerActivity": item.Activity, "qaFailures": item.QAFailures,
+		"runnerResult": item.Result, "runnerPhase": item.Phase, "runnerTransition": item.Transition, "runnerActivity": item.Activity, "qaFailures": item.QAFailures,
 		"runnerBranch": item.Branch, "pullRequest": item.PullRequest, "qaCommit": item.QACommit,
 		"content": map[string]any{"id": item.DraftContentID, "body": item.Body, "url": item.URL, "repository": item.Repository},
 	}

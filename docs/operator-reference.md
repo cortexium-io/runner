@@ -56,6 +56,19 @@ strict `vMAJOR.MINOR.PATCH` argument to install a specific release. See the
 [README](../README.md#install) for the inspect-before-running form and `PATH`
 setup.
 
+For an installed release build, update in place with:
+
+```bash
+cortexium-runner update --check
+cortexium-runner update
+```
+
+`update --version vMAJOR.MINOR.PATCH` selects an exact release. The native
+updater verifies the checksum, archive contents, and downloaded binary version,
+then atomically replaces the resolved executable. Run `doctor` afterward and
+rerun `init` when it reports newly required Project fields. An already running
+Runner process keeps its loaded release until it is stopped and restarted.
+
 To build the current checkout instead, use the Go version declared in
 [`go.mod`](../go.mod):
 
@@ -172,8 +185,9 @@ configured roles. AI harnesses remain user-installed and user-configured.
 Project synchronization keeps `Runner Activity` and `QA Failures` visible on
 board cards without hiding unrelated fields the user already selected.
 Activity is `Planning`, `Implementing`, or `Reviewing` while an agent owns the
-card. The internal `Runner Phase` field records the recovery lane and remains
-hidden. `QA Failures` records the current review-rejection count. `doctor`
+card. The internal `Runner Phase` field records the recovery lane, while the
+hidden `Runner Transition` field prevents execution during non-atomic Project
+updates. `QA Failures` records the current review-rejection count. `doctor`
 reports incorrect visibility or field types, and rerunning `init` repairs the
 overview.
 
@@ -196,7 +210,10 @@ rather than applied as a runtime default.
 Automatic merge is separately opt-in through `--auto-merge` or
 `github_project.auto_merge: true`. Runner binds the request to the exact
 QA-approved head commit, keeps GitHub checks and branch protections in force,
-and disarms automatic merge before rework or a branch update. The optional
+and disarms automatic merge before rework or a branch update. A merge request
+does not consume an agent-parallelism slot or admission budget: Runner issues it
+immediately after QA publication and reconciles existing `PR Ready` cards before
+admitting new agent work. The optional
 `--merge-method` flag and `github_project.merge_method` setting accept `merge`,
 `rebase`, or `squash`; omitted values preserve the original `merge` behavior.
 Runner never silently substitutes another method because that would change the
@@ -450,7 +467,8 @@ The board shows `Runner Activity` and `QA Failures` on cards by default. Runner
 updates both through the same authenticated lifecycle transitions as Status;
 manual changes invalidate the approved action and return the card for human
 assessment rather than allowing stale state to run. Activity is cleared when
-the card leaves `In Progress`; the hidden phase retains only recovery state.
+the card leaves `In Progress`; the hidden phase retains recovery state and the
+hidden transition lock is set only while Runner commits a multi-field update.
 
 | Lane | Owner and meaning |
 | --- | --- |
