@@ -21,8 +21,8 @@ Every model process is launched through one immutable Runner-owned execution
 profile. Planner and reviewer processes start in disposable private neutral
 directories. Probe processes receive no task tools. Implementers start in a
 Runner-prepared issue worktree. Codex and Claude roles use their native sandbox
-by default; host access is an explicit implementer/reviewer choice. Runner verifies
-the active checkout and task worktree after execution and before QA or
+by default; host access is an explicit per-role choice where supported. Runner
+verifies the active checkout and task worktree after execution and before QA or
 publication. An installed CLI that does not advertise the required
 non-interactive and structured-result controls is rejected before a model
 process starts.
@@ -140,6 +140,7 @@ config. This non-interactive example uses an external path:
   --max-parallelism 1 \
   --base-update-review required \
   --auto-merge=false \
+  --merge-method merge \
   --bootstrap-base-branch
 ```
 
@@ -195,7 +196,53 @@ rather than applied as a runtime default.
 Automatic merge is separately opt-in through `--auto-merge` or
 `github_project.auto_merge: true`. Runner binds the request to the exact
 QA-approved head commit, keeps GitHub checks and branch protections in force,
-and disarms automatic merge before rework or a branch update.
+and disarms automatic merge before rework or a branch update. The optional
+`--merge-method` flag and `github_project.merge_method` setting accept `merge`,
+`rebase`, or `squash`; omitted values preserve the original `merge` behavior.
+Runner never silently substitutes another method because that would change the
+repository's history policy.
+
+### GitHub repository and merge readiness
+
+Connected Doctor checks the configured repository and base branch before agent
+work starts. It verifies that the GitHub CLI account has write access, that
+repository auto-merge is enabled when requested, that the configured merge
+method is enabled, and that active rulesets permit that method. When the account
+can read classic branch-protection details, Doctor also rejects `merge` when
+the base branch requires linear history.
+
+The recommended Runner account has write rather than administration access.
+GitHub hides classic branch-protection details from that account even though it
+reveals that the branch is protected. Doctor therefore emits a warning with the
+exact setting to inspect; it does not claim the hidden policy is compatible.
+`doctor --fix` repairs only Runner-managed local skills. It never changes
+repository permissions, merge settings, branch protection, rulesets, required
+checks, or organization policy.
+
+Common readiness failures are:
+
+| Failure | Doctor behavior | Recovery |
+| --- | --- | --- |
+| GitHub CLI missing, logged out, or missing Project access | Blocks before work | Install `gh`, run `gh auth login`, and grant the `project` scope. Use persistent GitHub CLI login rather than relying only on an environment token for publication. |
+| Runner account lacks repository write access | Blocks before work | Grant the account or its team write access to the configured repository. Administration access is not required for normal operation. |
+| Configured repository, remote, or base branch disagrees | Blocks before work | Correct `intake_repository`, `remote_name`, or `base_branch`, then fetch the configured base. |
+| Repository auto-merge is disabled while Runner requests it | Blocks before work | Enable **Allow auto-merge**, or set `github_project.auto_merge` to `false`. |
+| Configured merge method is disabled | Blocks before work | Enable that repository merge method, or explicitly select an allowed `merge_method`. |
+| Linear history or a ruleset conflicts with `merge` | Blocks when visible; otherwise warns for protected branches | Remove **Require linear history** if merge commits are intended, or explicitly select `rebase` or `squash`. |
+| Required status check never reports | GitHub leaves the PR open; Doctor cannot prove that every future workflow will emit the configured check | Verify Actions is enabled and the required check name exactly matches the workflow's reported check. |
+| Harness login, model access, or structured-output support is unavailable | Ordinary Doctor checks the installed CLI surface; `--probe-harnesses` makes a minimal live call | Authenticate with the harness's native flow, choose an accessible model, and rerun the live probe. |
+| Global Git commit signing opens pinentry in repository tooling | Runner-owned commits disable signing, but external setup/test commands may still prompt | Configure test fixtures with `commit.gpgSign=false`, or ensure the operator GPG agent is available; do not give the agent the signing passphrase. |
+| Chrome/Chromium is older than 149 | Doctor reports the optional browser capability as blocked; browser-dependent work will fail | Upgrade Chrome/Chromium. Runner keeps the 149+ requirement because its loopback-only MCP URL allowlist depends on that browser feature. |
+| Browser, Docker, database, or external-service prerequisites are repository-specific | Checked only when represented by an explicit capability or acceptance obligation | Document the repository's safe local entrypoint and add explicit Doctor requirements where a stable local capability exists. |
+
+For an organization-wide merge policy, create an organization branch ruleset
+targeting the default branch of the intended repositories, require pull requests,
+and set the allowed merge method explicitly. Organization rulesets are additive:
+they cannot relax an existing repository branch-protection rule. Migrate legacy
+classic rules once, then use the organization ruleset as the durable baseline.
+The repository must still enable the selected merge method and, when used,
+auto-merge. GitHub Team or Enterprise is required for organization rulesets
+covering private repositories.
 
 When the remote has no branches, `init` reports that state and the exact remedy.
 `--bootstrap-base-branch` authorizes it to push an existing local base branch or
@@ -778,8 +825,9 @@ A harness defines only `command`, `enabled`, and an external
 reasoning, skills, and timeout belong to role definitions. Workspace class,
 repository identity, mutation intent, and post-run verification come from the
 Runner role profile. `roles.<role>.access` selects `sandboxed` (the default) or
-explicit `host` access for implementer and reviewer contracts. Planner host
-access is rejected.
+explicit `host` access for planner, implementer, and reviewer contracts. Host
+access removes OS containment and should be used only for trusted repositories
+and machines, including when the role contract is otherwise read-oriented.
 
 Runner validates every planner and agent result before changing workflow state.
 Codex and Claude use their native schema-backed output controls. Each Codex
@@ -824,6 +872,7 @@ A role defines agent-specific execution settings:
   "reviewer": {
     "harness": "codex",
     "access": "sandboxed",
+    "harness_config": "isolated",
     "skills": ["runner-reviewer"],
     "reasoning": "high",
     "planning_support": "standard",
@@ -843,16 +892,48 @@ For an explicitly long-running project:
 ./cortexium-runner role edit implementer --config /absolute/operator/path/runner.json --timeout 6h
 ```
 
+`access` and `harness_config` are independent per-role policies:
+
+| `access` | `harness_config` | Effect |
+| --- | --- | --- |
+| `sandboxed` | `isolated` | Safe default: Runner containment and suppressed ambient harness configuration |
+| `sandboxed` | `inherit` | Native shell/filesystem sandbox remains, while ambient rules, tools, plugins, and MCP configuration load; supported by Codex and Claude |
+| `host` | `isolated` | No OS containment, but Runner still suppresses ambient harness configuration and fixes its tool envelope |
+| `host` | `inherit` | Unrestricted agent execution with the OS account's accessible files, processes, network, tools, and credentials |
+
+Pi rejects `sandboxed` plus `inherit` because Pi cannot provide an OS boundary
+around ambient tools. Runner's live readiness probe always remains
+`sandboxed` plus `isolated`, regardless of the role being probed.
+For Codex and Claude, inherited out-of-process MCP servers, plugins, hooks, and
+extensions can have their own OS permissions outside the harness's shell
+sandbox. Inspect those native definitions before enabling inheritance; use
+`isolated` when the sandbox must also exclude ambient helper processes.
+
 `execution_policy` is not a configuration field. Legacy init policy flags have
-no effect. `doctor` reports the Runner-owned profile and rejects an installed
-CLI that does not advertise every required isolation, config-suppression,
-tool-denial, approval, sandbox, and structured-result flag.
+no effect. `doctor` reports every effective role as
+`ROLE=ACCESS/HARNESS_CONFIG` and labels `host/inherit` as unrestricted. It also
+rejects an installed CLI that does not advertise every flag required by the
+selected mode.
 
 `model` is optional; absence uses the harness's native default. `init` accepts
 `--harness`, `--model`, and `--reasoning` as shared setup values. The
 corresponding `--planner-*`, `--implementer-*`, and `--reviewer-*` flags override
-the shared value for one role. Init also accepts `--implementer-access` and
-`--reviewer-access`; `role edit ROLE --access ...` changes an existing role.
+the shared value for one role. Init also accepts shared
+`--harness-config isolated|inherit` and the role-specific
+`--planner-harness-config`, `--implementer-harness-config`, and
+`--reviewer-harness-config` overrides. Per-role access is selected with
+`--planner-access`, `--implementer-access`, and `--reviewer-access`. For an
+existing config, use:
+
+```bash
+cortexium-runner role edit implementer --access host --harness-config inherit
+cortexium-runner role show implementer
+cortexium-runner doctor --config /absolute/operator/path/runner.json
+```
+
+The first command is an explicit unrestricted opt-in. Changing a config never
+changes an already-running harness process; restart Runner for later work to use
+the new policy.
 Implementer and reviewer roles also accept `planning_support`: `standard` uses
 the ordinary concise planning contract, while `high` asks the planner for
 smaller coherent slices, explicit boundaries and assumptions, literal acceptance
@@ -868,6 +949,7 @@ recognizes, for example:
   "reviewer": {
     "harness": "pi",
     "access": "host",
+    "harness_config": "isolated",
     "model": "provider/model-id",
     "preserve_reasoning": false,
     "skills": ["runner-reviewer"]
@@ -1029,18 +1111,20 @@ The supported matrix is fail-closed:
 
 | Harness | Planner | Implementer | Reviewer |
 | --- | --- | --- | --- |
-| Codex CLI | Scoped read policy in neutral cwd | Scoped worktree-write policy by default; optional host | Scoped read policy by default; optional host |
-| Claude Code | Native sandbox, home-read denial, and fixed tools in neutral cwd | Native OS sandbox with home-read denial by default; optional host | Native OS sandbox with home-read and repository-write denial by default; optional host |
-| Pi CLI | Fixed read-only tools in neutral cwd | Explicit host access with fixed tools | Explicit host access with fixed read/shell tools |
+| Codex CLI | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in |
+| Claude Code | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in |
+| Pi CLI | Isolated fixed read tools by default; inherited config requires host | Explicit host access; isolated fixed tools or inherited ambient config | Explicit host access; isolated fixed tools or inherited ambient config |
 
 The probe profile exposes only model invocation and Runner's structured output
-channel. Planner launches suppress capability-expanding native configuration.
-Reviewer and implementer launches use the configured per-role access boundary.
+channel and always suppresses ambient configuration. Work roles use both
+configured per-role policy dimensions.
 Runner supplies a neutral reviewer workspace or isolated implementation
 worktree and applies repository-integrity, candidate, QA, and publication checks
-after every harness. Host access changes containment, not the role's declared
-tools or the suppression of ambient plugins, ungranted MCP servers, skills, and project
-instructions.
+after every harness. Isolated mode suppresses ambient plugins, ungranted MCP
+servers, skills, hooks, and project instructions. Inherited mode deliberately
+loads them. Runner continues to pass unattended/non-interactive flags, its
+bundled role instructions, structured-result contract, and explicit model and
+reasoning selection in both modes.
 
 ### Browser-dependent verification
 
@@ -1052,7 +1136,9 @@ inside the native filesystem sandbox, npm-registry and loopback network access
 for implementers, and a pinned `runner_browser` server restricted to loopback
 pages with external name resolution disabled. The browser uses a temporary
 profile and mock keychain; it cannot attach to the operator's normal browser
-profile. Runner does not download Chrome. Ordinary `doctor` reports Chrome as
+profile. Runner does not download Chrome. Chrome or Chromium 149+ is required
+because the pinned MCP server's URL allowlist uses browser enforcement added in
+that release. Ordinary `doctor` reports Chrome as
 an optional safe-tool capability; its absence does not make the project
 unready unless `doctor_requirements` explicitly marks that browser capability
 as required.
@@ -1089,8 +1175,9 @@ assessment rather than treating an unrun browser check as passed.
 
 Pi implementer and reviewer roles receive that same pinned browser through a
 temporary Runner-generated Pi extension with only navigate, evaluate, and
-screenshot tools. The extension is supplied explicitly while ambient Pi
-extensions remain disabled. Browser navigation remains loopback-only and uses
+screenshot tools. Ambient Pi extensions remain disabled in isolated mode; in
+inherited mode they are loaded alongside Runner's explicit extension. Browser
+navigation through Runner's extension remains loopback-only and uses
 an isolated headless profile. Pi itself still requires explicit `host` access
 because it does not provide a native OS sandbox for its shell and edit tools.
 
@@ -1135,6 +1222,8 @@ for the complete v2 configuration generated by `init`.
 - `github_project.auto_merge` is an explicit opt-in. When true, Runner asks
   GitHub to merge after checks and branch protections pass; it never uses
   `--admin` or weakens repository requirements.
+- `github_project.merge_method` selects `merge`, `rebase`, or `squash` for that
+  request. Empty values retain `merge` for existing v2 configs.
 - The out-of-date event explicitly sets `require_review` to `true`; a clean
   base refresh remains local until the refreshed tree completes QA and records
   a replacement accepted tuple.
@@ -1164,10 +1253,10 @@ rejects skills outside this pinned catalog.
 Runner roles and native harness agent roles are separate concepts. A Runner
 role is the configured planner, implementer, or reviewer profile that selects a
 harness, skills, model, reasoning level, and timeout for a workflow lane. Runner
-invokes that harness's primary non-interactive CLI. Planner launches suppress
-native custom agents, plugins, and delegation; implementers and reviewers use
-the configured sandboxed or host boundary with Runner's workspace-integrity
-checks.
+invokes that harness's primary non-interactive CLI. Isolated launches suppress
+native custom agents, plugins, and delegation; inherited launches load them.
+All work roles use the configured sandboxed or host boundary with Runner's
+workspace-integrity checks.
 
 Each harness may run only the verification available through its active native
 configuration and Runner workspace. Agent results must report only checks
@@ -1211,8 +1300,10 @@ The repeatable `--mcp-server` option updates only the selected role;
 `--clear-mcp-servers` removes that role's override and restores any parent-role
 grant. Runner reads Codex's
 native MCP catalog, reconstructs only the selected definitions in the launch,
-and suppresses all unlisted servers and other ambient configuration. Missing or
-disabled grants fail before model work. Doctor automatically treats every role
+and suppresses all unlisted servers and other ambient configuration in isolated
+mode. In inherited mode, the native catalog remains available and the named
+grants document role expectations rather than forming the complete ceiling.
+Missing or disabled grants fail before model work. Doctor automatically treats every role
 grant as required, so the same capability does not need a duplicate
 `doctor_requirements` entry.
 

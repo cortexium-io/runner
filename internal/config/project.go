@@ -16,6 +16,12 @@ const GitHubProjectCapabilityID = "github_project"
 
 const RunnerActivityFieldName = "Runner Activity"
 
+const (
+	MergeMethodMerge  = "merge"
+	MergeMethodRebase = "rebase"
+	MergeMethodSquash = "squash"
+)
+
 func RunnerActivityForRoleContract(contract string) string {
 	switch strings.TrimSpace(contract) {
 	case WorkRolePlanner:
@@ -44,6 +50,7 @@ type GitHubProjectConfig struct {
 	BaseBranch       string `json:"base_branch,omitempty"`
 	RemoteName       string `json:"remote_name,omitempty"`
 	AutoMerge        bool   `json:"auto_merge"`
+	MergeMethod      string `json:"merge_method,omitempty"`
 }
 
 // ProjectConfig is the runtime Project contract derived from the persisted
@@ -113,6 +120,9 @@ func (c Config) Validate() error {
 	} else if strings.HasPrefix(value, "-") || strings.ContainsAny(value, " \t\r\n~^:?*[\\") {
 		return errors.New("github_project.base_branch must be a safe Git branch name")
 	}
+	if !ValidMergeMethod(project.MergeMethod) {
+		return errors.New("github_project.merge_method must be merge, rebase, or squash")
+	}
 	if c.MaxParallelism <= 0 || c.MaxParallelism > MaxSupportedParallelism {
 		return fmt.Errorf("max_parallelism must be between 1 and %d", MaxSupportedParallelism)
 	}
@@ -169,6 +179,25 @@ func (c Config) Validate() error {
 		seenRequirements[key] = struct{}{}
 	}
 	return nil
+}
+
+// EffectiveMergeMethod preserves the original merge-commit behavior for
+// configs created before merge_method became explicit.
+func EffectiveMergeMethod(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return MergeMethodMerge
+	}
+	return value
+}
+
+func ValidMergeMethod(value string) bool {
+	switch EffectiveMergeMethod(value) {
+	case MergeMethodMerge, MergeMethodRebase, MergeMethodSquash:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateCapabilityRequirement(requirement CapabilityRequirement) error {

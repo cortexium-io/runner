@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/subprocess"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
@@ -218,7 +219,7 @@ func TestGitHubPullRequestManagerRequestsAutoMergeWithoutBypassingProtections(t 
 	runner := &pullRequestTestRunner{}
 	head := strings.Repeat("a", 40)
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "https://github.com/owner/repo/pull/12", QACommit: head})
-	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "")
+	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", "")
 	if err != nil {
 		t.Fatalf("request auto merge: %v", err)
 	}
@@ -230,11 +231,23 @@ func TestGitHubPullRequestManagerRequestsAutoMergeWithoutBypassingProtections(t 
 	}
 }
 
+func TestGitHubPullRequestManagerUsesConfiguredAutoMergeMethod(t *testing.T) {
+	runner := &pullRequestTestRunner{}
+	head := strings.Repeat("a", 40)
+	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "12", QACommit: head})
+	if err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", config.MergeMethodRebase); err != nil {
+		t.Fatalf("request rebase auto merge: %v", err)
+	}
+	if got := strings.Join(runner.calls, "\n"); !strings.Contains(got, "pr merge 12 --repo owner/repo --auto --rebase --match-head-commit "+head) {
+		t.Fatalf("auto-merge command did not use rebase: %q", got)
+	}
+}
+
 func TestGitHubPullRequestManagerReportsAutoMergeFailure(t *testing.T) {
 	runner := &pullRequestTestRunner{autoMergeErr: errors.New("exit status 1")}
 	head := strings.Repeat("a", 40)
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "12", QACommit: head})
-	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "")
+	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", "")
 	if err == nil || !strings.Contains(err.Error(), "automatic pull request merge") || !strings.Contains(err.Error(), "auto-merge is disabled") {
 		t.Fatalf("auto-merge failure = %v", err)
 	}
@@ -256,7 +269,7 @@ func TestGitHubPullRequestManagerRejectsUnsafeAutoMergeSelector(t *testing.T) {
 	runner := &pullRequestTestRunner{}
 	head := strings.Repeat("a", 40)
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "--admin", QACommit: head})
-	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "")
+	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", "")
 	if err == nil || !strings.Contains(err.Error(), "canonical") {
 		t.Fatalf("unsafe auto-merge selector was accepted: %v", err)
 	}
@@ -269,14 +282,14 @@ func TestGitHubPullRequestManagerRequiresAuthorizedBoundAction(t *testing.T) {
 	runner := &pullRequestTestRunner{}
 	manager := NewPullRequestManager(runner, staticActionRefresher{})
 	head := strings.Repeat("a", 40)
-	if err := manager.RequestAutoMergeAuthorized(t.Context(), AuthorizedAction{}, head, "main", ""); err == nil || !strings.Contains(err.Error(), "validated Runner authority") {
+	if err := manager.RequestAutoMergeAuthorized(t.Context(), AuthorizedAction{}, head, "main", "", ""); err == nil || !strings.Contains(err.Error(), "validated Runner authority") {
 		t.Fatalf("unauthorized auto-merge was accepted: %v", err)
 	}
 	action := newAuthorizedAction(
 		WorkItem{ID: "PVTI_1", Repository: "owner/repo", PullRequest: "12", QACommit: head},
 		"reviewer", "pr_ready", "authenticated-by-project-source",
 	)
-	if err := manager.RequestAutoMergeAuthorized(t.Context(), action, strings.Repeat("b", 40), "main", ""); err == nil || !strings.Contains(err.Error(), "not part of the authorized Project action") {
+	if err := manager.RequestAutoMergeAuthorized(t.Context(), action, strings.Repeat("b", 40), "main", "", ""); err == nil || !strings.Contains(err.Error(), "not part of the authorized Project action") {
 		t.Fatalf("unbound auto-merge head was accepted: %v", err)
 	}
 	modified := action
@@ -284,7 +297,7 @@ func TestGitHubPullRequestManagerRequiresAuthorizedBoundAction(t *testing.T) {
 	if err := manager.CancelAutoMergeAuthorized(t.Context(), modified); err == nil || !strings.Contains(err.Error(), "modified after validation") {
 		t.Fatalf("modified authorized action was accepted: %v", err)
 	}
-	if err := manager.RequestAutoMergeAuthorized(t.Context(), action, head, "main", ""); err != nil {
+	if err := manager.RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", ""); err != nil {
 		t.Fatalf("authorized auto-merge was rejected: %v", err)
 	}
 	if len(runner.calls) != 2 {
@@ -296,7 +309,7 @@ func TestGitHubPullRequestManagerRefreshesAuthorityBeforeMergeControl(t *testing
 	runner := &pullRequestTestRunner{}
 	head := strings.Repeat("a", 40)
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "12", QACommit: head})
-	err := NewPullRequestManager(runner, staticActionRefresher{err: errors.New("Project action changed")}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "")
+	err := NewPullRequestManager(runner, staticActionRefresher{err: errors.New("Project action changed")}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", "")
 	if err == nil || !strings.Contains(err.Error(), "refresh Project authority") {
 		t.Fatalf("stale merge authority was accepted: %v", err)
 	}
@@ -312,7 +325,7 @@ func TestGitHubPullRequestManagerRejectsPullRequestIdentityDriftBeforeAutoMerge(
 		viewBaseOID: strings.Repeat("b", 40),
 	}
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "12", QACommit: head})
-	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", strings.Repeat("c", 40))
+	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", strings.Repeat("c", 40), "")
 	if err == nil || !strings.Contains(err.Error(), "automatic merge pull request identity changed") || !strings.Contains(err.Error(), "base commit") {
 		t.Fatalf("pull request identity drift was accepted for auto-merge: %v", err)
 	}

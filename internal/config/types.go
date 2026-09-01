@@ -14,6 +14,9 @@ const (
 	RoleAccessSandboxed = "sandboxed"
 	RoleAccessHost      = "host"
 
+	HarnessConfigModeIsolated = "isolated"
+	HarnessConfigModeInherit  = "inherit"
+
 	PlanningSupportStandard = "standard"
 	PlanningSupportHigh     = "high"
 
@@ -41,6 +44,22 @@ func EffectiveRoleAccess(value string) string {
 func ValidRoleAccess(value string) bool {
 	switch EffectiveRoleAccess(value) {
 	case RoleAccessSandboxed, RoleAccessHost:
+		return true
+	default:
+		return false
+	}
+}
+
+func EffectiveHarnessConfigMode(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return HarnessConfigModeIsolated
+	}
+	return strings.TrimSpace(value)
+}
+
+func ValidHarnessConfigMode(value string) bool {
+	switch EffectiveHarnessConfigMode(value) {
+	case HarnessConfigModeIsolated, HarnessConfigModeInherit:
 		return true
 	default:
 		return false

@@ -30,6 +30,9 @@ func TestRoleTemplateUsesPracticalTimeouts(t *testing.T) {
 		if role.Access != RoleAccessSandboxed {
 			t.Fatalf("role %s access = %q, want safest default %q", id, role.Access, RoleAccessSandboxed)
 		}
+		if role.HarnessConfig != HarnessConfigModeIsolated {
+			t.Fatalf("role %s harness config = %q, want safest default %q", id, role.HarnessConfig, HarnessConfigModeIsolated)
+		}
 	}
 	if roles[WorkRolePlanner].TimeoutSeconds != 1200 {
 		t.Fatalf("planner timeout = %d, want 1200 seconds", roles[WorkRolePlanner].TimeoutSeconds)
@@ -143,15 +146,16 @@ func TestPiReasoningPreservationIsOptionalInheritedAndRoleScoped(t *testing.T) {
 	}
 }
 
-func TestRoleAccessIsExplicitInheritedAndPlannerHostFailsClosed(t *testing.T) {
+func TestRoleAccessAndHarnessConfigurationAreExplicitAndInherited(t *testing.T) {
 	cfg := explicitTestConfig()
 	reviewer := cfg.Roles[WorkRoleReviewer]
 	reviewer.Access = RoleAccessHost
+	reviewer.HarnessConfig = HarnessConfigModeInherit
 	cfg.Roles[WorkRoleReviewer] = reviewer
 	cfg.Roles["browser_reviewer"] = RoleConfig{Extends: WorkRoleReviewer, Skills: []string{"runner-reviewer"}}
 	profile, ok := cfg.RoleProfile("browser_reviewer")
-	if !ok || profile.Access != RoleAccessHost {
-		t.Fatalf("custom reviewer did not inherit host access: %#v", profile)
+	if !ok || profile.Access != RoleAccessHost || profile.HarnessConfig != HarnessConfigModeInherit {
+		t.Fatalf("custom reviewer did not inherit its execution policy: %#v", profile)
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("reviewer host access was rejected: %v", err)
@@ -159,8 +163,13 @@ func TestRoleAccessIsExplicitInheritedAndPlannerHostFailsClosed(t *testing.T) {
 	planner := cfg.Roles[WorkRolePlanner]
 	planner.Access = RoleAccessHost
 	cfg.Roles[WorkRolePlanner] = planner
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "planners never") {
-		t.Fatalf("planner host access did not fail closed: %v", err)
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("explicit planner host access was rejected: %v", err)
+	}
+	planner.HarnessConfig = "ambient"
+	cfg.Roles[WorkRolePlanner] = planner
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "harness_config must be isolated or inherit") {
+		t.Fatalf("unknown harness configuration mode was accepted: %v", err)
 	}
 }
 
@@ -174,6 +183,24 @@ func TestHarnessIdentifiersUseProductNamesWithoutCompatibilityAliases(t *testing
 		if ValidHarnessKind(legacy) {
 			t.Fatalf("pre-release harness identifier %q remains accepted", legacy)
 		}
+	}
+}
+
+func TestPiInheritedHarnessConfigurationRequiresHostAccess(t *testing.T) {
+	cfg := explicitTestConfig()
+	planner := cfg.Roles[WorkRolePlanner]
+	planner.Harness = HarnessPiCLI
+	planner.HarnessConfig = HarnessConfigModeInherit
+	cfg.Roles[WorkRolePlanner] = planner
+	enabled := true
+	cfg.Harnesses = append(cfg.Harnesses, HarnessConfig{Kind: HarnessPiCLI, Command: "pi", Enabled: &enabled, WorkspaceWriteRoot: "/tmp/worktrees"})
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "Pi cannot safely inherit") {
+		t.Fatalf("sandboxed Pi inherited configuration was accepted: %v", err)
+	}
+	planner.Access = RoleAccessHost
+	cfg.Roles[WorkRolePlanner] = planner
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("host Pi inherited configuration was rejected: %v", err)
 	}
 }
 
@@ -563,6 +590,24 @@ func TestConfigurationRequiresExplicitBaseUpdateReviewPolicy(t *testing.T) {
 		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "require_review") {
 			t.Fatalf("unsafe base-update review policy was accepted: %v", err)
 		}
+	}
+}
+
+func TestConfigurationValidatesAndDefaultsMergeMethod(t *testing.T) {
+	cfg := explicitTestConfig()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("legacy empty merge method: %v", err)
+	}
+	if got := cfg.ResolveProject().MergeMethod; got != MergeMethodMerge {
+		t.Fatalf("legacy merge method = %q, want %q", got, MergeMethodMerge)
+	}
+	cfg.GitHubProject.MergeMethod = MergeMethodSquash
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("squash merge method: %v", err)
+	}
+	cfg.GitHubProject.MergeMethod = "octopus"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "merge_method") {
+		t.Fatalf("unsupported merge method was accepted: %v", err)
 	}
 }
 

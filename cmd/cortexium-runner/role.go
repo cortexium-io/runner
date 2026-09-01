@@ -102,7 +102,7 @@ func runRoleList(args []string, stdout io.Writer) error {
 		if view.Builtin {
 			kind = "built-in"
 		}
-		fmt.Fprintf(stdout, "  %s (%s, %s) · %s/%s · %s", view.ID, kind, view.Contract, view.Resolved.Harness, config.EffectiveRoleAccess(view.Resolved.Access), strings.Join(view.Resolved.Skills, ", "))
+		fmt.Fprintf(stdout, "  %s (%s, %s) · %s/%s/%s · %s", view.ID, kind, view.Contract, view.Resolved.Harness, config.EffectiveRoleAccess(view.Resolved.Access), config.EffectiveHarnessConfigMode(view.Resolved.HarnessConfig), strings.Join(view.Resolved.Skills, ", "))
 		if len(view.Resolved.MCPServers) > 0 {
 			fmt.Fprintf(stdout, " · MCP: %s", strings.Join(view.Resolved.MCPServers, ", "))
 		}
@@ -144,7 +144,7 @@ func runRoleShow(args []string, stdout io.Writer) error {
 		if *jsonOutput {
 			return writeJSON(stdout, view)
 		}
-		fmt.Fprintf(stdout, "Role: %s\nContract: %s\nBuilt-in: %t\nHarness: %s\nAccess: %s\nSkills: %s\nReasoning: %s\nTimeout: %s\n", view.ID, view.Contract, view.Builtin, view.Resolved.Harness, config.EffectiveRoleAccess(view.Resolved.Access), strings.Join(view.Resolved.Skills, ", "), view.Resolved.Reasoning, time.Duration(view.Resolved.TimeoutSeconds)*time.Second)
+		fmt.Fprintf(stdout, "Role: %s\nContract: %s\nBuilt-in: %t\nHarness: %s\nAccess: %s\nHarness configuration: %s\nSkills: %s\nReasoning: %s\nTimeout: %s\n", view.ID, view.Contract, view.Builtin, view.Resolved.Harness, config.EffectiveRoleAccess(view.Resolved.Access), config.EffectiveHarnessConfigMode(view.Resolved.HarnessConfig), strings.Join(view.Resolved.Skills, ", "), view.Resolved.Reasoning, time.Duration(view.Resolved.TimeoutSeconds)*time.Second)
 		if view.Contract == config.WorkRoleImplementer || view.Contract == config.WorkRoleReviewer {
 			fmt.Fprintf(stdout, "Planner task sizing: %s\n", taskSizingLabel(view.Resolved.PlanningSupport))
 		}
@@ -176,6 +176,7 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	extends := flags.String("extends", "", "parent role; custom roles must inherit a planner, implementer, or reviewer role")
 	harness := flags.String("harness", "", "harness override: codex, claude, or pi")
 	access := flags.String("access", "", "access override: sandboxed or host")
+	harnessConfig := flags.String("harness-config", "", "harness configuration override: isolated or inherit")
 	model := flags.String("model", "", "model override for the selected harness")
 	reasoning := flags.String("reasoning", "", "reasoning effort override")
 	planningSupport := flags.String("planning-support", "", "task sizing override: standard (regular) or high (small)")
@@ -183,7 +184,7 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	clearModel := flags.Bool("clear-model", false, "remove the model override")
 	clearSkills := flags.Bool("clear-skills", false, "remove skill overrides and inherit from the parent")
 	clearMCPServers := flags.Bool("clear-mcp-servers", false, "remove MCP server overrides and inherit from the parent")
-	clearRuntime := flags.Bool("clear-runtime-overrides", false, "remove harness, access, model, reasoning, Pi reasoning preservation, and timeout overrides")
+	clearRuntime := flags.Bool("clear-runtime-overrides", false, "remove harness, access, harness configuration, model, reasoning, Pi reasoning preservation, and timeout overrides")
 	clearPlanningSupport := flags.Bool("clear-planning-support", false, "remove the task sizing override and inherit from the parent")
 	preserveReasoning := flags.Bool("preserve-reasoning", false, "preserve reasoning from earlier Pi assistant turns")
 	noPreserveReasoning := flags.Bool("no-preserve-reasoning", false, "keep only the most recent Pi reasoning (default)")
@@ -272,7 +273,7 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 		definition.Extends = strings.TrimSpace(*extends)
 	}
 	if *clearRuntime {
-		definition.Harness, definition.Access, definition.SafeTools, definition.Model, definition.Reasoning, definition.PreserveReasoning, definition.TimeoutSeconds = "", "", nil, nil, "", nil, 0
+		definition.Harness, definition.Access, definition.HarnessConfig, definition.SafeTools, definition.Model, definition.Reasoning, definition.PreserveReasoning, definition.TimeoutSeconds = "", "", "", nil, nil, "", nil, 0
 	}
 	if visited["harness"] {
 		definition.Harness = strings.TrimSpace(*harness)
@@ -282,6 +283,12 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 			return errors.New("--access must be sandboxed or host")
 		}
 		definition.Access = config.EffectiveRoleAccess(*access)
+	}
+	if visited["harness-config"] {
+		if !config.ValidHarnessConfigMode(*harnessConfig) {
+			return errors.New("--harness-config must be isolated or inherit")
+		}
+		definition.HarnessConfig = config.EffectiveHarnessConfigMode(*harnessConfig)
 	}
 	if *safeTools || *noSafeTools {
 		value := *safeTools
@@ -353,7 +360,10 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	if action == "edit" {
 		verb = "Edited"
 	}
-	fmt.Fprintf(stdout, "%s role %s (%s contract, %s harness).\n", verb, id, cfg.RoleContract(id), resolved.Harness)
+	fmt.Fprintf(stdout, "%s role %s (%s contract, %s harness, %s access, %s configuration).\n", verb, id, cfg.RoleContract(id), resolved.Harness, config.EffectiveRoleAccess(resolved.Access), config.EffectiveHarnessConfigMode(resolved.HarnessConfig))
+	if config.EffectiveRoleAccess(resolved.Access) == config.RoleAccessHost && config.EffectiveHarnessConfigMode(resolved.HarnessConfig) == config.HarnessConfigModeInherit {
+		fmt.Fprintln(stdout, "WARNING: this role now inherits ambient tools and configuration with unrestricted host access.")
+	}
 	return nil
 }
 

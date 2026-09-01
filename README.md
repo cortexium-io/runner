@@ -16,6 +16,12 @@ server, or required GitHub Actions workflow.
 > Pi implementation and review require that explicit host opt-in. Use host
 > access only on a trusted machine and repository, keep automatic merge
 > disabled initially, and review every change.
+> `"harness_config": "isolated"` is the default and suppresses ambient harness
+> rules, tools, plugins, skills, hooks, and MCP servers. `"inherit"` deliberately
+> loads the operator's native harness configuration; out-of-process helpers may
+> retain OS permissions outside a native shell sandbox. Combining
+> `"access": "host"` with `"harness_config": "inherit"` is unrestricted agent
+> execution under the Runner operating-system account.
 
 Sandboxed Codex roles receive only minimum runtime reads plus their assigned
 repository/worktree. Sandboxed Claude roles deny reads from the operator's home
@@ -177,7 +183,11 @@ pi --version
 `cortexium-runner init` checks the selected prerequisites without installing
 package managers or using `sudo`. If anything is missing, it prints manual
 recovery guidance. After initialization, `cortexium-runner doctor` verifies the
-GitHub connection, harness availability, configuration, and installed skills.
+GitHub connection, repository write access and merge compatibility, harness
+availability, configuration, and installed skills. A least-privileged GitHub
+account may be unable to read classic branch-protection details; Doctor reports
+that limitation and the exact policy to verify instead of assuming the branch
+is compatible.
 
 ## Interactive quick start
 
@@ -333,12 +343,15 @@ Planner and probe launches remain tightly constrained. Implementers work inside
 a Runner-created worktree; reviewers start in a neutral directory with the
 repository as their assigned read root. Codex and Claude use their native
 sandbox in the default `sandboxed` mode. `host` is an explicit per-role escape
-hatch; Runner still suppresses unrelated user plugins, ungranted MCP servers, project
-instructions, and skills and keeps the role's fixed tool ceiling. Integrity
-checks reject reviewer mutations and changes outside the implementation
+hatch. The independent `harness_config` setting defaults to `isolated`, which
+suppresses unrelated user plugins, ungranted MCP servers, project instructions,
+and skills and keeps the role's fixed tool ceiling. Set it to `inherit` to load
+the native user/project configuration; `host` plus `inherit` is unrestricted.
+Integrity checks reject reviewer mutations and changes outside the implementation
 worktree, but cannot contain external side effects from a host-access process.
-Pi planner access remains read-only; Pi implementer and reviewer roles require
-`host` because Pi does not provide an OS sandbox for shell and edit tools.
+Pi implementer and reviewer roles require `host`, and every inherited Pi role
+requires `host`, because Pi does not provide an OS sandbox for ambient shell and
+edit tools.
 
 Sandboxed Codex and Claude implementers and reviewers receive Runner's safe
 development tools by default. `npm` and `npx` stay inside the role's native
@@ -350,7 +363,8 @@ three-tool Chrome DevTools server with a temporary profile, mock keychain,
 disabled external name resolution, telemetry/CrUX, and redacted headers.
 Navigation is restricted to `localhost` and `127.0.0.1`. Runner never uses the
 operator's normal browser profile or downloads a browser; a compatible local
-Chrome installation is required only for browser checks. Ordinary `doctor`
+Chrome or Chromium 149+ installation is required only for browser checks.
+Ordinary `doctor`
 reports browser availability but does not fail a non-browser project merely
 because Chrome is absent, unless the operator explicitly requires that
 capability. The pinned MCP package may be fetched through `npx` on first use.

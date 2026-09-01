@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/cortexium-io/runner/internal/config"
 )
 
 func TestPiBrowserExtensionUsesPinnedIsolatedLoopbackServer(t *testing.T) {
@@ -61,6 +63,16 @@ func TestPiBrowserExtensionAddsOnlyExplicitBrowserTools(t *testing.T) {
 func TestPiBrowserExtensionRequiresExplicitToolAllowlist(t *testing.T) {
 	if _, err := addPiBrowserExtension([]string{"--no-tools"}, "/tmp/browser.ts"); err == nil {
 		t.Fatal("Pi browser extension accepted an invocation without an explicit tool allowlist")
+	}
+}
+
+func TestPiBrowserExtensionCanJoinExplicitInheritedConfiguration(t *testing.T) {
+	args, err := addPiBrowserExtensionForConfig([]string{"--no-session"}, "/tmp/browser.ts", config.HarnessConfigModeInherit)
+	if err != nil {
+		t.Fatalf("add Pi browser to inherited config: %v", err)
+	}
+	if !containsArgPair(args, "--extension", "/tmp/browser.ts") || contains(args, "--tools") || !piInvocationAllowsBrowser(args, true) {
+		t.Fatalf("inherited Pi browser args = %#v", args)
 	}
 }
 

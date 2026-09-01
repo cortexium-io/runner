@@ -1098,7 +1098,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 			return s.failExecutionToRetryLane(ctx, action, lane, result, "Workspace identity changed before automatic merge", baseMovedErr,
 				integrityViolationOutput("Workspace identity changed before automatic merge", baseMovedErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
 		}
-		if err := pullRequests.RequestAutoMergeAuthorized(ctx, action, action.Item.QACommit, s.baseBranch(), validatedWorkspace.BaseRevision); err != nil {
+		if err := pullRequests.RequestAutoMergeAuthorized(ctx, action, action.Item.QACommit, s.baseBranch(), validatedWorkspace.BaseRevision, s.cfg.GitHubProject.MergeMethod); err != nil {
 			blocker := "GitHub left the pull request open because automatic merge could not be enabled. Check the repository auto-merge setting and the GitHub CLI account's merge permission, then retry this card."
 			return s.failExecution(ctx, action, lane, result, "Automatic pull request merge setup failed", err, execution.Output{
 				Outcome: execution.OutcomeBlocked, Summary: blocker, WorkDone: []string{}, Blocker: &blocker, RemoteDetailSafe: true,

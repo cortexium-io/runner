@@ -307,17 +307,24 @@ after every child is released. Polling and claiming validate that commit and
 all siblings, so interrupted release remains fail-closed even when compensating
 cleanup also fails.
 
-Every process launch resolves the fixed role profile before adapter arguments
-are built. Planner and reviewer use disposable mode-`0700` neutral directories
-and explicit read roots; probe receives only structured output; implementer uses
-the prepared issue worktree. Planner and probe force no-approval,
-config-suppression, and resource-denial flags. Codex and Claude reviewers and
-implementers use native isolation by default; explicit per-role host access
-changes only the containment boundary, not the fixed tool ceiling or ambient
-configuration suppression. Pi implementation and review require explicit host
-access because Pi lacks a native OS sandbox for shell/edit tools. Runner verifies
-repository integrity afterward. Setup and production launches share the same
-required-flag table, and unsupported installed CLIs fail before model invocation.
+Every process launch resolves two independent role settings before adapter
+arguments are built. `access` selects Runner's containment boundary
+(`sandboxed` by default or explicit `host`). `harness_config` selects whether
+Runner suppresses ambient harness configuration (`isolated` by default) or
+loads the operator's native user/project configuration (`inherit`). Planner and
+reviewer use disposable mode-`0700` neutral directories and explicit read
+roots; probe receives only structured output; implementer uses the prepared
+issue worktree. Codex and Claude can inherit configuration while retaining
+Runner's native shell/filesystem sandbox ceiling, although inherited
+out-of-process MCP servers, plugins, hooks, or extensions can retain their own
+OS permissions. Pi cannot safely combine inherited ambient tools with
+`sandboxed` because it has no native OS sandbox, so that combination
+is rejected. `host` plus `inherit` is deliberately unrestricted agent execution
+under the Runner OS account. Runner still owns non-interactive invocation,
+structured results, worktree identity, and repository-integrity verification.
+The live readiness probe always forces `sandboxed` plus `isolated`. Setup and
+production launches share the same required-flag table, and unsupported
+installed CLIs fail before model invocation.
 
 A sandboxed Codex or Claude implementer or reviewer receives Runner's bounded
 development profile by default. Package commands run inside the native
@@ -327,13 +334,15 @@ system runtime files, and the implementer's npm cache instead of the operator's
 home directory. The Runner-owned `runner_browser` MCP definition is pinned,
 headless, temporary-profile, loopback-only, external-DNS-disabled,
 telemetry-free, and independent of ambient harness MCP configuration. A role
-may explicitly disable this profile.
+may explicitly disable this profile. In inherited mode Runner adds this server
+alongside the ambient MCP configuration.
 
 Pi implementer and reviewer roles receive the same three browser operations
 through a temporary Runner-generated extension that forwards to the pinned
-browser server. Ambient Pi extensions stay disabled, and navigation remains
-loopback-only. This browser boundary does not change Pi's explicit host-access
-requirement for shell and edit tools.
+browser server. Ambient Pi extensions stay disabled in isolated mode and load
+only after an explicit inherited-configuration opt-in. Navigation through the
+Runner browser remains loopback-only. This boundary does not change Pi's
+explicit host-access requirement for shell and edit tools.
 
 A Codex role can additionally add an explicit named MCP allowlist. Runner reads the native
 Codex MCP catalog before launch, rejects missing, disabled, remote, or
@@ -342,7 +351,9 @@ servers in the otherwise empty invocation config. Their tools are auto-approved
 for non-interactive use and execute as separate trusted processes outside the
 Codex shell sandbox. Doctor derives readiness requirements from the same role
 allowlist. Custom unlisted MCP servers and all ambient project/user policy remain
-suppressed.
+suppressed in isolated mode. In inherited mode the native Codex catalog remains
+loaded and explicit role MCP names act as documented expectations rather than
+the complete tool ceiling.
 
 Sandboxed Codex launches use scoped permission profiles with minimum runtime
 reads and only the assigned repository/worktree. Sandboxed Claude launches deny

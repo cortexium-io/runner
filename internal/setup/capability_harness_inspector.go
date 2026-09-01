@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,8 +16,9 @@ import (
 )
 
 type harnessProfileRequirement struct {
-	role   execution.RoleContract
-	access string
+	role              execution.RoleContract
+	access            string
+	harnessConfigMode string
 }
 
 func (i *Inspector) inspectHarness(ctx context.Context, descriptor HarnessDescriptor, homeErr error, requiredSkills []bundledskills.Skill) (HarnessInspection, []CapabilityState) {
@@ -25,7 +27,7 @@ func (i *Inspector) inspectHarness(ctx context.Context, descriptor HarnessDescri
 		Status: CapabilityMissing, Authentication: "not_inspected",
 	}
 	if harness, ok := i.cfg.Harness(descriptor.Kind); ok {
-		report.ExecutionPolicy = harness.ExecutionPolicySummary()
+		report.ExecutionPolicy = i.harnessExecutionPolicy(harness)
 	}
 	capabilities := []CapabilityState{}
 	path, err := i.lookPath(descriptor.Command)
@@ -69,6 +71,30 @@ func (i *Inspector) inspectHarness(ctx context.Context, descriptor HarnessDescri
 	return report, capabilities
 }
 
+func (i *Inspector) harnessExecutionPolicy(harness config.HarnessConfig) string {
+	roles := []string{}
+	for _, roleID := range i.cfg.ExecutionRoleIDs() {
+		profile, ok := i.cfg.RoleProfile(roleID)
+		if !ok || strings.TrimSpace(profile.Harness) != strings.TrimSpace(harness.Kind) {
+			continue
+		}
+		access := config.EffectiveRoleAccess(profile.Access)
+		mode := config.EffectiveHarnessConfigMode(profile.HarnessConfig)
+		policy := roleID + "=" + access + "/" + mode
+		if access == config.RoleAccessHost && mode == config.HarnessConfigModeInherit {
+			policy += " (unrestricted)"
+		} else if mode == config.HarnessConfigModeInherit {
+			policy += " (ambient config)"
+		}
+		roles = append(roles, policy)
+	}
+	if len(roles) == 0 {
+		return harness.ExecutionPolicySummary()
+	}
+	sort.Strings(roles)
+	return strings.Join(roles, ", ")
+}
+
 func (i *Inspector) requiredBundledSkills(kind string) []bundledskills.Skill {
 	if !i.cfg.HasProject() {
 		return i.catalog.List()
@@ -99,22 +125,22 @@ func (i *Inspector) inspectHarnessInvocationSupport(ctx context.Context, path st
 	rootFlags := []string{}
 	helpArgs := []string{"--help"}
 	modelRequired, reasoningRequired := i.configuredHarnessOptions(harness.Kind)
-	requirements := []harnessProfileRequirement{{role: execution.RoleProbe, access: config.RoleAccessSandboxed}}
+	requirements := []harnessProfileRequirement{{role: execution.RoleProbe, access: config.RoleAccessSandboxed, harnessConfigMode: config.HarnessConfigModeIsolated}}
 	for _, roleID := range i.cfg.ExecutionRoleIDs() {
 		profile, ok := i.cfg.RoleProfile(roleID)
 		if !ok || strings.TrimSpace(profile.Harness) != strings.TrimSpace(harness.Kind) {
 			continue
 		}
 		contract := execution.RoleContract(i.cfg.RoleContract(roleID))
-		requirement := harnessProfileRequirement{role: contract, access: config.EffectiveRoleAccess(profile.Access)}
-		if !containsProfileRequirement(requirements, requirement.role, requirement.access) {
+		requirement := harnessProfileRequirement{role: contract, access: config.EffectiveRoleAccess(profile.Access), harnessConfigMode: config.EffectiveHarnessConfigMode(profile.HarnessConfig)}
+		if !containsProfileRequirement(requirements, requirement.role, requirement.access, requirement.harnessConfigMode) {
 			requirements = append(requirements, requirement)
 		}
 	}
 	for _, requirement := range requirements {
-		root, command, err := execution.RequiredHarnessFlags(harness.Kind, requirement.role, requirement.access)
+		root, command, err := execution.RequiredHarnessFlags(harness.Kind, requirement.role, requirement.access, requirement.harnessConfigMode)
 		if err != nil {
-			return fmt.Errorf("unsupported %s %s/%s execution profile: %w", harness.Kind, requirement.role, requirement.access, err)
+			return fmt.Errorf("unsupported %s %s/%s/%s execution profile: %w", harness.Kind, requirement.role, requirement.access, requirement.harnessConfigMode, err)
 		}
 		rootFlags = appendUniqueStrings(rootFlags, root...)
 		requiredFlags = appendUniqueStrings(requiredFlags, command...)
@@ -147,9 +173,9 @@ func (i *Inspector) inspectHarnessInvocationSupport(ctx context.Context, path st
 	return i.inspectHarnessHelpFlags(ctx, path, harness.Kind, helpArgs, requiredFlags)
 }
 
-func containsProfileRequirement(values []harnessProfileRequirement, wantedRole execution.RoleContract, wantedAccess string) bool {
+func containsProfileRequirement(values []harnessProfileRequirement, wantedRole execution.RoleContract, wantedAccess, wantedHarnessConfigMode string) bool {
 	for _, value := range values {
-		if value.role == wantedRole && value.access == wantedAccess {
+		if value.role == wantedRole && value.access == wantedAccess && value.harnessConfigMode == wantedHarnessConfigMode {
 			return true
 		}
 	}

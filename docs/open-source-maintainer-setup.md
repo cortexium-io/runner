@@ -114,12 +114,14 @@ Then prepare and verify the local machine:
 Install and authenticate at least one of Codex CLI, Claude Code, or Pi CLI
 using that product's normal setup flow. Runner does not install AI harnesses or
 edit their saved permission configuration. Each harness can fill planner,
-implementer, and reviewer roles. Planner and probe launches use Runner's
-constrained envelope. Codex and Claude implementation and review are sandboxed
-by default. Host access is an explicit per-role opt-in. Pi has no native OS
-sandbox for shell/edit tools, so Pi implementation and review require
+implementer, and reviewer roles. Work roles use sandboxed access with isolated
+harness configuration by default; live probes always remain constrained. Host
+access and ambient configuration inheritance are separate, explicit per-role
+opt-ins. Pi has no native OS sandbox for shell/edit tools, so Pi implementation
+and review require
 `"access": "host"`; interactive init confirms it and non-interactive init
 requires `--implementer-access host` and/or `--reviewer-access host`.
+Pi also requires host access for `"harness_config": "inherit"`.
 Sandboxed Codex uses scoped permission profiles with minimum runtime reads and
 only the assigned repository/worktree. Sandboxed Claude denies operator-home
 reads except for the assigned root and the implementer's npm cache.
@@ -130,6 +132,12 @@ profile unless `safe_tools` is explicitly disabled. Pi implementer and reviewer
 roles receive the same pinned loopback-only browser through a temporary
 Runner-generated extension, while their shell/edit boundary remains explicit
 host access.
+
+Use `harness_config: isolated` unless the role genuinely needs tools, MCP
+servers, rules, skills, plugins, or hooks from the operator's native harness
+setup. `access: host` plus `harness_config: inherit` is unrestricted agent
+execution under the Runner OS account. `doctor` prints the effective policy for
+every role and labels that combination as unrestricted.
 
 ```bash
 ./cortexium-runner doctor --config /absolute/operator/path/runner.json --offline
@@ -215,12 +223,13 @@ evidence for that decision; they do not create a Runner allowlist or prevent a
 user from assigning any supported harness to any role.
 
 Runner installs and verifies its three bundled role skills, disables native
-skill discovery and automatic project-instruction discovery for neutral
-launches, and injects only the selected pinned embedded instructions. Reviewers
+skill discovery and automatic project-instruction discovery for isolated
+launches, and injects the selected pinned embedded instructions. Reviewers
 can inspect repository rules through their explicit read root. Implementers run
 inside their assigned worktree. Sandboxed roles use the native Codex or Claude
-isolation boundary; a host-access role retains its fixed tools and suppressed
-ambient customization but is not contained from other local resources.
+isolation boundary. Isolated configuration retains fixed tools and suppressed
+ambient customization; inherited configuration deliberately loads native
+customization. A host-access role is not contained from other local resources.
 Mandatory Runner integrity checks follow both modes. Review operator-selected
 models, access, permissions, and skills before sharing a machine or reusable
 environment image.

@@ -144,6 +144,21 @@ func (r terminalMismatchedPullRequestRunner) Run(ctx context.Context, command st
 	return r.project.Run(ctx, command, args, dir, timeout)
 }
 
+type terminalTreeEquivalentPullRequestRunner struct {
+	project *fakeGitHubProjectRunner
+	head    string
+}
+
+func (r terminalTreeEquivalentPullRequestRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	if command == "git" {
+		return runEngineTestGit(ctx, args, dir, timeout)
+	}
+	if command == "gh" && len(args) >= 2 && args[0] == "pr" && args[1] == "view" {
+		return subprocess.Result{Stdout: `{"url":"https://github.com/owner/repo/pull/12","number":12,"state":"MERGED","headRepository":{"nameWithOwner":"owner/repo"},"headRefName":"cortexium/task","headRefOid":"` + r.head + `","baseRefName":"main","baseRefOid":"","mergeStateStatus":"UNKNOWN","comments":[],"reviews":[]}`}, nil
+	}
+	return r.project.Run(ctx, command, args, dir, timeout)
+}
+
 type openThenMergedPullRequestRunner struct {
 	project *fakeGitHubProjectRunner
 	views   int
@@ -1377,6 +1392,27 @@ func TestDirectProjectPlanStagesOnlyUntilExplicitCompleteBatchApproval(t *testin
 		if child.Status != "Ready" || !strings.HasPrefix(child.Approval, "v2:") {
 			t.Fatalf("explicit approval did not release exact child: %#v", child)
 		}
+	}
+}
+
+func TestDirectProjectPlanFinalizesWhileProjectItemConnectionLags(t *testing.T) {
+	project := &fakeGitHubProjectRunner{hideCreatedFromList: true}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	staged, err := service.ApplyProjectPlan(t.Context(), directProjectPlanFixture())
+	if err != nil {
+		t.Fatalf("stage direct plan while Project item connection lags: %v", err)
+	}
+	if len(staged) != 2 || project.createCount != 2 {
+		t.Fatalf("staging did not retain the exact created batch: staged=%#v creates=%d", staged, project.createCount)
+	}
+	if len(staged[1].Dependencies) != 1 || staged[1].Dependencies[0] != staged[0].ID {
+		t.Fatalf("staging did not finalize exact-ID dependencies: %#v", staged[1])
 	}
 }
 
@@ -3503,6 +3539,54 @@ func TestTerminalPullRequestMismatchPreservesWorkspaceForDiagnosis(t *testing.T)
 	}
 	if content, err := os.ReadFile(sentinel); err != nil || string(content) != "preserve\n" {
 		t.Fatalf("terminal mismatch removed the recoverable workspace evidence: content=%q err=%v", content, err)
+	}
+}
+
+func TestTerminalRebasePullRequestAcceptsTreeEquivalentReviewedCommit(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	runGitTest(t, repo, "checkout", "-b", "cortexium/task")
+	if err := os.WriteFile(filepath.Join(repo, "feature.txt"), []byte("reviewed tree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitTest(t, repo, "add", "--all")
+	runGitTest(t, repo, "commit", "-m", "reviewed candidate")
+	qaCommit := strings.TrimSpace(runGitTest(t, repo, "rev-parse", "HEAD"))
+	runGitTest(t, repo, "commit", "--amend", "-m", "linearized candidate")
+	mergedHead := strings.TrimSpace(runGitTest(t, repo, "rev-parse", "HEAD"))
+	if qaCommit == mergedHead {
+		t.Fatal("amended fixture did not produce a distinct commit")
+	}
+
+	item := github.WorkItem{
+		ID: "PVTI_terminal_equivalent", Title: "Reconcile equivalent merged tree", Body: "Criteria", Repository: "owner/repo", Status: "PR Ready",
+		PullRequest: "https://github.com/owner/repo/pull/12", Branch: "cortexium/task", QACommit: qaCommit,
+	}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo,
+		GitHubProject: &config.GitHubProjectConfig{
+			Owner: "owner", Number: 4, IntakeRepository: "owner/repo", MergeMethod: "rebase",
+		},
+	}), terminalTreeEquivalentPullRequestRunner{project: project, head: mergedHead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	warnings, changed, err := service.reconcilePullRequests(t.Context(), items)
+	if err != nil || !changed {
+		t.Fatalf("tree-equivalent terminal reconciliation failed: warnings=%#v changed=%t error=%v", warnings, changed, err)
+	}
+	for _, warning := range warnings {
+		if strings.Contains(warning.Summary, "exact reviewed item") {
+			t.Fatalf("tree-equivalent terminal reconciliation retained a commit-identity warning: %#v", warning)
+		}
+	}
+	if project.status != "Done" || !strings.Contains(project.result, "was merged") {
+		t.Fatalf("tree-equivalent terminal reconciliation did not complete item: status=%q result=%q", project.status, project.result)
 	}
 }
 

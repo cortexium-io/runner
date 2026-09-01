@@ -8,6 +8,9 @@ func TestResolveSeparatesFileRuntimeAndExecutionConfiguration(t *testing.T) {
 	cfg.ProjectDir = t.TempDir()
 	cfg.GitHubProject.BaseBranch = "dev"
 	cfg.GitHubProject.RemoteName = "upstream"
+	implementer := cfg.Roles[WorkRoleImplementer]
+	implementer.HarnessConfig = HarnessConfigModeInherit
+	cfg.Roles[WorkRoleImplementer] = implementer
 
 	runtime, err := cfg.Resolve()
 	if err != nil {
@@ -23,6 +26,9 @@ func TestResolveSeparatesFileRuntimeAndExecutionConfiguration(t *testing.T) {
 	}
 	if execution.WorkspaceBaseRef != "upstream/dev" {
 		t.Fatalf("workspace base ref = %q, want upstream/dev", execution.WorkspaceBaseRef)
+	}
+	if execution.HarnessConfigMode != HarnessConfigModeInherit {
+		t.Fatalf("harness configuration mode = %q, want inherit", execution.HarnessConfigMode)
 	}
 	if cfg.MaxParallelism != 1 || len(cfg.Harnesses) != 1 {
 		t.Fatalf("resolving mutated the persisted config: %#v", cfg)

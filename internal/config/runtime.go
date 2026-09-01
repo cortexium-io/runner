@@ -28,6 +28,7 @@ type RuntimeConfig struct {
 type ExecutionConfig struct {
 	WorkspaceBaseRef  string
 	RoleAccess        string
+	HarnessConfigMode string
 	Harness           HarnessConfig
 	Skills            []string
 	MCPServers        []string
@@ -260,6 +261,7 @@ func (c RuntimeConfig) Execution(role, harness, workingDir string) ExecutionConf
 	return ExecutionConfig{
 		WorkspaceBaseRef:  strings.TrimSpace(c.GitHubProject.RemoteName) + "/" + strings.TrimSpace(c.GitHubProject.BaseBranch),
 		RoleAccess:        EffectiveRoleAccess(profile.Access),
+		HarnessConfigMode: EffectiveHarnessConfigMode(profile.HarnessConfig),
 		Harness:           resolved,
 		Skills:            append([]string(nil), profile.Skills...),
 		MCPServers:        append([]string(nil), profile.MCPServers...),

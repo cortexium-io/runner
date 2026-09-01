@@ -71,6 +71,16 @@ func (inspectorCommandRunner) Run(_ context.Context, command string, args []stri
 	if name == "gh" && strings.Join(args, " ") == "api user --jq .login" {
 		return subprocess.Result{Stdout: "octocat\n"}, nil
 	}
+	if name == "gh" && len(args) == 2 && args[0] == "api" {
+		switch {
+		case strings.Contains(args[1], "/rules/branches/"):
+			return subprocess.Result{Stdout: `[]`}, nil
+		case strings.Contains(args[1], "/branches/"):
+			return subprocess.Result{Stdout: `{"name":"main","protected":false}`}, nil
+		case strings.HasPrefix(args[1], "repos/"):
+			return subprocess.Result{Stdout: `{"allow_auto_merge":true,"allow_merge_commit":true,"allow_rebase_merge":true,"allow_squash_merge":true,"permissions":{"push":true}}`}, nil
+		}
+	}
 	return subprocess.Result{}, nil
 }
 
@@ -92,6 +102,61 @@ func TestCapabilityInspectorRejectsHarnessWithoutConfiguredPolicyFlags(t *testin
 	}
 	if len(capabilities) == 0 || capabilities[0].Status != CapabilityBlocked {
 		t.Fatalf("unsupported policy capability was not blocked: %#v", capabilities)
+	}
+}
+
+type chromeVersionRunner struct {
+	version string
+	err     error
+}
+
+func (r chromeVersionRunner) Run(_ context.Context, _ string, args []string, _ string, _ time.Duration) (subprocess.Result, error) {
+	if !reflect.DeepEqual(args, []string{"--version"}) {
+		return subprocess.Result{}, errors.New("unexpected browser invocation")
+	}
+	return subprocess.Result{Stdout: r.version}, r.err
+}
+
+func TestInspectChromeRequiresLoopbackAllowlistSupport(t *testing.T) {
+	browser := filepath.Join(t.TempDir(), "chrome")
+	if err := os.WriteFile(browser, []byte("test"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		version string
+		status  string
+		detail  string
+	}{
+		{name: "supported", version: "Google Chrome 149.0.1\n", status: CapabilityAvailable, detail: "isolated headless browser"},
+		{name: "too old", version: "Google Chrome 140.0.7339.208\n", status: CapabilityBlocked, detail: "149+ is required"},
+		{name: "unknown", version: "Google Chrome unknown\n", status: CapabilityBlocked, detail: "could not be determined"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			inspector := NewInspector(config.Config{}, chromeVersionRunner{version: test.version})
+			inspector.lookPath = func(string) (string, error) { return browser, nil }
+			capability := inspector.inspectChrome(t.Context())
+			if capability.Status != test.status || capability.Detail == nil || !strings.Contains(*capability.Detail, test.detail) {
+				t.Fatalf("browser capability = %#v", capability)
+			}
+		})
+	}
+}
+
+func TestBrowserMajorVersion(t *testing.T) {
+	for input, want := range map[string]int{
+		"Google Chrome 149.0.1": 149,
+		"Chromium v150.2.3":     150,
+	} {
+		got, ok := browserMajorVersion(input)
+		if !ok || got != want {
+			t.Fatalf("browserMajorVersion(%q) = %d, %t; want %d, true", input, got, ok, want)
+		}
+	}
+	if got, ok := browserMajorVersion("Google Chrome unknown"); ok || got != 0 {
+		t.Fatalf("unknown browser version = %d, %t", got, ok)
 	}
 }
 

@@ -1,6 +1,8 @@
 package execution
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -31,8 +33,8 @@ func TestFixedProfilesCoverEveryRunnerLaunchRole(t *testing.T) {
 	}
 }
 
-func TestHostAccessIsExplicitAndPreservesRoleToolCeilings(t *testing.T) {
-	for _, role := range []RoleContract{RoleImplementer, RoleReviewer} {
+func TestHostAccessIsExplicitAndPreservesIsolatedRoleToolCeilings(t *testing.T) {
+	for _, role := range []RoleContract{RolePlanner, RoleImplementer, RoleReviewer} {
 		profile, err := ProfileForRole(role, config.RoleAccessHost)
 		if err != nil {
 			t.Fatalf("host profile %s: %v", role, err)
@@ -44,8 +46,60 @@ func TestHostAccessIsExplicitAndPreservesRoleToolCeilings(t *testing.T) {
 			t.Fatalf("reviewer host access expanded its tool ceiling: %#v", profile)
 		}
 	}
-	if _, err := ProfileForRole(RolePlanner, config.RoleAccessHost); err == nil {
-		t.Fatal("planner host access was accepted")
+}
+
+func TestInheritedHarnessConfigurationRetainsContainmentChoiceAndAmbientResources(t *testing.T) {
+	workspace := profileWorkspace{Dir: "/worktree", ReadRoot: "/worktree"}
+	profile, err := ProfileForRole(RoleImplementer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex := append(
+		codexProfileArgsForConfig(profile, workspace, true, config.HarnessConfigModeInherit, "codex"),
+		codexExecArgsForConfig(profile, workspace, config.HarnessConfigModeInherit)...,
+	)
+	joinedCodex := strings.Join(codex, " ")
+	for _, forbidden := range []string{"--ignore-user-config", "--ignore-rules", codexSkipHostSkillDiscoveryConfig, "mcp_servers={}", "--disable apps"} {
+		if strings.Contains(joinedCodex, forbidden) {
+			t.Fatalf("inherited Codex config retained isolation override %q: %s", forbidden, joinedCodex)
+		}
+	}
+	if !strings.Contains(joinedCodex, "runner_implementer_development") {
+		t.Fatalf("inherited Codex config lost the sandbox containment ceiling: %s", joinedCodex)
+	}
+
+	claude := claudeProfileArgsForConfig(profile, workspace, true, config.HarnessConfigModeInherit)
+	joinedClaude := strings.Join(claude, " ")
+	for _, forbidden := range []string{"--setting-sources", "--strict-mcp-config", "--disable-slash-commands", "--no-chrome", "--tools", `"disableAllHooks":true`} {
+		if strings.Contains(joinedClaude, forbidden) {
+			t.Fatalf("inherited Claude config retained isolation override %q: %s", forbidden, joinedClaude)
+		}
+	}
+	for _, required := range []string{"--permission-mode", "--settings", "--mcp-config"} {
+		if !contains(claude, required) {
+			t.Fatalf("inherited Claude config lost required sandbox or Runner browser flag %q: %#v", required, claude)
+		}
+	}
+	if !containsArgPair(claude, "--allowedTools", "Read,Grep,Glob,Bash,Edit,Write,mcp__runner_browser__*") {
+		t.Fatalf("inherited Claude config did not approve the implementer role tools: %#v", claude)
+	}
+
+	piProfile, err := ProfileForRole(RoleImplementer, config.RoleAccessHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pi := piProfileArgsForModelAndConfig(piProfile, nil, config.HarnessConfigModeInherit)
+	joinedPi := strings.Join(pi, " ")
+	for _, forbidden := range []string{"--no-extensions", "--no-skills", "--no-context-files", "--tools"} {
+		if strings.Contains(joinedPi, forbidden) {
+			t.Fatalf("inherited Pi config retained isolation override %q: %s", forbidden, joinedPi)
+		}
+	}
+	if err := ValidateHarnessProfile(config.HarnessPiCLI, RolePlanner, config.RoleAccessSandboxed, config.HarnessConfigModeInherit); err == nil {
+		t.Fatal("Pi inherited configuration was accepted without host access")
+	}
+	if err := ValidateHarnessProfile(config.HarnessPiCLI, RolePlanner, config.RoleAccessHost, config.HarnessConfigModeInherit); err != nil {
+		t.Fatalf("Pi inherited host configuration was rejected: %v", err)
 	}
 }
 
@@ -72,6 +126,39 @@ func TestCodexProfileForcesReadOnlyPolicy(t *testing.T) {
 	}
 }
 
+func TestSandboxedCodexRolesCanReadInstalledCLI(t *testing.T) {
+	root := t.TempDir()
+	standalone := filepath.Join(root, ".codex", "packages", "standalone")
+	releaseBin := filepath.Join(standalone, "releases", "v1", "bin")
+	if err := os.MkdirAll(releaseBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(releaseBin, "codex")
+	if err := os.WriteFile(target, []byte("codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	launcherDir := filepath.Join(root, ".local", "bin")
+	if err := os.MkdirAll(launcherDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	launcher := filepath.Join(launcherDir, "codex")
+	if err := os.Symlink(target, launcher); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, role := range []RoleContract{RolePlanner, RoleReviewer, RoleImplementer} {
+		profile, err := ProfileForRole(role)
+		if err != nil {
+			t.Fatalf("profile %s: %v", role, err)
+		}
+		workspace := profileWorkspace{Dir: "/workspace", ReadRoot: "/repo"}
+		joined := strings.Join(codexProfileArgs(profile, workspace, false, launcher), " ")
+		if !strings.Contains(joined, strconv.Quote(standalone)+`="read"`) {
+			t.Fatalf("Codex %s profile cannot read its installed CLI: %s", role, joined)
+		}
+	}
+}
+
 func TestCodexImplementerUsesScopedWritePermissionProfile(t *testing.T) {
 	profile, _ := ProfileForRole(RoleImplementer)
 	workspace := profileWorkspace{Dir: "/worktree", ReadRoot: "/worktree"}
@@ -92,6 +179,32 @@ func TestCodexImplementerUsesScopedWritePermissionProfile(t *testing.T) {
 	}
 	if strings.Contains(joined, "danger-full-access") || strings.Contains(joined, "--sandbox workspace-write") {
 		t.Fatalf("Codex implementer retained an ambient legacy sandbox: %s", joined)
+	}
+}
+
+func TestCodexProfilesUsePinnedSkillsAndFailClosedCodeModeHost(t *testing.T) {
+	for _, role := range []RoleContract{RolePlanner, RoleSynthesis, RoleReviewer, RoleProbe, RoleImplementer} {
+		profile, err := ProfileForRole(role)
+		if err != nil {
+			t.Fatalf("profile %s: %v", role, err)
+		}
+		workspace := profileWorkspace{Dir: "/neutral", ReadRoot: "/repo"}
+		if role == RoleImplementer {
+			workspace = profileWorkspace{Dir: "/worktree", ReadRoot: "/worktree"}
+		}
+		args := codexProfileArgs(profile, workspace, false, "codex")
+		if !containsArgPair(args, "--config", codexCodeModeHostConfig) {
+			t.Fatalf("Codex %s profile omitted the fail-closed code-mode host: %#v", role, args)
+		}
+		if !containsArgPair(args, "--config", codexSkipHostSkillDiscoveryConfig) {
+			t.Fatalf("Codex %s profile retained ambient host skill discovery: %#v", role, args)
+		}
+		if containsArgPair(args, "--disable", "code_mode_host") {
+			t.Fatalf("Codex %s profile disabled its required code-mode host: %#v", role, args)
+		}
+		if profile.Sandbox != SandboxFullAccess && (containsArgPair(args, "--sandbox", config.CodexSandboxDangerFullAccess) || contains(args, "--dangerously-bypass-approvals-and-sandbox")) {
+			t.Fatalf("Codex %s profile widened host access for code mode: %#v", role, args)
+		}
 	}
 }
 

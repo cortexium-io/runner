@@ -199,7 +199,7 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 
 // RequestAutoMerge asks GitHub to merge the pull request once all repository
 // requirements pass. It deliberately never uses an administrative bypass.
-func (m PullRequestManager) requestAutoMerge(ctx context.Context, repository, selector, headCommit string) error {
+func (m PullRequestManager) requestAutoMerge(ctx context.Context, repository, selector, headCommit, mergeMethod string) error {
 	selector, err := validatedPullRequestSelector(repository, selector)
 	if err != nil {
 		return err
@@ -208,14 +208,18 @@ func (m PullRequestManager) requestAutoMerge(ctx context.Context, repository, se
 	if !validGitObjectID(headCommit) {
 		return errors.New("automatic pull request merge requires the full reviewed head commit")
 	}
-	result, err := subprocess.RunGitHub(ctx, m.run, []string{"pr", "merge", selector, "--repo", repository, "--auto", "--merge", "--match-head-commit", headCommit}, "", 30*time.Second)
+	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	if !config.ValidMergeMethod(mergeMethod) {
+		return fmt.Errorf("automatic pull request merge method %q is unsupported", mergeMethod)
+	}
+	result, err := subprocess.RunGitHub(ctx, m.run, []string{"pr", "merge", selector, "--repo", repository, "--auto", "--" + mergeMethod, "--match-head-commit", headCommit}, "", 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("request automatic pull request merge: %w", commandFailure(err, result))
 	}
 	return nil
 }
 
-func (m PullRequestManager) RequestAutoMergeAuthorized(ctx context.Context, action AuthorizedAction, headCommit, baseBranch, baseRevision string) error {
+func (m PullRequestManager) RequestAutoMergeAuthorized(ctx context.Context, action AuthorizedAction, headCommit, baseBranch, baseRevision, mergeMethod string) error {
 	item, err := requireAuthorizedAction(action)
 	if err != nil {
 		return err
@@ -242,7 +246,7 @@ func (m PullRequestManager) RequestAutoMergeAuthorized(ctx context.Context, acti
 	if err := ValidateTrackedPullRequest(details, item.Repository, item.Branch, headCommit, baseBranch, baseRevision); err != nil {
 		return fmt.Errorf("automatic merge pull request identity changed: %w", err)
 	}
-	return m.requestAutoMerge(ctx, item.Repository, item.PullRequest, headCommit)
+	return m.requestAutoMerge(ctx, item.Repository, item.PullRequest, headCommit, mergeMethod)
 }
 
 // CancelAutoMerge disarms a previously requested automatic merge before the

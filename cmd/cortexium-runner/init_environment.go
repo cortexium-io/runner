@@ -38,7 +38,11 @@ func prepareInitTools(cfg config.Config, dryRun bool, stdout io.Writer) error {
 		if role == config.WorkRoleImplementer || role == config.WorkRoleReviewer {
 			planningSupport = " · task sizing " + taskSizingLabel(profile.PlanningSupport)
 		}
-		fmt.Fprintf(stdout, "  %s: %s · model %s · reasoning %s · access %s%s\n", role, profile.Harness, model, profile.Reasoning, config.EffectiveRoleAccess(profile.Access), planningSupport)
+		mode := config.EffectiveHarnessConfigMode(profile.HarnessConfig)
+		fmt.Fprintf(stdout, "  %s: %s · model %s · reasoning %s · access %s · harness config %s%s\n", role, profile.Harness, model, profile.Reasoning, config.EffectiveRoleAccess(profile.Access), mode, planningSupport)
+		if config.EffectiveRoleAccess(profile.Access) == config.RoleAccessHost && mode == config.HarnessConfigModeInherit {
+			fmt.Fprintln(stdout, "    WARNING: this role inherits ambient tools and configuration with unrestricted host access")
+		}
 	}
 	if len(cfg.ImplementerLadder) > 0 {
 		fmt.Fprintf(stdout, "Implementer ladder: %s\n", strings.Join(cfg.ImplementerLadder, " -> "))
@@ -47,7 +51,7 @@ func prepareInitTools(cfg config.Config, dryRun bool, stdout io.Writer) error {
 	writeAdmissionBudgetSummary(stdout, cfg.AdmissionBudget)
 	mergeMode := "human review and merge"
 	if cfg.GitHubProject != nil && cfg.GitHubProject.AutoMerge {
-		mergeMode = "automatic after GitHub requirements pass"
+		mergeMode = fmt.Sprintf("automatic %s after GitHub requirements pass", config.EffectiveMergeMethod(cfg.GitHubProject.MergeMethod))
 	}
 	fmt.Fprintf(stdout, "Pull request merge: %s\n", mergeMode)
 	requiredTools, err := setup.RequiredToolsForHarnesses(harnesses)

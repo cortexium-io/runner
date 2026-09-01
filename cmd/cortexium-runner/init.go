@@ -46,13 +46,19 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	baseBranch := flags.String("base-branch", "main", "pull request target branch")
 	remoteName := flags.String("remote", "origin", "Git remote used for publication")
 	autoMerge := flags.Bool("auto-merge", false, "ask GitHub to merge pull requests automatically after its requirements pass")
+	mergeMethod := flags.String("merge-method", config.MergeMethodMerge, "automatic pull request merge method: merge, rebase, or squash")
 	bootstrapBaseBranch := flags.Bool("bootstrap-base-branch", false, "push the local base branch or initialize it when the remote repository is empty")
 	defaultHarness := flags.String("harness", "", "default harness for all roles; overridden by a role-specific harness flag")
 	plannerHarness := flags.String("planner-harness", "", "planner harness; inferred only when exactly one supported harness is available")
 	implementerHarness := flags.String("implementer-harness", "", "implementer harness; inferred only when exactly one supported harness is available")
 	reviewerHarness := flags.String("reviewer-harness", "", "reviewer harness; inferred only when exactly one supported harness is available")
+	plannerAccess := flags.String("planner-access", "", "planner access: sandboxed (default) or host")
 	implementerAccess := flags.String("implementer-access", "", "implementer access: sandboxed (default) or host")
 	reviewerAccess := flags.String("reviewer-access", "", "reviewer access: sandboxed (default) or host")
+	defaultHarnessConfig := flags.String("harness-config", "", "default harness configuration: isolated (default) or inherit")
+	plannerHarnessConfig := flags.String("planner-harness-config", "", "planner harness configuration: isolated or inherit")
+	implementerHarnessConfig := flags.String("implementer-harness-config", "", "implementer harness configuration: isolated or inherit")
+	reviewerHarnessConfig := flags.String("reviewer-harness-config", "", "reviewer harness configuration: isolated or inherit")
 	defaultPlanningSupport := flags.String("planning-support", "", "default downstream task sizing: standard (regular) or high (small)")
 	implementerPlanningSupport := flags.String("implementer-planning-support", "", "implementer task sizing: standard (regular) or high (small)")
 	reviewerPlanningSupport := flags.String("reviewer-planning-support", "", "reviewer task sizing: standard (regular) or high (small)")
@@ -126,11 +132,12 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		forbidden := map[string]bool{
 			"owner": true, "project-number": true, "create-project": true, "repository": true,
 			"intake-label": true, "project-visibility": true, "project-dir": true,
-			"max-parallelism": true, "qa-reject-limit": true, "base-branch": true, "auto-merge": true,
+			"max-parallelism": true, "qa-reject-limit": true, "base-branch": true, "auto-merge": true, "merge-method": true,
 			"admission-window": true, "max-admission-attempts": true, "max-admission-harness-time": true,
 			"max-admission-tokens": true, "max-admission-cost-usd": true,
 			"remote": true, "harness": true, "planner-harness": true, "implementer-harness": true,
-			"reviewer-harness": true, "implementer-access": true, "reviewer-access": true,
+			"reviewer-harness": true, "planner-access": true, "implementer-access": true, "reviewer-access": true,
+			"harness-config": true, "planner-harness-config": true, "implementer-harness-config": true, "reviewer-harness-config": true,
 			"planning-support": true, "implementer-planning-support": true, "reviewer-planning-support": true,
 			"planner-model": true, "implementer-model": true,
 			"model": true, "reviewer-model": true, "reasoning": true, "planner-reasoning": true, "implementer-reasoning": true,
@@ -162,6 +169,9 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		return err
 	}
 	if err := applyInitPlanningSupportDefaults(*defaultPlanningSupport, implementerPlanningSupport, reviewerPlanningSupport); err != nil {
+		return err
+	}
+	if err := applyInitHarnessConfigDefaults(*defaultHarnessConfig, plannerHarnessConfig, implementerHarnessConfig, reviewerHarnessConfig); err != nil {
 		return err
 	}
 	if prompter != nil {
@@ -213,6 +223,10 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	*plannerHarness = selectedHarnesses[config.WorkRolePlanner]
 	*implementerHarness = selectedHarnesses[config.WorkRoleImplementer]
 	*reviewerHarness = selectedHarnesses[config.WorkRoleReviewer]
+	*plannerAccess, err = resolveInitRoleAccess(prompter, config.WorkRolePlanner, *plannerHarness, *plannerAccess)
+	if err != nil {
+		return err
+	}
 	*implementerAccess, err = resolveInitRoleAccess(prompter, config.WorkRoleImplementer, *implementerHarness, *implementerAccess)
 	if err != nil {
 		return err
@@ -225,12 +239,13 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		role   execution.RoleContract
 		kind   string
 		access string
+		mode   string
 	}{
-		{execution.RolePlanner, *plannerHarness, config.RoleAccessSandboxed},
-		{execution.RoleReviewer, *reviewerHarness, *reviewerAccess},
-		{execution.RoleImplementer, *implementerHarness, *implementerAccess},
+		{execution.RolePlanner, *plannerHarness, *plannerAccess, *plannerHarnessConfig},
+		{execution.RoleReviewer, *reviewerHarness, *reviewerAccess, *reviewerHarnessConfig},
+		{execution.RoleImplementer, *implementerHarness, *implementerAccess, *implementerHarnessConfig},
 	} {
-		if err := execution.ValidateHarnessProfile(selected.kind, selected.role, selected.access); err != nil {
+		if err := execution.ValidateHarnessProfile(selected.kind, selected.role, selected.access, selected.mode); err != nil {
 			return fmt.Errorf("unsupported %s harness profile: %w", selected.role, err)
 		}
 	}
@@ -242,12 +257,18 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	roles[config.WorkRolePlanner] = initRole(roles[config.WorkRolePlanner], *plannerHarness, *plannerModel, *plannerReasoning)
 	roles[config.WorkRoleImplementer] = initRole(roles[config.WorkRoleImplementer], *implementerHarness, *implementerModel, *implementerReasoning)
 	roles[config.WorkRoleReviewer] = initRole(roles[config.WorkRoleReviewer], *reviewerHarness, *reviewerModel, *reviewerReasoning)
+	plannerRole := roles[config.WorkRolePlanner]
+	plannerRole.Access = *plannerAccess
+	plannerRole.HarnessConfig = *plannerHarnessConfig
+	roles[config.WorkRolePlanner] = plannerRole
 	implementerRole := roles[config.WorkRoleImplementer]
 	implementerRole.Access = *implementerAccess
+	implementerRole.HarnessConfig = *implementerHarnessConfig
 	implementerRole.PlanningSupport = *implementerPlanningSupport
 	roles[config.WorkRoleImplementer] = implementerRole
 	reviewerRole := roles[config.WorkRoleReviewer]
 	reviewerRole.Access = *reviewerAccess
+	reviewerRole.HarnessConfig = *reviewerHarnessConfig
 	reviewerRole.PlanningSupport = *reviewerPlanningSupport
 	roles[config.WorkRoleReviewer] = reviewerRole
 	admissionBudget, err := initAdmissionBudget(*admissionWindow, *maxAdmissionAttempts, *maxAdmissionHarnessTime, *maxAdmissionTokens, *maxAdmissionCostUSD)
@@ -275,7 +296,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 			Owner: strings.TrimSpace(*owner), Number: preflightProjectNumber, IntakeRepository: strings.TrimSpace(*repository), IntakeLabel: strings.TrimSpace(*intakeLabel),
 			ResultField: "Runner Result", ApprovalField: "Runner Approval",
 			PhaseField: "Runner Phase", QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request", QACommitField: "QA Commit",
-			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge,
+			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge, MergeMethod: strings.TrimSpace(*mergeMethod),
 		},
 		Harnesses: harnesses,
 		Roles:     roles, Workflow: &workflow,
@@ -388,7 +409,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 			Owner: resolvedOwner, Number: resolvedProjectNumber, IntakeRepository: resolvedRepository, IntakeLabel: strings.TrimSpace(*intakeLabel),
 			ResultField: "Runner Result", ApprovalField: "Runner Approval",
 			PhaseField: "Runner Phase", QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request", QACommitField: "QA Commit",
-			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge,
+			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge, MergeMethod: strings.TrimSpace(*mergeMethod),
 		},
 		Harnesses: harnesses,
 		Roles:     roles, Workflow: &workflow,
@@ -632,6 +653,26 @@ func applyInitPlanningSupportDefaults(value string, implementer, reviewer *strin
 		}
 		if strings.TrimSpace(*reviewer) == "" {
 			*reviewer = value
+		}
+	}
+	return nil
+}
+
+func applyInitHarnessConfigDefaults(value string, planner, implementer, reviewer *string) error {
+	value = strings.TrimSpace(value)
+	for name, candidate := range map[string]string{
+		"--harness-config":             value,
+		"--planner-harness-config":     strings.TrimSpace(*planner),
+		"--implementer-harness-config": strings.TrimSpace(*implementer),
+		"--reviewer-harness-config":    strings.TrimSpace(*reviewer),
+	} {
+		if candidate != "" && !config.ValidHarnessConfigMode(candidate) {
+			return fmt.Errorf("%s must be isolated or inherit", name)
+		}
+	}
+	for _, target := range []*string{planner, implementer, reviewer} {
+		if strings.TrimSpace(*target) == "" {
+			*target = config.EffectiveHarnessConfigMode(value)
 		}
 	}
 	return nil

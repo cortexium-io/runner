@@ -205,8 +205,8 @@ func newCodexLMStudioLauncher(t *testing.T) string {
 
 func runLocalBenchmarkStructuredRead(t *testing.T, harness string, cfg config.ExecutionConfig) (string, metrics.Usage, int64, error) {
 	t.Helper()
-	// Pi's read-only planner profile intentionally never permits host access.
-	// Implementer and reviewer cases below still use the explicit host profile.
+	// Keep this read-only Pi benchmark on the isolated planner profile.
+	// Implementer and reviewer cases below use the explicit host profile.
 	if harness == config.HarnessPiCLI {
 		cfg.RoleAccess = ""
 	}

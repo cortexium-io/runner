@@ -50,8 +50,8 @@ config is `.cortexium/runner.json`; Runner ensures it is ignored, adding its
 exact path to `.gitignore` when needed without staging or committing the
 change. An external path is also supported.
 Use the arrow keys and Enter for finite choices.
-The Claude menu uses the aliases advertised by Claude Code, such as Opus and
-Sonnet; it also offers the current harness-native selection and a custom-ID
+The Claude menu uses Claude Code's official rolling aliases, Opus and Sonnet;
+it also offers the current harness-native selection and a custom-ID
 escape hatch for pinned versions. Claude Code has no supported catalog-listing
 command equivalent to Codex's local catalog, so Runner does not depend on its
 private cache. Use `--dry-run` to preview the resulting local and GitHub
@@ -83,9 +83,12 @@ Add a role-specific flag such as
 `--reviewer-model claude-opus-4-8` when one role should differ, or use
 `cortexium-runner role edit ROLE` after initialization.
 
-The safest access default is `sandboxed`. Runner suppresses ambient Claude
-customization and uses Claude's native filesystem/process sandbox. Implementers
-run in the task worktree; reviewers use a private neutral directory with the
+The safest default is `access: sandboxed` with `harness_config: isolated`.
+Runner suppresses ambient Claude customization and uses Claude's native
+filesystem/process sandbox. Set `harness_config: inherit` only when the role
+must load native Claude user/project settings, hooks, tools, or MCP servers; the
+same sandbox boundary still applies until `access` is explicitly changed to
+`host`. Implementers run in the task worktree; reviewers use a private neutral directory with the
 repository added read-only. Operator-home reads are denied except for the
 assigned root and the implementer's npm cache. Claude still uses its existing
 login.

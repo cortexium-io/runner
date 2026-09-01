@@ -89,13 +89,13 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 	if err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureInvalidConfiguration, RetryNone), err
 	}
-	if err := ValidateHarnessProfile(config.HarnessCodexCLI, role, e.config.RoleAccess); err != nil {
+	if err := ValidateHarnessProfile(config.HarnessCodexCLI, role, e.config.RoleAccess, e.config.HarnessConfigMode); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 	if role == RoleReviewer {
 		return executeSharedReviewer(ctx, config.HarnessCodexCLI, e.config, assignment, e.run)
 	}
-	if err := ensureHarnessAdvertisesProfile(ctx, e.run, strings.TrimSpace(e.cfg.Command), config.HarnessCodexCLI, role, e.config.RoleAccess); err != nil {
+	if err := ensureHarnessAdvertisesProfile(ctx, e.run, strings.TrimSpace(e.cfg.Command), config.HarnessCodexCLI, role, e.config.RoleAccess, e.config.HarnessConfigMode); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 	launchWorkspace, err := prepareProfileWorkspace(profile, e.cfg.WorkingDir, e.cfg.WorkspaceWriteRoot)
@@ -110,7 +110,7 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 	}
 	defer artifacts.close()
 
-	mcpArgs, err := codexMCPProfileArgs(ctx, e.run, strings.TrimSpace(e.cfg.Command), launchWorkspace.Dir, e.config.MCPServers, e.config.SafeTools)
+	mcpArgs, err := codexMCPProfileArgsForConfig(ctx, e.run, strings.TrimSpace(e.cfg.Command), launchWorkspace.Dir, e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode)
 	if err != nil {
 		output := blockedOutputWithFailure("Configured Codex MCP capability is unavailable.", FailureCapabilityUnavailable, RetryManual)
 		output.RemoteDetailSafe = true
@@ -162,10 +162,10 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	if err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureInvalidConfiguration, RetryNone), err
 	}
-	if err := ValidateHarnessProfile(config.HarnessCodexCLI, RoleImplementer, e.config.RoleAccess); err != nil {
+	if err := ValidateHarnessProfile(config.HarnessCodexCLI, RoleImplementer, e.config.RoleAccess, e.config.HarnessConfigMode); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
-	if err := ensureHarnessAdvertisesProfile(ctx, e.run, strings.TrimSpace(e.cfg.Command), config.HarnessCodexCLI, RoleImplementer, e.config.RoleAccess); err != nil {
+	if err := ensureHarnessAdvertisesProfile(ctx, e.run, strings.TrimSpace(e.cfg.Command), config.HarnessCodexCLI, RoleImplementer, e.config.RoleAccess, e.config.HarnessConfigMode); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 	packet := assignment.Spec
@@ -202,7 +202,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 	defer launchWorkspace.cleanup()
-	mcpArgs, err := codexMCPProfileArgs(ctx, e.run, strings.TrimSpace(e.cfg.Command), launchWorkspace.Dir, e.config.MCPServers, e.config.SafeTools)
+	mcpArgs, err := codexMCPProfileArgsForConfig(ctx, e.run, strings.TrimSpace(e.cfg.Command), launchWorkspace.Dir, e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode)
 	if err != nil {
 		output := blockedOutputWithFailure("Configured Codex MCP capability is unavailable.", FailureCapabilityUnavailable, RetryManual)
 		output.RemoteDetailSafe = true
@@ -412,13 +412,13 @@ func blockedOutputWithFailure(summary string, class FailureClass, retry RetryDis
 }
 
 func (e CodexExecutor) args(profile ExecutionProfile, workspace profileWorkspace, mcpArgs []string, outputPath string, schemaPath string, assignment Assignment) []string {
-	args := codexProfileArgs(profile, workspace, e.config.SafeTools, e.cfg.Command)
+	args := codexProfileArgsForConfig(profile, workspace, e.config.SafeTools, e.config.HarnessConfigMode, e.cfg.Command)
 	args = append(args, mcpArgs...)
 	if model := e.modelID(); model != "" {
 		args = append(args, "--model", model)
 	}
 	args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", strings.TrimSpace(e.cfg.ReasoningEffort)))
-	args = append(args, codexExecIsolationArgs(profile, workspace)...)
+	args = append(args, codexExecArgsForConfig(profile, workspace, e.config.HarnessConfigMode)...)
 	args = append(args,
 		"--output-last-message", outputPath,
 		"--output-schema", schemaPath,
@@ -427,13 +427,13 @@ func (e CodexExecutor) args(profile ExecutionProfile, workspace profileWorkspace
 }
 
 func (e CodexExecutor) profileWorkspaceWriteArgs(profile ExecutionProfile, workspace profileWorkspace, mcpArgs []string, outputPath string, schemaPath string, assignment Assignment) []string {
-	args := codexProfileArgs(profile, workspace, e.config.SafeTools, e.cfg.Command)
+	args := codexProfileArgsForConfig(profile, workspace, e.config.SafeTools, e.config.HarnessConfigMode, e.cfg.Command)
 	args = append(args, mcpArgs...)
 	if model := e.modelID(); model != "" {
 		args = append(args, "--model", model)
 	}
 	args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", strings.TrimSpace(e.cfg.ReasoningEffort)))
-	args = append(args, codexExecIsolationArgs(profile, workspace)...)
+	args = append(args, codexExecArgsForConfig(profile, workspace, e.config.HarnessConfigMode)...)
 	args = append(args,
 		"--output-last-message", outputPath,
 		"--output-schema", schemaPath,
@@ -449,11 +449,11 @@ func (e CodexExecutor) modelID() string {
 }
 
 func (e CodexExecutor) projectPrompt(assignment Assignment, workspace profileWorkspace) string {
-	return buildCodexPrompt(assignment) + trustedSkillInstructions(e.config) + codexMCPPrompt(e.config.MCPServers, e.config.SafeTools) + profileRepositoryInstruction(workspace)
+	return buildCodexPrompt(assignment) + trustedSkillInstructions(e.config) + codexMCPPromptForConfig(e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode) + profileRepositoryInstruction(workspace)
 }
 
 func (e CodexExecutor) workspaceWritePrompt(assignment Assignment) string {
-	return buildWorkspaceWriteCodexPrompt(assignment) + trustedSkillInstructions(e.config) + codexMCPPrompt(e.config.MCPServers, e.config.SafeTools)
+	return buildWorkspaceWriteCodexPrompt(assignment) + trustedSkillInstructions(e.config) + codexMCPPromptForConfig(e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode)
 }
 
 func (e CodexExecutor) runCodex(ctx context.Context, args []string, workingDir string, input io.Reader) (subprocess.Result, error) {
