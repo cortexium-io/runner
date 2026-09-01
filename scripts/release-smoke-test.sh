@@ -20,6 +20,9 @@ case "$1 $2" in
 	"project list") printf '%s\n' '[]' ;;
 	"project link") exit 0 ;;
   "api user") printf '%s\n' 'smoke-user' ;;
+  "api repos/example/runner") printf '%s\n' '{"full_name":"example/runner","allow_auto_merge":false,"allow_merge_commit":true,"allow_rebase_merge":true,"allow_squash_merge":true,"permissions":{"push":true}}' ;;
+  "api repos/example/runner/branches/main") printf '%s\n' '{"name":"main","protected":false}' ;;
+  "api repos/example/runner/rules/branches/main") printf '%s\n' '[]' ;;
   "api graphql")
     case "$*" in
       *"fields(first:100,after:"*) printf '%s\n' '{"data":{"node":{"fields":{"nodes":[{"__typename":"ProjectV2SingleSelectField","id":"F_status","name":"Status","dataType":"SINGLE_SELECT","options":[{"id":"O_assessment","name":"Needs assessment"},{"id":"O_backlog","name":"Backlog"},{"id":"O_plan","name":"Plan"},{"id":"O_ready","name":"Ready"},{"id":"O_running","name":"In Progress"},{"id":"O_qa","name":"Agent QA"},{"id":"O_pr_ready","name":"PR Ready"},{"id":"O_blocked","name":"Blocked"},{"id":"O_done","name":"Done"}]},{"__typename":"ProjectV2Field","id":"F_result","name":"Runner Result","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_approval","name":"Runner Approval","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_phase","name":"Runner Phase","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_activity","name":"Runner Activity","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_qa","name":"QA Failures","dataType":"NUMBER"},{"__typename":"ProjectV2Field","id":"F_branch","name":"Runner Branch","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_pr","name":"Pull Request","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_qa_commit","name":"QA Commit","dataType":"TEXT"}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}' ;;
