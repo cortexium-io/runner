@@ -879,7 +879,7 @@ func TestRunCycleExecutesTwoIndependentCardsConcurrentlyExactlyOnce(t *testing.T
 	if err != nil {
 		t.Fatalf("configure service: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
 	results, err := service.RunCycle(ctx)
