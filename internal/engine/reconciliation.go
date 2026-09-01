@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -449,7 +450,19 @@ func (s *Engine) reconcileTerminalPullRequest(
 	if details.State != "MERGED" && details.State != "CLOSED" {
 		return false, false, nil, nil
 	}
-	if validationErr := github.ValidateTrackedPullRequest(details, item.Repository, item.Branch, item.QACommit, s.baseBranch(), ""); validationErr != nil {
+	validationErr := github.ValidateTrackedPullRequest(details, item.Repository, item.Branch, item.QACommit, s.baseBranch(), "")
+	if validationErr != nil {
+		if details.State == "MERGED" && strings.EqualFold(strings.TrimSpace(s.cfg.GitHubProject.MergeMethod), "rebase") {
+			equivalent, err := s.terminalPullRequestTreeMatchesQA(ctx, item, details)
+			if err != nil {
+				return true, false, nil, err
+			}
+			if equivalent {
+				validationErr = nil
+			}
+		}
+	}
+	if validationErr != nil {
 		value := RunResult{
 			Item: item, Outcome: "warning",
 			Summary: "Terminal pull request no longer matches the exact reviewed item; Runner preserved the workspace for diagnosis.",
@@ -485,6 +498,53 @@ func (s *Engine) reconcileTerminalPullRequest(
 		warning = &value
 	}
 	return true, changed, warning, nil
+}
+
+// terminalPullRequestTreeMatchesQA permits a rebase-only repository to
+// reconcile a merged PR after its branch was linearized. Commit metadata and
+// ancestry may differ, but the repository, head branch, base branch, and exact
+// reviewed tree must remain unchanged.
+func (s *Engine) terminalPullRequestTreeMatchesQA(ctx context.Context, item github.WorkItem, details github.PullRequestDetails) (bool, error) {
+	if err := github.ValidateTrackedPullRequest(details, item.Repository, item.Branch, "", s.baseBranch(), ""); err != nil {
+		return false, nil
+	}
+	qaCommit := strings.TrimSpace(item.QACommit)
+	mergedHead := strings.TrimSpace(details.HeadRefOID)
+	if !validReconciliationObjectID(qaCommit) || !validReconciliationObjectID(mergedHead) {
+		return false, nil
+	}
+	repoRoot, err := s.repositoryDir(ctx, item.Repository)
+	if err != nil {
+		return false, nil
+	}
+	tree := func(commit string) (string, error) {
+		result, err := s.git(ctx, []string{"rev-parse", "--verify", commit + "^{tree}"}, repoRoot, 30*time.Second)
+		if err != nil {
+			return "", commandFailure(err, result)
+		}
+		value := strings.TrimSpace(result.Stdout)
+		if !validReconciliationObjectID(value) {
+			return "", errors.New("Git returned an invalid tree object ID")
+		}
+		return value, nil
+	}
+	qaTree, err := tree(qaCommit)
+	if err != nil {
+		return false, nil
+	}
+	mergedTree, err := tree(mergedHead)
+	if err != nil {
+		return false, nil
+	}
+	return qaTree == mergedTree, nil
+}
+
+func validReconciliationObjectID(value string) bool {
+	if len(value) != 40 && len(value) != 64 || strings.ToLower(value) != value {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 func workspaceCleanupWarning(item github.WorkItem, err error) RunResult {
