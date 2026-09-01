@@ -28,7 +28,7 @@ For the offline checkpoint:
 
 - macOS or Linux;
 - Git;
-- Go 1.26.5, or the version declared in [`../go.mod`](../go.mod); and
+- Go 1.26.6, or the version declared in [`../go.mod`](../go.mod); and
 - a clean checkout of this repository.
 
 For the connected dry run, also prepare:
