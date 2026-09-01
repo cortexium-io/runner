@@ -197,6 +197,8 @@ func claudeProfileArgsForConfig(profile ExecutionProfile, workspace profileWorks
 		args = append(args,
 			"--tools", tools, "--allowedTools", allowedTools,
 		)
+	} else if allowedTools != "" {
+		args = append(args, "--allowedTools", allowedTools)
 	}
 	if workspace.ReadRoot != "" && filepath.Clean(workspace.ReadRoot) != filepath.Clean(workspace.Dir) {
 		args = append(args, "--add-dir", workspace.ReadRoot)

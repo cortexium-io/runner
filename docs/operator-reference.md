@@ -21,8 +21,8 @@ Every model process is launched through one immutable Runner-owned execution
 profile. Planner and reviewer processes start in disposable private neutral
 directories. Probe processes receive no task tools. Implementers start in a
 Runner-prepared issue worktree. Codex and Claude roles use their native sandbox
-by default; host access is an explicit implementer/reviewer choice. Runner verifies
-the active checkout and task worktree after execution and before QA or
+by default; host access is an explicit per-role choice where supported. Runner
+verifies the active checkout and task worktree after execution and before QA or
 publication. An installed CLI that does not advertise the required
 non-interactive and structured-result controls is rejected before a model
 process starts.
@@ -825,8 +825,9 @@ A harness defines only `command`, `enabled`, and an external
 reasoning, skills, and timeout belong to role definitions. Workspace class,
 repository identity, mutation intent, and post-run verification come from the
 Runner role profile. `roles.<role>.access` selects `sandboxed` (the default) or
-explicit `host` access for implementer and reviewer contracts. Planner host
-access is rejected.
+explicit `host` access for planner, implementer, and reviewer contracts. Host
+access removes OS containment and should be used only for trusted repositories
+and machines, including when the role contract is otherwise read-oriented.
 
 Runner validates every planner and agent result before changing workflow state.
 Codex and Claude use their native schema-backed output controls. Each Codex

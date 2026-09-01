@@ -70,7 +70,7 @@ func TestInheritedHarnessConfigurationRetainsContainmentChoiceAndAmbientResource
 
 	claude := claudeProfileArgsForConfig(profile, workspace, true, config.HarnessConfigModeInherit)
 	joinedClaude := strings.Join(claude, " ")
-	for _, forbidden := range []string{"--setting-sources", "--strict-mcp-config", "--disable-slash-commands", "--no-chrome", "--tools", "--allowedTools", `"disableAllHooks":true`} {
+	for _, forbidden := range []string{"--setting-sources", "--strict-mcp-config", "--disable-slash-commands", "--no-chrome", "--tools", `"disableAllHooks":true`} {
 		if strings.Contains(joinedClaude, forbidden) {
 			t.Fatalf("inherited Claude config retained isolation override %q: %s", forbidden, joinedClaude)
 		}
@@ -79,6 +79,9 @@ func TestInheritedHarnessConfigurationRetainsContainmentChoiceAndAmbientResource
 		if !contains(claude, required) {
 			t.Fatalf("inherited Claude config lost required sandbox or Runner browser flag %q: %#v", required, claude)
 		}
+	}
+	if !containsArgPair(claude, "--allowedTools", "Read,Grep,Glob,Bash,Edit,Write,mcp__runner_browser__*") {
+		t.Fatalf("inherited Claude config did not approve the implementer role tools: %#v", claude)
 	}
 
 	piProfile, err := ProfileForRole(RoleImplementer, config.RoleAccessHost)
