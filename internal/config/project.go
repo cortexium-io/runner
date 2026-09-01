@@ -16,6 +16,8 @@ const GitHubProjectCapabilityID = "github_project"
 
 const RunnerActivityFieldName = "Runner Activity"
 
+const RunnerTransitionFieldName = "Runner Transition"
+
 const (
 	MergeMethodMerge  = "merge"
 	MergeMethodRebase = "rebase"
@@ -43,6 +45,7 @@ type GitHubProjectConfig struct {
 	ResultField      string `json:"result_field,omitempty"`
 	ApprovalField    string `json:"approval_field,omitempty"`
 	PhaseField       string `json:"phase_field,omitempty"`
+	TransitionField  string `json:"transition_field,omitempty"`
 	QAFailuresField  string `json:"qa_failures_field,omitempty"`
 	BranchField      string `json:"branch_field,omitempty"`
 	PullRequestField string `json:"pull_request_field,omitempty"`
@@ -81,6 +84,13 @@ type ProjectConfig struct {
 
 func (c GitHubProjectConfig) ApprovalFieldName() string {
 	return strings.TrimSpace(c.ApprovalField)
+}
+
+func (c GitHubProjectConfig) TransitionFieldName() string {
+	if name := strings.TrimSpace(c.TransitionField); name != "" {
+		return name
+	}
+	return RunnerTransitionFieldName
 }
 
 func (c Config) HasProject() bool {
@@ -151,6 +161,7 @@ func (c Config) Validate() error {
 		project.ResultField,
 		project.ApprovalField,
 		project.PhaseField,
+		project.TransitionFieldName(),
 		project.QAFailuresField,
 		project.BranchField,
 		project.PullRequestField,

@@ -58,6 +58,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		return runInit(ctx, args[1:], stdin, stdout)
 	case "doctor":
 		return runDoctor(ctx, args[1:], stdout)
+	case "update":
+		return runUpdate(ctx, args[1:], stdout)
 	case "plan":
 		return runPlan(ctx, args[1:], stdin, stdout)
 	case "approve":
@@ -87,6 +89,7 @@ Usage:
 Getting started:
   cortexium-runner init [--config PATH] [--dry-run] [--prune]
   cortexium-runner doctor [--config PATH] [--fix] [--offline] [--probe-harnesses] [--json]
+  cortexium-runner update [--check] [--version vMAJOR.MINOR.PATCH]
 
 Project work:
   cortexium-runner plan [--config PATH] [--idea TEXT|--idea-file PATH] [--create|--stage-only|--approve-staged FINGERPRINT]

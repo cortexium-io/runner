@@ -27,7 +27,8 @@ Create a dedicated Project for the repository, or choose an existing Project
 that is intended to control this Runner instance. Its primary view must use the
 Kanban board layout with the configured workflow lanes. Board cards show
 `Runner Activity` and `QA Failures` by default while preserving unrelated
-visible card fields. The internal `Runner Phase` recovery field remains hidden.
+visible card fields. The internal `Runner Phase` recovery and `Runner
+Transition` lock fields remain hidden.
 `init` generates:
 
 | Status | Owner |
@@ -255,9 +256,11 @@ authorization: Runner signs that exact snapshot before claiming it. Other agent
 lanes do not grant implicit authority, and unreleased planner children cannot
 bypass complete-batch approval. Editing content covered by an existing nonempty
 approval invalidates it rather than causing Runner to replace it. Approval and
-other multi-field transitions park the card in assessment first, so an
-interrupted write can be recovered by reviewing the card and running `approve`
-again without leaving newly executable work.
+other multi-field transitions set the hidden `Runner Transition` lock before
+their first write and clear it only after the final status and authority agree.
+Ordinary cards therefore remain in their real lane during the update. After an
+interruption, Runner clears a completed lock in place; an incomplete or invalid
+transition moves the card to genuine assessment without leaving executable work.
 
 Every planner path first stages one identified child batch. A 1,000-item
 emergency ceiling bounds pathological model output and staging loops but never
@@ -302,7 +305,9 @@ clean update remains local and returns to `Ready` for implementation and QA.
 Any direct PR-head mutation still invalidates QA. Runner never deploys.
 Automatic merge is available only when `github_project.auto_merge` is
 explicitly true; it asks GitHub to merge after repository requirements pass and
-never bypasses them.
+never bypasses them. Merge requests are lifecycle reconciliation, not agent
+attempts: they consume no `max_parallelism` slot or admission budget and are
+processed before Runner admits new agent work.
 
 Do not make the repository public until the default branch contains the MIT
 license, contribution and security policies, issue forms, and passing CI.

@@ -3209,6 +3209,26 @@ func TestReconciliationRequestsMissingAutomaticMergeAtPRReady(t *testing.T) {
 	}
 }
 
+func TestRunCycleRequestsAutomaticMergeBeforeAdmissionAndParallelWork(t *testing.T) {
+	service, runner, _ := autoMergeReconciliationService(t, "PR Ready", false)
+	service.cfg.MaxParallelism = 1
+	service.cfg.AdmissionBudget = &config.AdmissionBudgetConfig{WindowSeconds: 3600, MaxAttempts: 1}
+	service.SetMetricsHistoryReader(func() (metrics.ReadResult, error) {
+		return metrics.ReadResult{Attempts: []metrics.Attempt{{Event: metrics.Event{AttemptID: "used", StartedAt: time.Now().UTC().Add(-time.Second)}}}}, nil
+	})
+
+	results, madeProgress, err := service.runCycle(t.Context(), false)
+	if err != nil {
+		t.Fatalf("run admission-paused reconciliation cycle: %v", err)
+	}
+	if runner.mergeRequests != 1 || !runner.enabled || !madeProgress || len(results) != 0 {
+		t.Fatalf("automatic merge was blocked by admission or parallelism: requests=%d enabled=%t progress=%t results=%#v", runner.mergeRequests, runner.enabled, madeProgress, results)
+	}
+	if decision := service.LastAdmissionDecision(); decision.Allowed {
+		t.Fatalf("test did not exhaust execution admission: %#v", decision)
+	}
+}
+
 func TestReconciliationRejectsMissingWorkspaceIdentityBeforeRequestingAutomaticMerge(t *testing.T) {
 	service, runner, project := autoMergeReconciliationService(t, "PR Ready", false)
 	identityPath := filepath.Join(service.implementationWorkspaceRoot(), ".runner-state", "assignment_"+safeRefComponent("PVTI_auto_merge_reconcile")+".json")
@@ -4791,6 +4811,7 @@ func completeEngineTestConfig(cfg config.Config) config.Config {
 	}
 	for destination, value := range map[*string]string{
 		&project.ResultField: "Runner Result", &project.ApprovalField: "Runner Approval", &project.PhaseField: "Runner Phase",
+		&project.TransitionField: config.RunnerTransitionFieldName,
 		&project.QAFailuresField: "QA Failures", &project.BranchField: "Runner Branch", &project.PullRequestField: "Pull Request",
 		&project.QACommitField: "QA Commit", &project.BaseBranch: "main", &project.RemoteName: "origin",
 	} {

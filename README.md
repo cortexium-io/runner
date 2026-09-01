@@ -54,6 +54,21 @@ cortexium-runner --version
 cortexium-runner --help
 ```
 
+Installed release builds can check for or install a newer release in place:
+
+```bash
+cortexium-runner update --check
+cortexium-runner update
+```
+
+Use `cortexium-runner update --version vMAJOR.MINOR.PATCH` to install an exact
+release, including an intentional downgrade. The command applies the same
+checksum, archive-shape, and binary-version checks as the bootstrap installer
+and atomically replaces the resolved executable. Run `cortexium-runner doctor`
+after updating; if a release adds Project fields, rerun `init` to synchronize
+them before starting Runner. Updating the file does not restart a Runner process
+that is already running; stop and restart that process to use the new release.
+
 To inspect the installer before running it:
 
 ```bash
@@ -217,8 +232,9 @@ cortexium-runner init
 The resulting board shows `Runner Activity` and `QA Failures` directly on its
 cards. Activity is `Planning`, `Implementing`, or `Reviewing` while an agent
 owns the card. Existing unrelated visible fields are preserved; the internal
-`Runner Phase` recovery field is hidden. If that display is changed later,
-`doctor` reports it and rerunning `init` restores the overview.
+`Runner Phase` recovery and `Runner Transition` lock fields are hidden. If that
+display is changed later, `doctor` reports it and rerunning `init` restores the
+overview.
 
 Initialization prints the exact config path and next commands. Assign that path
 once if you want to use the shorter examples below:

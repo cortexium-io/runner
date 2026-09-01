@@ -152,6 +152,9 @@ type projectItemNode struct {
 	Phase *struct {
 		Text string `json:"text"`
 	} `json:"phase"`
+	Transition *struct {
+		Text string `json:"text"`
+	} `json:"transition"`
 	Activity *struct {
 		Text string `json:"text"`
 	} `json:"activity"`
@@ -190,6 +193,7 @@ func (s *Project) lifecycleItemSelection() string {
 		`approval:fieldValueByName(name:` + graphQLString(s.approvalFieldName()) + `){... on ProjectV2ItemFieldTextValue{text}} ` +
 		`result:fieldValueByName(name:` + graphQLString(s.resultFieldName()) + `){... on ProjectV2ItemFieldTextValue{text}} ` +
 		`phase:fieldValueByName(name:` + graphQLString(s.phaseFieldName()) + `){... on ProjectV2ItemFieldTextValue{text}} ` +
+		`transition:fieldValueByName(name:` + graphQLString(s.transitionFieldName()) + `){... on ProjectV2ItemFieldTextValue{text}} ` +
 		`activity:fieldValueByName(name:` + graphQLString(s.activityFieldName()) + `){... on ProjectV2ItemFieldTextValue{text}} ` +
 		`qaFailures:fieldValueByName(name:` + graphQLString(s.qaFailuresFieldName()) + `){... on ProjectV2ItemFieldNumberValue{number}} ` +
 		`branch:fieldValueByName(name:` + graphQLString(s.branchFieldName()) + `){... on ProjectV2ItemFieldTextValue{text}} ` +
@@ -211,6 +215,9 @@ func decodeProjectItemNode(raw projectItemNode) WorkItem {
 	}
 	if raw.Phase != nil {
 		item.Phase = strings.TrimSpace(raw.Phase.Text)
+	}
+	if raw.Transition != nil {
+		item.Transition = strings.TrimSpace(raw.Transition.Text)
 	}
 	if raw.Activity != nil {
 		item.Activity = strings.TrimSpace(raw.Activity.Text)
@@ -398,6 +405,14 @@ func (s *Project) setTextField(ctx context.Context, itemID, fieldName, value str
 	return nil
 }
 
+func (s *Project) beginTransition(ctx context.Context, itemID string) error {
+	return s.setTextField(ctx, itemID, s.transitionFieldName(), transitionLockValue)
+}
+
+func (s *Project) finishTransition(ctx context.Context, itemID string) error {
+	return s.clearField(ctx, itemID, s.transitionFieldName())
+}
+
 func (s *Project) setNumberField(ctx context.Context, itemID, fieldName string, value int) error {
 	schema := s.currentSchema()
 	field, ok := schema.field(fieldName)
@@ -481,6 +496,9 @@ func (s *Project) approvalFieldName() string {
 }
 func (s *Project) phaseFieldName() string {
 	return strings.TrimSpace(s.cfg.PhaseField)
+}
+func (s *Project) transitionFieldName() string {
+	return s.cfg.TransitionFieldName()
 }
 func (s *Project) activityFieldName() string {
 	if name := strings.TrimSpace(s.cfg.ActivityField); name != "" {

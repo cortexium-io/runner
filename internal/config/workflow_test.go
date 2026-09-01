@@ -490,7 +490,7 @@ func TestWorkflowProjectRuntimeUsesLanesAndNoRoleField(t *testing.T) {
 	cfg := explicitTestConfig()
 	cfg.Workflow = &workflow
 	project := cfg.ResolveProject()
-	if project.ReadyStatus != "Build" || project.RunningStatus != "In Progress" || project.QAStatus != "Agent QA" {
+	if project.ReadyStatus != "Build" || project.RunningStatus != "In Progress" || project.QAStatus != "Agent QA" || project.TransitionField != RunnerTransitionFieldName {
 		t.Fatalf("workflow was not projected into the GitHub source: %#v", project)
 	}
 	if !containsNormalized(project.RequiredStatuses, "Plan") || !containsNormalized(project.AgentStatuses, "Build") || !containsNormalized(project.AgentStatuses, "Agent QA") {

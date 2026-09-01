@@ -280,6 +280,9 @@ func authorityID(key []byte) string {
 }
 
 func (s *Project) signAction(item WorkItem, role, state string) (AuthorizedAction, error) {
+	if strings.TrimSpace(item.Transition) != "" {
+		return AuthorizedAction{}, errors.New("cannot authorize a Project item while a Runner transition is in progress")
+	}
 	key, authorityID, err := s.authority.load()
 	if err != nil {
 		return AuthorizedAction{}, err
@@ -498,6 +501,9 @@ func signActionAssertion(payload actionAssertionPayload, key []byte) (string, er
 }
 
 func (s *Project) validateAction(item WorkItem) (AuthorizedAction, error) {
+	if strings.TrimSpace(item.Transition) != "" {
+		return AuthorizedAction{}, errors.New("Runner transition is still in progress; retry after recovery")
+	}
 	return s.validateActionAssertion(item, true)
 }
 
@@ -507,6 +513,9 @@ func (s *Project) validateAction(item WorkItem) (AuthorizedAction, error) {
 // terminal decision, while every action the Runner might execute still goes
 // through validateAction's exact current-state check.
 func (s *Project) validateRecordedAction(item WorkItem) error {
+	if strings.TrimSpace(item.Transition) != "" {
+		return errors.New("Runner transition is still in progress")
+	}
 	_, err := s.validateActionAssertion(item, false)
 	return err
 }

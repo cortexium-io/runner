@@ -21,6 +21,7 @@ const (
 	// model output and GitHub staging loops. It is not planning or sizing advice.
 	MaxPlanningBatchChildren = 1000
 	PlanningApprovalPhase    = "planner_approval"
+	transitionLockValue      = "v1"
 )
 
 type WorkItem struct {
@@ -37,6 +38,7 @@ type WorkItem struct {
 	Labels                    []string `json:"labels,omitempty"`
 	Result                    string   `json:"result,omitempty"`
 	Phase                     string   `json:"phase,omitempty"`
+	Transition                string   `json:"transition,omitempty"`
 	Activity                  string   `json:"activity,omitempty"`
 	QAFailures                int      `json:"qa_failures,omitempty"`
 	Branch                    string   `json:"branch,omitempty"`
@@ -98,6 +100,7 @@ type ProjectInspection struct {
 	ResultField          bool   `json:"result_field"`
 	ApprovalField        bool   `json:"approval_field"`
 	PhaseField           bool   `json:"phase_field"`
+	TransitionField      bool   `json:"transition_field"`
 	ActivityField        bool   `json:"activity_field"`
 	QAFailuresField      bool   `json:"qa_failures_field"`
 	BranchField          bool   `json:"branch_field"`
@@ -193,6 +196,8 @@ func (s *Project) Inspect(ctx context.Context) (ProjectInspection, error) {
 	approvalOK = approvalOK && projectFieldHasDataType(approval, "TEXT")
 	phase, phaseOK := schema.field(s.phaseFieldName())
 	phaseOK = phaseOK && projectFieldHasDataType(phase, "TEXT")
+	transition, transitionOK := schema.field(s.transitionFieldName())
+	transitionOK = transitionOK && projectFieldHasDataType(transition, "TEXT")
 	activity, activityOK := schema.field(s.activityFieldName())
 	activityOK = activityOK && projectFieldHasDataType(activity, "TEXT")
 	qaFailures, qaFailuresOK := schema.field(s.qaFailuresFieldName())
@@ -209,10 +214,10 @@ func (s *Project) Inspect(ctx context.Context) (ProjectInspection, error) {
 		return ProjectInspection{}, err
 	}
 	return ProjectInspection{
-		ProjectID: schema.ProjectID, BoardView: hasBoardView(views), BoardLifecycleFields: boardViewHasLifecycleFields(views, phase.ID, activity.ID, qaFailures.ID), StatusField: statusOK,
+		ProjectID: schema.ProjectID, BoardView: hasBoardView(views), BoardLifecycleFields: boardViewHasLifecycleFields(views, []string{phase.ID, transition.ID}, activity.ID, qaFailures.ID), StatusField: statusOK,
 		AssessmentStatus: assessmentOK, BacklogStatus: status.hasOption(s.backlogStatus()), ReadyStatus: status.hasOption(s.readyStatus()), RunningStatus: status.hasOption(s.runningStatus()),
 		QAStatus: status.hasOption(s.qaStatus()), PRReadyStatus: status.hasOption(s.prReadyStatus()), BlockedStatus: status.hasOption(s.blockedStatus()), DoneStatus: status.hasOption(s.doneStatus()), WorkflowStatuses: statusOK && !missingOptions(status, s.requiredStatuses()),
-		ResultField: resultOK, ApprovalField: approvalOK, PhaseField: phaseOK, ActivityField: activityOK, QAFailuresField: qaFailuresOK,
+		ResultField: resultOK, ApprovalField: approvalOK, PhaseField: phaseOK, TransitionField: transitionOK, ActivityField: activityOK, QAFailuresField: qaFailuresOK,
 		BranchField: branchOK, PullRequestField: pullRequestOK, QACommitField: qaCommitOK, IntakeRepository: intakeRepositoryOK, IntakeLabel: intakeLabelOK, SingleRunnerMVP: true,
 	}, nil
 }
@@ -254,7 +259,7 @@ func hasBoardView(views []githubProjectView) bool {
 	return false
 }
 
-func boardViewHasLifecycleFields(views []githubProjectView, hiddenPhaseID string, fieldIDs ...string) bool {
+func boardViewHasLifecycleFields(views []githubProjectView, hiddenFieldIDs []string, fieldIDs ...string) bool {
 	for _, view := range views {
 		if !strings.EqualFold(strings.TrimSpace(view.Layout), "BOARD_LAYOUT") {
 			continue
@@ -263,7 +268,14 @@ func boardViewHasLifecycleFields(views []githubProjectView, hiddenPhaseID string
 		for _, field := range view.Configuration.VisibleFields.Nodes {
 			visible[strings.TrimSpace(field.ID)] = true
 		}
-		ready := strings.TrimSpace(hiddenPhaseID) != "" && !visible[strings.TrimSpace(hiddenPhaseID)]
+		ready := true
+		for _, fieldID := range hiddenFieldIDs {
+			fieldID = strings.TrimSpace(fieldID)
+			if fieldID == "" || visible[fieldID] {
+				ready = false
+				break
+			}
+		}
 		for _, fieldID := range fieldIDs {
 			fieldID = strings.TrimSpace(fieldID)
 			if fieldID == "" || !visible[fieldID] {
@@ -297,6 +309,9 @@ func (s *Project) ReadyItems(ctx context.Context, items []WorkItem, limit int) (
 	ready := make([]AuthorizedAction, 0, limit)
 	for _, item := range items {
 		if !s.agentStatus(item.Status) {
+			continue
+		}
+		if strings.TrimSpace(item.Transition) != "" {
 			continue
 		}
 		if item.PlanningMetadataInvalid {
@@ -440,20 +455,23 @@ func (s *Project) Claim(ctx context.Context, expected AuthorizedAction, requeste
 		if err != nil {
 			return AuthorizedAction{}, err
 		}
-		if err := s.setStatus(ctx, current.ID, s.assessmentStatus()); err != nil {
-			return AuthorizedAction{}, fmt.Errorf("park item before claim; retry the next cycle: %w", err)
+		if err := s.beginTransition(ctx, current.ID); err != nil {
+			return AuthorizedAction{}, fmt.Errorf("lock item before claim; retry the next cycle: %w", err)
 		}
 		if err := s.setTextField(ctx, current.ID, s.phaseFieldName(), phase); err != nil {
-			return AuthorizedAction{}, fmt.Errorf("record claim phase; the item remains safely in assessment: %w", err)
+			return AuthorizedAction{}, fmt.Errorf("record claim phase; the item remains safely transition-locked: %w", err)
 		}
 		if err := s.setTextField(ctx, current.ID, s.activityFieldName(), activity); err != nil {
-			return AuthorizedAction{}, fmt.Errorf("record claim activity; the item remains safely in assessment: %w", err)
+			return AuthorizedAction{}, fmt.Errorf("record claim activity; the item remains safely transition-locked: %w", err)
 		}
 		if err := s.setApproval(ctx, current.ID, nextAction.assertion); err != nil {
-			return AuthorizedAction{}, fmt.Errorf("authenticate claimed state; the item remains safely in assessment: %w", err)
+			return AuthorizedAction{}, fmt.Errorf("authenticate claimed state; the item remains safely transition-locked: %w", err)
 		}
 		if err := s.setStatus(ctx, current.ID, s.runningStatus()); err != nil {
-			return AuthorizedAction{}, fmt.Errorf("activate claimed item; the item remains safely in assessment: %w", err)
+			return AuthorizedAction{}, fmt.Errorf("activate claimed item; the item remains safely transition-locked: %w", err)
+		}
+		if err := s.finishTransition(ctx, current.ID); err != nil {
+			return AuthorizedAction{}, fmt.Errorf("claim committed but its transition lock could not be cleared; the next cycle will recover it: %w", err)
 		}
 		return nextAction, nil
 	}
@@ -627,17 +645,17 @@ func (s *Project) transition(ctx context.Context, expected AuthorizedAction, tar
 	if err != nil {
 		return err
 	}
-	if err := s.setStatus(ctx, current.Item.ID, s.assessmentStatus()); err != nil {
-		return fmt.Errorf("park item before Project transition; reload it and retry: %w", err)
+	if err := s.beginTransition(ctx, current.Item.ID); err != nil {
+		return fmt.Errorf("lock item before Project transition; reload it and retry: %w", err)
 	}
 	if write != nil {
 		if err := write(current.Item); err != nil {
-			return fmt.Errorf("update authenticated Project action; the item remains safely in assessment: %w", err)
+			return fmt.Errorf("update authenticated Project action; the item remains safely transition-locked: %w", err)
 		}
 	}
 	if strings.TrimSpace(detail) != "" {
 		if err := s.setResult(ctx, current.Item.ID, next.Result); err != nil {
-			return fmt.Errorf("record Project result; the item remains safely in assessment: %w", err)
+			return fmt.Errorf("record Project result; the item remains safely transition-locked: %w", err)
 		}
 	}
 	if next.Phase == "" {
@@ -646,18 +664,21 @@ func (s *Project) transition(ctx context.Context, expected AuthorizedAction, tar
 		err = s.setTextField(ctx, current.Item.ID, s.phaseFieldName(), next.Phase)
 	}
 	if err != nil {
-		return fmt.Errorf("record authenticated Project phase; the item remains safely in assessment: %w", err)
+		return fmt.Errorf("record authenticated Project phase; the item remains safely transition-locked: %w", err)
 	}
 	if strings.TrimSpace(current.Item.Activity) != "" {
 		if err := s.clearField(ctx, current.Item.ID, s.activityFieldName()); err != nil {
-			return fmt.Errorf("clear completed Project activity; the item remains safely in assessment: %w", err)
+			return fmt.Errorf("clear completed Project activity; the item remains safely transition-locked: %w", err)
 		}
 	}
 	if err := s.setApproval(ctx, current.Item.ID, nextAction.assertion); err != nil {
-		return fmt.Errorf("authenticate Project transition; the item remains safely in assessment: %w", err)
+		return fmt.Errorf("authenticate Project transition; the item remains safely transition-locked: %w", err)
 	}
 	if err := s.setStatus(ctx, current.Item.ID, next.Status); err != nil {
-		return fmt.Errorf("complete Project transition; the item remains safely in assessment: %w", err)
+		return fmt.Errorf("complete Project transition; the item remains safely transition-locked: %w", err)
+	}
+	if err := s.finishTransition(ctx, current.Item.ID); err != nil {
+		return fmt.Errorf("Project transition committed but its lock could not be cleared; the next cycle will recover it: %w", err)
 	}
 	return nil
 }
@@ -681,6 +702,25 @@ func (s *Project) RecoverInterruptedFrom(ctx context.Context, items []WorkItem) 
 	recovered := 0
 	recoveredDirectBatches := map[string]bool{}
 	for _, item := range items {
+		if strings.TrimSpace(item.Transition) != "" {
+			unlocked := item
+			unlocked.Transition = ""
+			if _, actionErr := s.validateActionAssertion(unlocked, true); actionErr != nil {
+				if err := s.reclassifyForApproval(ctx, item, "Interrupted Project transition has incomplete Runner authority; review it and run approve again."); err != nil {
+					return recovered, err
+				}
+				if err := s.finishTransition(ctx, item.ID); err != nil {
+					return recovered, fmt.Errorf("clear recovered Project transition lock: %w", err)
+				}
+				recovered++
+				continue
+			}
+			if err := s.finishTransition(ctx, item.ID); err != nil {
+				return recovered, fmt.Errorf("clear completed Project transition lock: %w", err)
+			}
+			item = unlocked
+			recovered++
+		}
 		if staged, _, _, parseErr := parsePlanningBatchAssertion(item.Approval); parseErr == nil && staged.State == batchStagedState {
 			if staged.SourceID == "direct:"+staged.BatchFingerprint {
 				if recoveredDirectBatches[item.Approval] {

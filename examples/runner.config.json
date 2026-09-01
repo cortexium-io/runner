@@ -21,6 +21,7 @@
     "result_field": "Runner Result",
     "approval_field": "Runner Approval",
     "phase_field": "Runner Phase",
+    "transition_field": "Runner Transition",
     "qa_failures_field": "QA Failures",
     "branch_field": "Runner Branch",
     "pull_request_field": "Pull Request",

@@ -295,7 +295,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		GitHubProject: &config.GitHubProjectConfig{
 			Owner: strings.TrimSpace(*owner), Number: preflightProjectNumber, IntakeRepository: strings.TrimSpace(*repository), IntakeLabel: strings.TrimSpace(*intakeLabel),
 			ResultField: "Runner Result", ApprovalField: "Runner Approval",
-			PhaseField: "Runner Phase", QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request", QACommitField: "QA Commit",
+			PhaseField: "Runner Phase", TransitionField: config.RunnerTransitionFieldName, QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request", QACommitField: "QA Commit",
 			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge, MergeMethod: strings.TrimSpace(*mergeMethod),
 		},
 		Harnesses: harnesses,
@@ -408,7 +408,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		GitHubProject: &config.GitHubProjectConfig{
 			Owner: resolvedOwner, Number: resolvedProjectNumber, IntakeRepository: resolvedRepository, IntakeLabel: strings.TrimSpace(*intakeLabel),
 			ResultField: "Runner Result", ApprovalField: "Runner Approval",
-			PhaseField: "Runner Phase", QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request", QACommitField: "QA Commit",
+			PhaseField: "Runner Phase", TransitionField: config.RunnerTransitionFieldName, QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request", QACommitField: "QA Commit",
 			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge, MergeMethod: strings.TrimSpace(*mergeMethod),
 		},
 		Harnesses: harnesses,
@@ -514,7 +514,7 @@ func provisionRequestFromConfig(cfg config.Config, title, visibility string, pru
 	return github.ProvisionRequest{
 		Owner: project.Owner, Title: title, Repository: project.IntakeRepository, Visibility: visibility,
 		Statuses: workflowStatusNames(cfg.EffectiveWorkflow()), ResultField: strings.TrimSpace(project.ResultField),
-		ApprovalField: strings.TrimSpace(project.ApprovalField), PhaseField: strings.TrimSpace(project.PhaseField),
+		ApprovalField: strings.TrimSpace(project.ApprovalField), PhaseField: strings.TrimSpace(project.PhaseField), TransitionField: project.TransitionFieldName(),
 		QAFailuresField: strings.TrimSpace(project.QAFailuresField), BranchField: strings.TrimSpace(project.BranchField),
 		PullRequestField: project.PullRequestField, QACommitField: project.QACommitField,
 		IntakeLabel: project.IntakeLabel, Prune: prune,
@@ -570,7 +570,7 @@ func projectConfigurationGaps(inspection github.ProjectInspection) []string {
 	if !inspection.ResultField {
 		gaps = append(gaps, "result field")
 	}
-	if !inspection.ApprovalField || !inspection.PhaseField || !inspection.ActivityField || !inspection.QAFailuresField || !inspection.BranchField || !inspection.PullRequestField || !inspection.QACommitField {
+	if !inspection.ApprovalField || !inspection.PhaseField || !inspection.TransitionField || !inspection.ActivityField || !inspection.QAFailuresField || !inspection.BranchField || !inspection.PullRequestField || !inspection.QACommitField {
 		gaps = append(gaps, "Runner lifecycle fields")
 	}
 	if !inspection.IntakeRepository || !inspection.IntakeLabel {
