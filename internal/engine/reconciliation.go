@@ -348,7 +348,7 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 				continue
 			}
 		}
-		refresh, err := manager.RefreshBranchAuthorized(ctx, action, preparedWorkspace, defaultString(details.BaseRefName, s.baseBranch()), s.remoteName())
+		refresh, err := manager.RefreshBranchAuthorized(ctx, action, preparedWorkspace, defaultString(details.BaseRefName, s.baseBranch()), s.remoteName(), s.cfg.GitHubProject.MergeMethod)
 		if err != nil {
 			if !hasOutdatedEvent {
 				return warnings, changed, err

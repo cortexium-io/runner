@@ -39,6 +39,14 @@ type BaseRefresh struct {
 	Summary       string
 }
 
+// PublicationPushPolicy controls whether publication may rewrite an existing
+// remote branch. ExpectedRemoteOID is required for rebase-mode rewrites and is
+// enforced with an exact Git force-with-lease comparison.
+type PublicationPushPolicy struct {
+	MergeMethod       string
+	ExpectedRemoteOID string
+}
+
 // PublicationRecord is the immutable local authorization created only after
 // Agent QA accepts an unchanged clean candidate.
 type PublicationRecord struct {
@@ -57,8 +65,19 @@ type PublicationRecord struct {
 // ConstructCandidate stages worktree bytes without Git clean filters, writes a
 // commit without hooks or signing, and atomically advances only the task branch.
 func (p GitProvider) ConstructCandidate(ctx context.Context, metadata Metadata, message string) (Candidate, error) {
+	return p.ConstructCandidateForMergeMethod(ctx, metadata, message, config.MergeMethodMerge)
+}
+
+// ConstructCandidateForMergeMethod constructs a QA candidate compatible with
+// the configured GitHub merge method. A divergent rebase-mode candidate is
+// recorded directly on the authenticated base so its history remains linear.
+func (p GitProvider) ConstructCandidateForMergeMethod(ctx context.Context, metadata Metadata, message, mergeMethod string) (Candidate, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
+	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	if !config.ValidMergeMethod(mergeMethod) {
+		return Candidate{}, errors.New("candidate construction requires merge, rebase, or squash merge method")
+	}
 	if err := validateCandidateMetadata(metadata); err != nil {
 		return Candidate{}, err
 	}
@@ -156,11 +175,16 @@ func (p GitProvider) ConstructCandidate(ctx context.Context, metadata Metadata, 
 		if message == "" {
 			message = "Implement approved Runner work item"
 		}
-		commitArgs := []string{"commit-tree", treeOID, "-p", headOID}
-		if mergeHead != "" {
-			commitArgs = append(commitArgs, "-p", mergeHead)
-		} else if needsBaseParent {
+		commitArgs := []string{"commit-tree", treeOID}
+		if mergeMethod == config.MergeMethodRebase && needsBaseParent {
 			commitArgs = append(commitArgs, "-p", metadata.BaseRevision)
+		} else {
+			commitArgs = append(commitArgs, "-p", headOID)
+			if mergeHead != "" {
+				commitArgs = append(commitArgs, "-p", mergeHead)
+			} else if needsBaseParent {
+				commitArgs = append(commitArgs, "-p", metadata.BaseRevision)
+			}
 		}
 		commitArgs = append(commitArgs, "--no-gpg-sign", "-m", message)
 		commitOID, commitErr := p.privilegedScalar(ctx, profile, commitArgs...)
@@ -642,9 +666,17 @@ func readPublicationRecord(path string) (PublicationRecord, error) {
 // PublishAccepted validates and pushes only an immutable QA publication tuple.
 // The authority callback runs after the final base/tree checks and immediately
 // before the exact OID-to-ref push.
-func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, record PublicationRecord, remoteName, baseBranch string, refreshAuthority func() error) error {
+func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, record PublicationRecord, remoteName, baseBranch string, pushPolicy PublicationPushPolicy, refreshAuthority func() error) error {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
+	pushPolicy.MergeMethod = config.EffectiveMergeMethod(pushPolicy.MergeMethod)
+	pushPolicy.ExpectedRemoteOID = strings.TrimSpace(pushPolicy.ExpectedRemoteOID)
+	if !config.ValidMergeMethod(pushPolicy.MergeMethod) {
+		return errors.New("publication requires merge, rebase, or squash merge method")
+	}
+	if pushPolicy.ExpectedRemoteOID != "" && (pushPolicy.MergeMethod != config.MergeMethodRebase || !validObjectID(pushPolicy.ExpectedRemoteOID)) {
+		return errors.New("publication remote lease is only valid for a rebase-mode rewrite with an exact expected commit")
+	}
 	if err := validateCandidateMetadata(metadata); err != nil {
 		return err
 	}
@@ -716,6 +748,24 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 	if currentBase != record.ApprovedBaseOID {
 		return fmt.Errorf("%w: accepted %s, fetched %s", ErrPublicationBaseChanged, record.ApprovedBaseOID, currentBase)
 	}
+	remoteAlreadyAccepted := false
+	if pushPolicy.ExpectedRemoteOID != "" {
+		remoteTrackingRef := "refs/runner/publication-destination"
+		remoteRefspec := "+" + record.DestinationRef + ":" + remoteTrackingRef
+		remoteResult, remoteErr := subprocess.RunPrivilegedGitNetwork(ctx, p.run, profile, []string{"fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", repositoryURL, remoteRefspec}, 2*time.Minute)
+		if remoteErr != nil {
+			return fmt.Errorf("inspect publication destination: %w", commandError(remoteErr, remoteResult))
+		}
+		remoteOID, resolveErr := p.privilegedScalar(ctx, profile, "rev-parse", "--verify", remoteTrackingRef)
+		if resolveErr != nil || !validObjectID(remoteOID) {
+			return errors.New("resolve publication destination identity")
+		}
+		if remoteOID == record.CommitOID {
+			remoteAlreadyAccepted = true
+		} else if remoteOID != pushPolicy.ExpectedRemoteOID {
+			return fmt.Errorf("publication destination changed externally: expected %s, found %s", pushPolicy.ExpectedRemoteOID, remoteOID)
+		}
+	}
 	resolvedTree, err := p.privilegedScalar(ctx, profile, "rev-parse", "--verify", record.CommitOID+"^{tree}")
 	if err != nil || resolvedTree != record.TreeOID {
 		return errors.New("accepted publication tree changed immediately before push")
@@ -733,8 +783,16 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 	if err := refreshAuthority(); err != nil {
 		return err
 	}
+	if remoteAlreadyAccepted {
+		return nil
+	}
 	pushRefspec := record.CommitOID + ":" + record.DestinationRef
-	if result, pushErr := subprocess.RunPrivilegedGitNetwork(ctx, p.run, verifiedProfile, []string{"push", "--porcelain", "--no-verify", repositoryURL, pushRefspec}, 2*time.Minute); pushErr != nil {
+	pushArgs := []string{"push", "--porcelain", "--no-verify"}
+	if pushPolicy.ExpectedRemoteOID != "" {
+		pushArgs = append(pushArgs, "--force-with-lease="+record.DestinationRef+":"+pushPolicy.ExpectedRemoteOID)
+	}
+	pushArgs = append(pushArgs, repositoryURL, pushRefspec)
+	if result, pushErr := subprocess.RunPrivilegedGitNetwork(ctx, p.run, verifiedProfile, pushArgs, 2*time.Minute); pushErr != nil {
 		return fmt.Errorf("push accepted publication commit: %w", commandError(pushErr, result))
 	}
 	return nil
@@ -744,18 +802,30 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 // Git profile. Its resulting tree has no publication authority and must pass
 // the normal implementation, integrity, and QA path before publication.
 func (p GitProvider) RefreshBase(ctx context.Context, metadata Metadata, remoteName, baseBranch string) (BaseRefresh, error) {
-	return p.refreshBase(ctx, metadata, remoteName, baseBranch, true)
+	return p.RefreshBaseForMergeMethod(ctx, metadata, remoteName, baseBranch, config.MergeMethodMerge)
+}
+
+func (p GitProvider) RefreshBaseForMergeMethod(ctx context.Context, metadata Metadata, remoteName, baseBranch, mergeMethod string) (BaseRefresh, error) {
+	return p.refreshBase(ctx, metadata, remoteName, baseBranch, mergeMethod, true)
 }
 
 // RefreshLocalBase updates a candidate that has not been published yet. Unlike
 // RefreshBase, it does not require the task branch to exist on the remote.
 func (p GitProvider) RefreshLocalBase(ctx context.Context, metadata Metadata, remoteName, baseBranch string) (BaseRefresh, error) {
-	return p.refreshBase(ctx, metadata, remoteName, baseBranch, false)
+	return p.RefreshLocalBaseForMergeMethod(ctx, metadata, remoteName, baseBranch, config.MergeMethodMerge)
 }
 
-func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteName, baseBranch string, fetchBranch bool) (BaseRefresh, error) {
+func (p GitProvider) RefreshLocalBaseForMergeMethod(ctx context.Context, metadata Metadata, remoteName, baseBranch, mergeMethod string) (BaseRefresh, error) {
+	return p.refreshBase(ctx, metadata, remoteName, baseBranch, mergeMethod, false)
+}
+
+func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteName, baseBranch, mergeMethod string, fetchBranch bool) (BaseRefresh, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
+	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	if !config.ValidMergeMethod(mergeMethod) {
+		return BaseRefresh{}, errors.New("base refresh requires merge, rebase, or squash merge method")
+	}
 	if err := validateCandidateMetadata(metadata); err != nil {
 		return BaseRefresh{}, err
 	}
@@ -825,7 +895,11 @@ func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteN
 		}
 		return BaseRefresh{Updated: currentBase != metadata.BaseRevision, CommitOID: currentBase, Summary: "Pull request branch already contains the current base branch."}, nil
 	}
-	mergeResult, mergeErr := p.privilegedGit(ctx, profile, "merge", "--no-edit", metadata.BaseRef)
+	mergeArgs := []string{"merge", "--no-edit", metadata.BaseRef}
+	if mergeMethod == config.MergeMethodRebase {
+		mergeArgs = []string{"merge", "--no-commit", "--no-ff", metadata.BaseRef}
+	}
+	mergeResult, mergeErr := p.privilegedGit(ctx, profile, mergeArgs...)
 	if mergeErr != nil {
 		conflicts, _ := p.privilegedGit(ctx, profile, "diff", "--name-only", "--diff-filter=U")
 		files := compactPublicationLines(conflicts.Stdout)
@@ -840,6 +914,23 @@ func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteN
 	commitOID, err := p.privilegedScalar(ctx, profile, "rev-parse", "--verify", "HEAD")
 	if err != nil || !validObjectID(commitOID) {
 		return BaseRefresh{}, errors.New("resolve local base-refresh commit")
+	}
+	if mergeMethod == config.MergeMethodRebase {
+		treeOID, treeErr := p.privilegedScalar(ctx, profile, "write-tree")
+		if treeErr != nil {
+			return BaseRefresh{}, fmt.Errorf("write rebase-compatible refresh tree: %w", treeErr)
+		}
+		rebasedOID, commitErr := p.privilegedScalar(ctx, profile, "commit-tree", treeOID, "-p", currentBase, "--no-gpg-sign", "-m", "Refresh candidate onto current base")
+		if commitErr != nil {
+			return BaseRefresh{}, fmt.Errorf("write rebase-compatible refresh commit: %w", commitErr)
+		}
+		if result, updateErr := p.privilegedGit(ctx, profile, "update-ref", "refs/heads/"+metadata.BranchName, rebasedOID, commitOID); updateErr != nil {
+			return BaseRefresh{}, fmt.Errorf("advance rebase-compatible refresh branch: %w", commandError(updateErr, result))
+		}
+		if result, resetErr := p.privilegedGit(ctx, profile, "reset", "--mixed", "HEAD"); resetErr != nil {
+			return BaseRefresh{}, fmt.Errorf("clear rebase-compatible refresh merge state: %w", commandError(resetErr, result))
+		}
+		commitOID = rebasedOID
 	}
 	verifiedProfile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
 	if err != nil || verifiedProfile != profile {
