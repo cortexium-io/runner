@@ -149,6 +149,12 @@ snapshot. When a candidate exists, its commit and tree are bound as well. Only
 an exact match reconstructs the successful output, with zero new harness usage;
 any mismatch removes the stale checkpoint. The checkpoint is cleared after the
 successful transition to Agent QA, so it cannot bypass later independent QA.
+Ordinary candidate-content failures such as unresolved conflicts or
+`git diff --cached --check` errors are not workspace-integrity failures. Runner
+publishes a bounded correction, clears the unusable checkpoint, and sends an
+explicit retry through implementation. Operator-supplied retry feedback also
+clears the checkpoint before changing the card, while unchanged Runner-side
+post-processing failures retain it.
 
 Pi result attribution comes only from its native JSON event stream. Explicit
 `lmstudio/...` stages with tools must produce one session-provenanced

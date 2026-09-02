@@ -337,6 +337,34 @@ func TestConstructCandidateRejectsHiddenIndexState(t *testing.T) {
 	runGitTest(t, prepared.WorktreePath, "update-index", "--skip-worktree", "README.md")
 	if _, err := provider.ConstructCandidate(t.Context(), prepared, "Hidden index"); err == nil || !strings.Contains(err.Error(), "hidden worktree state") {
 		t.Fatalf("candidate accepted skip-worktree index state: %v", err)
+	} else if _, safe := CandidateValidationCorrection(err); safe {
+		t.Fatalf("hidden index state was misclassified as safe candidate content: %v", err)
+	}
+}
+
+func TestConstructCandidateClassifiesDiffCheckFailureWithoutPublishingContent(t *testing.T) {
+	repo := initGitRepo(t)
+	provider := NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"), WorkID: "diff_check", BranchPrefix: "runner", BaseRef: "HEAD",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const privateLine = "PRIVATE-CANDIDATE-CONTENT"
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "candidate.md"), []byte(privateLine+"  \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = provider.ConstructCandidate(t.Context(), prepared, "Invalid candidate")
+	correction, safe := CandidateValidationCorrection(err)
+	if err == nil || !safe {
+		t.Fatalf("diff-check failure was not classified as recoverable candidate content: correction=%q error=%v", correction, err)
+	}
+	if !strings.Contains(correction, "trailing whitespace") || !strings.Contains(correction, "git diff --cached --check") {
+		t.Fatalf("candidate correction is not actionable: %q", correction)
+	}
+	if strings.Contains(correction, privateLine) || strings.Contains(correction, "candidate.md") {
+		t.Fatalf("candidate correction exposed repository content or paths: %q", correction)
 	}
 }
 

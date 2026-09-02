@@ -65,7 +65,7 @@ func validFailureClass(class string) bool {
 	switch class {
 	case "", "unknown", "transient_external", "capacity_exhausted", "timeout", "canceled",
 		"invalid_contract", "capability_unavailable", "needs_input", "permission_denied",
-		"authentication_required", "invalid_configuration", "integrity_violation":
+		"authentication_required", "invalid_configuration", "candidate_validation", "integrity_violation":
 		return true
 	default:
 		return false

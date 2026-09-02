@@ -31,6 +31,34 @@ type Candidate struct {
 	TreeOID   string
 }
 
+type candidateValidationError struct {
+	correction string
+	cause      error
+}
+
+func (e candidateValidationError) Error() string {
+	return e.cause.Error()
+}
+
+func (e candidateValidationError) Unwrap() error {
+	return e.cause
+}
+
+// CandidateValidationCorrection returns a Runner-authored, remotely safe
+// correction only for ordinary candidate-content failures. Workspace identity
+// and Git administration failures deliberately remain local integrity errors.
+func CandidateValidationCorrection(err error) (string, bool) {
+	var validation candidateValidationError
+	if !errors.As(err, &validation) || strings.TrimSpace(validation.correction) == "" {
+		return "", false
+	}
+	return strings.TrimSpace(validation.correction), true
+}
+
+func recoverableCandidateError(correction string, cause error) error {
+	return candidateValidationError{correction: strings.TrimSpace(correction), cause: cause}
+}
+
 type BaseRefresh struct {
 	Updated       bool
 	Conflicted    bool
@@ -133,12 +161,22 @@ func (p GitProvider) ConstructCandidateForMergeMethod(ctx context.Context, metad
 	if result, runErr := p.privilegedGit(ctx, profile, "ls-files", "-u"); runErr != nil {
 		return Candidate{}, fmt.Errorf("inspect staged candidate conflicts: %w", commandError(runErr, result))
 	} else if result.Stdout != "" {
-		return Candidate{}, errors.New("candidate contains unresolved index conflicts")
+		return Candidate{}, recoverableCandidateError(
+			"Candidate still contains unresolved merge conflicts. Resolve every conflict and rerun `git diff --cached --check` before retrying.",
+			errors.New("candidate contains unresolved index conflicts"),
+		)
 	}
 	if result, runErr := p.privilegedGit(ctx, profile, "diff", "--cached", "--check"); runErr != nil {
-		return Candidate{}, fmt.Errorf("check staged candidate: %w", commandError(runErr, result))
+		cause := fmt.Errorf("check staged candidate: %w", commandError(runErr, result))
+		if strings.TrimSpace(result.Stdout) != "" {
+			return Candidate{}, recoverableCandidateError(candidateDiffCheckCorrection(result.Stdout), cause)
+		}
+		return Candidate{}, cause
 	} else if strings.TrimSpace(result.Stdout) != "" {
-		return Candidate{}, errors.New("candidate contains whitespace errors or unresolved conflict markers")
+		return Candidate{}, recoverableCandidateError(
+			candidateDiffCheckCorrection(result.Stdout),
+			errors.New("candidate contains whitespace errors or unresolved conflict markers"),
+		)
 	}
 	treeOID, err := p.privilegedScalar(ctx, profile, "write-tree")
 	if err != nil {
@@ -233,6 +271,29 @@ func (p GitProvider) ConstructCandidateForMergeMethod(ctx context.Context, metad
 		return Candidate{}, errors.New("committed candidate HEAD, tree, or branch changed during construction")
 	}
 	return Candidate{CommitOID: headOID, TreeOID: treeOID}, nil
+}
+
+func candidateDiffCheckCorrection(output string) string {
+	lower := strings.ToLower(output)
+	reasons := make([]string, 0, 4)
+	for _, candidate := range []struct {
+		marker string
+		label  string
+	}{
+		{marker: "trailing whitespace", label: "trailing whitespace"},
+		{marker: "space before tab", label: "spaces before tabs"},
+		{marker: "new blank line at eof", label: "new blank lines at end of file"},
+		{marker: "leftover conflict marker", label: "leftover conflict markers"},
+	} {
+		if strings.Contains(lower, candidate.marker) {
+			reasons = append(reasons, candidate.label)
+		}
+	}
+	reason := "whitespace or conflict-marker errors"
+	if len(reasons) > 0 {
+		reason = strings.Join(reasons, ", ")
+	}
+	return "Candidate failed `git diff --cached --check` because it contains " + reason + ". Correct every reported line before retrying."
 }
 
 func rejectCandidateIndexFlags(value string) error {

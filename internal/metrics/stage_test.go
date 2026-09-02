@@ -56,3 +56,9 @@ func TestAttemptTraceSanitizesRecoveryEnumsAndRejectsFreeFormStageNames(t *testi
 		t.Fatalf("unsafe recovery fields were not sanitized: %#v", completed)
 	}
 }
+
+func TestCandidateValidationIsAStableFailureClass(t *testing.T) {
+	if !validFailureClass("candidate_validation") {
+		t.Fatal("candidate validation failure class is not accepted by metrics")
+	}
+}

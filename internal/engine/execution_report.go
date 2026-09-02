@@ -48,6 +48,13 @@ func remoteDiagnosticSummary(output execution.Output) string {
 		return "Runner classified a local authentication requirement."
 	case execution.FailureInvalidConfiguration:
 		return "Runner classified the local harness configuration as invalid."
+	case execution.FailureCandidateValidation:
+		if output.RemoteDetailSafe && output.Blocker != nil {
+			if detail := boundedRemoteField(*output.Blocker, 500); detail != "" {
+				return detail
+			}
+		}
+		return "Runner rejected a candidate that needs correction before QA."
 	case execution.FailureIntegrityViolation:
 		return "Runner detected a workspace integrity violation and blocked continuation."
 	default:
@@ -75,7 +82,7 @@ func boundedFailureClass(class execution.FailureClass) string {
 	case execution.FailureTransientExternal, execution.FailureCapacityExhausted, execution.FailureTimeout,
 		execution.FailureCanceled, execution.FailureInvalidContract, execution.FailureCapabilityUnavailable,
 		execution.FailureNeedsInput, execution.FailurePermissionDenied, execution.FailureAuthenticationRequired,
-		execution.FailureInvalidConfiguration, execution.FailureIntegrityViolation:
+		execution.FailureInvalidConfiguration, execution.FailureCandidateValidation, execution.FailureIntegrityViolation:
 		return string(class)
 	default:
 		return string(execution.FailureUnknown)

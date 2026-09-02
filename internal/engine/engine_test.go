@@ -3169,6 +3169,13 @@ func TestBlockedItemRetryCanReplaceStaleFeedbackAndResetQAFailures(t *testing.T)
 	if err := os.WriteFile(feedbackPath, []byte(staleFeedback+"\n"), 0o600); err != nil {
 		t.Fatalf("write stale private feedback: %v", err)
 	}
+	checkpointPath := service.implementationCheckpointPath(current.ID)
+	if err := os.MkdirAll(filepath.Dir(checkpointPath), 0o700); err != nil {
+		t.Fatalf("create private checkpoint directory: %v", err)
+	}
+	if err := os.WriteFile(checkpointPath, []byte("saved implementation result\n"), 0o600); err != nil {
+		t.Fatalf("write saved implementation checkpoint: %v", err)
+	}
 
 	const correction = "Keep the task-owned file and leave unrelated operator changes untouched."
 	plan, err := service.PlanProjectItemRetryWithFeedback(t.Context(), current.ID, correction)
@@ -3187,6 +3194,72 @@ func TestBlockedItemRetryCanReplaceStaleFeedbackAndResetQAFailures(t *testing.T)
 	}
 	if _, err := os.Stat(feedbackPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("retry retained private Agent QA feedback: %v", err)
+	}
+	if _, err := os.Stat(checkpointPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("retry feedback retained a saved implementation result: %v", err)
+	}
+}
+
+func TestCandidateValidationPublishesCorrectionAndPlainRetryRerunsImplementation(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_candidate_correction", Title: "Correct candidate content", Body: "Acceptance criteria", URL: "https://github.com/owner/repo/issues/78",
+		Repository: "owner/repo", Status: "Ready", Role: config.WorkRoleImplementer,
+	}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	runner := &successfulImplementationRunner{project: project}
+	runner.inspect = func(dir string) error {
+		content := "corrected candidate\n"
+		if runner.calls == 1 {
+			content = "PRIVATE-CANDIDATE-CONTENT  \n"
+		}
+		return os.WriteFile(filepath.Join(dir, "candidate.md"), []byte(content), 0o644)
+	}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, item))
+	if first.Outcome != execution.OutcomeBlocked || first.FailureClass != string(execution.FailureCandidateValidation) || first.RetryDisposition != string(execution.RetryManual) || runner.calls != 1 {
+		t.Fatalf("candidate validation did not produce a retryable content failure: result=%#v harness_calls=%d", first, runner.calls)
+	}
+	if project.status != "Blocked" || project.phase != "ready" || !strings.Contains(project.result, "trailing whitespace") || !strings.Contains(project.result, "git diff --cached --check") {
+		t.Fatalf("candidate correction was not published safely: status=%q phase=%q result=%q", project.status, project.phase, project.result)
+	}
+	if strings.Contains(project.result, "PRIVATE-CANDIDATE-CONTENT") || strings.Contains(project.result, "candidate.md") || strings.Contains(project.result, "workspace integrity violation") {
+		t.Fatalf("candidate correction exposed content or used the wrong classification: %q", project.result)
+	}
+	if _, err := os.Stat(service.implementationCheckpointPath(item.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid candidate retained the completed harness checkpoint: %v", err)
+	}
+
+	plan, err := service.PlanProjectItemRetry(t.Context(), item.ID)
+	if err != nil {
+		t.Fatalf("plan candidate retry: %v", err)
+	}
+	if _, err := service.ApplyProjectItemRetry(t.Context(), plan); err != nil {
+		t.Fatalf("apply candidate retry: %v", err)
+	}
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("reload candidate retry: %v", err)
+	}
+	var retried github.WorkItem
+	for _, candidate := range items {
+		if candidate.ID == item.ID {
+			retried = candidate
+			break
+		}
+	}
+	second := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, retried))
+	if second.Outcome != execution.OutcomeSucceeded || second.ResumedCheckpoint || runner.calls != 2 || project.status != "Agent QA" {
+		t.Fatalf("plain retry did not rerun and correct the implementation: result=%#v harness_calls=%d status=%q", second, runner.calls, project.status)
+	}
+	if !strings.Contains(strings.Join(runner.args, " "), "trailing whitespace") {
+		t.Fatalf("retry assignment omitted the actionable candidate correction: %s", strings.Join(runner.args, " "))
 	}
 }
 

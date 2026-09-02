@@ -116,8 +116,8 @@ func (s *Engine) PlanProjectItemRetryWithFeedback(ctx context.Context, selector,
 
 func (s *Engine) ApplyProjectItemRetry(ctx context.Context, plan github.RetryPlan) (github.WorkItem, error) {
 	if strings.TrimSpace(plan.FeedbackOverride) != "" {
-		if err := s.clearReviewFeedback(plan.Item.ID); err != nil {
-			return github.WorkItem{}, fmt.Errorf("replace private Agent QA feedback: %w", err)
+		if err := errors.Join(s.clearReviewFeedback(plan.Item.ID), s.clearImplementationCheckpoint(plan.Item.ID)); err != nil {
+			return github.WorkItem{}, fmt.Errorf("replace private retry context: %w", err)
 		}
 	}
 	return s.source.ApplyRetry(ctx, plan)
@@ -881,6 +881,15 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 	if candidate.CommitOID == "" {
 		candidate, err = workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).ConstructCandidateForMergeMethod(ctx, preparedWorkspace, item.Title, s.cfg.GitHubProject.MergeMethod)
 		if err != nil {
+			if correction, recoverable := workspace.CandidateValidationCorrection(err); recoverable {
+				if clearErr := s.clearImplementationCheckpoint(item.ID); clearErr != nil {
+					combined := errors.Join(err, fmt.Errorf("clear invalid candidate checkpoint: %w", clearErr))
+					return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be committed for QA", combined,
+						integrityViolationOutput("Implementation candidate could not be committed for QA", combined, output))
+				}
+				return s.failExecution(ctx, action, lane, result, "Implementation candidate needs correction before QA", err,
+					candidateValidationOutput(correction, output))
+			}
 			return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be committed for QA", err,
 				integrityViolationOutput("Implementation candidate could not be committed for QA", err, output))
 		}
@@ -1382,6 +1391,20 @@ func integrityViolationOutput(summary string, err error, reviewed ...execution.O
 			detail := strings.TrimSpace(*output.Blocker) + "\n\nReviewer result before the integrity failure:\n" + reviewSummary
 			output.Blocker = stringPtr(detail)
 		}
+	}
+	return output
+}
+
+func candidateValidationOutput(correction string, reviewed execution.Output) execution.Output {
+	correction = strings.TrimSpace(correction)
+	output := execution.Output{
+		Outcome: execution.OutcomeBlocked, Summary: "Implementation candidate needs correction before QA.",
+		Blocker: &correction, RemoteDetailSafe: true,
+		FailureClass: execution.FailureCandidateValidation, RetryDisposition: execution.RetryManual,
+	}
+	if reviewed.RemoteDetailSafe {
+		output.WorkDone = append([]string(nil), reviewed.WorkDone...)
+		output.Verification = append([]string(nil), reviewed.Verification...)
 	}
 	return output
 }

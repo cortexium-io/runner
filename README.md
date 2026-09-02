@@ -494,6 +494,9 @@ snapshot, branch, and candidate commit/tree. If later Runner or GitHub
 post-processing fails, an exact retry resumes that completed result without
 calling the implementation harness again. Any task, context, base, or workspace
 change invalidates the checkpoint and requires normal implementation.
+Recoverable candidate-content failures publish a sanitized correction and clear
+the saved result so a plain retry reruns implementation; `retry --feedback`
+also clears it intentionally.
 
 When a multi-card result needs integration or release evidence that no delivery
 card can establish, the planner adds a final project-readiness card. Ordinary
@@ -534,6 +537,10 @@ cortexium-runner metrics --config "$RUNNER_CONFIG"
 # Preview and retry a blocked card
 cortexium-runner retry --dry-run --config "$RUNNER_CONFIG"
 cortexium-runner retry --config "$RUNNER_CONFIG"
+
+# Replace stale feedback and force a fresh implementation attempt
+cortexium-runner retry --config "$RUNNER_CONFIG" --item ITEM_ID \
+  --feedback "Correct the reported candidate validation failure."
 
 # Optional minimal live calls to configured harnesses
 cortexium-runner doctor --probe-harnesses --config "$RUNNER_CONFIG"

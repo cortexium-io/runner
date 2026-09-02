@@ -57,6 +57,7 @@ const (
 	FailurePermissionDenied       FailureClass = "permission_denied"
 	FailureAuthenticationRequired FailureClass = "authentication_required"
 	FailureInvalidConfiguration   FailureClass = "invalid_configuration"
+	FailureCandidateValidation    FailureClass = "candidate_validation"
 	FailureIntegrityViolation     FailureClass = "integrity_violation"
 )
 
