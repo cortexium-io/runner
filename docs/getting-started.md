@@ -108,6 +108,12 @@ or modify GitHub resources, write the config, or install skills.
 If the preview is wrong, change the arguments and rerun it. Do not remove
 `--dry-run` merely to diagnose a failed prerequisite.
 
+This preview retains human assessment for issue intake. To let labeled issues
+from the configured private repository enter planning automatically, add
+`--autonomous-issues`. On a public repository, also provide each authorized
+login with repeatable `--trusted-issue-author LOGIN`; Project visibility is not
+used as a trust signal.
+
 ## Continue to a real local Runner setup
 
 This step changes GitHub and writes the config. Continue only when the
@@ -165,7 +171,7 @@ When work is later admitted and Runner is started, cards follow these states:
 
 | State | Expected owner or event |
 | --- | --- |
-| `Needs assessment` | A human decides whether a public request is valid. |
+| `Needs assessment` | Issue intake awaits human assessment unless an enabled trust policy routes it to planning. |
 | `Backlog` | A human has accepted the request but has not scheduled it. |
 | `Plan` | The planner creates a bounded set of staged implementation cards. |
 | `Ready` | An implementation card is approved for an implementer. |

@@ -33,6 +33,9 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	createProject := flags.String("create-project", "", "create and configure a GitHub Project with this title")
 	repository := flags.String("repository", "", "public issue intake repository in owner/repository form; when omitted, derive it from the current Git remote")
 	intakeLabel := flags.String("intake-label", "needs-assessment", "label that routes public issues into assessment")
+	autonomousIssues := flags.Bool("autonomous-issues", false, "automatically plan labeled issues from a private intake repository or trusted public authors")
+	var trustedIssueAuthors stringListFlag
+	flags.Var(&trustedIssueAuthors, "trusted-issue-author", "public issue author allowed to enter autonomous planning; may be repeated")
 	projectVisibility := flags.String("project-visibility", "", "new Project visibility: public or private")
 	projectDir := flags.String("project-dir", ".", "local Git checkout used by draft and unmapped items")
 	maxParallelism := flags.Int("max-parallelism", 1, "maximum independent cards Runner may execute concurrently (1-16)")
@@ -131,7 +134,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	if _, statErr := os.Stat(*configPath); statErr == nil {
 		forbidden := map[string]bool{
 			"owner": true, "project-number": true, "create-project": true, "repository": true,
-			"intake-label": true, "project-visibility": true, "project-dir": true,
+			"intake-label": true, "autonomous-issues": true, "trusted-issue-author": true, "project-visibility": true, "project-dir": true,
 			"max-parallelism": true, "qa-reject-limit": true, "base-branch": true, "auto-merge": true, "merge-method": true,
 			"admission-window": true, "max-admission-attempts": true, "max-admission-harness-time": true,
 			"max-admission-tokens": true, "max-admission-cost-usd": true,
@@ -275,6 +278,10 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	if err != nil {
 		return err
 	}
+	var autonomousIssueIntake *config.AutonomousIssueIntakeConfig
+	if *autonomousIssues || len(trustedIssueAuthors) > 0 {
+		autonomousIssueIntake = &config.AutonomousIssueIntakeConfig{TrustedAuthors: append([]string(nil), trustedIssueAuthors...)}
+	}
 	harnessKinds := uniqueStrings([]string{*plannerHarness, *implementerHarness, *reviewerHarness})
 	harnesses := make([]config.HarnessConfig, 0, len(harnessKinds))
 	for _, kind := range harnessKinds {
@@ -294,7 +301,8 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		ResourceLimits:  config.DefaultResourceLimitsConfig(),
 		GitHubProject: &config.GitHubProjectConfig{
 			Owner: strings.TrimSpace(*owner), Number: preflightProjectNumber, IntakeRepository: strings.TrimSpace(*repository), IntakeLabel: strings.TrimSpace(*intakeLabel),
-			ResultField: "Runner Result", ApprovalField: "Runner Approval",
+			AutonomousIssueIntake: autonomousIssueIntake,
+			ResultField:           "Runner Result", ApprovalField: "Runner Approval",
 			PhaseField: "Runner Phase", TransitionField: config.RunnerTransitionFieldName, QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request", QACommitField: "QA Commit",
 			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge, MergeMethod: strings.TrimSpace(*mergeMethod),
 		},
@@ -407,7 +415,8 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		ResourceLimits:  config.DefaultResourceLimitsConfig(),
 		GitHubProject: &config.GitHubProjectConfig{
 			Owner: resolvedOwner, Number: resolvedProjectNumber, IntakeRepository: resolvedRepository, IntakeLabel: strings.TrimSpace(*intakeLabel),
-			ResultField: "Runner Result", ApprovalField: "Runner Approval",
+			AutonomousIssueIntake: autonomousIssueIntake,
+			ResultField:           "Runner Result", ApprovalField: "Runner Approval",
 			PhaseField: "Runner Phase", TransitionField: config.RunnerTransitionFieldName, QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request", QACommitField: "QA Commit",
 			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge, MergeMethod: strings.TrimSpace(*mergeMethod),
 		},

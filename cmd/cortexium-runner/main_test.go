@@ -95,7 +95,7 @@ func TestInitCreatesStandaloneConfigAndCanSynchronizeIt(t *testing.T) {
 		t.Fatalf("init dry run created config: %v", err)
 	}
 	output.Reset()
-	if err := run(t.Context(), []string{"init", "--owner", "example", "--project-number", "7", "--repository", "example/repo", "--project-dir", project, "--config", configPath, "--max-parallelism", "3", "--admission-window", "24h", "--max-admission-attempts", "12", "--max-admission-harness-time", "8h", "--max-admission-tokens", "1000000", "--max-admission-cost-usd", "25", "--auto-merge", "--harness", "codex", "--model", "gpt-test", "--reasoning", "high", "--planning-support", "high", "--reviewer-harness", "pi", "--reviewer-access", "host", "--reviewer-harness-config", "inherit", "--reviewer-model", "qwen/local", "--reviewer-reasoning", "xhigh", "--base-update-review", "required"}, strings.NewReader(""), &output); err != nil {
+	if err := run(t.Context(), []string{"init", "--owner", "example", "--project-number", "7", "--repository", "example/repo", "--project-dir", project, "--config", configPath, "--max-parallelism", "3", "--admission-window", "24h", "--max-admission-attempts", "12", "--max-admission-harness-time", "8h", "--max-admission-tokens", "1000000", "--max-admission-cost-usd", "25", "--auto-merge", "--autonomous-issues", "--trusted-issue-author", "maintainer", "--harness", "codex", "--model", "gpt-test", "--reasoning", "high", "--planning-support", "high", "--reviewer-harness", "pi", "--reviewer-access", "host", "--reviewer-harness-config", "inherit", "--reviewer-model", "qwen/local", "--reviewer-reasoning", "xhigh", "--base-update-review", "required"}, strings.NewReader(""), &output); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 	if expected := "Agent admission: rolling 24h0m0s window · 12 attempt(s) · 8h0m0s harness time · 1000000 reported tokens · $25.0000 reported cost"; !strings.Contains(output.String(), expected) {
@@ -110,6 +110,9 @@ func TestInitCreatesStandaloneConfigAndCanSynchronizeIt(t *testing.T) {
 	}
 	if loaded.AdmissionBudget == nil || loaded.AdmissionBudget.WindowSeconds != 86400 || loaded.AdmissionBudget.MaxAttempts != 12 || loaded.AdmissionBudget.MaxHarnessSeconds != 28800 || loaded.AdmissionBudget.MaxReportedTokens != 1000000 || loaded.AdmissionBudget.MaxReportedCostUSD == nil || *loaded.AdmissionBudget.MaxReportedCostUSD != 25 {
 		t.Fatalf("unexpected admission budget %#v", loaded.AdmissionBudget)
+	}
+	if loaded.GitHubProject.AutonomousIssueIntake == nil || len(loaded.GitHubProject.AutonomousIssueIntake.TrustedAuthors) != 1 || loaded.GitHubProject.AutonomousIssueIntake.TrustedAuthors[0] != "maintainer" {
+		t.Fatalf("unexpected autonomous issue policy %#v", loaded.GitHubProject.AutonomousIssueIntake)
 	}
 	runnerID := loaded.RunnerID
 	output.Reset()

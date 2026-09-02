@@ -331,7 +331,10 @@ type openPullRequestRunner struct {
 	configuredActor string
 }
 
-type plannerNeedsInputRunner struct{ project *fakeGitHubProjectRunner }
+type plannerNeedsInputRunner struct {
+	project        *fakeGitHubProjectRunner
+	capturedPrompt *string
+}
 
 type plannerStagesBatchRunner struct {
 	project        *fakeGitHubProjectRunner
@@ -432,6 +435,9 @@ func (r plannerNeedsInputRunner) Run(ctx context.Context, command string, args [
 	case "git":
 		return runEngineTestGit(ctx, args, dir, timeout)
 	case "codex":
+		if r.capturedPrompt != nil && len(args) > 0 {
+			*r.capturedPrompt = args[len(args)-1]
+		}
 		outputPath := argumentValue(args, "--output-last-message")
 		if outputPath == "" {
 			return subprocess.Result{}, errors.New("planner did not request a result file")
@@ -1275,15 +1281,19 @@ func TestPlannerOpenDecisionsMoveWorkToNeedsInputWithoutCreatingCards(t *testing
 	runGitTest(t, repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
 	item := github.WorkItem{
 		ID: "PVTI_plan", Title: "Plan API compatibility", Body: "Decide and split the work.",
-		Repository: "owner/repo", Status: "Plan",
+		URL: "https://github.com/owner/repo/issues/1", Repository: "owner/repo", Status: "Plan",
 	}
 	item.Approval = testApproval(item)
-	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	project := &fakeGitHubProjectRunner{
+		itemsJSON:     `{"items":[` + projectItemJSON(item) + `]}`,
+		issueComments: []github.ItemComment{{Author: "dan", Body: "The intended contract is API v2."}},
+	}
+	var plannerPrompt string
 	cfg := config.Config{
 		ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: repo,
 		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
 	}
-	service, err := New(completeEngineTestConfig(cfg), plannerNeedsInputRunner{project: project})
+	service, err := New(completeEngineTestConfig(cfg), plannerNeedsInputRunner{project: project, capturedPrompt: &plannerPrompt})
 	if err != nil {
 		t.Fatalf("configure service: %v", err)
 	}
@@ -1294,7 +1304,7 @@ func TestPlannerOpenDecisionsMoveWorkToNeedsInputWithoutCreatingCards(t *testing
 	if len(results) != 1 || results[0].Outcome != execution.OutcomeNeedsInput || project.status != "Blocked" {
 		t.Fatalf("open planning decision did not use needs_input: results=%#v status=%q", results, project.status)
 	}
-	if project.createdBody != "" || !strings.Contains(results[0].Summary, "Which API version") || strings.Contains(project.result, "Which API version") || !strings.Contains(project.result, "requiring operator input") {
+	if project.createdBody != "" || !strings.Contains(results[0].Summary, "Which API version") || strings.Contains(project.result, "Which API version") || !strings.Contains(project.result, "posted its planning questions") || len(project.postedComments) != 1 || !strings.Contains(project.postedComments[0], "Which API version") || !strings.Contains(plannerPrompt, "The intended contract is API v2") {
 		t.Fatalf("planner created work despite open decisions or lost context: created=%q result=%q", project.createdBody, project.result)
 	}
 }

@@ -1,6 +1,6 @@
 # Cortexium Runner
 
-`cortexium-runner` moves maintainer-approved GitHub Project work through
+`cortexium-runner` moves trusted or maintainer-approved GitHub Project work through
 planning, implementation, agent review, and a pull request that waits for a
 human decision by default.
 
@@ -290,7 +290,9 @@ once its declared dependencies have succeeded and required resources are free.
 
 ```mermaid
 flowchart LR
-    A["Needs assessment"] --> B["Backlog"]
+    I["Labeled issue"] --> A["Needs assessment"]
+    A -->|"human approval"| B["Backlog"]
+    A -->|"trusted intake policy"| C
     B --> C["Plan or Ready"]
     C --> D["In Progress"]
     D --> E["Agent QA"]
@@ -302,15 +304,26 @@ flowchart LR
     H -->|"human retry"| C
 ```
 
-Humans decide which work enters an executable lane. Runner prepares an isolated
-task worktree, launches the configured role, validates the result, and
-publishes accepted work as a pull request.
+By default, humans decide which assessed work enters an executable lane. With
+autonomous issue intake enabled, Runner may make that authorization decision
+for a labeled issue when the configured intake repository is private or the
+issue author is explicitly allowlisted. It always sends the issue through the
+same planner: unclear work produces questions on the issue and moves to
+`Blocked`; clear work produces one or more exact implementation cards. Trusted
+planner output is released automatically. Other issue intake remains in
+`Needs assessment` for a human.
+
+Enable the private-repository policy during initialization with
+`--autonomous-issues`. For a public repository, repeat
+`--trusted-issue-author LOGIN` for each allowed author. Repository visibility,
+not GitHub Project visibility, defines the private trust boundary.
 
 Putting an ordinary unsigned card in `Plan` asks the planner to shape its exact
 current snapshot. Putting one in `Ready` authorizes that snapshot for the
 implementer. Runner converts either Project draft to an issue in the configured
 intake repository, then signs it before claiming it. Planner output
-stays as reversible Project drafts while it awaits batch approval, and approval
+stays as reversible Project drafts until exact-batch approval; that approval is
+human by default and automatic only for a still-trusted issue source. Approval
 converts every released child to an issue before it can become executable.
 Forged or content-modified approvals and unreleased planner batches still fail
 closed.

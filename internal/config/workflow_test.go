@@ -625,6 +625,22 @@ func TestConfigurationValidatesAndDefaultsMergeMethod(t *testing.T) {
 	}
 }
 
+func TestConfigurationValidatesAutonomousIssueAuthors(t *testing.T) {
+	cfg := explicitTestConfig()
+	cfg.GitHubProject.AutonomousIssueIntake = &AutonomousIssueIntakeConfig{TrustedAuthors: []string{"Dan", " dan "}}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("case-insensitive duplicate trusted author was accepted: %v", err)
+	}
+	cfg.GitHubProject.AutonomousIssueIntake.TrustedAuthors = []string{" "}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "cannot be blank") {
+		t.Fatalf("blank trusted author was accepted: %v", err)
+	}
+	cfg.GitHubProject.AutonomousIssueIntake.TrustedAuthors = []string{"dan"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid autonomous issue policy was rejected: %v", err)
+	}
+}
+
 func TestRunnerActivityForRoleContract(t *testing.T) {
 	for contract, expected := range map[string]string{
 		WorkRolePlanner: "Planning", WorkRoleImplementer: "Implementing", WorkRoleReviewer: "Reviewing", "custom": "Running",

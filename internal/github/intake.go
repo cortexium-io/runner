@@ -11,7 +11,17 @@ import (
 	"strings"
 )
 
-const MaxIntakeMutationRequests = 100
+const (
+	MaxIntakeMutationRequests          = 100
+	MaxAutonomousIssueApprovalsPerSync = 8
+)
+
+type assessmentIssue struct {
+	URL    string `json:"url"`
+	Author *struct {
+		Login string `json:"login"`
+	} `json:"author"`
+}
 
 type intakeMutationBudgetKey struct{}
 
@@ -60,7 +70,7 @@ func (s *Project) SyncAssessmentIssuesFrom(ctx context.Context, items []WorkItem
 			existingByURL[item.URL] = item
 		}
 	}
-	result, err := s.gh(ctx, "issue", "list", "--repo", repository, "--label", s.intakeLabel(), "--state", "open", "--limit", strconv.Itoa(MaxAssessmentIssues+1), "--json", "url")
+	result, err := s.gh(ctx, "issue", "list", "--repo", repository, "--label", s.intakeLabel(), "--state", "open", "--limit", strconv.Itoa(MaxAssessmentIssues+1), "--json", "url,author")
 	if err != nil {
 		return AssessmentSyncResult{}, fmt.Errorf("list public assessment issues: %w", commandFailure(err, result))
 	}
@@ -104,12 +114,17 @@ func (s *Project) SyncAssessmentIssuesFrom(ctx context.Context, items []WorkItem
 		existingByURL[url] = WorkItem{ID: added.ID, URL: url, Status: s.assessmentStatus()}
 		syncResult.Added++
 	}
+	if s.cfg.AutonomousIssueIntake != nil {
+		routed, routeErr := s.routeAutonomousAssessmentIssues(ctx, issues)
+		syncResult.Routed = routed
+		if routeErr != nil {
+			return syncResult, routeErr
+		}
+	}
 	return syncResult, nil
 }
 
-func decodeAssessmentIssues(output string) ([]struct {
-	URL string `json:"url"`
-}, error) {
+func decodeAssessmentIssues(output string) ([]assessmentIssue, error) {
 	decoder := json.NewDecoder(bytes.NewReader([]byte(output)))
 	token, err := decoder.Token()
 	if err != nil {
@@ -118,16 +133,12 @@ func decodeAssessmentIssues(output string) ([]struct {
 	if delimiter, ok := token.(json.Delim); !ok || delimiter != '[' {
 		return nil, errors.New("public assessment issue response must be a JSON array")
 	}
-	issues := make([]struct {
-		URL string `json:"url"`
-	}, 0)
+	issues := make([]assessmentIssue, 0)
 	for decoder.More() {
 		if len(issues) >= MaxAssessmentIssues {
 			return nil, fmt.Errorf("public assessment intake exceeds the supported limit of %d open labeled issues; reduce or partition the intake before running", MaxAssessmentIssues)
 		}
-		var issue struct {
-			URL string `json:"url"`
-		}
+		var issue assessmentIssue
 		if err := decoder.Decode(&issue); err != nil {
 			return nil, err
 		}

@@ -115,6 +115,7 @@ type AssessmentSyncResult struct {
 	Discovered   int `json:"discovered"`
 	Added        int `json:"added"`
 	Reclassified int `json:"reclassified"`
+	Routed       int `json:"routed"`
 }
 
 type Project struct {

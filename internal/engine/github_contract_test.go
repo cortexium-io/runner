@@ -201,6 +201,9 @@ type fakeGitHubProjectRunner struct {
 	issuesJSON          string
 	addedURL            string
 	viewLayout          string
+	repoPrivate         bool
+	issueAuthor         string
+	issueState          string
 	issueLabels         []string
 	issueComments       []github.ItemComment
 	postedComments      []string
@@ -501,7 +504,8 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 		r.updateRemoteItem(args, func(item *github.WorkItem) { item.Approval = r.approval })
 		return subprocess.Result{}, nil
 	case strings.HasPrefix(joined, "repo view "):
-		return subprocess.Result{Stdout: `{"nameWithOwner":"owner/repo","hasIssuesEnabled":true}`}, nil
+		payload, _ := json.Marshal(map[string]any{"nameWithOwner": "owner/repo", "hasIssuesEnabled": true, "isPrivate": r.repoPrivate})
+		return subprocess.Result{Stdout: string(payload)}, nil
 	case strings.HasPrefix(joined, "label list "):
 		return subprocess.Result{Stdout: `[{"name":"needs-assessment"}]`}, nil
 	case strings.HasPrefix(joined, "issue list "):
@@ -514,7 +518,24 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 		for _, label := range r.issueLabels {
 			labels = append(labels, map[string]string{"name": label})
 		}
-		payload, _ := json.Marshal(map[string]any{"labels": labels})
+		state := r.issueState
+		if state == "" {
+			state = "OPEN"
+		}
+		author := r.issueAuthor
+		if author == "" {
+			author = "untrusted"
+		}
+		issueURL := ""
+		for _, candidate := range args {
+			if strings.HasPrefix(candidate, "https://github.com/") {
+				issueURL = candidate
+				break
+			}
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"url": issueURL, "author": map[string]string{"login": author}, "labels": labels, "state": state,
+		})
 		return subprocess.Result{Stdout: string(payload)}, nil
 	case strings.HasPrefix(joined, "issue edit "):
 		r.issueLabels = withoutNormalizedValue(r.issueLabels, "needs-assessment")
@@ -702,6 +723,71 @@ func TestGitHubProjectSourceSyncsLabeledPublicIssuesIntoAssessment(t *testing.T)
 	}
 	if run.approval != "" {
 		t.Fatalf("assessment sync retained prior execution authority: %q", run.approval)
+	}
+}
+
+func TestGitHubProjectSourceRoutesPrivateIssuesToPlanner(t *testing.T) {
+	item := github.WorkItem{
+		ID: "PVTI_private", Title: "Add an about page", Body: "Use the facts in about.doc.",
+		URL: "https://github.com/owner/repo/issues/7", Repository: "owner/repo", Status: "Needs assessment",
+	}
+	run := &fakeGitHubProjectRunner{
+		itemsJSON:   `{"items":[` + projectItemJSON(item) + `]}`,
+		issuesJSON:  `[{"url":"https://github.com/owner/repo/issues/7","author":{"login":"contributor"}}]`,
+		repoPrivate: true, issueLabels: []string{"needs-assessment"},
+	}
+	source := newTestGitHubProjectSource(config.GitHubProjectConfig{
+		Owner: "owner", Number: 4, IntakeRepository: "owner/repo", IntakeLabel: "needs-assessment",
+		AutonomousIssueIntake: &config.AutonomousIssueIntakeConfig{},
+	}, run)
+	result, err := source.SyncAssessmentIssues(t.Context())
+	if err != nil {
+		t.Fatalf("sync autonomous private intake: %v", err)
+	}
+	if result.Routed != 1 || run.status != "Plan" || run.approval == "" || len(run.issueLabels) != 0 {
+		t.Fatalf("private issue was not authorized into Plan: result=%#v status=%q approval=%q labels=%#v", result, run.status, run.approval, run.issueLabels)
+	}
+}
+
+func TestGitHubProjectSourceRoutesOnlyTrustedPublicIssueAuthors(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		listedAuthor    string
+		recheckedAuthor string
+		wantRouted      int
+		wantStatus      string
+	}{
+		{name: "trusted", listedAuthor: "Maintainer", recheckedAuthor: "Maintainer", wantRouted: 1, wantStatus: "Plan"},
+		{name: "untrusted", listedAuthor: "drive-by", recheckedAuthor: "drive-by", wantStatus: "Needs assessment"},
+		{name: "changed before mutation", listedAuthor: "maintainer", recheckedAuthor: "drive-by", wantStatus: "Needs assessment"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			item := github.WorkItem{
+				ID: "PVTI_public", Title: "Fix the bug", Body: "The save button does nothing.",
+				URL: "https://github.com/owner/repo/issues/8", Repository: "owner/repo", Status: "Needs assessment",
+			}
+			run := &fakeGitHubProjectRunner{
+				itemsJSON:   `{"items":[` + projectItemJSON(item) + `]}`,
+				issuesJSON:  `[{"url":"https://github.com/owner/repo/issues/8","author":{"login":"` + test.listedAuthor + `"}}]`,
+				issueAuthor: test.recheckedAuthor, issueLabels: []string{"needs-assessment"},
+			}
+			source := newTestGitHubProjectSource(config.GitHubProjectConfig{
+				Owner: "owner", Number: 4, IntakeRepository: "owner/repo", IntakeLabel: "needs-assessment",
+				AutonomousIssueIntake: &config.AutonomousIssueIntakeConfig{TrustedAuthors: []string{"maintainer"}},
+			}, run)
+			result, err := source.SyncAssessmentIssues(t.Context())
+			if err != nil {
+				t.Fatalf("sync autonomous public intake: %v", err)
+			}
+			actualStatus := run.status
+			if actualStatus == "" {
+				run.loadRemoteItems()
+				actualStatus = run.remoteItems[0].Status
+			}
+			if result.Routed != test.wantRouted || actualStatus != test.wantStatus {
+				t.Fatalf("unexpected public issue routing: result=%#v status=%q", result, actualStatus)
+			}
+		})
 	}
 }
 
@@ -1657,6 +1743,58 @@ func TestGitHubProjectSourceRequiresAuthenticatedCompleteBatchCommit(t *testing.
 	items, err = source.Poll(t.Context(), 10)
 	if err != nil || len(items) != 1 || items[0].Item.ID != child.ID {
 		t.Fatalf("authenticated complete-batch commit did not release child: items=%#v error=%v", items, err)
+	}
+}
+
+func TestGitHubProjectSourceAutomaticallyReleasesTrustedPlannerBatch(t *testing.T) {
+	parent := github.WorkItem{
+		ID: "plan", Title: "Plan an about page", Body: "Use about.doc.",
+		URL: "https://github.com/owner/repo/issues/12", Repository: "owner/repo", Status: "Plan", Role: config.WorkRolePlanner,
+	}
+	parent.Approval = testApproval(parent)
+	planned := github.PlannedItem{
+		Title: "Build the about page", Repository: "owner/repo", Summary: "Implement the requested page.", AcceptanceCriteria: []string{"The page uses about.doc."},
+		PlanningSourceID: parent.ID, PlanningSourceLane: "plan", PlanningSourceFingerprint: github.PlanningSourceFingerprint(parent),
+		PlanningDestination: "Ready", PlanningBatchFingerprint: "v1:batch", PlanningBatchSize: 1, PlanningItemIndex: 1, DependencyIDsResolved: true,
+	}
+	child := github.WorkItem{ID: "child", Title: planned.Title, Body: github.FormatPlannedItemBody(planned), Status: "Needs assessment", Repository: "owner/repo"}
+	run := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(parent) + `,` + projectItemJSON(child) + `]}`, repoPrivate: true}
+	projectCfg := completeEngineTestConfig(config.Config{
+		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{
+			Owner: "owner", Number: 4, IntakeRepository: "owner/repo", AutonomousIssueIntake: &config.AutonomousIssueIntakeConfig{},
+		},
+	}).ResolveProject()
+	source := newTestGitHubProjectSource(projectCfg, run)
+	loaded, err := source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := source.StagePlanningApproval(t.Context(), mustAuthorizeTest(t, source, parent), []github.WorkItem{loaded[1]}, "Staged exact batch."); err != nil {
+		t.Fatalf("stage trusted batch: %v", err)
+	}
+	items, err := source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	released, err := source.ReconcileAutonomousPlanningApprovals(t.Context(), items)
+	if err != nil {
+		t.Fatalf("release trusted batch: %v", err)
+	}
+	if released != 1 {
+		t.Fatalf("released %d trusted batches, want 1", released)
+	}
+	run.loadRemoteItems()
+	var finalParent, finalChild github.WorkItem
+	for _, item := range run.remoteItems {
+		switch item.ID {
+		case parent.ID:
+			finalParent = item
+		case child.ID:
+			finalChild = item
+		}
+	}
+	if finalParent.Status != "Done" || finalParent.Phase != "" || finalChild.Status != "Ready" || finalChild.Approval == "" {
+		t.Fatalf("trusted planner batch was not fully released: parent=%#v child=%#v", finalParent, finalChild)
 	}
 }
 

@@ -13,6 +13,8 @@ conflicts and continues looking for safe work. Serialized integration is
 independent of harness capacity: reconciliation permits one automatic
 integration owner per repository/base and refreshes only that candidate. There
 is no backward-compatibility requirement during this pre-stable transition.
+Trust-gated autonomous issue intake is recorded separately in
+[ADR 0002](decisions/0002-autonomous-issue-intake.md).
 
 The local GitHub Project Runner is a modular monolith: one CLI process with packages divided
 by responsibility and reason to change. The command package is the composition
@@ -244,6 +246,26 @@ already prove complete-batch release. Issue comments are fetched separately only
 for the claimed card immediately before assignment; they are bounded historical
 context and are not part of delegated authority.
 
+Autonomous issue intake reuses these same authorization and planning contracts.
+The optional `autonomous_issue_intake` object enables the policy. A labeled
+issue is eligible when the configured intake repository itself is private, or
+when its public author matches `trusted_authors` case-insensitively. Project
+visibility is deliberately irrelevant because a private Project may contain a
+public issue. Runner obtains visibility and issue identity from GitHub, previews
+the ordinary approval, rechecks trust immediately before applying it, removes
+the intake label, and moves the signed source into the configured initial
+planner lane. It never routes issue text directly to an implementer by keyword
+or shape.
+
+The existing planner is the sole ambiguity boundary. Open decisions create no
+children; Runner posts the questions to the issue and blocks the source for an
+explicit human retry. A complete plan stages the normal authenticated batch.
+For a still-trusted source, deterministic reconciliation rechecks trust and
+applies the same exact-batch approval used by the operator command. These
+authorization actions remain independent of harness capacity. Public issues
+whose authors are not allowlisted, and all issue intake when the policy is
+absent, retain the human assessment and batch-approval boundaries.
+
 Workspace authority combines that delegated-content digest with the exact
 resolved base commit and records them with the immutable Project item ID,
 repository, branch, and normalized worktree path in one private record outside
@@ -319,9 +341,11 @@ allocation. The ceiling prevents unbounded output and Project-write loops; it
 is not a target, preferred count, or task-sizing rule.
 Runner normalizes the complete plan before Project writes and stages every
 child unapproved in assessment. Project-driven planning
-leaves its source in the `planner_approval` phase; `approve` previews and
-revalidates every exact child, destination, and source, then requires a
-default-No terminal confirmation before release. The source carries a
+leaves its source in the `planner_approval` phase. Ordinary intake uses
+`approve`, which previews and revalidates every exact child, destination, and
+source, then requires a default-No terminal confirmation before release.
+Trust-gated issue intake performs the same revalidation automatically after
+rechecking source trust. The source carries a
 Runner-authenticated staging marker bound to the ordered exact batch and a
 fresh generation; public metadata or phase text alone cannot establish
 provenance. Runner records that marker before the source lifecycle writes, so
