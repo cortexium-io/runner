@@ -19,6 +19,11 @@ const RunnerActivityFieldName = "Runner Activity"
 const RunnerTransitionFieldName = "Runner Transition"
 
 const (
+	RunnerActivityAwaitingHumanReview = "Awaiting human review"
+	RunnerActivityWaitingForCIOrMerge = "Waiting for CI / merge"
+)
+
+const (
 	MergeMethodMerge  = "merge"
 	MergeMethodRebase = "rebase"
 	MergeMethodSquash = "squash"

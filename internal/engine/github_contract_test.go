@@ -1204,15 +1204,15 @@ func TestGitHubProjectSourcePollClaimAndTransition(t *testing.T) {
 	if err := source.TransitionPRReady(t.Context(), mustAuthorizeTest(t, source, claimed.Item), "PR Ready", "Review accepted.", "cortexium/task", "https://github.com/owner/repo/pull/12", strings.Repeat("a", 40)); err != nil {
 		t.Fatalf("transition reviewer: %v", err)
 	}
-	if run.status != "PR Ready" {
-		t.Fatalf("successful reviewer did not reach PR Ready: %q", run.status)
+	if run.status != "PR Ready" || run.activity != "Awaiting human review" {
+		t.Fatalf("successful reviewer did not reach a visible human gate: status=%q activity=%q", run.status, run.activity)
 	}
 
 	if err := source.Transition(t.Context(), mustAuthorizeTest(t, source, claimed.Item), "Blocked", "Needs a decision.", ""); err != nil {
 		t.Fatalf("transition incomplete attempt: %v", err)
 	}
-	if run.status != "Blocked" {
-		t.Fatalf("non-successful attempt did not reach Blocked: %q", run.status)
+	if run.status != "Blocked" || run.activity != "" {
+		t.Fatalf("non-successful attempt did not clear activity at Blocked: status=%q activity=%q", run.status, run.activity)
 	}
 }
 
@@ -2138,14 +2138,14 @@ func TestGitHubProjectSourceSuccessfulQAPersistsPRAndAwaitsHuman(t *testing.T) {
 	if err := source.TransitionPRReady(t.Context(), mustAuthorizeTest(t, source, item), "PR Ready", "Agent QA passed.", "cortexium/assignment_PVTI_pr", "https://github.com/owner/repo/pull/12", qaCommit); err != nil {
 		t.Fatalf("mark PR ready: %v", err)
 	}
-	if run.status != "PR Ready" || run.branch != "cortexium/assignment_PVTI_pr" || run.pullRequest != "https://github.com/owner/repo/pull/12" || run.qaCommit != qaCommit || run.phase != "" {
-		t.Fatalf("successful QA did not await human approval: status=%q branch=%q pr=%q phase=%q", run.status, run.branch, run.pullRequest, run.phase)
+	if run.status != "PR Ready" || run.activity != "Awaiting human review" || run.branch != "cortexium/assignment_PVTI_pr" || run.pullRequest != "https://github.com/owner/repo/pull/12" || run.qaCommit != qaCommit || run.phase != "" {
+		t.Fatalf("successful QA did not await human approval: status=%q activity=%q branch=%q pr=%q phase=%q", run.status, run.activity, run.branch, run.pullRequest, run.phase)
 	}
 	if err := source.Transition(t.Context(), mustAuthorizeTest(t, source, item), "Done", "Pull request was merged by a human.", ""); err != nil {
 		t.Fatalf("mark done: %v", err)
 	}
-	if run.status != "Done" || !strings.Contains(run.result, "merged by a human") {
-		t.Fatalf("human completion was not recorded: status=%q result=%q", run.status, run.result)
+	if run.status != "Done" || run.activity != "" || !strings.Contains(run.result, "merged by a human") {
+		t.Fatalf("human completion was not recorded: status=%q activity=%q result=%q", run.status, run.activity, run.result)
 	}
 }
 

@@ -582,6 +582,10 @@ func (s *Project) TransitionPRReady(ctx context.Context, action AuthorizedAction
 		return errors.New("persist QA snapshot: commit must be a full Git object id")
 	}
 	return s.transition(ctx, action, targetStatus, summary, "", false, func(next *WorkItem) {
+		next.Activity = config.RunnerActivityAwaitingHumanReview
+		if s.cfg.AutoMerge {
+			next.Activity = config.RunnerActivityWaitingForCIOrMerge
+		}
 		next.Branch = strings.TrimSpace(branch)
 		next.PullRequest = strings.TrimSpace(pullRequest)
 		next.QACommit = strings.TrimSpace(qaCommit)
@@ -675,9 +679,16 @@ func (s *Project) transition(ctx context.Context, expected AuthorizedAction, tar
 	if err != nil {
 		return fmt.Errorf("record authenticated Project phase; the item remains safely transition-locked: %w", err)
 	}
-	if strings.TrimSpace(current.Item.Activity) != "" {
-		if err := s.clearField(ctx, current.Item.ID, s.activityFieldName()); err != nil {
-			return fmt.Errorf("clear completed Project activity; the item remains safely transition-locked: %w", err)
+	currentActivity := strings.TrimSpace(current.Item.Activity)
+	nextActivity := strings.TrimSpace(next.Activity)
+	if currentActivity != nextActivity {
+		if nextActivity == "" {
+			err = s.clearField(ctx, current.Item.ID, s.activityFieldName())
+		} else {
+			err = s.setTextField(ctx, current.Item.ID, s.activityFieldName(), nextActivity)
+		}
+		if err != nil {
+			return fmt.Errorf("record authenticated Project activity; the item remains safely transition-locked: %w", err)
 		}
 	}
 	if err := s.setApproval(ctx, current.Item.ID, nextAction.assertion); err != nil {

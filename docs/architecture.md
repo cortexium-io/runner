@@ -217,14 +217,17 @@ Operator-selected `standard` or `high`
 task sizing changes only decomposition and specificity for implementer and
 reviewer roles. Runner never infers capability from model names, and the shared
 plan schema and acceptance rigor remain unchanged. A claim records `Planning`,
-`Implementing`, or `Reviewing` in the visible `Runner Activity` field and clears
-it when the card leaves `In Progress`. A blocked transition records its
-originating agent lane in the hidden `Runner Phase` field; `retry` uses that
-explicit destination and never guesses from a summary string. The separate
-hidden `Runner Transition` field is a fail-closed lock around non-atomic Project
-updates. Authorization rejects locked cards, completed locked state is resumed
-in place, and partial state is returned to assessment. Phase and activity remain
-bound to authenticated action state; the lock is checked independently.
+`Implementing`, or `Reviewing` in the visible `Runner Activity` field. Accepted
+QA changes that activity to `Awaiting human review`, or `Waiting for CI / merge`
+when automatic merge is enabled, while the card remains `PR Ready`. Ordinary
+pull-request reconciliation preserves that waiting signal; leaving `PR Ready`
+clears it. A blocked transition records its originating agent lane in the hidden
+`Runner Phase` field; `retry` uses that explicit destination and never guesses
+from a summary string. The separate hidden `Runner Transition` field is a
+fail-closed lock around non-atomic Project updates. Authorization rejects locked
+cards, completed locked state is resumed in place, and partial state is returned
+to assessment. Phase and activity remain bound to authenticated action state;
+the lock is checked independently.
 
 Approval and staged-batch authority carry one canonical delegated-content
 digest over the exact approved body snapshot, repository, immutable dependency

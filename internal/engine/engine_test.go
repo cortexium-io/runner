@@ -4620,8 +4620,8 @@ func TestAcceptedAgentQAPublishesPRAndMovesToHumanGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run accepted QA cycle: %v", err)
 	}
-	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || project.status != "PR Ready" || project.pullRequest != "https://github.com/owner/repo/pull/12" || project.branch != item.Branch || project.qaCommit == "" {
-		t.Fatalf("accepted QA did not reach the human gate: results=%#v status=%q PR=%q branch=%q", results, project.status, project.pullRequest, project.branch)
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || project.status != "PR Ready" || project.activity != "Awaiting human review" || project.pullRequest != "https://github.com/owner/repo/pull/12" || project.branch != item.Branch || project.qaCommit == "" {
+		t.Fatalf("accepted QA did not reach the human gate: results=%#v status=%q activity=%q PR=%q branch=%q", results, project.status, project.activity, project.pullRequest, project.branch)
 	}
 	if runner.status != "" || runner.head == "" || runner.tree == "" || runner.head != project.qaCommit {
 		t.Fatalf("QA did not receive the clean committed candidate: head=%q tree=%q status=%q qa_commit=%q", runner.head, runner.tree, runner.status, project.qaCommit)
@@ -4734,8 +4734,8 @@ func TestAcceptedAgentQAQueuesConfiguredAutomaticIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run accepted QA cycle: %v", err)
 	}
-	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || runner.mergeRequests != 0 || project.status != "PR Ready" {
-		t.Fatalf("QA did not leave automatic integration to reconciliation: results=%#v requests=%d status=%q", results, runner.mergeRequests, project.status)
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || runner.mergeRequests != 0 || project.status != "PR Ready" || project.activity != "Waiting for CI / merge" {
+		t.Fatalf("QA did not leave visible automatic integration to reconciliation: results=%#v requests=%d status=%q activity=%q", results, runner.mergeRequests, project.status, project.activity)
 	}
 	if !strings.Contains(results[0].Summary, "queued for automatic integration") {
 		t.Fatalf("automatic integration result was unclear: %#v", results[0])
@@ -4748,6 +4748,9 @@ func TestAcceptedAgentQAQueuesConfiguredAutomaticIntegration(t *testing.T) {
 		t.Fatalf("reconcile queued automatic integration: %v", err)
 	} else if !changed || runner.mergeRequests != 1 {
 		t.Fatalf("queued integration did not acquire its resource: changed=%t requests=%d", changed, runner.mergeRequests)
+	}
+	if project.activity != "Waiting for CI / merge" {
+		t.Fatalf("ordinary integration reconciliation cleared visible waiting state: %q", project.activity)
 	}
 }
 
@@ -4797,8 +4800,8 @@ func TestAutomaticIntegrationRequeuesWhenBaseMovesAfterQA(t *testing.T) {
 	}
 	if _, changed, err := service.reconcilePullRequests(t.Context(), items); err != nil {
 		t.Fatalf("reconcile moved-base integration: %v", err)
-	} else if !changed || runner.mergeRequests != 0 || project.status != "Ready" || project.phase != "ready" {
-		t.Fatalf("moved-base integration was not returned for implementation and QA: changed=%t requests=%d status=%q phase=%q", changed, runner.mergeRequests, project.status, project.phase)
+	} else if !changed || runner.mergeRequests != 0 || project.status != "Ready" || project.phase != "ready" || project.activity != "" {
+		t.Fatalf("moved-base integration was not returned for implementation and QA: changed=%t requests=%d status=%q phase=%q activity=%q", changed, runner.mergeRequests, project.status, project.phase, project.activity)
 	}
 }
 
@@ -4844,8 +4847,8 @@ func TestAutomaticMergeFailureBlocksCardWithRetryGuidance(t *testing.T) {
 		t.Fatalf("load published item: %v", err)
 	}
 	warnings, changed, err := service.reconcilePullRequests(t.Context(), items)
-	if err != nil || !changed || len(warnings) != 1 || warnings[0].Outcome != execution.OutcomeBlocked || runner.mergeRequests != 1 || project.status != "Blocked" || project.phase != "agent_qa" {
-		t.Fatalf("automatic merge failure was not retryable: warnings=%#v changed=%t error=%v requests=%d status=%q phase=%q", warnings, changed, err, runner.mergeRequests, project.status, project.phase)
+	if err != nil || !changed || len(warnings) != 1 || warnings[0].Outcome != execution.OutcomeBlocked || runner.mergeRequests != 1 || project.status != "Blocked" || project.phase != "agent_qa" || project.activity != "" {
+		t.Fatalf("automatic merge failure was not retryable: warnings=%#v changed=%t error=%v requests=%d status=%q phase=%q activity=%q", warnings, changed, err, runner.mergeRequests, project.status, project.phase, project.activity)
 	}
 	if project.pullRequest == "" || !strings.Contains(project.result, "Automatic merge could not be enabled") || !strings.Contains(project.result, "retry this card") || strings.Contains(project.result, "repository auto-merge is disabled") {
 		t.Fatalf("automatic merge failure lost safe PR guidance: PR=%q result=%q", project.pullRequest, project.result)
