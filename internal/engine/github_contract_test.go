@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -207,6 +208,8 @@ type fakeGitHubProjectRunner struct {
 	issueLabels         []string
 	issueComments       []github.ItemComment
 	postedComments      []string
+	closedIssues        []string
+	failIssueClose      map[string]bool
 	calls               []string
 	failFieldID         string
 	failApprovalAt      int
@@ -300,10 +303,11 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 			r.remoteItems[index].DraftContentID = fmt.Sprintf("I_%d", issueNumber)
 			r.remoteItems[index].URL = fmt.Sprintf("https://github.com/owner/repo/issues/%d", issueNumber)
 			r.remoteItems[index].Repository = "owner/repo"
+			r.remoteItems[index].IssueState = "OPEN"
 			payload, _ := json.Marshal(map[string]any{"data": map[string]any{"convertProjectV2DraftIssueItemToIssue": map[string]any{"item": map[string]any{
 				"id": r.remoteItems[index].ID, "content": map[string]any{
 					"id": r.remoteItems[index].DraftContentID, "title": r.remoteItems[index].Title, "body": r.remoteItems[index].Body,
-					"url": r.remoteItems[index].URL, "repository": map[string]any{"nameWithOwner": r.remoteItems[index].Repository},
+					"url": r.remoteItems[index].URL, "state": r.remoteItems[index].IssueState, "repository": map[string]any{"nameWithOwner": r.remoteItems[index].Repository},
 				},
 			}}}})
 			return subprocess.Result{Stdout: string(payload)}, nil
@@ -386,7 +390,11 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 		}
 		item := github.WorkItem{
 			ID: "PVTI_1", Title: "Implement the slice", Body: "Acceptance criteria", URL: "https://github.com/owner/repo/issues/1", Repository: "owner/repo", Status: status, Role: config.WorkRoleImplementer,
-			Result: r.result, Phase: r.phase, Transition: r.transition, Activity: r.activity, QAFailures: r.qaFailures, Branch: r.branch, PullRequest: r.pullRequest, QACommit: r.qaCommit,
+			IssueState: r.issueState,
+			Result:     r.result, Phase: r.phase, Transition: r.transition, Activity: r.activity, QAFailures: r.qaFailures, Branch: r.branch, PullRequest: r.pullRequest, QACommit: r.qaCommit,
+		}
+		if item.IssueState == "" {
+			item.IssueState = "OPEN"
 		}
 		approval := r.approval
 		if !r.approvalSet && status != "Needs assessment" && status != "Backlog" {
@@ -395,7 +403,7 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 		payload, _ := json.Marshal(map[string]any{"items": []any{map[string]any{
 			"id": item.ID, "title": item.Title, "status": status, "runnerApproval": approval,
 			"runnerResult": r.result, "runnerPhase": r.phase, "runnerTransition": r.transition, "runnerActivity": r.activity, "qaFailures": r.qaFailures, "runnerBranch": r.branch, "pullRequest": r.pullRequest, "qaCommit": r.qaCommit,
-			"content": map[string]any{"body": item.Body, "repository": item.Repository, "url": item.URL},
+			"content": map[string]any{"body": item.Body, "repository": item.Repository, "url": item.URL, "state": item.IssueState},
 		}}})
 		return subprocess.Result{Stdout: legacyItemsGraphQLJSON(string(payload))}, nil
 	case strings.Contains(joined, "--field-id F_status") && strings.Contains(joined, "--single-select-option-id O_running"):
@@ -533,10 +541,36 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 				break
 			}
 		}
+		r.loadRemoteItems()
+		for _, item := range r.remoteItems {
+			if strings.EqualFold(strings.TrimSpace(item.URL), strings.TrimSpace(issueURL)) && strings.TrimSpace(item.IssueState) != "" {
+				state = item.IssueState
+				break
+			}
+		}
 		payload, _ := json.Marshal(map[string]any{
 			"url": issueURL, "author": map[string]string{"login": author}, "labels": labels, "state": state,
 		})
 		return subprocess.Result{Stdout: string(payload)}, nil
+	case strings.HasPrefix(joined, "issue close "):
+		issueURL := ""
+		for _, candidate := range args {
+			if strings.HasPrefix(candidate, "https://github.com/") {
+				issueURL = candidate
+				break
+			}
+		}
+		if r.failIssueClose[issueURL] {
+			return subprocess.Result{Stderr: "simulated issue closure failure", ExitCode: 1}, errors.New("simulated issue closure failure")
+		}
+		r.closedIssues = append(r.closedIssues, issueURL)
+		r.loadRemoteItems()
+		for index := range r.remoteItems {
+			if strings.EqualFold(strings.TrimSpace(r.remoteItems[index].URL), strings.TrimSpace(issueURL)) {
+				r.remoteItems[index].IssueState = "CLOSED"
+			}
+		}
+		return subprocess.Result{}, nil
 	case strings.HasPrefix(joined, "issue edit "):
 		r.issueLabels = withoutNormalizedValue(r.issueLabels, "needs-assessment")
 		return subprocess.Result{}, nil
@@ -571,7 +605,7 @@ func (r *fakeGitHubProjectRunner) loadRemoteItems() {
 			ID: stringValue(raw["id"]), Title: stringValue(raw["title"]), Status: stringValue(raw["status"]),
 			Approval: stringValue(raw["runnerApproval"]), Result: stringValue(raw["runnerResult"]), Phase: stringValue(raw["runnerPhase"]), Transition: stringValue(raw["runnerTransition"]), Activity: stringValue(raw["runnerActivity"]),
 			Branch: stringValue(raw["runnerBranch"]), PullRequest: stringValue(raw["pullRequest"]), QACommit: stringValue(raw["qaCommit"]),
-			DraftContentID: stringValue(content["id"]), Body: stringValue(content["body"]), URL: stringValue(content["url"]), Repository: repository,
+			DraftContentID: stringValue(content["id"]), Body: stringValue(content["body"]), URL: stringValue(content["url"]), IssueState: stringValue(content["state"]), Repository: repository,
 			QAFailures: int(numberValue(raw["qaFailures"])),
 		}
 		metadata := github.DecodePlannedItemMetadata(item.Body)
@@ -676,7 +710,7 @@ func legacyItemsGraphQLJSON(encoded string) string {
 			"phase": map[string]any{"text": raw["runnerPhase"]}, "transition": map[string]any{"text": raw["runnerTransition"]}, "activity": map[string]any{"text": raw["runnerActivity"]}, "qaFailures": map[string]any{"number": raw["qaFailures"]},
 			"branch": map[string]any{"text": raw["runnerBranch"]}, "pullRequest": map[string]any{"text": raw["pullRequest"]},
 			"qaCommit": map[string]any{"text": raw["qaCommit"]},
-			"content":  map[string]any{"id": content["id"], "title": title, "body": content["body"], "url": content["url"], "repository": map[string]any{"nameWithOwner": repository}},
+			"content":  map[string]any{"id": content["id"], "title": title, "body": content["body"], "url": content["url"], "state": content["state"], "repository": map[string]any{"nameWithOwner": repository}},
 		})
 	}
 	payload, _ := json.Marshal(map[string]any{"data": map[string]any{"node": map[string]any{"items": map[string]any{
@@ -1798,6 +1832,177 @@ func TestGitHubProjectSourceAutomaticallyReleasesTrustedPlannerBatch(t *testing.
 	}
 }
 
+func TestGitHubProjectSourceClosesPlanningIssueOnlyAfterEveryChildMerge(t *testing.T) {
+	parent := github.WorkItem{
+		ID: "plan", Title: "Plan an about page", Body: "Use about.doc.", URL: "https://github.com/owner/repo/issues/12",
+		Repository: "owner/repo", IssueState: "OPEN", Status: "Plan", Role: config.WorkRolePlanner,
+	}
+	parent.Approval = testApproval(parent)
+	planned := []github.PlannedItem{
+		{
+			Title: "Build the about page", Repository: "owner/repo", Summary: "Implement the requested page.", AcceptanceCriteria: []string{"The page uses about.doc."},
+			PlanningSourceID: parent.ID, PlanningSourceLane: "plan", PlanningSourceFingerprint: github.PlanningSourceFingerprint(parent),
+			PlanningDestination: "Ready", PlanningBatchFingerprint: "v1:about-batch", PlanningBatchSize: 2, PlanningItemIndex: 1, DependencyIDsResolved: true,
+		},
+		{
+			Title: "Add about page navigation", Repository: "owner/repo", Summary: "Link the requested page.", AcceptanceCriteria: []string{"The page is reachable."},
+			PlanningSourceID: parent.ID, PlanningSourceLane: "plan", PlanningSourceFingerprint: github.PlanningSourceFingerprint(parent),
+			PlanningDestination: "Ready", PlanningBatchFingerprint: "v1:about-batch", PlanningBatchSize: 2, PlanningItemIndex: 2, DependencyIDsResolved: true,
+		},
+	}
+	children := []github.WorkItem{
+		{ID: "child-page", Title: planned[0].Title, Body: github.FormatPlannedItemBody(planned[0]), URL: "https://github.com/owner/repo/issues/13", Repository: "owner/repo", IssueState: "OPEN", Status: "Needs assessment"},
+		{ID: "child-nav", Title: planned[1].Title, Body: github.FormatPlannedItemBody(planned[1]), URL: "https://github.com/owner/repo/issues/14", Repository: "owner/repo", IssueState: "OPEN", Status: "Needs assessment"},
+	}
+	run := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(parent) + `,` + projectItemJSON(children[0]) + `,` + projectItemJSON(children[1]) + `]}`}
+	projectCfg := completeEngineTestConfig(config.Config{
+		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}).ResolveProject()
+	source := newTestGitHubProjectSource(projectCfg, run)
+	loaded, err := source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := source.StagePlanningApproval(t.Context(), mustAuthorizeTest(t, source, parent), loaded[1:], "Staged exact batch."); err != nil {
+		t.Fatalf("stage planning batch: %v", err)
+	}
+	preview, err := source.PlanApproval(t.Context(), parent.ID)
+	if err != nil {
+		t.Fatalf("preview planning batch release: %v", err)
+	}
+	if _, err := source.ApplyApproval(t.Context(), preview); err != nil {
+		t.Fatalf("release planning batch: %v", err)
+	}
+
+	run.loadRemoteItems()
+	for index := range run.remoteItems {
+		item := &run.remoteItems[index]
+		switch item.ID {
+		case children[0].ID:
+			item.Status = "Done"
+			item.Branch = "runner/about-page"
+			item.PullRequest = "https://github.com/owner/repo/pull/13"
+			item.QACommit = "page-head"
+			item.Approval = testApproval(*item)
+		case children[1].ID:
+			item.Status = "PR Ready"
+			item.Branch = "runner/about-navigation"
+			item.PullRequest = "https://github.com/owner/repo/pull/14"
+			item.QACommit = "navigation-head"
+			item.Approval = testApproval(*item)
+		}
+	}
+	loaded, err = source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed, failures := source.ReconcileCompletedIssues(t.Context(), loaded)
+	if closed != 1 || len(failures) != 0 || !reflect.DeepEqual(run.closedIssues, []string{children[0].URL}) {
+		t.Fatalf("partial batch closure = %d, failures=%#v issues=%#v", closed, failures, run.closedIssues)
+	}
+
+	for index := range run.remoteItems {
+		item := &run.remoteItems[index]
+		if item.ID == children[1].ID {
+			item.Status = "Done"
+			item.Approval = testApproval(*item)
+		}
+	}
+	loaded, err = source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed, failures = source.ReconcileCompletedIssues(t.Context(), loaded)
+	wantClosed := []string{children[0].URL, children[1].URL, parent.URL}
+	if closed != 2 || len(failures) != 0 || !reflect.DeepEqual(run.closedIssues, wantClosed) {
+		t.Fatalf("complete batch closure = %d, failures=%#v issues=%#v, want %#v", closed, failures, run.closedIssues, wantClosed)
+	}
+	for _, call := range run.calls {
+		if strings.HasPrefix(call, "issue close ") && !strings.HasSuffix(call, "--reason completed") {
+			t.Fatalf("issue was closed without the completed reason: %s", call)
+		}
+	}
+}
+
+func TestGitHubProjectSourceDoesNotCloseHandMovedDoneIssue(t *testing.T) {
+	item := github.WorkItem{
+		ID: "manual-done", Title: "Manually moved", Body: "Unverified work", URL: "https://github.com/owner/repo/issues/21",
+		Repository: "owner/repo", IssueState: "OPEN", Status: "Done", PullRequest: "https://github.com/owner/repo/pull/21",
+	}
+	run := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	source := newTestGitHubProjectSource(config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"}, run)
+	items, err := source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed, failures := source.ReconcileCompletedIssues(t.Context(), items)
+	if closed != 0 || len(failures) != 0 || len(run.closedIssues) != 0 {
+		t.Fatalf("unauthenticated Done issue was closed: count=%d failures=%#v issues=%#v", closed, failures, run.closedIssues)
+	}
+}
+
+func TestGitHubProjectSourceRetriesIssueClosureFailure(t *testing.T) {
+	item := github.WorkItem{
+		ID: "merged", Title: "Merged work", Body: "Verified work", URL: "https://github.com/owner/repo/issues/22",
+		Repository: "owner/repo", IssueState: "OPEN", Status: "Done", Branch: "runner/merged",
+		PullRequest: "https://github.com/owner/repo/pull/22", QACommit: "merged-head",
+	}
+	item.Approval = testApproval(item)
+	run := &fakeGitHubProjectRunner{
+		itemsJSON:      `{"items":[` + projectItemJSON(item) + `]}`,
+		failIssueClose: map[string]bool{item.URL: true},
+	}
+	source := newTestGitHubProjectSource(config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"}, run)
+	items, err := source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed, failures := source.ReconcileCompletedIssues(t.Context(), items)
+	if closed != 0 || len(failures) != 1 || failures[0].Item.ID != item.ID || len(run.closedIssues) != 0 {
+		t.Fatalf("closure failure was not isolated: count=%d failures=%#v issues=%#v", closed, failures, run.closedIssues)
+	}
+	delete(run.failIssueClose, item.URL)
+	closed, failures = source.ReconcileCompletedIssues(t.Context(), items)
+	if closed != 1 || len(failures) != 0 || !reflect.DeepEqual(run.closedIssues, []string{item.URL}) {
+		t.Fatalf("closure was not retryable: count=%d failures=%#v issues=%#v", closed, failures, run.closedIssues)
+	}
+}
+
+func TestPreparePollReportsIssueClosureFailureAndClaimsUnrelatedWork(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	completed := github.WorkItem{
+		ID: "merged", Title: "Merged work", Body: "Verified work", URL: "https://github.com/owner/repo/issues/22",
+		Repository: "owner/repo", IssueState: "OPEN", Status: "Done", Branch: "runner/merged",
+		PullRequest: "https://github.com/owner/repo/pull/22", QACommit: "merged-head",
+	}
+	completed.Approval = testApproval(completed)
+	ready := github.WorkItem{
+		ID: "ready", Title: "Unrelated work", Body: "Implement independently.", URL: "https://github.com/owner/repo/issues/23",
+		Repository: "owner/repo", IssueState: "OPEN", Status: "Ready",
+	}
+	ready.Approval = testApproval(ready)
+	run := &fakeGitHubProjectRunner{
+		itemsJSON:      `{"items":[` + projectItemJSON(completed) + `,` + projectItemJSON(ready) + `]}`,
+		failIssueClose: map[string]bool{completed.URL: true},
+	}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), reviewerAcceptRunner{project: run})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := service.preparePoll(t.Context(), 1, false, nil)
+	if err != nil {
+		t.Fatalf("prepare poll around issue closure failure: %v", err)
+	}
+	if len(prepared.results) != 1 || prepared.results[0].Outcome != "warning" || prepared.results[0].Item.ID != completed.ID {
+		t.Fatalf("issue closure failure was not reported as a warning: %#v", prepared.results)
+	}
+	if len(prepared.claimed) != 1 || prepared.claimed[0].action.Item.ID != ready.ID {
+		t.Fatalf("issue closure failure held unrelated work: %#v", prepared.claimed)
+	}
+}
+
 func TestGitHubProjectSourcePollsOnlyExecutableWorkflowItems(t *testing.T) {
 	ready := approvedProjectItemJSON("ready", "Ready", "Ready", "")
 	qa := approvedProjectItemJSON("qa", "QA", "Agent QA", "")
@@ -1857,7 +2062,7 @@ func projectItemJSON(item github.WorkItem) string {
 		"id": item.ID, "title": item.Title, "status": item.Status, "runnerApproval": item.Approval,
 		"runnerResult": item.Result, "runnerPhase": item.Phase, "runnerTransition": item.Transition, "runnerActivity": item.Activity, "qaFailures": item.QAFailures,
 		"runnerBranch": item.Branch, "pullRequest": item.PullRequest, "qaCommit": item.QACommit,
-		"content": map[string]any{"id": item.DraftContentID, "body": item.Body, "url": item.URL, "repository": item.Repository},
+		"content": map[string]any{"id": item.DraftContentID, "body": item.Body, "url": item.URL, "state": item.IssueState, "repository": item.Repository},
 	}
 	if len(item.Labels) > 0 {
 		payload["labels"] = item.Labels

@@ -338,6 +338,14 @@ feedback. The next implementer therefore receives QA's requested changes even
 without a human comment, while a human can add or clarify instructions in the
 same issue conversation before moving the card back to `Ready`.
 
+When Runner observes an authenticated merged-PR outcome, it closes that
+implementation issue as completed. If a planner created several cards from one
+source issue, the source stays open until every exact child in the released
+batch has merged successfully. Runner does not rely on a child PR's closing
+keyword, so whichever PR happens to merge first cannot close the original
+request early. A manual move to `Done`, a blocked child, or a PR closed without
+merge does not satisfy the aggregate.
+
 ## Harnesses and roles
 
 | Harness | Planner | Implementer | Reviewer |

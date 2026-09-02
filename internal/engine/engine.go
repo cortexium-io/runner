@@ -207,6 +207,18 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 		}
 		prepared.items = items
 	}
+	closedIssues, issueCompletionFailures := s.source.ReconcileCompletedIssues(ctx, items)
+	if closedIssues > 0 {
+		prepared.madeProgress = true
+	}
+	for _, failure := range issueCompletionFailures {
+		prepared.results = append(prepared.results, RunResult{
+			Item:    failure.Item,
+			Outcome: "warning",
+			Summary: "Completed GitHub issue could not be closed.",
+			Error:   failure.Err.Error(),
+		})
+	}
 	releasedPlanningBatches, err := s.source.ReconcileAutonomousPlanningApprovals(ctx, items)
 	if err != nil {
 		return prepared, fmt.Errorf("reconcile autonomous planner approvals: %w", err)

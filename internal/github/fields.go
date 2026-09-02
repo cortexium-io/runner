@@ -175,6 +175,7 @@ type projectItemNode struct {
 		Title      string `json:"title"`
 		Body       string `json:"body"`
 		URL        string `json:"url"`
+		State      string `json:"state"`
 		Repository *struct {
 			NameWithOwner string `json:"nameWithOwner"`
 		} `json:"repository"`
@@ -199,7 +200,7 @@ func (s *Project) lifecycleItemSelection() string {
 		`branch:fieldValueByName(name:` + graphQLString(s.branchFieldName()) + `){... on ProjectV2ItemFieldTextValue{text}} ` +
 		`pullRequest:fieldValueByName(name:` + graphQLString(s.pullRequestFieldName()) + `){... on ProjectV2ItemFieldTextValue{text}} ` +
 		`qaCommit:fieldValueByName(name:` + graphQLString(s.qaCommitFieldName()) + `){... on ProjectV2ItemFieldTextValue{text}} ` +
-		`content{... on DraftIssue{id title body} ... on Issue{title body url repository{nameWithOwner}} ... on PullRequest{title body url repository{nameWithOwner}}}`
+		`content{... on DraftIssue{id title body} ... on Issue{title body url state repository{nameWithOwner}} ... on PullRequest{title body url repository{nameWithOwner}}}`
 }
 
 func decodeProjectItemNode(raw projectItemNode) WorkItem {
@@ -239,6 +240,7 @@ func decodeProjectItemNode(raw projectItemNode) WorkItem {
 		item.Title = strings.TrimSpace(raw.Content.Title)
 		item.Body = strings.TrimSpace(raw.Content.Body)
 		item.URL = strings.TrimSpace(raw.Content.URL)
+		item.IssueState = strings.TrimSpace(raw.Content.State)
 		if raw.Content.Repository != nil {
 			item.Repository = strings.TrimSpace(raw.Content.Repository.NameWithOwner)
 		}

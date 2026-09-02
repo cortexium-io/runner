@@ -31,6 +31,7 @@ type WorkItem struct {
 	Body                      string   `json:"body,omitempty"`
 	URL                       string   `json:"url,omitempty"`
 	Repository                string   `json:"repository,omitempty"`
+	IssueState                string   `json:"issue_state,omitempty"`
 	Dependencies              []string `json:"dependencies,omitempty"`
 	Status                    string   `json:"status"`
 	Role                      string   `json:"role,omitempty"`

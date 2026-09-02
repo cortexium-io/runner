@@ -94,7 +94,7 @@ func TestOrdinaryWorkItemDependenciesUseExactIDsOrIssueURLs(t *testing.T) {
 	body := "Implement the dependent slice.\n\n## Dependencies\n\n- PVTI_foundation\n- https://github.com/owner/repo/issues/42\n\n## Acceptance criteria\n\n- The slice works."
 	encoded, _ := json.Marshal(map[string]any{
 		"id": "PVTI_dependent", "status": map[string]any{"name": "Ready"},
-		"content": map[string]any{"title": "Dependent", "body": body, "url": "https://github.com/owner/repo/issues/43", "repository": map[string]any{"nameWithOwner": "owner/repo"}},
+		"content": map[string]any{"title": "Dependent", "body": body, "url": "https://github.com/owner/repo/issues/43", "state": "OPEN", "repository": map[string]any{"nameWithOwner": "owner/repo"}},
 	})
 	var node projectItemNode
 	if err := json.Unmarshal(encoded, &node); err != nil {
@@ -102,7 +102,7 @@ func TestOrdinaryWorkItemDependenciesUseExactIDsOrIssueURLs(t *testing.T) {
 	}
 	item := decodeProjectItemNode(node)
 	want := []string{"PVTI_foundation", "https://github.com/owner/repo/issues/42"}
-	if item.PlanningMetadataInvalid || !reflect.DeepEqual(item.Dependencies, want) {
+	if item.PlanningMetadataInvalid || item.IssueState != "OPEN" || !reflect.DeepEqual(item.Dependencies, want) {
 		t.Fatalf("ordinary dependencies = %#v invalid=%t, want %#v", item.Dependencies, item.PlanningMetadataInvalid, want)
 	}
 }

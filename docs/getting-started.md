@@ -197,6 +197,11 @@ Runner accepts dependencies across planner batches and starts the card only
 after every target has an authenticated successful outcome. A manual move to
 `Done` is not success authority.
 
+Runner closes an implementation issue after it observes and authenticates that
+card's merged pull request. A planner source issue stays open after planning and
+closes only when every exact released child has merged successfully; no one
+child PR carries a source-closing keyword.
+
 A QA rejection returns the card to `Ready` until the configured rejection limit
 is exhausted. If an optional implementer ladder is configured, each persisted
 QA rejection advances to its next role profile; the final profile is reused for

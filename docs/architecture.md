@@ -3,8 +3,8 @@
 This repository is the sole architecture authority for Runner; parent and
 sibling Cortexium documents do not apply unless linked here. Runner's accepted
 target direction is recorded in
-[ADR 0001](decisions/0001-event-action-runner.md). The implementation is moving
-from cycle-batched execution to a polling event-and-action coordinator.
+[ADR 0001](decisions/0001-event-action-runner.md). The implementation is a
+polling event-and-action coordinator.
 Continuous mode now observes and reconciles unrelated events while harness work
 runs. Dependencies now resolve across planning batches and require a valid
 Runner-signed successful state. Harness actions reserve their Project item and,
@@ -265,6 +265,18 @@ applies the same exact-batch approval used by the operator command. These
 authorization actions remain independent of harness capacity. Public issues
 whose authors are not allowlisted, and all issue intake when the policy is
 absent, retain the human assessment and batch-approval boundaries.
+
+Issue completion is a deterministic reconciliation action. After Runner
+observes a merged pull request and records the card's authenticated successful
+outcome, it closes that implementation card's issue with GitHub's `completed`
+reason. A planning source can be `Done` while its issue remains open: Runner
+closes that source issue only when every exact child in its authenticated
+released batch has its own merged-pull-request outcome. A missing, changed,
+blocked, closed-without-merge, or manually moved child keeps the source open.
+Pull-request bodies deliberately contain no source-closing keyword because no
+single child PR is necessarily the final one. Closure failures are reported and
+retried on a later poll without consuming harness capacity or blocking other
+safe actions.
 
 Workspace authority combines that delegated-content digest with the exact
 resolved base commit and records them with the immutable Project item ID,

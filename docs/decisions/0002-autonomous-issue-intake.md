@@ -40,12 +40,22 @@ still trusted, Runner rechecks it and releases the exact authenticated batch
 through the existing approval path. Untrusted issue intake retains human
 assessment and batch approval.
 
+Runner does not place source-closing keywords in child pull requests. It closes
+each implementation issue only after reconciling that issue's authenticated
+merged-pull-request outcome. It closes the original planning issue only after
+every exact child in the authenticated released batch has the same successful
+outcome. A planning card reaching `Done` means planning finished; it does not by
+itself mean the original request is complete.
+
 ## Consequences
 
 There is no second triage prompt, role, or direct-to-implementer heuristic.
 Simple issues may incur a planner call, but authorization, ambiguity handling,
 decomposition, and dependency creation remain one coherent path. Deterministic
-trust and approval reconciliation does not consume harness parallelism.
+trust, approval, and issue-completion reconciliation does not consume harness
+parallelism. Multiple child PRs may merge in any order without closing the
+source early, and a closure API failure is retryable housekeeping rather than a
+workflow-wide failure.
 
 Private-repository trust is broad by design, so operators must leave the option
 disabled when issue creation in that repository is not an acceptable work
