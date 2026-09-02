@@ -22,6 +22,9 @@ server, or required GitHub Actions workflow.
 > retain OS permissions outside a native shell sandbox. Combining
 > `"access": "host"` with `"harness_config": "inherit"` is unrestricted agent
 > execution under the Runner operating-system account.
+> Configured repository references expose their entire root, including ignored
+> files, to planner and reviewer roles. Use dedicated reference checkouts that
+> contain no credentials or unrelated private material.
 
 Sandboxed Codex roles receive only minimum runtime reads plus their assigned
 repository/worktree. Sandboxed Claude roles deny reads from the operator's home
@@ -418,6 +421,25 @@ worktree, but cannot contain external side effects from a host-access process.
 Pi implementer and reviewer roles require `host`, and every inherited Pi role
 requires `host`, because Pi does not provide an OS sandbox for ambient shell and
 edit tools.
+
+Planner and reviewer roles can also receive pinned evidence from secondary
+local Git checkouts. Add an optional top-level list, then run connected doctor:
+
+```json
+"repository_references": [
+  {
+    "name": "legacy-frontend",
+    "path": "/absolute/path/to/legacy-frontend",
+    "commit": "714128eaeb8e3805431f8fdeaa49a570e2830cea"
+  }
+]
+```
+
+Runner verifies the exact clean checkout and commit again immediately before
+each eligible launch. It never changes the reference, and implementers never
+receive it. Sandboxed Codex and Claude keep it read-only; Pi references require
+explicit host access. See [repository references](docs/operator-reference.md#repository-references)
+for the complete safety and maintenance contract.
 
 Sandboxed Codex and Claude implementers and reviewers receive Runner's safe
 development tools by default. `npm` and `npx` stay inside the role's native

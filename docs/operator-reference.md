@@ -391,9 +391,10 @@ are still running. Use `--poll-interval` or
 `--max-idle-interval` only to tune
 polling, and `--once` only when exactly one synchronous cycle is wanted.
 
-`doctor` first rejects unknown config fields, invalid references, unsafe role
-definitions, incomplete transitions, and bundled skills whose pinned hashes
-differ. Unless `--offline` is used, it then checks Git, `gh`, GitHub API access,
+`doctor` first rejects unknown config fields, invalid repository-reference
+declarations, unsafe role definitions, incomplete transitions, and bundled
+skills whose pinned hashes differ. Unless `--offline` is used, it then checks
+Git, `gh`, GitHub API access,
 every configured Project lane and lifecycle field, the configured repository,
 harness executables, the exact CLI flags Runner needs for each configured
 harness's non-interactive invocation, skills, and explicit tool/MCP
@@ -402,6 +403,8 @@ requirements. It does not call a model or inspect AI-harness authentication unle
 distinct configured harness, command, model, and reasoning profile and validates
 the real structured-output path. It does not edit the repository or prove that
 implementation tools can execute in the participant's environment.
+Normal connected doctor also resolves and validates every configured repository
+reference. `doctor --offline` checks only its static shape and role policy.
 
 `status` is operational rather than diagnostic: it reports current card counts,
 active, queued, blocked, and PR-ready work, whether a local Runner process holds
@@ -481,6 +484,59 @@ that same workspace until the accepted commit has been published. Runner then
 removes the local worktree while retaining the branch. Patch handoff files and
 manifests are not generated; the branch and GitHub pull request are the recovery
 path.
+
+### Repository references
+
+`repository_references` optionally exposes existing secondary Git checkouts to
+planner and reviewer contracts as evidence:
+
+```json
+"repository_references": [
+  {
+    "name": "legacy-frontend",
+    "path": "/absolute/path/to/legacy-frontend",
+    "commit": "714128eaeb8e3805431f8fdeaa49a570e2830cea"
+  }
+]
+```
+
+Each name must be unique, `project_dir` and each reference path must be
+absolute, and each commit must be a full 40- or 64-character hexadecimal Git
+object ID. Normal `doctor` and every eligible harness launch resolve symlinks
+and require the path to be the exact root of an existing Git checkout with that
+`HEAD` and no tracked or untracked
+changes. References may not overlap the primary repository, any configured
+worktree root, or another reference. If a checkout changes after doctor,
+Runner rejects the launch before invoking the model.
+
+The checkout's `.git` metadata must be a directory contained inside that root.
+Linked worktrees and repositories created with an external Git directory are
+not accepted, because safely using them would expose files outside the declared
+reference. Use a standalone clone for a reference instead.
+
+Runner treats these checkouts as operator-managed inputs. It never clones,
+fetches, checks out, resets, cleans, or updates them. Inspect and repair one
+manually, then update its configured pin when intended:
+
+```bash
+git -C /absolute/path/to/legacy-frontend status --short
+git -C /absolute/path/to/legacy-frontend rev-parse HEAD
+```
+
+Planner and reviewer contracts receive every configured reference; custom
+roles inherit the behavior of their base contract. Implementer and probe
+contracts never receive references, and there is intentionally no per-role
+reference list. Sandboxed Codex and Claude receive explicit read access while
+write access is denied. Claude is also prevented from loading project
+instructions from an added reference directory. Pi roles using references must
+select `access: "host"`, because Pi cannot enforce a read-only reference root.
+Host mode remains unrestricted and may see more than the configured list.
+
+Reference files are labeled as untrusted evidence, not instructions or Runner
+authority. The entire root is readable, including ignored files, because Git
+cleanliness does not report them. Use a dedicated checkout containing no
+credentials, environment files, or unrelated private material. This boundary
+is designed for pinned supporting source, not secret-bearing working copies.
 
 ## Adding human work
 
@@ -1261,7 +1317,7 @@ The supported matrix is fail-closed:
 | --- | --- | --- | --- |
 | Codex CLI | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in |
 | Claude Code | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in |
-| Pi CLI | Isolated fixed read tools by default; inherited config requires host | Explicit host access; isolated fixed tools or inherited ambient config | Explicit host access; isolated fixed tools or inherited ambient config |
+| Pi CLI | Isolated fixed read tools by default; inherited config or repository references require host | Explicit host access; isolated fixed tools or inherited ambient config | Explicit host access; isolated fixed tools or inherited ambient config; repository references use that host boundary |
 
 The probe profile exposes only model invocation and Runner's structured output
 channel and always suppresses ambient configuration. Work roles use both

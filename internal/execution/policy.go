@@ -75,7 +75,7 @@ func codexProfileArgsForConfig(profile ExecutionProfile, workspace profileWorksp
 				network = `{enabled=true,mode="limited",allow_local_binding=true,domains={"localhost"="allow","127.0.0.1"="allow","registry.npmjs.org"="allow"}}`
 			}
 		}
-		readPaths := sandboxAdditionalReadPaths(workspace, safeTools)
+		readPaths := append(repositoryReferencePaths(profile, workspace), sandboxAdditionalReadPaths(workspace, safeTools)...)
 		if len(command) > 0 {
 			readPaths = append(readPaths, codexHelperReadPaths(command[0])...)
 		}
@@ -200,8 +200,10 @@ func claudeProfileArgsForConfig(profile ExecutionProfile, workspace profileWorks
 	} else if allowedTools != "" {
 		args = append(args, "--allowedTools", allowedTools)
 	}
-	if workspace.ReadRoot != "" && filepath.Clean(workspace.ReadRoot) != filepath.Clean(workspace.Dir) {
-		args = append(args, "--add-dir", workspace.ReadRoot)
+	for _, root := range repositoryReadRoots(profile, workspace) {
+		if filepath.Clean(root) != filepath.Clean(workspace.Dir) {
+			args = append(args, "--add-dir", root)
+		}
 	}
 	return args
 }
@@ -245,6 +247,7 @@ func claudeSandboxSettingsForConfig(profile ExecutionProfile, workspace profileW
 	if workspace.ReadRoot != "" && filepath.Clean(workspace.ReadRoot) != filepath.Clean(workspace.Dir) {
 		allowRead = append(allowRead, workspace.ReadRoot)
 	}
+	allowRead = append(allowRead, repositoryReferencePaths(profile, workspace)...)
 	allowRead = append(allowRead, sandboxAdditionalReadPaths(workspace, safeTools)...)
 	allowWrite := sandboxAdditionalWritePaths(workspace)
 	filesystem := map[string]any{
@@ -254,9 +257,9 @@ func claudeSandboxSettingsForConfig(profile ExecutionProfile, workspace profileW
 	if len(allowWrite) > 0 {
 		filesystem["allowWrite"] = allowWrite
 	}
-	if workspace.ReadRoot != "" {
-		if profile.Role == RoleReviewer {
-			filesystem["denyWrite"] = []string{workspace.ReadRoot}
+	if profile.Role == RoleReviewer || profile.Role == RolePlanner && len(workspace.ReferenceRoots) > 0 {
+		if roots := repositoryReadRoots(profile, workspace); len(roots) > 0 {
+			filesystem["denyWrite"] = roots
 		}
 	}
 	if safeTools && profile.Role == RoleImplementer {
@@ -282,10 +285,35 @@ func claudeSandboxSettingsForConfig(profile ExecutionProfile, workspace profileW
 		settings["disableAllHooks"] = true
 	}
 	if environment := sandboxEnvironment(workspace); len(environment) > 0 {
+		if len(repositoryReferencePaths(profile, workspace)) > 0 {
+			environment["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"] = "0"
+		}
 		settings["env"] = environment
 	}
 	encoded, _ := json.Marshal(settings)
 	return string(encoded)
+}
+
+func repositoryReferencePaths(profile ExecutionProfile, workspace profileWorkspace) []string {
+	if profile.Role != RolePlanner && profile.Role != RoleReviewer {
+		return nil
+	}
+	paths := make([]string, 0, len(workspace.ReferenceRoots))
+	for _, reference := range workspace.ReferenceRoots {
+		if path := strings.TrimSpace(reference.Path); path != "" {
+			paths = append(paths, filepath.Clean(path))
+		}
+	}
+	return minimalPathRoots(paths)
+}
+
+func repositoryReadRoots(profile ExecutionProfile, workspace profileWorkspace) []string {
+	paths := make([]string, 0, len(workspace.ReferenceRoots)+1)
+	if workspace.ReadRoot != "" {
+		paths = append(paths, workspace.ReadRoot)
+	}
+	paths = append(paths, repositoryReferencePaths(profile, workspace)...)
+	return minimalPathRoots(paths)
 }
 
 func sandboxAdditionalReadPaths(workspace profileWorkspace, safeTools bool) []string {

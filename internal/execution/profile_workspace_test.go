@@ -19,6 +19,18 @@ type neutralCaptureRunner struct {
 	args []string
 }
 
+type referencePrelaunchRunner struct {
+	harnessCalls int
+}
+
+func (r *referencePrelaunchRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	if command == "git" {
+		return subprocess.OSRunner{}.Run(ctx, command, args, dir, timeout)
+	}
+	r.harnessCalls++
+	return subprocess.Result{}, errors.New("harness should not run when a repository reference drifted")
+}
+
 func (r *neutralCaptureRunner) Run(_ context.Context, _ string, args []string, dir string, _ time.Duration) (subprocess.Result, error) {
 	r.dir = dir
 	r.args = append([]string(nil), args...)
@@ -106,6 +118,31 @@ func TestFailedReadOnlyLaunchCleansNeutralWorkspaceWithoutMutatingRepository(t *
 	}
 	if _, err := os.Stat(filepath.Join(repository, "attempted-mutation")); !os.IsNotExist(err) {
 		t.Fatalf("failed launch mutated the repository: %v", err)
+	}
+}
+
+func TestPlannerRejectsRepositoryReferenceDriftBeforeHarnessRun(t *testing.T) {
+	reference := initGitRepo(t)
+	commit := strings.TrimSpace(runGitCommandOutput(t, reference, "rev-parse", "HEAD"))
+	if err := os.WriteFile(filepath.Join(reference, "README.md"), []byte("drifted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run := &referencePrelaunchRunner{}
+	cfg := config.ExecutionConfig{
+		Harness: config.HarnessConfig{
+			Kind: config.HarnessClaudeCLI, Command: "claude", WorkingDir: t.TempDir(), TimeoutSeconds: 30,
+		},
+		RepositoryReferences: []config.RepositoryReference{{
+			Name: "legacy", Path: reference, Commit: commit,
+		}},
+	}
+	_, err := NewAgentExecutor(config.HarnessClaudeCLI, cfg, run).Execute(t.Context(), testPollResponse(testCodexCLIAssignmentSpec()).Assignments[0])
+	if err == nil || !strings.Contains(err.Error(), "checkout has tracked or untracked changes") {
+		t.Fatalf("drifted reference was accepted: %v", err)
+	}
+	if run.harnessCalls != 0 {
+		t.Fatalf("harness ran %d times after reference drift", run.harnessCalls)
 	}
 }
 

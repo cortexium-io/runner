@@ -179,6 +179,9 @@ func (c Config) Validate() error {
 	if err := validateWorkflowConfig(c); err != nil {
 		return err
 	}
+	if err := validateRepositoryReferences(c); err != nil {
+		return err
+	}
 	fields := []string{
 		project.ResultField,
 		project.ApprovalField,

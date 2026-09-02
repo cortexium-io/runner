@@ -1634,6 +1634,22 @@ func TestDoctorCapabilityExplainsBlockedTool(t *testing.T) {
 	}
 }
 
+func TestDoctorReportsPinnedRepositoryReferences(t *testing.T) {
+	var output strings.Builder
+	writeDoctorReport(&output, setup.InspectionReport{
+		RepositoryReferences: []setup.RepositoryReferenceInspection{{
+			Name: "legacy-frontend", Path: "/references/legacy-frontend",
+			Commit: "714128eaeb8e3805431f8fdeaa49a570e2830cea", Status: setup.CapabilityAvailable,
+			Detail: "clean Git checkout matches the configured immutable commit",
+		}},
+	}, nil)
+	for _, expected := range []string{"Repository references", "legacy-frontend", "/references/legacy-frontend", "714128eaeb8e3805431f8fdeaa49a570e2830cea", "clean Git checkout"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("doctor reference output omitted %q: %s", expected, output.String())
+		}
+	}
+}
+
 func TestDoctorFixReplacesOnlyDifferingBundledRoleSkills(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

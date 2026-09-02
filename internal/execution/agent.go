@@ -57,7 +57,8 @@ func (e AgentExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 	if err := ensureHarnessAdvertisesProfile(ctx, e.run, strings.TrimSpace(e.cfg.Command), e.kind, role, e.config.RoleAccess, e.config.HarnessConfigMode); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
-	launchWorkspace, err := prepareProfileWorkspace(profile, e.cfg.WorkingDir, e.cfg.WorkspaceWriteRoot)
+	protectedRoots := append([]string{e.cfg.WorkspaceWriteRoot}, e.config.ReferenceProtectedRoots...)
+	launchWorkspace, err := prepareExecutionWorkspace(ctx, e.run, profile, e.cfg.WorkingDir, e.config.RepositoryReferences, protectedRoots...)
 	if err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}

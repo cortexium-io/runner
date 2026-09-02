@@ -66,7 +66,8 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 	if err := ensureHarnessAdvertisesProfile(ctx, run, strings.TrimSpace(cfg.Harness.Command), kind, role, cfg.RoleAccess, cfg.HarnessConfigMode); err != nil {
 		return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 	}
-	workspace, err := prepareProfileWorkspace(profile, workingDir, cfg.Harness.WorkspaceWriteRoot)
+	protectedRoots := append([]string{cfg.Harness.WorkspaceWriteRoot}, cfg.ReferenceProtectedRoots...)
+	workspace, err := prepareExecutionWorkspace(ctx, run, profile, workingDir, cfg.RepositoryReferences, protectedRoots...)
 	if err != nil {
 		return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 	}

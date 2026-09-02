@@ -2,6 +2,13 @@
   "config_version": 2,
   "runner_id": "runr_local_replace_me",
   "project_dir": "/absolute/path/to/repository",
+  "repository_references": [
+    {
+      "name": "legacy-application",
+      "path": "/absolute/path/to/reference-checkout",
+      "commit": "0123456789abcdef0123456789abcdef01234567"
+    }
+  ],
   "max_parallelism": 2,
   "admission_budget": {
     "window_seconds": 86400,

@@ -14,7 +14,9 @@ independent of harness capacity: reconciliation permits one automatic
 integration owner per repository/base and refreshes only that candidate. There
 is no backward-compatibility requirement during this pre-stable transition.
 Trust-gated autonomous issue intake is recorded separately in
-[ADR 0002](decisions/0002-autonomous-issue-intake.md).
+[ADR 0002](decisions/0002-autonomous-issue-intake.md). Optional read-only
+evidence from other local checkouts is defined by
+[ADR 0003](decisions/0003-pinned-repository-references.md).
 
 The local GitHub Project Runner is a modular monolith: one CLI process with packages divided
 by responsibility and reason to change. The command package is the composition
@@ -26,13 +28,13 @@ root. Internal packages do not parse CLI flags or reach back into `cmd`.
 | --- | --- | --- |
 | `cmd/cortexium-runner` | Root commands, flags, terminal output, and dependency composition | Workflow rules or integrations |
 | `skills` | Embedded skill catalog, hashes, and manifests | Installing into harness homes |
-| `internal/config` | Strict JSON decoding, explicit-contract validation, initialization templates, roles, lanes, raw-to-runtime resolution | GitHub or process I/O |
+| `internal/config` | Strict JSON decoding, explicit-contract validation, initialization templates, roles, lanes, repository-reference contracts, raw-to-runtime resolution | GitHub or process I/O |
 | `internal/engine` | Work selection, transitions, retries, planning, implementation/QA sequencing, PR reconciliation | Harness command syntax or GitHub transport details |
-| `internal/execution` | Assignment envelopes, native harness invocation, schema-backed structured results (including Pi's provider-compatible temporary result extensions), reviewer evidence, planner invocation | GitHub workflow state |
+| `internal/execution` | Assignment envelopes, native harness invocation, role-scoped primary and reference read roots, schema-backed structured results (including Pi's provider-compatible temporary result extensions), reviewer evidence, planner invocation | GitHub workflow state |
 | `internal/github` | Project schema/items, intake, approvals, process locks, branches, and pull requests | Agent execution |
 | `internal/metrics` | Append-only attempt and fixed-name stage events, harness-reported usage values, durable local history, and aggregates | Prompts, transcripts, raw harness output, free-form stage payloads, or estimated cost |
 | `internal/setup` | Capability inspection, doctor readiness, skill installation, allowlisted prerequisites | Work execution |
-| `internal/workspace` | Task-scoped isolated worktree creation, reuse, and validated cleanup without modifying the configured project checkout or deleting task branches | Agent prompts or publication |
+| `internal/workspace` | Task-scoped isolated worktree creation and validated cleanup, plus immutable-reference validation, without modifying configured checkouts or deleting task branches | Agent prompts or publication |
 | `internal/subprocess` | Process execution, bounded output, and process-group cancellation | Domain behavior |
 
 ## Dependency direction
@@ -44,7 +46,8 @@ integration or executor.
 
 The persisted JSON type is `config.Config`. Calling `Resolve` validates it and
 produces `config.RuntimeConfig`, which contains the effective workflow, roles,
-parallelism, optional rolling admission budget, and Project status mapping. Before invoking a harness, the engine
+parallelism, optional rolling admission budget, Project status mapping, and
+optional pinned repository references. Before invoking a harness, the engine
 derives a narrow `config.ExecutionConfig` for one role and harness invocation.
 This prevents computed state and harness-specific overrides from being hidden
 inside JSON structs.
@@ -393,6 +396,20 @@ structured results, worktree identity, and repository-integrity verification.
 The live readiness probe always forces `sandboxed` plus `isolated`. Setup and
 production launches share the same required-flag table, and unsupported
 installed CLIs fail before model invocation.
+
+Optional `repository_references` are a fixed extension of planner and reviewer
+profiles, including custom roles with those contracts. Implementer and probe
+profiles never receive them. Normal doctor and every eligible launch resolve
+symlinks and verify that each reference is an exact, non-overlapping Git root
+with a clean tracked/untracked state and `HEAD` equal to its full configured
+commit. Runner does not mutate or synchronize reference checkouts. Codex gets
+explicit filesystem reads; Claude gets repeated additional-directory reads,
+explicit write denials, and disabled instruction loading from those additional
+directories. Pi requires `host` for references because it cannot enforce a
+read-only root. Host mode remains unrestricted and is not narrowed by the
+reference list. Reference content is labeled untrusted evidence, and the whole
+root, including ignored files, is readable; operators use dedicated checkouts
+when that distinction matters.
 
 A sandboxed Codex or Claude implementer or reviewer receives Runner's bounded
 development profile by default. Package commands run inside the native
