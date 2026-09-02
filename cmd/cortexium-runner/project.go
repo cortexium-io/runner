@@ -15,6 +15,106 @@ import (
 	"github.com/cortexium-io/runner/internal/github"
 )
 
+func runAdd(ctx context.Context, args []string, stdout io.Writer) error {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+		fmt.Fprintln(stdout, "Usage: cortexium-runner add plan|ready [--config PATH] --title TEXT (--body TEXT|--body-file PATH) [--dry-run]")
+		fmt.Fprintln(stdout, "Use plan for a planner proposal, or ready for one sufficiently specified implementation card.")
+		return nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(args[0]))
+	if mode != "plan" && mode != "ready" {
+		return fmt.Errorf("unknown add destination %q; use plan or ready", mode)
+	}
+	flags := newFlagSet("add "+mode, "cortexium-runner add plan|ready [--config PATH] --title TEXT (--body TEXT|--body-file PATH) [--dry-run]", stdout)
+	configPath := flags.String("config", "", "trusted operator config path; defaults to .cortexium/runner.json")
+	title := flags.String("title", "", "short card title")
+	body := flags.String("body", "", "goal and constraints for Plan, or sufficient implementation detail for Ready")
+	bodyFile := flags.String("body-file", "", "file containing the card body")
+	dryRun := flags.Bool("dry-run", false, "show the destination without changing GitHub")
+	proceed, err := parseFlags(flags, args[1:], "add "+mode)
+	if err != nil || !proceed {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("add does not accept positional arguments after the destination")
+	}
+	*configPath = resolveRunnerConfigPath(*configPath, "")
+	cfg, err := config.LoadTrustedConfig(*configPath)
+	if err != nil {
+		return fmt.Errorf("load runner config: %w", err)
+	}
+	resolved, err := cfg.Resolve()
+	if err != nil {
+		return fmt.Errorf("resolve runner config: %w", err)
+	}
+	targetStatus, action, err := humanWorkDestination(resolved, mode)
+	if err != nil {
+		return err
+	}
+	workTitle := strings.TrimSpace(*title)
+	if workTitle == "" {
+		return errors.New("--title is required")
+	}
+	workBody, err := resolveWorkItemBody(*body, *bodyFile)
+	if err != nil {
+		return err
+	}
+	if *dryRun {
+		fmt.Fprintf(stdout, "Would add %q to %s in GitHub Project %s/%d. %s\n", terminalSafeText(workTitle), terminalSafeText(targetStatus), terminalSafeText(resolved.GitHubProject.Owner), resolved.GitHubProject.Number, action)
+		return nil
+	}
+	project := github.NewProject(resolved.GitHubProject, nil)
+	item, err := project.CreateHumanWorkItem(ctx, workTitle, workBody, targetStatus)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Added %s to %s. %s\n", terminalSafeText(item.ID), terminalSafeText(targetStatus), action)
+	return nil
+}
+
+func humanWorkDestination(cfg config.RuntimeConfig, mode string) (status, action string, err error) {
+	switch mode {
+	case "plan":
+		laneID := strings.TrimSpace(cfg.GitHubProject.InitialLaneID)
+		status = strings.TrimSpace(cfg.GitHubProject.LaneStatuses[laneID])
+		if status == "" || cfg.RoleContracts[cfg.GitHubProject.InitialRole] != config.WorkRolePlanner {
+			return "", "", errors.New("workflow has no planner intake lane")
+		}
+		return status, "Runner will ask the planner to stage a dependency-aware proposal for review.", nil
+	case "ready":
+		status = strings.TrimSpace(cfg.GitHubProject.ReadyStatus)
+		if status == "" {
+			return "", "", errors.New("workflow has no implementer intake lane")
+		}
+		return status, "Runner will implement it when its declared dependencies have succeeded and resources are available.", nil
+	default:
+		return "", "", fmt.Errorf("unknown add destination %q; use plan or ready", mode)
+	}
+}
+
+func resolveWorkItemBody(direct, filePath string) (string, error) {
+	direct = strings.TrimSpace(direct)
+	filePath = strings.TrimSpace(filePath)
+	if direct != "" && filePath != "" {
+		return "", errors.New("use either --body or --body-file, not both")
+	}
+	if direct != "" {
+		return direct, nil
+	}
+	if filePath == "" {
+		return "", errors.New("--body or --body-file is required")
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("read work item body file: %w", err)
+	}
+	value := strings.TrimSpace(string(data))
+	if value == "" {
+		return "", errors.New("work item body file is empty")
+	}
+	return value, nil
+}
+
 func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) (returnErr error) {
 	flags := newFlagSet("plan", "cortexium-runner plan [--config PATH] [--idea TEXT|--idea-file PATH] [--small-tasks] [--create|--stage-only|--approve-staged FINGERPRINT]", stdout)
 	configPath := flags.String("config", "", "trusted operator config path; defaults to .cortexium/runner.json")
@@ -637,7 +737,7 @@ func runRetry(ctx context.Context, args []string, stdin io.Reader, stdout io.Wri
 		fmt.Fprintln(stdout, "\nDry run only. Re-run without --dry-run to retry this item.")
 		return nil
 	}
-	fmt.Fprintf(stdout, "\nMoved the item to %s. A running Runner will check it immediately after its current cycle.\n", terminalSafeText(retried.Status))
+	fmt.Fprintf(stdout, "\nMoved the item to %s. A running Runner will check it on its next poll.\n", terminalSafeText(retried.Status))
 	return nil
 }
 

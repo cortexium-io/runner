@@ -315,7 +315,7 @@ func (s *Project) ReadyItems(ctx context.Context, items []WorkItem, limit int) (
 			continue
 		}
 		if item.PlanningMetadataInvalid {
-			detail := "Runner planning metadata is hidden, malformed, or not canonical; maintainer reassessment is required."
+			detail := "Runner dependency or planning metadata is hidden, malformed, or not canonical; maintainer reassessment is required."
 			if err := s.reclassifyForApproval(ctx, item, detail); err != nil {
 				return nil, err
 			}
@@ -323,7 +323,7 @@ func (s *Project) ReadyItems(ctx context.Context, items []WorkItem, limit int) (
 		}
 		action, err := s.validateAction(item)
 		if err != nil {
-			adopted, adoptErr := s.adoptManualReadyItem(ctx, item)
+			adopted, adoptErr := s.adoptManualIntakeItem(ctx, item)
 			if adoptErr != nil {
 				return nil, adoptErr
 			}
@@ -337,7 +337,7 @@ func (s *Project) ReadyItems(ctx context.Context, items []WorkItem, limit int) (
 				continue
 			}
 		}
-		if !dependenciesSatisfied(item, items, s.doneStatus()) {
+		if !s.dependenciesSatisfied(item, items) {
 			continue
 		}
 		if !s.planningBatchReleased(item, items, s.doneStatus()) {
@@ -351,15 +351,15 @@ func (s *Project) ReadyItems(ctx context.Context, items []WorkItem, limit int) (
 	return ready, nil
 }
 
-// adoptManualReadyItem treats a maintainer placing an ordinary card in the
-// initial Ready lane as the authorization decision. The Runner immediately
+// adoptManualIntakeItem treats a maintainer placing an ordinary card in Plan or
+// the initial Ready lane as the authorization decision. Runner immediately
 // binds that exact snapshot to its local authority; every later operation still
 // validates the signed snapshot. Staged planning children cannot bypass their
 // complete-batch release because their creation assertion is deliberately
 // non-executable.
-func (s *Project) adoptManualReadyItem(ctx context.Context, item WorkItem) (*AuthorizedAction, error) {
+func (s *Project) adoptManualIntakeItem(ctx context.Context, item WorkItem) (*AuthorizedAction, error) {
 	statusLane := s.laneIDForStatus(item.Status)
-	if statusLane == "" || !strings.EqualFold(strings.TrimSpace(item.Status), s.readyStatus()) {
+	if statusLane == "" || !s.manualIntakeLane(statusLane, item.Status) {
 		return nil, nil
 	}
 	if strings.TrimSpace(item.Approval) == "" && item.PlanningBatchFingerprint != "" {
@@ -389,6 +389,13 @@ func (s *Project) adoptManualReadyItem(ctx context.Context, item WorkItem) (*Aut
 	return &action, nil
 }
 
+func (s *Project) manualIntakeLane(laneID, status string) bool {
+	if strings.EqualFold(strings.TrimSpace(status), s.readyStatus()) {
+		return true
+	}
+	return laneID == strings.TrimSpace(s.cfg.InitialLaneID) && strings.TrimSpace(s.cfg.InitialRole) != ""
+}
+
 // Claim is intentionally a compare-then-update operation. The CLI prevents two
 // local processes from polling one Project, but GitHub Projects do not expose an
 // atomic claim across machines.
@@ -413,7 +420,7 @@ func (s *Project) Claim(ctx context.Context, expected AuthorizedAction, requeste
 			return AuthorizedAction{}, validateErr
 		}
 		if !sameAuthorizedAction(expected, action) {
-			return AuthorizedAction{}, fmt.Errorf("project item %s changed after polling; retry on the next cycle", expectedItem.ID)
+			return AuthorizedAction{}, fmt.Errorf("project item %s changed after polling; retry on a later poll", expectedItem.ID)
 		}
 		expectedStatus := strings.TrimSpace(expectedItem.Status)
 		if !strings.EqualFold(strings.TrimSpace(current.Status), expectedStatus) {
@@ -422,8 +429,8 @@ func (s *Project) Claim(ctx context.Context, expected AuthorizedAction, requeste
 		if !s.agentStatus(expectedStatus) {
 			return AuthorizedAction{}, fmt.Errorf("project item %s cannot be claimed from status %q", expectedItem.ID, expectedStatus)
 		}
-		if !dependenciesSatisfied(current, items, s.doneStatus()) {
-			return AuthorizedAction{}, fmt.Errorf("project item %s no longer has all dependencies in done status %q", expectedItem.ID, s.doneStatus())
+		if !s.dependenciesSatisfied(current, items) {
+			return AuthorizedAction{}, fmt.Errorf("project item %s dependencies no longer all have authenticated successful outcomes", expectedItem.ID)
 		}
 		if !s.planningBatchReleased(current, items, s.doneStatus()) {
 			return AuthorizedAction{}, fmt.Errorf("project item %s belongs to a planning batch that has not completed", expectedItem.ID)
@@ -456,7 +463,7 @@ func (s *Project) Claim(ctx context.Context, expected AuthorizedAction, requeste
 			return AuthorizedAction{}, err
 		}
 		if err := s.beginTransition(ctx, current.ID); err != nil {
-			return AuthorizedAction{}, fmt.Errorf("lock item before claim; retry the next cycle: %w", err)
+			return AuthorizedAction{}, fmt.Errorf("lock item before claim; retry on a later poll: %w", err)
 		}
 		if err := s.setTextField(ctx, current.ID, s.phaseFieldName(), phase); err != nil {
 			return AuthorizedAction{}, fmt.Errorf("record claim phase; the item remains safely transition-locked: %w", err)
@@ -471,7 +478,7 @@ func (s *Project) Claim(ctx context.Context, expected AuthorizedAction, requeste
 			return AuthorizedAction{}, fmt.Errorf("activate claimed item; the item remains safely transition-locked: %w", err)
 		}
 		if err := s.finishTransition(ctx, current.ID); err != nil {
-			return AuthorizedAction{}, fmt.Errorf("claim committed but its transition lock could not be cleared; the next cycle will recover it: %w", err)
+			return AuthorizedAction{}, fmt.Errorf("claim committed but its transition lock could not be cleared; a later poll will recover it: %w", err)
 		}
 		return nextAction, nil
 	}
@@ -678,7 +685,7 @@ func (s *Project) transition(ctx context.Context, expected AuthorizedAction, tar
 		return fmt.Errorf("complete Project transition; the item remains safely transition-locked: %w", err)
 	}
 	if err := s.finishTransition(ctx, current.Item.ID); err != nil {
-		return fmt.Errorf("Project transition committed but its lock could not be cleared; the next cycle will recover it: %w", err)
+		return fmt.Errorf("Project transition committed but its lock could not be cleared; a later poll will recover it: %w", err)
 	}
 	return nil
 }
@@ -1182,6 +1189,37 @@ func (s *Project) FinalizeStaged(ctx context.Context, expected WorkItem, planned
 	return next, nil
 }
 
+// CreateHumanWorkItem adds one ordinary, unsigned card to Plan or Ready. The
+// status change is the human authorization event; ReadyItems binds the exact
+// observed snapshot to Runner authority before any agent can claim it.
+func (s *Project) CreateHumanWorkItem(ctx context.Context, title, body, targetStatus string) (WorkItem, error) {
+	title = strings.TrimSpace(title)
+	body = strings.TrimSpace(body)
+	targetStatus = strings.TrimSpace(targetStatus)
+	if title == "" {
+		return WorkItem{}, errors.New("work item requires a title")
+	}
+	if body == "" {
+		return WorkItem{}, errors.New("work item requires a body")
+	}
+	if _, err := s.ensureSchema(ctx); err != nil {
+		return WorkItem{}, err
+	}
+	laneID := s.laneIDForStatus(targetStatus)
+	if laneID == "" || !s.manualIntakeLane(laneID, targetStatus) {
+		return WorkItem{}, fmt.Errorf("GitHub Project status %q is not the configured Plan or Ready intake lane", targetStatus)
+	}
+	item, err := s.createDraftItem(ctx, title, body)
+	if err != nil {
+		return WorkItem{}, err
+	}
+	if err := s.setStatus(ctx, item.ID, targetStatus); err != nil {
+		return item, fmt.Errorf("created GitHub Project item %s but could not move it to %q; move or remove the unscheduled item manually: %w", item.ID, targetStatus, err)
+	}
+	item.Status = targetStatus
+	return item, nil
+}
+
 func (s *Project) createStaged(ctx context.Context, planned PlannedItem, revalidateSource func() error) (WorkItem, error) {
 	title := strings.TrimSpace(planned.Title)
 	if title == "" {
@@ -1196,15 +1234,9 @@ func (s *Project) createStaged(ctx context.Context, planned PlannedItem, revalid
 	if _, present, metadataErr := decodePlannedItemMetadata(body); !present || (metadataErr != nil && !errors.Is(metadataErr, errPlanningDependencyIDsPending)) {
 		return WorkItem{}, errors.New("planned item requires complete canonical Runner planning metadata")
 	}
-	result, err := s.gh(ctx, "project", "item-create", strconv.Itoa(s.cfg.Number), "--owner", strings.TrimSpace(s.cfg.Owner), "--title", title, "--body", body, "--format", "json")
+	created, err := s.createDraftItem(ctx, title, body)
 	if err != nil {
-		return WorkItem{}, fmt.Errorf("create staged GitHub Project item: %w", commandFailure(err, result))
-	}
-	var created struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal([]byte(result.Stdout), &created); err != nil || strings.TrimSpace(created.ID) == "" {
-		return WorkItem{}, errors.New("GitHub Project item creation did not return an item id")
+		return WorkItem{}, fmt.Errorf("create staged GitHub Project item: %w", err)
 	}
 	item := WorkItem{
 		ID: created.ID, Title: title, Body: body, Repository: strings.TrimSpace(planned.Repository),
@@ -1248,4 +1280,18 @@ func (s *Project) createStaged(ctx context.Context, planned PlannedItem, revalid
 		return item, errors.New("new staged planning child changed before its draft content identity was loaded")
 	}
 	return current, nil
+}
+
+func (s *Project) createDraftItem(ctx context.Context, title, body string) (WorkItem, error) {
+	result, err := s.gh(ctx, "project", "item-create", strconv.Itoa(s.cfg.Number), "--owner", strings.TrimSpace(s.cfg.Owner), "--title", title, "--body", body, "--format", "json")
+	if err != nil {
+		return WorkItem{}, commandFailure(err, result)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(result.Stdout), &created); err != nil || strings.TrimSpace(created.ID) == "" {
+		return WorkItem{}, errors.New("GitHub Project item creation did not return an item id")
+	}
+	return WorkItem{ID: strings.TrimSpace(created.ID), Title: title, Body: body}, nil
 }

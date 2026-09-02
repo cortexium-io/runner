@@ -87,9 +87,11 @@ yourself:
 cortexium-runner run --config /absolute/operator/path/runner.json
 ```
 
-That command polls in the foreground for as long as you leave it running and does
-nothing once you stop it. Use `cortexium-runner run --once` for one polling
-cycle in a diagnostic or scripted workflow. `init`, `doctor`, `plan`, `approve`,
+That command polls in the foreground for as long as you leave it running and
+continues observing unrelated Project and pull-request events while harness
+actions are in flight. It does nothing once you stop it. Use
+`cortexium-runner run --once` for one synchronous polling cycle in a diagnostic
+or scripted workflow. `init`, `doctor`, `plan`, `approve`,
 `retry`, `status`, `metrics`, and `role` are one-shot commands that exit when they finish. Running
 `cortexium-runner` without arguments shows help; every command supports
 `--help`, and `--version` prints the installed version.
@@ -210,10 +212,15 @@ rather than applied as a runtime default.
 Automatic merge is separately opt-in through `--auto-merge` or
 `github_project.auto_merge: true`. Runner binds the request to the exact
 QA-approved head commit, keeps GitHub checks and branch protections in force,
-and disarms automatic merge before rework or a branch update. A merge request
-does not consume an agent-parallelism slot or admission budget: Runner issues it
-immediately after QA publication and reconciles existing `PR Ready` cards before
-admitting new agent work. The optional
+and disarms automatic merge before rework or a branch update. QA publication
+queues the PR at `PR Ready`; reconciliation then permits one automatic
+integration owner per repository/base. GitHub's enabled auto-merge state makes
+that ownership survive a Runner restart. An integration action does not consume
+an agent-parallelism slot or admission budget, and existing `PR Ready` cards are
+reconciled before new agent work is admitted. In continuous mode, QA completion
+wakes that reconciliation immediately. Because `run --once` ends after its
+single synchronous cycle, a PR published by QA in that cycle is integrated by a
+later invocation. The optional
 `--merge-method` flag and `github_project.merge_method` setting accept `merge`,
 `rebase`, or `squash`; omitted values preserve the original `merge` behavior.
 Runner never silently substitutes another method because that would change the
@@ -370,9 +377,10 @@ Then verify and run:
 ```
 
 `run` auto-detects the project-local default and keeps polling with built-in
-interval defaults until interrupted. Use `--poll-interval` or
+interval defaults until interrupted, including while admitted harness actions
+are still running. Use `--poll-interval` or
 `--max-idle-interval` only to tune
-polling, and `--once` only when exactly one cycle is wanted.
+polling, and `--once` only when exactly one synchronous cycle is wanted.
 
 `doctor` first rejects unknown config fields, invalid references, unsafe role
 definitions, incomplete transitions, and bundled skills whose pinned hashes
@@ -465,6 +473,40 @@ removes the local worktree while retaining the branch. Patch handoff files and
 manifests are not generated; the branch and GitHub pull request are the recovery
 path.
 
+## Adding human work
+
+The enqueue-only command has two explicit destinations:
+
+```bash
+cortexium-runner add plan \
+  --config /absolute/operator/path/runner.json \
+  --title "Plan CSV export" \
+  --body-file export-goal.md
+
+cortexium-runner add ready \
+  --config /absolute/operator/path/runner.json \
+  --title "Fix the CSV header" \
+  --body-file fix-card.md
+```
+
+Use `--body TEXT` for a short inline body. A title and a nonempty body are
+required. `--dry-run` loads and validates the trusted config, then prints the
+resolved Project and lane without changing GitHub.
+
+`add plan` creates one unsigned Project draft in the configured planner lane.
+The running event loop converts it to an issue, authenticates the exact observed
+snapshot, and asks the planner to stage a dependency-aware proposal for human
+review. `add ready` does the same in the implementer intake lane, where the
+status event directly authorizes implementation once declared dependencies have
+succeeded and resources are available. Neither command takes the Runner process
+lock, so a maintainer can add work while continuous mode is active. If creating
+the draft succeeds but setting its status fails, the command reports the item ID
+for manual recovery; the unscheduled draft cannot be claimed.
+
+The separate [`plan` command](#immediate-planning-from-the-cli) runs an immediate
+operator-controlled planning call and can preview or stage its returned batch.
+Use `add plan` when the ordinary event-and-action workflow should own the work.
+
 ## Generated Kanban workflow
 
 The board shows `Runner Activity` and `QA Failures` on cards by default. Runner
@@ -483,20 +525,36 @@ hidden transition lock is set only while Runner commits a multi-field update.
 | `In Progress` | Runner: temporary lane while an agent owns the card. |
 | `Agent QA` | Reviewer agent: evaluate the exact branch and worktree. |
 | `PR Ready` | Pull request awaits human review, or GitHub requirements when automatic merge is enabled. |
-| `Blocked` | Human: input, an execution error, or the QA rejection limit requires attention. |
-| `Done` | Terminal: planning completed or the pull request was merged/closed. |
+| `Blocked` | Human: input, an execution error, a closed-without-merge PR, or the QA rejection limit requires attention. |
+| `Done` | Terminal success: planning completed or the pull request was merged. |
 
-`Ready` is itself the human scheduling boundary for an ordinary card. When a
-maintainer creates an unsigned card there, Runner converts a Project draft to an
-issue in the configured intake repository when necessary, then authenticates
-that exact body, repository, and dependency snapshot for the configured
-implementer before claiming it. A forged or content-modified nonempty approval
-is never replaced, and a staged planner child cannot use this path to bypass
-complete-batch release.
+`Plan` and `Ready` are human scheduling boundaries for ordinary cards. When a
+maintainer creates an unsigned card in either lane, Runner converts a Project
+draft to an issue in the configured intake repository when necessary, then
+authenticates that exact body, repository, and dependency snapshot for the
+lane's configured role before claiming it. A forged or content-modified
+nonempty approval is never replaced, and a staged planner child cannot use this
+path to bypass complete-batch release.
 Moving a previously authenticated card back to `Ready` also authorizes its next
 implementation attempt. Issue comments present at assignment time are included
 as bounded historical context; comments added during an active attempt apply to
 a later attempt.
+
+An ordinary Ready card may declare dependencies in its body with exact Project
+item IDs or GitHub issue URLs and no descriptive suffixes:
+
+```markdown
+## Dependencies
+
+- https://github.com/owner/repository/issues/42
+- PVTI_project_item_id
+```
+
+References may point across planner batches or to ordinary human-created cards,
+but each target must be uniquely present in the same Project. Runner releases
+the dependent card only after every target has a valid Runner signature for the
+configured successful outcome. Moving a card to `Done` manually does not satisfy
+that condition.
 
 The lifecycle generated by `init` is:
 
@@ -505,7 +563,8 @@ The lifecycle generated by `init` is:
 2. `approve` authenticates the exact request and planned role, removes the intake
    label, converts a Project draft to an issue in the configured intake
    repository when necessary, and moves the card to `Backlog`.
-3. A human moves scheduled work to `Plan`. The planner stages the complete
+3. A human moves scheduled work to `Plan`, or creates it there directly. The
+   planner stages the complete
    normalized child batch, unapproved, in `Needs assessment`. Every child
    carries the original request, project outcome,
    cross-cutting success criteria, constraints, and its local acceptance
@@ -535,9 +594,11 @@ The lifecycle generated by `init` is:
    structured Agent QA results, stores that same commit in the `QA Commit`
    Project field, moves the card to `PR Ready`, and removes the local task
    worktree. The task branch is retained.
-   With `github_project.auto_merge: true`, Runner also asks GitHub to merge the
-   PR automatically after repository requirements pass. It never uses an admin
-   bypass. Automatic merge is disabled by default.
+   With `github_project.auto_merge: true`, this queues the PR for the separate
+   integration action. Reconciliation asks GitHub to merge only after the PR
+   owns its repository/base integration resource and still matches the latest
+   reviewed base. Runner never uses an admin bypass. Automatic merge is
+   disabled by default.
 6. A QA rejection moves the card back to `Ready` and increments its rejection
    counter. With the generated `reject_limit` of 3, the third consecutive
    rejection moves it to `Blocked`, where `cortexium-runner retry` returns it to
@@ -557,26 +618,34 @@ The lifecycle generated by `init` is:
 8. At `PR Ready`, Runner checks that the PR still belongs to the configured
    repository, uses the persisted branch and base branch, and points at the
    exact commit accepted by QA. Any other head mutation restarts
-   implementation and QA.
-9. A merged or closed-without-merge pull request moves the card to `Done`,
-   regardless of whether GitHub records a person, app, merge queue, or other
-   automation as the actor. Runner refreshes Project state immediately so
-   newly unblocked work can start without waiting for the next polling interval.
+   implementation and QA. With automatic merge enabled, one PR per
+   repository/base owns integration. Runner lazily refreshes that candidate
+   against the latest base; a clean update or conflict returns it through
+   implementation and QA before it may reclaim integration. With automatic
+   merge disabled, Runner leaves base-update decisions to the human reviewer.
+9. A merged pull request moves the card to `Done` and records an authenticated
+   successful outcome, regardless of whether GitHub records a person, app,
+   merge queue, or other automation as the actor. A pull request closed without
+   merge moves the card to `Blocked` with a reviewer retry phase and does not
+   release dependent work. Runner refreshes Project state immediately so newly
+   unblocked work can start without waiting for the next polling interval.
    A terminal PR state always wins over concurrent base-refresh detection, and
    Runner does not refresh a task branch that is already contained in the base.
    When automatic merge is enabled, GitHub performs the merge; Runner still
    moves the card only after observing the merged PR state.
 
-For an open Runner PR at the human gate (or explicitly moved back for rework),
+For the selected automatic integration candidate,
 `pull_request.out_of_date` means its head does not contain the latest
-target-branch commit. Runner first checks the remote refs without recreating the
+target-branch commit. Runner first checks remote refs without recreating the
 task worktree. When an update is necessary, it recreates the deterministic
 workspace and attempts a normal, non-force branch update. A conflict is
 retained in the isolated worktree and returns the card to `Ready`. A clean
-update remains local and returns to `Ready` so its resulting tree completes the
-normal implementation, integrity, and QA path before a replacement immutable
-tuple can be published. Direct changes to the PR head never qualify as a base
-refresh and invalidate prior QA. Refresh errors go to `Blocked`.
+update remains local and also returns to `Ready`, so its resulting tree
+completes the normal implementation, integrity, and QA path before a
+replacement immutable tuple can be published. Other open PRs are checked only
+when they later acquire integration; manual-review PRs are never eagerly
+refreshed. Direct PR-head changes invalidate prior QA. Refresh errors go to
+`Blocked`.
 
 ## Public issue authority
 
@@ -677,8 +746,9 @@ Snapshot traversal, per-payload bytes, and aggregate bytes are bounded before
 collection or read growth. Git and GitHub command capture, Project collection
 and pagination, pull-request feedback, and public-intake mutation fan-out also
 fail closed at fixed operational caps. Public intake runs after recovery,
-pull-request reconciliation, and approved execution, so an intake-local failure
-does not discard trusted results completed in the cycle. Privileged candidate
+pull-request reconciliation, and admitted execution. In continuous mode an
+intake-local failure neither cancels in-flight work nor discards its eventual
+result. Privileged candidate
 construction and accepted-tuple publication pin Git administration and object
 paths, scrub inherited selectors and effective configuration, disable hooks,
 signing, and filters, and use a literal GitHub URL with an explicit
@@ -704,11 +774,24 @@ machine. Distributed claiming remains unsupported. The explicit
 `max_parallelism` setting controls independent attempts inside one process and
 must be between 1 and 16. Interactive `init` offers 1, 2, or 4, with 1 selected
 as the safest first-run value; scripts can choose any supported value with
-`--max-parallelism`. Planner output must use existing task titles for
-dependencies and cannot contain cycles. Runner schedules and then rechecks a
-claim only when every declared dependency is uniquely present in `Done`.
-Dependency-free tasks may run together only when the planner judged their
-ownership non-overlapping and safe for separate worktrees.
+`--max-parallelism`. Continuous mode replenishes available capacity as actions
+finish and keeps reconciling unrelated pull requests while capacity is full.
+Planner output must use existing task titles for dependencies and cannot
+contain cycles. Runner schedules and then rechecks a claim only when every
+declared dependency is uniquely present with a
+Runner-authenticated successful outcome. Dependency references may cross
+planner batches; a manual status move cannot forge success.
+Dependencies represent unfinished prerequisites, not a way to serialize cards
+that might edit the same files. Before claiming harness work, Runner reserves
+the immutable Project item. Implementer and reviewer actions also reserve the
+exact repository/branch identity produced by the workspace subsystem. Planner
+actions need only their item. The selector skips conflicting candidates and
+continues through the current Project snapshot until it fills the available
+global capacity or runs out of safe work. This allows QA and implementation on
+different task branches to run together while preventing two actions—or PR
+reconciliation—from using the same branch concurrently. Repository/base
+integration serialization remains the next slice in
+[ADR 0001](decisions/0001-event-action-runner.md).
 
 An optional `admission_budget` limits the start of new agent attempts over a
 rolling window using that local metrics history. It is an admission ceiling,
@@ -757,7 +840,10 @@ or count context without including file content. Reduce the repository scale
 or raise only the necessary snapshot value, then retry the interrupted item;
 Runner does not start or publish work from a partial snapshot.
 
-## Planning from the CLI
+## Immediate planning from the CLI
+
+This operator utility invokes the planner immediately and is distinct from
+`add plan`, which only creates a `Plan` event for the normal running coordinator.
 
 Start an interactive multiline idea using the auto-detected project-local config:
 
@@ -1225,7 +1311,8 @@ cortexium-runner retry --config /absolute/operator/path/runner.json --item ITEM_
 In a terminal, `cortexium-runner retry --config /absolute/operator/path/runner.json` presents the retryable blocked
 cards as an arrow-key menu. The command preserves the previous result as attempt
 history and moves only the selected card to its recorded lane. A running Runner
-checks the newly available work immediately after its current cycle.
+checks newly available work on its next poll without waiting for unrelated
+harness actions to finish.
 
 ## Workflow configuration
 
@@ -1242,8 +1329,9 @@ for the complete v2 configuration generated by `init`.
   `exhausted`.
 - `on_enter: publish_pull_request` performs deterministic PR publication.
 - `github_project.auto_merge` is an explicit opt-in. When true, Runner asks
-  GitHub to merge after checks and branch protections pass; it never uses
-  `--admin` or weakens repository requirements.
+  GitHub to merge one reconciled repository/base candidate after checks and
+  branch protections pass; it never uses `--admin` or weakens repository
+  requirements.
 - `github_project.merge_method` selects `merge`, `rebase`, or `squash` for that
   request. Empty values retain `merge` for existing v2 configs. A divergent
   `rebase` refresh produces a linear candidate on the new base and uses an exact
@@ -1394,19 +1482,23 @@ dependency direction.
 - Public assessment intake is capped at 1,000 open labeled issues per repository
   and a Project at 10,000 items; Runner fails clearly instead of silently
   ignoring items beyond those bounds.
-- Each cycle fetches one Project item snapshot through a narrow GraphQL query
+- Each poll fetches one Project item snapshot through a narrow GraphQL query
   that asks only for lifecycle fields and paginates at 100 active items per
   request. The Project schema uses a separate narrow query and is cached for the
   process lifetime. When work is claimable, one additional fresh snapshot
-  validates the entire claim batch instead of re-listing the Project per item.
-  Recovery or pull-request reconciliation that changes state refreshes the
-  snapshot before work selection. A state-changing cycle rechecks immediately;
-  consecutive idle cycles start at `--poll-interval` (30 seconds by default)
-  and back off to `--max-idle-interval` (five minutes by default). Public intake
-  synchronization is separately limited to at most once every two minutes and
-  never runs more often than the polling loop.
-- Pull requests on terminal cards are not polled, and a rework request is
-  inspected and reset only once per cycle. GitHub primary rate-limit errors wait
+  validates the selected claims instead of re-listing the Project per item.
+  Interruption recovery runs only when no local action is in flight, so it
+  cannot reclaim a live card. Pull-request reconciliation excludes items whose
+  item or repository/branch resources conflict with live harness work but
+  continues for unrelated items. A state-changing poll rechecks
+  immediately; while actions are running, quiet polls remain at
+  `--poll-interval` (30 seconds by default). With nothing in flight,
+  consecutive idle polls back off to `--max-idle-interval` (five minutes by
+  default). Public intake synchronization is separately limited to at most once
+  every two minutes and never runs more often than the polling loop.
+- Pull requests on successfully merged terminal cards are not polled. A
+  closed-without-merge PR remains visible on its blocked card, and a rework
+  request is inspected and reset only once per poll. GitHub primary rate-limit errors wait
   until the reported reset, while secondary limits wait at least one minute and
   continue through the existing bounded error backoff.
 - One active Runner process per Project on one machine; no distributed claim.

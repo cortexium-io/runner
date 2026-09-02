@@ -134,7 +134,7 @@
       },
       {
         "on": "pull_request.closed",
-        "to": "done"
+        "to": "blocked"
       },
       {
         "on": "pull_request.out_of_date",

@@ -215,6 +215,20 @@ func TestPublicationWorkflowRequiresTerminalAndOutOfDateEvents(t *testing.T) {
 	}
 }
 
+func TestPublicationWorkflowRequiresDistinctMergedAndClosedOutcomes(t *testing.T) {
+	workflow := WorkflowTemplate(true)
+	for index := range workflow.Events {
+		if workflow.Events[index].On == WorkflowEventPRClosed {
+			workflow.Events[index].To = "done"
+		}
+	}
+	cfg := explicitTestConfig()
+	cfg.Workflow = &workflow
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "must target different lanes") {
+		t.Fatalf("closed pull request could still share the successful merge lane: %v", err)
+	}
+}
+
 func TestRoleProfilesSupportMultipleSkillsAndSafeExecutionOverrides(t *testing.T) {
 	model := "configured-model"
 	cfg := Config{

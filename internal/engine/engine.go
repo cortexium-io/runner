@@ -127,76 +127,112 @@ func (s *Engine) RunCycle(ctx context.Context) ([]RunResult, error) {
 	return results, err
 }
 
+type pollPreparation struct {
+	results      []RunResult
+	claimed      []admittedAction
+	items        []github.WorkItem
+	itemsDirty   bool
+	madeProgress bool
+}
+
+type actionCompletion struct {
+	itemID string
+	result RunResult
+}
+
 func (s *Engine) runCycle(ctx context.Context, syncIntake bool) ([]RunResult, bool, error) {
-	results := []RunResult{}
-	madeProgress := false
-	itemsDirty := false
+	prepared, err := s.preparePoll(ctx, s.maxParallelism(), true, nil)
+	if err != nil {
+		return nil, false, err
+	}
+
+	completed := make([]RunResult, len(prepared.claimed))
+	var wait sync.WaitGroup
+	for index, admitted := range prepared.claimed {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			completed[index] = s.executeClaimedAction(ctx, admitted.action)
+		}()
+	}
+	wait.Wait()
+	prepared.results = append(prepared.results, completed...)
+
+	if syncIntake {
+		intakeProgress, intakeErr := s.syncAssessmentIntake(ctx, &prepared)
+		prepared.madeProgress = prepared.madeProgress || intakeProgress
+		if intakeErr != nil {
+			return prepared.results, prepared.madeProgress, intakeErr
+		}
+	}
+	return prepared.results, prepared.madeProgress, nil
+}
+
+func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterrupted bool, inFlight map[string][]string) (pollPreparation, error) {
+	prepared := pollPreparation{results: []RunResult{}}
 	items, err := s.source.LifecycleItems(ctx)
 	if err != nil {
-		return nil, false, fmt.Errorf("load GitHub Project items: %w", err)
+		return pollPreparation{}, fmt.Errorf("load GitHub Project items: %w", err)
 	}
-	finishCycle := func() ([]RunResult, bool, error) {
-		if !syncIntake {
-			return results, madeProgress, nil
+	prepared.items = items
+	if recoverInterrupted {
+		recovered, recoverErr := s.source.RecoverInterruptedFrom(ctx, items)
+		if recoverErr != nil {
+			return pollPreparation{}, fmt.Errorf("recover interrupted work: %w", recoverErr)
 		}
-		if itemsDirty {
-			latestItems, loadErr := s.source.LifecycleItems(ctx)
-			if loadErr != nil {
-				return results, madeProgress, fmt.Errorf("reload GitHub Project items before public issue assessment intake: %w", loadErr)
+		if recovered > 0 {
+			prepared.madeProgress = true
+			items, err = s.source.LifecycleItems(ctx)
+			if err != nil {
+				return pollPreparation{}, fmt.Errorf("reload GitHub Project items after interrupted work recovery: %w", err)
 			}
-			items = latestItems
-			itemsDirty = false
+			prepared.items = items
 		}
-		intake, intakeErr := s.source.SyncAssessmentIssuesFrom(ctx, items)
-		madeProgress = madeProgress || intake.Added > 0 || intake.Reclassified > 0
-		if intakeErr != nil {
-			return results, madeProgress, fmt.Errorf("sync public issue assessment intake after trusted cycle work: %w", intakeErr)
-		}
-		return results, madeProgress, nil
 	}
-	recovered, err := s.source.RecoverInterruptedFrom(ctx, items)
+	reconciliationItems, err := s.itemsWithoutResourceConflicts(items, inFlight)
 	if err != nil {
-		return nil, false, fmt.Errorf("recover interrupted work: %w", err)
+		return pollPreparation{}, fmt.Errorf("derive pull-request reconciliation resources: %w", err)
 	}
-	if recovered > 0 {
-		madeProgress = true
-		items, err = s.source.LifecycleItems(ctx)
-		if err != nil {
-			return nil, false, fmt.Errorf("reload GitHub Project items after interrupted work recovery: %w", err)
-		}
-	}
-	reconciliationResults, reconciliationChanged, err := s.reconcilePullRequests(ctx, items)
+	reconciliationResults, reconciliationChanged, err := s.reconcilePullRequests(ctx, reconciliationItems)
 	if err != nil {
-		return nil, false, fmt.Errorf("reconcile pull requests: %w", err)
+		return pollPreparation{}, fmt.Errorf("reconcile pull requests: %w", err)
 	}
-	results = append(results, reconciliationResults...)
+	prepared.results = append(prepared.results, reconciliationResults...)
 	if reconciliationChanged {
-		madeProgress = true
+		prepared.madeProgress = true
 		items, err = s.source.LifecycleItems(ctx)
 		if err != nil {
-			return nil, false, fmt.Errorf("reload GitHub Project items after pull request reconciliation: %w", err)
+			return pollPreparation{}, fmt.Errorf("reload GitHub Project items after pull request reconciliation: %w", err)
 		}
+		prepared.items = items
 	}
 	admission, err := s.AdmissionStatus(time.Now().UTC())
 	if err != nil {
-		return nil, false, err
+		return pollPreparation{}, err
 	}
 	s.recordAdmissionDecision(admission)
 	if admission.Configured && !admission.Allowed {
-		return finishCycle()
+		return prepared, nil
 	}
-	limit := s.maxParallelism()
+	limit := claimLimit
+	if maximum := s.maxParallelism(); limit > maximum {
+		limit = maximum
+	}
 	if admission.Configured && admission.Budget != nil && admission.Budget.MaxAttempts > 0 && admission.RemainingAttempts < limit {
 		limit = admission.RemainingAttempts
 	}
-	readyActions, err := s.source.ReadyItems(ctx, items, limit)
+	if limit <= 0 {
+		return prepared, nil
+	}
+	readyActions, err := s.source.ReadyItems(ctx, items, len(items))
 	if err != nil {
-		return nil, false, err
+		return pollPreparation{}, err
 	}
 	if len(readyActions) == 0 {
-		return finishCycle()
+		return prepared, nil
 	}
-	claimed := make([]github.AuthorizedAction, 0, len(readyActions))
+	claimed := make([]admittedAction, 0, limit)
+	occupied := occupiedResourceKeys(inFlight)
 	for _, action := range readyActions {
 		item := action.Item
 		laneID := s.cfg.LaneIDForStatus(item.Status)
@@ -204,15 +240,22 @@ func (s *Engine) runCycle(ctx context.Context, syncIntake bool) ([]RunResult, bo
 		if !ok || strings.TrimSpace(lane.Role) == "" || strings.TrimSpace(lane.Role) != action.Role {
 			continue
 		}
+		resources, resourceErr := s.actionResourceKeys(action)
+		if resourceErr != nil {
+			return prepared, fmt.Errorf("derive resource claims for Project item %s: %w", item.ID, resourceErr)
+		}
+		if !resourcesAvailable(resources, occupied) {
+			continue
+		}
 		item.Role = action.Role
 		if s.reworkRequested(item, laneID) {
-			itemsDirty = true
+			prepared.itemsDirty = true
 			feedback := ""
 			if details, inspectErr := github.NewPullRequestManager(s.run, s.source).InspectAuthorized(ctx, action); inspectErr == nil && strings.TrimSpace(details.Feedback) != "" {
 				feedback = details.Feedback
 			}
 			if err := s.source.ResetRejections(ctx, action, feedback, laneID); err != nil {
-				results = append(results, RunResult{Item: item, Harness: s.roleHarness(item.Role), Outcome: execution.OutcomeBlocked, Summary: "Reset human-requested retry failed", Error: err.Error()})
+				prepared.results = append(prepared.results, RunResult{Item: item, Harness: s.roleHarness(item.Role), Outcome: execution.OutcomeBlocked, Summary: "Reset human-requested retry failed", Error: err.Error()})
 				continue
 			}
 			item.QAFailures = 0
@@ -222,39 +265,52 @@ func (s *Engine) runCycle(ctx context.Context, syncIntake bool) ([]RunResult, bo
 			}
 			action, err = s.source.Authorize(ctx, item)
 			if err != nil {
-				results = append(results, RunResult{Item: item, Harness: s.roleHarness(item.Role), Outcome: execution.OutcomeBlocked, Summary: "Refresh reset item failed", Error: err.Error()})
+				prepared.results = append(prepared.results, RunResult{Item: item, Harness: s.roleHarness(item.Role), Outcome: execution.OutcomeBlocked, Summary: "Refresh reset item failed", Error: err.Error()})
 				continue
 			}
 		}
-		itemsDirty = true
+		prepared.itemsDirty = true
 		claimedAction, err := s.source.Claim(ctx, action, laneID, s.activityForRole(action.Role))
 		if err != nil {
-			results = append(results, RunResult{Item: item, Harness: s.roleHarness(item.Role), Outcome: execution.OutcomeBlocked, Summary: "Claim failed", Error: err.Error()})
+			prepared.results = append(prepared.results, RunResult{Item: item, Harness: s.roleHarness(item.Role), Outcome: execution.OutcomeBlocked, Summary: "Claim failed", Error: err.Error()})
 			continue
 		}
-		claimed = append(claimed, claimedAction)
+		reserveResources(resources, occupied)
+		claimed = append(claimed, admittedAction{action: claimedAction, resources: resources})
+		if len(claimed) == limit {
+			break
+		}
 	}
 	if len(claimed) > 0 {
-		madeProgress = true
+		prepared.madeProgress = true
 	}
+	prepared.claimed = claimed
+	return prepared, nil
+}
 
-	completed := make([]RunResult, len(claimed))
-	var wait sync.WaitGroup
-	for index, action := range claimed {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			current, err := s.source.Authorize(ctx, action.Item)
-			if err != nil {
-				completed[index] = RunResult{Item: action.Item, Harness: s.roleHarness(action.Role), Outcome: execution.OutcomeBlocked, Summary: "Action authority changed after claim", Error: err.Error()}
-				return
-			}
-			completed[index] = s.executeItem(ctx, current)
-		}()
+func (s *Engine) syncAssessmentIntake(ctx context.Context, prepared *pollPreparation) (bool, error) {
+	if prepared.itemsDirty {
+		latestItems, err := s.source.LifecycleItems(ctx)
+		if err != nil {
+			return false, fmt.Errorf("reload GitHub Project items before public issue assessment intake: %w", err)
+		}
+		prepared.items = latestItems
+		prepared.itemsDirty = false
 	}
-	wait.Wait()
-	results = append(results, completed...)
-	return finishCycle()
+	intake, err := s.source.SyncAssessmentIssuesFrom(ctx, prepared.items)
+	progress := intake.Added > 0 || intake.Reclassified > 0
+	if err != nil {
+		return progress, fmt.Errorf("sync public issue assessment intake after admitted work: %w", err)
+	}
+	return progress, nil
+}
+
+func (s *Engine) executeClaimedAction(ctx context.Context, action github.AuthorizedAction) RunResult {
+	current, err := s.source.Authorize(ctx, action.Item)
+	if err != nil {
+		return RunResult{Item: action.Item, Harness: s.roleHarness(action.Role), Outcome: execution.OutcomeBlocked, Summary: "Action authority changed after claim", Error: err.Error()}
+	}
+	return s.executeItem(ctx, current)
 }
 
 func (s *Engine) activityForRole(role string) string {
@@ -274,53 +330,97 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 	consecutiveErrors := 0
 	consecutiveIdle := 0
 	nextIntakeSync := time.Time{}
-	for {
-		if ctx.Err() != nil {
-			return nil
+	inFlight := map[string][]string{}
+	completed := make(chan actionCompletion, s.maxParallelism())
+	pollTimer := time.NewTimer(0)
+	defer pollTimer.Stop()
+	resetPollTimer := func(delay time.Duration) {
+		if !pollTimer.Stop() {
+			select {
+			case <-pollTimer.C:
+			default:
+			}
 		}
-		now := time.Now()
-		syncIntake := !now.Before(nextIntakeSync)
-		if syncIntake {
-			nextIntakeSync = now.Add(intakeSyncInterval)
-		}
-		results, madeProgress, err := s.runCycle(ctx, syncIntake)
+		pollTimer.Reset(delay)
+	}
+	reportResult := func(result RunResult) {
 		if onResult != nil {
-			for _, result := range results {
-				onResult(result)
-			}
+			onResult(result)
 		}
-		if err != nil {
-			consecutiveErrors++
-			consecutiveIdle = 0
-			if ctx.Err() != nil {
-				return nil
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			for len(inFlight) > 0 {
+				completion := <-completed
+				delete(inFlight, completion.itemID)
+				reportResult(completion.result)
 			}
-			if onError != nil {
-				onError(err)
-			}
-		} else {
-			consecutiveErrors = 0
-			if madeProgress {
-				consecutiveIdle = 0
-			} else {
-				consecutiveIdle++
-			}
-		}
-		delay := nextPollDelay(pollInterval, maxIdleInterval, consecutiveErrors, consecutiveIdle, err == nil && madeProgress)
-		if err != nil {
-			if limitedDelay, rateLimited := github.RateLimitRetryDelay(ctx, s.run, err, time.Now()); rateLimited && limitedDelay > delay {
-				delay = limitedDelay
-			}
-		}
-		if onPoll != nil {
-			state := PollState{LastPollAt: now, NextPollAt: time.Now().Add(delay), Admission: s.LastAdmissionDecision()}
-			if err != nil {
-				state.LastError = err.Error()
-			}
-			onPoll(state)
-		}
-		if !sleepContext(ctx, delay) {
 			return nil
+		case completion := <-completed:
+			delete(inFlight, completion.itemID)
+			reportResult(completion.result)
+			resetPollTimer(0)
+		case <-pollTimer.C:
+			now := time.Now()
+			syncIntake := !now.Before(nextIntakeSync)
+			if syncIntake {
+				nextIntakeSync = now.Add(intakeSyncInterval)
+			}
+			available := s.maxParallelism() - len(inFlight)
+			prepared, err := s.preparePoll(ctx, available, len(inFlight) == 0, inFlight)
+			for _, result := range prepared.results {
+				reportResult(result)
+			}
+			for _, admitted := range prepared.claimed {
+				itemID := admitted.action.Item.ID
+				if _, exists := inFlight[itemID]; exists {
+					continue
+				}
+				inFlight[itemID] = append([]string(nil), admitted.resources...)
+				go func() {
+					completed <- actionCompletion{itemID: itemID, result: s.executeClaimedAction(ctx, admitted.action)}
+				}()
+			}
+			madeProgress := prepared.madeProgress
+			if err == nil && syncIntake {
+				intakeProgress, intakeErr := s.syncAssessmentIntake(ctx, &prepared)
+				madeProgress = madeProgress || intakeProgress
+				if intakeErr != nil {
+					err = intakeErr
+				}
+			}
+			if err != nil {
+				consecutiveErrors++
+				consecutiveIdle = 0
+				if ctx.Err() != nil {
+					continue
+				}
+				if onError != nil {
+					onError(err)
+				}
+			} else {
+				consecutiveErrors = 0
+				if madeProgress || len(inFlight) > 0 {
+					consecutiveIdle = 0
+				} else {
+					consecutiveIdle++
+				}
+			}
+			delay := nextPollDelay(pollInterval, maxIdleInterval, consecutiveErrors, consecutiveIdle, err == nil && madeProgress)
+			if err != nil {
+				if limitedDelay, rateLimited := github.RateLimitRetryDelay(ctx, s.run, err, time.Now()); rateLimited && limitedDelay > delay {
+					delay = limitedDelay
+				}
+			}
+			if onPoll != nil {
+				state := PollState{LastPollAt: now, NextPollAt: time.Now().Add(delay), Admission: s.LastAdmissionDecision()}
+				if err != nil {
+					state.LastError = err.Error()
+				}
+				onPoll(state)
+			}
+			resetPollTimer(delay)
 		}
 	}
 }
@@ -1063,7 +1163,6 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	finishTransition(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
 	result.Outcome = execution.OutcomeSucceeded
-	result.Summary = "Agent QA passed; pull request is ready for human review: " + published.URL
 	item.Branch = published.Branch
 	item.PullRequest = published.URL
 	item.QACommit = published.CommitSHA
@@ -1075,37 +1174,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	action = currentAction
 	item = action.Item
 	if s.cfg.GitHubProject.AutoMerge {
-		currentContent, contentErr = action.DelegatedContent()
-		if contentErr != nil {
-			return s.failExecutionToRetryLane(ctx, action, lane, result, "Project action changed before automatic merge", contentErr,
-				integrityViolationOutput("Project action changed before automatic merge", contentErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
-		}
-		if err := s.fetchBase(ctx, repoRoot); err != nil {
-			return s.failExecution(ctx, action, lane, result, "Base branch is not ready for automatic merge", err, transientExecutorOutput("Base branch is not ready for automatic merge"))
-		}
-		validatedWorkspace, err := s.validateWorkspaceForItem(ctx, item, currentContent.Digest, repoRoot)
-		if err != nil {
-			return s.failExecutionToRetryLane(ctx, action, lane, result, "Workspace identity changed before automatic merge", err,
-				integrityViolationOutput("Workspace identity changed before automatic merge", err, output), lane.Transitions[config.WorkflowOutcomeRejected])
-		}
-		currentBase, baseErr := s.git(ctx, []string{"rev-parse", "--verify", validatedWorkspace.BaseRef}, repoRoot, 30*time.Second)
-		if baseErr != nil {
-			return s.failExecution(ctx, action, lane, result, "Base revision could not be verified before automatic merge", baseErr,
-				transientExecutorOutput("Base revision could not be verified before automatic merge"))
-		}
-		if strings.TrimSpace(currentBase.Stdout) != validatedWorkspace.BaseRevision {
-			baseMovedErr := errors.New("workspace identity mismatch: target base advanced after QA and pull request publication")
-			return s.failExecutionToRetryLane(ctx, action, lane, result, "Workspace identity changed before automatic merge", baseMovedErr,
-				integrityViolationOutput("Workspace identity changed before automatic merge", baseMovedErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
-		}
-		if err := pullRequests.RequestAutoMergeAuthorized(ctx, action, action.Item.QACommit, s.baseBranch(), validatedWorkspace.BaseRevision, s.cfg.GitHubProject.MergeMethod); err != nil {
-			blocker := "GitHub left the pull request open because automatic merge could not be enabled. Check the repository auto-merge setting and the GitHub CLI account's merge permission, then retry this card."
-			return s.failExecution(ctx, action, lane, result, "Automatic pull request merge setup failed", err, execution.Output{
-				Outcome: execution.OutcomeBlocked, Summary: blocker, WorkDone: []string{}, Blocker: &blocker, RemoteDetailSafe: true,
-				FailureClass: execution.FailureTransientExternal, RetryDisposition: execution.RetryManual,
-			})
-		}
-		result.Summary = "Agent QA passed; GitHub will merge the pull request automatically after its requirements pass: " + published.URL
+		result.Summary = "Agent QA passed; pull request is queued for automatic integration: " + published.URL
 	} else {
 		result.Summary = "Agent QA passed; pull request is ready for human review: " + published.URL
 	}

@@ -31,6 +31,21 @@ type Request struct {
 	QuarantineMismatch     bool
 }
 
+// ResourceIdentity returns the repository/branch identity that a Request will
+// use. Schedulers can reserve it before Prepare without duplicating workspace
+// naming rules.
+func ResourceIdentity(request Request) (string, error) {
+	_, branchName, err := resolveWorktreeNames(request.WorkID, request.BranchPrefix, request.BranchName)
+	if err != nil {
+		return "", err
+	}
+	repository := strings.ToLower(strings.TrimSpace(request.Repository))
+	if repository == "" {
+		return "", errors.New("workspace repository is required")
+	}
+	return repository + "/" + branchName, nil
+}
+
 type CleanupRequest struct {
 	WorkingDir             string
 	WorktreeRoot           string
@@ -102,17 +117,9 @@ func (p GitProvider) Prepare(ctx context.Context, request Request) (Metadata, er
 		return Metadata{}, fmt.Errorf("create or validate private workspace-write root: %w", err)
 	}
 
-	workID := safeRefComponent(request.WorkID)
-	if workID == "" {
-		return Metadata{}, errors.New("workspace work id is required")
-	}
-	prefix := strings.Trim(strings.TrimSpace(request.BranchPrefix), "/")
-	branchName := strings.TrimSpace(request.BranchName)
-	if branchName == "" && prefix == "" {
-		return Metadata{}, errors.New("workspace branch prefix is required when branch name is not provided")
-	}
-	if branchName == "" {
-		branchName = prefix + "/" + workID
+	workID, branchName, err := resolveWorktreeNames(request.WorkID, request.BranchPrefix, request.BranchName)
+	if err != nil {
+		return Metadata{}, err
 	}
 	if strings.TrimSpace(request.BranchName) != "" {
 		if _, err := p.git(ctx, repoRoot, "check-ref-format", "--branch", branchName); err != nil {
@@ -206,6 +213,22 @@ func (p GitProvider) Prepare(ctx context.Context, request Request) (Metadata, er
 		}
 	}
 	return bindGitAdministration(metadataFor(repoRoot, sourceSnapshot, reusableIdentity))
+}
+
+func resolveWorktreeNames(workID, branchPrefix, branchName string) (string, string, error) {
+	workID = safeRefComponent(workID)
+	if workID == "" {
+		return "", "", errors.New("workspace work id is required")
+	}
+	prefix := strings.Trim(strings.TrimSpace(branchPrefix), "/")
+	branchName = strings.TrimSpace(branchName)
+	if branchName == "" && prefix == "" {
+		return "", "", errors.New("workspace branch prefix is required when branch name is not provided")
+	}
+	if branchName == "" {
+		branchName = prefix + "/" + workID
+	}
+	return workID, branchName, nil
 }
 
 // identityTracksBaseAdvance recognizes only the normal retained-workspace case:

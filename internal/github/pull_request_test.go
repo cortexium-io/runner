@@ -326,7 +326,7 @@ func TestGitHubPullRequestManagerRejectsPullRequestIdentityDriftBeforeAutoMerge(
 	}
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "12", QACommit: head})
 	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", strings.Repeat("c", 40), "")
-	if err == nil || !strings.Contains(err.Error(), "automatic merge pull request identity changed") || !strings.Contains(err.Error(), "base commit") {
+	if err == nil || !errors.Is(err, ErrPublicationBaseChanged) || !strings.Contains(err.Error(), "automatic merge pull request identity changed") || !strings.Contains(err.Error(), "base commit") {
 		t.Fatalf("pull request identity drift was accepted for auto-merge: %v", err)
 	}
 	if strings.Contains(strings.Join(runner.calls, "\n"), "pr merge ") {

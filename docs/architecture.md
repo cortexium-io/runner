@@ -1,5 +1,19 @@
 # Architecture
 
+This repository is the sole architecture authority for Runner; parent and
+sibling Cortexium documents do not apply unless linked here. Runner's accepted
+target direction is recorded in
+[ADR 0001](decisions/0001-event-action-runner.md). The implementation is moving
+from cycle-batched execution to a polling event-and-action coordinator.
+Continuous mode now observes and reconciles unrelated events while harness work
+runs. Dependencies now resolve across planning batches and require a valid
+Runner-signed successful state. Harness actions reserve their Project item and,
+for implementation or review, their exact repository branch; selection skips
+conflicts and continues looking for safe work. Serialized integration is
+independent of harness capacity: reconciliation permits one automatic
+integration owner per repository/base and refreshes only that candidate. There
+is no backward-compatibility requirement during this pre-stable transition.
+
 The local GitHub Project Runner is a modular monolith: one CLI process with packages divided
 by responsibility and reason to change. The command package is the composition
 root. Internal packages do not parse CLI flags or reach back into `cmd`.
@@ -216,11 +230,15 @@ reference. Title or URL presentation changes cannot change the delegated-content
 identity, while changed execution-defining content returns the item to assessment
 without invoking a harness.
 
-For an ordinary unsigned item, placing it in the configured `Ready` status is
-the human authorization event. Runner converts a draft to an issue in the
-configured intake repository when necessary and signs that exact snapshot
-before claim. Complete-batch approval performs the same conversion for every
-released planner child.
+For an ordinary unsigned item, placing it in the configured `Plan` or `Ready`
+status is the human authorization event for that lane. Runner converts a draft
+to an issue in the configured intake repository when necessary and signs that
+exact snapshot before the planner or implementer can claim it. The enqueue-only
+`add` command performs only draft creation and the status mutation, and remains
+usable while the coordinator process owns its execution lock. An optional exact
+`## Dependencies` list accepts Project item IDs or issue URLs and is part of
+that signed snapshot. Complete-batch approval performs the same conversion for
+every released planner child.
 Nonempty invalid approvals are not replaced, and staged planning provenance must
 already prove complete-batch release. Issue comments are fetched separately only
 for the claimed card immediately before assignment; they are bounded historical
@@ -268,6 +286,16 @@ pushes only the recorded commit OID to the recorded full ref. Base refreshes
 remain local until their resulting tree completes implementation and QA and
 receives a replacement publication record.
 
+QA publication ends at `PR Ready`; it never requests merge directly. In
+automatic mode, pull-request reconciliation claims
+`integration:<repository>/<base>`, using GitHub's enabled auto-merge state as
+the restart-stable owner. It recovers an existing owner before item ordering,
+disarms duplicate owners, and compares only the selected candidate with the
+latest base. A moved base returns the candidate through implementation and QA;
+a clean reviewed candidate is bound to its exact head and base before Runner
+enables GitHub auto-merge. Manual-review PRs remain at the human gate without
+Runner refreshing them after unrelated merges.
+
 One budget is shared by the recursive manifest, including protected controls,
 ordinary worktree paths, Git metadata, and initialized submodules. Directory
 discovery and Git-derived path collections reject the next entry before the
@@ -275,8 +303,9 @@ configured count is exceeded; regular files and symlink payloads are bounded
 individually and in aggregate before further reading. Git and GitHub command
 capture, Project collections and pagination, pull-request feedback, and public
 intake mutation fan-out use fixed fail-closed caps. Public intake is scheduled
-after recovery, pull-request reconciliation, and approved execution, so its
-bounded local failure does not discard trusted work completed in that cycle.
+after recovery, pull-request reconciliation, and admitted execution. In
+continuous mode its bounded local failure does not cancel in-flight work or
+discard the result when that work finishes.
 Effective Git behavior redirected by the environment or external
 configuration—including includes, custom hook paths, and external
 ignore/attribute sources—remains the separate finding #23 boundary.

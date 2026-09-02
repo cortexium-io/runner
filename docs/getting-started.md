@@ -58,7 +58,7 @@ Expected results:
 - the build exits successfully and creates `./cortexium-runner`;
 - the source build prints a VCS-derived version when Go can identify the
   checkout, or `cortexium-runner dev` when it cannot; and
-- help lists `init`, `doctor`, `plan`, `approve`, `retry`, `run`, `status`,
+- help lists `init`, `doctor`, `add`, `plan`, `approve`, `retry`, `run`, `status`,
   `metrics`, and `role`.
 
 Nothing is installed globally, started in the background, or sent over the
@@ -137,6 +137,28 @@ Normal `doctor` adds GitHub and executable checks. The explicit
 `--probe-harnesses` option makes one minimal live call per distinct configured
 harness profile; it is not required for the offline checkpoint.
 
+With Runner active, humans can enqueue either kind of work directly:
+
+```bash
+./cortexium-runner add plan \
+  --config /absolute/operator/path/runner.json \
+  --title "Plan CSV export" \
+  --body-file export-goal.md
+
+./cortexium-runner add ready \
+  --config /absolute/operator/path/runner.json \
+  --title "Fix the CSV header" \
+  --body-file fix-card.md
+```
+
+`add plan` creates a card in `Plan`; the planner proposes a dependency-aware
+batch for later review. `add ready` creates one sufficiently specified card in
+`Ready`; Runner implements it when its dependencies and resource requirements
+allow. Either command accepts `--body TEXT` instead of `--body-file`, and
+`--dry-run` previews the destination without changing GitHub. These enqueue
+commands deliberately remain usable while the foreground Runner holds its
+process lock.
+
 ## Expected work states
 
 When work is later admitted and Runner is started, cards follow these states:
@@ -149,18 +171,25 @@ When work is later admitted and Runner is started, cards follow these states:
 | `Ready` | An implementation card is approved for an implementer. |
 | `In Progress` | Runner has claimed the card for one role attempt. |
 | `Agent QA` | A reviewer checks the exact implementation worktree and diff. |
-| `PR Ready` | The accepted branch is published and awaits the human gate. |
-| `Blocked` | Human input or an explicit retry decision is required. |
-| `Done` | Planning finished, or the pull request was merged or closed. |
+| `PR Ready` | The accepted branch awaits a human, or serialized automatic integration when explicitly enabled. |
+| `Blocked` | Human input, a closed-without-merge PR, or an explicit retry decision is required. |
+| `Done` | Planning finished, or the pull request was merged successfully. |
 
-Creating an ordinary card directly in `Ready` authorizes its exact current
-snapshot for the implementer; Runner converts it to an issue in the configured
-intake repository when necessary, then signs it before claim. Planned children
+Creating an ordinary card directly in `Plan` asks the planner to shape its exact
+current snapshot. Creating one in `Ready` authorizes that snapshot for the
+implementer. Runner converts either card to an issue in the configured intake
+repository when necessary, then signs it before claim. Planned children
 remain drafts while awaiting approval and become issues as part of the approved
 batch release. Issue comments present at assignment time are supplied as bounded
 historical context. Agent QA
 posts readable requested-change notes to that issue and retains an authenticated
 private copy, so its feedback is sufficient for a retry without a human comment.
+
+For an ordinary card with prerequisites, add exact issue URLs or Project item
+IDs to a `## Dependencies` bullet list in its body before moving it to `Ready`.
+Runner accepts dependencies across planner batches and starts the card only
+after every target has an authenticated successful outcome. A manual move to
+`Done` is not success authority.
 
 A QA rejection returns the card to `Ready` until the configured rejection limit
 is exhausted. If an optional implementer ladder is configured, each persisted

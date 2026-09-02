@@ -40,8 +40,8 @@ Transition` lock fields remain hidden.
 | `In Progress` | Runner claim state. |
 | `Agent QA` | Reviewer role. |
 | `PR Ready` | Human pull-request gate, or GitHub requirements when automatic merge is explicitly enabled. |
-| `Blocked` | Human input required after an error, request for information, or exhausted QA rejections. |
-| `Done` | Planning finished or the PR was merged/closed. |
+| `Blocked` | Human input required after an error, closed-without-merge PR, request for information, or exhausted QA rejections. |
+| `Done` | Planning finished or the PR was merged successfully. |
 
 Preview adopting and synchronizing an existing board:
 
@@ -251,16 +251,24 @@ Preview the exact authenticated action, then approve it:
 
 Approval removes `needs-assessment`, records `Runner Approval`, and moves
 the item to `Backlog`. A maintainer later moves it to `Plan` when it should run.
-Moving an ordinary unsigned card to `Ready` is the explicit implementer
-authorization: Runner signs that exact snapshot before claiming it. Other agent
-lanes do not grant implicit authority, and unreleased planner children cannot
-bypass complete-batch approval. Editing content covered by an existing nonempty
+Moving an ordinary unsigned card to `Plan` asks the planner to shape that exact
+snapshot; moving one to `Ready` is the explicit implementer authorization.
+Runner signs the snapshot before claiming it. These are the only direct agent
+intake lanes, and unreleased planner children cannot bypass complete-batch
+approval. The same events can be created while Runner is active with
+`add plan --title TITLE --body-file PATH` and
+`add ready --title TITLE --body-file PATH`. Editing content covered by an
+existing nonempty
 approval invalidates it rather than causing Runner to replace it. Approval and
 other multi-field transitions set the hidden `Runner Transition` lock before
 their first write and clear it only after the final status and authority agree.
 Ordinary cards therefore remain in their real lane during the update. After an
 interruption, Runner clears a completed lock in place; an incomplete or invalid
 transition moves the card to genuine assessment without leaving executable work.
+An ordinary card can declare cross-batch prerequisites before authorization with
+an exact `## Dependencies` bullet list of Project item IDs or GitHub issue URLs.
+Only Runner-authenticated successful outcomes satisfy those references; moving a
+prerequisite to `Done` manually does not.
 
 Every planner path first stages one identified child batch. A 1,000-item
 emergency ceiling bounds pathological model output and staging loops but never
@@ -294,20 +302,22 @@ editing workflow fields by hand:
 ./cortexium-runner retry --config /absolute/operator/path/runner.json --item "Exact card title"
 ```
 
-A maintainer can merge or close the PR to finish it. To request revisions,
+A maintainer can merge the PR to finish it. Closing without merge moves the card
+to `Blocked` and does not release dependent work. To request revisions,
 comment on the PR and move the card from `PR Ready` to `Ready`; Runner imports
 the feedback, resets QA rejections, and recreates the deterministic task
 workspace from the retained branch. Comments alone do not restart work.
 
-When another merge makes an open PR at the human gate out of date, Runner
-updates it without force-pushing. A conflict returns the card to `Ready`. A
-clean update remains local and returns to `Ready` for implementation and QA.
-Any direct PR-head mutation still invalidates QA. Runner never deploys.
-Automatic merge is available only when `github_project.auto_merge` is
-explicitly true; it asks GitHub to merge after repository requirements pass and
-never bypasses them. Merge requests are lifecycle reconciliation, not agent
-attempts: they consume no `max_parallelism` slot or admission budget and are
-processed before Runner admits new agent work.
+Manual-review PRs stay at the human gate when another merge advances the base;
+Runner does not create update churn on the maintainer's behalf. Automatic merge
+is available only when `github_project.auto_merge` is explicitly true. In that
+mode, reconciliation selects one PR per repository/base, updates only that
+candidate without force-pushing, and sends either a clean update or conflict
+back through implementation and QA. Direct PR-head mutation also invalidates
+QA. After a clean reviewed candidate is current, Runner asks GitHub to merge
+after repository requirements pass and never bypasses them. Integration is
+lifecycle reconciliation, not an agent attempt: it consumes no
+`max_parallelism` slot or admission budget. Runner never deploys.
 
 Do not make the repository public until the default branch contains the MIT
 license, contribution and security policies, issue forms, and passing CI.

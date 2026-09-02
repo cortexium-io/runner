@@ -78,7 +78,7 @@ func WorkflowTemplate(requireReviewAfterBaseUpdate bool) WorkflowConfig {
 		},
 		Events: []WorkflowEvent{
 			{On: WorkflowEventPRMerged, To: "done"},
-			{On: WorkflowEventPRClosed, To: "done"},
+			{On: WorkflowEventPRClosed, To: "blocked"},
 			{On: WorkflowEventPROutOfDate, Action: WorkflowActionUpdateBranch, RequireReview: &requireReview, Transitions: map[string]string{"updated": "ready", "conflict": "ready", WorkflowOutcomeError: "blocked"}},
 		},
 	}
@@ -459,6 +459,9 @@ func validatePublicationWorkflow(workflow WorkflowConfig, publicationLane string
 		if _, exists := events[name]; !exists {
 			return fmt.Errorf("workflow with publish_pull_request requires event %q", name)
 		}
+	}
+	if events[WorkflowEventPRMerged].To == events[WorkflowEventPRClosed].To {
+		return errors.New("pull_request.merged and pull_request.closed must target different lanes so a closed pull request cannot satisfy dependencies")
 	}
 	return nil
 }

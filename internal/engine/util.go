@@ -9,17 +9,6 @@ import (
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
-func sleepContext(ctx context.Context, delay time.Duration) bool {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
-}
-
 func stringPtr(value string) *string { return &value }
 
 func safeRefComponent(value string) string {

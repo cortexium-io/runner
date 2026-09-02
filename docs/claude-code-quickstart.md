@@ -104,9 +104,11 @@ cortexium-runner role edit reviewer \
 ```
 
 `--max-parallelism 1` is the safest first run. Values above 1 execute only
-cards whose declared dependencies are already `Done`; the planner is also
-required to keep concurrently eligible cards non-overlapping and safe for
-separate worktrees.
+cards whose declared dependencies have Runner-authenticated successful
+outcomes. Runner reserves each item and its implementation/review branch,
+skips conflicting candidates, and continues looking for safe work until global
+capacity is full. Planning dependencies should therefore represent actual
+unfinished prerequisites, not possible file overlap.
 
 `--bootstrap-base-branch` is safe to include when the configured remote branch
 already exists. When both repositories are empty, it creates an empty initial
@@ -192,9 +194,11 @@ or set `github_project.auto_merge` to `true`; Runner then asks GitHub to merge
 after its configured requirements pass, without bypassing branch protection.
 Runner never deploys. `run` auto-detects the default project-local config and
 accepts `--config` for other locations. It polls continuously with built-in
-interval defaults. After Runner changes workflow state, it checks immediately for newly
-available work; the polling delay and idle backoff apply only when no progress
-was made. `run --once` performs one cycle for diagnostics or scripts.
+interval defaults and continues reconciling unrelated pull requests while a
+harness action is in flight. After Runner changes workflow state, it checks
+immediately for newly available work. Quiet polls stay at the base interval
+while actions run; idle backoff starts only when no action is in flight.
+`run --once` performs one synchronous cycle for diagnostics or scripts.
 
 ## If something blocks
 

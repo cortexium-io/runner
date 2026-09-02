@@ -170,7 +170,7 @@ func (s *Project) ApplyApproval(ctx context.Context, plan ApprovalPlan) (WorkIte
 		return WorkItem{}, fmt.Errorf("record authenticated approval; the item remains safely transition-locked and approve can be retried: %w", err)
 	}
 	if err := s.finishTransition(ctx, current.ID); err != nil {
-		return WorkItem{}, fmt.Errorf("approval committed but its transition lock could not be cleared; the next cycle will recover it: %w", err)
+		return WorkItem{}, fmt.Errorf("approval committed but its transition lock could not be cleared; a later poll will recover it: %w", err)
 	}
 	current.Approval = refreshed.assertion
 	current.Status = s.backlogStatus()

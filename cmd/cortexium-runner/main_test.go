@@ -1320,6 +1320,73 @@ func TestInitPreviewsAndSynchronizesCurrentProjectConfiguration(t *testing.T) {
 	}
 }
 
+func TestAddEnqueuesPlanAndReadyWorkWhileRunnerLockIsHeld(t *testing.T) {
+	bin := t.TempDir()
+	writeFakeGitHubProjectCommand(t, bin)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	callLog := filepath.Join(t.TempDir(), "gh-calls")
+	t.Setenv("GH_CALL_LOG", callLog)
+	cfg := completeCLITestConfig(t.TempDir())
+	configPath := filepath.Join(t.TempDir(), "runner.config.json")
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	projectLock, err := github.AcquireProcessLock(*cfg.GitHubProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer projectLock.Release()
+
+	var output bytes.Buffer
+	if err := run(t.Context(), []string{"add", "plan", "--config", configPath, "--title", "Shape exports", "--body", "Define the export goal and constraints.", "--dry-run"}, strings.NewReader(""), &output); err != nil {
+		t.Fatalf("preview planner request: %v", err)
+	}
+	if !strings.Contains(output.String(), `Would add "Shape exports" to Plan`) {
+		t.Fatalf("unexpected add preview: %s", output.String())
+	}
+
+	for _, test := range []struct {
+		mode   string
+		title  string
+		body   string
+		status string
+		action string
+	}{
+		{mode: "plan", title: "Shape exports", body: "Define the export goal and constraints.", status: "O_plan", action: "ask the planner"},
+		{mode: "ready", title: "Fix export header", body: "Correct the header and cover it with a focused test.", status: "O_ready", action: "implement it"},
+	} {
+		output.Reset()
+		if err := run(t.Context(), []string{"add", test.mode, "--config", configPath, "--title", test.title, "--body", test.body}, strings.NewReader(""), &output); err != nil {
+			t.Fatalf("add %s work: %v", test.mode, err)
+		}
+		if !strings.Contains(output.String(), "Added PVTI_added") || !strings.Contains(output.String(), test.action) {
+			t.Fatalf("unexpected %s receipt: %s", test.mode, output.String())
+		}
+	}
+
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logged := string(calls)
+	if strings.Count(logged, "project item-create") != 2 {
+		t.Fatalf("dry run mutated GitHub or add omitted a card:\n%s", logged)
+	}
+	for _, expected := range []string{
+		"project item-create 7 --owner example --title Shape exports --body Define the export goal and constraints.",
+		"--single-select-option-id O_plan",
+		"project item-create 7 --owner example --title Fix export header --body Correct the header and cover it with a focused test.",
+		"--single-select-option-id O_ready",
+	} {
+		if !strings.Contains(logged, expected) {
+			t.Fatalf("add omitted %q:\n%s", expected, logged)
+		}
+	}
+}
+
 func writeFakeGitHubProjectCommand(t *testing.T, dir string) {
 	t.Helper()
 	path := filepath.Join(dir, "gh")
@@ -1327,6 +1394,7 @@ func writeFakeGitHubProjectCommand(t *testing.T, dir string) {
 [ -z "${GH_CALL_LOG:-}" ] || printf '%s\n' "$*" >> "$GH_CALL_LOG"
 case "$1 $2" in
 	"project create") printf '%s\n' '{"id":"PVT_created","number":8,"url":"https://github.com/users/example/projects/8"}' ;;
+	"project item-create") printf '%s\n' '{"id":"PVTI_added"}' ;;
   "project view") printf '%s\n' '{"id":"PVT_test","number":7}' ;;
 	"api graphql")
 		case "$*" in
@@ -1414,7 +1482,7 @@ func TestRootHelpDescribesStandaloneWorkflow(t *testing.T) {
 	if err := run(t.Context(), []string{"--help"}, strings.NewReader(""), &output); err != nil {
 		t.Fatalf("help: %v", err)
 	}
-	for _, expected := range []string{"cortexium-runner doctor", "cortexium-runner update", "cortexium-runner plan", "cortexium-runner approve", "cortexium-runner retry", "--once", "--max-idle-interval DURATION", "No hosted control plane"} {
+	for _, expected := range []string{"cortexium-runner doctor", "cortexium-runner update", "cortexium-runner add plan|ready", "cortexium-runner plan", "cortexium-runner approve", "cortexium-runner retry", "--once", "--max-idle-interval DURATION", "No hosted control plane"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("help missing %q: %s", expected, output.String())
 		}

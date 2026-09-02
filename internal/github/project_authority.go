@@ -509,9 +509,9 @@ func (s *Project) validateAction(item WorkItem) (AuthorizedAction, error) {
 
 // validateRecordedAction proves that the item's signed content and lifecycle
 // fields are intact without requiring its current lane to remain executable.
-// This is used only for completed planning-batch siblings: Done is a human
-// terminal decision, while every action the Runner might execute still goes
-// through validateAction's exact current-state check.
+// It is used when a deliberate human lane move may precede the next Runner
+// signature; every action the Runner might execute still goes through
+// validateAction's exact current-state check.
 func (s *Project) validateRecordedAction(item WorkItem) error {
 	if strings.TrimSpace(item.Transition) != "" {
 		return errors.New("Runner transition is still in progress")

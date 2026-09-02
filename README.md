@@ -246,7 +246,7 @@ RUNNER_CONFIG="$PWD/.cortexium/runner.json"
 For the project-local default, Runner ensures the config is ignored, adding its
 exact path to the root `.gitignore` when needed. It does not stage or commit
 that change. From anywhere inside that Git repository, later commands such as
-`doctor`, `run`, `status`, and `plan` find this default automatically. Use
+`doctor`, `add`, `run`, `status`, and `plan` find this default automatically. Use
 `--config PATH` only for a different location.
 
 Verify local configuration first, then connected GitHub and harness readiness:
@@ -273,6 +273,19 @@ integrity-check window, returns the card to the role's previous lane, and
 retains its isolated worktree for the next run. Installing Runner starts no
 background service.
 
+Add a goal for the planner, or one already-specified implementation card, even
+while Runner is active:
+
+```bash
+cortexium-runner add plan --title "Plan CSV export" --body-file export-goal.md
+cortexium-runner add ready --title "Fix the CSV header" --body-file fix-card.md
+```
+
+Use `--dry-run` to preview the destination without changing GitHub. `add plan`
+asks the normal event loop to run the planner and stage a dependency-aware
+proposal for review. `add ready` authorizes the exact card for implementation
+once its declared dependencies have succeeded and required resources are free.
+
 ## How work moves
 
 ```mermaid
@@ -283,7 +296,8 @@ flowchart LR
     D --> E["Agent QA"]
     E -->|"accepted"| F["PR Ready"]
     E -->|"changes needed"| C
-    F -->|"human merge or close"| G["Done"]
+    F -->|"merged"| G["Done"]
+    F -->|"closed without merge"| H
     D -->|"needs input or error"| H["Blocked"]
     H -->|"human retry"| C
 ```
@@ -292,13 +306,18 @@ Humans decide which work enters an executable lane. Runner prepares an isolated
 task worktree, launches the configured role, validates the result, and
 publishes accepted work as a pull request.
 
-Putting an ordinary unsigned card in `Ready` authorizes its exact current
-snapshot for the implementer; Runner converts a Project draft to an issue in the
-configured intake repository, then signs it before claiming it. Planner output
+Putting an ordinary unsigned card in `Plan` asks the planner to shape its exact
+current snapshot. Putting one in `Ready` authorizes that snapshot for the
+implementer. Runner converts either Project draft to an issue in the configured
+intake repository, then signs it before claiming it. Planner output
 stays as reversible Project drafts while it awaits batch approval, and approval
 converts every released child to an issue before it can become executable.
 Forged or content-modified approvals and unreleased planner batches still fail
 closed.
+An ordinary card can declare prerequisites with an exact `## Dependencies`
+bullet list of Project item IDs or GitHub issue URLs. Runner starts it only when
+every referenced card has a Runner-authenticated successful outcome; moving a
+prerequisite to `Done` by hand is not sufficient.
 Human issue comments captured before the assignment are included as bounded
 historical context. When Agent QA requests changes, Runner posts a readable,
 idempotent comment to the issue and also retains authenticated local retry

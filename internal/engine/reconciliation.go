@@ -14,6 +14,14 @@ import (
 	"github.com/cortexium-io/runner/internal/workspace"
 )
 
+type pullRequestObservation struct {
+	action       github.AuthorizedAction
+	details      github.PullRequestDetails
+	authorizeErr error
+	inspectErr   error
+	inspected    bool
+}
+
 func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkItem) ([]RunResult, bool, error) {
 	warnings := []RunResult{}
 	changed := false
@@ -44,6 +52,7 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			summary := "Automatic merge could not be disabled before Runner changed the pull request. Runner did not mutate the branch; disable auto-merge on the PR manually before retrying."
 			return true, blockAutoMerge(action, laneID, summary, err)
 		}
+		changed = true
 		return false, nil
 	}
 	prepareWorkspace := func(action github.AuthorizedAction, item github.WorkItem, delegatedContentDigest, repoRoot, laneID string, autoMergeEnabled bool) (workspace.Metadata, bool, error) {
@@ -75,29 +84,86 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		changed = true
 		return workspace.Metadata{}, true, nil
 	}
-	requestAutoMerge := func(action github.AuthorizedAction, laneID, headCommit string) (bool, error) {
+	requestAutoMerge := func(action github.AuthorizedAction, laneID, headCommit string) (blocked, baseMoved bool, err error) {
 		if !s.cfg.GitHubProject.AutoMerge {
-			return false, nil
+			return false, false, nil
 		}
 		current, content, err := s.source.RefreshDelegatedContent(ctx, action)
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 		item := current.Item
 		repoRoot, err := s.repositoryDir(ctx, item.Repository)
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
 		prepared, blocked, err := prepareWorkspace(current, item, content.Digest, repoRoot, laneID, false)
 		if err != nil || blocked {
-			return blocked, err
+			return blocked, false, err
 		}
 		if err := manager.RequestAutoMergeAuthorized(ctx, current, headCommit, s.baseBranch(), prepared.BaseRevision, s.cfg.GitHubProject.MergeMethod); err != nil {
+			if errors.Is(err, github.ErrPublicationBaseChanged) {
+				warnings = append(warnings, RunResult{
+					Item: current.Item, Outcome: "warning",
+					Summary: "Base branch advanced at the automatic integration boundary; Runner will retry against the latest base.",
+				})
+				changed = true
+				return false, true, nil
+			}
 			summary := "Automatic merge could not be enabled after Agent QA passed."
-			return true, blockAutoMerge(current, laneID, summary, err)
+			return true, false, blockAutoMerge(current, laneID, summary, err)
 		}
 		changed = true
-		return false, nil
+		return false, false, nil
+	}
+	observations := map[string]pullRequestObservation{}
+	integrationOwners := map[string]string{}
+	integrationUnavailable := map[string]bool{}
+	if s.cfg.GitHubProject.AutoMerge {
+		for _, observedItem := range items {
+			if strings.TrimSpace(observedItem.PullRequest) == "" {
+				continue
+			}
+			laneID := s.cfg.LaneIDForStatus(observedItem.Status)
+			if terminalPullRequestLane(s.cfg, laneID, mergedEvent, hasMergedEvent, closedEvent, hasClosedEvent) {
+				continue
+			}
+			observation := pullRequestObservation{}
+			action, err := s.source.Authorize(ctx, github.WorkItem{ID: observedItem.ID})
+			if err != nil {
+				observation.authorizeErr = err
+				observations[observedItem.ID] = observation
+				if key, keyErr := s.integrationResourceKey(observedItem, s.baseBranch()); keyErr == nil {
+					integrationUnavailable[key] = true
+				}
+				continue
+			}
+			observation.action = action
+			currentItem := action.Item
+			laneID = s.cfg.LaneIDForStatus(currentItem.Status)
+			if terminalPullRequestLane(s.cfg, laneID, mergedEvent, hasMergedEvent, closedEvent, hasClosedEvent) {
+				observations[observedItem.ID] = observation
+				continue
+			}
+			details, err := manager.InspectAuthorized(ctx, action)
+			observation.details = details
+			observation.inspectErr = err
+			observation.inspected = true
+			observations[observedItem.ID] = observation
+			if err != nil {
+				if key, keyErr := s.integrationResourceKey(currentItem, s.baseBranch()); keyErr == nil {
+					integrationUnavailable[key] = true
+				}
+				continue
+			}
+			if details.State == "OPEN" && details.AutoMergeEnabled {
+				if key, keyErr := s.integrationResourceKey(currentItem, details.BaseRefName); keyErr == nil {
+					if _, claimed := integrationOwners[key]; !claimed {
+						integrationOwners[key] = currentItem.ID
+					}
+				}
+			}
+		}
 	}
 	for itemIndex := range items {
 		item := items[itemIndex]
@@ -106,7 +172,11 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		}
 		laneBeforeAuthorization := s.cfg.LaneIDForStatus(item.Status)
 		terminalBeforeAuthorization := terminalPullRequestLane(s.cfg, laneBeforeAuthorization, mergedEvent, hasMergedEvent, closedEvent, hasClosedEvent)
-		action, authorizeErr := s.source.Authorize(ctx, github.WorkItem{ID: item.ID})
+		observation, observed := observations[item.ID]
+		action, authorizeErr := observation.action, observation.authorizeErr
+		if !observed {
+			action, authorizeErr = s.source.Authorize(ctx, github.WorkItem{ID: item.ID})
+		}
 		if authorizeErr != nil {
 			// A human transition to a terminal lane revokes the previous Runner
 			// action assertion. Respect that terminal state without using the
@@ -131,7 +201,10 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			}
 			continue
 		}
-		details, err := manager.InspectAuthorized(ctx, action)
+		details, err := observation.details, observation.inspectErr
+		if !observed || !observation.inspected {
+			details, err = manager.InspectAuthorized(ctx, action)
+		}
 		if err != nil {
 			if hasOutdatedEvent {
 				target := outdatedEvent.Transitions[config.WorkflowOutcomeError]
@@ -224,7 +297,7 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			return warnings, changed, errors.New(detail)
 		}
 		headMatchesQA := strings.TrimSpace(item.QACommit) != "" && strings.EqualFold(strings.TrimSpace(item.QACommit), strings.TrimSpace(details.HeadRefOID))
-		if reworkRequested || awaitingHuman && (strings.TrimSpace(details.HeadRefOID) == "" || !headMatchesQA) {
+		if awaitingHuman && (strings.TrimSpace(details.HeadRefOID) == "" || !headMatchesQA) {
 			if blocked, err := cancelAutoMerge(action, details, laneID); err != nil {
 				return warnings, changed, err
 			} else if blocked {
@@ -243,6 +316,66 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			warnings = append(warnings, RunResult{Item: item, Outcome: "warning", Summary: "Pull request head changed after Agent QA.", Error: fmt.Sprintf("approved %s, current %s", defaultString(strings.TrimSpace(item.QACommit), "missing"), defaultString(strings.TrimSpace(details.HeadRefOID), "missing"))})
 			changed = true
 			continue
+		}
+		if reworkRequested {
+			if blocked, err := cancelAutoMerge(action, details, laneID); err != nil {
+				return warnings, changed, err
+			} else if blocked {
+				continue
+			}
+			feedback := ""
+			if strings.TrimSpace(details.Feedback) != "" {
+				feedback = details.Feedback
+			}
+			if err := s.resetRejections(ctx, action, feedback, laneID); err != nil {
+				return warnings, changed, err
+			}
+			changed = true
+			items[itemIndex].QAFailures = 0
+			items[itemIndex].Phase = laneID
+			if strings.TrimSpace(feedback) != "" {
+				items[itemIndex].Result = feedback
+			}
+			continue
+		}
+		if !s.cfg.GitHubProject.AutoMerge {
+			if blocked, err := cancelAutoMerge(action, details, laneID); err != nil {
+				return warnings, changed, err
+			} else if blocked {
+				continue
+			}
+			if _, err := s.cleanupAuthorizedItemWorkspace(ctx, action); err != nil {
+				warnings = append(warnings, workspaceCleanupWarning(item, err))
+			}
+			continue
+		}
+		integrationKey, err := s.integrationResourceKey(item, details.BaseRefName)
+		if err != nil {
+			return warnings, changed, err
+		}
+		integrationOwner := integrationOwners[integrationKey]
+		if details.AutoMergeEnabled && integrationOwner == "" {
+			integrationOwner = item.ID
+			integrationOwners[integrationKey] = item.ID
+		}
+		if integrationOwner != "" && integrationOwner != item.ID {
+			if details.AutoMergeEnabled {
+				if blocked, err := cancelAutoMerge(action, details, laneID); err != nil {
+					return warnings, changed, err
+				} else if blocked {
+					continue
+				}
+			}
+			if _, err := s.cleanupAuthorizedItemWorkspace(ctx, action); err != nil {
+				warnings = append(warnings, workspaceCleanupWarning(item, err))
+			}
+			continue
+		}
+		if integrationOwner == "" && integrationUnavailable[integrationKey] {
+			continue
+		}
+		if integrationOwner == "" {
+			integrationOwners[integrationKey] = item.ID
 		}
 		repoRoot, err := s.repositoryDir(ctx, item.Repository)
 		if err != nil {
@@ -274,36 +407,22 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			continue
 		}
 		if !needsRefresh {
-			if reworkRequested {
-				feedback := ""
-				if strings.TrimSpace(details.Feedback) != "" {
-					feedback = details.Feedback
-				}
-				if err := s.resetRejections(ctx, action, feedback, laneID); err != nil {
+			if _, blocked, prepareErr := prepareWorkspace(action, item, delegatedContent.Digest, repoRoot, laneID, details.AutoMergeEnabled); prepareErr != nil {
+				return warnings, changed, prepareErr
+			} else if blocked {
+				continue
+			}
+			if !details.AutoMergeEnabled {
+				if blocked, baseMoved, err := requestAutoMerge(action, laneID, details.HeadRefOID); err != nil {
 					return warnings, changed, err
-				}
-				changed = true
-				items[itemIndex].QAFailures = 0
-				items[itemIndex].Phase = laneID
-				if strings.TrimSpace(feedback) != "" {
-					items[itemIndex].Result = feedback
-				}
-			} else if awaitingHuman {
-				if _, blocked, prepareErr := prepareWorkspace(action, item, delegatedContent.Digest, repoRoot, laneID, details.AutoMergeEnabled); prepareErr != nil {
-					return warnings, changed, prepareErr
 				} else if blocked {
 					continue
+				} else if baseMoved {
+					continue
 				}
-				if s.cfg.GitHubProject.AutoMerge && !details.AutoMergeEnabled {
-					if blocked, err := requestAutoMerge(action, laneID, details.HeadRefOID); err != nil {
-						return warnings, changed, err
-					} else if blocked {
-						continue
-					}
-				}
-				if _, err := s.cleanupAuthorizedItemWorkspace(ctx, action); err != nil {
-					warnings = append(warnings, workspaceCleanupWarning(item, err))
-				}
+			}
+			if _, err := s.cleanupAuthorizedItemWorkspace(ctx, action); err != nil {
+				warnings = append(warnings, workspaceCleanupWarning(item, err))
 			}
 			continue
 		}
@@ -341,12 +460,10 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		if blocked {
 			continue
 		}
-		if awaitingHuman || reworkRequested {
-			if blocked, err := cancelAutoMerge(action, details, laneID); err != nil {
-				return warnings, changed, err
-			} else if blocked {
-				continue
-			}
+		if blocked, err := cancelAutoMerge(action, details, laneID); err != nil {
+			return warnings, changed, err
+		} else if blocked {
+			continue
 		}
 		refresh, err := manager.RefreshBranchAuthorized(ctx, action, preparedWorkspace, defaultString(details.BaseRefName, s.baseBranch()), s.remoteName(), s.cfg.GitHubProject.MergeMethod)
 		if err != nil {
@@ -409,29 +526,15 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			changed = true
 			continue
 		}
-		if reworkRequested {
-			feedback := ""
-			if strings.TrimSpace(details.Feedback) != "" {
-				feedback = details.Feedback
-			}
-			if err := s.resetRejections(ctx, action, feedback, laneID); err != nil {
-				return warnings, changed, err
-			}
-			changed = true
-			items[itemIndex].QAFailures = 0
-			items[itemIndex].Phase = laneID
-			if strings.TrimSpace(feedback) != "" {
-				items[itemIndex].Result = feedback
-			}
-		} else if awaitingHuman {
-			if blocked, err := requestAutoMerge(action, laneID, details.HeadRefOID); err != nil {
-				return warnings, changed, err
-			} else if blocked {
-				continue
-			}
-			if _, err := s.cleanupAuthorizedItemWorkspace(ctx, action); err != nil {
-				warnings = append(warnings, workspaceCleanupWarning(item, err))
-			}
+		if blocked, baseMoved, err := requestAutoMerge(action, laneID, details.HeadRefOID); err != nil {
+			return warnings, changed, err
+		} else if blocked {
+			continue
+		} else if baseMoved {
+			continue
+		}
+		if _, err := s.cleanupAuthorizedItemWorkspace(ctx, action); err != nil {
+			warnings = append(warnings, workspaceCleanupWarning(item, err))
 		}
 	}
 	return warnings, changed, nil
@@ -447,6 +550,7 @@ func (s *Engine) reconcileTerminalPullRequest(
 	hasClosedEvent bool,
 ) (handled bool, changed bool, warning *RunResult, err error) {
 	item := action.Item
+	laneID := s.cfg.LaneIDForStatus(item.Status)
 	if details.State != "MERGED" && details.State != "CLOSED" {
 		return false, false, nil, nil
 	}
@@ -483,7 +587,8 @@ func (s *Engine) reconcileTerminalPullRequest(
 	}
 	targetStatus := s.cfg.LaneStatus(event.To)
 	if !strings.EqualFold(strings.TrimSpace(item.Status), strings.TrimSpace(targetStatus)) {
-		if err := s.transitionProjectItem(ctx, action, targetStatus, fmt.Sprintf("Pull request %s was %s.", details.URL, verb), ""); err != nil {
+		phase := s.retryPhase(laneID, event.To)
+		if err := s.transitionProjectItem(ctx, action, targetStatus, fmt.Sprintf("Pull request %s was %s.", details.URL, verb), phase); err != nil {
 			return true, false, nil, err
 		}
 		changed = true
@@ -560,7 +665,7 @@ func terminalPullRequestLane(cfg config.RuntimeConfig, laneID string, merged con
 		event config.WorkflowEvent
 		ok    bool
 	}{{merged, hasMerged}, {closed, hasClosed}} {
-		if terminal.ok && laneID == terminal.event.To {
+		if terminal.ok && laneID == terminal.event.To && !strings.EqualFold(cfg.LaneStatus(laneID), cfg.GitHubProject.BlockedStatus) {
 			return true
 		}
 	}
@@ -655,16 +760,8 @@ func (s *Engine) validateWorkspaceForItem(ctx context.Context, item github.WorkI
 }
 
 func (s *Engine) prepareWorkspaceForItem(ctx context.Context, item github.WorkItem, delegatedContentDigest, repoRoot string, quarantineMismatch bool) (workspace.Metadata, error) {
-	repository := strings.TrimSpace(item.Repository)
-	if repository == "" {
-		repository = strings.TrimSpace(s.cfg.GitHubProject.IntakeRepository)
-	}
-	return workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).Prepare(ctx, workspace.Request{
-		WorkingDir: repoRoot, WorktreeRoot: s.implementationWorkspaceRoot(), WorkID: "assignment_" + safeRefComponent(item.ID),
-		ItemID: strings.TrimSpace(item.ID), DelegatedContentDigest: strings.TrimSpace(delegatedContentDigest), Repository: repository,
-		BranchPrefix: "runner", BranchName: strings.TrimSpace(item.Branch), BaseRef: s.remoteName() + "/" + s.baseBranch(),
-		QuarantineMismatch: quarantineMismatch,
-	})
+	request := s.workspaceRequestForItem(item, delegatedContentDigest, repoRoot, quarantineMismatch)
+	return workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).Prepare(ctx, request)
 }
 
 func (s *Engine) syncWorkspaceBranch(ctx context.Context, worktreePath, branch string, remoteRequired bool) error {

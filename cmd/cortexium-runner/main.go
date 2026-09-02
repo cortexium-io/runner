@@ -60,6 +60,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		return runDoctor(ctx, args[1:], stdout)
 	case "update":
 		return runUpdate(ctx, args[1:], stdout)
+	case "add":
+		return runAdd(ctx, args[1:], stdout)
 	case "plan":
 		return runPlan(ctx, args[1:], stdin, stdout)
 	case "approve":
@@ -92,6 +94,7 @@ Getting started:
   cortexium-runner update [--check] [--version vMAJOR.MINOR.PATCH]
 
 Project work:
+  cortexium-runner add plan|ready [--config PATH] --title TEXT (--body TEXT|--body-file PATH) [--dry-run]
   cortexium-runner plan [--config PATH] [--idea TEXT|--idea-file PATH] [--create|--stage-only|--approve-staged FINGERPRINT]
   cortexium-runner approve [--config PATH] --item ID|URL [--dry-run]
   cortexium-runner retry [--config PATH] [--item ID|URL|TITLE] [--feedback TEXT] [--dry-run]
@@ -109,7 +112,9 @@ Generated workflow:
      writes the local config, and installs the bundled role skills.
   2. doctor validates the config and verifies GitHub, repository, harness, skill,
      tool, and MCP readiness. Use --offline for static validation only.
-  3. run syncs public intake and drives configured planning, implementation, QA,
+  3. add plan asks the running planner to shape a goal into reviewable cards;
+     add ready authorizes one sufficiently specified card for implementation.
+  4. run syncs public intake and drives configured planning, implementation, QA,
      PR, and human-gate transitions.
 
 No hosted control plane, webhook, or inbound server is required.

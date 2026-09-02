@@ -243,8 +243,11 @@ func (m PullRequestManager) RequestAutoMergeAuthorized(ctx context.Context, acti
 	if err != nil {
 		return err
 	}
-	if err := ValidateTrackedPullRequest(details, item.Repository, item.Branch, headCommit, baseBranch, baseRevision); err != nil {
+	if err := ValidateTrackedPullRequest(details, item.Repository, item.Branch, headCommit, baseBranch, ""); err != nil {
 		return fmt.Errorf("automatic merge pull request identity changed: %w", err)
+	}
+	if baseRevision = strings.TrimSpace(baseRevision); baseRevision != "" && !strings.EqualFold(strings.TrimSpace(details.BaseRefOID), baseRevision) {
+		return fmt.Errorf("automatic merge pull request identity changed: pull request base commit %q does not match %q: %w", details.BaseRefOID, baseRevision, ErrPublicationBaseChanged)
 	}
 	return m.requestAutoMerge(ctx, item.Repository, item.PullRequest, headCommit, mergeMethod)
 }

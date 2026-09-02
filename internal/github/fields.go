@@ -249,6 +249,13 @@ func decodeProjectItemNode(raw projectItemNode) WorkItem {
 		item.Repository = metadata.Repository
 	}
 	item.Dependencies = append([]string{}, metadata.Dependencies...)
+	if !metadataPresent {
+		manualDependencies, dependenciesPresent, dependenciesErr := decodeManualDependencies(item.Body)
+		item.PlanningMetadataInvalid = dependenciesPresent && dependenciesErr != nil
+		if dependenciesErr == nil {
+			item.Dependencies = append([]string{}, manualDependencies...)
+		}
+	}
 	item.PlanningSourceID = metadata.PlanningSourceID
 	item.PlanningSourceLane = metadata.PlanningSourceLane
 	item.PlanningSourceFingerprint = metadata.PlanningSourceFingerprint

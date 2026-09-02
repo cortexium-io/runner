@@ -70,6 +70,23 @@ func TestGitWorkspaceProviderCreatesReusableIsolatedWorktree(t *testing.T) {
 	}
 }
 
+func TestResourceIdentityUsesWorkspaceBranchNaming(t *testing.T) {
+	generated, err := ResourceIdentity(Request{WorkID: "assignment_PVTI_123", Repository: "Owner/Repo", BranchPrefix: "runner"})
+	if err != nil {
+		t.Fatalf("derive generated workspace identity: %v", err)
+	}
+	if generated != "owner/repo/runner/assignment_pvti_123" {
+		t.Fatalf("generated workspace identity = %q", generated)
+	}
+	persisted, err := ResourceIdentity(Request{WorkID: "assignment_PVTI_456", Repository: "owner/repo", BranchPrefix: "runner", BranchName: "feature/retained"})
+	if err != nil {
+		t.Fatalf("derive persisted workspace identity: %v", err)
+	}
+	if persisted != "owner/repo/feature/retained" {
+		t.Fatalf("persisted workspace identity = %q", persisted)
+	}
+}
+
 func TestGitWorkspaceProviderReusesAuthenticatedWorkspaceAfterBaseAdvances(t *testing.T) {
 	repo := initGitRepo(t)
 	root := filepath.Join(t.TempDir(), "worktrees")
