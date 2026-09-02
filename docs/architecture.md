@@ -97,8 +97,9 @@ preserves unfinished attempts and stages after a process interruption. Stage
 events carry identity, timing, enums, and usage only. The history deliberately
 excludes prompts, transcripts, raw responses, command arguments, raw local
 errors, and free-form stage payloads. `metrics` reads and aggregates this store,
-including completed harness-invocation counts and exact implementation-result
-resumes. `status` presents a compact aggregate and the current admission decision. GitHub
+including completed harness-invocation counts and exact saved-result resumes for
+planning and implementation. `status` presents a compact aggregate and the
+current admission decision. GitHub
 cards receive only fixed bounded execution, recovery, and QA classifications;
 detailed usage and model-authored evidence remain local.
 
@@ -363,9 +364,17 @@ Trust-gated issue intake performs the same revalidation automatically after
 rechecking source trust. The source carries a
 Runner-authenticated staging marker bound to the ordered exact batch and a
 fresh generation; public metadata or phase text alone cannot establish
-provenance. Runner records that marker before the source lifecycle writes, so
-an interrupted transition can resume the exact authenticated batch without
-rerunning the planner; changed or partially authorized children are rejected.
+provenance. Before the first child write, Runner stores the normalized
+executable plan in a private mode-`0600` checkpoint bound to the delegated
+content, exact planning context, role, lane, destination, repository, and batch
+fingerprint. An exact retry skips the planner and reapplies only that saved
+batch, reusing matching children already staged before an interruption. Changed
+context removes the stale checkpoint; malformed state fails closed. Plans with
+open decisions are not checkpointed because they create no children. Runner
+records the authenticated marker before the source lifecycle writes and clears
+the local checkpoint after staging succeeds, so either recovery path resumes
+the exact batch without rerunning the planner; changed or partially authorized
+children are rejected.
 Interactive direct CLI planning treats the displayed-plan Yes as authorization,
 stages the full batch, and reloads and revalidates it immediately before release.
 Explicit `--create` provides the same stage, revalidate, and release behavior

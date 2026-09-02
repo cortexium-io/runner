@@ -481,6 +481,13 @@ call containing only those unresolved keys. The reviewer reuses existing focused
 checks and never creates a second test framework, broad benchmark, or unrelated
 diagnostic path.
 
+After a Project planning card produces an executable result, Runner saves the
+exact normalized plan in a private checkpoint before creating children. If
+GitHub staging fails partway through, an exact retry skips the planner, reuses
+matching staged children, and creates only the missing ones. Planning-content
+or context changes invalidate the checkpoint; Runner never silently deletes a
+partial batch.
+
 After a successful implementer result, Runner also saves a private checkpoint
 bound to the approved content, review and human-comment context, exact worktree
 snapshot, branch, and candidate commit/tree. If later Runner or GitHub

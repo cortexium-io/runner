@@ -429,14 +429,25 @@ Use `doctor` for installation and configuration readiness.
 `metrics` reports the recorded duration, outcome, role, harness, model,
 reasoning level, QA iteration, recovery classification, harness-reported token
 counters, and harness-reported monetary cost for each attempt. Its summary also
-shows completed harness invocations and implementation attempts that resumed an
-exact saved result without another model call. It also shows a
+shows completed harness invocations and planner or implementation attempts that
+resumed an exact saved result without another model call. It also shows a
 stage timeline for workspace preparation, repository preparation, harness
 execution, result validation, workspace verification, Project
 transitions, and pull-request publication when those stages apply. Use
 `metrics --item ID_OR_TITLE` for one card or `metrics --json` for
 machine-readable output. `status` includes a compact accumulated total and the
 current admission-budget state.
+
+After a Project planning card produces a valid executable plan, Runner stores
+that exact normalized plan in a private mode-`0600` checkpoint before creating
+the first child. The record is bound to the approved source content, bounded
+issue discussion, role, lane, destination, repository, and deterministic batch
+fingerprint. If GitHub staging fails partway through, retrying the unchanged
+planning card skips the planner and creates only the missing children; already
+staged matching children are reused. A changed planning context discards the
+stale checkpoint, while malformed retained state blocks for inspection. Runner
+does not archive or delete partial children automatically and clears the
+checkpoint after the exact batch is staged successfully.
 
 After a successful implementation, Runner stores one evidence entry per
 approved verification check in private mode-`0600` state. The record is bound

@@ -339,6 +339,9 @@ type plannerNeedsInputRunner struct {
 type plannerStagesBatchRunner struct {
 	project        *fakeGitHubProjectRunner
 	forbiddenTitle string
+	plannerCalls   *int
+	outline        string
+	details        string
 }
 
 type permissionDeniedImplementationRunner struct{ project *fakeGitHubProjectRunner }
@@ -463,6 +466,9 @@ func (r plannerStagesBatchRunner) Run(ctx context.Context, command string, args 
 	case "git":
 		return runEngineTestGit(ctx, args, dir, timeout)
 	case "codex":
+		if r.plannerCalls != nil {
+			*r.plannerCalls = *r.plannerCalls + 1
+		}
 		if strings.TrimSpace(r.forbiddenTitle) != "" && strings.Contains(strings.Join(args, "\n"), r.forbiddenTitle) {
 			return subprocess.Result{}, errors.New("mutable Project title reached planner harness input")
 		}
@@ -470,10 +476,15 @@ func (r plannerStagesBatchRunner) Run(ctx context.Context, command string, args 
 		if outputPath == "" {
 			return subprocess.Result{}, errors.New("planner did not request a result file")
 		}
-		plan, err := stagedPlannerFixtureResponse(args,
-			`{"goal_summary":"Deliver the slice","project_success_criteria":["The slice works."],"project_constraints":[],"open_decisions":[],"cards":[{"title":"Implement the slice","dependencies":[]}]}`,
-			`{"cards":{"C1":{"objective":"Build the requested slice.","done_when":["It works."],"proof_obligations":["The requested behavior is demonstrated."],"assumptions":[]}}}`,
-		)
+		outline := r.outline
+		if strings.TrimSpace(outline) == "" {
+			outline = `{"goal_summary":"Deliver the slice","project_success_criteria":["The slice works."],"project_constraints":[],"open_decisions":[],"cards":[{"title":"Implement the slice","dependencies":[]}]}`
+		}
+		details := r.details
+		if strings.TrimSpace(details) == "" {
+			details = `{"cards":{"C1":{"objective":"Build the requested slice.","done_when":["It works."],"proof_obligations":["The requested behavior is demonstrated."],"assumptions":[]}}}`
+		}
+		plan, err := stagedPlannerFixtureResponse(args, outline, details)
 		if err != nil {
 			return subprocess.Result{}, err
 		}
@@ -1347,6 +1358,75 @@ func TestPlannerCycleStagesBatchAndWaitsForExplicitOperatorApproval(t *testing.T
 	}
 	if !strings.Contains(results[0].Summary, "approve --item PVTI_plan --dry-run") {
 		t.Fatalf("planner result omitted operator approval guidance: %#v", results[0])
+	}
+}
+
+func TestPlannerRetryResumesExactCheckpointAfterPartialChildCreation(t *testing.T) {
+	repo := t.TempDir()
+	if output, err := exec.Command("git", "init", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	runGitTest(t, repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+	item := github.WorkItem{ID: "PVTI_plan_resume", Title: "Plan two slices", Body: "Split this request safely.", Repository: "owner/repo", Status: "Plan"}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, failCreateAt: 2}
+	plannerCalls := 0
+	runner := plannerStagesBatchRunner{
+		project: project, plannerCalls: &plannerCalls,
+		outline: `{"goal_summary":"Deliver both slices","project_success_criteria":["Both slices work."],"project_constraints":[],"open_decisions":[],"cards":[{"title":"Implement first slice","dependencies":[]},{"title":"Implement second slice","dependencies":[1]}]}`,
+		details: `{"cards":{"C1":{"objective":"Build the first slice.","done_when":["The first slice works."],"proof_obligations":["The first behavior is demonstrated."],"assumptions":[]},"C2":{"objective":"Build the second slice.","done_when":["The second slice works."],"proof_obligations":["The second behavior is demonstrated."],"assumptions":[]}}}`,
+	}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := service.RunCycle(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 1 || first[0].Outcome == execution.OutcomeSucceeded || plannerCalls != 2 || project.createCount != 2 {
+		t.Fatalf("first interrupted planner attempt was not reproduced: results=%#v planner_calls=%d creates=%d", first, plannerCalls, project.createCount)
+	}
+	checkpointPath := service.plannerCheckpointPath(item.ID)
+	if info, err := os.Stat(checkpointPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("completed plan was not retained privately: info=%v error=%v", info, err)
+	}
+
+	retry, err := service.PlanProjectItemRetry(t.Context(), item.ID)
+	if err != nil {
+		t.Fatalf("plan interrupted planner retry: %v", err)
+	}
+	if _, err := service.ApplyProjectItemRetry(t.Context(), retry); err != nil {
+		t.Fatalf("apply interrupted planner retry: %v", err)
+	}
+	project.failCreateAt = 0
+	second, err := service.RunCycle(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 1 || second[0].Outcome != execution.OutcomeSucceeded || !second[0].ResumedCheckpoint || plannerCalls != 2 || project.createCount != 3 {
+		t.Fatalf("retry did not resume the saved plan exactly: results=%#v planner_calls=%d creates=%d", second, plannerCalls, project.createCount)
+	}
+	project.loadRemoteItems()
+	children := make([]github.WorkItem, 0, 2)
+	for _, current := range project.remoteItems {
+		if github.DecodePlannedItemMetadata(current.Body).PlanningSourceID == item.ID {
+			children = append(children, current)
+		}
+	}
+	if len(children) != 2 {
+		t.Fatalf("resumed batch contains %d children, want 2: %#v", len(children), children)
+	}
+	firstMetadata := github.DecodePlannedItemMetadata(children[0].Body)
+	secondMetadata := github.DecodePlannedItemMetadata(children[1].Body)
+	if firstMetadata.PlanningBatchFingerprint == "" || firstMetadata.PlanningBatchFingerprint != secondMetadata.PlanningBatchFingerprint {
+		t.Fatalf("resumed children do not share the exact saved batch: %#v", children)
+	}
+	if _, err := os.Stat(checkpointPath); !os.IsNotExist(err) {
+		t.Fatalf("completed planner checkpoint was not cleared: %v", err)
 	}
 }
 
