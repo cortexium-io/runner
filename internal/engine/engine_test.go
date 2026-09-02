@@ -3974,6 +3974,41 @@ func TestReconciliationDoesNotRewriteAlreadyTerminalProjectState(t *testing.T) {
 	}
 }
 
+func TestPreparePollClaimsReadyWorkWithoutReprocessingTerminalPullRequests(t *testing.T) {
+	terminal := github.WorkItem{
+		ID: "PVTI_terminal", Title: "Already merged", Body: "Criteria", Repository: "owner/repo", Status: "Done",
+		Role: config.WorkRoleReviewer, PullRequest: "https://github.com/owner/repo/pull/12", Branch: "cortexium/terminal", QACommit: "qa-head",
+	}
+	terminal.Approval = testApproval(terminal)
+	ready := github.WorkItem{ID: "PVTI_ready_after_terminal", Title: "Run ready work", Body: "Criteria", Repository: "owner/repo", Status: "Ready"}
+	ready.Approval = testApproval(ready)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(terminal) + `,` + projectItemJSON(ready) + `]}`}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir:    t.TempDir(),
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), terminalNoInspectRunner{project: project})
+	if err != nil {
+		t.Fatalf("configure service: %v", err)
+	}
+
+	prepared, err := service.preparePoll(t.Context(), 1, false, nil)
+	if err != nil {
+		t.Fatalf("prepare poll: %v", err)
+	}
+	if len(prepared.results) != 0 || len(prepared.claimed) != 1 || prepared.claimed[0].action.Item.ID != ready.ID {
+		t.Fatalf("terminal cleanup delayed or polluted the ready claim: results=%#v claimed=%#v", prepared.results, prepared.claimed)
+	}
+	lifecycleCalls := 0
+	for _, call := range project.calls {
+		if isLifecycleItemsCall(call) {
+			lifecycleCalls++
+		}
+	}
+	if lifecycleCalls != 2 {
+		t.Fatalf("Project snapshots = %d, want initial observation and fresh ready claim only", lifecycleCalls)
+	}
+}
+
 func TestReconciliationStillRejectsNonTerminalAuthorizationMismatch(t *testing.T) {
 	item := github.WorkItem{
 		ID: "PVTI_pr", Title: "Implement", Body: "Criteria", Repository: "owner/repo", Status: "Ready",
