@@ -403,6 +403,16 @@ hatch. The independent `harness_config` setting defaults to `isolated`, which
 suppresses unrelated user plugins, ungranted MCP servers, project instructions,
 and skills and keeps the role's fixed tool ceiling. Set it to `inherit` to load
 the native user/project configuration; `host` plus `inherit` is unrestricted.
+For a new config, pass `init --harness-config inherit`. For an existing config,
+apply the same mode to all three built-in role contracts atomically:
+
+```bash
+cortexium-runner role edit --all --harness-config inherit
+```
+
+Custom roles inherit the changed built-in policy unless they carry an explicit
+override. The command preserves every role's access mode and rejects the whole
+edit before replacing the config if the resulting combination is invalid.
 Integrity checks reject reviewer mutations and changes outside the implementation
 worktree, but cannot contain external side effects from a host-access process.
 Pi implementer and reviewer roles require `host`, and every inherited Pi role

@@ -1064,17 +1064,24 @@ the shared value for one role. Init also accepts shared
 `--planner-harness-config`, `--implementer-harness-config`, and
 `--reviewer-harness-config` overrides. Per-role access is selected with
 `--planner-access`, `--implementer-access`, and `--reviewer-access`. For an
-existing config, use:
+existing config whose built-in roles should all use the harness as natively
+configured, use:
 
 ```bash
-cortexium-runner role edit implementer --access host --harness-config inherit
-cortexium-runner role show implementer
+cortexium-runner role edit --all --config /absolute/operator/path/runner.json --harness-config inherit
+cortexium-runner role list --config /absolute/operator/path/runner.json
 cortexium-runner doctor --config /absolute/operator/path/runner.json
 ```
 
-The first command is an explicit unrestricted opt-in. Changing a config never
-changes an already-running harness process; restart Runner for later work to use
-the new policy.
+The bulk edit changes the planner, implementer, and reviewer definitions in one
+validated atomic config replacement. Custom roles inherit the changed built-in
+policy unless they have an explicit `harness_config` override. Access modes are
+not changed. Consequently, the edit fails without replacing the config if, for
+example, a sandboxed Pi role would become `inherit`. Use an explicit per-role
+edit such as `role edit implementer --access host --harness-config inherit`
+only when unrestricted host access is intended. Changing a config never changes
+an already-running harness process; restart Runner for later work to use the new
+policy.
 Implementer and reviewer roles also accept `planning_support`: `standard` uses
 the ordinary concise planning contract, while `high` asks the planner for
 smaller coherent slices, explicit boundaries and assumptions, literal acceptance

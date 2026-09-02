@@ -101,7 +101,7 @@ This direction is implemented in reviewable slices:
    while Runner still injects its required result, access, and workspace
    contracts.
 
-As of 2026-09-02, slices 1–5 are implemented. Continuous mode maintains local
+As of 2026-09-02, all six slices are implemented. Continuous mode maintains local
 in-flight resource ownership, continues polling at the base interval while
 actions run, excludes conflicting items from reconciliation, and performs
 interruption recovery only when no local action remains. Dependencies may cross
@@ -120,7 +120,13 @@ rework requests are not eagerly refreshed. Humans can enqueue a planner request
 or sufficiently specified implementation card with `add plan` or `add ready`
 while continuous mode is active. Direct ordinary cards in either lane are
 converted to issues and authenticated from their exact observed snapshot before
-claim. Slice 6 remains target behavior.
+claim. Native harness configuration is selected independently from access:
+`inherit` loads the existing harness setup while Runner still injects its
+required result, access, and workspace contracts. New configurations accept one
+shared `init --harness-config` value. Existing configurations accept one atomic
+`role edit --all --harness-config` operation for the three built-in role
+contracts; complete-config validation rejects the change before replacement if
+any resulting harness/access combination is invalid.
 
 ## Consequences
 

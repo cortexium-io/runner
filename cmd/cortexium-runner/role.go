@@ -171,8 +171,16 @@ func runRoleShow(args []string, stdout io.Writer) error {
 
 func runRoleChange(action string, args []string, stdout io.Writer) error {
 	name, args := leadingRoleName(args)
-	flags := newFlagSet("role "+action, "cortexium-runner role "+action+" NAME [--config PATH] [role options]", stdout)
+	usage := "cortexium-runner role " + action + " NAME [--config PATH] [role options]"
+	if action == "edit" {
+		usage = "cortexium-runner role edit (NAME | --all) [--config PATH] [role options]"
+	}
+	flags := newFlagSet("role "+action, usage, stdout)
 	configPath := flags.String("config", "", "trusted operator config path; defaults to .cortexium/runner.json")
+	all := false
+	if action == "edit" {
+		flags.BoolVar(&all, "all", false, "edit harness configuration for all built-in roles atomically")
+	}
 	extends := flags.String("extends", "", "parent role; custom roles must inherit a planner, implementer, or reviewer role")
 	harness := flags.String("harness", "", "harness override: codex, claude, or pi")
 	access := flags.String("access", "", "access override: sandboxed or host")
@@ -202,13 +210,31 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	if err != nil || !proceed {
 		return err
 	}
-	if name == "" && flags.NArg() == 1 {
-		name = flags.Arg(0)
-	} else if flags.NArg() != 0 {
-		return fmt.Errorf("role %s requires exactly one role name", action)
-	}
-	if name == "" {
-		return fmt.Errorf("role %s requires exactly one role name", action)
+	visited := map[string]bool{}
+	flags.Visit(func(value *flag.Flag) { visited[value.Name] = true })
+	if all {
+		if name != "" || flags.NArg() != 0 {
+			return errors.New("role edit --all does not accept a role name")
+		}
+		if !visited["harness-config"] {
+			return errors.New("role edit --all requires --harness-config")
+		}
+		for option := range visited {
+			switch option {
+			case "all", "config", "harness-config":
+			default:
+				return fmt.Errorf("role edit --all supports only --harness-config, not --%s", option)
+			}
+		}
+	} else {
+		if name == "" && flags.NArg() == 1 {
+			name = flags.Arg(0)
+		} else if flags.NArg() != 0 {
+			return fmt.Errorf("role %s requires exactly one role name", action)
+		}
+		if name == "" {
+			return fmt.Errorf("role %s requires exactly one role name", action)
+		}
 	}
 	if *clearSkills && len(skills) > 0 {
 		return errors.New("--clear-skills and --skill cannot be used together")
@@ -237,10 +263,16 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	if action == "add" && (*clearImplementerLadder || len(nextImplementers) > 0) {
 		return errors.New("implementer ladder options require role edit on the workflow implementer role")
 	}
+	if visited["harness-config"] && !config.ValidHarnessConfigMode(*harnessConfig) {
+		return errors.New("--harness-config must be isolated or inherit")
+	}
 	*configPath = resolveRunnerConfigPath(*configPath, "")
 	cfg, err := config.LoadTrustedConfig(*configPath)
 	if err != nil {
 		return fmt.Errorf("load runner config: %w", err)
+	}
+	if all {
+		return editAllBuiltinRoleHarnessConfiguration(*configPath, cfg, config.EffectiveHarnessConfigMode(*harnessConfig), stdout)
 	}
 	id := strings.TrimSpace(name)
 	if !config.ValidRoleID(id) {
@@ -261,8 +293,6 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 		}
 		definition = config.RoleConfig{}
 	}
-	visited := map[string]bool{}
-	flags.Visit(func(value *flag.Flag) { visited[value.Name] = true })
 	if visited["extends"] {
 		if config.IsBuiltinRole(id) && strings.TrimSpace(*extends) != "" {
 			return errors.New("built-in role contracts cannot extend another role")
@@ -285,9 +315,6 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 		definition.Access = config.EffectiveRoleAccess(*access)
 	}
 	if visited["harness-config"] {
-		if !config.ValidHarnessConfigMode(*harnessConfig) {
-			return errors.New("--harness-config must be isolated or inherit")
-		}
 		definition.HarnessConfig = config.EffectiveHarnessConfigMode(*harnessConfig)
 	}
 	if *safeTools || *noSafeTools {
@@ -364,6 +391,37 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	if config.EffectiveRoleAccess(resolved.Access) == config.RoleAccessHost && config.EffectiveHarnessConfigMode(resolved.HarnessConfig) == config.HarnessConfigModeInherit {
 		fmt.Fprintln(stdout, "WARNING: this role now inherits ambient tools and configuration with unrestricted host access.")
 	}
+	return nil
+}
+
+func editAllBuiltinRoleHarnessConfiguration(path string, cfg config.Config, mode string, stdout io.Writer) error {
+	if cfg.Roles == nil {
+		return errors.New("runner config has no built-in roles to edit")
+	}
+	for _, id := range config.BuiltinRoleIDs() {
+		definition, configured := cfg.Roles[id]
+		if !configured {
+			return fmt.Errorf("built-in role %q is not configured", id)
+		}
+		definition.HarnessConfig = mode
+		cfg.Roles[id] = definition
+	}
+	if err := config.SaveConfig(path, cfg); err != nil {
+		return fmt.Errorf("save built-in role harness configuration: %w", err)
+	}
+	fmt.Fprintf(stdout, "Edited harness configuration for all built-in roles: %s.\n", mode)
+	unrestricted := []string{}
+	for _, id := range config.BuiltinRoleIDs() {
+		resolved, _ := cfg.RoleProfile(id)
+		fmt.Fprintf(stdout, "  %s: %s/%s/%s\n", id, resolved.Harness, config.EffectiveRoleAccess(resolved.Access), config.EffectiveHarnessConfigMode(resolved.HarnessConfig))
+		if config.EffectiveRoleAccess(resolved.Access) == config.RoleAccessHost && config.EffectiveHarnessConfigMode(resolved.HarnessConfig) == config.HarnessConfigModeInherit {
+			unrestricted = append(unrestricted, id)
+		}
+	}
+	if len(unrestricted) > 0 {
+		fmt.Fprintf(stdout, "WARNING: %s now inherit ambient tools and configuration with unrestricted host access.\n", strings.Join(unrestricted, ", "))
+	}
+	fmt.Fprintln(stdout, "Custom roles keep explicit overrides and otherwise inherit these built-in role settings.")
 	return nil
 }
 

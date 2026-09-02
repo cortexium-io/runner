@@ -522,6 +522,89 @@ func TestRoleEditChangesOnlyTheSelectedHarnessConfiguration(t *testing.T) {
 	}
 }
 
+func TestRoleEditAllChangesBuiltinHarnessConfigurationAtomically(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "runner.json")
+	cfg := completeCLITestConfig(t.TempDir())
+	cfg.Roles["security_reviewer"] = config.RoleConfig{Extends: config.WorkRoleReviewer}
+	cfg.Roles["isolated_reviewer"] = config.RoleConfig{Extends: config.WorkRoleReviewer, HarnessConfig: config.HarnessConfigModeIsolated}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := run(t.Context(), []string{"role", "edit", "--all", "--config", configPath, "--harness-config", "inherit"}, strings.NewReader(""), &output); err != nil {
+		t.Fatalf("edit all built-in harness configurations: %v\n%s", err, output.String())
+	}
+	loaded, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range config.BuiltinRoleIDs() {
+		definition := loaded.Roles[id]
+		resolved, ok := loaded.RoleProfile(id)
+		if !ok || definition.HarnessConfig != config.HarnessConfigModeInherit || resolved.HarnessConfig != config.HarnessConfigModeInherit || resolved.Access != config.RoleAccessSandboxed {
+			t.Fatalf("built-in role %s did not inherit ambient configuration within its existing access boundary: definition=%#v resolved=%#v", id, definition, resolved)
+		}
+		if !strings.Contains(output.String(), id+": codex/sandboxed/inherit") {
+			t.Fatalf("bulk edit output omitted effective role %s:\n%s", id, output.String())
+		}
+	}
+	inherited, ok := loaded.RoleProfile("security_reviewer")
+	if !ok || inherited.HarnessConfig != config.HarnessConfigModeInherit {
+		t.Fatalf("custom role did not inherit the edited reviewer policy: %#v", inherited)
+	}
+	isolated, ok := loaded.RoleProfile("isolated_reviewer")
+	if !ok || isolated.HarnessConfig != config.HarnessConfigModeIsolated {
+		t.Fatalf("custom explicit harness configuration was overwritten: %#v", isolated)
+	}
+	if !strings.Contains(output.String(), "Custom roles keep explicit overrides") {
+		t.Fatalf("bulk edit output did not explain custom role behavior:\n%s", output.String())
+	}
+}
+
+func TestRoleEditAllRejectsUnsafeCombinationWithoutReplacingConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "runner.json")
+	cfg := completeCLITestConfig(t.TempDir())
+	enabled := true
+	cfg.Harnesses = append(cfg.Harnesses, config.HarnessConfig{Kind: config.HarnessPiCLI, Command: "pi", Enabled: &enabled})
+	planner := cfg.Roles[config.WorkRolePlanner]
+	planner.Harness = config.HarnessPiCLI
+	cfg.Roles[config.WorkRolePlanner] = planner
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = run(t.Context(), []string{"role", "edit", "--all", "--config", configPath, "--harness-config", "inherit"}, strings.NewReader(""), io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "Pi cannot safely inherit ambient configuration") {
+		t.Fatalf("unsafe all-role inheritance was not rejected clearly: %v", err)
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("failed all-role edit partially replaced the config")
+	}
+}
+
+func TestRoleEditAllAcceptsOnlyHarnessConfiguration(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "runner.json")
+	if err := config.SaveConfig(configPath, completeCLITestConfig(t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"role", "edit", "--all", "--config", configPath},
+		{"role", "edit", "--all", "implementer", "--config", configPath, "--harness-config", "inherit"},
+		{"role", "edit", "--all", "--config", configPath, "--harness-config", "inherit", "--access", "host"},
+	} {
+		if err := run(t.Context(), args, strings.NewReader(""), io.Discard); err == nil {
+			t.Fatalf("invalid all-role edit was accepted: %#v", args)
+		}
+	}
+}
+
 func TestRoleEditChangesOnlySelectedPlanningSupport(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "runner.json")
 	cfg := completeCLITestConfig(t.TempDir())
