@@ -363,7 +363,12 @@ re-fetches and compares the approved base, re-resolves the accepted tree,
 refreshes Project authority, validates the configured remote repository, and
 pushes only the recorded commit OID to the recorded full ref. Base refreshes
 remain local until their resulting tree completes implementation and QA and
-receives a replacement publication record.
+receives a replacement publication record. During tracked pull-request rework
+in `rebase` mode, workspace synchronization permits the expected local history
+rewrite only when the remote branch still resolves to the card's exact recorded
+QA commit. The rewritten history remains local through implementation and QA;
+publication is still the only boundary that may replace the remote branch, and
+does so with the exact old commit as its force-with-lease value.
 
 QA publication ends at `PR Ready`; it never requests merge directly. In
 automatic mode, pull-request reconciliation claims

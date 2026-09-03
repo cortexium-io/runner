@@ -241,7 +241,11 @@ repository's history policy. When a `rebase` pull request needs a base refresh,
 Runner records the complete refreshed tree as a linear candidate on the new
 base, sends conflicts back through implementation and QA, and publishes the
 approved rewrite only if the remote branch still equals its previously accepted
-commit. `merge` and `squash` retain merge-based base refreshes.
+commit. A local rework history may therefore diverge from that remote commit
+before QA; Runner recognizes it only for an existing tracked pull request whose
+recorded QA commit still exactly matches the remote head. Any mismatch remains
+blocked as a possible external branch change. `merge` and `squash` retain
+merge-based base refreshes.
 
 ### GitHub repository and merge readiness
 

@@ -5551,6 +5551,94 @@ func TestWorkspaceForPullRequestFastForwardsToLatestRemoteHead(t *testing.T) {
 	}
 }
 
+func TestWorkspaceForTrackedRebasePullRequestKeepsExactLocalRewriteForQA(t *testing.T) {
+	repo, remote := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_rebase_rework", Title: "Correct the published implementation", Body: "Criteria", Repository: "owner/repo",
+		Branch: "cortexium/task", PullRequest: "https://github.com/owner/repo/pull/12",
+	}
+	digest := github.DelegatedContentFor(item).Digest
+	cfg := completeEngineTestConfig(config.Config{
+		ProjectDir: repo,
+		GitHubProject: &config.GitHubProjectConfig{
+			Owner: "owner", Number: 4, IntakeRepository: "owner/repo", MergeMethod: config.MergeMethodRebase,
+		},
+	})
+	testRunner := reviewerAcceptRunner{project: &fakeGitHubProjectRunner{}}
+	service, err := New(cfg, testRunner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := workspace.Request{
+		WorkingDir: repo, WorktreeRoot: service.implementationWorkspaceRoot(), WorkID: "assignment_" + safeRefComponent(item.ID),
+		ItemID: item.ID, DelegatedContentDigest: digest, Repository: item.Repository,
+		BranchName: item.Branch, BaseRef: "origin/main",
+	}
+	provider := workspace.NewGitProvider(testRunner)
+	prepared, err := provider.Prepare(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "feature.txt"), []byte("published implementation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	published, err := provider.ConstructCandidateForMergeMethod(t.Context(), prepared, item.Title, config.MergeMethodRebase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runGitTest(t, prepared.WorktreePath, "push", "origin", published.CommitOID+":refs/heads/"+item.Branch)
+	item.QACommit = published.CommitOID
+
+	advanceRemoteBase(t, repo, "base.txt", "new base\n")
+	refresh, err := provider.RefreshBaseForMergeMethod(t.Context(), prepared, "origin", "main", config.MergeMethodRebase)
+	if err != nil || !refresh.Updated || refresh.Conflicted {
+		t.Fatalf("refresh published candidate: %#v, error=%v", refresh, err)
+	}
+	prepared, err = provider.Prepare(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "feature.txt"), []byte("corrected implementation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	corrected, err := provider.ConstructCandidateForMergeMethod(t.Context(), prepared, item.Title, config.MergeMethodRebase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec.Command("git", "-C", prepared.WorktreePath, "merge-base", "--is-ancestor", published.CommitOID, corrected.CommitOID).CombinedOutput(); err == nil {
+		t.Fatal("test setup did not create the expected rebase-history divergence")
+	}
+
+	reused, err := service.workspaceForItem(t.Context(), item, digest, repo)
+	if err != nil {
+		t.Fatalf("reuse exact Runner-owned rebase rewrite for QA: %v", err)
+	}
+	if localHead := strings.TrimSpace(runGitTest(t, reused.WorktreePath, "rev-parse", "HEAD")); localHead != corrected.CommitOID {
+		t.Fatalf("QA workspace head = %s, want corrected local candidate %s", localHead, corrected.CommitOID)
+	}
+	if remoteHead := strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/"+item.Branch)); remoteHead != published.CommitOID {
+		t.Fatalf("QA preflight changed remote head = %s, want prior accepted commit %s", remoteHead, published.CommitOID)
+	}
+
+	wrongLease := item
+	wrongLease.QACommit = strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/main"))
+	if _, err := service.workspaceForItem(t.Context(), wrongLease, digest, repo); err == nil || !strings.Contains(err.Error(), "have diverged") {
+		t.Fatalf("rebase rewrite with a mismatched recorded remote commit was accepted: %v", err)
+	}
+
+	mergeConfig := cfg
+	mergeProject := *cfg.GitHubProject
+	mergeProject.MergeMethod = config.MergeMethodMerge
+	mergeConfig.GitHubProject = &mergeProject
+	mergeService, err := New(mergeConfig, testRunner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mergeService.workspaceForItem(t.Context(), item, digest, repo); err == nil || !strings.Contains(err.Error(), "have diverged") {
+		t.Fatalf("merge-mode divergence was accepted as a rebase rewrite: %v", err)
+	}
+}
+
 func completeEngineTestConfig(cfg config.Config) config.Config {
 	if cfg.ConfigVersion == 0 {
 		cfg.ConfigVersion = config.ConfigVersion

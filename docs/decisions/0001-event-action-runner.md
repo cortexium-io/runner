@@ -119,11 +119,16 @@ publication only queues a PR;
 reconciliation lazily compares the selected candidate with the latest base,
 returns updates or conflicts through implementation and QA, and requests
 automatic merge only for a clean reviewed candidate. Manual-review PRs and
-rework requests are not eagerly refreshed. Humans can enqueue a planner request
-or sufficiently specified implementation card with `add plan` or `add ready`
-while continuous mode is active. Direct ordinary cards in either lane are
-converted to issues and authenticated from their exact observed snapshot before
-claim. Native harness configuration is selected independently from access:
+rework requests are not eagerly refreshed. A tracked `rebase` rework may have a
+local corrected history that diverges from the previously published branch;
+Runner retains it for implementation and QA only while that remote branch still
+equals the exact QA commit recorded on the card, then publication replaces it
+under the existing exact force-with-lease contract. Humans can enqueue a
+planner request or sufficiently specified implementation card with `add plan`
+or `add ready` while continuous mode is active. Direct ordinary cards in either
+lane are converted to issues and authenticated from their exact observed
+snapshot before claim. Native harness configuration is selected independently
+from access:
 `inherit` loads the existing harness setup while Runner still injects its
 required result, access, and workspace contracts. New configurations accept one
 shared `init --harness-config` value. Existing configurations accept one atomic
