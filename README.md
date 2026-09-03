@@ -390,9 +390,9 @@ An optional implementer ladder can start with a smaller model and move to the
 next operator-configured role only after Agent QA requests changes. The
 Project's persisted QA failure count selects the rung, so restarting Runner
 does not reset or skip escalation. Omit `implementer_ladder` for one fixed
-implementer, or configure two or more role profiles up to the workflow's QA
-retry budget plus the initial implementation. The last profile handles any
-remaining allowed QA retries.
+implementer, or configure two or more role profiles up to the workflow's
+`max_qa_rejections`. The last profile handles any remaining allowed QA
+rejections before the card blocks.
 Authentication, permission, capability, configuration, timeout, cancellation,
 and integrity failures still block for an operator; they never spend another
 model call automatically. See the

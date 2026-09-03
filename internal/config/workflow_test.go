@@ -13,7 +13,7 @@ func TestWorkflowTemplateIsCompleteAndJuniorReadable(t *testing.T) {
 		t.Fatalf("default workflow is invalid: %v", err)
 	}
 	qa := workflow.Lanes["agent_qa"]
-	if qa.Role != WorkRoleReviewer || qa.MaxQARetries != 3 || qa.Transitions[WorkflowOutcomeSuccess] != "pr_ready" || qa.Transitions[WorkflowOutcomeRejected] != "ready" || qa.Transitions[WorkflowOutcomeExhausted] != "blocked" {
+	if qa.Role != WorkRoleReviewer || qa.MaxQARejections != 3 || qa.Transitions[WorkflowOutcomeSuccess] != "pr_ready" || qa.Transitions[WorkflowOutcomeRejected] != "ready" || qa.Transitions[WorkflowOutcomeExhausted] != "blocked" {
 		t.Fatalf("unexpected default QA lane %#v", qa)
 	}
 	if workflow.Lanes["pr_ready"].OnEnter != WorkflowActionPublishPR {
@@ -430,16 +430,11 @@ func TestImplementerLadderIsOptionalBoundedAndActivatesItsProfiles(t *testing.T)
 
 	cfg.ImplementerLadder = []string{WorkRoleImplementer, "implementer_luna", "implementer_sol"}
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("three-profile ladder within the QA retry budget is invalid: %v", err)
+		t.Fatalf("three-profile ladder within max_qa_rejections is invalid: %v", err)
 	}
 	cfg.Roles["implementer_extra"] = RoleConfig{Extends: WorkRoleImplementer}
 	cfg.ImplementerLadder = append(cfg.ImplementerLadder, "implementer_extra")
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("ladder using the initial attempt plus all QA retries is invalid: %v", err)
-	}
-	cfg.Roles["implementer_overflow"] = RoleConfig{Extends: WorkRoleImplementer}
-	cfg.ImplementerLadder = append(cfg.ImplementerLadder, "implementer_overflow")
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "at most 4 implementation attempts") {
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "at most 3 implementation attempts") {
 		t.Fatalf("unreachable ladder profile was accepted: %v", err)
 	}
 }
@@ -491,27 +486,29 @@ func TestWorkflowValidationExplainsBrokenReviewerRouting(t *testing.T) {
 	cfg := explicitTestConfig()
 	workflow := WorkflowTemplate(true)
 	qa := workflow.Lanes["agent_qa"]
-	qa.MaxQARetries = 0
+	qa.MaxQARejections = 0
 	delete(qa.Transitions, WorkflowOutcomeExhausted)
 	workflow.Lanes["agent_qa"] = qa
 	cfg.Workflow = &workflow
 	err := cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "max_qa_retries") {
+	if err == nil || !strings.Contains(err.Error(), "max_qa_rejections") {
 		t.Fatalf("broken reviewer lane returned unclear validation: %v", err)
 	}
 }
 
-func TestWorkflowConfigurationRejectsRemovedRejectLimit(t *testing.T) {
+func TestWorkflowConfigurationRejectsRemovedQAThresholdNames(t *testing.T) {
 	data, err := json.Marshal(explicitTestConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy := strings.Replace(string(data), `"max_qa_retries":3`, `"reject_limit":3`, 1)
-	if legacy == string(data) {
-		t.Fatal("test config did not contain max_qa_retries")
-	}
-	if _, err := decodeConfig([]byte(legacy)); err == nil || !strings.Contains(err.Error(), "unknown field") {
-		t.Fatalf("removed reject_limit was accepted: %v", err)
+	for _, removed := range []string{"reject_limit", "max_qa_retries"} {
+		legacy := strings.Replace(string(data), `"max_qa_rejections":3`, `"`+removed+`":3`, 1)
+		if legacy == string(data) {
+			t.Fatal("test config did not contain max_qa_rejections")
+		}
+		if _, err := decodeConfig([]byte(legacy)); err == nil || !strings.Contains(err.Error(), "unknown field") {
+			t.Fatalf("removed %s was accepted: %v", removed, err)
+		}
 	}
 }
 

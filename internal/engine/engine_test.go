@@ -4625,9 +4625,9 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 		failures                                              int
 		priorFeedback                                         bool
 	}{
-		{name: "first retry", failures: 0, wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected, wantSummary: "retry 1 of 3"},
-		{name: "third retry", failures: 2, priorFeedback: true, wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected, wantSummary: "retry 3 of 3"},
-		{name: "exhausted after third retry", failures: 3, priorFeedback: true, wantStatus: "Blocked", wantPhase: "ready", wantOutcome: execution.OutcomeBlocked, wantSummary: "after 3 retries"},
+		{name: "first rejection", failures: 0, wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected, wantSummary: "rejection 1 of 3"},
+		{name: "second rejection", failures: 1, priorFeedback: true, wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected, wantSummary: "rejection 2 of 3"},
+		{name: "third rejection blocks", failures: 2, priorFeedback: true, wantStatus: "Blocked", wantPhase: "ready", wantOutcome: execution.OutcomeBlocked, wantSummary: "rejection 3 of 3"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repo, _ := createPublicationRepository(t)

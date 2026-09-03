@@ -288,8 +288,8 @@ children instead of accepting duplicates. Each child retains the original
 request and project-wide success contract as well as its local criteria.
 Implementation success goes to
 `Agent QA`; QA rejection returns it to `Ready` until
-`max_qa_retries`, then `Blocked`. The value counts rework-and-review retries
-after the initial rejection. QA acceptance publishes a PR and moves the card
+`max_qa_rejections`, then `Blocked`. A value of 3 means the third rejection
+blocks the card. QA acceptance publishes a PR and moves the card
 to `PR Ready`, then removes the local task worktree while retaining
 the task branch. A plan with unresolved `open_decisions` creates no cards and
 moves the planning item through `needs_input` to `Blocked`.

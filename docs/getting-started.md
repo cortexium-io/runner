@@ -202,10 +202,10 @@ card's merged pull request. A planner source issue stays open after planning and
 closes only when every exact released child has merged successfully; no one
 child PR carries a source-closing keyword.
 
-A QA rejection returns the card to `Ready` for up to the configured
-`max_qa_retries` after the initial rejection. If an optional implementer ladder
-is configured, each persisted QA rejection advances to its next role profile;
-the final profile is reused for
+A QA rejection returns the card to `Ready` until the configured
+`max_qa_rejections` is reached. A value of 3 means the third rejection blocks
+the card. If an optional implementer ladder is configured, each persisted QA
+rejection advances to its next role profile; the final profile is reused for
 any remaining allowed attempts. Errors and requests for input fail closed in
 `Blocked`; they do not advance the ladder or become implicit approval.
 

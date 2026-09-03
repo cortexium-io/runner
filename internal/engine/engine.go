@@ -1088,7 +1088,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		}
 		failures := item.QAFailures + 1
 		outcome := config.WorkflowOutcomeRejected
-		if failures > lane.MaxQARetries {
+		if failures >= lane.MaxQARejections {
 			outcome = config.WorkflowOutcomeExhausted
 		}
 		target := lane.Transitions[outcome]
@@ -1112,11 +1112,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		if outcome == config.WorkflowOutcomeExhausted {
 			result.Outcome = execution.OutcomeBlocked
 		}
-		if outcome == config.WorkflowOutcomeExhausted {
-			result.Summary = fmt.Sprintf("Agent QA requested changes after %d retries: %s", lane.MaxQARetries, strings.TrimSpace(output.ReviewAssessment.Summary))
-		} else {
-			result.Summary = fmt.Sprintf("Agent QA requested changes; retry %d of %d: %s", failures, lane.MaxQARetries, strings.TrimSpace(output.ReviewAssessment.Summary))
-		}
+		result.Summary = fmt.Sprintf("Agent QA requested changes (rejection %d of %d): %s", failures, lane.MaxQARejections, strings.TrimSpace(output.ReviewAssessment.Summary))
 		return result
 	}
 	if err != nil || output.Outcome != execution.OutcomeSucceeded || output.ReviewAssessment == nil || output.ReviewAssessment.Verdict != "accept" {

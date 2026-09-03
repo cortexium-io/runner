@@ -118,8 +118,8 @@ An optional implementer ladder is a validated ordered list of implementer role
 profiles. It never retries within one execution attempt. After a reviewer
 returns a valid `needs_changes` verdict, the existing authenticated `QA
 Failures` Project field advances the next implementation to the corresponding
-profile; the last configured profile is reused until the configured QA retry
-budget is exhausted. This makes selection restart-stable without a second local
+profile; the last configured profile is reused until `max_qa_rejections` is
+reached. This makes selection restart-stable without a second local
 state journal. Other failure classes do not change the persisted QA count and
 therefore cannot trigger automatic model escalation. Metrics and admission use
 the selected profile's actual role, harness, model, and reasoning settings.

@@ -114,7 +114,7 @@
       "agent_qa": {
         "name": "Agent QA",
         "role": "reviewer",
-        "max_qa_retries": 3,
+        "max_qa_rejections": 3,
         "transitions": {
           "success": "pr_ready",
           "rejected": "ready",

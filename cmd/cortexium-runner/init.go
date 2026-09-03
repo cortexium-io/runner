@@ -44,8 +44,8 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	maxAdmissionHarnessTime := flags.Duration("max-admission-harness-time", 0, "maximum completed harness time in the admission window")
 	maxAdmissionTokens := flags.Int64("max-admission-tokens", 0, "maximum harness-reported tokens in the admission window")
 	maxAdmissionCostUSD := flags.Float64("max-admission-cost-usd", 0, "maximum harness-reported cost in USD in the admission window")
-	maxQARetries := 3
-	flags.IntVar(&maxQARetries, "max-qa-retries", 3, "rework and Agent QA retries allowed after the first rejection")
+	maxQARejections := 3
+	flags.IntVar(&maxQARejections, "max-qa-rejections", 3, "Agent QA rejections allowed before the card is blocked")
 	baseBranch := flags.String("base-branch", "main", "pull request target branch")
 	remoteName := flags.String("remote", "origin", "Git remote used for publication")
 	autoMerge := flags.Bool("auto-merge", false, "ask GitHub to merge pull requests automatically after its requirements pass")
@@ -135,7 +135,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		forbidden := map[string]bool{
 			"owner": true, "project-number": true, "create-project": true, "repository": true,
 			"intake-label": true, "autonomous-issues": true, "trusted-issue-author": true, "project-visibility": true, "project-dir": true,
-			"max-parallelism": true, "max-qa-retries": true, "base-branch": true, "auto-merge": true, "merge-method": true,
+			"max-parallelism": true, "max-qa-rejections": true, "base-branch": true, "auto-merge": true, "merge-method": true,
 			"admission-window": true, "max-admission-attempts": true, "max-admission-harness-time": true,
 			"max-admission-tokens": true, "max-admission-cost-usd": true,
 			"remote": true, "harness": true, "planner-harness": true, "implementer-harness": true,
@@ -254,7 +254,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	}
 	workflow := config.WorkflowTemplate(reviewAfterBaseUpdate)
 	qaLane := workflow.Lanes["agent_qa"]
-	qaLane.MaxQARetries = maxQARetries
+	qaLane.MaxQARejections = maxQARejections
 	workflow.Lanes["agent_qa"] = qaLane
 	roles := config.RoleTemplate(*plannerHarness)
 	roles[config.WorkRolePlanner] = initRole(roles[config.WorkRolePlanner], *plannerHarness, *plannerModel, *plannerReasoning)
