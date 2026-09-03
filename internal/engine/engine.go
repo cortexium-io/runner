@@ -41,14 +41,19 @@ type RunResult struct {
 }
 
 type Engine struct {
-	cfg                 config.RuntimeConfig
-	source              *github.Project
-	run                 subprocess.Runner
-	observeMetrics      func(metrics.Event) error
-	readMetricsHistory  func() (metrics.ReadResult, error)
-	admissionMu         sync.Mutex
-	lastAdmission       AdmissionDecision
-	admissionMetricsErr string
+	cfg                        config.RuntimeConfig
+	source                     *github.Project
+	run                        subprocess.Runner
+	observeMetrics             func(metrics.Event) error
+	readMetricsHistory         func() (metrics.ReadResult, error)
+	admissionMu                sync.Mutex
+	lastAdmission              AdmissionDecision
+	admissionMetricsErr        string
+	admissionHistoryMu         sync.Mutex
+	admissionHistory           metrics.ReadResult
+	admissionHistoryLoaded     bool
+	admissionHistoryGeneration uint64
+	admissionCacheGeneration   uint64
 }
 
 // SetMetricsObserver attaches attempt telemetry. It remains non-critical when
@@ -64,6 +69,10 @@ func (s *Engine) SetMetricsObserver(observer func(metrics.Event) error) {
 		err := observer(event)
 		if err != nil && s.cfg.AdmissionBudget != nil {
 			s.recordAdmissionMetricsError(err)
+		} else if err == nil && s.cfg.AdmissionBudget != nil && (event.Kind == metrics.EventStarted || event.Kind == metrics.EventCompleted) {
+			s.admissionHistoryMu.Lock()
+			s.admissionHistoryGeneration++
+			s.admissionHistoryMu.Unlock()
 		}
 		return err
 	}
@@ -78,7 +87,7 @@ type PollState struct {
 
 const (
 	DefaultPollInterval    = 30 * time.Second
-	DefaultMaxIdleInterval = 5 * time.Minute
+	DefaultMaxIdleInterval = DefaultPollInterval
 	intakeSyncInterval     = 2 * time.Minute
 	maxErrorPollInterval   = 5 * time.Minute
 )
@@ -129,11 +138,12 @@ func (s *Engine) RunCycle(ctx context.Context) ([]RunResult, error) {
 }
 
 type pollPreparation struct {
-	results      []RunResult
-	claimed      []admittedAction
-	items        []github.WorkItem
-	itemsDirty   bool
-	madeProgress bool
+	results            []RunResult
+	claimed            []admittedAction
+	items              []github.WorkItem
+	itemsDirty         bool
+	madeProgress       bool
+	pendingObservation bool
 }
 
 type actionCompletion struct {
@@ -176,6 +186,7 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 		return pollPreparation{}, fmt.Errorf("load GitHub Project items: %w", err)
 	}
 	prepared.items = items
+	prepared.pendingObservation = s.hasPendingObservation(items)
 	if recoverInterrupted {
 		recovered, recoverErr := s.source.RecoverInterruptedFrom(ctx, items)
 		if recoverErr != nil {
@@ -188,6 +199,7 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 				return pollPreparation{}, fmt.Errorf("reload GitHub Project items after interrupted work recovery: %w", err)
 			}
 			prepared.items = items
+			prepared.pendingObservation = s.hasPendingObservation(items)
 		}
 	}
 	reconciliationItems, err := s.itemsWithoutResourceConflicts(items, inFlight)
@@ -206,6 +218,7 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 			return pollPreparation{}, fmt.Errorf("reload GitHub Project items after pull request reconciliation: %w", err)
 		}
 		prepared.items = items
+		prepared.pendingObservation = s.hasPendingObservation(items)
 	}
 	closedIssues, issueCompletionFailures := s.source.ReconcileCompletedIssues(ctx, items)
 	if closedIssues > 0 {
@@ -230,6 +243,7 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 			return prepared, fmt.Errorf("reload GitHub Project items after autonomous planner approval: %w", err)
 		}
 		prepared.items = items
+		prepared.pendingObservation = s.hasPendingObservation(items)
 	}
 	admission, err := s.AdmissionStatus(time.Now().UTC())
 	if err != nil {
@@ -256,6 +270,12 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 	if len(readyActions) == 0 {
 		return prepared, nil
 	}
+	claimSnapshot, err := s.source.LifecycleItems(ctx)
+	if err != nil {
+		return prepared, fmt.Errorf("refresh GitHub Project before selected claims: %w", err)
+	}
+	prepared.items = claimSnapshot
+	prepared.pendingObservation = s.hasPendingObservation(claimSnapshot)
 	claimed := make([]admittedAction, 0, limit)
 	occupied := occupiedResourceKeys(inFlight)
 	for _, action := range readyActions {
@@ -276,7 +296,7 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 		if s.reworkRequested(item, laneID) {
 			prepared.itemsDirty = true
 			feedback := ""
-			if details, inspectErr := github.NewPullRequestManager(s.run, s.source).InspectAuthorized(ctx, action); inspectErr == nil && strings.TrimSpace(details.Feedback) != "" {
+			if details, inspectErr := github.NewPullRequestManager(s.run, s.source).InspectAuthorizedWithFeedback(ctx, action); inspectErr == nil && strings.TrimSpace(details.Feedback) != "" {
 				feedback = details.Feedback
 			}
 			if err := s.source.ResetRejections(ctx, action, feedback, laneID); err != nil {
@@ -293,9 +313,15 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 				prepared.results = append(prepared.results, RunResult{Item: item, Harness: s.roleHarness(item.Role), Outcome: execution.OutcomeBlocked, Summary: "Refresh reset item failed", Error: err.Error()})
 				continue
 			}
+			for index := range claimSnapshot {
+				if claimSnapshot[index].ID == action.Item.ID {
+					claimSnapshot[index] = action.Item
+					break
+				}
+			}
 		}
 		prepared.itemsDirty = true
-		claimedAction, err := s.source.Claim(ctx, action, laneID, s.activityForRole(action.Role))
+		claimedAction, err := s.source.ClaimFromSnapshot(ctx, action, claimSnapshot, laneID, s.activityForRole(action.Role))
 		if err != nil {
 			prepared.results = append(prepared.results, RunResult{Item: item, Harness: s.roleHarness(item.Role), Outcome: execution.OutcomeBlocked, Summary: "Claim failed", Error: err.Error()})
 			continue
@@ -320,6 +346,7 @@ func (s *Engine) syncAssessmentIntake(ctx context.Context, prepared *pollPrepara
 			return false, fmt.Errorf("reload GitHub Project items before public issue assessment intake: %w", err)
 		}
 		prepared.items = latestItems
+		prepared.pendingObservation = s.hasPendingObservation(latestItems)
 		prepared.itemsDirty = false
 	}
 	intake, err := s.source.SyncAssessmentIssuesFrom(ctx, prepared.items)
@@ -331,11 +358,7 @@ func (s *Engine) syncAssessmentIntake(ctx context.Context, prepared *pollPrepara
 }
 
 func (s *Engine) executeClaimedAction(ctx context.Context, action github.AuthorizedAction) RunResult {
-	current, err := s.source.Authorize(ctx, action.Item)
-	if err != nil {
-		return RunResult{Item: action.Item, Harness: s.roleHarness(action.Role), Outcome: execution.OutcomeBlocked, Summary: "Action authority changed after claim", Error: err.Error()}
-	}
-	return s.executeItem(ctx, current)
+	return s.executeItem(ctx, action)
 }
 
 func (s *Engine) activityForRole(role string) string {
@@ -389,9 +412,6 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 		case <-pollTimer.C:
 			now := time.Now()
 			syncIntake := !now.Before(nextIntakeSync)
-			if syncIntake {
-				nextIntakeSync = now.Add(intakeSyncInterval)
-			}
 			available := s.maxParallelism() - len(inFlight)
 			prepared, err := s.preparePoll(ctx, available, len(inFlight) == 0, inFlight)
 			for _, result := range prepared.results {
@@ -413,6 +433,8 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 				madeProgress = madeProgress || intakeProgress
 				if intakeErr != nil {
 					err = intakeErr
+				} else {
+					nextIntakeSync = time.Now().Add(intakeSyncInterval)
 				}
 			}
 			if err != nil {
@@ -426,7 +448,7 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 				}
 			} else {
 				consecutiveErrors = 0
-				if madeProgress || len(inFlight) > 0 {
+				if madeProgress || len(inFlight) > 0 || prepared.pendingObservation {
 					consecutiveIdle = 0
 				} else {
 					consecutiveIdle++
@@ -438,6 +460,7 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 					delay = limitedDelay
 				}
 			}
+			delay = capPollDelayForIntake(delay, time.Now(), nextIntakeSync)
 			if onPoll != nil {
 				state := PollState{LastPollAt: now, NextPollAt: time.Now().Add(delay), Admission: s.LastAdmissionDecision()}
 				if err != nil {
@@ -448,6 +471,29 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 			resetPollTimer(delay)
 		}
 	}
+}
+
+func (s *Engine) hasPendingObservation(items []github.WorkItem) bool {
+	doneLane := s.cfg.LaneIDForStatus(s.cfg.GitHubProject.DoneStatus)
+	blockedLane := s.cfg.LaneIDForStatus(s.cfg.GitHubProject.BlockedStatus)
+	for _, item := range items {
+		laneID := s.cfg.LaneIDForStatus(item.Status)
+		if laneID == "" || laneID != doneLane && laneID != blockedLane {
+			return true
+		}
+	}
+	return false
+}
+
+func capPollDelayForIntake(delay time.Duration, now, nextIntakeSync time.Time) time.Duration {
+	if nextIntakeSync.IsZero() || !nextIntakeSync.After(now) {
+		return delay
+	}
+	untilIntake := nextIntakeSync.Sub(now)
+	if untilIntake < delay {
+		return untilIntake
+	}
+	return delay
 }
 
 func nextPollDelay(base, maxIdle time.Duration, consecutiveErrors, consecutiveIdle int, madeProgress bool) time.Duration {

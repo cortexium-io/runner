@@ -135,4 +135,33 @@ func TestAdmissionStatusFailsClosedForMalformedOrUnwritableHistory(t *testing.T)
 	}
 }
 
+func TestAdmissionStatusReusesHistoryUntilAttemptStateChanges(t *testing.T) {
+	service := &Engine{cfg: config.RuntimeConfig{AdmissionBudget: &config.AdmissionBudgetConfig{WindowSeconds: 3600, MaxAttempts: 2}}}
+	service.SetMetricsObserver(func(metrics.Event) error { return nil })
+	reads := 0
+	service.SetMetricsHistoryReader(func() (metrics.ReadResult, error) {
+		reads++
+		return metrics.ReadResult{}, nil
+	})
+	now := time.Now().UTC()
+	if _, err := service.AdmissionStatus(now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AdmissionStatus(now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if reads != 1 {
+		t.Fatalf("unchanged admission history was read %d times, want 1", reads)
+	}
+	if err := service.observeMetrics(metrics.Event{Kind: metrics.EventStarted, AttemptID: "new"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AdmissionStatus(now.Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if reads != 2 {
+		t.Fatalf("new attempt did not invalidate admission history: reads=%d", reads)
+	}
+}
+
 func floatPtr(value float64) *float64 { return &value }

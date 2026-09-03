@@ -21,19 +21,19 @@ type StructuredHarnessResult struct {
 }
 
 func RunPlannerWithUsage(ctx context.Context, kind string, cfg config.ExecutionConfig, workingDir, prompt string, schema []byte, run subprocess.Runner) (StructuredHarnessResult, error) {
-	return runStructuredHarness(ctx, RolePlanner, kind, cfg, workingDir, prompt, schema, "prefer", run)
+	return runStructuredHarness(ctx, RolePlanner, kind, cfg, workingDir, prompt, schema, "prefer", metrics.StageHarnessRun, run)
 }
 
 // RunPlannerStageWithUsage performs the repository-aware half of the shared
 // two-stage planning contract for any supported harness.
 func RunPlannerStageWithUsage(ctx context.Context, kind string, cfg config.ExecutionConfig, workingDir, prompt string, schema []byte, run subprocess.Runner) (StructuredHarnessResult, error) {
-	return runStructuredHarness(ctx, RolePlanner, kind, cfg, workingDir, prompt, schema, "require", run)
+	return runStructuredHarness(ctx, RolePlanner, kind, cfg, workingDir, prompt, schema, "require", metrics.StagePlannerOutline, run)
 }
 
 // RunPlannerSynthesisStageWithUsage exposes no repository or shell tools. It
 // turns the Runner-validated outline into one fixed-key details response.
 func RunPlannerSynthesisStageWithUsage(ctx context.Context, kind string, cfg config.ExecutionConfig, prompt string, schema []byte, run subprocess.Runner) (StructuredHarnessResult, error) {
-	return runStructuredHarness(ctx, RoleSynthesis, kind, cfg, cfg.Harness.WorkingDir, prompt, schema, "require", run)
+	return runStructuredHarness(ctx, RoleSynthesis, kind, cfg, cfg.Harness.WorkingDir, prompt, schema, "require", metrics.StagePlannerDetails, run)
 }
 
 // RunProbeWithUsage invokes only the dedicated tool-free probe profile. It
@@ -43,10 +43,10 @@ func RunProbeWithUsage(ctx context.Context, kind string, cfg config.ExecutionCon
 	// broader access. This is especially important for host-access Pi roles.
 	cfg.RoleAccess = config.RoleAccessSandboxed
 	cfg.HarnessConfigMode = config.HarnessConfigModeIsolated
-	return runStructuredHarness(ctx, RoleProbe, kind, cfg, cfg.Harness.WorkingDir, prompt, schema, "prefer", run)
+	return runStructuredHarness(ctx, RoleProbe, kind, cfg, cfg.Harness.WorkingDir, prompt, schema, "prefer", metrics.StageHarnessRun, run)
 }
 
-func runStructuredHarness(ctx context.Context, role RoleContract, kind string, cfg config.ExecutionConfig, workingDir, prompt string, schema []byte, piConstrainedSamplingStrict string, run subprocess.Runner) (StructuredHarnessResult, error) {
+func runStructuredHarness(ctx context.Context, role RoleContract, kind string, cfg config.ExecutionConfig, workingDir, prompt string, schema []byte, piConstrainedSamplingStrict, stageName string, run subprocess.Runner) (StructuredHarnessResult, error) {
 	if run == nil {
 		run = subprocess.OSRunner{}
 	}
@@ -106,7 +106,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		args = append(args, codexExecArgsForConfig(profile, workspace, cfg.HarnessConfigMode)...)
 		args = append(args, "--output-last-message", artifacts.outputPath(), "--output-schema", artifacts.schemaPath())
 		startedAt := time.Now()
-		finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
+		finishHarness := metrics.StartStage(ctx, stageName)
 		result, runErr := subprocess.RunBoundedHeadTailInput(ctx, run, command, args, workspace.Dir, timeout, strings.NewReader(prompt), maxHarnessDiagnosticBytes, harnessTruncationMarker)
 		duration := time.Since(startedAt).Milliseconds()
 		usage := parseCodexUsage(result.Stdout)
@@ -147,7 +147,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 			}
 		}
 		startedAt := time.Now()
-		finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
+		finishHarness := metrics.StartStage(ctx, stageName)
 		result, lastMessage, usage, failureEvidence, runErr := executor.runHarnessWithPiTransport(ctx, args, workspace.Dir, strings.NewReader(prompt), schema, piConstrainedSamplingStrict, piDirectNative)
 		duration := time.Since(startedAt).Milliseconds()
 		if runErr != nil {

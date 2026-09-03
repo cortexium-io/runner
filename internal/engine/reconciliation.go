@@ -326,9 +326,13 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			} else if blocked {
 				continue
 			}
+			feedbackDetails, feedbackErr := manager.InspectAuthorizedWithFeedback(ctx, action)
+			if feedbackErr != nil {
+				return warnings, changed, feedbackErr
+			}
 			feedback := ""
-			if strings.TrimSpace(details.Feedback) != "" {
-				feedback = details.Feedback
+			if strings.TrimSpace(feedbackDetails.Feedback) != "" {
+				feedback = feedbackDetails.Feedback
 			}
 			if err := s.resetRejections(ctx, action, feedback, laneID); err != nil {
 				return warnings, changed, err
@@ -515,8 +519,12 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			if refresh.Conflicted {
 				detail = "Runner found conflicts while refreshing the pull request branch locally. The retained worktree requires resolution before implementation and QA continue."
 			}
-			if strings.TrimSpace(details.Feedback) != "" {
-				detail += "\n\nHuman PR feedback:\n" + strings.TrimSpace(details.Feedback)
+			feedbackDetails, feedbackErr := manager.InspectAuthorizedWithFeedback(ctx, action)
+			if feedbackErr != nil {
+				return warnings, changed, feedbackErr
+			}
+			if strings.TrimSpace(feedbackDetails.Feedback) != "" {
+				detail += "\n\nHuman PR feedback:\n" + strings.TrimSpace(feedbackDetails.Feedback)
 			}
 			outcome := "updated"
 			if refresh.Conflicted {

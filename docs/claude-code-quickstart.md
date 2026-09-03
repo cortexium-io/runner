@@ -117,7 +117,7 @@ base branch when the remote already has other history. For a project-local
 config, `init` modifies `.gitignore` but leaves that change for the user to
 review and commit if desired.
 
-The command creates or synchronizes the Project, writes the complete v2 config,
+The command creates or synchronizes the Project, writes the complete v3 config,
 and installs readiness copies of the three bundled Runner skills. Privileged
 launches disable native skill discovery and inject Runner's pinned embedded
 copy. Init does not install or authenticate Claude Code.
@@ -197,7 +197,8 @@ accepts `--config` for other locations. It polls continuously with built-in
 interval defaults and continues reconciling unrelated pull requests while a
 harness action is in flight. After Runner changes workflow state, it checks
 immediately for newly available work. Quiet polls stay at the base interval
-while actions run; idle backoff starts only when no action is in flight.
+while actions or other nonterminal work remain observable. The default idle
+ceiling equals that base interval; a larger idle backoff is opt-in.
 `run --once` performs one synchronous cycle for diagnostics or scripts.
 
 ## If something blocks

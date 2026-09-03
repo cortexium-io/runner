@@ -124,7 +124,7 @@ func runStatus(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	mergeMode := "human merge required"
 	if cfg.GitHubProject.AutoMerge {
-		mergeMode = fmt.Sprintf("automatic %s after GitHub requirements pass", config.EffectiveMergeMethod(cfg.GitHubProject.MergeMethod))
+		mergeMode = fmt.Sprintf("automatic %s after GitHub requirements pass", config.NormalizeMergeMethod(cfg.GitHubProject.MergeMethod))
 	}
 	fmt.Fprintf(stdout, "Pull request merge: %s\n", mergeMode)
 	if status.Metrics.Attempts > 0 {
@@ -225,10 +225,16 @@ func runnerStageLabel(stage string) string {
 		return "preparing workspace"
 	case runnermetrics.StageHarnessRun:
 		return "agent working"
+	case runnermetrics.StagePlannerOutline:
+		return "planning work outline"
+	case runnermetrics.StagePlannerDetails:
+		return "detailing planned work"
+	case runnermetrics.StageReviewerAudit:
+		return "auditing review evidence"
+	case runnermetrics.StageReviewerVerify:
+		return "running focused review checks"
 	case runnermetrics.StageResultValidate:
 		return "validating result"
-	case runnermetrics.StageResultRepair:
-		return "normalizing legacy result"
 	case runnermetrics.StageWorkspaceVerify:
 		return "verifying workspace integrity"
 	case runnermetrics.StageProjectTransition:

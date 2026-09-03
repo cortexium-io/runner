@@ -24,6 +24,7 @@ func (s *Project) ReconcileCompletedIssues(ctx context.Context, items []WorkItem
 	closed := 0
 	attempted := 0
 	failures := []IssueCompletionFailure{}
+	index := newWorkItemIndex(items)
 	closeEligible := func(item WorkItem) {
 		if attempted >= MaxCompletedIssueClosureAttemptsPerPoll || !strings.EqualFold(strings.TrimSpace(item.IssueState), "OPEN") || !s.isIntakeIssueURL(item.URL) {
 			return
@@ -40,12 +41,12 @@ func (s *Project) ReconcileCompletedIssues(ctx context.Context, items []WorkItem
 	}
 
 	for _, item := range items {
-		if strings.TrimSpace(item.PullRequest) != "" && s.hasSuccessfulOutcome(item, items) {
+		if strings.TrimSpace(item.PullRequest) != "" && s.hasSuccessfulOutcomeIn(item, index) {
 			closeEligible(item)
 		}
 	}
 	for _, source := range items {
-		if s.planningSourceWorkCompleted(source, items) {
+		if s.planningSourceWorkCompletedIn(source, index) {
 			closeEligible(source)
 		}
 	}
@@ -53,15 +54,14 @@ func (s *Project) ReconcileCompletedIssues(ctx context.Context, items []WorkItem
 }
 
 func (s *Project) planningSourceWorkCompleted(source WorkItem, items []WorkItem) bool {
+	return s.planningSourceWorkCompletedIn(source, newWorkItemIndex(items))
+}
+
+func (s *Project) planningSourceWorkCompletedIn(source WorkItem, index *workItemIndex) bool {
 	if !strings.EqualFold(strings.TrimSpace(source.Status), s.doneStatus()) || strings.TrimSpace(source.Transition) != "" || strings.TrimSpace(source.PullRequest) != "" {
 		return false
 	}
-	children := make([]WorkItem, 0)
-	for _, child := range items {
-		if strings.TrimSpace(child.PlanningSourceID) == strings.TrimSpace(source.ID) {
-			children = append(children, child)
-		}
-	}
+	children := index.childrenBySource[strings.TrimSpace(source.ID)]
 	if len(children) == 0 {
 		return false
 	}
@@ -69,7 +69,7 @@ func (s *Project) planningSourceWorkCompleted(source WorkItem, items []WorkItem)
 		return false
 	}
 	for _, child := range children {
-		if strings.TrimSpace(child.PullRequest) == "" || !s.hasSuccessfulOutcome(child, items) {
+		if strings.TrimSpace(child.PullRequest) == "" || !s.hasSuccessfulOutcomeIn(child, index) {
 			return false
 		}
 	}

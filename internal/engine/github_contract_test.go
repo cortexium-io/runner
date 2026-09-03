@@ -196,6 +196,8 @@ type fakeGitHubProjectRunner struct {
 	remoteItems         []github.WorkItem
 	itemPages           []string
 	itemPageCall        int
+	directItemPages     []string
+	directItemPageCall  int
 	createdBody         string
 	createCount         int
 	failCreateAt        int
@@ -356,6 +358,14 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 		}
 		return subprocess.Result{Stdout: `{"id":"PVTI_intake"}`}, nil
 	case isDirectProjectItemCall(joined):
+		if len(r.directItemPages) > 0 {
+			index := r.directItemPageCall
+			r.directItemPageCall++
+			if index >= len(r.directItemPages) {
+				return subprocess.Result{}, errors.New("unexpected extra direct Project item read")
+			}
+			return subprocess.Result{Stdout: r.directItemPages[index]}, nil
+		}
 		r.loadRemoteItems()
 		itemID := formValue(args, "item_id")
 		for _, item := range r.remoteItems {
@@ -363,7 +373,17 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 				return subprocess.Result{Stdout: directProjectItemGraphQLJSON(item)}, nil
 			}
 		}
+		if r.itemsJSON == "" && itemID == "PVTI_1" {
+			return subprocess.Result{Stdout: directProjectItemGraphQLJSON(r.defaultProjectItem())}, nil
+		}
 		return subprocess.Result{Stdout: `{"data":{"node":null}}`}, nil
+	case isProjectItemsByIDCall(joined):
+		r.loadRemoteItems()
+		ids, err := projectItemIDsFromGraphQL(args)
+		if err != nil {
+			return subprocess.Result{}, err
+		}
+		return subprocess.Result{Stdout: projectItemsByIDGraphQLJSON(r.remoteItems, ids)}, nil
 	case isLifecycleItemsCall(joined):
 		if len(r.itemPages) > 0 {
 			index := r.itemPageCall
@@ -406,6 +426,8 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 			"content": map[string]any{"body": item.Body, "repository": item.Repository, "url": item.URL, "state": item.IssueState},
 		}}})
 		return subprocess.Result{Stdout: legacyItemsGraphQLJSON(string(payload))}, nil
+	case isBatchProjectUpdateCall(joined):
+		return r.applyBatchProjectUpdate(args)
 	case strings.Contains(joined, "--field-id F_status") && strings.Contains(joined, "--single-select-option-id O_running"):
 		r.status = "In Progress"
 		r.updateRemoteItem(args, func(item *github.WorkItem) { item.Status = r.status })
@@ -636,6 +658,122 @@ func (r *fakeGitHubProjectRunner) updateRemoteItem(args []string, update func(*g
 	}
 }
 
+func (r *fakeGitHubProjectRunner) updateRemoteItemByID(itemID string, update func(*github.WorkItem)) {
+	if r.itemsJSON == "" {
+		return
+	}
+	r.loadRemoteItems()
+	for index := range r.remoteItems {
+		if r.remoteItems[index].ID == itemID || r.remoteItems[index].DraftContentID == itemID {
+			update(&r.remoteItems[index])
+			return
+		}
+	}
+}
+
+func (r *fakeGitHubProjectRunner) defaultProjectItem() github.WorkItem {
+	status := r.status
+	if status == "" {
+		status = "Ready"
+	}
+	item := github.WorkItem{
+		ID: "PVTI_1", Title: "Implement the slice", Body: "Acceptance criteria", URL: "https://github.com/owner/repo/issues/1", Repository: "owner/repo",
+		Status: status, Role: config.WorkRoleImplementer, IssueState: r.issueState, Result: r.result, Phase: r.phase,
+		Transition: r.transition, Activity: r.activity, QAFailures: r.qaFailures, Branch: r.branch, PullRequest: r.pullRequest, QACommit: r.qaCommit,
+	}
+	if item.IssueState == "" {
+		item.IssueState = "OPEN"
+	}
+	item.Approval = r.approval
+	if !r.approvalSet && status != "Needs assessment" && status != "Backlog" {
+		item.Approval = testApproval(item)
+	}
+	return item
+}
+
+func (r *fakeGitHubProjectRunner) applyBatchProjectUpdate(args []string) (subprocess.Result, error) {
+	query := graphqlFormValue(args, "query")
+	itemID := graphqlFormValue(args, "item_id")
+	fields := make([]string, 0)
+	for index := 0; ; index++ {
+		field := graphqlFormValue(args, fmt.Sprintf("field_%d", index))
+		if field == "" {
+			break
+		}
+		fields = append(fields, field)
+		if field == "F_approval" && strings.Contains(query, fmt.Sprintf("text:$text_%d", index)) {
+			r.approvalWrites++
+			if r.failApprovalAt > 0 && r.approvalWrites == r.failApprovalAt {
+				return subprocess.Result{Stderr: "simulated partial approval failure", ExitCode: 1}, errors.New("simulated partial approval failure")
+			}
+		}
+		if field == "F_status" {
+			r.statusWrites++
+			if r.statusWrites == r.failStatusAt || r.failStatusWrites[r.statusWrites] {
+				return subprocess.Result{Stderr: "simulated partial status failure", ExitCode: 1}, errors.New("simulated partial status failure")
+			}
+		}
+		if field == "F_approval" && strings.Contains(query, fmt.Sprintf("fieldId:$field_%d})", index)) {
+			r.clearApprovalWrites++
+			if r.clearApprovalWrites == r.failClearApprovalAt {
+				return subprocess.Result{Stderr: "simulated approval cleanup failure", ExitCode: 1}, errors.New("simulated approval cleanup failure")
+			}
+		}
+		if r.failFieldID != "" && field == r.failFieldID {
+			return subprocess.Result{Stderr: "simulated Project field failure", ExitCode: 1}, errors.New("simulated Project field failure")
+		}
+	}
+	for index, field := range fields {
+		textValue := graphqlFormValue(args, fmt.Sprintf("text_%d", index))
+		numberValue := graphqlFormValue(args, fmt.Sprintf("number_%d", index))
+		optionValue := graphqlFormValue(args, fmt.Sprintf("option_%d", index))
+		clear := strings.Contains(query, fmt.Sprintf("fieldId:$field_%d})", index))
+		switch field {
+		case "F_status":
+			r.status = map[string]string{
+				"O_running": "In Progress", "O_assessment": "Needs assessment", "O_backlog": "Backlog", "O_plan": "Plan",
+				"O_ready": "Ready", "O_qa": "Agent QA", "O_pr_ready": "PR Ready", "O_blocked": "Blocked", "O_done": "Done",
+			}[optionValue]
+			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.Status = r.status })
+		case "F_result":
+			r.result = textValue
+			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.Result = r.result })
+		case "F_phase":
+			r.phase = textValue
+			if clear {
+				r.phase = ""
+			}
+			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.Phase = r.phase })
+		case "F_activity":
+			r.activity = textValue
+			if clear {
+				r.activity = ""
+			}
+			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.Activity = r.activity })
+		case "F_qa_failures":
+			fmt.Sscanf(numberValue, "%d", &r.qaFailures)
+			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.QAFailures = r.qaFailures })
+		case "F_branch":
+			r.branch = textValue
+			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.Branch = r.branch })
+		case "F_pr":
+			r.pullRequest = textValue
+			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.PullRequest = r.pullRequest })
+		case "F_qa_commit":
+			r.qaCommit = textValue
+			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.QACommit = r.qaCommit })
+		case "F_approval":
+			r.approval = textValue
+			if clear {
+				r.approval = ""
+			}
+			r.approvalSet = true
+			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.Approval = r.approval })
+		}
+	}
+	return subprocess.Result{Stdout: `{"data":{}}`}, nil
+}
+
 func stringValue(value any) string {
 	result, _ := value.(string)
 	return result
@@ -658,6 +796,15 @@ func isDirectProjectItemCall(call string) bool {
 	return strings.HasPrefix(call, "api graphql ") && strings.Contains(call, "node(id:$item_id)")
 }
 
+func isProjectItemsByIDCall(call string) bool {
+	return strings.HasPrefix(call, "api graphql ") && strings.Contains(call, "query{nodes(ids:[")
+}
+
+func isBatchProjectUpdateCall(call string) bool {
+	return strings.HasPrefix(call, "api graphql ") && strings.Contains(call, "mutation(") &&
+		(strings.Contains(call, "updateProjectV2ItemFieldValue") || strings.Contains(call, "clearProjectV2ItemFieldValue"))
+}
+
 func formValue(args []string, name string) string {
 	prefix := name + "="
 	for index := 0; index+1 < len(args); index++ {
@@ -666,6 +813,35 @@ func formValue(args []string, name string) string {
 		}
 	}
 	return ""
+}
+
+func graphqlFormValue(args []string, name string) string {
+	prefix := name + "="
+	for index := 0; index+1 < len(args); index++ {
+		if (args[index] == "-F" || args[index] == "-f") && strings.HasPrefix(args[index+1], prefix) {
+			return strings.TrimPrefix(args[index+1], prefix)
+		}
+	}
+	return ""
+}
+
+func projectItemIDsFromGraphQL(args []string) ([]string, error) {
+	query := graphqlFormValue(args, "query")
+	const prefix = "nodes(ids:["
+	start := strings.Index(query, prefix)
+	if start < 0 {
+		return nil, errors.New("batch Project item query has no ids")
+	}
+	encoded := query[start+len(prefix):]
+	end := strings.Index(encoded, "])")
+	if end < 0 {
+		return nil, errors.New("batch Project item query has unterminated ids")
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte("["+encoded[:end]+"]"), &ids); err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 func projectFieldsGraphQLJSON() string {
@@ -734,6 +910,49 @@ func directProjectItemGraphQLJSON(item github.WorkItem) string {
 		return `{"data":{"node":null}}`
 	}
 	return `{"data":{"node":` + string(payload.Data.Node.Items.Nodes[0]) + `}}`
+}
+
+func projectItemsByIDGraphQLJSON(items []github.WorkItem, ids []string) string {
+	byID := make(map[string]github.WorkItem, len(items))
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+	nodes := make([]any, 0, len(ids))
+	for _, id := range ids {
+		item, ok := byID[id]
+		if !ok {
+			nodes = append(nodes, nil)
+			continue
+		}
+		var payload struct {
+			Data struct {
+				Node any `json:"node"`
+			} `json:"data"`
+		}
+		_ = json.Unmarshal([]byte(directProjectItemGraphQLJSON(item)), &payload)
+		nodes = append(nodes, payload.Data.Node)
+	}
+	encoded, _ := json.Marshal(map[string]any{"data": map[string]any{"nodes": nodes}})
+	return string(encoded)
+}
+
+func projectUpdateSelects(args []string, itemID, optionID string) bool {
+	joined := strings.Join(args, " ")
+	if strings.HasPrefix(joined, "project item-edit ") {
+		return argumentValue(args, "--id") == itemID && strings.Contains(joined, "--single-select-option-id "+optionID)
+	}
+	if !isBatchProjectUpdateCall(joined) || graphqlFormValue(args, "item_id") != itemID {
+		return false
+	}
+	for index := 0; ; index++ {
+		field := graphqlFormValue(args, fmt.Sprintf("field_%d", index))
+		if field == "" {
+			return false
+		}
+		if field == "F_status" && graphqlFormValue(args, fmt.Sprintf("option_%d", index)) == optionID {
+			return true
+		}
+	}
 }
 
 func TestGitHubProjectSourceSyncsLabeledPublicIssuesIntoAssessment(t *testing.T) {

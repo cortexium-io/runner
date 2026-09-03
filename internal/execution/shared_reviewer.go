@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/metrics"
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
@@ -58,6 +59,7 @@ func executeSharedReviewer(ctx context.Context, kind string, cfg config.Executio
 		reviewerAuditPrompt(assignment, reviewerHarnessDisplayName(kind)),
 		schema,
 		"require",
+		metrics.StageReviewerAudit,
 		run,
 	)
 	if err != nil {
@@ -83,7 +85,7 @@ func executeSharedReviewer(ctx context.Context, kind string, cfg config.Executio
 		resolutionResult, resolutionErr := runStructuredHarness(
 			ctx, RoleReviewer, kind, cfg, cfg.Harness.WorkingDir,
 			reviewerResolutionPrompt(assignment, reviewerHarnessDisplayName(kind), unresolved),
-			resolutionSchema, "require", run,
+			resolutionSchema, "require", metrics.StageReviewerVerify, run,
 		)
 		aggregate.Usage = aggregate.Usage.Add(resolutionResult.Usage)
 		aggregate.DurationMilliseconds += resolutionResult.DurationMilliseconds

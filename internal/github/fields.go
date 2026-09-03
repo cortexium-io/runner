@@ -15,6 +15,8 @@ import (
 
 const maxProjectTextFieldBytes = 1000
 
+const maxProjectNodeLookupItems = 100
+
 func canonicalProjectResult(value string) string {
 	return truncate(strings.TrimSpace(value), maxProjectTextFieldBytes)
 }
@@ -105,17 +107,65 @@ func (s *Project) itemByID(ctx context.Context, itemID string) (WorkItem, error)
 // eventually consistent Project item connection. The returned order matches
 // itemIDs.
 func (s *Project) LifecycleItemsByID(ctx context.Context, itemIDs []string) ([]WorkItem, error) {
-	items := make([]WorkItem, len(itemIDs))
+	if _, err := s.ensureSchema(ctx); err != nil {
+		return nil, err
+	}
+	if len(itemIDs) == 0 {
+		return []WorkItem{}, nil
+	}
+	orderedIDs := make([]string, len(itemIDs))
 	seen := make(map[string]struct{}, len(itemIDs))
 	for index, itemID := range itemIDs {
 		itemID = strings.TrimSpace(itemID)
+		if itemID == "" {
+			return nil, errors.New("GitHub Project item id is empty")
+		}
 		if _, exists := seen[itemID]; exists {
 			return nil, fmt.Errorf("GitHub Project item id %q is duplicated", itemID)
 		}
 		seen[itemID] = struct{}{}
-		item, err := s.itemByID(ctx, itemID)
+		orderedIDs[index] = itemID
+	}
+
+	loaded := make(map[string]WorkItem, len(orderedIDs))
+	for start := 0; start < len(orderedIDs); start += maxProjectNodeLookupItems {
+		end := start + maxProjectNodeLookupItems
+		if end > len(orderedIDs) {
+			end = len(orderedIDs)
+		}
+		encodedIDs := make([]string, 0, end-start)
+		for _, itemID := range orderedIDs[start:end] {
+			encodedIDs = append(encodedIDs, graphQLString(itemID))
+		}
+		query := `query{nodes(ids:[` + strings.Join(encodedIDs, ",") + `]){... on ProjectV2Item{` + s.lifecycleItemSelection() + `}}}`
+		result, err := s.gh(ctx, "api", "graphql", "-f", "query="+query)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("load GitHub Project items by id: %w", commandFailure(err, result))
+		}
+		var payload struct {
+			Data struct {
+				Nodes []*projectItemNode `json:"nodes"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(result.Stdout), &payload); err != nil {
+			return nil, fmt.Errorf("decode GitHub Project items by id: %w", err)
+		}
+		for _, raw := range payload.Data.Nodes {
+			if raw == nil {
+				continue
+			}
+			item := decodeProjectItemNode(*raw)
+			if item.ID != "" {
+				loaded[item.ID] = item
+			}
+		}
+	}
+
+	items := make([]WorkItem, len(orderedIDs))
+	for index, itemID := range orderedIDs {
+		item, ok := loaded[itemID]
+		if !ok {
+			return nil, fmt.Errorf("GitHub Project item %q was not found", itemID)
 		}
 		items[index] = item
 	}
@@ -380,6 +430,143 @@ func (s *Project) setStatus(ctx context.Context, itemID, statusName string) erro
 	return nil
 }
 
+type projectFieldUpdateKind int
+
+const (
+	projectFieldClear projectFieldUpdateKind = iota
+	projectFieldText
+	projectFieldNumber
+	projectFieldStatus
+)
+
+type projectFieldUpdate struct {
+	fieldName string
+	kind      projectFieldUpdateKind
+	text      string
+	number    int
+}
+
+func textProjectField(fieldName, value string) projectFieldUpdate {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return projectFieldUpdate{fieldName: fieldName, kind: projectFieldClear}
+	}
+	return projectFieldUpdate{fieldName: fieldName, kind: projectFieldText, text: value}
+}
+
+func numberProjectField(fieldName string, value int) projectFieldUpdate {
+	return projectFieldUpdate{fieldName: fieldName, kind: projectFieldNumber, number: value}
+}
+
+func statusProjectField(fieldName, value string) projectFieldUpdate {
+	return projectFieldUpdate{fieldName: fieldName, kind: projectFieldStatus, text: strings.TrimSpace(value)}
+}
+
+// applyFieldUpdates commits the mutable middle of an authenticated Project
+// transition in one GraphQL operation. The transition lock is still written
+// and cleared separately so a partial or failed mutation remains recoverable.
+func (s *Project) applyFieldUpdates(ctx context.Context, itemID string, updates ...projectFieldUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	itemID = strings.TrimSpace(itemID)
+	if itemID == "" {
+		return errors.New("GitHub Project item id is empty")
+	}
+	schema := s.currentSchema()
+	if strings.TrimSpace(schema.ProjectID) == "" {
+		return errors.New("GitHub Project schema is not loaded")
+	}
+
+	definitions := []string{"$project_id:ID!", "$item_id:ID!"}
+	mutations := make([]string, 0, len(updates))
+	args := []string{"api", "graphql"}
+	values := []string{"-F", "project_id=" + schema.ProjectID, "-F", "item_id=" + itemID}
+	seen := make(map[string]struct{}, len(updates))
+	for index, update := range updates {
+		fieldName := strings.TrimSpace(update.fieldName)
+		field, ok := schema.field(fieldName)
+		if !ok {
+			return fmt.Errorf("GitHub Project has no field %q", fieldName)
+		}
+		if _, duplicate := seen[field.ID]; duplicate {
+			return fmt.Errorf("GitHub Project field %q is updated more than once in one transition", fieldName)
+		}
+		seen[field.ID] = struct{}{}
+
+		fieldVariable := fmt.Sprintf("field_%d", index)
+		definitions = append(definitions, "$"+fieldVariable+":ID!")
+		values = append(values, "-F", fieldVariable+"="+field.ID)
+		input := "projectId:$project_id,itemId:$item_id,fieldId:$" + fieldVariable
+		alias := fmt.Sprintf("u%d", index)
+		switch update.kind {
+		case projectFieldClear:
+			if field.Type != "ProjectV2Field" {
+				return fmt.Errorf("GitHub Project field %q cannot be cleared", fieldName)
+			}
+			mutations = append(mutations, alias+":clearProjectV2ItemFieldValue(input:{"+input+"}){projectV2Item{id}}")
+		case projectFieldText:
+			if field.Type != "ProjectV2Field" {
+				return fmt.Errorf("GitHub Project field %q is not a text field", fieldName)
+			}
+			valueVariable := fmt.Sprintf("text_%d", index)
+			definitions = append(definitions, "$"+valueVariable+":String!")
+			values = append(values, "-f", valueVariable+"="+update.text)
+			mutations = append(mutations, alias+":updateProjectV2ItemFieldValue(input:{"+input+",value:{text:$"+valueVariable+"}}){projectV2Item{id}}")
+		case projectFieldNumber:
+			if field.Type != "ProjectV2Field" {
+				return fmt.Errorf("GitHub Project field %q is not a number field", fieldName)
+			}
+			valueVariable := fmt.Sprintf("number_%d", index)
+			definitions = append(definitions, "$"+valueVariable+":Float!")
+			values = append(values, "-F", valueVariable+"="+strconv.Itoa(update.number))
+			mutations = append(mutations, alias+":updateProjectV2ItemFieldValue(input:{"+input+",value:{number:$"+valueVariable+"}}){projectV2Item{id}}")
+		case projectFieldStatus:
+			if field.Type != "ProjectV2SingleSelectField" {
+				return fmt.Errorf("GitHub Project field %q is not a single-select field", fieldName)
+			}
+			optionID := field.Options[normalizeProjectKey(update.text)].ID
+			if optionID == "" {
+				return fmt.Errorf("GitHub Project %s has no %q option", fieldName, update.text)
+			}
+			valueVariable := fmt.Sprintf("option_%d", index)
+			definitions = append(definitions, "$"+valueVariable+":String!")
+			values = append(values, "-f", valueVariable+"="+optionID)
+			mutations = append(mutations, alias+":updateProjectV2ItemFieldValue(input:{"+input+",value:{singleSelectOptionId:$"+valueVariable+"}}){projectV2Item{id}}")
+		default:
+			return fmt.Errorf("GitHub Project field %q has an unsupported update", fieldName)
+		}
+	}
+	query := "mutation(" + strings.Join(definitions, ",") + "){" + strings.Join(mutations, " ") + "}"
+	args = append(args, "-f", "query="+query)
+	args = append(args, values...)
+	result, err := s.gh(ctx, args...)
+	if err != nil {
+		return fmt.Errorf("update GitHub Project fields: %w", commandFailure(err, result))
+	}
+	var payload struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal([]byte(result.Stdout), &payload); err != nil {
+		return fmt.Errorf("decode GitHub Project field update: %w", err)
+	}
+	if len(payload.Errors) > 0 {
+		messages := make([]string, 0, len(payload.Errors))
+		for _, graphQLError := range payload.Errors {
+			if message := strings.TrimSpace(graphQLError.Message); message != "" {
+				messages = append(messages, message)
+			}
+		}
+		if len(messages) == 0 {
+			return errors.New("update GitHub Project fields: GitHub GraphQL returned an error")
+		}
+		return fmt.Errorf("update GitHub Project fields: %s", strings.Join(messages, "; "))
+	}
+	return nil
+}
+
 func (s *Project) setResult(ctx context.Context, itemID, summary string) error {
 	summary = canonicalProjectResult(summary)
 	if summary == "" {
@@ -420,19 +607,6 @@ func (s *Project) beginTransition(ctx context.Context, itemID string) error {
 
 func (s *Project) finishTransition(ctx context.Context, itemID string) error {
 	return s.clearField(ctx, itemID, s.transitionFieldName())
-}
-
-func (s *Project) setNumberField(ctx context.Context, itemID, fieldName string, value int) error {
-	schema := s.currentSchema()
-	field, ok := schema.field(fieldName)
-	if !ok || field.Type != "ProjectV2Field" {
-		return fmt.Errorf("GitHub Project has no number field %q", fieldName)
-	}
-	result, err := s.gh(ctx, "project", "item-edit", "--id", itemID, "--project-id", schema.ProjectID, "--field-id", field.ID, "--number", strconv.Itoa(value))
-	if err != nil {
-		return fmt.Errorf("update GitHub Project field %q: %w", fieldName, commandFailure(err, result))
-	}
-	return nil
 }
 
 func (s *Project) clearField(ctx context.Context, itemID, fieldName string) error {

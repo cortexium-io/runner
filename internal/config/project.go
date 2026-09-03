@@ -8,7 +8,7 @@ import (
 	bundledskills "github.com/cortexium-io/runner/skills"
 )
 
-const ConfigVersion = 2
+const ConfigVersion = 3
 
 const MaxSupportedParallelism = 16
 
@@ -222,18 +222,12 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// EffectiveMergeMethod preserves the original merge-commit behavior for
-// configs created before merge_method became explicit.
-func EffectiveMergeMethod(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "" {
-		return MergeMethodMerge
-	}
-	return value
+func NormalizeMergeMethod(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func ValidMergeMethod(value string) bool {
-	switch EffectiveMergeMethod(value) {
+	switch NormalizeMergeMethod(value) {
 	case MergeMethodMerge, MergeMethodRebase, MergeMethodSquash:
 		return true
 	default:

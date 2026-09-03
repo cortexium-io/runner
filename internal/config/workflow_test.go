@@ -7,6 +7,9 @@ import (
 )
 
 func TestWorkflowTemplateIsCompleteAndJuniorReadable(t *testing.T) {
+	if ConfigVersion != 3 {
+		t.Fatalf("config version = %d, want 3", ConfigVersion)
+	}
 	cfg := explicitTestConfig()
 	workflow := *cfg.Workflow
 	if err := cfg.Validate(); err != nil {
@@ -623,13 +626,11 @@ func TestConfigurationRequiresExplicitBaseUpdateReviewPolicy(t *testing.T) {
 	}
 }
 
-func TestConfigurationValidatesAndDefaultsMergeMethod(t *testing.T) {
+func TestConfigurationRequiresExplicitMergeMethod(t *testing.T) {
 	cfg := explicitTestConfig()
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("legacy empty merge method: %v", err)
-	}
-	if got := cfg.ResolveProject().MergeMethod; got != MergeMethodMerge {
-		t.Fatalf("legacy merge method = %q, want %q", got, MergeMethodMerge)
+	cfg.GitHubProject.MergeMethod = ""
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "merge_method") {
+		t.Fatalf("empty merge method was accepted: %v", err)
 	}
 	cfg.GitHubProject.MergeMethod = MergeMethodSquash
 	if err := cfg.Validate(); err != nil {
@@ -685,7 +686,7 @@ func explicitTestConfig() Config {
 			Owner: "example", Number: 7, IntakeRepository: "example/repo", IntakeLabel: "needs-assessment",
 			ResultField: "Runner Result", ApprovalField: "Runner Approval", PhaseField: "Runner Phase",
 			QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request",
-			QACommitField: "QA Commit", BaseBranch: "main", RemoteName: "origin",
+			QACommitField: "QA Commit", BaseBranch: "main", RemoteName: "origin", MergeMethod: MergeMethodMerge,
 		},
 	}
 }

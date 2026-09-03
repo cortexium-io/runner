@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -37,7 +36,6 @@ func (r *eventWhileHarnessRunner) RunBoundedHeadTailInput(ctx context.Context, c
 }
 
 func (r *eventWhileHarnessRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
-	joined := strings.Join(args, " ")
 	switch {
 	case command == "git":
 		r.gitMu.Lock()
@@ -75,7 +73,7 @@ func (r *eventWhileHarnessRunner) Run(ctx context.Context, command string, args 
 		return subprocess.Result{Stdout: `{"url":"https://github.com/owner/repo/pull/12","number":12,"state":"` + state + `","headRepository":{"nameWithOwner":"owner/repo"},"headRefName":"cortexium/event-test","headRefOid":"qa-head","baseRefName":"main","baseRefOid":"","mergeStateStatus":"` + mergeState + `","comments":[],"reviews":[]}`}, nil
 	default:
 		result, err := r.project.Run(ctx, command, args, dir, timeout)
-		if err == nil && command == "gh" && strings.HasPrefix(joined, "project item-edit ") && argumentValue(args, "--id") == "PVTI_event_pr" && strings.Contains(joined, "--single-select-option-id O_done") {
+		if err == nil && command == "gh" && projectUpdateSelects(args, "PVTI_event_pr", "O_done") {
 			r.reconciledOnce.Do(func() { close(r.pullRequestReconciled) })
 		}
 		return result, err

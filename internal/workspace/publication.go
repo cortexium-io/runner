@@ -102,7 +102,7 @@ func (p GitProvider) ConstructCandidate(ctx context.Context, metadata Metadata, 
 func (p GitProvider) ConstructCandidateForMergeMethod(ctx context.Context, metadata Metadata, message, mergeMethod string) (Candidate, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
-	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	mergeMethod = config.NormalizeMergeMethod(mergeMethod)
 	if !config.ValidMergeMethod(mergeMethod) {
 		return Candidate{}, errors.New("candidate construction requires merge, rebase, or squash merge method")
 	}
@@ -730,7 +730,7 @@ func readPublicationRecord(path string) (PublicationRecord, error) {
 func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, record PublicationRecord, remoteName, baseBranch string, pushPolicy PublicationPushPolicy, refreshAuthority func() error) error {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
-	pushPolicy.MergeMethod = config.EffectiveMergeMethod(pushPolicy.MergeMethod)
+	pushPolicy.MergeMethod = config.NormalizeMergeMethod(pushPolicy.MergeMethod)
 	pushPolicy.ExpectedRemoteOID = strings.TrimSpace(pushPolicy.ExpectedRemoteOID)
 	if !config.ValidMergeMethod(pushPolicy.MergeMethod) {
 		return errors.New("publication requires merge, rebase, or squash merge method")
@@ -883,7 +883,7 @@ func (p GitProvider) RefreshLocalBaseForMergeMethod(ctx context.Context, metadat
 func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteName, baseBranch, mergeMethod string, fetchBranch bool) (BaseRefresh, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
-	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	mergeMethod = config.NormalizeMergeMethod(mergeMethod)
 	if !config.ValidMergeMethod(mergeMethod) {
 		return BaseRefresh{}, errors.New("base refresh requires merge, rebase, or squash merge method")
 	}

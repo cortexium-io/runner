@@ -322,7 +322,7 @@ func (r *autoMergeReconciliationRunner) Run(ctx context.Context, command string,
 			return subprocess.Result{}, nil
 		}
 	}
-	if command == "gh" && isLifecycleItemsCall(strings.Join(args, " ")) {
+	if command == "gh" && (isLifecycleItemsCall(strings.Join(args, " ")) || isDirectProjectItemCall(strings.Join(args, " "))) {
 		r.itemListCalls++
 		if r.onItemList != nil {
 			r.onItemList(r.itemListCalls)
@@ -371,8 +371,7 @@ type trustedCycleOrderingRunner struct {
 }
 
 func (r *trustedCycleOrderingRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
-	joined := strings.Join(args, " ")
-	if command == "gh" && strings.HasPrefix(joined, "project item-edit ") && argumentValue(args, "--id") == "PVTI_interrupted" && strings.Contains(joined, "--single-select-option-id O_ready") {
+	if command == "gh" && projectUpdateSelects(args, "PVTI_interrupted", "O_ready") {
 		r.events = append(r.events, "recover")
 	}
 	if command == "gh" && len(args) >= 2 && args[0] == "pr" && args[1] == "view" {
@@ -2637,13 +2636,15 @@ func TestPlannerBatchStopsBeforeChildAuthorityWriteWhenParentChanges(t *testing.
 	page := func(item github.WorkItem) string {
 		return legacyItemsGraphQLJSON(`{"items":[` + projectItemJSON(item) + `]}`)
 	}
-	project := &fakeGitHubProjectRunner{itemPages: []string{
-		page(parent),        // Initial authority construction.
-		page(parent),        // Batch-entry authority refresh.
-		page(parent),        // Existing-child scan.
-		page(parent),        // Enter child staging with current source authority.
-		page(changedParent), // Revalidate immediately before child creation.
-	}}
+	project := &fakeGitHubProjectRunner{
+		itemPages: []string{page(parent)}, // Existing-child scan.
+		directItemPages: []string{
+			directProjectItemGraphQLJSON(parent),        // Initial authority construction.
+			directProjectItemGraphQLJSON(parent),        // Batch-entry authority refresh.
+			directProjectItemGraphQLJSON(parent),        // Enter child staging with current source authority.
+			directProjectItemGraphQLJSON(changedParent), // Revalidate immediately before child creation.
+		},
+	}
 	cfg := completeEngineTestConfig(config.Config{ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"}})
 	service, err := New(cfg, project)
 	if err != nil {
@@ -3333,6 +3334,55 @@ func TestIdleRunCycleReusesOneProjectSnapshotAndCachedSchema(t *testing.T) {
 	}
 	if counts["project view"] != 1 || counts["fields"] != 1 || counts["items"] != 2 {
 		t.Fatalf("idle cycles reloaded Project state: counts=%#v calls=%#v", counts, run.calls)
+	}
+}
+
+func TestPreparePollRevalidatesSeveralClaimsWithOneFreshSnapshot(t *testing.T) {
+	items := []github.WorkItem{
+		{ID: "PVTI_one", Title: "One", Body: "First", Repository: "owner/repo", Status: "Ready"},
+		{ID: "PVTI_two", Title: "Two", Body: "Second", Repository: "owner/repo", Status: "Ready"},
+	}
+	for index := range items {
+		items[index].Approval = testApproval(items[index])
+	}
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(items[0]) + `,` + projectItemJSON(items[1]) + `]}`}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: t.TempDir(), MaxParallelism: 2,
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := service.preparePoll(t.Context(), 2, false, nil)
+	if err != nil || len(prepared.claimed) != 2 {
+		t.Fatalf("prepare claims: claimed=%#v error=%v", prepared.claimed, err)
+	}
+	lists, batches := 0, 0
+	for _, call := range project.calls {
+		if isLifecycleItemsCall(call) {
+			lists++
+		}
+		if isBatchProjectUpdateCall(call) {
+			batches++
+		}
+	}
+	if lists != 2 || batches != 2 {
+		t.Fatalf("selected claims used lists=%d batches=%d, want two snapshots and one batched mutation per claim: %#v", lists, batches, project.calls)
+	}
+}
+
+func TestPendingProjectWorkKeepsContinuousPollingResponsive(t *testing.T) {
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), &fakeGitHubProjectRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !service.hasPendingObservation([]github.WorkItem{{Status: "PR Ready"}}) {
+		t.Fatal("PR Ready work was treated as a quiescent board")
+	}
+	if service.hasPendingObservation([]github.WorkItem{{Status: "Done"}, {Status: "Blocked"}}) {
+		t.Fatal("terminal and human-blocked work prevented explicit idle backoff")
 	}
 }
 
@@ -4181,9 +4231,12 @@ func TestPollDelayBacksOffForErrorsAndIdleCycles(t *testing.T) {
 		}
 	}
 	for idle, want := range map[int]time.Duration{0: base, 1: base, 2: time.Minute, 3: 2 * time.Minute, 4: 4 * time.Minute, 5: 5 * time.Minute, 10: 5 * time.Minute} {
-		if got := pollDelay(base, DefaultMaxIdleInterval, 0, idle); got != want {
+		if got := pollDelay(base, 5*time.Minute, 0, idle); got != want {
 			t.Fatalf("idle pollDelay(%s, %d) = %s, want %s", base, idle, got, want)
 		}
+	}
+	if got := pollDelay(base, DefaultMaxIdleInterval, 0, 10); got != base {
+		t.Fatalf("default idle ceiling = %s, want responsive base interval %s", got, base)
 	}
 	if got := pollDelay(base, 45*time.Second, 0, 10); got != 45*time.Second {
 		t.Fatalf("custom idle ceiling = %s, want 45s", got)
@@ -4196,6 +4249,16 @@ func TestPollDelayBacksOffForErrorsAndIdleCycles(t *testing.T) {
 	}
 	if got := nextPollDelay(base, DefaultMaxIdleInterval, 0, 1, false); got != base {
 		t.Fatalf("poll delay without progress = %s, want %s", got, base)
+	}
+}
+
+func TestPollDelayDoesNotPassNextIssueIntake(t *testing.T) {
+	now := time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
+	if got := capPollDelayForIntake(5*time.Minute, now, now.Add(45*time.Second)); got != 45*time.Second {
+		t.Fatalf("capped delay = %s, want 45s", got)
+	}
+	if got := capPollDelayForIntake(time.Minute, now, time.Time{}); got != time.Minute {
+		t.Fatalf("unscheduled intake changed delay to %s", got)
 	}
 }
 
@@ -5341,6 +5404,9 @@ func completeEngineTestConfig(cfg config.Config) config.Config {
 	}
 	if strings.TrimSpace(project.IntakeLabel) == "" {
 		project.IntakeLabel = "needs-assessment"
+	}
+	if strings.TrimSpace(project.MergeMethod) == "" {
+		project.MergeMethod = config.MergeMethodMerge
 	}
 	for destination, value := range map[*string]string{
 		&project.ResultField: "Runner Result", &project.ApprovalField: "Runner Approval", &project.PhaseField: "Runner Phase",

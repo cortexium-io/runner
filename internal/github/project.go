@@ -309,6 +309,7 @@ func (s *Project) ReadyItems(ctx context.Context, items []WorkItem, limit int) (
 		limit = 1
 	}
 	ready := make([]AuthorizedAction, 0, limit)
+	index := newWorkItemIndex(items)
 	for _, item := range items {
 		if !s.agentStatus(item.Status) {
 			continue
@@ -339,10 +340,10 @@ func (s *Project) ReadyItems(ctx context.Context, items []WorkItem, limit int) (
 				continue
 			}
 		}
-		if !s.dependenciesSatisfied(item, items) {
+		if !s.dependenciesSatisfiedIn(item, index) {
 			continue
 		}
-		if !s.planningBatchReleased(item, items, s.doneStatus()) {
+		if !s.planningBatchReleasedIn(item, index, s.doneStatus()) {
 			continue
 		}
 		ready = append(ready, action)
@@ -402,14 +403,22 @@ func (s *Project) manualIntakeLane(laneID, status string) bool {
 // local processes from polling one Project, but GitHub Projects do not expose an
 // atomic claim across machines.
 func (s *Project) Claim(ctx context.Context, expected AuthorizedAction, requestedPhase ...string) (AuthorizedAction, error) {
-	expectedItem, err := expected.authorizedItem()
-	if err != nil {
-		return AuthorizedAction{}, err
-	}
 	items, err := s.ListItems(ctx)
 	if err != nil {
 		return AuthorizedAction{}, err
 	}
+	return s.ClaimFromSnapshot(ctx, expected, items, requestedPhase...)
+}
+
+// ClaimFromSnapshot performs claim validation against a fresh board snapshot.
+// It lets a coordinator revalidate several selected cards with one Project
+// read while preserving the same dependency and approval checks as Claim.
+func (s *Project) ClaimFromSnapshot(ctx context.Context, expected AuthorizedAction, items []WorkItem, requestedPhase ...string) (AuthorizedAction, error) {
+	expectedItem, err := expected.authorizedItem()
+	if err != nil {
+		return AuthorizedAction{}, err
+	}
+	index := newWorkItemIndex(items)
 	for _, current := range items {
 		if current.ID != expectedItem.ID {
 			continue
@@ -431,10 +440,10 @@ func (s *Project) Claim(ctx context.Context, expected AuthorizedAction, requeste
 		if !s.agentStatus(expectedStatus) {
 			return AuthorizedAction{}, fmt.Errorf("project item %s cannot be claimed from status %q", expectedItem.ID, expectedStatus)
 		}
-		if !s.dependenciesSatisfied(current, items) {
+		if !s.dependenciesSatisfiedIn(current, index) {
 			return AuthorizedAction{}, fmt.Errorf("project item %s dependencies no longer all have authenticated successful outcomes", expectedItem.ID)
 		}
-		if !s.planningBatchReleased(current, items, s.doneStatus()) {
+		if !s.planningBatchReleasedIn(current, index, s.doneStatus()) {
 			return AuthorizedAction{}, fmt.Errorf("project item %s belongs to a planning batch that has not completed", expectedItem.ID)
 		}
 		phase := ""
@@ -467,17 +476,13 @@ func (s *Project) Claim(ctx context.Context, expected AuthorizedAction, requeste
 		if err := s.beginTransition(ctx, current.ID); err != nil {
 			return AuthorizedAction{}, fmt.Errorf("lock item before claim; retry on a later poll: %w", err)
 		}
-		if err := s.setTextField(ctx, current.ID, s.phaseFieldName(), phase); err != nil {
-			return AuthorizedAction{}, fmt.Errorf("record claim phase; the item remains safely transition-locked: %w", err)
-		}
-		if err := s.setTextField(ctx, current.ID, s.activityFieldName(), activity); err != nil {
-			return AuthorizedAction{}, fmt.Errorf("record claim activity; the item remains safely transition-locked: %w", err)
-		}
-		if err := s.setApproval(ctx, current.ID, nextAction.assertion); err != nil {
-			return AuthorizedAction{}, fmt.Errorf("authenticate claimed state; the item remains safely transition-locked: %w", err)
-		}
-		if err := s.setStatus(ctx, current.ID, s.runningStatus()); err != nil {
-			return AuthorizedAction{}, fmt.Errorf("activate claimed item; the item remains safely transition-locked: %w", err)
+		if err := s.applyFieldUpdates(ctx, current.ID,
+			textProjectField(s.phaseFieldName(), phase),
+			textProjectField(s.activityFieldName(), activity),
+			textProjectField(s.approvalFieldName(), nextAction.assertion),
+			statusProjectField(s.statusFieldName(), s.runningStatus()),
+		); err != nil {
+			return AuthorizedAction{}, fmt.Errorf("commit authenticated claim; the item remains safely transition-locked: %w", err)
 		}
 		if err := s.finishTransition(ctx, current.ID); err != nil {
 			return AuthorizedAction{}, fmt.Errorf("claim committed but its transition lock could not be cleared; a later poll will recover it: %w", err)
@@ -490,13 +495,9 @@ func (s *Project) Claim(ctx context.Context, expected AuthorizedAction, requeste
 // Authorize refreshes one item and returns the centralized action object used
 // by all privileged Project and repository operations.
 func (s *Project) Authorize(ctx context.Context, item WorkItem) (AuthorizedAction, error) {
-	items, err := s.ListItems(ctx)
+	current, err := s.itemByID(ctx, item.ID)
 	if err != nil {
 		return AuthorizedAction{}, fmt.Errorf("refresh Project state before privileged action: %w", err)
-	}
-	current, err := selectProjectItem(items, item.ID)
-	if err != nil {
-		return AuthorizedAction{}, err
 	}
 	action, err := s.validateAction(current)
 	if err != nil {
@@ -524,13 +525,9 @@ func (s *Project) RefreshDelegatedContent(ctx context.Context, expected Authoriz
 		return AuthorizedAction{}, DelegatedContent{}, err
 	}
 	expectedContent := DelegatedContentFor(expectedItem)
-	items, err := s.ListItems(ctx)
+	current, err := s.itemByID(ctx, expectedItem.ID)
 	if err != nil {
 		return AuthorizedAction{}, DelegatedContent{}, fmt.Errorf("refresh approved delegated content: %w", err)
-	}
-	current, err := selectProjectItem(items, expectedItem.ID)
-	if err != nil {
-		return AuthorizedAction{}, DelegatedContent{}, err
 	}
 	currentContent := DelegatedContentFor(current)
 	if currentContent.Digest != expectedContent.Digest {
@@ -561,17 +558,13 @@ func (s *Project) Transition(ctx context.Context, action AuthorizedAction, targe
 func (s *Project) TransitionImplementation(ctx context.Context, action AuthorizedAction, targetStatus, targetPhase, summary, branch string) error {
 	return s.transition(ctx, action, targetStatus, summary, targetPhase, false, func(next *WorkItem) {
 		next.Branch = strings.TrimSpace(branch)
-	}, func(current WorkItem) error {
-		return s.setTextField(ctx, current.ID, s.branchFieldName(), branch)
-	})
+	}, []projectFieldUpdate{textProjectField(s.branchFieldName(), branch)})
 }
 
 func (s *Project) TransitionRejection(ctx context.Context, action AuthorizedAction, targetStatus, targetPhase, summary string, failures int) error {
 	return s.transition(ctx, action, targetStatus, summary, targetPhase, false, func(next *WorkItem) {
 		next.QAFailures = failures
-	}, func(current WorkItem) error {
-		return s.setNumberField(ctx, current.ID, s.qaFailuresFieldName(), failures)
-	})
+	}, []projectFieldUpdate{numberProjectField(s.qaFailuresFieldName(), failures)})
 }
 
 func (s *Project) TransitionPRReady(ctx context.Context, action AuthorizedAction, targetStatus, summary, branch, pullRequest, qaCommit string) error {
@@ -589,17 +582,10 @@ func (s *Project) TransitionPRReady(ctx context.Context, action AuthorizedAction
 		next.Branch = strings.TrimSpace(branch)
 		next.PullRequest = strings.TrimSpace(pullRequest)
 		next.QACommit = strings.TrimSpace(qaCommit)
-	}, func(current WorkItem) error {
-		if err := s.setTextField(ctx, current.ID, s.branchFieldName(), branch); err != nil {
-			return err
-		}
-		if err := s.setTextField(ctx, current.ID, s.pullRequestFieldName(), pullRequest); err != nil {
-			return err
-		}
-		if err := s.setTextField(ctx, current.ID, s.qaCommitFieldName(), qaCommit); err != nil {
-			return err
-		}
-		return nil
+	}, []projectFieldUpdate{
+		textProjectField(s.branchFieldName(), branch),
+		textProjectField(s.pullRequestFieldName(), pullRequest),
+		textProjectField(s.qaCommitFieldName(), qaCommit),
 	})
 }
 
@@ -609,20 +595,16 @@ func (s *Project) ResetRejections(ctx context.Context, action AuthorizedAction, 
 	}
 	return s.transition(ctx, action, action.Item.Status, feedback, targetPhase, strings.TrimSpace(action.Item.PullRequest) != "", func(next *WorkItem) {
 		next.QAFailures = 0
-	}, func(current WorkItem) error {
-		return s.setNumberField(ctx, current.ID, s.qaFailuresFieldName(), 0)
-	})
+	}, []projectFieldUpdate{numberProjectField(s.qaFailuresFieldName(), 0)})
 }
 
 func (s *Project) TransitionAfterBranchUpdate(ctx context.Context, action AuthorizedAction, targetStatus, targetPhase, detail string) error {
 	return s.transition(ctx, action, targetStatus, detail, targetPhase, false, func(next *WorkItem) {
 		next.QAFailures = 0
-	}, func(current WorkItem) error {
-		return s.setNumberField(ctx, current.ID, s.qaFailuresFieldName(), 0)
-	})
+	}, []projectFieldUpdate{numberProjectField(s.qaFailuresFieldName(), 0)})
 }
 
-func (s *Project) transition(ctx context.Context, expected AuthorizedAction, targetStatus, detail, phase string, pullRequestFeedback bool, mutate func(*WorkItem), write func(WorkItem) error) error {
+func (s *Project) transition(ctx context.Context, expected AuthorizedAction, targetStatus, detail, phase string, pullRequestFeedback bool, mutate func(*WorkItem), extraUpdates []projectFieldUpdate) error {
 	current, err := s.refreshAuthorizedAction(ctx, expected)
 	if err != nil {
 		return err
@@ -661,41 +643,22 @@ func (s *Project) transition(ctx context.Context, expected AuthorizedAction, tar
 	if err := s.beginTransition(ctx, current.Item.ID); err != nil {
 		return fmt.Errorf("lock item before Project transition; reload it and retry: %w", err)
 	}
-	if write != nil {
-		if err := write(current.Item); err != nil {
-			return fmt.Errorf("update authenticated Project action; the item remains safely transition-locked: %w", err)
-		}
-	}
+	updates := append([]projectFieldUpdate(nil), extraUpdates...)
 	if strings.TrimSpace(detail) != "" {
-		if err := s.setResult(ctx, current.Item.ID, next.Result); err != nil {
-			return fmt.Errorf("record Project result; the item remains safely transition-locked: %w", err)
-		}
+		updates = append(updates, textProjectField(s.resultFieldName(), next.Result))
 	}
-	if next.Phase == "" {
-		err = s.clearField(ctx, current.Item.ID, s.phaseFieldName())
-	} else {
-		err = s.setTextField(ctx, current.Item.ID, s.phaseFieldName(), next.Phase)
-	}
-	if err != nil {
-		return fmt.Errorf("record authenticated Project phase; the item remains safely transition-locked: %w", err)
-	}
+	updates = append(updates, textProjectField(s.phaseFieldName(), next.Phase))
 	currentActivity := strings.TrimSpace(current.Item.Activity)
 	nextActivity := strings.TrimSpace(next.Activity)
 	if currentActivity != nextActivity {
-		if nextActivity == "" {
-			err = s.clearField(ctx, current.Item.ID, s.activityFieldName())
-		} else {
-			err = s.setTextField(ctx, current.Item.ID, s.activityFieldName(), nextActivity)
-		}
-		if err != nil {
-			return fmt.Errorf("record authenticated Project activity; the item remains safely transition-locked: %w", err)
-		}
+		updates = append(updates, textProjectField(s.activityFieldName(), nextActivity))
 	}
-	if err := s.setApproval(ctx, current.Item.ID, nextAction.assertion); err != nil {
-		return fmt.Errorf("authenticate Project transition; the item remains safely transition-locked: %w", err)
-	}
-	if err := s.setStatus(ctx, current.Item.ID, next.Status); err != nil {
-		return fmt.Errorf("complete Project transition; the item remains safely transition-locked: %w", err)
+	updates = append(updates,
+		textProjectField(s.approvalFieldName(), nextAction.assertion),
+		statusProjectField(s.statusFieldName(), next.Status),
+	)
+	if err := s.applyFieldUpdates(ctx, current.Item.ID, updates...); err != nil {
+		return fmt.Errorf("update authenticated Project action; the item remains safely transition-locked: %w", err)
 	}
 	if err := s.finishTransition(ctx, current.Item.ID); err != nil {
 		return fmt.Errorf("Project transition committed but its lock could not be cleared; a later poll will recover it: %w", err)

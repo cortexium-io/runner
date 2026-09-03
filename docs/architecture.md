@@ -52,7 +52,7 @@ derives a narrow `config.ExecutionConfig` for one role and harness invocation.
 This prevents computed state and harness-specific overrides from being hidden
 inside JSON structs.
 
-Configuration v2 has no runtime overlay or fallback profile. Privileged commands
+Configuration v3 has no runtime overlay or fallback profile. Privileged commands
 resolve an explicit path or the project-local default, then provenance-check the
 file before decoding role or harness selections. `init` defaults to an ignored
 project-local config, while deliberately tracked and external configs remain supported. `init`
@@ -88,7 +88,9 @@ normal doctor remains non-billable and does not call a model.
 The command package attaches an optional metrics observer and history reader to
 the engine. The engine emits start and completion events for every card or
 interactive planning attempt. It also emits fixed-name stage events around
-workspace and repository preparation, harness execution, result validation,
+workspace and repository preparation, ordinary harness execution, the planner's
+repository-aware outline and tool-free details calls, the reviewer's evidence
+audit and optional focused-verification call, result validation,
 workspace verification, Project transitions, and PR publication.
 Execution adapters parse only counters exposed by the native harness. Events are
 appended to a runner-keyed JSONL file in the user configuration directory. The
@@ -113,6 +115,8 @@ claims. Exhaustion pauses all new claims, including QA, without canceling
 in-flight attempts; PR reconciliation still runs. Reported-token and cost
 ceilings fail closed when attempts are unfinished or lack the required reported
 usage, and harness-time ceilings fail closed for unfinished attempts.
+The long-running engine reuses parsed admission history until an attempt starts
+or completes; stage-only telemetry does not cause another full JSONL replay.
 
 An optional implementer ladder is a validated ordered list of implementer role
 profiles. It never retries within one execution attempt. After a reviewer
@@ -200,6 +204,21 @@ Planning children remain drafts only while unapproved. The authorization
 boundary converts them to issues in the configured intake repository before
 execution, while private authenticated feedback remains the recovery path if a
 comment cannot be published.
+
+Project claims use one fresh board snapshot for all cards selected by a poll,
+so dependency and planning-batch checks remain board-wide without re-listing
+the Project per card. Operations that already hold an authenticated item ID
+reload only that exact node. Multi-item planning and issue-boundary reloads use
+bounded `nodes(ids: ...)` batches. Authenticated transitions retain a separately
+visible begin/end transition lock, but commit their phase, activity, result,
+approval, status, and task-specific fields in one GraphQL mutation between
+those lock writes. This preserves interrupted-transition recovery while
+removing most Project write round trips.
+
+Routine pull-request observation fetches only identity, state, refs, merge
+state, and auto-merge state. Runner requests comments, reviews, and the current
+GitHub actor only when trusted human feedback can affect a rework or
+base-refresh transition.
 
 Every harness uses the same two-stage planner contract. The first repository-aware
 stage returns the outcome and ordered card/dependency outline. The second

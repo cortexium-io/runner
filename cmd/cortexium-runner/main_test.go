@@ -1268,18 +1268,18 @@ func TestRetryPreviewsAndReturnsBlockedItemToRecordedLane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read gh calls: %v", err)
 	}
-	if !strings.Contains(string(calls), "--single-select-option-id O_qa") {
+	if !strings.Contains(string(calls), "singleSelectOptionId") || !strings.Contains(string(calls), "=O_qa") {
 		t.Fatalf("retry did not target Agent QA: %s", calls)
 	}
 	retryCalls := string(calls)
 	lockAt := strings.Index(retryCalls, "--field-id F_transition --text v1")
-	approvalAt := strings.Index(retryCalls, "--field-id F_approval --text")
-	qaAt := strings.Index(retryCalls, "--single-select-option-id O_qa")
+	approvalAt := strings.Index(retryCalls, "=F_approval")
+	qaAt := strings.Index(retryCalls, "=O_qa")
 	unlockAt := strings.Index(retryCalls, "--field-id F_transition --clear")
 	if lockAt < 0 || approvalAt <= lockAt || qaAt <= approvalAt || unlockAt <= qaAt {
 		t.Fatalf("retry did not remain transition-locked until Agent QA was authoritative: %s", retryCalls)
 	}
-	if strings.Contains(retryCalls, "--single-select-option-id O_assessment") {
+	if strings.Contains(retryCalls, "=O_assessment") {
 		t.Fatalf("retry used Needs assessment as a transactional hop: %s", retryCalls)
 	}
 
@@ -1485,6 +1485,8 @@ case "$1 $2" in
 	"api graphql")
 		case "$*" in
 			*"fields(first:100,after:"*) printf '%s\n' '{"data":{"node":{"fields":{"nodes":[{"__typename":"ProjectV2SingleSelectField","id":"F_status","name":"Status","dataType":"SINGLE_SELECT","options":[{"id":"O_assessment","name":"Needs assessment"},{"id":"O_backlog","name":"Backlog"},{"id":"O_plan","name":"Plan"},{"id":"O_ready","name":"Ready"},{"id":"O_running","name":"In Progress"},{"id":"O_qa","name":"Agent QA"},{"id":"O_pr_ready","name":"PR Ready"},{"id":"O_blocked","name":"Blocked"},{"id":"O_done","name":"Done"}]},{"__typename":"ProjectV2Field","id":"F_result","name":"Runner Result","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_approval","name":"Runner Approval","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_phase","name":"Runner Phase","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_transition","name":"Runner Transition","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_activity","name":"Runner Activity","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_qa","name":"QA Failures","dataType":"NUMBER"},{"__typename":"ProjectV2Field","id":"F_branch","name":"Runner Branch","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_pr","name":"Pull Request","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_qa_commit","name":"QA Commit","dataType":"TEXT"}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}' ;;
+			*"node(id:\$item_id)"*)
+				printf '{"data":{"node":{"id":"PVTI_retry","status":{"name":"Blocked"},"approval":{"text":"%s"},"result":{"text":"Previous browser blocker."},"phase":{"text":"agent_qa"},"content":{"title":"Retry browser review","body":"Acceptance criteria","repository":{"nameWithOwner":"example/repo"},"url":"https://github.com/example/repo/issues/2"}}}}\n' "$FAKE_GH_RETRY_APPROVAL" ;;
 			*"items(first:100,after:"*)
 				if [ -n "${FAKE_GH_RETRY_APPROVAL:-}" ]; then
 					printf '{"data":{"node":{"items":{"nodes":[{"id":"PVTI_retry","status":{"name":"Blocked"},"approval":{"text":"%s"},"result":{"text":"Previous browser blocker."},"phase":{"text":"agent_qa"},"content":{"title":"Retry browser review","body":"Acceptance criteria","repository":{"nameWithOwner":"example/repo"},"url":"https://github.com/example/repo/issues/2"}}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}\n' "$FAKE_GH_RETRY_APPROVAL"
@@ -1585,7 +1587,7 @@ func TestDoctorOfflineUsesOnlyLocalConfigAndEmbeddedSkills(t *testing.T) {
 	if err := run(t.Context(), []string{"doctor", "--offline", "--config", configPath}, strings.NewReader(""), &output); err != nil {
 		t.Fatalf("offline doctor: %v\n%s", err, output.String())
 	}
-	for _, expected := range []string{"config.v2", "skills.embedded", "Configuration ready: yes"} {
+	for _, expected := range []string{"config.v3", "skills.embedded", "Configuration ready: yes"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("check output missing %q: %s", expected, output.String())
 		}
@@ -1825,7 +1827,7 @@ func completeCLITestConfig(projectDir string) config.Config {
 			Owner: "example", Number: 7, IntakeRepository: "example/repo", IntakeLabel: "needs-assessment",
 			ResultField: "Runner Result", ApprovalField: "Runner Approval", PhaseField: "Runner Phase", TransitionField: config.RunnerTransitionFieldName,
 			QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request",
-			QACommitField: "QA Commit", BaseBranch: "main", RemoteName: "origin",
+			QACommitField: "QA Commit", BaseBranch: "main", RemoteName: "origin", MergeMethod: config.MergeMethodMerge,
 		},
 	}
 }

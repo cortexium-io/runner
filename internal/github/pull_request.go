@@ -96,15 +96,29 @@ func (m PullRequestManager) InspectAuthorized(ctx context.Context, action Author
 	if err != nil {
 		return PullRequestDetails{}, err
 	}
-	return m.inspect(ctx, item.Repository, item.PullRequest)
+	return m.inspect(ctx, item.Repository, item.PullRequest, false)
 }
 
-func (m PullRequestManager) inspect(ctx context.Context, repository, selector string) (PullRequestDetails, error) {
+// InspectAuthorizedWithFeedback performs the heavier review/comment lookup for
+// the uncommon paths that actually consume trusted human feedback.
+func (m PullRequestManager) InspectAuthorizedWithFeedback(ctx context.Context, action AuthorizedAction) (PullRequestDetails, error) {
+	item, err := requireAuthorizedAction(action)
+	if err != nil {
+		return PullRequestDetails{}, err
+	}
+	return m.inspect(ctx, item.Repository, item.PullRequest, true)
+}
+
+func (m PullRequestManager) inspect(ctx context.Context, repository, selector string, includeFeedback bool) (PullRequestDetails, error) {
 	selector, err := validatedPullRequestSelector(repository, selector)
 	if err != nil {
 		return PullRequestDetails{}, err
 	}
-	result, err := subprocess.RunGitHub(ctx, m.run, []string{"pr", "view", selector, "--repo", repository, "--json", "url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,autoMergeRequest,comments,reviews"}, "", 30*time.Second)
+	fields := "url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,autoMergeRequest"
+	if includeFeedback {
+		fields += ",comments,reviews"
+	}
+	result, err := subprocess.RunGitHub(ctx, m.run, []string{"pr", "view", selector, "--repo", repository, "--json", fields}, "", 30*time.Second)
 	if err != nil {
 		return PullRequestDetails{}, fmt.Errorf("inspect pull request: %w", commandFailure(err, result))
 	}
@@ -148,24 +162,27 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 	if _, err := validatedPullRequestSelector(repository, payload.URL); err != nil {
 		return PullRequestDetails{}, fmt.Errorf("GitHub CLI returned a pull request outside the approved repository: %w", err)
 	}
-	feedbackCount := 0
-	feedbackActors := make([]string, 0, len(payload.Reviews)+len(payload.Comments))
-	for _, review := range payload.Reviews {
-		if body := strings.TrimSpace(review.Body); body != "" {
-			feedbackCount++
-			if feedbackCount > MaxPullRequestFeedbackEntries {
-				return PullRequestDetails{}, fmt.Errorf("pull request feedback exceeds fixed limit of %d combined non-empty comments and reviews (next count %d)", MaxPullRequestFeedbackEntries, feedbackCount)
+	feedbackActors := []string(nil)
+	if includeFeedback {
+		feedbackCount := 0
+		feedbackActors = make([]string, 0, len(payload.Reviews)+len(payload.Comments))
+		for _, review := range payload.Reviews {
+			if body := strings.TrimSpace(review.Body); body != "" {
+				feedbackCount++
+				if feedbackCount > MaxPullRequestFeedbackEntries {
+					return PullRequestDetails{}, fmt.Errorf("pull request feedback exceeds fixed limit of %d combined non-empty comments and reviews (next count %d)", MaxPullRequestFeedbackEntries, feedbackCount)
+				}
+				feedbackActors = append(feedbackActors, review.Author.Login)
 			}
-			feedbackActors = append(feedbackActors, review.Author.Login)
 		}
-	}
-	for _, comment := range payload.Comments {
-		if body := strings.TrimSpace(comment.Body); body != "" {
-			feedbackCount++
-			if feedbackCount > MaxPullRequestFeedbackEntries {
-				return PullRequestDetails{}, fmt.Errorf("pull request feedback exceeds fixed limit of %d combined non-empty comments and reviews (next count %d)", MaxPullRequestFeedbackEntries, feedbackCount)
+		for _, comment := range payload.Comments {
+			if body := strings.TrimSpace(comment.Body); body != "" {
+				feedbackCount++
+				if feedbackCount > MaxPullRequestFeedbackEntries {
+					return PullRequestDetails{}, fmt.Errorf("pull request feedback exceeds fixed limit of %d combined non-empty comments and reviews (next count %d)", MaxPullRequestFeedbackEntries, feedbackCount)
+				}
+				feedbackActors = append(feedbackActors, comment.Author.Login)
 			}
-			feedbackActors = append(feedbackActors, comment.Author.Login)
 		}
 	}
 	details := PullRequestDetails{
@@ -208,7 +225,7 @@ func (m PullRequestManager) requestAutoMerge(ctx context.Context, repository, se
 	if !validGitObjectID(headCommit) {
 		return errors.New("automatic pull request merge requires the full reviewed head commit")
 	}
-	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	mergeMethod = config.NormalizeMergeMethod(mergeMethod)
 	if !config.ValidMergeMethod(mergeMethod) {
 		return fmt.Errorf("automatic pull request merge method %q is unsupported", mergeMethod)
 	}
@@ -239,7 +256,7 @@ func (m PullRequestManager) RequestAutoMergeAuthorized(ctx context.Context, acti
 	if !strings.EqualFold(headCommit, strings.TrimSpace(item.QACommit)) {
 		return errors.New("automatic merge head commit is no longer the QA-reviewed commit")
 	}
-	details, err := m.inspect(ctx, item.Repository, item.PullRequest)
+	details, err := m.inspect(ctx, item.Repository, item.PullRequest, false)
 	if err != nil {
 		return err
 	}
@@ -331,7 +348,7 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	}
 	baseBranch = strings.TrimSpace(baseBranch)
 	remoteName = strings.TrimSpace(remoteName)
-	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	mergeMethod = config.NormalizeMergeMethod(mergeMethod)
 	if baseBranch == "" || remoteName == "" {
 		return PublishedPullRequest{}, errors.New("publication requires an explicit base branch and Git remote")
 	}
@@ -379,7 +396,7 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	}
 	item = action.Item
 	if strings.TrimSpace(item.PullRequest) != "" {
-		details, err := m.inspect(ctx, item.Repository, item.PullRequest)
+		details, err := m.inspect(ctx, item.Repository, item.PullRequest, false)
 		if err != nil {
 			return PublishedPullRequest{}, err
 		}
@@ -391,7 +408,7 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	if existing, found, findErr := m.findOpen(ctx, item.Repository, branch, baseBranch); findErr != nil {
 		return PublishedPullRequest{}, findErr
 	} else if found {
-		details, err := m.inspect(ctx, item.Repository, existing.URL)
+		details, err := m.inspect(ctx, item.Repository, existing.URL, false)
 		if err != nil {
 			return PublishedPullRequest{}, err
 		}
@@ -422,7 +439,7 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	if url == "" {
 		return PublishedPullRequest{}, errors.New("GitHub CLI did not return the created pull request URL")
 	}
-	details, err := m.inspect(ctx, item.Repository, url)
+	details, err := m.inspect(ctx, item.Repository, url, false)
 	if err != nil {
 		return PublishedPullRequest{}, err
 	}
@@ -555,7 +572,7 @@ func (m PullRequestManager) refreshBranchMode(ctx context.Context, action Author
 	branch = strings.TrimSpace(branch)
 	baseBranch = strings.TrimSpace(baseBranch)
 	remoteName = strings.TrimSpace(remoteName)
-	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	mergeMethod = config.NormalizeMergeMethod(mergeMethod)
 	if branch == "" || strings.TrimSpace(metadata.WorktreePath) == "" {
 		return BranchRefreshResult{}, errors.New("branch refresh requires a worktree and branch")
 	}

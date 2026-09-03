@@ -19,13 +19,14 @@ const (
 )
 
 const (
-	StageWorkspacePrepare  = "workspace_prepare"
-	StageRepositoryPrepare = "repository_prepare"
-	StageHarnessRun        = "harness_run"
-	StageResultValidate    = "result_validate"
-	// StageResultRepair is retained so histories written by older Runner
-	// versions remain readable; current execution uses local normalization.
-	StageResultRepair       = "result_repair"
+	StageWorkspacePrepare   = "workspace_prepare"
+	StageRepositoryPrepare  = "repository_prepare"
+	StageHarnessRun         = "harness_run"
+	StagePlannerOutline     = "planner_outline"
+	StagePlannerDetails     = "planner_details"
+	StageReviewerAudit      = "reviewer_audit"
+	StageReviewerVerify     = "reviewer_verification"
+	StageResultValidate     = "result_validate"
 	StageWorkspaceVerify    = "workspace_verify"
 	StageProjectTransition  = "project_transition"
 	StagePublishPullRequest = "publish_pull_request"
@@ -40,8 +41,9 @@ const (
 
 func validStageName(name string) bool {
 	switch name {
-	case StageWorkspacePrepare, StageRepositoryPrepare, StageHarnessRun, StageResultValidate,
-		StageResultRepair, StageWorkspaceVerify, StageProjectTransition, StagePublishPullRequest,
+	case StageWorkspacePrepare, StageRepositoryPrepare, StageHarnessRun, StagePlannerOutline,
+		StagePlannerDetails, StageReviewerAudit, StageReviewerVerify, StageResultValidate,
+		StageWorkspaceVerify, StageProjectTransition, StagePublishPullRequest,
 		StagePlannerApply:
 		return true
 	default:
@@ -236,7 +238,7 @@ func Summarize(attempts []Attempt) Summary {
 	result.Attempts = len(attempts)
 	for _, attempt := range attempts {
 		for _, stage := range attempt.Stages {
-			if stage.Completed && stage.Name == StageHarnessRun {
+			if stage.Completed && isHarnessStage(stage.Name) {
 				result.HarnessInvocations++
 			}
 		}
@@ -268,6 +270,15 @@ func Summarize(attempts []Attempt) Summary {
 		result.Usage = result.Usage.Add(attempt.Usage)
 	}
 	return result
+}
+
+func isHarnessStage(name string) bool {
+	switch name {
+	case StageHarnessRun, StagePlannerOutline, StagePlannerDetails, StageReviewerAudit, StageReviewerVerify:
+		return true
+	default:
+		return false
+	}
 }
 
 func NewAttemptID() string {

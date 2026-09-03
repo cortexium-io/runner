@@ -678,13 +678,9 @@ func (s *Project) refreshAuthorizedAction(ctx context.Context, expected Authoriz
 	if err != nil {
 		return AuthorizedAction{}, err
 	}
-	items, err := s.ListItems(ctx)
+	current, err := s.itemByID(ctx, expectedItem.ID)
 	if err != nil {
 		return AuthorizedAction{}, fmt.Errorf("refresh Project state before privileged action: %w", err)
-	}
-	current, err := selectProjectItem(items, expectedItem.ID)
-	if err != nil {
-		return AuthorizedAction{}, err
 	}
 	authorized, err := s.validateAction(current)
 	if err != nil {

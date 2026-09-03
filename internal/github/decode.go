@@ -325,25 +325,53 @@ func decodePlannedItemMetadata(body string) (PlannedItemMetadata, bool, error) {
 	return metadata, true, nil
 }
 
+type workItemIndex struct {
+	all                 []WorkItem
+	byReference         map[string][]WorkItem
+	byID                map[string]WorkItem
+	childrenBySource    map[string][]WorkItem
+	directByFingerprint map[string][]WorkItem
+	successful          map[string]bool
+	successEvaluated    map[string]bool
+}
+
+func newWorkItemIndex(all []WorkItem) *workItemIndex {
+	index := &workItemIndex{
+		all: append([]WorkItem(nil), all...), byReference: map[string][]WorkItem{}, byID: map[string]WorkItem{},
+		childrenBySource: map[string][]WorkItem{}, directByFingerprint: map[string][]WorkItem{},
+		successful: map[string]bool{}, successEvaluated: map[string]bool{},
+	}
+	for _, item := range all {
+		id := strings.TrimSpace(item.ID)
+		if id != "" {
+			index.byReference[id] = append(index.byReference[id], item)
+			index.byID[id] = item
+		}
+		if itemURL := strings.TrimSpace(item.URL); itemURL != "" {
+			index.byReference[itemURL] = append(index.byReference[itemURL], item)
+		}
+		if sourceID := strings.TrimSpace(item.PlanningSourceID); sourceID != "" {
+			index.childrenBySource[sourceID] = append(index.childrenBySource[sourceID], item)
+		} else if fingerprint := strings.TrimSpace(item.PlanningBatchFingerprint); fingerprint != "" {
+			index.directByFingerprint[fingerprint] = append(index.directByFingerprint[fingerprint], item)
+		}
+	}
+	return index
+}
+
 func (s *Project) dependenciesSatisfied(item WorkItem, all []WorkItem) bool {
+	return s.dependenciesSatisfiedIn(item, newWorkItemIndex(all))
+}
+
+func (s *Project) dependenciesSatisfiedIn(item WorkItem, index *workItemIndex) bool {
 	if len(item.Dependencies) == 0 {
 		return true
-	}
-	itemsByReference := map[string][]WorkItem{}
-	for _, candidate := range all {
-		id := strings.TrimSpace(candidate.ID)
-		if id != "" {
-			itemsByReference[id] = append(itemsByReference[id], candidate)
-		}
-		if itemURL := strings.TrimSpace(candidate.URL); itemURL != "" {
-			itemsByReference[itemURL] = append(itemsByReference[itemURL], candidate)
-		}
 	}
 	seen := map[string]bool{}
 	for _, dependency := range item.Dependencies {
 		dependency = strings.TrimSpace(dependency)
-		matches := itemsByReference[dependency]
-		if dependency == "" || seen[dependency] || len(matches) != 1 || matches[0].ID == item.ID || !s.hasSuccessfulOutcome(matches[0], all) {
+		matches := index.byReference[dependency]
+		if dependency == "" || seen[dependency] || len(matches) != 1 || matches[0].ID == item.ID || !s.hasSuccessfulOutcomeIn(matches[0], index) {
 			return false
 		}
 		seen[dependency] = true
@@ -356,22 +384,28 @@ func (s *Project) dependenciesSatisfied(item WorkItem, all []WorkItem) bool {
 // authenticated planning-batch release. Status alone is insufficient because
 // a human can move a Project card without minting Runner outcome authority.
 func (s *Project) hasSuccessfulOutcome(item WorkItem, all []WorkItem) bool {
+	return s.hasSuccessfulOutcomeIn(item, newWorkItemIndex(all))
+}
+
+func (s *Project) hasSuccessfulOutcomeIn(item WorkItem, index *workItemIndex) bool {
+	itemID := strings.TrimSpace(item.ID)
+	if index.successEvaluated[itemID] {
+		return index.successful[itemID]
+	}
+	index.successEvaluated[itemID] = true
 	if !strings.EqualFold(strings.TrimSpace(item.Status), s.doneStatus()) || strings.TrimSpace(item.Transition) != "" {
 		return false
 	}
 	action, err := s.validateActionAssertion(item, false)
 	if err == nil {
 		successState := s.laneIDForStatus(s.doneStatus())
-		return successState != "" && action.state == successState
+		index.successful[itemID] = successState != "" && action.state == successState
+		return index.successful[itemID]
 	}
-	children := make([]WorkItem, 0)
-	for _, candidate := range all {
-		if strings.TrimSpace(candidate.PlanningSourceID) == strings.TrimSpace(item.ID) {
-			children = append(children, candidate)
-		}
-	}
+	children := index.childrenBySource[itemID]
 	_, err = s.validatePlanningBatch(item.Approval, item, children, batchReleasedState)
-	return err == nil
+	index.successful[itemID] = err == nil
+	return index.successful[itemID]
 }
 
 // ValidatePlanningDependencies verifies unique immutable item IDs and the
@@ -451,33 +485,27 @@ func ValidatePlanningDependencies(children []WorkItem) error {
 }
 
 func (s *Project) planningBatchReleased(item WorkItem, all []WorkItem, doneStatus string) bool {
+	return s.planningBatchReleasedIn(item, newWorkItemIndex(all), doneStatus)
+}
+
+func (s *Project) planningBatchReleasedIn(item WorkItem, index *workItemIndex, doneStatus string) bool {
 	if sourceID := strings.TrimSpace(item.PlanningSourceID); sourceID != "" {
-		var source WorkItem
-		for _, candidate := range all {
-			if candidate.ID == sourceID {
-				source = candidate
-				break
-			}
-		}
+		source := index.byID[sourceID]
 		if source.ID == "" || !strings.EqualFold(strings.TrimSpace(source.Status), strings.TrimSpace(doneStatus)) {
 			return false
 		}
-		children := make([]WorkItem, 0, item.PlanningBatchSize)
-		for _, candidate := range all {
-			if strings.TrimSpace(candidate.PlanningSourceID) != sourceID {
-				continue
-			}
+		children := index.childrenBySource[sourceID]
+		for _, candidate := range children {
 			if strings.EqualFold(strings.TrimSpace(candidate.Status), s.assessmentStatus()) {
 				return false
 			}
 			if strings.EqualFold(strings.TrimSpace(candidate.Status), strings.TrimSpace(doneStatus)) {
-				if !s.hasSuccessfulOutcome(candidate, all) {
+				if !s.hasSuccessfulOutcomeIn(candidate, index) {
 					return false
 				}
 			} else if _, err := s.validateAction(candidate); err != nil {
 				return false
 			}
-			children = append(children, candidate)
 		}
 		_, err := s.validatePlanningBatch(source.Approval, source, children, batchReleasedState)
 		return err == nil
@@ -499,21 +527,13 @@ func (s *Project) planningBatchReleased(item WorkItem, all []WorkItem, doneStatu
 	if destination == "" || !s.agentStatus(destination) {
 		return false
 	}
-	batchChildren := make([]WorkItem, 0, batchSize)
-	for _, candidate := range all {
-		if strings.TrimSpace(candidate.PlanningSourceID) == "" && strings.TrimSpace(candidate.PlanningBatchFingerprint) == fingerprint {
-			batchChildren = append(batchChildren, candidate)
-		}
-	}
+	batchChildren := index.directByFingerprint[fingerprint]
 	if err := ValidatePlanningDependencies(batchChildren); err != nil {
 		return false
 	}
 	seen := make([]bool, batchSize)
 	count := 0
-	for _, candidate := range all {
-		if strings.TrimSpace(candidate.PlanningSourceID) != "" || strings.TrimSpace(candidate.PlanningBatchFingerprint) != fingerprint {
-			continue
-		}
+	for _, candidate := range batchChildren {
 		if candidate.PlanningSourceLane != item.PlanningSourceLane || candidate.PlanningSourceFingerprint != item.PlanningSourceFingerprint ||
 			candidate.PlanningDestination != item.PlanningDestination || candidate.PlanningBatchSize != batchSize ||
 			candidate.PlanningItemIndex < 1 || candidate.PlanningItemIndex > batchSize || seen[candidate.PlanningItemIndex-1] ||
@@ -521,7 +541,7 @@ func (s *Project) planningBatchReleased(item WorkItem, all []WorkItem, doneStatu
 			return false
 		}
 		if strings.EqualFold(strings.TrimSpace(candidate.Status), strings.TrimSpace(doneStatus)) {
-			if !s.hasSuccessfulOutcome(candidate, all) {
+			if !s.hasSuccessfulOutcomeIn(candidate, index) {
 				return false
 			}
 		} else if _, err := s.validateAction(candidate); err != nil {

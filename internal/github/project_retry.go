@@ -105,16 +105,15 @@ func (s *Project) ApplyRetry(ctx context.Context, plan RetryPlan) (WorkItem, err
 		detail = plan.FeedbackOverride
 		resetFailures = true
 	}
+	var updates []projectFieldUpdate
+	if resetFailures {
+		updates = []projectFieldUpdate{numberProjectField(s.qaFailuresFieldName(), 0)}
+	}
 	if err := s.transition(ctx, current, plan.TargetStatus, detail, plan.TargetLaneID, false, func(next *WorkItem) {
 		if resetFailures {
 			next.QAFailures = 0
 		}
-	}, func(current WorkItem) error {
-		if !resetFailures {
-			return nil
-		}
-		return s.setNumberField(ctx, current.ID, s.qaFailuresFieldName(), 0)
-	}); err != nil {
+	}, updates); err != nil {
 		return WorkItem{}, err
 	}
 	item := current.Item

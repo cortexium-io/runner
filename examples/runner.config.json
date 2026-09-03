@@ -1,5 +1,5 @@
 {
-  "config_version": 2,
+  "config_version": 3,
   "runner_id": "runr_local_replace_me",
   "project_dir": "/absolute/path/to/repository",
   "repository_references": [

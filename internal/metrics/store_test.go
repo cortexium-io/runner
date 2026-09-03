@@ -88,6 +88,17 @@ func TestStoreRejectsStageWithoutStableIdentity(t *testing.T) {
 	}
 }
 
+func TestSummaryCountsEveryModelCallStageAsHarnessInvocation(t *testing.T) {
+	stages := []string{StageHarnessRun, StagePlannerOutline, StagePlannerDetails, StageReviewerAudit, StageReviewerVerify}
+	attempt := Attempt{Stages: make([]Stage, 0, len(stages))}
+	for _, name := range stages {
+		attempt.Stages = append(attempt.Stages, Stage{Name: name, Completed: true})
+	}
+	if got := Summarize([]Attempt{attempt}).HarnessInvocations; got != len(stages) {
+		t.Fatalf("harness invocations = %d, want %d", got, len(stages))
+	}
+}
+
 func TestStoreRejectsFreeFormStageAndRecoveryFields(t *testing.T) {
 	store := NewStore(t.TempDir() + "/metrics.jsonl")
 	for _, event := range []Event{

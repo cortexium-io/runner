@@ -152,7 +152,7 @@ func TestPullRequestFeedbackEnforcesCombinedEntryLimitBeforeAggregation(t *testi
 				t.Fatal(err)
 			}
 			runner := &pullRequestTestRunner{viewOutput: string(payload)}
-			details, inspectErr := NewPullRequestManager(runner, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12")
+			details, inspectErr := NewPullRequestManager(runner, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12", true)
 			if count == MaxPullRequestFeedbackEntries {
 				if inspectErr != nil || len(details.Feedback) > maxPullRequestFeedbackBytes {
 					t.Fatalf("exact feedback limit failed: bytes=%d error=%v", len(details.Feedback), inspectErr)
@@ -179,7 +179,7 @@ func TestPullRequestFeedbackPublishesTrustedDiscussionReferenceOnly(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	details, err := NewPullRequestManager(&pullRequestTestRunner{viewOutput: string(payload)}, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12")
+	details, err := NewPullRequestManager(&pullRequestTestRunner{viewOutput: string(payload)}, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12", true)
 	if err != nil {
 		t.Fatalf("inspect trusted feedback: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestPullRequestFeedbackIgnoresUntrustedCommentBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	details, err := NewPullRequestManager(&pullRequestTestRunner{viewOutput: string(payload)}, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12")
+	details, err := NewPullRequestManager(&pullRequestTestRunner{viewOutput: string(payload)}, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12", true)
 	if err != nil {
 		t.Fatalf("inspect untrusted feedback: %v", err)
 	}
@@ -215,15 +215,28 @@ func TestPullRequestFeedbackIgnoresUntrustedCommentBody(t *testing.T) {
 	}
 }
 
+func TestRoutinePullRequestInspectionDoesNotLoadFeedback(t *testing.T) {
+	runner := &pullRequestTestRunner{viewOutput: `{"url":"https://github.com/owner/repo/pull/12","number":12,"state":"OPEN","headRefName":"cortexium/task","headRefOid":"head","baseRefName":"main","mergeStateStatus":"CLEAN","comments":[{"body":"feedback","author":{"login":"maintainer"}}]}`}
+	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "12"})
+	details, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorized(t.Context(), action)
+	if err != nil {
+		t.Fatalf("inspect pull request: %v", err)
+	}
+	joined := strings.Join(runner.calls, "\n")
+	if details.Feedback != "" || strings.Contains(joined, "comments,reviews") || strings.Contains(joined, "api user") {
+		t.Fatalf("routine inspection loaded feedback: details=%#v calls=%s", details, joined)
+	}
+}
+
 func TestGitHubPullRequestManagerRequestsAutoMergeWithoutBypassingProtections(t *testing.T) {
 	runner := &pullRequestTestRunner{}
 	head := strings.Repeat("a", 40)
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "https://github.com/owner/repo/pull/12", QACommit: head})
-	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", "")
+	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", config.MergeMethodMerge)
 	if err != nil {
 		t.Fatalf("request auto merge: %v", err)
 	}
-	if got := strings.Join(runner.calls, "\n"); got != "pr view https://github.com/owner/repo/pull/12 --repo owner/repo --json url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,autoMergeRequest,comments,reviews\npr merge https://github.com/owner/repo/pull/12 --repo owner/repo --auto --merge --match-head-commit "+head {
+	if got := strings.Join(runner.calls, "\n"); got != "pr view https://github.com/owner/repo/pull/12 --repo owner/repo --json url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,autoMergeRequest\npr merge https://github.com/owner/repo/pull/12 --repo owner/repo --auto --merge --match-head-commit "+head {
 		t.Fatalf("auto-merge command = %q", got)
 	}
 	if strings.Contains(strings.Join(runner.calls, " "), "--admin") {
@@ -247,7 +260,7 @@ func TestGitHubPullRequestManagerReportsAutoMergeFailure(t *testing.T) {
 	runner := &pullRequestTestRunner{autoMergeErr: errors.New("exit status 1")}
 	head := strings.Repeat("a", 40)
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "12", QACommit: head})
-	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", "")
+	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", config.MergeMethodMerge)
 	if err == nil || !strings.Contains(err.Error(), "automatic pull request merge") || !strings.Contains(err.Error(), "auto-merge is disabled") {
 		t.Fatalf("auto-merge failure = %v", err)
 	}
@@ -297,7 +310,7 @@ func TestGitHubPullRequestManagerRequiresAuthorizedBoundAction(t *testing.T) {
 	if err := manager.CancelAutoMergeAuthorized(t.Context(), modified); err == nil || !strings.Contains(err.Error(), "modified after validation") {
 		t.Fatalf("modified authorized action was accepted: %v", err)
 	}
-	if err := manager.RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", ""); err != nil {
+	if err := manager.RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", config.MergeMethodMerge); err != nil {
 		t.Fatalf("authorized auto-merge was rejected: %v", err)
 	}
 	if len(runner.calls) != 2 {
@@ -439,7 +452,7 @@ func TestGitHubPullRequestManagerRejectsDifferentRepositoryRemote(t *testing.T) 
 func TestGitHubPullRequestManagerRejectsUnsafePersistedSelector(t *testing.T) {
 	runner := &pullRequestTestRunner{}
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "--repo=attacker/repository"})
-	_, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorized(t.Context(), action)
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorizedWithFeedback(t.Context(), action)
 	if err == nil || !strings.Contains(err.Error(), "canonical") {
 		t.Fatalf("unsafe pull request selector was accepted: %v", err)
 	}
@@ -451,7 +464,7 @@ func TestGitHubPullRequestManagerRejectsUnsafePersistedSelector(t *testing.T) {
 func TestGitHubPullRequestManagerRejectsSelectorFromAnotherRepository(t *testing.T) {
 	runner := &pullRequestTestRunner{}
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "https://github.com/attacker/repo/pull/12"})
-	_, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorized(t.Context(), action)
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorizedWithFeedback(t.Context(), action)
 	if err == nil || !strings.Contains(err.Error(), "approved repository") {
 		t.Fatalf("foreign pull request selector was accepted: %v", err)
 	}
