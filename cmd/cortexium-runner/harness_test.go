@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
@@ -154,6 +155,32 @@ func TestHarnessCheckCanExerciseConfiguredBrowserProfiles(t *testing.T) {
 	}
 	if count := strings.Count(output.String(), "configured role rendered the temporary browser fixture successfully"); count != 2 {
 		t.Fatalf("browser success count = %d, want two:\n%s", count, output.String())
+	}
+	browserPrompts := 0
+	for _, prompt := range runner.modelPrompts {
+		if strings.Contains(prompt, "browser conformance") {
+			browserPrompts++
+			for _, expected := range []string{"navigate_page", "evaluate_script", "ALL_TOOLS", "tools object"} {
+				if !strings.Contains(prompt, expected) {
+					t.Fatalf("browser conformance prompt omitted %q:\n%s", expected, prompt)
+				}
+			}
+		}
+	}
+	if browserPrompts != 2 {
+		t.Fatalf("browser conformance prompts = %d, want two", browserPrompts)
+	}
+}
+
+func TestBrowserConformanceOutcomeErrorRetainsModelDetail(t *testing.T) {
+	blocker := "runner_browser was not present in either callable tool catalog"
+	err := browserConformanceOutcomeError("browser check failed", execution.Output{
+		Outcome: execution.OutcomeBlocked,
+		Summary: "Browser verification could not run.",
+		Blocker: &blocker,
+	})
+	if !strings.Contains(err.Error(), `outcome="blocked"`) || !strings.Contains(err.Error(), blocker) {
+		t.Fatalf("browser conformance error omitted useful detail: %v", err)
 	}
 }
 

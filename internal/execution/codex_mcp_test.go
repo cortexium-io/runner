@@ -105,7 +105,7 @@ func TestInheritedCodexMCPAddsRunnerBrowserWithoutReplacingAmbientCatalog(t *tes
 
 func TestCodexMCPPromptNamesOnlyGrantedServersAndExplainsToolDiscovery(t *testing.T) {
 	prompt := codexMCPPrompt([]string{"browser", "audit"}, false)
-	for _, expected := range []string{"audit, browser", "direct MCP tool calls", "list_mcp_resources reports resources"} {
+	for _, expected := range []string{"audit, browser", "whichever callable surface", "ALL_TOOLS", "tools object", "list_mcp_resources reports resources"} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("MCP prompt omitted %q: %s", expected, prompt)
 		}
@@ -115,13 +115,14 @@ func TestCodexMCPPromptNamesOnlyGrantedServersAndExplainsToolDiscovery(t *testin
 	}
 }
 
-func TestRunnerBrowserPromptRequiresDirectBrowserBeforeFallback(t *testing.T) {
+func TestRunnerBrowserPromptSupportsDirectAndCodeModeTools(t *testing.T) {
 	prompt := codexMCPPrompt(nil, true)
 	for _, expected := range []string{
 		"use runner_browser before trying any shell-launched browser",
-		"navigate, evaluate, and screenshot",
+		"navigate_page, evaluate_script, and take_screenshot",
+		"In Code Mode, inspect ALL_TOOLS for runner_browser",
 		"Do not download a browser",
-		"only after a direct runner_browser tool call returns a concrete failure",
+		"both the direct and Code Mode tool catalogs have been checked",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("Runner browser prompt omitted %q: %s", expected, prompt)

@@ -172,7 +172,7 @@ func codexMCPPromptForConfig(allowed []string, safeTools bool, harnessConfigMode
 		names = append(names, runnerBrowserMCPServer)
 	}
 	sort.Strings(names)
-	message := "\n\nRunner-granted Codex MCP servers: " + strings.Join(names, ", ") + ". Call their tools as direct MCP tool calls, not through Code Mode or a tools object. list_mcp_resources reports resources, not the available MCP tools, and an empty resource list does not mean the granted tools are unavailable."
+	message := "\n\nRunner-granted Codex MCP servers: " + strings.Join(names, ", ") + ". Use whichever callable surface this Codex session provides. If a granted MCP tool is not exposed as a direct call and Code Mode is active, inspect ALL_TOOLS for entries whose names contain the exact server name, then call the matching function through the tools object. list_mcp_resources reports resources, not the available MCP tools, and an empty resource list does not mean the granted tools are unavailable."
 	if inheritsHarnessConfiguration(harnessConfigMode) {
 		message += " Runner is also inheriting the operator's ambient Codex MCP configuration; use those servers only when relevant to this assignment.\n"
 	} else {
@@ -188,10 +188,10 @@ func runnerBrowserPrompt(safeTools bool) string {
 	return `
 Runner browser verification contract:
 - For rendered-page, interaction, or console verification, start the local application or server and use runner_browser before trying any shell-launched browser.
-- Call runner_browser's navigate, evaluate, and screenshot tools directly. Do not infer availability from resource discovery.
+- runner_browser exposes navigate_page, evaluate_script, and take_screenshot. Use their direct MCP calls when available. In Code Mode, inspect ALL_TOOLS for runner_browser and invoke the matching functions through the tools object. Do not infer availability from resource discovery.
 - Run an already-configured project browser test when the task requires it, but failure of that one integration does not make browser verification unavailable while runner_browser is granted.
 - Do not download a browser, install a browser dependency, or inspect ambient browser caches merely to perform verification.
-- Report browser capability as blocked only after a direct runner_browser tool call returns a concrete failure.
+- Report browser capability as blocked only after an exposed runner_browser call returns a concrete failure, or after both the direct and Code Mode tool catalogs have been checked and contain no runner_browser entry.
 `
 }
 

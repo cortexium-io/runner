@@ -348,10 +348,7 @@ func checkHarnessBrowser(ctx context.Context, run subprocess.Runner, cfg config.
 }
 
 func checkHarnessImplementerBrowser(ctx context.Context, run subprocess.Runner, cfg config.ExecutionConfig, roleID, repository string) error {
-	browserInstruction := "Use only the navigate and evaluate tools in Runner's runner_browser MCP server. Call navigate directly; do not inspect list_mcp_resources and do not launch a browser through shell commands."
-	if cfg.Harness.Kind == config.HarnessPiCLI {
-		browserInstruction = "Use only the runner_browser_navigate and runner_browser_evaluate tools granted by Runner. Do not launch a browser through shell commands."
-	}
+	browserInstruction := browserConformanceToolInstruction(cfg.Harness.Kind)
 	assignment := execution.Assignment{Spec: execution.Spec{
 		ID: "harness_browser_" + roleID, ItemID: "harness_browser_" + roleID,
 		Repository: conformanceRepository, DelegatedContentDigest: "v1:harness-browser:" + roleID,
@@ -370,7 +367,7 @@ func checkHarnessImplementerBrowser(ctx context.Context, run subprocess.Runner, 
 		return err
 	}
 	if output.Outcome != execution.OutcomeSucceeded {
-		return fmt.Errorf("implementer browser check returned outcome %q", output.Outcome)
+		return browserConformanceOutcomeError("implementer browser check returned an unsuccessful outcome", output)
 	}
 	content, err := os.ReadFile(filepath.Join(prepared.WorktreePath, "browser-probe-dom.txt"))
 	if err != nil {
@@ -385,10 +382,7 @@ func checkHarnessImplementerBrowser(ctx context.Context, run subprocess.Runner, 
 }
 
 func checkHarnessReviewerBrowser(ctx context.Context, run subprocess.Runner, cfg config.ExecutionConfig, roleID, repository string) error {
-	browserInstruction := "Use only the navigate and evaluate tools in Runner's runner_browser MCP server. Call navigate directly; do not inspect list_mcp_resources and do not launch a browser through shell commands."
-	if cfg.Harness.Kind == config.HarnessPiCLI {
-		browserInstruction = "Use only the runner_browser_navigate and runner_browser_evaluate tools granted by Runner. Do not launch a browser through shell commands."
-	}
+	browserInstruction := browserConformanceToolInstruction(cfg.Harness.Kind)
 	assignment := execution.Assignment{Spec: execution.Spec{
 		ID: "harness_browser_" + roleID, ItemID: "harness_browser_" + roleID,
 		Repository: conformanceRepository, DelegatedContentDigest: "v1:harness-browser:" + roleID,
@@ -404,9 +398,34 @@ func checkHarnessReviewerBrowser(ctx context.Context, run subprocess.Runner, cfg
 		return err
 	}
 	if output.Outcome != execution.OutcomeSucceeded || output.ReviewAssessment == nil || output.ReviewAssessment.Verdict != "accept" {
-		return fmt.Errorf("reviewer browser check did not accept the known-good fixture; outcome=%q", output.Outcome)
+		return browserConformanceOutcomeError("reviewer browser check did not accept the known-good fixture", output)
 	}
 	return verifyHarnessConformanceRepository(ctx, run, repository)
+}
+
+func browserConformanceToolInstruction(kind string) string {
+	switch kind {
+	case config.HarnessCodexCLI:
+		return "Use only Runner's runner_browser navigate_page and evaluate_script MCP tools. Call them directly when they are exposed as direct tools. In Code Mode, inspect ALL_TOOLS for runner_browser and invoke the matching functions through the tools object. Do not inspect list_mcp_resources and do not launch a browser through shell commands."
+	case config.HarnessPiCLI:
+		return "Use only the runner_browser_navigate and runner_browser_evaluate tools granted by Runner. Do not launch a browser through shell commands."
+	default:
+		return "Use only Runner's runner_browser navigate_page and evaluate_script MCP tools. Do not inspect list_mcp_resources and do not launch a browser through shell commands."
+	}
+}
+
+func browserConformanceOutcomeError(message string, output execution.Output) error {
+	detail := strings.TrimSpace(output.Summary)
+	if output.Blocker != nil && strings.TrimSpace(*output.Blocker) != "" {
+		detail = strings.TrimSpace(*output.Blocker)
+	}
+	if output.ReviewAssessment != nil && strings.TrimSpace(output.ReviewAssessment.Summary) != "" {
+		detail = strings.TrimSpace(output.ReviewAssessment.Summary)
+	}
+	if detail == "" {
+		return fmt.Errorf("%s; outcome=%q", message, output.Outcome)
+	}
+	return fmt.Errorf("%s; outcome=%q; detail: %s", message, output.Outcome, detail)
 }
 
 func executeHarnessReadOnly(ctx context.Context, run subprocess.Runner, cfg config.ExecutionConfig, assignment execution.Assignment) (execution.Output, error) {
