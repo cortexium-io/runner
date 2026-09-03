@@ -56,6 +56,8 @@ type Engine struct {
 	admissionHistoryLoaded     bool
 	admissionHistoryGeneration uint64
 	admissionCacheGeneration   uint64
+	automaticRetryMu           sync.Mutex
+	automaticRetries           map[string]automaticRetryState
 }
 
 // SetMetricsObserver attaches attempt telemetry. It remains non-critical when
@@ -169,6 +171,9 @@ func (s *Engine) runCycle(ctx context.Context, syncIntake bool) ([]RunResult, bo
 		}()
 	}
 	wait.Wait()
+	for _, result := range completed {
+		s.finishAutomaticRetry(result)
+	}
 	prepared.results = append(prepared.results, completed...)
 
 	if syncIntake {
@@ -295,6 +300,9 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 	occupied := occupiedResourceKeys(inFlight)
 	for _, action := range readyActions {
 		item := action.Item
+		if s.automaticRetryPending(item, time.Now()) {
+			continue
+		}
 		laneID := s.cfg.LaneIDForStatus(item.Status)
 		lane, ok := s.cfg.Lane(laneID)
 		if !ok || strings.TrimSpace(lane.Role) == "" || strings.TrimSpace(lane.Role) != action.Role {
@@ -417,11 +425,13 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 			for len(inFlight) > 0 {
 				completion := <-completed
 				delete(inFlight, completion.itemID)
+				s.finishAutomaticRetry(completion.result)
 				reportResult(completion.result)
 			}
 			return nil
 		case completion := <-completed:
 			delete(inFlight, completion.itemID)
+			s.finishAutomaticRetry(completion.result)
 			reportResult(completion.result)
 			resetPollTimer(0)
 		case <-pollTimer.C:
@@ -476,6 +486,7 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 				}
 			}
 			delay = capPollDelayForIntake(delay, time.Now(), nextIntakeSync)
+			delay = s.capPollDelayForAutomaticRetry(delay, time.Now())
 			if onPoll != nil {
 				state := PollState{LastPollAt: now, NextPollAt: time.Now().Add(delay), Admission: s.LastAdmissionDecision()}
 				if err != nil {
@@ -693,6 +704,11 @@ func (s *Engine) executePlanner(ctx context.Context, action github.AuthorizedAct
 	result.FailureClass = string(harnessResult.FailureClass)
 	result.RetryDisposition = string(harnessResult.RetryDisposition)
 	result.RetryAfter = harnessResult.RetryAfter
+	if err != nil {
+		if output, automatic := harnessResult.AutomaticRetryOutput(); automatic {
+			return s.failExecution(ctx, action, lane, result, "Planning failed", err, output)
+		}
+	}
 	if err == nil && len(compactNonEmpty(plan.OpenDecisions)) > 0 {
 		decisions := compactNonEmpty(plan.OpenDecisions)
 		result.Outcome = execution.OutcomeNeedsInput
@@ -1393,10 +1409,30 @@ func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.Aut
 		target = laneID
 		summary = "Runner stopped; retained work is ready to resume."
 	}
+	automaticRetry := output.RetryDisposition == execution.RetryAutomatic &&
+		(output.FailureClass == execution.FailureTransientExternal || output.FailureClass == execution.FailureCapacityExhausted)
+	var scheduledRetry automaticRetryState
+	if automaticRetry {
+		var scheduled bool
+		scheduledRetry, scheduled = s.nextAutomaticRetry(item.ID, time.Now().UTC())
+		if scheduled {
+			target = laneID
+			output.RetryAfter = scheduledRetry.notBefore.Format(time.RFC3339)
+			summary = fmt.Sprintf("Harness provider unavailable; automatic retry %d of %d is scheduled.", scheduledRetry.failures, maxAutomaticRetries)
+		} else {
+			automaticRetry = false
+			output.RetryDisposition = execution.RetryManual
+			output.RetryAfter = ""
+			summary = fmt.Sprintf("Harness provider remained unavailable after %d automatic retries.", maxAutomaticRetries)
+			output.Summary = summary
+		}
+	}
 	manualRetry := output.RetryDisposition == execution.RetryManual
-	manualRetrySafe := manualRetry && output.RemoteDetailSafe && strings.TrimSpace(output.Summary) != ""
-	if manualRetrySafe {
-		summary = strings.TrimSpace(output.Summary)
+	retrySafe := (manualRetry || automaticRetry) && output.RemoteDetailSafe && strings.TrimSpace(output.Summary) != ""
+	if retrySafe {
+		if !automaticRetry {
+			summary = strings.TrimSpace(output.Summary)
+		}
 		if output.DiscardDiagnostics {
 			result.Error = ""
 		}
@@ -1405,7 +1441,7 @@ func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.Aut
 		result.Error = appendError(result.Error, errors.New(strings.TrimSpace(output.Summary)))
 	}
 	detail := strings.TrimSpace(summary)
-	if manualRetrySafe {
+	if retrySafe {
 		detail = formatExecutionReport("Retryable Runner blocker", output)
 	} else if output.RemoteDetailSafe && output.Outcome != execution.OutcomeSucceeded {
 		detail = formatExecutionReport("Runner blocked", output)
@@ -1431,13 +1467,25 @@ func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.Aut
 	transitionCtx, cancelTransition := postCancelTransitionContext(ctx)
 	defer cancelTransition()
 	finishTransition := metrics.StartStage(transitionCtx, metrics.StageProjectTransition)
-	if updateErr := s.transitionProjectItem(transitionCtx, action, s.cfg.LaneStatus(target), detail, retryPhase); updateErr != nil {
+	var updateErr error
+	if automaticRetry {
+		updateErr = s.transitionAutomaticRetry(transitionCtx, action, s.cfg.LaneStatus(target), s.phaseForTargetLane(target), detail)
+	} else {
+		updateErr = s.transitionProjectItem(transitionCtx, action, s.cfg.LaneStatus(target), detail, retryPhase)
+	}
+	if updateErr != nil {
 		finishTransition(metrics.StageOutcomeFailed, string(execution.FailureTransientExternal), string(execution.RetryManual), metrics.Usage{})
 		result.Error = appendError(result.Error, updateErr)
 	} else {
 		finishTransition(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
+		if automaticRetry {
+			s.storeAutomaticRetry(item.ID, scheduledRetry)
+		}
 	}
 	result.Outcome = execution.OutcomeBlocked
+	if automaticRetry && updateErr == nil {
+		result.Outcome = "retry_scheduled"
+	}
 	if output.Outcome == execution.OutcomeNeedsInput {
 		result.Outcome = execution.OutcomeNeedsInput
 	}

@@ -635,6 +635,12 @@ func (s *Project) TransitionAfterBranchUpdate(ctx context.Context, action Author
 	}, []projectFieldUpdate{numberProjectField(s.qaFailuresFieldName(), 0)})
 }
 
+func (s *Project) TransitionAutomaticRetry(ctx context.Context, action AuthorizedAction, targetStatus, targetPhase, detail string) error {
+	return s.transition(ctx, action, targetStatus, detail, targetPhase, false, func(next *WorkItem) {
+		next.Activity = config.RunnerActivityWaitingForHarness
+	}, nil)
+}
+
 // TransitionChecksFailed returns an integration candidate to implementation
 // without treating repository CI as an Agent QA rejection. The existing pull
 // request, branch, reviewed commit, and rejection count remain available to the

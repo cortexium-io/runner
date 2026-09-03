@@ -76,7 +76,7 @@ func validFailureClass(class string) bool {
 
 func validRetryDisposition(disposition string) bool {
 	switch disposition {
-	case "", "none", "manual":
+	case "", "none", "manual", "automatic":
 		return true
 	default:
 		return false

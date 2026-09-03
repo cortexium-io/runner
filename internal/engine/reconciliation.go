@@ -842,7 +842,7 @@ func (s *Engine) workspaceForItemMode(ctx context.Context, item github.WorkItem,
 		return workspace.Metadata{}, fmt.Errorf("implementation branch mismatch: Project has %q, worktree has %q", item.Branch, prepared.BranchName)
 	}
 	if strings.TrimSpace(item.Branch) != "" {
-		if err := s.syncWorkspaceBranch(ctx, prepared.WorktreePath, item); err != nil {
+		if err := s.syncWorkspaceBranch(ctx, prepared, item); err != nil {
 			return workspace.Metadata{}, err
 		}
 	}
@@ -858,7 +858,8 @@ func (s *Engine) prepareWorkspaceForItem(ctx context.Context, item github.WorkIt
 	return workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).Prepare(ctx, request)
 }
 
-func (s *Engine) syncWorkspaceBranch(ctx context.Context, worktreePath string, item github.WorkItem) error {
+func (s *Engine) syncWorkspaceBranch(ctx context.Context, metadata workspace.Metadata, item github.WorkItem) error {
+	worktreePath := metadata.WorktreePath
 	remote := s.remoteName()
 	branch := strings.TrimSpace(item.Branch)
 	remoteRef := remote + "/" + branch
@@ -875,15 +876,25 @@ func (s *Engine) syncWorkspaceBranch(ctx context.Context, worktreePath string, i
 	localBehind, behindErr := s.git(ctx, []string{"merge-base", "--is-ancestor", "HEAD", remoteRef}, worktreePath, 30*time.Second)
 	if behindErr != nil || localBehind.ExitCode != 0 {
 		qaCommit := strings.TrimSpace(item.QACommit)
-		if config.NormalizeMergeMethod(s.cfg.GitHubProject.MergeMethod) == config.MergeMethodRebase && strings.TrimSpace(item.PullRequest) != "" && validReconciliationObjectID(qaCommit) {
+		if config.NormalizeMergeMethod(s.cfg.GitHubProject.MergeMethod) == config.MergeMethodRebase && strings.TrimSpace(item.PullRequest) != "" {
 			remoteHead, remoteHeadErr := s.git(ctx, []string{"rev-parse", "--verify", remoteRef}, worktreePath, 30*time.Second)
-			if remoteHeadErr == nil && strings.EqualFold(strings.TrimSpace(remoteHead.Stdout), qaCommit) {
+			remoteOID := strings.TrimSpace(remoteHead.Stdout)
+			if remoteHeadErr == nil && validReconciliationObjectID(qaCommit) && strings.EqualFold(remoteOID, qaCommit) {
 				// Rebase-mode rework intentionally records the corrected tree on
 				// the latest base, so it need not descend from the previously
 				// published candidate. Keep the rewrite local through QA. The
 				// publication boundary permits replacing the PR branch only with
 				// an exact force-with-lease against this recorded QA commit.
 				return nil
+			}
+			if remoteHeadErr == nil {
+				trusted, trustErr := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).HasPriorPublicationAcceptance(ctx, metadata, remoteOID)
+				if trustErr != nil {
+					return fmt.Errorf("authenticate prior pull request publication: %w", trustErr)
+				}
+				if trusted {
+					return nil
+				}
 			}
 		}
 		return errors.New("local task branch and remote pull request head have diverged; refusing to review or overwrite either history")

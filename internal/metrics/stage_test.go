@@ -62,3 +62,9 @@ func TestCandidateValidationIsAStableFailureClass(t *testing.T) {
 		t.Fatal("candidate validation failure class is not accepted by metrics")
 	}
 }
+
+func TestAutomaticRetryIsAStableDisposition(t *testing.T) {
+	if !validRetryDisposition("automatic") {
+		t.Fatal("automatic retry disposition is not accepted by metrics")
+	}
+}

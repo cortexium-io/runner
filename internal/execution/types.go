@@ -64,8 +64,9 @@ const (
 type RetryDisposition string
 
 const (
-	RetryNone   RetryDisposition = "none"
-	RetryManual RetryDisposition = "manual"
+	RetryNone      RetryDisposition = "none"
+	RetryManual    RetryDisposition = "manual"
+	RetryAutomatic RetryDisposition = "automatic"
 )
 
 type Output struct {

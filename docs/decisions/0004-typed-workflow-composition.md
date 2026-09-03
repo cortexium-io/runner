@@ -44,6 +44,11 @@ dependency checks, resource conflicts, bounded concurrency and retries,
 candidate integrity, independent review before publication, and serialized
 integration cannot be disabled by configuration.
 
+Recognized transient harness-provider failures are operational retries below
+the configurable workflow graph: Runner retains the current role lane, exposes
+the wait as activity, and uses a small bounded delay without consuming an Agent
+QA rejection. Exhaustion enters the rule's ordinary error transition.
+
 ## Consequences
 
 Lanes become simple external state names, and events and actions use one

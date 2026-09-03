@@ -234,7 +234,9 @@ cortexium-runner init
 
 The resulting board shows `Runner Activity` and `QA Failures` directly on its
 cards. Activity is `Planning`, `Implementing`, or `Reviewing` while an agent
-owns the card. Existing unrelated visible fields are preserved; the internal
+owns the card. A recognized transient Codex outage shows `Waiting for harness
+provider` while Runner performs three delayed retries without consuming a QA
+rejection. Existing unrelated visible fields are preserved; the internal
 `Runner Phase` recovery and `Runner Transition` lock fields are hidden. If that
 display is changed later, `doctor` reports it and rerunning `init` restores the
 overview.

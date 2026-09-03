@@ -122,8 +122,10 @@ automatic merge only for a clean reviewed candidate. Manual-review PRs and
 rework requests are not eagerly refreshed. A tracked `rebase` rework may have a
 local corrected history that diverges from the previously published branch;
 Runner retains it for implementation and QA only while that remote branch still
-equals the exact QA commit recorded on the card, then publication replaces it
-under the existing exact force-with-lease contract. Humans can enqueue a
+equals the exact QA commit recorded on the card or an immutable private
+publication record authenticates that same card/content/repository/destination
+head after an interrupted Project update. Publication then replaces only that
+exact head under the existing force-with-lease contract. Humans can enqueue a
 planner request or sufficiently specified implementation card with `add plan`
 or `add ready` while continuous mode is active. Direct ordinary cards in either
 lane are converted to issues and authenticated from their exact observed

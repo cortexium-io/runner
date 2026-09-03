@@ -197,7 +197,9 @@ configured roles. AI harnesses remain user-installed and user-configured.
 Project synchronization keeps `Runner Activity` and `QA Failures` visible on
 board cards without hiding unrelated fields the user already selected.
 Activity is `Planning`, `Implementing`, or `Reviewing` while an agent owns the
-card. At `PR Ready`, it distinguishes `Awaiting human review`, `Waiting for CI`,
+card. A transient Codex service failure temporarily shows `Waiting for harness
+provider` in the same role lane while Runner performs its bounded delayed
+retries. At `PR Ready`, it distinguishes `Awaiting human review`, `Waiting for CI`,
 `Waiting for integration slot`, and `Waiting for merge`. A failed integration
 check briefly records `CI failed — rework queued` as the card returns to
 implementation. Cards with incomplete dependencies show `Waiting for
@@ -669,7 +671,7 @@ update.
 | `In Progress` | Runner: temporary lane while an agent owns the card. |
 | `Agent QA` | Reviewer agent: evaluate the exact branch and worktree. |
 | `PR Ready` | Pull request awaits human review (`Awaiting human review`) or automatic integration (`Waiting for integration slot`, `Waiting for CI`, or `Waiting for merge`). |
-| `Blocked` | Human: input, an execution error, a closed-without-merge PR, or the maximum QA rejections were reached. |
+| `Blocked` | Human: input, a non-retryable execution error, exhausted transient-provider retries, a closed-without-merge PR, or the maximum QA rejections were reached. |
 | `Done` | Terminal success: planning completed or the pull request was merged. |
 
 `Plan` and `Ready` are human scheduling boundaries for ordinary cards. When a
@@ -1795,8 +1797,11 @@ dependency direction.
   content. Other cleanup failures remain cycle warnings and do not prevent
   unrelated cards from progressing.
 - Initial publication never force-pushes. Tracked PR rework may replace the
-  exact previously reviewed remote commit with `--force-with-lease`; Runner
-  refuses a moved remote branch. Publication never merges a PR or deploys.
+  exact previously reviewed remote commit with `--force-with-lease`. If a
+  Project update was interrupted, an immutable private publication record for
+  the same card content, repository, and destination may recover the exact
+  remote lease; Runner still refuses an unrecorded moved branch. Publication
+  never merges a PR or deploys.
 - External Project configuration changes happen only through `init`; use
   `init --dry-run` to preview them and `init --prune` to remove only unoccupied
   extra Status options. `plan --create` creates and approves a direct batch;

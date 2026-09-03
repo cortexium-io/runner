@@ -689,6 +689,12 @@ func TestGitHubPullRequestManagerPublishesLinearRebaseRefreshWithExactLease(t *t
 		}
 		t.Run(name, func(t *testing.T) {
 			remote, metadata, record, action, previousRemoteOID := acceptedRebaseRefreshTuple(t, conflicted)
+			if !conflicted {
+				// Simulate an interrupted Project update: the remote head has an
+				// immutable prior acceptance, but the Project QA field is stale.
+				action.Item.QACommit = record.ApprovedBaseOID
+				action = authorizedPullRequestTestAction(action.Item)
+			}
 			runner := &pullRequestTestRunner{
 				publicationRemote: remote,
 				viewHeadOID:       record.CommitOID,

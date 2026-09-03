@@ -25,6 +25,7 @@ const (
 	RunnerActivityWaitingForMerge        = "Waiting for merge"
 	RunnerActivityCIFailed               = "CI failed — rework queued"
 	RunnerActivityWaitingForDependencies = "Waiting for dependencies"
+	RunnerActivityWaitingForHarness      = "Waiting for harness provider"
 )
 
 const (

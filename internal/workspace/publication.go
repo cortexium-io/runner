@@ -660,6 +660,49 @@ func (p GitProvider) LoadPublicationAcceptance(ctx context.Context, metadata Met
 	return existing, true, nil
 }
 
+// HasPriorPublicationAcceptance authenticates a remote branch head that Runner
+// published for the same item, delegated content, repository, and destination.
+// Unlike LoadPublicationAcceptance, it deliberately does not bind the old
+// record to the current candidate or base: rebase-mode recovery has already
+// replaced that local history and uses this proof only as an exact lease
+// anchor for the still-published predecessor.
+func (p GitProvider) HasPriorPublicationAcceptance(_ context.Context, metadata Metadata, commitOID string) (bool, error) {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	if err := validateCandidateMetadata(metadata); err != nil {
+		return false, err
+	}
+	if err := validateRecordedIdentity(metadata); err != nil {
+		return false, err
+	}
+	return priorPublicationAcceptance(metadata, commitOID)
+}
+
+func priorPublicationAcceptance(metadata Metadata, commitOID string) (bool, error) {
+	commitOID = strings.TrimSpace(commitOID)
+	if !validObjectID(commitOID) {
+		return false, nil
+	}
+	worktreeRoot := filepath.Dir(metadata.Identity.WorktreePath)
+	if err := securefs.ValidatePrivateDir(worktreeRoot); err != nil {
+		return false, fmt.Errorf("validate private publication state root: %w", err)
+	}
+	record, err := readPublicationRecord(filepath.Join(worktreeRoot, ".runner-state", "publications", commitOID+".json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read prior publication acceptance: %w", err)
+	}
+	expectedDestination := "refs/heads/" + metadata.BranchName
+	if record.ItemID != metadata.Identity.ItemID || record.DelegatedContentDigest != metadata.Identity.DelegatedContentDigest ||
+		record.CommitOID != commitOID || record.Repository != metadata.Identity.Repository || record.DestinationRef != expectedDestination ||
+		record.ApprovedBaseRef != metadata.BaseRef || !validObjectID(record.ApprovedBaseOID) {
+		return false, nil
+	}
+	return true, nil
+}
+
 func (p GitProvider) validatedPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot, report, comment string, createRecordRoot bool) (PublicationRecord, string, error) {
 	if err := validateCandidateMetadata(metadata); err != nil {
 		return PublicationRecord{}, "", err
@@ -870,7 +913,17 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 		if remoteOID == record.CommitOID {
 			remoteAlreadyAccepted = true
 		} else if remoteOID != pushPolicy.ExpectedRemoteOID {
-			return fmt.Errorf("publication destination changed externally: expected %s, found %s", pushPolicy.ExpectedRemoteOID, remoteOID)
+			priorAccepted, priorErr := priorPublicationAcceptance(metadata, remoteOID)
+			if priorErr != nil {
+				return priorErr
+			}
+			if !priorAccepted {
+				return fmt.Errorf("publication destination changed externally: expected %s, found %s", pushPolicy.ExpectedRemoteOID, remoteOID)
+			}
+			// A previous Project transition may have failed after this exact
+			// accepted commit was published. Its immutable private record is a
+			// stronger lease anchor than the stale Project QA field.
+			pushPolicy.ExpectedRemoteOID = remoteOID
 		}
 	}
 	resolvedTree, err := p.privilegedScalar(ctx, profile, "rev-parse", "--verify", record.CommitOID+"^{tree}")

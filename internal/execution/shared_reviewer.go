@@ -124,6 +124,9 @@ func executeSharedReviewer(ctx context.Context, kind string, cfg config.Executio
 }
 
 func reviewerHarnessFailure(summary string, result StructuredHarnessResult, err error) (Output, error) {
+	if output, automatic := result.AutomaticRetryOutput(); automatic {
+		return output, err
+	}
 	class, retry := result.FailureClass, result.RetryDisposition
 	if class == FailureNone {
 		class, retry = FailureUnknown, RetryNone

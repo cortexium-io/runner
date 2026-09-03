@@ -122,10 +122,18 @@ cards receive only fixed bounded execution, recovery, and QA classifications;
 detailed usage and model-authored evidence remain local.
 
 Execution adapters map allowlisted adapter-owned structured failures and
-Runner-observed failures to a stable failure class plus `manual` or `none`
-retry disposition. Model-authored text and raw stdout/stderr never create
-provider-capacity, session-limit, retry, or retry-timing authority. Opaque
-harness failures stay unknown and are never automatically retried. The
+Runner-observed failures to a stable failure class plus `automatic`, `manual`,
+or `none` retry disposition. Codex classification reads only the terminal
+`turn.failed` event in its native JSONL stream; progress events,
+model-authored text, and raw stdout/stderr never create provider-capacity,
+session-limit, retry, or provider-supplied retry-timing authority. A recognized
+transient Codex service failure returns the card to its current role lane as
+`Waiting for harness provider` and retries after 30 seconds, two minutes, and
+five minutes. A fourth consecutive failure moves it to the configured error
+lane for manual recovery. These operational retries do not increment `QA
+Failures`; a process restart may retry sooner because the short backoff is
+deliberately in-memory. Opaque harness failures stay unknown and are never
+automatically retried. The
 optional rolling admission budget is evaluated from local history before agent
 claims. Exhaustion pauses all new claims, including QA, without canceling
 in-flight attempts; PR reconciliation still runs. Reported-token and cost
@@ -260,7 +268,9 @@ reviewer roles. Runner never infers capability from model names, and the shared
 plan schema and acceptance rigor remain unchanged. A claim records `Planning`,
 `Implementing`, or `Reviewing` in the visible `Runner Activity` field. A card
 whose authenticated dependencies are incomplete records `Waiting for
-dependencies`. Accepted QA changes activity to `Awaiting human review` or
+dependencies`. A recognized transient Codex provider failure records `Waiting
+for harness provider` while its bounded retry remains in the same role lane.
+Accepted QA changes activity to `Awaiting human review` or
 `Waiting for CI` while the card remains `PR Ready`. Automatic integration then
 distinguishes `Waiting for integration slot`, `Waiting for CI`, and `Waiting for
 merge`. A terminal failed check disarms auto-merge, releases the repository/base
@@ -388,9 +398,14 @@ remain local until their resulting tree completes implementation and QA and
 receives a replacement publication record. During tracked pull-request rework
 in `rebase` mode, workspace synchronization permits the expected local history
 rewrite only when the remote branch still resolves to the card's exact recorded
-QA commit. The rewritten history remains local through implementation and QA;
-publication is still the only boundary that may replace the remote branch, and
-does so with the exact old commit as its force-with-lease value.
+QA commit or to an immutable private publication record for the same
+item/content/repository/destination tuple. The latter recovers an interrupted
+Project update without trusting arbitrary divergence. The rewritten history
+remains local through implementation and QA; publication is still the only
+boundary that may replace the remote branch, and does so with that authenticated
+remote commit as its exact force-with-lease value. A successful Project
+transition records the replacement QA commit and removes the stale-field
+condition.
 Recognized transient network and GitHub 5xx failures during this deterministic
 publication are retried in-process up to three total attempts. Each retry
 revalidates the immutable tuple and current Project authority, reuses an already

@@ -71,7 +71,7 @@ func recoveryClassification(output execution.Output) string {
 	if retry := boundedRetryDisposition(output.RetryDisposition); retry != "" {
 		fmt.Fprintf(&report, "; retry: %s", retry)
 	}
-	if retryAfter := strings.TrimSpace(output.RetryAfter); output.FailureClass == execution.FailureCapacityExhausted && retryAfter != "" {
+	if retryAfter := strings.TrimSpace(output.RetryAfter); (output.FailureClass == execution.FailureCapacityExhausted || output.RetryDisposition == execution.RetryAutomatic) && retryAfter != "" {
 		fmt.Fprintf(&report, "; retry after: %s", boundedRemoteField(retryAfter, 200))
 	}
 	return report.String()
@@ -91,7 +91,7 @@ func boundedFailureClass(class execution.FailureClass) string {
 
 func boundedRetryDisposition(retry execution.RetryDisposition) string {
 	switch retry {
-	case execution.RetryManual, execution.RetryNone:
+	case execution.RetryAutomatic, execution.RetryManual, execution.RetryNone:
 		return string(retry)
 	default:
 		return ""

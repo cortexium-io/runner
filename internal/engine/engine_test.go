@@ -56,6 +56,10 @@ func (r plannerStagesBatchRunner) RunBoundedHeadTailInput(ctx context.Context, c
 	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
 }
 
+func (r plannerProviderFailureRunner) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
+	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
+}
+
 func (r *successfulImplementationRunner) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
 	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
 }
@@ -363,6 +367,8 @@ type plannerStagesBatchRunner struct {
 	details        string
 }
 
+type plannerProviderFailureRunner struct{ project *fakeGitHubProjectRunner }
+
 type permissionDeniedImplementationRunner struct{ project *fakeGitHubProjectRunner }
 
 type baseFetchFailureRunner struct{ project *fakeGitHubProjectRunner }
@@ -510,6 +516,20 @@ func (r plannerStagesBatchRunner) Run(ctx context.Context, command string, args 
 			return subprocess.Result{}, err
 		}
 		return subprocess.Result{}, nil
+	default:
+		return r.project.Run(ctx, command, args, dir, timeout)
+	}
+}
+
+func (r plannerProviderFailureRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	switch command {
+	case "git":
+		return runEngineTestGit(ctx, args, dir, timeout)
+	case "codex":
+		return subprocess.Result{
+			Stdout:   `{"type":"turn.failed","error":{"message":"unexpected status 404 Not Found: Unknown error, url: https://chatgpt.com/backend-api/codex/responses, token=private"}}`,
+			ExitCode: 1,
+		}, errors.New("exit status 1")
 	default:
 		return r.project.Run(ctx, command, args, dir, timeout)
 	}
@@ -1461,6 +1481,39 @@ func TestPlannerRetryResumesExactCheckpointAfterPartialChildCreation(t *testing.
 	}
 	if _, err := os.Stat(checkpointPath); !os.IsNotExist(err) {
 		t.Fatalf("completed planner checkpoint was not cleared: %v", err)
+	}
+}
+
+func TestPlannerProviderFailureSchedulesAutomaticRetryInPlanLane(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_plan_provider_retry", Title: "Plan a feature", Body: "Split the feature into safe work.",
+		Repository: "owner/repo", Status: "Plan", Role: config.WorkRolePlanner,
+	}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), plannerProviderFailureRunner{project: project})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := service.RunCycle(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	project.loadRemoteItems()
+	var current github.WorkItem
+	for _, candidate := range project.remoteItems {
+		if candidate.ID == item.ID {
+			current = candidate
+			break
+		}
+	}
+	if len(results) != 1 || results[0].Outcome != "retry_scheduled" || results[0].RetryDisposition != string(execution.RetryAutomatic) ||
+		current.Status != "Plan" || current.Activity != config.RunnerActivityWaitingForHarness || strings.Contains(current.Result, "token=private") {
+		t.Fatalf("planner provider failure was not safely retained for retry: results=%#v item=%#v", results, current)
 	}
 }
 
@@ -3079,6 +3132,78 @@ func TestRetryableHarnessFailurePublishesSafeReasonAndNextAction(t *testing.T) {
 	}
 	if strings.Contains(project.result, "session_id") || result.Error != "" || result.Summary != output.Summary {
 		t.Fatalf("retryable failure exposed or retained raw diagnostics: project=%q result=%#v", project.result, result)
+	}
+}
+
+func TestTransientHarnessFailureRetriesInPlaceBeforeBlocking(t *testing.T) {
+	item := github.WorkItem{
+		ID: "PVTI_automatic_retry", Title: "Review feature", Body: "Acceptance criteria", Repository: "owner/repo",
+		Status: "Agent QA", Role: config.WorkRoleReviewer, QAFailures: 1,
+	}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: t.TempDir(),
+		GitHubProject: &config.GitHubProjectConfig{
+			Owner: "owner", Number: 4, IntakeRepository: "owner/repo",
+		},
+	}), project)
+	if err != nil {
+		t.Fatalf("configure engine: %v", err)
+	}
+	loadItem := func() github.WorkItem {
+		t.Helper()
+		items, err := service.source.LifecycleItems(t.Context())
+		if err != nil {
+			t.Fatalf("load retry item: %v", err)
+		}
+		for _, current := range items {
+			if current.ID == item.ID {
+				return current
+			}
+		}
+		t.Fatalf("retry item %s is missing", item.ID)
+		return github.WorkItem{}
+	}
+
+	blocker := "Runner can retry after a short provider recovery delay."
+	output := execution.Output{
+		Outcome: execution.OutcomeBlocked, Summary: "The harness provider reported a transient service failure.",
+		WorkDone: []string{}, Blocker: &blocker, RemoteDetailSafe: true, DiscardDiagnostics: true,
+		FailureClass: execution.FailureTransientExternal, RetryDisposition: execution.RetryAutomatic,
+	}
+	for attempt := 1; attempt <= maxAutomaticRetries+1; attempt++ {
+		current := loadItem()
+		current.Role = config.WorkRoleReviewer
+		action := mustAuthorizeTest(t, service.source, current)
+		_, lane := service.laneForItem(current)
+		result := service.failExecution(t.Context(), action, lane, RunResult{Item: current, Error: "token=private"}, "Agent QA failed", errors.New("exit status 1"), output)
+		current = loadItem()
+		if current.QAFailures != 1 {
+			t.Fatalf("provider retry changed QA rejection count on attempt %d: %#v", attempt, current)
+		}
+		if attempt <= maxAutomaticRetries {
+			if result.Outcome != "retry_scheduled" || result.RetryDisposition != string(execution.RetryAutomatic) || result.RetryAfter == "" ||
+				current.Status != "Agent QA" || current.Activity != config.RunnerActivityWaitingForHarness || strings.Contains(current.Result, "cortexium-runner retry") {
+				t.Fatalf("automatic retry %d was not retained in place: result=%#v item=%#v", attempt, result, current)
+			}
+			if !service.automaticRetryPending(current, time.Now()) {
+				t.Fatalf("automatic retry %d was not delayed", attempt)
+			}
+			service.automaticRetryMu.Lock()
+			state := service.automaticRetries[item.ID]
+			state.notBefore = time.Now().Add(-time.Second)
+			service.automaticRetries[item.ID] = state
+			service.automaticRetryMu.Unlock()
+			continue
+		}
+		if result.Outcome != execution.OutcomeBlocked || result.RetryDisposition != string(execution.RetryManual) ||
+			current.Status != "Blocked" || current.Phase != "agent_qa" || !strings.Contains(current.Result, "cortexium-runner retry") {
+			t.Fatalf("exhausted provider retries were not made actionable: result=%#v item=%#v", result, current)
+		}
+		if strings.Contains(current.Result, "token") || result.Error != "" {
+			t.Fatalf("provider retry exposed retained diagnostics: result=%#v item=%#v", result, current)
+		}
 	}
 }
 
@@ -5630,6 +5755,13 @@ func TestWorkspaceForTrackedRebasePullRequestKeepsExactLocalRewriteForQA(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	accepted, err := workspace.CaptureCheckoutSnapshotStateWithLimits(t.Context(), testRunner, prepared.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate."); err != nil {
+		t.Fatal(err)
+	}
 	runGitTest(t, prepared.WorktreePath, "push", "origin", published.CommitOID+":refs/heads/"+item.Branch)
 	item.QACommit = published.CommitOID
 
@@ -5664,10 +5796,17 @@ func TestWorkspaceForTrackedRebasePullRequestKeepsExactLocalRewriteForQA(t *test
 		t.Fatalf("QA preflight changed remote head = %s, want prior accepted commit %s", remoteHead, published.CommitOID)
 	}
 
-	wrongLease := item
-	wrongLease.QACommit = strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/main"))
-	if _, err := service.workspaceForItem(t.Context(), wrongLease, digest, repo); err == nil || !strings.Contains(err.Error(), "have diverged") {
-		t.Fatalf("rebase rewrite with a mismatched recorded remote commit was accepted: %v", err)
+	staleProjectLease := item
+	staleProjectLease.QACommit = strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/main"))
+	if _, err := service.workspaceForItem(t.Context(), staleProjectLease, digest, repo); err != nil {
+		t.Fatalf("private publication acceptance did not recover the stale Project QA commit: %v", err)
+	}
+	publicationPath := filepath.Join(filepath.Dir(prepared.WorktreePath), ".runner-state", "publications", published.CommitOID+".json")
+	if err := os.Remove(publicationPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.workspaceForItem(t.Context(), staleProjectLease, digest, repo); err == nil || !strings.Contains(err.Error(), "have diverged") {
+		t.Fatalf("rebase rewrite without Project or private lease authority was accepted: %v", err)
 	}
 
 	mergeConfig := cfg

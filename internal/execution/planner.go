@@ -20,6 +20,25 @@ type StructuredHarnessResult struct {
 	RetryAfter           string
 }
 
+// AutomaticRetryOutput restores the fixed, remotely safe failure report for a
+// structured harness call. Structured planner and reviewer stages retain only
+// typed recovery fields, so callers must not derive retry authority from the
+// returned error text.
+func (r StructuredHarnessResult) AutomaticRetryOutput() (Output, bool) {
+	if r.RetryDisposition != RetryAutomatic {
+		return Output{}, false
+	}
+	output, known := classifyHarnessFailure(nil, HarnessFailureEvidence{
+		FailureClass: r.FailureClass, RetryDisposition: r.RetryDisposition, RetryAfter: r.RetryAfter,
+	})
+	if !known {
+		return Output{}, false
+	}
+	output.Usage = r.Usage
+	output.HarnessDurationMilliseconds = r.DurationMilliseconds
+	return output, true
+}
+
 func RunPlannerWithUsage(ctx context.Context, kind string, cfg config.ExecutionConfig, workingDir, prompt string, schema []byte, run subprocess.Runner) (StructuredHarnessResult, error) {
 	return runStructuredHarness(ctx, RolePlanner, kind, cfg, workingDir, prompt, schema, "prefer", metrics.StageHarnessRun, run)
 }
@@ -111,7 +130,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		duration := time.Since(startedAt).Milliseconds()
 		usage := parseCodexUsage(result.Stdout)
 		if runErr != nil {
-			output, known := classifyHarnessFailure(runErr, HarnessFailureEvidence{})
+			output, known := classifyHarnessFailure(runErr, codexFailureEvidenceFromStdout(result.Stdout))
 			if !known {
 				output = blockedOutputWithFailure("Harness execution failed.", FailureUnknown, RetryNone)
 			}

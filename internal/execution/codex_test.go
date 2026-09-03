@@ -375,6 +375,26 @@ func TestCodexCLIExecutorFailsClosedWithoutModelFallback(t *testing.T) {
 	assertApprovedCodexArgs(t, runner.args)
 }
 
+func TestCodexCLIExecutorClassifiesTerminalProviderFailureForAutomaticRetry(t *testing.T) {
+	runner := &structuredResultCommandRunner{
+		commandResult: subprocess.Result{
+			Stdout:   `{"type":"turn.failed","error":{"message":"unexpected status 404 Not Found: Unknown error, url: https://chatgpt.com/backend-api/codex/responses, token=private"}}`,
+			ExitCode: 1,
+		},
+		err: errors.New("exit status 1"),
+	}
+	output, err := NewCodexExecutor(testCodexConfig(t), runner).Execute(t.Context(), testPollResponse(testCodexCLIAssignmentSpec()).Assignments[0])
+	if err == nil {
+		t.Fatal("expected terminal provider failure")
+	}
+	if output.FailureClass != FailureTransientExternal || output.RetryDisposition != RetryAutomatic || !output.RemoteDetailSafe || !output.DiscardDiagnostics {
+		t.Fatalf("provider failure classification = %#v", output)
+	}
+	if strings.Contains(output.Summary, "token") || output.Blocker == nil || strings.Contains(*output.Blocker, "token") {
+		t.Fatalf("provider diagnostic escaped fixed recovery output: %#v", output)
+	}
+}
+
 func TestCodexCLIExecutorFailsClosedOnMalformedStructuredResult(t *testing.T) {
 	runner := &structuredResultCommandRunner{rawResult: []byte(`{"outcome":"needs_input","summary":"waiting","work_done":[]}`)}
 	cfg := testCodexConfig(t)

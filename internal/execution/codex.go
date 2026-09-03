@@ -129,7 +129,7 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 	}
 	summary := summarizeCodexResult(result, lastMessage)
 	if err != nil {
-		if output, known := classifyHarnessFailure(err, HarnessFailureEvidence{}); known {
+		if output, known := classifyHarnessFailure(err, codexFailureEvidenceFromStdout(result.Stdout)); known {
 			finishStageFromOutput(finishHarness, output, err, usage)
 			output.Usage = usage
 			output.HarnessDurationMilliseconds = harnessDuration
@@ -225,7 +225,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	if runErr == nil {
 		finishStageFromOutput(finishHarness, Output{Outcome: OutcomeSucceeded}, nil, usage)
 		structured, structuredErr = assembleExecutionContent(assignment, lastMessage)
-	} else if classified, known := classifyHarnessFailure(runErr, HarnessFailureEvidence{}); known {
+	} else if classified, known := classifyHarnessFailure(runErr, codexFailureEvidenceFromStdout(result.Stdout)); known {
 		finishStageFromOutput(finishHarness, classified, runErr, usage)
 	} else {
 		finishStageFromOutput(finishHarness, blockedOutputWithFailure("Harness execution failed.", FailureUnknown, RetryNone), runErr, usage)
@@ -251,7 +251,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	finishStageFromOutput(finishVerify, Output{Outcome: OutcomeSucceeded}, nil, metrics.Usage{})
 
 	if runErr != nil {
-		if output, known := classifyHarnessFailure(runErr, HarnessFailureEvidence{}); known {
+		if output, known := classifyHarnessFailure(runErr, codexFailureEvidenceFromStdout(result.Stdout)); known {
 			output.Usage = usage
 			output.HarnessDurationMilliseconds = harnessDuration
 			return output, fmt.Errorf("run codex cli workspace-write: %w", runErr)
