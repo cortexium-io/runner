@@ -53,10 +53,12 @@ satisfies current requirements and credible risks.
    wall-clock pacing, and control randomness where relevant. Use a short
    real-time smoke only for actual pacing or scheduler integration.
 9. On a retry, address all actionable QA findings together and rerun only the
-   evidence affected by the fix or earlier blocker. Re-check current capabilities
-   before reporting a capability failure. Use a safe purpose-built headless
-   browser when browser evidence is required and available; never launch the
-   operator's normal browser profile. Use a temporary profile and
+   evidence affected by the fix or earlier blocker. Re-establish any previously
+   passing obligation that the correction could affect, and inspect the complete
+   cumulative diff for regressions introduced by the correction. Re-check current
+   capabilities before reporting a capability failure. Use a safe purpose-built
+   headless browser when browser evidence is required and available; never launch
+   the operator's normal browser profile. Use a temporary profile and
    `--use-mock-keychain` for Chromium on macOS.
 10. Treat an unplanned subsystem, dependency, schema, public contract, duplicate
     concept, or unexpectedly broad diff as scope drift. Inspect and narrow it;

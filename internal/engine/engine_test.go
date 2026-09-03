@@ -69,7 +69,14 @@ func (r *baseMovingReviewer) RunBoundedHeadTailInput(ctx context.Context, comman
 }
 
 func (r reviewerRejectRunner) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
-	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
+	prompt, err := io.ReadAll(input)
+	if err != nil {
+		return subprocess.Result{}, err
+	}
+	if r.prompts != nil {
+		*r.prompts = append(*r.prompts, string(prompt))
+	}
+	return r.Run(ctx, command, append(append([]string(nil), args...), string(prompt)), dir, timeout)
 }
 
 func (r *candidateInspectingReviewer) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
@@ -497,7 +504,10 @@ func (r plannerStagesBatchRunner) Run(ctx context.Context, command string, args 
 	}
 }
 
-type reviewerRejectRunner struct{ project *fakeGitHubProjectRunner }
+type reviewerRejectRunner struct {
+	project *fakeGitHubProjectRunner
+	prompts *[]string
+}
 
 type reviewerAcceptRunner struct{ project *fakeGitHubProjectRunner }
 
@@ -4611,11 +4621,13 @@ func TestAgentQARefreshesAndRequeuesWhenBaseMovesBeforePublication(t *testing.T)
 
 func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T) {
 	for _, test := range []struct {
-		name, wantStatus, wantPhase, wantOutcome string
-		failures                                 int
+		name, wantStatus, wantPhase, wantOutcome, wantSummary string
+		failures                                              int
+		priorFeedback                                         bool
 	}{
-		{name: "retry", failures: 1, wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected},
-		{name: "exhausted", failures: 2, wantStatus: "Blocked", wantPhase: "ready", wantOutcome: execution.OutcomeBlocked},
+		{name: "first retry", failures: 0, wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected, wantSummary: "retry 1 of 3"},
+		{name: "third retry", failures: 2, priorFeedback: true, wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected, wantSummary: "retry 3 of 3"},
+		{name: "exhausted after third retry", failures: 3, priorFeedback: true, wantStatus: "Blocked", wantPhase: "ready", wantOutcome: execution.OutcomeBlocked, wantSummary: "after 3 retries"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repo, _ := createPublicationRepository(t)
@@ -4633,20 +4645,34 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 			}
 			item.Approval = testApproval(item)
 			project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, qaFailures: test.failures}
+			prompts := []string{}
 			cfg := config.Config{
 				ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: repo,
 				GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
 			}
-			service, err := New(completeEngineTestConfig(cfg), reviewerRejectRunner{project: project})
+			service, err := New(completeEngineTestConfig(cfg), reviewerRejectRunner{project: project, prompts: &prompts})
 			if err != nil {
 				t.Fatalf("configure service: %v", err)
+			}
+			if test.priorFeedback {
+				if err := service.saveReviewFeedback(item, github.DelegatedContentFor(item), execution.ReviewAssessment{
+					Verdict: "needs_changes", Summary: "Preserve the previously corrected edge case.",
+				}); err != nil {
+					t.Fatalf("save prior QA feedback: %v", err)
+				}
 			}
 			results, err := service.RunCycle(t.Context())
 			if err != nil {
 				t.Fatalf("run QA cycle: %v", err)
 			}
-			if len(results) != 1 || results[0].Outcome != test.wantOutcome || project.status != test.wantStatus || project.phase != test.wantPhase || project.qaFailures != test.failures+1 {
+			if len(results) != 1 || results[0].Outcome != test.wantOutcome || project.status != test.wantStatus || project.phase != test.wantPhase || project.qaFailures != test.failures+1 || !strings.Contains(results[0].Summary, test.wantSummary) {
 				t.Fatalf("unexpected QA routing: results=%#v status=%q phase=%q failures=%d", results, project.status, project.phase, project.qaFailures)
+			}
+			if len(prompts) != 1 {
+				t.Fatalf("reviewer prompt count = %d, want one", len(prompts))
+			}
+			if test.priorFeedback && (!strings.Contains(prompts[0], "Preserve the previously corrected edge case.") || !strings.Contains(prompts[0], "Verify their correction in the current candidate")) {
+				t.Fatalf("reviewer did not receive prior QA feedback as historical evidence: %#v", prompts)
 			}
 			worktreePath := filepath.Join(filepath.Dir(repo), ".runner-worktrees", "assignment_"+safeRefComponent(item.ID))
 			if _, err := os.Stat(worktreePath); err != nil {

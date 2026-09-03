@@ -19,9 +19,9 @@ var bundledSkillIDs = []string{
 }
 
 var bundledSkillSHA256 = map[string]string{
-	"runner-implementer": "4b3a248bb586d946759ac766d893cff32d6579a178508f5354860deae4338d64",
+	"runner-implementer": "d6511833753b323c283eb65953cb0740c05a7a13a0f987ae5505aa8be6f07ab0",
 	"runner-planner":     "c2afd545b22b41dd4aec98e22454c996d930f7d93aff05ce0098272fc75fe737",
-	"runner-reviewer":    "e85e6f6d539b4f14a9ee1eb9043fea25cb06d711ec8d652dddda74d541ecd675",
+	"runner-reviewer":    "ef6b49c1ce5e4d151efb21114b6219bc15cb7949776ec424a6f13fbb480dff53",
 }
 
 func ValidID(value string) bool {

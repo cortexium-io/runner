@@ -48,11 +48,13 @@ func TestBundledSkillsOwnReusableRoleWorkflow(t *testing.T) {
 			"smallest reliable method",
 			"Add or update durable test code when it is the simplest reliable protection",
 			"Run a broad or complete suite only",
+			"regressions introduced by the correction",
 			"Do not assume a browser",
 			"Never run `git add`, `git rm`, `git update-index`, or `git commit`",
 		},
 		"runner-reviewer": {
 			"Complete one focused static pass",
+			"A failure in one review area does not end the pass",
 			"Evaluate every Runner-owned proof obligation exactly once",
 			"The implementer owns how proof is produced",
 			"test files, rewrite tests",

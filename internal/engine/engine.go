@@ -1029,7 +1029,11 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	if err != nil {
 		return s.failExecution(ctx, action, lane, result, "Human issue comments could not be loaded for QA", err, transientExecutorOutput("Human issue comments could not be loaded for QA"))
 	}
-	assignment := s.assignment(qaItem, delegatedContent, nil, humanCommentContext(comments))
+	reviewFeedback, err := s.loadReviewFeedback(item, delegatedContent)
+	if err != nil {
+		return s.failExecution(ctx, action, lane, result, "Previous Agent QA feedback is not safe to use for review", err, integrityViolationOutput("Previous Agent QA feedback is not safe to use for review", err))
+	}
+	assignment := s.assignment(qaItem, delegatedContent, reviewFeedback, humanCommentContext(comments))
 	assignment.Spec.RecordedVerification, err = s.loadVerificationEvidence(item, delegatedContent, preparedWorkspace, candidate, assignment.Spec.RequiredVerification)
 	if err != nil {
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation verification evidence is not valid for QA", err,
@@ -1084,7 +1088,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		}
 		failures := item.QAFailures + 1
 		outcome := config.WorkflowOutcomeRejected
-		if failures >= lane.RejectLimit {
+		if failures > lane.MaxQARetries {
 			outcome = config.WorkflowOutcomeExhausted
 		}
 		target := lane.Transitions[outcome]
@@ -1108,7 +1112,11 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		if outcome == config.WorkflowOutcomeExhausted {
 			result.Outcome = execution.OutcomeBlocked
 		}
-		result.Summary = fmt.Sprintf("Agent QA requested changes (%d/%d): %s", failures, lane.RejectLimit, strings.TrimSpace(output.ReviewAssessment.Summary))
+		if outcome == config.WorkflowOutcomeExhausted {
+			result.Summary = fmt.Sprintf("Agent QA requested changes after %d retries: %s", lane.MaxQARetries, strings.TrimSpace(output.ReviewAssessment.Summary))
+		} else {
+			result.Summary = fmt.Sprintf("Agent QA requested changes; retry %d of %d: %s", failures, lane.MaxQARetries, strings.TrimSpace(output.ReviewAssessment.Summary))
+		}
 		return result
 	}
 	if err != nil || output.Outcome != execution.OutcomeSucceeded || output.ReviewAssessment == nil || output.ReviewAssessment.Verdict != "accept" {

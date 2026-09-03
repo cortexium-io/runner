@@ -31,12 +31,12 @@ type WorkflowConfig struct {
 }
 
 type WorkflowLane struct {
-	Name        string            `json:"name"`
-	Role        string            `json:"role,omitempty"`
-	CreatesIn   string            `json:"creates_in,omitempty"`
-	RejectLimit int               `json:"reject_limit,omitempty"`
-	OnEnter     string            `json:"on_enter,omitempty"`
-	Transitions map[string]string `json:"transitions,omitempty"`
+	Name         string            `json:"name"`
+	Role         string            `json:"role,omitempty"`
+	CreatesIn    string            `json:"creates_in,omitempty"`
+	MaxQARetries int               `json:"max_qa_retries,omitempty"`
+	OnEnter      string            `json:"on_enter,omitempty"`
+	Transitions  map[string]string `json:"transitions,omitempty"`
 }
 
 type WorkflowEvent struct {
@@ -66,7 +66,7 @@ func WorkflowTemplate(requireReviewAfterBaseUpdate bool) WorkflowConfig {
 			},
 			"in_progress": {Name: "In Progress"},
 			"agent_qa": {
-				Name: "Agent QA", Role: WorkRoleReviewer, RejectLimit: 3,
+				Name: "Agent QA", Role: WorkRoleReviewer, MaxQARetries: 3,
 				Transitions: map[string]string{
 					WorkflowOutcomeSuccess: "pr_ready", WorkflowOutcomeRejected: "ready", WorkflowOutcomeExhausted: "blocked",
 					WorkflowOutcomeNeedsInput: "blocked", WorkflowOutcomeError: "blocked",
@@ -280,8 +280,8 @@ func validateWorkflowConfig(c Config) error {
 				return fmt.Errorf("workflow.lanes.%s.creates_in is required for planner roles", id)
 			}
 			if contract == WorkRoleReviewer {
-				if lane.RejectLimit <= 0 {
-					return fmt.Errorf("workflow.lanes.%s.reject_limit must be positive for reviewer roles", id)
+				if lane.MaxQARetries <= 0 {
+					return fmt.Errorf("workflow.lanes.%s.max_qa_retries must be positive for reviewer roles", id)
 				}
 				for _, outcome := range []string{WorkflowOutcomeRejected, WorkflowOutcomeExhausted} {
 					if strings.TrimSpace(lane.Transitions[outcome]) == "" {
@@ -392,15 +392,16 @@ func validateImplementerLadder(c Config) error {
 		if !exists || strings.TrimSpace(retryLane.Role) != primary {
 			continue
 		}
-		if lane.RejectLimit > maxAttempts {
-			maxAttempts = lane.RejectLimit
+		implementationAttempts := lane.MaxQARetries + 1
+		if implementationAttempts > maxAttempts {
+			maxAttempts = implementationAttempts
 		}
 	}
 	if maxAttempts == 0 {
 		return fmt.Errorf("implementer_ladder requires a reviewer rejection transition back to implementer role %q", primary)
 	}
 	if len(c.ImplementerLadder) > maxAttempts {
-		return fmt.Errorf("implementer_ladder has %d roles but the QA rejection limit permits at most %d implementation attempts", len(c.ImplementerLadder), maxAttempts)
+		return fmt.Errorf("implementer_ladder has %d roles but the QA retry budget permits at most %d implementation attempts", len(c.ImplementerLadder), maxAttempts)
 	}
 	return nil
 }

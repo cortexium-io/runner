@@ -391,7 +391,8 @@ next operator-configured role only after Agent QA requests changes. The
 Project's persisted QA failure count selects the rung, so restarting Runner
 does not reset or skip escalation. Omit `implementer_ladder` for one fixed
 implementer, or configure two or more role profiles up to the workflow's QA
-attempt limit. The last profile handles any remaining allowed QA retries.
+retry budget plus the initial implementation. The last profile handles any
+remaining allowed QA retries.
 Authentication, permission, capability, configuration, timeout, cancellation,
 and integrity failures still block for an operator; they never spend another
 model call automatically. See the
@@ -521,6 +522,8 @@ treating an unrun check as passed. A capability-blocked review does not consume
 a QA rejection. When QA does request changes, Runner stores the
 actionable detail privately beside its state and supplies it to the next
 implementation, while the GitHub Project receives only a bounded summary.
+Runner also supplies that retained feedback to the subsequent reviewer so it
+can verify the correction before independently reviewing the cumulative diff.
 
 ## Useful commands
 

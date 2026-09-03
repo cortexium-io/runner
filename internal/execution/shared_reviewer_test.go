@@ -68,6 +68,7 @@ func TestReviewerAuditPromptBindsProofsAndDefersDynamicChecks(t *testing.T) {
 		`"key":"P1"`, `"key":"P2"`, assignment.Spec.RequiredVerification[0], assignment.Spec.RequiredVerification[1],
 		"focused check passed at the candidate commit", "The implementer owns how proof is produced",
 		"source and evidence triage, not test execution", "Do not run tests", "A concrete source defect is complete failure evidence",
+		"A failed key does not end the pass", "one or more blocking violations",
 		"fresh focused-verification stage containing only the unresolved checks",
 	} {
 		if !strings.Contains(prompt, required) {
@@ -409,10 +410,11 @@ func TestAllReviewersUseFreshFocusedStageOnlyForUnresolvedProofs(t *testing.T) {
 	}
 }
 
-func TestReviewerStopsFocusedVerificationAfterConcreteAuditFailure(t *testing.T) {
+func TestReviewerContinuesIndependentFocusedVerificationAfterAuditFailure(t *testing.T) {
 	assignment := reviewerAssignment()
 	audit := `{"criteria":{"P1":{"status":"failed","summary":"The source contains the wrong value.","evidence":["behavior.txt contains broken."]},"P2":{"status":"check_required","summary":"Does git diff --check pass?","evidence":["No candidate-bound command result is recorded."]}},"repository_rules":{"status":"passed","summary":"No separate rule violation was found.","evidence":["The one static pass found no additional violation."]},"maintainability":{"status":"passed","summary":"The change is localized.","evidence":["Only the intended fixture changed."]},"summary":"A concrete source defect requires changes."}`
-	run := &sharedReviewerHarnessRunner{response: audit}
+	resolution := `{"checks":{"P2":{"status":"passed","summary":"The exact candidate is clean.","evidence":["git diff --check exited successfully."]}},"summary":"The independent unresolved command passed."}`
+	run := &sharedReviewerHarnessRunner{responses: []string{audit, resolution}}
 	enabled := true
 	cfg := config.ExecutionConfig{Skills: []string{"runner-reviewer"}, SafeTools: true, Harness: config.HarnessConfig{
 		Kind: config.HarnessCodexCLI, Command: config.HarnessCodexCLI, Enabled: &enabled,
@@ -422,8 +424,11 @@ func TestReviewerStopsFocusedVerificationAfterConcreteAuditFailure(t *testing.T)
 	if err != nil || output.Outcome != OutcomeSucceeded || output.ReviewAssessment == nil || output.ReviewAssessment.Verdict != "needs_changes" {
 		t.Fatalf("audit failure was not returned directly: output=%#v err=%v", output, err)
 	}
-	if len(run.inputs) != 1 || output.ReviewAssessment.Criteria[1].Status != "blocked" {
-		t.Fatalf("reviewer continued after known failure: calls=%d assessment=%#v", len(run.inputs), output.ReviewAssessment)
+	if len(run.inputs) != 2 || output.ReviewAssessment.Criteria[0].Status != "failed" || output.ReviewAssessment.Criteria[1].Status != "passed" {
+		t.Fatalf("reviewer did not complete the independent check: calls=%d assessment=%#v", len(run.inputs), output.ReviewAssessment)
+	}
+	if !strings.Contains(run.inputs[1], `"key":"P2"`) || strings.Contains(run.inputs[1], `"key":"P1"`) || !strings.Contains(run.inputs[1], "complete every other supplied check independently") {
+		t.Fatalf("focused verification did not isolate the unresolved check:\n%s", run.inputs[1])
 	}
 }
 

@@ -118,8 +118,8 @@ An optional implementer ladder is a validated ordered list of implementer role
 profiles. It never retries within one execution attempt. After a reviewer
 returns a valid `needs_changes` verdict, the existing authenticated `QA
 Failures` Project field advances the next implementation to the corresponding
-profile; the last configured profile is reused until the reviewer rejection
-limit is exhausted. This makes selection restart-stable without a second local
+profile; the last configured profile is reused until the configured QA retry
+budget is exhausted. This makes selection restart-stable without a second local
 state journal. Other failure classes do not change the persisted QA count and
 therefore cannot trigger automatic model escalation. Metrics and admission use
 the selected profile's actual role, harness, model, and reasoning settings.
@@ -215,10 +215,10 @@ rather than a hidden local plan store. Runner extracts the exact approved
 proof obligations from that immutable card body and passes them to every
 downstream harness. The implementer chooses the smallest reliable proof method;
 the shared reviewer first receives fixed Runner-owned proof keys for a
-source-and-evidence audit that cannot run dynamic checks. Only concrete
-unresolved questions enter a fresh focused-verification invocation, which sees
-no resolved proof obligations. Runner merges those observations and derives the
-verdict.
+source-and-evidence audit that cannot run dynamic checks. All concrete
+unresolved questions enter a fresh focused-verification invocation, even when
+another key already failed; that invocation sees no resolved proof obligations.
+Runner merges those observations and derives the verdict.
 Operator-selected `standard` or `high`
 task sizing changes only decomposition and specificity for implementer and
 reviewer roles. Runner never infers capability from model names, and the shared
