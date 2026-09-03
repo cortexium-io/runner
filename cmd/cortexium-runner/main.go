@@ -74,6 +74,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		return runMetrics(args[1:], stdout)
 	case "harness":
 		return runHarness(ctx, args[1:], stdout)
+	case "workflow":
+		return runWorkflow(args[1:], stdout)
 	case "role":
 		return runRole(args[1:], stdout)
 	case "run":
@@ -109,6 +111,7 @@ Execution:
 
 Customization:
   cortexium-runner role list|show|add|edit|remove [options]
+  cortexium-runner workflow validate|explain [--config PATH]
 
 Generated workflow:
   1. init creates or adopts the GitHub Project, synchronizes its fields and statuses,

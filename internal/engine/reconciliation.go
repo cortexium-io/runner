@@ -914,7 +914,7 @@ func (s *Engine) implementationWorkspaceRoot() string {
 	return ""
 }
 
-func (s *Engine) laneForItem(item github.WorkItem) (string, config.WorkflowLane) {
+func (s *Engine) laneForItem(item github.WorkItem) (string, config.ResolvedWorkflowLane) {
 	id := s.cfg.LaneIDForStatus(item.Status)
 	if id == s.cfg.Workflow.ActiveLane && strings.TrimSpace(item.Phase) != "" {
 		id = strings.TrimSpace(item.Phase)

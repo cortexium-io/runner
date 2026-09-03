@@ -15,7 +15,7 @@ type RuntimeConfig struct {
 	Roles                map[string]RoleConfig
 	RoleContracts        map[string]string
 	ImplementerLadder    []string
-	Workflow             WorkflowConfig
+	Workflow             ResolvedWorkflow
 	DoctorRequirements   []CapabilityRequirement
 	RepositoryReferences []RepositoryReference
 	MaxParallelism       int
@@ -145,6 +145,16 @@ func (c RuntimeConfig) RoleContract(id string) string {
 }
 
 func (c RuntimeConfig) RoleIDForContract(contract string) string {
+	preferredLane := ""
+	switch strings.TrimSpace(contract) {
+	case WorkRolePlanner:
+		preferredLane = c.Workflow.PlanLane
+	case WorkRoleImplementer:
+		preferredLane = c.Workflow.ReadyLane
+	}
+	if role := strings.TrimSpace(c.Workflow.Lanes[preferredLane].Role); role != "" && c.RoleContract(role) == contract {
+		return role
+	}
 	laneIDs := make([]string, 0, len(c.Workflow.Lanes))
 	for id := range c.Workflow.Lanes {
 		laneIDs = append(laneIDs, id)
@@ -198,7 +208,7 @@ func (c RuntimeConfig) AttemptRole(role string, qaFailures int) string {
 	return ladderRole(role, qaFailures, c.ImplementerLadder)
 }
 
-func (c RuntimeConfig) Lane(id string) (WorkflowLane, bool) {
+func (c RuntimeConfig) Lane(id string) (ResolvedWorkflowLane, bool) {
 	lane, ok := c.Workflow.Lanes[strings.TrimSpace(id)]
 	return lane, ok
 }
@@ -248,8 +258,8 @@ func (c RuntimeConfig) AgentLaneIDs() []string {
 	return result
 }
 
-func (c RuntimeConfig) EffectiveWorkflow() WorkflowConfig {
-	return cloneWorkflow(c.Workflow)
+func (c RuntimeConfig) EffectiveWorkflow() ResolvedWorkflow {
+	return cloneResolvedWorkflow(c.Workflow)
 }
 
 func (c RuntimeConfig) Execution(role, harness, workingDir string) ExecutionConfig {

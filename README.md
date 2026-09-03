@@ -255,6 +255,8 @@ that change. From anywhere inside that Git repository, later commands such as
 Verify local configuration first, then connected GitHub and harness readiness:
 
 ```bash
+cortexium-runner workflow validate --config "$RUNNER_CONFIG"
+cortexium-runner workflow explain --config "$RUNNER_CONFIG"
 cortexium-runner doctor --offline --config "$RUNNER_CONFIG"
 cortexium-runner doctor --config "$RUNNER_CONFIG"
 ```
@@ -540,6 +542,10 @@ can verify the correction before independently reviewing the cumulative diff.
 ```bash
 # Current Project and runner state
 cortexium-runner status --config "$RUNNER_CONFIG"
+
+# Validate and explain configured event/action composition
+cortexium-runner workflow validate --config "$RUNNER_CONFIG"
+cortexium-runner workflow explain --config "$RUNNER_CONFIG"
 
 # Sanitized current stage for each active agent attempt
 cortexium-runner status --verbose --config "$RUNNER_CONFIG"

@@ -253,9 +253,9 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		}
 	}
 	workflow := config.WorkflowTemplate(reviewAfterBaseUpdate)
-	qaLane := workflow.Lanes["agent_qa"]
-	qaLane.MaxQARejections = maxQARejections
-	workflow.Lanes["agent_qa"] = qaLane
+	if err := workflow.SetMaxQARejections("agent_qa", maxQARejections); err != nil {
+		return err
+	}
 	roles := config.RoleTemplate(*plannerHarness)
 	roles[config.WorkRolePlanner] = initRole(roles[config.WorkRolePlanner], *plannerHarness, *plannerModel, *plannerReasoning)
 	roles[config.WorkRoleImplementer] = initRole(roles[config.WorkRoleImplementer], *implementerHarness, *implementerModel, *implementerReasoning)
@@ -1419,7 +1419,7 @@ func runInitGit(ctx context.Context, directory string, args ...string) (string, 
 	return strings.TrimSpace(result.Stdout), nil
 }
 
-func workflowStatusNames(workflow config.WorkflowConfig) []string {
+func workflowStatusNames(workflow config.ResolvedWorkflow) []string {
 	preferred := []string{"needs_assessment", "backlog", "plan", "ready", "in_progress", "agent_qa", "pr_ready", "blocked", "done"}
 	seen := map[string]bool{}
 	result := make([]string, 0, len(workflow.Lanes))

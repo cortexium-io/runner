@@ -578,9 +578,11 @@ func TestSkillInstallerIncludesBundledSkillsInheritedByCustomWorkflowRoles(t *te
 	roles := config.RoleTemplate(config.HarnessCodexCLI)
 	roles["delivery"] = config.RoleConfig{Extends: config.WorkRoleImplementer, Harness: config.HarnessClaudeCLI}
 	workflow := config.WorkflowTemplate(true)
-	ready := workflow.Lanes["ready"]
-	ready.Role = "delivery"
-	workflow.Lanes["ready"] = ready
+	for index := range workflow.Rules {
+		if workflow.Rules[index].Trigger.Event == config.WorkflowEventLaneEntered && workflow.Rules[index].Trigger.Lane == workflow.ReadyLane {
+			workflow.Rules[index].Action.Role = "delivery"
+		}
+	}
 	cfg := config.Config{Roles: roles, Workflow: &workflow}
 
 	results, err := installer.InstallConfigured(cfg, false)

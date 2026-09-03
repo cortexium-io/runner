@@ -1234,7 +1234,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 func (s *Engine) publishAcceptedQA(
 	ctx context.Context,
 	action github.AuthorizedAction,
-	lane config.WorkflowLane,
+	lane config.ResolvedWorkflowLane,
 	result RunResult,
 	repoRoot string,
 	preparedWorkspace workspace.Metadata,
@@ -1372,11 +1372,11 @@ func (s *Engine) publishAcceptedQA(
 	return result
 }
 
-func (s *Engine) failExecution(ctx context.Context, action github.AuthorizedAction, lane config.WorkflowLane, result RunResult, summary string, err error, output execution.Output) RunResult {
+func (s *Engine) failExecution(ctx context.Context, action github.AuthorizedAction, lane config.ResolvedWorkflowLane, result RunResult, summary string, err error, output execution.Output) RunResult {
 	return s.failExecutionToRetryLane(ctx, action, lane, result, summary, err, output, "")
 }
 
-func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.AuthorizedAction, lane config.WorkflowLane, result RunResult, summary string, err error, output execution.Output, retryLaneOverride string) RunResult {
+func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.AuthorizedAction, lane config.ResolvedWorkflowLane, result RunResult, summary string, err error, output execution.Output, retryLaneOverride string) RunResult {
 	item := action.Item
 	laneID := s.cfg.LaneIDForStatus(item.Status)
 	if laneID == s.cfg.Workflow.ActiveLane && strings.TrimSpace(item.Phase) != "" {

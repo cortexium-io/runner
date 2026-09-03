@@ -8,7 +8,7 @@ import (
 	bundledskills "github.com/cortexium-io/runner/skills"
 )
 
-const ConfigVersion = 4
+const ConfigVersion = 5
 
 const MaxSupportedParallelism = 16
 

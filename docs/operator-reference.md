@@ -11,7 +11,7 @@ The Runner uses:
   requests.
 - One or more natively authenticated AI harnesses: Codex CLI, Claude Code, or
   Pi CLI.
-- Configurable roles, skills, Kanban lanes, transitions, and GitHub events.
+- Configurable role profiles and typed event/action rules over Kanban lanes.
 - Three bundled Agent Skills for planning, implementation, and review.
 
 Codex CLI, Claude Code, and Pi CLI can each fill planner, implementer, and
@@ -91,8 +91,9 @@ That command polls in the foreground for as long as you leave it running and
 continues observing unrelated Project and pull-request events while harness
 actions are in flight. It does nothing once you stop it. Use
 `cortexium-runner run --once` for one synchronous polling cycle in a diagnostic
-or scripted workflow. `init`, `doctor`, `plan`, `approve`,
-`retry`, `status`, `metrics`, and `role` are one-shot commands that exit when they finish. Running
+or scripted workflow. `init`, `doctor`, `plan`, `approve`, `retry`, `status`,
+`metrics`, `role`, `workflow`, and `harness` are one-shot commands that exit
+when they finish. Running
 `cortexium-runner` without arguments shows help; every command supports
 `--help`, and `--version` prints the installed version.
 
@@ -313,10 +314,12 @@ When `--config` is omitted, Runner commands resolve
 `.cortexium/runner.json` from the current Git repository root. An explicit
 `--config` path always takes precedence.
 
-Configuration v4 is the current pre-stable contract. Runner rejects any other version
-and every incomplete configuration instead of inferring operational values.
-There is no compatibility or migration layer; create a complete configuration
-with `init` before using `doctor` or `run`.
+Configuration v5 is the current pre-stable contract. Runner rejects any other
+version and every incomplete configuration instead of inferring operational
+values. There is no compatibility or migration layer. Create a complete v5
+configuration with `init` before using `doctor` or `run`; an existing v4 file
+must be rewritten from the generated example because changing its version alone
+does not convert lane behavior into typed rules.
 
 Preview initialization without changing GitHub, writing the config, or
 installing skills by adding `--dry-run`. After editing an existing config,
@@ -673,7 +676,7 @@ update.
 maintainer creates an unsigned card in either lane, Runner converts a Project
 draft to an issue in the configured intake repository when necessary, then
 authenticates that exact body, repository, and dependency snapshot for the
-lane's configured role before claiming it. A forged or content-modified
+lane's rule-selected role before claiming it. A forged or content-modified
 nonempty approval is never replaced, and a staged planner child cannot use this
 path to bypass complete-batch release.
 Moving a previously authenticated card back to `Ready` also authorizes its next
@@ -943,8 +946,10 @@ lane, destination, batch size, and a fresh staging generation. Successful
 complete-batch approval replaces it with an authenticated release commit only
 after every child has received valid authority and reached its destination.
 
-The Project no longer needs a role field. A lane selects exactly one role, and
-that role selects one harness plus one or more skills. Project cards do not
+The Project no longer needs a role field. A typed `lane.entered` rule may run
+one configured role profile in that lane, and that profile selects one harness
+plus one or more skills. Different lanes may run different profiles that inherit
+the same planner, implementer, or reviewer contract. Project cards do not
 rewrite local Runner or harness configuration; their approved content is passed
 to the selected harness as the assignment.
 
@@ -1323,19 +1328,28 @@ profiles or edit a built-in role after initialization. For example:
   --planning-support high
 ```
 
+Base roles describe authority and result contracts, not specialties. Product
+planning or issue triage remains a planner profile; UI, migration, and
+documentation work remains an implementer profile; security, accessibility,
+and performance review remains a reviewer profile. Assign a custom profile by
+referencing its ID from a `run_role` workflow action. Multiple lanes may use
+different profiles derived from the same contract, including sequential review
+lanes. Publishing, merging, branch refresh, approval, and coordination remain
+deterministic Runner actions or human policy rather than agent roles.
+
 Overrides inherit from the parent when omitted. A built-in contract cannot be
-removed, and a custom role cannot be removed while a workflow lane or another
+removed, and a custom role cannot be removed while a workflow rule or another
 role still references it. A role referenced by `implementer_ladder` likewise
 cannot be removed until the ladder is changed or cleared.
 
 ### Implementer ladder
 
 `implementer_ladder` is optional. When omitted, Runner always launches the
-workflow's configured implementer role. When present, it lists complete
+`ready_lane` rule's configured implementer role. When present, it lists complete
 implementer role profiles in escalation order. The first entry must be the
 workflow implementer role; later entries must be unique custom roles that
 inherit the implementer contract. The list needs at least two entries and
-cannot exceed the reviewer lane's `max_qa_rejections`, because a longer ladder
+cannot exceed the reviewer action's `max_qa_rejections`, because a longer ladder
 would contain unreachable profiles.
 
 For example, create two stronger Codex profiles after a Pi/Qwen implementer,
@@ -1512,16 +1526,55 @@ harness actions to finish.
 
 See
 [`examples/runner.config.json`](../examples/runner.config.json)
-for the complete v4 configuration generated by `init`.
+for the complete v5 configuration generated by `init`.
 
-- A lane without `role` is non-agent and normally belongs to humans.
-- A lane with `role` is executable by that role.
-- `active_lane` is the one exception: it is Runner's temporary claim lane.
-- Planner roles require `creates_in`.
-- Agent lanes route `success`, `needs_input`, and `error`.
-- Reviewer lanes additionally define `max_qa_rejections`, `rejected`, and
-  `exhausted`.
-- `on_enter: publish_pull_request` performs deterministic PR publication.
+Lanes contain only stable IDs and GitHub Project status names. Rules bind one
+typed trigger to one typed action. A transition into another lane emits that
+lane's `lane.entered` event, so larger workflows compose without ordered action
+arrays or an embedded scripting language.
+
+The supported trigger catalog is:
+
+- `lane.entered`, with an explicit `lane`;
+- `pull_request.merged` and `pull_request.closed`;
+- `pull_request.checks_failed`;
+- `pull_request.out_of_date`.
+
+The supported action catalog is:
+
+- `run_role`, with a configured role profile and outcome transitions;
+- `transition`, with one destination lane;
+- `publish_pull_request`;
+- `update_branch`, with `require_review: true` and outcome transitions.
+
+`run_role` accepts a built-in role or any custom role that inherits the planner,
+implementer, or reviewer contract. Planner actions require `creates_in`.
+Reviewer actions additionally require `max_qa_rejections`, `rejected`, and
+`exhausted`. All role actions route `success`, `needs_input`, and `error`.
+All active implementer profiles use one `workspace_write_root`, preserving the
+same card workspace and candidate as work moves between specialized profiles.
+`plan_lane` and `ready_lane` explicitly identify the default destinations used
+by `add plan`, interactive planning, and `add ready`; this avoids guessing when
+several profiles share a contract. `active_lane` remains Runner's temporary
+claim lane and cannot have an action.
+
+Use the focused local commands before restarting Runner:
+
+```bash
+cortexium-runner workflow validate --config /absolute/operator/path/runner.json
+cortexium-runner workflow explain --config /absolute/operator/path/runner.json
+```
+
+The explanation shows every effective trigger, action, role contract, and
+outcome route, followed by the safety constraints configuration cannot disable.
+Validation rejects duplicate triggers, unsupported event/action pairings,
+automatic success cycles, and error, input, or exhausted routes that would
+silently start more agent work instead of stopping in a human recovery lane.
+Planner output destinations and QA rejection routes must lead to implementer
+lanes; branch-refresh outcomes likewise return through implementation and QA.
+Merged and closed pull-request events terminate in lanes without an automatic
+action.
+
 - `github_project.auto_merge` is an explicit opt-in. When true, Runner asks
   GitHub to merge one reconciled repository/base candidate after checks and
   branch protections pass; it never uses `--admin` or weakens repository
@@ -1541,9 +1594,15 @@ for the complete v4 configuration generated by `init`.
   branch. Moving an open Runner PR from the human gate to an implementer lane
   is itself the rework request; no separate event declaration is required.
 
+Configuration v5 intentionally replaces v4 rather than interpreting both
+models. Existing v4 files must be rewritten using the generated v5 example;
+changing only `config_version` is insufficient because lane behavior and the
+separate `events` collection have moved into `workflow.rules`.
+
 Repository-wide code style, architecture, testing, and contribution rules stay
 in `AGENTS.md`, installed skills, and ordinary repository documentation. The
-workflow only decides who acts and where work moves.
+workflow decides which supported action responds to an event and where its
+outcomes move work.
 
 ## Skills, tools, and MCP servers
 

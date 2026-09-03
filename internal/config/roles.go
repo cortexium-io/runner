@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -123,6 +125,16 @@ func (c Config) RoleContract(id string) string {
 
 func (c Config) RoleIDForContract(contract string) string {
 	workflow := c.resolvedWorkflow()
+	preferredLane := ""
+	switch strings.TrimSpace(contract) {
+	case WorkRolePlanner:
+		preferredLane = workflow.PlanLane
+	case WorkRoleImplementer:
+		preferredLane = workflow.ReadyLane
+	}
+	if role := strings.TrimSpace(workflow.Lanes[preferredLane].Role); role != "" && c.RoleContract(role) == contract {
+		return role
+	}
 	laneIDs := make([]string, 0, len(workflow.Lanes))
 	for id := range workflow.Lanes {
 		laneIDs = append(laneIDs, id)
@@ -223,6 +235,7 @@ func validateRoleConfigs(c Config, roles map[string]RoleConfig) error {
 	for _, id := range c.ExecutionRoleIDs() {
 		active[id] = true
 	}
+	implementerWorkspaceRoot := ""
 	for id := range roles {
 		if !validWorkflowID(id) {
 			return fmt.Errorf("role id %q must use lowercase letters, numbers, and underscores", id)
@@ -316,8 +329,20 @@ func validateRoleConfigs(c Config, roles map[string]RoleConfig) error {
 			if !exists {
 				return fmt.Errorf("roles.%s uses harness %q, but no enabled harness configuration exists", id, profile.Harness)
 			}
-			if c.RoleContract(id) == WorkRoleImplementer && strings.TrimSpace(harness.WorkspaceWriteRoot) == "" {
-				return fmt.Errorf("harness %q workspace_write_root is required for implementer role %q", profile.Harness, id)
+			if c.RoleContract(id) == WorkRoleImplementer {
+				root := strings.TrimSpace(harness.WorkspaceWriteRoot)
+				if root == "" {
+					return fmt.Errorf("harness %q workspace_write_root is required for implementer role %q", profile.Harness, id)
+				}
+				absoluteRoot, err := filepath.Abs(root)
+				if err != nil {
+					return fmt.Errorf("resolve harness %q workspace_write_root for implementer role %q: %w", profile.Harness, id, err)
+				}
+				absoluteRoot = filepath.Clean(absoluteRoot)
+				if implementerWorkspaceRoot != "" && implementerWorkspaceRoot != absoluteRoot {
+					return errors.New("all active implementer roles must use one workspace_write_root so rework preserves the card's workspace identity")
+				}
+				implementerWorkspaceRoot = absoluteRoot
 			}
 		}
 	}

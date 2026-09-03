@@ -16,7 +16,9 @@ is no backward-compatibility requirement during this pre-stable transition.
 Trust-gated autonomous issue intake is recorded separately in
 [ADR 0002](decisions/0002-autonomous-issue-intake.md). Optional read-only
 evidence from other local checkouts is defined by
-[ADR 0003](decisions/0003-pinned-repository-references.md).
+[ADR 0003](decisions/0003-pinned-repository-references.md). Typed workflow
+composition over the three fixed role contracts is defined by
+[ADR 0004](decisions/0004-typed-workflow-composition.md).
 
 The local GitHub Project Runner is a modular monolith: one CLI process with packages divided
 by responsibility and reason to change. The command package is the composition
@@ -52,7 +54,9 @@ derives a narrow `config.ExecutionConfig` for one role and harness invocation.
 This prevents computed state and harness-specific overrides from being hidden
 inside JSON structs.
 
-Configuration v4 has no runtime overlay or fallback profile. Privileged commands
+Configuration v5 has no runtime overlay or fallback profile. Its workflow keeps
+external lane names separate from typed trigger/action rules, which are
+validated and compiled before the engine receives them. Privileged commands
 resolve an explicit path or the project-local default, then provenance-check the
 file before decoding role or harness selections. `init` defaults to an ignored
 project-local config, while deliberately tracked and external configs remain supported. `init`
@@ -78,8 +82,9 @@ by subcommand; they still compile into one `main` package and one binary.
 The public command surface keeps first-class operations at the root: `init` and
 `doctor` prepare and diagnose the runner; `plan`, `approve`, and `retry` manage
 work; `run`, `status`, and `metrics` operate it; `role` manages extensible role
-profiles; and `harness check` qualifies configured execution profiles against a
-private temporary Git repository.
+profiles; `workflow validate` and `workflow explain` inspect the typed workflow;
+and `harness check` qualifies configured execution profiles against a private
+temporary Git repository.
 `init` is idempotent for an existing config and owns GitHub Project field/status
 synchronization, local prerequisite checks, and bundled skill installation.
 `doctor` owns static config validation and live readiness inspection. Its

@@ -1,5 +1,5 @@
 {
-  "config_version": 4,
+  "config_version": 5,
   "runner_id": "runr_local_replace_me",
   "project_dir": "/absolute/path/to/repository",
   "repository_references": [
@@ -81,6 +81,8 @@
   "workflow": {
     "intake_lane": "needs_assessment",
     "approval_lane": "backlog",
+    "plan_lane": "plan",
+    "ready_lane": "ready",
     "active_lane": "in_progress",
     "lanes": {
       "needs_assessment": {
@@ -90,42 +92,19 @@
         "name": "Backlog"
       },
       "plan": {
-        "name": "Plan",
-        "role": "planner",
-        "creates_in": "ready",
-        "transitions": {
-          "success": "done",
-          "needs_input": "blocked",
-          "error": "blocked"
-        }
+        "name": "Plan"
       },
       "ready": {
-        "name": "Ready",
-        "role": "implementer",
-        "transitions": {
-          "success": "agent_qa",
-          "needs_input": "blocked",
-          "error": "blocked"
-        }
+        "name": "Ready"
       },
       "in_progress": {
         "name": "In Progress"
       },
       "agent_qa": {
-        "name": "Agent QA",
-        "role": "reviewer",
-        "max_qa_rejections": 3,
-        "transitions": {
-          "success": "pr_ready",
-          "rejected": "ready",
-          "exhausted": "blocked",
-          "needs_input": "blocked",
-          "error": "blocked"
-        }
+        "name": "Agent QA"
       },
       "pr_ready": {
-        "name": "PR Ready",
-        "on_enter": "publish_pull_request"
+        "name": "PR Ready"
       },
       "blocked": {
         "name": "Blocked"
@@ -134,27 +113,112 @@
         "name": "Done"
       }
     },
-    "events": [
+    "rules": [
       {
-        "on": "pull_request.merged",
-        "to": "done"
+        "id": "plan",
+        "trigger": {
+          "event": "lane.entered",
+          "lane": "plan"
+        },
+        "action": {
+          "type": "run_role",
+          "role": "planner",
+          "creates_in": "ready",
+          "transitions": {
+            "success": "done",
+            "needs_input": "blocked",
+            "error": "blocked"
+          }
+        }
       },
       {
-        "on": "pull_request.closed",
-        "to": "blocked"
+        "id": "implement",
+        "trigger": {
+          "event": "lane.entered",
+          "lane": "ready"
+        },
+        "action": {
+          "type": "run_role",
+          "role": "implementer",
+          "transitions": {
+            "success": "agent_qa",
+            "needs_input": "blocked",
+            "error": "blocked"
+          }
+        }
       },
       {
-        "on": "pull_request.checks_failed",
-        "to": "ready"
+        "id": "review",
+        "trigger": {
+          "event": "lane.entered",
+          "lane": "agent_qa"
+        },
+        "action": {
+          "type": "run_role",
+          "role": "reviewer",
+          "max_qa_rejections": 3,
+          "transitions": {
+            "success": "pr_ready",
+            "rejected": "ready",
+            "exhausted": "blocked",
+            "needs_input": "blocked",
+            "error": "blocked"
+          }
+        }
       },
       {
-        "on": "pull_request.out_of_date",
-        "action": "update_branch",
-        "require_review": true,
-        "transitions": {
-          "updated": "ready",
-          "conflict": "ready",
-          "error": "blocked"
+        "id": "publish",
+        "trigger": {
+          "event": "lane.entered",
+          "lane": "pr_ready"
+        },
+        "action": {
+          "type": "publish_pull_request"
+        }
+      },
+      {
+        "id": "pull_request_merged",
+        "trigger": {
+          "event": "pull_request.merged"
+        },
+        "action": {
+          "type": "transition",
+          "to": "done"
+        }
+      },
+      {
+        "id": "pull_request_closed",
+        "trigger": {
+          "event": "pull_request.closed"
+        },
+        "action": {
+          "type": "transition",
+          "to": "blocked"
+        }
+      },
+      {
+        "id": "pull_request_checks_failed",
+        "trigger": {
+          "event": "pull_request.checks_failed"
+        },
+        "action": {
+          "type": "transition",
+          "to": "ready"
+        }
+      },
+      {
+        "id": "pull_request_out_of_date",
+        "trigger": {
+          "event": "pull_request.out_of_date"
+        },
+        "action": {
+          "type": "update_branch",
+          "require_review": true,
+          "transitions": {
+            "updated": "ready",
+            "conflict": "ready",
+            "error": "blocked"
+          }
         }
       }
     ]

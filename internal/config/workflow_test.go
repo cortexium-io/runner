@@ -7,14 +7,14 @@ import (
 )
 
 func TestWorkflowTemplateIsCompleteAndJuniorReadable(t *testing.T) {
-	if ConfigVersion != 4 {
-		t.Fatalf("config version = %d, want 4", ConfigVersion)
+	if ConfigVersion != 5 {
+		t.Fatalf("config version = %d, want 5", ConfigVersion)
 	}
 	cfg := explicitTestConfig()
-	workflow := *cfg.Workflow
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("default workflow is invalid: %v", err)
 	}
+	workflow := cfg.EffectiveWorkflow()
 	qa := workflow.Lanes["agent_qa"]
 	if qa.Role != WorkRoleReviewer || qa.MaxQARejections != 3 || qa.Transitions[WorkflowOutcomeSuccess] != "pr_ready" || qa.Transitions[WorkflowOutcomeRejected] != "ready" || qa.Transitions[WorkflowOutcomeExhausted] != "blocked" {
 		t.Fatalf("unexpected default QA lane %#v", qa)
@@ -22,7 +22,7 @@ func TestWorkflowTemplateIsCompleteAndJuniorReadable(t *testing.T) {
 	if workflow.Lanes["pr_ready"].OnEnter != WorkflowActionPublishPR {
 		t.Fatalf("PR Ready does not publish on entry: %#v", workflow.Lanes["pr_ready"])
 	}
-	if workflow.IntakeLane != "needs_assessment" || workflow.ApprovalLane != "backlog" || workflow.ActiveLane != "in_progress" {
+	if workflow.IntakeLane != "needs_assessment" || workflow.ApprovalLane != "backlog" || workflow.PlanLane != "plan" || workflow.ReadyLane != "ready" || workflow.ActiveLane != "in_progress" {
 		t.Fatalf("unexpected system lane references %#v", workflow)
 	}
 }
@@ -209,7 +209,7 @@ func TestPiInheritedHarnessConfigurationRequiresHostAccess(t *testing.T) {
 
 func TestPublicationWorkflowRequiresTerminalAndOutOfDateEvents(t *testing.T) {
 	workflow := WorkflowTemplate(true)
-	workflow.Events = workflow.Events[:len(workflow.Events)-1]
+	removeWorkflowRule(&workflow, func(rule WorkflowRule) bool { return rule.Trigger.Event == WorkflowEventPROutOfDate })
 	cfg := explicitTestConfig()
 	cfg.Workflow = &workflow
 	err := cfg.Validate()
@@ -220,13 +220,7 @@ func TestPublicationWorkflowRequiresTerminalAndOutOfDateEvents(t *testing.T) {
 
 func TestPublicationWorkflowRequiresChecksFailedEventToReturnToImplementation(t *testing.T) {
 	workflow := WorkflowTemplate(true)
-	filtered := workflow.Events[:0]
-	for _, event := range workflow.Events {
-		if event.On != WorkflowEventPRChecksFailed {
-			filtered = append(filtered, event)
-		}
-	}
-	workflow.Events = filtered
+	removeWorkflowRule(&workflow, func(rule WorkflowRule) bool { return rule.Trigger.Event == WorkflowEventPRChecksFailed })
 	cfg := explicitTestConfig()
 	cfg.Workflow = &workflow
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), WorkflowEventPRChecksFailed) {
@@ -234,9 +228,9 @@ func TestPublicationWorkflowRequiresChecksFailedEventToReturnToImplementation(t 
 	}
 
 	workflow = WorkflowTemplate(true)
-	for index := range workflow.Events {
-		if workflow.Events[index].On == WorkflowEventPRChecksFailed {
-			workflow.Events[index].To = "blocked"
+	for index := range workflow.Rules {
+		if workflow.Rules[index].Trigger.Event == WorkflowEventPRChecksFailed {
+			workflow.Rules[index].Action.To = "blocked"
 		}
 	}
 	cfg.Workflow = &workflow
@@ -247,15 +241,29 @@ func TestPublicationWorkflowRequiresChecksFailedEventToReturnToImplementation(t 
 
 func TestPublicationWorkflowRequiresDistinctMergedAndClosedOutcomes(t *testing.T) {
 	workflow := WorkflowTemplate(true)
-	for index := range workflow.Events {
-		if workflow.Events[index].On == WorkflowEventPRClosed {
-			workflow.Events[index].To = "done"
+	for index := range workflow.Rules {
+		if workflow.Rules[index].Trigger.Event == WorkflowEventPRClosed {
+			workflow.Rules[index].Action.To = "done"
 		}
 	}
 	cfg := explicitTestConfig()
 	cfg.Workflow = &workflow
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "must target different lanes") {
 		t.Fatalf("closed pull request could still share the successful merge lane: %v", err)
+	}
+}
+
+func TestTerminalPullRequestEventsCannotStartMoreWork(t *testing.T) {
+	for _, event := range []string{WorkflowEventPRMerged, WorkflowEventPRClosed} {
+		t.Run(event, func(t *testing.T) {
+			cfg := explicitTestConfig()
+			workflow := cloneWorkflow(*cfg.Workflow)
+			workflowRuleForEvent(t, &workflow, event).Action.To = workflow.ReadyLane
+			cfg.Workflow = &workflow
+			if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "without an automatic action") {
+				t.Fatalf("terminal event started more role work: %v", err)
+			}
+		})
 	}
 }
 
@@ -410,9 +418,7 @@ func TestSandboxedHarnessesInheritSafeToolsWithExplicitOptOut(t *testing.T) {
 
 func TestWorkflowLaneRoleTakesPrecedenceOverBuiltInContractRole(t *testing.T) {
 	workflow := WorkflowTemplate(true)
-	plan := workflow.Lanes["plan"]
-	plan.Role = "product_planner"
-	workflow.Lanes["plan"] = plan
+	workflowRuleForLane(t, &workflow, "plan").Action.Role = "product_planner"
 	cfg := Config{
 		Workflow: &workflow,
 		Roles:    RoleTemplate(HarnessCodexCLI),
@@ -420,6 +426,180 @@ func TestWorkflowLaneRoleTakesPrecedenceOverBuiltInContractRole(t *testing.T) {
 	cfg.Roles["product_planner"] = RoleConfig{Extends: WorkRolePlanner, Skills: []string{"runner-planner", "product-planning"}}
 	if got := cfg.RoleIDForContract(WorkRolePlanner); got != "product_planner" {
 		t.Fatalf("planner contract resolved to %q instead of the role assigned to the Plan lane", got)
+	}
+}
+
+func TestWorkflowRulesComposeMultipleInheritedReviewerProfiles(t *testing.T) {
+	cfg := explicitTestConfig()
+	cfg.Roles["security_reviewer"] = RoleConfig{Extends: WorkRoleReviewer}
+	workflow := cloneWorkflow(*cfg.Workflow)
+	workflow.Lanes["security_qa"] = WorkflowLane{Name: "Security QA"}
+	workflowRuleForLane(t, &workflow, "agent_qa").Action.Transitions[WorkflowOutcomeSuccess] = "security_qa"
+	workflow.Rules = append(workflow.Rules, WorkflowRule{
+		ID:      "security_review",
+		Trigger: WorkflowTrigger{Event: WorkflowEventLaneEntered, Lane: "security_qa"},
+		Action: WorkflowAction{
+			Type: WorkflowActionRunRole, Role: "security_reviewer", MaxQARejections: 3,
+			Transitions: map[string]string{
+				WorkflowOutcomeSuccess: "pr_ready", WorkflowOutcomeRejected: "ready", WorkflowOutcomeExhausted: "blocked",
+				WorkflowOutcomeNeedsInput: "blocked", WorkflowOutcomeError: "blocked",
+			},
+		},
+	})
+	cfg.Workflow = &workflow
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("composed reviewer workflow was rejected: %v", err)
+	}
+	runtime, err := cfg.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	securityLane, ok := runtime.Lane("security_qa")
+	if !ok || securityLane.Role != "security_reviewer" || runtime.RoleContract(securityLane.Role) != WorkRoleReviewer {
+		t.Fatalf("inherited reviewer rule did not reach runtime: %#v", securityLane)
+	}
+	if got := strings.Join(runtime.ExecutionRoleIDs(), ","); !strings.Contains(got, "security_reviewer") {
+		t.Fatalf("composed reviewer was not an active execution role: %q", got)
+	}
+}
+
+func TestWorkflowPlanAndReadyLanesSelectExplicitInheritedProfiles(t *testing.T) {
+	cfg := explicitTestConfig()
+	cfg.Roles["product_planner"] = RoleConfig{Extends: WorkRolePlanner}
+	cfg.Roles["frontend_implementer"] = RoleConfig{Extends: WorkRoleImplementer}
+	workflow := cloneWorkflow(*cfg.Workflow)
+	workflowRuleForLane(t, &workflow, workflow.PlanLane).Action.Role = "product_planner"
+	workflowRuleForLane(t, &workflow, workflow.ReadyLane).Action.Role = "frontend_implementer"
+	cfg.Workflow = &workflow
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("explicit inherited entry profiles were rejected: %v", err)
+	}
+	project := cfg.ResolveProject()
+	if project.InitialRole != "product_planner" || cfg.RoleIDForContract(WorkRoleImplementer) != "frontend_implementer" {
+		t.Fatalf("explicit entry profiles were not selected: project=%#v implementer=%q", project, cfg.RoleIDForContract(WorkRoleImplementer))
+	}
+}
+
+func TestActiveImplementerProfilesShareOneWorkspaceRoot(t *testing.T) {
+	cfg := explicitTestConfig()
+	enabled := true
+	cfg.Harnesses = append(cfg.Harnesses, HarnessConfig{
+		Kind: HarnessClaudeCLI, Command: "claude", Enabled: &enabled, WorkspaceWriteRoot: "/other-worktrees",
+	})
+	cfg.Roles["backend_implementer"] = RoleConfig{Extends: WorkRoleImplementer, Harness: HarnessClaudeCLI}
+	workflow := cloneWorkflow(*cfg.Workflow)
+	workflow.Lanes["backend_ready"] = WorkflowLane{Name: "Backend Ready"}
+	workflow.Rules = append(workflow.Rules, WorkflowRule{
+		ID:      "implement_backend",
+		Trigger: WorkflowTrigger{Event: WorkflowEventLaneEntered, Lane: "backend_ready"},
+		Action: WorkflowAction{Type: WorkflowActionRunRole, Role: "backend_implementer", Transitions: map[string]string{
+			WorkflowOutcomeSuccess: "agent_qa", WorkflowOutcomeNeedsInput: "blocked", WorkflowOutcomeError: "blocked",
+		}},
+	})
+	cfg.Workflow = &workflow
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "all active implementer roles must use one workspace_write_root") {
+		t.Fatalf("different active implementer roots were accepted: %v", err)
+	}
+	cfg.Harnesses[1].WorkspaceWriteRoot = cfg.Harnesses[0].WorkspaceWriteRoot
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("shared active implementer root was rejected: %v", err)
+	}
+}
+
+func TestWorkflowRulesRejectDuplicateTriggersAndInvalidPairings(t *testing.T) {
+	t.Run("duplicate trigger", func(t *testing.T) {
+		cfg := explicitTestConfig()
+		workflow := cloneWorkflow(*cfg.Workflow)
+		workflow.Rules = append(workflow.Rules, WorkflowRule{
+			ID: "duplicate_ready", Trigger: WorkflowTrigger{Event: WorkflowEventLaneEntered, Lane: "ready"},
+			Action: WorkflowAction{Type: WorkflowActionPublishPR},
+		})
+		cfg.Workflow = &workflow
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "same trigger") {
+			t.Fatalf("duplicate trigger was accepted: %v", err)
+		}
+	})
+
+	t.Run("duplicate normalized rule id", func(t *testing.T) {
+		cfg := explicitTestConfig()
+		workflow := cloneWorkflow(*cfg.Workflow)
+		workflow.Rules[1].ID = " plan "
+		cfg.Workflow = &workflow
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "duplicates rule id") {
+			t.Fatalf("duplicate normalized rule id was accepted: %v", err)
+		}
+	})
+
+	t.Run("invalid event action pairing", func(t *testing.T) {
+		cfg := explicitTestConfig()
+		workflow := cloneWorkflow(*cfg.Workflow)
+		workflowRuleForEvent(t, &workflow, WorkflowEventPRMerged).Action.Type = WorkflowActionRunRole
+		cfg.Workflow = &workflow
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "must be \"transition\"") {
+			t.Fatalf("invalid event/action pairing was accepted: %v", err)
+		}
+	})
+
+	t.Run("missing role", func(t *testing.T) {
+		cfg := explicitTestConfig()
+		workflow := cloneWorkflow(*cfg.Workflow)
+		workflowRuleForLane(t, &workflow, workflow.ReadyLane).Action.Role = ""
+		cfg.Workflow = &workflow
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "action.role is required") {
+			t.Fatalf("run_role without a role was accepted: %v", err)
+		}
+	})
+
+	t.Run("contract-specific fields", func(t *testing.T) {
+		cfg := explicitTestConfig()
+		workflow := cloneWorkflow(*cfg.Workflow)
+		implement := workflowRuleForLane(t, &workflow, workflow.ReadyLane)
+		implement.Action.CreatesIn = "ready"
+		implement.Action.Transitions[WorkflowOutcomeRejected] = "ready"
+		cfg.Workflow = &workflow
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "creates_in is supported only for planner roles") {
+			t.Fatalf("planner-only action field was accepted for implementer: %v", err)
+		}
+	})
+}
+
+func TestWorkflowRulesRejectUnboundedAutomaticLoops(t *testing.T) {
+	t.Run("success cycle", func(t *testing.T) {
+		cfg := explicitTestConfig()
+		workflow := cloneWorkflow(*cfg.Workflow)
+		workflowRuleForLane(t, &workflow, "agent_qa").Action.Transitions[WorkflowOutcomeSuccess] = "agent_qa"
+		cfg.Workflow = &workflow
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "automatic cycle") {
+			t.Fatalf("unbounded role success cycle was accepted: %v", err)
+		}
+	})
+
+	t.Run("automatic error retry", func(t *testing.T) {
+		cfg := explicitTestConfig()
+		workflow := cloneWorkflow(*cfg.Workflow)
+		workflowRuleForLane(t, &workflow, workflow.ReadyLane).Action.Transitions[WorkflowOutcomeError] = "ready"
+		cfg.Workflow = &workflow
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "recovery lane without an automatic action") {
+			t.Fatalf("automatic error retry was accepted: %v", err)
+		}
+	})
+}
+
+func TestWorkflowJSONPersistsRulesInsteadOfCompiledBehavior(t *testing.T) {
+	data, err := json.Marshal(explicitTestConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{`"config_version":5`, `"plan_lane":"plan"`, `"ready_lane":"ready"`, `"rules"`, `"trigger"`, `"action"`} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("v5 config omitted %s: %s", required, text)
+		}
+	}
+	for _, removed := range []string{`"events"`, `"on_enter"`} {
+		if strings.Contains(text, removed) {
+			t.Fatalf("v5 config persisted compiled field %s: %s", removed, text)
+		}
 	}
 }
 
@@ -515,10 +695,9 @@ func TestPartialBuiltInRoleDoesNotInheritHiddenDefaults(t *testing.T) {
 func TestWorkflowValidationExplainsBrokenReviewerRouting(t *testing.T) {
 	cfg := explicitTestConfig()
 	workflow := WorkflowTemplate(true)
-	qa := workflow.Lanes["agent_qa"]
-	qa.MaxQARejections = 0
-	delete(qa.Transitions, WorkflowOutcomeExhausted)
-	workflow.Lanes["agent_qa"] = qa
+	qa := workflowRuleForLane(t, &workflow, "agent_qa")
+	qa.Action.MaxQARejections = 0
+	delete(qa.Action.Transitions, WorkflowOutcomeExhausted)
 	cfg.Workflow = &workflow
 	err := cfg.Validate()
 	if err == nil || !strings.Contains(err.Error(), "max_qa_rejections") {
@@ -626,12 +805,12 @@ func TestAutoMergeRequiresPullRequestPublicationLane(t *testing.T) {
 	cfg := explicitTestConfig()
 	cfg.GitHubProject.AutoMerge = true
 	workflow := cloneWorkflow(*cfg.Workflow)
-	publication := workflow.Lanes["pr_ready"]
-	publication.OnEnter = ""
-	workflow.Lanes["pr_ready"] = publication
+	removeWorkflowRule(&workflow, func(rule WorkflowRule) bool {
+		return rule.Trigger.Event == WorkflowEventLaneEntered && rule.Trigger.Lane == "pr_ready"
+	})
 	cfg.Workflow = &workflow
 
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "auto_merge requires a workflow publication lane") {
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "auto_merge requires a workflow publish_pull_request rule") {
 		t.Fatalf("auto merge without publication lane was accepted: %v", err)
 	}
 }
@@ -641,9 +820,9 @@ func TestConfigurationRequiresExplicitBaseUpdateReviewPolicy(t *testing.T) {
 	for _, policy := range []*bool{nil, &skipReview} {
 		cfg := explicitTestConfig()
 		workflow := cloneWorkflow(*cfg.Workflow)
-		for index := range workflow.Events {
-			if workflow.Events[index].On == WorkflowEventPROutOfDate {
-				workflow.Events[index].RequireReview = policy
+		for index := range workflow.Rules {
+			if workflow.Rules[index].Trigger.Event == WorkflowEventPROutOfDate {
+				workflow.Rules[index].Action.RequireReview = policy
 			}
 		}
 		cfg.Workflow = &workflow
@@ -725,4 +904,37 @@ func containsNormalized(values []string, wanted string) bool {
 		}
 	}
 	return false
+}
+
+func workflowRuleForLane(t *testing.T, workflow *WorkflowConfig, laneID string) *WorkflowRule {
+	t.Helper()
+	for index := range workflow.Rules {
+		rule := &workflow.Rules[index]
+		if rule.Trigger.Event == WorkflowEventLaneEntered && rule.Trigger.Lane == laneID {
+			return rule
+		}
+	}
+	t.Fatalf("workflow has no lane.entered rule for %q", laneID)
+	return nil
+}
+
+func workflowRuleForEvent(t *testing.T, workflow *WorkflowConfig, event string) *WorkflowRule {
+	t.Helper()
+	for index := range workflow.Rules {
+		if workflow.Rules[index].Trigger.Event == event {
+			return &workflow.Rules[index]
+		}
+	}
+	t.Fatalf("workflow has no rule for event %q", event)
+	return nil
+}
+
+func removeWorkflowRule(workflow *WorkflowConfig, remove func(WorkflowRule) bool) {
+	kept := workflow.Rules[:0]
+	for _, rule := range workflow.Rules {
+		if !remove(rule) {
+			kept = append(kept, rule)
+		}
+	}
+	workflow.Rules = kept
 }

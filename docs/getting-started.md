@@ -59,7 +59,7 @@ Expected results:
 - the source build prints a VCS-derived version when Go can identify the
   checkout, or `cortexium-runner dev` when it cannot; and
 - help lists `init`, `doctor`, `add`, `plan`, `approve`, `retry`, `run`, `status`,
-  `metrics`, and `role`.
+  `metrics`, `role`, `workflow`, and `harness`.
 
 Nothing is installed globally, started in the background, or sent over the
 network by these commands.
@@ -138,6 +138,17 @@ Expected state after successful initialization:
   and
 - bundled skills assigned to the configured roles are installed for their
   harnesses.
+
+Inspect the typed event/action flow without contacting GitHub or a model:
+
+```bash
+./cortexium-runner workflow validate --config /absolute/operator/path/runner.json
+./cortexium-runner workflow explain --config /absolute/operator/path/runner.json
+```
+
+The explanation names the default Plan and Ready lanes, every event/action
+rule, inherited role contract, outcome transition, and mandatory Runner safety
+boundary.
 
 Normal `doctor` adds GitHub and executable checks. The explicit
 `--probe-harnesses` option makes one minimal live call per distinct configured

@@ -105,7 +105,8 @@ func TestInitCreatesStandaloneConfigAndCanSynchronizeIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load initialized config: %v", err)
 	}
-	if loaded.GitHubProject.Owner != "example" || loaded.GitHubProject.Number != 7 || loaded.GitHubProject.TransitionField != config.RunnerTransitionFieldName || loaded.MaxParallelism != 3 || !loaded.GitHubProject.AutoMerge || loaded.GitHubProject.MergeMethod != config.MergeMethodMerge || loaded.Workflow == nil || loaded.Workflow.Lanes["agent_qa"].MaxQARejections != 4 || loaded.Workflow.Lanes["plan"].Name != "Plan" || loaded.Roles[config.WorkRolePlanner].Harness != config.HarnessCodexCLI || loaded.Roles[config.WorkRolePlanner].Model == nil || *loaded.Roles[config.WorkRolePlanner].Model != "gpt-test" || loaded.Roles[config.WorkRolePlanner].Reasoning != "high" || loaded.Roles[config.WorkRolePlanner].PlanningSupport != "" || loaded.Roles[config.WorkRoleImplementer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].Harness != config.HarnessPiCLI || loaded.Roles[config.WorkRoleReviewer].Access != config.RoleAccessHost || loaded.Roles[config.WorkRoleReviewer].HarnessConfig != config.HarnessConfigModeInherit || loaded.Roles[config.WorkRoleReviewer].Model == nil || *loaded.Roles[config.WorkRoleReviewer].Model != "qwen/local" || loaded.Roles[config.WorkRoleReviewer].Reasoning != "xhigh" || loaded.GitHubProject.IntakeRepository != "example/repo" {
+	workflow := loaded.EffectiveWorkflow()
+	if loaded.GitHubProject.Owner != "example" || loaded.GitHubProject.Number != 7 || loaded.GitHubProject.TransitionField != config.RunnerTransitionFieldName || loaded.MaxParallelism != 3 || !loaded.GitHubProject.AutoMerge || loaded.GitHubProject.MergeMethod != config.MergeMethodMerge || loaded.Workflow == nil || workflow.Lanes["agent_qa"].MaxQARejections != 4 || workflow.Lanes["plan"].Name != "Plan" || loaded.Roles[config.WorkRolePlanner].Harness != config.HarnessCodexCLI || loaded.Roles[config.WorkRolePlanner].Model == nil || *loaded.Roles[config.WorkRolePlanner].Model != "gpt-test" || loaded.Roles[config.WorkRolePlanner].Reasoning != "high" || loaded.Roles[config.WorkRolePlanner].PlanningSupport != "" || loaded.Roles[config.WorkRoleImplementer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].Harness != config.HarnessPiCLI || loaded.Roles[config.WorkRoleReviewer].Access != config.RoleAccessHost || loaded.Roles[config.WorkRoleReviewer].HarnessConfig != config.HarnessConfigModeInherit || loaded.Roles[config.WorkRoleReviewer].Model == nil || *loaded.Roles[config.WorkRoleReviewer].Model != "qwen/local" || loaded.Roles[config.WorkRoleReviewer].Reasoning != "xhigh" || loaded.GitHubProject.IntakeRepository != "example/repo" {
 		t.Fatalf("unexpected initialized config %#v", loaded)
 	}
 	if loaded.AdmissionBudget == nil || loaded.AdmissionBudget.WindowSeconds != 86400 || loaded.AdmissionBudget.MaxAttempts != 12 || loaded.AdmissionBudget.MaxHarnessSeconds != 28800 || loaded.AdmissionBudget.MaxReportedTokens != 1000000 || loaded.AdmissionBudget.MaxReportedCostUSD == nil || *loaded.AdmissionBudget.MaxReportedCostUSD != 25 {
@@ -872,6 +873,7 @@ func TestCLIHelpVersionAndExitContract(t *testing.T) {
 		{name: "update help", args: []string{"update", "--help"}, code: 0, want: "Usage: cortexium-runner update"},
 		{name: "plan help", args: []string{"plan", "--help"}, code: 0, want: "Usage: cortexium-runner plan"},
 		{name: "role help", args: []string{"role", "add", "--help"}, code: 0, want: "Usage: cortexium-runner role add"},
+		{name: "workflow help", args: []string{"workflow", "explain", "--help"}, code: 0, want: "Usage: cortexium-runner workflow explain"},
 		{name: "unknown command", args: []string{"unknown"}, code: 1, want: "error: unknown command"},
 		{name: "invalid flag", args: []string{"run", "--unknown"}, code: 1, want: "error: parse run flags"},
 	}
@@ -912,6 +914,7 @@ func TestEveryCommandHelpReturnsSuccess(t *testing.T) {
 	commands := [][]string{
 		{"init", "--help"}, {"doctor", "--help"}, {"update", "--help"}, {"plan", "--help"}, {"approve", "--help"}, {"retry", "--help"}, {"status", "--help"}, {"run", "--help"},
 		{"harness", "--help"}, {"harness", "check", "--help"},
+		{"workflow", "--help"}, {"workflow", "validate", "--help"}, {"workflow", "explain", "--help"},
 		{"role", "--help"}, {"role", "list", "--help"}, {"role", "show", "--help"}, {"role", "add", "--help"}, {"role", "edit", "--help"}, {"role", "remove", "--help"},
 	}
 	for _, args := range commands {
@@ -1588,7 +1591,7 @@ func TestDoctorOfflineUsesOnlyLocalConfigAndEmbeddedSkills(t *testing.T) {
 	if err := run(t.Context(), []string{"doctor", "--offline", "--config", configPath}, strings.NewReader(""), &output); err != nil {
 		t.Fatalf("offline doctor: %v\n%s", err, output.String())
 	}
-	for _, expected := range []string{"config.v4", "skills.embedded", "Configuration ready: yes"} {
+	for _, expected := range []string{"config.v5", "skills.embedded", "Configuration ready: yes"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("check output missing %q: %s", expected, output.String())
 		}
