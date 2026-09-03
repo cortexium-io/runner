@@ -1113,6 +1113,26 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		result.ResumedCheckpoint = true
 		return s.publishAcceptedQA(ctx, action, lane, result, repoRoot, preparedWorkspace, publicationRecord)
 	}
+	reviewWorkspace, err := gitProvider.PrepareReviewWorkspace(ctx, preparedWorkspace, candidate)
+	if err != nil {
+		return s.failExecutionToRetryLane(ctx, action, lane, result, "Private Agent QA workspace could not be prepared", err,
+			integrityViolationOutput("Private Agent QA workspace could not be prepared", err), lane.Transitions[config.WorkflowOutcomeRejected])
+	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = reviewWorkspace.Cleanup(cleanupCtx)
+	}()
+	reviewSnapshot, err := s.checkoutSnapshotState(ctx, reviewWorkspace.Path)
+	if err != nil {
+		return s.failExecution(ctx, action, lane, result, "Private Agent QA workspace could not be snapshotted", err,
+			blockedExecutorOutput("Private Agent QA workspace could not be snapshotted", err))
+	}
+	if !reviewSnapshot.Clean || reviewSnapshot.Head != candidate.CommitOID || reviewSnapshot.Tree != candidate.TreeOID {
+		err = errors.New("private Agent QA workspace is not the exact clean committed candidate")
+		return s.failExecutionToRetryLane(ctx, action, lane, result, "Private Agent QA workspace changed before review", err,
+			integrityViolationOutput("Private Agent QA workspace changed before review", err), lane.Transitions[config.WorkflowOutcomeRejected])
+	}
 	qaItem := item
 	comments, err := s.source.ItemComments(ctx, item)
 	if err != nil {
@@ -1128,7 +1148,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation verification evidence is not valid for QA", err,
 			integrityViolationOutput("Implementation verification evidence is not valid for QA", err), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
-	cfg := s.executionConfig(item.Role, harness, preparedWorkspace.WorktreePath)
+	cfg := s.executionConfig(item.Role, harness, reviewWorkspace.Path)
 	var output execution.Output
 	switch harness {
 	case config.HarnessCodexCLI:
@@ -1145,16 +1165,27 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	result.FailureClass = string(output.FailureClass)
 	result.RetryDisposition = string(output.RetryDisposition)
 	result.RetryAfter = output.RetryAfter
+	currentReviewSnapshot, snapshotErr := s.checkoutSnapshotState(ctx, reviewWorkspace.Path)
+	if snapshotErr != nil {
+		combinedErr := errors.Join(err, snapshotErr)
+		return s.failExecution(ctx, action, lane, result, "Private Agent QA workspace integrity check failed", combinedErr,
+			integrityViolationOutput("Private Agent QA workspace integrity check failed", combinedErr, output))
+	}
+	if currentReviewSnapshot.Fingerprint != reviewSnapshot.Fingerprint {
+		integrityErr := snapshotChangeError("private review content changed while Agent QA was running; Runner will not publish unreviewed side effects", reviewSnapshot, currentReviewSnapshot)
+		combinedErr := errors.Join(err, integrityErr)
+		return s.failExecutionToRetryLane(ctx, action, lane, result, "Agent QA changed the private review workspace", combinedErr, integrityViolationOutput("Agent QA changed the private review workspace", combinedErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
+	}
 	currentSnapshot, snapshotErr := s.checkoutSnapshotState(ctx, preparedWorkspace.WorktreePath)
 	if snapshotErr != nil {
 		combinedErr := errors.Join(err, snapshotErr)
-		return s.failExecution(ctx, action, lane, result, "Agent QA workspace integrity check failed", combinedErr,
-			integrityViolationOutput("Agent QA workspace integrity check failed", combinedErr, output))
+		return s.failExecution(ctx, action, lane, result, "Implementation workspace integrity check failed after Agent QA", combinedErr,
+			integrityViolationOutput("Implementation workspace integrity check failed after Agent QA", combinedErr, output))
 	}
 	if currentSnapshot.Fingerprint != qaSnapshot.Fingerprint {
-		integrityErr := snapshotChangeError("implementation content changed while agent QA was running; Runner will not publish unreviewed side effects", qaSnapshot, currentSnapshot)
+		integrityErr := snapshotChangeError("implementation content changed while Agent QA was running; Runner will not publish unreviewed side effects", qaSnapshot, currentSnapshot)
 		combinedErr := errors.Join(err, integrityErr)
-		return s.failExecutionToRetryLane(ctx, action, lane, result, "Agent QA changed the implementation workspace", combinedErr, integrityViolationOutput("Agent QA changed the implementation workspace", combinedErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
+		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation workspace changed during Agent QA", combinedErr, integrityViolationOutput("Implementation workspace changed during Agent QA", combinedErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
 	currentSourceSnapshot, sourceSnapshotErr := s.checkoutSnapshotState(ctx, repoRoot)
 	if sourceSnapshotErr != nil {

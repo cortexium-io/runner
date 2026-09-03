@@ -32,6 +32,14 @@ func (s *Project) ItemComments(ctx context.Context, item WorkItem) ([]ItemCommen
 	if !supported {
 		return []ItemComment{}, nil
 	}
+	actorResult, err := s.gh(ctx, "api", "user", "--jq", ".login")
+	if err != nil {
+		return nil, fmt.Errorf("resolve authenticated GitHub comment actor: %w", commandFailure(err, actorResult))
+	}
+	trustedActor := strings.TrimSpace(actorResult.Stdout)
+	if trustedActor == "" || strings.ContainsAny(trustedActor, "\x00\r\n") {
+		return nil, errors.New("authenticated GitHub comment actor is empty or ambiguous")
+	}
 	query := `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){comments(last:` + strconv.Itoa(maxAssignmentComments) + `){nodes{author{login}body createdAt url}}}}}`
 	result, err := s.gh(ctx, "api", "graphql", "-f", "query="+query, "-F", "owner="+owner, "-F", "name="+repository, "-F", "number="+strconv.Itoa(number))
 	if err != nil {
@@ -68,10 +76,10 @@ func (s *Project) ItemComments(ctx context.Context, item WorkItem) ([]ItemCommen
 		if body == "" {
 			continue
 		}
-		author := "unknown"
-		if node.Author != nil && strings.TrimSpace(node.Author.Login) != "" {
-			author = strings.TrimSpace(node.Author.Login)
+		if node.Author == nil || !strings.EqualFold(strings.TrimSpace(node.Author.Login), trustedActor) {
+			continue
 		}
+		author := strings.TrimSpace(node.Author.Login)
 		comments = append(comments, ItemComment{Author: author, Body: body, CreatedAt: strings.TrimSpace(node.CreatedAt), URL: strings.TrimSpace(node.URL)})
 	}
 	return comments, nil

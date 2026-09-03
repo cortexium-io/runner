@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,31 +47,46 @@ func runnerBrowserCommand() (string, []string) {
 	}
 }
 
-func runnerBrowserMCP() codexMCPServer {
+func runnerBrowserEnvironment(trustedToolDir string) map[string]string {
+	return map[string]string{
+		"NPM_CONFIG_CACHE":        filepath.Join(trustedToolDir, "npm-cache"),
+		"NPM_CONFIG_USERCONFIG":   filepath.Join(trustedToolDir, "npmrc"),
+		"NPM_CONFIG_GLOBALCONFIG": filepath.Join(trustedToolDir, "global-npmrc"),
+	}
+}
+
+func runnerBrowserMCP(trustedToolDir string) codexMCPServer {
 	command, args := runnerBrowserCommand()
+	cwd := filepath.Clean(trustedToolDir)
 	return codexMCPServer{
 		Name: runnerBrowserMCPServer, Enabled: true,
 		Transport: codexMCPTransport{
-			Type: "stdio", Command: command, Args: args,
+			Type: "stdio", Command: command, Args: args, Env: runnerBrowserEnvironment(cwd), CWD: &cwd,
 		},
 	}
 }
 
-// codexMCPProfileArgs turns an isolated role allowlist into one self-contained
-// Codex config override. The inherited variant leaves ambient servers loaded
-// and adds only Runner-owned safe tools.
-func codexMCPProfileArgs(ctx context.Context, run subprocess.Runner, command, cwd string, allowed []string, safeTools bool) ([]string, error) {
-	return codexMCPProfileArgsForConfig(ctx, run, command, cwd, allowed, safeTools, config.HarnessConfigModeIsolated)
-}
-
-func codexMCPProfileArgsForConfig(ctx context.Context, run subprocess.Runner, command, cwd string, allowed []string, safeTools bool, harnessConfigMode string) ([]string, error) {
+// codexMCPProfileArgsForConfig turns a role allowlist into one self-contained
+// Codex config override. Isolated roles inspect only the operator catalog from
+// Runner's trusted cwd; inherited roles deliberately retain ambient discovery.
+func codexMCPProfileArgsForConfig(ctx context.Context, run subprocess.Runner, command string, workspace profileWorkspace, allowed []string, safeTools bool, harnessConfigMode string) ([]string, error) {
 	if len(allowed) == 0 && !safeTools {
 		return nil, nil
 	}
+	if safeTools && (strings.TrimSpace(workspace.TrustedToolDir) == "" || !filepath.IsAbs(workspace.TrustedToolDir)) {
+		return nil, errors.New("Runner browser requires an absolute private trusted tool directory")
+	}
 	var configured []codexMCPServer
 	if len(allowed) > 0 {
+		catalogCWD := workspace.Dir
+		if !inheritsHarnessConfiguration(harnessConfigMode) {
+			catalogCWD = workspace.TrustedToolDir
+			if strings.TrimSpace(catalogCWD) == "" || !filepath.IsAbs(catalogCWD) {
+				return nil, errors.New("isolated Codex MCP inspection requires an absolute private trusted tool directory")
+			}
+		}
 		result, err := subprocess.RunFailClosed(
-			ctx, run, command, []string{"mcp", "list", "--json"}, cwd, 10*time.Second,
+			ctx, run, command, []string{"mcp", "list", "--json"}, catalogCWD, 10*time.Second,
 			maxCodexMCPConfigurationBytes, subprocess.DiagnosticStderrLimit,
 		)
 		if err != nil {
@@ -118,11 +134,11 @@ func codexMCPProfileArgsForConfig(ctx context.Context, run subprocess.Runner, co
 		encoded.WriteString("mcp_servers.")
 		encoded.WriteString(runnerBrowserMCPServer)
 		encoded.WriteByte('=')
-		writeCodexMCPServer(&encoded, runnerBrowserMCP())
+		writeCodexMCPServer(&encoded, runnerBrowserMCP(workspace.TrustedToolDir))
 		return []string{"--config", encoded.String()}, nil
 	}
 	if safeTools {
-		selected = append(selected, runnerBrowserMCP())
+		selected = append(selected, runnerBrowserMCP(workspace.TrustedToolDir))
 	}
 	sort.Slice(selected, func(i, j int) bool { return selected[i].Name < selected[j].Name })
 
@@ -144,6 +160,7 @@ func writeCodexMCPServer(builder *strings.Builder, server codexMCPServer) {
 	builder.WriteString("{command=")
 	builder.WriteString(strconv.Quote(strings.TrimSpace(server.Transport.Command)))
 	writeTOMLStringList(builder, "args", server.Transport.Args)
+	writeTOMLStringMap(builder, "env", server.Transport.Env)
 	writeTOMLStringList(builder, "env_vars", server.Transport.EnvVars)
 	if server.Transport.CWD != nil && strings.TrimSpace(*server.Transport.CWD) != "" {
 		builder.WriteString(",cwd=")
@@ -154,6 +171,29 @@ func writeCodexMCPServer(builder *strings.Builder, server codexMCPServer) {
 	writeTOMLStringList(builder, "enabled_tools", server.EnabledTools)
 	writeTOMLStringList(builder, "disabled_tools", server.DisabledTools)
 	builder.WriteString(",enabled=true,default_tools_approval_mode=\"approve\"}")
+}
+
+func writeTOMLStringMap(builder *strings.Builder, name string, values map[string]string) {
+	if len(values) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	builder.WriteByte(',')
+	builder.WriteString(name)
+	builder.WriteString("={")
+	for index, key := range keys {
+		if index > 0 {
+			builder.WriteByte(',')
+		}
+		builder.WriteString(strconv.Quote(key))
+		builder.WriteByte('=')
+		builder.WriteString(strconv.Quote(values[key]))
+	}
+	builder.WriteByte('}')
 }
 
 func codexMCPPrompt(allowed []string, safeTools bool) string {

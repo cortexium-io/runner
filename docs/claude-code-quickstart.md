@@ -88,14 +88,17 @@ Runner suppresses ambient Claude customization and uses Claude's native
 filesystem/process sandbox. Set `harness_config: inherit` only when the role
 must load native Claude user/project settings, hooks, tools, or MCP servers; the
 same sandbox boundary still applies until `access` is explicitly changed to
-`host`. Implementers run in the task worktree; reviewers use a private neutral directory with the
-repository added read-only. Operator-home reads are denied except for the
+`host`. Implementers run in the task worktree; reviewers use a private neutral
+directory with a new detached checkout of the exact candidate added read-only.
+Operator-home reads are denied except for the
 assigned root and the implementer's npm cache. Claude still uses its existing
 login.
 
 Implementer and reviewer roles also inherit Runner's safe development tools:
 bounded npm/loopback access and an isolated, headless `runner_browser` limited
-to localhost pages. Verify the local prerequisites or opt out per role:
+to localhost pages. Runner launches that browser package from host-owned npm
+state that is not writable by the role sandbox. Verify the local prerequisites
+or opt out per role:
 
 ```bash
 cortexium-runner doctor --config /absolute/operator/path/runner.json

@@ -154,8 +154,11 @@ the selected profile's actual role, harness, model, and reasoning settings.
 
 Every native harness command runs in an owned process group. The subprocess
 boundary enters one teardown path after success, command failure, timeout, or
-cancellation; it terminates descendants and reaps the direct process before
-returning. Structured-result inputs use one `internal/securefs` artifact
+cancellation; it terminates the owned process group and reaps the direct process
+before returning. Security after a sandboxed implementer does not rely on that
+group containing a process that creates a new Unix session: Agent QA receives a
+new private detached checkout that was never writable by the implementation
+sandbox. Structured-result inputs use one `internal/securefs` artifact
 contract: a unique effective-user-owned mode-`0700` directory with pre-created,
 pinned mode-`0600` regular files. Codex output is read through its pre-launch
 descriptor while its schema and Pi's generated extension must retain their
@@ -384,8 +387,11 @@ copies a submodule, and rejects an indexed path that is missing, symlinked,
 cannot be opened through the pinned parent, or is deinitialized but non-empty.
 Runner constructs a clean task-branch commit before Agent QA through a
 privileged Git profile that pins the linked-worktree administration, index, and
-common object store. The engine records that candidate HEAD and tree in the
-pre-review manifest and compares the complete manifest around Agent QA before
+common object store. It then materializes that exact commit through the same
+config-free boundary in a new mode-`0700` private detached checkout outside the
+implementation sandbox. The engine records the candidate HEAD and tree in the
+private review manifest and compares that manifest, the retained implementation
+worktree, and the active checkout around Agent QA before
 entering push, pull-request publication, or worktree cleanup paths. An accepted
 unchanged candidate receives an exclusive private publication record keyed by
 its commit and binding the item/content identity, commit/tree, approved base,
@@ -516,7 +522,9 @@ and loopback. The filesystem profile exposes the assigned workspace, minimum
 system runtime files, and the implementer's npm cache instead of the operator's
 home directory. The Runner-owned `runner_browser` MCP definition is pinned,
 headless, temporary-profile, loopback-only, external-DNS-disabled,
-telemetry-free, and independent of ambient harness MCP configuration. A role
+telemetry-free, and independent of ambient harness MCP configuration. Its cwd,
+user/global npm configuration, and cache live in a separate mode-`0700`
+host-owned directory that is absent from harness sandbox write grants. A role
 may explicitly disable this profile. In inherited mode Runner adds this server
 alongside the ambient MCP configuration.
 
@@ -527,8 +535,9 @@ only after an explicit inherited-configuration opt-in. Navigation through the
 Runner browser remains loopback-only. This boundary does not change Pi's
 explicit host-access requirement for shell and edit tools.
 
-A Codex role can additionally add an explicit named MCP allowlist. Runner reads the native
-Codex MCP catalog before launch, rejects missing, disabled, remote, or
+A Codex role can additionally add an explicit named MCP allowlist. In isolated
+mode Runner reads the native Codex MCP catalog from a private neutral cwd rather
+than the project worktree. It rejects missing, disabled, remote, or
 inline-secret definitions, and reconstructs only the selected local stdio
 servers in the otherwise empty invocation config. Their tools are auto-approved
 for non-interactive use and execute as separate trusted processes outside the
@@ -541,6 +550,6 @@ the complete tool ceiling.
 Sandboxed Codex launches use scoped permission profiles with minimum runtime
 reads and only the assigned repository/worktree. Sandboxed Claude launches deny
 operator-home reads and re-allow the assigned root; implementers run in the task
-worktree, while reviewers use a private neutral directory with the repository
-added read-only. These boundaries reduce prompt-injection exposure; they do not
+worktree, while reviewers use a private neutral directory with the newly
+materialized candidate checkout added read-only. These boundaries reduce prompt-injection exposure; they do not
 turn Runner into a credential broker or sandbox the harness process itself.

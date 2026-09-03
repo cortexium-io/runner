@@ -42,7 +42,8 @@ curl -fsSL https://raw.githubusercontent.com/cortexium-io/runner/main/scripts/in
 
 The installer detects Intel or ARM, downloads the matching release archive,
 verifies it against the published `SHA256SUMS`, checks the binary version, and
-never uses `sudo`.
+never uses `sudo`. Release origins and every redirect must use HTTPS, including
+when `CORTEXIUM_RUNNER_RELEASES_URL` selects an operator-controlled mirror.
 
 If `~/.local/bin` is not already on your `PATH`:
 
@@ -338,8 +339,10 @@ An ordinary card can declare prerequisites with an exact `## Dependencies`
 bullet list of Project item IDs or GitHub issue URLs. Runner starts it only when
 every referenced card has a Runner-authenticated successful outcome; moving a
 prerequisite to `Done` by hand is not sufficient.
-Human issue comments captured before the assignment are included as bounded
-historical context. When Agent QA requests changes, Runner posts a readable,
+Issue comments authored by the GitHub account currently authenticated in `gh`
+and captured before the assignment are included as bounded historical context;
+other authors cannot change an approved task through comments. When Agent QA
+requests changes, Runner posts a readable,
 idempotent comment to the issue and also retains authenticated local retry
 feedback. The next implementer therefore receives QA's requested changes even
 without a human comment, while a human can add or clarify instructions in the
@@ -404,8 +407,10 @@ model call automatically. See the
 configuration commands and an example.
 
 Planner and probe launches remain tightly constrained. Implementers work inside
-a Runner-created worktree; reviewers start in a neutral directory with the
-repository as their assigned read root. Codex and Claude use their native
+a Runner-created worktree; after implementation ends, Runner creates a private
+detached checkout of the exact candidate commit for review. Reviewers start in
+a neutral directory with that candidate checkout as their assigned read root.
+Codex and Claude use their native
 sandbox in the default `sandboxed` mode. `host` is an explicit per-role escape
 hatch. The independent `harness_config` setting defaults to `isolated`, which
 suppresses unrelated user plugins, ungranted MCP servers, project instructions,
@@ -421,8 +426,9 @@ cortexium-runner role edit --all --harness-config inherit
 Custom roles inherit the changed built-in policy unless they carry an explicit
 override. The command preserves every role's access mode and rejects the whole
 edit before replacing the config if the resulting combination is invalid.
-Integrity checks reject reviewer mutations and changes outside the implementation
-worktree, but cannot contain external side effects from a host-access process.
+Integrity checks reject reviewer mutations and changes to the retained
+implementation worktree or active checkout, but cannot contain external side
+effects from a host-access process.
 Pi implementer and reviewer roles require `host`, and every inherited Pi role
 requires `host`, because Pi does not provide an OS sandbox for ambient shell and
 edit tools.
@@ -454,6 +460,9 @@ tools, but not the rest of the operator's home directory; the npm cache is the
 implementer's narrow home-directory exception. Browser checks use a pinned
 three-tool Chrome DevTools server with a temporary profile, mock keychain,
 disabled external name resolution, telemetry/CrUX, and redacted headers.
+Runner resolves that trusted server from a separate mode-`0700` host-owned cwd
+and npm cache that the harness sandbox cannot write; project `.npmrc` and shared
+npm state cannot replace it.
 Navigation is restricted to `localhost` and `127.0.0.1`. Runner never uses the
 operator's normal browser profile or downloads a browser; a compatible local
 Chrome or Chromium 149+ installation is required only for browser checks.

@@ -39,10 +39,13 @@ content, or personal data in a public issue.
   profile, mock keychain, three-tool surface, disabled telemetry/CrUX, redacted
   headers, disabled external name resolution, and URL patterns limited to
   localhost and 127.0.0.1. The exact MCP process is still a trusted local
-  principal outside the harness shell sandbox;
+  principal outside the harness shell sandbox. Runner starts it from a separate
+  mode-`0700` host-owned directory with dedicated npm configuration and cache
+  paths that are not writable by the harness;
   a role can explicitly disable the default profile.
 - A Codex role may additionally allowlist named local stdio MCP servers. Runner
-  reconstructs only those configured server definitions, rejects inline
+  inspects the operator catalog from a private neutral directory in isolated
+  mode, reconstructs only those configured server definitions, rejects inline
   environment values, and auto-approves their tools because role launches are
   non-interactive. The MCP subprocess is a separate trusted principal outside
   the Codex shell sandbox and can have the host access granted by its command;
@@ -59,7 +62,14 @@ content, or personal data in a public issue.
   denies reads from the operator home directory except for the exact assigned
   repository/worktree and the implementer's npm cache; required system paths
   remain readable. Repository mutation during review or changes outside the
-  implementation worktree fail integrity verification.
+  implementation worktree fail integrity verification. After implementation,
+  Runner materializes the exact candidate commit in a new private detached
+  checkout that the implementation sandbox was never granted and gives only
+  that checkout to Agent QA.
+- Issue discussion enters an assignment only when its author matches the
+  GitHub account currently authenticated in `gh`. Other issue participants
+  cannot add instructions to an already approved Runner action. Runner-authored
+  QA comments use the same authenticated account and remain idempotent context.
 - For a Pi invocation, Runner writes a mode-`0600` temporary TypeScript
   extension containing only the result schema and result-tool definition. Pi
   disables discovered resources and explicitly loads only this result channel;
@@ -115,7 +125,8 @@ content, or personal data in a public issue.
   state. Initialized submodules recursively contribute HEAD, index/status,
   protected metadata, and nested submodules without fetching or initialization;
   missing or symlinked indexed paths and non-empty deinitialized submodules fail
-  closed. Agent QA compares this state
+  closed. Agent QA compares the private candidate checkout, retained
+  implementation worktree, and active checkout
   before and after review and does not continue to Runner commit, push, PR
   creation, or recoverable-worktree cleanup after drift.
 - This no-follow snapshot boundary is enforced on the macOS/Linux release

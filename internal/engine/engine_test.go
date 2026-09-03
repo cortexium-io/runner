@@ -598,7 +598,8 @@ func (r *integrityMutatingReviewer) Run(ctx context.Context, command string, arg
 	}
 	if command == "git" {
 		joined := strings.Join(args, " ")
-		if containsArgument(args, "commit") || containsArgument(args, "push") || strings.Contains(joined, "worktree remove") {
+		removesRetainedWorktree := strings.Contains(joined, "worktree remove") && !strings.Contains(joined, filepath.Join("review-workspaces", "review-"))
+		if containsArgument(args, "commit") || containsArgument(args, "push") || removesRetainedWorktree {
 			r.privileged = append(r.privileged, "git "+joined)
 		}
 	}
@@ -5040,7 +5041,7 @@ func TestAcceptedAgentQAPublishesPRAndMovesToHumanGate(t *testing.T) {
 	if runner.status != "" || runner.head == "" || runner.tree == "" || runner.head != project.qaCommit {
 		t.Fatalf("QA did not receive the clean committed candidate: head=%q tree=%q status=%q qa_commit=%q", runner.head, runner.tree, runner.status, project.qaCommit)
 	}
-	recordPath := filepath.Join(filepath.Dir(preparedWorkspace.WorktreePath), ".runner-state", "publications", project.qaCommit+".json")
+	recordPath := filepath.Join(filepath.Dir(preparedWorkspace.WorktreePath), ".runner-state", "publications", "v3", project.qaCommit+".json")
 	recordContent, err := os.ReadFile(recordPath)
 	if err != nil {
 		t.Fatalf("read accepted publication tuple: %v", err)
@@ -5472,7 +5473,7 @@ func TestAgentQAFailsClosedWhenWorkspaceChangesDuringReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run QA cycle: %v", err)
 	}
-	if len(results) != 1 || results[0].Outcome != execution.OutcomeBlocked || project.status != "Blocked" || project.phase != "ready" || project.pullRequest != "" || !strings.Contains(results[0].Summary, "changed the implementation workspace") {
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeBlocked || project.status != "Blocked" || project.phase != "ready" || project.pullRequest != "" || !strings.Contains(results[0].Summary, "changed the private review workspace") {
 		t.Fatalf("workspace mutation did not fail closed before publication: results=%#v status=%q PR=%q", results, project.status, project.pullRequest)
 	}
 	if !strings.Contains(results[0].Error, `"changed-during-qa.txt"`) {
@@ -5801,7 +5802,7 @@ func TestWorkspaceForTrackedRebasePullRequestKeepsExactLocalRewriteForQA(t *test
 	if _, err := service.workspaceForItem(t.Context(), staleProjectLease, digest, repo); err != nil {
 		t.Fatalf("private publication acceptance did not recover the stale Project QA commit: %v", err)
 	}
-	publicationPath := filepath.Join(filepath.Dir(prepared.WorktreePath), ".runner-state", "publications", published.CommitOID+".json")
+	publicationPath := filepath.Join(filepath.Dir(prepared.WorktreePath), ".runner-state", "publications", "v3", published.CommitOID+".json")
 	if err := os.Remove(publicationPath); err != nil {
 		t.Fatal(err)
 	}

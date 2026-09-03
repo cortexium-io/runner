@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/sandboxpath"
+	"github.com/cortexium-io/runner/internal/securefs"
 	"github.com/cortexium-io/runner/internal/subprocess"
 	workspacepkg "github.com/cortexium-io/runner/internal/workspace"
 	bundledskills "github.com/cortexium-io/runner/skills"
@@ -241,6 +243,7 @@ type profileWorkspace struct {
 	GitReadRoots   []string
 	ToolReadPaths  []string
 	TempDir        string
+	TrustedToolDir string
 	ToolPath       string
 	cleanup        func() error
 }
@@ -277,7 +280,15 @@ func prepareProfileWorkspace(profile ExecutionProfile, requestedRoot string, for
 		if err != nil {
 			return profileWorkspace{}, err
 		}
-		workspace := profileWorkspace{Dir: root, ReadRoot: root, TempDir: tempDir, cleanup: func() error { return os.RemoveAll(tempDir) }}
+		trustedToolDir, err := newTrustedToolDir(append([]string{root}, forbiddenRoots...)...)
+		if err != nil {
+			_ = os.RemoveAll(tempDir)
+			return profileWorkspace{}, err
+		}
+		workspace := profileWorkspace{
+			Dir: root, ReadRoot: root, TempDir: tempDir, TrustedToolDir: trustedToolDir,
+			cleanup: func() error { return errors.Join(os.RemoveAll(tempDir), os.RemoveAll(trustedToolDir)) },
+		}
 		if err := populateProfileWorkspacePaths(&workspace, root); err != nil {
 			_ = workspace.cleanup()
 			return profileWorkspace{}, err
@@ -303,7 +314,15 @@ func prepareProfileWorkspace(profile ExecutionProfile, requestedRoot string, for
 		_ = os.RemoveAll(dir)
 		return profileWorkspace{}, fmt.Errorf("create private execution runtime directory: %w", err)
 	}
-	workspace := profileWorkspace{Dir: dir, TempDir: runtimeDir, cleanup: func() error { return os.RemoveAll(dir) }}
+	trustedToolDir, err := newTrustedToolDir(append([]string{dir, requestedRoot}, forbiddenRoots...)...)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return profileWorkspace{}, err
+	}
+	workspace := profileWorkspace{
+		Dir: dir, TempDir: runtimeDir, TrustedToolDir: trustedToolDir,
+		cleanup: func() error { return errors.Join(os.RemoveAll(dir), os.RemoveAll(trustedToolDir)) },
+	}
 	if profile.Repository != RepositoryNone {
 		workspace.ReadRoot, err = cleanExistingDirectory(requestedRoot)
 		if err != nil {
@@ -340,6 +359,63 @@ func newProfileTempDir() (string, error) {
 	if err := os.Chmod(directory, 0o700); err != nil {
 		_ = os.RemoveAll(directory)
 		return "", fmt.Errorf("protect private execution runtime directory: %w", err)
+	}
+	return directory, nil
+}
+
+func trustedToolRoot() (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user cache directory for trusted tools: %w", err)
+	}
+	if !filepath.IsAbs(cache) {
+		return "", fmt.Errorf("trusted tool root requires an absolute user cache directory: %s", cache)
+	}
+	return securefs.AbsolutePath(filepath.Join(cache, "cortexium-runner", "trusted-tools"))
+}
+
+// newTrustedToolDir creates host-owned runtime state that is deliberately not
+// granted to the harness sandbox. Runner-managed MCP launchers use it for
+// cwd-sensitive package resolution and caches.
+func newTrustedToolDir(protectedRoots ...string) (string, error) {
+	npmRoot, err := sandboxpath.NPMCacheRoot()
+	if err != nil {
+		return "", err
+	}
+	protectedRoots = append(append([]string(nil), protectedRoots...), npmRoot)
+
+	root, err := trustedToolRoot()
+	if err != nil {
+		return "", err
+	}
+	resolvedRoot := resolvedExistingPath(root)
+	for _, protected := range protectedRoots {
+		if strings.TrimSpace(protected) != "" && pathInsideOrEqual(resolvedRoot, resolvedExistingPath(protected)) {
+			return "", fmt.Errorf("private trusted tool root %s resolved inside protected or sandbox-writable root %s", root, protected)
+		}
+	}
+	if err := securefs.EnsurePrivateDir(root); err != nil {
+		return "", fmt.Errorf("create private trusted tool root: %w", err)
+	}
+
+	directory, err := os.MkdirTemp(root, "runtime-")
+	if err != nil {
+		return "", fmt.Errorf("create private trusted tool directory: %w", err)
+	}
+	if err := securefs.ValidatePrivateDir(directory); err != nil {
+		_ = os.RemoveAll(directory)
+		return "", fmt.Errorf("validate private trusted tool directory: %w", err)
+	}
+	resolved := resolvedExistingPath(directory)
+	for _, protected := range protectedRoots {
+		if strings.TrimSpace(protected) == "" {
+			continue
+		}
+		resolvedProtected := resolvedExistingPath(protected)
+		if pathInsideOrEqual(resolved, resolvedProtected) || pathInsideOrEqual(resolvedProtected, resolved) {
+			_ = os.RemoveAll(directory)
+			return "", fmt.Errorf("private trusted tool directory %s overlaps protected or sandbox-writable root %s", directory, protected)
+		}
 	}
 	return directory, nil
 }
