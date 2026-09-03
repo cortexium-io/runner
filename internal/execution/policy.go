@@ -169,12 +169,12 @@ func claudeProfileArgsForConfig(profile ExecutionProfile, workspace profileWorks
 	}
 	if inherit {
 		if safeTools {
-			args = append(args, "--mcp-config", claudeMCPConfig(true))
+			args = append(args, "--mcp-config", claudeMCPConfig(true, workspace))
 		}
 	} else {
 		args = append(args,
 			"--setting-sources", "", "--strict-mcp-config",
-			"--mcp-config", claudeMCPConfig(safeTools), "--disable-slash-commands", "--no-chrome",
+			"--mcp-config", claudeMCPConfig(safeTools, workspace), "--disable-slash-commands", "--no-chrome",
 		)
 	}
 	tools := claudeTools(profile)
@@ -208,11 +208,14 @@ func claudeProfileArgsForConfig(profile ExecutionProfile, workspace profileWorks
 	return args
 }
 
-func claudeMCPConfig(safeTools bool) string {
+func claudeMCPConfig(safeTools bool, workspace profileWorkspace) string {
 	servers := map[string]any{}
 	if safeTools {
 		command, args := runnerBrowserCommand()
-		servers[runnerBrowserMCPServer] = map[string]any{"command": command, "args": args}
+		servers[runnerBrowserMCPServer] = map[string]any{
+			"command": command, "args": args, "cwd": workspace.TrustedToolDir,
+			"env": runnerBrowserEnvironment(workspace.TrustedToolDir),
+		}
 	}
 	encoded, _ := json.Marshal(map[string]any{"mcpServers": servers})
 	return string(encoded)

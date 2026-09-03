@@ -598,7 +598,8 @@ func (r *integrityMutatingReviewer) Run(ctx context.Context, command string, arg
 	}
 	if command == "git" {
 		joined := strings.Join(args, " ")
-		if containsArgument(args, "commit") || containsArgument(args, "push") || strings.Contains(joined, "worktree remove") {
+		removesRetainedWorktree := strings.Contains(joined, "worktree remove") && !strings.Contains(joined, "cortexium-runner-review-")
+		if containsArgument(args, "commit") || containsArgument(args, "push") || removesRetainedWorktree {
 			r.privileged = append(r.privileged, "git "+joined)
 		}
 	}
@@ -5472,7 +5473,7 @@ func TestAgentQAFailsClosedWhenWorkspaceChangesDuringReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run QA cycle: %v", err)
 	}
-	if len(results) != 1 || results[0].Outcome != execution.OutcomeBlocked || project.status != "Blocked" || project.phase != "ready" || project.pullRequest != "" || !strings.Contains(results[0].Summary, "changed the implementation workspace") {
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeBlocked || project.status != "Blocked" || project.phase != "ready" || project.pullRequest != "" || !strings.Contains(results[0].Summary, "changed the private review workspace") {
 		t.Fatalf("workspace mutation did not fail closed before publication: results=%#v status=%q PR=%q", results, project.status, project.pullRequest)
 	}
 	if !strings.Contains(results[0].Error, `"changed-during-qa.txt"`) {

@@ -111,7 +111,7 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 	}
 	defer artifacts.close()
 
-	mcpArgs, err := codexMCPProfileArgsForConfig(ctx, e.run, strings.TrimSpace(e.cfg.Command), launchWorkspace.Dir, e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode)
+	mcpArgs, err := codexMCPProfileArgsForConfig(ctx, e.run, strings.TrimSpace(e.cfg.Command), launchWorkspace, e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode)
 	if err != nil {
 		output := blockedOutputWithFailure("Configured Codex MCP capability is unavailable.", FailureCapabilityUnavailable, RetryManual)
 		output.RemoteDetailSafe = true
@@ -203,7 +203,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 	defer launchWorkspace.cleanup()
-	mcpArgs, err := codexMCPProfileArgsForConfig(ctx, e.run, strings.TrimSpace(e.cfg.Command), launchWorkspace.Dir, e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode)
+	mcpArgs, err := codexMCPProfileArgsForConfig(ctx, e.run, strings.TrimSpace(e.cfg.Command), launchWorkspace, e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode)
 	if err != nil {
 		output := blockedOutputWithFailure("Configured Codex MCP capability is unavailable.", FailureCapabilityUnavailable, RetryManual)
 		output.RemoteDetailSafe = true

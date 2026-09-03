@@ -225,6 +225,21 @@ func TestWorktreeProfileUsesPrivateRuntimeOutsideTheCheckout(t *testing.T) {
 	if info.Mode().Perm() != 0o700 {
 		t.Fatalf("runtime directory mode = %o, want 700", info.Mode().Perm())
 	}
+	if workspace.TrustedToolDir == "" || pathInsideOrEqual(workspace.TrustedToolDir, repository) || workspace.TrustedToolDir == workspace.TempDir {
+		t.Fatalf("trusted tool directory must be separate and outside the checkout: %#v", workspace)
+	}
+	trustedInfo, err := os.Stat(workspace.TrustedToolDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trustedInfo.Mode().Perm() != 0o700 {
+		t.Fatalf("trusted tool directory mode = %o, want 700", trustedInfo.Mode().Perm())
+	}
+	for _, writable := range sandboxAdditionalWritePaths(workspace) {
+		if pathInsideOrEqual(workspace.TrustedToolDir, writable) || pathInsideOrEqual(writable, workspace.TrustedToolDir) {
+			t.Fatalf("trusted tool directory leaked into sandbox write grants: trusted=%q grants=%#v", workspace.TrustedToolDir, sandboxAdditionalWritePaths(workspace))
+		}
+	}
 }
 
 func TestExternalGitMetadataFailsClosedUnlessItIsAStandardLinkedWorktree(t *testing.T) {

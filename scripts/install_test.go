@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -74,6 +75,18 @@ func TestInstallScriptRejectsChecksumMismatchWithoutReplacingBinary(t *testing.T
 	}
 }
 
+func TestInstallScriptRejectsHTTPReleaseOrigin(t *testing.T) {
+	command := exec.Command("sh", "install.sh", installTestVersion)
+	command.Env = append(os.Environ(),
+		"CORTEXIUM_RUNNER_RELEASES_URL=http://releases.example.test",
+		"CORTEXIUM_RUNNER_INSTALL_DIR="+t.TempDir(),
+	)
+	output, err := command.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "release URL must be an absolute HTTPS URL") {
+		t.Fatalf("HTTP release origin was not rejected: err=%v\n%s", err, output)
+	}
+}
+
 func installTestPlatformSupported() bool {
 	return (runtime.GOOS == "darwin" || runtime.GOOS == "linux") &&
 		(runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64")
@@ -129,5 +142,13 @@ func installTestServer(t *testing.T, archiveName string, archive []byte, checksu
 	mux.HandleFunc("/releases/download/"+installTestVersion+"/SHA256SUMS", func(response http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprintf(response, "%s  %s\n", checksum, archiveName)
 	})
-	return httptest.NewServer(mux)
+	server := httptest.NewTLSServer(mux)
+	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	certificatePath := filepath.Join(t.TempDir(), "release-test-ca.pem")
+	if err := os.WriteFile(certificatePath, certificate, 0o600); err != nil {
+		server.Close()
+		t.Fatal(err)
+	}
+	t.Setenv("CURL_CA_BUNDLE", certificatePath)
+	return server
 }

@@ -201,7 +201,7 @@ When work is later admitted and Runner is started, cards follow these states:
 | `Plan` | The planner creates a bounded set of staged implementation cards. |
 | `Ready` | An implementation card is approved for an implementer. |
 | `In Progress` | Runner has claimed the card for one role attempt. |
-| `Agent QA` | A reviewer checks the exact implementation worktree and diff. |
+| `Agent QA` | A reviewer checks a private detached checkout of the exact candidate commit and diff. |
 | `PR Ready` | The accepted branch awaits a human, or serialized automatic integration when explicitly enabled. |
 | `Blocked` | Human input, a closed-without-merge PR, or an explicit retry decision is required. |
 | `Done` | Planning finished, or the pull request was merged successfully. |
@@ -211,8 +211,9 @@ current snapshot. Creating one in `Ready` authorizes that snapshot for the
 implementer. Runner converts either card to an issue in the configured intake
 repository when necessary, then signs it before claim. Planned children
 remain drafts while awaiting approval and become issues as part of the approved
-batch release. Issue comments present at assignment time are supplied as bounded
-historical context. Agent QA
+batch release. Issue comments authored by the account currently authenticated
+in `gh` and present at assignment time are supplied as bounded historical
+context; other authors are ignored. Agent QA
 posts readable requested-change notes to that issue and retains an authenticated
 private copy, so its feedback is sufficient for a retry without a human comment.
 

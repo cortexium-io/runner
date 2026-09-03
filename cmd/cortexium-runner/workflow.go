@@ -32,7 +32,7 @@ func runWorkflowValidate(args []string, stdout io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(stdout, "Workflow valid: %d lanes, %d typed rules, %d active role profiles\n", len(cfg.Workflow.Lanes), len(cfg.Workflow.Rules), len(cfg.ExecutionRoleIDs()))
-	fmt.Fprintf(stdout, "Configuration: %s\n", path)
+	fmt.Fprintf(stdout, "Configuration: %s\n", terminalSafeText(path))
 	return nil
 }
 
@@ -43,16 +43,16 @@ func runWorkflowExplain(args []string, stdout io.Writer) error {
 	}
 	workflow := cfg.EffectiveWorkflow()
 	fmt.Fprintln(stdout, "Workflow")
-	fmt.Fprintf(stdout, "  Configuration: %s\n", path)
-	fmt.Fprintf(stdout, "  Human intake: %s · approval: %s\n", describeLane(workflow, workflow.IntakeLane), describeLane(workflow, workflow.ApprovalLane))
-	fmt.Fprintf(stdout, "  Default Plan: %s · default Ready: %s\n", describeLane(workflow, workflow.PlanLane), describeLane(workflow, workflow.ReadyLane))
-	fmt.Fprintf(stdout, "  Claim lane: %s\n", describeLane(workflow, workflow.ActiveLane))
+	fmt.Fprintf(stdout, "  Configuration: %s\n", terminalSafeText(path))
+	fmt.Fprintf(stdout, "  Human intake: %s · approval: %s\n", terminalSafeText(describeLane(workflow, workflow.IntakeLane)), terminalSafeText(describeLane(workflow, workflow.ApprovalLane)))
+	fmt.Fprintf(stdout, "  Default Plan: %s · default Ready: %s\n", terminalSafeText(describeLane(workflow, workflow.PlanLane)), terminalSafeText(describeLane(workflow, workflow.ReadyLane)))
+	fmt.Fprintf(stdout, "  Claim lane: %s\n", terminalSafeText(describeLane(workflow, workflow.ActiveLane)))
 
 	rules := append([]config.WorkflowRule(nil), workflow.Rules...)
 	sort.Slice(rules, func(left, right int) bool { return rules[left].ID < rules[right].ID })
 	fmt.Fprintln(stdout, "\nRules")
 	for _, rule := range rules {
-		fmt.Fprintf(stdout, "  %s: %s -> %s\n", rule.ID, describeTrigger(workflow, rule.Trigger), describeAction(cfg, workflow, rule.Action))
+		fmt.Fprintf(stdout, "  %s: %s -> %s\n", terminalSafeText(rule.ID), terminalSafeText(describeTrigger(workflow, rule.Trigger)), terminalSafeText(describeAction(cfg, workflow, rule.Action)))
 		writeWorkflowTransitions(stdout, workflow, rule.Action.Transitions)
 	}
 
@@ -125,6 +125,6 @@ func writeWorkflowTransitions(output io.Writer, workflow config.ResolvedWorkflow
 	}
 	sort.Strings(outcomes)
 	for _, outcome := range outcomes {
-		fmt.Fprintf(output, "    %s -> %s\n", outcome, describeLane(workflow, transitions[outcome]))
+		fmt.Fprintf(output, "    %s -> %s\n", terminalSafeText(outcome), terminalSafeText(describeLane(workflow, transitions[outcome])))
 	}
 }

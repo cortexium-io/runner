@@ -127,9 +127,11 @@ Sandboxed Codex uses scoped permission profiles with minimum runtime reads and
 only the assigned repository/worktree. Sandboxed Claude denies operator-home
 reads except for the assigned root and the implementer's npm cache.
 Implementations run in the task worktree; reviewers use a private neutral
-directory with the repository added read-only. Codex and Claude implementer and
+directory with a new detached checkout of the exact candidate added read-only.
+Codex and Claude implementer and
 reviewer roles inherit the bounded npm/loopback and isolated local-browser
-profile unless `safe_tools` is explicitly disabled. Pi implementer and reviewer
+profile unless `safe_tools` is explicitly disabled. The browser package uses
+separate host-owned npm state that the role sandbox cannot write. Pi implementer and reviewer
 roles receive the same pinned loopback-only browser through a temporary
 Runner-generated extension, while their shell/edit boundary remains explicit
 host access.

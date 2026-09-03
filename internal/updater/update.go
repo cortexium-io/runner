@@ -59,13 +59,14 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("invalid releases URL: %w", err)
 	}
-	if parsedReleasesURL.Host == "" || parsedReleasesURL.Scheme != "https" && parsedReleasesURL.Scheme != "http" {
-		return Result{}, errors.New("invalid releases URL: expected an absolute HTTP or HTTPS URL")
+	if parsedReleasesURL.Host == "" || parsedReleasesURL.Scheme != "https" {
+		return Result{}, errors.New("invalid releases URL: expected an absolute HTTPS URL")
 	}
 	client := options.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: 60 * time.Second}
 	}
+	client = httpsOnlyClient(client)
 	target := strings.TrimSpace(options.TargetVersion)
 	if target == "" {
 		var err error
@@ -122,6 +123,24 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	}
 	result.Updated = true
 	return result, nil
+}
+
+func httpsOnlyClient(source *http.Client) *http.Client {
+	client := *source
+	configuredRedirect := source.CheckRedirect
+	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if request.URL.Scheme != "https" {
+			return errors.New("release redirect refused a non-HTTPS destination")
+		}
+		if configuredRedirect != nil {
+			return configuredRedirect(request, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &client
 }
 
 func resolveLatest(ctx context.Context, client *http.Client, releasesURL string) (string, error) {

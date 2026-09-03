@@ -110,7 +110,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		harness := cfg.Harness
 		command := strings.TrimSpace(harness.Command)
 		timeout := harnessTimeout(harness)
-		mcpArgs, err := codexMCPProfileArgsForConfig(ctx, run, command, workspace.Dir, cfg.MCPServers, cfg.SafeTools, cfg.HarnessConfigMode)
+		mcpArgs, err := codexMCPProfileArgsForConfig(ctx, run, command, workspace, cfg.MCPServers, cfg.SafeTools, cfg.HarnessConfigMode)
 		if err != nil {
 			return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryManual), err
 		}

@@ -102,14 +102,14 @@ func runRoleList(args []string, stdout io.Writer) error {
 		if view.Builtin {
 			kind = "built-in"
 		}
-		fmt.Fprintf(stdout, "  %s (%s, %s) · %s/%s/%s · %s", view.ID, kind, view.Contract, view.Resolved.Harness, config.EffectiveRoleAccess(view.Resolved.Access), config.EffectiveHarnessConfigMode(view.Resolved.HarnessConfig), strings.Join(view.Resolved.Skills, ", "))
+		fmt.Fprintf(stdout, "  %s (%s, %s) · %s/%s/%s · %s", terminalSafeText(view.ID), kind, terminalSafeText(view.Contract), terminalSafeText(view.Resolved.Harness), terminalSafeText(config.EffectiveRoleAccess(view.Resolved.Access)), terminalSafeText(config.EffectiveHarnessConfigMode(view.Resolved.HarnessConfig)), terminalSafeText(strings.Join(view.Resolved.Skills, ", ")))
 		if len(view.Resolved.MCPServers) > 0 {
-			fmt.Fprintf(stdout, " · MCP: %s", strings.Join(view.Resolved.MCPServers, ", "))
+			fmt.Fprintf(stdout, " · MCP: %s", terminalSafeText(strings.Join(view.Resolved.MCPServers, ", ")))
 		}
 		fmt.Fprintln(stdout)
 	}
 	if len(cfg.ImplementerLadder) > 0 {
-		fmt.Fprintf(stdout, "  Implementer ladder: %s\n", strings.Join(cfg.ImplementerLadder, " -> "))
+		fmt.Fprintf(stdout, "  Implementer ladder: %s\n", terminalSafeText(strings.Join(cfg.ImplementerLadder, " -> ")))
 	}
 	return nil
 }
@@ -144,25 +144,25 @@ func runRoleShow(args []string, stdout io.Writer) error {
 		if *jsonOutput {
 			return writeJSON(stdout, view)
 		}
-		fmt.Fprintf(stdout, "Role: %s\nContract: %s\nBuilt-in: %t\nHarness: %s\nAccess: %s\nHarness configuration: %s\nSkills: %s\nReasoning: %s\nTimeout: %s\n", view.ID, view.Contract, view.Builtin, view.Resolved.Harness, config.EffectiveRoleAccess(view.Resolved.Access), config.EffectiveHarnessConfigMode(view.Resolved.HarnessConfig), strings.Join(view.Resolved.Skills, ", "), view.Resolved.Reasoning, time.Duration(view.Resolved.TimeoutSeconds)*time.Second)
+		fmt.Fprintf(stdout, "Role: %s\nContract: %s\nBuilt-in: %t\nHarness: %s\nAccess: %s\nHarness configuration: %s\nSkills: %s\nReasoning: %s\nTimeout: %s\n", terminalSafeText(view.ID), terminalSafeText(view.Contract), view.Builtin, terminalSafeText(view.Resolved.Harness), terminalSafeText(config.EffectiveRoleAccess(view.Resolved.Access)), terminalSafeText(config.EffectiveHarnessConfigMode(view.Resolved.HarnessConfig)), terminalSafeText(strings.Join(view.Resolved.Skills, ", ")), terminalSafeText(view.Resolved.Reasoning), time.Duration(view.Resolved.TimeoutSeconds)*time.Second)
 		if view.Contract == config.WorkRoleImplementer || view.Contract == config.WorkRoleReviewer {
-			fmt.Fprintf(stdout, "Planner task sizing: %s\n", taskSizingLabel(view.Resolved.PlanningSupport))
+			fmt.Fprintf(stdout, "Planner task sizing: %s\n", terminalSafeText(taskSizingLabel(view.Resolved.PlanningSupport)))
 		}
 		if view.Resolved.Harness == config.HarnessPiCLI {
 			fmt.Fprintf(stdout, "Preserve reasoning across Pi turns: %t\n", view.Resolved.PreserveReasoning != nil && *view.Resolved.PreserveReasoning)
 		}
 		fmt.Fprintf(stdout, "Safe development tools: %t\n", cfg.RoleSafeTools(view.ID))
 		if view.Resolved.Model != nil {
-			fmt.Fprintf(stdout, "Model: %s\n", *view.Resolved.Model)
+			fmt.Fprintf(stdout, "Model: %s\n", terminalSafeText(*view.Resolved.Model))
 		}
 		if len(view.Resolved.MCPServers) > 0 {
-			fmt.Fprintf(stdout, "MCP servers: %s\n", strings.Join(view.Resolved.MCPServers, ", "))
+			fmt.Fprintf(stdout, "MCP servers: %s\n", terminalSafeText(strings.Join(view.Resolved.MCPServers, ", ")))
 		}
 		if view.Definition.Extends != "" {
-			fmt.Fprintf(stdout, "Extends: %s\n", view.Definition.Extends)
+			fmt.Fprintf(stdout, "Extends: %s\n", terminalSafeText(view.Definition.Extends))
 		}
 		if view.ImplementerLadderPosition > 0 {
-			fmt.Fprintf(stdout, "Implementer ladder: %d/%d (%s)\n", view.ImplementerLadderPosition, len(view.ImplementerLadder), strings.Join(view.ImplementerLadder, " -> "))
+			fmt.Fprintf(stdout, "Implementer ladder: %d/%d (%s)\n", view.ImplementerLadderPosition, len(view.ImplementerLadder), terminalSafeText(strings.Join(view.ImplementerLadder, " -> ")))
 		}
 		return nil
 	}

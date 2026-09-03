@@ -259,6 +259,48 @@ func TestPublicationAcceptanceRecordsExactTupleExclusively(t *testing.T) {
 	}
 }
 
+func TestPrepareReviewWorkspaceMaterializesExactCandidateOutsideImplementationCheckout(t *testing.T) {
+	repo := initGitRepo(t)
+	provider := NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"), WorkID: "private_review", BranchPrefix: "runner", BaseRef: "HEAD",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "reviewed.txt"), []byte("reviewed bytes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := provider.ConstructCandidate(t.Context(), prepared, "Private review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := provider.PrepareReviewWorkspace(t.Context(), prepared, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if review.Path == prepared.WorktreePath || strings.HasPrefix(review.Path, prepared.WorktreePath+string(filepath.Separator)) {
+		t.Fatalf("private review workspace overlaps implementation checkout: %#v", review)
+	}
+	if got := runGitTest(t, review.Path, "show", "HEAD:reviewed.txt"); got != "reviewed bytes\n" {
+		t.Fatalf("private review content = %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "reviewed.txt"), []byte("late mutation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reviewed, err := os.ReadFile(filepath.Join(review.Path, "reviewed.txt"))
+	if err != nil || string(reviewed) != "reviewed bytes\n" {
+		t.Fatalf("implementation mutation reached private review: content=%q err=%v", reviewed, err)
+	}
+	parent := review.parent
+	if err := review.Cleanup(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(parent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private review workspace was not removed: %v", err)
+	}
+}
+
 func TestPublicationAcceptanceRequiresDurableReviewerOutput(t *testing.T) {
 	repo := initGitRepo(t)
 	provider := NewGitProvider(subprocess.OSRunner{})

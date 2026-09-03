@@ -241,6 +241,7 @@ type profileWorkspace struct {
 	GitReadRoots   []string
 	ToolReadPaths  []string
 	TempDir        string
+	TrustedToolDir string
 	ToolPath       string
 	cleanup        func() error
 }
@@ -277,7 +278,15 @@ func prepareProfileWorkspace(profile ExecutionProfile, requestedRoot string, for
 		if err != nil {
 			return profileWorkspace{}, err
 		}
-		workspace := profileWorkspace{Dir: root, ReadRoot: root, TempDir: tempDir, cleanup: func() error { return os.RemoveAll(tempDir) }}
+		trustedToolDir, err := newTrustedToolDir(append([]string{root}, forbiddenRoots...)...)
+		if err != nil {
+			_ = os.RemoveAll(tempDir)
+			return profileWorkspace{}, err
+		}
+		workspace := profileWorkspace{
+			Dir: root, ReadRoot: root, TempDir: tempDir, TrustedToolDir: trustedToolDir,
+			cleanup: func() error { return errors.Join(os.RemoveAll(tempDir), os.RemoveAll(trustedToolDir)) },
+		}
 		if err := populateProfileWorkspacePaths(&workspace, root); err != nil {
 			_ = workspace.cleanup()
 			return profileWorkspace{}, err
@@ -303,7 +312,15 @@ func prepareProfileWorkspace(profile ExecutionProfile, requestedRoot string, for
 		_ = os.RemoveAll(dir)
 		return profileWorkspace{}, fmt.Errorf("create private execution runtime directory: %w", err)
 	}
-	workspace := profileWorkspace{Dir: dir, TempDir: runtimeDir, cleanup: func() error { return os.RemoveAll(dir) }}
+	trustedToolDir, err := newTrustedToolDir(append([]string{dir, requestedRoot}, forbiddenRoots...)...)
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return profileWorkspace{}, err
+	}
+	workspace := profileWorkspace{
+		Dir: dir, TempDir: runtimeDir, TrustedToolDir: trustedToolDir,
+		cleanup: func() error { return errors.Join(os.RemoveAll(dir), os.RemoveAll(trustedToolDir)) },
+	}
 	if profile.Repository != RepositoryNone {
 		workspace.ReadRoot, err = cleanExistingDirectory(requestedRoot)
 		if err != nil {
@@ -340,6 +357,24 @@ func newProfileTempDir() (string, error) {
 	if err := os.Chmod(directory, 0o700); err != nil {
 		_ = os.RemoveAll(directory)
 		return "", fmt.Errorf("protect private execution runtime directory: %w", err)
+	}
+	return directory, nil
+}
+
+// newTrustedToolDir creates host-owned runtime state that is deliberately not
+// granted to the harness sandbox. Runner-managed MCP launchers use it for
+// cwd-sensitive package resolution and caches.
+func newTrustedToolDir(protectedRoots ...string) (string, error) {
+	directory, err := newProfileTempDir()
+	if err != nil {
+		return "", err
+	}
+	resolved := resolvedExistingPath(directory)
+	for _, root := range protectedRoots {
+		if strings.TrimSpace(root) != "" && pathInsideOrEqual(resolved, resolvedExistingPath(root)) {
+			_ = os.RemoveAll(directory)
+			return "", fmt.Errorf("private trusted tool directory %s resolved inside protected repository or workspace root %s", directory, root)
+		}
 	}
 	return directory, nil
 }

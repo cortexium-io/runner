@@ -309,10 +309,11 @@ func TestSandboxProfilesGrantOnlyResolvedGitAndDevelopmentToolReads(t *testing.T
 	profile, _ := ProfileForRole(RoleImplementer)
 	workspace := profileWorkspace{
 		Dir: "/worktrees/assignment", ReadRoot: "/worktrees/assignment",
-		GitReadRoots:  []string{"/repos/project/.git"},
-		ToolReadPaths: []string{"/opt/tools/node/24", "/opt/tools/npm", "/opt/tools/bin/node"},
-		TempDir:       "/private/runtime",
-		ToolPath:      "/opt/tools/bin:/usr/bin:/bin",
+		GitReadRoots:   []string{"/repos/project/.git"},
+		ToolReadPaths:  []string{"/opt/tools/node/24", "/opt/tools/npm", "/opt/tools/bin/node"},
+		TempDir:        "/private/runtime",
+		TrustedToolDir: "/private/trusted-browser",
+		ToolPath:       "/opt/tools/bin:/usr/bin:/bin",
 	}
 	codex := strings.Join(codexProfileArgs(profile, workspace, true), " ")
 	claude := strings.Join(claudeProfileArgs(profile, workspace, true), " ")
@@ -354,7 +355,7 @@ func TestSandboxProfilesGrantOnlyResolvedGitAndDevelopmentToolReads(t *testing.T
 func TestReviewerProfilesDefaultToNativeIsolation(t *testing.T) {
 	t.Setenv("HOME", "/home/operator")
 	profile, _ := ProfileForRole(RoleReviewer)
-	workspace := profileWorkspace{Dir: "/neutral", ReadRoot: "/repo"}
+	workspace := profileWorkspace{Dir: "/neutral", ReadRoot: "/repo", TrustedToolDir: "/private/trusted-browser"}
 	codex := append(codexProfileArgs(profile, workspace, true), codexExecIsolationArgs(profile, workspace)...)
 	joinedCodex := strings.Join(codex, " ")
 	for _, required := range []string{
@@ -393,6 +394,7 @@ func TestReviewerProfilesDefaultToNativeIsolation(t *testing.T) {
 		`"allowLocalBinding":true`, `"allowedDomains":["localhost","127.0.0.1"]`,
 		`"denyWrite":["/repo"]`, `"denyRead":["/home/operator"]`, `"allowRead":["/neutral","/repo"]`,
 		`"mcpServers":{"runner_browser"`, `chrome-devtools-mcp@1.7.0`,
+		`"cwd":"/private/trusted-browser"`, `"NPM_CONFIG_CACHE":"/private/trusted-browser/npm-cache"`,
 	} {
 		if !strings.Contains(joinedClaude, expected) {
 			t.Fatalf("Claude reviewer sandbox omitted %s: %#v", expected, claude)

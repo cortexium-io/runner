@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -22,9 +23,12 @@ var piBrowserToolNames = []string{
 type piBrowserChannel struct {
 	artifacts *securefs.ArtifactSet
 	path      string
+	runtime   string
 }
 
-func (c *piBrowserChannel) Close() error { return c.artifacts.Close() }
+func (c *piBrowserChannel) Close() error {
+	return errors.Join(c.artifacts.Close(), os.RemoveAll(c.runtime))
+}
 
 func (c *piBrowserChannel) Verify() error {
 	return c.artifacts.VerifyImmutable(piBrowserExtensionName)
@@ -32,9 +36,19 @@ func (c *piBrowserChannel) Verify() error {
 
 func createPiBrowserExtension() (*piBrowserChannel, error) {
 	command, args := runnerBrowserCommand()
+	runtimeDir, err := newTrustedToolDir()
+	if err != nil {
+		return nil, fmt.Errorf("create Pi browser runtime: %w", err)
+	}
 	encodedArgs, err := json.Marshal(args)
 	if err != nil {
+		_ = os.RemoveAll(runtimeDir)
 		return nil, fmt.Errorf("encode Pi browser command: %w", err)
+	}
+	encodedEnvironment, err := json.Marshal(runnerBrowserEnvironment(runtimeDir))
+	if err != nil {
+		_ = os.RemoveAll(runtimeDir)
+		return nil, fmt.Errorf("encode Pi browser environment: %w", err)
 	}
 	source := `import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -42,6 +56,8 @@ import { Type } from "typebox";
 
 const browserCommand = ` + strconv.Quote(command) + `;
 const browserArgs = ` + string(encodedArgs) + `;
+const browserCwd = ` + strconv.Quote(runtimeDir) + `;
+const browserEnv = ` + string(encodedEnvironment) + `;
 const requestTimeoutMs = 30000;
 
 export default function (pi) {
@@ -106,6 +122,8 @@ export default function (pi) {
       child = spawn(browserCommand, browserArgs, {
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
+		cwd: browserCwd,
+		env: { ...process.env, ...browserEnv },
       });
       child.stderr.on("data", (chunk) => {
         stderr = (stderr + String(chunk)).slice(-4000);
@@ -218,9 +236,10 @@ export default function (pi) {
 		Name: piBrowserExtensionName, Content: []byte(source),
 	}})
 	if err != nil {
+		_ = os.RemoveAll(runtimeDir)
 		return nil, fmt.Errorf("create Pi browser extension: %w", err)
 	}
-	return &piBrowserChannel{artifacts: artifacts, path: artifacts.Path(piBrowserExtensionName)}, nil
+	return &piBrowserChannel{artifacts: artifacts, path: artifacts.Path(piBrowserExtensionName), runtime: runtimeDir}, nil
 }
 
 func piInvocationAllowsBrowser(args []string, ambientToolsAllowed ...bool) bool {

@@ -42,3 +42,42 @@ func TestWorkflowValidateAndExplainUseTypedRules(t *testing.T) {
 		}
 	}
 }
+
+func TestReadOnlyConfigViewsEscapeTerminalControls(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "runner.json")
+	cfg := completeCLITestConfig(t.TempDir())
+	plan := cfg.Workflow.Lanes["plan"]
+	plan.Name = "Plan\x1b]8;;https://attacker.invalid\alink\x1b]8;;\a\r\u202e"
+	cfg.Workflow.Lanes["plan"] = plan
+	reviewer := cfg.Roles[config.WorkRoleReviewer]
+	model := "review-model\x1b[2J\r\u202e"
+	reviewer.Model = &model
+	cfg.Roles[config.WorkRoleReviewer] = reviewer
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := runWorkflow([]string{"explain", "--config", configPath}, &output); err != nil {
+		t.Fatal(err)
+	}
+	if err := runRole([]string{"show", config.WorkRoleReviewer, "--config", configPath}, &output); err != nil {
+		t.Fatal(err)
+	}
+	writeMetrics(&output, metricsOutput{
+		RunnerID: "runner\x1b[2J", Project: &config.GitHubProjectConfig{Owner: "owner\r\u202e", Number: 7}, HistoryPath: "history\a",
+	})
+	writeWorkSection(&output, "Blocked", nil, true, "config\x1b]8;;https://attacker.invalid\a")
+
+	rendered := output.String()
+	for _, control := range []string{"\x1b", "\r", "\a", "\u202e"} {
+		if strings.Contains(rendered, control) {
+			t.Fatalf("read-only config output retained %q in %q", control, rendered)
+		}
+	}
+	for _, escaped := range []string{`\x1b`, `\r`, `\u202e`} {
+		if !strings.Contains(rendered, escaped) {
+			t.Fatalf("read-only config output omitted %q in %q", escaped, rendered)
+		}
+	}
+}

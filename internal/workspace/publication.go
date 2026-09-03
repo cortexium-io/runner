@@ -31,6 +31,108 @@ type Candidate struct {
 	TreeOID   string
 }
 
+// ReviewWorkspace is a private detached checkout of the exact candidate
+// commit. It is created only after implementation ends and is never granted to
+// the implementation sandbox, so review input cannot be changed by a child
+// process that escaped the implementation process group.
+type ReviewWorkspace struct {
+	Path          string
+	parent        string
+	provider      GitProvider
+	sourceProfile subprocess.PrivilegedGitProfile
+}
+
+// PrepareReviewWorkspace materializes the exact candidate through Runner's
+// config-free privileged Git boundary and verifies its commit, tree, and clean
+// state before a reviewer can see it.
+func (p GitProvider) PrepareReviewWorkspace(ctx context.Context, metadata Metadata, candidate Candidate) (ReviewWorkspace, error) {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	if err := validateCandidateMetadata(metadata); err != nil {
+		return ReviewWorkspace{}, err
+	}
+	if err := validateRecordedIdentity(metadata); err != nil {
+		return ReviewWorkspace{}, err
+	}
+	if !validObjectID(candidate.CommitOID) || !validObjectID(candidate.TreeOID) {
+		return ReviewWorkspace{}, errors.New("review workspace requires valid candidate commit and tree object IDs")
+	}
+	sourceProfile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
+	if err != nil {
+		return ReviewWorkspace{}, err
+	}
+	parent, err := os.MkdirTemp("", "cortexium-runner-review-")
+	if err != nil {
+		return ReviewWorkspace{}, fmt.Errorf("create private review workspace: %w", err)
+	}
+	if err := os.Chmod(parent, 0o700); err != nil {
+		_ = os.RemoveAll(parent)
+		return ReviewWorkspace{}, fmt.Errorf("protect private review workspace: %w", err)
+	}
+	path := filepath.Join(parent, "candidate")
+	result, err := p.privilegedGit(ctx, sourceProfile, "worktree", "add", "--detach", "--no-checkout", path, candidate.CommitOID)
+	if err != nil {
+		_ = os.RemoveAll(parent)
+		return ReviewWorkspace{}, fmt.Errorf("materialize private review workspace: %w", commandError(err, result))
+	}
+	review := ReviewWorkspace{Path: path, parent: parent, provider: p, sourceProfile: sourceProfile}
+	fail := func(cause error) (ReviewWorkspace, error) {
+		if cleanupErr := review.cleanupLocked(ctx); cleanupErr != nil {
+			cause = errors.Join(cause, cleanupErr)
+		}
+		return ReviewWorkspace{}, cause
+	}
+	reviewProfile, err := derivePrivilegedGitProfile(path)
+	if err != nil {
+		return fail(err)
+	}
+	if reviewProfile.CommonDirectory != metadata.commonDirectory || reviewProfile.ObjectDirectory != metadata.objectDirectory {
+		return fail(errors.New("private review workspace does not share the prepared candidate object store"))
+	}
+	reset, err := p.privilegedGit(ctx, reviewProfile, "reset", "--hard", candidate.CommitOID)
+	if err != nil {
+		return fail(fmt.Errorf("checkout private review candidate: %w", commandError(err, reset)))
+	}
+	head, err := p.privilegedScalar(ctx, reviewProfile, "rev-parse", "--verify", "HEAD^{commit}")
+	if err != nil {
+		return fail(fmt.Errorf("verify private review commit: %w", err))
+	}
+	tree, err := p.privilegedScalar(ctx, reviewProfile, "rev-parse", "--verify", "HEAD^{tree}")
+	if err != nil {
+		return fail(fmt.Errorf("verify private review tree: %w", err))
+	}
+	status, err := p.privilegedGit(ctx, reviewProfile, "status", "--porcelain", "--untracked-files=all")
+	if err != nil {
+		return fail(fmt.Errorf("verify private review workspace: %w", commandError(err, status)))
+	}
+	if head != candidate.CommitOID || tree != candidate.TreeOID || strings.TrimSpace(status.Stdout) != "" {
+		return fail(fmt.Errorf("private review workspace is not the exact clean candidate: head=%q tree=%q status=%q", head, tree, status.Stdout))
+	}
+	return review, nil
+}
+
+// Cleanup removes the linked worktree registration and private checkout.
+func (workspace ReviewWorkspace) Cleanup(ctx context.Context) error {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	return workspace.cleanupLocked(ctx)
+}
+
+func (workspace ReviewWorkspace) cleanupLocked(ctx context.Context) error {
+	if strings.TrimSpace(workspace.parent) == "" || strings.TrimSpace(workspace.Path) == "" {
+		return nil
+	}
+	var cleanupErr error
+	result, err := workspace.provider.privilegedGit(ctx, workspace.sourceProfile, "worktree", "remove", "--force", workspace.Path)
+	if err != nil {
+		cleanupErr = fmt.Errorf("remove private review worktree: %w", commandError(err, result))
+	}
+	if err := os.RemoveAll(workspace.parent); err != nil {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove private review workspace: %w", err))
+	}
+	return cleanupErr
+}
+
 type candidateValidationError struct {
 	correction string
 	cause      error
