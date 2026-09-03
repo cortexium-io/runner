@@ -516,8 +516,18 @@ cortexium-runner doctor --config "$RUNNER_CONFIG"
 Custom MCP servers remain explicit per-role grants. They are separate trusted
 local processes, so Runner never inherits them as safe defaults.
 
-`doctor --probe-harnesses` does not run browser QA. If a required capability is
-still unavailable, Runner blocks the card with a retry destination instead of
+For a complete local adapter smoke test, run `harness check`. It makes paid live
+model calls through every configured execution-role profile and exercises the
+planner's read-only repository path, the implementer's isolated worktree write
+and integrity verification, and the reviewer's shared review contract. Runner
+uses a private temporary Git repository and performs no GitHub operations. Add
+`--browser` to exercise browser access for implementer and reviewer profiles
+whose safe tools are enabled. Host-access and inherited profiles retain their
+configured authority, which the report labels explicitly.
+
+`doctor --probe-harnesses` and ordinary `harness check` do not run browser QA.
+If a required capability is still unavailable, Runner blocks the card with a
+retry destination instead of
 treating an unrun check as passed. A capability-blocked review does not consume
 a QA rejection. When QA does request changes, Runner stores the
 actionable detail privately beside its state and supplies it to the next
@@ -547,10 +557,16 @@ cortexium-runner retry --config "$RUNNER_CONFIG" --item ITEM_ID \
 
 # Optional minimal live calls to configured harnesses
 cortexium-runner doctor --probe-harnesses --config "$RUNNER_CONFIG"
+
+# Paid planner, implementer, and reviewer conformance in a temporary repository
+cortexium-runner harness check --config "$RUNNER_CONFIG"
+
+# Also prove configured implementer and reviewer browser access
+cortexium-runner harness check --browser --config "$RUNNER_CONFIG"
 ```
 
-Every command supports `--help`. `doctor --probe-harnesses` makes live model
-calls; ordinary `doctor` does not.
+Every command supports `--help`. `doctor --probe-harnesses` and `harness check`
+make live model calls; ordinary `doctor` does not.
 
 `status --verbose` uses only Runner's fixed stage telemetry. It does not retain
 or print prompts, model responses, tool commands, subprocess arguments, or

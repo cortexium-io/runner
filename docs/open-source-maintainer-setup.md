@@ -143,15 +143,17 @@ every role and labels that combination as unrestricted.
 ```bash
 ./cortexium-runner doctor --config /absolute/operator/path/runner.json --offline
 ./cortexium-runner doctor --config /absolute/operator/path/runner.json
-./cortexium-runner doctor --config /absolute/operator/path/runner.json --probe-harnesses
+./cortexium-runner harness check --config /absolute/operator/path/runner.json
 ./cortexium-runner run --config /absolute/operator/path/runner.json
 ```
 
-The explicit probe makes one minimal live call per distinct configured harness
-profile. It proves authentication, model selection, invocation flags, and the
-structured-result path, but not file-edit permissions. Before a release or
-shared rollout, also complete one throwaway card through implementation, agent QA, and
-PR publication with the same harness configuration participants will use.
+`harness check` exercises every configured planner,
+implementer, and reviewer profile against a private temporary Git repository.
+Add `--browser` when browser-backed verification is required. These checks do
+not exercise GitHub card movement or PR publication, so complete one throwaway
+end-to-end card when qualifying those integration paths on a new machine.
+Use `doctor --probe-harnesses` instead when only a minimal authentication,
+model-selection, invocation-flag, and structured-output probe is needed.
 `run` auto-detects the default project-local config and accepts `--config` for
 other locations. It polls until interrupted; use `run --once` only for a single
 diagnostic or scripted cycle.

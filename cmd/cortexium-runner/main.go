@@ -72,6 +72,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		return runStatus(ctx, args[1:], stdout)
 	case "metrics":
 		return runMetrics(args[1:], stdout)
+	case "harness":
+		return runHarness(ctx, args[1:], stdout)
 	case "role":
 		return runRole(args[1:], stdout)
 	case "run":
@@ -91,6 +93,7 @@ Usage:
 Getting started:
   cortexium-runner init [--config PATH] [--dry-run] [--prune]
   cortexium-runner doctor [--config PATH] [--fix] [--offline] [--probe-harnesses] [--json]
+  cortexium-runner harness check [--config PATH] [--browser] [--timeout DURATION]
   cortexium-runner update [--check] [--version vMAJOR.MINOR.PATCH]
 
 Project work:

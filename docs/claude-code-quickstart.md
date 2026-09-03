@@ -127,12 +127,16 @@ copy. Init does not install or authenticate Claude Code.
 ```bash
 cortexium-runner doctor --config /absolute/operator/path/runner.json --offline
 cortexium-runner doctor --config /absolute/operator/path/runner.json
-cortexium-runner doctor --config /absolute/operator/path/runner.json --probe-harnesses
+cortexium-runner harness check --config /absolute/operator/path/runner.json
 ```
 
-All three commands must succeed. The explicit probe makes a real minimal model
-call and validates structured output. It does not edit a file, so complete one
-throwaway end-to-end card before relying on a new environment.
+All three commands must succeed. `harness check` makes live model calls through
+the configured planner, implementer, and reviewer profiles in a private
+temporary Git repository. Add `--browser` if the project relies on browser
+verification. Use `doctor --probe-harnesses` instead when only a smaller
+authentication and structured-output probe is needed. Neither live check
+exercises GitHub publication, so complete one throwaway end-to-end card before
+relying on that integration in a new environment.
 
 If initialization says an installed `runner-planner`, `runner-implementer`, or
 `runner-reviewer` skill differs, Runner leaves it unchanged. Review the reported
@@ -203,13 +207,15 @@ ceiling equals that base interval; a larger idle backoff is opt-in.
 
 ## If something blocks
 
-Run `doctor --probe-harnesses` again and read the local Runner error. Common
-failures are missing GitHub Project scope, a repository remote that does not
-match `--repository`, harness authentication, an installed CLI missing a
-required non-interactive or structured-output flag, or a configured model the
-user cannot access. For implementation failures, also inspect whether the
-required native tool or browser is installed and usable. A browser-capability
-block does not count as a QA rejection. On Ctrl-C, Runner verifies and retains
+Run ordinary `doctor` again for GitHub, repository, executable, or installed
+skill failures. Use `doctor --probe-harnesses` for a minimal authentication and
+structured-output check, or `harness check` when the failing role's real adapter
+and worktree permissions need to be reproduced. Add `--browser` for browser
+capabilities. Common failures are missing GitHub Project scope, a repository
+remote that does not match `--repository`, harness authentication, an installed
+CLI missing a required non-interactive or structured-output flag, or a
+configured model the user cannot access. A browser-capability block does not
+count as a QA rejection. On Ctrl-C, Runner verifies and retains
 the isolated worktree with a fresh bounded cleanup context and returns the card
 to the interrupted role lane.
 For a recognized Claude Code session limit, the blocked card and `status`

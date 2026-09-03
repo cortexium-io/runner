@@ -143,6 +143,20 @@ Normal `doctor` adds GitHub and executable checks. The explicit
 `--probe-harnesses` option makes one minimal live call per distinct configured
 harness profile; it is not required for the offline checkpoint.
 
+Before relying on a newly installed harness configuration, run the paid local
+conformance smoke test:
+
+```bash
+./cortexium-runner harness check \
+  --config /absolute/operator/path/runner.json
+```
+
+It exercises every configured planner, implementer, and reviewer profile in a
+private temporary Git repository. Runner itself performs no GitHub operations
+or configured-project writes; explicitly configured host access still retains
+its documented authority. Add `--browser` when the project depends on Runner's
+browser tools.
+
 With Runner active, humans can enqueue either kind of work directly:
 
 ```bash

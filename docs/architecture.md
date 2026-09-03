@@ -77,13 +77,22 @@ by subcommand; they still compile into one `main` package and one binary.
 
 The public command surface keeps first-class operations at the root: `init` and
 `doctor` prepare and diagnose the runner; `plan`, `approve`, and `retry` manage
-work; `run`, `status`, and `metrics` operate it; and `role` manages extensible role profiles.
+work; `run`, `status`, and `metrics` operate it; `role` manages extensible role
+profiles; and `harness check` qualifies configured execution profiles against a
+private temporary Git repository.
 `init` is idempotent for an existing config and owns GitHub Project field/status
 synchronization, local prerequisite checks, and bundled skill installation.
 `doctor` owns static config validation and live readiness inspection. Its
 explicit `--probe-harnesses` mode additionally proves real authentication,
 model invocation, and structured output once per distinct execution profile;
 normal doctor remains non-billable and does not call a model.
+`harness check` is the explicit paid adapter-conformance boundary. It invokes
+each configured execution-role profile through the production planner,
+implementer, or shared-reviewer path, verifies that read-only roles leave the
+fixture unchanged, and verifies an implementer's exact isolated-worktree
+artifact through the normal integrity checks. Optional `--browser` checks use
+the same configured safe-tool profile. The command performs no GitHub
+operations and removes its private fixture after the checks.
 
 The command package attaches an optional metrics observer and history reader to
 the engine. The engine emits start and completion events for every card or

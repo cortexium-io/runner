@@ -275,7 +275,7 @@ Common readiness failures are:
 | Configured merge method is disabled | Blocks before work | Enable that repository merge method, or explicitly select an allowed `merge_method`. |
 | Linear history or a ruleset conflicts with `merge` | Blocks when visible; otherwise warns for protected branches | Remove **Require linear history** if merge commits are intended, or explicitly select `rebase` or `squash`. |
 | Required status check never reports | GitHub leaves the PR open; Doctor cannot prove that every future workflow will emit the configured check | Verify Actions is enabled and the required check name exactly matches the workflow's reported check. |
-| Harness login, model access, or structured-output support is unavailable | Ordinary Doctor checks the installed CLI surface; `--probe-harnesses` makes a minimal live call | Authenticate with the harness's native flow, choose an accessible model, and rerun the live probe. |
+| Harness login, model access, or structured-output support is unavailable | Ordinary Doctor checks the installed CLI surface; `--probe-harnesses` makes a minimal live call; `harness check` exercises each configured role adapter | Authenticate with the harness's native flow, choose an accessible model, and rerun the appropriate live check. |
 | Global Git commit signing opens pinentry in repository tooling | Runner-owned commits disable signing, but external setup/test commands may still prompt | Configure test fixtures with `commit.gpgSign=false`, or ensure the operator GPG agent is available; do not give the agent the signing passphrase. |
 | Chrome/Chromium is older than 149 | Doctor reports the optional browser capability as blocked; browser-dependent work will fail | Upgrade Chrome/Chromium. Runner keeps the 149+ requirement because its loopback-only MCP URL allowlist depends on that browser feature. |
 | Browser, Docker, database, or external-service prerequisites are repository-specific | Checked only when represented by an explicit capability or acceptance obligation | Document the repository's safe local entrypoint and add explicit Doctor requirements where a stable local capability exists. |
@@ -386,7 +386,7 @@ Then verify and run:
 
 ```bash
 ./cortexium-runner doctor --config /absolute/operator/path/runner.json
-./cortexium-runner doctor --config /absolute/operator/path/runner.json --probe-harnesses
+./cortexium-runner harness check --config /absolute/operator/path/runner.json
 ./cortexium-runner status --config /absolute/operator/path/runner.json
 ./cortexium-runner status --verbose --config /absolute/operator/path/runner.json
 ./cortexium-runner metrics --config /absolute/operator/path/runner.json
@@ -413,6 +413,45 @@ the real structured-output path. It does not edit the repository or prove that
 implementation tools can execute in the participant's environment.
 Normal connected doctor also resolves and validates every configured repository
 reference. `doctor --offline` checks only its static shape and role policy.
+
+`harness check` is the paid local adapter smoke test:
+
+```bash
+./cortexium-runner harness check \
+  --config /absolute/operator/path/runner.json \
+  --timeout 5m
+
+# Include browser proof for browser-enabled implementer and reviewer profiles.
+./cortexium-runner harness check \
+  --config /absolute/operator/path/runner.json \
+  --browser
+```
+
+The command checks the trusted config and configured executable, then starts one
+live conformance attempt through every configured execution-role profile.
+Planner checks prove structured output and read-only repository access.
+Implementer checks create and verify one exact artifact in a Runner-owned
+worktree and pass through the normal post-harness integrity verification.
+Reviewer checks exercise the shared evidence-audit contract against a known-good
+fixture; as in normal QA, a reviewer may make one additional focused call if its
+audit leaves a proof unresolved. `--browser` adds a browser proof for each
+implementer or reviewer profile with safe tools enabled. The per-call timeout
+defaults to five minutes.
+
+This full role check subsumes the authentication and structured-output evidence
+from `doctor --probe-harnesses`; running both is unnecessary. Use the smaller
+Doctor probe when file-write and reviewer conformance are not needed.
+
+Runner performs no GitHub operations and assigns only a private temporary Git
+repository, which it removes afterward. Configured repository references remain
+read-only context for planner and reviewer profiles. The command uses the
+profile's configured model, reasoning, access, harness configuration, pinned
+skills, safe tools, and explicit MCP grants. Consequently, a `host` profile is
+still host-access and `host/inherit` remains unrestricted; the result labels
+that policy rather than pretending the temporary fixture is a security
+sandbox. Browser checks are omitted unless `--browser` is explicit. A failed
+profile does not prevent independent profiles from being checked, and any
+failed requested check makes the command exit unsuccessfully.
 
 `status` is operational rather than diagnostic: it reports current card counts,
 active, queued, blocked, and PR-ready work, whether a local Runner process holds
@@ -1359,9 +1398,10 @@ Disable the ladder without removing its now-unused role profiles:
 
 Every harness referenced by the ladder must already have an enabled harness
 configuration and workspace-write root. Normal `doctor` and skill setup cover
-all ladder profiles. Explicit `doctor --probe-harnesses` also makes a live call
-for each distinct configured ladder execution profile, so use it only when that
-extra paid validation is wanted.
+all ladder profiles. `harness check` exercises every configured ladder role;
+the smaller `doctor --probe-harnesses` groups identical harness, command, model,
+and reasoning selections when only paid authentication and structured-output
+validation is wanted.
 
 The supported matrix is fail-closed:
 
@@ -1402,14 +1442,18 @@ as required.
 `doctor --probe-harnesses` proves authentication, model selection, invocation
 flags, and structured output. It deliberately does not launch a browser and
 therefore does not prove browser verification readiness. Before scheduling
-browser-dependent work:
+browser-dependent work, run:
 
-1. Open the target harness directly under the same operating-system account.
-2. Confirm it can start the documented local application and inspect the
-   rendered page and browser console through that configured headless or
-   browser-automation capability.
-3. Confirm the harness can keep screenshots, traces, profiles, and other
-   verification artifacts outside the project checkout and Runner worktrees.
+```bash
+./cortexium-runner harness check \
+  --config /absolute/operator/path/runner.json \
+  --browser
+```
+
+This proves the configured browser path against Runner's temporary fixture.
+The project's acceptance conditions must still cover its actual application
+entrypoint and behavior; the conformance fixture is not a substitute for a
+project-specific browser check.
 
 If Agent QA reports unavailable browser capability, stop repeated retries. A
 capability-blocked review does not increment the QA rejection count. On macOS,
