@@ -71,7 +71,7 @@ func codexProfileArgsForConfig(profile ExecutionProfile, workspace profileWorksp
 			if safeTools {
 				name = codexImplementerDevelopmentPermissionProfile
 				description = "Runner implementer with package and local-app access"
-				filesystem = `{":minimal"="read",":workspace_roots"={"."="write"},"~/.npm"="write"}`
+				filesystem = fmt.Sprintf(`{":minimal"="read",":workspace_roots"={"."="write"},%s="write"}`, strconv.Quote(sandboxNPMCachePolicyPath()))
 				network = `{enabled=true,mode="limited",allow_local_binding=true,domains={"localhost"="allow","127.0.0.1"="allow","registry.npmjs.org"="allow"}}`
 			}
 		}
@@ -268,8 +268,9 @@ func claudeSandboxSettingsForConfig(profile ExecutionProfile, workspace profileW
 	if safeTools && profile.Role == RoleImplementer {
 		// npm's content-addressed cache is the only home-directory exception.
 		// Project files and package execution remain inside the worktree.
-		filesystem["allowRead"] = append(allowRead, "~/.npm")
-		filesystem["allowWrite"] = append(allowWrite, "~/.npm")
+		npmCache := sandboxNPMCachePolicyPath()
+		filesystem["allowRead"] = append(allowRead, npmCache)
+		filesystem["allowWrite"] = append(allowWrite, npmCache)
 	}
 	sandbox := map[string]any{
 		"enabled": true, "failIfUnavailable": true, "autoAllowBashIfSandboxed": true,

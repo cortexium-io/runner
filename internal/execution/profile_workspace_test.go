@@ -242,6 +242,73 @@ func TestWorktreeProfileUsesPrivateRuntimeOutsideTheCheckout(t *testing.T) {
 	}
 }
 
+func TestWorktreeProfileKeepsTrustedToolDirOutsideNPMWriteGrant(t *testing.T) {
+	repository := initGitRepo(t)
+	home := t.TempDir()
+	npmRoot := filepath.Join(home, sandboxNPMCacheDirectory)
+	if err := os.Mkdir(npmRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	t.Setenv("TMPDIR", npmRoot)
+
+	profile, err := ProfileForRole(RoleImplementer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := prepareProfileWorkspace(profile, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = workspace.cleanup() })
+
+	if !pathInsideOrEqual(workspace.TempDir, npmRoot) {
+		t.Fatalf("test did not place the sandbox-writable runtime beneath npm root: runtime=%q npm=%q", workspace.TempDir, npmRoot)
+	}
+	if pathInsideOrEqual(workspace.TrustedToolDir, npmRoot) || pathInsideOrEqual(npmRoot, workspace.TrustedToolDir) {
+		t.Fatalf("trusted tool directory overlaps npm sandbox write root: trusted=%q npm=%q", workspace.TrustedToolDir, npmRoot)
+	}
+	wantRoot, err := trustedToolRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pathInsideOrEqual(workspace.TrustedToolDir, wantRoot) {
+		t.Fatalf("trusted tool directory = %q, want a child of %q", workspace.TrustedToolDir, wantRoot)
+	}
+}
+
+func TestTrustedToolDirIgnoresSymlinkedTempRootInsideNPMWriteGrant(t *testing.T) {
+	home := t.TempDir()
+	npmRoot := filepath.Join(home, sandboxNPMCacheDirectory)
+	if err := os.Mkdir(npmRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tempLink := filepath.Join(t.TempDir(), "npm-temp")
+	if err := os.Symlink(npmRoot, tempLink); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	t.Setenv("TMPDIR", tempLink)
+
+	directory, err := newTrustedToolDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	if pathInsideOrEqual(resolvedExistingPath(directory), resolvedExistingPath(npmRoot)) {
+		t.Fatalf("trusted tool directory followed sandbox-writable TMPDIR symlink: trusted=%q npm=%q", directory, npmRoot)
+	}
+	info, err := os.Stat(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("trusted tool directory mode = %o, want 700", info.Mode().Perm())
+	}
+}
+
 func TestExternalGitMetadataFailsClosedUnlessItIsAStandardLinkedWorktree(t *testing.T) {
 	worktree := t.TempDir()
 	external := t.TempDir()
