@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/sandboxpath"
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
@@ -71,7 +72,7 @@ func codexProfileArgsForConfig(profile ExecutionProfile, workspace profileWorksp
 			if safeTools {
 				name = codexImplementerDevelopmentPermissionProfile
 				description = "Runner implementer with package and local-app access"
-				filesystem = fmt.Sprintf(`{":minimal"="read",":workspace_roots"={"."="write"},%s="write"}`, strconv.Quote(sandboxNPMCachePolicyPath()))
+				filesystem = fmt.Sprintf(`{":minimal"="read",":workspace_roots"={"."="write"},%s="write"}`, strconv.Quote(sandboxpath.NPMCachePolicyPath()))
 				network = `{enabled=true,mode="limited",allow_local_binding=true,domains={"localhost"="allow","127.0.0.1"="allow","registry.npmjs.org"="allow"}}`
 			}
 		}
@@ -268,7 +269,7 @@ func claudeSandboxSettingsForConfig(profile ExecutionProfile, workspace profileW
 	if safeTools && profile.Role == RoleImplementer {
 		// npm's content-addressed cache is the only home-directory exception.
 		// Project files and package execution remain inside the worktree.
-		npmCache := sandboxNPMCachePolicyPath()
+		npmCache := sandboxpath.NPMCachePolicyPath()
 		filesystem["allowRead"] = append(allowRead, npmCache)
 		filesystem["allowWrite"] = append(allowWrite, npmCache)
 	}

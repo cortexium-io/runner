@@ -16,11 +16,12 @@ import (
 	"time"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/sandboxpath"
 	"github.com/cortexium-io/runner/internal/securefs"
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
-const publicationRecordVersion = 2
+const publicationRecordVersion = 3
 
 var privilegedGitMu sync.Mutex
 
@@ -61,13 +62,9 @@ func (p GitProvider) PrepareReviewWorkspace(ctx context.Context, metadata Metada
 	if err != nil {
 		return ReviewWorkspace{}, err
 	}
-	parent, err := os.MkdirTemp("", "cortexium-runner-review-")
+	parent, err := newReviewWorkspaceParent(metadata.WorktreePath, metadata.RepoRoot)
 	if err != nil {
 		return ReviewWorkspace{}, fmt.Errorf("create private review workspace: %w", err)
-	}
-	if err := os.Chmod(parent, 0o700); err != nil {
-		_ = os.RemoveAll(parent)
-		return ReviewWorkspace{}, fmt.Errorf("protect private review workspace: %w", err)
 	}
 	path := filepath.Join(parent, "candidate")
 	result, err := p.privilegedGit(ctx, sourceProfile, "worktree", "add", "--detach", "--no-checkout", path, candidate.CommitOID)
@@ -109,6 +106,64 @@ func (p GitProvider) PrepareReviewWorkspace(ctx context.Context, metadata Metada
 		return fail(fmt.Errorf("private review workspace is not the exact clean candidate: head=%q tree=%q status=%q", head, tree, status.Stdout))
 	}
 	return review, nil
+}
+
+func reviewWorkspaceRoot() (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user cache directory for review workspaces: %w", err)
+	}
+	if !filepath.IsAbs(cache) {
+		return "", fmt.Errorf("review workspace root requires an absolute user cache directory: %s", cache)
+	}
+	return securefs.AbsolutePath(filepath.Join(cache, "cortexium-runner", "review-workspaces"))
+}
+
+func newReviewWorkspaceParent(protectedRoots ...string) (string, error) {
+	npmRoot, err := sandboxpath.NPMCacheRoot()
+	if err != nil {
+		return "", err
+	}
+	protectedRoots = append(append([]string(nil), protectedRoots...), npmRoot)
+
+	root, err := reviewWorkspaceRoot()
+	if err != nil {
+		return "", err
+	}
+	resolvedRoot := normalizedPath(root)
+	for _, protected := range protectedRoots {
+		if strings.TrimSpace(protected) == "" {
+			continue
+		}
+		resolvedProtected := normalizedPath(protected)
+		if pathInsideOrEqualLexical(resolvedRoot, resolvedProtected) || pathInsideOrEqualLexical(resolvedProtected, resolvedRoot) {
+			return "", fmt.Errorf("private review workspace root %s overlaps protected or sandbox-writable root %s", root, protected)
+		}
+	}
+	if err := securefs.EnsurePrivateDir(root); err != nil {
+		return "", fmt.Errorf("create private review workspace root: %w", err)
+	}
+
+	parent, err := os.MkdirTemp(root, "review-")
+	if err != nil {
+		return "", fmt.Errorf("create private review workspace parent: %w", err)
+	}
+	if err := securefs.ValidatePrivateDir(parent); err != nil {
+		_ = os.RemoveAll(parent)
+		return "", fmt.Errorf("validate private review workspace parent: %w", err)
+	}
+	resolvedParent := normalizedPath(parent)
+	for _, protected := range protectedRoots {
+		if strings.TrimSpace(protected) == "" {
+			continue
+		}
+		resolvedProtected := normalizedPath(protected)
+		if pathInsideOrEqualLexical(resolvedParent, resolvedProtected) || pathInsideOrEqualLexical(resolvedProtected, resolvedParent) {
+			_ = os.RemoveAll(parent)
+			return "", fmt.Errorf("private review workspace parent %s overlaps protected or sandbox-writable root %s", parent, protected)
+		}
+	}
+	return parent, nil
 }
 
 // Cleanup removes the linked worktree registration and private checkout.
@@ -789,7 +844,7 @@ func priorPublicationAcceptance(metadata Metadata, commitOID string) (bool, erro
 	if err := securefs.ValidatePrivateDir(worktreeRoot); err != nil {
 		return false, fmt.Errorf("validate private publication state root: %w", err)
 	}
-	record, err := readPublicationRecord(filepath.Join(worktreeRoot, ".runner-state", "publications", commitOID+".json"))
+	record, err := readPublicationRecord(publicationRecordPath(worktreeRoot, commitOID))
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -880,13 +935,18 @@ func (p GitProvider) validatedPublicationAcceptance(ctx context.Context, metadat
 	if err := securefs.ValidatePrivateDir(worktreeRoot); err != nil {
 		return PublicationRecord{}, "", fmt.Errorf("validate private publication state root: %w", err)
 	}
-	recordRoot := filepath.Join(worktreeRoot, ".runner-state", "publications")
+	recordPath := publicationRecordPath(worktreeRoot, record.CommitOID)
+	recordRoot := filepath.Dir(recordPath)
 	if createRecordRoot {
 		if err := securefs.EnsurePrivateDir(recordRoot); err != nil {
 			return PublicationRecord{}, "", fmt.Errorf("create private publication record directory: %w", err)
 		}
 	}
-	return record, filepath.Join(recordRoot, record.CommitOID+".json"), nil
+	return record, recordPath, nil
+}
+
+func publicationRecordPath(worktreeRoot, commitOID string) string {
+	return filepath.Join(worktreeRoot, ".runner-state", "publications", fmt.Sprintf("v%d", publicationRecordVersion), commitOID+".json")
 }
 
 func readPublicationRecord(path string) (PublicationRecord, error) {
@@ -952,8 +1012,7 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 	if !config.ValidRepositoryName(record.Repository) {
 		return errors.New("publication tuple repository must use owner/repository format")
 	}
-	recordRoot := filepath.Join(filepath.Dir(metadata.Identity.WorktreePath), ".runner-state", "publications")
-	persisted, err := readPublicationRecord(filepath.Join(recordRoot, record.CommitOID+".json"))
+	persisted, err := readPublicationRecord(publicationRecordPath(filepath.Dir(metadata.Identity.WorktreePath), record.CommitOID))
 	if err != nil {
 		return fmt.Errorf("read immutable publication tuple: %w", err)
 	}

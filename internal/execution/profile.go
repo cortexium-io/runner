@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/sandboxpath"
 	"github.com/cortexium-io/runner/internal/securefs"
 	"github.com/cortexium-io/runner/internal/subprocess"
 	workspacepkg "github.com/cortexium-io/runner/internal/workspace"
@@ -362,23 +363,6 @@ func newProfileTempDir() (string, error) {
 	return directory, nil
 }
 
-const sandboxNPMCacheDirectory = ".npm"
-
-func sandboxNPMCachePolicyPath() string {
-	return "~/" + sandboxNPMCacheDirectory
-}
-
-func sandboxNPMCacheRoot() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve npm sandbox write root: %w", err)
-	}
-	if !filepath.IsAbs(home) {
-		return "", fmt.Errorf("npm sandbox write root requires an absolute user home: %s", home)
-	}
-	return securefs.AbsolutePath(filepath.Join(home, sandboxNPMCacheDirectory))
-}
-
 func trustedToolRoot() (string, error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
@@ -394,7 +378,7 @@ func trustedToolRoot() (string, error) {
 // granted to the harness sandbox. Runner-managed MCP launchers use it for
 // cwd-sensitive package resolution and caches.
 func newTrustedToolDir(protectedRoots ...string) (string, error) {
-	npmRoot, err := sandboxNPMCacheRoot()
+	npmRoot, err := sandboxpath.NPMCacheRoot()
 	if err != nil {
 		return "", err
 	}

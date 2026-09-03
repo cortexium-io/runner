@@ -245,7 +245,7 @@ func TestWorktreeProfileUsesPrivateRuntimeOutsideTheCheckout(t *testing.T) {
 func TestWorktreeProfileKeepsTrustedToolDirOutsideNPMWriteGrant(t *testing.T) {
 	repository := initGitRepo(t)
 	home := t.TempDir()
-	npmRoot := filepath.Join(home, sandboxNPMCacheDirectory)
+	npmRoot := filepath.Join(home, ".npm")
 	if err := os.Mkdir(npmRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestWorktreeProfileKeepsTrustedToolDirOutsideNPMWriteGrant(t *testing.T) {
 
 func TestTrustedToolDirIgnoresSymlinkedTempRootInsideNPMWriteGrant(t *testing.T) {
 	home := t.TempDir()
-	npmRoot := filepath.Join(home, sandboxNPMCacheDirectory)
+	npmRoot := filepath.Join(home, ".npm")
 	if err := os.Mkdir(npmRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
