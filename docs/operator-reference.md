@@ -1643,12 +1643,15 @@ a command, test framework, file, or implementation technique. The implementer
 inspects the repository and selects the smallest reliable proof method, adding
 or updating durable focused tests when that is the clearest protection for
 changed behavior or an important invariant. The reviewer first completes one
-source-and-evidence audit without running dynamic checks. If any concrete proof
-questions remain, Runner starts a fresh focused-verification call containing
-only unresolved proof keys, even when another key already failed; that call
-reuses the smallest relevant existing checks. It does not create tests,
-benchmarks, a custom harness, or broad diagnostics unrelated to a concrete diff
-concern. Roles do not assume a browser
+source-and-evidence audit without running dynamic checks. Finding one defect
+establishes failure for that exact behavior but does not end the bounded audit
+of the proof obligation. The reviewer continues through its remaining
+card-owned behavior and groups concrete variants of directly exposed invariants
+in the same result. If any concrete proof questions remain, Runner starts a
+fresh focused-verification call containing only unresolved proof keys, even
+when another key already failed; that call reuses the smallest relevant existing
+checks. It does not create tests, benchmarks, a custom harness, or broad
+diagnostics unrelated to a concrete diff concern. Roles do not assume a browser
 or any other interface. Broad or long-running checks belong only at the narrowest
 integration boundary that needs them. Time-based behavior uses controlled clocks
 or ordinary fixed-size simulation steps executed without wall-clock pacing;

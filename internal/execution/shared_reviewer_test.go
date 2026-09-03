@@ -67,15 +67,20 @@ func TestReviewerAuditPromptBindsProofsAndDefersDynamicChecks(t *testing.T) {
 	for _, required := range []string{
 		`"key":"P1"`, `"key":"P2"`, assignment.Spec.RequiredVerification[0], assignment.Spec.RequiredVerification[1],
 		"focused check passed at the candidate commit", "The implementer owns how proof is produced",
-		"source and evidence triage, not test execution", "Do not run tests", "A concrete source defect is complete failure evidence",
-		"A failed key does not end the pass", "one or more blocking violations",
+		"source and evidence triage, not test execution", "Do not run tests", "establishes failure for that exact behavior",
+		"It does not complete the audit of the whole proof key or path", "A failed key records status; it is not a stop signal",
+		"inspect directly adjacent card-owned paths, operations, and state transitions", "Group all independent blockers",
+		"one or more blocking violations",
 		"fresh focused-verification stage containing only the unresolved checks",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("reviewer prompt omitted %q:\n%s", required, prompt)
 		}
 	}
-	for _, forbidden := range []string{"At most one", "criterion stage", "static stage", "Runner may invoke"} {
+	for _, forbidden := range []string{
+		"At most one", "criterion stage", "static stage", "Runner may invoke",
+		"Record it without further diagnostics on that path", "stop investigating that path",
+	} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("reviewer prompt retained staged or numeric orchestration %q:\n%s", forbidden, prompt)
 		}
@@ -427,7 +432,10 @@ func TestReviewerContinuesIndependentFocusedVerificationAfterAuditFailure(t *tes
 	if len(run.inputs) != 2 || output.ReviewAssessment.Criteria[0].Status != "failed" || output.ReviewAssessment.Criteria[1].Status != "passed" {
 		t.Fatalf("reviewer did not complete the independent check: calls=%d assessment=%#v", len(run.inputs), output.ReviewAssessment)
 	}
-	if !strings.Contains(run.inputs[1], `"key":"P2"`) || strings.Contains(run.inputs[1], `"key":"P1"`) || !strings.Contains(run.inputs[1], "complete every other supplied check independently") {
+	if !strings.Contains(run.inputs[1], `"key":"P2"`) || strings.Contains(run.inputs[1], `"key":"P1"`) ||
+		!strings.Contains(run.inputs[1], "Complete the rest of that bounded check and every other supplied check independently") ||
+		!strings.Contains(run.inputs[1], "report every concrete failing case encountered") ||
+		strings.Contains(run.inputs[1], "stop investigating that path") {
 		t.Fatalf("focused verification did not isolate the unresolved check:\n%s", run.inputs[1])
 	}
 }

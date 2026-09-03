@@ -538,6 +538,10 @@ actionable detail privately beside its state and supplies it to the next
 implementation, while the GitHub Project receives only a bounded summary.
 Runner also supplies that retained feedback to the subsequent reviewer so it
 can verify the correction before independently reviewing the cumulative diff.
+A failed proof obligation records the review result but does not stop that
+bounded audit: the reviewer continues through its remaining card-owned behavior
+and groups directly adjacent variants of an exposed invariant so one QA attempt
+returns all reasonably visible blockers together.
 
 ## Useful commands
 

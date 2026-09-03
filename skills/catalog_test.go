@@ -49,12 +49,16 @@ func TestBundledSkillsOwnReusableRoleWorkflow(t *testing.T) {
 			"Add or update durable test code when it is the simplest reliable protection",
 			"Run a broad or complete suite only",
 			"regressions introduced by the correction",
+			"translate each finding into the violated invariant",
+			"Do not patch only the reported example",
 			"Do not assume a browser",
 			"Never run `git add`, `git rm`, `git update-index`, or `git commit`",
 		},
 		"runner-reviewer": {
 			"Complete one focused static pass",
 			"A failure in one review area does not end the pass",
+			"A failed proof key records status; it is not a stop signal",
+			"directly adjacent card-owned paths",
 			"Evaluate every Runner-owned proof obligation exactly once",
 			"The implementer owns how proof is produced",
 			"test files, rewrite tests",
@@ -80,7 +84,7 @@ func TestBundledSkillsDoNotRetainObsoleteReviewOrTestChoreography(t *testing.T) 
 	for skillID, forbidden := range map[string][]string{
 		"runner-planner":     {"exact existing command", "half that timeout"},
 		"runner-implementer": {"only when the approved body"},
-		"runner-reviewer":    {"static stage", "criterion stage", "At most one"},
+		"runner-reviewer":    {"static stage", "criterion stage", "At most one", "stop investigating that path"},
 	} {
 		skill, _ := (EmbeddedCatalog{}).Get(skillID)
 		for _, value := range forbidden {
