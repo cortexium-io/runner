@@ -1,5 +1,5 @@
 {
-  "config_version": 3,
+  "config_version": 4,
   "runner_id": "runr_local_replace_me",
   "project_dir": "/absolute/path/to/repository",
   "repository_references": [
@@ -142,6 +142,10 @@
       {
         "on": "pull_request.closed",
         "to": "blocked"
+      },
+      {
+        "on": "pull_request.checks_failed",
+        "to": "ready"
       },
       {
         "on": "pull_request.out_of_date",

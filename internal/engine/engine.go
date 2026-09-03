@@ -220,6 +220,19 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 		prepared.items = items
 		prepared.pendingObservation = s.hasPendingObservation(items)
 	}
+	dependencyActivities, err := s.source.ReconcileDependencyActivities(ctx, items)
+	if err != nil {
+		return pollPreparation{}, fmt.Errorf("reconcile dependency activities: %w", err)
+	}
+	if dependencyActivities > 0 {
+		prepared.madeProgress = true
+		items, err = s.source.LifecycleItems(ctx)
+		if err != nil {
+			return pollPreparation{}, fmt.Errorf("reload GitHub Project items after dependency activity reconciliation: %w", err)
+		}
+		prepared.items = items
+		prepared.pendingObservation = s.hasPendingObservation(items)
+	}
 	closedIssues, issueCompletionFailures := s.source.ReconcileCompletedIssues(ctx, items)
 	if closedIssues > 0 {
 		prepared.madeProgress = true
@@ -1048,7 +1061,8 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		}
 		return result
 	}
-	candidate, err := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).ConstructCandidateForMergeMethod(ctx, preparedWorkspace, item.Title, s.cfg.GitHubProject.MergeMethod)
+	gitProvider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
+	candidate, err := gitProvider.ConstructCandidateForMergeMethod(ctx, preparedWorkspace, item.Title, s.cfg.GitHubProject.MergeMethod)
 	if err != nil {
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation candidate could not be committed for QA", err,
 			integrityViolationOutput("Implementation candidate could not be committed for QA", err), lane.Transitions[config.WorkflowOutcomeRejected])
@@ -1069,6 +1083,15 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	if sourceSnapshot.Fingerprint != preparedWorkspace.SourceSnapshot {
 		err = errors.New("active project checkout changed before agent QA started; Runner will not attribute pre-existing changes to the reviewer")
 		return s.failExecution(ctx, action, lane, result, "Active project checkout changed before Agent QA", err, integrityViolationOutput("Active project checkout changed before Agent QA", err))
+	}
+	publicationRecord, resumedAcceptance, err := gitProvider.LoadPublicationAcceptance(ctx, preparedWorkspace, qaSnapshot)
+	if err != nil {
+		return s.failExecution(ctx, action, lane, result, "Retained QA acceptance is not safe to resume", err,
+			integrityViolationOutput("Retained QA acceptance is not safe to resume", err))
+	}
+	if resumedAcceptance {
+		result.ResumedCheckpoint = true
+		return s.publishAcceptedQA(ctx, action, lane, result, repoRoot, preparedWorkspace, publicationRecord)
 	}
 	qaItem := item
 	comments, err := s.source.ItemComments(ctx, item)
@@ -1194,16 +1217,31 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	action = currentAction
 	item = currentAction.Item
-	publicationRecord, recordErr := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).RecordPublicationAcceptance(ctx, preparedWorkspace, currentSnapshot)
+	qaReport := formatQAReport(*output.ReviewAssessment, output.Verification, output.Usage)
+	qaComment := formatQAComment(*output.ReviewAssessment)
+	publicationRecord, recordErr := gitProvider.RecordPublicationAcceptance(ctx, preparedWorkspace, currentSnapshot, qaReport, qaComment)
 	if recordErr != nil {
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "QA acceptance could not be bound to the committed candidate", recordErr,
 			integrityViolationOutput("QA acceptance could not be bound to the committed candidate", recordErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
+	return s.publishAcceptedQA(ctx, action, lane, result, repoRoot, preparedWorkspace, publicationRecord)
+}
+
+func (s *Engine) publishAcceptedQA(
+	ctx context.Context,
+	action github.AuthorizedAction,
+	lane config.WorkflowLane,
+	result RunResult,
+	repoRoot string,
+	preparedWorkspace workspace.Metadata,
+	publicationRecord workspace.PublicationRecord,
+) RunResult {
+	item := action.Item
+	qaReport := publicationRecord.AcceptanceReport
+	qaComment := publicationRecord.AcceptanceComment
 	target := lane.Transitions[config.WorkflowOutcomeSuccess]
 	targetLane, _ := s.cfg.Lane(target)
-	qaReport := formatQAReport(*output.ReviewAssessment, output.Verification, output.Usage)
-	qaComment := formatQAComment(*output.ReviewAssessment)
-	if _, commentErr := s.source.PostIssueComment(ctx, action, qaCommentMarker(item.ID, candidate.CommitOID, qaComment), qaComment); commentErr != nil {
+	if _, commentErr := s.source.PostIssueComment(ctx, action, qaCommentMarker(item.ID, publicationRecord.CommitOID, qaComment), qaComment); commentErr != nil {
 		result.Error = appendError(result.Error, commentErr)
 	}
 	if targetLane.OnEnter != config.WorkflowActionPublishPR {
@@ -1212,6 +1250,9 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		}
 		result.Outcome = execution.OutcomeSucceeded
 		result.Summary = "Agent QA passed and moved the item to " + targetLane.Name + "."
+		if result.ResumedCheckpoint {
+			result.Summary = "Resumed the unchanged Agent QA acceptance and moved the item to " + targetLane.Name + "."
+		}
 		return result
 	}
 	pullRequests := github.NewPullRequestManager(s.run, s.source)
@@ -1245,15 +1286,15 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		result.RetryDisposition = ""
 		return result, true
 	}
-	currentAction, authorizeErr = s.source.Authorize(ctx, github.WorkItem{ID: item.ID})
+	currentAction, authorizeErr := s.source.Authorize(ctx, github.WorkItem{ID: item.ID})
 	if authorizeErr != nil {
-		return s.failExecution(ctx, action, lane, result, "Project action changed before pull request publication", authorizeErr, integrityViolationOutput("Project action changed before pull request publication", authorizeErr, output))
+		return s.failExecution(ctx, action, lane, result, "Project action changed before pull request publication", authorizeErr, integrityViolationOutput("Project action changed before pull request publication", authorizeErr))
 	}
 	action = currentAction
 	item = currentAction.Item
-	currentContent, contentErr = action.DelegatedContent()
+	currentContent, contentErr := action.DelegatedContent()
 	if contentErr != nil {
-		return s.failExecution(ctx, action, lane, result, "Project action changed before pull request publication", contentErr, integrityViolationOutput("Project action changed before pull request publication", contentErr, output))
+		return s.failExecution(ctx, action, lane, result, "Project action changed before pull request publication", contentErr, integrityViolationOutput("Project action changed before pull request publication", contentErr))
 	}
 	validatedWorkspace, err := s.validateWorkspaceForItem(ctx, item, currentContent.Digest, repoRoot)
 	if err != nil {
@@ -1261,7 +1302,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 			return refreshed
 		}
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Workspace identity changed before pull request publication", err,
-			integrityViolationOutput("Workspace identity changed before pull request publication", err, output), lane.Transitions[config.WorkflowOutcomeRejected])
+			integrityViolationOutput("Workspace identity changed before pull request publication", err), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
 	validatedBase, baseErr := s.git(ctx, []string{"rev-parse", "--verify", validatedWorkspace.BaseRef}, repoRoot, 30*time.Second)
 	if baseErr != nil {
@@ -1273,11 +1314,11 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 			return refreshed
 		}
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Base revision changed before pull request publication", github.ErrPublicationBaseChanged,
-			integrityViolationOutput("Base revision changed before pull request publication", github.ErrPublicationBaseChanged, output), lane.Transitions[config.WorkflowOutcomeRejected])
+			integrityViolationOutput("Base revision changed before pull request publication", github.ErrPublicationBaseChanged), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
 	preparedWorkspace = validatedWorkspace
 	finishPublish := metrics.StartStage(ctx, metrics.StagePublishPullRequest)
-	published, err := pullRequests.PublishAuthorized(ctx, action, preparedWorkspace, publicationRecord, s.baseBranch(), s.remoteName(), s.cfg.GitHubProject.MergeMethod, qaReport)
+	published, err := pullRequests.PublishAuthorized(ctx, action, preparedWorkspace, publicationRecord, s.baseBranch(), s.remoteName(), s.cfg.GitHubProject.MergeMethod)
 	if err != nil {
 		finishPublish(metrics.StageOutcomeFailed, string(execution.FailureTransientExternal), string(execution.RetryManual), metrics.Usage{})
 		if errors.Is(err, github.ErrPublicationBaseChanged) {
@@ -1285,7 +1326,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 				return refreshed
 			}
 			return s.failExecutionToRetryLane(ctx, action, lane, result, "Base revision changed during pull request publication", err,
-				integrityViolationOutput("Base revision changed during pull request publication", err, output), lane.Transitions[config.WorkflowOutcomeRejected])
+				integrityViolationOutput("Base revision changed during pull request publication", err), lane.Transitions[config.WorkflowOutcomeRejected])
 		}
 		return s.failExecution(ctx, action, lane, result, "PR publication failed", err, transientExecutorOutput("Pull request publication failed"))
 	}
@@ -1312,6 +1353,9 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		result.Summary = "Agent QA passed; pull request is queued for automatic integration: " + published.URL
 	} else {
 		result.Summary = "Agent QA passed; pull request is ready for human review: " + published.URL
+	}
+	if result.ResumedCheckpoint {
+		result.Summary = "Resumed the unchanged Agent QA acceptance; " + strings.TrimPrefix(result.Summary, "Agent QA passed; ")
 	}
 	cleaned, cleanupErr := s.cleanupAuthorizedItemWorkspace(ctx, action)
 	if cleanupErr != nil {

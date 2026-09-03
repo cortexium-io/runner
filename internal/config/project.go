@@ -8,7 +8,7 @@ import (
 	bundledskills "github.com/cortexium-io/runner/skills"
 )
 
-const ConfigVersion = 3
+const ConfigVersion = 4
 
 const MaxSupportedParallelism = 16
 
@@ -19,8 +19,12 @@ const RunnerActivityFieldName = "Runner Activity"
 const RunnerTransitionFieldName = "Runner Transition"
 
 const (
-	RunnerActivityAwaitingHumanReview = "Awaiting human review"
-	RunnerActivityWaitingForCIOrMerge = "Waiting for CI / merge"
+	RunnerActivityAwaitingHumanReview    = "Awaiting human review"
+	RunnerActivityWaitingForCI           = "Waiting for CI"
+	RunnerActivityWaitingForIntegration  = "Waiting for integration slot"
+	RunnerActivityWaitingForMerge        = "Waiting for merge"
+	RunnerActivityCIFailed               = "CI failed — rework queued"
+	RunnerActivityWaitingForDependencies = "Waiting for dependencies"
 )
 
 const (

@@ -7,8 +7,8 @@ import (
 )
 
 func TestWorkflowTemplateIsCompleteAndJuniorReadable(t *testing.T) {
-	if ConfigVersion != 3 {
-		t.Fatalf("config version = %d, want 3", ConfigVersion)
+	if ConfigVersion != 4 {
+		t.Fatalf("config version = %d, want 4", ConfigVersion)
 	}
 	cfg := explicitTestConfig()
 	workflow := *cfg.Workflow
@@ -215,6 +215,33 @@ func TestPublicationWorkflowRequiresTerminalAndOutOfDateEvents(t *testing.T) {
 	err := cfg.Validate()
 	if err == nil || !strings.Contains(err.Error(), WorkflowEventPROutOfDate) {
 		t.Fatalf("publication workflow accepted a missing out-of-date event: %v", err)
+	}
+}
+
+func TestPublicationWorkflowRequiresChecksFailedEventToReturnToImplementation(t *testing.T) {
+	workflow := WorkflowTemplate(true)
+	filtered := workflow.Events[:0]
+	for _, event := range workflow.Events {
+		if event.On != WorkflowEventPRChecksFailed {
+			filtered = append(filtered, event)
+		}
+	}
+	workflow.Events = filtered
+	cfg := explicitTestConfig()
+	cfg.Workflow = &workflow
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), WorkflowEventPRChecksFailed) {
+		t.Fatalf("publication workflow accepted a missing checks-failed event: %v", err)
+	}
+
+	workflow = WorkflowTemplate(true)
+	for index := range workflow.Events {
+		if workflow.Events[index].On == WorkflowEventPRChecksFailed {
+			workflow.Events[index].To = "blocked"
+		}
+	}
+	cfg.Workflow = &workflow
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "must target an implementer lane") {
+		t.Fatalf("checks-failed event accepted a non-implementer target: %v", err)
 	}
 }
 

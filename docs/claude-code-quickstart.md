@@ -117,7 +117,7 @@ base branch when the remote already has other history. For a project-local
 config, `init` modifies `.gitignore` but leaves that change for the user to
 review and commit if desired.
 
-The command creates or synchronizes the Project, writes the complete v3 config,
+The command creates or synchronizes the Project, writes the complete v4 config,
 and installs readiness copies of the three bundled Runner skills. Privileged
 launches disable native skill discovery and inject Runner's pinned embedded
 copy. Init does not install or authenticate Claude Code.

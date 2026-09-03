@@ -1587,7 +1587,7 @@ func TestDoctorOfflineUsesOnlyLocalConfigAndEmbeddedSkills(t *testing.T) {
 	if err := run(t.Context(), []string{"doctor", "--offline", "--config", configPath}, strings.NewReader(""), &output); err != nil {
 		t.Fatalf("offline doctor: %v\n%s", err, output.String())
 	}
-	for _, expected := range []string{"config.v3", "skills.embedded", "Configuration ready: yes"} {
+	for _, expected := range []string{"config.v4", "skills.embedded", "Configuration ready: yes"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("check output missing %q: %s", expected, output.String())
 		}

@@ -72,6 +72,14 @@ func (s *Engine) transitionAfterBranchUpdate(ctx context.Context, action github.
 	return s.source.TransitionAfterBranchUpdate(ctx, action, targetStatus, targetPhase, detail)
 }
 
+func (s *Engine) transitionChecksFailed(ctx context.Context, action github.AuthorizedAction, targetStatus, targetPhase, detail string) error {
+	return s.source.TransitionChecksFailed(ctx, action, targetStatus, targetPhase, detail)
+}
+
+func (s *Engine) updateActivity(ctx context.Context, action github.AuthorizedAction, activity string) error {
+	return s.source.UpdateActivity(ctx, action, activity)
+}
+
 func (s *Engine) resetRejections(ctx context.Context, action github.AuthorizedAction, feedback, targetPhase string) error {
 	return s.source.ResetRejections(ctx, action, feedback, targetPhase)
 }

@@ -14,9 +14,10 @@ const (
 	WorkflowOutcomeNeedsInput = "needs_input"
 	WorkflowOutcomeError      = "error"
 
-	WorkflowEventPRMerged    = "pull_request.merged"
-	WorkflowEventPRClosed    = "pull_request.closed"
-	WorkflowEventPROutOfDate = "pull_request.out_of_date"
+	WorkflowEventPRMerged       = "pull_request.merged"
+	WorkflowEventPRClosed       = "pull_request.closed"
+	WorkflowEventPRChecksFailed = "pull_request.checks_failed"
+	WorkflowEventPROutOfDate    = "pull_request.out_of_date"
 
 	WorkflowActionPublishPR    = "publish_pull_request"
 	WorkflowActionUpdateBranch = "update_branch"
@@ -79,6 +80,7 @@ func WorkflowTemplate(requireReviewAfterBaseUpdate bool) WorkflowConfig {
 		Events: []WorkflowEvent{
 			{On: WorkflowEventPRMerged, To: "done"},
 			{On: WorkflowEventPRClosed, To: "blocked"},
+			{On: WorkflowEventPRChecksFailed, To: "ready"},
 			{On: WorkflowEventPROutOfDate, Action: WorkflowActionUpdateBranch, RequireReview: &requireReview, Transitions: map[string]string{"updated": "ready", "conflict": "ready", WorkflowOutcomeError: "blocked"}},
 		},
 	}
@@ -345,7 +347,7 @@ func validateWorkflowConfig(c Config) error {
 	if err := validateRoleConfigs(c, roles); err != nil {
 		return err
 	}
-	if err := validateWorkflowEvents(workflow); err != nil {
+	if err := validateWorkflowEvents(c, workflow); err != nil {
 		return err
 	}
 	return validatePublicationWorkflow(workflow, publicationLane)
@@ -405,7 +407,7 @@ func validateImplementerLadder(c Config) error {
 	return nil
 }
 
-func validateWorkflowEvents(workflow WorkflowConfig) error {
+func validateWorkflowEvents(c Config, workflow WorkflowConfig) error {
 	seen := map[string]struct{}{}
 	for index, event := range workflow.Events {
 		if _, exists := seen[event.On]; exists {
@@ -419,6 +421,14 @@ func validateWorkflowEvents(workflow WorkflowConfig) error {
 			}
 			if event.To == workflow.ActiveLane {
 				return fmt.Errorf("workflow.events[%d].to cannot target active_lane", index)
+			}
+		case WorkflowEventPRChecksFailed:
+			lane, exists := workflow.Lanes[event.To]
+			if !exists {
+				return fmt.Errorf("workflow.events[%d].to references undefined lane %q", index, event.To)
+			}
+			if event.To == workflow.ActiveLane || c.RoleContract(lane.Role) != WorkRoleImplementer {
+				return fmt.Errorf("workflow.events[%d].to must target an implementer lane", index)
 			}
 		case WorkflowEventPROutOfDate:
 			if event.Action != WorkflowActionUpdateBranch {
@@ -450,7 +460,7 @@ func validatePublicationWorkflow(workflow WorkflowConfig, publicationLane string
 	if publicationLane == "" {
 		return nil
 	}
-	required := []string{WorkflowEventPRMerged, WorkflowEventPRClosed, WorkflowEventPROutOfDate}
+	required := []string{WorkflowEventPRMerged, WorkflowEventPRClosed, WorkflowEventPRChecksFailed, WorkflowEventPROutOfDate}
 	events := make(map[string]WorkflowEvent, len(workflow.Events))
 	for _, event := range workflow.Events {
 		events[event.On] = event

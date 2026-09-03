@@ -20,7 +20,7 @@ import (
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
-const publicationRecordVersion = 1
+const publicationRecordVersion = 2
 
 var privilegedGitMu sync.Mutex
 
@@ -88,6 +88,8 @@ type PublicationRecord struct {
 	Repository             string `json:"repository"`
 	DestinationRef         string `json:"destination_ref"`
 	AcceptanceSnapshot     string `json:"acceptance_snapshot"`
+	AcceptanceReport       string `json:"acceptance_report"`
+	AcceptanceComment      string `json:"acceptance_comment"`
 }
 
 // ConstructCandidate stages worktree bytes without Git clean filters, writes a
@@ -602,83 +604,16 @@ func validObjectID(value string) bool {
 // RecordPublicationAcceptance creates or reuses only the exact immutable tuple
 // for the unchanged QA snapshot. A commit-key collision with any different
 // identity is rejected.
-func (p GitProvider) RecordPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot) (PublicationRecord, error) {
+func (p GitProvider) RecordPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot, report, comment string) (PublicationRecord, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
-	if err := validateCandidateMetadata(metadata); err != nil {
-		return PublicationRecord{}, err
+	if strings.TrimSpace(report) == "" || strings.TrimSpace(comment) == "" {
+		return PublicationRecord{}, errors.New("publication acceptance requires the reviewer report and durable comment")
 	}
-	if err := validateRecordedIdentity(metadata); err != nil {
-		return PublicationRecord{}, err
-	}
-	if accepted.Fingerprint == "" || !accepted.Clean || !validObjectID(accepted.Head) || !validObjectID(accepted.Tree) || accepted.Branch != metadata.BranchName {
-		return PublicationRecord{}, errors.New("accepted QA snapshot is not a clean candidate with valid matching HEAD, tree, and branch")
-	}
-	profile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
+	record, path, err := p.validatedPublicationAcceptance(ctx, metadata, accepted, report, comment, true)
 	if err != nil {
 		return PublicationRecord{}, err
 	}
-	if err := rejectObjectRedirection(profile); err != nil {
-		return PublicationRecord{}, err
-	}
-	if err := p.rejectReplacementObjects(ctx, profile); err != nil {
-		return PublicationRecord{}, err
-	}
-	current, err := CaptureSnapshotStateWithLimits(ctx, p.run, metadata.WorktreePath, 30*time.Second, p.limits)
-	if err != nil {
-		return PublicationRecord{}, fmt.Errorf("recapture accepted candidate: %w", err)
-	}
-	if !current.Clean || current.Fingerprint != accepted.Fingerprint || current.Head != accepted.Head || current.Tree != accepted.Tree || current.Branch != accepted.Branch {
-		return PublicationRecord{}, errors.New("accepted candidate snapshot, HEAD, tree, or branch changed before publication authorization")
-	}
-	verifiedProfile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
-	if err != nil {
-		return PublicationRecord{}, fmt.Errorf("rederive accepted candidate administration: %w", err)
-	}
-	if verifiedProfile != profile {
-		return PublicationRecord{}, errors.New("accepted candidate Git administration changed before publication authorization")
-	}
-	if err := rejectObjectRedirection(verifiedProfile); err != nil {
-		return PublicationRecord{}, err
-	}
-	if err := p.rejectReplacementObjects(ctx, verifiedProfile); err != nil {
-		return PublicationRecord{}, err
-	}
-	actualHead, err := p.privilegedScalar(ctx, verifiedProfile, "rev-parse", "--verify", "HEAD")
-	if err != nil {
-		return PublicationRecord{}, fmt.Errorf("verify accepted candidate HEAD: %w", err)
-	}
-	actualTree, err := p.privilegedScalar(ctx, verifiedProfile, "rev-parse", "--verify", "HEAD^{tree}")
-	if err != nil {
-		return PublicationRecord{}, fmt.Errorf("verify accepted candidate tree: %w", err)
-	}
-	actualBranch, err := p.privilegedScalar(ctx, verifiedProfile, "symbolic-ref", "--quiet", "HEAD")
-	if err != nil {
-		return PublicationRecord{}, fmt.Errorf("verify accepted candidate branch: %w", err)
-	}
-	if actualHead != accepted.Head || actualTree != accepted.Tree || actualBranch != "refs/heads/"+accepted.Branch {
-		return PublicationRecord{}, errors.New("accepted snapshot does not identify the literal candidate commit, tree, and branch")
-	}
-	if result, ancestorErr := p.privilegedGit(ctx, verifiedProfile, "merge-base", "--is-ancestor", metadata.BaseRevision, accepted.Head); ancestorErr != nil || result.ExitCode != 0 {
-		return PublicationRecord{}, errors.New("accepted candidate is not descended from the approved base")
-	}
-	record := PublicationRecord{
-		Version: publicationRecordVersion, ItemID: metadata.Identity.ItemID,
-		DelegatedContentDigest: metadata.Identity.DelegatedContentDigest,
-		CommitOID:              accepted.Head, TreeOID: accepted.Tree,
-		ApprovedBaseRef: metadata.BaseRef, ApprovedBaseOID: metadata.BaseRevision,
-		Repository: metadata.Identity.Repository, DestinationRef: "refs/heads/" + metadata.BranchName,
-		AcceptanceSnapshot: accepted.Fingerprint,
-	}
-	worktreeRoot := filepath.Dir(metadata.Identity.WorktreePath)
-	if err := securefs.ValidatePrivateDir(worktreeRoot); err != nil {
-		return PublicationRecord{}, fmt.Errorf("validate private publication state root: %w", err)
-	}
-	recordRoot := filepath.Join(worktreeRoot, ".runner-state", "publications")
-	if err := securefs.EnsurePrivateDir(recordRoot); err != nil {
-		return PublicationRecord{}, fmt.Errorf("create private publication record directory: %w", err)
-	}
-	path := filepath.Join(recordRoot, record.CommitOID+".json")
 	var content bytes.Buffer
 	encoder := json.NewEncoder(&content)
 	encoder.SetEscapeHTML(false)
@@ -700,6 +635,115 @@ func (p GitProvider) RecordPublicationAcceptance(ctx context.Context, metadata M
 	return existing, nil
 }
 
+// LoadPublicationAcceptance returns an existing exact acceptance without
+// creating one. It revalidates the live candidate before allowing Runner to
+// skip another reviewer invocation after an interrupted publication.
+func (p GitProvider) LoadPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot) (PublicationRecord, bool, error) {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	record, path, err := p.validatedPublicationAcceptance(ctx, metadata, accepted, "", "", false)
+	if err != nil {
+		return PublicationRecord{}, false, err
+	}
+	existing, err := readPublicationRecord(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return PublicationRecord{}, false, nil
+	}
+	if err != nil {
+		return PublicationRecord{}, false, fmt.Errorf("read existing publication record: %w", err)
+	}
+	record.AcceptanceReport = existing.AcceptanceReport
+	record.AcceptanceComment = existing.AcceptanceComment
+	if existing != record {
+		return PublicationRecord{}, false, errors.New("existing publication acceptance does not match the current approved candidate")
+	}
+	return existing, true, nil
+}
+
+func (p GitProvider) validatedPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot, report, comment string, createRecordRoot bool) (PublicationRecord, string, error) {
+	if err := validateCandidateMetadata(metadata); err != nil {
+		return PublicationRecord{}, "", err
+	}
+	if err := validateRecordedIdentity(metadata); err != nil {
+		return PublicationRecord{}, "", err
+	}
+	if accepted.Fingerprint == "" || !accepted.Clean || !validObjectID(accepted.Head) || !validObjectID(accepted.Tree) || accepted.Branch != metadata.BranchName {
+		return PublicationRecord{}, "", errors.New("accepted QA snapshot is not a clean candidate with valid matching HEAD, tree, and branch")
+	}
+	profile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
+	if err != nil {
+		return PublicationRecord{}, "", err
+	}
+	if err := rejectObjectRedirection(profile); err != nil {
+		return PublicationRecord{}, "", err
+	}
+	if err := p.rejectReplacementObjects(ctx, profile); err != nil {
+		return PublicationRecord{}, "", err
+	}
+	current, err := CaptureSnapshotStateWithLimits(ctx, p.run, metadata.WorktreePath, 30*time.Second, p.limits)
+	if err != nil {
+		return PublicationRecord{}, "", fmt.Errorf("recapture accepted candidate: %w", err)
+	}
+	if !current.Clean || current.Fingerprint != accepted.Fingerprint || current.Head != accepted.Head || current.Tree != accepted.Tree || current.Branch != accepted.Branch {
+		return PublicationRecord{}, "", errors.New("accepted candidate snapshot, HEAD, tree, or branch changed before publication authorization")
+	}
+	verifiedProfile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
+	if err != nil {
+		return PublicationRecord{}, "", fmt.Errorf("rederive accepted candidate administration: %w", err)
+	}
+	if verifiedProfile != profile {
+		return PublicationRecord{}, "", errors.New("accepted candidate Git administration changed before publication authorization")
+	}
+	if err := rejectObjectRedirection(verifiedProfile); err != nil {
+		return PublicationRecord{}, "", err
+	}
+	if err := p.rejectReplacementObjects(ctx, verifiedProfile); err != nil {
+		return PublicationRecord{}, "", err
+	}
+	actualHead, err := p.privilegedScalar(ctx, verifiedProfile, "rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return PublicationRecord{}, "", fmt.Errorf("verify accepted candidate HEAD: %w", err)
+	}
+	actualTree, err := p.privilegedScalar(ctx, verifiedProfile, "rev-parse", "--verify", "HEAD^{tree}")
+	if err != nil {
+		return PublicationRecord{}, "", fmt.Errorf("verify accepted candidate tree: %w", err)
+	}
+	actualBranch, err := p.privilegedScalar(ctx, verifiedProfile, "symbolic-ref", "--quiet", "HEAD")
+	if err != nil {
+		return PublicationRecord{}, "", fmt.Errorf("verify accepted candidate branch: %w", err)
+	}
+	if actualHead != accepted.Head || actualTree != accepted.Tree || actualBranch != "refs/heads/"+accepted.Branch {
+		return PublicationRecord{}, "", errors.New("accepted snapshot does not identify the literal candidate commit, tree, and branch")
+	}
+	if result, ancestorErr := p.privilegedGit(ctx, verifiedProfile, "merge-base", "--is-ancestor", metadata.BaseRevision, accepted.Head); ancestorErr != nil || result.ExitCode != 0 {
+		return PublicationRecord{}, "", errors.New("accepted candidate is not descended from the approved base")
+	}
+	report = strings.TrimSpace(report)
+	comment = strings.TrimSpace(comment)
+	if (report == "") != (comment == "") || strings.ContainsAny(report+comment, "\x00") {
+		return PublicationRecord{}, "", errors.New("publication acceptance report and comment must both be present or both be omitted and cannot contain NUL")
+	}
+	record := PublicationRecord{
+		Version: publicationRecordVersion, ItemID: metadata.Identity.ItemID,
+		DelegatedContentDigest: metadata.Identity.DelegatedContentDigest,
+		CommitOID:              accepted.Head, TreeOID: accepted.Tree,
+		ApprovedBaseRef: metadata.BaseRef, ApprovedBaseOID: metadata.BaseRevision,
+		Repository: metadata.Identity.Repository, DestinationRef: "refs/heads/" + metadata.BranchName,
+		AcceptanceSnapshot: accepted.Fingerprint, AcceptanceReport: report, AcceptanceComment: comment,
+	}
+	worktreeRoot := filepath.Dir(metadata.Identity.WorktreePath)
+	if err := securefs.ValidatePrivateDir(worktreeRoot); err != nil {
+		return PublicationRecord{}, "", fmt.Errorf("validate private publication state root: %w", err)
+	}
+	recordRoot := filepath.Join(worktreeRoot, ".runner-state", "publications")
+	if createRecordRoot {
+		if err := securefs.EnsurePrivateDir(recordRoot); err != nil {
+			return PublicationRecord{}, "", fmt.Errorf("create private publication record directory: %w", err)
+		}
+	}
+	return record, filepath.Join(recordRoot, record.CommitOID+".json"), nil
+}
+
 func readPublicationRecord(path string) (PublicationRecord, error) {
 	content, _, state, err := securefs.ReadFile(path, 64*1024)
 	if err != nil {
@@ -718,7 +762,8 @@ func readPublicationRecord(path string) (PublicationRecord, error) {
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return PublicationRecord{}, errors.New("publication record contains trailing data")
 	}
-	if record.Version != publicationRecordVersion || !validObjectID(record.CommitOID) || !validObjectID(record.TreeOID) {
+	if record.Version != publicationRecordVersion || !validObjectID(record.CommitOID) || !validObjectID(record.TreeOID) ||
+		strings.TrimSpace(record.AcceptanceReport) == "" || strings.TrimSpace(record.AcceptanceComment) == "" || strings.ContainsAny(record.AcceptanceReport+record.AcceptanceComment, "\x00") {
 		return PublicationRecord{}, fmt.Errorf("invalid publication record version or object identity %s", strconv.Quote(record.CommitOID))
 	}
 	return record, nil
@@ -755,7 +800,8 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 		record.DelegatedContentDigest != metadata.Identity.DelegatedContentDigest || record.ApprovedBaseRef != metadata.BaseRef ||
 		record.ApprovedBaseOID != metadata.BaseRevision || record.Repository != metadata.Identity.Repository ||
 		record.DestinationRef != expectedDestination || record.ApprovedBaseRef != expectedBaseRef ||
-		!validObjectID(record.CommitOID) || !validObjectID(record.TreeOID) || record.AcceptanceSnapshot == "" {
+		!validObjectID(record.CommitOID) || !validObjectID(record.TreeOID) || record.AcceptanceSnapshot == "" ||
+		strings.TrimSpace(record.AcceptanceReport) == "" || strings.TrimSpace(record.AcceptanceComment) == "" {
 		return errors.New("publication tuple does not match the approved workspace, base, repository, or destination")
 	}
 	if !config.ValidRepositoryName(record.Repository) {

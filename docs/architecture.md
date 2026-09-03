@@ -52,7 +52,7 @@ derives a narrow `config.ExecutionConfig` for one role and harness invocation.
 This prevents computed state and harness-specific overrides from being hidden
 inside JSON structs.
 
-Configuration v3 has no runtime overlay or fallback profile. Privileged commands
+Configuration v4 has no runtime overlay or fallback profile. Privileged commands
 resolve an explicit path or the project-local default, then provenance-check the
 file before decoding role or harness selections. `init` defaults to an ignored
 project-local config, while deliberately tracked and external configs remain supported. `init`
@@ -242,17 +242,30 @@ Operator-selected `standard` or `high`
 task sizing changes only decomposition and specificity for implementer and
 reviewer roles. Runner never infers capability from model names, and the shared
 plan schema and acceptance rigor remain unchanged. A claim records `Planning`,
-`Implementing`, or `Reviewing` in the visible `Runner Activity` field. Accepted
-QA changes that activity to `Awaiting human review`, or `Waiting for CI / merge`
-when automatic merge is enabled, while the card remains `PR Ready`. Ordinary
-pull-request reconciliation preserves that waiting signal; leaving `PR Ready`
-clears it. A blocked transition records its originating agent lane in the hidden
+`Implementing`, or `Reviewing` in the visible `Runner Activity` field. A card
+whose authenticated dependencies are incomplete records `Waiting for
+dependencies`. Accepted QA changes activity to `Awaiting human review` or
+`Waiting for CI` while the card remains `PR Ready`. Automatic integration then
+distinguishes `Waiting for integration slot`, `Waiting for CI`, and `Waiting for
+merge`. A terminal failed check disarms auto-merge, releases the repository/base
+integration resource, and returns the retained pull request to implementation as
+`CI failed — rework queued` without incrementing the Agent QA rejection count.
+Leaving `PR Ready` for other reasons clears activity. A blocked transition
+records its originating agent lane in the hidden
 `Runner Phase` field; `retry` uses that explicit destination and never guesses
 from a summary string. The separate hidden `Runner Transition` field is a
 fail-closed lock around non-atomic Project updates. Authorization rejects locked
 cards, completed locked state is resumed in place, and partial state is returned
 to assessment. Phase and activity remain bound to authenticated action state;
 the lock is checked independently.
+
+The immutable publication tuple also retains the bounded accepted QA report and
+issue comment. Before starting a reviewer, Runner checks for an existing tuple
+bound to the exact item, delegated content, repository, branch, base revision,
+candidate commit, tree, and clean workspace snapshot. An exact match resumes
+only the idempotent comment, push, pull-request lookup or creation, and Project
+transition. Changed or malformed state fails closed and never inherits the old
+acceptance.
 
 Approval and staged-batch authority carry one canonical delegated-content
 digest over the exact approved body snapshot, repository, immutable dependency

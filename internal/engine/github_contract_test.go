@@ -1908,6 +1908,22 @@ func TestGitHubProjectSourcePollWaitsForDependencies(t *testing.T) {
 	}
 	run := &fakeGitHubProjectRunner{itemsJSON: items("In Progress", "[implementer] Build the slice")}
 	source := newTestGitHubProjectSource(config.GitHubProjectConfig{Owner: "owner", Number: 4}, run)
+	observed, err := source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load dependency activities: %v", err)
+	}
+	if changed, err := source.ReconcileDependencyActivities(t.Context(), observed); err != nil || changed != 1 {
+		t.Fatalf("reconcile dependency activities: changed=%d error=%v", changed, err)
+	}
+	observed, err = source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("reload dependency activities: %v", err)
+	}
+	for _, item := range observed {
+		if item.ID == "PVTI_review" && item.Activity != config.RunnerActivityWaitingForDependencies {
+			t.Fatalf("dependent card activity = %q, want %q", item.Activity, config.RunnerActivityWaitingForDependencies)
+		}
+	}
 	blocked, err := source.Poll(t.Context(), 2)
 	if err != nil || len(blocked) != 0 {
 		t.Fatalf("dependent item should wait: items=%#v error=%v", blocked, err)

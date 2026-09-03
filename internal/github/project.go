@@ -354,6 +354,37 @@ func (s *Project) ReadyItems(ctx context.Context, items []WorkItem, limit int) (
 	return ready, nil
 }
 
+// ReconcileDependencyActivities makes dependency backpressure visible without
+// changing eligibility or adopting unsigned human intake. It writes only when
+// an authenticated card enters or leaves the dependency-wait condition.
+func (s *Project) ReconcileDependencyActivities(ctx context.Context, items []WorkItem) (int, error) {
+	index := newWorkItemIndex(items)
+	changed := 0
+	for _, item := range items {
+		if !s.agentStatus(item.Status) || strings.TrimSpace(item.Transition) != "" || len(item.Dependencies) == 0 {
+			continue
+		}
+		action, err := s.validateAction(item)
+		if err != nil {
+			continue
+		}
+		desired := ""
+		if !s.dependenciesSatisfiedIn(item, index) {
+			desired = config.RunnerActivityWaitingForDependencies
+		} else if strings.TrimSpace(item.Activity) != config.RunnerActivityWaitingForDependencies {
+			continue
+		}
+		if strings.TrimSpace(item.Activity) == desired {
+			continue
+		}
+		if err := s.UpdateActivity(ctx, action, desired); err != nil {
+			return changed, fmt.Errorf("update dependency activity for item %s: %w", item.ID, err)
+		}
+		changed++
+	}
+	return changed, nil
+}
+
 // adoptManualIntakeItem treats a maintainer placing an ordinary card in Plan or
 // the initial Ready lane as the authorization decision. Runner immediately
 // binds that exact snapshot to its local authority; every later operation still
@@ -577,7 +608,7 @@ func (s *Project) TransitionPRReady(ctx context.Context, action AuthorizedAction
 	return s.transition(ctx, action, targetStatus, summary, "", false, func(next *WorkItem) {
 		next.Activity = config.RunnerActivityAwaitingHumanReview
 		if s.cfg.AutoMerge {
-			next.Activity = config.RunnerActivityWaitingForCIOrMerge
+			next.Activity = config.RunnerActivityWaitingForCI
 		}
 		next.Branch = strings.TrimSpace(branch)
 		next.PullRequest = strings.TrimSpace(pullRequest)
@@ -602,6 +633,55 @@ func (s *Project) TransitionAfterBranchUpdate(ctx context.Context, action Author
 	return s.transition(ctx, action, targetStatus, detail, targetPhase, false, func(next *WorkItem) {
 		next.QAFailures = 0
 	}, []projectFieldUpdate{numberProjectField(s.qaFailuresFieldName(), 0)})
+}
+
+// TransitionChecksFailed returns an integration candidate to implementation
+// without treating repository CI as an Agent QA rejection. The existing pull
+// request, branch, reviewed commit, and rejection count remain available to the
+// implementer and the next publication attempt. Runner recreates the
+// deterministic worktree if publication cleanup already removed it.
+func (s *Project) TransitionChecksFailed(ctx context.Context, action AuthorizedAction, targetStatus, targetPhase, detail string) error {
+	return s.transition(ctx, action, targetStatus, detail, targetPhase, false, func(next *WorkItem) {
+		next.Activity = config.RunnerActivityCIFailed
+	}, nil)
+}
+
+func (s *Project) UpdateActivity(ctx context.Context, action AuthorizedAction, activity string) error {
+	activity = strings.TrimSpace(activity)
+	if strings.TrimSpace(action.Item.Activity) == activity {
+		return nil
+	}
+	current, err := s.refreshAuthorizedAction(ctx, action)
+	if err != nil {
+		return err
+	}
+	next := current.Item
+	next.Activity = activity
+	state, err := s.stateForStatus(next.Status)
+	if err != nil {
+		return err
+	}
+	role, err := s.roleForNextState(current, next, state)
+	if err != nil {
+		return err
+	}
+	nextAction, err := s.signAction(next, role, state)
+	if err != nil {
+		return err
+	}
+	if err := s.beginTransition(ctx, current.Item.ID); err != nil {
+		return fmt.Errorf("lock item before activity update; reload it and retry: %w", err)
+	}
+	if err := s.applyFieldUpdates(ctx, current.Item.ID,
+		textProjectField(s.activityFieldName(), activity),
+		textProjectField(s.approvalFieldName(), nextAction.assertion),
+	); err != nil {
+		return fmt.Errorf("update authenticated Project activity; the item remains safely transition-locked: %w", err)
+	}
+	if err := s.finishTransition(ctx, current.Item.ID); err != nil {
+		return fmt.Errorf("Project activity committed but its transition lock could not be cleared; a later poll will recover it: %w", err)
+	}
+	return nil
 }
 
 func (s *Project) transition(ctx context.Context, expected AuthorizedAction, targetStatus, detail, phase string, pullRequestFeedback bool, mutate func(*WorkItem), extraUpdates []projectFieldUpdate) error {

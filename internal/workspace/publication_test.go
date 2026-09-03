@@ -217,19 +217,24 @@ func TestPublicationAcceptanceRecordsExactTupleExclusively(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted)
+	record, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate.")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if record.CommitOID != candidate.CommitOID || record.TreeOID != candidate.TreeOID || record.ItemID != prepared.Identity.ItemID ||
 		record.DelegatedContentDigest != prepared.Identity.DelegatedContentDigest || record.ApprovedBaseRef != prepared.BaseRef ||
 		record.ApprovedBaseOID != prepared.BaseRevision || record.Repository != prepared.Identity.Repository ||
-		record.DestinationRef != "refs/heads/"+prepared.BranchName || record.AcceptanceSnapshot != accepted.Fingerprint {
+		record.DestinationRef != "refs/heads/"+prepared.BranchName || record.AcceptanceSnapshot != accepted.Fingerprint ||
+		record.AcceptanceReport != "QA accepted." || record.AcceptanceComment != "Accepted candidate." {
 		t.Fatalf("publication tuple lost accepted identity: %#v", record)
 	}
-	replayed, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted)
+	replayed, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate.")
 	if err != nil || replayed != record {
 		t.Fatalf("exact publication tuple replay changed the record: record=%#v error=%v", replayed, err)
+	}
+	loaded, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, accepted)
+	if err != nil || !found || loaded != record {
+		t.Fatalf("exact publication tuple could not be resumed: found=%t record=%#v error=%v", found, loaded, err)
 	}
 	path := filepath.Join(root, ".runner-state", "publications", candidate.CommitOID+".json")
 	info, err := os.Stat(path)
@@ -249,8 +254,51 @@ func TestPublicationAcceptanceRecordsExactTupleExclusively(t *testing.T) {
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted); err == nil || !strings.Contains(err.Error(), "different immutable tuple") {
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "Different report.", "Accepted candidate."); err == nil || !strings.Contains(err.Error(), "different immutable tuple") {
 		t.Fatalf("publication record collision was accepted: %v", err)
+	}
+}
+
+func TestPublicationAcceptanceRequiresDurableReviewerOutput(t *testing.T) {
+	repo := initGitRepo(t)
+	provider := NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"), WorkID: "reviewer_output", BranchPrefix: "runner", BaseRef: "HEAD",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "", ""); err == nil || !strings.Contains(err.Error(), "reviewer report") {
+		t.Fatalf("empty reviewer output was accepted: %v", err)
+	}
+}
+
+func TestPublicationAcceptanceLoadDoesNotCreateMissingRecord(t *testing.T) {
+	repo := initGitRepo(t)
+	root := filepath.Join(t.TempDir(), "worktrees")
+	provider := NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
+		WorkingDir: repo, WorktreeRoot: root, WorkID: "missing_acceptance", BranchPrefix: "runner", BaseRef: "HEAD",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.ConstructCandidate(t.Context(), prepared, "Unreviewed candidate"); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, accepted); err != nil || found || record != (PublicationRecord{}) {
+		t.Fatalf("missing acceptance was not inert: found=%t record=%#v error=%v", found, record, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".runner-state", "publications")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("loading a missing acceptance created state: %v", err)
 	}
 }
 
@@ -279,7 +327,7 @@ func TestPublicationAcceptanceRejectsChangedHeadOrTree(t *testing.T) {
 	}
 	runGitTest(t, prepared.WorktreePath, "add", "--all")
 	runGitTest(t, prepared.WorktreePath, "commit", "-m", "unreviewed change")
-	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted); err == nil || !strings.Contains(err.Error(), "snapshot, HEAD, tree, or branch changed") {
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate."); err == nil || !strings.Contains(err.Error(), "snapshot, HEAD, tree, or branch changed") {
 		t.Fatalf("changed acceptance snapshot was recorded: %v", err)
 	}
 }
@@ -320,7 +368,7 @@ func TestPublicationAcceptanceRejectsCandidateUnrelatedToApprovedBase(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted); err == nil || !strings.Contains(err.Error(), "not descended from the approved base") {
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate."); err == nil || !strings.Contains(err.Error(), "not descended from the approved base") {
 		t.Fatalf("candidate unrelated to approved base was accepted: %v", err)
 	}
 }

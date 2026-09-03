@@ -112,7 +112,10 @@ continues past conflicts to fill available global capacity. Pull-request
 reconciliation owns `integration:<repository>/<base>` independently of harness
 capacity. GitHub's enabled auto-merge state is the restart-stable claim: Runner
 recovers an existing owner before considering item order, permits one owner per
-repository/base, and disarms duplicate claims. QA publication only queues a PR;
+repository/base, and disarms duplicate claims. A terminal failed check disarms
+that owner, returns its retained PR to implementation without consuming an
+Agent QA rejection, and lets the next safe candidate claim integration. QA
+publication only queues a PR;
 reconciliation lazily compares the selected candidate with the latest base,
 returns updates or conflicts through implementation and QA, and requests
 automatic merge only for a clean reviewed candidate. Manual-review PRs and

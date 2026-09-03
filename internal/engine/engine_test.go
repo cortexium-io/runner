@@ -234,6 +234,8 @@ type integrationPullRequest struct {
 	head         string
 	baseRevision string
 	state        string
+	mergeState   string
+	checks       string
 	enabled      bool
 }
 
@@ -242,6 +244,7 @@ type serializedIntegrationRunner struct {
 	pullRequests  map[string]*integrationPullRequest
 	mergeRequests []string
 	mergeCancels  []string
+	checkViews    []string
 }
 
 func (r *serializedIntegrationRunner) pullRequest(selector string) *integrationPullRequest {
@@ -262,13 +265,18 @@ func (r *serializedIntegrationRunner) Run(ctx context.Context, command string, a
 		if pullRequest == nil {
 			return subprocess.Result{}, fmt.Errorf("unknown pull request %q", args[2])
 		}
+		if strings.Contains(strings.Join(args, " "), "statusCheckRollup") {
+			r.checkViews = append(r.checkViews, pullRequest.url)
+		}
 		autoMerge := "null"
 		if pullRequest.enabled {
 			autoMerge = `{"enabledAt":"2026-09-02T00:00:00Z"}`
 		}
 		state := defaultString(pullRequest.state, "OPEN")
-		payload := fmt.Sprintf(`{"url":%q,"number":%d,"state":%q,"headRepository":{"nameWithOwner":"owner/repo"},"headRefName":%q,"headRefOid":%q,"baseRefName":"main","baseRefOid":%q,"mergeStateStatus":"CLEAN","autoMergeRequest":%s,"comments":[],"reviews":[]}`,
-			pullRequest.url, pullRequest.number, state, pullRequest.branch, pullRequest.head, pullRequest.baseRevision, autoMerge)
+		mergeState := defaultString(pullRequest.mergeState, "CLEAN")
+		checks := defaultString(pullRequest.checks, "[]")
+		payload := fmt.Sprintf(`{"url":%q,"number":%d,"state":%q,"headRepository":{"nameWithOwner":"owner/repo"},"headRefName":%q,"headRefOid":%q,"baseRefName":"main","baseRefOid":%q,"mergeStateStatus":%q,"autoMergeRequest":%s,"comments":[],"reviews":[],"statusCheckRollup":%s}`,
+			pullRequest.url, pullRequest.number, state, pullRequest.branch, pullRequest.head, pullRequest.baseRevision, mergeState, autoMerge, checks)
 		return subprocess.Result{Stdout: payload}, nil
 	}
 	if command == "gh" && len(args) >= 3 && args[0] == "pr" && args[1] == "merge" {
@@ -509,6 +517,19 @@ type reviewerRejectRunner struct {
 }
 
 type reviewerAcceptRunner struct{ project *fakeGitHubProjectRunner }
+
+type resumedAcceptanceRunner struct {
+	project    *fakeGitHubProjectRunner
+	reviewRuns int
+}
+
+func (r *resumedAcceptanceRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	if command == "codex" {
+		r.reviewRuns++
+		return subprocess.Result{}, errors.New("reviewer must not run for an unchanged accepted candidate")
+	}
+	return (reviewerAcceptRunner{project: r.project}).Run(ctx, command, args, dir, timeout)
+}
 
 type candidateInspectingReviewer struct {
 	project    *fakeGitHubProjectRunner
@@ -3821,6 +3842,17 @@ func TestReconciliationRequestsOnlyOneAutomaticIntegrationPerRepositoryBase(t *t
 	if runner.pullRequests["PVTI_integration_2"].enabled {
 		t.Fatal("second pull request acquired the occupied repository/base integration resource")
 	}
+	latest, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("reload integration activities: %v", err)
+	}
+	activities := map[string]string{}
+	for _, item := range latest {
+		activities[item.ID] = item.Activity
+	}
+	if activities["PVTI_integration_1"] != config.RunnerActivityWaitingForMerge || activities["PVTI_integration_2"] != config.RunnerActivityWaitingForIntegration {
+		t.Fatalf("integration activities = %#v", activities)
+	}
 }
 
 func TestReconciliationRecoversExistingAutomaticIntegrationClaimBeforeItemOrder(t *testing.T) {
@@ -3856,6 +3888,97 @@ func TestReconciliationDisarmsDuplicateAutomaticIntegrationClaims(t *testing.T) 
 	}
 	if !runner.pullRequests["PVTI_integration_1"].enabled || runner.pullRequests["PVTI_integration_2"].enabled {
 		t.Fatalf("duplicate integration claims remain: first=%t second=%t", runner.pullRequests["PVTI_integration_1"].enabled, runner.pullRequests["PVTI_integration_2"].enabled)
+	}
+}
+
+func TestFailedIntegrationChecksRequeueWithoutConsumingQAAndReleaseNextCandidate(t *testing.T) {
+	service, runner, items := serializedIntegrationService(t, true, false)
+	items[0].QAFailures = 2
+	items[0].Activity = config.RunnerActivityWaitingForCI
+	items[0].Approval = testApproval(items[0])
+	items[1].Activity = config.RunnerActivityWaitingForIntegration
+	items[1].Approval = testApproval(items[1])
+	runner.project.itemsJSON = `{"items":[` + projectItemJSON(items[0]) + `,` + projectItemJSON(items[1]) + `]}`
+	failed := runner.pullRequests[items[0].ID]
+	failed.mergeState = "BLOCKED"
+	failed.checks = `[{"__typename":"CheckRun","name":"Validate","workflowName":"CI","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://github.com/owner/repo/actions/runs/1"}]`
+
+	observed, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load lifecycle items: %v", err)
+	}
+	warnings, changed, err := service.reconcilePullRequests(t.Context(), observed)
+	if err != nil {
+		t.Fatalf("reconcile failed integration checks: %v", err)
+	}
+	if !changed || len(warnings) != 1 || !strings.Contains(warnings[0].Summary, "without recording an Agent QA rejection") {
+		t.Fatalf("failed checks did not produce one actionable event: warnings=%#v changed=%t", warnings, changed)
+	}
+	if want := []string{items[0].PullRequest}; !reflect.DeepEqual(runner.mergeCancels, want) {
+		t.Fatalf("failed integration cancellation = %#v, want %#v", runner.mergeCancels, want)
+	}
+	if want := []string{items[1].PullRequest}; !reflect.DeepEqual(runner.mergeRequests, want) {
+		t.Fatalf("next safe integration request = %#v, want %#v", runner.mergeRequests, want)
+	}
+	if want := []string{items[0].PullRequest}; !reflect.DeepEqual(runner.checkViews, want) {
+		t.Fatalf("detailed check inspections = %#v, want active failed owner only %#v", runner.checkViews, want)
+	}
+
+	latest, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("reload reconciled items: %v", err)
+	}
+	byID := map[string]github.WorkItem{}
+	for _, item := range latest {
+		byID[item.ID] = item
+	}
+	requeued := byID[items[0].ID]
+	if requeued.Status != "Ready" || requeued.Phase != "ready" || requeued.Activity != config.RunnerActivityCIFailed || requeued.QAFailures != 2 ||
+		requeued.PullRequest != items[0].PullRequest || requeued.Branch != items[0].Branch || requeued.QACommit != items[0].QACommit {
+		t.Fatalf("failed integration lost rework context: %#v", requeued)
+	}
+	if waiting := byID[items[1].ID]; waiting.Activity != config.RunnerActivityWaitingForMerge {
+		t.Fatalf("next integration activity = %q, want %q", waiting.Activity, config.RunnerActivityWaitingForMerge)
+	}
+}
+
+func TestPendingIntegrationChecksKeepOnlyActiveCandidateWaitingForCI(t *testing.T) {
+	service, runner, items := serializedIntegrationService(t, true, false)
+	items[0].Activity = config.RunnerActivityWaitingForMerge
+	items[0].Approval = testApproval(items[0])
+	items[1].Activity = config.RunnerActivityWaitingForIntegration
+	items[1].Approval = testApproval(items[1])
+	runner.project.itemsJSON = `{"items":[` + projectItemJSON(items[0]) + `,` + projectItemJSON(items[1]) + `]}`
+	active := runner.pullRequests[items[0].ID]
+	active.mergeState = "BLOCKED"
+	active.checks = `[{"__typename":"CheckRun","name":"Validate","workflowName":"CI","status":"IN_PROGRESS","conclusion":""}]`
+
+	observed, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load lifecycle items: %v", err)
+	}
+	if warnings, changed, err := service.reconcilePullRequests(t.Context(), observed); err != nil {
+		t.Fatalf("reconcile pending integration checks: %v", err)
+	} else if len(warnings) != 0 || !changed {
+		t.Fatalf("pending checks produced unexpected result: warnings=%#v changed=%t", warnings, changed)
+	}
+	if want := []string{items[0].PullRequest}; !reflect.DeepEqual(runner.checkViews, want) {
+		t.Fatalf("detailed check inspections = %#v, want active candidate only %#v", runner.checkViews, want)
+	}
+	if len(runner.mergeRequests) != 0 || len(runner.mergeCancels) != 0 {
+		t.Fatalf("pending checks changed integration ownership: requests=%#v cancels=%#v", runner.mergeRequests, runner.mergeCancels)
+	}
+
+	latest, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("reload reconciled items: %v", err)
+	}
+	activities := map[string]string{}
+	for _, item := range latest {
+		activities[item.ID] = item.Activity
+	}
+	if activities[items[0].ID] != config.RunnerActivityWaitingForCI || activities[items[1].ID] != config.RunnerActivityWaitingForIntegration {
+		t.Fatalf("pending integration activities = %#v", activities)
 	}
 }
 
@@ -4820,6 +4943,59 @@ func TestAcceptedAgentQAPublishesPRAndMovesToHumanGate(t *testing.T) {
 	}
 }
 
+func TestAgentQAResumesExactAcceptanceWithoutAnotherReviewerRun(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_resume_acceptance", Title: "Resume accepted publication", Body: "Criteria", Repository: "owner/repo",
+		Status: "Agent QA", Phase: "agent_qa", Branch: "cortexium/task",
+	}
+	item.Approval = testApproval(item)
+	provider := workspace.NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), workspace.Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(filepath.Dir(repo), ".runner-worktrees"), WorkID: "assignment_" + safeRefComponent(item.ID),
+		ItemID: item.ID, DelegatedContentDigest: github.DelegatedContentFor(item).Digest, Repository: item.Repository,
+		BranchName: item.Branch, BaseRef: "origin/main",
+	})
+	if err != nil {
+		t.Fatalf("prepare accepted candidate: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "accepted.txt"), []byte("accepted once\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.ConstructCandidateForMergeMethod(t.Context(), prepared, item.Title, config.MergeMethodMerge); err != nil {
+		t.Fatalf("construct accepted candidate: %v", err)
+	}
+	accepted, err := workspace.CaptureSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
+	if err != nil {
+		t.Fatalf("snapshot accepted candidate: %v", err)
+	}
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "**Runner QA classification:** Accepted", "## Cortexium Runner Agent QA\n\n**Verdict:** Accepted"); err != nil {
+		t.Fatalf("record accepted candidate: %v", err)
+	}
+
+	project := &fakeGitHubProjectRunner{
+		itemsJSON:    `{"items":[` + projectItemJSON(item) + `]}`,
+		qaCommit:     accepted.Head,
+		baseRevision: prepared.BaseRevision,
+	}
+	runner := &resumedAcceptanceRunner{project: project}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir:    repo,
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), runner)
+	if err != nil {
+		t.Fatalf("configure service: %v", err)
+	}
+	results, err := service.RunCycle(t.Context())
+	if err != nil {
+		t.Fatalf("resume accepted QA: %v", err)
+	}
+	if runner.reviewRuns != 0 || len(results) != 1 || !results[0].ResumedCheckpoint || results[0].Outcome != execution.OutcomeSucceeded ||
+		project.status != "PR Ready" || project.pullRequest != "https://github.com/owner/repo/pull/12" {
+		t.Fatalf("accepted publication was not resumed exactly: review_runs=%d results=%#v status=%q PR=%q", runner.reviewRuns, results, project.status, project.pullRequest)
+	}
+}
+
 func TestOutOfDateManualPullRequestWaitsForHumanWithoutEagerRefresh(t *testing.T) {
 	repo, remote := createPublicationRepository(t)
 	runGitTest(t, repo, "checkout", "-b", "cortexium/task")
@@ -4896,7 +5072,7 @@ func TestAcceptedAgentQAQueuesConfiguredAutomaticIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run accepted QA cycle: %v", err)
 	}
-	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || runner.mergeRequests != 0 || project.status != "PR Ready" || project.activity != "Waiting for CI / merge" {
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || runner.mergeRequests != 0 || project.status != "PR Ready" || project.activity != config.RunnerActivityWaitingForCI {
 		t.Fatalf("QA did not leave visible automatic integration to reconciliation: results=%#v requests=%d status=%q activity=%q", results, runner.mergeRequests, project.status, project.activity)
 	}
 	if !strings.Contains(results[0].Summary, "queued for automatic integration") {
@@ -4911,7 +5087,7 @@ func TestAcceptedAgentQAQueuesConfiguredAutomaticIntegration(t *testing.T) {
 	} else if !changed || runner.mergeRequests != 1 {
 		t.Fatalf("queued integration did not acquire its resource: changed=%t requests=%d", changed, runner.mergeRequests)
 	}
-	if project.activity != "Waiting for CI / merge" {
+	if project.activity != config.RunnerActivityWaitingForMerge {
 		t.Fatalf("ordinary integration reconciliation cleared visible waiting state: %q", project.activity)
 	}
 }

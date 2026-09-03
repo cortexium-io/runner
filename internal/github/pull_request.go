@@ -28,10 +28,19 @@ type PullRequestDetails struct {
 	MergeStateStatus string
 	Feedback         string
 	AutoMergeEnabled bool
+	ChecksPending    bool
+	FailedChecks     []PullRequestCheck
+}
+
+type PullRequestCheck struct {
+	Name       string
+	Status     string
+	DetailsURL string
 }
 
 const (
 	MaxPullRequestFeedbackEntries = 100
+	MaxPullRequestChecks          = 100
 	maxPullRequestFeedbackBytes   = 10_000
 )
 
@@ -96,7 +105,7 @@ func (m PullRequestManager) InspectAuthorized(ctx context.Context, action Author
 	if err != nil {
 		return PullRequestDetails{}, err
 	}
-	return m.inspect(ctx, item.Repository, item.PullRequest, false)
+	return m.inspect(ctx, item.Repository, item.PullRequest, false, false)
 }
 
 // InspectAuthorizedWithFeedback performs the heavier review/comment lookup for
@@ -106,10 +115,21 @@ func (m PullRequestManager) InspectAuthorizedWithFeedback(ctx context.Context, a
 	if err != nil {
 		return PullRequestDetails{}, err
 	}
-	return m.inspect(ctx, item.Repository, item.PullRequest, true)
+	return m.inspect(ctx, item.Repository, item.PullRequest, true, false)
 }
 
-func (m PullRequestManager) inspect(ctx context.Context, repository, selector string, includeFeedback bool) (PullRequestDetails, error) {
+// InspectAuthorizedWithChecks adds the heavier status-check rollup only for the
+// active integration candidate. Routine board observation intentionally omits
+// it so unrelated pull requests stay cheap to reconcile.
+func (m PullRequestManager) InspectAuthorizedWithChecks(ctx context.Context, action AuthorizedAction) (PullRequestDetails, error) {
+	item, err := requireAuthorizedAction(action)
+	if err != nil {
+		return PullRequestDetails{}, err
+	}
+	return m.inspect(ctx, item.Repository, item.PullRequest, false, true)
+}
+
+func (m PullRequestManager) inspect(ctx context.Context, repository, selector string, includeFeedback, includeChecks bool) (PullRequestDetails, error) {
 	selector, err := validatedPullRequestSelector(repository, selector)
 	if err != nil {
 		return PullRequestDetails{}, err
@@ -117,6 +137,9 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 	fields := "url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,autoMergeRequest"
 	if includeFeedback {
 		fields += ",comments,reviews"
+	}
+	if includeChecks {
+		fields += ",statusCheckRollup"
 	}
 	result, err := subprocess.RunGitHub(ctx, m.run, []string{"pr", "view", selector, "--repo", repository, "--json", fields}, "", 30*time.Second)
 	if err != nil {
@@ -152,6 +175,17 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 				Login string `json:"login"`
 			} `json:"author"`
 		} `json:"reviews"`
+		StatusCheckRollup []struct {
+			Type       string `json:"__typename"`
+			Name       string `json:"name"`
+			Context    string `json:"context"`
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+			State      string `json:"state"`
+			DetailsURL string `json:"detailsUrl"`
+			TargetURL  string `json:"targetUrl"`
+			Workflow   string `json:"workflowName"`
+		} `json:"statusCheckRollup"`
 	}
 	if err := json.Unmarshal([]byte(result.Stdout), &payload); err != nil {
 		return PullRequestDetails{}, fmt.Errorf("decode pull request: %w", err)
@@ -191,6 +225,44 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 		BaseRefName: strings.TrimSpace(payload.BaseRefName), BaseRefOID: strings.TrimSpace(payload.BaseRefOID),
 		MergeStateStatus: strings.ToUpper(strings.TrimSpace(payload.MergeStateStatus)), AutoMergeEnabled: payload.AutoMergeRequest != nil,
 	}
+	if includeChecks {
+		if len(payload.StatusCheckRollup) > MaxPullRequestChecks {
+			return PullRequestDetails{}, fmt.Errorf("pull request status checks exceed fixed limit of %d (received %d)", MaxPullRequestChecks, len(payload.StatusCheckRollup))
+		}
+		for _, check := range payload.StatusCheckRollup {
+			name := normalizedCheckLabel(check.Name)
+			if name == "" {
+				name = normalizedCheckLabel(check.Context)
+			}
+			if workflow := normalizedCheckLabel(check.Workflow); workflow != "" && name != "" && !strings.EqualFold(workflow, name) {
+				name = workflow + " / " + name
+			}
+			status := strings.ToUpper(strings.TrimSpace(check.Status))
+			conclusion := strings.ToUpper(strings.TrimSpace(check.Conclusion))
+			state := strings.ToUpper(strings.TrimSpace(check.State))
+			if (status != "" && status != "COMPLETED") || state == "PENDING" || state == "EXPECTED" {
+				details.ChecksPending = true
+				continue
+			}
+			failed := false
+			switch strings.ToUpper(strings.TrimSpace(check.Type)) {
+			case "CHECKRUN":
+				switch conclusion {
+				case "FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE":
+					failed = true
+				}
+			case "STATUSCONTEXT":
+				failed = state == "ERROR" || state == "FAILURE"
+			}
+			if failed {
+				detailsURL := safeCheckDetailsURL(check.DetailsURL)
+				if detailsURL == "" {
+					detailsURL = safeCheckDetailsURL(check.TargetURL)
+				}
+				details.FailedChecks = append(details.FailedChecks, PullRequestCheck{Name: name, Status: defaultCheckStatus(conclusion, state), DetailsURL: detailsURL})
+			}
+		}
+	}
 	trustedFeedback := false
 	if len(feedbackActors) > 0 {
 		configuredActor, actorErr := m.configuredFeedbackActor(ctx)
@@ -212,6 +284,27 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 		details.HeadRepository = strings.TrimSpace(payload.HeadRepository.NameWithOwner)
 	}
 	return details, nil
+}
+
+func defaultCheckStatus(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return "FAILED"
+}
+
+func normalizedCheckLabel(value string) string {
+	return truncate(strings.Join(strings.Fields(value), " "), 200)
+}
+
+func safeCheckDetailsURL(value string) string {
+	parsed, err := url.ParseRequestURI(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return ""
+	}
+	return truncate(parsed.String(), 500)
 }
 
 // RequestAutoMerge asks GitHub to merge the pull request once all repository
@@ -256,7 +349,7 @@ func (m PullRequestManager) RequestAutoMergeAuthorized(ctx context.Context, acti
 	if !strings.EqualFold(headCommit, strings.TrimSpace(item.QACommit)) {
 		return errors.New("automatic merge head commit is no longer the QA-reviewed commit")
 	}
-	details, err := m.inspect(ctx, item.Repository, item.PullRequest, false)
+	details, err := m.inspect(ctx, item.Repository, item.PullRequest, false, false)
 	if err != nil {
 		return err
 	}
@@ -341,7 +434,7 @@ func validGitObjectID(value string) bool {
 	return true
 }
 
-func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod, qaReport string) (PublishedPullRequest, error) {
+func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod string) (PublishedPullRequest, error) {
 	item, err := requireAuthorizedAction(action)
 	if err != nil {
 		return PublishedPullRequest{}, err
@@ -396,7 +489,7 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	}
 	item = action.Item
 	if strings.TrimSpace(item.PullRequest) != "" {
-		details, err := m.inspect(ctx, item.Repository, item.PullRequest, false)
+		details, err := m.inspect(ctx, item.Repository, item.PullRequest, false, false)
 		if err != nil {
 			return PublishedPullRequest{}, err
 		}
@@ -408,7 +501,7 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	if existing, found, findErr := m.findOpen(ctx, item.Repository, branch, baseBranch); findErr != nil {
 		return PublishedPullRequest{}, findErr
 	} else if found {
-		details, err := m.inspect(ctx, item.Repository, existing.URL, false)
+		details, err := m.inspect(ctx, item.Repository, existing.URL, false, false)
 		if err != nil {
 			return PublishedPullRequest{}, err
 		}
@@ -439,7 +532,7 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	if url == "" {
 		return PublishedPullRequest{}, errors.New("GitHub CLI did not return the created pull request URL")
 	}
-	details, err := m.inspect(ctx, item.Repository, url, false)
+	details, err := m.inspect(ctx, item.Repository, url, false, false)
 	if err != nil {
 		return PublishedPullRequest{}, err
 	}
@@ -465,8 +558,8 @@ func trustedPullRequestActor(actor, configuredActor string) bool {
 	return strings.EqualFold(strings.TrimSpace(actor), strings.TrimSpace(configuredActor))
 }
 
-func (m PullRequestManager) PublishAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod, qaReport string) (PublishedPullRequest, error) {
-	return m.publish(ctx, action, metadata, record, baseBranch, remoteName, mergeMethod, qaReport)
+func (m PullRequestManager) PublishAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod string) (PublishedPullRequest, error) {
+	return m.publish(ctx, action, metadata, record, baseBranch, remoteName, mergeMethod)
 }
 
 func validatePublicationAuthority(action AuthorizedAction, record workspace.PublicationRecord) error {
