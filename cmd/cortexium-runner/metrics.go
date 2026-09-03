@@ -157,6 +157,15 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 			}
 			fmt.Fprintln(output)
 		}
+		if attempt.FailureOperation != "" {
+			fmt.Fprintf(output, "    failed operation: %s", terminalSafeText(attempt.FailureOperation))
+			if attempt.PublicationAttempts > 0 {
+				fmt.Fprintf(output, " · %d attempt(s)", attempt.PublicationAttempts)
+			}
+			fmt.Fprintln(output)
+		} else if attempt.PublicationAttempts > 1 {
+			fmt.Fprintf(output, "    publication recovered after %d attempts\n", attempt.PublicationAttempts)
+		}
 		if attempt.Usage.ReportedCostUSD != nil {
 			fmt.Fprintf(output, "    usage: %d input · %d cache read · %d output · $%.4f reported\n",
 				attempt.Usage.InputTokens, attempt.Usage.CacheReadInputTokens, attempt.Usage.OutputTokens, *attempt.Usage.ReportedCostUSD)

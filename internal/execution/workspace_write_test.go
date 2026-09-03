@@ -325,6 +325,38 @@ func TestWorkspaceVerifierDetectsChangedPreexistingDirtyContent(t *testing.T) {
 	}
 }
 
+func TestWorkspaceVerifierAllowsUnrelatedBranchTrackingChanges(t *testing.T) {
+	repo := initGitRepo(t)
+	metadata, err := workspace.NewGitProvider(subprocess.OSRunner{}).Prepare(t.Context(), workspace.Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"), WorkID: "branch_config_check", BranchPrefix: "runner", BaseRef: "HEAD",
+		ItemID: "PVTI_branch_config", DelegatedContentDigest: "v1:test-delegated-content", Repository: "owner/repo",
+	})
+	if err != nil {
+		t.Fatalf("prepare workspace: %v", err)
+	}
+	runGitCommand(t, repo, "config", "branch.unrelated.remote", "origin")
+	runGitCommand(t, repo, "config", "branch.unrelated.merge", "refs/heads/unrelated")
+	if err := newWorkspaceVerifier(subprocess.OSRunner{}, 30*time.Second).Verify(t.Context(), metadata); err != nil {
+		t.Fatalf("unrelated branch tracking change invalidated active checkout: %v", err)
+	}
+}
+
+func TestWorkspaceVerifierStillRejectsSecurityRelevantConfigChanges(t *testing.T) {
+	repo := initGitRepo(t)
+	metadata, err := workspace.NewGitProvider(subprocess.OSRunner{}).Prepare(t.Context(), workspace.Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"), WorkID: "security_config_check", BranchPrefix: "runner", BaseRef: "HEAD",
+		ItemID: "PVTI_security_config", DelegatedContentDigest: "v1:test-delegated-content", Repository: "owner/repo",
+	})
+	if err != nil {
+		t.Fatalf("prepare workspace: %v", err)
+	}
+	runGitCommand(t, repo, "config", "core.hooksPath", filepath.Join(t.TempDir(), "hooks"))
+	err = newWorkspaceVerifier(subprocess.OSRunner{}, 30*time.Second).Verify(t.Context(), metadata)
+	if err == nil || !strings.Contains(err.Error(), "active checkout changed") {
+		t.Fatalf("security-relevant Git config change was accepted: %v", err)
+	}
+}
+
 func TestWorkspaceVerifierDoesNotStageArtifactsExposedByIgnoreRemoval(t *testing.T) {
 	repo := initGitRepo(t)
 	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("node_modules/\ndist/\n"), 0o600); err != nil {

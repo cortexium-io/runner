@@ -29,6 +29,7 @@ type pullRequestTestRunner struct {
 	viewBase          string
 	viewBaseOID       string
 	viewOutput        string
+	viewFailures      int
 	configuredActor   string
 	autoMergeErr      error
 	publicationRemote string
@@ -101,6 +102,10 @@ func (r *pullRequestTestRunner) Run(ctx context.Context, command string, args []
 		}
 		return subprocess.Result{Stdout: "https://github.com/owner/repo/pull/12\n"}, nil
 	case strings.HasPrefix(joined, "pr view "):
+		if r.viewFailures > 0 {
+			r.viewFailures--
+			return subprocess.Result{Stderr: "HTTP 503: Service Unavailable", ExitCode: 1}, errors.New("exit status 1")
+		}
 		if r.viewOutput != "" {
 			return subprocess.Result{Stdout: r.viewOutput}, nil
 		}
@@ -748,6 +753,101 @@ func TestGitHubPullRequestManagerReusesAlreadyPublishedRebaseCandidate(t *testin
 	}
 }
 
+func TestGitHubPullRequestManagerRetriesPostPushInspectionWithoutRepushing(t *testing.T) {
+	remote, metadata, record, action, _ := acceptedRebaseRefreshTuple(t, false)
+	runner := &pullRequestTestRunner{
+		publicationRemote: remote,
+		viewHeadOID:       record.CommitOID,
+		viewBaseOID:       record.ApprovedBaseOID,
+		viewFailures:      1,
+	}
+	published, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(
+		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase)
+	if err != nil {
+		t.Fatalf("retry post-push inspection: %v", err)
+	}
+	if published.CommitSHA != record.CommitOID || published.Attempts != 2 {
+		t.Fatalf("retried publication = %#v, want exact commit in two attempts", published)
+	}
+	pushes := 0
+	for _, call := range runner.gitCalls {
+		if strings.Contains(call, " push ") || strings.HasPrefix(call, "push ") {
+			pushes++
+		}
+	}
+	if pushes != 1 {
+		t.Fatalf("post-push retry issued %d pushes, want one:\n%s", pushes, strings.Join(runner.gitCalls, "\n"))
+	}
+	views := 0
+	for _, call := range runner.calls {
+		if strings.HasPrefix(call, "pr view ") {
+			views++
+		}
+	}
+	if views != 2 {
+		t.Fatalf("pull request inspections = %d, want two: %#v", views, runner.calls)
+	}
+}
+
+func TestGitHubPullRequestManagerBoundsTransientPublicationRetries(t *testing.T) {
+	remote, metadata, record, action, _ := acceptedRebaseRefreshTuple(t, false)
+	runner := &pullRequestTestRunner{
+		publicationRemote: remote,
+		viewHeadOID:       record.CommitOID,
+		viewBaseOID:       record.ApprovedBaseOID,
+		viewFailures:      maxPublicationAttempts,
+	}
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(
+		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase)
+	if err == nil {
+		t.Fatal("exhausted publication unexpectedly succeeded")
+	}
+	operation, attempts := PublicationFailureDetails(err)
+	if operation != string(PublicationInspectPR) || attempts != maxPublicationAttempts {
+		t.Fatalf("exhausted publication details = %q/%d, want %q/%d", operation, attempts, PublicationInspectPR, maxPublicationAttempts)
+	}
+	views := 0
+	for _, call := range runner.calls {
+		if strings.HasPrefix(call, "pr view ") {
+			views++
+		}
+	}
+	if views != maxPublicationAttempts {
+		t.Fatalf("pull request inspections = %d, want %d: %#v", views, maxPublicationAttempts, runner.calls)
+	}
+}
+
+func TestPublicationRetryRequiresRecognizedTransientFailure(t *testing.T) {
+	for _, test := range []struct {
+		message string
+		want    bool
+	}{
+		{message: "HTTP 503: Service Unavailable", want: true},
+		{message: "read: connection reset by peer", want: true},
+		{message: "GraphQL: API rate limit exceeded", want: false},
+		{message: "pull request head changed", want: false},
+	} {
+		if got := retryablePublicationError(errors.New(test.message)); got != test.want {
+			t.Errorf("retryablePublicationError(%q) = %t, want %t", test.message, got, test.want)
+		}
+	}
+	if publicationRetryDelay(1) != 0 || publicationRetryDelay(2) != 500*time.Millisecond {
+		t.Fatalf("unexpected publication retry delays: first=%s second=%s", publicationRetryDelay(1), publicationRetryDelay(2))
+	}
+}
+
+func TestPublicationFailureDetailsAreFixedAndBounded(t *testing.T) {
+	cause := publicationError(PublicationInspectPR, errors.New("HTTP 503 token=private"))
+	err := &publicationAttemptsError{attempts: maxPublicationAttempts, err: cause}
+	operation, attempts := PublicationFailureDetails(err)
+	if operation != string(PublicationInspectPR) || attempts != maxPublicationAttempts {
+		t.Fatalf("publication failure details = %q/%d", operation, attempts)
+	}
+	if strings.Contains(operation, "token") {
+		t.Fatalf("publication failure operation exposed raw diagnostic: %q", operation)
+	}
+}
+
 func acceptedRebaseRefreshTuple(t *testing.T, conflicted bool) (string, workspace.Metadata, workspace.PublicationRecord, AuthorizedAction, string) {
 	t.Helper()
 	repo, remote, metadata, _, action := acceptedPublicationTuple(t)
@@ -813,7 +913,7 @@ func acceptedRebaseRefreshTuple(t *testing.T, conflicted bool) (string, workspac
 	} else if got := runGitTest(t, metadata.WorktreePath, "show", candidate.CommitOID+":base.txt"); got != "base change\n" {
 		t.Fatalf("rebase candidate lost base content: %q", got)
 	}
-	accepted, err := workspace.CaptureSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, metadata.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
+	accepted, err := workspace.CaptureCheckoutSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, metadata.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -919,7 +1019,7 @@ func acceptedPublicationTupleWithSetup(t *testing.T, setup func(repo, worktree s
 	if setup != nil {
 		setup(repo, metadata.WorktreePath)
 	}
-	accepted, err := workspace.CaptureSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, metadata.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
+	accepted, err := workspace.CaptureCheckoutSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, metadata.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
 	if err != nil {
 		t.Fatal(err)
 	}

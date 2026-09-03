@@ -88,7 +88,7 @@ func (p GitProvider) Prepare(ctx context.Context, request Request) (Metadata, er
 	}
 	unlock := lockRepositoryWorkspace(repoRoot)
 	defer unlock()
-	sourceSnapshot, err := CaptureSnapshotWithLimits(ctx, p.run, repoRoot, 30*time.Second, p.limits)
+	sourceSnapshot, err := CaptureCheckoutSnapshotWithLimits(ctx, p.run, repoRoot, 30*time.Second, p.limits)
 	if err != nil {
 		return Metadata{}, fmt.Errorf("snapshot project checkout content: %w", err)
 	}

@@ -67,11 +67,11 @@ func (s *Store) Append(event Event) error {
 			return fmt.Errorf("stage completion requires a fixed outcome")
 		}
 	}
-	if !validFailureClass(event.FailureClass) || !validRetryDisposition(event.RetryDisposition) {
+	if !validFailureClass(event.FailureClass) || !validFailureOperation(event.FailureOperation) || !validRetryDisposition(event.RetryDisposition) {
 		return fmt.Errorf("metrics recovery fields must use fixed enum values")
 	}
-	if event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 {
-		return fmt.Errorf("metrics durations cannot be negative")
+	if event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 || event.PublicationAttempts < 0 || event.PublicationAttempts > 3 {
+		return fmt.Errorf("metrics durations or publication attempt count are invalid")
 	}
 	if err := ValidateUsage(event.Usage); err != nil {
 		return fmt.Errorf("invalid metrics usage: %w", err)
@@ -126,7 +126,7 @@ func (s *Store) Read() (ReadResult, error) {
 	scanner.Buffer(make([]byte, 64*1024), maxEventBytes)
 	for scanner.Scan() {
 		var event Event
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil || event.Version != EventVersion || strings.TrimSpace(event.AttemptID) == "" || !validEventKind(event.Kind) || !validFailureClass(event.FailureClass) || !validRetryDisposition(event.RetryDisposition) || event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 || ValidateUsage(event.Usage) != nil {
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil || event.Version != EventVersion || strings.TrimSpace(event.AttemptID) == "" || !validEventKind(event.Kind) || !validFailureClass(event.FailureClass) || !validFailureOperation(event.FailureOperation) || !validRetryDisposition(event.RetryDisposition) || event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 || event.PublicationAttempts < 0 || event.PublicationAttempts > 3 || ValidateUsage(event.Usage) != nil {
 			result.MalformedRecords++
 			continue
 		}

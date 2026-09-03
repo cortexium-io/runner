@@ -51,6 +51,67 @@ type PublishedPullRequest struct {
 	Number    int
 	Branch    string
 	CommitSHA string
+	Attempts  int
+}
+
+type PublicationFailureOperation string
+
+const (
+	PublicationPushCandidate    PublicationFailureOperation = "publication_push_candidate"
+	PublicationRefreshAuthority PublicationFailureOperation = "publication_refresh_authority"
+	PublicationFindPullRequest  PublicationFailureOperation = "publication_find_pull_request"
+	PublicationInspectPR        PublicationFailureOperation = "publication_inspect_pull_request"
+	PublicationCreatePR         PublicationFailureOperation = "publication_create_pull_request"
+	PublicationValidatePR       PublicationFailureOperation = "publication_validate_pull_request"
+	maxPublicationAttempts                                  = 3
+)
+
+type publicationOperationError struct {
+	operation PublicationFailureOperation
+	err       error
+}
+
+func (e *publicationOperationError) Error() string { return e.err.Error() }
+func (e *publicationOperationError) Unwrap() error { return e.err }
+
+type publicationAttemptsError struct {
+	attempts int
+	err      error
+}
+
+func (e *publicationAttemptsError) Error() string {
+	return fmt.Sprintf("pull request publication failed after %d attempts: %v", e.attempts, e.err)
+}
+func (e *publicationAttemptsError) Unwrap() error { return e.err }
+
+func publicationError(operation PublicationFailureOperation, err error) error {
+	if err == nil {
+		return nil
+	}
+	var existing *publicationOperationError
+	if errors.As(err, &existing) {
+		return err
+	}
+	return &publicationOperationError{operation: operation, err: err}
+}
+
+// PublicationFailureDetails exposes only fixed operation identity and a
+// bounded attempt count. Raw provider diagnostics remain in local Runner
+// output and never become Project or metrics fields.
+func PublicationFailureDetails(err error) (string, int) {
+	if err == nil {
+		return "", 0
+	}
+	attempts := 1
+	var retried *publicationAttemptsError
+	if errors.As(err, &retried) {
+		attempts = retried.attempts
+	}
+	var operation *publicationOperationError
+	if errors.As(err, &operation) {
+		return string(operation.operation), attempts
+	}
+	return "", attempts
 }
 
 type BranchRefreshResult struct {
@@ -463,7 +524,7 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	if err := provider.PublishAccepted(ctx, metadata, record, remoteName, baseBranch, pushPolicy, func() error {
 		refreshed, refreshErr := m.refreshAuthorizedAction(ctx, action)
 		if refreshErr != nil {
-			return refreshErr
+			return publicationError(PublicationRefreshAuthority, refreshErr)
 		}
 		if authorityErr := validatePublicationAuthority(refreshed, record); authorityErr != nil {
 			return authorityErr
@@ -478,11 +539,11 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 		item = refreshed.Item
 		return nil
 	}); err != nil {
-		return PublishedPullRequest{}, err
+		return PublishedPullRequest{}, publicationError(PublicationPushCandidate, err)
 	}
 	action, err = m.refreshAuthorizedAction(ctx, action)
 	if err != nil {
-		return PublishedPullRequest{}, err
+		return PublishedPullRequest{}, publicationError(PublicationRefreshAuthority, err)
 	}
 	if err := validatePublicationAuthority(action, record); err != nil {
 		return PublishedPullRequest{}, err
@@ -491,22 +552,22 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	if strings.TrimSpace(item.PullRequest) != "" {
 		details, err := m.inspect(ctx, item.Repository, item.PullRequest, false, false)
 		if err != nil {
-			return PublishedPullRequest{}, err
+			return PublishedPullRequest{}, publicationError(PublicationInspectPR, err)
 		}
 		if err := validatePublishedPullRequest(details, item.Repository, branch, record.CommitOID, baseBranch, record.ApprovedBaseOID); err != nil {
-			return PublishedPullRequest{}, err
+			return PublishedPullRequest{}, publicationError(PublicationValidatePR, err)
 		}
 		return PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: branch, CommitSHA: record.CommitOID}, nil
 	}
 	if existing, found, findErr := m.findOpen(ctx, item.Repository, branch, baseBranch); findErr != nil {
-		return PublishedPullRequest{}, findErr
+		return PublishedPullRequest{}, publicationError(PublicationFindPullRequest, findErr)
 	} else if found {
 		details, err := m.inspect(ctx, item.Repository, existing.URL, false, false)
 		if err != nil {
-			return PublishedPullRequest{}, err
+			return PublishedPullRequest{}, publicationError(PublicationInspectPR, err)
 		}
 		if err := validatePublishedPullRequest(details, item.Repository, branch, record.CommitOID, baseBranch, record.ApprovedBaseOID); err != nil {
-			return PublishedPullRequest{}, err
+			return PublishedPullRequest{}, publicationError(PublicationValidatePR, err)
 		}
 		existing.Branch = branch
 		existing.CommitSHA = record.CommitOID
@@ -514,7 +575,7 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	}
 	action, err = m.refreshAuthorizedAction(ctx, action)
 	if err != nil {
-		return PublishedPullRequest{}, err
+		return PublishedPullRequest{}, publicationError(PublicationRefreshAuthority, err)
 	}
 	if err := validatePublicationAuthority(action, record); err != nil {
 		return PublishedPullRequest{}, err
@@ -526,18 +587,18 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	}
 	result, err := subprocess.RunGitHub(ctx, m.run, []string{"pr", "create", "--repo", item.Repository, "--base", baseBranch, "--head", branch, "--title", strings.TrimSpace(item.Title), "--body", body}, metadata.WorktreePath, m.timeout)
 	if err != nil {
-		return PublishedPullRequest{}, fmt.Errorf("create pull request: %w", commandFailure(err, result))
+		return PublishedPullRequest{}, publicationError(PublicationCreatePR, fmt.Errorf("create pull request: %w", commandFailure(err, result)))
 	}
 	url := firstNonEmptyLine(result.Stdout)
 	if url == "" {
-		return PublishedPullRequest{}, errors.New("GitHub CLI did not return the created pull request URL")
+		return PublishedPullRequest{}, publicationError(PublicationCreatePR, errors.New("GitHub CLI did not return the created pull request URL"))
 	}
 	details, err := m.inspect(ctx, item.Repository, url, false, false)
 	if err != nil {
-		return PublishedPullRequest{}, err
+		return PublishedPullRequest{}, publicationError(PublicationInspectPR, err)
 	}
 	if err := validatePublishedPullRequest(details, item.Repository, branch, record.CommitOID, baseBranch, record.ApprovedBaseOID); err != nil {
-		return PublishedPullRequest{}, err
+		return PublishedPullRequest{}, publicationError(PublicationValidatePR, err)
 	}
 	return PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: branch, CommitSHA: record.CommitOID}, nil
 }
@@ -559,7 +620,58 @@ func trustedPullRequestActor(actor, configuredActor string) bool {
 }
 
 func (m PullRequestManager) PublishAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod string) (PublishedPullRequest, error) {
-	return m.publish(ctx, action, metadata, record, baseBranch, remoteName, mergeMethod)
+	for attempt := 1; attempt <= maxPublicationAttempts; attempt++ {
+		published, err := m.publish(ctx, action, metadata, record, baseBranch, remoteName, mergeMethod)
+		if err == nil {
+			published.Attempts = attempt
+			return published, nil
+		}
+		if attempt == maxPublicationAttempts || !retryablePublicationError(err) {
+			if attempt == 1 {
+				return PublishedPullRequest{}, err
+			}
+			return PublishedPullRequest{}, &publicationAttemptsError{attempts: attempt, err: err}
+		}
+		if delay := publicationRetryDelay(attempt); delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return PublishedPullRequest{}, &publicationAttemptsError{attempts: attempt, err: errors.Join(err, ctx.Err())}
+			case <-timer.C:
+			}
+		}
+	}
+	return PublishedPullRequest{}, errors.New("pull request publication retry exhausted unexpectedly")
+}
+
+func publicationRetryDelay(failedAttempts int) time.Duration {
+	if failedAttempts <= 1 {
+		return 0
+	}
+	return 500 * time.Millisecond
+}
+
+func retryablePublicationError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "rate limit") || strings.Contains(message, "too many requests") {
+		return false
+	}
+	for _, marker := range []string{
+		"http 500", "http 502", "http 503", "http 504",
+		"service unavailable", "bad gateway", "gateway timeout",
+		"connection reset", "connection refused", "temporary failure",
+		"temporarily unavailable", "unexpected eof", "tls handshake timeout",
+		"no such host",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func validatePublicationAuthority(action AuthorizedAction, record workspace.PublicationRecord) error {

@@ -213,7 +213,7 @@ func TestPublicationAcceptanceRecordsExactTupleExclusively(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestPublicationAcceptanceRequiresDurableReviewerOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestPublicationAcceptanceLoadDoesNotCreateMissingRecord(t *testing.T) {
 	if _, err := provider.ConstructCandidate(t.Context(), prepared, "Unreviewed candidate"); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestPublicationAcceptanceRejectsChangedHeadOrTree(t *testing.T) {
 	if _, err := provider.ConstructCandidate(t.Context(), prepared, "Accepted"); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +364,7 @@ func TestPublicationAcceptanceRejectsCandidateUnrelatedToApprovedBase(t *testing
 	root := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "commit-tree", tree, "-m", "Unrelated root"))
 	runGitTest(t, prepared.WorktreePath, "update-ref", "refs/heads/"+prepared.BranchName, root)
 	runGitTest(t, prepared.WorktreePath, "reset", "--hard", root)
-	accepted, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -83,6 +83,10 @@ func (r *candidateInspectingReviewer) RunBoundedHeadTailInput(ctx context.Contex
 	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
 }
 
+func (r *integrityMutatingReviewer) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
+	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
+}
+
 func (r *reviewerAutoMergeRunner) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
 	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
 }
@@ -4965,7 +4969,7 @@ func TestAgentQAResumesExactAcceptanceWithoutAnotherReviewerRun(t *testing.T) {
 	if _, err := provider.ConstructCandidateForMergeMethod(t.Context(), prepared, item.Title, config.MergeMethodMerge); err != nil {
 		t.Fatalf("construct accepted candidate: %v", err)
 	}
-	accepted, err := workspace.CaptureSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
+	accepted, err := workspace.CaptureCheckoutSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
 	if err != nil {
 		t.Fatalf("snapshot accepted candidate: %v", err)
 	}
@@ -5446,6 +5450,46 @@ func TestAgentQAControlStateDriftBlocksCommitPushPRAndCleanup(t *testing.T) {
 				t.Fatalf("%s drift allowed cleanup to remove recoverable work: %v", name, err)
 			}
 		})
+	}
+}
+
+func TestAgentQAAllowsConcurrentBranchTrackingConfigChange(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_parallel_branch_config", Title: "Publish through concurrent Git administration", Body: "Criteria", Repository: "owner/repo",
+		Status: "Agent QA", Phase: "agent_qa", Role: config.WorkRoleReviewer, Branch: "cortexium/task",
+	}
+	item.Approval = testApproval(item)
+	prepared, err := workspace.NewGitProvider(subprocess.OSRunner{}).Prepare(t.Context(), workspace.Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(filepath.Dir(repo), ".runner-worktrees"), WorkID: "assignment_" + safeRefComponent(item.ID),
+		ItemID: item.ID, DelegatedContentDigest: github.DelegatedContentFor(item).Digest, Repository: item.Repository,
+		BranchName: item.Branch, BaseRef: "origin/main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "feature.txt"), []byte("reviewed implementation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	runner := &integrityMutatingReviewer{project: project, mutate: func(worktree string) error {
+		if err := runGitMutation(worktree, "config", "branch.unrelated.remote", "origin"); err != nil {
+			return err
+		}
+		return runGitMutation(worktree, "config", "branch.unrelated.merge", "refs/heads/unrelated")
+	}}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := service.RunCycle(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || project.status != "PR Ready" || project.pullRequest == "" {
+		t.Fatalf("concurrent branch tracking change blocked QA publication: results=%#v status=%q PR=%q", results, project.status, project.pullRequest)
 	}
 }
 

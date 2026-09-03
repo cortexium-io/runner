@@ -93,6 +93,8 @@ func (t *AttemptTrace) stageEvent(kind, stageID, name string) Event {
 	event.HarnessDurationMilliseconds = 0
 	event.Outcome = ""
 	event.FailureClass = ""
+	event.FailureOperation = ""
+	event.PublicationAttempts = 0
 	event.RetryDisposition = ""
 	event.RetryAfter = ""
 	event.Summary = ""

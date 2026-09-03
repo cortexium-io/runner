@@ -680,7 +680,7 @@ func (p GitProvider) validatedPublicationAcceptance(ctx context.Context, metadat
 	if err := p.rejectReplacementObjects(ctx, profile); err != nil {
 		return PublicationRecord{}, "", err
 	}
-	current, err := CaptureSnapshotStateWithLimits(ctx, p.run, metadata.WorktreePath, 30*time.Second, p.limits)
+	current, err := CaptureCheckoutSnapshotStateWithLimits(ctx, p.run, metadata.WorktreePath, 30*time.Second, p.limits)
 	if err != nil {
 		return PublicationRecord{}, "", fmt.Errorf("recapture accepted candidate: %w", err)
 	}
@@ -815,7 +815,7 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 	if persisted != record {
 		return errors.New("provided publication tuple differs from its immutable private record")
 	}
-	current, err := CaptureSnapshotStateWithLimits(ctx, p.run, metadata.WorktreePath, 30*time.Second, p.limits)
+	current, err := CaptureCheckoutSnapshotStateWithLimits(ctx, p.run, metadata.WorktreePath, 30*time.Second, p.limits)
 	if err != nil {
 		return fmt.Errorf("recapture publication candidate: %w", err)
 	}

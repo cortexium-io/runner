@@ -56,6 +56,7 @@ func captureIndexedSubmodules(
 	timeout time.Duration,
 	indexEntries map[string]string,
 	pinned map[string]pinnedSubmodulePath,
+	ignoreBranchTracking bool,
 	budget *securefs.SnapshotBudget,
 ) (submoduleSnapshot, error) {
 	gitlinks := indexedGitlinks(indexEntries)
@@ -91,7 +92,7 @@ func captureIndexedSubmodules(
 		initialized := markerErr != nil || markerState.Exists
 		var nestedFingerprint string
 		if initialized {
-			nested, captureErr := captureSnapshotState(ctx, run, filepath.Join(root, filepath.FromSlash(path)), timeout, false, budget)
+			nested, captureErr := captureSnapshotState(ctx, run, filepath.Join(root, filepath.FromSlash(path)), timeout, false, ignoreBranchTracking, budget)
 			if captureErr != nil {
 				_ = submoduleDirectory.Close()
 				return submoduleSnapshot{}, fmt.Errorf("capture initialized indexed submodule %q: %w", path, captureErr)

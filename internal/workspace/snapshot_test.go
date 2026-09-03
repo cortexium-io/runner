@@ -22,6 +22,10 @@ func captureDefaultSnapshotState(ctx context.Context, run subprocess.Runner, wor
 	return CaptureSnapshotStateWithLimits(ctx, run, worktreePath, timeout, DefaultSnapshotLimits())
 }
 
+func captureDefaultCheckoutSnapshotState(ctx context.Context, run subprocess.Runner, worktreePath string, timeout time.Duration) (Snapshot, error) {
+	return CaptureCheckoutSnapshotStateWithLimits(ctx, run, worktreePath, timeout, DefaultSnapshotLimits())
+}
+
 func TestSnapshotIndexRejectsEntryBeforeAggregateMapGrowth(t *testing.T) {
 	object := strings.Repeat("a", 40)
 	value := "H 100644 " + object + " 0\tone\x00H 100644 " + object + " 0\ttwo\x00H 100644 " + object + " 0\tthree\x00"
@@ -352,6 +356,42 @@ func TestCaptureSnapshotIncludesCommonAndEnabledPerWorktreeConfig(t *testing.T) 
 	}
 	if beforeWorktree.Fingerprint == afterWorktree.Fingerprint || !containsString(beforeWorktree.ChangedControlState(afterWorktree), "per-worktree Git config") {
 		t.Fatalf("per-worktree config mutation did not identify its control-state category: %#v", beforeWorktree.ChangedControlState(afterWorktree))
+	}
+}
+
+func TestCheckoutSnapshotIgnoresOnlyBranchTrackingConfig(t *testing.T) {
+	repo := initGitRepo(t)
+	fullBefore, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, repo, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkoutBefore, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, repo, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runGitTest(t, repo, "config", "branch.unrelated.remote", "origin")
+	runGitTest(t, repo, "config", "branch.unrelated.merge", "refs/heads/unrelated")
+	fullAfter, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, repo, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkoutAfter, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, repo, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fullBefore.Fingerprint == fullAfter.Fingerprint {
+		t.Fatal("complete snapshot ignored branch tracking config")
+	}
+	if checkoutBefore.Fingerprint != checkoutAfter.Fingerprint {
+		t.Fatalf("checkout snapshot changed for unrelated branch tracking: before=%q after=%q", checkoutBefore.Fingerprint, checkoutAfter.Fingerprint)
+	}
+	runGitTest(t, repo, "config", "core.hooksPath", filepath.Join(t.TempDir(), "hooks"))
+	checkoutSecurityChanged, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, repo, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkoutAfter.Fingerprint == checkoutSecurityChanged.Fingerprint {
+		t.Fatal("checkout snapshot ignored security-relevant config")
 	}
 }
 

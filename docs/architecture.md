@@ -98,10 +98,12 @@ event boundary keeps telemetry failure non-fatal to workflow execution and
 preserves unfinished attempts and stages after a process interruption. Stage
 events carry identity, timing, enums, and usage only. The history deliberately
 excludes prompts, transcripts, raw responses, command arguments, raw local
-errors, and free-form stage payloads. `metrics` reads and aggregates this store,
-including completed harness-invocation counts and exact saved-result resumes for
-planning and implementation. `status` presents a compact aggregate and the
-current admission decision. GitHub
+errors, and free-form stage payloads. Completed attempts may additionally carry
+a fixed publication-operation enum and a bounded attempt count; provider error
+text is never persisted. `metrics` reads and aggregates this store, including
+completed harness-invocation counts and exact saved-result resumes for planning
+and implementation. `status` presents a compact aggregate and the current
+admission decision. GitHub
 cards receive only fixed bounded execution, recovery, and QA classifications;
 detailed usage and model-authored evidence remain local.
 
@@ -345,6 +347,12 @@ sparse-checkout, alternates, grafts, replacement refs, and default hook names.
 The manifest records filesystem identity as well as content so replacement with
 an equivalent-looking object is still drift.
 
+Task checkpoints use that complete manifest. Active-checkout and QA-boundary
+comparisons exclude only `branch.*` entries from the shared repository config,
+because unrelated concurrent branch publication and maintenance legitimately
+change those tracking entries. All other local config, including
+security-relevant Git controls, remains integrity-bound.
+
 Indexed gitlinks form recursive manifest nodes. Their index path and recorded
 object ID are always present; initialized nodes add their own HEAD, index/status,
 protected metadata, and nested gitlinks. Capture never fetches, initializes, or
@@ -369,6 +377,12 @@ rewrite only when the remote branch still resolves to the card's exact recorded
 QA commit. The rewritten history remains local through implementation and QA;
 publication is still the only boundary that may replace the remote branch, and
 does so with the exact old commit as its force-with-lease value.
+Recognized transient network and GitHub 5xx failures during this deterministic
+publication are retried in-process up to three total attempts. Each retry
+revalidates the immutable tuple and current Project authority, reuses an already
+published exact commit or PR, and never invokes the reviewer again. Unknown,
+rate-limit, authorization, validation, and cancellation failures are not
+automatically retried.
 
 QA publication ends at `PR Ready`; it never requests merge directly. In
 automatic mode, pull-request reconciliation claims

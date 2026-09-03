@@ -15,6 +15,10 @@ func (s *Engine) workspaceSnapshotState(ctx context.Context, worktreePath string
 	return workspace.CaptureSnapshotStateWithLimits(ctx, s.run, worktreePath, 30*time.Second, s.snapshotLimits())
 }
 
+func (s *Engine) checkoutSnapshotState(ctx context.Context, worktreePath string) (workspace.Snapshot, error) {
+	return workspace.CaptureCheckoutSnapshotStateWithLimits(ctx, s.run, worktreePath, 30*time.Second, s.snapshotLimits())
+}
+
 func (s *Engine) snapshotLimits() workspace.SnapshotLimits {
 	limits := s.cfg.ResourceLimits
 	return workspace.SnapshotLimits{MaxEntries: limits.SnapshotMaxEntries, MaxFileBytes: limits.SnapshotMaxFileBytes, MaxTotalBytes: limits.SnapshotMaxTotalBytes}

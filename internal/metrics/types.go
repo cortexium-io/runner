@@ -83,6 +83,17 @@ func validRetryDisposition(disposition string) bool {
 	}
 }
 
+func validFailureOperation(operation string) bool {
+	switch operation {
+	case "", "publication_push_candidate", "publication_refresh_authority",
+		"publication_find_pull_request", "publication_inspect_pull_request",
+		"publication_create_pull_request", "publication_validate_pull_request":
+		return true
+	default:
+		return false
+	}
+}
+
 // Usage contains only counters reported by a harness. Runner never estimates
 // token usage or monetary cost when a harness does not expose those values.
 type Usage struct {
@@ -188,6 +199,8 @@ type Event struct {
 	HarnessDurationMilliseconds int64     `json:"harness_duration_milliseconds,omitempty"`
 	Outcome                     string    `json:"outcome,omitempty"`
 	FailureClass                string    `json:"failure_class,omitempty"`
+	FailureOperation            string    `json:"failure_operation,omitempty"`
+	PublicationAttempts         int       `json:"publication_attempts,omitempty"`
 	RetryDisposition            string    `json:"retry_disposition,omitempty"`
 	RetryAfter                  string    `json:"retry_after,omitempty"`
 	StageID                     string    `json:"stage_id,omitempty"`

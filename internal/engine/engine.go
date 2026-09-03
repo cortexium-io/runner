@@ -29,6 +29,8 @@ type RunResult struct {
 	WorkDone                    []string        `json:"work_done,omitempty"`
 	Verification                []string        `json:"verification,omitempty"`
 	FailureClass                string          `json:"failure_class,omitempty"`
+	FailureOperation            string          `json:"failure_operation,omitempty"`
+	PublicationAttempts         int             `json:"publication_attempts,omitempty"`
 	RetryDisposition            string          `json:"retry_disposition,omitempty"`
 	RetryAfter                  string          `json:"retry_after,omitempty"`
 	Usage                       metrics.Usage   `json:"usage"`
@@ -618,6 +620,8 @@ func (s *Engine) executeItem(ctx context.Context, action github.AuthorizedAction
 		completed.Verification = append([]string(nil), result.Verification...)
 		completed.ResumedCheckpoint = result.ResumedCheckpoint
 		completed.FailureClass = result.FailureClass
+		completed.FailureOperation = result.FailureOperation
+		completed.PublicationAttempts = result.PublicationAttempts
 		completed.RetryDisposition = result.RetryDisposition
 		completed.RetryAfter = result.RetryAfter
 		completed.Usage = result.Usage
@@ -1067,7 +1071,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation candidate could not be committed for QA", err,
 			integrityViolationOutput("Implementation candidate could not be committed for QA", err), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
-	qaSnapshot, err := s.workspaceSnapshotState(ctx, preparedWorkspace.WorktreePath)
+	qaSnapshot, err := s.checkoutSnapshotState(ctx, preparedWorkspace.WorktreePath)
 	if err != nil {
 		return s.failExecution(ctx, action, lane, result, "Implementation workspace could not be snapshotted for QA", err, blockedExecutorOutput("Implementation workspace could not be snapshotted for QA", err))
 	}
@@ -1076,7 +1080,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation workspace is not a clean committed candidate for QA", err,
 			integrityViolationOutput("Implementation workspace is not a clean committed candidate for QA", err), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
-	sourceSnapshot, err := s.workspaceSnapshotState(ctx, repoRoot)
+	sourceSnapshot, err := s.checkoutSnapshotState(ctx, repoRoot)
 	if err != nil {
 		return s.failExecution(ctx, action, lane, result, "Active checkout could not be snapshotted for QA", err, blockedExecutorOutput("Active checkout could not be snapshotted for QA", err))
 	}
@@ -1125,7 +1129,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	result.FailureClass = string(output.FailureClass)
 	result.RetryDisposition = string(output.RetryDisposition)
 	result.RetryAfter = output.RetryAfter
-	currentSnapshot, snapshotErr := s.workspaceSnapshotState(ctx, preparedWorkspace.WorktreePath)
+	currentSnapshot, snapshotErr := s.checkoutSnapshotState(ctx, preparedWorkspace.WorktreePath)
 	if snapshotErr != nil {
 		combinedErr := errors.Join(err, snapshotErr)
 		return s.failExecution(ctx, action, lane, result, "Agent QA workspace integrity check failed", combinedErr,
@@ -1136,7 +1140,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		combinedErr := errors.Join(err, integrityErr)
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Agent QA changed the implementation workspace", combinedErr, integrityViolationOutput("Agent QA changed the implementation workspace", combinedErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
-	currentSourceSnapshot, sourceSnapshotErr := s.workspaceSnapshotState(ctx, repoRoot)
+	currentSourceSnapshot, sourceSnapshotErr := s.checkoutSnapshotState(ctx, repoRoot)
 	if sourceSnapshotErr != nil {
 		combinedErr := errors.Join(err, sourceSnapshotErr)
 		return s.failExecution(ctx, action, lane, result, "Active checkout integrity check failed after agent QA", combinedErr,
@@ -1328,8 +1332,10 @@ func (s *Engine) publishAcceptedQA(
 			return s.failExecutionToRetryLane(ctx, action, lane, result, "Base revision changed during pull request publication", err,
 				integrityViolationOutput("Base revision changed during pull request publication", err), lane.Transitions[config.WorkflowOutcomeRejected])
 		}
+		result.FailureOperation, result.PublicationAttempts = github.PublicationFailureDetails(err)
 		return s.failExecution(ctx, action, lane, result, "PR publication failed", err, transientExecutorOutput("Pull request publication failed"))
 	}
+	result.PublicationAttempts = published.Attempts
 	finishPublish(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
 	item.PullRequest = published.URL
 	finishTransition := metrics.StartStage(ctx, metrics.StageProjectTransition)
