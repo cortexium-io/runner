@@ -52,7 +52,7 @@ func runnerBrowserCommand() (string, []string) {
 
 func runnerBrowserEnvironment(trustedToolDir string) map[string]string {
 	return map[string]string{
-		"NPM_CONFIG_CACHE":        filepath.Join(filepath.Dir(trustedToolDir), "npm-cache"),
+		"NPM_CONFIG_CACHE":        filepath.Join(trustedToolDir, "npm-cache"),
 		"NPM_CONFIG_USERCONFIG":   filepath.Join(trustedToolDir, "npmrc"),
 		"NPM_CONFIG_GLOBALCONFIG": filepath.Join(trustedToolDir, "global-npmrc"),
 	}

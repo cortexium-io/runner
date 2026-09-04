@@ -40,8 +40,8 @@ content, or personal data in a public issue.
   headers, disabled external name resolution, and URL patterns limited to
   localhost and 127.0.0.1. The exact MCP process is still a trusted local
   principal outside the harness shell sandbox. Runner starts it from a separate
-  mode-`0700` host-owned directory with temporary npm configuration and a
-  reusable private package cache that are not writable by the harness;
+  mode-`0700` host-owned directory with dedicated npm configuration and cache
+  paths that are not writable by the harness;
   a role can explicitly disable the default profile.
 - A Codex role may additionally allowlist named local stdio MCP servers. Runner
   inspects the operator catalog from a private neutral directory in isolated

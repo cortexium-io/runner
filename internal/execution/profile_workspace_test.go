@@ -276,17 +276,6 @@ func TestWorktreeProfileKeepsTrustedToolDirOutsideNPMWriteGrant(t *testing.T) {
 	if !pathInsideOrEqual(workspace.TrustedToolDir, wantRoot) {
 		t.Fatalf("trusted tool directory = %q, want a child of %q", workspace.TrustedToolDir, wantRoot)
 	}
-	trustedCache := filepath.Join(wantRoot, "npm-cache")
-	if pathInsideOrEqual(trustedCache, npmRoot) || pathInsideOrEqual(npmRoot, trustedCache) {
-		t.Fatalf("trusted npm cache overlaps sandbox write root: trusted=%q npm=%q", trustedCache, npmRoot)
-	}
-	cacheInfo, err := os.Stat(trustedCache)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cacheInfo.Mode().Perm() != 0o700 {
-		t.Fatalf("trusted npm cache mode = %o, want 700", cacheInfo.Mode().Perm())
-	}
 }
 
 func TestTrustedToolDirIgnoresSymlinkedTempRootInsideNPMWriteGrant(t *testing.T) {

@@ -1452,9 +1452,8 @@ inside the native filesystem sandbox, npm-registry and loopback network access
 for implementers, and a pinned `runner_browser` server restricted to loopback
 pages with external name resolution disabled. The browser uses a temporary
 profile and mock keychain; it cannot attach to the operator's normal browser
-profile. Its `npx` cwd and npm configuration are temporary mode-`0700`
-host-owned paths, while its reusable package cache remains under the same
-private root; none are writable from the harness sandbox. Runner does
+profile. Its `npx` cwd and npm configuration/cache are separate mode-`0700`
+host-owned paths that are not writable from the harness sandbox. Runner does
 not download Chrome. Chrome or Chromium 149+ is required
 because the pinned MCP server's URL allowlist uses browser enforcement added in
 that release. Ordinary `doctor` reports Chrome as

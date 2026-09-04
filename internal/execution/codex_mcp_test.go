@@ -77,7 +77,7 @@ func TestCodexMCPProfileArgsDoNotInspectWhenNoServerIsGranted(t *testing.T) {
 
 func TestCodexSafeToolsInjectPinnedLoopbackOnlyBrowserWithoutUserConfig(t *testing.T) {
 	runner := &codexMCPListRunner{}
-	workspace := profileWorkspace{Dir: "/worktree", TrustedToolDir: "/trusted/runtime-test"}
+	workspace := profileWorkspace{Dir: "/worktree", TrustedToolDir: "/neutral"}
 	args, err := codexMCPProfileArgsForConfig(t.Context(), runner, "codex", workspace, nil, true, config.HarnessConfigModeIsolated)
 	if err != nil {
 		t.Fatalf("build Runner browser profile: %v", err)
@@ -90,7 +90,7 @@ func TestCodexSafeToolsInjectPinnedLoopbackOnlyBrowserWithoutUserConfig(t *testi
 		`runner_browser={command="npx"`, "chrome-devtools-mcp@1.7.0", "--headless", "--isolated", "--slim",
 		"--allowed-url-pattern=http://localhost:*/*", "--allowed-url-pattern=http://127.0.0.1:*/*",
 		"--chrome-arg=--use-mock-keychain", "--no-performance-crux", "--redact-network-headers", "--no-usage-statistics",
-		`cwd="/trusted/runtime-test"`, `"NPM_CONFIG_CACHE"="/trusted/npm-cache"`, `"NPM_CONFIG_USERCONFIG"="/trusted/runtime-test/npmrc"`,
+		`cwd="/neutral"`, `"NPM_CONFIG_CACHE"="/neutral/npm-cache"`, `"NPM_CONFIG_USERCONFIG"="/neutral/npmrc"`,
 		`startup_timeout_sec=30`, `enabled_tools=["navigate","evaluate","screenshot"]`,
 		`enabled=true`, `required=true`,
 	} {

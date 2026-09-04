@@ -38,6 +38,29 @@ func TestParseStructuredExecutionResultAcceptsEveryProcessOutcome(t *testing.T) 
 	}
 }
 
+func TestCodexInvocationMCPOverridesFollowUserConfigIsolation(t *testing.T) {
+	profile, err := ProfileForRole(RoleReviewer, config.RoleAccessHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := NewCodexExecutor(config.ExecutionConfig{
+		HarnessConfigMode: config.HarnessConfigModeIsolated,
+		Harness:           config.HarnessConfig{Kind: config.HarnessCodexCLI, Command: "codex", ReasoningEffort: "high"},
+	}, nil)
+	workspace := profileWorkspace{Dir: "/neutral"}
+	mcpArgs := []string{"--config", `mcp_servers={runner_browser={command="npx"}}`}
+	for name, args := range map[string][]string{
+		"read only":       executor.args(profile, workspace, mcpArgs, "/result", "/schema", Assignment{}),
+		"workspace write": executor.profileWorkspaceWriteArgs(profile, workspace, mcpArgs, "/result", "/schema", Assignment{}),
+	} {
+		isolationIndex := slices.Index(args, "--ignore-user-config")
+		mcpIndex := slices.Index(args, mcpArgs[1])
+		if isolationIndex < 0 || mcpIndex <= isolationIndex {
+			t.Fatalf("%s MCP override must follow --ignore-user-config: %#v", name, args)
+		}
+	}
+}
+
 func TestExecutionContentSchemaIsSmallStrictAndShared(t *testing.T) {
 	var schema map[string]any
 	if err := json.Unmarshal(executionContentSchema, &schema); err != nil {

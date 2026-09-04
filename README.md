@@ -461,9 +461,8 @@ implementer's narrow home-directory exception. Browser checks use a pinned
 three-tool Chrome DevTools server with a temporary profile, mock keychain,
 disabled external name resolution, telemetry/CrUX, and redacted headers.
 Runner resolves that trusted server from a separate mode-`0700` host-owned cwd
-and reusable package cache that the harness sandbox cannot write; project
-`.npmrc` and ambient npm state cannot replace it. Per-invocation npm
-configuration remains temporary.
+and npm cache that the harness sandbox cannot write; project `.npmrc` and shared
+npm state cannot replace it.
 Navigation is restricted to `localhost` and `127.0.0.1`. Runner never uses the
 operator's normal browser profile or downloads a browser; a compatible local
 Chrome or Chromium 149+ installation is required only for browser checks.
