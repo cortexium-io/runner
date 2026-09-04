@@ -114,6 +114,61 @@ func TestReadyItemsAdoptsDirectPlanAndReadyIntake(t *testing.T) {
 	}
 }
 
+func TestReadyItemsTreatsBlockedToReadyAsImplementationRetry(t *testing.T) {
+	run := &transitionTestRunner{}
+	project := NewProject(config.ProjectConfig{
+		GitHubProjectConfig: config.GitHubProjectConfig{
+			Owner: "owner", Number: 1, IntakeRepository: "owner/repo", ApprovalField: "Runner Approval",
+		},
+		ApprovalAuthorityKey: []byte("blocked-ready-retry-authority-key"),
+		ReadyStatus:          "Ready",
+		BlockedStatus:        "Blocked",
+		AgentStatuses:        []string{"Ready"},
+		InitialLaneID:        "plan",
+		InitialRole:          config.WorkRolePlanner,
+		LaneStatuses:         map[string]string{"plan": "Plan", "ready": "Ready", "blocked": "Blocked"},
+		LaneRoles:            map[string]string{"plan": config.WorkRolePlanner, "ready": config.WorkRoleImplementer},
+	}, run)
+	project.schema = githubProjectSchema{ProjectID: "PVT_test", Fields: map[string]githubProjectField{
+		normalizeProjectKey("Runner Approval"): {ID: "F_approval", Name: "Runner Approval", Type: "ProjectV2Field"},
+	}}
+	blocked := WorkItem{
+		ID: "PVTI_retry", Title: "Retry implementation", Body: "Implement the accepted behavior.",
+		URL: "https://github.com/owner/repo/issues/1", Repository: "owner/repo", Status: "Blocked",
+		Result: "Runner QA requested changes.", Phase: "ready", QAFailures: 3,
+	}
+	prior, err := project.signAction(blocked, config.WorkRoleImplementer, "blocked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := prior.Item
+	moved.Status = "Ready"
+
+	ready, err := project.ReadyItems(t.Context(), []WorkItem{moved}, 1)
+	if err != nil {
+		t.Fatalf("adopt Blocked to Ready retry: %v", err)
+	}
+	if len(ready) != 1 {
+		t.Fatalf("Blocked to Ready move produced %d executable actions, want 1", len(ready))
+	}
+	retry := ready[0]
+	if retry.Role != config.WorkRoleImplementer || retry.state != "ready" || retry.Item.Status != "Ready" {
+		t.Fatalf("unexpected implementation retry action: %#v", retry)
+	}
+	if retry.Item.Result != blocked.Result || retry.Item.Phase != blocked.Phase || retry.Item.QAFailures != blocked.QAFailures {
+		t.Fatalf("board retry changed retained context: %#v", retry.Item)
+	}
+	if retry.Item.Approval == prior.Item.Approval {
+		t.Fatal("board retry retained the Blocked authorization")
+	}
+	if _, err := project.validateAction(retry.Item); err != nil {
+		t.Fatalf("board retry was not authorized for Ready: %v", err)
+	}
+	if calls := strings.Join(run.calls, "\n"); !strings.Contains(calls, "--field-id F_approval --text") {
+		t.Fatalf("board retry did not persist refreshed authority: %s", calls)
+	}
+}
+
 func TestPlanningBatchAuthorityBindsDelegatedContentDigest(t *testing.T) {
 	project := &Project{}
 	source := WorkItem{ID: "PVTI_source", Body: "approved planning request", Repository: "owner/repo"}

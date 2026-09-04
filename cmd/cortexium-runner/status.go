@@ -179,10 +179,10 @@ func runStatus(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 		fmt.Fprintf(stdout, "  %s: %d\n", terminalSafeText(label), work.ByStatus[name])
 	}
-	writeWorkSection(stdout, "Active work", work.Active, false, *configPath)
-	writeWorkSection(stdout, "Queued work", work.Queued, false, *configPath)
-	writeWorkSection(stdout, "Blocked work", work.Blocked, true, *configPath)
-	writeWorkSection(stdout, "PR ready", work.PRReady, false, *configPath)
+	writeWorkSection(stdout, "Active work", work.Active, false, *configPath, "")
+	writeWorkSection(stdout, "Queued work", work.Queued, false, *configPath, "")
+	writeWorkSection(stdout, "Blocked work", work.Blocked, true, *configPath, cfg.ResolveProject().ReadyStatus)
+	writeWorkSection(stdout, "PR ready", work.PRReady, false, *configPath, "")
 	return nil
 }
 
@@ -295,7 +295,7 @@ func writeRunnerSubprocesses(output io.Writer, processes []runnerSubprocess, ins
 	}
 }
 
-func writeWorkSection(output io.Writer, title string, items []github.WorkItem, showResult bool, configPath string) {
+func writeWorkSection(output io.Writer, title string, items []github.WorkItem, showResult bool, configPath, boardRetryStatus string) {
 	fmt.Fprintf(output, "\n%s: %d\n", title, len(items))
 	for _, item := range items {
 		fmt.Fprintf(output, "  - %s [%s]", terminalSafeText(item.Title), terminalSafeText(item.Status))
@@ -308,6 +308,9 @@ func writeWorkSection(output io.Writer, title string, items []github.WorkItem, s
 		fmt.Fprintln(output)
 		if showResult {
 			writeWorkResult(output, item.Result)
+			if status := strings.TrimSpace(boardRetryStatus); status != "" {
+				fmt.Fprintf(output, "    Board retry: move this card to %s to retry through implementation.\n", terminalSafeText(status))
+			}
 			if strings.TrimSpace(item.Phase) != "" && strings.TrimSpace(item.Role) != "" {
 				fmt.Fprintf(output, "    Retry: cortexium-runner retry --config %q --item %s\n", terminalSafeText(configPath), terminalSafeText(item.ID))
 			}

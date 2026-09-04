@@ -386,11 +386,13 @@ func (s *Project) ReconcileDependencyActivities(ctx context.Context, items []Wor
 }
 
 // adoptManualIntakeItem treats a maintainer placing an ordinary card in Plan or
-// the initial Ready lane as the authorization decision. Runner immediately
-// binds that exact snapshot to its local authority; every later operation still
-// validates the signed snapshot. Staged planning children cannot bypass their
-// complete-batch release because their creation assertion is deliberately
-// non-executable.
+// the initial Ready lane as the authorization decision. This deliberately
+// includes a status-only move from Blocked to Ready, which means retry through
+// implementation while preserving the recorded result and QA failure count.
+// Runner immediately binds that exact snapshot to its local authority; every
+// later operation still validates the signed snapshot. Staged planning children
+// cannot bypass their complete-batch release because their creation assertion
+// is deliberately non-executable.
 func (s *Project) adoptManualIntakeItem(ctx context.Context, item WorkItem) (*AuthorizedAction, error) {
 	statusLane := s.laneIDForStatus(item.Status)
 	if statusLane == "" || !s.manualIntakeLane(statusLane, item.Status) {

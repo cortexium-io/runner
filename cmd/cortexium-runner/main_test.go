@@ -1000,12 +1000,13 @@ func TestBlockedWorkSectionShowsConciseReasonAndNextAction(t *testing.T) {
 	writeWorkSection(&output, "Blocked work", []github.WorkItem{{
 		Title: "Review feature", Status: "Blocked",
 		Result: "Reason: Claude Code session limit reached.\n\nBlocker: Wait for reset.\n\nNext action: Move this card to Agent QA after the blocker clears.\nFourth line must not be shown.",
-	}}, true, "/operator/runner.json")
+	}}, true, "/operator/runner.json", "Ready")
 	for _, expected := range []string{
 		"Review feature [Blocked]",
 		"    Reason: Claude Code session limit reached.",
 		"    Blocker: Wait for reset.",
 		"    Next action: Move this card to Agent QA after the blocker clears.",
+		"    Board retry: move this card to Ready to retry through implementation.",
 	} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("blocked status omitted %q:\n%s", expected, output.String())

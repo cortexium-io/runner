@@ -282,7 +282,13 @@ integration resource, and returns the retained pull request to implementation as
 Leaving `PR Ready` for other reasons clears activity. A blocked transition
 records its originating agent lane in the hidden
 `Runner Phase` field; `retry` uses that explicit destination and never guesses
-from a summary string. The separate hidden `Runner Transition` field is a
+from a summary string. A status-only human move from `Blocked` to the configured
+`Ready` lane is a distinct authorization event: it explicitly retries through
+implementation, preserves the existing result and QA failure count as context,
+and replaces the prior signed lifecycle state with a signed `Ready` action.
+Runner validates every other signed field before doing so, so editing content or
+workflow metadata at the same time fails closed instead of laundering changed
+work through the shortcut. The separate hidden `Runner Transition` field is a
 fail-closed lock around non-atomic Project updates. Authorization rejects locked
 cards, completed locked state is resumed in place, and partial state is returned
 to assessment. Phase and activity remain bound to authenticated action state;

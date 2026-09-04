@@ -86,9 +86,12 @@ content, or personal data in a public issue.
   login, or other capability is unavailable, it should return `blocked`. Runner
   retains its reason and attempted-check evidence locally, writes only a fixed
   Runner classification to `Runner Result`, records the originating agent lane,
-  and moves the card to `Blocked`. A retry preserves that bounded result as
-  historical context but requires the new invocation to re-check environment
-  and capability claims.
+  and moves the card to `Blocked`. Moving only its status to `Ready` authorizes
+  a new implementation attempt; Runner validates and replaces the prior signed
+  lifecycle state while preserving the bounded result and QA failure count.
+  The CLI retry can instead restore the recorded lane or explicitly replace
+  stale feedback. Every retry requires the new invocation to re-check
+  environment and capability claims.
 - Implementation starts in a separate Git branch and worktree. Codex and Claude
   Code implementers and reviewers use sandboxed access by default. Pi lacks a
   native OS sandbox for these roles, so Pi implementation and review require
