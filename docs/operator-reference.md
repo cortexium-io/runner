@@ -459,20 +459,34 @@ profile does not prevent independent profiles from being checked, and any
 failed requested check makes the command exit unsuccessfully.
 
 `status` is operational rather than diagnostic: it reports current card counts,
-active, queued, blocked, and PR-ready work, whether a local Runner process holds
-the Project lock, and that process's PID, uptime, last and next poll. On macOS
-and Linux it also inspects the Runner's process tree and reports active harness
-or other direct subprocesses by executable name, PID, process health, elapsed
-time, configured role timeout, and associated card when the mapping is
-unambiguous. It never prints subprocess arguments because those can contain the
-approved prompt. An `alive` process proves that the harness process still
-exists, not that a remote model is currently producing tokens; the harness
-timeout remains the final bound. Nested tool and MCP processes belong to their
-direct Runner-launched harness and are not listed as additional harness
-attempts. Blocked cards include up to three concise result lines, the configured
-`Ready` status for an implementation retry, and the exact `retry` command when
-Runner recorded a safe originating lane, so both recovery paths are visible
-without opening the Project item.
+active, queued, waiting, blocked, and PR-ready work, whether a local Runner
+process holds the Project lock, and that process's PID, uptime, last and next
+poll. `Queued work` contains only cards that the same read-only eligibility
+classifier used by execution considers claimable. Agent-lane cards held by a
+transition, invalid current authority, dependencies, an incomplete planning
+batch, or invalid batch or sibling authority appear under `Waiting work` with a
+fixed bounded explanation. `status --json` includes each waiting card, its
+stable reason code, and that summary in `work.waiting`.
+The emitted codes are `transition_locked`, `planning_metadata_invalid`,
+`action_authority_invalid`, `dependencies_incomplete`,
+`planning_batch_incomplete`, `planning_batch_sibling_authority_invalid`,
+`planning_batch_authority_invalid`, and the fail-closed
+`eligibility_unavailable` fallback.
+
+On macOS and Linux, status also inspects the Runner's process tree and reports
+active harness or other direct subprocesses by executable name, PID, process
+health, elapsed time, configured role timeout, and associated card when the
+mapping is unambiguous. It never prints subprocess arguments because those can
+contain the approved prompt. Eligibility explanations likewise omit raw
+validation errors, assertions, sibling content, and signing material. An
+`alive` process proves that the harness process still exists, not that a remote
+model is currently producing tokens; the harness timeout remains the final
+bound. Nested tool and MCP processes belong to their direct Runner-launched
+harness and are not listed as additional harness attempts. Blocked cards include
+up to three concise result lines, the configured `Ready` status for an
+implementation retry, and the exact `retry` command when Runner recorded a safe
+originating lane, so both recovery paths are visible without opening the
+Project item.
 `status --verbose` adds the current fixed Runner stage and elapsed time for
 each unfinished attempt. It is intentionally sanitized: it does not retain or
 print prompts, model responses, tool commands, subprocess arguments, or

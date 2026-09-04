@@ -273,6 +273,14 @@ plan schema and acceptance rigor remain unchanged. A claim records `Planning`,
 whose authenticated dependencies are incomplete records `Waiting for
 dependencies`. A recognized transient Codex provider failure records `Waiting
 for harness provider` while its bounded retry remains in the same role lane.
+The Project owns one read-only eligibility classifier for agent-lane cards.
+Queue selection, final claim validation, and operator status consume that same
+decision, so an ineligible card cannot be presented as executable. Status keeps
+such cards in a separate waiting collection with fixed non-sensitive reasons
+for transition recovery, invalid current authority, dependencies, incomplete
+planning batches, and invalid batch or sibling authority. Classification does
+not adopt, approve, or rewrite a card; the action path performs any authorized
+manual-intake adoption or invalid-card reclassification afterward.
 Accepted QA changes activity to `Awaiting human review` or
 `Waiting for CI` while the card remains `PR Ready`. Automatic integration then
 distinguishes `Waiting for integration slot`, `Waiting for CI`, and `Waiting for

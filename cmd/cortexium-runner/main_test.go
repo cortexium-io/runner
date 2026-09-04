@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/engine"
 	"github.com/cortexium-io/runner/internal/github"
 	runnermetrics "github.com/cortexium-io/runner/internal/metrics"
 	"github.com/cortexium-io/runner/internal/setup"
@@ -1014,6 +1015,24 @@ func TestBlockedWorkSectionShowsConciseReasonAndNextAction(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "Fourth line") {
 		t.Fatalf("blocked status included excessive detail:\n%s", output.String())
+	}
+}
+
+func TestWaitingWorkSectionShowsBoundedEligibilityReason(t *testing.T) {
+	var output bytes.Buffer
+	writeWaitingWorkSection(&output, []engine.WaitingWork{{
+		Item:    github.WorkItem{Title: "Pending sibling", Status: "Ready", Role: config.WorkRoleImplementer},
+		Reason:  github.WorkEligibilityPlanningBatchSiblingAuthorityInvalid,
+		Summary: "A planning-batch sibling has invalid lifecycle authority; maintainer reassessment is required.",
+	}})
+	for _, expected := range []string{
+		"Waiting work: 1",
+		"Pending sibling [Ready] · implementer",
+		"Waiting: A planning-batch sibling has invalid lifecycle authority; maintainer reassessment is required.",
+	} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("waiting status omitted %q:\n%s", expected, output.String())
+		}
 	}
 }
 

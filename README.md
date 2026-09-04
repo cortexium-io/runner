@@ -553,6 +553,11 @@ bounded audit: the reviewer continues through its remaining card-owned behavior
 and groups directly adjacent variants of an exposed invariant so one QA attempt
 returns all reasonably visible blockers together.
 
+`cortexium-runner status` lists only currently executable agent-lane cards as
+`Queued work`. Cards held by a dependency, transition recovery, incomplete
+planning batch, or invalid lifecycle authority appear separately as `Waiting
+work` with a bounded actionable reason.
+
 To retry a blocked card through implementation, move it to `Ready` on the
 Project board. Runner treats that status-only move as fresh human authorization,
 preserves the prior result and QA failure count as context, and checks the card

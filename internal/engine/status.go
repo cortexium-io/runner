@@ -13,8 +13,15 @@ type WorkStatus struct {
 	ByStatus map[string]int    `json:"by_status"`
 	Active   []github.WorkItem `json:"active"`
 	Queued   []github.WorkItem `json:"queued"`
+	Waiting  []WaitingWork     `json:"waiting"`
 	Blocked  []github.WorkItem `json:"blocked"`
 	PRReady  []github.WorkItem `json:"pr_ready"`
+}
+
+type WaitingWork struct {
+	Item    github.WorkItem              `json:"item"`
+	Reason  github.WorkEligibilityReason `json:"reason"`
+	Summary string                       `json:"summary"`
 }
 
 func (s *Engine) WorkStatus(ctx context.Context) (WorkStatus, error) {
@@ -23,6 +30,10 @@ func (s *Engine) WorkStatus(ctx context.Context) (WorkStatus, error) {
 		return WorkStatus{}, err
 	}
 	status := WorkStatus{Items: items, ByStatus: map[string]int{}}
+	eligibilityByID := map[string]github.WorkEligibility{}
+	for _, eligibility := range s.source.EvaluateWorkEligibility(items) {
+		eligibilityByID[eligibility.Item.ID] = eligibility
+	}
 	agentLanes := map[string]bool{}
 	for _, id := range s.cfg.AgentLaneIDs() {
 		agentLanes[id] = true
@@ -47,7 +58,17 @@ func (s *Engine) WorkStatus(ctx context.Context) (WorkStatus, error) {
 		case laneID == publication:
 			status.PRReady = append(status.PRReady, item)
 		case agentLanes[laneID]:
-			status.Queued = append(status.Queued, item)
+			eligibility, ok := eligibilityByID[item.ID]
+			if ok && eligibility.Eligible {
+				status.Queued = append(status.Queued, item)
+			} else if ok {
+				status.Waiting = append(status.Waiting, WaitingWork{Item: item, Reason: eligibility.Reason, Summary: eligibility.Summary})
+			} else {
+				status.Waiting = append(status.Waiting, WaitingWork{
+					Item: item, Reason: github.WorkEligibilityUnavailable,
+					Summary: "Runner could not classify this card's eligibility; inspect Project configuration and authority.",
+				})
+			}
 		}
 	}
 	for _, list := range [][]github.WorkItem{status.Items, status.Active, status.Queued, status.Blocked, status.PRReady} {
@@ -58,5 +79,11 @@ func (s *Engine) WorkStatus(ctx context.Context) (WorkStatus, error) {
 			return strings.ToLower(list[i].Status) < strings.ToLower(list[j].Status)
 		})
 	}
+	sort.Slice(status.Waiting, func(i, j int) bool {
+		if strings.EqualFold(status.Waiting[i].Item.Status, status.Waiting[j].Item.Status) {
+			return strings.ToLower(status.Waiting[i].Item.Title) < strings.ToLower(status.Waiting[j].Item.Title)
+		}
+		return strings.ToLower(status.Waiting[i].Item.Status) < strings.ToLower(status.Waiting[j].Item.Status)
+	})
 	return status, nil
 }

@@ -206,6 +206,11 @@ When work is later admitted and Runner is started, cards follow these states:
 | `Blocked` | Human input, a closed-without-merge PR, or a human retry decision is required. |
 | `Done` | Planning finished, or the pull request was merged successfully. |
 
+In `cortexium-runner status`, `Queued work` means Runner can currently claim
+the card. An agent-lane card that cannot yet be claimed appears under `Waiting
+work` with a bounded reason, such as an incomplete dependency or planning
+batch, transition recovery, or invalid lifecycle authority.
+
 Creating an ordinary card directly in `Plan` asks the planner to shape its exact
 current snapshot. Creating one in `Ready` authorizes that snapshot for the
 implementer. Runner converts either card to an issue in the configured intake
