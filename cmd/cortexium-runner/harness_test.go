@@ -160,7 +160,7 @@ func TestHarnessCheckCanExerciseConfiguredBrowserProfiles(t *testing.T) {
 	for _, prompt := range runner.modelPrompts {
 		if strings.Contains(prompt, "browser conformance") {
 			browserPrompts++
-			for _, expected := range []string{"navigate_page", "evaluate_script", "ALL_TOOLS", "tools object"} {
+			for _, expected := range []string{"navigate", "evaluate", "ALL_TOOLS", "tools object"} {
 				if !strings.Contains(prompt, expected) {
 					t.Fatalf("browser conformance prompt omitted %q:\n%s", expected, prompt)
 				}

@@ -66,7 +66,7 @@ func runnerBrowserMCP(trustedToolDir string) codexMCPServer {
 		Name:                  runnerBrowserMCPServer,
 		Enabled:               true,
 		Required:              true,
-		EnabledTools:          []string{"navigate_page", "evaluate_script", "take_screenshot"},
+		EnabledTools:          []string{"navigate", "evaluate", "screenshot"},
 		StartupTimeoutSeconds: &startupTimeout,
 		Transport: codexMCPTransport{
 			Type: "stdio", Command: command, Args: args, Env: runnerBrowserEnvironment(cwd), CWD: &cwd,
@@ -240,7 +240,7 @@ func runnerBrowserPrompt(safeTools bool) string {
 	return `
 Runner browser verification contract:
 - For rendered-page, interaction, or console verification, start the local application or server and use runner_browser before trying any shell-launched browser.
-- runner_browser exposes navigate_page, evaluate_script, and take_screenshot. Use their direct MCP calls when available. In Code Mode, inspect ALL_TOOLS for runner_browser and invoke the matching functions through the tools object. Do not infer availability from resource discovery.
+- runner_browser exposes navigate, evaluate, and screenshot. Use their direct MCP calls when available. In Code Mode, inspect ALL_TOOLS for runner_browser and invoke the matching functions through the tools object. Do not infer availability from resource discovery.
 - Run an already-configured project browser test when the task requires it, but failure of that one integration does not make browser verification unavailable while runner_browser is granted.
 - Do not download a browser, install a browser dependency, or inspect ambient browser caches merely to perform verification.
 - Report browser capability as blocked only after an exposed runner_browser call returns a concrete failure, or after both the direct and Code Mode tool catalogs have been checked and contain no runner_browser entry.

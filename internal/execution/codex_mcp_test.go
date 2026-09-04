@@ -91,7 +91,7 @@ func TestCodexSafeToolsInjectPinnedLoopbackOnlyBrowserWithoutUserConfig(t *testi
 		"--allowed-url-pattern=http://localhost:*/*", "--allowed-url-pattern=http://127.0.0.1:*/*",
 		"--chrome-arg=--use-mock-keychain", "--no-performance-crux", "--redact-network-headers", "--no-usage-statistics",
 		`cwd="/neutral"`, `"NPM_CONFIG_CACHE"="/neutral/npm-cache"`, `"NPM_CONFIG_USERCONFIG"="/neutral/npmrc"`,
-		`startup_timeout_sec=30`, `enabled_tools=["navigate_page","evaluate_script","take_screenshot"]`,
+		`startup_timeout_sec=30`, `enabled_tools=["navigate","evaluate","screenshot"]`,
 		`enabled=true`, `required=true`,
 	} {
 		if !strings.Contains(joined, expected) {
@@ -147,7 +147,7 @@ func TestRunnerBrowserPromptSupportsDirectAndCodeModeTools(t *testing.T) {
 	prompt := codexMCPPrompt(nil, true)
 	for _, expected := range []string{
 		"use runner_browser before trying any shell-launched browser",
-		"navigate_page, evaluate_script, and take_screenshot",
+		"navigate, evaluate, and screenshot",
 		"In Code Mode, inspect ALL_TOOLS for runner_browser",
 		"Do not download a browser",
 		"both the direct and Code Mode tool catalogs have been checked",

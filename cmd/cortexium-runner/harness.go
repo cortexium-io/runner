@@ -406,11 +406,11 @@ func checkHarnessReviewerBrowser(ctx context.Context, run subprocess.Runner, cfg
 func browserConformanceToolInstruction(kind string) string {
 	switch kind {
 	case config.HarnessCodexCLI:
-		return "Use only Runner's runner_browser navigate_page and evaluate_script MCP tools. Call them directly when they are exposed as direct tools. In Code Mode, inspect ALL_TOOLS for runner_browser and invoke the matching functions through the tools object. Do not inspect list_mcp_resources and do not launch a browser through shell commands."
+		return "Use only Runner's runner_browser navigate and evaluate MCP tools. Call them directly when they are exposed as direct tools. In Code Mode, inspect ALL_TOOLS for runner_browser and invoke the matching functions through the tools object. Do not inspect list_mcp_resources and do not launch a browser through shell commands."
 	case config.HarnessPiCLI:
 		return "Use only the runner_browser_navigate and runner_browser_evaluate tools granted by Runner. Do not launch a browser through shell commands."
 	default:
-		return "Use only Runner's runner_browser navigate_page and evaluate_script MCP tools. Do not inspect list_mcp_resources and do not launch a browser through shell commands."
+		return "Use only Runner's runner_browser navigate and evaluate MCP tools. Do not inspect list_mcp_resources and do not launch a browser through shell commands."
 	}
 }
 

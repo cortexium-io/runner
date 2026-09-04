@@ -116,7 +116,7 @@ func TestLiveReviewerBrowserHarness(t *testing.T) {
 			runGitCommand(t, repo, "add", "browser-probe.html")
 			runGitCommand(t, repo, "commit", "-m", "Add browser probe")
 
-			browserInstruction := "Use only Runner's runner_browser navigate_page and evaluate_script MCP tools. Call them directly when they are exposed as direct tools. In Code Mode, inspect ALL_TOOLS for runner_browser and invoke the matching functions through the tools object. Do not inspect list_mcp_resources because it does not list tools. Do not launch a browser through shell commands."
+			browserInstruction := "Use only Runner's runner_browser navigate and evaluate MCP tools. Call them directly when they are exposed as direct tools. In Code Mode, inspect ALL_TOOLS for runner_browser and invoke the matching functions through the tools object. Do not inspect list_mcp_resources because it does not list tools. Do not launch a browser through shell commands."
 			if kind == config.HarnessPiCLI {
 				browserInstruction = "Use only the runner_browser_navigate and runner_browser_evaluate tools granted by Runner. Do not launch a browser through shell commands."
 			}

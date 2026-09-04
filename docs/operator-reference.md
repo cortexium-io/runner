@@ -1478,7 +1478,7 @@ entrypoint and behavior; the conformance fixture is not a substitute for a
 project-specific browser check.
 Codex may expose the injected MCP operations as direct calls or through its
 Code Mode tool catalog; Runner supports both callable surfaces and uses the
-exact `navigate_page`, `evaluate_script`, and `take_screenshot` operation names.
+exact `navigate`, `evaluate`, and `screenshot` operation names.
 
 If Agent QA reports unavailable browser capability, stop repeated retries. A
 capability-blocked review does not increment the QA rejection count. On macOS,
