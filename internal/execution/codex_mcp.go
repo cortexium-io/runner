@@ -18,6 +18,7 @@ import (
 type codexMCPServer struct {
 	Name                  string            `json:"name"`
 	Enabled               bool              `json:"enabled"`
+	Required              bool              `json:"required"`
 	Transport             codexMCPTransport `json:"transport"`
 	EnabledTools          []string          `json:"enabled_tools"`
 	DisabledTools         []string          `json:"disabled_tools"`
@@ -37,6 +38,8 @@ type codexMCPTransport struct {
 const maxCodexMCPConfigurationBytes = 1024 * 1024
 
 const runnerBrowserMCPServer = "runner_browser"
+
+const runnerBrowserStartupTimeoutSeconds = 30
 
 func runnerBrowserCommand() (string, []string) {
 	return "npx", []string{
@@ -58,8 +61,13 @@ func runnerBrowserEnvironment(trustedToolDir string) map[string]string {
 func runnerBrowserMCP(trustedToolDir string) codexMCPServer {
 	command, args := runnerBrowserCommand()
 	cwd := filepath.Clean(trustedToolDir)
+	startupTimeout := float64(runnerBrowserStartupTimeoutSeconds)
 	return codexMCPServer{
-		Name: runnerBrowserMCPServer, Enabled: true,
+		Name:                  runnerBrowserMCPServer,
+		Enabled:               true,
+		Required:              true,
+		EnabledTools:          []string{"navigate_page", "evaluate_script", "take_screenshot"},
+		StartupTimeoutSeconds: &startupTimeout,
 		Transport: codexMCPTransport{
 			Type: "stdio", Command: command, Args: args, Env: runnerBrowserEnvironment(cwd), CWD: &cwd,
 		},
@@ -170,7 +178,11 @@ func writeCodexMCPServer(builder *strings.Builder, server codexMCPServer) {
 	writeTOMLFloat(builder, "tool_timeout_sec", server.ToolTimeoutSeconds)
 	writeTOMLStringList(builder, "enabled_tools", server.EnabledTools)
 	writeTOMLStringList(builder, "disabled_tools", server.DisabledTools)
-	builder.WriteString(",enabled=true,default_tools_approval_mode=\"approve\"}")
+	builder.WriteString(",enabled=true")
+	if server.Required {
+		builder.WriteString(",required=true")
+	}
+	builder.WriteString(",default_tools_approval_mode=\"approve\"}")
 }
 
 func writeTOMLStringMap(builder *strings.Builder, name string, values map[string]string) {

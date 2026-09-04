@@ -91,6 +91,8 @@ func TestCodexSafeToolsInjectPinnedLoopbackOnlyBrowserWithoutUserConfig(t *testi
 		"--allowed-url-pattern=http://localhost:*/*", "--allowed-url-pattern=http://127.0.0.1:*/*",
 		"--chrome-arg=--use-mock-keychain", "--no-performance-crux", "--redact-network-headers", "--no-usage-statistics",
 		`cwd="/neutral"`, `"NPM_CONFIG_CACHE"="/neutral/npm-cache"`, `"NPM_CONFIG_USERCONFIG"="/neutral/npmrc"`,
+		`startup_timeout_sec=30`, `enabled_tools=["navigate_page","evaluate_script","take_screenshot"]`,
+		`enabled=true`, `required=true`,
 	} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("Runner browser profile omitted %q: %s", expected, joined)
