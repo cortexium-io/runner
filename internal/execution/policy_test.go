@@ -394,7 +394,7 @@ func TestReviewerProfilesDefaultToNativeIsolation(t *testing.T) {
 		`"allowLocalBinding":true`, `"allowedDomains":["localhost","127.0.0.1"]`,
 		`"denyWrite":["/repo"]`, `"denyRead":["/home/operator"]`, `"allowRead":["/neutral","/repo"]`,
 		`"mcpServers":{"runner_browser"`, `chrome-devtools-mcp@1.7.0`,
-		`"cwd":"/private/trusted-browser"`, `"NPM_CONFIG_CACHE":"/private/trusted-browser/npm-cache"`,
+		`"cwd":"/private/trusted-browser"`, `"NPM_CONFIG_CACHE":"/private/npm-cache"`,
 	} {
 		if !strings.Contains(joinedClaude, expected) {
 			t.Fatalf("Claude reviewer sandbox omitted %s: %#v", expected, claude)
