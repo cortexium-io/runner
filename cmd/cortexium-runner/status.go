@@ -181,9 +181,23 @@ func runStatus(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	writeWorkSection(stdout, "Active work", work.Active, false, *configPath, "")
 	writeWorkSection(stdout, "Queued work", work.Queued, false, *configPath, "")
+	writeWaitingWorkSection(stdout, work.Waiting)
 	writeWorkSection(stdout, "Blocked work", work.Blocked, true, *configPath, cfg.ResolveProject().ReadyStatus)
 	writeWorkSection(stdout, "PR ready", work.PRReady, false, *configPath, "")
 	return nil
+}
+
+func writeWaitingWorkSection(output io.Writer, items []engine.WaitingWork) {
+	fmt.Fprintf(output, "\nWaiting work: %d\n", len(items))
+	for _, waiting := range items {
+		item := waiting.Item
+		fmt.Fprintf(output, "  - %s [%s]", terminalSafeText(item.Title), terminalSafeText(item.Status))
+		if item.Role != "" {
+			fmt.Fprintf(output, " · %s", terminalSafeText(item.Role))
+		}
+		fmt.Fprintln(output)
+		fmt.Fprintf(output, "    Waiting: %s\n", terminalSafeText(waiting.Summary))
+	}
 }
 
 func runnerProgress(attempts []runnermetrics.Attempt, now, processStartedAt time.Time) []runnerAttemptProgress {

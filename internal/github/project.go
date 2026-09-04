@@ -309,41 +309,36 @@ func (s *Project) ReadyItems(ctx context.Context, items []WorkItem, limit int) (
 		limit = 1
 	}
 	ready := make([]AuthorizedAction, 0, limit)
-	index := newWorkItemIndex(items)
-	for _, item := range items {
-		if !s.agentStatus(item.Status) {
-			continue
-		}
-		if strings.TrimSpace(item.Transition) != "" {
-			continue
-		}
-		if item.PlanningMetadataInvalid {
-			detail := "Runner dependency or planning metadata is hidden, malformed, or not canonical; maintainer reassessment is required."
-			if err := s.reclassifyForApproval(ctx, item, detail); err != nil {
-				return nil, err
+	for _, eligibility := range s.EvaluateWorkEligibility(items) {
+		item := eligibility.Item
+		if !eligibility.Eligible {
+			switch eligibility.Reason {
+			case WorkEligibilityPlanningMetadataInvalid:
+				detail := "Runner dependency or planning metadata is hidden, malformed, or not canonical; maintainer reassessment is required."
+				if err := s.reclassifyForApproval(ctx, item, detail); err != nil {
+					return nil, err
+				}
+			case WorkEligibilityActionAuthorityInvalid:
+				detail := "Runner approval is missing, invalid, or no longer matches the work item; maintainer reassessment is required before running approve again."
+				if err := s.reclassifyForApproval(ctx, item, detail); err != nil {
+					return nil, err
+				}
 			}
 			continue
 		}
-		action, err := s.validateAction(item)
-		if err != nil {
+		var action AuthorizedAction
+		if eligibility.action != nil {
+			action = *eligibility.action
+		} else {
 			adopted, adoptErr := s.adoptManualIntakeItem(ctx, item)
 			if adoptErr != nil {
 				return nil, adoptErr
 			}
 			if adopted != nil {
 				action = *adopted
-			} else {
-				detail := "Runner approval is missing, invalid, or no longer matches the work item; maintainer reassessment is required before running approve again."
-				if err := s.reclassifyForApproval(ctx, item, detail); err != nil {
-					return nil, err
-				}
-				continue
 			}
 		}
-		if !s.dependenciesSatisfiedIn(item, index) {
-			continue
-		}
-		if !s.planningBatchReleasedIn(item, index, s.doneStatus()) {
+		if strings.TrimSpace(action.Item.ID) == "" {
 			continue
 		}
 		ready = append(ready, action)
@@ -394,18 +389,10 @@ func (s *Project) ReconcileDependencyActivities(ctx context.Context, items []Wor
 // cannot bypass their complete-batch release because their creation assertion
 // is deliberately non-executable.
 func (s *Project) adoptManualIntakeItem(ctx context.Context, item WorkItem) (*AuthorizedAction, error) {
+	if !s.canAdoptManualIntakeItem(item) {
+		return nil, nil
+	}
 	statusLane := s.laneIDForStatus(item.Status)
-	if statusLane == "" || !s.manualIntakeLane(statusLane, item.Status) {
-		return nil, nil
-	}
-	if strings.TrimSpace(item.Approval) == "" && item.PlanningBatchFingerprint != "" {
-		return nil, nil
-	}
-	if strings.TrimSpace(item.Approval) != "" {
-		if err := s.validateRecordedAction(item); err != nil {
-			return nil, nil
-		}
-	}
 	role := strings.TrimSpace(s.cfg.LaneRoles[statusLane])
 	if role == "" {
 		return nil, nil
@@ -423,6 +410,17 @@ func (s *Project) adoptManualIntakeItem(ctx context.Context, item WorkItem) (*Au
 		return nil, fmt.Errorf("record authorization for manually readied item %s: %w", item.ID, err)
 	}
 	return &action, nil
+}
+
+func (s *Project) canAdoptManualIntakeItem(item WorkItem) bool {
+	statusLane := s.laneIDForStatus(item.Status)
+	if statusLane == "" || !s.manualIntakeLane(statusLane, item.Status) {
+		return false
+	}
+	if strings.TrimSpace(item.Approval) == "" {
+		return strings.TrimSpace(item.PlanningBatchFingerprint) == ""
+	}
+	return s.validateRecordedAction(item) == nil
 }
 
 func (s *Project) manualIntakeLane(laneID, status string) bool {
@@ -473,11 +471,9 @@ func (s *Project) ClaimFromSnapshot(ctx context.Context, expected AuthorizedActi
 		if !s.agentStatus(expectedStatus) {
 			return AuthorizedAction{}, fmt.Errorf("project item %s cannot be claimed from status %q", expectedItem.ID, expectedStatus)
 		}
-		if !s.dependenciesSatisfiedIn(current, index) {
-			return AuthorizedAction{}, fmt.Errorf("project item %s dependencies no longer all have authenticated successful outcomes", expectedItem.ID)
-		}
-		if !s.planningBatchReleasedIn(current, index, s.doneStatus()) {
-			return AuthorizedAction{}, fmt.Errorf("project item %s belongs to a planning batch that has not completed", expectedItem.ID)
+		eligibility := s.evaluateWorkEligibilityIn(current, index)
+		if !eligibility.Eligible {
+			return AuthorizedAction{}, fmt.Errorf("project item %s is not eligible: %s", expectedItem.ID, eligibility.Summary)
 		}
 		phase := ""
 		activity := ""

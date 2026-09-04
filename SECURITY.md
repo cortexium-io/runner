@@ -92,6 +92,10 @@ content, or personal data in a public issue.
   The CLI retry can instead restore the recorded lane or explicitly replace
   stale feedback. Every retry requires the new invocation to re-check
   environment and capability claims.
+- Eligibility diagnostics use fixed reason codes and bounded Runner-owned
+  summaries. `status` never publishes approval assertions, signing material,
+  validation errors, sibling content, or other private card details while
+  explaining why an agent-lane card cannot currently be claimed.
 - Implementation starts in a separate Git branch and worktree. Codex and Claude
   Code implementers and reviewers use sandboxed access by default. Pi lacks a
   native OS sandbox for these roles, so Pi implementation and review require

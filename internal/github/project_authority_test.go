@@ -169,6 +169,125 @@ func TestReadyItemsTreatsBlockedToReadyAsImplementationRetry(t *testing.T) {
 	}
 }
 
+func TestWorkEligibilityReportsInvalidTerminalPlanningSibling(t *testing.T) {
+	project := NewProject(config.ProjectConfig{
+		GitHubProjectConfig:  config.GitHubProjectConfig{Owner: "owner", Number: 1},
+		ApprovalAuthorityKey: []byte("work-eligibility-test-authority-key"),
+		AssessmentStatus:     "Needs assessment",
+		ReadyStatus:          "Ready",
+		DoneStatus:           "Done",
+		AgentStatuses:        []string{"Ready"},
+		LaneStatuses:         map[string]string{"ready": "Ready", "done": "Done"},
+		LaneRoles:            map[string]string{"ready": config.WorkRoleImplementer},
+	}, &transitionTestRunner{})
+	batch := "v1:" + strings.Repeat("a", 64)
+	base := WorkItem{
+		Repository: "owner/repo", PlanningSourceLane: "plan", PlanningSourceFingerprint: "v1:" + strings.Repeat("b", 64),
+		PlanningDestination: "Ready", PlanningBatchFingerprint: batch, PlanningBatchSize: 2,
+	}
+	done := base
+	done.ID, done.Title, done.Body, done.Status, done.Result, done.PlanningItemIndex = "PVTI_done", "Completed sibling", "Completed work", "Done", "Merged successfully.", 1
+	doneAction, err := project.signAction(done, config.WorkRoleImplementer, "done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done = doneAction.Item
+	done.Result = "Emergency operator repair changed this signed result."
+
+	pending := base
+	pending.ID, pending.Title, pending.Body, pending.Status, pending.PlanningItemIndex = "PVTI_pending", "Pending sibling", "Pending work", "Ready", 2
+	pendingAction, err := project.signAction(pending, config.WorkRoleImplementer, "ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending = pendingAction.Item
+
+	evaluations := project.EvaluateWorkEligibility([]WorkItem{done, pending})
+	if len(evaluations) != 1 {
+		t.Fatalf("agent-lane evaluations = %#v, want one", evaluations)
+	}
+	evaluation := evaluations[0]
+	if evaluation.Item.ID != pending.ID || evaluation.Eligible || evaluation.Reason != WorkEligibilityPlanningBatchSiblingAuthorityInvalid {
+		t.Fatalf("invalid terminal sibling eligibility = %#v", evaluation)
+	}
+	for _, sensitive := range []string{done.Title, done.Body, done.Result, done.Approval} {
+		if sensitive != "" && strings.Contains(evaluation.Summary, sensitive) {
+			t.Fatalf("eligibility summary exposed sibling data %q: %q", sensitive, evaluation.Summary)
+		}
+	}
+	ready, err := project.ReadyItems(t.Context(), []WorkItem{done, pending}, 2)
+	if err != nil {
+		t.Fatalf("select ready items: %v", err)
+	}
+	if len(ready) != 0 {
+		t.Fatalf("invalid planning sibling became executable: %#v", ready)
+	}
+}
+
+func TestWorkEligibilityDistinguishesCommonWaitingReasons(t *testing.T) {
+	project := NewProject(config.ProjectConfig{
+		GitHubProjectConfig:  config.GitHubProjectConfig{Owner: "owner", Number: 1},
+		ApprovalAuthorityKey: []byte("work-eligibility-reason-authority"),
+		AssessmentStatus:     "Needs assessment",
+		ReadyStatus:          "Ready",
+		DoneStatus:           "Done",
+		AgentStatuses:        []string{"Ready"},
+		LaneStatuses:         map[string]string{"ready": "Ready", "done": "Done"},
+		LaneRoles:            map[string]string{"ready": config.WorkRoleImplementer},
+	}, &transitionTestRunner{})
+	signReady := func(item WorkItem) WorkItem {
+		t.Helper()
+		action, err := project.signAction(item, config.WorkRoleImplementer, "ready")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return action.Item
+	}
+	base := WorkItem{ID: "PVTI_target", Title: "Target", Body: "Secret target body", Repository: "owner/repo", Status: "Ready"}
+
+	transition := signReady(base)
+	transition.Transition = "v1"
+	invalidAuthority := signReady(base)
+	invalidAuthority.Result = "changed after signing"
+	dependencyWait := base
+	dependencyWait.Dependencies = []string{"PVTI_dependency"}
+	dependencyWait = signReady(dependencyWait)
+	dependency := WorkItem{ID: "PVTI_dependency", Title: "Dependency", Body: "Pending", Repository: "owner/repo", Status: "Ready"}
+	incompleteBatch := base
+	incompleteBatch.PlanningSourceLane = "plan"
+	incompleteBatch.PlanningSourceFingerprint = "v1:" + strings.Repeat("c", 64)
+	incompleteBatch.PlanningDestination = "Ready"
+	incompleteBatch.PlanningBatchFingerprint = "v1:" + strings.Repeat("d", 64)
+	incompleteBatch.PlanningBatchSize = 2
+	incompleteBatch.PlanningItemIndex = 1
+	incompleteBatch = signReady(incompleteBatch)
+
+	tests := []struct {
+		name   string
+		items  []WorkItem
+		reason WorkEligibilityReason
+	}{
+		{name: "transition lock", items: []WorkItem{transition}, reason: WorkEligibilityTransitionLocked},
+		{name: "invalid current authority", items: []WorkItem{invalidAuthority}, reason: WorkEligibilityActionAuthorityInvalid},
+		{name: "dependency wait", items: []WorkItem{dependencyWait, dependency}, reason: WorkEligibilityDependenciesIncomplete},
+		{name: "incomplete planning batch", items: []WorkItem{incompleteBatch}, reason: WorkEligibilityPlanningBatchIncomplete},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			evaluations := project.EvaluateWorkEligibility(test.items)
+			var target WorkEligibility
+			for _, evaluation := range evaluations {
+				if evaluation.Item.ID == base.ID {
+					target = evaluation
+				}
+			}
+			if target.Eligible || target.Reason != test.reason || strings.TrimSpace(target.Summary) == "" {
+				t.Fatalf("eligibility = %#v, want reason %q", target, test.reason)
+			}
+		})
+	}
+}
+
 func TestPlanningBatchAuthorityBindsDelegatedContentDigest(t *testing.T) {
 	project := &Project{}
 	source := WorkItem{ID: "PVTI_source", Body: "approved planning request", Repository: "owner/repo"}
