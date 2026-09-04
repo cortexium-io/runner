@@ -203,7 +203,7 @@ When work is later admitted and Runner is started, cards follow these states:
 | `In Progress` | Runner has claimed the card for one role attempt. |
 | `Agent QA` | A reviewer checks a private detached checkout of the exact candidate commit and diff. |
 | `PR Ready` | The accepted branch awaits a human, or serialized automatic integration when explicitly enabled. |
-| `Blocked` | Human input, a closed-without-merge PR, or an explicit retry decision is required. |
+| `Blocked` | Human input, a closed-without-merge PR, or a human retry decision is required. |
 | `Done` | Planning finished, or the pull request was merged successfully. |
 
 Creating an ordinary card directly in `Plan` asks the planner to shape its exact
@@ -216,6 +216,12 @@ in `gh` and present at assignment time are supplied as bounded historical
 context; other authors are ignored. Agent QA
 posts readable requested-change notes to that issue and retains an authenticated
 private copy, so its feedback is sufficient for a retry without a human comment.
+
+Moving a blocked card to `Ready` is the board shortcut for retrying it through
+implementation. Runner preserves its existing result and QA failure count. Use
+the `retry` command when the card should return to its recorded planner or
+reviewer lane, or use `retry --feedback` to replace stale feedback and reset the
+QA failure count before implementation.
 
 For an ordinary card with prerequisites, add exact issue URLs or Project item
 IDs to a `## Dependencies` bullet list in its body before moving it to `Ready`.

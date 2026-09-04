@@ -67,7 +67,7 @@ func TestReadOnlyConfigViewsEscapeTerminalControls(t *testing.T) {
 	writeMetrics(&output, metricsOutput{
 		RunnerID: "runner\x1b[2J", Project: &config.GitHubProjectConfig{Owner: "owner\r\u202e", Number: 7}, HistoryPath: "history\a",
 	})
-	writeWorkSection(&output, "Blocked", nil, true, "config\x1b]8;;https://attacker.invalid\a")
+	writeWorkSection(&output, "Blocked", nil, true, "config\x1b]8;;https://attacker.invalid\a", "Ready")
 
 	rendered := output.String()
 	for _, control := range []string{"\x1b", "\r", "\a", "\u202e"} {

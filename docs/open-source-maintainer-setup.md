@@ -299,8 +299,9 @@ the task branch. A plan with unresolved `open_decisions` creates no cards and
 moves the planning item through `needs_input` to `Blocked`.
 
 Runner records the originating agent lane on new blocked transitions. After the
-human or environmental blocker is resolved, preview and apply a retry without
-editing workflow fields by hand:
+human or environmental blocker is resolved, move the card to `Ready` to retry
+through implementation while preserving the recorded result and QA failure
+count. To restore its recorded lane instead, preview and apply the CLI retry:
 
 ```bash
 ./cortexium-runner retry --config /absolute/operator/path/runner.json --item "Exact card title" --dry-run

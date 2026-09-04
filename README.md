@@ -309,7 +309,7 @@ flowchart LR
     F -->|"merged"| G["Done"]
     F -->|"closed without merge"| H
     D -->|"needs input or error"| H["Blocked"]
-    H -->|"human retry"| C
+    H -->|"move to Ready: retry implementation"| C
 ```
 
 By default, humans decide which assessed work enters an executable lane. With
@@ -553,6 +553,13 @@ bounded audit: the reviewer continues through its remaining card-owned behavior
 and groups directly adjacent variants of an exposed invariant so one QA attempt
 returns all reasonably visible blockers together.
 
+To retry a blocked card through implementation, move it to `Ready` on the
+Project board. Runner treats that status-only move as fresh human authorization,
+preserves the prior result and QA failure count as context, and checks the card
+on the next poll. Use `cortexium-runner retry` when the card should return to its
+recorded lane instead, or `retry --feedback` when stale feedback and the QA
+failure count must be replaced and reset.
+
 ## Useful commands
 
 ```bash
@@ -569,7 +576,7 @@ cortexium-runner status --verbose --config "$RUNNER_CONFIG"
 # Local usage, timing, harness-call count, saved-result resumes, and attempt history
 cortexium-runner metrics --config "$RUNNER_CONFIG"
 
-# Preview and retry a blocked card
+# Preview and retry a blocked card to its recorded lane
 cortexium-runner retry --dry-run --config "$RUNNER_CONFIG"
 cortexium-runner retry --config "$RUNNER_CONFIG"
 

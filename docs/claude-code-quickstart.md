@@ -223,7 +223,10 @@ the isolated worktree with a fresh bounded cleanup context and returns the card
 to the interrupted role lane.
 For a recognized Claude Code session limit, the blocked card and `status`
 display the reported reset time and the exact `cortexium-runner retry` command.
-After the limit resets, run it by exact card title, item id, or issue URL; bare
+After the limit resets, move the card to `Ready` to retry it through
+implementation while preserving its result and QA failure count. To return it
+to its recorded lane instead, run `retry` by exact card title, item id, or issue
+URL; bare
 `cortexium-runner retry --config /absolute/operator/path/runner.json` opens an arrow-key menu in a terminal. Retrying
 `Agent QA` reuses the existing implementation branch; retrying `Ready` repeats
 implementation. Earlier capability claims are historical and the new harness
