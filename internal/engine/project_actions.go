@@ -2,11 +2,28 @@ package engine
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
+
+func (s *Engine) terminalWorkspaceCleanupPending(itemID string) bool {
+	root := strings.TrimSpace(s.implementationWorkspaceRoot())
+	if root == "" {
+		return false
+	}
+	if !filepath.IsAbs(root) {
+		root = filepath.Join(filepath.Dir(s.cfg.ProjectDir), root)
+	}
+	// Successful cleanup removes the deterministic worktree path while
+	// intentionally retaining its branch and private identity record.
+	_, err := os.Lstat(filepath.Join(root, "assignment_"+safeRefComponent(itemID)))
+	return err == nil || !errors.Is(err, os.ErrNotExist)
+}
 
 func (s *Engine) transitionProjectItem(ctx context.Context, action github.AuthorizedAction, targetStatus, detail, phase string) error {
 	return s.source.Transition(ctx, action, targetStatus, detail, phase)
@@ -53,6 +70,18 @@ func (s *Engine) transitionPRReady(ctx context.Context, action github.Authorized
 
 func (s *Engine) transitionAfterBranchUpdate(ctx context.Context, action github.AuthorizedAction, targetStatus, targetPhase, detail string) error {
 	return s.source.TransitionAfterBranchUpdate(ctx, action, targetStatus, targetPhase, detail)
+}
+
+func (s *Engine) transitionAutomaticRetry(ctx context.Context, action github.AuthorizedAction, targetStatus, targetPhase, detail string) error {
+	return s.source.TransitionAutomaticRetry(ctx, action, targetStatus, targetPhase, detail)
+}
+
+func (s *Engine) transitionChecksFailed(ctx context.Context, action github.AuthorizedAction, targetStatus, targetPhase, detail string) error {
+	return s.source.TransitionChecksFailed(ctx, action, targetStatus, targetPhase, detail)
+}
+
+func (s *Engine) updateActivity(ctx context.Context, action github.AuthorizedAction, activity string) error {
+	return s.source.UpdateActivity(ctx, action, activity)
 }
 
 func (s *Engine) resetRejections(ctx context.Context, action github.AuthorizedAction, feedback, targetPhase string) error {

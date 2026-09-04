@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 type codexMCPServer struct {
 	Name                  string            `json:"name"`
 	Enabled               bool              `json:"enabled"`
+	Required              bool              `json:"required"`
 	Transport             codexMCPTransport `json:"transport"`
 	EnabledTools          []string          `json:"enabled_tools"`
 	DisabledTools         []string          `json:"disabled_tools"`
@@ -37,6 +39,8 @@ const maxCodexMCPConfigurationBytes = 1024 * 1024
 
 const runnerBrowserMCPServer = "runner_browser"
 
+const runnerBrowserStartupTimeoutSeconds = 60
+
 func runnerBrowserCommand() (string, []string) {
 	return "npx", []string{
 		"-y", "chrome-devtools-mcp@1.7.0", "--headless", "--isolated", "--slim",
@@ -46,31 +50,54 @@ func runnerBrowserCommand() (string, []string) {
 	}
 }
 
-func runnerBrowserMCP() codexMCPServer {
+func runnerBrowserEnvironment(trustedToolDir string) map[string]string {
+	return map[string]string{
+		"NPM_CONFIG_CACHE":        filepath.Join(filepath.Dir(trustedToolDir), "npm-cache"),
+		"NPM_CONFIG_USERCONFIG":   filepath.Join(trustedToolDir, "npmrc"),
+		"NPM_CONFIG_GLOBALCONFIG": filepath.Join(trustedToolDir, "global-npmrc"),
+	}
+}
+
+func runnerBrowserMCP(trustedToolDir string) codexMCPServer {
 	command, args := runnerBrowserCommand()
+	cwd := filepath.Clean(trustedToolDir)
+	startupTimeout := float64(runnerBrowserStartupTimeoutSeconds)
 	return codexMCPServer{
-		Name: runnerBrowserMCPServer, Enabled: true,
+		Name:                  runnerBrowserMCPServer,
+		Enabled:               true,
+		Required:              true,
+		EnabledTools:          []string{"navigate", "evaluate", "screenshot"},
+		StartupTimeoutSeconds: &startupTimeout,
 		Transport: codexMCPTransport{
-			Type: "stdio", Command: command, Args: args,
+			Type: "stdio", Command: command, Args: args, Env: runnerBrowserEnvironment(cwd), CWD: &cwd,
 		},
 	}
 }
 
-// codexMCPProfileArgs turns an isolated role allowlist into one self-contained
-// Codex config override. The inherited variant leaves ambient servers loaded
-// and adds only Runner-owned safe tools.
-func codexMCPProfileArgs(ctx context.Context, run subprocess.Runner, command, cwd string, allowed []string, safeTools bool) ([]string, error) {
-	return codexMCPProfileArgsForConfig(ctx, run, command, cwd, allowed, safeTools, config.HarnessConfigModeIsolated)
-}
-
-func codexMCPProfileArgsForConfig(ctx context.Context, run subprocess.Runner, command, cwd string, allowed []string, safeTools bool, harnessConfigMode string) ([]string, error) {
+// codexMCPProfileArgsForConfig turns a role allowlist into one self-contained
+// Codex config override. Isolated roles inspect only the operator catalog from
+// Runner's trusted cwd; inherited roles deliberately retain ambient discovery.
+func codexMCPProfileArgsForConfig(ctx context.Context, run subprocess.Runner, command string, workspace profileWorkspace, allowed []string, safeTools bool, harnessConfigMode string) ([]string, error) {
 	if len(allowed) == 0 && !safeTools {
+		if !inheritsHarnessConfiguration(harnessConfigMode) {
+			return []string{"--config", "mcp_servers={}"}, nil
+		}
 		return nil, nil
+	}
+	if safeTools && (strings.TrimSpace(workspace.TrustedToolDir) == "" || !filepath.IsAbs(workspace.TrustedToolDir)) {
+		return nil, errors.New("Runner browser requires an absolute private trusted tool directory")
 	}
 	var configured []codexMCPServer
 	if len(allowed) > 0 {
+		catalogCWD := workspace.Dir
+		if !inheritsHarnessConfiguration(harnessConfigMode) {
+			catalogCWD = workspace.TrustedToolDir
+			if strings.TrimSpace(catalogCWD) == "" || !filepath.IsAbs(catalogCWD) {
+				return nil, errors.New("isolated Codex MCP inspection requires an absolute private trusted tool directory")
+			}
+		}
 		result, err := subprocess.RunFailClosed(
-			ctx, run, command, []string{"mcp", "list", "--json"}, cwd, 10*time.Second,
+			ctx, run, command, []string{"mcp", "list", "--json"}, catalogCWD, 10*time.Second,
 			maxCodexMCPConfigurationBytes, subprocess.DiagnosticStderrLimit,
 		)
 		if err != nil {
@@ -118,11 +145,11 @@ func codexMCPProfileArgsForConfig(ctx context.Context, run subprocess.Runner, co
 		encoded.WriteString("mcp_servers.")
 		encoded.WriteString(runnerBrowserMCPServer)
 		encoded.WriteByte('=')
-		writeCodexMCPServer(&encoded, runnerBrowserMCP())
+		writeCodexMCPServer(&encoded, runnerBrowserMCP(workspace.TrustedToolDir))
 		return []string{"--config", encoded.String()}, nil
 	}
 	if safeTools {
-		selected = append(selected, runnerBrowserMCP())
+		selected = append(selected, runnerBrowserMCP(workspace.TrustedToolDir))
 	}
 	sort.Slice(selected, func(i, j int) bool { return selected[i].Name < selected[j].Name })
 
@@ -144,6 +171,7 @@ func writeCodexMCPServer(builder *strings.Builder, server codexMCPServer) {
 	builder.WriteString("{command=")
 	builder.WriteString(strconv.Quote(strings.TrimSpace(server.Transport.Command)))
 	writeTOMLStringList(builder, "args", server.Transport.Args)
+	writeTOMLStringMap(builder, "env", server.Transport.Env)
 	writeTOMLStringList(builder, "env_vars", server.Transport.EnvVars)
 	if server.Transport.CWD != nil && strings.TrimSpace(*server.Transport.CWD) != "" {
 		builder.WriteString(",cwd=")
@@ -153,7 +181,34 @@ func writeCodexMCPServer(builder *strings.Builder, server codexMCPServer) {
 	writeTOMLFloat(builder, "tool_timeout_sec", server.ToolTimeoutSeconds)
 	writeTOMLStringList(builder, "enabled_tools", server.EnabledTools)
 	writeTOMLStringList(builder, "disabled_tools", server.DisabledTools)
-	builder.WriteString(",enabled=true,default_tools_approval_mode=\"approve\"}")
+	builder.WriteString(",enabled=true")
+	if server.Required {
+		builder.WriteString(",required=true")
+	}
+	builder.WriteString(",default_tools_approval_mode=\"approve\"}")
+}
+
+func writeTOMLStringMap(builder *strings.Builder, name string, values map[string]string) {
+	if len(values) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	builder.WriteByte(',')
+	builder.WriteString(name)
+	builder.WriteString("={")
+	for index, key := range keys {
+		if index > 0 {
+			builder.WriteByte(',')
+		}
+		builder.WriteString(strconv.Quote(key))
+		builder.WriteByte('=')
+		builder.WriteString(strconv.Quote(values[key]))
+	}
+	builder.WriteByte('}')
 }
 
 func codexMCPPrompt(allowed []string, safeTools bool) string {
@@ -172,7 +227,7 @@ func codexMCPPromptForConfig(allowed []string, safeTools bool, harnessConfigMode
 		names = append(names, runnerBrowserMCPServer)
 	}
 	sort.Strings(names)
-	message := "\n\nRunner-granted Codex MCP servers: " + strings.Join(names, ", ") + ". Call their tools as direct MCP tool calls, not through Code Mode or a tools object. list_mcp_resources reports resources, not the available MCP tools, and an empty resource list does not mean the granted tools are unavailable."
+	message := "\n\nRunner-granted Codex MCP servers: " + strings.Join(names, ", ") + ". Use whichever callable surface this Codex session provides. If a granted MCP tool is not exposed as a direct call and Code Mode is active, inspect ALL_TOOLS for entries whose names contain the exact server name, then call the matching function through the tools object. list_mcp_resources reports resources, not the available MCP tools, and an empty resource list does not mean the granted tools are unavailable."
 	if inheritsHarnessConfiguration(harnessConfigMode) {
 		message += " Runner is also inheriting the operator's ambient Codex MCP configuration; use those servers only when relevant to this assignment.\n"
 	} else {
@@ -188,10 +243,10 @@ func runnerBrowserPrompt(safeTools bool) string {
 	return `
 Runner browser verification contract:
 - For rendered-page, interaction, or console verification, start the local application or server and use runner_browser before trying any shell-launched browser.
-- Call runner_browser's navigate, evaluate, and screenshot tools directly. Do not infer availability from resource discovery.
+- runner_browser exposes navigate, evaluate, and screenshot. Use their direct MCP calls when available. In Code Mode, inspect ALL_TOOLS for runner_browser and invoke the matching functions through the tools object. Do not infer availability from resource discovery.
 - Run an already-configured project browser test when the task requires it, but failure of that one integration does not make browser verification unavailable while runner_browser is granted.
 - Do not download a browser, install a browser dependency, or inspect ambient browser caches merely to perform verification.
-- Report browser capability as blocked only after a direct runner_browser tool call returns a concrete failure.
+- Report browser capability as blocked only after an exposed runner_browser call returns a concrete failure, or after both the direct and Code Mode tool catalogs have been checked and contain no runner_browser entry.
 `
 }
 

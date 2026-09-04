@@ -20,6 +20,9 @@ func TestPiBrowserExtensionUsesPinnedIsolatedLoopbackServer(t *testing.T) {
 		t.Fatalf("read Pi browser extension: %v", err)
 	}
 	source := string(content)
+	if !strings.Contains(source, "const browserCwd = ") || !strings.Contains(source, "NPM_CONFIG_CACHE") || !strings.Contains(source, "cwd: browserCwd") {
+		t.Fatalf("Pi browser extension omitted private package runtime: %s", source)
+	}
 	for _, required := range []string{
 		`chrome-devtools-mcp@1.7.0`, `--headless`, `--isolated`, `--slim`,
 		`--allowed-url-pattern=http://localhost:*/*`, `--allowed-url-pattern=http://127.0.0.1:*/*`,

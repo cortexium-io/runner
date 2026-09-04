@@ -38,6 +38,29 @@ func TestParseStructuredExecutionResultAcceptsEveryProcessOutcome(t *testing.T) 
 	}
 }
 
+func TestCodexInvocationMCPOverridesFollowUserConfigIsolation(t *testing.T) {
+	profile, err := ProfileForRole(RoleReviewer, config.RoleAccessHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := NewCodexExecutor(config.ExecutionConfig{
+		HarnessConfigMode: config.HarnessConfigModeIsolated,
+		Harness:           config.HarnessConfig{Kind: config.HarnessCodexCLI, Command: "codex", ReasoningEffort: "high"},
+	}, nil)
+	workspace := profileWorkspace{Dir: "/neutral"}
+	mcpArgs := []string{"--config", `mcp_servers={runner_browser={command="npx"}}`}
+	for name, args := range map[string][]string{
+		"read only":       executor.args(profile, workspace, mcpArgs, "/result", "/schema", Assignment{}),
+		"workspace write": executor.profileWorkspaceWriteArgs(profile, workspace, mcpArgs, "/result", "/schema", Assignment{}),
+	} {
+		isolationIndex := slices.Index(args, "--ignore-user-config")
+		mcpIndex := slices.Index(args, mcpArgs[1])
+		if isolationIndex < 0 || mcpIndex <= isolationIndex {
+			t.Fatalf("%s MCP override must follow --ignore-user-config: %#v", name, args)
+		}
+	}
+}
+
 func TestExecutionContentSchemaIsSmallStrictAndShared(t *testing.T) {
 	var schema map[string]any
 	if err := json.Unmarshal(executionContentSchema, &schema); err != nil {
@@ -373,6 +396,26 @@ func TestCodexCLIExecutorFailsClosedWithoutModelFallback(t *testing.T) {
 		t.Fatalf("expected safe blocked evidence, got %#v", output)
 	}
 	assertApprovedCodexArgs(t, runner.args)
+}
+
+func TestCodexCLIExecutorClassifiesTerminalProviderFailureForAutomaticRetry(t *testing.T) {
+	runner := &structuredResultCommandRunner{
+		commandResult: subprocess.Result{
+			Stdout:   `{"type":"turn.failed","error":{"message":"unexpected status 404 Not Found: Unknown error, url: https://chatgpt.com/backend-api/codex/responses, token=private"}}`,
+			ExitCode: 1,
+		},
+		err: errors.New("exit status 1"),
+	}
+	output, err := NewCodexExecutor(testCodexConfig(t), runner).Execute(t.Context(), testPollResponse(testCodexCLIAssignmentSpec()).Assignments[0])
+	if err == nil {
+		t.Fatal("expected terminal provider failure")
+	}
+	if output.FailureClass != FailureTransientExternal || output.RetryDisposition != RetryAutomatic || !output.RemoteDetailSafe || !output.DiscardDiagnostics {
+		t.Fatalf("provider failure classification = %#v", output)
+	}
+	if strings.Contains(output.Summary, "token") || output.Blocker == nil || strings.Contains(*output.Blocker, "token") {
+		t.Fatalf("provider diagnostic escaped fixed recovery output: %#v", output)
+	}
 }
 
 func TestCodexCLIExecutorFailsClosedOnMalformedStructuredResult(t *testing.T) {

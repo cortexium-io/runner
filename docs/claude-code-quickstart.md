@@ -88,14 +88,17 @@ Runner suppresses ambient Claude customization and uses Claude's native
 filesystem/process sandbox. Set `harness_config: inherit` only when the role
 must load native Claude user/project settings, hooks, tools, or MCP servers; the
 same sandbox boundary still applies until `access` is explicitly changed to
-`host`. Implementers run in the task worktree; reviewers use a private neutral directory with the
-repository added read-only. Operator-home reads are denied except for the
+`host`. Implementers run in the task worktree; reviewers use a private neutral
+directory with a new detached checkout of the exact candidate added read-only.
+Operator-home reads are denied except for the
 assigned root and the implementer's npm cache. Claude still uses its existing
 login.
 
 Implementer and reviewer roles also inherit Runner's safe development tools:
 bounded npm/loopback access and an isolated, headless `runner_browser` limited
-to localhost pages. Verify the local prerequisites or opt out per role:
+to localhost pages. Runner launches that browser package from host-owned npm
+state that is not writable by the role sandbox. Verify the local prerequisites
+or opt out per role:
 
 ```bash
 cortexium-runner doctor --config /absolute/operator/path/runner.json
@@ -104,9 +107,11 @@ cortexium-runner role edit reviewer \
 ```
 
 `--max-parallelism 1` is the safest first run. Values above 1 execute only
-cards whose declared dependencies are already `Done`; the planner is also
-required to keep concurrently eligible cards non-overlapping and safe for
-separate worktrees.
+cards whose declared dependencies have Runner-authenticated successful
+outcomes. Runner reserves each item and its implementation/review branch,
+skips conflicting candidates, and continues looking for safe work until global
+capacity is full. Planning dependencies should therefore represent actual
+unfinished prerequisites, not possible file overlap.
 
 `--bootstrap-base-branch` is safe to include when the configured remote branch
 already exists. When both repositories are empty, it creates an empty initial
@@ -115,7 +120,7 @@ base branch when the remote already has other history. For a project-local
 config, `init` modifies `.gitignore` but leaves that change for the user to
 review and commit if desired.
 
-The command creates or synchronizes the Project, writes the complete v2 config,
+The command creates or synchronizes the Project, writes the complete v5 config,
 and installs readiness copies of the three bundled Runner skills. Privileged
 launches disable native skill discovery and inject Runner's pinned embedded
 copy. Init does not install or authenticate Claude Code.
@@ -125,12 +130,16 @@ copy. Init does not install or authenticate Claude Code.
 ```bash
 cortexium-runner doctor --config /absolute/operator/path/runner.json --offline
 cortexium-runner doctor --config /absolute/operator/path/runner.json
-cortexium-runner doctor --config /absolute/operator/path/runner.json --probe-harnesses
+cortexium-runner harness check --config /absolute/operator/path/runner.json
 ```
 
-All three commands must succeed. The explicit probe makes a real minimal model
-call and validates structured output. It does not edit a file, so complete one
-throwaway end-to-end card before relying on a new environment.
+All three commands must succeed. `harness check` makes live model calls through
+the configured planner, implementer, and reviewer profiles in a private
+temporary Git repository. Add `--browser` if the project relies on browser
+verification. Use `doctor --probe-harnesses` instead when only a smaller
+authentication and structured-output probe is needed. Neither live check
+exercises GitHub publication, so complete one throwaway end-to-end card before
+relying on that integration in a new environment.
 
 If initialization says an installed `runner-planner`, `runner-implementer`, or
 `runner-reviewer` skill differs, Runner leaves it unchanged. Review the reported
@@ -192,19 +201,24 @@ or set `github_project.auto_merge` to `true`; Runner then asks GitHub to merge
 after its configured requirements pass, without bypassing branch protection.
 Runner never deploys. `run` auto-detects the default project-local config and
 accepts `--config` for other locations. It polls continuously with built-in
-interval defaults. After Runner changes workflow state, it checks immediately for newly
-available work; the polling delay and idle backoff apply only when no progress
-was made. `run --once` performs one cycle for diagnostics or scripts.
+interval defaults and continues reconciling unrelated pull requests while a
+harness action is in flight. After Runner changes workflow state, it checks
+immediately for newly available work. Quiet polls stay at the base interval
+while actions or other nonterminal work remain observable. The default idle
+ceiling equals that base interval; a larger idle backoff is opt-in.
+`run --once` performs one synchronous cycle for diagnostics or scripts.
 
 ## If something blocks
 
-Run `doctor --probe-harnesses` again and read the local Runner error. Common
-failures are missing GitHub Project scope, a repository remote that does not
-match `--repository`, harness authentication, an installed CLI missing a
-required non-interactive or structured-output flag, or a configured model the
-user cannot access. For implementation failures, also inspect whether the
-required native tool or browser is installed and usable. A browser-capability
-block does not count as a QA rejection. On Ctrl-C, Runner verifies and retains
+Run ordinary `doctor` again for GitHub, repository, executable, or installed
+skill failures. Use `doctor --probe-harnesses` for a minimal authentication and
+structured-output check, or `harness check` when the failing role's real adapter
+and worktree permissions need to be reproduced. Add `--browser` for browser
+capabilities. Common failures are missing GitHub Project scope, a repository
+remote that does not match `--repository`, harness authentication, an installed
+CLI missing a required non-interactive or structured-output flag, or a
+configured model the user cannot access. A browser-capability block does not
+count as a QA rejection. On Ctrl-C, Runner verifies and retains
 the isolated worktree with a fresh bounded cleanup context and returns the card
 to the interrupted role lane.
 For a recognized Claude Code session limit, the blocked card and `status`

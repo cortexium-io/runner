@@ -20,20 +20,39 @@ type StructuredHarnessResult struct {
 	RetryAfter           string
 }
 
+// AutomaticRetryOutput restores the fixed, remotely safe failure report for a
+// structured harness call. Structured planner and reviewer stages retain only
+// typed recovery fields, so callers must not derive retry authority from the
+// returned error text.
+func (r StructuredHarnessResult) AutomaticRetryOutput() (Output, bool) {
+	if r.RetryDisposition != RetryAutomatic {
+		return Output{}, false
+	}
+	output, known := classifyHarnessFailure(nil, HarnessFailureEvidence{
+		FailureClass: r.FailureClass, RetryDisposition: r.RetryDisposition, RetryAfter: r.RetryAfter,
+	})
+	if !known {
+		return Output{}, false
+	}
+	output.Usage = r.Usage
+	output.HarnessDurationMilliseconds = r.DurationMilliseconds
+	return output, true
+}
+
 func RunPlannerWithUsage(ctx context.Context, kind string, cfg config.ExecutionConfig, workingDir, prompt string, schema []byte, run subprocess.Runner) (StructuredHarnessResult, error) {
-	return runStructuredHarness(ctx, RolePlanner, kind, cfg, workingDir, prompt, schema, "prefer", run)
+	return runStructuredHarness(ctx, RolePlanner, kind, cfg, workingDir, prompt, schema, "prefer", metrics.StageHarnessRun, run)
 }
 
 // RunPlannerStageWithUsage performs the repository-aware half of the shared
 // two-stage planning contract for any supported harness.
 func RunPlannerStageWithUsage(ctx context.Context, kind string, cfg config.ExecutionConfig, workingDir, prompt string, schema []byte, run subprocess.Runner) (StructuredHarnessResult, error) {
-	return runStructuredHarness(ctx, RolePlanner, kind, cfg, workingDir, prompt, schema, "require", run)
+	return runStructuredHarness(ctx, RolePlanner, kind, cfg, workingDir, prompt, schema, "require", metrics.StagePlannerOutline, run)
 }
 
 // RunPlannerSynthesisStageWithUsage exposes no repository or shell tools. It
 // turns the Runner-validated outline into one fixed-key details response.
 func RunPlannerSynthesisStageWithUsage(ctx context.Context, kind string, cfg config.ExecutionConfig, prompt string, schema []byte, run subprocess.Runner) (StructuredHarnessResult, error) {
-	return runStructuredHarness(ctx, RoleSynthesis, kind, cfg, cfg.Harness.WorkingDir, prompt, schema, "require", run)
+	return runStructuredHarness(ctx, RoleSynthesis, kind, cfg, cfg.Harness.WorkingDir, prompt, schema, "require", metrics.StagePlannerDetails, run)
 }
 
 // RunProbeWithUsage invokes only the dedicated tool-free probe profile. It
@@ -43,10 +62,10 @@ func RunProbeWithUsage(ctx context.Context, kind string, cfg config.ExecutionCon
 	// broader access. This is especially important for host-access Pi roles.
 	cfg.RoleAccess = config.RoleAccessSandboxed
 	cfg.HarnessConfigMode = config.HarnessConfigModeIsolated
-	return runStructuredHarness(ctx, RoleProbe, kind, cfg, cfg.Harness.WorkingDir, prompt, schema, "prefer", run)
+	return runStructuredHarness(ctx, RoleProbe, kind, cfg, cfg.Harness.WorkingDir, prompt, schema, "prefer", metrics.StageHarnessRun, run)
 }
 
-func runStructuredHarness(ctx context.Context, role RoleContract, kind string, cfg config.ExecutionConfig, workingDir, prompt string, schema []byte, piConstrainedSamplingStrict string, run subprocess.Runner) (StructuredHarnessResult, error) {
+func runStructuredHarness(ctx context.Context, role RoleContract, kind string, cfg config.ExecutionConfig, workingDir, prompt string, schema []byte, piConstrainedSamplingStrict, stageName string, run subprocess.Runner) (StructuredHarnessResult, error) {
 	if run == nil {
 		run = subprocess.OSRunner{}
 	}
@@ -66,7 +85,8 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 	if err := ensureHarnessAdvertisesProfile(ctx, run, strings.TrimSpace(cfg.Harness.Command), kind, role, cfg.RoleAccess, cfg.HarnessConfigMode); err != nil {
 		return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 	}
-	workspace, err := prepareProfileWorkspace(profile, workingDir, cfg.Harness.WorkspaceWriteRoot)
+	protectedRoots := append([]string{cfg.Harness.WorkspaceWriteRoot}, cfg.ReferenceProtectedRoots...)
+	workspace, err := prepareExecutionWorkspace(ctx, run, profile, workingDir, cfg.RepositoryReferences, protectedRoots...)
 	if err != nil {
 		return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 	}
@@ -90,12 +110,11 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		harness := cfg.Harness
 		command := strings.TrimSpace(harness.Command)
 		timeout := harnessTimeout(harness)
-		mcpArgs, err := codexMCPProfileArgsForConfig(ctx, run, command, workspace.Dir, cfg.MCPServers, cfg.SafeTools, cfg.HarnessConfigMode)
+		mcpArgs, err := codexMCPProfileArgsForConfig(ctx, run, command, workspace, cfg.MCPServers, cfg.SafeTools, cfg.HarnessConfigMode)
 		if err != nil {
 			return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryManual), err
 		}
 		args := codexProfileArgsForConfig(profile, workspace, cfg.SafeTools, cfg.HarnessConfigMode, command)
-		args = append(args, mcpArgs...)
 		if harness.Model != nil && strings.TrimSpace(*harness.Model) != "" {
 			args = append(args, "--model", strings.TrimSpace(*harness.Model))
 		}
@@ -103,14 +122,17 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 			args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", effort))
 		}
 		args = append(args, codexExecArgsForConfig(profile, workspace, cfg.HarnessConfigMode)...)
+		// Codex 0.153 must receive invocation MCP overrides after
+		// exec --ignore-user-config or its stdio handshake can stall.
+		args = append(args, mcpArgs...)
 		args = append(args, "--output-last-message", artifacts.outputPath(), "--output-schema", artifacts.schemaPath())
 		startedAt := time.Now()
-		finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
+		finishHarness := metrics.StartStage(ctx, stageName)
 		result, runErr := subprocess.RunBoundedHeadTailInput(ctx, run, command, args, workspace.Dir, timeout, strings.NewReader(prompt), maxHarnessDiagnosticBytes, harnessTruncationMarker)
 		duration := time.Since(startedAt).Milliseconds()
 		usage := parseCodexUsage(result.Stdout)
 		if runErr != nil {
-			output, known := classifyHarnessFailure(runErr, HarnessFailureEvidence{})
+			output, known := classifyHarnessFailure(runErr, codexFailureEvidenceFromStdout(result.Stdout))
 			if !known {
 				output = blockedOutputWithFailure("Harness execution failed.", FailureUnknown, RetryNone)
 			}
@@ -146,7 +168,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 			}
 		}
 		startedAt := time.Now()
-		finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
+		finishHarness := metrics.StartStage(ctx, stageName)
 		result, lastMessage, usage, failureEvidence, runErr := executor.runHarnessWithPiTransport(ctx, args, workspace.Dir, strings.NewReader(prompt), schema, piConstrainedSamplingStrict, piDirectNative)
 		duration := time.Since(startedAt).Milliseconds()
 		if runErr != nil {

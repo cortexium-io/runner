@@ -41,3 +41,22 @@ func TestExecutionReportBoundsStructuredRetryField(t *testing.T) {
 		t.Fatalf("remote retry field was not bounded: bytes=%d report=%q", len(report), report)
 	}
 }
+
+func TestExecutionReportPublishesOnlyRunnerSanitizedCandidateCorrection(t *testing.T) {
+	correction := "Candidate failed `git diff --cached --check` because it contains trailing whitespace. Correct every reported line before retrying."
+	output := execution.Output{
+		Outcome: execution.OutcomeBlocked, Summary: "Implementation candidate needs correction before QA.", Blocker: &correction,
+		RemoteDetailSafe: true, FailureClass: execution.FailureCandidateValidation, RetryDisposition: execution.RetryManual,
+	}
+	report := formatExecutionReport("Retryable Runner blocker", output)
+	if !strings.Contains(report, correction) || !strings.Contains(report, "Failure: candidate_validation; retry: manual") {
+		t.Fatalf("candidate correction was not published: %q", report)
+	}
+	secret := "PRIVATE-CANDIDATE-CONTENT"
+	output.Blocker = &secret
+	output.RemoteDetailSafe = false
+	report = formatExecutionReport("Runner blocked", output)
+	if strings.Contains(report, secret) || !strings.Contains(report, "needs correction before QA") {
+		t.Fatalf("untrusted candidate detail was published: %q", report)
+	}
+}

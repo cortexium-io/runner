@@ -213,25 +213,30 @@ func TestPublicationAcceptanceRecordsExactTupleExclusively(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted)
+	record, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate.")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if record.CommitOID != candidate.CommitOID || record.TreeOID != candidate.TreeOID || record.ItemID != prepared.Identity.ItemID ||
 		record.DelegatedContentDigest != prepared.Identity.DelegatedContentDigest || record.ApprovedBaseRef != prepared.BaseRef ||
 		record.ApprovedBaseOID != prepared.BaseRevision || record.Repository != prepared.Identity.Repository ||
-		record.DestinationRef != "refs/heads/"+prepared.BranchName || record.AcceptanceSnapshot != accepted.Fingerprint {
+		record.DestinationRef != "refs/heads/"+prepared.BranchName || record.AcceptanceSnapshot != accepted.Fingerprint ||
+		record.AcceptanceReport != "QA accepted." || record.AcceptanceComment != "Accepted candidate." {
 		t.Fatalf("publication tuple lost accepted identity: %#v", record)
 	}
-	replayed, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted)
+	replayed, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate.")
 	if err != nil || replayed != record {
 		t.Fatalf("exact publication tuple replay changed the record: record=%#v error=%v", replayed, err)
 	}
-	path := filepath.Join(root, ".runner-state", "publications", candidate.CommitOID+".json")
+	loaded, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, accepted)
+	if err != nil || !found || loaded != record {
+		t.Fatalf("exact publication tuple could not be resumed: found=%t record=%#v error=%v", found, loaded, err)
+	}
+	path := publicationRecordPath(root, candidate.CommitOID)
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("inspect publication record: %v", err)
@@ -249,8 +254,240 @@ func TestPublicationAcceptanceRecordsExactTupleExclusively(t *testing.T) {
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted); err == nil || !strings.Contains(err.Error(), "different immutable tuple") {
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "Different report.", "Accepted candidate."); err == nil || !strings.Contains(err.Error(), "different immutable tuple") {
 		t.Fatalf("publication record collision was accepted: %v", err)
+	}
+}
+
+func TestPublicationAcceptanceIgnoresLegacyReviewBoundaryRecord(t *testing.T) {
+	repo := initGitRepo(t)
+	root := filepath.Join(t.TempDir(), "worktrees")
+	provider := NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
+		WorkingDir: repo, WorktreeRoot: root, WorkID: "legacy_acceptance", BranchPrefix: "runner", BaseRef: "HEAD",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "accepted.txt"), []byte("accepted bytes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := provider.ConstructCandidate(t.Context(), prepared, "Legacy acceptance")
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const report = "QA accepted the exact detached candidate."
+	const comment = "Accepted after detached Agent QA."
+	current, currentPath, err := provider.validatedPublicationAcceptance(t.Context(), prepared, accepted, report, comment, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := current
+	legacy.Version = publicationRecordVersion - 1
+	content, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(root, ".runner-state", "publications", candidate.CommitOID+".json")
+	if err := os.WriteFile(legacyPath, append(content, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if record, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, accepted); err != nil || found || record != (PublicationRecord{}) {
+		t.Fatalf("legacy acceptance remained resumable: found=%t record=%#v error=%v", found, record, err)
+	}
+	recorded, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, report, comment)
+	if err != nil {
+		t.Fatalf("record fresh acceptance beside legacy state: %v", err)
+	}
+	if recorded.Version != publicationRecordVersion || recorded.CommitOID != candidate.CommitOID {
+		t.Fatalf("fresh acceptance = %#v", recorded)
+	}
+	loaded, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, accepted)
+	if err != nil || !found || loaded != recorded {
+		t.Fatalf("fresh acceptance did not resume: found=%t record=%#v error=%v", found, loaded, err)
+	}
+	for _, path := range []string{legacyPath, currentPath} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected publication record %s: %v", path, err)
+		}
+	}
+}
+
+func TestPrepareReviewWorkspaceMaterializesExactCandidateOutsideImplementationCheckout(t *testing.T) {
+	testRoot := t.TempDir()
+	repo := initGitRepo(t)
+	home := filepath.Join(testRoot, "home")
+	npmTemp := filepath.Join(home, ".npm", "tmp")
+	if err := os.MkdirAll(npmTemp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(testRoot, "cache"))
+	t.Setenv("TMPDIR", npmTemp)
+	provider := NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(testRoot, "worktrees"), WorkID: "private_review", BranchPrefix: "runner", BaseRef: "HEAD",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "reviewed.txt"), []byte("reviewed bytes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := provider.ConstructCandidate(t.Context(), prepared, "Private review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := provider.PrepareReviewWorkspace(t.Context(), prepared, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRoot, err := reviewWorkspaceRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pathInsideOrEqualLexical(normalizedPath(review.Path), normalizedPath(wantRoot)) {
+		t.Fatalf("private review workspace %q is not beneath dedicated root %q", review.Path, wantRoot)
+	}
+	for _, protected := range []string{prepared.WorktreePath, repo, filepath.Join(home, ".npm")} {
+		if pathInsideOrEqualLexical(normalizedPath(review.Path), normalizedPath(protected)) || pathInsideOrEqualLexical(normalizedPath(protected), normalizedPath(review.Path)) {
+			t.Fatalf("private review workspace %q overlaps protected root %q", review.Path, protected)
+		}
+	}
+	info, err := os.Stat(review.parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("private review parent mode = %v, want 0700", info.Mode().Perm())
+	}
+	if got := runGitTest(t, review.Path, "show", "HEAD:reviewed.txt"); got != "reviewed bytes\n" {
+		t.Fatalf("private review content = %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "reviewed.txt"), []byte("late mutation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reviewed, err := os.ReadFile(filepath.Join(review.Path, "reviewed.txt"))
+	if err != nil || string(reviewed) != "reviewed bytes\n" {
+		t.Fatalf("implementation mutation reached private review: content=%q err=%v", reviewed, err)
+	}
+	parent := review.parent
+	if err := review.Cleanup(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(parent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private review workspace was not removed: %v", err)
+	}
+}
+
+func TestPrepareReviewWorkspaceIgnoresSymlinkedTempRootInsideNPMGrant(t *testing.T) {
+	testRoot := t.TempDir()
+	repo := initGitRepo(t)
+	home := filepath.Join(testRoot, "home")
+	npmRoot := filepath.Join(home, ".npm")
+	if err := os.MkdirAll(npmRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tempLink := filepath.Join(testRoot, "sandbox-temp")
+	if err := os.Symlink(npmRoot, tempLink); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(testRoot, "cache"))
+	t.Setenv("TMPDIR", tempLink)
+	if !pathInsideOrEqualLexical(normalizedPath(os.TempDir()), normalizedPath(npmRoot)) {
+		t.Fatalf("test setup temp root %q does not resolve beneath npm root %q", os.TempDir(), npmRoot)
+	}
+
+	provider := NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(testRoot, "worktrees"), WorkID: "symlinked_private_review", BranchPrefix: "runner", BaseRef: "HEAD",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := provider.ConstructCandidate(t.Context(), prepared, "Symlink-safe private review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := provider.PrepareReviewWorkspace(t.Context(), prepared, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = review.Cleanup(t.Context()) })
+	if pathInsideOrEqualLexical(normalizedPath(review.Path), normalizedPath(npmRoot)) || pathInsideOrEqualLexical(normalizedPath(npmRoot), normalizedPath(review.Path)) {
+		t.Fatalf("private review workspace %q overlaps npm root %q", review.Path, npmRoot)
+	}
+}
+
+func TestReviewWorkspaceRejectsCacheRootResolvingInsideNPMGrant(t *testing.T) {
+	testRoot := t.TempDir()
+	home := filepath.Join(testRoot, "home")
+	npmCache := filepath.Join(home, ".npm", "cache")
+	if err := os.MkdirAll(npmCache, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache-link"))
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(cache), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(npmCache, cache); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newReviewWorkspaceParent(filepath.Join(testRoot, "worktree"), filepath.Join(testRoot, "repository")); err == nil || !strings.Contains(err.Error(), "overlaps protected or sandbox-writable root") {
+		t.Fatalf("cache root resolving inside npm grant was accepted: %v", err)
+	}
+}
+
+func TestPublicationAcceptanceRequiresDurableReviewerOutput(t *testing.T) {
+	repo := initGitRepo(t)
+	provider := NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"), WorkID: "reviewer_output", BranchPrefix: "runner", BaseRef: "HEAD",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "", ""); err == nil || !strings.Contains(err.Error(), "reviewer report") {
+		t.Fatalf("empty reviewer output was accepted: %v", err)
+	}
+}
+
+func TestPublicationAcceptanceLoadDoesNotCreateMissingRecord(t *testing.T) {
+	repo := initGitRepo(t)
+	root := filepath.Join(t.TempDir(), "worktrees")
+	provider := NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
+		WorkingDir: repo, WorktreeRoot: root, WorkID: "missing_acceptance", BranchPrefix: "runner", BaseRef: "HEAD",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.ConstructCandidate(t.Context(), prepared, "Unreviewed candidate"); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, accepted); err != nil || found || record != (PublicationRecord{}) {
+		t.Fatalf("missing acceptance was not inert: found=%t record=%#v error=%v", found, record, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".runner-state", "publications")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("loading a missing acceptance created state: %v", err)
 	}
 }
 
@@ -270,7 +507,7 @@ func TestPublicationAcceptanceRejectsChangedHeadOrTree(t *testing.T) {
 	if _, err := provider.ConstructCandidate(t.Context(), prepared, "Accepted"); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +516,7 @@ func TestPublicationAcceptanceRejectsChangedHeadOrTree(t *testing.T) {
 	}
 	runGitTest(t, prepared.WorktreePath, "add", "--all")
 	runGitTest(t, prepared.WorktreePath, "commit", "-m", "unreviewed change")
-	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted); err == nil || !strings.Contains(err.Error(), "snapshot, HEAD, tree, or branch changed") {
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate."); err == nil || !strings.Contains(err.Error(), "snapshot, HEAD, tree, or branch changed") {
 		t.Fatalf("changed acceptance snapshot was recorded: %v", err)
 	}
 }
@@ -316,11 +553,11 @@ func TestPublicationAcceptanceRejectsCandidateUnrelatedToApprovedBase(t *testing
 	root := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "commit-tree", tree, "-m", "Unrelated root"))
 	runGitTest(t, prepared.WorktreePath, "update-ref", "refs/heads/"+prepared.BranchName, root)
 	runGitTest(t, prepared.WorktreePath, "reset", "--hard", root)
-	accepted, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted); err == nil || !strings.Contains(err.Error(), "not descended from the approved base") {
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate."); err == nil || !strings.Contains(err.Error(), "not descended from the approved base") {
 		t.Fatalf("candidate unrelated to approved base was accepted: %v", err)
 	}
 }
@@ -337,6 +574,34 @@ func TestConstructCandidateRejectsHiddenIndexState(t *testing.T) {
 	runGitTest(t, prepared.WorktreePath, "update-index", "--skip-worktree", "README.md")
 	if _, err := provider.ConstructCandidate(t.Context(), prepared, "Hidden index"); err == nil || !strings.Contains(err.Error(), "hidden worktree state") {
 		t.Fatalf("candidate accepted skip-worktree index state: %v", err)
+	} else if _, safe := CandidateValidationCorrection(err); safe {
+		t.Fatalf("hidden index state was misclassified as safe candidate content: %v", err)
+	}
+}
+
+func TestConstructCandidateClassifiesDiffCheckFailureWithoutPublishingContent(t *testing.T) {
+	repo := initGitRepo(t)
+	provider := NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"), WorkID: "diff_check", BranchPrefix: "runner", BaseRef: "HEAD",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const privateLine = "PRIVATE-CANDIDATE-CONTENT"
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "candidate.md"), []byte(privateLine+"  \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = provider.ConstructCandidate(t.Context(), prepared, "Invalid candidate")
+	correction, safe := CandidateValidationCorrection(err)
+	if err == nil || !safe {
+		t.Fatalf("diff-check failure was not classified as recoverable candidate content: correction=%q error=%v", correction, err)
+	}
+	if !strings.Contains(correction, "trailing whitespace") || !strings.Contains(correction, "git diff --cached --check") {
+		t.Fatalf("candidate correction is not actionable: %q", correction)
+	}
+	if strings.Contains(correction, privateLine) || strings.Contains(correction, "candidate.md") {
+		t.Fatalf("candidate correction exposed repository content or paths: %q", correction)
 	}
 }
 

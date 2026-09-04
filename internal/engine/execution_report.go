@@ -48,6 +48,13 @@ func remoteDiagnosticSummary(output execution.Output) string {
 		return "Runner classified a local authentication requirement."
 	case execution.FailureInvalidConfiguration:
 		return "Runner classified the local harness configuration as invalid."
+	case execution.FailureCandidateValidation:
+		if output.RemoteDetailSafe && output.Blocker != nil {
+			if detail := boundedRemoteField(*output.Blocker, 500); detail != "" {
+				return detail
+			}
+		}
+		return "Runner rejected a candidate that needs correction before QA."
 	case execution.FailureIntegrityViolation:
 		return "Runner detected a workspace integrity violation and blocked continuation."
 	default:
@@ -64,7 +71,7 @@ func recoveryClassification(output execution.Output) string {
 	if retry := boundedRetryDisposition(output.RetryDisposition); retry != "" {
 		fmt.Fprintf(&report, "; retry: %s", retry)
 	}
-	if retryAfter := strings.TrimSpace(output.RetryAfter); output.FailureClass == execution.FailureCapacityExhausted && retryAfter != "" {
+	if retryAfter := strings.TrimSpace(output.RetryAfter); (output.FailureClass == execution.FailureCapacityExhausted || output.RetryDisposition == execution.RetryAutomatic) && retryAfter != "" {
 		fmt.Fprintf(&report, "; retry after: %s", boundedRemoteField(retryAfter, 200))
 	}
 	return report.String()
@@ -75,7 +82,7 @@ func boundedFailureClass(class execution.FailureClass) string {
 	case execution.FailureTransientExternal, execution.FailureCapacityExhausted, execution.FailureTimeout,
 		execution.FailureCanceled, execution.FailureInvalidContract, execution.FailureCapabilityUnavailable,
 		execution.FailureNeedsInput, execution.FailurePermissionDenied, execution.FailureAuthenticationRequired,
-		execution.FailureInvalidConfiguration, execution.FailureIntegrityViolation:
+		execution.FailureInvalidConfiguration, execution.FailureCandidateValidation, execution.FailureIntegrityViolation:
 		return string(class)
 	default:
 		return string(execution.FailureUnknown)
@@ -84,7 +91,7 @@ func boundedFailureClass(class execution.FailureClass) string {
 
 func boundedRetryDisposition(retry execution.RetryDisposition) string {
 	switch retry {
-	case execution.RetryManual, execution.RetryNone:
+	case execution.RetryAutomatic, execution.RetryManual, execution.RetryNone:
 		return string(retry)
 	default:
 		return ""

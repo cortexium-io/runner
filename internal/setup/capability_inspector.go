@@ -14,6 +14,7 @@ import (
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/subprocess"
+	"github.com/cortexium-io/runner/internal/workspace"
 	bundledskills "github.com/cortexium-io/runner/skills"
 )
 
@@ -29,16 +30,17 @@ type InspectionRequest struct {
 }
 
 type InspectionReport struct {
-	Ready            bool                        `json:"ready"`
-	Snapshot         CapabilitySnapshot          `json:"capability_snapshot"`
-	GitHubAuth       *GitHubAuthInspection       `json:"github_auth,omitempty"`
-	Harnesses        []HarnessInspection         `json:"harnesses"`
-	Project          *ProjectInspection          `json:"project,omitempty"`
-	GitHubRepository *GitHubRepositoryInspection `json:"github_repository,omitempty"`
-	GitHubProject    *github.ProjectInspection   `json:"github_project,omitempty"`
-	RequiredMCPs     int                         `json:"required_mcps"`
-	Warnings         []string                    `json:"warnings,omitempty"`
-	Recommendations  []string                    `json:"recommendations,omitempty"`
+	Ready                bool                            `json:"ready"`
+	Snapshot             CapabilitySnapshot              `json:"capability_snapshot"`
+	GitHubAuth           *GitHubAuthInspection           `json:"github_auth,omitempty"`
+	Harnesses            []HarnessInspection             `json:"harnesses"`
+	Project              *ProjectInspection              `json:"project,omitempty"`
+	RepositoryReferences []RepositoryReferenceInspection `json:"repository_references,omitempty"`
+	GitHubRepository     *GitHubRepositoryInspection     `json:"github_repository,omitempty"`
+	GitHubProject        *github.ProjectInspection       `json:"github_project,omitempty"`
+	RequiredMCPs         int                             `json:"required_mcps"`
+	Warnings             []string                        `json:"warnings,omitempty"`
+	Recommendations      []string                        `json:"recommendations,omitempty"`
 }
 
 type GitHubAuthInspection struct {
@@ -66,6 +68,14 @@ type ProjectInspection struct {
 	RepositoryRoot string `json:"repository_root,omitempty"`
 	Status         string `json:"status"`
 	Detail         string `json:"detail"`
+}
+
+type RepositoryReferenceInspection struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Commit string `json:"commit"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
 }
 
 type Inspector struct {
@@ -163,6 +173,35 @@ func (i *Inspector) Inspect(ctx context.Context, request InspectionRequest) Insp
 			Detail: stringPtr(project.Detail),
 		})
 	}
+	referenceInspections := make([]RepositoryReferenceInspection, 0, len(i.cfg.RepositoryReferences))
+	referencesReady := true
+	if len(i.cfg.RepositoryReferences) > 0 {
+		referenceConfig := i.cfg
+		if projectDir != "" {
+			referenceConfig.ProjectDir = projectDir
+		}
+		checks := workspace.CheckRepositoryReferences(ctx, i.run, i.cfg.RepositoryReferences, referenceConfig.RepositoryReferenceProtectedRoots())
+		for _, check := range checks {
+			inspection := RepositoryReferenceInspection{
+				Name: strings.TrimSpace(check.Reference.Name), Path: strings.TrimSpace(check.Reference.Path),
+				Commit: strings.ToLower(strings.TrimSpace(check.Reference.Commit)), Status: CapabilityAvailable,
+			}
+			if check.ResolvedPath != "" {
+				inspection.Path = check.ResolvedPath
+			}
+			if check.ResolvedCommit != "" {
+				inspection.Commit = check.ResolvedCommit
+			}
+			if check.Err != nil {
+				inspection.Status = CapabilityBlocked
+				inspection.Detail = check.Err.Error()
+				referencesReady = false
+			} else {
+				inspection.Detail = "clean Git checkout matches the configured immutable commit"
+			}
+			referenceInspections = append(referenceInspections, inspection)
+		}
+	}
 
 	missing := missingRequiredCapabilities(capabilities, request.Requirements)
 	coreReady := capabilityAvailable(capabilities, config.CapabilityTypeLocalTool, "git") &&
@@ -210,7 +249,7 @@ func (i *Inspector) Inspect(ctx context.Context, request InspectionRequest) Insp
 	if i.cfg.HasProject() {
 		harnessesReady = installedHarnesses > 0 && roleHarnessesReady
 	}
-	ready := coreReady && harnessesReady && projectReady && repositoryReady && sourceReady && len(missing) == 0
+	ready := coreReady && harnessesReady && projectReady && referencesReady && repositoryReady && sourceReady && len(missing) == 0
 	sort.Slice(capabilities, func(a, b int) bool {
 		if capabilities[a].Type == capabilities[b].Type {
 			return capabilities[a].ID < capabilities[b].ID
@@ -224,10 +263,15 @@ func (i *Inspector) Inspect(ctx context.Context, request InspectionRequest) Insp
 	if githubRepository != nil && githubRepository.Recommendation != "" {
 		recommendations = append(recommendations, githubRepository.Recommendation)
 	}
+	for _, reference := range referenceInspections {
+		if reference.Status != CapabilityAvailable {
+			recommendations = append(recommendations, fmt.Sprintf("Restore repository reference %q at %s to clean commit %s, then run doctor again.", reference.Name, reference.Path, reference.Commit))
+		}
+	}
 	return InspectionReport{
 		Ready:      ready,
 		Snapshot:   CapabilitySnapshot{RunnerID: i.cfg.RunnerID, CheckedAt: checkedAt, Capabilities: capabilities, MissingCapabilities: missing},
-		GitHubAuth: githubAuth, Harnesses: harnessReports, Project: project, GitHubRepository: githubRepository, GitHubProject: githubProject, RequiredMCPs: requiredMCPs, Warnings: warnings, Recommendations: recommendations,
+		GitHubAuth: githubAuth, Harnesses: harnessReports, Project: project, RepositoryReferences: referenceInspections, GitHubRepository: githubRepository, GitHubProject: githubProject, RequiredMCPs: requiredMCPs, Warnings: warnings, Recommendations: recommendations,
 	}
 }
 

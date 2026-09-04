@@ -9,32 +9,35 @@ import (
 // engine. Computed workflow and Project state is explicit rather than hidden in
 // persisted JSON structs.
 type RuntimeConfig struct {
-	RunnerID           string
-	ProjectDir         string
-	Harnesses          []HarnessConfig
-	Roles              map[string]RoleConfig
-	RoleContracts      map[string]string
-	ImplementerLadder  []string
-	Workflow           WorkflowConfig
-	DoctorRequirements []CapabilityRequirement
-	MaxParallelism     int
-	AdmissionBudget    *AdmissionBudgetConfig
-	ResourceLimits     ResourceLimits
-	GitHubProject      ProjectConfig
+	RunnerID             string
+	ProjectDir           string
+	Harnesses            []HarnessConfig
+	Roles                map[string]RoleConfig
+	RoleContracts        map[string]string
+	ImplementerLadder    []string
+	Workflow             ResolvedWorkflow
+	DoctorRequirements   []CapabilityRequirement
+	RepositoryReferences []RepositoryReference
+	MaxParallelism       int
+	AdmissionBudget      *AdmissionBudgetConfig
+	ResourceLimits       ResourceLimits
+	GitHubProject        ProjectConfig
 }
 
 // ExecutionConfig is the role-specific harness contract passed to an execution
 // adapter. It replaces the old practice of mutating a file config at runtime.
 type ExecutionConfig struct {
-	WorkspaceBaseRef  string
-	RoleAccess        string
-	HarnessConfigMode string
-	Harness           HarnessConfig
-	Skills            []string
-	MCPServers        []string
-	SafeTools         bool
-	PreserveReasoning bool
-	ResourceLimits    ResourceLimits
+	WorkspaceBaseRef        string
+	RoleAccess              string
+	HarnessConfigMode       string
+	Harness                 HarnessConfig
+	Skills                  []string
+	MCPServers              []string
+	SafeTools               bool
+	PreserveReasoning       bool
+	ResourceLimits          ResourceLimits
+	RepositoryReferences    []RepositoryReference
+	ReferenceProtectedRoots []string
 }
 
 func (c Config) Resolve() (RuntimeConfig, error) {
@@ -54,18 +57,19 @@ func (c Config) Resolve() (RuntimeConfig, error) {
 		admissionBudget = &copy
 	}
 	return RuntimeConfig{
-		RunnerID:           c.RunnerID,
-		ProjectDir:         c.ProjectDir,
-		Harnesses:          append([]HarnessConfig(nil), c.Harnesses...),
-		Roles:              roles,
-		RoleContracts:      contracts,
-		ImplementerLadder:  append([]string(nil), c.ImplementerLadder...),
-		Workflow:           c.resolvedWorkflow(),
-		DoctorRequirements: c.EffectiveDoctorRequirements(),
-		MaxParallelism:     c.MaxParallelism,
-		AdmissionBudget:    admissionBudget,
-		ResourceLimits:     c.ResolveResourceLimits(),
-		GitHubProject:      c.ResolveProject(),
+		RunnerID:             c.RunnerID,
+		ProjectDir:           c.ProjectDir,
+		Harnesses:            append([]HarnessConfig(nil), c.Harnesses...),
+		Roles:                roles,
+		RoleContracts:        contracts,
+		ImplementerLadder:    append([]string(nil), c.ImplementerLadder...),
+		Workflow:             c.resolvedWorkflow(),
+		DoctorRequirements:   c.EffectiveDoctorRequirements(),
+		RepositoryReferences: cloneRepositoryReferences(c.RepositoryReferences),
+		MaxParallelism:       c.MaxParallelism,
+		AdmissionBudget:      admissionBudget,
+		ResourceLimits:       c.ResolveResourceLimits(),
+		GitHubProject:        c.ResolveProject(),
 	}, nil
 }
 
@@ -141,6 +145,16 @@ func (c RuntimeConfig) RoleContract(id string) string {
 }
 
 func (c RuntimeConfig) RoleIDForContract(contract string) string {
+	preferredLane := ""
+	switch strings.TrimSpace(contract) {
+	case WorkRolePlanner:
+		preferredLane = c.Workflow.PlanLane
+	case WorkRoleImplementer:
+		preferredLane = c.Workflow.ReadyLane
+	}
+	if role := strings.TrimSpace(c.Workflow.Lanes[preferredLane].Role); role != "" && c.RoleContract(role) == contract {
+		return role
+	}
 	laneIDs := make([]string, 0, len(c.Workflow.Lanes))
 	for id := range c.Workflow.Lanes {
 		laneIDs = append(laneIDs, id)
@@ -194,7 +208,7 @@ func (c RuntimeConfig) AttemptRole(role string, qaFailures int) string {
 	return ladderRole(role, qaFailures, c.ImplementerLadder)
 }
 
-func (c RuntimeConfig) Lane(id string) (WorkflowLane, bool) {
+func (c RuntimeConfig) Lane(id string) (ResolvedWorkflowLane, bool) {
 	lane, ok := c.Workflow.Lanes[strings.TrimSpace(id)]
 	return lane, ok
 }
@@ -244,8 +258,8 @@ func (c RuntimeConfig) AgentLaneIDs() []string {
 	return result
 }
 
-func (c RuntimeConfig) EffectiveWorkflow() WorkflowConfig {
-	return cloneWorkflow(c.Workflow)
+func (c RuntimeConfig) EffectiveWorkflow() ResolvedWorkflow {
+	return cloneResolvedWorkflow(c.Workflow)
 }
 
 func (c RuntimeConfig) Execution(role, harness, workingDir string) ExecutionConfig {
@@ -258,7 +272,7 @@ func (c RuntimeConfig) Execution(role, harness, workingDir string) ExecutionConf
 	resolved.TimeoutSeconds = profile.TimeoutSeconds
 	resolved.Model = profile.Model
 	resolved.ReasoningEffort = strings.TrimSpace(profile.Reasoning)
-	return ExecutionConfig{
+	execution := ExecutionConfig{
 		WorkspaceBaseRef:  strings.TrimSpace(c.GitHubProject.RemoteName) + "/" + strings.TrimSpace(c.GitHubProject.BaseBranch),
 		RoleAccess:        EffectiveRoleAccess(profile.Access),
 		HarnessConfigMode: EffectiveHarnessConfigMode(profile.HarnessConfig),
@@ -269,6 +283,12 @@ func (c RuntimeConfig) Execution(role, harness, workingDir string) ExecutionConf
 		PreserveReasoning: profile.PreserveReasoning != nil && *profile.PreserveReasoning,
 		ResourceLimits:    c.ResourceLimits,
 	}
+	contract := c.RoleContract(role)
+	if len(c.RepositoryReferences) > 0 && (contract == WorkRolePlanner || contract == WorkRoleReviewer) {
+		execution.RepositoryReferences = cloneRepositoryReferences(c.RepositoryReferences)
+		execution.ReferenceProtectedRoots = repositoryReferenceProtectedRoots(c.ProjectDir, c.Harnesses)
+	}
+	return execution
 }
 
 func (c RuntimeConfig) roleSafeTools(role string) bool {

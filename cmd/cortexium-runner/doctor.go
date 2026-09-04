@@ -398,6 +398,20 @@ func writeDoctorReport(output io.Writer, report setup.InspectionReport, probes [
 		}
 		writeStateLine(output, tone, "  %s %s", marker, report.Project.Detail)
 	}
+	if len(report.RepositoryReferences) > 0 {
+		fmt.Fprintln(output)
+		fmt.Fprintln(output, "Repository references")
+		for _, reference := range report.RepositoryReferences {
+			marker := "✗"
+			tone := toneFailure
+			if reference.Status == setup.CapabilityAvailable {
+				marker = "✓"
+				tone = toneSuccess
+			}
+			writeStateLine(output, tone, "  %s %s · %s · %s", marker, reference.Name, reference.Path, reference.Commit)
+			fmt.Fprintf(output, "    %s\n", reference.Detail)
+		}
+	}
 	if report.GitHubRepository != nil {
 		repository := report.GitHubRepository
 		fmt.Fprintln(output)

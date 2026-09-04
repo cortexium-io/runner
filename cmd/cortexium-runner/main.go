@@ -60,6 +60,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		return runDoctor(ctx, args[1:], stdout)
 	case "update":
 		return runUpdate(ctx, args[1:], stdout)
+	case "add":
+		return runAdd(ctx, args[1:], stdout)
 	case "plan":
 		return runPlan(ctx, args[1:], stdin, stdout)
 	case "approve":
@@ -70,6 +72,10 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		return runStatus(ctx, args[1:], stdout)
 	case "metrics":
 		return runMetrics(args[1:], stdout)
+	case "harness":
+		return runHarness(ctx, args[1:], stdout)
+	case "workflow":
+		return runWorkflow(args[1:], stdout)
 	case "role":
 		return runRole(args[1:], stdout)
 	case "run":
@@ -89,9 +95,11 @@ Usage:
 Getting started:
   cortexium-runner init [--config PATH] [--dry-run] [--prune]
   cortexium-runner doctor [--config PATH] [--fix] [--offline] [--probe-harnesses] [--json]
+  cortexium-runner harness check [--config PATH] [--browser] [--timeout DURATION]
   cortexium-runner update [--check] [--version vMAJOR.MINOR.PATCH]
 
 Project work:
+  cortexium-runner add plan|ready [--config PATH] --title TEXT (--body TEXT|--body-file PATH) [--dry-run]
   cortexium-runner plan [--config PATH] [--idea TEXT|--idea-file PATH] [--create|--stage-only|--approve-staged FINGERPRINT]
   cortexium-runner approve [--config PATH] --item ID|URL [--dry-run]
   cortexium-runner retry [--config PATH] [--item ID|URL|TITLE] [--feedback TEXT] [--dry-run]
@@ -103,13 +111,16 @@ Execution:
 
 Customization:
   cortexium-runner role list|show|add|edit|remove [options]
+  cortexium-runner workflow validate|explain [--config PATH]
 
 Generated workflow:
   1. init creates or adopts the GitHub Project, synchronizes its fields and statuses,
      writes the local config, and installs the bundled role skills.
   2. doctor validates the config and verifies GitHub, repository, harness, skill,
      tool, and MCP readiness. Use --offline for static validation only.
-  3. run syncs public intake and drives configured planning, implementation, QA,
+  3. add plan asks the running planner to shape a goal into reviewable cards;
+     add ready authorizes one sufficiently specified card for implementation.
+  4. run syncs public intake and drives configured planning, implementation, QA,
      PR, and human-gate transitions.
 
 No hosted control plane, webhook, or inbound server is required.

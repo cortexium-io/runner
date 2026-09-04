@@ -67,14 +67,20 @@ func TestReviewerAuditPromptBindsProofsAndDefersDynamicChecks(t *testing.T) {
 	for _, required := range []string{
 		`"key":"P1"`, `"key":"P2"`, assignment.Spec.RequiredVerification[0], assignment.Spec.RequiredVerification[1],
 		"focused check passed at the candidate commit", "The implementer owns how proof is produced",
-		"source and evidence triage, not test execution", "Do not run tests", "A concrete source defect is complete failure evidence",
+		"source and evidence triage, not test execution", "Do not run tests", "establishes failure for that exact behavior",
+		"It does not complete the audit of the whole proof key or path", "A failed key records status; it is not a stop signal",
+		"inspect directly adjacent card-owned paths, operations, and state transitions", "Group all independent blockers",
+		"one or more blocking violations",
 		"fresh focused-verification stage containing only the unresolved checks",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("reviewer prompt omitted %q:\n%s", required, prompt)
 		}
 	}
-	for _, forbidden := range []string{"At most one", "criterion stage", "static stage", "Runner may invoke"} {
+	for _, forbidden := range []string{
+		"At most one", "criterion stage", "static stage", "Runner may invoke",
+		"Record it without further diagnostics on that path", "stop investigating that path",
+	} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("reviewer prompt retained staged or numeric orchestration %q:\n%s", forbidden, prompt)
 		}
@@ -409,10 +415,11 @@ func TestAllReviewersUseFreshFocusedStageOnlyForUnresolvedProofs(t *testing.T) {
 	}
 }
 
-func TestReviewerStopsFocusedVerificationAfterConcreteAuditFailure(t *testing.T) {
+func TestReviewerContinuesIndependentFocusedVerificationAfterAuditFailure(t *testing.T) {
 	assignment := reviewerAssignment()
 	audit := `{"criteria":{"P1":{"status":"failed","summary":"The source contains the wrong value.","evidence":["behavior.txt contains broken."]},"P2":{"status":"check_required","summary":"Does git diff --check pass?","evidence":["No candidate-bound command result is recorded."]}},"repository_rules":{"status":"passed","summary":"No separate rule violation was found.","evidence":["The one static pass found no additional violation."]},"maintainability":{"status":"passed","summary":"The change is localized.","evidence":["Only the intended fixture changed."]},"summary":"A concrete source defect requires changes."}`
-	run := &sharedReviewerHarnessRunner{response: audit}
+	resolution := `{"checks":{"P2":{"status":"passed","summary":"The exact candidate is clean.","evidence":["git diff --check exited successfully."]}},"summary":"The independent unresolved command passed."}`
+	run := &sharedReviewerHarnessRunner{responses: []string{audit, resolution}}
 	enabled := true
 	cfg := config.ExecutionConfig{Skills: []string{"runner-reviewer"}, SafeTools: true, Harness: config.HarnessConfig{
 		Kind: config.HarnessCodexCLI, Command: config.HarnessCodexCLI, Enabled: &enabled,
@@ -422,8 +429,14 @@ func TestReviewerStopsFocusedVerificationAfterConcreteAuditFailure(t *testing.T)
 	if err != nil || output.Outcome != OutcomeSucceeded || output.ReviewAssessment == nil || output.ReviewAssessment.Verdict != "needs_changes" {
 		t.Fatalf("audit failure was not returned directly: output=%#v err=%v", output, err)
 	}
-	if len(run.inputs) != 1 || output.ReviewAssessment.Criteria[1].Status != "blocked" {
-		t.Fatalf("reviewer continued after known failure: calls=%d assessment=%#v", len(run.inputs), output.ReviewAssessment)
+	if len(run.inputs) != 2 || output.ReviewAssessment.Criteria[0].Status != "failed" || output.ReviewAssessment.Criteria[1].Status != "passed" {
+		t.Fatalf("reviewer did not complete the independent check: calls=%d assessment=%#v", len(run.inputs), output.ReviewAssessment)
+	}
+	if !strings.Contains(run.inputs[1], `"key":"P2"`) || strings.Contains(run.inputs[1], `"key":"P1"`) ||
+		!strings.Contains(run.inputs[1], "Complete the rest of that bounded check and every other supplied check independently") ||
+		!strings.Contains(run.inputs[1], "report every concrete failing case encountered") ||
+		strings.Contains(run.inputs[1], "stop investigating that path") {
+		t.Fatalf("focused verification did not isolate the unresolved check:\n%s", run.inputs[1])
 	}
 }
 

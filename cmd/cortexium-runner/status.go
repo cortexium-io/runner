@@ -113,20 +113,20 @@ func runStatus(ctx context.Context, args []string, stdout io.Writer) error {
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(status)
 	}
-	fmt.Fprintf(stdout, "Runner: %s\nGitHub Project: %s/%d\nProcess: %s\n", cfg.RunnerID, cfg.GitHubProject.Owner, cfg.GitHubProject.Number, map[bool]string{true: "running", false: "stopped"}[running])
+	fmt.Fprintf(stdout, "Runner: %s\nGitHub Project: %s/%d\nProcess: %s\n", terminalSafeText(cfg.RunnerID), terminalSafeText(cfg.GitHubProject.Owner), cfg.GitHubProject.Number, map[bool]string{true: "running", false: "stopped"}[running])
 	fmt.Fprintf(stdout, "Concurrent agent work: up to %d independent card(s)\n", cfg.MaxParallelism)
 	if status.Admission.Configured {
 		state := "capacity available"
 		if !status.Admission.Allowed {
 			state = "paused — " + status.Admission.Summary()
 		}
-		fmt.Fprintf(stdout, "Agent admission: %s\n", state)
+		fmt.Fprintf(stdout, "Agent admission: %s\n", terminalSafeText(state))
 	}
 	mergeMode := "human merge required"
 	if cfg.GitHubProject.AutoMerge {
-		mergeMode = fmt.Sprintf("automatic %s after GitHub requirements pass", config.EffectiveMergeMethod(cfg.GitHubProject.MergeMethod))
+		mergeMode = fmt.Sprintf("automatic %s after GitHub requirements pass", config.NormalizeMergeMethod(cfg.GitHubProject.MergeMethod))
 	}
-	fmt.Fprintf(stdout, "Pull request merge: %s\n", mergeMode)
+	fmt.Fprintf(stdout, "Pull request merge: %s\n", terminalSafeText(mergeMode))
 	if status.Metrics.Attempts > 0 {
 		fmt.Fprintf(stdout, "Recorded agent usage: %d attempt(s) · %s agent time", status.Metrics.Attempts, formatMetricDuration(status.Metrics.HarnessDurationMilliseconds))
 		if status.Metrics.UsageCoveredAttempts > 0 {
@@ -225,10 +225,16 @@ func runnerStageLabel(stage string) string {
 		return "preparing workspace"
 	case runnermetrics.StageHarnessRun:
 		return "agent working"
+	case runnermetrics.StagePlannerOutline:
+		return "planning work outline"
+	case runnermetrics.StagePlannerDetails:
+		return "detailing planned work"
+	case runnermetrics.StageReviewerAudit:
+		return "auditing review evidence"
+	case runnermetrics.StageReviewerVerify:
+		return "running focused review checks"
 	case runnermetrics.StageResultValidate:
 		return "validating result"
-	case runnermetrics.StageResultRepair:
-		return "normalizing legacy result"
 	case runnermetrics.StageWorkspaceVerify:
 		return "verifying workspace integrity"
 	case runnermetrics.StageProjectTransition:
@@ -303,7 +309,7 @@ func writeWorkSection(output io.Writer, title string, items []github.WorkItem, s
 		if showResult {
 			writeWorkResult(output, item.Result)
 			if strings.TrimSpace(item.Phase) != "" && strings.TrimSpace(item.Role) != "" {
-				fmt.Fprintf(output, "    Retry: cortexium-runner retry --config %q --item %s\n", configPath, terminalSafeText(item.ID))
+				fmt.Fprintf(output, "    Retry: cortexium-runner retry --config %q --item %s\n", terminalSafeText(configPath), terminalSafeText(item.ID))
 			}
 		}
 	}

@@ -56,6 +56,10 @@ func (r plannerStagesBatchRunner) RunBoundedHeadTailInput(ctx context.Context, c
 	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
 }
 
+func (r plannerProviderFailureRunner) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
+	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
+}
+
 func (r *successfulImplementationRunner) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
 	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
 }
@@ -69,10 +73,21 @@ func (r *baseMovingReviewer) RunBoundedHeadTailInput(ctx context.Context, comman
 }
 
 func (r reviewerRejectRunner) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
-	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
+	prompt, err := io.ReadAll(input)
+	if err != nil {
+		return subprocess.Result{}, err
+	}
+	if r.prompts != nil {
+		*r.prompts = append(*r.prompts, string(prompt))
+	}
+	return r.Run(ctx, command, append(append([]string(nil), args...), string(prompt)), dir, timeout)
 }
 
 func (r *candidateInspectingReviewer) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
+	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
+}
+
+func (r *integrityMutatingReviewer) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
 	return runEngineTestWithInput(ctx, command, args, dir, timeout, input, r.Run)
 }
 
@@ -216,6 +231,80 @@ type autoMergeReconciliationRunner struct {
 	mergeCancelErr error
 	itemListCalls  int
 	onItemList     func(int)
+	prViews        int
+	onPRView       func(int)
+}
+
+type integrationPullRequest struct {
+	url          string
+	number       int
+	branch       string
+	head         string
+	baseRevision string
+	state        string
+	mergeState   string
+	checks       string
+	enabled      bool
+}
+
+type serializedIntegrationRunner struct {
+	project       *fakeGitHubProjectRunner
+	pullRequests  map[string]*integrationPullRequest
+	mergeRequests []string
+	mergeCancels  []string
+	checkViews    []string
+}
+
+func (r *serializedIntegrationRunner) pullRequest(selector string) *integrationPullRequest {
+	for _, pullRequest := range r.pullRequests {
+		if selector == pullRequest.url || selector == fmt.Sprint(pullRequest.number) {
+			return pullRequest
+		}
+	}
+	return nil
+}
+
+func (r *serializedIntegrationRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	if command == "git" {
+		return runEngineTestGit(ctx, args, dir, timeout)
+	}
+	if command == "gh" && len(args) >= 3 && args[0] == "pr" && args[1] == "view" {
+		pullRequest := r.pullRequest(args[2])
+		if pullRequest == nil {
+			return subprocess.Result{}, fmt.Errorf("unknown pull request %q", args[2])
+		}
+		if strings.Contains(strings.Join(args, " "), "statusCheckRollup") {
+			r.checkViews = append(r.checkViews, pullRequest.url)
+		}
+		autoMerge := "null"
+		if pullRequest.enabled {
+			autoMerge = `{"enabledAt":"2026-09-02T00:00:00Z"}`
+		}
+		state := defaultString(pullRequest.state, "OPEN")
+		mergeState := defaultString(pullRequest.mergeState, "CLEAN")
+		checks := defaultString(pullRequest.checks, "[]")
+		payload := fmt.Sprintf(`{"url":%q,"number":%d,"state":%q,"headRepository":{"nameWithOwner":"owner/repo"},"headRefName":%q,"headRefOid":%q,"baseRefName":"main","baseRefOid":%q,"mergeStateStatus":%q,"autoMergeRequest":%s,"comments":[],"reviews":[],"statusCheckRollup":%s}`,
+			pullRequest.url, pullRequest.number, state, pullRequest.branch, pullRequest.head, pullRequest.baseRevision, mergeState, autoMerge, checks)
+		return subprocess.Result{Stdout: payload}, nil
+	}
+	if command == "gh" && len(args) >= 3 && args[0] == "pr" && args[1] == "merge" {
+		pullRequest := r.pullRequest(args[2])
+		if pullRequest == nil {
+			return subprocess.Result{}, fmt.Errorf("unknown pull request %q", args[2])
+		}
+		joined := strings.Join(args, " ")
+		if strings.Contains(joined, "--disable-auto") {
+			pullRequest.enabled = false
+			r.mergeCancels = append(r.mergeCancels, pullRequest.url)
+			return subprocess.Result{}, nil
+		}
+		if strings.Contains(joined, "--auto") {
+			pullRequest.enabled = true
+			r.mergeRequests = append(r.mergeRequests, pullRequest.url)
+			return subprocess.Result{}, nil
+		}
+	}
+	return r.project.Run(ctx, command, args, dir, timeout)
 }
 
 func (r *autoMergeReconciliationRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
@@ -223,6 +312,10 @@ func (r *autoMergeReconciliationRunner) Run(ctx context.Context, command string,
 		return runEngineTestGit(ctx, args, dir, timeout)
 	}
 	if command == "gh" && len(args) >= 2 && args[0] == "pr" && args[1] == "view" {
+		r.prViews++
+		if r.onPRView != nil {
+			r.onPRView(r.prViews)
+		}
 		autoMerge := "null"
 		if r.enabled {
 			autoMerge = `{"enabledAt":"2026-08-07T00:00:00Z"}`
@@ -245,7 +338,7 @@ func (r *autoMergeReconciliationRunner) Run(ctx context.Context, command string,
 			return subprocess.Result{}, nil
 		}
 	}
-	if command == "gh" && isLifecycleItemsCall(strings.Join(args, " ")) {
+	if command == "gh" && (isLifecycleItemsCall(strings.Join(args, " ")) || isDirectProjectItemCall(strings.Join(args, " "))) {
 		r.itemListCalls++
 		if r.onItemList != nil {
 			r.onItemList(r.itemListCalls)
@@ -261,12 +354,20 @@ type openPullRequestRunner struct {
 	configuredActor string
 }
 
-type plannerNeedsInputRunner struct{ project *fakeGitHubProjectRunner }
+type plannerNeedsInputRunner struct {
+	project        *fakeGitHubProjectRunner
+	capturedPrompt *string
+}
 
 type plannerStagesBatchRunner struct {
 	project        *fakeGitHubProjectRunner
 	forbiddenTitle string
+	plannerCalls   *int
+	outline        string
+	details        string
 }
+
+type plannerProviderFailureRunner struct{ project *fakeGitHubProjectRunner }
 
 type permissionDeniedImplementationRunner struct{ project *fakeGitHubProjectRunner }
 
@@ -288,8 +389,7 @@ type trustedCycleOrderingRunner struct {
 }
 
 func (r *trustedCycleOrderingRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
-	joined := strings.Join(args, " ")
-	if command == "gh" && strings.HasPrefix(joined, "project item-edit ") && argumentValue(args, "--id") == "PVTI_interrupted" && strings.Contains(joined, "--single-select-option-id O_ready") {
+	if command == "gh" && projectUpdateSelects(args, "PVTI_interrupted", "O_ready") {
 		r.events = append(r.events, "recover")
 	}
 	if command == "gh" && len(args) >= 2 && args[0] == "pr" && args[1] == "view" {
@@ -362,6 +462,9 @@ func (r plannerNeedsInputRunner) Run(ctx context.Context, command string, args [
 	case "git":
 		return runEngineTestGit(ctx, args, dir, timeout)
 	case "codex":
+		if r.capturedPrompt != nil && len(args) > 0 {
+			*r.capturedPrompt = args[len(args)-1]
+		}
 		outputPath := argumentValue(args, "--output-last-message")
 		if outputPath == "" {
 			return subprocess.Result{}, errors.New("planner did not request a result file")
@@ -387,6 +490,9 @@ func (r plannerStagesBatchRunner) Run(ctx context.Context, command string, args 
 	case "git":
 		return runEngineTestGit(ctx, args, dir, timeout)
 	case "codex":
+		if r.plannerCalls != nil {
+			*r.plannerCalls = *r.plannerCalls + 1
+		}
 		if strings.TrimSpace(r.forbiddenTitle) != "" && strings.Contains(strings.Join(args, "\n"), r.forbiddenTitle) {
 			return subprocess.Result{}, errors.New("mutable Project title reached planner harness input")
 		}
@@ -394,10 +500,15 @@ func (r plannerStagesBatchRunner) Run(ctx context.Context, command string, args 
 		if outputPath == "" {
 			return subprocess.Result{}, errors.New("planner did not request a result file")
 		}
-		plan, err := stagedPlannerFixtureResponse(args,
-			`{"goal_summary":"Deliver the slice","project_success_criteria":["The slice works."],"project_constraints":[],"open_decisions":[],"cards":[{"title":"Implement the slice","dependencies":[]}]}`,
-			`{"cards":{"C1":{"objective":"Build the requested slice.","done_when":["It works."],"proof_obligations":["The requested behavior is demonstrated."],"assumptions":[]}}}`,
-		)
+		outline := r.outline
+		if strings.TrimSpace(outline) == "" {
+			outline = `{"goal_summary":"Deliver the slice","project_success_criteria":["The slice works."],"project_constraints":[],"open_decisions":[],"cards":[{"title":"Implement the slice","dependencies":[]}]}`
+		}
+		details := r.details
+		if strings.TrimSpace(details) == "" {
+			details = `{"cards":{"C1":{"objective":"Build the requested slice.","done_when":["It works."],"proof_obligations":["The requested behavior is demonstrated."],"assumptions":[]}}}`
+		}
+		plan, err := stagedPlannerFixtureResponse(args, outline, details)
 		if err != nil {
 			return subprocess.Result{}, err
 		}
@@ -410,9 +521,39 @@ func (r plannerStagesBatchRunner) Run(ctx context.Context, command string, args 
 	}
 }
 
-type reviewerRejectRunner struct{ project *fakeGitHubProjectRunner }
+func (r plannerProviderFailureRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	switch command {
+	case "git":
+		return runEngineTestGit(ctx, args, dir, timeout)
+	case "codex":
+		return subprocess.Result{
+			Stdout:   `{"type":"turn.failed","error":{"message":"unexpected status 404 Not Found: Unknown error, url: https://chatgpt.com/backend-api/codex/responses, token=private"}}`,
+			ExitCode: 1,
+		}, errors.New("exit status 1")
+	default:
+		return r.project.Run(ctx, command, args, dir, timeout)
+	}
+}
+
+type reviewerRejectRunner struct {
+	project *fakeGitHubProjectRunner
+	prompts *[]string
+}
 
 type reviewerAcceptRunner struct{ project *fakeGitHubProjectRunner }
+
+type resumedAcceptanceRunner struct {
+	project    *fakeGitHubProjectRunner
+	reviewRuns int
+}
+
+func (r *resumedAcceptanceRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	if command == "codex" {
+		r.reviewRuns++
+		return subprocess.Result{}, errors.New("reviewer must not run for an unchanged accepted candidate")
+	}
+	return (reviewerAcceptRunner{project: r.project}).Run(ctx, command, args, dir, timeout)
+}
 
 type candidateInspectingReviewer struct {
 	project    *fakeGitHubProjectRunner
@@ -457,7 +598,8 @@ func (r *integrityMutatingReviewer) Run(ctx context.Context, command string, arg
 	}
 	if command == "git" {
 		joined := strings.Join(args, " ")
-		if containsArgument(args, "commit") || containsArgument(args, "push") || strings.Contains(joined, "worktree remove") {
+		removesRetainedWorktree := strings.Contains(joined, "worktree remove") && !strings.Contains(joined, filepath.Join("review-workspaces", "review-"))
+		if containsArgument(args, "commit") || containsArgument(args, "push") || removesRetainedWorktree {
 			r.privileged = append(r.privileged, "git "+joined)
 		}
 	}
@@ -901,6 +1043,45 @@ func TestRunCycleExecutesTwoIndependentCardsConcurrentlyExactlyOnce(t *testing.T
 	}
 }
 
+func TestPreparePollSelectsSafeWorkPastWorkspaceConflict(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	first := github.WorkItem{
+		ID: "PVTI_resource_first", Title: "Use the shared branch first", Body: "First criteria", Repository: "owner/repo", Status: "Ready", Branch: "runner/shared",
+	}
+	conflicting := github.WorkItem{
+		ID: "PVTI_resource_conflict", Title: "Wait for the shared branch", Body: "Conflicting criteria", Repository: "owner/repo", Status: "Ready", Branch: "runner/shared",
+	}
+	independent := github.WorkItem{
+		ID: "PVTI_resource_independent", Title: "Use an independent branch", Body: "Independent criteria", Repository: "owner/repo", Status: "Ready", Branch: "runner/independent",
+	}
+	first.Approval = testApproval(first)
+	conflicting.Approval = testApproval(conflicting)
+	independent.Approval = testApproval(independent)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(first) + `,` + projectItemJSON(conflicting) + `,` + projectItemJSON(independent) + `]}`}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo, MaxParallelism: 2,
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), project)
+	if err != nil {
+		t.Fatalf("configure service: %v", err)
+	}
+
+	prepared, err := service.preparePoll(t.Context(), 2, false, nil)
+	if err != nil {
+		t.Fatalf("prepare resource-aware poll: %v", err)
+	}
+	if len(prepared.claimed) != 2 {
+		t.Fatalf("claimed actions = %#v, want two safe actions", prepared.claimed)
+	}
+	claimedIDs := []string{prepared.claimed[0].action.Item.ID, prepared.claimed[1].action.Item.ID}
+	if !reflect.DeepEqual(claimedIDs, []string{first.ID, independent.ID}) {
+		t.Fatalf("resource-aware selection = %#v, want first and independent", claimedIDs)
+	}
+	if !resourcesAvailable(prepared.claimed[1].resources, occupiedResourceKeys(map[string][]string{first.ID: prepared.claimed[0].resources})) {
+		t.Fatalf("selected independent action conflicts with first: %#v", prepared.claimed)
+	}
+}
+
 func TestRunCycleCompletesRecoveryReconciliationAndApprovedWorkBeforeFailedPublicIntake(t *testing.T) {
 	oversized := make([]map[string]string, github.MaxAssessmentIssues+1)
 	for index := range oversized {
@@ -931,7 +1112,7 @@ func TestRunCycleCompletesRecoveryReconciliationAndApprovedWorkBeforeFailedPubli
 				t.Fatal(newErr)
 			}
 			results, cycleErr := service.RunCycle(t.Context())
-			if cycleErr == nil || !strings.Contains(cycleErr.Error(), "after trusted cycle work") || len(cycleErr.Error()) > 512 {
+			if cycleErr == nil || !strings.Contains(cycleErr.Error(), "after admitted work") || len(cycleErr.Error()) > 512 {
 				t.Fatalf("failed intake was not reported as a bounded local error after trusted work: %v", cycleErr)
 			}
 			succeeded := map[string]int{}
@@ -1166,15 +1347,19 @@ func TestPlannerOpenDecisionsMoveWorkToNeedsInputWithoutCreatingCards(t *testing
 	runGitTest(t, repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
 	item := github.WorkItem{
 		ID: "PVTI_plan", Title: "Plan API compatibility", Body: "Decide and split the work.",
-		Repository: "owner/repo", Status: "Plan",
+		URL: "https://github.com/owner/repo/issues/1", Repository: "owner/repo", Status: "Plan",
 	}
 	item.Approval = testApproval(item)
-	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	project := &fakeGitHubProjectRunner{
+		itemsJSON:     `{"items":[` + projectItemJSON(item) + `]}`,
+		issueComments: []github.ItemComment{{Author: "dan", Body: "The intended contract is API v2."}},
+	}
+	var plannerPrompt string
 	cfg := config.Config{
 		ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: repo,
 		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
 	}
-	service, err := New(completeEngineTestConfig(cfg), plannerNeedsInputRunner{project: project})
+	service, err := New(completeEngineTestConfig(cfg), plannerNeedsInputRunner{project: project, capturedPrompt: &plannerPrompt})
 	if err != nil {
 		t.Fatalf("configure service: %v", err)
 	}
@@ -1185,7 +1370,7 @@ func TestPlannerOpenDecisionsMoveWorkToNeedsInputWithoutCreatingCards(t *testing
 	if len(results) != 1 || results[0].Outcome != execution.OutcomeNeedsInput || project.status != "Blocked" {
 		t.Fatalf("open planning decision did not use needs_input: results=%#v status=%q", results, project.status)
 	}
-	if project.createdBody != "" || !strings.Contains(results[0].Summary, "Which API version") || strings.Contains(project.result, "Which API version") || !strings.Contains(project.result, "requiring operator input") {
+	if project.createdBody != "" || !strings.Contains(results[0].Summary, "Which API version") || strings.Contains(project.result, "Which API version") || !strings.Contains(project.result, "posted its planning questions") || len(project.postedComments) != 1 || !strings.Contains(project.postedComments[0], "Which API version") || !strings.Contains(plannerPrompt, "The intended contract is API v2") {
 		t.Fatalf("planner created work despite open decisions or lost context: created=%q result=%q", project.createdBody, project.result)
 	}
 }
@@ -1228,6 +1413,108 @@ func TestPlannerCycleStagesBatchAndWaitsForExplicitOperatorApproval(t *testing.T
 	}
 	if !strings.Contains(results[0].Summary, "approve --item PVTI_plan --dry-run") {
 		t.Fatalf("planner result omitted operator approval guidance: %#v", results[0])
+	}
+}
+
+func TestPlannerRetryResumesExactCheckpointAfterPartialChildCreation(t *testing.T) {
+	repo := t.TempDir()
+	if output, err := exec.Command("git", "init", repo).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	runGitTest(t, repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+	item := github.WorkItem{ID: "PVTI_plan_resume", Title: "Plan two slices", Body: "Split this request safely.", Repository: "owner/repo", Status: "Plan"}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, failCreateAt: 2}
+	plannerCalls := 0
+	runner := plannerStagesBatchRunner{
+		project: project, plannerCalls: &plannerCalls,
+		outline: `{"goal_summary":"Deliver both slices","project_success_criteria":["Both slices work."],"project_constraints":[],"open_decisions":[],"cards":[{"title":"Implement first slice","dependencies":[]},{"title":"Implement second slice","dependencies":[1]}]}`,
+		details: `{"cards":{"C1":{"objective":"Build the first slice.","done_when":["The first slice works."],"proof_obligations":["The first behavior is demonstrated."],"assumptions":[]},"C2":{"objective":"Build the second slice.","done_when":["The second slice works."],"proof_obligations":["The second behavior is demonstrated."],"assumptions":[]}}}`,
+	}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := service.RunCycle(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 1 || first[0].Outcome == execution.OutcomeSucceeded || plannerCalls != 2 || project.createCount != 2 {
+		t.Fatalf("first interrupted planner attempt was not reproduced: results=%#v planner_calls=%d creates=%d", first, plannerCalls, project.createCount)
+	}
+	checkpointPath := service.plannerCheckpointPath(item.ID)
+	if info, err := os.Stat(checkpointPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("completed plan was not retained privately: info=%v error=%v", info, err)
+	}
+
+	retry, err := service.PlanProjectItemRetry(t.Context(), item.ID)
+	if err != nil {
+		t.Fatalf("plan interrupted planner retry: %v", err)
+	}
+	if _, err := service.ApplyProjectItemRetry(t.Context(), retry); err != nil {
+		t.Fatalf("apply interrupted planner retry: %v", err)
+	}
+	project.failCreateAt = 0
+	second, err := service.RunCycle(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 1 || second[0].Outcome != execution.OutcomeSucceeded || !second[0].ResumedCheckpoint || plannerCalls != 2 || project.createCount != 3 {
+		t.Fatalf("retry did not resume the saved plan exactly: results=%#v planner_calls=%d creates=%d", second, plannerCalls, project.createCount)
+	}
+	project.loadRemoteItems()
+	children := make([]github.WorkItem, 0, 2)
+	for _, current := range project.remoteItems {
+		if github.DecodePlannedItemMetadata(current.Body).PlanningSourceID == item.ID {
+			children = append(children, current)
+		}
+	}
+	if len(children) != 2 {
+		t.Fatalf("resumed batch contains %d children, want 2: %#v", len(children), children)
+	}
+	firstMetadata := github.DecodePlannedItemMetadata(children[0].Body)
+	secondMetadata := github.DecodePlannedItemMetadata(children[1].Body)
+	if firstMetadata.PlanningBatchFingerprint == "" || firstMetadata.PlanningBatchFingerprint != secondMetadata.PlanningBatchFingerprint {
+		t.Fatalf("resumed children do not share the exact saved batch: %#v", children)
+	}
+	if _, err := os.Stat(checkpointPath); !os.IsNotExist(err) {
+		t.Fatalf("completed planner checkpoint was not cleared: %v", err)
+	}
+}
+
+func TestPlannerProviderFailureSchedulesAutomaticRetryInPlanLane(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_plan_provider_retry", Title: "Plan a feature", Body: "Split the feature into safe work.",
+		Repository: "owner/repo", Status: "Plan", Role: config.WorkRolePlanner,
+	}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), plannerProviderFailureRunner{project: project})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := service.RunCycle(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	project.loadRemoteItems()
+	var current github.WorkItem
+	for _, candidate := range project.remoteItems {
+		if candidate.ID == item.ID {
+			current = candidate
+			break
+		}
+	}
+	if len(results) != 1 || results[0].Outcome != "retry_scheduled" || results[0].RetryDisposition != string(execution.RetryAutomatic) ||
+		current.Status != "Plan" || current.Activity != config.RunnerActivityWaitingForHarness || strings.Contains(current.Result, "token=private") {
+		t.Fatalf("planner provider failure was not safely retained for retry: results=%#v item=%#v", results, current)
 	}
 }
 
@@ -2428,13 +2715,15 @@ func TestPlannerBatchStopsBeforeChildAuthorityWriteWhenParentChanges(t *testing.
 	page := func(item github.WorkItem) string {
 		return legacyItemsGraphQLJSON(`{"items":[` + projectItemJSON(item) + `]}`)
 	}
-	project := &fakeGitHubProjectRunner{itemPages: []string{
-		page(parent),        // Initial authority construction.
-		page(parent),        // Batch-entry authority refresh.
-		page(parent),        // Existing-child scan.
-		page(parent),        // Enter child staging with current source authority.
-		page(changedParent), // Revalidate immediately before child creation.
-	}}
+	project := &fakeGitHubProjectRunner{
+		itemPages: []string{page(parent)}, // Existing-child scan.
+		directItemPages: []string{
+			directProjectItemGraphQLJSON(parent),        // Initial authority construction.
+			directProjectItemGraphQLJSON(parent),        // Batch-entry authority refresh.
+			directProjectItemGraphQLJSON(parent),        // Enter child staging with current source authority.
+			directProjectItemGraphQLJSON(changedParent), // Revalidate immediately before child creation.
+		},
+	}
 	cfg := completeEngineTestConfig(config.Config{ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"}})
 	service, err := New(cfg, project)
 	if err != nil {
@@ -2847,6 +3136,78 @@ func TestRetryableHarnessFailurePublishesSafeReasonAndNextAction(t *testing.T) {
 	}
 }
 
+func TestTransientHarnessFailureRetriesInPlaceBeforeBlocking(t *testing.T) {
+	item := github.WorkItem{
+		ID: "PVTI_automatic_retry", Title: "Review feature", Body: "Acceptance criteria", Repository: "owner/repo",
+		Status: "Agent QA", Role: config.WorkRoleReviewer, QAFailures: 1,
+	}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: t.TempDir(),
+		GitHubProject: &config.GitHubProjectConfig{
+			Owner: "owner", Number: 4, IntakeRepository: "owner/repo",
+		},
+	}), project)
+	if err != nil {
+		t.Fatalf("configure engine: %v", err)
+	}
+	loadItem := func() github.WorkItem {
+		t.Helper()
+		items, err := service.source.LifecycleItems(t.Context())
+		if err != nil {
+			t.Fatalf("load retry item: %v", err)
+		}
+		for _, current := range items {
+			if current.ID == item.ID {
+				return current
+			}
+		}
+		t.Fatalf("retry item %s is missing", item.ID)
+		return github.WorkItem{}
+	}
+
+	blocker := "Runner can retry after a short provider recovery delay."
+	output := execution.Output{
+		Outcome: execution.OutcomeBlocked, Summary: "The harness provider reported a transient service failure.",
+		WorkDone: []string{}, Blocker: &blocker, RemoteDetailSafe: true, DiscardDiagnostics: true,
+		FailureClass: execution.FailureTransientExternal, RetryDisposition: execution.RetryAutomatic,
+	}
+	for attempt := 1; attempt <= maxAutomaticRetries+1; attempt++ {
+		current := loadItem()
+		current.Role = config.WorkRoleReviewer
+		action := mustAuthorizeTest(t, service.source, current)
+		_, lane := service.laneForItem(current)
+		result := service.failExecution(t.Context(), action, lane, RunResult{Item: current, Error: "token=private"}, "Agent QA failed", errors.New("exit status 1"), output)
+		current = loadItem()
+		if current.QAFailures != 1 {
+			t.Fatalf("provider retry changed QA rejection count on attempt %d: %#v", attempt, current)
+		}
+		if attempt <= maxAutomaticRetries {
+			if result.Outcome != "retry_scheduled" || result.RetryDisposition != string(execution.RetryAutomatic) || result.RetryAfter == "" ||
+				current.Status != "Agent QA" || current.Activity != config.RunnerActivityWaitingForHarness || strings.Contains(current.Result, "cortexium-runner retry") {
+				t.Fatalf("automatic retry %d was not retained in place: result=%#v item=%#v", attempt, result, current)
+			}
+			if !service.automaticRetryPending(current, time.Now()) {
+				t.Fatalf("automatic retry %d was not delayed", attempt)
+			}
+			service.automaticRetryMu.Lock()
+			state := service.automaticRetries[item.ID]
+			state.notBefore = time.Now().Add(-time.Second)
+			service.automaticRetries[item.ID] = state
+			service.automaticRetryMu.Unlock()
+			continue
+		}
+		if result.Outcome != execution.OutcomeBlocked || result.RetryDisposition != string(execution.RetryManual) ||
+			current.Status != "Blocked" || current.Phase != "agent_qa" || !strings.Contains(current.Result, "cortexium-runner retry") {
+			t.Fatalf("exhausted provider retries were not made actionable: result=%#v item=%#v", result, current)
+		}
+		if strings.Contains(current.Result, "token") || result.Error != "" {
+			t.Fatalf("provider retry exposed retained diagnostics: result=%#v item=%#v", result, current)
+		}
+	}
+}
+
 func TestNonRetryableFailureDoesNotPublishRetryAction(t *testing.T) {
 	item := github.WorkItem{ID: "PVTI_no_retry", Title: "Review feature", Status: "Agent QA", Role: config.WorkRoleReviewer}
 	item.Approval = testApproval(item)
@@ -2970,6 +3331,13 @@ func TestBlockedItemRetryCanReplaceStaleFeedbackAndResetQAFailures(t *testing.T)
 	if err := os.WriteFile(feedbackPath, []byte(staleFeedback+"\n"), 0o600); err != nil {
 		t.Fatalf("write stale private feedback: %v", err)
 	}
+	checkpointPath := service.implementationCheckpointPath(current.ID)
+	if err := os.MkdirAll(filepath.Dir(checkpointPath), 0o700); err != nil {
+		t.Fatalf("create private checkpoint directory: %v", err)
+	}
+	if err := os.WriteFile(checkpointPath, []byte("saved implementation result\n"), 0o600); err != nil {
+		t.Fatalf("write saved implementation checkpoint: %v", err)
+	}
 
 	const correction = "Keep the task-owned file and leave unrelated operator changes untouched."
 	plan, err := service.PlanProjectItemRetryWithFeedback(t.Context(), current.ID, correction)
@@ -2988,6 +3356,72 @@ func TestBlockedItemRetryCanReplaceStaleFeedbackAndResetQAFailures(t *testing.T)
 	}
 	if _, err := os.Stat(feedbackPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("retry retained private Agent QA feedback: %v", err)
+	}
+	if _, err := os.Stat(checkpointPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("retry feedback retained a saved implementation result: %v", err)
+	}
+}
+
+func TestCandidateValidationPublishesCorrectionAndPlainRetryRerunsImplementation(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_candidate_correction", Title: "Correct candidate content", Body: "Acceptance criteria", URL: "https://github.com/owner/repo/issues/78",
+		Repository: "owner/repo", Status: "Ready", Role: config.WorkRoleImplementer,
+	}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	runner := &successfulImplementationRunner{project: project}
+	runner.inspect = func(dir string) error {
+		content := "corrected candidate\n"
+		if runner.calls == 1 {
+			content = "PRIVATE-CANDIDATE-CONTENT  \n"
+		}
+		return os.WriteFile(filepath.Join(dir, "candidate.md"), []byte(content), 0o644)
+	}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, item))
+	if first.Outcome != execution.OutcomeBlocked || first.FailureClass != string(execution.FailureCandidateValidation) || first.RetryDisposition != string(execution.RetryManual) || runner.calls != 1 {
+		t.Fatalf("candidate validation did not produce a retryable content failure: result=%#v harness_calls=%d", first, runner.calls)
+	}
+	if project.status != "Blocked" || project.phase != "ready" || !strings.Contains(project.result, "trailing whitespace") || !strings.Contains(project.result, "git diff --cached --check") {
+		t.Fatalf("candidate correction was not published safely: status=%q phase=%q result=%q", project.status, project.phase, project.result)
+	}
+	if strings.Contains(project.result, "PRIVATE-CANDIDATE-CONTENT") || strings.Contains(project.result, "candidate.md") || strings.Contains(project.result, "workspace integrity violation") {
+		t.Fatalf("candidate correction exposed content or used the wrong classification: %q", project.result)
+	}
+	if _, err := os.Stat(service.implementationCheckpointPath(item.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid candidate retained the completed harness checkpoint: %v", err)
+	}
+
+	plan, err := service.PlanProjectItemRetry(t.Context(), item.ID)
+	if err != nil {
+		t.Fatalf("plan candidate retry: %v", err)
+	}
+	if _, err := service.ApplyProjectItemRetry(t.Context(), plan); err != nil {
+		t.Fatalf("apply candidate retry: %v", err)
+	}
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("reload candidate retry: %v", err)
+	}
+	var retried github.WorkItem
+	for _, candidate := range items {
+		if candidate.ID == item.ID {
+			retried = candidate
+			break
+		}
+	}
+	second := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, retried))
+	if second.Outcome != execution.OutcomeSucceeded || second.ResumedCheckpoint || runner.calls != 2 || project.status != "Agent QA" {
+		t.Fatalf("plain retry did not rerun and correct the implementation: result=%#v harness_calls=%d status=%q", second, runner.calls, project.status)
+	}
+	if !strings.Contains(strings.Join(runner.args, " "), "trailing whitespace") {
+		t.Fatalf("retry assignment omitted the actionable candidate correction: %s", strings.Join(runner.args, " "))
 	}
 }
 
@@ -3051,6 +3485,55 @@ func TestIdleRunCycleReusesOneProjectSnapshotAndCachedSchema(t *testing.T) {
 	}
 	if counts["project view"] != 1 || counts["fields"] != 1 || counts["items"] != 2 {
 		t.Fatalf("idle cycles reloaded Project state: counts=%#v calls=%#v", counts, run.calls)
+	}
+}
+
+func TestPreparePollRevalidatesSeveralClaimsWithOneFreshSnapshot(t *testing.T) {
+	items := []github.WorkItem{
+		{ID: "PVTI_one", Title: "One", Body: "First", Repository: "owner/repo", Status: "Ready"},
+		{ID: "PVTI_two", Title: "Two", Body: "Second", Repository: "owner/repo", Status: "Ready"},
+	}
+	for index := range items {
+		items[index].Approval = testApproval(items[index])
+	}
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(items[0]) + `,` + projectItemJSON(items[1]) + `]}`}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: t.TempDir(), MaxParallelism: 2,
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := service.preparePoll(t.Context(), 2, false, nil)
+	if err != nil || len(prepared.claimed) != 2 {
+		t.Fatalf("prepare claims: claimed=%#v error=%v", prepared.claimed, err)
+	}
+	lists, batches := 0, 0
+	for _, call := range project.calls {
+		if isLifecycleItemsCall(call) {
+			lists++
+		}
+		if isBatchProjectUpdateCall(call) {
+			batches++
+		}
+	}
+	if lists != 2 || batches != 2 {
+		t.Fatalf("selected claims used lists=%d batches=%d, want two snapshots and one batched mutation per claim: %#v", lists, batches, project.calls)
+	}
+}
+
+func TestPendingProjectWorkKeepsContinuousPollingResponsive(t *testing.T) {
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), &fakeGitHubProjectRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !service.hasPendingObservation([]github.WorkItem{{Status: "PR Ready"}}) {
+		t.Fatal("PR Ready work was treated as a quiescent board")
+	}
+	if service.hasPendingObservation([]github.WorkItem{{Status: "Done"}, {Status: "Blocked"}}) {
+		t.Fatal("terminal and human-blocked work prevented explicit idle backoff")
 	}
 }
 
@@ -3133,8 +3616,8 @@ func TestReconciliationTreatsClosedPRAsTerminalBeforeBranchValidation(t *testing
 	if _, _, err := service.reconcilePullRequests(t.Context(), items); err != nil {
 		t.Fatalf("reconcile closed PR: %v", err)
 	}
-	if project.status != "Done" || !strings.Contains(project.result, "closed without merge") {
-		t.Fatalf("closed PR did not complete item: status=%q result=%q", project.status, project.result)
+	if project.status != "Blocked" || project.phase != "agent_qa" || !strings.Contains(project.result, "closed without merge") {
+		t.Fatalf("closed PR did not block the item with a reviewer retry path: status=%q phase=%q result=%q", project.status, project.phase, project.result)
 	}
 }
 
@@ -3275,10 +3758,6 @@ func TestReconciliationDisarmsAutomaticMergeBeforeRequeueingIdentityMismatch(t *
 func TestReconciliationDisarmsPreviouslyEnabledAutomaticMergeWhenConfigurationIsDisabled(t *testing.T) {
 	service, runner, project := autoMergeReconciliationService(t, "PR Ready", true)
 	service.cfg.GitHubProject.AutoMerge = false
-	identityPath := filepath.Join(service.implementationWorkspaceRoot(), ".runner-state", "assignment_"+safeRefComponent("PVTI_auto_merge_reconcile")+".json")
-	if err := os.Remove(identityPath); err != nil {
-		t.Fatalf("remove canonical workspace identity fixture: %v", err)
-	}
 	items, err := service.source.LifecycleItems(t.Context())
 	if err != nil {
 		t.Fatalf("load lifecycle items: %v", err)
@@ -3288,7 +3767,7 @@ func TestReconciliationDisarmsPreviouslyEnabledAutomaticMergeWhenConfigurationIs
 	if err != nil {
 		t.Fatalf("reconcile previously armed identity mismatch: %v", err)
 	}
-	if !changed || runner.mergeCancels != 1 || runner.mergeRequests != 0 || runner.enabled || project.status != "Ready" || project.phase != "ready" {
+	if !changed || runner.mergeCancels != 1 || runner.mergeRequests != 0 || runner.enabled || project.status != "" || project.phase != "" {
 		t.Fatalf("previously enabled automatic merge remained armed: changed=%t requests=%d cancels=%d enabled=%t status=%q phase=%q", changed, runner.mergeRequests, runner.mergeCancels, runner.enabled, project.status, project.phase)
 	}
 }
@@ -3344,6 +3823,37 @@ func TestReconciliationRefetchesWorkspaceIdentityAtAutomaticMergeBoundary(t *tes
 	}
 }
 
+func TestReconciliationRetriesWhenBaseMovesAtAutomaticMergeBoundary(t *testing.T) {
+	service, runner, project := autoMergeReconciliationService(t, "PR Ready", false)
+	runner.onPRView = func(call int) {
+		if call != 2 {
+			return
+		}
+		advanceRemoteBase(t, service.cfg.ProjectDir, "base-at-integration.txt", "new base\n")
+		remote := filepath.Join(filepath.Dir(service.cfg.ProjectDir), "origin.git")
+		runner.baseRevision = strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/main"))
+	}
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load lifecycle items: %v", err)
+	}
+	warnings, changed, err := service.reconcilePullRequests(t.Context(), items)
+	if err != nil {
+		t.Fatalf("reconcile moving automatic integration base: %v", err)
+	} else if !changed || len(warnings) != 1 || !strings.Contains(warnings[0].Summary, "retry against the latest base") || runner.mergeRequests != 0 || project.status != "" {
+		t.Fatalf("moving base did not defer integration safely: warnings=%#v changed=%t requests=%d status=%q", warnings, changed, runner.mergeRequests, project.status)
+	}
+	items, err = service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("reload lifecycle items: %v", err)
+	}
+	if _, changed, err := service.reconcilePullRequests(t.Context(), items); err != nil {
+		t.Fatalf("retry moving automatic integration base: %v", err)
+	} else if !changed || runner.mergeRequests != 0 || project.status != "Ready" || project.phase != "ready" {
+		t.Fatalf("moving base was not returned through implementation and QA: changed=%t requests=%d status=%q phase=%q", changed, runner.mergeRequests, project.status, project.phase)
+	}
+}
+
 func TestReconciliationDisarmsAutomaticMergeBeforeRework(t *testing.T) {
 	service, runner, project := autoMergeReconciliationService(t, "Ready", true)
 	items, err := service.source.LifecycleItems(t.Context())
@@ -3376,6 +3886,11 @@ func autoMergeReconciliationService(t *testing.T, status string, enabled bool) (
 	if err != nil {
 		t.Fatalf("prepare identity-bound publication workspace: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "feature.txt"), []byte(item.ID+"\n"), 0o644); err != nil {
+		t.Fatalf("write publication fixture: %v", err)
+	}
+	runGitTest(t, prepared.WorktreePath, "add", "--all")
+	runGitTest(t, prepared.WorktreePath, "commit", "-m", "prepare publication fixture")
 	runGitTest(t, prepared.WorktreePath, "push", "-u", "origin", item.Branch)
 	head := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "rev-parse", "HEAD"))
 	item.QACommit = head
@@ -3393,6 +3908,208 @@ func autoMergeReconciliationService(t *testing.T, status string, enabled bool) (
 		t.Fatalf("configure service: %v", err)
 	}
 	return service, runner, project
+}
+
+func serializedIntegrationService(t *testing.T, enabled ...bool) (*Engine, *serializedIntegrationRunner, []github.WorkItem) {
+	t.Helper()
+	repo, _ := createPublicationRepository(t)
+	items := make([]github.WorkItem, len(enabled))
+	pullRequests := make(map[string]*integrationPullRequest, len(enabled))
+	projectItems := make([]string, 0, len(enabled))
+	for index, autoMergeEnabled := range enabled {
+		item := github.WorkItem{
+			ID: fmt.Sprintf("PVTI_integration_%d", index+1), Title: fmt.Sprintf("Integrate feature %d", index+1), Body: "Criteria",
+			Repository: "owner/repo", Status: "PR Ready", Branch: fmt.Sprintf("cortexium/task-%d", index+1),
+			PullRequest: fmt.Sprintf("https://github.com/owner/repo/pull/%d", 12+index),
+		}
+		prepared, err := workspace.NewGitProvider(subprocess.OSRunner{}).Prepare(t.Context(), workspace.Request{
+			WorkingDir: repo, WorktreeRoot: filepath.Join(filepath.Dir(repo), ".runner-worktrees"),
+			WorkID: "assignment_" + safeRefComponent(item.ID), ItemID: item.ID,
+			DelegatedContentDigest: github.DelegatedContentFor(item).Digest, Repository: item.Repository,
+			BranchName: item.Branch, BaseRef: "origin/main",
+		})
+		if err != nil {
+			t.Fatalf("prepare integration workspace %d: %v", index+1, err)
+		}
+		runGitTest(t, prepared.WorktreePath, "push", "-u", "origin", item.Branch)
+		item.QACommit = strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "rev-parse", "HEAD"))
+		item.Approval = testApproval(item)
+		items[index] = item
+		projectItems = append(projectItems, projectItemJSON(item))
+		pullRequests[item.ID] = &integrationPullRequest{
+			url: item.PullRequest, number: 12 + index, branch: item.Branch, head: item.QACommit,
+			baseRevision: prepared.BaseRevision, state: "OPEN", enabled: autoMergeEnabled,
+		}
+	}
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + strings.Join(projectItems, ",") + `]}`}
+	runner := &serializedIntegrationRunner{project: project, pullRequests: pullRequests}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo,
+		GitHubProject: &config.GitHubProjectConfig{
+			Owner: "owner", Number: 4, IntakeRepository: "owner/repo", AutoMerge: true,
+		},
+	}), runner)
+	if err != nil {
+		t.Fatalf("configure serialized integration service: %v", err)
+	}
+	return service, runner, items
+}
+
+func TestReconciliationRequestsOnlyOneAutomaticIntegrationPerRepositoryBase(t *testing.T) {
+	service, runner, _ := serializedIntegrationService(t, false, false)
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load lifecycle items: %v", err)
+	}
+	if _, changed, err := service.reconcilePullRequests(t.Context(), items); err != nil {
+		t.Fatalf("reconcile competing integrations: %v", err)
+	} else if !changed {
+		t.Fatal("automatic integration request did not report progress")
+	}
+	if want := []string{"https://github.com/owner/repo/pull/12"}; !reflect.DeepEqual(runner.mergeRequests, want) {
+		t.Fatalf("automatic integration requests = %#v, want %#v", runner.mergeRequests, want)
+	}
+	if runner.pullRequests["PVTI_integration_2"].enabled {
+		t.Fatal("second pull request acquired the occupied repository/base integration resource")
+	}
+	latest, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("reload integration activities: %v", err)
+	}
+	activities := map[string]string{}
+	for _, item := range latest {
+		activities[item.ID] = item.Activity
+	}
+	if activities["PVTI_integration_1"] != config.RunnerActivityWaitingForMerge || activities["PVTI_integration_2"] != config.RunnerActivityWaitingForIntegration {
+		t.Fatalf("integration activities = %#v", activities)
+	}
+}
+
+func TestReconciliationRecoversExistingAutomaticIntegrationClaimBeforeItemOrder(t *testing.T) {
+	service, runner, _ := serializedIntegrationService(t, false, true)
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load lifecycle items: %v", err)
+	}
+	if _, _, err := service.reconcilePullRequests(t.Context(), items); err != nil {
+		t.Fatalf("reconcile restart-stable integration owner: %v", err)
+	}
+	if len(runner.mergeRequests) != 0 || len(runner.mergeCancels) != 0 {
+		t.Fatalf("existing integration owner was replaced: requests=%#v cancels=%#v", runner.mergeRequests, runner.mergeCancels)
+	}
+	if runner.pullRequests["PVTI_integration_1"].enabled || !runner.pullRequests["PVTI_integration_2"].enabled {
+		t.Fatalf("integration ownership changed with item order: first=%t second=%t", runner.pullRequests["PVTI_integration_1"].enabled, runner.pullRequests["PVTI_integration_2"].enabled)
+	}
+}
+
+func TestReconciliationDisarmsDuplicateAutomaticIntegrationClaims(t *testing.T) {
+	service, runner, _ := serializedIntegrationService(t, true, true)
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load lifecycle items: %v", err)
+	}
+	if _, changed, err := service.reconcilePullRequests(t.Context(), items); err != nil {
+		t.Fatalf("reconcile duplicate integration claims: %v", err)
+	} else if !changed {
+		t.Fatal("duplicate integration claim cancellation did not report progress")
+	}
+	if want := []string{"https://github.com/owner/repo/pull/13"}; !reflect.DeepEqual(runner.mergeCancels, want) {
+		t.Fatalf("automatic integration cancellations = %#v, want %#v", runner.mergeCancels, want)
+	}
+	if !runner.pullRequests["PVTI_integration_1"].enabled || runner.pullRequests["PVTI_integration_2"].enabled {
+		t.Fatalf("duplicate integration claims remain: first=%t second=%t", runner.pullRequests["PVTI_integration_1"].enabled, runner.pullRequests["PVTI_integration_2"].enabled)
+	}
+}
+
+func TestFailedIntegrationChecksRequeueWithoutConsumingQAAndReleaseNextCandidate(t *testing.T) {
+	service, runner, items := serializedIntegrationService(t, true, false)
+	items[0].QAFailures = 2
+	items[0].Activity = config.RunnerActivityWaitingForCI
+	items[0].Approval = testApproval(items[0])
+	items[1].Activity = config.RunnerActivityWaitingForIntegration
+	items[1].Approval = testApproval(items[1])
+	runner.project.itemsJSON = `{"items":[` + projectItemJSON(items[0]) + `,` + projectItemJSON(items[1]) + `]}`
+	failed := runner.pullRequests[items[0].ID]
+	failed.mergeState = "BLOCKED"
+	failed.checks = `[{"__typename":"CheckRun","name":"Validate","workflowName":"CI","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://github.com/owner/repo/actions/runs/1"}]`
+
+	observed, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load lifecycle items: %v", err)
+	}
+	warnings, changed, err := service.reconcilePullRequests(t.Context(), observed)
+	if err != nil {
+		t.Fatalf("reconcile failed integration checks: %v", err)
+	}
+	if !changed || len(warnings) != 1 || !strings.Contains(warnings[0].Summary, "without recording an Agent QA rejection") {
+		t.Fatalf("failed checks did not produce one actionable event: warnings=%#v changed=%t", warnings, changed)
+	}
+	if want := []string{items[0].PullRequest}; !reflect.DeepEqual(runner.mergeCancels, want) {
+		t.Fatalf("failed integration cancellation = %#v, want %#v", runner.mergeCancels, want)
+	}
+	if want := []string{items[1].PullRequest}; !reflect.DeepEqual(runner.mergeRequests, want) {
+		t.Fatalf("next safe integration request = %#v, want %#v", runner.mergeRequests, want)
+	}
+	if want := []string{items[0].PullRequest}; !reflect.DeepEqual(runner.checkViews, want) {
+		t.Fatalf("detailed check inspections = %#v, want active failed owner only %#v", runner.checkViews, want)
+	}
+
+	latest, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("reload reconciled items: %v", err)
+	}
+	byID := map[string]github.WorkItem{}
+	for _, item := range latest {
+		byID[item.ID] = item
+	}
+	requeued := byID[items[0].ID]
+	if requeued.Status != "Ready" || requeued.Phase != "ready" || requeued.Activity != config.RunnerActivityCIFailed || requeued.QAFailures != 2 ||
+		requeued.PullRequest != items[0].PullRequest || requeued.Branch != items[0].Branch || requeued.QACommit != items[0].QACommit {
+		t.Fatalf("failed integration lost rework context: %#v", requeued)
+	}
+	if waiting := byID[items[1].ID]; waiting.Activity != config.RunnerActivityWaitingForMerge {
+		t.Fatalf("next integration activity = %q, want %q", waiting.Activity, config.RunnerActivityWaitingForMerge)
+	}
+}
+
+func TestPendingIntegrationChecksKeepOnlyActiveCandidateWaitingForCI(t *testing.T) {
+	service, runner, items := serializedIntegrationService(t, true, false)
+	items[0].Activity = config.RunnerActivityWaitingForMerge
+	items[0].Approval = testApproval(items[0])
+	items[1].Activity = config.RunnerActivityWaitingForIntegration
+	items[1].Approval = testApproval(items[1])
+	runner.project.itemsJSON = `{"items":[` + projectItemJSON(items[0]) + `,` + projectItemJSON(items[1]) + `]}`
+	active := runner.pullRequests[items[0].ID]
+	active.mergeState = "BLOCKED"
+	active.checks = `[{"__typename":"CheckRun","name":"Validate","workflowName":"CI","status":"IN_PROGRESS","conclusion":""}]`
+
+	observed, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load lifecycle items: %v", err)
+	}
+	if warnings, changed, err := service.reconcilePullRequests(t.Context(), observed); err != nil {
+		t.Fatalf("reconcile pending integration checks: %v", err)
+	} else if len(warnings) != 0 || !changed {
+		t.Fatalf("pending checks produced unexpected result: warnings=%#v changed=%t", warnings, changed)
+	}
+	if want := []string{items[0].PullRequest}; !reflect.DeepEqual(runner.checkViews, want) {
+		t.Fatalf("detailed check inspections = %#v, want active candidate only %#v", runner.checkViews, want)
+	}
+	if len(runner.mergeRequests) != 0 || len(runner.mergeCancels) != 0 {
+		t.Fatalf("pending checks changed integration ownership: requests=%#v cancels=%#v", runner.mergeRequests, runner.mergeCancels)
+	}
+
+	latest, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("reload reconciled items: %v", err)
+	}
+	activities := map[string]string{}
+	for _, item := range latest {
+		activities[item.ID] = item.Activity
+	}
+	if activities[items[0].ID] != config.RunnerActivityWaitingForCI || activities[items[1].ID] != config.RunnerActivityWaitingForIntegration {
+		t.Fatalf("pending integration activities = %#v", activities)
+	}
 }
 
 func TestReconciliationRechecksPRBeforeRefreshingBranchWhenMergeRacesBaseFetch(t *testing.T) {
@@ -3416,7 +4133,7 @@ func TestReconciliationRechecksPRBeforeRefreshingBranchWhenMergeRacesBaseFetch(t
 	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
 	cfg := config.Config{
 		ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: repo,
-		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo", AutoMerge: true},
 	}
 	run := &openThenMergedPullRequestRunner{project: project}
 	service, err := New(completeEngineTestConfig(cfg), run)
@@ -3467,7 +4184,7 @@ func TestReconciliationDoesNotRefreshTaskBranchAlreadyIntegratedIntoBase(t *test
 	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
 	cfg := config.Config{
 		ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: repo,
-		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo", AutoMerge: true},
 	}
 	service, err := New(completeEngineTestConfig(cfg), openPullRequestRunner{project: project})
 	if err != nil {
@@ -3643,6 +4360,41 @@ func TestReconciliationDoesNotRewriteAlreadyTerminalProjectState(t *testing.T) {
 	}
 }
 
+func TestPreparePollClaimsReadyWorkWithoutReprocessingTerminalPullRequests(t *testing.T) {
+	terminal := github.WorkItem{
+		ID: "PVTI_terminal", Title: "Already merged", Body: "Criteria", Repository: "owner/repo", Status: "Done",
+		Role: config.WorkRoleReviewer, PullRequest: "https://github.com/owner/repo/pull/12", Branch: "cortexium/terminal", QACommit: "qa-head",
+	}
+	terminal.Approval = testApproval(terminal)
+	ready := github.WorkItem{ID: "PVTI_ready_after_terminal", Title: "Run ready work", Body: "Criteria", Repository: "owner/repo", Status: "Ready"}
+	ready.Approval = testApproval(ready)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(terminal) + `,` + projectItemJSON(ready) + `]}`}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir:    t.TempDir(),
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), terminalNoInspectRunner{project: project})
+	if err != nil {
+		t.Fatalf("configure service: %v", err)
+	}
+
+	prepared, err := service.preparePoll(t.Context(), 1, false, nil)
+	if err != nil {
+		t.Fatalf("prepare poll: %v", err)
+	}
+	if len(prepared.results) != 0 || len(prepared.claimed) != 1 || prepared.claimed[0].action.Item.ID != ready.ID {
+		t.Fatalf("terminal cleanup delayed or polluted the ready claim: results=%#v claimed=%#v", prepared.results, prepared.claimed)
+	}
+	lifecycleCalls := 0
+	for _, call := range project.calls {
+		if isLifecycleItemsCall(call) {
+			lifecycleCalls++
+		}
+	}
+	if lifecycleCalls != 2 {
+		t.Fatalf("Project snapshots = %d, want initial observation and fresh ready claim only", lifecycleCalls)
+	}
+}
+
 func TestReconciliationStillRejectsNonTerminalAuthorizationMismatch(t *testing.T) {
 	item := github.WorkItem{
 		ID: "PVTI_pr", Title: "Implement", Body: "Criteria", Repository: "owner/repo", Status: "Ready",
@@ -3732,9 +4484,12 @@ func TestPollDelayBacksOffForErrorsAndIdleCycles(t *testing.T) {
 		}
 	}
 	for idle, want := range map[int]time.Duration{0: base, 1: base, 2: time.Minute, 3: 2 * time.Minute, 4: 4 * time.Minute, 5: 5 * time.Minute, 10: 5 * time.Minute} {
-		if got := pollDelay(base, DefaultMaxIdleInterval, 0, idle); got != want {
+		if got := pollDelay(base, 5*time.Minute, 0, idle); got != want {
 			t.Fatalf("idle pollDelay(%s, %d) = %s, want %s", base, idle, got, want)
 		}
+	}
+	if got := pollDelay(base, DefaultMaxIdleInterval, 0, 10); got != base {
+		t.Fatalf("default idle ceiling = %s, want responsive base interval %s", got, base)
 	}
 	if got := pollDelay(base, 45*time.Second, 0, 10); got != 45*time.Second {
 		t.Fatalf("custom idle ceiling = %s, want 45s", got)
@@ -3747,6 +4502,16 @@ func TestPollDelayBacksOffForErrorsAndIdleCycles(t *testing.T) {
 	}
 	if got := nextPollDelay(base, DefaultMaxIdleInterval, 0, 1, false); got != base {
 		t.Fatalf("poll delay without progress = %s, want %s", got, base)
+	}
+}
+
+func TestPollDelayDoesNotPassNextIssueIntake(t *testing.T) {
+	now := time.Date(2026, time.September, 3, 12, 0, 0, 0, time.UTC)
+	if got := capPollDelayForIntake(5*time.Minute, now, now.Add(45*time.Second)); got != 45*time.Second {
+		t.Fatalf("capped delay = %s, want 45s", got)
+	}
+	if got := capPollDelayForIntake(time.Minute, now, time.Time{}); got != time.Minute {
+		t.Fatalf("unscheduled intake changed delay to %s", got)
 	}
 }
 
@@ -3818,7 +4583,7 @@ func TestHumanReworkIgnoresUntrustedPRFeedbackBody(t *testing.T) {
 	}
 }
 
-func TestOutOfDateOpenPRIsUpdatedAndRequeuedFromHumanGate(t *testing.T) {
+func TestOutOfDateOpenPRIsUpdatedAtAutomaticIntegrationBoundary(t *testing.T) {
 	repo, _ := createPublicationRepository(t)
 	runGitTest(t, repo, "checkout", "-b", "cortexium/task")
 	if err := os.WriteFile(filepath.Join(repo, "feature.txt"), []byte("feature\n"), 0o644); err != nil {
@@ -3837,7 +4602,7 @@ func TestOutOfDateOpenPRIsUpdatedAndRequeuedFromHumanGate(t *testing.T) {
 	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
 	cfg := config.Config{
 		ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: repo,
-		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo", AutoMerge: true},
 	}
 	service, err := New(completeEngineTestConfig(cfg), openPullRequestRunner{project: project})
 	if err != nil {
@@ -4172,11 +4937,13 @@ func TestAgentQARefreshesAndRequeuesWhenBaseMovesBeforePublication(t *testing.T)
 
 func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T) {
 	for _, test := range []struct {
-		name, wantStatus, wantPhase, wantOutcome string
-		failures                                 int
+		name, wantStatus, wantPhase, wantOutcome, wantSummary string
+		failures                                              int
+		priorFeedback                                         bool
 	}{
-		{name: "retry", failures: 1, wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected},
-		{name: "exhausted", failures: 2, wantStatus: "Blocked", wantPhase: "ready", wantOutcome: execution.OutcomeBlocked},
+		{name: "first rejection", failures: 0, wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected, wantSummary: "rejection 1 of 3"},
+		{name: "second rejection", failures: 1, priorFeedback: true, wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected, wantSummary: "rejection 2 of 3"},
+		{name: "third rejection blocks", failures: 2, priorFeedback: true, wantStatus: "Blocked", wantPhase: "ready", wantOutcome: execution.OutcomeBlocked, wantSummary: "rejection 3 of 3"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repo, _ := createPublicationRepository(t)
@@ -4194,20 +4961,34 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 			}
 			item.Approval = testApproval(item)
 			project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, qaFailures: test.failures}
+			prompts := []string{}
 			cfg := config.Config{
 				ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: repo,
 				GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
 			}
-			service, err := New(completeEngineTestConfig(cfg), reviewerRejectRunner{project: project})
+			service, err := New(completeEngineTestConfig(cfg), reviewerRejectRunner{project: project, prompts: &prompts})
 			if err != nil {
 				t.Fatalf("configure service: %v", err)
+			}
+			if test.priorFeedback {
+				if err := service.saveReviewFeedback(item, github.DelegatedContentFor(item), execution.ReviewAssessment{
+					Verdict: "needs_changes", Summary: "Preserve the previously corrected edge case.",
+				}); err != nil {
+					t.Fatalf("save prior QA feedback: %v", err)
+				}
 			}
 			results, err := service.RunCycle(t.Context())
 			if err != nil {
 				t.Fatalf("run QA cycle: %v", err)
 			}
-			if len(results) != 1 || results[0].Outcome != test.wantOutcome || project.status != test.wantStatus || project.phase != test.wantPhase || project.qaFailures != test.failures+1 {
+			if len(results) != 1 || results[0].Outcome != test.wantOutcome || project.status != test.wantStatus || project.phase != test.wantPhase || project.qaFailures != test.failures+1 || !strings.Contains(results[0].Summary, test.wantSummary) {
 				t.Fatalf("unexpected QA routing: results=%#v status=%q phase=%q failures=%d", results, project.status, project.phase, project.qaFailures)
+			}
+			if len(prompts) != 1 {
+				t.Fatalf("reviewer prompt count = %d, want one", len(prompts))
+			}
+			if test.priorFeedback && (!strings.Contains(prompts[0], "Preserve the previously corrected edge case.") || !strings.Contains(prompts[0], "Verify their correction in the current candidate")) {
+				t.Fatalf("reviewer did not receive prior QA feedback as historical evidence: %#v", prompts)
 			}
 			worktreePath := filepath.Join(filepath.Dir(repo), ".runner-worktrees", "assignment_"+safeRefComponent(item.ID))
 			if _, err := os.Stat(worktreePath); err != nil {
@@ -4254,13 +5035,13 @@ func TestAcceptedAgentQAPublishesPRAndMovesToHumanGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run accepted QA cycle: %v", err)
 	}
-	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || project.status != "PR Ready" || project.pullRequest != "https://github.com/owner/repo/pull/12" || project.branch != item.Branch || project.qaCommit == "" {
-		t.Fatalf("accepted QA did not reach the human gate: results=%#v status=%q PR=%q branch=%q", results, project.status, project.pullRequest, project.branch)
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || project.status != "PR Ready" || project.activity != "Awaiting human review" || project.pullRequest != "https://github.com/owner/repo/pull/12" || project.branch != item.Branch || project.qaCommit == "" {
+		t.Fatalf("accepted QA did not reach the human gate: results=%#v status=%q activity=%q PR=%q branch=%q", results, project.status, project.activity, project.pullRequest, project.branch)
 	}
 	if runner.status != "" || runner.head == "" || runner.tree == "" || runner.head != project.qaCommit {
 		t.Fatalf("QA did not receive the clean committed candidate: head=%q tree=%q status=%q qa_commit=%q", runner.head, runner.tree, runner.status, project.qaCommit)
 	}
-	recordPath := filepath.Join(filepath.Dir(preparedWorkspace.WorktreePath), ".runner-state", "publications", project.qaCommit+".json")
+	recordPath := filepath.Join(filepath.Dir(preparedWorkspace.WorktreePath), ".runner-state", "publications", "v3", project.qaCommit+".json")
 	recordContent, err := os.ReadFile(recordPath)
 	if err != nil {
 		t.Fatalf("read accepted publication tuple: %v", err)
@@ -4292,7 +5073,102 @@ func TestAcceptedAgentQAPublishesPRAndMovesToHumanGate(t *testing.T) {
 	}
 }
 
-func TestAcceptedAgentQARequestsConfiguredAutomaticMerge(t *testing.T) {
+func TestAgentQAResumesExactAcceptanceWithoutAnotherReviewerRun(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_resume_acceptance", Title: "Resume accepted publication", Body: "Criteria", Repository: "owner/repo",
+		Status: "Agent QA", Phase: "agent_qa", Branch: "cortexium/task",
+	}
+	item.Approval = testApproval(item)
+	provider := workspace.NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), workspace.Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(filepath.Dir(repo), ".runner-worktrees"), WorkID: "assignment_" + safeRefComponent(item.ID),
+		ItemID: item.ID, DelegatedContentDigest: github.DelegatedContentFor(item).Digest, Repository: item.Repository,
+		BranchName: item.Branch, BaseRef: "origin/main",
+	})
+	if err != nil {
+		t.Fatalf("prepare accepted candidate: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "accepted.txt"), []byte("accepted once\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.ConstructCandidateForMergeMethod(t.Context(), prepared, item.Title, config.MergeMethodMerge); err != nil {
+		t.Fatalf("construct accepted candidate: %v", err)
+	}
+	accepted, err := workspace.CaptureCheckoutSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
+	if err != nil {
+		t.Fatalf("snapshot accepted candidate: %v", err)
+	}
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "**Runner QA classification:** Accepted", "## Cortexium Runner Agent QA\n\n**Verdict:** Accepted"); err != nil {
+		t.Fatalf("record accepted candidate: %v", err)
+	}
+
+	project := &fakeGitHubProjectRunner{
+		itemsJSON:    `{"items":[` + projectItemJSON(item) + `]}`,
+		qaCommit:     accepted.Head,
+		baseRevision: prepared.BaseRevision,
+	}
+	runner := &resumedAcceptanceRunner{project: project}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir:    repo,
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), runner)
+	if err != nil {
+		t.Fatalf("configure service: %v", err)
+	}
+	results, err := service.RunCycle(t.Context())
+	if err != nil {
+		t.Fatalf("resume accepted QA: %v", err)
+	}
+	if runner.reviewRuns != 0 || len(results) != 1 || !results[0].ResumedCheckpoint || results[0].Outcome != execution.OutcomeSucceeded ||
+		project.status != "PR Ready" || project.pullRequest != "https://github.com/owner/repo/pull/12" {
+		t.Fatalf("accepted publication was not resumed exactly: review_runs=%d results=%#v status=%q PR=%q", runner.reviewRuns, results, project.status, project.pullRequest)
+	}
+}
+
+func TestOutOfDateManualPullRequestWaitsForHumanWithoutEagerRefresh(t *testing.T) {
+	repo, remote := createPublicationRepository(t)
+	runGitTest(t, repo, "checkout", "-b", "cortexium/task")
+	if err := os.WriteFile(filepath.Join(repo, "feature.txt"), []byte("feature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitTest(t, repo, "add", "--all")
+	runGitTest(t, repo, "commit", "-m", "feature")
+	runGitTest(t, repo, "push", "-u", "origin", "cortexium/task")
+	originalHead := strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/cortexium/task"))
+	runGitTest(t, repo, "checkout", "main")
+	advanceRemoteBase(t, repo, "base.txt", "base update\n")
+	item := github.WorkItem{
+		ID: "PVTI_manual_pr", Title: "Implement", Body: "Criteria", Repository: "owner/repo", Status: "PR Ready",
+		PullRequest: "https://github.com/owner/repo/pull/12", Branch: "cortexium/task", QACommit: "qa-head",
+	}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo,
+		GitHubProject: &config.GitHubProjectConfig{
+			Owner: "owner", Number: 4, IntakeRepository: "owner/repo", AutoMerge: false,
+		},
+	}), openPullRequestRunner{project: project})
+	if err != nil {
+		t.Fatalf("configure service: %v", err)
+	}
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load lifecycle items: %v", err)
+	}
+	if _, changed, err := service.reconcilePullRequests(t.Context(), items); err != nil {
+		t.Fatalf("reconcile manual pull request: %v", err)
+	} else if changed {
+		t.Fatal("manual pull request reconciliation reported an integration action")
+	}
+	remoteHead := strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/cortexium/task"))
+	if project.status != "" || project.phase != "" || project.result != "" || remoteHead != originalHead {
+		t.Fatalf("manual pull request was eagerly refreshed: status=%q phase=%q result=%q before=%s after=%s", project.status, project.phase, project.result, originalHead, remoteHead)
+	}
+}
+
+func TestAcceptedAgentQAQueuesConfiguredAutomaticIntegration(t *testing.T) {
 	repo, _ := createPublicationRepository(t)
 	item := github.WorkItem{
 		ID: "PVTI_auto_merge", Title: "Implement autonomous feature", Body: "Criteria", Repository: "owner/repo", Status: "Agent QA", Phase: "agent_qa",
@@ -4326,15 +5202,27 @@ func TestAcceptedAgentQARequestsConfiguredAutomaticMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run accepted QA cycle: %v", err)
 	}
-	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || runner.mergeRequests != 1 || project.status != "PR Ready" {
-		t.Fatalf("automatic merge was not requested once: results=%#v requests=%d status=%q", results, runner.mergeRequests, project.status)
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || runner.mergeRequests != 0 || project.status != "PR Ready" || project.activity != config.RunnerActivityWaitingForCI {
+		t.Fatalf("QA did not leave visible automatic integration to reconciliation: results=%#v requests=%d status=%q activity=%q", results, runner.mergeRequests, project.status, project.activity)
 	}
-	if !strings.Contains(results[0].Summary, "merge the pull request automatically") {
-		t.Fatalf("automatic merge result was unclear: %#v", results[0])
+	if !strings.Contains(results[0].Summary, "queued for automatic integration") {
+		t.Fatalf("automatic integration result was unclear: %#v", results[0])
+	}
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load published item: %v", err)
+	}
+	if _, changed, err := service.reconcilePullRequests(t.Context(), items); err != nil {
+		t.Fatalf("reconcile queued automatic integration: %v", err)
+	} else if !changed || runner.mergeRequests != 1 {
+		t.Fatalf("queued integration did not acquire its resource: changed=%t requests=%d", changed, runner.mergeRequests)
+	}
+	if project.activity != config.RunnerActivityWaitingForMerge {
+		t.Fatalf("ordinary integration reconciliation cleared visible waiting state: %q", project.activity)
 	}
 }
 
-func TestAcceptedAgentQARejectsBaseMovementBeforeAutomaticMerge(t *testing.T) {
+func TestAutomaticIntegrationRequeuesWhenBaseMovesAfterQA(t *testing.T) {
 	repo, _ := createPublicationRepository(t)
 	item := github.WorkItem{
 		ID: "PVTI_auto_merge_base_move", Title: "Implement autonomous feature", Body: "Criteria", Repository: "owner/repo", Status: "Agent QA", Phase: "agent_qa",
@@ -4371,11 +5259,17 @@ func TestAcceptedAgentQARejectsBaseMovementBeforeAutomaticMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run accepted QA cycle: %v", err)
 	}
-	if len(results) != 1 || runner.mergeRequests != 0 || !runner.postPublicationFetchSeen || project.status != "Blocked" || project.phase != "ready" {
-		t.Fatalf("base movement did not fail closed before automatic merge: results=%#v requests=%d fetched=%t status=%q phase=%q", results, runner.mergeRequests, runner.postPublicationFetchSeen, project.status, project.phase)
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || runner.mergeRequests != 0 || !runner.postPublicationFetchSeen || project.status != "PR Ready" {
+		t.Fatalf("QA publication did not queue moved-base integration: results=%#v requests=%d fetched=%t status=%q phase=%q", results, runner.mergeRequests, runner.postPublicationFetchSeen, project.status, project.phase)
 	}
-	if !strings.Contains(results[0].Error, "workspace identity mismatch") {
-		t.Fatalf("base movement did not report the workspace identity failure: %#v", results[0])
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load published item: %v", err)
+	}
+	if _, changed, err := service.reconcilePullRequests(t.Context(), items); err != nil {
+		t.Fatalf("reconcile moved-base integration: %v", err)
+	} else if !changed || runner.mergeRequests != 0 || project.status != "Ready" || project.phase != "ready" || project.activity != "" {
+		t.Fatalf("moved-base integration was not returned for implementation and QA: changed=%t requests=%d status=%q phase=%q activity=%q", changed, runner.mergeRequests, project.status, project.phase, project.activity)
 	}
 }
 
@@ -4413,11 +5307,19 @@ func TestAutomaticMergeFailureBlocksCardWithRetryGuidance(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run accepted QA cycle: %v", err)
 	}
-	if len(results) != 1 || results[0].Outcome != execution.OutcomeBlocked || runner.mergeRequests != 1 || project.status != "Blocked" || project.phase != "agent_qa" {
-		t.Fatalf("automatic merge failure was not retryable: results=%#v requests=%d status=%q phase=%q", results, runner.mergeRequests, project.status, project.phase)
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || runner.mergeRequests != 0 || project.status != "PR Ready" {
+		t.Fatalf("QA publication did not queue failed integration attempt: results=%#v requests=%d status=%q", results, runner.mergeRequests, project.status)
 	}
-	if project.pullRequest == "" || !strings.Contains(project.result, "transient external failure") || !strings.Contains(project.result, "cortexium-runner retry") || strings.Contains(project.result, "GitHub left the pull request open") {
-		t.Fatalf("automatic merge failure lost PR or guidance: PR=%q result=%q", project.pullRequest, project.result)
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load published item: %v", err)
+	}
+	warnings, changed, err := service.reconcilePullRequests(t.Context(), items)
+	if err != nil || !changed || len(warnings) != 1 || warnings[0].Outcome != execution.OutcomeBlocked || runner.mergeRequests != 1 || project.status != "Blocked" || project.phase != "agent_qa" || project.activity != "" {
+		t.Fatalf("automatic merge failure was not retryable: warnings=%#v changed=%t error=%v requests=%d status=%q phase=%q activity=%q", warnings, changed, err, runner.mergeRequests, project.status, project.phase, project.activity)
+	}
+	if project.pullRequest == "" || !strings.Contains(project.result, "Automatic merge could not be enabled") || !strings.Contains(project.result, "retry this card") || strings.Contains(project.result, "repository auto-merge is disabled") {
+		t.Fatalf("automatic merge failure lost safe PR guidance: PR=%q result=%q", project.pullRequest, project.result)
 	}
 }
 
@@ -4571,7 +5473,7 @@ func TestAgentQAFailsClosedWhenWorkspaceChangesDuringReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run QA cycle: %v", err)
 	}
-	if len(results) != 1 || results[0].Outcome != execution.OutcomeBlocked || project.status != "Blocked" || project.phase != "ready" || project.pullRequest != "" || !strings.Contains(results[0].Summary, "changed the implementation workspace") {
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeBlocked || project.status != "Blocked" || project.phase != "ready" || project.pullRequest != "" || !strings.Contains(results[0].Summary, "changed the private review workspace") {
 		t.Fatalf("workspace mutation did not fail closed before publication: results=%#v status=%q PR=%q", results, project.status, project.pullRequest)
 	}
 	if !strings.Contains(results[0].Error, `"changed-during-qa.txt"`) {
@@ -4677,6 +5579,46 @@ func TestAgentQAControlStateDriftBlocksCommitPushPRAndCleanup(t *testing.T) {
 	}
 }
 
+func TestAgentQAAllowsConcurrentBranchTrackingConfigChange(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_parallel_branch_config", Title: "Publish through concurrent Git administration", Body: "Criteria", Repository: "owner/repo",
+		Status: "Agent QA", Phase: "agent_qa", Role: config.WorkRoleReviewer, Branch: "cortexium/task",
+	}
+	item.Approval = testApproval(item)
+	prepared, err := workspace.NewGitProvider(subprocess.OSRunner{}).Prepare(t.Context(), workspace.Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(filepath.Dir(repo), ".runner-worktrees"), WorkID: "assignment_" + safeRefComponent(item.ID),
+		ItemID: item.ID, DelegatedContentDigest: github.DelegatedContentFor(item).Digest, Repository: item.Repository,
+		BranchName: item.Branch, BaseRef: "origin/main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "feature.txt"), []byte("reviewed implementation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	runner := &integrityMutatingReviewer{project: project, mutate: func(worktree string) error {
+		if err := runGitMutation(worktree, "config", "branch.unrelated.remote", "origin"); err != nil {
+			return err
+		}
+		return runGitMutation(worktree, "config", "branch.unrelated.merge", "refs/heads/unrelated")
+	}}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := service.RunCycle(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || project.status != "PR Ready" || project.pullRequest == "" {
+		t.Fatalf("concurrent branch tracking change blocked QA publication: results=%#v status=%q PR=%q", results, project.status, project.pullRequest)
+	}
+}
+
 func runGitMutation(dir string, args ...string) error {
 	command := exec.Command("git", args...)
 	command.Dir = dir
@@ -4779,6 +5721,108 @@ func TestWorkspaceForPullRequestFastForwardsToLatestRemoteHead(t *testing.T) {
 	}
 }
 
+func TestWorkspaceForTrackedRebasePullRequestKeepsExactLocalRewriteForQA(t *testing.T) {
+	repo, remote := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_rebase_rework", Title: "Correct the published implementation", Body: "Criteria", Repository: "owner/repo",
+		Branch: "cortexium/task", PullRequest: "https://github.com/owner/repo/pull/12",
+	}
+	digest := github.DelegatedContentFor(item).Digest
+	cfg := completeEngineTestConfig(config.Config{
+		ProjectDir: repo,
+		GitHubProject: &config.GitHubProjectConfig{
+			Owner: "owner", Number: 4, IntakeRepository: "owner/repo", MergeMethod: config.MergeMethodRebase,
+		},
+	})
+	testRunner := reviewerAcceptRunner{project: &fakeGitHubProjectRunner{}}
+	service, err := New(cfg, testRunner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := workspace.Request{
+		WorkingDir: repo, WorktreeRoot: service.implementationWorkspaceRoot(), WorkID: "assignment_" + safeRefComponent(item.ID),
+		ItemID: item.ID, DelegatedContentDigest: digest, Repository: item.Repository,
+		BranchName: item.Branch, BaseRef: "origin/main",
+	}
+	provider := workspace.NewGitProvider(testRunner)
+	prepared, err := provider.Prepare(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "feature.txt"), []byte("published implementation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	published, err := provider.ConstructCandidateForMergeMethod(t.Context(), prepared, item.Title, config.MergeMethodRebase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := workspace.CaptureCheckoutSnapshotStateWithLimits(t.Context(), testRunner, prepared.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate."); err != nil {
+		t.Fatal(err)
+	}
+	runGitTest(t, prepared.WorktreePath, "push", "origin", published.CommitOID+":refs/heads/"+item.Branch)
+	item.QACommit = published.CommitOID
+
+	advanceRemoteBase(t, repo, "base.txt", "new base\n")
+	refresh, err := provider.RefreshBaseForMergeMethod(t.Context(), prepared, "origin", "main", config.MergeMethodRebase)
+	if err != nil || !refresh.Updated || refresh.Conflicted {
+		t.Fatalf("refresh published candidate: %#v, error=%v", refresh, err)
+	}
+	prepared, err = provider.Prepare(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "feature.txt"), []byte("corrected implementation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	corrected, err := provider.ConstructCandidateForMergeMethod(t.Context(), prepared, item.Title, config.MergeMethodRebase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exec.Command("git", "-C", prepared.WorktreePath, "merge-base", "--is-ancestor", published.CommitOID, corrected.CommitOID).CombinedOutput(); err == nil {
+		t.Fatal("test setup did not create the expected rebase-history divergence")
+	}
+
+	reused, err := service.workspaceForItem(t.Context(), item, digest, repo)
+	if err != nil {
+		t.Fatalf("reuse exact Runner-owned rebase rewrite for QA: %v", err)
+	}
+	if localHead := strings.TrimSpace(runGitTest(t, reused.WorktreePath, "rev-parse", "HEAD")); localHead != corrected.CommitOID {
+		t.Fatalf("QA workspace head = %s, want corrected local candidate %s", localHead, corrected.CommitOID)
+	}
+	if remoteHead := strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/"+item.Branch)); remoteHead != published.CommitOID {
+		t.Fatalf("QA preflight changed remote head = %s, want prior accepted commit %s", remoteHead, published.CommitOID)
+	}
+
+	staleProjectLease := item
+	staleProjectLease.QACommit = strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/main"))
+	if _, err := service.workspaceForItem(t.Context(), staleProjectLease, digest, repo); err != nil {
+		t.Fatalf("private publication acceptance did not recover the stale Project QA commit: %v", err)
+	}
+	publicationPath := filepath.Join(filepath.Dir(prepared.WorktreePath), ".runner-state", "publications", "v3", published.CommitOID+".json")
+	if err := os.Remove(publicationPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.workspaceForItem(t.Context(), staleProjectLease, digest, repo); err == nil || !strings.Contains(err.Error(), "have diverged") {
+		t.Fatalf("rebase rewrite without Project or private lease authority was accepted: %v", err)
+	}
+
+	mergeConfig := cfg
+	mergeProject := *cfg.GitHubProject
+	mergeProject.MergeMethod = config.MergeMethodMerge
+	mergeConfig.GitHubProject = &mergeProject
+	mergeService, err := New(mergeConfig, testRunner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mergeService.workspaceForItem(t.Context(), item, digest, repo); err == nil || !strings.Contains(err.Error(), "have diverged") {
+		t.Fatalf("merge-mode divergence was accepted as a rebase rewrite: %v", err)
+	}
+}
+
 func completeEngineTestConfig(cfg config.Config) config.Config {
 	if cfg.ConfigVersion == 0 {
 		cfg.ConfigVersion = config.ConfigVersion
@@ -4808,6 +5852,9 @@ func completeEngineTestConfig(cfg config.Config) config.Config {
 	}
 	if strings.TrimSpace(project.IntakeLabel) == "" {
 		project.IntakeLabel = "needs-assessment"
+	}
+	if strings.TrimSpace(project.MergeMethod) == "" {
+		project.MergeMethod = config.MergeMethodMerge
 	}
 	for destination, value := range map[*string]string{
 		&project.ResultField: "Runner Result", &project.ApprovalField: "Runner Approval", &project.PhaseField: "Runner Phase",

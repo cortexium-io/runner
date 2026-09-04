@@ -111,7 +111,7 @@ func (s *Project) configuredIssueRepository() (string, error) {
 }
 
 func (s *Project) convertDraftToIssue(ctx context.Context, item WorkItem, repositoryID, repository string) (WorkItem, error) {
-	mutation := `mutation($item_id:ID!,$repository_id:ID!){convertProjectV2DraftIssueItemToIssue(input:{itemId:$item_id,repositoryId:$repository_id}){item{id content{... on Issue{id title body url repository{nameWithOwner}}}}}}`
+	mutation := `mutation($item_id:ID!,$repository_id:ID!){convertProjectV2DraftIssueItemToIssue(input:{itemId:$item_id,repositoryId:$repository_id}){item{id content{... on Issue{id title body url state repository{nameWithOwner}}}}}}`
 	response, err := s.gh(ctx, "api", "graphql", "-f", "query="+mutation, "-F", "item_id="+strings.TrimSpace(item.ID), "-F", "repository_id="+strings.TrimSpace(repositoryID))
 	if err != nil {
 		return WorkItem{}, commandFailure(err, response)
@@ -126,6 +126,7 @@ func (s *Project) convertDraftToIssue(ctx context.Context, item WorkItem, reposi
 						Title      string `json:"title"`
 						Body       string `json:"body"`
 						URL        string `json:"url"`
+						State      string `json:"state"`
 						Repository *struct {
 							NameWithOwner string `json:"nameWithOwner"`
 						} `json:"repository"`
@@ -154,6 +155,7 @@ func (s *Project) convertDraftToIssue(ctx context.Context, item WorkItem, reposi
 	next.Body = strings.TrimSpace(content.Body)
 	next.URL = strings.TrimSpace(content.URL)
 	next.Repository = strings.TrimSpace(content.Repository.NameWithOwner)
+	next.IssueState = strings.TrimSpace(content.State)
 	return next, nil
 }
 
@@ -165,6 +167,7 @@ func sameItemAfterIssueConversion(before, after WorkItem, repository string) boo
 	expected.DraftContentID = after.DraftContentID
 	expected.URL = after.URL
 	expected.Repository = repository
+	expected.IssueState = after.IssueState
 	return issueReferenceMatchesRepository(after.URL, repository) && reflect.DeepEqual(expected, after)
 }
 

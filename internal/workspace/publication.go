@@ -16,11 +16,12 @@ import (
 	"time"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/sandboxpath"
 	"github.com/cortexium-io/runner/internal/securefs"
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
-const publicationRecordVersion = 1
+const publicationRecordVersion = 3
 
 var privilegedGitMu sync.Mutex
 
@@ -29,6 +30,190 @@ var ErrPublicationBaseChanged = errors.New("publication base revision changed")
 type Candidate struct {
 	CommitOID string
 	TreeOID   string
+}
+
+// ReviewWorkspace is a private detached checkout of the exact candidate
+// commit. It is created only after implementation ends and is never granted to
+// the implementation sandbox, so review input cannot be changed by a child
+// process that escaped the implementation process group.
+type ReviewWorkspace struct {
+	Path          string
+	parent        string
+	provider      GitProvider
+	sourceProfile subprocess.PrivilegedGitProfile
+}
+
+// PrepareReviewWorkspace materializes the exact candidate through Runner's
+// config-free privileged Git boundary and verifies its commit, tree, and clean
+// state before a reviewer can see it.
+func (p GitProvider) PrepareReviewWorkspace(ctx context.Context, metadata Metadata, candidate Candidate) (ReviewWorkspace, error) {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	if err := validateCandidateMetadata(metadata); err != nil {
+		return ReviewWorkspace{}, err
+	}
+	if err := validateRecordedIdentity(metadata); err != nil {
+		return ReviewWorkspace{}, err
+	}
+	if !validObjectID(candidate.CommitOID) || !validObjectID(candidate.TreeOID) {
+		return ReviewWorkspace{}, errors.New("review workspace requires valid candidate commit and tree object IDs")
+	}
+	sourceProfile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
+	if err != nil {
+		return ReviewWorkspace{}, err
+	}
+	parent, err := newReviewWorkspaceParent(metadata.WorktreePath, metadata.RepoRoot)
+	if err != nil {
+		return ReviewWorkspace{}, fmt.Errorf("create private review workspace: %w", err)
+	}
+	path := filepath.Join(parent, "candidate")
+	result, err := p.privilegedGit(ctx, sourceProfile, "worktree", "add", "--detach", "--no-checkout", path, candidate.CommitOID)
+	if err != nil {
+		_ = os.RemoveAll(parent)
+		return ReviewWorkspace{}, fmt.Errorf("materialize private review workspace: %w", commandError(err, result))
+	}
+	review := ReviewWorkspace{Path: path, parent: parent, provider: p, sourceProfile: sourceProfile}
+	fail := func(cause error) (ReviewWorkspace, error) {
+		if cleanupErr := review.cleanupLocked(ctx); cleanupErr != nil {
+			cause = errors.Join(cause, cleanupErr)
+		}
+		return ReviewWorkspace{}, cause
+	}
+	reviewProfile, err := derivePrivilegedGitProfile(path)
+	if err != nil {
+		return fail(err)
+	}
+	if reviewProfile.CommonDirectory != metadata.commonDirectory || reviewProfile.ObjectDirectory != metadata.objectDirectory {
+		return fail(errors.New("private review workspace does not share the prepared candidate object store"))
+	}
+	reset, err := p.privilegedGit(ctx, reviewProfile, "reset", "--hard", candidate.CommitOID)
+	if err != nil {
+		return fail(fmt.Errorf("checkout private review candidate: %w", commandError(err, reset)))
+	}
+	head, err := p.privilegedScalar(ctx, reviewProfile, "rev-parse", "--verify", "HEAD^{commit}")
+	if err != nil {
+		return fail(fmt.Errorf("verify private review commit: %w", err))
+	}
+	tree, err := p.privilegedScalar(ctx, reviewProfile, "rev-parse", "--verify", "HEAD^{tree}")
+	if err != nil {
+		return fail(fmt.Errorf("verify private review tree: %w", err))
+	}
+	status, err := p.privilegedGit(ctx, reviewProfile, "status", "--porcelain", "--untracked-files=all")
+	if err != nil {
+		return fail(fmt.Errorf("verify private review workspace: %w", commandError(err, status)))
+	}
+	if head != candidate.CommitOID || tree != candidate.TreeOID || strings.TrimSpace(status.Stdout) != "" {
+		return fail(fmt.Errorf("private review workspace is not the exact clean candidate: head=%q tree=%q status=%q", head, tree, status.Stdout))
+	}
+	return review, nil
+}
+
+func reviewWorkspaceRoot() (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user cache directory for review workspaces: %w", err)
+	}
+	if !filepath.IsAbs(cache) {
+		return "", fmt.Errorf("review workspace root requires an absolute user cache directory: %s", cache)
+	}
+	return securefs.AbsolutePath(filepath.Join(cache, "cortexium-runner", "review-workspaces"))
+}
+
+func newReviewWorkspaceParent(protectedRoots ...string) (string, error) {
+	npmRoot, err := sandboxpath.NPMCacheRoot()
+	if err != nil {
+		return "", err
+	}
+	protectedRoots = append(append([]string(nil), protectedRoots...), npmRoot)
+
+	root, err := reviewWorkspaceRoot()
+	if err != nil {
+		return "", err
+	}
+	resolvedRoot := normalizedPath(root)
+	for _, protected := range protectedRoots {
+		if strings.TrimSpace(protected) == "" {
+			continue
+		}
+		resolvedProtected := normalizedPath(protected)
+		if pathInsideOrEqualLexical(resolvedRoot, resolvedProtected) || pathInsideOrEqualLexical(resolvedProtected, resolvedRoot) {
+			return "", fmt.Errorf("private review workspace root %s overlaps protected or sandbox-writable root %s", root, protected)
+		}
+	}
+	if err := securefs.EnsurePrivateDir(root); err != nil {
+		return "", fmt.Errorf("create private review workspace root: %w", err)
+	}
+
+	parent, err := os.MkdirTemp(root, "review-")
+	if err != nil {
+		return "", fmt.Errorf("create private review workspace parent: %w", err)
+	}
+	if err := securefs.ValidatePrivateDir(parent); err != nil {
+		_ = os.RemoveAll(parent)
+		return "", fmt.Errorf("validate private review workspace parent: %w", err)
+	}
+	resolvedParent := normalizedPath(parent)
+	for _, protected := range protectedRoots {
+		if strings.TrimSpace(protected) == "" {
+			continue
+		}
+		resolvedProtected := normalizedPath(protected)
+		if pathInsideOrEqualLexical(resolvedParent, resolvedProtected) || pathInsideOrEqualLexical(resolvedProtected, resolvedParent) {
+			_ = os.RemoveAll(parent)
+			return "", fmt.Errorf("private review workspace parent %s overlaps protected or sandbox-writable root %s", parent, protected)
+		}
+	}
+	return parent, nil
+}
+
+// Cleanup removes the linked worktree registration and private checkout.
+func (workspace ReviewWorkspace) Cleanup(ctx context.Context) error {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	return workspace.cleanupLocked(ctx)
+}
+
+func (workspace ReviewWorkspace) cleanupLocked(ctx context.Context) error {
+	if strings.TrimSpace(workspace.parent) == "" || strings.TrimSpace(workspace.Path) == "" {
+		return nil
+	}
+	var cleanupErr error
+	result, err := workspace.provider.privilegedGit(ctx, workspace.sourceProfile, "worktree", "remove", "--force", workspace.Path)
+	if err != nil {
+		cleanupErr = fmt.Errorf("remove private review worktree: %w", commandError(err, result))
+	}
+	if err := os.RemoveAll(workspace.parent); err != nil {
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove private review workspace: %w", err))
+	}
+	return cleanupErr
+}
+
+type candidateValidationError struct {
+	correction string
+	cause      error
+}
+
+func (e candidateValidationError) Error() string {
+	return e.cause.Error()
+}
+
+func (e candidateValidationError) Unwrap() error {
+	return e.cause
+}
+
+// CandidateValidationCorrection returns a Runner-authored, remotely safe
+// correction only for ordinary candidate-content failures. Workspace identity
+// and Git administration failures deliberately remain local integrity errors.
+func CandidateValidationCorrection(err error) (string, bool) {
+	var validation candidateValidationError
+	if !errors.As(err, &validation) || strings.TrimSpace(validation.correction) == "" {
+		return "", false
+	}
+	return strings.TrimSpace(validation.correction), true
+}
+
+func recoverableCandidateError(correction string, cause error) error {
+	return candidateValidationError{correction: strings.TrimSpace(correction), cause: cause}
 }
 
 type BaseRefresh struct {
@@ -60,6 +245,8 @@ type PublicationRecord struct {
 	Repository             string `json:"repository"`
 	DestinationRef         string `json:"destination_ref"`
 	AcceptanceSnapshot     string `json:"acceptance_snapshot"`
+	AcceptanceReport       string `json:"acceptance_report"`
+	AcceptanceComment      string `json:"acceptance_comment"`
 }
 
 // ConstructCandidate stages worktree bytes without Git clean filters, writes a
@@ -74,7 +261,7 @@ func (p GitProvider) ConstructCandidate(ctx context.Context, metadata Metadata, 
 func (p GitProvider) ConstructCandidateForMergeMethod(ctx context.Context, metadata Metadata, message, mergeMethod string) (Candidate, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
-	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	mergeMethod = config.NormalizeMergeMethod(mergeMethod)
 	if !config.ValidMergeMethod(mergeMethod) {
 		return Candidate{}, errors.New("candidate construction requires merge, rebase, or squash merge method")
 	}
@@ -133,12 +320,22 @@ func (p GitProvider) ConstructCandidateForMergeMethod(ctx context.Context, metad
 	if result, runErr := p.privilegedGit(ctx, profile, "ls-files", "-u"); runErr != nil {
 		return Candidate{}, fmt.Errorf("inspect staged candidate conflicts: %w", commandError(runErr, result))
 	} else if result.Stdout != "" {
-		return Candidate{}, errors.New("candidate contains unresolved index conflicts")
+		return Candidate{}, recoverableCandidateError(
+			"Candidate still contains unresolved merge conflicts. Resolve every conflict and rerun `git diff --cached --check` before retrying.",
+			errors.New("candidate contains unresolved index conflicts"),
+		)
 	}
 	if result, runErr := p.privilegedGit(ctx, profile, "diff", "--cached", "--check"); runErr != nil {
-		return Candidate{}, fmt.Errorf("check staged candidate: %w", commandError(runErr, result))
+		cause := fmt.Errorf("check staged candidate: %w", commandError(runErr, result))
+		if strings.TrimSpace(result.Stdout) != "" {
+			return Candidate{}, recoverableCandidateError(candidateDiffCheckCorrection(result.Stdout), cause)
+		}
+		return Candidate{}, cause
 	} else if strings.TrimSpace(result.Stdout) != "" {
-		return Candidate{}, errors.New("candidate contains whitespace errors or unresolved conflict markers")
+		return Candidate{}, recoverableCandidateError(
+			candidateDiffCheckCorrection(result.Stdout),
+			errors.New("candidate contains whitespace errors or unresolved conflict markers"),
+		)
 	}
 	treeOID, err := p.privilegedScalar(ctx, profile, "write-tree")
 	if err != nil {
@@ -233,6 +430,29 @@ func (p GitProvider) ConstructCandidateForMergeMethod(ctx context.Context, metad
 		return Candidate{}, errors.New("committed candidate HEAD, tree, or branch changed during construction")
 	}
 	return Candidate{CommitOID: headOID, TreeOID: treeOID}, nil
+}
+
+func candidateDiffCheckCorrection(output string) string {
+	lower := strings.ToLower(output)
+	reasons := make([]string, 0, 4)
+	for _, candidate := range []struct {
+		marker string
+		label  string
+	}{
+		{marker: "trailing whitespace", label: "trailing whitespace"},
+		{marker: "space before tab", label: "spaces before tabs"},
+		{marker: "new blank line at eof", label: "new blank lines at end of file"},
+		{marker: "leftover conflict marker", label: "leftover conflict markers"},
+	} {
+		if strings.Contains(lower, candidate.marker) {
+			reasons = append(reasons, candidate.label)
+		}
+	}
+	reason := "whitespace or conflict-marker errors"
+	if len(reasons) > 0 {
+		reason = strings.Join(reasons, ", ")
+	}
+	return "Candidate failed `git diff --cached --check` because it contains " + reason + ". Correct every reported line before retrying."
 }
 
 func rejectCandidateIndexFlags(value string) error {
@@ -541,83 +761,16 @@ func validObjectID(value string) bool {
 // RecordPublicationAcceptance creates or reuses only the exact immutable tuple
 // for the unchanged QA snapshot. A commit-key collision with any different
 // identity is rejected.
-func (p GitProvider) RecordPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot) (PublicationRecord, error) {
+func (p GitProvider) RecordPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot, report, comment string) (PublicationRecord, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
-	if err := validateCandidateMetadata(metadata); err != nil {
-		return PublicationRecord{}, err
+	if strings.TrimSpace(report) == "" || strings.TrimSpace(comment) == "" {
+		return PublicationRecord{}, errors.New("publication acceptance requires the reviewer report and durable comment")
 	}
-	if err := validateRecordedIdentity(metadata); err != nil {
-		return PublicationRecord{}, err
-	}
-	if accepted.Fingerprint == "" || !accepted.Clean || !validObjectID(accepted.Head) || !validObjectID(accepted.Tree) || accepted.Branch != metadata.BranchName {
-		return PublicationRecord{}, errors.New("accepted QA snapshot is not a clean candidate with valid matching HEAD, tree, and branch")
-	}
-	profile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
+	record, path, err := p.validatedPublicationAcceptance(ctx, metadata, accepted, report, comment, true)
 	if err != nil {
 		return PublicationRecord{}, err
 	}
-	if err := rejectObjectRedirection(profile); err != nil {
-		return PublicationRecord{}, err
-	}
-	if err := p.rejectReplacementObjects(ctx, profile); err != nil {
-		return PublicationRecord{}, err
-	}
-	current, err := CaptureSnapshotStateWithLimits(ctx, p.run, metadata.WorktreePath, 30*time.Second, p.limits)
-	if err != nil {
-		return PublicationRecord{}, fmt.Errorf("recapture accepted candidate: %w", err)
-	}
-	if !current.Clean || current.Fingerprint != accepted.Fingerprint || current.Head != accepted.Head || current.Tree != accepted.Tree || current.Branch != accepted.Branch {
-		return PublicationRecord{}, errors.New("accepted candidate snapshot, HEAD, tree, or branch changed before publication authorization")
-	}
-	verifiedProfile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
-	if err != nil {
-		return PublicationRecord{}, fmt.Errorf("rederive accepted candidate administration: %w", err)
-	}
-	if verifiedProfile != profile {
-		return PublicationRecord{}, errors.New("accepted candidate Git administration changed before publication authorization")
-	}
-	if err := rejectObjectRedirection(verifiedProfile); err != nil {
-		return PublicationRecord{}, err
-	}
-	if err := p.rejectReplacementObjects(ctx, verifiedProfile); err != nil {
-		return PublicationRecord{}, err
-	}
-	actualHead, err := p.privilegedScalar(ctx, verifiedProfile, "rev-parse", "--verify", "HEAD")
-	if err != nil {
-		return PublicationRecord{}, fmt.Errorf("verify accepted candidate HEAD: %w", err)
-	}
-	actualTree, err := p.privilegedScalar(ctx, verifiedProfile, "rev-parse", "--verify", "HEAD^{tree}")
-	if err != nil {
-		return PublicationRecord{}, fmt.Errorf("verify accepted candidate tree: %w", err)
-	}
-	actualBranch, err := p.privilegedScalar(ctx, verifiedProfile, "symbolic-ref", "--quiet", "HEAD")
-	if err != nil {
-		return PublicationRecord{}, fmt.Errorf("verify accepted candidate branch: %w", err)
-	}
-	if actualHead != accepted.Head || actualTree != accepted.Tree || actualBranch != "refs/heads/"+accepted.Branch {
-		return PublicationRecord{}, errors.New("accepted snapshot does not identify the literal candidate commit, tree, and branch")
-	}
-	if result, ancestorErr := p.privilegedGit(ctx, verifiedProfile, "merge-base", "--is-ancestor", metadata.BaseRevision, accepted.Head); ancestorErr != nil || result.ExitCode != 0 {
-		return PublicationRecord{}, errors.New("accepted candidate is not descended from the approved base")
-	}
-	record := PublicationRecord{
-		Version: publicationRecordVersion, ItemID: metadata.Identity.ItemID,
-		DelegatedContentDigest: metadata.Identity.DelegatedContentDigest,
-		CommitOID:              accepted.Head, TreeOID: accepted.Tree,
-		ApprovedBaseRef: metadata.BaseRef, ApprovedBaseOID: metadata.BaseRevision,
-		Repository: metadata.Identity.Repository, DestinationRef: "refs/heads/" + metadata.BranchName,
-		AcceptanceSnapshot: accepted.Fingerprint,
-	}
-	worktreeRoot := filepath.Dir(metadata.Identity.WorktreePath)
-	if err := securefs.ValidatePrivateDir(worktreeRoot); err != nil {
-		return PublicationRecord{}, fmt.Errorf("validate private publication state root: %w", err)
-	}
-	recordRoot := filepath.Join(worktreeRoot, ".runner-state", "publications")
-	if err := securefs.EnsurePrivateDir(recordRoot); err != nil {
-		return PublicationRecord{}, fmt.Errorf("create private publication record directory: %w", err)
-	}
-	path := filepath.Join(recordRoot, record.CommitOID+".json")
 	var content bytes.Buffer
 	encoder := json.NewEncoder(&content)
 	encoder.SetEscapeHTML(false)
@@ -639,6 +792,163 @@ func (p GitProvider) RecordPublicationAcceptance(ctx context.Context, metadata M
 	return existing, nil
 }
 
+// LoadPublicationAcceptance returns an existing exact acceptance without
+// creating one. It revalidates the live candidate before allowing Runner to
+// skip another reviewer invocation after an interrupted publication.
+func (p GitProvider) LoadPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot) (PublicationRecord, bool, error) {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	record, path, err := p.validatedPublicationAcceptance(ctx, metadata, accepted, "", "", false)
+	if err != nil {
+		return PublicationRecord{}, false, err
+	}
+	existing, err := readPublicationRecord(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return PublicationRecord{}, false, nil
+	}
+	if err != nil {
+		return PublicationRecord{}, false, fmt.Errorf("read existing publication record: %w", err)
+	}
+	record.AcceptanceReport = existing.AcceptanceReport
+	record.AcceptanceComment = existing.AcceptanceComment
+	if existing != record {
+		return PublicationRecord{}, false, errors.New("existing publication acceptance does not match the current approved candidate")
+	}
+	return existing, true, nil
+}
+
+// HasPriorPublicationAcceptance authenticates a remote branch head that Runner
+// published for the same item, delegated content, repository, and destination.
+// Unlike LoadPublicationAcceptance, it deliberately does not bind the old
+// record to the current candidate or base: rebase-mode recovery has already
+// replaced that local history and uses this proof only as an exact lease
+// anchor for the still-published predecessor.
+func (p GitProvider) HasPriorPublicationAcceptance(_ context.Context, metadata Metadata, commitOID string) (bool, error) {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	if err := validateCandidateMetadata(metadata); err != nil {
+		return false, err
+	}
+	if err := validateRecordedIdentity(metadata); err != nil {
+		return false, err
+	}
+	return priorPublicationAcceptance(metadata, commitOID)
+}
+
+func priorPublicationAcceptance(metadata Metadata, commitOID string) (bool, error) {
+	commitOID = strings.TrimSpace(commitOID)
+	if !validObjectID(commitOID) {
+		return false, nil
+	}
+	worktreeRoot := filepath.Dir(metadata.Identity.WorktreePath)
+	if err := securefs.ValidatePrivateDir(worktreeRoot); err != nil {
+		return false, fmt.Errorf("validate private publication state root: %w", err)
+	}
+	record, err := readPublicationRecord(publicationRecordPath(worktreeRoot, commitOID))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read prior publication acceptance: %w", err)
+	}
+	expectedDestination := "refs/heads/" + metadata.BranchName
+	if record.ItemID != metadata.Identity.ItemID || record.DelegatedContentDigest != metadata.Identity.DelegatedContentDigest ||
+		record.CommitOID != commitOID || record.Repository != metadata.Identity.Repository || record.DestinationRef != expectedDestination ||
+		record.ApprovedBaseRef != metadata.BaseRef || !validObjectID(record.ApprovedBaseOID) {
+		return false, nil
+	}
+	return true, nil
+}
+
+func (p GitProvider) validatedPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot, report, comment string, createRecordRoot bool) (PublicationRecord, string, error) {
+	if err := validateCandidateMetadata(metadata); err != nil {
+		return PublicationRecord{}, "", err
+	}
+	if err := validateRecordedIdentity(metadata); err != nil {
+		return PublicationRecord{}, "", err
+	}
+	if accepted.Fingerprint == "" || !accepted.Clean || !validObjectID(accepted.Head) || !validObjectID(accepted.Tree) || accepted.Branch != metadata.BranchName {
+		return PublicationRecord{}, "", errors.New("accepted QA snapshot is not a clean candidate with valid matching HEAD, tree, and branch")
+	}
+	profile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
+	if err != nil {
+		return PublicationRecord{}, "", err
+	}
+	if err := rejectObjectRedirection(profile); err != nil {
+		return PublicationRecord{}, "", err
+	}
+	if err := p.rejectReplacementObjects(ctx, profile); err != nil {
+		return PublicationRecord{}, "", err
+	}
+	current, err := CaptureCheckoutSnapshotStateWithLimits(ctx, p.run, metadata.WorktreePath, 30*time.Second, p.limits)
+	if err != nil {
+		return PublicationRecord{}, "", fmt.Errorf("recapture accepted candidate: %w", err)
+	}
+	if !current.Clean || current.Fingerprint != accepted.Fingerprint || current.Head != accepted.Head || current.Tree != accepted.Tree || current.Branch != accepted.Branch {
+		return PublicationRecord{}, "", errors.New("accepted candidate snapshot, HEAD, tree, or branch changed before publication authorization")
+	}
+	verifiedProfile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
+	if err != nil {
+		return PublicationRecord{}, "", fmt.Errorf("rederive accepted candidate administration: %w", err)
+	}
+	if verifiedProfile != profile {
+		return PublicationRecord{}, "", errors.New("accepted candidate Git administration changed before publication authorization")
+	}
+	if err := rejectObjectRedirection(verifiedProfile); err != nil {
+		return PublicationRecord{}, "", err
+	}
+	if err := p.rejectReplacementObjects(ctx, verifiedProfile); err != nil {
+		return PublicationRecord{}, "", err
+	}
+	actualHead, err := p.privilegedScalar(ctx, verifiedProfile, "rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return PublicationRecord{}, "", fmt.Errorf("verify accepted candidate HEAD: %w", err)
+	}
+	actualTree, err := p.privilegedScalar(ctx, verifiedProfile, "rev-parse", "--verify", "HEAD^{tree}")
+	if err != nil {
+		return PublicationRecord{}, "", fmt.Errorf("verify accepted candidate tree: %w", err)
+	}
+	actualBranch, err := p.privilegedScalar(ctx, verifiedProfile, "symbolic-ref", "--quiet", "HEAD")
+	if err != nil {
+		return PublicationRecord{}, "", fmt.Errorf("verify accepted candidate branch: %w", err)
+	}
+	if actualHead != accepted.Head || actualTree != accepted.Tree || actualBranch != "refs/heads/"+accepted.Branch {
+		return PublicationRecord{}, "", errors.New("accepted snapshot does not identify the literal candidate commit, tree, and branch")
+	}
+	if result, ancestorErr := p.privilegedGit(ctx, verifiedProfile, "merge-base", "--is-ancestor", metadata.BaseRevision, accepted.Head); ancestorErr != nil || result.ExitCode != 0 {
+		return PublicationRecord{}, "", errors.New("accepted candidate is not descended from the approved base")
+	}
+	report = strings.TrimSpace(report)
+	comment = strings.TrimSpace(comment)
+	if (report == "") != (comment == "") || strings.ContainsAny(report+comment, "\x00") {
+		return PublicationRecord{}, "", errors.New("publication acceptance report and comment must both be present or both be omitted and cannot contain NUL")
+	}
+	record := PublicationRecord{
+		Version: publicationRecordVersion, ItemID: metadata.Identity.ItemID,
+		DelegatedContentDigest: metadata.Identity.DelegatedContentDigest,
+		CommitOID:              accepted.Head, TreeOID: accepted.Tree,
+		ApprovedBaseRef: metadata.BaseRef, ApprovedBaseOID: metadata.BaseRevision,
+		Repository: metadata.Identity.Repository, DestinationRef: "refs/heads/" + metadata.BranchName,
+		AcceptanceSnapshot: accepted.Fingerprint, AcceptanceReport: report, AcceptanceComment: comment,
+	}
+	worktreeRoot := filepath.Dir(metadata.Identity.WorktreePath)
+	if err := securefs.ValidatePrivateDir(worktreeRoot); err != nil {
+		return PublicationRecord{}, "", fmt.Errorf("validate private publication state root: %w", err)
+	}
+	recordPath := publicationRecordPath(worktreeRoot, record.CommitOID)
+	recordRoot := filepath.Dir(recordPath)
+	if createRecordRoot {
+		if err := securefs.EnsurePrivateDir(recordRoot); err != nil {
+			return PublicationRecord{}, "", fmt.Errorf("create private publication record directory: %w", err)
+		}
+	}
+	return record, recordPath, nil
+}
+
+func publicationRecordPath(worktreeRoot, commitOID string) string {
+	return filepath.Join(worktreeRoot, ".runner-state", "publications", fmt.Sprintf("v%d", publicationRecordVersion), commitOID+".json")
+}
+
 func readPublicationRecord(path string) (PublicationRecord, error) {
 	content, _, state, err := securefs.ReadFile(path, 64*1024)
 	if err != nil {
@@ -657,7 +967,8 @@ func readPublicationRecord(path string) (PublicationRecord, error) {
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return PublicationRecord{}, errors.New("publication record contains trailing data")
 	}
-	if record.Version != publicationRecordVersion || !validObjectID(record.CommitOID) || !validObjectID(record.TreeOID) {
+	if record.Version != publicationRecordVersion || !validObjectID(record.CommitOID) || !validObjectID(record.TreeOID) ||
+		strings.TrimSpace(record.AcceptanceReport) == "" || strings.TrimSpace(record.AcceptanceComment) == "" || strings.ContainsAny(record.AcceptanceReport+record.AcceptanceComment, "\x00") {
 		return PublicationRecord{}, fmt.Errorf("invalid publication record version or object identity %s", strconv.Quote(record.CommitOID))
 	}
 	return record, nil
@@ -669,7 +980,7 @@ func readPublicationRecord(path string) (PublicationRecord, error) {
 func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, record PublicationRecord, remoteName, baseBranch string, pushPolicy PublicationPushPolicy, refreshAuthority func() error) error {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
-	pushPolicy.MergeMethod = config.EffectiveMergeMethod(pushPolicy.MergeMethod)
+	pushPolicy.MergeMethod = config.NormalizeMergeMethod(pushPolicy.MergeMethod)
 	pushPolicy.ExpectedRemoteOID = strings.TrimSpace(pushPolicy.ExpectedRemoteOID)
 	if !config.ValidMergeMethod(pushPolicy.MergeMethod) {
 		return errors.New("publication requires merge, rebase, or squash merge method")
@@ -694,21 +1005,21 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 		record.DelegatedContentDigest != metadata.Identity.DelegatedContentDigest || record.ApprovedBaseRef != metadata.BaseRef ||
 		record.ApprovedBaseOID != metadata.BaseRevision || record.Repository != metadata.Identity.Repository ||
 		record.DestinationRef != expectedDestination || record.ApprovedBaseRef != expectedBaseRef ||
-		!validObjectID(record.CommitOID) || !validObjectID(record.TreeOID) || record.AcceptanceSnapshot == "" {
+		!validObjectID(record.CommitOID) || !validObjectID(record.TreeOID) || record.AcceptanceSnapshot == "" ||
+		strings.TrimSpace(record.AcceptanceReport) == "" || strings.TrimSpace(record.AcceptanceComment) == "" {
 		return errors.New("publication tuple does not match the approved workspace, base, repository, or destination")
 	}
 	if !config.ValidRepositoryName(record.Repository) {
 		return errors.New("publication tuple repository must use owner/repository format")
 	}
-	recordRoot := filepath.Join(filepath.Dir(metadata.Identity.WorktreePath), ".runner-state", "publications")
-	persisted, err := readPublicationRecord(filepath.Join(recordRoot, record.CommitOID+".json"))
+	persisted, err := readPublicationRecord(publicationRecordPath(filepath.Dir(metadata.Identity.WorktreePath), record.CommitOID))
 	if err != nil {
 		return fmt.Errorf("read immutable publication tuple: %w", err)
 	}
 	if persisted != record {
 		return errors.New("provided publication tuple differs from its immutable private record")
 	}
-	current, err := CaptureSnapshotStateWithLimits(ctx, p.run, metadata.WorktreePath, 30*time.Second, p.limits)
+	current, err := CaptureCheckoutSnapshotStateWithLimits(ctx, p.run, metadata.WorktreePath, 30*time.Second, p.limits)
 	if err != nil {
 		return fmt.Errorf("recapture publication candidate: %w", err)
 	}
@@ -763,7 +1074,17 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 		if remoteOID == record.CommitOID {
 			remoteAlreadyAccepted = true
 		} else if remoteOID != pushPolicy.ExpectedRemoteOID {
-			return fmt.Errorf("publication destination changed externally: expected %s, found %s", pushPolicy.ExpectedRemoteOID, remoteOID)
+			priorAccepted, priorErr := priorPublicationAcceptance(metadata, remoteOID)
+			if priorErr != nil {
+				return priorErr
+			}
+			if !priorAccepted {
+				return fmt.Errorf("publication destination changed externally: expected %s, found %s", pushPolicy.ExpectedRemoteOID, remoteOID)
+			}
+			// A previous Project transition may have failed after this exact
+			// accepted commit was published. Its immutable private record is a
+			// stronger lease anchor than the stale Project QA field.
+			pushPolicy.ExpectedRemoteOID = remoteOID
 		}
 	}
 	resolvedTree, err := p.privilegedScalar(ctx, profile, "rev-parse", "--verify", record.CommitOID+"^{tree}")
@@ -822,7 +1143,7 @@ func (p GitProvider) RefreshLocalBaseForMergeMethod(ctx context.Context, metadat
 func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteName, baseBranch, mergeMethod string, fetchBranch bool) (BaseRefresh, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
-	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	mergeMethod = config.NormalizeMergeMethod(mergeMethod)
 	if !config.ValidMergeMethod(mergeMethod) {
 		return BaseRefresh{}, errors.New("base refresh requires merge, rebase, or squash merge method")
 	}

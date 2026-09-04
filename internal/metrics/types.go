@@ -19,13 +19,14 @@ const (
 )
 
 const (
-	StageWorkspacePrepare  = "workspace_prepare"
-	StageRepositoryPrepare = "repository_prepare"
-	StageHarnessRun        = "harness_run"
-	StageResultValidate    = "result_validate"
-	// StageResultRepair is retained so histories written by older Runner
-	// versions remain readable; current execution uses local normalization.
-	StageResultRepair       = "result_repair"
+	StageWorkspacePrepare   = "workspace_prepare"
+	StageRepositoryPrepare  = "repository_prepare"
+	StageHarnessRun         = "harness_run"
+	StagePlannerOutline     = "planner_outline"
+	StagePlannerDetails     = "planner_details"
+	StageReviewerAudit      = "reviewer_audit"
+	StageReviewerVerify     = "reviewer_verification"
+	StageResultValidate     = "result_validate"
 	StageWorkspaceVerify    = "workspace_verify"
 	StageProjectTransition  = "project_transition"
 	StagePublishPullRequest = "publish_pull_request"
@@ -40,8 +41,9 @@ const (
 
 func validStageName(name string) bool {
 	switch name {
-	case StageWorkspacePrepare, StageRepositoryPrepare, StageHarnessRun, StageResultValidate,
-		StageResultRepair, StageWorkspaceVerify, StageProjectTransition, StagePublishPullRequest,
+	case StageWorkspacePrepare, StageRepositoryPrepare, StageHarnessRun, StagePlannerOutline,
+		StagePlannerDetails, StageReviewerAudit, StageReviewerVerify, StageResultValidate,
+		StageWorkspaceVerify, StageProjectTransition, StagePublishPullRequest,
 		StagePlannerApply:
 		return true
 	default:
@@ -65,7 +67,7 @@ func validFailureClass(class string) bool {
 	switch class {
 	case "", "unknown", "transient_external", "capacity_exhausted", "timeout", "canceled",
 		"invalid_contract", "capability_unavailable", "needs_input", "permission_denied",
-		"authentication_required", "invalid_configuration", "integrity_violation":
+		"authentication_required", "invalid_configuration", "candidate_validation", "integrity_violation":
 		return true
 	default:
 		return false
@@ -74,7 +76,18 @@ func validFailureClass(class string) bool {
 
 func validRetryDisposition(disposition string) bool {
 	switch disposition {
-	case "", "none", "manual":
+	case "", "none", "manual", "automatic":
+		return true
+	default:
+		return false
+	}
+}
+
+func validFailureOperation(operation string) bool {
+	switch operation {
+	case "", "publication_push_candidate", "publication_refresh_authority",
+		"publication_find_pull_request", "publication_inspect_pull_request",
+		"publication_create_pull_request", "publication_validate_pull_request":
 		return true
 	default:
 		return false
@@ -186,6 +199,8 @@ type Event struct {
 	HarnessDurationMilliseconds int64     `json:"harness_duration_milliseconds,omitempty"`
 	Outcome                     string    `json:"outcome,omitempty"`
 	FailureClass                string    `json:"failure_class,omitempty"`
+	FailureOperation            string    `json:"failure_operation,omitempty"`
+	PublicationAttempts         int       `json:"publication_attempts,omitempty"`
 	RetryDisposition            string    `json:"retry_disposition,omitempty"`
 	RetryAfter                  string    `json:"retry_after,omitempty"`
 	StageID                     string    `json:"stage_id,omitempty"`
@@ -236,7 +251,7 @@ func Summarize(attempts []Attempt) Summary {
 	result.Attempts = len(attempts)
 	for _, attempt := range attempts {
 		for _, stage := range attempt.Stages {
-			if stage.Completed && stage.Name == StageHarnessRun {
+			if stage.Completed && isHarnessStage(stage.Name) {
 				result.HarnessInvocations++
 			}
 		}
@@ -268,6 +283,15 @@ func Summarize(attempts []Attempt) Summary {
 		result.Usage = result.Usage.Add(attempt.Usage)
 	}
 	return result
+}
+
+func isHarnessStage(name string) bool {
+	switch name {
+	case StageHarnessRun, StagePlannerOutline, StagePlannerDetails, StageReviewerAudit, StageReviewerVerify:
+		return true
+	default:
+		return false
+	}
 }
 
 func NewAttemptID() string {

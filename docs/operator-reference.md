@@ -11,7 +11,7 @@ The Runner uses:
   requests.
 - One or more natively authenticated AI harnesses: Codex CLI, Claude Code, or
   Pi CLI.
-- Configurable roles, skills, Kanban lanes, transitions, and GitHub events.
+- Configurable role profiles and typed event/action rules over Kanban lanes.
 - Three bundled Agent Skills for planning, implementation, and review.
 
 Codex CLI, Claude Code, and Pi CLI can each fill planner, implementer, and
@@ -87,10 +87,13 @@ yourself:
 cortexium-runner run --config /absolute/operator/path/runner.json
 ```
 
-That command polls in the foreground for as long as you leave it running and does
-nothing once you stop it. Use `cortexium-runner run --once` for one polling
-cycle in a diagnostic or scripted workflow. `init`, `doctor`, `plan`, `approve`,
-`retry`, `status`, `metrics`, and `role` are one-shot commands that exit when they finish. Running
+That command polls in the foreground for as long as you leave it running and
+continues observing unrelated Project and pull-request events while harness
+actions are in flight. It does nothing once you stop it. Use
+`cortexium-runner run --once` for one synchronous polling cycle in a diagnostic
+or scripted workflow. `init`, `doctor`, `plan`, `approve`, `retry`, `status`,
+`metrics`, `role`, `workflow`, and `harness` are one-shot commands that exit
+when they finish. Running
 `cortexium-runner` without arguments shows help; every command supports
 `--help`, and `--version` prints the installed version.
 
@@ -151,11 +154,20 @@ config. This non-interactive example uses an external path:
   --reasoning high \
   --planning-support standard \
   --max-parallelism 1 \
+  --autonomous-issues \
   --base-update-review required \
   --auto-merge=false \
   --merge-method merge \
   --bootstrap-base-branch
 ```
+
+`--autonomous-issues` lets labeled issues from a private configured intake
+repository enter `Plan` without a separate approval command. GitHub Project
+visibility does not grant this trust. For a public intake repository, add an
+exact author allowlist with repeatable `--trusted-issue-author LOGIN` flags;
+authors not on that list remain in `Needs assessment`. Supplying a trusted
+author also enables the policy. Omit both flags for the default human-review
+boundary.
 
 Adopt and synchronize an existing Project:
 
@@ -185,11 +197,17 @@ configured roles. AI harnesses remain user-installed and user-configured.
 Project synchronization keeps `Runner Activity` and `QA Failures` visible on
 board cards without hiding unrelated fields the user already selected.
 Activity is `Planning`, `Implementing`, or `Reviewing` while an agent owns the
-card. The internal `Runner Phase` field records the recovery lane, while the
-hidden `Runner Transition` field prevents execution during non-atomic Project
-updates. `QA Failures` records the current review-rejection count. `doctor`
-reports incorrect visibility or field types, and rerunning `init` repairs the
-overview.
+card. A transient Codex service failure temporarily shows `Waiting for harness
+provider` in the same role lane while Runner performs its bounded delayed
+retries. At `PR Ready`, it distinguishes `Awaiting human review`, `Waiting for CI`,
+`Waiting for integration slot`, and `Waiting for merge`. A failed integration
+check briefly records `CI failed — rework queued` as the card returns to
+implementation. Cards with incomplete dependencies show `Waiting for
+dependencies`. The internal `Runner Phase` field records the
+recovery lane, while the hidden `Runner Transition` field prevents execution
+during non-atomic Project updates. `QA Failures` records the current
+review-rejection count. `doctor` reports incorrect visibility or field types,
+and rerunning `init` repairs the overview.
 
 If only one supported harness executable is available, omitted harness flags
 use it for every role. If more than one is available, the guided flow asks for
@@ -210,10 +228,15 @@ rather than applied as a runtime default.
 Automatic merge is separately opt-in through `--auto-merge` or
 `github_project.auto_merge: true`. Runner binds the request to the exact
 QA-approved head commit, keeps GitHub checks and branch protections in force,
-and disarms automatic merge before rework or a branch update. A merge request
-does not consume an agent-parallelism slot or admission budget: Runner issues it
-immediately after QA publication and reconciles existing `PR Ready` cards before
-admitting new agent work. The optional
+and disarms automatic merge before rework or a branch update. QA publication
+queues the PR at `PR Ready`; reconciliation then permits one automatic
+integration owner per repository/base. GitHub's enabled auto-merge state makes
+that ownership survive a Runner restart. An integration action does not consume
+an agent-parallelism slot or admission budget, and existing `PR Ready` cards are
+reconciled before new agent work is admitted. In continuous mode, QA completion
+wakes that reconciliation immediately. Because `run --once` ends after its
+single synchronous cycle, a PR published by QA in that cycle is integrated by a
+later invocation. The optional
 `--merge-method` flag and `github_project.merge_method` setting accept `merge`,
 `rebase`, or `squash`; omitted values preserve the original `merge` behavior.
 Runner never silently substitutes another method because that would change the
@@ -221,7 +244,11 @@ repository's history policy. When a `rebase` pull request needs a base refresh,
 Runner records the complete refreshed tree as a linear candidate on the new
 base, sends conflicts back through implementation and QA, and publishes the
 approved rewrite only if the remote branch still equals its previously accepted
-commit. `merge` and `squash` retain merge-based base refreshes.
+commit. A local rework history may therefore diverge from that remote commit
+before QA; Runner recognizes it only for an existing tracked pull request whose
+recorded QA commit still exactly matches the remote head. Any mismatch remains
+blocked as a possible external branch change. `merge` and `squash` retain
+merge-based base refreshes.
 
 ### GitHub repository and merge readiness
 
@@ -251,7 +278,7 @@ Common readiness failures are:
 | Configured merge method is disabled | Blocks before work | Enable that repository merge method, or explicitly select an allowed `merge_method`. |
 | Linear history or a ruleset conflicts with `merge` | Blocks when visible; otherwise warns for protected branches | Remove **Require linear history** if merge commits are intended, or explicitly select `rebase` or `squash`. |
 | Required status check never reports | GitHub leaves the PR open; Doctor cannot prove that every future workflow will emit the configured check | Verify Actions is enabled and the required check name exactly matches the workflow's reported check. |
-| Harness login, model access, or structured-output support is unavailable | Ordinary Doctor checks the installed CLI surface; `--probe-harnesses` makes a minimal live call | Authenticate with the harness's native flow, choose an accessible model, and rerun the live probe. |
+| Harness login, model access, or structured-output support is unavailable | Ordinary Doctor checks the installed CLI surface; `--probe-harnesses` makes a minimal live call; `harness check` exercises each configured role adapter | Authenticate with the harness's native flow, choose an accessible model, and rerun the appropriate live check. |
 | Global Git commit signing opens pinentry in repository tooling | Runner-owned commits disable signing, but external setup/test commands may still prompt | Configure test fixtures with `commit.gpgSign=false`, or ensure the operator GPG agent is available; do not give the agent the signing passphrase. |
 | Chrome/Chromium is older than 149 | Doctor reports the optional browser capability as blocked; browser-dependent work will fail | Upgrade Chrome/Chromium. Runner keeps the 149+ requirement because its loopback-only MCP URL allowlist depends on that browser feature. |
 | Browser, Docker, database, or external-service prerequisites are repository-specific | Checked only when represented by an explicit capability or acceptance obligation | Document the repository's safe local entrypoint and add explicit Doctor requirements where a stable local capability exists. |
@@ -289,10 +316,12 @@ When `--config` is omitted, Runner commands resolve
 `.cortexium/runner.json` from the current Git repository root. An explicit
 `--config` path always takes precedence.
 
-Configuration v2 is the first public contract. Runner rejects any other version
-and every incomplete configuration instead of inferring operational values.
-There is no compatibility or migration layer; create a complete configuration
-with `init` before using `doctor` or `run`.
+Configuration v5 is the current pre-stable contract. Runner rejects any other
+version and every incomplete configuration instead of inferring operational
+values. There is no compatibility or migration layer. Create a complete v5
+configuration with `init` before using `doctor` or `run`; an existing v4 file
+must be rewritten from the generated example because changing its version alone
+does not convert lane behavior into typed rules.
 
 Preview initialization without changing GitHub, writing the config, or
 installing skills by adding `--dry-run`. After editing an existing config,
@@ -362,7 +391,7 @@ Then verify and run:
 
 ```bash
 ./cortexium-runner doctor --config /absolute/operator/path/runner.json
-./cortexium-runner doctor --config /absolute/operator/path/runner.json --probe-harnesses
+./cortexium-runner harness check --config /absolute/operator/path/runner.json
 ./cortexium-runner status --config /absolute/operator/path/runner.json
 ./cortexium-runner status --verbose --config /absolute/operator/path/runner.json
 ./cortexium-runner metrics --config /absolute/operator/path/runner.json
@@ -370,13 +399,15 @@ Then verify and run:
 ```
 
 `run` auto-detects the project-local default and keeps polling with built-in
-interval defaults until interrupted. Use `--poll-interval` or
+interval defaults until interrupted, including while admitted harness actions
+are still running. Use `--poll-interval` or
 `--max-idle-interval` only to tune
-polling, and `--once` only when exactly one cycle is wanted.
+polling, and `--once` only when exactly one synchronous cycle is wanted.
 
-`doctor` first rejects unknown config fields, invalid references, unsafe role
-definitions, incomplete transitions, and bundled skills whose pinned hashes
-differ. Unless `--offline` is used, it then checks Git, `gh`, GitHub API access,
+`doctor` first rejects unknown config fields, invalid repository-reference
+declarations, unsafe role definitions, incomplete transitions, and bundled
+skills whose pinned hashes differ. Unless `--offline` is used, it then checks
+Git, `gh`, GitHub API access,
 every configured Project lane and lifecycle field, the configured repository,
 harness executables, the exact CLI flags Runner needs for each configured
 harness's non-interactive invocation, skills, and explicit tool/MCP
@@ -385,6 +416,47 @@ requirements. It does not call a model or inspect AI-harness authentication unle
 distinct configured harness, command, model, and reasoning profile and validates
 the real structured-output path. It does not edit the repository or prove that
 implementation tools can execute in the participant's environment.
+Normal connected doctor also resolves and validates every configured repository
+reference. `doctor --offline` checks only its static shape and role policy.
+
+`harness check` is the paid local adapter smoke test:
+
+```bash
+./cortexium-runner harness check \
+  --config /absolute/operator/path/runner.json \
+  --timeout 5m
+
+# Include browser proof for browser-enabled implementer and reviewer profiles.
+./cortexium-runner harness check \
+  --config /absolute/operator/path/runner.json \
+  --browser
+```
+
+The command checks the trusted config and configured executable, then starts one
+live conformance attempt through every configured execution-role profile.
+Planner checks prove structured output and read-only repository access.
+Implementer checks create and verify one exact artifact in a Runner-owned
+worktree and pass through the normal post-harness integrity verification.
+Reviewer checks exercise the shared evidence-audit contract against a known-good
+fixture; as in normal QA, a reviewer may make one additional focused call if its
+audit leaves a proof unresolved. `--browser` adds a browser proof for each
+implementer or reviewer profile with safe tools enabled. The per-call timeout
+defaults to five minutes.
+
+This full role check subsumes the authentication and structured-output evidence
+from `doctor --probe-harnesses`; running both is unnecessary. Use the smaller
+Doctor probe when file-write and reviewer conformance are not needed.
+
+Runner performs no GitHub operations and assigns only a private temporary Git
+repository, which it removes afterward. Configured repository references remain
+read-only context for planner and reviewer profiles. The command uses the
+profile's configured model, reasoning, access, harness configuration, pinned
+skills, safe tools, and explicit MCP grants. Consequently, a `host` profile is
+still host-access and `host/inherit` remains unrestricted; the result labels
+that policy rather than pretending the temporary fixture is a security
+sandbox. Browser checks are omitted unless `--browser` is explicit. A failed
+profile does not prevent independent profiles from being checked, and any
+failed requested check makes the command exit unsuccessfully.
 
 `status` is operational rather than diagnostic: it reports current card counts,
 active, queued, blocked, and PR-ready work, whether a local Runner process holds
@@ -409,14 +481,28 @@ Use `doctor` for installation and configuration readiness.
 `metrics` reports the recorded duration, outcome, role, harness, model,
 reasoning level, QA iteration, recovery classification, harness-reported token
 counters, and harness-reported monetary cost for each attempt. Its summary also
-shows completed harness invocations and implementation attempts that resumed an
-exact saved result without another model call. It also shows a
+shows completed harness invocations and planner or implementation attempts that
+resumed an exact saved result without another model call. It also shows a
 stage timeline for workspace preparation, repository preparation, harness
 execution, result validation, workspace verification, Project
-transitions, and pull-request publication when those stages apply. Use
+transitions, and pull-request publication when those stages apply. A recovered
+publication shows its total attempt count; an exhausted publication also shows
+the fixed failing operation. Raw GitHub and Git diagnostics are not retained in
+metrics. Use
 `metrics --item ID_OR_TITLE` for one card or `metrics --json` for
 machine-readable output. `status` includes a compact accumulated total and the
 current admission-budget state.
+
+After a Project planning card produces a valid executable plan, Runner stores
+that exact normalized plan in a private mode-`0600` checkpoint before creating
+the first child. The record is bound to the approved source content, bounded
+issue discussion, role, lane, destination, repository, and deterministic batch
+fingerprint. If GitHub staging fails partway through, retrying the unchanged
+planning card skips the planner and creates only the missing children; already
+staged matching children are reused. A changed planning context discards the
+stale checkpoint, while malformed retained state blocks for inspection. Runner
+does not archive or delete partial children automatically and clears the
+checkpoint after the exact batch is staged successfully.
 
 After a successful implementation, Runner stores one evidence entry per
 approved verification check in private mode-`0600` state. The record is bound
@@ -435,7 +521,11 @@ candidate construction, evidence persistence, or the GitHub Project transition
 then fails, retrying the unchanged card and workspace resumes the saved result
 without relaunching the harness. A changed card, comment context, QA feedback,
 base, branch, or workspace makes the checkpoint stale and restores the ordinary
-implementation path. Runner clears it only after the successful Project
+implementation path. A recoverable candidate-content rejection clears the
+checkpoint so the recorded retry reruns implementation with Runner's sanitized
+correction; workspace-integrity failures remain opaque and fail closed.
+Supplying explicit `retry --feedback` also clears the checkpoint before the
+card moves. Otherwise Runner clears it only after the successful Project
 transition.
 
 Runner stores an append-only JSONL history in the user configuration directory,
@@ -465,63 +555,189 @@ removes the local worktree while retaining the branch. Patch handoff files and
 manifests are not generated; the branch and GitHub pull request are the recovery
 path.
 
+### Repository references
+
+`repository_references` optionally exposes existing secondary Git checkouts to
+planner and reviewer contracts as evidence:
+
+```json
+"repository_references": [
+  {
+    "name": "legacy-frontend",
+    "path": "/absolute/path/to/legacy-frontend",
+    "commit": "714128eaeb8e3805431f8fdeaa49a570e2830cea"
+  }
+]
+```
+
+Each name must be unique, `project_dir` and each reference path must be
+absolute, and each commit must be a full 40- or 64-character hexadecimal Git
+object ID. Normal `doctor` and every eligible harness launch resolve symlinks
+and require the path to be the exact root of an existing Git checkout with that
+`HEAD` and no tracked or untracked
+changes. References may not overlap the primary repository, any configured
+worktree root, or another reference. If a checkout changes after doctor,
+Runner rejects the launch before invoking the model.
+
+The checkout's `.git` metadata must be a directory contained inside that root.
+Linked worktrees and repositories created with an external Git directory are
+not accepted, because safely using them would expose files outside the declared
+reference. Use a standalone clone for a reference instead.
+
+Runner treats these checkouts as operator-managed inputs. It never clones,
+fetches, checks out, resets, cleans, or updates them. Inspect and repair one
+manually, then update its configured pin when intended:
+
+```bash
+git -C /absolute/path/to/legacy-frontend status --short
+git -C /absolute/path/to/legacy-frontend rev-parse HEAD
+```
+
+Planner and reviewer contracts receive every configured reference; custom
+roles inherit the behavior of their base contract. Implementer and probe
+contracts never receive references, and there is intentionally no per-role
+reference list. Sandboxed Codex and Claude receive explicit read access while
+write access is denied. Claude is also prevented from loading project
+instructions from an added reference directory. Pi roles using references must
+select `access: "host"`, because Pi cannot enforce a read-only reference root.
+Host mode remains unrestricted and may see more than the configured list.
+
+Reference files are labeled as untrusted evidence, not instructions or Runner
+authority. The entire root is readable, including ignored files, because Git
+cleanliness does not report them. Use a dedicated checkout containing no
+credentials, environment files, or unrelated private material. This boundary
+is designed for pinned supporting source, not secret-bearing working copies.
+
+## Adding human work
+
+The enqueue-only command has two explicit destinations:
+
+```bash
+cortexium-runner add plan \
+  --config /absolute/operator/path/runner.json \
+  --title "Plan CSV export" \
+  --body-file export-goal.md
+
+cortexium-runner add ready \
+  --config /absolute/operator/path/runner.json \
+  --title "Fix the CSV header" \
+  --body-file fix-card.md
+```
+
+Use `--body TEXT` for a short inline body. A title and a nonempty body are
+required. `--dry-run` loads and validates the trusted config, then prints the
+resolved Project and lane without changing GitHub.
+
+`add plan` creates one unsigned Project draft in the configured planner lane.
+The running event loop converts it to an issue, authenticates the exact observed
+snapshot, and asks the planner to stage a dependency-aware proposal for human
+review. `add ready` does the same in the implementer intake lane, where the
+status event directly authorizes implementation once declared dependencies have
+succeeded and resources are available. Neither command takes the Runner process
+lock, so a maintainer can add work while continuous mode is active. If creating
+the draft succeeds but setting its status fails, the command reports the item ID
+for manual recovery; the unscheduled draft cannot be claimed.
+
+The separate [`plan` command](#immediate-planning-from-the-cli) runs an immediate
+operator-controlled planning call and can preview or stage its returned batch.
+Use `add plan` when the ordinary event-and-action workflow should own the work.
+
+Humans can also create an issue in the configured intake repository and apply
+the configured intake label. The normal synchronization adds it to `Needs
+assessment`. With autonomous issue intake enabled, a private-repository issue
+or an issue from an allowlisted public author enters `Plan` automatically. The
+planner either stages one or more dependency-aware cards or posts its open
+questions to the issue and moves the source to `Blocked`. Reply on the issue and
+run the recorded `cortexium-runner retry --item ...` command when the missing
+decision is resolved.
+
 ## Generated Kanban workflow
 
 The board shows `Runner Activity` and `QA Failures` on cards by default. Runner
 updates both through the same authenticated lifecycle transitions as Status;
 manual changes invalidate the approved action and return the card for human
-assessment rather than allowing stale state to run. Activity is cleared when
-the card leaves `In Progress`; the hidden phase retains recovery state and the
-hidden transition lock is set only while Runner commits a multi-field update.
+assessment rather than allowing stale state to run. Agent activity is replaced
+by the appropriate waiting activity when accepted QA reaches `PR Ready`, then
+cleared when the card leaves that lane. The hidden phase retains recovery state
+and the hidden transition lock is set only while Runner commits a multi-field
+update.
 
 | Lane | Owner and meaning |
 | --- | --- |
-| `Needs assessment` | Human: public request awaiting assessment. |
+| `Needs assessment` | Intake awaiting human assessment, or a transient staging boundary. |
 | `Backlog` | Human: approved request retained for later scheduling. |
 | `Plan` | Planner agent: split one approved request into implementation cards. |
 | `Ready` | Implementer agent: implement or revise one card. |
 | `In Progress` | Runner: temporary lane while an agent owns the card. |
 | `Agent QA` | Reviewer agent: evaluate the exact branch and worktree. |
-| `PR Ready` | Pull request awaits human review, or GitHub requirements when automatic merge is enabled. |
-| `Blocked` | Human: input, an execution error, or the QA rejection limit requires attention. |
-| `Done` | Terminal: planning completed or the pull request was merged/closed. |
+| `PR Ready` | Pull request awaits human review (`Awaiting human review`) or automatic integration (`Waiting for integration slot`, `Waiting for CI`, or `Waiting for merge`). |
+| `Blocked` | Human: input, a non-retryable execution error, exhausted transient-provider retries, a closed-without-merge PR, or the maximum QA rejections were reached. |
+| `Done` | Terminal success: planning completed or the pull request was merged. |
 
-`Ready` is itself the human scheduling boundary for an ordinary card. When a
-maintainer creates an unsigned card there, Runner converts a Project draft to an
-issue in the configured intake repository when necessary, then authenticates
-that exact body, repository, and dependency snapshot for the configured
-implementer before claiming it. A forged or content-modified nonempty approval
-is never replaced, and a staged planner child cannot use this path to bypass
-complete-batch release.
+`Plan` and `Ready` are human scheduling boundaries for ordinary cards. When a
+maintainer creates an unsigned card in either lane, Runner converts a Project
+draft to an issue in the configured intake repository when necessary, then
+authenticates that exact body, repository, and dependency snapshot for the
+lane's rule-selected role before claiming it. A forged or content-modified
+nonempty approval is never replaced, and a staged planner child cannot use this
+path to bypass complete-batch release.
 Moving a previously authenticated card back to `Ready` also authorizes its next
-implementation attempt. Issue comments present at assignment time are included
-as bounded historical context; comments added during an active attempt apply to
-a later attempt.
+implementation attempt. Issue comments authored by the account currently
+authenticated in `gh` and present at assignment time are included as bounded
+historical context; other authors are ignored. Trusted comments added during an
+active attempt apply to a later attempt.
+
+An ordinary Ready card may declare dependencies in its body with exact Project
+item IDs or GitHub issue URLs and no descriptive suffixes:
+
+```markdown
+## Dependencies
+
+- https://github.com/owner/repository/issues/42
+- PVTI_project_item_id
+```
+
+References may point across planner batches or to ordinary human-created cards,
+but each target must be uniquely present in the same Project. Runner releases
+the dependent card only after every target has a valid Runner signature for the
+configured successful outcome. Moving a card to `Done` manually does not satisfy
+that condition.
 
 The lifecycle generated by `init` is:
 
 1. An issue carrying `needs-assessment` is synchronized into
-   `Needs assessment`. Runner never executes that lane.
+   `Needs assessment`. Runner never executes that lane directly. By default it
+   waits for human approval. When `autonomous_issue_intake` is configured,
+   Runner verifies the intake repository immediately before mutation and
+   routes the issue to `Plan` only if that repository is private or its public
+   author is explicitly allowlisted.
 2. `approve` authenticates the exact request and planned role, removes the intake
    label, converts a Project draft to an issue in the configured intake
    repository when necessary, and moves the card to `Backlog`.
-3. A human moves scheduled work to `Plan`. The planner stages the complete
+3. A human moves scheduled work to `Plan`, or creates it there directly. The
+   planner stages the complete
    normalized child batch, unapproved, in `Needs assessment`. Every child
    carries the original request, project outcome,
    cross-cutting success criteria, constraints, and its local acceptance
    criteria, so later roles retain the complete product context. The planning
    card waits non-executable in `Needs assessment` with the `planner_approval`
-   phase. A maintainer runs
+   phase. For ordinary intake, a maintainer runs
    `approve --item PLANNING_SOURCE --dry-run` to review every exact child and
    destination, then reruns without `--dry-run`, reviews the refreshed exact
    batch, and explicitly chooses Yes to authorize and release the complete
-   batch to `Ready` and complete the planning card. Approval converts every
+   batch to `Ready` and complete the planning card. For autonomously trusted
+   issue intake, Runner rechecks the source trust and performs this exact-batch
+   release itself; it never approves a changed or incomplete child set.
+   Approval converts every
    released child draft to an issue before it becomes executable, so the card
    has one durable human and agent conversation from its first implementation.
    If the planner
    reports
-   unresolved decisions, it creates no cards and follows `needs_input` to
-   `Blocked`.
+   unresolved decisions, it creates no cards, posts the questions to the source
+   issue, and follows `needs_input` to `Blocked`. Issue discussion is included
+   as bounded historical planning context on a human-authorized retry.
+   Completing the planning card records that the batch was released; the source
+   issue remains open until all exact children have merged successfully.
 4. An implementer works in an isolated branch/worktree. Success moves the same
    card to `Agent QA`. Runner stores the structured work and verification
    evidence on the card. Errors or requests for human input move it to
@@ -531,24 +747,43 @@ The lifecycle generated by `init` is:
 5. Runner constructs the candidate commit before QA. Acceptance validates its
    immutable publication tuple, re-fetches the approved base, and pushes that
    exact accepted commit OID to its recorded full branch ref under sanitized
-   Git configuration. Runner then creates or reuses a pull request with
+   Git configuration. If publication or its Project transition is interrupted,
+   an exact retry resumes these deterministic operations from the retained
+   tuple without invoking the reviewer again. Recognized transient network and
+   GitHub 5xx failures are retried immediately within that publication action,
+   up to three total attempts. Every attempt revalidates authority and safely
+   reuses an already-pushed exact commit or an existing matching PR; rate-limit,
+   authorization, validation, cancellation, and unknown failures still stop for
+   operator recovery. Runner then creates or reuses a pull request with
    structured Agent QA results, stores that same commit in the `QA Commit`
    Project field, moves the card to `PR Ready`, and removes the local task
-   worktree. The task branch is retained.
-   With `github_project.auto_merge: true`, Runner also asks GitHub to merge the
-   PR automatically after repository requirements pass. It never uses an admin
-   bypass. Automatic merge is disabled by default.
+   worktree. The task branch is retained. `Runner Activity` shows `Awaiting
+   human review` or the current automatic-integration wait until the card leaves
+   `PR Ready`.
+   If the candidate has unresolved conflicts or fails
+   `git diff --cached --check`, Runner records an actionable
+   `candidate_validation` blocker without
+   publishing file contents or paths, clears the unusable saved result, and
+   retains the worktree. The recorded plain retry reruns implementation with
+   that correction. Git identity and administration failures remain private
+   workspace-integrity blockers.
+   With `github_project.auto_merge: true`, this queues the PR for the separate
+   integration action. Reconciliation asks GitHub to merge only after the PR
+   owns its repository/base integration resource and still matches the latest
+   reviewed base. Runner never uses an admin bypass. Automatic merge is
+   disabled by default.
 6. A QA rejection moves the card back to `Ready` and increments its rejection
-   counter. With the generated `reject_limit` of 3, the third consecutive
-   rejection moves it to `Blocked`, where `cortexium-runner retry` returns it to
-   implementation after human attention. Detailed actionable rejection evidence
-   is stored in a private mode-`0600` local record bound to the card ID and
-   approved-content digest, then supplied to the next implementation. For every
+   counter. With the generated `max_qa_rejections` of 3, the third consecutive
+   rejection moves the card to `Blocked`, where `cortexium-runner retry` returns
+   it to implementation after human attention. Detailed actionable rejection
+   evidence is stored in a private mode-`0600` local record bound to the card ID and
+   approved-content digest, then supplied to the next implementation and
+   subsequent reviewer until acceptance. For every
    executable card, Runner also posts a bounded readable, idempotent QA comment
    to its issue. The private feedback remains the authenticated
    implementation-to-QA channel if comment publication is temporarily
-   unavailable. A human comment is optional, and can clarify or add requested
-   work before the next `Ready` attempt.
+   unavailable. The authenticated operator may optionally comment to clarify or
+   add requested work before the next `Ready` attempt.
 7. A human may comment on the PR and move `PR Ready` back to `Ready`. Runner
    imports PR comments/reviews, resets the rejection counter, and restarts the
    implementation-to-QA loop in the same deterministic workspace, recreating it
@@ -557,26 +792,39 @@ The lifecycle generated by `init` is:
 8. At `PR Ready`, Runner checks that the PR still belongs to the configured
    repository, uses the persisted branch and base branch, and points at the
    exact commit accepted by QA. Any other head mutation restarts
-   implementation and QA.
-9. A merged or closed-without-merge pull request moves the card to `Done`,
-   regardless of whether GitHub records a person, app, merge queue, or other
-   automation as the actor. Runner refreshes Project state immediately so
-   newly unblocked work can start without waiting for the next polling interval.
+   implementation and QA. With automatic merge enabled, one PR per
+   repository/base owns integration. Runner lazily refreshes that candidate
+   against the latest base; a clean update or conflict returns it through
+   implementation and QA before it may reclaim integration. With automatic
+   merge disabled, Runner leaves base-update decisions to the human reviewer.
+9. A merged pull request moves the card to `Done` and records an authenticated
+   successful outcome, regardless of whether GitHub records a person, app,
+   merge queue, or other automation as the actor. A pull request closed without
+   merge moves the card to `Blocked` with a reviewer retry phase and does not
+   release dependent work. Runner refreshes Project state immediately so newly
+   unblocked work can start without waiting for the next polling interval.
    A terminal PR state always wins over concurrent base-refresh detection, and
    Runner does not refresh a task branch that is already contained in the base.
    When automatic merge is enabled, GitHub performs the merge; Runner still
-   moves the card only after observing the merged PR state.
+   moves the card only after observing the merged PR state. Runner then closes
+   that implementation issue with the `completed` reason. For work decomposed
+   from a source issue, it closes the source only when every exact child in the
+   authenticated released batch has a merged-PR outcome. It does not emit PR
+   closing keywords because any child may merge first. A closure failure is a
+   warning retried by later reconciliation and does not hold unrelated work.
 
-For an open Runner PR at the human gate (or explicitly moved back for rework),
+For the selected automatic integration candidate,
 `pull_request.out_of_date` means its head does not contain the latest
-target-branch commit. Runner first checks the remote refs without recreating the
+target-branch commit. Runner first checks remote refs without recreating the
 task worktree. When an update is necessary, it recreates the deterministic
 workspace and attempts a normal, non-force branch update. A conflict is
 retained in the isolated worktree and returns the card to `Ready`. A clean
-update remains local and returns to `Ready` so its resulting tree completes the
-normal implementation, integrity, and QA path before a replacement immutable
-tuple can be published. Direct changes to the PR head never qualify as a base
-refresh and invalidate prior QA. Refresh errors go to `Blocked`.
+update remains local and also returns to `Ready`, so its resulting tree
+completes the normal implementation, integrity, and QA path before a
+replacement immutable tuple can be published. Other open PRs are checked only
+when they later acquire integration; manual-review PRs are never eagerly
+refreshed. Direct PR-head changes invalidate prior QA. Refresh errors go to
+`Blocked`.
 
 ## Public issue authority
 
@@ -647,8 +895,10 @@ Before transition to Agent QA, Runner constructs a clean committed candidate
 with pinned linked-worktree administration, index, and object paths. Hooks,
 signing, replacement objects, filters, fsmonitor, inherited Git selectors, and
 external Git configuration are disabled at that privileged boundary. QA's
-pre-review snapshot records the candidate HEAD and tree. If the complete
-snapshot, HEAD, and tree remain unchanged after acceptance, Runner writes an
+private pre-review checkout is created afterward in a new mode-`0700` detached
+worktree outside the implementation sandbox and records the candidate HEAD and
+tree. If that private checkout, the retained implementation worktree, and the
+active checkout remain unchanged after acceptance, Runner writes an
 exclusive private publication record keyed by the commit and binding the
 approved item/content, commit/tree, base ref/OID, repository, and full branch
 ref. An exact retry reuses that tuple; a conflicting collision fails closed.
@@ -663,22 +913,31 @@ default hook name that can affect Git operations. Reads are descriptor-relative;
 file type, identity, content, and symlink-target replacement are rejected rather
 than certified.
 
+The task checkpoint keeps the complete fingerprint. For the active checkout and
+the before/after QA boundary, Runner excludes only `branch.*` entries from the
+shared local config. Unrelated branch publication and maintenance legitimately
+change those entries, so they are not evidence that card content changed. Every
+other local Git setting, including hooks and other security-relevant controls,
+remains part of the comparison.
+
 Every indexed gitlink contributes its path and recorded commit. An initialized
 submodule additionally contributes its own HEAD, index flags, status, protected
 controls, and recursively initialized nested submodules without fetching or
 initializing anything. Uninitialized submodules remain explicit only while
 their pinned worktree directories are empty; concealed entries fail closed.
 Missing, symlinked, or otherwise unsafe indexed submodule paths are also
-rejected. Agent QA captures the implementation and active checkout
-before and after review; a mismatch stops the workflow before Runner commits,
+rejected. Agent QA captures its private candidate checkout, the retained
+implementation worktree, and the active checkout before and after review; a
+mismatch stops the workflow before Runner commits,
 pushes, creates a pull request, or removes the recoverable worktree.
 
 Snapshot traversal, per-payload bytes, and aggregate bytes are bounded before
 collection or read growth. Git and GitHub command capture, Project collection
 and pagination, pull-request feedback, and public-intake mutation fan-out also
 fail closed at fixed operational caps. Public intake runs after recovery,
-pull-request reconciliation, and approved execution, so an intake-local failure
-does not discard trusted results completed in the cycle. Privileged candidate
+pull-request reconciliation, and admitted execution. In continuous mode an
+intake-local failure neither cancels in-flight work nor discards its eventual
+result. Privileged candidate
 construction and accepted-tuple publication pin Git administration and object
 paths, scrub inherited selectors and effective configuration, disable hooks,
 signing, and filters, and use a literal GitHub URL with an explicit
@@ -693,8 +952,10 @@ lane, destination, batch size, and a fresh staging generation. Successful
 complete-batch approval replaces it with an authenticated release commit only
 after every child has received valid authority and reached its destination.
 
-The Project no longer needs a role field. A lane selects exactly one role, and
-that role selects one harness plus one or more skills. Project cards do not
+The Project no longer needs a role field. A typed `lane.entered` rule may run
+one configured role profile in that lane, and that profile selects one harness
+plus one or more skills. Different lanes may run different profiles that inherit
+the same planner, implementer, or reviewer contract. Project cards do not
 rewrite local Runner or harness configuration; their approved content is passed
 to the selected harness as the assignment.
 
@@ -704,11 +965,24 @@ machine. Distributed claiming remains unsupported. The explicit
 `max_parallelism` setting controls independent attempts inside one process and
 must be between 1 and 16. Interactive `init` offers 1, 2, or 4, with 1 selected
 as the safest first-run value; scripts can choose any supported value with
-`--max-parallelism`. Planner output must use existing task titles for
-dependencies and cannot contain cycles. Runner schedules and then rechecks a
-claim only when every declared dependency is uniquely present in `Done`.
-Dependency-free tasks may run together only when the planner judged their
-ownership non-overlapping and safe for separate worktrees.
+`--max-parallelism`. Continuous mode replenishes available capacity as actions
+finish and keeps reconciling unrelated pull requests while capacity is full.
+Planner output must use existing task titles for dependencies and cannot
+contain cycles. Runner schedules and then rechecks a claim only when every
+declared dependency is uniquely present with a
+Runner-authenticated successful outcome. Dependency references may cross
+planner batches; a manual status move cannot forge success.
+Dependencies represent unfinished prerequisites, not a way to serialize cards
+that might edit the same files. Before claiming harness work, Runner reserves
+the immutable Project item. Implementer and reviewer actions also reserve the
+exact repository/branch identity produced by the workspace subsystem. Planner
+actions need only their item. The selector skips conflicting candidates and
+continues through the current Project snapshot until it fills the available
+global capacity or runs out of safe work. This allows QA and implementation on
+different task branches to run together while preventing two actions—or PR
+reconciliation—from using the same branch concurrently. Repository/base
+integration serialization remains the next slice in
+[ADR 0001](decisions/0001-event-action-runner.md).
 
 An optional `admission_budget` limits the start of new agent attempts over a
 rolling window using that local metrics history. It is an admission ceiling,
@@ -757,7 +1031,10 @@ or count context without including file content. Reduce the repository scale
 or raise only the necessary snapshot value, then retry the interrupted item;
 Runner does not start or publish work from a partial snapshot.
 
-## Planning from the CLI
+## Immediate planning from the CLI
+
+This operator utility invokes the planner immediately and is distinct from
+`add plan`, which only creates a `Plan` event for the normal running coordinator.
 
 Start an interactive multiline idea using the auto-detected project-local config:
 
@@ -945,17 +1222,24 @@ the shared value for one role. Init also accepts shared
 `--planner-harness-config`, `--implementer-harness-config`, and
 `--reviewer-harness-config` overrides. Per-role access is selected with
 `--planner-access`, `--implementer-access`, and `--reviewer-access`. For an
-existing config, use:
+existing config whose built-in roles should all use the harness as natively
+configured, use:
 
 ```bash
-cortexium-runner role edit implementer --access host --harness-config inherit
-cortexium-runner role show implementer
+cortexium-runner role edit --all --config /absolute/operator/path/runner.json --harness-config inherit
+cortexium-runner role list --config /absolute/operator/path/runner.json
 cortexium-runner doctor --config /absolute/operator/path/runner.json
 ```
 
-The first command is an explicit unrestricted opt-in. Changing a config never
-changes an already-running harness process; restart Runner for later work to use
-the new policy.
+The bulk edit changes the planner, implementer, and reviewer definitions in one
+validated atomic config replacement. Custom roles inherit the changed built-in
+policy unless they have an explicit `harness_config` override. Access modes are
+not changed. Consequently, the edit fails without replacing the config if, for
+example, a sandboxed Pi role would become `inherit`. Use an explicit per-role
+edit such as `role edit implementer --access host --harness-config inherit`
+only when unrestricted host access is intended. Changing a config never changes
+an already-running harness process; restart Runner for later work to use the new
+policy.
 Implementer and reviewer roles also accept `planning_support`: `standard` uses
 the ordinary concise planning contract, while `high` asks the planner for
 smaller coherent slices, explicit boundaries and assumptions, literal acceptance
@@ -1050,19 +1334,28 @@ profiles or edit a built-in role after initialization. For example:
   --planning-support high
 ```
 
+Base roles describe authority and result contracts, not specialties. Product
+planning or issue triage remains a planner profile; UI, migration, and
+documentation work remains an implementer profile; security, accessibility,
+and performance review remains a reviewer profile. Assign a custom profile by
+referencing its ID from a `run_role` workflow action. Multiple lanes may use
+different profiles derived from the same contract, including sequential review
+lanes. Publishing, merging, branch refresh, approval, and coordination remain
+deterministic Runner actions or human policy rather than agent roles.
+
 Overrides inherit from the parent when omitted. A built-in contract cannot be
-removed, and a custom role cannot be removed while a workflow lane or another
+removed, and a custom role cannot be removed while a workflow rule or another
 role still references it. A role referenced by `implementer_ladder` likewise
 cannot be removed until the ladder is changed or cleared.
 
 ### Implementer ladder
 
 `implementer_ladder` is optional. When omitted, Runner always launches the
-workflow's configured implementer role. When present, it lists complete
+`ready_lane` rule's configured implementer role. When present, it lists complete
 implementer role profiles in escalation order. The first entry must be the
 workflow implementer role; later entries must be unique custom roles that
 inherit the implementer contract. The list needs at least two entries and
-cannot exceed the reviewer lane's QA rejection limit, because a longer ladder
+cannot exceed the reviewer action's `max_qa_rejections`, because a longer ladder
 would contain unreachable profiles.
 
 For example, create two stronger Codex profiles after a Pi/Qwen implementer,
@@ -1101,8 +1394,8 @@ This writes the explicit full order:
 
 The initial implementation uses `implementer`. A valid Agent QA rejection
 increments the Project's `QA Failures` value; the next implementation therefore
-uses `implementer_luna`, then `implementer_sol`. If the QA limit permits further
-attempts after the last configured profile, Runner keeps using that last
+uses `implementer_luna`, then `implementer_sol`. If `max_qa_rejections` permits
+further attempts after the last configured profile, Runner keeps using that last
 profile. A two-profile ladder works the same way. Restarting Runner is stable
 because selection depends only on the authenticated Project value, not process
 memory.
@@ -1125,9 +1418,10 @@ Disable the ladder without removing its now-unused role profiles:
 
 Every harness referenced by the ladder must already have an enabled harness
 configuration and workspace-write root. Normal `doctor` and skill setup cover
-all ladder profiles. Explicit `doctor --probe-harnesses` also makes a live call
-for each distinct configured ladder execution profile, so use it only when that
-extra paid validation is wanted.
+all ladder profiles. `harness check` exercises every configured ladder role;
+the smaller `doctor --probe-harnesses` groups identical harness, command, model,
+and reasoning selections when only paid authentication and structured-output
+validation is wanted.
 
 The supported matrix is fail-closed:
 
@@ -1135,7 +1429,7 @@ The supported matrix is fail-closed:
 | --- | --- | --- | --- |
 | Codex CLI | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in |
 | Claude Code | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in | Sandboxed/isolated by default; host and/or inherited config opt-in |
-| Pi CLI | Isolated fixed read tools by default; inherited config requires host | Explicit host access; isolated fixed tools or inherited ambient config | Explicit host access; isolated fixed tools or inherited ambient config |
+| Pi CLI | Isolated fixed read tools by default; inherited config or repository references require host | Explicit host access; isolated fixed tools or inherited ambient config | Explicit host access; isolated fixed tools or inherited ambient config; repository references use that host boundary |
 
 The probe profile exposes only model invocation and Runner's structured output
 channel and always suppresses ambient configuration. Work roles use both
@@ -1158,7 +1452,10 @@ inside the native filesystem sandbox, npm-registry and loopback network access
 for implementers, and a pinned `runner_browser` server restricted to loopback
 pages with external name resolution disabled. The browser uses a temporary
 profile and mock keychain; it cannot attach to the operator's normal browser
-profile. Runner does not download Chrome. Chrome or Chromium 149+ is required
+profile. Its `npx` cwd and npm configuration are temporary mode-`0700`
+host-owned paths, while its reusable package cache remains under the same
+private root; none are writable from the harness sandbox. Runner does
+not download Chrome. Chrome or Chromium 149+ is required
 because the pinned MCP server's URL allowlist uses browser enforcement added in
 that release. Ordinary `doctor` reports Chrome as
 an optional safe-tool capability; its absence does not make the project
@@ -1168,14 +1465,21 @@ as required.
 `doctor --probe-harnesses` proves authentication, model selection, invocation
 flags, and structured output. It deliberately does not launch a browser and
 therefore does not prove browser verification readiness. Before scheduling
-browser-dependent work:
+browser-dependent work, run:
 
-1. Open the target harness directly under the same operating-system account.
-2. Confirm it can start the documented local application and inspect the
-   rendered page and browser console through that configured headless or
-   browser-automation capability.
-3. Confirm the harness can keep screenshots, traces, profiles, and other
-   verification artifacts outside the project checkout and Runner worktrees.
+```bash
+./cortexium-runner harness check \
+  --config /absolute/operator/path/runner.json \
+  --browser
+```
+
+This proves the configured browser path against Runner's temporary fixture.
+The project's acceptance conditions must still cover its actual application
+entrypoint and behavior; the conformance fixture is not a substitute for a
+project-specific browser check.
+Codex may expose the injected MCP operations as direct calls or through its
+Code Mode tool catalog; Runner supports both callable surfaces and uses the
+exact `navigate`, `evaluate`, and `screenshot` operation names.
 
 If Agent QA reports unavailable browser capability, stop repeated retries. A
 capability-blocked review does not increment the QA rejection count. On macOS,
@@ -1214,8 +1518,10 @@ cortexium-runner retry --config /absolute/operator/path/runner.json --item "Exac
 cortexium-runner retry --config /absolute/operator/path/runner.json --item "Exact card title"
 ```
 
-If the stored failure feedback is stale or incorrect, replace it explicitly while retrying. This discards the matching
-private Agent QA feedback and resets the QA failure count so the corrected attempt receives a fresh review budget:
+If the stored failure feedback is stale or incorrect, replace it explicitly
+while retrying. This discards matching private Agent QA feedback and any saved
+implementation result, then resets the QA failure count so the corrected
+attempt reruns implementation with a fresh review budget:
 
 ```bash
 cortexium-runner retry --config /absolute/operator/path/runner.json --item ITEM_ID \
@@ -1225,39 +1531,90 @@ cortexium-runner retry --config /absolute/operator/path/runner.json --item ITEM_
 In a terminal, `cortexium-runner retry --config /absolute/operator/path/runner.json` presents the retryable blocked
 cards as an arrow-key menu. The command preserves the previous result as attempt
 history and moves only the selected card to its recorded lane. A running Runner
-checks the newly available work immediately after its current cycle.
+checks newly available work on its next poll without waiting for unrelated
+harness actions to finish.
 
 ## Workflow configuration
 
 See
 [`examples/runner.config.json`](../examples/runner.config.json)
-for the complete v2 configuration generated by `init`.
+for the complete v5 configuration generated by `init`.
 
-- A lane without `role` is non-agent and normally belongs to humans.
-- A lane with `role` is executable by that role.
-- `active_lane` is the one exception: it is Runner's temporary claim lane.
-- Planner roles require `creates_in`.
-- Agent lanes route `success`, `needs_input`, and `error`.
-- Reviewer lanes additionally define `reject_limit`, `rejected`, and
-  `exhausted`.
-- `on_enter: publish_pull_request` performs deterministic PR publication.
+Lanes contain only stable IDs and GitHub Project status names. Rules bind one
+typed trigger to one typed action. A transition into another lane emits that
+lane's `lane.entered` event, so larger workflows compose without ordered action
+arrays or an embedded scripting language.
+
+The supported trigger catalog is:
+
+- `lane.entered`, with an explicit `lane`;
+- `pull_request.merged` and `pull_request.closed`;
+- `pull_request.checks_failed`;
+- `pull_request.out_of_date`.
+
+The supported action catalog is:
+
+- `run_role`, with a configured role profile and outcome transitions;
+- `transition`, with one destination lane;
+- `publish_pull_request`;
+- `update_branch`, with `require_review: true` and outcome transitions.
+
+`run_role` accepts a built-in role or any custom role that inherits the planner,
+implementer, or reviewer contract. Planner actions require `creates_in`.
+Reviewer actions additionally require `max_qa_rejections`, `rejected`, and
+`exhausted`. All role actions route `success`, `needs_input`, and `error`.
+All active implementer profiles use one `workspace_write_root`, preserving the
+same card workspace and candidate as work moves between specialized profiles.
+`plan_lane` and `ready_lane` explicitly identify the default destinations used
+by `add plan`, interactive planning, and `add ready`; this avoids guessing when
+several profiles share a contract. `active_lane` remains Runner's temporary
+claim lane and cannot have an action.
+
+Use the focused local commands before restarting Runner:
+
+```bash
+cortexium-runner workflow validate --config /absolute/operator/path/runner.json
+cortexium-runner workflow explain --config /absolute/operator/path/runner.json
+```
+
+The explanation shows every effective trigger, action, role contract, and
+outcome route, followed by the safety constraints configuration cannot disable.
+Validation rejects duplicate triggers, unsupported event/action pairings,
+automatic success cycles, and error, input, or exhausted routes that would
+silently start more agent work instead of stopping in a human recovery lane.
+Planner output destinations and QA rejection routes must lead to implementer
+lanes; branch-refresh outcomes likewise return through implementation and QA.
+Merged and closed pull-request events terminate in lanes without an automatic
+action.
+
 - `github_project.auto_merge` is an explicit opt-in. When true, Runner asks
-  GitHub to merge after checks and branch protections pass; it never uses
-  `--admin` or weakens repository requirements.
+  GitHub to merge one reconciled repository/base candidate after checks and
+  branch protections pass; it never uses `--admin` or weakens repository
+  requirements.
 - `github_project.merge_method` selects `merge`, `rebase`, or `squash` for that
-  request. Empty values retain `merge` for existing v2 configs. A divergent
+  request and is required. A divergent
   `rebase` refresh produces a linear candidate on the new base and uses an exact
   expected-old-commit lease when replacing an existing pull request branch.
 - The out-of-date event explicitly sets `require_review` to `true`; a clean
   base refresh remains local until the refreshed tree completes QA and records
   a replacement accepted tuple.
-- Events handle PR merge, closure, and an out-of-date branch. Moving an open
-  Runner PR from the human gate to an implementer lane is itself the rework
-  request; no separate event declaration is required.
+- The checks-failed event targets an implementer lane. Runner cancels an armed
+  automatic merge, preserves the pull request and branch context, leaves the QA
+  rejection count unchanged, and releases the integration slot before applying
+  that event.
+- Events handle PR merge, closure, terminal check failure, and an out-of-date
+  branch. Moving an open Runner PR from the human gate to an implementer lane
+  is itself the rework request; no separate event declaration is required.
+
+Configuration v5 intentionally replaces v4 rather than interpreting both
+models. Existing v4 files must be rewritten using the generated v5 example;
+changing only `config_version` is insufficient because lane behavior and the
+separate `events` collection have moved into `workflow.rules`.
 
 Repository-wide code style, architecture, testing, and contribution rules stay
 in `AGENTS.md`, installed skills, and ordinary repository documentation. The
-workflow only decides who acts and where work moves.
+workflow decides which supported action responds to an event and where its
+outcomes move work.
 
 ## Skills, tools, and MCP servers
 
@@ -1293,10 +1650,14 @@ a command, test framework, file, or implementation technique. The implementer
 inspects the repository and selects the smallest reliable proof method, adding
 or updating durable focused tests when that is the clearest protection for
 changed behavior or an important invariant. The reviewer first completes one
-source-and-evidence audit without running dynamic checks. If a concrete proof
-question remains, Runner starts a fresh focused-verification call containing
-only unresolved proof keys; that call reuses the smallest relevant existing
-check. It does not create tests, benchmarks, a custom harness, or broad
+source-and-evidence audit without running dynamic checks. Finding one defect
+establishes failure for that exact behavior but does not end the bounded audit
+of the proof obligation. The reviewer continues through its remaining
+card-owned behavior and groups concrete variants of directly exposed invariants
+in the same result. If any concrete proof questions remain, Runner starts a
+fresh focused-verification call containing only unresolved proof keys, even
+when another key already failed; that call reuses the smallest relevant existing
+checks. It does not create tests, benchmarks, a custom harness, or broad
 diagnostics unrelated to a concrete diff concern. Roles do not assume a browser
 or any other interface. Broad or long-running checks belong only at the narrowest
 integration boundary that needs them. Time-based behavior uses controlled clocks
@@ -1394,26 +1755,45 @@ dependency direction.
 - Public assessment intake is capped at 1,000 open labeled issues per repository
   and a Project at 10,000 items; Runner fails clearly instead of silently
   ignoring items beyond those bounds.
-- Each cycle fetches one Project item snapshot through a narrow GraphQL query
+- Each poll fetches one Project item snapshot through a narrow GraphQL query
   that asks only for lifecycle fields and paginates at 100 active items per
   request. The Project schema uses a separate narrow query and is cached for the
   process lifetime. When work is claimable, one additional fresh snapshot
-  validates the entire claim batch instead of re-listing the Project per item.
-  Recovery or pull-request reconciliation that changes state refreshes the
-  snapshot before work selection. A state-changing cycle rechecks immediately;
-  consecutive idle cycles start at `--poll-interval` (30 seconds by default)
-  and back off to `--max-idle-interval` (five minutes by default). Public intake
-  synchronization is separately limited to at most once every two minutes and
-  never runs more often than the polling loop.
-- Pull requests on terminal cards are not polled, and a rework request is
-  inspected and reset only once per cycle. GitHub primary rate-limit errors wait
+  validates the selected claims instead of re-listing the Project per item.
+  Exact-ID authorization and delegated-content refreshes reload only that item,
+  and bounded multi-item reloads use one `nodes(ids: ...)` query per 100 cards.
+  Transition locks remain separate recovery boundaries, while the lifecycle
+  fields between lock and unlock are committed in one GraphQL mutation.
+  Interruption recovery runs only when no local action is in flight, so it
+  cannot reclaim a live card. Pull-request reconciliation excludes items whose
+  item or repository/branch resources conflict with live harness work but
+  continues for unrelated items. A state-changing poll rechecks immediately.
+  Quiet polls remain at `--poll-interval` while actions or other nonterminal
+  work are observable. Both `--poll-interval` and `--max-idle-interval` default
+  to 30 seconds, so the default does not back off; an operator can explicitly
+  choose a larger idle ceiling for a quiescent board. Public intake
+  synchronization is separately limited to at most once every two minutes. Its
+  schedule advances only after a successful synchronization, and an explicitly
+  larger idle interval is capped so the next intake check is not skipped.
+  Autonomous intake routes at most eight trusted issues per synchronization;
+  progress causes an immediate coordinator poll, while later intake resumes on
+  a subsequent synchronization. Deterministic issue and batch authorization
+  does not consume harness parallelism. Completed-issue reconciliation attempts
+  at most 16 closures per poll and likewise uses no harness slot.
+- Pull requests on successfully merged terminal cards are not polled. A
+  closed-without-merge PR remains visible on its blocked card, and a rework
+  request is inspected and reset only once per poll. Routine PR observation
+  omits comments and reviews; those are fetched only when trusted feedback can
+  affect a rework or refreshed-branch handoff. GitHub primary rate-limit errors wait
   until the reported reset, while secondary limits wait at least one minute and
   continue through the existing bounded error backoff.
 - One active Runner process per Project on one machine; no distributed claim.
 - Harness stdout/stderr and final structured results have explicit size bounds.
   Every terminal path—success, command failure, timeout, or cancellation—reaps
-  the direct process and terminates its owned process group, including child
-  processes, while preserving output captured before termination. Failed
+  the direct process and terminates its owned process group while preserving
+  output captured before termination. Agent QA uses a newly created private
+  candidate checkout, so its trust boundary does not depend on a child remaining
+  in that Unix process group. Failed
   harness diagnostics stay in local Runner output and are not copied to GitHub
   Project fields. Capacity, retry disposition, and retry timing come only from
   explicitly parsed adapter-owned structured evidence; phrases in model output,
@@ -1431,7 +1811,12 @@ dependency direction.
   reimplementation or human recovery; it never deletes or certifies stale
   content. Other cleanup failures remain cycle warnings and do not prevent
   unrelated cards from progressing.
-- Branch updates and publication never force-push, merge a PR, or deploy.
+- Initial publication never force-pushes. Tracked PR rework may replace the
+  exact previously reviewed remote commit with `--force-with-lease`. If a
+  Project update was interrupted, an immutable private publication record for
+  the same card content, repository, and destination may recover the exact
+  remote lease; Runner still refuses an unrecorded moved branch. Publication
+  never merges a PR or deploys.
 - External Project configuration changes happen only through `init`; use
   `init --dry-run` to preview them and `init --prune` to remove only unoccupied
   extra Status options. `plan --create` creates and approves a direct batch;

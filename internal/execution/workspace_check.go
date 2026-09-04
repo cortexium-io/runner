@@ -32,7 +32,7 @@ func newWorkspaceVerifier(run subprocess.Runner, timeout time.Duration, configur
 }
 
 func (v workspaceVerifier) Verify(ctx context.Context, metadata workspace.Metadata) error {
-	snapshot, err := workspace.CaptureSnapshotWithLimits(ctx, v.run, metadata.RepoRoot, v.timeout, v.limits)
+	snapshot, err := workspace.CaptureCheckoutSnapshotWithLimits(ctx, v.run, metadata.RepoRoot, v.timeout, v.limits)
 	if err != nil {
 		return fmt.Errorf("inspect active checkout content: %w", err)
 	}

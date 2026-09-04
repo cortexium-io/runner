@@ -1,5 +1,25 @@
 # Architecture
 
+This repository is the sole architecture authority for Runner; parent and
+sibling Cortexium documents do not apply unless linked here. Runner's accepted
+target direction is recorded in
+[ADR 0001](decisions/0001-event-action-runner.md). The implementation is a
+polling event-and-action coordinator.
+Continuous mode now observes and reconciles unrelated events while harness work
+runs. Dependencies now resolve across planning batches and require a valid
+Runner-signed successful state. Harness actions reserve their Project item and,
+for implementation or review, their exact repository branch; selection skips
+conflicts and continues looking for safe work. Serialized integration is
+independent of harness capacity: reconciliation permits one automatic
+integration owner per repository/base and refreshes only that candidate. There
+is no backward-compatibility requirement during this pre-stable transition.
+Trust-gated autonomous issue intake is recorded separately in
+[ADR 0002](decisions/0002-autonomous-issue-intake.md). Optional read-only
+evidence from other local checkouts is defined by
+[ADR 0003](decisions/0003-pinned-repository-references.md). Typed workflow
+composition over the three fixed role contracts is defined by
+[ADR 0004](decisions/0004-typed-workflow-composition.md).
+
 The local GitHub Project Runner is a modular monolith: one CLI process with packages divided
 by responsibility and reason to change. The command package is the composition
 root. Internal packages do not parse CLI flags or reach back into `cmd`.
@@ -10,13 +30,13 @@ root. Internal packages do not parse CLI flags or reach back into `cmd`.
 | --- | --- | --- |
 | `cmd/cortexium-runner` | Root commands, flags, terminal output, and dependency composition | Workflow rules or integrations |
 | `skills` | Embedded skill catalog, hashes, and manifests | Installing into harness homes |
-| `internal/config` | Strict JSON decoding, explicit-contract validation, initialization templates, roles, lanes, raw-to-runtime resolution | GitHub or process I/O |
+| `internal/config` | Strict JSON decoding, explicit-contract validation, initialization templates, roles, lanes, repository-reference contracts, raw-to-runtime resolution | GitHub or process I/O |
 | `internal/engine` | Work selection, transitions, retries, planning, implementation/QA sequencing, PR reconciliation | Harness command syntax or GitHub transport details |
-| `internal/execution` | Assignment envelopes, native harness invocation, schema-backed structured results (including Pi's provider-compatible temporary result extensions), reviewer evidence, planner invocation | GitHub workflow state |
+| `internal/execution` | Assignment envelopes, native harness invocation, role-scoped primary and reference read roots, schema-backed structured results (including Pi's provider-compatible temporary result extensions), reviewer evidence, planner invocation | GitHub workflow state |
 | `internal/github` | Project schema/items, intake, approvals, process locks, branches, and pull requests | Agent execution |
 | `internal/metrics` | Append-only attempt and fixed-name stage events, harness-reported usage values, durable local history, and aggregates | Prompts, transcripts, raw harness output, free-form stage payloads, or estimated cost |
 | `internal/setup` | Capability inspection, doctor readiness, skill installation, allowlisted prerequisites | Work execution |
-| `internal/workspace` | Task-scoped isolated worktree creation, reuse, and validated cleanup without modifying the configured project checkout or deleting task branches | Agent prompts or publication |
+| `internal/workspace` | Task-scoped isolated worktree creation and validated cleanup, plus immutable-reference validation, without modifying configured checkouts or deleting task branches | Agent prompts or publication |
 | `internal/subprocess` | Process execution, bounded output, and process-group cancellation | Domain behavior |
 
 ## Dependency direction
@@ -28,12 +48,15 @@ integration or executor.
 
 The persisted JSON type is `config.Config`. Calling `Resolve` validates it and
 produces `config.RuntimeConfig`, which contains the effective workflow, roles,
-parallelism, optional rolling admission budget, and Project status mapping. Before invoking a harness, the engine
+parallelism, optional rolling admission budget, Project status mapping, and
+optional pinned repository references. Before invoking a harness, the engine
 derives a narrow `config.ExecutionConfig` for one role and harness invocation.
 This prevents computed state and harness-specific overrides from being hidden
 inside JSON structs.
 
-Configuration v2 has no runtime overlay or fallback profile. Privileged commands
+Configuration v5 has no runtime overlay or fallback profile. Its workflow keeps
+external lane names separate from typed trigger/action rules, which are
+validated and compiled before the engine receives them. Privileged commands
 resolve an explicit path or the project-local default, then provenance-check the
 file before decoding role or harness selections. `init` defaults to an ignored
 project-local config, while deliberately tracked and external configs remain supported. `init`
@@ -58,18 +81,30 @@ by subcommand; they still compile into one `main` package and one binary.
 
 The public command surface keeps first-class operations at the root: `init` and
 `doctor` prepare and diagnose the runner; `plan`, `approve`, and `retry` manage
-work; `run`, `status`, and `metrics` operate it; and `role` manages extensible role profiles.
+work; `run`, `status`, and `metrics` operate it; `role` manages extensible role
+profiles; `workflow validate` and `workflow explain` inspect the typed workflow;
+and `harness check` qualifies configured execution profiles against a private
+temporary Git repository.
 `init` is idempotent for an existing config and owns GitHub Project field/status
 synchronization, local prerequisite checks, and bundled skill installation.
 `doctor` owns static config validation and live readiness inspection. Its
 explicit `--probe-harnesses` mode additionally proves real authentication,
 model invocation, and structured output once per distinct execution profile;
 normal doctor remains non-billable and does not call a model.
+`harness check` is the explicit paid adapter-conformance boundary. It invokes
+each configured execution-role profile through the production planner,
+implementer, or shared-reviewer path, verifies that read-only roles leave the
+fixture unchanged, and verifies an implementer's exact isolated-worktree
+artifact through the normal integrity checks. Optional `--browser` checks use
+the same configured safe-tool profile. The command performs no GitHub
+operations and removes its private fixture after the checks.
 
 The command package attaches an optional metrics observer and history reader to
 the engine. The engine emits start and completion events for every card or
 interactive planning attempt. It also emits fixed-name stage events around
-workspace and repository preparation, harness execution, result validation,
+workspace and repository preparation, ordinary harness execution, the planner's
+repository-aware outline and tool-free details calls, the reviewer's evidence
+audit and optional focused-verification call, result validation,
 workspace verification, Project transitions, and PR publication.
 Execution adapters parse only counters exposed by the native harness. Events are
 appended to a runner-keyed JSONL file in the user configuration directory. The
@@ -77,37 +112,53 @@ event boundary keeps telemetry failure non-fatal to workflow execution and
 preserves unfinished attempts and stages after a process interruption. Stage
 events carry identity, timing, enums, and usage only. The history deliberately
 excludes prompts, transcripts, raw responses, command arguments, raw local
-errors, and free-form stage payloads. `metrics` reads and aggregates this store,
-including completed harness-invocation counts and exact implementation-result
-resumes. `status` presents a compact aggregate and the current admission decision. GitHub
+errors, and free-form stage payloads. Completed attempts may additionally carry
+a fixed publication-operation enum and a bounded attempt count; provider error
+text is never persisted. `metrics` reads and aggregates this store, including
+completed harness-invocation counts and exact saved-result resumes for planning
+and implementation. `status` presents a compact aggregate and the current
+admission decision. GitHub
 cards receive only fixed bounded execution, recovery, and QA classifications;
 detailed usage and model-authored evidence remain local.
 
 Execution adapters map allowlisted adapter-owned structured failures and
-Runner-observed failures to a stable failure class plus `manual` or `none`
-retry disposition. Model-authored text and raw stdout/stderr never create
-provider-capacity, session-limit, retry, or retry-timing authority. Opaque
-harness failures stay unknown and are never automatically retried. The
+Runner-observed failures to a stable failure class plus `automatic`, `manual`,
+or `none` retry disposition. Codex classification reads only the terminal
+`turn.failed` event in its native JSONL stream; progress events,
+model-authored text, and raw stdout/stderr never create provider-capacity,
+session-limit, retry, or provider-supplied retry-timing authority. A recognized
+transient Codex service failure returns the card to its current role lane as
+`Waiting for harness provider` and retries after 30 seconds, two minutes, and
+five minutes. A fourth consecutive failure moves it to the configured error
+lane for manual recovery. These operational retries do not increment `QA
+Failures`; a process restart may retry sooner because the short backoff is
+deliberately in-memory. Opaque harness failures stay unknown and are never
+automatically retried. The
 optional rolling admission budget is evaluated from local history before agent
 claims. Exhaustion pauses all new claims, including QA, without canceling
 in-flight attempts; PR reconciliation still runs. Reported-token and cost
 ceilings fail closed when attempts are unfinished or lack the required reported
 usage, and harness-time ceilings fail closed for unfinished attempts.
+The long-running engine reuses parsed admission history until an attempt starts
+or completes; stage-only telemetry does not cause another full JSONL replay.
 
 An optional implementer ladder is a validated ordered list of implementer role
 profiles. It never retries within one execution attempt. After a reviewer
 returns a valid `needs_changes` verdict, the existing authenticated `QA
 Failures` Project field advances the next implementation to the corresponding
-profile; the last configured profile is reused until the reviewer rejection
-limit is exhausted. This makes selection restart-stable without a second local
+profile; the last configured profile is reused until `max_qa_rejections` is
+reached. This makes selection restart-stable without a second local
 state journal. Other failure classes do not change the persisted QA count and
 therefore cannot trigger automatic model escalation. Metrics and admission use
 the selected profile's actual role, harness, model, and reasoning settings.
 
 Every native harness command runs in an owned process group. The subprocess
 boundary enters one teardown path after success, command failure, timeout, or
-cancellation; it terminates descendants and reaps the direct process before
-returning. Structured-result inputs use one `internal/securefs` artifact
+cancellation; it terminates the owned process group and reaps the direct process
+before returning. Security after a sandboxed implementer does not rely on that
+group containing a process that creates a new Unix session: Agent QA receives a
+new private detached checkout that was never writable by the implementation
+sandbox. Structured-result inputs use one `internal/securefs` artifact
 contract: a unique effective-user-owned mode-`0700` directory with pre-created,
 pinned mode-`0600` regular files. Codex output is read through its pre-launch
 descriptor while its schema and Pi's generated extension must retain their
@@ -129,6 +180,12 @@ snapshot. When a candidate exists, its commit and tree are bound as well. Only
 an exact match reconstructs the successful output, with zero new harness usage;
 any mismatch removes the stale checkpoint. The checkpoint is cleared after the
 successful transition to Agent QA, so it cannot bypass later independent QA.
+Ordinary candidate-content failures such as unresolved conflicts or
+`git diff --cached --check` errors are not workspace-integrity failures. Runner
+publishes a bounded correction, clears the unusable checkpoint, and sends an
+explicit retry through implementation. Operator-supplied retry feedback also
+clears the checkpoint before changing the card, while unchanged Runner-side
+post-processing failures retain it.
 
 Pi result attribution comes only from its native JSON event stream. Explicit
 `lmstudio/...` stages with tools must produce one session-provenanced
@@ -175,6 +232,21 @@ boundary converts them to issues in the configured intake repository before
 execution, while private authenticated feedback remains the recovery path if a
 comment cannot be published.
 
+Project claims use one fresh board snapshot for all cards selected by a poll,
+so dependency and planning-batch checks remain board-wide without re-listing
+the Project per card. Operations that already hold an authenticated item ID
+reload only that exact node. Multi-item planning and issue-boundary reloads use
+bounded `nodes(ids: ...)` batches. Authenticated transitions retain a separately
+visible begin/end transition lock, but commit their phase, activity, result,
+approval, status, and task-specific fields in one GraphQL mutation between
+those lock writes. This preserves interrupted-transition recovery while
+removing most Project write round trips.
+
+Routine pull-request observation fetches only identity, state, refs, merge
+state, and auto-merge state. Runner requests comments, reviews, and the current
+GitHub actor only when trusted human feedback can affect a rework or
+base-refresh transition.
+
 Every harness uses the same two-stage planner contract. The first repository-aware
 stage returns the outcome and ordered card/dependency outline. The second
 tool-free stage returns fixed-key details for those Runner-owned cards. Runner
@@ -189,22 +261,40 @@ rather than a hidden local plan store. Runner extracts the exact approved
 proof obligations from that immutable card body and passes them to every
 downstream harness. The implementer chooses the smallest reliable proof method;
 the shared reviewer first receives fixed Runner-owned proof keys for a
-source-and-evidence audit that cannot run dynamic checks. Only concrete
-unresolved questions enter a fresh focused-verification invocation, which sees
-no resolved proof obligations. Runner merges those observations and derives the
-verdict.
+source-and-evidence audit that cannot run dynamic checks. All concrete
+unresolved questions enter a fresh focused-verification invocation, even when
+another key already failed; that invocation sees no resolved proof obligations.
+Runner merges those observations and derives the verdict.
 Operator-selected `standard` or `high`
 task sizing changes only decomposition and specificity for implementer and
 reviewer roles. Runner never infers capability from model names, and the shared
 plan schema and acceptance rigor remain unchanged. A claim records `Planning`,
-`Implementing`, or `Reviewing` in the visible `Runner Activity` field and clears
-it when the card leaves `In Progress`. A blocked transition records its
-originating agent lane in the hidden `Runner Phase` field; `retry` uses that
-explicit destination and never guesses from a summary string. The separate
-hidden `Runner Transition` field is a fail-closed lock around non-atomic Project
-updates. Authorization rejects locked cards, completed locked state is resumed
-in place, and partial state is returned to assessment. Phase and activity remain
-bound to authenticated action state; the lock is checked independently.
+`Implementing`, or `Reviewing` in the visible `Runner Activity` field. A card
+whose authenticated dependencies are incomplete records `Waiting for
+dependencies`. A recognized transient Codex provider failure records `Waiting
+for harness provider` while its bounded retry remains in the same role lane.
+Accepted QA changes activity to `Awaiting human review` or
+`Waiting for CI` while the card remains `PR Ready`. Automatic integration then
+distinguishes `Waiting for integration slot`, `Waiting for CI`, and `Waiting for
+merge`. A terminal failed check disarms auto-merge, releases the repository/base
+integration resource, and returns the retained pull request to implementation as
+`CI failed — rework queued` without incrementing the Agent QA rejection count.
+Leaving `PR Ready` for other reasons clears activity. A blocked transition
+records its originating agent lane in the hidden
+`Runner Phase` field; `retry` uses that explicit destination and never guesses
+from a summary string. The separate hidden `Runner Transition` field is a
+fail-closed lock around non-atomic Project updates. Authorization rejects locked
+cards, completed locked state is resumed in place, and partial state is returned
+to assessment. Phase and activity remain bound to authenticated action state;
+the lock is checked independently.
+
+The immutable publication tuple also retains the bounded accepted QA report and
+issue comment. Before starting a reviewer, Runner checks for an existing tuple
+bound to the exact item, delegated content, repository, branch, base revision,
+candidate commit, tree, and clean workspace snapshot. An exact match resumes
+only the idempotent comment, push, pull-request lookup or creation, and Project
+transition. Changed or malformed state fails closed and never inherits the old
+acceptance.
 
 Approval and staged-batch authority carry one canonical delegated-content
 digest over the exact approved body snapshot, repository, immutable dependency
@@ -216,15 +306,51 @@ reference. Title or URL presentation changes cannot change the delegated-content
 identity, while changed execution-defining content returns the item to assessment
 without invoking a harness.
 
-For an ordinary unsigned item, placing it in the configured `Ready` status is
-the human authorization event. Runner converts a draft to an issue in the
-configured intake repository when necessary and signs that exact snapshot
-before claim. Complete-batch approval performs the same conversion for every
-released planner child.
+For an ordinary unsigned item, placing it in the configured `Plan` or `Ready`
+status is the human authorization event for that lane. Runner converts a draft
+to an issue in the configured intake repository when necessary and signs that
+exact snapshot before the planner or implementer can claim it. The enqueue-only
+`add` command performs only draft creation and the status mutation, and remains
+usable while the coordinator process owns its execution lock. An optional exact
+`## Dependencies` list accepts Project item IDs or issue URLs and is part of
+that signed snapshot. Complete-batch approval performs the same conversion for
+every released planner child.
 Nonempty invalid approvals are not replaced, and staged planning provenance must
 already prove complete-batch release. Issue comments are fetched separately only
 for the claimed card immediately before assignment; they are bounded historical
 context and are not part of delegated authority.
+
+Autonomous issue intake reuses these same authorization and planning contracts.
+The optional `autonomous_issue_intake` object enables the policy. A labeled
+issue is eligible when the configured intake repository itself is private, or
+when its public author matches `trusted_authors` case-insensitively. Project
+visibility is deliberately irrelevant because a private Project may contain a
+public issue. Runner obtains visibility and issue identity from GitHub, previews
+the ordinary approval, rechecks trust immediately before applying it, removes
+the intake label, and moves the signed source into the configured initial
+planner lane. It never routes issue text directly to an implementer by keyword
+or shape.
+
+The existing planner is the sole ambiguity boundary. Open decisions create no
+children; Runner posts the questions to the issue and blocks the source for an
+explicit human retry. A complete plan stages the normal authenticated batch.
+For a still-trusted source, deterministic reconciliation rechecks trust and
+applies the same exact-batch approval used by the operator command. These
+authorization actions remain independent of harness capacity. Public issues
+whose authors are not allowlisted, and all issue intake when the policy is
+absent, retain the human assessment and batch-approval boundaries.
+
+Issue completion is a deterministic reconciliation action. After Runner
+observes a merged pull request and records the card's authenticated successful
+outcome, it closes that implementation card's issue with GitHub's `completed`
+reason. A planning source can be `Done` while its issue remains open: Runner
+closes that source issue only when every exact child in its authenticated
+released batch has its own merged-pull-request outcome. A missing, changed,
+blocked, closed-without-merge, or manually moved child keeps the source open.
+Pull-request bodies deliberately contain no source-closing keyword because no
+single child PR is necessarily the final one. Closure failures are reported and
+retried on a later poll without consuming harness capacity or blocking other
+safe actions.
 
 Workspace authority combines that delegated-content digest with the exact
 resolved base commit and records them with the immutable Project item ID,
@@ -248,6 +374,12 @@ sparse-checkout, alternates, grafts, replacement refs, and default hook names.
 The manifest records filesystem identity as well as content so replacement with
 an equivalent-looking object is still drift.
 
+Task checkpoints use that complete manifest. Active-checkout and QA-boundary
+comparisons exclude only `branch.*` entries from the shared repository config,
+because unrelated concurrent branch publication and maintenance legitimately
+change those tracking entries. All other local config, including
+security-relevant Git controls, remains integrity-bound.
+
 Indexed gitlinks form recursive manifest nodes. Their index path and recorded
 object ID are always present; initialized nodes add their own HEAD, index/status,
 protected metadata, and nested gitlinks. Capture never fetches, initializes, or
@@ -255,8 +387,11 @@ copies a submodule, and rejects an indexed path that is missing, symlinked,
 cannot be opened through the pinned parent, or is deinitialized but non-empty.
 Runner constructs a clean task-branch commit before Agent QA through a
 privileged Git profile that pins the linked-worktree administration, index, and
-common object store. The engine records that candidate HEAD and tree in the
-pre-review manifest and compares the complete manifest around Agent QA before
+common object store. It then materializes that exact commit through the same
+config-free boundary in a new mode-`0700` private detached checkout outside the
+implementation sandbox. The engine records the candidate HEAD and tree in the
+private review manifest and compares that manifest, the retained implementation
+worktree, and the active checkout around Agent QA before
 entering push, pull-request publication, or worktree cleanup paths. An accepted
 unchanged candidate receives an exclusive private publication record keyed by
 its commit and binding the item/content identity, commit/tree, approved base,
@@ -266,7 +401,33 @@ re-fetches and compares the approved base, re-resolves the accepted tree,
 refreshes Project authority, validates the configured remote repository, and
 pushes only the recorded commit OID to the recorded full ref. Base refreshes
 remain local until their resulting tree completes implementation and QA and
-receives a replacement publication record.
+receives a replacement publication record. During tracked pull-request rework
+in `rebase` mode, workspace synchronization permits the expected local history
+rewrite only when the remote branch still resolves to the card's exact recorded
+QA commit or to an immutable private publication record for the same
+item/content/repository/destination tuple. The latter recovers an interrupted
+Project update without trusting arbitrary divergence. The rewritten history
+remains local through implementation and QA; publication is still the only
+boundary that may replace the remote branch, and does so with that authenticated
+remote commit as its exact force-with-lease value. A successful Project
+transition records the replacement QA commit and removes the stale-field
+condition.
+Recognized transient network and GitHub 5xx failures during this deterministic
+publication are retried in-process up to three total attempts. Each retry
+revalidates the immutable tuple and current Project authority, reuses an already
+published exact commit or PR, and never invokes the reviewer again. Unknown,
+rate-limit, authorization, validation, and cancellation failures are not
+automatically retried.
+
+QA publication ends at `PR Ready`; it never requests merge directly. In
+automatic mode, pull-request reconciliation claims
+`integration:<repository>/<base>`, using GitHub's enabled auto-merge state as
+the restart-stable owner. It recovers an existing owner before item ordering,
+disarms duplicate owners, and compares only the selected candidate with the
+latest base. A moved base returns the candidate through implementation and QA;
+a clean reviewed candidate is bound to its exact head and base before Runner
+enables GitHub auto-merge. Manual-review PRs remain at the human gate without
+Runner refreshing them after unrelated merges.
 
 One budget is shared by the recursive manifest, including protected controls,
 ordinary worktree paths, Git metadata, and initialized submodules. Directory
@@ -275,8 +436,9 @@ configured count is exceeded; regular files and symlink payloads are bounded
 individually and in aggregate before further reading. Git and GitHub command
 capture, Project collections and pagination, pull-request feedback, and public
 intake mutation fan-out use fixed fail-closed caps. Public intake is scheduled
-after recovery, pull-request reconciliation, and approved execution, so its
-bounded local failure does not discard trusted work completed in that cycle.
+after recovery, pull-request reconciliation, and admitted execution. In
+continuous mode its bounded local failure does not cancel in-flight work or
+discard the result when that work finishes.
 Effective Git behavior redirected by the environment or external
 configuration—including includes, custom hook paths, and external
 ignore/attribute sources—remains the separate finding #23 boundary.
@@ -290,14 +452,24 @@ allocation. The ceiling prevents unbounded output and Project-write loops; it
 is not a target, preferred count, or task-sizing rule.
 Runner normalizes the complete plan before Project writes and stages every
 child unapproved in assessment. Project-driven planning
-leaves its source in the `planner_approval` phase; `approve` previews and
-revalidates every exact child, destination, and source, then requires a
-default-No terminal confirmation before release. The source carries a
+leaves its source in the `planner_approval` phase. Ordinary intake uses
+`approve`, which previews and revalidates every exact child, destination, and
+source, then requires a default-No terminal confirmation before release.
+Trust-gated issue intake performs the same revalidation automatically after
+rechecking source trust. The source carries a
 Runner-authenticated staging marker bound to the ordered exact batch and a
 fresh generation; public metadata or phase text alone cannot establish
-provenance. Runner records that marker before the source lifecycle writes, so
-an interrupted transition can resume the exact authenticated batch without
-rerunning the planner; changed or partially authorized children are rejected.
+provenance. Before the first child write, Runner stores the normalized
+executable plan in a private mode-`0600` checkpoint bound to the delegated
+content, exact planning context, role, lane, destination, repository, and batch
+fingerprint. An exact retry skips the planner and reapplies only that saved
+batch, reusing matching children already staged before an interruption. Changed
+context removes the stale checkpoint; malformed state fails closed. Plans with
+open decisions are not checkpointed because they create no children. Runner
+records the authenticated marker before the source lifecycle writes and clears
+the local checkpoint after staging succeeds, so either recovery path resumes
+the exact batch without rerunning the planner; changed or partially authorized
+children are rejected.
 Interactive direct CLI planning treats the displayed-plan Yes as authorization,
 stages the full batch, and reloads and revalidates it immediately before release.
 Explicit `--create` provides the same stage, revalidate, and release behavior
@@ -329,6 +501,20 @@ The live readiness probe always forces `sandboxed` plus `isolated`. Setup and
 production launches share the same required-flag table, and unsupported
 installed CLIs fail before model invocation.
 
+Optional `repository_references` are a fixed extension of planner and reviewer
+profiles, including custom roles with those contracts. Implementer and probe
+profiles never receive them. Normal doctor and every eligible launch resolve
+symlinks and verify that each reference is an exact, non-overlapping Git root
+with a clean tracked/untracked state and `HEAD` equal to its full configured
+commit. Runner does not mutate or synchronize reference checkouts. Codex gets
+explicit filesystem reads; Claude gets repeated additional-directory reads,
+explicit write denials, and disabled instruction loading from those additional
+directories. Pi requires `host` for references because it cannot enforce a
+read-only root. Host mode remains unrestricted and is not narrowed by the
+reference list. Reference content is labeled untrusted evidence, and the whole
+root, including ignored files, is readable; operators use dedicated checkouts
+when that distinction matters.
+
 A sandboxed Codex or Claude implementer or reviewer receives Runner's bounded
 development profile by default. Package commands run inside the native
 filesystem sandbox; implementer network access is limited to the npm registry
@@ -336,7 +522,9 @@ and loopback. The filesystem profile exposes the assigned workspace, minimum
 system runtime files, and the implementer's npm cache instead of the operator's
 home directory. The Runner-owned `runner_browser` MCP definition is pinned,
 headless, temporary-profile, loopback-only, external-DNS-disabled,
-telemetry-free, and independent of ambient harness MCP configuration. A role
+telemetry-free, and independent of ambient harness MCP configuration. Its cwd,
+user/global npm configuration, and cache live in a separate mode-`0700`
+host-owned directory that is absent from harness sandbox write grants. A role
 may explicitly disable this profile. In inherited mode Runner adds this server
 alongside the ambient MCP configuration.
 
@@ -347,8 +535,9 @@ only after an explicit inherited-configuration opt-in. Navigation through the
 Runner browser remains loopback-only. This boundary does not change Pi's
 explicit host-access requirement for shell and edit tools.
 
-A Codex role can additionally add an explicit named MCP allowlist. Runner reads the native
-Codex MCP catalog before launch, rejects missing, disabled, remote, or
+A Codex role can additionally add an explicit named MCP allowlist. In isolated
+mode Runner reads the native Codex MCP catalog from a private neutral cwd rather
+than the project worktree. It rejects missing, disabled, remote, or
 inline-secret definitions, and reconstructs only the selected local stdio
 servers in the otherwise empty invocation config. Their tools are auto-approved
 for non-interactive use and execute as separate trusted processes outside the
@@ -361,6 +550,6 @@ the complete tool ceiling.
 Sandboxed Codex launches use scoped permission profiles with minimum runtime
 reads and only the assigned repository/worktree. Sandboxed Claude launches deny
 operator-home reads and re-allow the assigned root; implementers run in the task
-worktree, while reviewers use a private neutral directory with the repository
-added read-only. These boundaries reduce prompt-injection exposure; they do not
+worktree, while reviewers use a private neutral directory with the newly
+materialized candidate checkout added read-only. These boundaries reduce prompt-injection exposure; they do not
 turn Runner into a credential broker or sandbox the harness process itself.

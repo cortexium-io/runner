@@ -38,7 +38,7 @@ func testRunReplacesExecutable(t *testing.T, currentVersion, targetVersion strin
 	}
 	archive := releaseArchive(t, packageName, versionScript(targetVersion), "")
 	digest := sha256.Sum256(archive)
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/download/" + targetVersion + "/" + archiveName:
 			_, _ = response.Write(archive)
@@ -77,7 +77,7 @@ func TestRunChecksumFailureLeavesExecutableUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	archive := releaseArchive(t, packageName, versionScript("v0.3.0"), "")
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if strings.HasSuffix(request.URL.Path, archiveName) {
 			_, _ = response.Write(archive)
 			return
@@ -101,7 +101,7 @@ func TestRunChecksumFailureLeavesExecutableUntouched(t *testing.T) {
 
 func TestRunCheckOnlyResolvesLatestWithoutDownloadingAssets(t *testing.T) {
 	assetRequests := 0
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/latest":
 			http.Redirect(response, request, "/tag/v1.4.0", http.StatusFound)
@@ -128,7 +128,7 @@ func TestRunCheckOnlyResolvesLatestWithoutDownloadingAssets(t *testing.T) {
 
 func TestRunLatestNeverDowngrades(t *testing.T) {
 	assetRequests := 0
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/latest":
 			http.Redirect(response, request, "/tag/v1.3.9", http.StatusFound)
@@ -165,7 +165,7 @@ func TestRunRejectsUnexpectedArchiveEntry(t *testing.T) {
 	}
 	archive := releaseArchive(t, packageName, versionScript("v0.3.0"), "../unexpected")
 	digest := sha256.Sum256(archive)
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if strings.HasSuffix(request.URL.Path, archiveName) {
 			_, _ = response.Write(archive)
 			return
@@ -183,10 +183,29 @@ func TestRunRejectsUnexpectedArchiveEntry(t *testing.T) {
 	}
 }
 
-func TestRunRejectsNonHTTPReleasesURL(t *testing.T) {
-	_, err := Run(t.Context(), Options{CurrentVersion: "v0.2.0", ReleasesURL: "file:///tmp/releases", CheckOnly: true})
-	if err == nil || !strings.Contains(err.Error(), "absolute HTTP or HTTPS URL") {
-		t.Fatalf("non-HTTP releases URL error = %v", err)
+func TestRunRejectsNonHTTPSReleasesURL(t *testing.T) {
+	for _, address := range []string{"file:///tmp/releases", "http://releases.example.test"} {
+		_, err := Run(t.Context(), Options{CurrentVersion: "v0.2.0", ReleasesURL: address, CheckOnly: true})
+		if err == nil || !strings.Contains(err.Error(), "absolute HTTPS URL") {
+			t.Fatalf("non-HTTPS releases URL %q error = %v", address, err)
+		}
+	}
+}
+
+func TestRunRejectsHTTPSRedirectToHTTP(t *testing.T) {
+	insecure := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusOK)
+	}))
+	defer insecure.Close()
+	secure := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		http.Redirect(response, request, insecure.URL+"/tag/v1.4.0", http.StatusFound)
+	}))
+	defer secure.Close()
+	_, err := Run(t.Context(), Options{
+		CurrentVersion: "v1.3.9", ReleasesURL: secure.URL, HTTPClient: secure.Client(), CheckOnly: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "non-HTTPS destination") {
+		t.Fatalf("HTTPS downgrade redirect error = %v", err)
 	}
 }
 

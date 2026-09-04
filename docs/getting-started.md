@@ -58,8 +58,8 @@ Expected results:
 - the build exits successfully and creates `./cortexium-runner`;
 - the source build prints a VCS-derived version when Go can identify the
   checkout, or `cortexium-runner dev` when it cannot; and
-- help lists `init`, `doctor`, `plan`, `approve`, `retry`, `run`, `status`,
-  `metrics`, and `role`.
+- help lists `init`, `doctor`, `add`, `plan`, `approve`, `retry`, `run`, `status`,
+  `metrics`, `role`, `workflow`, and `harness`.
 
 Nothing is installed globally, started in the background, or sent over the
 network by these commands.
@@ -108,6 +108,12 @@ or modify GitHub resources, write the config, or install skills.
 If the preview is wrong, change the arguments and rerun it. Do not remove
 `--dry-run` merely to diagnose a failed prerequisite.
 
+This preview retains human assessment for issue intake. To let labeled issues
+from the configured private repository enter planning automatically, add
+`--autonomous-issues`. On a public repository, also provide each authorized
+login with repeatable `--trusted-issue-author LOGIN`; Project visibility is not
+used as a trust signal.
+
 ## Continue to a real local Runner setup
 
 This step changes GitHub and writes the config. Continue only when the
@@ -133,9 +139,56 @@ Expected state after successful initialization:
 - bundled skills assigned to the configured roles are installed for their
   harnesses.
 
+Inspect the typed event/action flow without contacting GitHub or a model:
+
+```bash
+./cortexium-runner workflow validate --config /absolute/operator/path/runner.json
+./cortexium-runner workflow explain --config /absolute/operator/path/runner.json
+```
+
+The explanation names the default Plan and Ready lanes, every event/action
+rule, inherited role contract, outcome transition, and mandatory Runner safety
+boundary.
+
 Normal `doctor` adds GitHub and executable checks. The explicit
 `--probe-harnesses` option makes one minimal live call per distinct configured
 harness profile; it is not required for the offline checkpoint.
+
+Before relying on a newly installed harness configuration, run the paid local
+conformance smoke test:
+
+```bash
+./cortexium-runner harness check \
+  --config /absolute/operator/path/runner.json
+```
+
+It exercises every configured planner, implementer, and reviewer profile in a
+private temporary Git repository. Runner itself performs no GitHub operations
+or configured-project writes; explicitly configured host access still retains
+its documented authority. Add `--browser` when the project depends on Runner's
+browser tools.
+
+With Runner active, humans can enqueue either kind of work directly:
+
+```bash
+./cortexium-runner add plan \
+  --config /absolute/operator/path/runner.json \
+  --title "Plan CSV export" \
+  --body-file export-goal.md
+
+./cortexium-runner add ready \
+  --config /absolute/operator/path/runner.json \
+  --title "Fix the CSV header" \
+  --body-file fix-card.md
+```
+
+`add plan` creates a card in `Plan`; the planner proposes a dependency-aware
+batch for later review. `add ready` creates one sufficiently specified card in
+`Ready`; Runner implements it when its dependencies and resource requirements
+allow. Either command accepts `--body TEXT` instead of `--body-file`, and
+`--dry-run` previews the destination without changing GitHub. These enqueue
+commands deliberately remain usable while the foreground Runner holds its
+process lock.
 
 ## Expected work states
 
@@ -143,28 +196,42 @@ When work is later admitted and Runner is started, cards follow these states:
 
 | State | Expected owner or event |
 | --- | --- |
-| `Needs assessment` | A human decides whether a public request is valid. |
+| `Needs assessment` | Issue intake awaits human assessment unless an enabled trust policy routes it to planning. |
 | `Backlog` | A human has accepted the request but has not scheduled it. |
 | `Plan` | The planner creates a bounded set of staged implementation cards. |
 | `Ready` | An implementation card is approved for an implementer. |
 | `In Progress` | Runner has claimed the card for one role attempt. |
-| `Agent QA` | A reviewer checks the exact implementation worktree and diff. |
-| `PR Ready` | The accepted branch is published and awaits the human gate. |
-| `Blocked` | Human input or an explicit retry decision is required. |
-| `Done` | Planning finished, or the pull request was merged or closed. |
+| `Agent QA` | A reviewer checks a private detached checkout of the exact candidate commit and diff. |
+| `PR Ready` | The accepted branch awaits a human, or serialized automatic integration when explicitly enabled. |
+| `Blocked` | Human input, a closed-without-merge PR, or an explicit retry decision is required. |
+| `Done` | Planning finished, or the pull request was merged successfully. |
 
-Creating an ordinary card directly in `Ready` authorizes its exact current
-snapshot for the implementer; Runner converts it to an issue in the configured
-intake repository when necessary, then signs it before claim. Planned children
+Creating an ordinary card directly in `Plan` asks the planner to shape its exact
+current snapshot. Creating one in `Ready` authorizes that snapshot for the
+implementer. Runner converts either card to an issue in the configured intake
+repository when necessary, then signs it before claim. Planned children
 remain drafts while awaiting approval and become issues as part of the approved
-batch release. Issue comments present at assignment time are supplied as bounded
-historical context. Agent QA
+batch release. Issue comments authored by the account currently authenticated
+in `gh` and present at assignment time are supplied as bounded historical
+context; other authors are ignored. Agent QA
 posts readable requested-change notes to that issue and retains an authenticated
 private copy, so its feedback is sufficient for a retry without a human comment.
 
-A QA rejection returns the card to `Ready` until the configured rejection limit
-is exhausted. If an optional implementer ladder is configured, each persisted
-QA rejection advances to its next role profile; the final profile is reused for
+For an ordinary card with prerequisites, add exact issue URLs or Project item
+IDs to a `## Dependencies` bullet list in its body before moving it to `Ready`.
+Runner accepts dependencies across planner batches and starts the card only
+after every target has an authenticated successful outcome. A manual move to
+`Done` is not success authority.
+
+Runner closes an implementation issue after it observes and authenticates that
+card's merged pull request. A planner source issue stays open after planning and
+closes only when every exact released child has merged successfully; no one
+child PR carries a source-closing keyword.
+
+A QA rejection returns the card to `Ready` until the configured
+`max_qa_rejections` is reached. A value of 3 means the third rejection blocks
+the card. If an optional implementer ladder is configured, each persisted QA
+rejection advances to its next role profile; the final profile is reused for
 any remaining allowed attempts. Errors and requests for input fail closed in
 `Blocked`; they do not advance the ladder or become implicit approval.
 

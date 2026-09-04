@@ -19,8 +19,17 @@ version=${1:-}
 command -v curl >/dev/null 2>&1 || fail 'curl is required'
 command -v tar >/dev/null 2>&1 || fail 'tar is required'
 
+case "$releases_url" in
+	https://*) ;;
+	*) fail 'release URL must be an absolute HTTPS URL' ;;
+esac
+
+curl_https() {
+	curl --proto '=https' --proto-redir '=https' "$@"
+}
+
 if [ -z "$version" ]; then
-	latest_url=$(curl -fsSL -o /dev/null -w '%{url_effective}' "$releases_url/latest") || fail 'could not resolve the latest release'
+	latest_url=$(curl_https -fsSL -o /dev/null -w '%{url_effective}' "$releases_url/latest") || fail 'could not resolve the latest release'
 	version=${latest_url##*/}
 fi
 printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || fail "unsupported release version: $version"
@@ -68,8 +77,8 @@ archive_path=$download_root/$archive
 checksums_path=$download_root/SHA256SUMS
 download_base=$releases_url/download/$version
 
-curl -fsSL "$download_base/$archive" -o "$archive_path" || fail "could not download $archive"
-curl -fsSL "$download_base/SHA256SUMS" -o "$checksums_path" || fail 'could not download SHA256SUMS'
+curl_https -fsSL "$download_base/$archive" -o "$archive_path" || fail "could not download $archive"
+curl_https -fsSL "$download_base/SHA256SUMS" -o "$checksums_path" || fail 'could not download SHA256SUMS'
 
 expected_checksum=$(awk -v archive="$archive" '$2 == archive { count++; checksum = $1 } END { if (count == 1) print checksum }' "$checksums_path")
 [ -n "$expected_checksum" ] || fail "SHA256SUMS does not contain exactly one entry for $archive"

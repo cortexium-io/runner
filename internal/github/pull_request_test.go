@@ -29,6 +29,7 @@ type pullRequestTestRunner struct {
 	viewBase          string
 	viewBaseOID       string
 	viewOutput        string
+	viewFailures      int
 	configuredActor   string
 	autoMergeErr      error
 	publicationRemote string
@@ -101,6 +102,10 @@ func (r *pullRequestTestRunner) Run(ctx context.Context, command string, args []
 		}
 		return subprocess.Result{Stdout: "https://github.com/owner/repo/pull/12\n"}, nil
 	case strings.HasPrefix(joined, "pr view "):
+		if r.viewFailures > 0 {
+			r.viewFailures--
+			return subprocess.Result{Stderr: "HTTP 503: Service Unavailable", ExitCode: 1}, errors.New("exit status 1")
+		}
 		if r.viewOutput != "" {
 			return subprocess.Result{Stdout: r.viewOutput}, nil
 		}
@@ -135,6 +140,17 @@ func (r *pullRequestTestRunner) RunFailClosed(ctx context.Context, command strin
 	return r.Run(ctx, command, args, dir, timeout)
 }
 
+func TestPullRequestRoutineInspectionOmitsHeavyCollections(t *testing.T) {
+	runner := &pullRequestTestRunner{}
+	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "https://github.com/owner/repo/pull/12"})
+	if _, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorized(t.Context(), action); err != nil {
+		t.Fatalf("inspect pull request: %v", err)
+	}
+	if calls := strings.Join(runner.calls, "\n"); strings.Contains(calls, "statusCheckRollup") || strings.Contains(calls, "comments") || strings.Contains(calls, "reviews") {
+		t.Fatalf("routine inspection requested heavy collections: %s", calls)
+	}
+}
+
 func TestPullRequestFeedbackEnforcesCombinedEntryLimitBeforeAggregation(t *testing.T) {
 	for count := MaxPullRequestFeedbackEntries; count <= MaxPullRequestFeedbackEntries+1; count++ {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
@@ -152,7 +168,7 @@ func TestPullRequestFeedbackEnforcesCombinedEntryLimitBeforeAggregation(t *testi
 				t.Fatal(err)
 			}
 			runner := &pullRequestTestRunner{viewOutput: string(payload)}
-			details, inspectErr := NewPullRequestManager(runner, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12")
+			details, inspectErr := NewPullRequestManager(runner, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12", true, false)
 			if count == MaxPullRequestFeedbackEntries {
 				if inspectErr != nil || len(details.Feedback) > maxPullRequestFeedbackBytes {
 					t.Fatalf("exact feedback limit failed: bytes=%d error=%v", len(details.Feedback), inspectErr)
@@ -161,6 +177,40 @@ func TestPullRequestFeedbackEnforcesCombinedEntryLimitBeforeAggregation(t *testi
 				t.Fatalf("feedback overflow was accepted: details=%#v error=%v", details, inspectErr)
 			}
 		})
+	}
+}
+
+func TestPullRequestCheckInspectionClassifiesPendingAndTerminalFailures(t *testing.T) {
+	runner := &pullRequestTestRunner{viewOutput: `{
+		"url":"https://github.com/owner/repo/pull/12","number":12,"state":"OPEN",
+		"headRepository":{"nameWithOwner":"owner/repo"},"headRefName":"cortexium/task",
+		"headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","baseRefName":"main",
+		"mergeStateStatus":"BLOCKED","statusCheckRollup":[
+			{"__typename":"CheckRun","name":"Validate","workflowName":"CI","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://github.com/owner/repo/actions/runs/1"},
+			{"__typename":"CheckRun","name":"Browser","workflowName":"CI","status":"IN_PROGRESS","conclusion":""},
+			{"__typename":"StatusContext","context":"security/scan","state":"ERROR","targetUrl":"https://checks.example.test/scan"},
+			{"__typename":"CheckRun","name":"Unsafe\nlabel","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"javascript:alert(1)"},
+			{"__typename":"StatusContext","context":"deploy","state":"SUCCESS"}
+		]}`}
+	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "https://github.com/owner/repo/pull/12"})
+	details, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorizedWithChecks(t.Context(), action)
+	if err != nil {
+		t.Fatalf("inspect checks: %v", err)
+	}
+	if !details.ChecksPending || len(details.FailedChecks) != 3 {
+		t.Fatalf("unexpected check summary: %#v", details)
+	}
+	if details.FailedChecks[0].Name != "CI / Validate" || details.FailedChecks[0].Status != "FAILURE" || details.FailedChecks[0].DetailsURL == "" {
+		t.Fatalf("unexpected failed check: %#v", details.FailedChecks[0])
+	}
+	if details.FailedChecks[1].Name != "security/scan" || details.FailedChecks[1].Status != "ERROR" || details.FailedChecks[1].DetailsURL == "" {
+		t.Fatalf("unexpected failed status context: %#v", details.FailedChecks[1])
+	}
+	if details.FailedChecks[2].Name != "Unsafe label" || details.FailedChecks[2].DetailsURL != "" {
+		t.Fatalf("unsafe check metadata was not normalized: %#v", details.FailedChecks[2])
+	}
+	if calls := strings.Join(runner.calls, "\n"); !strings.Contains(calls, "statusCheckRollup") || strings.Contains(calls, "comments") || strings.Contains(calls, "reviews") {
+		t.Fatalf("check inspection requested unexpected fields: %s", calls)
 	}
 }
 
@@ -179,7 +229,7 @@ func TestPullRequestFeedbackPublishesTrustedDiscussionReferenceOnly(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	details, err := NewPullRequestManager(&pullRequestTestRunner{viewOutput: string(payload)}, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12")
+	details, err := NewPullRequestManager(&pullRequestTestRunner{viewOutput: string(payload)}, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12", true, false)
 	if err != nil {
 		t.Fatalf("inspect trusted feedback: %v", err)
 	}
@@ -206,7 +256,7 @@ func TestPullRequestFeedbackIgnoresUntrustedCommentBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	details, err := NewPullRequestManager(&pullRequestTestRunner{viewOutput: string(payload)}, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12")
+	details, err := NewPullRequestManager(&pullRequestTestRunner{viewOutput: string(payload)}, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12", true, false)
 	if err != nil {
 		t.Fatalf("inspect untrusted feedback: %v", err)
 	}
@@ -215,15 +265,28 @@ func TestPullRequestFeedbackIgnoresUntrustedCommentBody(t *testing.T) {
 	}
 }
 
+func TestRoutinePullRequestInspectionDoesNotLoadFeedback(t *testing.T) {
+	runner := &pullRequestTestRunner{viewOutput: `{"url":"https://github.com/owner/repo/pull/12","number":12,"state":"OPEN","headRefName":"cortexium/task","headRefOid":"head","baseRefName":"main","mergeStateStatus":"CLEAN","comments":[{"body":"feedback","author":{"login":"maintainer"}}]}`}
+	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "12"})
+	details, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorized(t.Context(), action)
+	if err != nil {
+		t.Fatalf("inspect pull request: %v", err)
+	}
+	joined := strings.Join(runner.calls, "\n")
+	if details.Feedback != "" || strings.Contains(joined, "comments,reviews") || strings.Contains(joined, "api user") {
+		t.Fatalf("routine inspection loaded feedback: details=%#v calls=%s", details, joined)
+	}
+}
+
 func TestGitHubPullRequestManagerRequestsAutoMergeWithoutBypassingProtections(t *testing.T) {
 	runner := &pullRequestTestRunner{}
 	head := strings.Repeat("a", 40)
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "https://github.com/owner/repo/pull/12", QACommit: head})
-	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", "")
+	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", config.MergeMethodMerge)
 	if err != nil {
 		t.Fatalf("request auto merge: %v", err)
 	}
-	if got := strings.Join(runner.calls, "\n"); got != "pr view https://github.com/owner/repo/pull/12 --repo owner/repo --json url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,autoMergeRequest,comments,reviews\npr merge https://github.com/owner/repo/pull/12 --repo owner/repo --auto --merge --match-head-commit "+head {
+	if got := strings.Join(runner.calls, "\n"); got != "pr view https://github.com/owner/repo/pull/12 --repo owner/repo --json url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,autoMergeRequest\npr merge https://github.com/owner/repo/pull/12 --repo owner/repo --auto --merge --match-head-commit "+head {
 		t.Fatalf("auto-merge command = %q", got)
 	}
 	if strings.Contains(strings.Join(runner.calls, " "), "--admin") {
@@ -247,7 +310,7 @@ func TestGitHubPullRequestManagerReportsAutoMergeFailure(t *testing.T) {
 	runner := &pullRequestTestRunner{autoMergeErr: errors.New("exit status 1")}
 	head := strings.Repeat("a", 40)
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "12", QACommit: head})
-	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", "")
+	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", config.MergeMethodMerge)
 	if err == nil || !strings.Contains(err.Error(), "automatic pull request merge") || !strings.Contains(err.Error(), "auto-merge is disabled") {
 		t.Fatalf("auto-merge failure = %v", err)
 	}
@@ -297,7 +360,7 @@ func TestGitHubPullRequestManagerRequiresAuthorizedBoundAction(t *testing.T) {
 	if err := manager.CancelAutoMergeAuthorized(t.Context(), modified); err == nil || !strings.Contains(err.Error(), "modified after validation") {
 		t.Fatalf("modified authorized action was accepted: %v", err)
 	}
-	if err := manager.RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", ""); err != nil {
+	if err := manager.RequestAutoMergeAuthorized(t.Context(), action, head, "main", "", config.MergeMethodMerge); err != nil {
 		t.Fatalf("authorized auto-merge was rejected: %v", err)
 	}
 	if len(runner.calls) != 2 {
@@ -326,7 +389,7 @@ func TestGitHubPullRequestManagerRejectsPullRequestIdentityDriftBeforeAutoMerge(
 	}
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "12", QACommit: head})
 	err := NewPullRequestManager(runner, staticActionRefresher{}).RequestAutoMergeAuthorized(t.Context(), action, head, "main", strings.Repeat("c", 40), "")
-	if err == nil || !strings.Contains(err.Error(), "automatic merge pull request identity changed") || !strings.Contains(err.Error(), "base commit") {
+	if err == nil || !errors.Is(err, ErrPublicationBaseChanged) || !strings.Contains(err.Error(), "automatic merge pull request identity changed") || !strings.Contains(err.Error(), "base commit") {
 		t.Fatalf("pull request identity drift was accepted for auto-merge: %v", err)
 	}
 	if strings.Contains(strings.Join(runner.calls, "\n"), "pr merge ") {
@@ -357,8 +420,7 @@ func TestGitHubPullRequestManagerPublishesExactAcceptedTupleUnderSanitizedGit(t 
 		viewBaseOID:       record.ApprovedBaseOID,
 	}
 	manager := NewPullRequestManager(runner, staticActionRefresher{})
-	qaReport := "**Verdict:** Accepted\n\n### Checks performed\n\n- All QA checks passed."
-	published, err := manager.PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, qaReport)
+	published, err := manager.PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge)
 	if err != nil {
 		t.Fatalf("publish: %v", err)
 	}
@@ -388,8 +450,8 @@ func TestGitHubPullRequestManagerPublishesExactAcceptedTupleUnderSanitizedGit(t 
 	if runner.createdBody != wantBody {
 		t.Fatalf("pull request body = %q, want %q", runner.createdBody, wantBody)
 	}
-	if strings.Contains(runner.createdBody, qaReport) {
-		t.Fatalf("pull request body exposed caller-provided QA text: %q", runner.createdBody)
+	if strings.Contains(runner.createdBody, record.AcceptanceReport) {
+		t.Fatalf("pull request body exposed persisted QA text: %q", runner.createdBody)
 	}
 }
 
@@ -398,7 +460,7 @@ func TestGitHubPullRequestManagerRejectsBaseMovementBeforePush(t *testing.T) {
 	advanceRemoteBase(t, repo, "base.txt", "new base\n")
 
 	_, err := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{}).PublishAuthorized(
-		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted")
+		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge)
 	if !errors.Is(err, ErrPublicationBaseChanged) {
 		t.Fatalf("publication accepted a changed base revision: %v", err)
 	}
@@ -412,7 +474,7 @@ func TestGitHubPullRequestManagerRefreshesAuthorityAfterFinalFetchBeforePush(t *
 	_, remote, metadata, record, action := acceptedPublicationTuple(t)
 	runner := &pullRequestTestRunner{publicationRemote: remote}
 	_, err := NewPullRequestManager(runner, staticActionRefresher{err: errors.New("Project action changed")}).PublishAuthorized(
-		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted")
+		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge)
 	if err == nil || !strings.Contains(err.Error(), "refresh Project authority") {
 		t.Fatalf("stale publication authority was accepted: %v", err)
 	}
@@ -426,7 +488,7 @@ func TestGitHubPullRequestManagerRejectsDifferentRepositoryRemote(t *testing.T) 
 	_, remote, metadata, record, action := acceptedPublicationTupleWithSetup(t, func(repo, _ string) {
 		runGitTest(t, repo, "config", "remote.origin.url", "https://github.com/other/repo.git")
 	})
-	_, err := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "accepted")
+	_, err := NewPullRequestManager(&pullRequestTestRunner{publicationRemote: remote}, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge)
 	if err == nil || !strings.Contains(err.Error(), "does not match Git remote") {
 		t.Fatalf("publication accepted a different repository remote: %v", err)
 	}
@@ -439,7 +501,7 @@ func TestGitHubPullRequestManagerRejectsDifferentRepositoryRemote(t *testing.T) 
 func TestGitHubPullRequestManagerRejectsUnsafePersistedSelector(t *testing.T) {
 	runner := &pullRequestTestRunner{}
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "--repo=attacker/repository"})
-	_, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorized(t.Context(), action)
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorizedWithFeedback(t.Context(), action)
 	if err == nil || !strings.Contains(err.Error(), "canonical") {
 		t.Fatalf("unsafe pull request selector was accepted: %v", err)
 	}
@@ -451,7 +513,7 @@ func TestGitHubPullRequestManagerRejectsUnsafePersistedSelector(t *testing.T) {
 func TestGitHubPullRequestManagerRejectsSelectorFromAnotherRepository(t *testing.T) {
 	runner := &pullRequestTestRunner{}
 	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "https://github.com/attacker/repo/pull/12"})
-	_, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorized(t.Context(), action)
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorizedWithFeedback(t.Context(), action)
 	if err == nil || !strings.Contains(err.Error(), "approved repository") {
 		t.Fatalf("foreign pull request selector was accepted: %v", err)
 	}
@@ -468,11 +530,11 @@ func TestGitHubPullRequestManagerReusesOpenPRAfterPartialPublication(t *testing.
 		viewHeadOID:       record.CommitOID,
 		viewBaseOID:       record.ApprovedBaseOID,
 	}
-	if _, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted"); err != nil {
+	if _, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge); err != nil {
 		t.Fatalf("initial push: %v", err)
 	}
 	runner.gitCalls = nil
-	published, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted")
+	published, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge)
 	if err != nil {
 		t.Fatalf("reuse open pull request: %v", err)
 	}
@@ -494,7 +556,7 @@ func TestGitHubPullRequestManagerReusesOpenPRAfterPartialPublication(t *testing.
 func TestGitHubPullRequestManagerRejectsAmbiguousOpenPullRequests(t *testing.T) {
 	_, remote, metadata, record, action := acceptedPublicationTuple(t)
 	runner := &pullRequestTestRunner{ambiguousOpen: true, publicationRemote: remote}
-	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted")
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge)
 	if err == nil || !strings.Contains(err.Error(), "2 open pull requests") {
 		t.Fatalf("ambiguous pull requests were accepted: %v", err)
 	}
@@ -512,7 +574,7 @@ func TestGitHubPullRequestManagerRejectsReusedOpenPRWithUnexpectedAcceptedTuple(
 		viewHeadOID:       strings.Repeat("d", 40),
 		viewBaseOID:       record.ApprovedBaseOID,
 	}
-	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted")
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge)
 	if err == nil || !strings.Contains(err.Error(), "accepted publication tuple") || !strings.Contains(err.Error(), "head commit") {
 		t.Fatalf("reused pull request with mismatched accepted tuple was accepted: %v", err)
 	}
@@ -531,7 +593,7 @@ func TestGitHubPullRequestManagerRejectsMismatchedPersistedPR(t *testing.T) {
 		viewHeadOID:       record.CommitOID,
 		viewBaseOID:       record.ApprovedBaseOID,
 	}
-	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge, "Accepted")
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), action, metadata, record, "main", "origin", config.MergeMethodMerge)
 	if err == nil || !strings.Contains(err.Error(), "accepted publication tuple") || !strings.Contains(err.Error(), "head branch") {
 		t.Fatalf("mismatched persisted pull request was accepted: %v", err)
 	}
@@ -556,7 +618,7 @@ func TestGitHubPullRequestManagerRejectsChangedTupleBeforePushOrGitHubMutation(t
 			changedRecord, changedAction := record, action
 			test.mutate(&changedRecord, &changedAction)
 			runner := &pullRequestTestRunner{publicationRemote: remote}
-			_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), changedAction, metadata, changedRecord, "main", "origin", config.MergeMethodMerge, "Accepted")
+			_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(t.Context(), changedAction, metadata, changedRecord, "main", "origin", config.MergeMethodMerge)
 			if err == nil {
 				t.Fatal("changed publication tuple was accepted")
 			}
@@ -627,13 +689,19 @@ func TestGitHubPullRequestManagerPublishesLinearRebaseRefreshWithExactLease(t *t
 		}
 		t.Run(name, func(t *testing.T) {
 			remote, metadata, record, action, previousRemoteOID := acceptedRebaseRefreshTuple(t, conflicted)
+			if !conflicted {
+				// Simulate an interrupted Project update: the remote head has an
+				// immutable prior acceptance, but the Project QA field is stale.
+				action.Item.QACommit = record.ApprovedBaseOID
+				action = authorizedPullRequestTestAction(action.Item)
+			}
 			runner := &pullRequestTestRunner{
 				publicationRemote: remote,
 				viewHeadOID:       record.CommitOID,
 				viewBaseOID:       record.ApprovedBaseOID,
 			}
 			published, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(
-				t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase, "Accepted")
+				t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase)
 			if err != nil {
 				t.Fatalf("publish rebase refresh: %v", err)
 			}
@@ -659,7 +727,7 @@ func TestGitHubPullRequestManagerRejectsExternallyChangedRebaseDestination(t *te
 	runGitTest(t, "", "--git-dir", remote, "update-ref", record.DestinationRef, externalOID, previousRemoteOID)
 	runner := &pullRequestTestRunner{publicationRemote: remote}
 	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(
-		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase, "Accepted")
+		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase)
 	if err == nil || !strings.Contains(err.Error(), "publication destination changed externally") {
 		t.Fatalf("externally changed rebase destination was accepted: %v", err)
 	}
@@ -682,12 +750,107 @@ func TestGitHubPullRequestManagerReusesAlreadyPublishedRebaseCandidate(t *testin
 		viewBaseOID:       record.ApprovedBaseOID,
 	}
 	published, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(
-		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase, "Accepted")
+		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase)
 	if err != nil || published.CommitSHA != record.CommitOID {
 		t.Fatalf("reuse already-published rebase candidate: published=%#v error=%v", published, err)
 	}
 	if strings.Contains(strings.Join(runner.gitCalls, "\n"), " push ") {
 		t.Fatalf("already-published rebase candidate was pushed again: %#v", runner.gitCalls)
+	}
+}
+
+func TestGitHubPullRequestManagerRetriesPostPushInspectionWithoutRepushing(t *testing.T) {
+	remote, metadata, record, action, _ := acceptedRebaseRefreshTuple(t, false)
+	runner := &pullRequestTestRunner{
+		publicationRemote: remote,
+		viewHeadOID:       record.CommitOID,
+		viewBaseOID:       record.ApprovedBaseOID,
+		viewFailures:      1,
+	}
+	published, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(
+		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase)
+	if err != nil {
+		t.Fatalf("retry post-push inspection: %v", err)
+	}
+	if published.CommitSHA != record.CommitOID || published.Attempts != 2 {
+		t.Fatalf("retried publication = %#v, want exact commit in two attempts", published)
+	}
+	pushes := 0
+	for _, call := range runner.gitCalls {
+		if strings.Contains(call, " push ") || strings.HasPrefix(call, "push ") {
+			pushes++
+		}
+	}
+	if pushes != 1 {
+		t.Fatalf("post-push retry issued %d pushes, want one:\n%s", pushes, strings.Join(runner.gitCalls, "\n"))
+	}
+	views := 0
+	for _, call := range runner.calls {
+		if strings.HasPrefix(call, "pr view ") {
+			views++
+		}
+	}
+	if views != 2 {
+		t.Fatalf("pull request inspections = %d, want two: %#v", views, runner.calls)
+	}
+}
+
+func TestGitHubPullRequestManagerBoundsTransientPublicationRetries(t *testing.T) {
+	remote, metadata, record, action, _ := acceptedRebaseRefreshTuple(t, false)
+	runner := &pullRequestTestRunner{
+		publicationRemote: remote,
+		viewHeadOID:       record.CommitOID,
+		viewBaseOID:       record.ApprovedBaseOID,
+		viewFailures:      maxPublicationAttempts,
+	}
+	_, err := NewPullRequestManager(runner, staticActionRefresher{}).PublishAuthorized(
+		t.Context(), action, metadata, record, "main", "origin", config.MergeMethodRebase)
+	if err == nil {
+		t.Fatal("exhausted publication unexpectedly succeeded")
+	}
+	operation, attempts := PublicationFailureDetails(err)
+	if operation != string(PublicationInspectPR) || attempts != maxPublicationAttempts {
+		t.Fatalf("exhausted publication details = %q/%d, want %q/%d", operation, attempts, PublicationInspectPR, maxPublicationAttempts)
+	}
+	views := 0
+	for _, call := range runner.calls {
+		if strings.HasPrefix(call, "pr view ") {
+			views++
+		}
+	}
+	if views != maxPublicationAttempts {
+		t.Fatalf("pull request inspections = %d, want %d: %#v", views, maxPublicationAttempts, runner.calls)
+	}
+}
+
+func TestPublicationRetryRequiresRecognizedTransientFailure(t *testing.T) {
+	for _, test := range []struct {
+		message string
+		want    bool
+	}{
+		{message: "HTTP 503: Service Unavailable", want: true},
+		{message: "read: connection reset by peer", want: true},
+		{message: "GraphQL: API rate limit exceeded", want: false},
+		{message: "pull request head changed", want: false},
+	} {
+		if got := retryablePublicationError(errors.New(test.message)); got != test.want {
+			t.Errorf("retryablePublicationError(%q) = %t, want %t", test.message, got, test.want)
+		}
+	}
+	if publicationRetryDelay(1) != 0 || publicationRetryDelay(2) != 500*time.Millisecond {
+		t.Fatalf("unexpected publication retry delays: first=%s second=%s", publicationRetryDelay(1), publicationRetryDelay(2))
+	}
+}
+
+func TestPublicationFailureDetailsAreFixedAndBounded(t *testing.T) {
+	cause := publicationError(PublicationInspectPR, errors.New("HTTP 503 token=private"))
+	err := &publicationAttemptsError{attempts: maxPublicationAttempts, err: cause}
+	operation, attempts := PublicationFailureDetails(err)
+	if operation != string(PublicationInspectPR) || attempts != maxPublicationAttempts {
+		t.Fatalf("publication failure details = %q/%d", operation, attempts)
+	}
+	if strings.Contains(operation, "token") {
+		t.Fatalf("publication failure operation exposed raw diagnostic: %q", operation)
 	}
 }
 
@@ -756,11 +919,11 @@ func acceptedRebaseRefreshTuple(t *testing.T, conflicted bool) (string, workspac
 	} else if got := runGitTest(t, metadata.WorktreePath, "show", candidate.CommitOID+":base.txt"); got != "base change\n" {
 		t.Fatalf("rebase candidate lost base content: %q", got)
 	}
-	accepted, err := workspace.CaptureSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, metadata.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
+	accepted, err := workspace.CaptureCheckoutSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, metadata.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := provider.RecordPublicationAcceptance(t.Context(), metadata, accepted)
+	record, err := provider.RecordPublicationAcceptance(t.Context(), metadata, accepted, "QA accepted.", "Accepted candidate.")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -862,11 +1025,11 @@ func acceptedPublicationTupleWithSetup(t *testing.T, setup func(repo, worktree s
 	if setup != nil {
 		setup(repo, metadata.WorktreePath)
 	}
-	accepted, err := workspace.CaptureSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, metadata.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
+	accepted, err := workspace.CaptureCheckoutSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, metadata.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
-	record, err := provider.RecordPublicationAcceptance(t.Context(), metadata, accepted)
+	record, err := provider.RecordPublicationAcceptance(t.Context(), metadata, accepted, "QA accepted.", "Accepted candidate.")
 	if err != nil {
 		t.Fatal(err)
 	}

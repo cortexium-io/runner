@@ -210,6 +210,43 @@ func TestResolvePlanIdeaRejectsEmptyInput(t *testing.T) {
 	}
 }
 
+func TestResolveWorkItemBodyRequiresOneNonEmptySource(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "work.md")
+	if err := os.WriteFile(path, []byte("  Detailed work request.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := resolveWorkItemBody("  Inline request. ", ""); err != nil || got != "Inline request." {
+		t.Fatalf("inline body = %q, error=%v", got, err)
+	}
+	if got, err := resolveWorkItemBody("", path); err != nil || got != "Detailed work request." {
+		t.Fatalf("file body = %q, error=%v", got, err)
+	}
+	if _, err := resolveWorkItemBody("inline", path); err == nil || !strings.Contains(err.Error(), "either --body or --body-file") {
+		t.Fatalf("two body sources error = %v", err)
+	}
+	if _, err := resolveWorkItemBody("", ""); err == nil || !strings.Contains(err.Error(), "is required") {
+		t.Fatalf("missing body error = %v", err)
+	}
+}
+
+func TestHumanWorkDestinationUsesConfiguredPlanAndReadyLanes(t *testing.T) {
+	resolved, err := completeCLITestConfig(t.TempDir()).Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, planAction, err := humanWorkDestination(resolved, "plan")
+	if err != nil || plan != "Plan" || !strings.Contains(planAction, "planner") {
+		t.Fatalf("plan destination = %q, action=%q, error=%v", plan, planAction, err)
+	}
+	ready, readyAction, err := humanWorkDestination(resolved, "ready")
+	if err != nil || ready != "Ready" || !strings.Contains(readyAction, "dependencies") {
+		t.Fatalf("ready destination = %q, action=%q, error=%v", ready, readyAction, err)
+	}
+	if _, _, err := humanWorkDestination(resolved, "other"); err == nil {
+		t.Fatal("unknown destination was accepted")
+	}
+}
+
 func TestApplyPlanPlanningSupportOverridesBothDownstreamRoles(t *testing.T) {
 	cfg := completeCLITestConfig(t.TempDir())
 	if err := applyPlanPlanningSupport(&cfg, config.PlanningSupportHigh); err != nil {

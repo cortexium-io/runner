@@ -1,6 +1,6 @@
 # Cortexium Runner
 
-`cortexium-runner` moves maintainer-approved GitHub Project work through
+`cortexium-runner` moves trusted or maintainer-approved GitHub Project work through
 planning, implementation, agent review, and a pull request that waits for a
 human decision by default.
 
@@ -22,6 +22,9 @@ server, or required GitHub Actions workflow.
 > retain OS permissions outside a native shell sandbox. Combining
 > `"access": "host"` with `"harness_config": "inherit"` is unrestricted agent
 > execution under the Runner operating-system account.
+> Configured repository references expose their entire root, including ignored
+> files, to planner and reviewer roles. Use dedicated reference checkouts that
+> contain no credentials or unrelated private material.
 
 Sandboxed Codex roles receive only minimum runtime reads plus their assigned
 repository/worktree. Sandboxed Claude roles deny reads from the operator's home
@@ -39,7 +42,8 @@ curl -fsSL https://raw.githubusercontent.com/cortexium-io/runner/main/scripts/in
 
 The installer detects Intel or ARM, downloads the matching release archive,
 verifies it against the published `SHA256SUMS`, checks the binary version, and
-never uses `sudo`.
+never uses `sudo`. Release origins and every redirect must use HTTPS, including
+when `CORTEXIUM_RUNNER_RELEASES_URL` selects an operator-controlled mirror.
 
 If `~/.local/bin` is not already on your `PATH`:
 
@@ -231,7 +235,9 @@ cortexium-runner init
 
 The resulting board shows `Runner Activity` and `QA Failures` directly on its
 cards. Activity is `Planning`, `Implementing`, or `Reviewing` while an agent
-owns the card. Existing unrelated visible fields are preserved; the internal
+owns the card. A recognized transient Codex outage shows `Waiting for harness
+provider` while Runner performs three delayed retries without consuming a QA
+rejection. Existing unrelated visible fields are preserved; the internal
 `Runner Phase` recovery and `Runner Transition` lock fields are hidden. If that
 display is changed later, `doctor` reports it and rerunning `init` restores the
 overview.
@@ -246,12 +252,14 @@ RUNNER_CONFIG="$PWD/.cortexium/runner.json"
 For the project-local default, Runner ensures the config is ignored, adding its
 exact path to the root `.gitignore` when needed. It does not stage or commit
 that change. From anywhere inside that Git repository, later commands such as
-`doctor`, `run`, `status`, and `plan` find this default automatically. Use
+`doctor`, `add`, `run`, `status`, and `plan` find this default automatically. Use
 `--config PATH` only for a different location.
 
 Verify local configuration first, then connected GitHub and harness readiness:
 
 ```bash
+cortexium-runner workflow validate --config "$RUNNER_CONFIG"
+cortexium-runner workflow explain --config "$RUNNER_CONFIG"
 cortexium-runner doctor --offline --config "$RUNNER_CONFIG"
 cortexium-runner doctor --config "$RUNNER_CONFIG"
 ```
@@ -273,38 +281,80 @@ integrity-check window, returns the card to the role's previous lane, and
 retains its isolated worktree for the next run. Installing Runner starts no
 background service.
 
+Add a goal for the planner, or one already-specified implementation card, even
+while Runner is active:
+
+```bash
+cortexium-runner add plan --title "Plan CSV export" --body-file export-goal.md
+cortexium-runner add ready --title "Fix the CSV header" --body-file fix-card.md
+```
+
+Use `--dry-run` to preview the destination without changing GitHub. `add plan`
+asks the normal event loop to run the planner and stage a dependency-aware
+proposal for review. `add ready` authorizes the exact card for implementation
+once its declared dependencies have succeeded and required resources are free.
+
 ## How work moves
 
 ```mermaid
 flowchart LR
-    A["Needs assessment"] --> B["Backlog"]
+    I["Labeled issue"] --> A["Needs assessment"]
+    A -->|"human approval"| B["Backlog"]
+    A -->|"trusted intake policy"| C
     B --> C["Plan or Ready"]
     C --> D["In Progress"]
     D --> E["Agent QA"]
     E -->|"accepted"| F["PR Ready"]
     E -->|"changes needed"| C
-    F -->|"human merge or close"| G["Done"]
+    F -->|"merged"| G["Done"]
+    F -->|"closed without merge"| H
     D -->|"needs input or error"| H["Blocked"]
     H -->|"human retry"| C
 ```
 
-Humans decide which work enters an executable lane. Runner prepares an isolated
-task worktree, launches the configured role, validates the result, and
-publishes accepted work as a pull request.
+By default, humans decide which assessed work enters an executable lane. With
+autonomous issue intake enabled, Runner may make that authorization decision
+for a labeled issue when the configured intake repository is private or the
+issue author is explicitly allowlisted. It always sends the issue through the
+same planner: unclear work produces questions on the issue and moves to
+`Blocked`; clear work produces one or more exact implementation cards. Trusted
+planner output is released automatically. Other issue intake remains in
+`Needs assessment` for a human.
 
-Putting an ordinary unsigned card in `Ready` authorizes its exact current
-snapshot for the implementer; Runner converts a Project draft to an issue in the
-configured intake repository, then signs it before claiming it. Planner output
-stays as reversible Project drafts while it awaits batch approval, and approval
+Enable the private-repository policy during initialization with
+`--autonomous-issues`. For a public repository, repeat
+`--trusted-issue-author LOGIN` for each allowed author. Repository visibility,
+not GitHub Project visibility, defines the private trust boundary.
+
+Putting an ordinary unsigned card in `Plan` asks the planner to shape its exact
+current snapshot. Putting one in `Ready` authorizes that snapshot for the
+implementer. Runner converts either Project draft to an issue in the configured
+intake repository, then signs it before claiming it. Planner output
+stays as reversible Project drafts until exact-batch approval; that approval is
+human by default and automatic only for a still-trusted issue source. Approval
 converts every released child to an issue before it can become executable.
 Forged or content-modified approvals and unreleased planner batches still fail
 closed.
-Human issue comments captured before the assignment are included as bounded
-historical context. When Agent QA requests changes, Runner posts a readable,
+An ordinary card can declare prerequisites with an exact `## Dependencies`
+bullet list of Project item IDs or GitHub issue URLs. Runner starts it only when
+every referenced card has a Runner-authenticated successful outcome; moving a
+prerequisite to `Done` by hand is not sufficient.
+Issue comments authored by the GitHub account currently authenticated in `gh`
+and captured before the assignment are included as bounded historical context;
+other authors cannot change an approved task through comments. When Agent QA
+requests changes, Runner posts a readable,
 idempotent comment to the issue and also retains authenticated local retry
 feedback. The next implementer therefore receives QA's requested changes even
 without a human comment, while a human can add or clarify instructions in the
 same issue conversation before moving the card back to `Ready`.
+
+When Runner observes an authenticated merged-PR outcome, it closes that
+implementation issue as completed. If a planner created several cards from one
+source issue, the source stays open until every exact child in the released
+batch has merged successfully. Runner does not rely on a child PR's closing
+keyword, so whichever PR happens to merge first cannot close the original
+request early. A manual move to `Done`, a blocked child, or a PR closed without
+merge does not satisfy the aggregate.
 
 ## Harnesses and roles
 
@@ -347,8 +397,9 @@ An optional implementer ladder can start with a smaller model and move to the
 next operator-configured role only after Agent QA requests changes. The
 Project's persisted QA failure count selects the rung, so restarting Runner
 does not reset or skip escalation. Omit `implementer_ladder` for one fixed
-implementer, or configure two or more role profiles up to the workflow's QA
-attempt limit. The last profile handles any remaining allowed QA retries.
+implementer, or configure two or more role profiles up to the workflow's
+`max_qa_rejections`. The last profile handles any remaining allowed QA
+rejections before the card blocks.
 Authentication, permission, capability, configuration, timeout, cancellation,
 and integrity failures still block for an operator; they never spend another
 model call automatically. See the
@@ -356,18 +407,50 @@ model call automatically. See the
 configuration commands and an example.
 
 Planner and probe launches remain tightly constrained. Implementers work inside
-a Runner-created worktree; reviewers start in a neutral directory with the
-repository as their assigned read root. Codex and Claude use their native
+a Runner-created worktree; after implementation ends, Runner creates a private
+detached checkout of the exact candidate commit for review. Reviewers start in
+a neutral directory with that candidate checkout as their assigned read root.
+Codex and Claude use their native
 sandbox in the default `sandboxed` mode. `host` is an explicit per-role escape
 hatch. The independent `harness_config` setting defaults to `isolated`, which
 suppresses unrelated user plugins, ungranted MCP servers, project instructions,
 and skills and keeps the role's fixed tool ceiling. Set it to `inherit` to load
 the native user/project configuration; `host` plus `inherit` is unrestricted.
-Integrity checks reject reviewer mutations and changes outside the implementation
-worktree, but cannot contain external side effects from a host-access process.
+For a new config, pass `init --harness-config inherit`. For an existing config,
+apply the same mode to all three built-in role contracts atomically:
+
+```bash
+cortexium-runner role edit --all --harness-config inherit
+```
+
+Custom roles inherit the changed built-in policy unless they carry an explicit
+override. The command preserves every role's access mode and rejects the whole
+edit before replacing the config if the resulting combination is invalid.
+Integrity checks reject reviewer mutations and changes to the retained
+implementation worktree or active checkout, but cannot contain external side
+effects from a host-access process.
 Pi implementer and reviewer roles require `host`, and every inherited Pi role
 requires `host`, because Pi does not provide an OS sandbox for ambient shell and
 edit tools.
+
+Planner and reviewer roles can also receive pinned evidence from secondary
+local Git checkouts. Add an optional top-level list, then run connected doctor:
+
+```json
+"repository_references": [
+  {
+    "name": "legacy-frontend",
+    "path": "/absolute/path/to/legacy-frontend",
+    "commit": "714128eaeb8e3805431f8fdeaa49a570e2830cea"
+  }
+]
+```
+
+Runner verifies the exact clean checkout and commit again immediately before
+each eligible launch. It never changes the reference, and implementers never
+receive it. Sandboxed Codex and Claude keep it read-only; Pi references require
+explicit host access. See [repository references](docs/operator-reference.md#repository-references)
+for the complete safety and maintenance contract.
 
 Sandboxed Codex and Claude implementers and reviewers receive Runner's safe
 development tools by default. `npm` and `npx` stay inside the role's native
@@ -377,6 +460,10 @@ tools, but not the rest of the operator's home directory; the npm cache is the
 implementer's narrow home-directory exception. Browser checks use a pinned
 three-tool Chrome DevTools server with a temporary profile, mock keychain,
 disabled external name resolution, telemetry/CrUX, and redacted headers.
+Runner resolves that trusted server from a separate mode-`0700` host-owned cwd
+and reusable package cache that the harness sandbox cannot write; project
+`.npmrc` and ambient npm state cannot replace it. Per-invocation npm
+configuration remains temporary.
 Navigation is restricted to `localhost` and `127.0.0.1`. Runner never uses the
 operator's normal browser profile or downloads a browser; a compatible local
 Chrome or Chromium 149+ installation is required only for browser checks.
@@ -409,12 +496,22 @@ call containing only those unresolved keys. The reviewer reuses existing focused
 checks and never creates a second test framework, broad benchmark, or unrelated
 diagnostic path.
 
+After a Project planning card produces an executable result, Runner saves the
+exact normalized plan in a private checkpoint before creating children. If
+GitHub staging fails partway through, an exact retry skips the planner, reuses
+matching staged children, and creates only the missing ones. Planning-content
+or context changes invalidate the checkpoint; Runner never silently deletes a
+partial batch.
+
 After a successful implementer result, Runner also saves a private checkpoint
 bound to the approved content, review and human-comment context, exact worktree
 snapshot, branch, and candidate commit/tree. If later Runner or GitHub
 post-processing fails, an exact retry resumes that completed result without
 calling the implementation harness again. Any task, context, base, or workspace
 change invalidates the checkpoint and requires normal implementation.
+Recoverable candidate-content failures publish a sanitized correction and clear
+the saved result so a plain retry reruns implementation; `retry --feedback`
+also clears it intentionally.
 
 When a multi-card result needs integration or release evidence that no delivery
 card can establish, the planner adds a final project-readiness card. Ordinary
@@ -433,18 +530,38 @@ cortexium-runner doctor --config "$RUNNER_CONFIG"
 Custom MCP servers remain explicit per-role grants. They are separate trusted
 local processes, so Runner never inherits them as safe defaults.
 
-`doctor --probe-harnesses` does not run browser QA. If a required capability is
-still unavailable, Runner blocks the card with a retry destination instead of
+For a complete local adapter smoke test, run `harness check`. It makes paid live
+model calls through every configured execution-role profile and exercises the
+planner's read-only repository path, the implementer's isolated worktree write
+and integrity verification, and the reviewer's shared review contract. Runner
+uses a private temporary Git repository and performs no GitHub operations. Add
+`--browser` to exercise browser access for implementer and reviewer profiles
+whose safe tools are enabled. Host-access and inherited profiles retain their
+configured authority, which the report labels explicitly.
+
+`doctor --probe-harnesses` and ordinary `harness check` do not run browser QA.
+If a required capability is still unavailable, Runner blocks the card with a
+retry destination instead of
 treating an unrun check as passed. A capability-blocked review does not consume
 a QA rejection. When QA does request changes, Runner stores the
 actionable detail privately beside its state and supplies it to the next
 implementation, while the GitHub Project receives only a bounded summary.
+Runner also supplies that retained feedback to the subsequent reviewer so it
+can verify the correction before independently reviewing the cumulative diff.
+A failed proof obligation records the review result but does not stop that
+bounded audit: the reviewer continues through its remaining card-owned behavior
+and groups directly adjacent variants of an exposed invariant so one QA attempt
+returns all reasonably visible blockers together.
 
 ## Useful commands
 
 ```bash
 # Current Project and runner state
 cortexium-runner status --config "$RUNNER_CONFIG"
+
+# Validate and explain configured event/action composition
+cortexium-runner workflow validate --config "$RUNNER_CONFIG"
+cortexium-runner workflow explain --config "$RUNNER_CONFIG"
 
 # Sanitized current stage for each active agent attempt
 cortexium-runner status --verbose --config "$RUNNER_CONFIG"
@@ -456,12 +573,22 @@ cortexium-runner metrics --config "$RUNNER_CONFIG"
 cortexium-runner retry --dry-run --config "$RUNNER_CONFIG"
 cortexium-runner retry --config "$RUNNER_CONFIG"
 
+# Replace stale feedback and force a fresh implementation attempt
+cortexium-runner retry --config "$RUNNER_CONFIG" --item ITEM_ID \
+  --feedback "Correct the reported candidate validation failure."
+
 # Optional minimal live calls to configured harnesses
 cortexium-runner doctor --probe-harnesses --config "$RUNNER_CONFIG"
+
+# Paid planner, implementer, and reviewer conformance in a temporary repository
+cortexium-runner harness check --config "$RUNNER_CONFIG"
+
+# Also prove configured implementer and reviewer browser access
+cortexium-runner harness check --browser --config "$RUNNER_CONFIG"
 ```
 
-Every command supports `--help`. `doctor --probe-harnesses` makes live model
-calls; ordinary `doctor` does not.
+Every command supports `--help`. `doctor --probe-harnesses` and `harness check`
+make live model calls; ordinary `doctor` does not.
 
 `status --verbose` uses only Runner's fixed stage telemetry. It does not retain
 or print prompts, model responses, tool commands, subprocess arguments, or

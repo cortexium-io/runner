@@ -170,7 +170,7 @@ func (s *Project) ApplyApproval(ctx context.Context, plan ApprovalPlan) (WorkIte
 		return WorkItem{}, fmt.Errorf("record authenticated approval; the item remains safely transition-locked and approve can be retried: %w", err)
 	}
 	if err := s.finishTransition(ctx, current.ID); err != nil {
-		return WorkItem{}, fmt.Errorf("approval committed but its transition lock could not be cleared; the next cycle will recover it: %w", err)
+		return WorkItem{}, fmt.Errorf("approval committed but its transition lock could not be cleared; a later poll will recover it: %w", err)
 	}
 	current.Approval = refreshed.assertion
 	current.Status = s.backlogStatus()
@@ -366,7 +366,7 @@ func (s *Project) applyBatchApproval(ctx context.Context, plan ApprovalPlan) (Wo
 			return WorkItem{}, errors.Join(fmt.Errorf("release planning child %d of %d: %w", index+1, len(batch.Children), err), cleanupErr)
 		}
 	}
-	detail := fmt.Sprintf("Operator approved and released the complete normalized planning batch of %d work items.", len(batch.Children))
+	detail := fmt.Sprintf("Approved and released the complete normalized planning batch of %d work items.", len(batch.Children))
 	if err := s.completeStagedPlanningSource(ctx, batch.Source, detail, releaseAssertion); err != nil {
 		cleanupErr := s.parkBatchInAssessment(ctx, batch.Children)
 		return WorkItem{}, errors.Join(fmt.Errorf("complete planning batch release: %w", err), cleanupErr)

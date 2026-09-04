@@ -90,12 +90,48 @@ func TestPlannedItemMetadataDoesNotAcceptUnencodedMetadata(t *testing.T) {
 	}
 }
 
+func TestOrdinaryWorkItemDependenciesUseExactIDsOrIssueURLs(t *testing.T) {
+	body := "Implement the dependent slice.\n\n## Dependencies\n\n- PVTI_foundation\n- https://github.com/owner/repo/issues/42\n\n## Acceptance criteria\n\n- The slice works."
+	encoded, _ := json.Marshal(map[string]any{
+		"id": "PVTI_dependent", "status": map[string]any{"name": "Ready"},
+		"content": map[string]any{"title": "Dependent", "body": body, "url": "https://github.com/owner/repo/issues/43", "state": "OPEN", "repository": map[string]any{"nameWithOwner": "owner/repo"}},
+	})
+	var node projectItemNode
+	if err := json.Unmarshal(encoded, &node); err != nil {
+		t.Fatal(err)
+	}
+	item := decodeProjectItemNode(node)
+	want := []string{"PVTI_foundation", "https://github.com/owner/repo/issues/42"}
+	if item.PlanningMetadataInvalid || item.IssueState != "OPEN" || !reflect.DeepEqual(item.Dependencies, want) {
+		t.Fatalf("ordinary dependencies = %#v invalid=%t, want %#v", item.Dependencies, item.PlanningMetadataInvalid, want)
+	}
+}
+
+func TestOrdinaryWorkItemRejectsAmbiguousDependencyLabels(t *testing.T) {
+	for _, entry := range []string{
+		"foundation card",
+		"https://github.com/owner/repo/issues/not-a-number",
+		"https://github.com/owner/repo/issues/42/",
+		"https://github.com:443/owner/repo/issues/42",
+		"PVTI_foundation — title",
+	} {
+		body := "Implement.\n\n## Dependencies\n\n- " + entry
+		encoded, _ := json.Marshal(map[string]any{"id": "PVTI_dependent", "content": map[string]any{"title": "Dependent", "body": body}})
+		var node projectItemNode
+		if err := json.Unmarshal(encoded, &node); err != nil {
+			t.Fatal(err)
+		}
+		if item := decodeProjectItemNode(node); !item.PlanningMetadataInvalid || len(item.Dependencies) != 0 {
+			t.Fatalf("ambiguous dependency %q was accepted: %#v", entry, item)
+		}
+	}
+}
+
 func TestPlanningDependencyGraphRejectsInvalidIDs(t *testing.T) {
 	base := func(id string, dependencies ...string) WorkItem {
 		return WorkItem{ID: id, PlanningBatchFingerprint: "v1:batch", PlanningSourceID: "PVTI_source", Dependencies: dependencies}
 	}
 	tests := map[string][]WorkItem{
-		"unknown":   {base("PVTI_a", "PVTI_missing"), base("PVTI_b")},
 		"duplicate": {base("PVTI_a", "PVTI_b", "PVTI_b"), base("PVTI_b")},
 		"self":      {base("PVTI_a", "PVTI_a")},
 		"cycle":     {base("PVTI_a", "PVTI_b"), base("PVTI_b", "PVTI_a")},
@@ -110,6 +146,16 @@ func TestPlanningDependencyGraphRejectsInvalidIDs(t *testing.T) {
 				t.Fatalf("invalid dependency graph was accepted: %#v", children)
 			}
 		})
+	}
+}
+
+func TestPlanningDependencyGraphAllowsExternalItemIDs(t *testing.T) {
+	children := []WorkItem{
+		{ID: "PVTI_a", PlanningBatchFingerprint: "v1:batch", PlanningSourceID: "PVTI_source", Dependencies: []string{"PVTI_external"}},
+		{ID: "PVTI_b", PlanningBatchFingerprint: "v1:batch", PlanningSourceID: "PVTI_source", Dependencies: []string{"PVTI_a"}},
+	}
+	if err := ValidatePlanningDependencies(children); err != nil {
+		t.Fatalf("external dependency ID was rejected: %v", err)
 	}
 }
 

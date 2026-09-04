@@ -65,7 +65,7 @@ func (i *Inspector) inspectGitHubRepository(ctx context.Context) *GitHubReposito
 	}
 	repository := strings.TrimSpace(project.IntakeRepository)
 	baseBranch := strings.TrimSpace(project.BaseBranch)
-	mergeMethod := config.EffectiveMergeMethod(project.MergeMethod)
+	mergeMethod := config.NormalizeMergeMethod(project.MergeMethod)
 	inspection.Repository = repository
 	inspection.BaseBranch = baseBranch
 	inspection.AutoMergeRequested = project.AutoMerge
@@ -158,7 +158,7 @@ func (i *Inspector) runGitHubAPIJSON(ctx context.Context, endpoint string, targe
 }
 
 func repositoryAllowsMergeMethod(metadata repositoryMetadata, method string) bool {
-	switch config.EffectiveMergeMethod(method) {
+	switch config.NormalizeMergeMethod(method) {
 	case config.MergeMethodMerge:
 		return metadata.AllowMergeCommit
 	case config.MergeMethodRebase:
@@ -180,7 +180,7 @@ func ruleRequiresLinearHistory(rules []repositoryRule) bool {
 }
 
 func rulesetAllowsMergeMethod(rules []repositoryRule, method string) (bool, bool) {
-	method = config.EffectiveMergeMethod(method)
+	method = config.NormalizeMergeMethod(method)
 	constrained := false
 	for _, rule := range rules {
 		if !strings.EqualFold(strings.TrimSpace(rule.Type), "pull_request") || len(rule.Parameters.AllowedMergeMethods) == 0 {

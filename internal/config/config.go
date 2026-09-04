@@ -12,18 +12,19 @@ import (
 )
 
 type Config struct {
-	ConfigVersion      int                     `json:"config_version"`
-	RunnerID           string                  `json:"runner_id"`
-	Harnesses          []HarnessConfig         `json:"harnesses"`
-	Roles              map[string]RoleConfig   `json:"roles"`
-	ImplementerLadder  []string                `json:"implementer_ladder,omitempty"`
-	Workflow           *WorkflowConfig         `json:"workflow"`
-	DoctorRequirements []CapabilityRequirement `json:"doctor_requirements,omitempty"`
-	ProjectDir         string                  `json:"project_dir"`
-	MaxParallelism     int                     `json:"max_parallelism"`
-	AdmissionBudget    *AdmissionBudgetConfig  `json:"admission_budget,omitempty"`
-	ResourceLimits     *ResourceLimitsConfig   `json:"resource_limits,omitempty"`
-	GitHubProject      *GitHubProjectConfig    `json:"github_project"`
+	ConfigVersion        int                     `json:"config_version"`
+	RunnerID             string                  `json:"runner_id"`
+	Harnesses            []HarnessConfig         `json:"harnesses"`
+	Roles                map[string]RoleConfig   `json:"roles"`
+	ImplementerLadder    []string                `json:"implementer_ladder,omitempty"`
+	Workflow             *WorkflowConfig         `json:"workflow"`
+	DoctorRequirements   []CapabilityRequirement `json:"doctor_requirements,omitempty"`
+	ProjectDir           string                  `json:"project_dir"`
+	RepositoryReferences []RepositoryReference   `json:"repository_references,omitempty"`
+	MaxParallelism       int                     `json:"max_parallelism"`
+	AdmissionBudget      *AdmissionBudgetConfig  `json:"admission_budget,omitempty"`
+	ResourceLimits       *ResourceLimitsConfig   `json:"resource_limits,omitempty"`
+	GitHubProject        *GitHubProjectConfig    `json:"github_project"`
 }
 
 type RoleConfig struct {

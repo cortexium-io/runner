@@ -39,6 +39,7 @@ func TestStoreFoldsDurableAttemptEventsAndIgnoresMalformedRecords(t *testing.T) 
 	finish.DurationMilliseconds = (2 * time.Minute).Milliseconds()
 	finish.HarnessDurationMilliseconds = (90 * time.Second).Milliseconds()
 	finish.Outcome = "succeeded"
+	finish.PublicationAttempts = 2
 	finish.ResumedCheckpoint = true
 	finish.Summary = "Done"
 	finish.Usage = Usage{Available: true, InputTokens: 100, CacheReadInputTokens: 40, OutputTokens: 20, ReportedCostUSD: &cost}
@@ -58,7 +59,7 @@ func TestStoreFoldsDurableAttemptEventsAndIgnoresMalformedRecords(t *testing.T) 
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if history.MalformedRecords != 1 || len(history.Attempts) != 1 || !history.Attempts[0].Completed {
+	if history.MalformedRecords != 1 || len(history.Attempts) != 1 || !history.Attempts[0].Completed || history.Attempts[0].PublicationAttempts != 2 {
 		t.Fatalf("unexpected history: %#v", history)
 	}
 	if len(history.Attempts[0].Stages) != 1 || !history.Attempts[0].Stages[0].Completed || history.Attempts[0].Stages[0].Name != StageHarnessRun || history.Attempts[0].Stages[0].Usage.InputTokens != 12 {
@@ -88,12 +89,24 @@ func TestStoreRejectsStageWithoutStableIdentity(t *testing.T) {
 	}
 }
 
+func TestSummaryCountsEveryModelCallStageAsHarnessInvocation(t *testing.T) {
+	stages := []string{StageHarnessRun, StagePlannerOutline, StagePlannerDetails, StageReviewerAudit, StageReviewerVerify}
+	attempt := Attempt{Stages: make([]Stage, 0, len(stages))}
+	for _, name := range stages {
+		attempt.Stages = append(attempt.Stages, Stage{Name: name, Completed: true})
+	}
+	if got := Summarize([]Attempt{attempt}).HarnessInvocations; got != len(stages) {
+		t.Fatalf("harness invocations = %d, want %d", got, len(stages))
+	}
+}
+
 func TestStoreRejectsFreeFormStageAndRecoveryFields(t *testing.T) {
 	store := NewStore(t.TempDir() + "/metrics.jsonl")
 	for _, event := range []Event{
 		{Kind: EventStageStarted, AttemptID: "attempt", StageID: "stage", Stage: "prompt=secret"},
 		{Kind: EventStageCompleted, AttemptID: "attempt", StageID: "stage", Stage: StageHarnessRun, Outcome: "raw error"},
 		{Kind: EventCompleted, AttemptID: "attempt", FailureClass: "token=secret"},
+		{Kind: EventCompleted, AttemptID: "attempt", FailureOperation: "token=secret"},
 	} {
 		if err := store.Append(event); err == nil {
 			t.Fatalf("unsafe event was accepted: %#v", event)
@@ -105,6 +118,7 @@ func TestStoreRejectsInvalidNumericMetrics(t *testing.T) {
 	store := NewStore(t.TempDir() + "/metrics.jsonl")
 	for _, event := range []Event{
 		{Kind: EventCompleted, AttemptID: "negative_duration", DurationMilliseconds: -1},
+		{Kind: EventCompleted, AttemptID: "too_many_publication_attempts", PublicationAttempts: 4},
 		{Kind: EventCompleted, AttemptID: "negative_tokens", Usage: Usage{Available: true, InputTokens: -1}},
 		{Kind: EventCompleted, AttemptID: "negative_cost", Usage: Usage{ReportedCostUSD: floatPtr(-0.01)}},
 	} {

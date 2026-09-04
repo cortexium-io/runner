@@ -33,6 +33,9 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	createProject := flags.String("create-project", "", "create and configure a GitHub Project with this title")
 	repository := flags.String("repository", "", "public issue intake repository in owner/repository form; when omitted, derive it from the current Git remote")
 	intakeLabel := flags.String("intake-label", "needs-assessment", "label that routes public issues into assessment")
+	autonomousIssues := flags.Bool("autonomous-issues", false, "automatically plan labeled issues from a private intake repository or trusted public authors")
+	var trustedIssueAuthors stringListFlag
+	flags.Var(&trustedIssueAuthors, "trusted-issue-author", "public issue author allowed to enter autonomous planning; may be repeated")
 	projectVisibility := flags.String("project-visibility", "", "new Project visibility: public or private")
 	projectDir := flags.String("project-dir", ".", "local Git checkout used by draft and unmapped items")
 	maxParallelism := flags.Int("max-parallelism", 1, "maximum independent cards Runner may execute concurrently (1-16)")
@@ -41,8 +44,8 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	maxAdmissionHarnessTime := flags.Duration("max-admission-harness-time", 0, "maximum completed harness time in the admission window")
 	maxAdmissionTokens := flags.Int64("max-admission-tokens", 0, "maximum harness-reported tokens in the admission window")
 	maxAdmissionCostUSD := flags.Float64("max-admission-cost-usd", 0, "maximum harness-reported cost in USD in the admission window")
-	qaRejectLimit := 3
-	flags.IntVar(&qaRejectLimit, "qa-reject-limit", 3, "consecutive agent QA rejections allowed before human attention is required")
+	maxQARejections := 3
+	flags.IntVar(&maxQARejections, "max-qa-rejections", 3, "Agent QA rejections allowed before the card is blocked")
 	baseBranch := flags.String("base-branch", "main", "pull request target branch")
 	remoteName := flags.String("remote", "origin", "Git remote used for publication")
 	autoMerge := flags.Bool("auto-merge", false, "ask GitHub to merge pull requests automatically after its requirements pass")
@@ -131,8 +134,8 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	if _, statErr := os.Stat(*configPath); statErr == nil {
 		forbidden := map[string]bool{
 			"owner": true, "project-number": true, "create-project": true, "repository": true,
-			"intake-label": true, "project-visibility": true, "project-dir": true,
-			"max-parallelism": true, "qa-reject-limit": true, "base-branch": true, "auto-merge": true, "merge-method": true,
+			"intake-label": true, "autonomous-issues": true, "trusted-issue-author": true, "project-visibility": true, "project-dir": true,
+			"max-parallelism": true, "max-qa-rejections": true, "base-branch": true, "auto-merge": true, "merge-method": true,
 			"admission-window": true, "max-admission-attempts": true, "max-admission-harness-time": true,
 			"max-admission-tokens": true, "max-admission-cost-usd": true,
 			"remote": true, "harness": true, "planner-harness": true, "implementer-harness": true,
@@ -250,9 +253,9 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		}
 	}
 	workflow := config.WorkflowTemplate(reviewAfterBaseUpdate)
-	qaLane := workflow.Lanes["agent_qa"]
-	qaLane.RejectLimit = qaRejectLimit
-	workflow.Lanes["agent_qa"] = qaLane
+	if err := workflow.SetMaxQARejections("agent_qa", maxQARejections); err != nil {
+		return err
+	}
 	roles := config.RoleTemplate(*plannerHarness)
 	roles[config.WorkRolePlanner] = initRole(roles[config.WorkRolePlanner], *plannerHarness, *plannerModel, *plannerReasoning)
 	roles[config.WorkRoleImplementer] = initRole(roles[config.WorkRoleImplementer], *implementerHarness, *implementerModel, *implementerReasoning)
@@ -275,6 +278,10 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	if err != nil {
 		return err
 	}
+	var autonomousIssueIntake *config.AutonomousIssueIntakeConfig
+	if *autonomousIssues || len(trustedIssueAuthors) > 0 {
+		autonomousIssueIntake = &config.AutonomousIssueIntakeConfig{TrustedAuthors: append([]string(nil), trustedIssueAuthors...)}
+	}
 	harnessKinds := uniqueStrings([]string{*plannerHarness, *implementerHarness, *reviewerHarness})
 	harnesses := make([]config.HarnessConfig, 0, len(harnessKinds))
 	for _, kind := range harnessKinds {
@@ -294,7 +301,8 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		ResourceLimits:  config.DefaultResourceLimitsConfig(),
 		GitHubProject: &config.GitHubProjectConfig{
 			Owner: strings.TrimSpace(*owner), Number: preflightProjectNumber, IntakeRepository: strings.TrimSpace(*repository), IntakeLabel: strings.TrimSpace(*intakeLabel),
-			ResultField: "Runner Result", ApprovalField: "Runner Approval",
+			AutonomousIssueIntake: autonomousIssueIntake,
+			ResultField:           "Runner Result", ApprovalField: "Runner Approval",
 			PhaseField: "Runner Phase", TransitionField: config.RunnerTransitionFieldName, QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request", QACommitField: "QA Commit",
 			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge, MergeMethod: strings.TrimSpace(*mergeMethod),
 		},
@@ -407,7 +415,8 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		ResourceLimits:  config.DefaultResourceLimitsConfig(),
 		GitHubProject: &config.GitHubProjectConfig{
 			Owner: resolvedOwner, Number: resolvedProjectNumber, IntakeRepository: resolvedRepository, IntakeLabel: strings.TrimSpace(*intakeLabel),
-			ResultField: "Runner Result", ApprovalField: "Runner Approval",
+			AutonomousIssueIntake: autonomousIssueIntake,
+			ResultField:           "Runner Result", ApprovalField: "Runner Approval",
 			PhaseField: "Runner Phase", TransitionField: config.RunnerTransitionFieldName, QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request", QACommitField: "QA Commit",
 			BaseBranch: strings.TrimSpace(*baseBranch), RemoteName: strings.TrimSpace(*remoteName), AutoMerge: *autoMerge, MergeMethod: strings.TrimSpace(*mergeMethod),
 		},
@@ -1410,7 +1419,7 @@ func runInitGit(ctx context.Context, directory string, args ...string) (string, 
 	return strings.TrimSpace(result.Stdout), nil
 }
 
-func workflowStatusNames(workflow config.WorkflowConfig) []string {
+func workflowStatusNames(workflow config.ResolvedWorkflow) []string {
 	preferred := []string{"needs_assessment", "backlog", "plan", "ready", "in_progress", "agent_qa", "pr_ready", "blocked", "done"}
 	seen := map[string]bool{}
 	result := make([]string, 0, len(workflow.Lanes))

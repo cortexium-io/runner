@@ -40,8 +40,8 @@ Transition` lock fields remain hidden.
 | `In Progress` | Runner claim state. |
 | `Agent QA` | Reviewer role. |
 | `PR Ready` | Human pull-request gate, or GitHub requirements when automatic merge is explicitly enabled. |
-| `Blocked` | Human input required after an error, request for information, or exhausted QA rejections. |
-| `Done` | Planning finished or the PR was merged/closed. |
+| `Blocked` | Human input required after an error, closed-without-merge PR, request for information, or exhausted QA rejections. |
+| `Done` | Planning finished or the PR was merged successfully. |
 
 Preview adopting and synchronizing an existing board:
 
@@ -127,9 +127,11 @@ Sandboxed Codex uses scoped permission profiles with minimum runtime reads and
 only the assigned repository/worktree. Sandboxed Claude denies operator-home
 reads except for the assigned root and the implementer's npm cache.
 Implementations run in the task worktree; reviewers use a private neutral
-directory with the repository added read-only. Codex and Claude implementer and
+directory with a new detached checkout of the exact candidate added read-only.
+Codex and Claude implementer and
 reviewer roles inherit the bounded npm/loopback and isolated local-browser
-profile unless `safe_tools` is explicitly disabled. Pi implementer and reviewer
+profile unless `safe_tools` is explicitly disabled. The browser package uses
+separate host-owned npm state that the role sandbox cannot write. Pi implementer and reviewer
 roles receive the same pinned loopback-only browser through a temporary
 Runner-generated extension, while their shell/edit boundary remains explicit
 host access.
@@ -143,15 +145,17 @@ every role and labels that combination as unrestricted.
 ```bash
 ./cortexium-runner doctor --config /absolute/operator/path/runner.json --offline
 ./cortexium-runner doctor --config /absolute/operator/path/runner.json
-./cortexium-runner doctor --config /absolute/operator/path/runner.json --probe-harnesses
+./cortexium-runner harness check --config /absolute/operator/path/runner.json
 ./cortexium-runner run --config /absolute/operator/path/runner.json
 ```
 
-The explicit probe makes one minimal live call per distinct configured harness
-profile. It proves authentication, model selection, invocation flags, and the
-structured-result path, but not file-edit permissions. Before a release or
-shared rollout, also complete one throwaway card through implementation, agent QA, and
-PR publication with the same harness configuration participants will use.
+`harness check` exercises every configured planner,
+implementer, and reviewer profile against a private temporary Git repository.
+Add `--browser` when browser-backed verification is required. These checks do
+not exercise GitHub card movement or PR publication, so complete one throwaway
+end-to-end card when qualifying those integration paths on a new machine.
+Use `doctor --probe-harnesses` instead when only a minimal authentication,
+model-selection, invocation-flag, and structured-output probe is needed.
 `run` auto-detects the default project-local config and accepts `--config` for
 other locations. It polls until interrupted; use `run --once` only for a single
 diagnostic or scripted cycle.
@@ -251,16 +255,24 @@ Preview the exact authenticated action, then approve it:
 
 Approval removes `needs-assessment`, records `Runner Approval`, and moves
 the item to `Backlog`. A maintainer later moves it to `Plan` when it should run.
-Moving an ordinary unsigned card to `Ready` is the explicit implementer
-authorization: Runner signs that exact snapshot before claiming it. Other agent
-lanes do not grant implicit authority, and unreleased planner children cannot
-bypass complete-batch approval. Editing content covered by an existing nonempty
+Moving an ordinary unsigned card to `Plan` asks the planner to shape that exact
+snapshot; moving one to `Ready` is the explicit implementer authorization.
+Runner signs the snapshot before claiming it. These are the only direct agent
+intake lanes, and unreleased planner children cannot bypass complete-batch
+approval. The same events can be created while Runner is active with
+`add plan --title TITLE --body-file PATH` and
+`add ready --title TITLE --body-file PATH`. Editing content covered by an
+existing nonempty
 approval invalidates it rather than causing Runner to replace it. Approval and
 other multi-field transitions set the hidden `Runner Transition` lock before
 their first write and clear it only after the final status and authority agree.
 Ordinary cards therefore remain in their real lane during the update. After an
 interruption, Runner clears a completed lock in place; an incomplete or invalid
 transition moves the card to genuine assessment without leaving executable work.
+An ordinary card can declare cross-batch prerequisites before authorization with
+an exact `## Dependencies` bullet list of Project item IDs or GitHub issue URLs.
+Only Runner-authenticated successful outcomes satisfy those references; moving a
+prerequisite to `Done` manually does not.
 
 Every planner path first stages one identified child batch. A 1,000-item
 emergency ceiling bounds pathological model output and staging loops but never
@@ -280,7 +292,8 @@ children instead of accepting duplicates. Each child retains the original
 request and project-wide success contract as well as its local criteria.
 Implementation success goes to
 `Agent QA`; QA rejection returns it to `Ready` until
-`reject_limit`, then `Blocked`. QA acceptance publishes a PR and moves the card
+`max_qa_rejections`, then `Blocked`. A value of 3 means the third rejection
+blocks the card. QA acceptance publishes a PR and moves the card
 to `PR Ready`, then removes the local task worktree while retaining
 the task branch. A plan with unresolved `open_decisions` creates no cards and
 moves the planning item through `needs_input` to `Blocked`.
@@ -294,20 +307,22 @@ editing workflow fields by hand:
 ./cortexium-runner retry --config /absolute/operator/path/runner.json --item "Exact card title"
 ```
 
-A maintainer can merge or close the PR to finish it. To request revisions,
+A maintainer can merge the PR to finish it. Closing without merge moves the card
+to `Blocked` and does not release dependent work. To request revisions,
 comment on the PR and move the card from `PR Ready` to `Ready`; Runner imports
 the feedback, resets QA rejections, and recreates the deterministic task
 workspace from the retained branch. Comments alone do not restart work.
 
-When another merge makes an open PR at the human gate out of date, Runner
-updates it without force-pushing. A conflict returns the card to `Ready`. A
-clean update remains local and returns to `Ready` for implementation and QA.
-Any direct PR-head mutation still invalidates QA. Runner never deploys.
-Automatic merge is available only when `github_project.auto_merge` is
-explicitly true; it asks GitHub to merge after repository requirements pass and
-never bypasses them. Merge requests are lifecycle reconciliation, not agent
-attempts: they consume no `max_parallelism` slot or admission budget and are
-processed before Runner admits new agent work.
+Manual-review PRs stay at the human gate when another merge advances the base;
+Runner does not create update churn on the maintainer's behalf. Automatic merge
+is available only when `github_project.auto_merge` is explicitly true. In that
+mode, reconciliation selects one PR per repository/base, updates only that
+candidate without force-pushing, and sends either a clean update or conflict
+back through implementation and QA. Direct PR-head mutation also invalidates
+QA. After a clean reviewed candidate is current, Runner asks GitHub to merge
+after repository requirements pass and never bypasses them. Integration is
+lifecycle reconciliation, not an agent attempt: it consumes no
+`max_parallelism` slot or admission budget. Runner never deploys.
 
 Do not make the repository public until the default branch contains the MIT
 license, contribution and security policies, issue forms, and passing CI.

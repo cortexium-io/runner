@@ -98,7 +98,8 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 	if err := ensureHarnessAdvertisesProfile(ctx, e.run, strings.TrimSpace(e.cfg.Command), config.HarnessCodexCLI, role, e.config.RoleAccess, e.config.HarnessConfigMode); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
-	launchWorkspace, err := prepareProfileWorkspace(profile, e.cfg.WorkingDir, e.cfg.WorkspaceWriteRoot)
+	protectedRoots := append([]string{e.cfg.WorkspaceWriteRoot}, e.config.ReferenceProtectedRoots...)
+	launchWorkspace, err := prepareExecutionWorkspace(ctx, e.run, profile, e.cfg.WorkingDir, e.config.RepositoryReferences, protectedRoots...)
 	if err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
@@ -110,7 +111,7 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 	}
 	defer artifacts.close()
 
-	mcpArgs, err := codexMCPProfileArgsForConfig(ctx, e.run, strings.TrimSpace(e.cfg.Command), launchWorkspace.Dir, e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode)
+	mcpArgs, err := codexMCPProfileArgsForConfig(ctx, e.run, strings.TrimSpace(e.cfg.Command), launchWorkspace, e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode)
 	if err != nil {
 		output := blockedOutputWithFailure("Configured Codex MCP capability is unavailable.", FailureCapabilityUnavailable, RetryManual)
 		output.RemoteDetailSafe = true
@@ -128,7 +129,7 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 	}
 	summary := summarizeCodexResult(result, lastMessage)
 	if err != nil {
-		if output, known := classifyHarnessFailure(err, HarnessFailureEvidence{}); known {
+		if output, known := classifyHarnessFailure(err, codexFailureEvidenceFromStdout(result.Stdout)); known {
 			finishStageFromOutput(finishHarness, output, err, usage)
 			output.Usage = usage
 			output.HarnessDurationMilliseconds = harnessDuration
@@ -202,7 +203,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 	defer launchWorkspace.cleanup()
-	mcpArgs, err := codexMCPProfileArgsForConfig(ctx, e.run, strings.TrimSpace(e.cfg.Command), launchWorkspace.Dir, e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode)
+	mcpArgs, err := codexMCPProfileArgsForConfig(ctx, e.run, strings.TrimSpace(e.cfg.Command), launchWorkspace, e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode)
 	if err != nil {
 		output := blockedOutputWithFailure("Configured Codex MCP capability is unavailable.", FailureCapabilityUnavailable, RetryManual)
 		output.RemoteDetailSafe = true
@@ -224,7 +225,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	if runErr == nil {
 		finishStageFromOutput(finishHarness, Output{Outcome: OutcomeSucceeded}, nil, usage)
 		structured, structuredErr = assembleExecutionContent(assignment, lastMessage)
-	} else if classified, known := classifyHarnessFailure(runErr, HarnessFailureEvidence{}); known {
+	} else if classified, known := classifyHarnessFailure(runErr, codexFailureEvidenceFromStdout(result.Stdout)); known {
 		finishStageFromOutput(finishHarness, classified, runErr, usage)
 	} else {
 		finishStageFromOutput(finishHarness, blockedOutputWithFailure("Harness execution failed.", FailureUnknown, RetryNone), runErr, usage)
@@ -250,7 +251,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	finishStageFromOutput(finishVerify, Output{Outcome: OutcomeSucceeded}, nil, metrics.Usage{})
 
 	if runErr != nil {
-		if output, known := classifyHarnessFailure(runErr, HarnessFailureEvidence{}); known {
+		if output, known := classifyHarnessFailure(runErr, codexFailureEvidenceFromStdout(result.Stdout)); known {
 			output.Usage = usage
 			output.HarnessDurationMilliseconds = harnessDuration
 			return output, fmt.Errorf("run codex cli workspace-write: %w", runErr)
@@ -413,12 +414,14 @@ func blockedOutputWithFailure(summary string, class FailureClass, retry RetryDis
 
 func (e CodexExecutor) args(profile ExecutionProfile, workspace profileWorkspace, mcpArgs []string, outputPath string, schemaPath string, assignment Assignment) []string {
 	args := codexProfileArgsForConfig(profile, workspace, e.config.SafeTools, e.config.HarnessConfigMode, e.cfg.Command)
-	args = append(args, mcpArgs...)
 	if model := e.modelID(); model != "" {
 		args = append(args, "--model", model)
 	}
 	args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", strings.TrimSpace(e.cfg.ReasoningEffort)))
 	args = append(args, codexExecArgsForConfig(profile, workspace, e.config.HarnessConfigMode)...)
+	// Codex 0.153 must receive invocation MCP overrides after
+	// exec --ignore-user-config or its stdio handshake can stall.
+	args = append(args, mcpArgs...)
 	args = append(args,
 		"--output-last-message", outputPath,
 		"--output-schema", schemaPath,
@@ -428,12 +431,13 @@ func (e CodexExecutor) args(profile ExecutionProfile, workspace profileWorkspace
 
 func (e CodexExecutor) profileWorkspaceWriteArgs(profile ExecutionProfile, workspace profileWorkspace, mcpArgs []string, outputPath string, schemaPath string, assignment Assignment) []string {
 	args := codexProfileArgsForConfig(profile, workspace, e.config.SafeTools, e.config.HarnessConfigMode, e.cfg.Command)
-	args = append(args, mcpArgs...)
 	if model := e.modelID(); model != "" {
 		args = append(args, "--model", model)
 	}
 	args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", strings.TrimSpace(e.cfg.ReasoningEffort)))
 	args = append(args, codexExecArgsForConfig(profile, workspace, e.config.HarnessConfigMode)...)
+	// Keep the MCP override after Codex's user-config isolation flag; see args.
+	args = append(args, mcpArgs...)
 	args = append(args,
 		"--output-last-message", outputPath,
 		"--output-schema", schemaPath,

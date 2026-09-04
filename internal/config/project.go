@@ -8,7 +8,7 @@ import (
 	bundledskills "github.com/cortexium-io/runner/skills"
 )
 
-const ConfigVersion = 2
+const ConfigVersion = 5
 
 const MaxSupportedParallelism = 16
 
@@ -17,6 +17,16 @@ const GitHubProjectCapabilityID = "github_project"
 const RunnerActivityFieldName = "Runner Activity"
 
 const RunnerTransitionFieldName = "Runner Transition"
+
+const (
+	RunnerActivityAwaitingHumanReview    = "Awaiting human review"
+	RunnerActivityWaitingForCI           = "Waiting for CI"
+	RunnerActivityWaitingForIntegration  = "Waiting for integration slot"
+	RunnerActivityWaitingForMerge        = "Waiting for merge"
+	RunnerActivityCIFailed               = "CI failed — rework queued"
+	RunnerActivityWaitingForDependencies = "Waiting for dependencies"
+	RunnerActivityWaitingForHarness      = "Waiting for harness provider"
+)
 
 const (
 	MergeMethodMerge  = "merge"
@@ -38,22 +48,30 @@ func RunnerActivityForRoleContract(contract string) string {
 }
 
 type GitHubProjectConfig struct {
-	Owner            string `json:"owner"`
-	Number           int    `json:"number"`
-	IntakeRepository string `json:"intake_repository,omitempty"`
-	IntakeLabel      string `json:"intake_label,omitempty"`
-	ResultField      string `json:"result_field,omitempty"`
-	ApprovalField    string `json:"approval_field,omitempty"`
-	PhaseField       string `json:"phase_field,omitempty"`
-	TransitionField  string `json:"transition_field,omitempty"`
-	QAFailuresField  string `json:"qa_failures_field,omitempty"`
-	BranchField      string `json:"branch_field,omitempty"`
-	PullRequestField string `json:"pull_request_field,omitempty"`
-	QACommitField    string `json:"qa_commit_field,omitempty"`
-	BaseBranch       string `json:"base_branch,omitempty"`
-	RemoteName       string `json:"remote_name,omitempty"`
-	AutoMerge        bool   `json:"auto_merge"`
-	MergeMethod      string `json:"merge_method,omitempty"`
+	Owner                 string                       `json:"owner"`
+	Number                int                          `json:"number"`
+	IntakeRepository      string                       `json:"intake_repository,omitempty"`
+	IntakeLabel           string                       `json:"intake_label,omitempty"`
+	AutonomousIssueIntake *AutonomousIssueIntakeConfig `json:"autonomous_issue_intake,omitempty"`
+	ResultField           string                       `json:"result_field,omitempty"`
+	ApprovalField         string                       `json:"approval_field,omitempty"`
+	PhaseField            string                       `json:"phase_field,omitempty"`
+	TransitionField       string                       `json:"transition_field,omitempty"`
+	QAFailuresField       string                       `json:"qa_failures_field,omitempty"`
+	BranchField           string                       `json:"branch_field,omitempty"`
+	PullRequestField      string                       `json:"pull_request_field,omitempty"`
+	QACommitField         string                       `json:"qa_commit_field,omitempty"`
+	BaseBranch            string                       `json:"base_branch,omitempty"`
+	RemoteName            string                       `json:"remote_name,omitempty"`
+	AutoMerge             bool                         `json:"auto_merge"`
+	MergeMethod           string                       `json:"merge_method,omitempty"`
+}
+
+// AutonomousIssueIntakeConfig is deliberately presence-enabled. An empty
+// object trusts issues only when the configured intake repository is private;
+// public repositories additionally require an exact author allowlist match.
+type AutonomousIssueIntakeConfig struct {
+	TrustedAuthors []string `json:"trusted_authors,omitempty"`
 }
 
 // ProjectConfig is the runtime Project contract derived from the persisted
@@ -117,6 +135,20 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(project.IntakeLabel) == "" {
 		return errors.New("github_project.intake_label is required")
 	}
+	if project.AutonomousIssueIntake != nil {
+		seenAuthors := map[string]struct{}{}
+		for index, author := range project.AutonomousIssueIntake.TrustedAuthors {
+			author = strings.TrimSpace(author)
+			if author == "" {
+				return fmt.Errorf("github_project.autonomous_issue_intake.trusted_authors[%d] cannot be blank", index)
+			}
+			key := strings.ToLower(author)
+			if _, exists := seenAuthors[key]; exists {
+				return fmt.Errorf("github_project.autonomous_issue_intake.trusted_authors contains duplicate %q", author)
+			}
+			seenAuthors[key] = struct{}{}
+		}
+	}
 	if strings.TrimSpace(c.ProjectDir) == "" {
 		return errors.New("project_dir is required")
 	}
@@ -157,6 +189,9 @@ func (c Config) Validate() error {
 	if err := validateWorkflowConfig(c); err != nil {
 		return err
 	}
+	if err := validateRepositoryReferences(c); err != nil {
+		return err
+	}
 	fields := []string{
 		project.ResultField,
 		project.ApprovalField,
@@ -192,18 +227,12 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// EffectiveMergeMethod preserves the original merge-commit behavior for
-// configs created before merge_method became explicit.
-func EffectiveMergeMethod(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "" {
-		return MergeMethodMerge
-	}
-	return value
+func NormalizeMergeMethod(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func ValidMergeMethod(value string) bool {
-	switch EffectiveMergeMethod(value) {
+	switch NormalizeMergeMethod(value) {
 	case MergeMethodMerge, MergeMethodRebase, MergeMethodSquash:
 		return true
 	default:

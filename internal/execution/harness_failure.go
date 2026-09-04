@@ -1,6 +1,8 @@
 package execution
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +18,13 @@ type HarnessFailureEvidence struct {
 }
 
 func classifyHarnessFailure(runErr error, evidence HarnessFailureEvidence) (Output, bool) {
+	if evidence.FailureClass == FailureTransientExternal {
+		return classifiedBlockedOutput(
+			"The harness provider reported a transient service failure.",
+			"Runner can retry after a short provider recovery delay.",
+			evidence.FailureClass, evidence.RetryDisposition, evidence.RetryAfter,
+		), true
+	}
 	if evidence.FailureClass == FailureAuthenticationRequired {
 		return classifiedBlockedOutput(
 			"The harness reported that authentication is required.",
@@ -57,6 +66,60 @@ func classifyHarnessFailure(runErr error, evidence HarnessFailureEvidence) (Outp
 	}
 
 	return Output{}, false
+}
+
+// codexFailureEvidenceFromStdout accepts only the terminal failure event from
+// Codex CLI's --json stream. Progress errors and model-authored result content
+// are deliberately ignored. Codex currently exposes the provider reason as a
+// message rather than typed HTTP fields, so matching remains limited to fixed
+// statuses and the authenticated Codex service endpoint.
+func codexFailureEvidenceFromStdout(stdout string) HarnessFailureEvidence {
+	scanner := bufio.NewScanner(strings.NewReader(stdout))
+	scanner.Buffer(make([]byte, 64*1024), maxHarnessDiagnosticBytes)
+	var terminalMessage string
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		var event struct {
+			Type  string `json:"type"`
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(line, &event) != nil || event.Type != "turn.failed" || event.Error == nil {
+			continue
+		}
+		terminalMessage = strings.ToLower(strings.TrimSpace(event.Error.Message))
+	}
+	if terminalMessage == "" {
+		return HarnessFailureEvidence{}
+	}
+	if codexFailureHasHTTPStatus(terminalMessage, "401") {
+		return HarnessFailureEvidence{FailureClass: FailureAuthenticationRequired, RetryDisposition: RetryManual}
+	}
+	if codexFailureHasHTTPStatus(terminalMessage, "429") {
+		return HarnessFailureEvidence{FailureClass: FailureCapacityExhausted, RetryDisposition: RetryAutomatic}
+	}
+	for _, status := range []string{"500", "502", "503", "504"} {
+		if codexFailureHasHTTPStatus(terminalMessage, status) {
+			return HarnessFailureEvidence{FailureClass: FailureTransientExternal, RetryDisposition: RetryAutomatic}
+		}
+	}
+	if codexFailureHasHTTPStatus(terminalMessage, "404") && strings.Contains(terminalMessage, "chatgpt.com/backend-api/codex/") {
+		return HarnessFailureEvidence{FailureClass: FailureTransientExternal, RetryDisposition: RetryAutomatic}
+	}
+	for _, marker := range []string{"connection reset", "connection refused", "service unavailable", "temporarily unavailable", "tls handshake timeout", "unexpected eof"} {
+		if strings.Contains(terminalMessage, marker) {
+			return HarnessFailureEvidence{FailureClass: FailureTransientExternal, RetryDisposition: RetryAutomatic}
+		}
+	}
+	return HarnessFailureEvidence{}
+}
+
+func codexFailureHasHTTPStatus(message, status string) bool {
+	return strings.Contains(message, "status "+status) || strings.Contains(message, "http "+status) || strings.Contains(message, "http error: "+status)
 }
 
 // claudeFailureEvidenceFromStdout accepts only a typed error object owned by

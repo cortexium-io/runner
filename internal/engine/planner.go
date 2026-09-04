@@ -346,14 +346,15 @@ func (s *Engine) prepareDirectProjectPlan(plan *ProjectPlan) (string, error) {
 
 func (s *Engine) directProjectPlanDestination() (string, error) {
 	workflow := s.cfg.EffectiveWorkflow()
-	plannerRole := s.cfg.RoleIDForContract(config.WorkRolePlanner)
-	for _, laneID := range s.cfg.AgentLaneIDs() {
-		lane := workflow.Lanes[laneID]
-		if lane.Role == plannerRole {
-			return workflow.Lanes[lane.CreatesIn].Name, nil
-		}
+	plannerLane, exists := workflow.Lanes[workflow.PlanLane]
+	if !exists || s.cfg.RoleContract(plannerLane.Role) != config.WorkRolePlanner {
+		return "", errors.New("workflow plan_lane does not run a planner role")
 	}
-	return "", errors.New("workflow has no planner lane with a creates_in destination")
+	destination, exists := workflow.Lanes[plannerLane.CreatesIn]
+	if !exists {
+		return "", errors.New("workflow plan_lane has no valid creates_in destination")
+	}
+	return destination.Name, nil
 }
 
 func (s *Engine) normalizeProjectPlan(plan *ProjectPlan) error {

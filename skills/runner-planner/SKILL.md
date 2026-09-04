@@ -42,7 +42,8 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    after inspecting the affected code.
 5. Use dependencies only for real prerequisite relationships. Keep work
    independent when separate worktrees can complete it without unfinished
-   output or overlapping ownership.
+   output. Do not add dependencies merely because cards may edit the same files;
+   Runner isolates task branches and handles their integration separately.
 6. Cover the primary user journey and only the empty states, failures,
    persistence, recovery, compatibility, security, or domain invariants that
    materially affect completeness.

@@ -44,7 +44,11 @@ satisfies current requirements and credible risks.
 6. Run focused evidence while implementing. Run a broad or complete suite only
    when the card is the integration/readiness boundary, repository policy
    requires it, or focused evidence cannot establish a concrete cross-cutting
-   risk. Do not repeat expensive passing checks.
+   risk. Treat changes to a shared application shell, router, global
+   configuration, dependency lockfile, or enforced architecture boundary as a
+   concrete cross-cutting risk: when the repository provides a bounded fast
+   suite, run it in addition to focused evidence. Do not repeat expensive
+   passing checks.
 7. Exercise the real interface only when the requested behavior or proof
    obligation requires it. Do not assume a browser or any other interface merely
    because the harness provides one.
@@ -53,10 +57,17 @@ satisfies current requirements and credible risks.
    wall-clock pacing, and control randomness where relevant. Use a short
    real-time smoke only for actual pacing or scheduler integration.
 9. On a retry, address all actionable QA findings together and rerun only the
-   evidence affected by the fix or earlier blocker. Re-check current capabilities
-   before reporting a capability failure. Use a safe purpose-built headless
-   browser when browser evidence is required and available; never launch the
-   operator's normal browser profile. Use a temporary profile and
+   evidence affected by the fix or earlier blocker. Re-establish any previously
+   passing obligation that the correction could affect, and inspect the complete
+   cumulative diff for regressions introduced by the correction. Before editing,
+   translate each finding into the violated invariant and inspect the directly
+   adjacent operations or state transitions that use the same representation or
+   control. Do not patch only the reported example: correct and verify every
+   concrete card-owned variant governed by that invariant, adding focused
+   regression coverage where it is the smallest reliable proof. Re-check current
+   capabilities before reporting a capability failure. Use a safe purpose-built
+   headless browser when browser evidence is required and available; never launch
+   the operator's normal browser profile. Use a temporary profile and
    `--use-mock-keychain` for Chromium on macOS.
 10. Treat an unplanned subsystem, dependency, schema, public contract, duplicate
     concept, or unexpectedly broad diff as scope drift. Inspect and narrow it;

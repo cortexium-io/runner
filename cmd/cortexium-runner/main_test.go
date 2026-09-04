@@ -95,7 +95,7 @@ func TestInitCreatesStandaloneConfigAndCanSynchronizeIt(t *testing.T) {
 		t.Fatalf("init dry run created config: %v", err)
 	}
 	output.Reset()
-	if err := run(t.Context(), []string{"init", "--owner", "example", "--project-number", "7", "--repository", "example/repo", "--project-dir", project, "--config", configPath, "--max-parallelism", "3", "--admission-window", "24h", "--max-admission-attempts", "12", "--max-admission-harness-time", "8h", "--max-admission-tokens", "1000000", "--max-admission-cost-usd", "25", "--auto-merge", "--harness", "codex", "--model", "gpt-test", "--reasoning", "high", "--planning-support", "high", "--reviewer-harness", "pi", "--reviewer-access", "host", "--reviewer-harness-config", "inherit", "--reviewer-model", "qwen/local", "--reviewer-reasoning", "xhigh", "--base-update-review", "required"}, strings.NewReader(""), &output); err != nil {
+	if err := run(t.Context(), []string{"init", "--owner", "example", "--project-number", "7", "--repository", "example/repo", "--project-dir", project, "--config", configPath, "--max-parallelism", "3", "--max-qa-rejections", "4", "--admission-window", "24h", "--max-admission-attempts", "12", "--max-admission-harness-time", "8h", "--max-admission-tokens", "1000000", "--max-admission-cost-usd", "25", "--auto-merge", "--autonomous-issues", "--trusted-issue-author", "maintainer", "--harness", "codex", "--model", "gpt-test", "--reasoning", "high", "--planning-support", "high", "--reviewer-harness", "pi", "--reviewer-access", "host", "--reviewer-harness-config", "inherit", "--reviewer-model", "qwen/local", "--reviewer-reasoning", "xhigh", "--base-update-review", "required"}, strings.NewReader(""), &output); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 	if expected := "Agent admission: rolling 24h0m0s window · 12 attempt(s) · 8h0m0s harness time · 1000000 reported tokens · $25.0000 reported cost"; !strings.Contains(output.String(), expected) {
@@ -105,11 +105,15 @@ func TestInitCreatesStandaloneConfigAndCanSynchronizeIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load initialized config: %v", err)
 	}
-	if loaded.GitHubProject.Owner != "example" || loaded.GitHubProject.Number != 7 || loaded.GitHubProject.TransitionField != config.RunnerTransitionFieldName || loaded.MaxParallelism != 3 || !loaded.GitHubProject.AutoMerge || loaded.GitHubProject.MergeMethod != config.MergeMethodMerge || loaded.Workflow == nil || loaded.Workflow.Lanes["agent_qa"].RejectLimit != 3 || loaded.Workflow.Lanes["plan"].Name != "Plan" || loaded.Roles[config.WorkRolePlanner].Harness != config.HarnessCodexCLI || loaded.Roles[config.WorkRolePlanner].Model == nil || *loaded.Roles[config.WorkRolePlanner].Model != "gpt-test" || loaded.Roles[config.WorkRolePlanner].Reasoning != "high" || loaded.Roles[config.WorkRolePlanner].PlanningSupport != "" || loaded.Roles[config.WorkRoleImplementer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].Harness != config.HarnessPiCLI || loaded.Roles[config.WorkRoleReviewer].Access != config.RoleAccessHost || loaded.Roles[config.WorkRoleReviewer].HarnessConfig != config.HarnessConfigModeInherit || loaded.Roles[config.WorkRoleReviewer].Model == nil || *loaded.Roles[config.WorkRoleReviewer].Model != "qwen/local" || loaded.Roles[config.WorkRoleReviewer].Reasoning != "xhigh" || loaded.GitHubProject.IntakeRepository != "example/repo" {
+	workflow := loaded.EffectiveWorkflow()
+	if loaded.GitHubProject.Owner != "example" || loaded.GitHubProject.Number != 7 || loaded.GitHubProject.TransitionField != config.RunnerTransitionFieldName || loaded.MaxParallelism != 3 || !loaded.GitHubProject.AutoMerge || loaded.GitHubProject.MergeMethod != config.MergeMethodMerge || loaded.Workflow == nil || workflow.Lanes["agent_qa"].MaxQARejections != 4 || workflow.Lanes["plan"].Name != "Plan" || loaded.Roles[config.WorkRolePlanner].Harness != config.HarnessCodexCLI || loaded.Roles[config.WorkRolePlanner].Model == nil || *loaded.Roles[config.WorkRolePlanner].Model != "gpt-test" || loaded.Roles[config.WorkRolePlanner].Reasoning != "high" || loaded.Roles[config.WorkRolePlanner].PlanningSupport != "" || loaded.Roles[config.WorkRoleImplementer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].Harness != config.HarnessPiCLI || loaded.Roles[config.WorkRoleReviewer].Access != config.RoleAccessHost || loaded.Roles[config.WorkRoleReviewer].HarnessConfig != config.HarnessConfigModeInherit || loaded.Roles[config.WorkRoleReviewer].Model == nil || *loaded.Roles[config.WorkRoleReviewer].Model != "qwen/local" || loaded.Roles[config.WorkRoleReviewer].Reasoning != "xhigh" || loaded.GitHubProject.IntakeRepository != "example/repo" {
 		t.Fatalf("unexpected initialized config %#v", loaded)
 	}
 	if loaded.AdmissionBudget == nil || loaded.AdmissionBudget.WindowSeconds != 86400 || loaded.AdmissionBudget.MaxAttempts != 12 || loaded.AdmissionBudget.MaxHarnessSeconds != 28800 || loaded.AdmissionBudget.MaxReportedTokens != 1000000 || loaded.AdmissionBudget.MaxReportedCostUSD == nil || *loaded.AdmissionBudget.MaxReportedCostUSD != 25 {
 		t.Fatalf("unexpected admission budget %#v", loaded.AdmissionBudget)
+	}
+	if loaded.GitHubProject.AutonomousIssueIntake == nil || len(loaded.GitHubProject.AutonomousIssueIntake.TrustedAuthors) != 1 || loaded.GitHubProject.AutonomousIssueIntake.TrustedAuthors[0] != "maintainer" {
+		t.Fatalf("unexpected autonomous issue policy %#v", loaded.GitHubProject.AutonomousIssueIntake)
 	}
 	runnerID := loaded.RunnerID
 	output.Reset()
@@ -519,6 +523,89 @@ func TestRoleEditChangesOnlyTheSelectedHarnessConfiguration(t *testing.T) {
 	}
 }
 
+func TestRoleEditAllChangesBuiltinHarnessConfigurationAtomically(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "runner.json")
+	cfg := completeCLITestConfig(t.TempDir())
+	cfg.Roles["security_reviewer"] = config.RoleConfig{Extends: config.WorkRoleReviewer}
+	cfg.Roles["isolated_reviewer"] = config.RoleConfig{Extends: config.WorkRoleReviewer, HarnessConfig: config.HarnessConfigModeIsolated}
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := run(t.Context(), []string{"role", "edit", "--all", "--config", configPath, "--harness-config", "inherit"}, strings.NewReader(""), &output); err != nil {
+		t.Fatalf("edit all built-in harness configurations: %v\n%s", err, output.String())
+	}
+	loaded, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range config.BuiltinRoleIDs() {
+		definition := loaded.Roles[id]
+		resolved, ok := loaded.RoleProfile(id)
+		if !ok || definition.HarnessConfig != config.HarnessConfigModeInherit || resolved.HarnessConfig != config.HarnessConfigModeInherit || resolved.Access != config.RoleAccessSandboxed {
+			t.Fatalf("built-in role %s did not inherit ambient configuration within its existing access boundary: definition=%#v resolved=%#v", id, definition, resolved)
+		}
+		if !strings.Contains(output.String(), id+": codex/sandboxed/inherit") {
+			t.Fatalf("bulk edit output omitted effective role %s:\n%s", id, output.String())
+		}
+	}
+	inherited, ok := loaded.RoleProfile("security_reviewer")
+	if !ok || inherited.HarnessConfig != config.HarnessConfigModeInherit {
+		t.Fatalf("custom role did not inherit the edited reviewer policy: %#v", inherited)
+	}
+	isolated, ok := loaded.RoleProfile("isolated_reviewer")
+	if !ok || isolated.HarnessConfig != config.HarnessConfigModeIsolated {
+		t.Fatalf("custom explicit harness configuration was overwritten: %#v", isolated)
+	}
+	if !strings.Contains(output.String(), "Custom roles keep explicit overrides") {
+		t.Fatalf("bulk edit output did not explain custom role behavior:\n%s", output.String())
+	}
+}
+
+func TestRoleEditAllRejectsUnsafeCombinationWithoutReplacingConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "runner.json")
+	cfg := completeCLITestConfig(t.TempDir())
+	enabled := true
+	cfg.Harnesses = append(cfg.Harnesses, config.HarnessConfig{Kind: config.HarnessPiCLI, Command: "pi", Enabled: &enabled})
+	planner := cfg.Roles[config.WorkRolePlanner]
+	planner.Harness = config.HarnessPiCLI
+	cfg.Roles[config.WorkRolePlanner] = planner
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = run(t.Context(), []string{"role", "edit", "--all", "--config", configPath, "--harness-config", "inherit"}, strings.NewReader(""), io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "Pi cannot safely inherit ambient configuration") {
+		t.Fatalf("unsafe all-role inheritance was not rejected clearly: %v", err)
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("failed all-role edit partially replaced the config")
+	}
+}
+
+func TestRoleEditAllAcceptsOnlyHarnessConfiguration(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "runner.json")
+	if err := config.SaveConfig(configPath, completeCLITestConfig(t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"role", "edit", "--all", "--config", configPath},
+		{"role", "edit", "--all", "implementer", "--config", configPath, "--harness-config", "inherit"},
+		{"role", "edit", "--all", "--config", configPath, "--harness-config", "inherit", "--access", "host"},
+	} {
+		if err := run(t.Context(), args, strings.NewReader(""), io.Discard); err == nil {
+			t.Fatalf("invalid all-role edit was accepted: %#v", args)
+		}
+	}
+}
+
 func TestRoleEditChangesOnlySelectedPlanningSupport(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "runner.json")
 	cfg := completeCLITestConfig(t.TempDir())
@@ -786,6 +873,7 @@ func TestCLIHelpVersionAndExitContract(t *testing.T) {
 		{name: "update help", args: []string{"update", "--help"}, code: 0, want: "Usage: cortexium-runner update"},
 		{name: "plan help", args: []string{"plan", "--help"}, code: 0, want: "Usage: cortexium-runner plan"},
 		{name: "role help", args: []string{"role", "add", "--help"}, code: 0, want: "Usage: cortexium-runner role add"},
+		{name: "workflow help", args: []string{"workflow", "explain", "--help"}, code: 0, want: "Usage: cortexium-runner workflow explain"},
 		{name: "unknown command", args: []string{"unknown"}, code: 1, want: "error: unknown command"},
 		{name: "invalid flag", args: []string{"run", "--unknown"}, code: 1, want: "error: parse run flags"},
 	}
@@ -825,6 +913,8 @@ func TestExecuteEscapesTerminalControlInErrors(t *testing.T) {
 func TestEveryCommandHelpReturnsSuccess(t *testing.T) {
 	commands := [][]string{
 		{"init", "--help"}, {"doctor", "--help"}, {"update", "--help"}, {"plan", "--help"}, {"approve", "--help"}, {"retry", "--help"}, {"status", "--help"}, {"run", "--help"},
+		{"harness", "--help"}, {"harness", "check", "--help"},
+		{"workflow", "--help"}, {"workflow", "validate", "--help"}, {"workflow", "explain", "--help"},
 		{"role", "--help"}, {"role", "list", "--help"}, {"role", "show", "--help"}, {"role", "add", "--help"}, {"role", "edit", "--help"}, {"role", "remove", "--help"},
 	}
 	for _, args := range commands {
@@ -1182,18 +1272,18 @@ func TestRetryPreviewsAndReturnsBlockedItemToRecordedLane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read gh calls: %v", err)
 	}
-	if !strings.Contains(string(calls), "--single-select-option-id O_qa") {
+	if !strings.Contains(string(calls), "singleSelectOptionId") || !strings.Contains(string(calls), "=O_qa") {
 		t.Fatalf("retry did not target Agent QA: %s", calls)
 	}
 	retryCalls := string(calls)
 	lockAt := strings.Index(retryCalls, "--field-id F_transition --text v1")
-	approvalAt := strings.Index(retryCalls, "--field-id F_approval --text")
-	qaAt := strings.Index(retryCalls, "--single-select-option-id O_qa")
+	approvalAt := strings.Index(retryCalls, "=F_approval")
+	qaAt := strings.Index(retryCalls, "=O_qa")
 	unlockAt := strings.Index(retryCalls, "--field-id F_transition --clear")
 	if lockAt < 0 || approvalAt <= lockAt || qaAt <= approvalAt || unlockAt <= qaAt {
 		t.Fatalf("retry did not remain transition-locked until Agent QA was authoritative: %s", retryCalls)
 	}
-	if strings.Contains(retryCalls, "--single-select-option-id O_assessment") {
+	if strings.Contains(retryCalls, "=O_assessment") {
 		t.Fatalf("retry used Needs assessment as a transactional hop: %s", retryCalls)
 	}
 
@@ -1320,6 +1410,73 @@ func TestInitPreviewsAndSynchronizesCurrentProjectConfiguration(t *testing.T) {
 	}
 }
 
+func TestAddEnqueuesPlanAndReadyWorkWhileRunnerLockIsHeld(t *testing.T) {
+	bin := t.TempDir()
+	writeFakeGitHubProjectCommand(t, bin)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	callLog := filepath.Join(t.TempDir(), "gh-calls")
+	t.Setenv("GH_CALL_LOG", callLog)
+	cfg := completeCLITestConfig(t.TempDir())
+	configPath := filepath.Join(t.TempDir(), "runner.config.json")
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	projectLock, err := github.AcquireProcessLock(*cfg.GitHubProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer projectLock.Release()
+
+	var output bytes.Buffer
+	if err := run(t.Context(), []string{"add", "plan", "--config", configPath, "--title", "Shape exports", "--body", "Define the export goal and constraints.", "--dry-run"}, strings.NewReader(""), &output); err != nil {
+		t.Fatalf("preview planner request: %v", err)
+	}
+	if !strings.Contains(output.String(), `Would add "Shape exports" to Plan`) {
+		t.Fatalf("unexpected add preview: %s", output.String())
+	}
+
+	for _, test := range []struct {
+		mode   string
+		title  string
+		body   string
+		status string
+		action string
+	}{
+		{mode: "plan", title: "Shape exports", body: "Define the export goal and constraints.", status: "O_plan", action: "ask the planner"},
+		{mode: "ready", title: "Fix export header", body: "Correct the header and cover it with a focused test.", status: "O_ready", action: "implement it"},
+	} {
+		output.Reset()
+		if err := run(t.Context(), []string{"add", test.mode, "--config", configPath, "--title", test.title, "--body", test.body}, strings.NewReader(""), &output); err != nil {
+			t.Fatalf("add %s work: %v", test.mode, err)
+		}
+		if !strings.Contains(output.String(), "Added PVTI_added") || !strings.Contains(output.String(), test.action) {
+			t.Fatalf("unexpected %s receipt: %s", test.mode, output.String())
+		}
+	}
+
+	calls, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logged := string(calls)
+	if strings.Count(logged, "project item-create") != 2 {
+		t.Fatalf("dry run mutated GitHub or add omitted a card:\n%s", logged)
+	}
+	for _, expected := range []string{
+		"project item-create 7 --owner example --title Shape exports --body Define the export goal and constraints.",
+		"--single-select-option-id O_plan",
+		"project item-create 7 --owner example --title Fix export header --body Correct the header and cover it with a focused test.",
+		"--single-select-option-id O_ready",
+	} {
+		if !strings.Contains(logged, expected) {
+			t.Fatalf("add omitted %q:\n%s", expected, logged)
+		}
+	}
+}
+
 func writeFakeGitHubProjectCommand(t *testing.T, dir string) {
 	t.Helper()
 	path := filepath.Join(dir, "gh")
@@ -1327,10 +1484,13 @@ func writeFakeGitHubProjectCommand(t *testing.T, dir string) {
 [ -z "${GH_CALL_LOG:-}" ] || printf '%s\n' "$*" >> "$GH_CALL_LOG"
 case "$1 $2" in
 	"project create") printf '%s\n' '{"id":"PVT_created","number":8,"url":"https://github.com/users/example/projects/8"}' ;;
+	"project item-create") printf '%s\n' '{"id":"PVTI_added"}' ;;
   "project view") printf '%s\n' '{"id":"PVT_test","number":7}' ;;
 	"api graphql")
 		case "$*" in
 			*"fields(first:100,after:"*) printf '%s\n' '{"data":{"node":{"fields":{"nodes":[{"__typename":"ProjectV2SingleSelectField","id":"F_status","name":"Status","dataType":"SINGLE_SELECT","options":[{"id":"O_assessment","name":"Needs assessment"},{"id":"O_backlog","name":"Backlog"},{"id":"O_plan","name":"Plan"},{"id":"O_ready","name":"Ready"},{"id":"O_running","name":"In Progress"},{"id":"O_qa","name":"Agent QA"},{"id":"O_pr_ready","name":"PR Ready"},{"id":"O_blocked","name":"Blocked"},{"id":"O_done","name":"Done"}]},{"__typename":"ProjectV2Field","id":"F_result","name":"Runner Result","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_approval","name":"Runner Approval","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_phase","name":"Runner Phase","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_transition","name":"Runner Transition","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_activity","name":"Runner Activity","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_qa","name":"QA Failures","dataType":"NUMBER"},{"__typename":"ProjectV2Field","id":"F_branch","name":"Runner Branch","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_pr","name":"Pull Request","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_qa_commit","name":"QA Commit","dataType":"TEXT"}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}' ;;
+			*"node(id:\$item_id)"*)
+				printf '{"data":{"node":{"id":"PVTI_retry","status":{"name":"Blocked"},"approval":{"text":"%s"},"result":{"text":"Previous browser blocker."},"phase":{"text":"agent_qa"},"content":{"title":"Retry browser review","body":"Acceptance criteria","repository":{"nameWithOwner":"example/repo"},"url":"https://github.com/example/repo/issues/2"}}}}\n' "$FAKE_GH_RETRY_APPROVAL" ;;
 			*"items(first:100,after:"*)
 				if [ -n "${FAKE_GH_RETRY_APPROVAL:-}" ]; then
 					printf '{"data":{"node":{"items":{"nodes":[{"id":"PVTI_retry","status":{"name":"Blocked"},"approval":{"text":"%s"},"result":{"text":"Previous browser blocker."},"phase":{"text":"agent_qa"},"content":{"title":"Retry browser review","body":"Acceptance criteria","repository":{"nameWithOwner":"example/repo"},"url":"https://github.com/example/repo/issues/2"}}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}\n' "$FAKE_GH_RETRY_APPROVAL"
@@ -1414,7 +1574,7 @@ func TestRootHelpDescribesStandaloneWorkflow(t *testing.T) {
 	if err := run(t.Context(), []string{"--help"}, strings.NewReader(""), &output); err != nil {
 		t.Fatalf("help: %v", err)
 	}
-	for _, expected := range []string{"cortexium-runner doctor", "cortexium-runner update", "cortexium-runner plan", "cortexium-runner approve", "cortexium-runner retry", "--once", "--max-idle-interval DURATION", "No hosted control plane"} {
+	for _, expected := range []string{"cortexium-runner doctor", "cortexium-runner update", "cortexium-runner add plan|ready", "cortexium-runner plan", "cortexium-runner approve", "cortexium-runner retry", "--once", "--max-idle-interval DURATION", "No hosted control plane"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("help missing %q: %s", expected, output.String())
 		}
@@ -1431,7 +1591,7 @@ func TestDoctorOfflineUsesOnlyLocalConfigAndEmbeddedSkills(t *testing.T) {
 	if err := run(t.Context(), []string{"doctor", "--offline", "--config", configPath}, strings.NewReader(""), &output); err != nil {
 		t.Fatalf("offline doctor: %v\n%s", err, output.String())
 	}
-	for _, expected := range []string{"config.v2", "skills.embedded", "Configuration ready: yes"} {
+	for _, expected := range []string{"config.v5", "skills.embedded", "Configuration ready: yes"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("check output missing %q: %s", expected, output.String())
 		}
@@ -1477,6 +1637,22 @@ func TestDoctorCapabilityExplainsBlockedTool(t *testing.T) {
 
 	if got := output.String(); !strings.Contains(got, version) || !strings.Contains(got, detail) {
 		t.Fatalf("blocked capability output omitted diagnosis: %q", got)
+	}
+}
+
+func TestDoctorReportsPinnedRepositoryReferences(t *testing.T) {
+	var output strings.Builder
+	writeDoctorReport(&output, setup.InspectionReport{
+		RepositoryReferences: []setup.RepositoryReferenceInspection{{
+			Name: "legacy-frontend", Path: "/references/legacy-frontend",
+			Commit: "714128eaeb8e3805431f8fdeaa49a570e2830cea", Status: setup.CapabilityAvailable,
+			Detail: "clean Git checkout matches the configured immutable commit",
+		}},
+	}, nil)
+	for _, expected := range []string{"Repository references", "legacy-frontend", "/references/legacy-frontend", "714128eaeb8e3805431f8fdeaa49a570e2830cea", "clean Git checkout"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("doctor reference output omitted %q: %s", expected, output.String())
+		}
 	}
 }
 
@@ -1655,7 +1831,7 @@ func completeCLITestConfig(projectDir string) config.Config {
 			Owner: "example", Number: 7, IntakeRepository: "example/repo", IntakeLabel: "needs-assessment",
 			ResultField: "Runner Result", ApprovalField: "Runner Approval", PhaseField: "Runner Phase", TransitionField: config.RunnerTransitionFieldName,
 			QAFailuresField: "QA Failures", BranchField: "Runner Branch", PullRequestField: "Pull Request",
-			QACommitField: "QA Commit", BaseBranch: "main", RemoteName: "origin",
+			QACommitField: "QA Commit", BaseBranch: "main", RemoteName: "origin", MergeMethod: config.MergeMethodMerge,
 		},
 	}
 }

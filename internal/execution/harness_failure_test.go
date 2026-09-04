@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -49,6 +50,54 @@ func TestClassifyHarnessFailureLeavesUnknownDiagnosticsLocal(t *testing.T) {
 	}
 	if _, known := classifyHarnessFailure(errors.New("exit status 1"), HarnessFailureEvidence{}); known {
 		t.Fatal("Claude-specific failure was applied to another harness")
+	}
+}
+
+func TestCodexFailureEvidenceAcceptsOnlyTerminalServiceEvents(t *testing.T) {
+	observed404 := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"thread"}`,
+		`{"type":"error","message":"Reconnecting after unexpected status 404 Not Found"}`,
+		`{"type":"turn.failed","error":{"message":"unexpected status 404 Not Found: Unknown error, url: https://chatgpt.com/backend-api/codex/responses"}}`,
+	}, "\n")
+	evidence := codexFailureEvidenceFromStdout(observed404)
+	if evidence.FailureClass != FailureTransientExternal || evidence.RetryDisposition != RetryAutomatic {
+		t.Fatalf("Codex 404 evidence = %#v, want automatic transient retry", evidence)
+	}
+
+	progressOnly := `{"type":"error","message":"unexpected status 503 Service Unavailable"}`
+	if evidence := codexFailureEvidenceFromStdout(progressOnly); evidence != (HarnessFailureEvidence{}) {
+		t.Fatalf("nonterminal progress error became recovery authority: %#v", evidence)
+	}
+	modelText := `{"type":"item.completed","item":{"type":"agent_message","text":"turn.failed status 503"}}`
+	if evidence := codexFailureEvidenceFromStdout(modelText); evidence != (HarnessFailureEvidence{}) {
+		t.Fatalf("model-authored text became recovery authority: %#v", evidence)
+	}
+	unrelated404 := `{"type":"turn.failed","error":{"message":"HTTP 404 for https://example.invalid/missing"}}`
+	if evidence := codexFailureEvidenceFromStdout(unrelated404); evidence != (HarnessFailureEvidence{}) {
+		t.Fatalf("unrelated 404 became provider recovery authority: %#v", evidence)
+	}
+}
+
+func TestCodexFailureEvidenceClassifiesTerminalStatusFamilies(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		class FailureClass
+		retry RetryDisposition
+	}{
+		{name: "authentication", input: "HTTP 401 Unauthorized", class: FailureAuthenticationRequired, retry: RetryManual},
+		{name: "capacity", input: "unexpected status 429 Too Many Requests", class: FailureCapacityExhausted, retry: RetryAutomatic},
+		{name: "provider", input: "HTTP 503 Service Unavailable", class: FailureTransientExternal, retry: RetryAutomatic},
+		{name: "network", input: "connection reset by peer", class: FailureTransientExternal, retry: RetryAutomatic},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout := `{"type":"turn.failed","error":{"message":` + strconv.Quote(test.input) + `}}`
+			evidence := codexFailureEvidenceFromStdout(stdout)
+			if evidence.FailureClass != test.class || evidence.RetryDisposition != test.retry {
+				t.Fatalf("evidence = %#v, want class=%q retry=%q", evidence, test.class, test.retry)
+			}
+		})
 	}
 }
 

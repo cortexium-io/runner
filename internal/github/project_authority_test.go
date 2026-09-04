@@ -3,6 +3,7 @@ package github
 import (
 	"os"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/config"
@@ -68,6 +69,51 @@ func TestPlanningSourceFingerprintIgnoresPresentationAndProvenance(t *testing.T)
 	}
 }
 
+func TestReadyItemsAdoptsDirectPlanAndReadyIntake(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status string
+		role   string
+	}{
+		{name: "planner request", status: "Plan", role: config.WorkRolePlanner},
+		{name: "specified implementation", status: "Ready", role: config.WorkRoleImplementer},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			run := &transitionTestRunner{}
+			project := NewProject(config.ProjectConfig{
+				GitHubProjectConfig: config.GitHubProjectConfig{
+					Owner: "owner", Number: 1, IntakeRepository: "owner/repo", ApprovalField: "Runner Approval",
+				},
+				ApprovalAuthorityKey: []byte("manual-intake-test-authority-key"),
+				ReadyStatus:          "Ready",
+				AgentStatuses:        []string{"Plan", "Ready"},
+				InitialLaneID:        "plan",
+				InitialRole:          config.WorkRolePlanner,
+				LaneStatuses:         map[string]string{"plan": "Plan", "ready": "Ready"},
+				LaneRoles:            map[string]string{"plan": config.WorkRolePlanner, "ready": config.WorkRoleImplementer},
+			}, run)
+			project.schema = githubProjectSchema{ProjectID: "PVT_test", Fields: map[string]githubProjectField{
+				normalizeProjectKey("Runner Approval"): {ID: "F_approval", Name: "Runner Approval", Type: "ProjectV2Field"},
+			}}
+			item := WorkItem{
+				ID: "PVTI_manual", Title: "Human request", Body: "Exact human-authored request.",
+				URL: "https://github.com/owner/repo/issues/1", Repository: "owner/repo", Status: test.status,
+			}
+
+			ready, err := project.ReadyItems(t.Context(), []WorkItem{item}, 1)
+			if err != nil {
+				t.Fatalf("adopt %s: %v", test.status, err)
+			}
+			if len(ready) != 1 || ready[0].Item.Status != test.status || ready[0].Role != test.role || ready[0].Item.Approval == "" {
+				t.Fatalf("unexpected adopted action: %#v", ready)
+			}
+			if calls := strings.Join(run.calls, "\n"); !strings.Contains(calls, "--field-id F_approval --text") {
+				t.Fatalf("adoption did not persist exact authority: %s", calls)
+			}
+		})
+	}
+}
+
 func TestPlanningBatchAuthorityBindsDelegatedContentDigest(t *testing.T) {
 	project := &Project{}
 	source := WorkItem{ID: "PVTI_source", Body: "approved planning request", Repository: "owner/repo"}
@@ -98,12 +144,12 @@ func TestPlanningBatchAuthorityBindsDelegatedContentDigest(t *testing.T) {
 	}
 }
 
-func TestReadyItemsAcceptsAuthenticatedBatchSiblingMovedToDone(t *testing.T) {
+func TestReadyItemsAcceptsAuthenticatedSuccessfulBatchDependency(t *testing.T) {
 	project := NewProject(config.ProjectConfig{
 		GitHubProjectConfig: config.GitHubProjectConfig{Owner: "owner", Number: 1},
 		ReadyStatus:         "Ready", DoneStatus: "Done", AgentStatuses: []string{"Ready"},
-		InitialLaneID: "implementer", InitialRole: "implementer", ApprovalLaneID: "implementer",
-		LaneStatuses: map[string]string{"implementer": "Ready"}, LaneRoles: map[string]string{"implementer": "implementer"},
+		InitialLaneID: "ready", InitialRole: "implementer", ApprovalLaneID: "ready",
+		LaneStatuses: map[string]string{"ready": "Ready", "done": "Done"}, LaneRoles: map[string]string{"ready": "implementer"},
 	}, nil)
 	batch := func(id string, index int, dependencies []string) WorkItem {
 		return WorkItem{
@@ -123,6 +169,11 @@ func TestReadyItemsAcceptsAuthenticatedBatchSiblingMovedToDone(t *testing.T) {
 	}
 
 	foundation.Status = "Done"
+	done, err := project.signAction(foundation, "implementer", "done")
+	if err != nil {
+		t.Fatalf("record successful dependency outcome: %v", err)
+	}
+	foundation.Approval = done.Item.Approval
 	ready, err := project.ReadyItems(t.Context(), []WorkItem{foundation, dependent}, 2)
 	if err != nil || len(ready) != 1 || ready[0].Item.ID != dependent.ID {
 		t.Fatalf("authenticated Done sibling blocked remaining batch work: ready=%#v error=%v", ready, err)
@@ -135,6 +186,102 @@ func TestReadyItemsAcceptsAuthenticatedBatchSiblingMovedToDone(t *testing.T) {
 	}
 	if len(ready) != 0 {
 		t.Fatalf("edited Done sibling retained batch authority: %#v", ready)
+	}
+}
+
+func TestReadyItemsRejectsManualDoneWithoutAuthenticatedSuccess(t *testing.T) {
+	project := NewProject(config.ProjectConfig{
+		GitHubProjectConfig: config.GitHubProjectConfig{Owner: "owner", Number: 1},
+		ReadyStatus:         "Ready", DoneStatus: "Done", AgentStatuses: []string{"Ready"},
+		InitialLaneID: "ready", InitialRole: "implementer", ApprovalLaneID: "ready",
+		LaneStatuses: map[string]string{"ready": "Ready", "done": "Done"}, LaneRoles: map[string]string{"ready": "implementer"},
+	}, nil)
+	foundation := WorkItem{ID: "PVTI_foundation", Body: "Build the foundation.", URL: "https://github.com/owner/repo/issues/1", Repository: "owner/repo", Status: "Ready"}
+	dependent := WorkItem{ID: "PVTI_dependent", Body: "Use the foundation.", URL: "https://github.com/owner/repo/issues/2", Repository: "owner/repo", Status: "Ready", Dependencies: []string{foundation.URL}}
+	for _, item := range []*WorkItem{&foundation, &dependent} {
+		action, err := project.signAction(*item, "implementer", "ready")
+		if err != nil {
+			t.Fatalf("sign %s: %v", item.ID, err)
+		}
+		item.Approval = action.Item.Approval
+	}
+
+	foundation.Status = "Done"
+	ready, err := project.ReadyItems(t.Context(), []WorkItem{foundation, dependent}, 2)
+	if err != nil {
+		t.Fatalf("check manual Done dependency: %v", err)
+	}
+	if len(ready) != 0 {
+		t.Fatalf("manual Done status released dependent work: %#v", ready)
+	}
+
+	succeeded, err := project.signAction(foundation, "implementer", "done")
+	if err != nil {
+		t.Fatalf("authenticate successful outcome: %v", err)
+	}
+	foundation.Approval = succeeded.Item.Approval
+	ready, err = project.ReadyItems(t.Context(), []WorkItem{foundation, dependent}, 2)
+	if err != nil || len(ready) != 1 || ready[0].Item.ID != dependent.ID {
+		t.Fatalf("authenticated success did not release direct Ready work: ready=%#v error=%v", ready, err)
+	}
+}
+
+func TestReadyItemsAllowsAuthenticatedCrossBatchDependency(t *testing.T) {
+	project := NewProject(config.ProjectConfig{
+		GitHubProjectConfig: config.GitHubProjectConfig{Owner: "owner", Number: 1},
+		ReadyStatus:         "Ready", DoneStatus: "Done", AgentStatuses: []string{"Ready"},
+		InitialLaneID: "ready", InitialRole: "implementer", ApprovalLaneID: "ready",
+		LaneStatuses: map[string]string{"ready": "Ready", "done": "Done"}, LaneRoles: map[string]string{"ready": "implementer"},
+	}, nil)
+	batchItem := func(id, fingerprint string) WorkItem {
+		return WorkItem{
+			ID: id, Body: "Approved " + id, Repository: "owner/repo", Status: "Ready",
+			PlanningSourceLane: "local_plan", PlanningSourceFingerprint: "v1:source:" + id, PlanningDestination: "Ready",
+			PlanningBatchFingerprint: fingerprint, PlanningBatchSize: 1, PlanningItemIndex: 1,
+		}
+	}
+	foundation := batchItem("PVTI_batch_a", "v1:batch:a")
+	foundation.Status = "Done"
+	done, err := project.signAction(foundation, "implementer", "done")
+	if err != nil {
+		t.Fatalf("sign successful first batch: %v", err)
+	}
+	foundation.Approval = done.Item.Approval
+	dependent := batchItem("PVTI_batch_b", "v1:batch:b")
+	dependent.Dependencies = []string{foundation.ID}
+	action, err := project.signAction(dependent, "implementer", "ready")
+	if err != nil {
+		t.Fatalf("sign dependent second batch: %v", err)
+	}
+	dependent.Approval = action.Item.Approval
+
+	ready, err := project.ReadyItems(t.Context(), []WorkItem{foundation, dependent}, 2)
+	if err != nil || len(ready) != 1 || ready[0].Item.ID != dependent.ID {
+		t.Fatalf("authenticated cross-batch dependency was not released: ready=%#v error=%v", ready, err)
+	}
+}
+
+func TestSuccessfulOutcomeAcceptsAuthenticatedPlanningBatchRelease(t *testing.T) {
+	project := NewProject(config.ProjectConfig{
+		GitHubProjectConfig: config.GitHubProjectConfig{Owner: "owner", Number: 1},
+		DoneStatus:          "Done",
+	}, nil)
+	source := WorkItem{
+		ID: "PVTI_plan", Title: "Plan the work", Body: "Create a reviewable implementation plan.",
+		Repository: "owner/repo", Status: "Done",
+	}
+	child := WorkItem{
+		ID: "PVTI_child", Title: "Implement the plan", Body: "Deliver the planned work.", Repository: "owner/repo", Status: "Assessment",
+		PlanningSourceID: source.ID, PlanningSourceLane: "local_plan", PlanningSourceFingerprint: PlanningSourceFingerprint(source),
+		PlanningDestination: "Ready", PlanningBatchFingerprint: "v1:batch:plan", PlanningBatchSize: 1, PlanningItemIndex: 1,
+	}
+	release, err := project.signPlanningBatch(source, []WorkItem{child}, batchReleasedState, "")
+	if err != nil {
+		t.Fatalf("authenticate planning batch release: %v", err)
+	}
+	source.Approval = release
+	if !project.hasSuccessfulOutcome(source, []WorkItem{source, child}) {
+		t.Fatal("authenticated successful planning outcome was not recognized")
 	}
 }
 

@@ -164,6 +164,11 @@ func (d AdmissionDecision) deny(reason string) AdmissionDecision {
 }
 
 func (s *Engine) SetMetricsHistoryReader(reader func() (metrics.ReadResult, error)) {
+	s.admissionHistoryMu.Lock()
+	s.admissionHistory = metrics.ReadResult{}
+	s.admissionHistoryLoaded = false
+	s.admissionHistoryGeneration++
+	s.admissionHistoryMu.Unlock()
 	s.readMetricsHistory = reader
 }
 
@@ -180,10 +185,20 @@ func (s *Engine) AdmissionStatus(now time.Time) (AdmissionDecision, error) {
 	if metricsErr != "" {
 		return AdmissionDecision{}, fmt.Errorf("admission budget history became incomplete after a metrics write failure: %s", metricsErr)
 	}
-	history, err := s.readMetricsHistory()
-	if err != nil {
-		return AdmissionDecision{}, fmt.Errorf("read admission-budget history: %w", err)
+	s.admissionHistoryMu.Lock()
+	history := s.admissionHistory
+	if !s.admissionHistoryLoaded || s.admissionCacheGeneration != s.admissionHistoryGeneration {
+		var err error
+		history, err = s.readMetricsHistory()
+		if err != nil {
+			s.admissionHistoryMu.Unlock()
+			return AdmissionDecision{}, fmt.Errorf("read admission-budget history: %w", err)
+		}
+		s.admissionHistory = history
+		s.admissionHistoryLoaded = true
+		s.admissionCacheGeneration = s.admissionHistoryGeneration
 	}
+	s.admissionHistoryMu.Unlock()
 	if history.MalformedRecords > 0 {
 		return AdmissionDecision{}, fmt.Errorf("admission budget history contains %d malformed record(s)", history.MalformedRecords)
 	}

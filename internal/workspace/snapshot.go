@@ -92,15 +92,66 @@ func CaptureSnapshotWithLimits(ctx context.Context, run subprocess.Runner, workt
 	return snapshot.Fingerprint, nil
 }
 
+// CaptureCheckoutSnapshotWithLimits records the active checkout without
+// treating unrelated branch tracking changes in the shared Git config as
+// checkout mutations. All other repository configuration remains part of the
+// integrity fingerprint.
+func CaptureCheckoutSnapshotWithLimits(ctx context.Context, run subprocess.Runner, worktreePath string, timeout time.Duration, limits SnapshotLimits) (string, error) {
+	snapshot, err := CaptureCheckoutSnapshotStateWithLimits(ctx, run, worktreePath, timeout, limits)
+	if err != nil {
+		return "", err
+	}
+	return snapshot.Fingerprint, nil
+}
+
 func CaptureSnapshotStateWithLimits(ctx context.Context, run subprocess.Runner, worktreePath string, timeout time.Duration, limits SnapshotLimits) (Snapshot, error) {
 	budget, err := securefs.NewSnapshotBudget(limits)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return captureSnapshotState(ctx, run, worktreePath, timeout, true, budget)
+	return captureSnapshotState(ctx, run, worktreePath, timeout, true, false, budget)
 }
 
-func captureSnapshotState(ctx context.Context, run subprocess.Runner, worktreePath string, timeout time.Duration, requireWorktreeRegistration bool, budget *securefs.SnapshotBudget) (Snapshot, error) {
+func CaptureCheckoutSnapshotStateWithLimits(ctx context.Context, run subprocess.Runner, worktreePath string, timeout time.Duration, limits SnapshotLimits) (Snapshot, error) {
+	budget, err := securefs.NewSnapshotBudget(limits)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return captureSnapshotState(ctx, run, worktreePath, timeout, true, true, budget)
+}
+
+func checkoutRelevantConfig(ctx context.Context, run subprocess.Runner, worktreePath, configPath string, timeout time.Duration) (string, error) {
+	if run == nil {
+		run = subprocess.OSRunner{}
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	result, err := subprocess.RunGit(ctx, run, []string{"--no-optional-locks", "config", "--file", configPath, "--null", "--list", "--no-includes"}, worktreePath, timeout)
+	if err != nil {
+		return "", fmt.Errorf("capture checkout Git config: %w", commandError(err, result))
+	}
+	if result.Stdout != "" && !strings.HasSuffix(result.Stdout, "\x00") {
+		return "", errors.New("Git returned unterminated NUL-delimited config entries")
+	}
+	var relevant strings.Builder
+	for _, record := range strings.Split(strings.TrimSuffix(result.Stdout, "\x00"), "\x00") {
+		if record == "" {
+			continue
+		}
+		key, value, found := strings.Cut(record, "\n")
+		if !found || strings.TrimSpace(key) == "" {
+			return "", errors.New("Git returned an invalid NUL-delimited config entry")
+		}
+		if strings.HasPrefix(strings.ToLower(key), "branch.") {
+			continue
+		}
+		writeSnapshotPart(&relevant, key, []byte(value))
+	}
+	return relevant.String(), nil
+}
+
+func captureSnapshotState(ctx context.Context, run subprocess.Runner, worktreePath string, timeout time.Duration, requireWorktreeRegistration, ignoreBranchTracking bool, budget *securefs.SnapshotBudget) (Snapshot, error) {
 	if run == nil {
 		run = subprocess.OSRunner{}
 	}
@@ -138,6 +189,13 @@ func captureSnapshotState(ctx context.Context, run subprocess.Runner, worktreePa
 	}
 	if err := control.pinWorktreeConfig(worktreeConfigValue == "true"); err != nil {
 		return Snapshot{}, err
+	}
+	var relevantConfig string
+	if ignoreBranchTracking {
+		relevantConfig, err = checkoutRelevantConfig(ctx, run, root, filepath.Join(control.commonDirPath, "config"), timeout)
+		if err != nil {
+			return Snapshot{}, err
+		}
 	}
 	indexResult, err := subprocess.RunGit(ctx, run, []string{"--no-optional-locks", "ls-files", "--stage", "-v", "-z"}, root, timeout)
 	if err != nil {
@@ -228,7 +286,7 @@ func captureSnapshotState(ctx context.Context, run subprocess.Runner, worktreePa
 	for relativePath, digest := range protectedDiscovery.Digests() {
 		worktree[relativePath] = hex.EncodeToString(digest)
 	}
-	submodules, err := captureIndexedSubmodules(ctx, run, rootDirectory, root, timeout, indexEntries, pinnedSubmodules, budget)
+	submodules, err := captureIndexedSubmodules(ctx, run, rootDirectory, root, timeout, indexEntries, pinnedSubmodules, ignoreBranchTracking, budget)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -242,6 +300,9 @@ func captureSnapshotState(ctx context.Context, run subprocess.Runner, worktreePa
 	controlState, err := control.Finish(head, registration, results["index"], results["status"], results["replacement-refs"])
 	if err != nil {
 		return Snapshot{}, err
+	}
+	if ignoreBranchTracking {
+		controlState["common Git config"] = digestString([]byte(relevantConfig))
 	}
 	controlState["protected worktree files"] = digestString([]byte(strings.Join(protectedPaths, "\x00")))
 	controlState["indexed submodules"] = submodules.manifest

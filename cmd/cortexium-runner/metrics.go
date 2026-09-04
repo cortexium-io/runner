@@ -85,10 +85,10 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 	if view.Project != nil {
 		project = fmt.Sprintf("%s/%d", view.Project.Owner, view.Project.Number)
 	}
-	fmt.Fprintf(output, "Runner metrics: %s\nGitHub Project: %s\n", view.RunnerID, project)
+	fmt.Fprintf(output, "Runner metrics: %s\nGitHub Project: %s\n", terminalSafeText(view.RunnerID), terminalSafeText(project))
 	if view.Summary.Attempts == 0 {
 		fmt.Fprintln(output, "Recorded attempts: 0 (history starts after metrics-enabled Runner executions)")
-		fmt.Fprintf(output, "History: %s\n", view.HistoryPath)
+		fmt.Fprintf(output, "History: %s\n", terminalSafeText(view.HistoryPath))
 		return
 	}
 	fmt.Fprintf(output, "Recorded attempts: %d · %d completed · %d unfinished\n", view.Summary.Attempts, view.Summary.CompletedAttempts, view.Summary.UnfinishedAttempts)
@@ -156,6 +156,15 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 				fmt.Fprintf(output, " · after %s", terminalSafeText(attempt.RetryAfter))
 			}
 			fmt.Fprintln(output)
+		}
+		if attempt.FailureOperation != "" {
+			fmt.Fprintf(output, "    failed operation: %s", terminalSafeText(attempt.FailureOperation))
+			if attempt.PublicationAttempts > 0 {
+				fmt.Fprintf(output, " · %d attempt(s)", attempt.PublicationAttempts)
+			}
+			fmt.Fprintln(output)
+		} else if attempt.PublicationAttempts > 1 {
+			fmt.Fprintf(output, "    publication recovered after %d attempts\n", attempt.PublicationAttempts)
 		}
 		if attempt.Usage.ReportedCostUSD != nil {
 			fmt.Fprintf(output, "    usage: %d input · %d cache read · %d output · $%.4f reported\n",

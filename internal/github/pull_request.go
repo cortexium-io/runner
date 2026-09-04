@@ -28,10 +28,19 @@ type PullRequestDetails struct {
 	MergeStateStatus string
 	Feedback         string
 	AutoMergeEnabled bool
+	ChecksPending    bool
+	FailedChecks     []PullRequestCheck
+}
+
+type PullRequestCheck struct {
+	Name       string
+	Status     string
+	DetailsURL string
 }
 
 const (
 	MaxPullRequestFeedbackEntries = 100
+	MaxPullRequestChecks          = 100
 	maxPullRequestFeedbackBytes   = 10_000
 )
 
@@ -42,6 +51,67 @@ type PublishedPullRequest struct {
 	Number    int
 	Branch    string
 	CommitSHA string
+	Attempts  int
+}
+
+type PublicationFailureOperation string
+
+const (
+	PublicationPushCandidate    PublicationFailureOperation = "publication_push_candidate"
+	PublicationRefreshAuthority PublicationFailureOperation = "publication_refresh_authority"
+	PublicationFindPullRequest  PublicationFailureOperation = "publication_find_pull_request"
+	PublicationInspectPR        PublicationFailureOperation = "publication_inspect_pull_request"
+	PublicationCreatePR         PublicationFailureOperation = "publication_create_pull_request"
+	PublicationValidatePR       PublicationFailureOperation = "publication_validate_pull_request"
+	maxPublicationAttempts                                  = 3
+)
+
+type publicationOperationError struct {
+	operation PublicationFailureOperation
+	err       error
+}
+
+func (e *publicationOperationError) Error() string { return e.err.Error() }
+func (e *publicationOperationError) Unwrap() error { return e.err }
+
+type publicationAttemptsError struct {
+	attempts int
+	err      error
+}
+
+func (e *publicationAttemptsError) Error() string {
+	return fmt.Sprintf("pull request publication failed after %d attempts: %v", e.attempts, e.err)
+}
+func (e *publicationAttemptsError) Unwrap() error { return e.err }
+
+func publicationError(operation PublicationFailureOperation, err error) error {
+	if err == nil {
+		return nil
+	}
+	var existing *publicationOperationError
+	if errors.As(err, &existing) {
+		return err
+	}
+	return &publicationOperationError{operation: operation, err: err}
+}
+
+// PublicationFailureDetails exposes only fixed operation identity and a
+// bounded attempt count. Raw provider diagnostics remain in local Runner
+// output and never become Project or metrics fields.
+func PublicationFailureDetails(err error) (string, int) {
+	if err == nil {
+		return "", 0
+	}
+	attempts := 1
+	var retried *publicationAttemptsError
+	if errors.As(err, &retried) {
+		attempts = retried.attempts
+	}
+	var operation *publicationOperationError
+	if errors.As(err, &operation) {
+		return string(operation.operation), attempts
+	}
+	return "", attempts
 }
 
 type BranchRefreshResult struct {
@@ -96,15 +166,43 @@ func (m PullRequestManager) InspectAuthorized(ctx context.Context, action Author
 	if err != nil {
 		return PullRequestDetails{}, err
 	}
-	return m.inspect(ctx, item.Repository, item.PullRequest)
+	return m.inspect(ctx, item.Repository, item.PullRequest, false, false)
 }
 
-func (m PullRequestManager) inspect(ctx context.Context, repository, selector string) (PullRequestDetails, error) {
+// InspectAuthorizedWithFeedback performs the heavier review/comment lookup for
+// the uncommon paths that actually consume trusted human feedback.
+func (m PullRequestManager) InspectAuthorizedWithFeedback(ctx context.Context, action AuthorizedAction) (PullRequestDetails, error) {
+	item, err := requireAuthorizedAction(action)
+	if err != nil {
+		return PullRequestDetails{}, err
+	}
+	return m.inspect(ctx, item.Repository, item.PullRequest, true, false)
+}
+
+// InspectAuthorizedWithChecks adds the heavier status-check rollup only for the
+// active integration candidate. Routine board observation intentionally omits
+// it so unrelated pull requests stay cheap to reconcile.
+func (m PullRequestManager) InspectAuthorizedWithChecks(ctx context.Context, action AuthorizedAction) (PullRequestDetails, error) {
+	item, err := requireAuthorizedAction(action)
+	if err != nil {
+		return PullRequestDetails{}, err
+	}
+	return m.inspect(ctx, item.Repository, item.PullRequest, false, true)
+}
+
+func (m PullRequestManager) inspect(ctx context.Context, repository, selector string, includeFeedback, includeChecks bool) (PullRequestDetails, error) {
 	selector, err := validatedPullRequestSelector(repository, selector)
 	if err != nil {
 		return PullRequestDetails{}, err
 	}
-	result, err := subprocess.RunGitHub(ctx, m.run, []string{"pr", "view", selector, "--repo", repository, "--json", "url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,autoMergeRequest,comments,reviews"}, "", 30*time.Second)
+	fields := "url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,autoMergeRequest"
+	if includeFeedback {
+		fields += ",comments,reviews"
+	}
+	if includeChecks {
+		fields += ",statusCheckRollup"
+	}
+	result, err := subprocess.RunGitHub(ctx, m.run, []string{"pr", "view", selector, "--repo", repository, "--json", fields}, "", 30*time.Second)
 	if err != nil {
 		return PullRequestDetails{}, fmt.Errorf("inspect pull request: %w", commandFailure(err, result))
 	}
@@ -138,6 +236,17 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 				Login string `json:"login"`
 			} `json:"author"`
 		} `json:"reviews"`
+		StatusCheckRollup []struct {
+			Type       string `json:"__typename"`
+			Name       string `json:"name"`
+			Context    string `json:"context"`
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+			State      string `json:"state"`
+			DetailsURL string `json:"detailsUrl"`
+			TargetURL  string `json:"targetUrl"`
+			Workflow   string `json:"workflowName"`
+		} `json:"statusCheckRollup"`
 	}
 	if err := json.Unmarshal([]byte(result.Stdout), &payload); err != nil {
 		return PullRequestDetails{}, fmt.Errorf("decode pull request: %w", err)
@@ -148,24 +257,27 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 	if _, err := validatedPullRequestSelector(repository, payload.URL); err != nil {
 		return PullRequestDetails{}, fmt.Errorf("GitHub CLI returned a pull request outside the approved repository: %w", err)
 	}
-	feedbackCount := 0
-	feedbackActors := make([]string, 0, len(payload.Reviews)+len(payload.Comments))
-	for _, review := range payload.Reviews {
-		if body := strings.TrimSpace(review.Body); body != "" {
-			feedbackCount++
-			if feedbackCount > MaxPullRequestFeedbackEntries {
-				return PullRequestDetails{}, fmt.Errorf("pull request feedback exceeds fixed limit of %d combined non-empty comments and reviews (next count %d)", MaxPullRequestFeedbackEntries, feedbackCount)
+	feedbackActors := []string(nil)
+	if includeFeedback {
+		feedbackCount := 0
+		feedbackActors = make([]string, 0, len(payload.Reviews)+len(payload.Comments))
+		for _, review := range payload.Reviews {
+			if body := strings.TrimSpace(review.Body); body != "" {
+				feedbackCount++
+				if feedbackCount > MaxPullRequestFeedbackEntries {
+					return PullRequestDetails{}, fmt.Errorf("pull request feedback exceeds fixed limit of %d combined non-empty comments and reviews (next count %d)", MaxPullRequestFeedbackEntries, feedbackCount)
+				}
+				feedbackActors = append(feedbackActors, review.Author.Login)
 			}
-			feedbackActors = append(feedbackActors, review.Author.Login)
 		}
-	}
-	for _, comment := range payload.Comments {
-		if body := strings.TrimSpace(comment.Body); body != "" {
-			feedbackCount++
-			if feedbackCount > MaxPullRequestFeedbackEntries {
-				return PullRequestDetails{}, fmt.Errorf("pull request feedback exceeds fixed limit of %d combined non-empty comments and reviews (next count %d)", MaxPullRequestFeedbackEntries, feedbackCount)
+		for _, comment := range payload.Comments {
+			if body := strings.TrimSpace(comment.Body); body != "" {
+				feedbackCount++
+				if feedbackCount > MaxPullRequestFeedbackEntries {
+					return PullRequestDetails{}, fmt.Errorf("pull request feedback exceeds fixed limit of %d combined non-empty comments and reviews (next count %d)", MaxPullRequestFeedbackEntries, feedbackCount)
+				}
+				feedbackActors = append(feedbackActors, comment.Author.Login)
 			}
-			feedbackActors = append(feedbackActors, comment.Author.Login)
 		}
 	}
 	details := PullRequestDetails{
@@ -173,6 +285,44 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 		HeadRefName: strings.TrimSpace(payload.HeadRefName), HeadRefOID: strings.TrimSpace(payload.HeadRefOID),
 		BaseRefName: strings.TrimSpace(payload.BaseRefName), BaseRefOID: strings.TrimSpace(payload.BaseRefOID),
 		MergeStateStatus: strings.ToUpper(strings.TrimSpace(payload.MergeStateStatus)), AutoMergeEnabled: payload.AutoMergeRequest != nil,
+	}
+	if includeChecks {
+		if len(payload.StatusCheckRollup) > MaxPullRequestChecks {
+			return PullRequestDetails{}, fmt.Errorf("pull request status checks exceed fixed limit of %d (received %d)", MaxPullRequestChecks, len(payload.StatusCheckRollup))
+		}
+		for _, check := range payload.StatusCheckRollup {
+			name := normalizedCheckLabel(check.Name)
+			if name == "" {
+				name = normalizedCheckLabel(check.Context)
+			}
+			if workflow := normalizedCheckLabel(check.Workflow); workflow != "" && name != "" && !strings.EqualFold(workflow, name) {
+				name = workflow + " / " + name
+			}
+			status := strings.ToUpper(strings.TrimSpace(check.Status))
+			conclusion := strings.ToUpper(strings.TrimSpace(check.Conclusion))
+			state := strings.ToUpper(strings.TrimSpace(check.State))
+			if (status != "" && status != "COMPLETED") || state == "PENDING" || state == "EXPECTED" {
+				details.ChecksPending = true
+				continue
+			}
+			failed := false
+			switch strings.ToUpper(strings.TrimSpace(check.Type)) {
+			case "CHECKRUN":
+				switch conclusion {
+				case "FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE":
+					failed = true
+				}
+			case "STATUSCONTEXT":
+				failed = state == "ERROR" || state == "FAILURE"
+			}
+			if failed {
+				detailsURL := safeCheckDetailsURL(check.DetailsURL)
+				if detailsURL == "" {
+					detailsURL = safeCheckDetailsURL(check.TargetURL)
+				}
+				details.FailedChecks = append(details.FailedChecks, PullRequestCheck{Name: name, Status: defaultCheckStatus(conclusion, state), DetailsURL: detailsURL})
+			}
+		}
 	}
 	trustedFeedback := false
 	if len(feedbackActors) > 0 {
@@ -197,6 +347,27 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 	return details, nil
 }
 
+func defaultCheckStatus(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return "FAILED"
+}
+
+func normalizedCheckLabel(value string) string {
+	return truncate(strings.Join(strings.Fields(value), " "), 200)
+}
+
+func safeCheckDetailsURL(value string) string {
+	parsed, err := url.ParseRequestURI(strings.TrimSpace(value))
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return ""
+	}
+	return truncate(parsed.String(), 500)
+}
+
 // RequestAutoMerge asks GitHub to merge the pull request once all repository
 // requirements pass. It deliberately never uses an administrative bypass.
 func (m PullRequestManager) requestAutoMerge(ctx context.Context, repository, selector, headCommit, mergeMethod string) error {
@@ -208,7 +379,7 @@ func (m PullRequestManager) requestAutoMerge(ctx context.Context, repository, se
 	if !validGitObjectID(headCommit) {
 		return errors.New("automatic pull request merge requires the full reviewed head commit")
 	}
-	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	mergeMethod = config.NormalizeMergeMethod(mergeMethod)
 	if !config.ValidMergeMethod(mergeMethod) {
 		return fmt.Errorf("automatic pull request merge method %q is unsupported", mergeMethod)
 	}
@@ -239,12 +410,15 @@ func (m PullRequestManager) RequestAutoMergeAuthorized(ctx context.Context, acti
 	if !strings.EqualFold(headCommit, strings.TrimSpace(item.QACommit)) {
 		return errors.New("automatic merge head commit is no longer the QA-reviewed commit")
 	}
-	details, err := m.inspect(ctx, item.Repository, item.PullRequest)
+	details, err := m.inspect(ctx, item.Repository, item.PullRequest, false, false)
 	if err != nil {
 		return err
 	}
-	if err := ValidateTrackedPullRequest(details, item.Repository, item.Branch, headCommit, baseBranch, baseRevision); err != nil {
+	if err := ValidateTrackedPullRequest(details, item.Repository, item.Branch, headCommit, baseBranch, ""); err != nil {
 		return fmt.Errorf("automatic merge pull request identity changed: %w", err)
+	}
+	if baseRevision = strings.TrimSpace(baseRevision); baseRevision != "" && !strings.EqualFold(strings.TrimSpace(details.BaseRefOID), baseRevision) {
+		return fmt.Errorf("automatic merge pull request identity changed: pull request base commit %q does not match %q: %w", details.BaseRefOID, baseRevision, ErrPublicationBaseChanged)
 	}
 	return m.requestAutoMerge(ctx, item.Repository, item.PullRequest, headCommit, mergeMethod)
 }
@@ -321,14 +495,14 @@ func validGitObjectID(value string) bool {
 	return true
 }
 
-func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod, qaReport string) (PublishedPullRequest, error) {
+func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod string) (PublishedPullRequest, error) {
 	item, err := requireAuthorizedAction(action)
 	if err != nil {
 		return PublishedPullRequest{}, err
 	}
 	baseBranch = strings.TrimSpace(baseBranch)
 	remoteName = strings.TrimSpace(remoteName)
-	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	mergeMethod = config.NormalizeMergeMethod(mergeMethod)
 	if baseBranch == "" || remoteName == "" {
 		return PublishedPullRequest{}, errors.New("publication requires an explicit base branch and Git remote")
 	}
@@ -350,7 +524,7 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	if err := provider.PublishAccepted(ctx, metadata, record, remoteName, baseBranch, pushPolicy, func() error {
 		refreshed, refreshErr := m.refreshAuthorizedAction(ctx, action)
 		if refreshErr != nil {
-			return refreshErr
+			return publicationError(PublicationRefreshAuthority, refreshErr)
 		}
 		if authorityErr := validatePublicationAuthority(refreshed, record); authorityErr != nil {
 			return authorityErr
@@ -365,35 +539,35 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 		item = refreshed.Item
 		return nil
 	}); err != nil {
-		return PublishedPullRequest{}, err
+		return PublishedPullRequest{}, publicationError(PublicationPushCandidate, err)
 	}
 	action, err = m.refreshAuthorizedAction(ctx, action)
 	if err != nil {
-		return PublishedPullRequest{}, err
+		return PublishedPullRequest{}, publicationError(PublicationRefreshAuthority, err)
 	}
 	if err := validatePublicationAuthority(action, record); err != nil {
 		return PublishedPullRequest{}, err
 	}
 	item = action.Item
 	if strings.TrimSpace(item.PullRequest) != "" {
-		details, err := m.inspect(ctx, item.Repository, item.PullRequest)
+		details, err := m.inspect(ctx, item.Repository, item.PullRequest, false, false)
 		if err != nil {
-			return PublishedPullRequest{}, err
+			return PublishedPullRequest{}, publicationError(PublicationInspectPR, err)
 		}
 		if err := validatePublishedPullRequest(details, item.Repository, branch, record.CommitOID, baseBranch, record.ApprovedBaseOID); err != nil {
-			return PublishedPullRequest{}, err
+			return PublishedPullRequest{}, publicationError(PublicationValidatePR, err)
 		}
 		return PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: branch, CommitSHA: record.CommitOID}, nil
 	}
 	if existing, found, findErr := m.findOpen(ctx, item.Repository, branch, baseBranch); findErr != nil {
-		return PublishedPullRequest{}, findErr
+		return PublishedPullRequest{}, publicationError(PublicationFindPullRequest, findErr)
 	} else if found {
-		details, err := m.inspect(ctx, item.Repository, existing.URL)
+		details, err := m.inspect(ctx, item.Repository, existing.URL, false, false)
 		if err != nil {
-			return PublishedPullRequest{}, err
+			return PublishedPullRequest{}, publicationError(PublicationInspectPR, err)
 		}
 		if err := validatePublishedPullRequest(details, item.Repository, branch, record.CommitOID, baseBranch, record.ApprovedBaseOID); err != nil {
-			return PublishedPullRequest{}, err
+			return PublishedPullRequest{}, publicationError(PublicationValidatePR, err)
 		}
 		existing.Branch = branch
 		existing.CommitSHA = record.CommitOID
@@ -401,7 +575,7 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	}
 	action, err = m.refreshAuthorizedAction(ctx, action)
 	if err != nil {
-		return PublishedPullRequest{}, err
+		return PublishedPullRequest{}, publicationError(PublicationRefreshAuthority, err)
 	}
 	if err := validatePublicationAuthority(action, record); err != nil {
 		return PublishedPullRequest{}, err
@@ -413,18 +587,18 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	}
 	result, err := subprocess.RunGitHub(ctx, m.run, []string{"pr", "create", "--repo", item.Repository, "--base", baseBranch, "--head", branch, "--title", strings.TrimSpace(item.Title), "--body", body}, metadata.WorktreePath, m.timeout)
 	if err != nil {
-		return PublishedPullRequest{}, fmt.Errorf("create pull request: %w", commandFailure(err, result))
+		return PublishedPullRequest{}, publicationError(PublicationCreatePR, fmt.Errorf("create pull request: %w", commandFailure(err, result)))
 	}
 	url := firstNonEmptyLine(result.Stdout)
 	if url == "" {
-		return PublishedPullRequest{}, errors.New("GitHub CLI did not return the created pull request URL")
+		return PublishedPullRequest{}, publicationError(PublicationCreatePR, errors.New("GitHub CLI did not return the created pull request URL"))
 	}
-	details, err := m.inspect(ctx, item.Repository, url)
+	details, err := m.inspect(ctx, item.Repository, url, false, false)
 	if err != nil {
-		return PublishedPullRequest{}, err
+		return PublishedPullRequest{}, publicationError(PublicationInspectPR, err)
 	}
 	if err := validatePublishedPullRequest(details, item.Repository, branch, record.CommitOID, baseBranch, record.ApprovedBaseOID); err != nil {
-		return PublishedPullRequest{}, err
+		return PublishedPullRequest{}, publicationError(PublicationValidatePR, err)
 	}
 	return PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: branch, CommitSHA: record.CommitOID}, nil
 }
@@ -445,8 +619,59 @@ func trustedPullRequestActor(actor, configuredActor string) bool {
 	return strings.EqualFold(strings.TrimSpace(actor), strings.TrimSpace(configuredActor))
 }
 
-func (m PullRequestManager) PublishAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod, qaReport string) (PublishedPullRequest, error) {
-	return m.publish(ctx, action, metadata, record, baseBranch, remoteName, mergeMethod, qaReport)
+func (m PullRequestManager) PublishAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod string) (PublishedPullRequest, error) {
+	for attempt := 1; attempt <= maxPublicationAttempts; attempt++ {
+		published, err := m.publish(ctx, action, metadata, record, baseBranch, remoteName, mergeMethod)
+		if err == nil {
+			published.Attempts = attempt
+			return published, nil
+		}
+		if attempt == maxPublicationAttempts || !retryablePublicationError(err) {
+			if attempt == 1 {
+				return PublishedPullRequest{}, err
+			}
+			return PublishedPullRequest{}, &publicationAttemptsError{attempts: attempt, err: err}
+		}
+		if delay := publicationRetryDelay(attempt); delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return PublishedPullRequest{}, &publicationAttemptsError{attempts: attempt, err: errors.Join(err, ctx.Err())}
+			case <-timer.C:
+			}
+		}
+	}
+	return PublishedPullRequest{}, errors.New("pull request publication retry exhausted unexpectedly")
+}
+
+func publicationRetryDelay(failedAttempts int) time.Duration {
+	if failedAttempts <= 1 {
+		return 0
+	}
+	return 500 * time.Millisecond
+}
+
+func retryablePublicationError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "rate limit") || strings.Contains(message, "too many requests") {
+		return false
+	}
+	for _, marker := range []string{
+		"http 500", "http 502", "http 503", "http 504",
+		"service unavailable", "bad gateway", "gateway timeout",
+		"connection reset", "connection refused", "temporary failure",
+		"temporarily unavailable", "unexpected eof", "tls handshake timeout",
+		"no such host",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func validatePublicationAuthority(action AuthorizedAction, record workspace.PublicationRecord) error {
@@ -552,7 +777,7 @@ func (m PullRequestManager) refreshBranchMode(ctx context.Context, action Author
 	branch = strings.TrimSpace(branch)
 	baseBranch = strings.TrimSpace(baseBranch)
 	remoteName = strings.TrimSpace(remoteName)
-	mergeMethod = config.EffectiveMergeMethod(mergeMethod)
+	mergeMethod = config.NormalizeMergeMethod(mergeMethod)
 	if branch == "" || strings.TrimSpace(metadata.WorktreePath) == "" {
 		return BranchRefreshResult{}, errors.New("branch refresh requires a worktree and branch")
 	}
