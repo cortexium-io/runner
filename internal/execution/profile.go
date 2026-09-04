@@ -397,6 +397,9 @@ func newTrustedToolDir(protectedRoots ...string) (string, error) {
 	if err := securefs.EnsurePrivateDir(root); err != nil {
 		return "", fmt.Errorf("create private trusted tool root: %w", err)
 	}
+	if err := securefs.EnsurePrivateDir(filepath.Join(root, "npm-cache")); err != nil {
+		return "", fmt.Errorf("create private trusted npm cache: %w", err)
+	}
 	directory, err := os.MkdirTemp(root, "runtime-")
 	if err != nil {
 		return "", fmt.Errorf("create private trusted tool directory: %w", err)

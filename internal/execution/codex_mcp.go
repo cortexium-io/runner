@@ -39,7 +39,7 @@ const maxCodexMCPConfigurationBytes = 1024 * 1024
 
 const runnerBrowserMCPServer = "runner_browser"
 
-const runnerBrowserStartupTimeoutSeconds = 30
+const runnerBrowserStartupTimeoutSeconds = 60
 
 func runnerBrowserCommand() (string, []string) {
 	return "npx", []string{
@@ -52,7 +52,7 @@ func runnerBrowserCommand() (string, []string) {
 
 func runnerBrowserEnvironment(trustedToolDir string) map[string]string {
 	return map[string]string{
-		"NPM_CONFIG_CACHE":        filepath.Join(trustedToolDir, "npm-cache"),
+		"NPM_CONFIG_CACHE":        filepath.Join(filepath.Dir(trustedToolDir), "npm-cache"),
 		"NPM_CONFIG_USERCONFIG":   filepath.Join(trustedToolDir, "npmrc"),
 		"NPM_CONFIG_GLOBALCONFIG": filepath.Join(trustedToolDir, "global-npmrc"),
 	}
@@ -79,6 +79,9 @@ func runnerBrowserMCP(trustedToolDir string) codexMCPServer {
 // Runner's trusted cwd; inherited roles deliberately retain ambient discovery.
 func codexMCPProfileArgsForConfig(ctx context.Context, run subprocess.Runner, command string, workspace profileWorkspace, allowed []string, safeTools bool, harnessConfigMode string) ([]string, error) {
 	if len(allowed) == 0 && !safeTools {
+		if !inheritsHarnessConfiguration(harnessConfigMode) {
+			return []string{"--config", "mcp_servers={}"}, nil
+		}
 		return nil, nil
 	}
 	if safeTools && (strings.TrimSpace(workspace.TrustedToolDir) == "" || !filepath.IsAbs(workspace.TrustedToolDir)) {

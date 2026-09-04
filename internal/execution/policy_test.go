@@ -356,7 +356,12 @@ func TestReviewerProfilesDefaultToNativeIsolation(t *testing.T) {
 	t.Setenv("HOME", "/home/operator")
 	profile, _ := ProfileForRole(RoleReviewer)
 	workspace := profileWorkspace{Dir: "/neutral", ReadRoot: "/repo", TrustedToolDir: "/private/trusted-browser"}
+	mcpArgs, err := codexMCPProfileArgsForConfig(t.Context(), &codexMCPListRunner{}, "codex", workspace, nil, true, config.HarnessConfigModeIsolated)
+	if err != nil {
+		t.Fatal(err)
+	}
 	codex := append(codexProfileArgs(profile, workspace, true), codexExecIsolationArgs(profile, workspace)...)
+	codex = append(codex, mcpArgs...)
 	joinedCodex := strings.Join(codex, " ")
 	for _, required := range []string{
 		"--strict-config", "--enable", "network_proxy",
@@ -364,7 +369,7 @@ func TestReviewerProfilesDefaultToNativeIsolation(t *testing.T) {
 		`workspace_roots={"/repo"=true}`,
 		`network={enabled=true,mode="limited",allow_local_binding=true,domains={"localhost"="allow","127.0.0.1"="allow"}}`,
 		`default_permissions="runner_reviewer_browser"`,
-		"--ignore-user-config", "--ignore-rules", "--disable", "mcp_servers={}", "exec", "--ephemeral", "--json", "--cd", "/neutral", "--skip-git-repo-check",
+		"--ignore-user-config", "--ignore-rules", "--disable", "mcp_servers={runner_browser=", "exec", "--ephemeral", "--json", "--cd", "/neutral", "--skip-git-repo-check",
 	} {
 		if !contains(codex, required) {
 			if !strings.Contains(joinedCodex, required) {
@@ -394,7 +399,7 @@ func TestReviewerProfilesDefaultToNativeIsolation(t *testing.T) {
 		`"allowLocalBinding":true`, `"allowedDomains":["localhost","127.0.0.1"]`,
 		`"denyWrite":["/repo"]`, `"denyRead":["/home/operator"]`, `"allowRead":["/neutral","/repo"]`,
 		`"mcpServers":{"runner_browser"`, `chrome-devtools-mcp@1.7.0`,
-		`"cwd":"/private/trusted-browser"`, `"NPM_CONFIG_CACHE":"/private/trusted-browser/npm-cache"`,
+		`"cwd":"/private/trusted-browser"`, `"NPM_CONFIG_CACHE":"/private/npm-cache"`,
 	} {
 		if !strings.Contains(joinedClaude, expected) {
 			t.Fatalf("Claude reviewer sandbox omitted %s: %#v", expected, claude)

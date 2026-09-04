@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -70,14 +71,14 @@ func TestCodexMCPProfileArgsDoNotInspectWhenNoServerIsGranted(t *testing.T) {
 	runner := &codexMCPListRunner{}
 	workspace := profileWorkspace{Dir: "/worktree", TrustedToolDir: "/neutral"}
 	args, err := codexMCPProfileArgsForConfig(t.Context(), runner, "codex", workspace, nil, false, config.HarnessConfigModeIsolated)
-	if err != nil || len(args) != 0 || runner.calls != 0 {
+	if err != nil || !slices.Equal(args, []string{"--config", "mcp_servers={}"}) || runner.calls != 0 {
 		t.Fatalf("empty MCP grant performed work: args=%#v err=%v calls=%d", args, err, runner.calls)
 	}
 }
 
 func TestCodexSafeToolsInjectPinnedLoopbackOnlyBrowserWithoutUserConfig(t *testing.T) {
 	runner := &codexMCPListRunner{}
-	workspace := profileWorkspace{Dir: "/worktree", TrustedToolDir: "/neutral"}
+	workspace := profileWorkspace{Dir: "/worktree", TrustedToolDir: "/trusted/runtime-test"}
 	args, err := codexMCPProfileArgsForConfig(t.Context(), runner, "codex", workspace, nil, true, config.HarnessConfigModeIsolated)
 	if err != nil {
 		t.Fatalf("build Runner browser profile: %v", err)
@@ -90,8 +91,8 @@ func TestCodexSafeToolsInjectPinnedLoopbackOnlyBrowserWithoutUserConfig(t *testi
 		`runner_browser={command="npx"`, "chrome-devtools-mcp@1.7.0", "--headless", "--isolated", "--slim",
 		"--allowed-url-pattern=http://localhost:*/*", "--allowed-url-pattern=http://127.0.0.1:*/*",
 		"--chrome-arg=--use-mock-keychain", "--no-performance-crux", "--redact-network-headers", "--no-usage-statistics",
-		`cwd="/neutral"`, `"NPM_CONFIG_CACHE"="/neutral/npm-cache"`, `"NPM_CONFIG_USERCONFIG"="/neutral/npmrc"`,
-		`startup_timeout_sec=30`, `enabled_tools=["navigate","evaluate","screenshot"]`,
+		`cwd="/trusted/runtime-test"`, `"NPM_CONFIG_CACHE"="/trusted/npm-cache"`, `"NPM_CONFIG_USERCONFIG"="/trusted/runtime-test/npmrc"`,
+		`startup_timeout_sec=60`, `enabled_tools=["navigate","evaluate","screenshot"]`,
 		`enabled=true`, `required=true`,
 	} {
 		if !strings.Contains(joined, expected) {

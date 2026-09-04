@@ -125,7 +125,6 @@ func codexProfileArgsForConfig(profile ExecutionProfile, workspace profileWorksp
 		// Runner embeds and pins every role skill in the prompt. Isolated roles
 		// do not discover host-installed skills or MCP servers.
 		args = append(args, "--config", codexSkipHostSkillDiscoveryConfig)
-		args = append(args, "--config", "mcp_servers={}")
 	}
 	if !inherit && !profile.allowsTool(ToolReadShell) && !profile.allowsTool(ToolShell) {
 		for _, feature := range []string{

@@ -115,7 +115,6 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 			return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryManual), err
 		}
 		args := codexProfileArgsForConfig(profile, workspace, cfg.SafeTools, cfg.HarnessConfigMode, command)
-		args = append(args, mcpArgs...)
 		if harness.Model != nil && strings.TrimSpace(*harness.Model) != "" {
 			args = append(args, "--model", strings.TrimSpace(*harness.Model))
 		}
@@ -123,6 +122,9 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 			args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", effort))
 		}
 		args = append(args, codexExecArgsForConfig(profile, workspace, cfg.HarnessConfigMode)...)
+		// Codex 0.153 must receive invocation MCP overrides after
+		// exec --ignore-user-config or its stdio handshake can stall.
+		args = append(args, mcpArgs...)
 		args = append(args, "--output-last-message", artifacts.outputPath(), "--output-schema", artifacts.schemaPath())
 		startedAt := time.Now()
 		finishHarness := metrics.StartStage(ctx, stageName)
