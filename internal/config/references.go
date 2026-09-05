@@ -8,8 +8,8 @@ import (
 )
 
 // RepositoryReference is an operator-selected, immutable Git checkout exposed
-// as evidence to planner and reviewer contracts. Role configuration cannot
-// widen or narrow this fixed Runner-owned boundary.
+// as evidence to planner, implementer, and reviewer contracts. Role configuration
+// cannot widen or narrow this fixed Runner-owned boundary.
 type RepositoryReference struct {
 	Name   string `json:"name"`
 	Path   string `json:"path"`
@@ -66,7 +66,7 @@ func validateRepositoryReferences(cfg Config) error {
 			continue
 		}
 		contract := cfg.RoleContract(roleID)
-		if contract != WorkRolePlanner && contract != WorkRoleReviewer {
+		if contract != WorkRolePlanner && contract != WorkRoleImplementer && contract != WorkRoleReviewer {
 			continue
 		}
 		if strings.TrimSpace(role.Harness) == HarnessPiCLI && EffectiveRoleAccess(role.Access) != RoleAccessHost {

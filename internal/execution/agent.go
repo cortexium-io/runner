@@ -144,18 +144,24 @@ func (e AgentExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	if e.kind == config.HarnessClaudeCLI && !requiresFullHarnessAccess(profile) {
 		// Claude Code 2.1.222 can generate a macOS sandbox profile larger
 		// than ARG_MAX when its process cwd is an existing linked worktree.
-		// Keep the task worktree as the only added repository root, but launch
+		// Keep the task worktree as the writable repository root, but launch
 		// the CLI from Runner's private neutral directory.
 		launchProfile.Workspace = WorkspaceNeutral
 	}
-	launchWorkspace, err := prepareProfileWorkspace(launchProfile, metadata.WorktreePath)
+	protectedRoots := append([]string{e.cfg.WorkingDir, e.cfg.WorkspaceWriteRoot}, e.config.ReferenceProtectedRoots...)
+	launchWorkspace, err := prepareExecutionWorkspace(ctx, e.run, launchProfile, metadata.WorktreePath, e.config.RepositoryReferences, protectedRoots...)
 	if err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 	defer launchWorkspace.cleanup()
-	prompt := buildHarnessPrompt(assignment, true, e.displayName()) + trustedSkillInstructions(e.config) + runnerBrowserPrompt(e.config.SafeTools)
+	prompt := buildHarnessPrompt(assignment, true, e.displayName()) + trustedSkillInstructions(e.config) + runnerBrowserPrompt(e.config.SafeTools) + profileReferenceInstruction(launchWorkspace)
 	if launchWorkspace.Dir != metadata.WorktreePath {
-		prompt += "\n\nAssigned worktree: " + metadata.WorktreePath + "\nRun every repository read, edit, command, and verification inside that exact directory.\n"
+		prompt += "\n\nAssigned worktree: " + metadata.WorktreePath
+		if len(launchWorkspace.ReferenceRoots) == 0 {
+			prompt += "\nRun every repository read, edit, command, and verification inside that exact directory.\n"
+		} else {
+			prompt += "\nRun implementation edits, commands, and verification inside that exact directory. Source inspection may also use the Runner-approved read-only references listed above.\n"
+		}
 	}
 	harnessStartedAt := time.Now()
 	finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)

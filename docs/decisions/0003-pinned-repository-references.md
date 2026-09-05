@@ -4,7 +4,7 @@ Date: 2026-09-02
 
 ## Context
 
-Planner and reviewer work sometimes needs evidence from a second local
+Planner, implementer, and reviewer work sometimes needs evidence from a second local
 repository, such as the implementation that an unfinished replacement must
 match. Requiring host access makes that possible but weakens the default
 containment boundary. Copying selected files into the primary repository is
@@ -19,7 +19,7 @@ into a new subsystem.
 1. Require host access whenever a role needs another repository.
 2. Copy the needed evidence into the primary repository before each run.
 3. Add optional, commit-pinned local repository references to the existing
-   planner and reviewer execution profiles.
+   planner, implementer, and reviewer execution profiles.
 4. Build a Runner-managed clone, snapshot, and mount service with per-role
    access lists.
 
@@ -36,9 +36,9 @@ overlap the primary repository, worktree roots, or one another. Git metadata
 must be contained inside the declared root, so linked worktrees and external
 Git directories are rejected rather than silently widening read access.
 
-The role boundary is fixed rather than configurable: planner and reviewer
-contracts receive references as read-only evidence; implementer and probe
-contracts never receive them. Custom roles follow their base contract. Codex
+The role boundary is fixed rather than configurable: planner, implementer, and
+reviewer contracts receive references as read-only evidence; probe contracts
+never receive them. Custom roles follow their base contract. Codex
 gets explicit read roots. Claude gets explicit additional read roots and write
 denials, and Runner suppresses instruction discovery from those additional
 directories. Pi references require explicit host access because Pi cannot
@@ -50,6 +50,14 @@ including ignored files, so operators should use a dedicated checkout that
 contains no credentials or unrelated private material. Host-access roles may
 still access anything available to the Runner operating-system account; the
 reference list does not narrow host mode.
+
+Amended 2026-09-05: the original planner/reviewer-only boundary prevented
+implementers from verifying legacy API contracts even when operators had
+configured the required evidence. All three execution contracts now receive
+the same references. Implementation launches reuse the reference validator on
+every attempt and keep reference reads separate from worktree writes. Planner
+cards should identify relevant source behavior without having to copy every
+possible implementation detail out of a reference checkout.
 
 ## Consequences
 

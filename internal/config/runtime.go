@@ -284,7 +284,7 @@ func (c RuntimeConfig) Execution(role, harness, workingDir string) ExecutionConf
 		ResourceLimits:    c.ResourceLimits,
 	}
 	contract := c.RoleContract(role)
-	if len(c.RepositoryReferences) > 0 && (contract == WorkRolePlanner || contract == WorkRoleReviewer) {
+	if len(c.RepositoryReferences) > 0 && (contract == WorkRolePlanner || contract == WorkRoleImplementer || contract == WorkRoleReviewer) {
 		execution.RepositoryReferences = cloneRepositoryReferences(c.RepositoryReferences)
 		execution.ReferenceProtectedRoots = repositoryReferenceProtectedRoots(c.ProjectDir, c.Harnesses)
 	}

@@ -7,8 +7,9 @@ import (
 
 const testReferenceCommit = "714128eaeb8e3805431f8fdeaa49a570e2830cea"
 
-func TestRepositoryReferencesResolveOnlyForPlannerAndReviewerContracts(t *testing.T) {
+func TestRepositoryReferencesResolveForAllExecutionContracts(t *testing.T) {
 	cfg := explicitTestConfig()
+	cfg.Roles["specialist"] = RoleConfig{Extends: WorkRoleImplementer}
 	cfg.RepositoryReferences = []RepositoryReference{{
 		Name: " legacy-frontend ", Path: "/references/legacy-frontend", Commit: strings.ToUpper(testReferenceCommit),
 	}}
@@ -16,7 +17,7 @@ func TestRepositoryReferencesResolveOnlyForPlannerAndReviewerContracts(t *testin
 	if err != nil {
 		t.Fatalf("resolve repository references: %v", err)
 	}
-	for _, role := range []string{WorkRolePlanner, WorkRoleReviewer} {
+	for _, role := range []string{WorkRolePlanner, WorkRoleImplementer, WorkRoleReviewer, "specialist"} {
 		execution := runtime.Execution(role, HarnessCodexCLI, cfg.ProjectDir)
 		if len(execution.RepositoryReferences) != 1 {
 			t.Fatalf("%s references = %#v, want one", role, execution.RepositoryReferences)
@@ -27,9 +28,6 @@ func TestRepositoryReferencesResolveOnlyForPlannerAndReviewerContracts(t *testin
 		if len(execution.ReferenceProtectedRoots) != 2 {
 			t.Fatalf("%s protected roots = %#v, want project and worktree roots", role, execution.ReferenceProtectedRoots)
 		}
-	}
-	if execution := runtime.Execution(WorkRoleImplementer, HarnessCodexCLI, "/worktrees/item"); len(execution.RepositoryReferences) != 0 || len(execution.ReferenceProtectedRoots) != 0 {
-		t.Fatalf("implementer received repository references: %#v", execution)
 	}
 }
 
@@ -80,5 +78,33 @@ func TestRepositoryReferencesRejectSandboxedPiReadContracts(t *testing.T) {
 	cfg.RepositoryReferences = []RepositoryReference{{Name: "legacy", Path: "/references/legacy", Commit: testReferenceCommit}}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), `host access for Pi role "planner"`) {
 		t.Fatalf("sandboxed Pi reference reader was accepted: %v", err)
+	}
+}
+
+func TestPiReferenceHostRequirementIncludesDerivedImplementers(t *testing.T) {
+	for _, roleID := range []string{WorkRolePlanner, WorkRoleImplementer, WorkRoleReviewer, "specialist"} {
+		t.Run(roleID, func(t *testing.T) {
+			cfg := explicitTestConfig()
+			cfg.Roles = RoleTemplate(HarnessPiCLI)
+			for id, role := range cfg.Roles {
+				role.Access = RoleAccessHost
+				cfg.Roles[id] = role
+			}
+			cfg.Roles["specialist"] = RoleConfig{Extends: WorkRoleImplementer}
+			if roleID == "specialist" {
+				for i := range cfg.Workflow.Rules {
+					if cfg.Workflow.Rules[i].Action.Role == WorkRoleImplementer {
+						cfg.Workflow.Rules[i].Action.Role = roleID
+					}
+				}
+			}
+			role := cfg.Roles[roleID]
+			role.Access = RoleAccessSandboxed
+			cfg.Roles[roleID] = role
+			cfg.RepositoryReferences = []RepositoryReference{{Name: "legacy", Path: "/reference", Commit: testReferenceCommit}}
+			if err := validateRepositoryReferences(cfg); err == nil || !strings.Contains(err.Error(), "host access for Pi role") {
+				t.Fatalf("sandboxed Pi reference reader accepted: %v", err)
+			}
+		})
 	}
 }

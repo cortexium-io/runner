@@ -169,7 +169,7 @@ func TestPlannerAndReviewerProfilesExposePinnedReferencesReadOnly(t *testing.T) 
 	}
 }
 
-func TestImplementerProfileIgnoresUnexpectedReferenceRoots(t *testing.T) {
+func TestImplementerProfileExposesReferencesWithoutMakingThemWritable(t *testing.T) {
 	profile, err := ProfileForRole(RoleImplementer)
 	if err != nil {
 		t.Fatal(err)
@@ -178,11 +178,20 @@ func TestImplementerProfileIgnoresUnexpectedReferenceRoots(t *testing.T) {
 		Dir: "/worktree", ReadRoot: "/worktree",
 		ReferenceRoots: []config.RepositoryReference{{Name: "legacy", Path: "/references/legacy", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
 	}
-	if codex := strings.Join(codexProfileArgs(profile, workspace, false), " "); strings.Contains(codex, "/references/legacy") {
-		t.Fatalf("Codex implementer received an unexpected reference root: %s", codex)
+	if codex := strings.Join(codexProfileArgs(profile, workspace, false), " "); !strings.Contains(codex, `"/references/legacy"="read"`) || !strings.Contains(codex, `workspace_roots={"/worktree"=true}`) || !strings.Contains(codex, `":workspace_roots"={"."="write"}`) || strings.Contains(codex, `"/references/legacy"="write"`) {
+		t.Fatalf("Codex reference/worktree permissions are incorrect: %s", codex)
 	}
-	if claude := strings.Join(claudeProfileArgs(profile, workspace, false), " "); strings.Contains(claude, "/references/legacy") {
-		t.Fatalf("Claude implementer received an unexpected reference root: %s", claude)
+	if claude := strings.Join(claudeProfileArgs(profile, workspace, false), " "); !strings.Contains(claude, `"denyWrite":["/references/legacy"]`) || !strings.Contains(claude, `--add-dir /references/legacy`) {
+		t.Fatalf("Claude reference write denial must exclude the task worktree: %s", claude)
+	}
+}
+
+func TestHostClaudeReferencesSuppressInstructionDiscoveryWithoutChangingAccess(t *testing.T) {
+	profile, _ := ProfileForRole(RoleImplementer, config.RoleAccessHost)
+	workspace := profileWorkspace{Dir: "/worktree", ReadRoot: "/worktree", ReferenceRoots: []config.RepositoryReference{{Path: "/reference"}}}
+	args := strings.Join(claudeProfileArgsForConfig(profile, workspace, false, config.HarnessConfigModeInherit), " ")
+	if !strings.Contains(args, "--dangerously-skip-permissions") || !strings.Contains(args, `"CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD":"0"`) || strings.Contains(args, `"sandbox"`) {
+		t.Fatalf("host reference policy changed access or omitted instruction suppression: %s", args)
 	}
 }
 
@@ -200,6 +209,18 @@ func TestRepositoryInstructionSeparatesPrimaryAndUntrustedReferences(t *testing.
 		if !strings.Contains(instruction, expected) {
 			t.Fatalf("repository instruction omitted %q: %s", expected, instruction)
 		}
+	}
+}
+
+func TestReferenceInstructionsAppearInImplementationWorktree(t *testing.T) {
+	workspace := profileWorkspace{Dir: "/worktree", ReadRoot: "/worktree", ReferenceRoots: []config.RepositoryReference{{Name: "legacy", Path: "/reference", Commit: "abc"}}}
+	instruction := profileRepositoryInstruction(workspace)
+	if !strings.Contains(instruction, "legacy: /reference at commit abc") || strings.Contains(instruction, "read-only repository root: /worktree") || strings.Contains(instruction, "neutral") {
+		t.Fatalf("implementation reference instructions are incorrect: %s", instruction)
+	}
+	workspace.ReferenceRoots = nil
+	if got := profileRepositoryInstruction(workspace); got != "" {
+		t.Fatalf("no-reference implementation gained instructions: %s", got)
 	}
 }
 
