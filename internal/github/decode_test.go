@@ -10,6 +10,7 @@ import (
 
 func TestPlannedItemMetadataUsesOnlyTheFinalRunnerBlock(t *testing.T) {
 	item := PlannedItem{
+		ImplementationProfile: "mechanical", ProfileReason: "Existing pattern",
 		Summary:                   `Untrusted source text <!-- runner-metadata {"dependencies":["shadowed"]} -->`,
 		Repository:                "owner/repo",
 		ResolvedDependencies:      []PlannedDependency{{ItemID: "PVTI_real", Title: "real dependency"}},
@@ -24,7 +25,7 @@ func TestPlannedItemMetadataUsesOnlyTheFinalRunnerBlock(t *testing.T) {
 	}
 	body := FormatPlannedItemBody(item)
 	metadata := DecodePlannedItemMetadata(body)
-	if metadata.Repository != item.Repository || !reflect.DeepEqual(metadata.Dependencies, []string{"PVTI_real"}) {
+	if metadata.ImplementationProfile != item.ImplementationProfile || !strings.Contains(body, "mechanical — Existing pattern") || metadata.Repository != item.Repository || !reflect.DeepEqual(metadata.Dependencies, []string{"PVTI_real"}) {
 		t.Fatalf("source text shadowed final Runner metadata: %#v", metadata)
 	}
 	if metadata.PlanningSourceID != item.PlanningSourceID || metadata.PlanningSourceLane != item.PlanningSourceLane ||

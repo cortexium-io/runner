@@ -6,12 +6,16 @@ import (
 
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/github"
+	"github.com/cortexium-io/runner/internal/metrics"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
 
 type admittedAction struct {
-	action    github.AuthorizedAction
-	resources []string
+	action            github.AuthorizedAction
+	resources         []string
+	slot              *github.ProcessLock
+	event             metrics.Event
+	metricsStartError string
 }
 
 func (s *Engine) actionResourceKeys(action github.AuthorizedAction) ([]string, error) {

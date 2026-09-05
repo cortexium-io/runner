@@ -48,6 +48,7 @@ type Engine struct {
 	run                        subprocess.Runner
 	observeMetrics             func(metrics.Event) error
 	readMetricsHistory         func() (metrics.ReadResult, error)
+	localAdmission             bool
 	admissionMu                sync.Mutex
 	lastAdmission              AdmissionDecision
 	admissionMetricsErr        string
@@ -157,7 +158,7 @@ type actionCompletion struct {
 
 func (s *Engine) runCycle(ctx context.Context, syncIntake bool) ([]RunResult, bool, error) {
 	prepared, err := s.preparePoll(ctx, s.maxParallelism(), true, nil)
-	if err != nil {
+	if err != nil && len(prepared.claimed) == 0 {
 		return nil, false, err
 	}
 
@@ -167,7 +168,7 @@ func (s *Engine) runCycle(ctx context.Context, syncIntake bool) ([]RunResult, bo
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			completed[index] = s.executeClaimedAction(ctx, admitted.action)
+			completed[index] = s.executeClaimedAction(ctx, admitted)
 		}()
 	}
 	wait.Wait()
@@ -175,6 +176,9 @@ func (s *Engine) runCycle(ctx context.Context, syncIntake bool) ([]RunResult, bo
 		s.finishAutomaticRetry(result)
 	}
 	prepared.results = append(prepared.results, completed...)
+	if err != nil {
+		return prepared.results, prepared.madeProgress, err
+	}
 
 	if syncIntake {
 		intakeProgress, intakeErr := s.syncAssessmentIntake(ctx, &prepared)
@@ -188,6 +192,17 @@ func (s *Engine) runCycle(ctx context.Context, syncIntake bool) ([]RunResult, bo
 
 func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterrupted bool, inFlight map[string][]string) (pollPreparation, error) {
 	prepared := pollPreparation{results: []RunResult{}}
+	var recoveryGuard *github.ProcessLock
+	if recoverInterrupted {
+		var err error
+		recoveryGuard, err = s.acquireLocalGate(ctx, false, github.AcquirePlanningMutationLock)
+		if errors.Is(err, github.ErrProjectLockBusy) {
+			recoverInterrupted = false
+		} else if err != nil {
+			return prepared, err
+		}
+		defer recoveryGuard.Release()
+	}
 	items, err := s.source.LifecycleItems(ctx)
 	if err != nil {
 		return pollPreparation{}, fmt.Errorf("load GitHub Project items: %w", err)
@@ -208,6 +223,9 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 			prepared.items = items
 			prepared.pendingObservation = s.hasPendingObservation(items)
 		}
+	}
+	if err := recoveryGuard.Release(); err != nil {
+		return prepared, err
 	}
 	reconciliationItems, err := s.itemsWithoutResourceConflicts(items, inFlight)
 	if err != nil {
@@ -265,6 +283,14 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 		prepared.items = items
 		prepared.pendingObservation = s.hasPendingObservation(items)
 	}
+	guard, err := s.acquireLocalAdmission(ctx, false)
+	if errors.Is(err, github.ErrProjectLockBusy) {
+		return prepared, nil
+	}
+	if err != nil {
+		return prepared, err
+	}
+	defer guard.Release()
 	admission, err := s.AdmissionStatus(time.Now().UTC())
 	if err != nil {
 		return pollPreparation{}, err
@@ -296,7 +322,7 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 	}
 	prepared.items = claimSnapshot
 	prepared.pendingObservation = s.hasPendingObservation(claimSnapshot)
-	claimed := make([]admittedAction, 0, limit)
+	prepared.claimed = make([]admittedAction, 0, limit)
 	occupied := occupiedResourceKeys(inFlight)
 	for _, action := range readyActions {
 		item := action.Item
@@ -344,21 +370,38 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 			}
 		}
 		prepared.itemsDirty = true
+		currentAdmission, err := s.AdmissionStatus(time.Now().UTC())
+		if err != nil {
+			return prepared, err
+		}
+		if currentAdmission.Configured && !currentAdmission.Allowed {
+			s.recordAdmissionDecision(currentAdmission)
+			break
+		}
+		slot, err := s.acquireLocalExecutionSlot()
+		if errors.Is(err, github.ErrProjectLockBusy) {
+			break
+		}
+		if err != nil {
+			return prepared, err
+		}
 		claimedAction, err := s.source.ClaimFromSnapshot(ctx, action, claimSnapshot, laneID, s.activityForRole(action.Role))
 		if err != nil {
+			_ = slot.Release()
 			prepared.results = append(prepared.results, RunResult{Item: item, Harness: s.roleHarness(item.Role), Outcome: execution.OutcomeBlocked, Summary: "Claim failed", Error: err.Error()})
 			continue
 		}
 		reserveResources(resources, occupied)
-		claimed = append(claimed, admittedAction{action: claimedAction, resources: resources})
-		if len(claimed) == limit {
+		admitted := admittedAction{action: claimedAction, resources: resources, slot: slot, event: s.newItemAttempt(claimedAction.Item)}
+		if err := s.recordAttemptStart(admitted.event); err != nil {
+			admitted.metricsStartError = err.Error()
+		}
+		prepared.claimed = append(prepared.claimed, admitted)
+		prepared.madeProgress = true
+		if len(prepared.claimed) == limit {
 			break
 		}
 	}
-	if len(claimed) > 0 {
-		prepared.madeProgress = true
-	}
-	prepared.claimed = claimed
 	return prepared, nil
 }
 
@@ -380,8 +423,9 @@ func (s *Engine) syncAssessmentIntake(ctx context.Context, prepared *pollPrepara
 	return progress, nil
 }
 
-func (s *Engine) executeClaimedAction(ctx context.Context, action github.AuthorizedAction) RunResult {
-	return s.executeItem(ctx, action)
+func (s *Engine) executeClaimedAction(ctx context.Context, admitted admittedAction) RunResult {
+	defer admitted.slot.Release()
+	return s.executeItem(ctx, admitted)
 }
 
 func (s *Engine) activityForRole(role string) string {
@@ -449,7 +493,7 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 				}
 				inFlight[itemID] = append([]string(nil), admitted.resources...)
 				go func() {
-					completed <- actionCompletion{itemID: itemID, result: s.executeClaimedAction(ctx, admitted.action)}
+					completed <- actionCompletion{itemID: itemID, result: s.executeClaimedAction(ctx, admitted)}
 				}()
 			}
 			madeProgress := prepared.madeProgress
@@ -564,10 +608,7 @@ func pollDelay(base, maxIdle time.Duration, consecutiveErrors, consecutiveIdle i
 	return delay
 }
 
-func (s *Engine) executeItem(ctx context.Context, action github.AuthorizedAction) (result RunResult) {
-	item := action.Item
-	startedAt := time.Now().UTC()
-	attemptID := metrics.NewAttemptID()
+func (s *Engine) newItemAttempt(item github.WorkItem) metrics.Event {
 	executionRole := s.executionRole(item)
 	harness := s.roleHarness(executionRole)
 	profile, _ := s.cfg.RoleProfile(executionRole)
@@ -575,20 +616,20 @@ func (s *Engine) executeItem(ctx context.Context, action github.AuthorizedAction
 	if profile.Model != nil {
 		model = strings.TrimSpace(*profile.Model)
 	}
-	baseEvent := metrics.Event{
-		AttemptID: attemptID, RunnerID: s.cfg.RunnerID,
+	return metrics.Event{
+		AttemptID: metrics.NewAttemptID(), RunnerID: s.cfg.RunnerID,
 		ProjectOwner: s.cfg.GitHubProject.Owner, ProjectNumber: s.cfg.GitHubProject.Number,
 		ItemID: item.ID, ItemTitle: item.Title, Role: executionRole, Harness: harness,
-		Model: model, Reasoning: profile.Reasoning, Iteration: item.QAFailures + 1, StartedAt: startedAt,
+		Model: model, Reasoning: profile.Reasoning, Iteration: item.QAFailures + 1, StartedAt: time.Now().UTC(),
 	}
-	metricsStartError := ""
-	if s.observeMetrics != nil {
-		started := baseEvent
-		started.Kind = metrics.EventStarted
-		if err := s.observeMetrics(started); err != nil {
-			metricsStartError = err.Error()
-		}
-	}
+}
+
+func (s *Engine) executeItem(ctx context.Context, admitted admittedAction) (result RunResult) {
+	action := admitted.action
+	item := action.Item
+	baseEvent := admitted.event
+	startedAt, harness := baseEvent.StartedAt, baseEvent.Harness
+	metricsStartError := admitted.metricsStartError
 	if metricsStartError != "" && s.cfg.AdmissionBudget != nil {
 		err := fmt.Errorf("persist admission reservation: %s", metricsStartError)
 		_, lane := s.laneForItem(item)
@@ -811,7 +852,10 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 	}
 	action = refreshedAction
 	item = action.Item
-	executionRole = s.executionRole(item)
+	executionRole, err = s.cfg.SelectedImplementer(item.Role, item.ImplementationProfile, item.QAFailures)
+	if err != nil {
+		return s.failExecution(ctx, action, lane, result, "Approved execution profile is unavailable", err, blockedExecutorOutput("Approved execution profile is unavailable", err))
+	}
 	harness = s.roleHarness(executionRole)
 	result.Item = item
 	result.Harness = harness
@@ -1138,11 +1182,24 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	if err != nil {
 		return s.failExecution(ctx, action, lane, result, "Human issue comments could not be loaded for QA", err, transientExecutorOutput("Human issue comments could not be loaded for QA"))
 	}
-	reviewFeedback, err := s.loadReviewFeedback(item, delegatedContent)
+	reviewRecord, err := s.loadReviewFeedbackRecord(item, delegatedContent)
 	if err != nil {
 		return s.failExecution(ctx, action, lane, result, "Previous Agent QA feedback is not safe to use for review", err, integrityViolationOutput("Previous Agent QA feedback is not safe to use for review", err))
 	}
-	assignment := s.assignment(qaItem, delegatedContent, reviewFeedback, humanCommentContext(comments))
+	var reviewFeedback []string
+	if reviewRecord != nil {
+		reviewFeedback = reviewRecord.Items
+	}
+	commentContext := humanCommentContext(comments)
+	assignment := s.assignment(qaItem, delegatedContent, reviewFeedback, commentContext)
+	reviewContext := reviewContextDigest(assignment.Spec, commentContext)
+	baseline := matchingReviewBaseline(reviewRecord, preparedWorkspace.BaseRevision, reviewContext)
+	if baseline != nil {
+		if _, objectErr := s.git(ctx, []string{"-C", reviewWorkspace.Path, "cat-file", "-e", baseline.CommitOID + "^{commit}"}, "", 10*time.Second); objectErr == nil {
+			assignment.Spec.ReviewBaseline = baseline
+		}
+	}
+
 	assignment.Spec.RecordedVerification, err = s.loadVerificationEvidence(item, delegatedContent, preparedWorkspace, candidate, assignment.Spec.RequiredVerification)
 	if err != nil {
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation verification evidence is not valid for QA", err,
@@ -1203,7 +1260,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		result.Error = err.Error()
 	}
 	if output.ReviewAssessment != nil && output.ReviewAssessment.Verdict == "needs_changes" {
-		if feedbackErr := s.saveReviewFeedback(item, delegatedContent, *output.ReviewAssessment); feedbackErr != nil {
+		if feedbackErr := s.saveReviewFeedback(item, delegatedContent, *output.ReviewAssessment, &execution.ReviewBaseline{CommitOID: candidate.CommitOID, BaseOID: preparedWorkspace.BaseRevision, ContextDigest: reviewContext}); feedbackErr != nil {
 			return s.failExecution(ctx, action, lane, result, "Agent QA feedback could not be retained safely", feedbackErr, integrityViolationOutput("Agent QA feedback could not be retained safely", feedbackErr, output))
 		}
 		failures := item.QAFailures + 1

@@ -2883,41 +2883,59 @@ func TestImplementerLadderSelectsProfilesFromPersistedQAFailures(t *testing.T) {
 }
 
 func TestImplementationLadderRunsSelectedProfileWithRetainedQAFeedback(t *testing.T) {
-	repo, _ := createPublicationRepository(t)
-	item := github.WorkItem{
-		ID: "PVTI_ladder", Title: "Refine implementation", Body: "Acceptance criteria", Repository: "owner/repo",
-		Status: "In Progress", Phase: "ready", Role: config.WorkRoleImplementer, QAFailures: 1,
-	}
-	item.Approval = testApproval(item)
-	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, qaFailures: 1}
-	qwen, luna := "qwen/local", "gpt-luna"
-	cfg := completeEngineTestConfig(config.Config{
-		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	})
-	implementer := cfg.Roles[config.WorkRoleImplementer]
-	implementer.Model = &qwen
-	cfg.Roles[config.WorkRoleImplementer] = implementer
-	cfg.Roles["implementer_luna"] = config.RoleConfig{Extends: config.WorkRoleImplementer, Model: &luna}
-	cfg.ImplementerLadder = []string{config.WorkRoleImplementer, "implementer_luna"}
-	runner := &successfulImplementationRunner{project: project}
-	service, err := New(cfg, runner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := github.DelegatedContentFor(item)
-	if err := service.saveReviewFeedback(item, content, execution.ReviewAssessment{
-		Verdict: "needs_changes", Summary: "Preserve the previous edge case.",
-	}); err != nil {
-		t.Fatalf("save QA feedback: %v", err)
-	}
-	action := mustAuthorizeTest(t, service.source, item)
-	result := service.executeImplementation(t.Context(), action)
-	joined := strings.Join(runner.args, " ")
-	if result.Outcome != execution.OutcomeSucceeded || argumentValue(runner.args, "--model") != luna {
-		t.Fatalf("selected implementation profile was not executed: result=%#v args=%s", result, joined)
-	}
-	if !strings.Contains(joined, "Preserve the previous edge case.") || strings.Contains(joined, qwen) {
-		t.Fatalf("escalated profile lost QA feedback or used the first model: %s", joined)
+	for _, selected := range []bool{false, true} {
+		t.Run(fmt.Sprintf("planner_selected_%t", selected), func(t *testing.T) {
+			repo, _ := createPublicationRepository(t)
+			item := github.WorkItem{
+				ID: "PVTI_ladder", Title: "Refine implementation", Body: "Acceptance criteria", Repository: "owner/repo",
+				Status: "In Progress", Phase: "ready", Role: config.WorkRoleImplementer, QAFailures: 1,
+			}
+			if selected {
+				item.QAFailures = 0
+				item.ImplementationProfile = "implementer_luna"
+				item.PlanningSourceLane = "local_plan"
+				item.PlanningSourceFingerprint = "v1:source"
+				item.PlanningDestination = "Ready"
+				item.PlanningBatchFingerprint = "v1:batch"
+				item.PlanningBatchSize, item.PlanningItemIndex = 1, 1
+				item.Body = github.FormatPlannedItemBody(github.PlannedItem{Summary: item.Body, Repository: item.Repository, ImplementationProfile: item.ImplementationProfile, ProfileReason: "Existing pattern", DependencyIDsResolved: true, PlanningSourceLane: item.PlanningSourceLane, PlanningSourceFingerprint: item.PlanningSourceFingerprint, PlanningDestination: item.PlanningDestination, PlanningBatchFingerprint: item.PlanningBatchFingerprint, PlanningBatchSize: 1, PlanningItemIndex: 1})
+			}
+			item.Approval = testApproval(item)
+			project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, qaFailures: item.QAFailures}
+			qwen, luna := "qwen/local", "gpt-luna"
+			cfg := completeEngineTestConfig(config.Config{
+				ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+			})
+			implementer := cfg.Roles[config.WorkRoleImplementer]
+			implementer.Model = &qwen
+			cfg.Roles[config.WorkRoleImplementer] = implementer
+			cfg.Roles["implementer_luna"] = config.RoleConfig{Extends: config.WorkRoleImplementer, Model: &luna, Description: "Mechanical changes"}
+			if selected {
+				cfg.PlannerImplementers = []string{"implementer_luna"}
+			} else {
+				cfg.ImplementerLadder = []string{config.WorkRoleImplementer, "implementer_luna"}
+			}
+			runner := &successfulImplementationRunner{project: project}
+			service, err := New(cfg, runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			content := github.DelegatedContentFor(item)
+			if err := service.saveReviewFeedback(item, content, execution.ReviewAssessment{
+				Verdict: "needs_changes", Summary: "Preserve the previous edge case.",
+			}, nil); err != nil {
+				t.Fatalf("save QA feedback: %v", err)
+			}
+			action := mustAuthorizeTest(t, service.source, item)
+			result := service.executeImplementation(t.Context(), action)
+			joined := strings.Join(runner.args, " ")
+			if result.Outcome != execution.OutcomeSucceeded || argumentValue(runner.args, "--model") != luna {
+				t.Fatalf("selected implementation profile was not executed: result=%#v args=%s", result, joined)
+			}
+			if !strings.Contains(joined, "Preserve the previous edge case.") || strings.Contains(joined, qwen) {
+				t.Fatalf("escalated profile lost QA feedback or used the first model: %s", joined)
+			}
+		})
 	}
 }
 
@@ -4951,13 +4969,14 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 				ID: "PVTI_qa", Title: "Implement", Body: "Criteria", Repository: "owner/repo", Status: "Agent QA", Phase: "agent_qa",
 				Branch: "cortexium/task", QAFailures: test.failures,
 			}
-			if _, err := workspace.NewGitProvider(subprocess.OSRunner{}).Prepare(t.Context(), workspace.Request{
+			prepared, prepareErr := workspace.NewGitProvider(subprocess.OSRunner{}).Prepare(t.Context(), workspace.Request{
 				WorkingDir: repo, WorktreeRoot: filepath.Join(filepath.Dir(repo), ".runner-worktrees"),
 				WorkID: "assignment_" + safeRefComponent(item.ID), ItemID: item.ID,
 				DelegatedContentDigest: github.DelegatedContentFor(item).Digest, Repository: item.Repository,
 				BranchName: item.Branch, BaseRef: "origin/main",
-			}); err != nil {
-				t.Fatalf("prepare implementation workspace: %v", err)
+			})
+			if prepareErr != nil {
+				t.Fatalf("prepare implementation workspace: %v", prepareErr)
 			}
 			item.Approval = testApproval(item)
 			project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, qaFailures: test.failures}
@@ -4971,9 +4990,14 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 				t.Fatalf("configure service: %v", err)
 			}
 			if test.priorFeedback {
+				var baseline *execution.ReviewBaseline
+				if test.failures == 1 {
+					spec := service.assignment(item, github.DelegatedContentFor(item), nil, nil).Spec
+					baseline = &execution.ReviewBaseline{CommitOID: prepared.BaseRevision, BaseOID: prepared.BaseRevision, ContextDigest: reviewContextDigest(spec, nil)}
+				}
 				if err := service.saveReviewFeedback(item, github.DelegatedContentFor(item), execution.ReviewAssessment{
 					Verdict: "needs_changes", Summary: "Preserve the previously corrected edge case.",
-				}); err != nil {
+				}, baseline); err != nil {
 					t.Fatalf("save prior QA feedback: %v", err)
 				}
 			}
@@ -4986,6 +5010,9 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 			}
 			if len(prompts) != 1 {
 				t.Fatalf("reviewer prompt count = %d, want one", len(prompts))
+			}
+			if got := strings.Contains(prompts[0], "Follow-up review:"); got != (test.failures == 1) {
+				t.Fatalf("baseline review scope mismatch: follow-up=%t failures=%d", got, test.failures)
 			}
 			if test.priorFeedback && (!strings.Contains(prompts[0], "Preserve the previously corrected edge case.") || !strings.Contains(prompts[0], "Verify their correction in the current candidate")) {
 				t.Fatalf("reviewer did not receive prior QA feedback as historical evidence: %#v", prompts)

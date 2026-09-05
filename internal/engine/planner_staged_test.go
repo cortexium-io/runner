@@ -14,7 +14,7 @@ import (
 func TestStagedProjectPlannerAssemblesFixedKeyPlan(t *testing.T) {
 	responses := []string{
 		`{"goal_summary":"Ship authenticated exports","project_success_criteria":["Retries create one job"],"project_constraints":["Keep tenants isolated"],"open_decisions":[],"cards":[{"title":"Build export endpoint","dependencies":[]},{"title":"Verify concurrency","dependencies":[1]}]}`,
-		`{"cards":{"C1":{"objective":"Create the authenticated endpoint.","done_when":["Repeated tenant keys return the original job."],"proof_obligations":["Tenant-scoped idempotency is demonstrated."],"assumptions":["Use the existing export store."]},"C2":{"objective":"Exercise concurrent duplicate requests.","done_when":["Only one job is created under contention."],"proof_obligations":["Concurrent duplicate requests are shown to converge on one job."],"assumptions":[]}}}`,
+		`{"cards":{"C1":{"implementation_profile":"mechanical","profile_reason":"Existing endpoint pattern","objective":"Create the authenticated endpoint.","done_when":["Repeated tenant keys return the original job."],"proof_obligations":["Tenant-scoped idempotency is demonstrated."],"assumptions":["Use the existing export store."]},"C2":{"objective":"Exercise concurrent duplicate requests.","done_when":["Only one job is created under contention."],"proof_obligations":["Concurrent duplicate requests are shown to converge on one job."],"assumptions":[]}}}`,
 	}
 	var prompts []string
 	var schemas [][]byte
@@ -38,6 +38,9 @@ func TestStagedProjectPlannerAssemblesFixedKeyPlan(t *testing.T) {
 	plan, err := decodeProjectPlan(result.Message)
 	if err != nil {
 		t.Fatalf("assembled plan does not satisfy the canonical contract: %v\n%s", err, result.Message)
+	}
+	if plan.WorkItems[0].ImplementationProfile != "mechanical" || plan.WorkItems[0].ProfileReason != "Existing endpoint pattern" {
+		t.Fatalf("profile lost between stages: %#v", plan.WorkItems[0])
 	}
 	if len(plan.WorkItems) != 2 || plan.WorkItems[0].Title != "Build export endpoint" || plan.WorkItems[1].Repository != "owner/repo" {
 		t.Fatalf("Runner did not bind fixed titles and repository: %#v", plan.WorkItems)

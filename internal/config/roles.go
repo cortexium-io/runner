@@ -19,10 +19,10 @@ func RoleTemplate(harness string) map[string]RoleConfig {
 			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-planner"}, Reasoning: "high", TimeoutSeconds: 1200,
 		},
 		WorkRoleImplementer: {
-			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-implementer"}, Reasoning: "high", PlanningSupport: PlanningSupportStandard, TimeoutSeconds: 7200,
+			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-implementer"}, Reasoning: "high", TaskGranularity: TaskGranularityStandard, TimeoutSeconds: 7200,
 		},
 		WorkRoleReviewer: {
-			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-reviewer"}, Reasoning: "high", PlanningSupport: PlanningSupportStandard, TimeoutSeconds: 3600,
+			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-reviewer"}, Reasoning: "high", TaskGranularity: TaskGranularityStandard, TimeoutSeconds: 3600,
 		},
 	}
 }
@@ -179,7 +179,7 @@ func (c Config) ConfiguredRoleHarnesses() []string {
 func (c Config) ExecutionRoleIDs() []string {
 	seen := map[string]bool{}
 	result := []string{}
-	for _, id := range append(c.WorkflowRoleIDs(), c.ImplementerLadder...) {
+	for _, id := range append(append(c.WorkflowRoleIDs(), c.ImplementerLadder...), c.PlannerImplementers...) {
 		id = strings.TrimSpace(id)
 		if id == "" || seen[id] {
 			continue
@@ -301,6 +301,9 @@ func validateRoleConfigs(c Config, roles map[string]RoleConfig) error {
 			return fmt.Errorf("roles.%s.safe_tools cannot be enabled because planners remain read-only", id)
 		}
 		if profile.Reasoning != "" && !validReasoningEffort(profile.Harness, profile.Reasoning) {
+			if profile.Harness == HarnessCodexCLI {
+				return fmt.Errorf("roles.%s.reasoning must be low, medium, high, xhigh, or max for Codex", id)
+			}
 			if profile.Harness == HarnessPiCLI {
 				return fmt.Errorf("roles.%s.reasoning must be off, low, medium, high, or xhigh for Pi", id)
 			}
@@ -309,11 +312,11 @@ func validateRoleConfigs(c Config, roles map[string]RoleConfig) error {
 		if profile.PreserveReasoning != nil && profile.Harness != HarnessPiCLI {
 			return fmt.Errorf("roles.%s.preserve_reasoning requires the pi harness", id)
 		}
-		if profile.PlanningSupport != "" && c.RoleContract(id) == WorkRolePlanner {
-			return fmt.Errorf("roles.%s.planning_support applies only to implementer and reviewer contracts", id)
+		if profile.TaskGranularity != "" && c.RoleContract(id) == WorkRolePlanner {
+			return fmt.Errorf("roles.%s.task_granularity applies only to implementer and reviewer contracts", id)
 		}
-		if !ValidPlanningSupport(profile.PlanningSupport) {
-			return fmt.Errorf("roles.%s.planning_support must be standard or high", id)
+		if !ValidTaskGranularity(profile.TaskGranularity) {
+			return fmt.Errorf("roles.%s.task_granularity must be standard or small", id)
 		}
 		if profile.Model != nil && strings.TrimSpace(*profile.Model) == "" {
 			return fmt.Errorf("roles.%s.model cannot be blank", id)
@@ -384,6 +387,9 @@ func mergeRoleProfile(parent, child RoleConfig) RoleConfig {
 		value := *child.Model
 		result.Model = &value
 	}
+	if child.Description != "" {
+		result.Description = child.Description
+	}
 	if child.Reasoning != "" {
 		result.Reasoning = child.Reasoning
 	}
@@ -391,8 +397,8 @@ func mergeRoleProfile(parent, child RoleConfig) RoleConfig {
 		value := *child.PreserveReasoning
 		result.PreserveReasoning = &value
 	}
-	if child.PlanningSupport != "" {
-		result.PlanningSupport = child.PlanningSupport
+	if child.TaskGranularity != "" {
+		result.TaskGranularity = child.TaskGranularity
 	}
 	if child.TimeoutSeconds > 0 {
 		result.TimeoutSeconds = child.TimeoutSeconds

@@ -62,17 +62,17 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	plannerHarnessConfig := flags.String("planner-harness-config", "", "planner harness configuration: isolated or inherit")
 	implementerHarnessConfig := flags.String("implementer-harness-config", "", "implementer harness configuration: isolated or inherit")
 	reviewerHarnessConfig := flags.String("reviewer-harness-config", "", "reviewer harness configuration: isolated or inherit")
-	defaultPlanningSupport := flags.String("planning-support", "", "default downstream task sizing: standard (regular) or high (small)")
-	implementerPlanningSupport := flags.String("implementer-planning-support", "", "implementer task sizing: standard (regular) or high (small)")
-	reviewerPlanningSupport := flags.String("reviewer-planning-support", "", "reviewer task sizing: standard (regular) or high (small)")
+	defaultTaskGranularity := flags.String("task-granularity", "", "default downstream task sizing: standard (regular) or small")
+	implementerTaskGranularity := flags.String("implementer-task-granularity", "", "implementer task sizing: standard (regular) or small")
+	reviewerTaskGranularity := flags.String("reviewer-task-granularity", "", "reviewer task sizing: standard (regular) or small")
 	defaultModel := flags.String("model", "", "optional default model for all roles; overridden by a role-specific model flag")
 	plannerModel := flags.String("planner-model", "", "optional planner model override")
 	implementerModel := flags.String("implementer-model", "", "optional implementer model override")
 	reviewerModel := flags.String("reviewer-model", "", "optional reviewer model override")
-	defaultReasoning := flags.String("reasoning", "", "default reasoning effort for all roles: low, medium, high, or xhigh; Pi also supports off")
-	plannerReasoning := flags.String("planner-reasoning", "", "planner reasoning effort: low, medium, high, or xhigh; Pi also supports off")
-	implementerReasoning := flags.String("implementer-reasoning", "", "implementer reasoning effort: low, medium, high, or xhigh; Pi also supports off")
-	reviewerReasoning := flags.String("reviewer-reasoning", "", "reviewer reasoning effort: low, medium, high, or xhigh; Pi also supports off")
+	defaultReasoning := flags.String("reasoning", "", "default reasoning effort for all roles: low, medium, high, or xhigh; Codex also supports max; Pi also supports off")
+	plannerReasoning := flags.String("planner-reasoning", "", "planner reasoning effort: low, medium, high, or xhigh; Codex also supports max; Pi also supports off")
+	implementerReasoning := flags.String("implementer-reasoning", "", "implementer reasoning effort: low, medium, high, or xhigh; Codex also supports max; Pi also supports off")
+	reviewerReasoning := flags.String("reviewer-reasoning", "", "reviewer reasoning effort: low, medium, high, or xhigh; Codex also supports max; Pi also supports off")
 	baseUpdateReview := flags.String("base-update-review", "", "required review policy after an automatic base update: required")
 	dryRun := flags.Bool("dry-run", false, "preview local and GitHub changes without applying them")
 	interactiveFlag := flags.Bool("interactive", false, "prompt for missing initialization choices even when input is not a terminal")
@@ -141,7 +141,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 			"remote": true, "harness": true, "planner-harness": true, "implementer-harness": true,
 			"reviewer-harness": true, "planner-access": true, "implementer-access": true, "reviewer-access": true,
 			"harness-config": true, "planner-harness-config": true, "implementer-harness-config": true, "reviewer-harness-config": true,
-			"planning-support": true, "implementer-planning-support": true, "reviewer-planning-support": true,
+			"task-granularity": true, "implementer-task-granularity": true, "reviewer-task-granularity": true,
 			"planner-model": true, "implementer-model": true,
 			"model": true, "reviewer-model": true, "reasoning": true, "planner-reasoning": true, "implementer-reasoning": true,
 			"reviewer-reasoning": true, "base-update-review": true,
@@ -171,7 +171,7 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	); err != nil {
 		return err
 	}
-	if err := applyInitPlanningSupportDefaults(*defaultPlanningSupport, implementerPlanningSupport, reviewerPlanningSupport); err != nil {
+	if err := applyInitTaskGranularityDefaults(*defaultTaskGranularity, implementerTaskGranularity, reviewerTaskGranularity); err != nil {
 		return err
 	}
 	if err := applyInitHarnessConfigDefaults(*defaultHarnessConfig, plannerHarnessConfig, implementerHarnessConfig, reviewerHarnessConfig); err != nil {
@@ -185,15 +185,15 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 			plannerHarness, implementerHarness, reviewerHarness,
 			plannerModel, implementerModel, reviewerModel,
 			plannerReasoning, implementerReasoning, reviewerReasoning,
-			implementerPlanningSupport, reviewerPlanningSupport,
+			implementerTaskGranularity, reviewerTaskGranularity,
 			maxParallelism, maxParallelismProvided,
 			baseUpdateReview, autoMerge, autoMergeProvided, strings.TrimSpace(*baseBranch),
 		); err != nil {
 			return err
 		}
 	}
-	*implementerPlanningSupport = config.EffectivePlanningSupport(*implementerPlanningSupport)
-	*reviewerPlanningSupport = config.EffectivePlanningSupport(*reviewerPlanningSupport)
+	*implementerTaskGranularity = config.EffectiveTaskGranularity(*implementerTaskGranularity)
+	*reviewerTaskGranularity = config.EffectiveTaskGranularity(*reviewerTaskGranularity)
 	if (*projectNumber > 0) == (strings.TrimSpace(*createProject) != "") {
 		return errors.New("init requires exactly one of --project-number NUMBER or --create-project TITLE")
 	}
@@ -267,12 +267,12 @@ func runInit(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	implementerRole := roles[config.WorkRoleImplementer]
 	implementerRole.Access = *implementerAccess
 	implementerRole.HarnessConfig = *implementerHarnessConfig
-	implementerRole.PlanningSupport = *implementerPlanningSupport
+	implementerRole.TaskGranularity = *implementerTaskGranularity
 	roles[config.WorkRoleImplementer] = implementerRole
 	reviewerRole := roles[config.WorkRoleReviewer]
 	reviewerRole.Access = *reviewerAccess
 	reviewerRole.HarnessConfig = *reviewerHarnessConfig
-	reviewerRole.PlanningSupport = *reviewerPlanningSupport
+	reviewerRole.TaskGranularity = *reviewerTaskGranularity
 	roles[config.WorkRoleReviewer] = reviewerRole
 	admissionBudget, err := initAdmissionBudget(*admissionWindow, *maxAdmissionAttempts, *maxAdmissionHarnessTime, *maxAdmissionTokens, *maxAdmissionCostUSD)
 	if err != nil {
@@ -624,9 +624,9 @@ func applyInitRoleDefaults(
 	}
 	if reasoning != "" {
 		switch reasoning {
-		case "off", "low", "medium", "high", "xhigh":
+		case "off", "low", "medium", "high", "xhigh", "max":
 		default:
-			return errors.New("--reasoning must be low, medium, high, or xhigh; Pi also supports off")
+			return errors.New("--reasoning must be low, medium, high, or xhigh; Codex also supports max; Pi also supports off")
 		}
 	}
 	apply := func(value string, targets ...*string) {
@@ -645,15 +645,15 @@ func applyInitRoleDefaults(
 	return nil
 }
 
-func applyInitPlanningSupportDefaults(value string, implementer, reviewer *string) error {
+func applyInitTaskGranularityDefaults(value string, implementer, reviewer *string) error {
 	value = strings.TrimSpace(value)
 	for name, candidate := range map[string]string{
-		"--planning-support":             value,
-		"--implementer-planning-support": strings.TrimSpace(*implementer),
-		"--reviewer-planning-support":    strings.TrimSpace(*reviewer),
+		"--task-granularity":             value,
+		"--implementer-task-granularity": strings.TrimSpace(*implementer),
+		"--reviewer-task-granularity":    strings.TrimSpace(*reviewer),
 	} {
-		if candidate != "" && !config.ValidPlanningSupport(candidate) {
-			return fmt.Errorf("%s must be standard or high", name)
+		if candidate != "" && !config.ValidTaskGranularity(candidate) {
+			return fmt.Errorf("%s must be standard or small", name)
 		}
 	}
 	if value != "" {
@@ -687,7 +687,7 @@ func applyInitHarnessConfigDefaults(value string, planner, implementer, reviewer
 	return nil
 }
 
-func promptInitPlanningSupport(prompter *initPrompter, implementer, reviewer *string) error {
+func promptInitTaskGranularity(prompter *initPrompter, implementer, reviewer *string) error {
 	if strings.TrimSpace(*implementer) != "" || strings.TrimSpace(*reviewer) != "" {
 		return nil
 	}
@@ -695,12 +695,12 @@ func promptInitPlanningSupport(prompter *initPrompter, implementer, reviewer *st
 		{
 			Label:       "Regular coherent tasks (recommended)",
 			Description: "Use natural review boundaries without extra decomposition",
-			Value:       config.PlanningSupportStandard,
+			Value:       config.TaskGranularityStandard,
 		},
 		{
 			Label:       "Smaller coherent tasks",
 			Description: "Split independently verifiable behavior for less capable downstream models",
-			Value:       config.PlanningSupportHigh,
+			Value:       config.TaskGranularitySmall,
 		},
 	}
 	selected, err := prompter.selectMenu("How should the planner size downstream tasks?", options, 0)
@@ -762,7 +762,7 @@ func promptInitChoices(
 	projectNumber *int,
 	createProject, projectVisibility, plannerHarness, implementerHarness, reviewerHarness *string,
 	plannerModel, implementerModel, reviewerModel, plannerReasoning, implementerReasoning, reviewerReasoning *string,
-	implementerPlanningSupport, reviewerPlanningSupport *string,
+	implementerTaskGranularity, reviewerTaskGranularity *string,
 	maxParallelism *int,
 	maxParallelismProvided bool,
 	baseUpdateReview *string,
@@ -812,7 +812,7 @@ func promptInitChoices(
 	); err != nil {
 		return err
 	}
-	if err := promptInitPlanningSupport(prompter, implementerPlanningSupport, reviewerPlanningSupport); err != nil {
+	if err := promptInitTaskGranularity(prompter, implementerTaskGranularity, reviewerTaskGranularity); err != nil {
 		return err
 	}
 	if !maxParallelismProvided {
@@ -1029,7 +1029,7 @@ func promptInitRuntimeChoices(
 
 	reasoningMissing := strings.TrimSpace(*plannerReasoning) == "" && strings.TrimSpace(*implementerReasoning) == "" && strings.TrimSpace(*reviewerReasoning) == ""
 	if reasoningMissing {
-		reasoning, err := prompter.choiceAt("Default reasoning effort for all roles", []string{"low", "medium", "high", "xhigh"}, nil, 2)
+		reasoning, err := prompter.choiceAt("Default reasoning effort for all roles", initReasoningOptions(*plannerHarness, *implementerHarness, *reviewerHarness), nil, 2)
 		if err != nil {
 			return err
 		}
@@ -1039,22 +1039,36 @@ func promptInitRuntimeChoices(
 	for _, role := range []struct {
 		name      string
 		reasoning *string
+		harness   *string
 	}{
-		{name: config.WorkRolePlanner, reasoning: plannerReasoning},
-		{name: config.WorkRoleImplementer, reasoning: implementerReasoning},
-		{name: config.WorkRoleReviewer, reasoning: reviewerReasoning},
+		{name: config.WorkRolePlanner, reasoning: plannerReasoning, harness: plannerHarness},
+		{name: config.WorkRoleImplementer, reasoning: implementerReasoning, harness: implementerHarness},
+		{name: config.WorkRoleReviewer, reasoning: reviewerReasoning, harness: reviewerHarness},
 	} {
 		if strings.TrimSpace(*role.reasoning) != "" {
 			continue
 		}
 		roleLabel := strings.ToUpper(role.name[:1]) + role.name[1:]
-		reasoning, err := prompter.choice(roleLabel+" reasoning effort", []string{"low", "medium", "high", "xhigh"}, nil)
+		reasoning, err := prompter.choice(roleLabel+" reasoning effort", initReasoningOptions(*role.harness), nil)
 		if err != nil {
 			return err
 		}
 		*role.reasoning = reasoning
 	}
 	return nil
+}
+
+func initReasoningOptions(harnesses ...string) []string {
+	options := []string{"low", "medium", "high", "xhigh"}
+	for _, harness := range harnesses {
+		if strings.TrimSpace(harness) != config.HarnessCodexCLI {
+			return options
+		}
+	}
+	if len(harnesses) > 0 {
+		options = append(options, "max")
+	}
+	return options
 }
 
 func (p *initPrompter) required(label string) (string, error) {

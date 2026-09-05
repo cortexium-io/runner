@@ -1,6 +1,7 @@
 package github
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,6 +41,55 @@ func TestProjectProcessLockAllowsOnlyOneLocalRunnerPerProject(t *testing.T) {
 	}
 	if err := third.Release(); err != nil {
 		t.Fatalf("release reacquired lock: %v", err)
+	}
+}
+
+func TestPlanningAndExecutionLocksDoNotOwnWorkerStatus(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	project := config.GitHubProjectConfig{Owner: "example", Number: 42}
+	planner, err := AcquirePlanningLock(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer planner.Release()
+	if _, active, err := InspectProcessState(project); err != nil || active {
+		t.Fatalf("standalone planning impersonates a worker: active=%t err=%v", active, err)
+	}
+	worker, err := AcquireProcessLock(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer worker.Release()
+	before, _, _ := InspectProcessState(project)
+	first, err := AcquireExecutionSlot(project, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+	second, err := AcquireExecutionSlot(project, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Release()
+	if extra, err := AcquireExecutionSlot(project, 2); !errors.Is(err, ErrProjectLockBusy) {
+		_ = extra.Release()
+		t.Fatalf("capacity exceeded: %v", err)
+	}
+	if err := first.Release(); err != nil {
+		t.Fatal(err)
+	}
+	third, err := AcquireExecutionSlot(project, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer third.Release()
+	if err := planner.Release(); err != nil {
+		t.Fatal(err)
+	}
+	after, active, err := InspectProcessState(project)
+	if err != nil || !active || after != before {
+		t.Fatalf("operation locks changed worker state: before=%+v after=%+v active=%t err=%v", before, after, active, err)
 	}
 }
 

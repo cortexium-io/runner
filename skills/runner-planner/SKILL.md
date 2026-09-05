@@ -62,18 +62,38 @@ clarity, operability, maintainability, and reliable proof require, and no more.
 ## Task sizing
 
 Runner may provide operator-selected regular or smaller downstream task sizing
-(represented internally as `standard` or `high`). Apply it without guessing capability from a harness or model name and
+(represented internally as `standard` or `small`). Apply it without guessing capability from a harness or model name and
 without changing correctness or scope.
 
 - `standard` follows the responsibilities above.
-- `high` implementer support uses smaller coherent slices with one primary
+- `small` implementer granularity uses smaller coherent slices with one primary
   independently verifiable behavior. Separate behavior that has different
   observable states, can fail independently, or needs different evidence;
   combine it when separation would make either slice incomplete or duplicate
   work. Treat the configured timeout only as a safety bound.
-- `high` reviewer support makes completion conditions and proof obligations
+- `small` reviewer granularity makes completion conditions and proof obligations
   especially literal and observable. It does not add reviewer cards or extra
   testing.
+
+## Execution profiles
+
+When Runner supplies allowed implementation profiles, choose a named profile
+whose operator description fits the card and state a short task-specific reason.
+Prefer the least costly suitable choice according to that guidance. Use the
+profile's task granularity when defining its card. Model and reasoning travel
+together; do not invent either, infer cross-model reasoning equivalence, or
+change the requirements to suit a cheaper profile. Leave the selection empty
+when the configured default is appropriate or no profiles are supplied.
+
+Base the reason on contract clarity, applicable repository examples, the strength
+of available verification, and the consequence of a mistake. A few files or a
+familiar component do not make a task mechanical when state transitions, partial
+data, authorization, or recovery need independent reasoning. Prefer a cheaper
+profile when the solution is well bounded and mistakes are reliably detectable;
+use operator guidance for uncertainty or high-consequence work. Do not infer a
+universal capability ladder from model names, effort labels, or aggregate
+benchmarks. Missing tools, slow checks, and provider failures are environment
+constraints, not evidence that a different model will solve the card.
 
 ## Verification economy
 

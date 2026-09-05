@@ -46,38 +46,38 @@ func TestRoleTemplateUsesPracticalTimeouts(t *testing.T) {
 	if roles[WorkRoleReviewer].TimeoutSeconds != 3600 {
 		t.Fatalf("reviewer timeout = %d, want 3600 seconds", roles[WorkRoleReviewer].TimeoutSeconds)
 	}
-	if roles[WorkRolePlanner].PlanningSupport != "" || roles[WorkRoleImplementer].PlanningSupport != PlanningSupportStandard || roles[WorkRoleReviewer].PlanningSupport != PlanningSupportStandard {
-		t.Fatalf("unexpected default planning support: %#v", roles)
+	if roles[WorkRolePlanner].TaskGranularity != "" || roles[WorkRoleImplementer].TaskGranularity != TaskGranularityStandard || roles[WorkRoleReviewer].TaskGranularity != TaskGranularityStandard {
+		t.Fatalf("unexpected default task granularity: %#v", roles)
 	}
 }
 
-func TestPlanningSupportIsExplicitInheritedAndUnavailableToPlanner(t *testing.T) {
+func TestTaskGranularityIsExplicitInheritedAndUnavailableToPlanner(t *testing.T) {
 	cfg := explicitTestConfig()
 	reviewer := cfg.Roles[WorkRoleReviewer]
-	reviewer.PlanningSupport = PlanningSupportHigh
+	reviewer.TaskGranularity = TaskGranularitySmall
 	cfg.Roles[WorkRoleReviewer] = reviewer
 	cfg.Roles["guided_reviewer"] = RoleConfig{Extends: WorkRoleReviewer, Skills: []string{"runner-reviewer"}}
 	profile, ok := cfg.RoleProfile("guided_reviewer")
-	if !ok || profile.PlanningSupport != PlanningSupportHigh {
-		t.Fatalf("custom reviewer did not inherit planning support: %#v", profile)
+	if !ok || profile.TaskGranularity != TaskGranularitySmall {
+		t.Fatalf("custom reviewer did not inherit task granularity: %#v", profile)
 	}
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("high reviewer planning support was rejected: %v", err)
+		t.Fatalf("small reviewer task granularity was rejected: %v", err)
 	}
 
-	reviewer.PlanningSupport = "automatic"
+	reviewer.TaskGranularity = "automatic"
 	cfg.Roles[WorkRoleReviewer] = reviewer
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "standard or high") {
-		t.Fatalf("unknown planning support was accepted: %v", err)
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "standard or small") {
+		t.Fatalf("unknown task granularity was accepted: %v", err)
 	}
 
-	reviewer.PlanningSupport = PlanningSupportStandard
+	reviewer.TaskGranularity = TaskGranularityStandard
 	cfg.Roles[WorkRoleReviewer] = reviewer
 	planner := cfg.Roles[WorkRolePlanner]
-	planner.PlanningSupport = PlanningSupportHigh
+	planner.TaskGranularity = TaskGranularitySmall
 	cfg.Roles[WorkRolePlanner] = planner
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "implementer and reviewer") {
-		t.Fatalf("planner planning support was accepted: %v", err)
+		t.Fatalf("planner task granularity was accepted: %v", err)
 	}
 }
 
@@ -99,7 +99,7 @@ func TestPiReasoningMayBeDisabledWithoutWeakeningOtherHarnessContracts(t *testin
 	implementer = cfg.Roles[WorkRoleImplementer]
 	implementer.Reasoning = "off"
 	cfg.Roles[WorkRoleImplementer] = implementer
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "low, medium, high, or xhigh") {
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "low, medium, high, xhigh, or max for Codex") {
 		t.Fatalf("Codex reasoning off was accepted: %v", err)
 	}
 }

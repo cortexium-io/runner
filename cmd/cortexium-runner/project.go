@@ -160,17 +160,18 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	if err != nil {
 		return fmt.Errorf("load runner config: %w", err)
 	}
-	planningSupport := ""
+	taskGranularity := ""
 	if *smallTasks {
-		planningSupport = config.PlanningSupportHigh
+		taskGranularity = config.TaskGranularitySmall
 	}
-	if err := applyPlanPlanningSupport(&cfg, planningSupport); err != nil {
+	if err := applyPlanTaskGranularity(&cfg, taskGranularity); err != nil {
 		return err
 	}
 	service, err := engine.New(cfg, nil)
 	if err != nil {
 		return err
 	}
+	service.EnableLocalAdmission()
 	if promptForIdea {
 		if err := service.CheckProjectPlanningAvailability(ctx); err != nil {
 			return err
@@ -183,7 +184,7 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 			return err
 		}
 	}
-	projectLock, err := github.AcquireProcessLock(*cfg.GitHubProject)
+	projectLock, err := github.AcquirePlanningLock(*cfg.GitHubProject)
 	if err != nil {
 		return err
 	}
@@ -325,21 +326,21 @@ func planApplyMode(create, stageOnly, interactiveAccepted bool) (stage, release 
 	return stageOnly, false
 }
 
-func applyPlanPlanningSupport(cfg *config.Config, value string) error {
+func applyPlanTaskGranularity(cfg *config.Config, value string) error {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil
 	}
-	if !config.ValidPlanningSupport(value) {
-		return errors.New("--planning-support must be standard or high")
+	if !config.ValidTaskGranularity(value) {
+		return errors.New("--task-granularity must be standard or small")
 	}
-	for _, contract := range []string{config.WorkRoleImplementer, config.WorkRoleReviewer} {
-		roleID := cfg.RoleIDForContract(contract)
+	roleIDs := append([]string{cfg.RoleIDForContract(config.WorkRoleImplementer), cfg.RoleIDForContract(config.WorkRoleReviewer)}, cfg.PlannerImplementers...)
+	for _, roleID := range roleIDs {
 		role, ok := cfg.Roles[roleID]
 		if !ok {
-			return fmt.Errorf("configured %s role %q is missing", contract, roleID)
+			return fmt.Errorf("configured role %q is missing", roleID)
 		}
-		role.PlanningSupport = value
+		role.TaskGranularity = value
 		cfg.Roles[roleID] = role
 	}
 	return nil
@@ -365,6 +366,9 @@ func writeStagedProjectPlanSummary(output io.Writer, approval engine.ProjectPlan
 		if child.Repository != "" {
 			fmt.Fprintf(output, "     Repository: %s\n", terminalSafeApprovalText(child.Repository))
 		}
+		if child.ImplementationProfile != "" {
+			fmt.Fprintf(output, "     Execution profile: %s\n", terminalSafeApprovalText(child.ImplementationProfile))
+		}
 		fmt.Fprintf(output, "     Current status: %s\n", terminalSafeApprovalText(child.Status))
 		if len(child.Dependencies) > 0 {
 			fmt.Fprintf(output, "     Dependencies: %s\n", terminalSafeApprovalText(strings.Join(child.Dependencies, ", ")))
@@ -383,6 +387,9 @@ func writeProjectPlanItems(output io.Writer, plan engine.ProjectPlan, colors boo
 		}
 		number := terminalStyled(colors, toneQuestion, fmt.Sprintf("%d.", index+1))
 		fmt.Fprintf(output, "%s %s\n   %s\n", number, terminalSafeText(item.Title), terminalSafeText(item.Summary))
+		if item.ImplementationProfile != "" {
+			fmt.Fprintf(output, "   execution profile: %s — %s\n", terminalSafeText(item.ImplementationProfile), terminalSafeText(item.ProfileReason))
+		}
 		fmt.Fprintf(output, "   acceptance: %s\n", terminalSafeText(strings.Join(item.AcceptanceCriteria, "; ")))
 		fmt.Fprintf(output, "   verification: %s\n", terminalSafeText(strings.Join(item.Verification, "; ")))
 		if len(item.Risks) > 0 {

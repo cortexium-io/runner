@@ -496,6 +496,24 @@ after every child is released. Polling and claiming validate that commit and
 all siblings, so interrupted release remains fail-closed even when compensating
 cleanup also fails.
 
+Local coordination separates the worker lifetime from standalone planning.
+`run` alone owns the worker lock and runtime-status file. Standalone `plan`
+commands serialize with one another, not with the service. Both CLI-owned
+engines use per-Project OS-locked execution slots for `max_parallelism`; locks
+are released by the OS on process exit. A short admission gate covers the budget
+check, claim, and durable attempt-start reservation, never the harness invocation
+or human review. Admission reloads shared history under that gate so another
+process's reservations cannot be hidden by an engine-local cache. Claimed starts
+are recorded before dispatch, and already-claimed work is still completed if a
+later claim fails. Budget and capacity exhaustion do not authorize extra work.
+
+Standalone batch writes also exclude interrupted-state recovery, with recovery's
+snapshot acquired inside the same short mutation guard. While a CLI batch is
+being staged or released, the worker continues observation and ordinary
+reconciliation but defers recovery. The guard is not held during planning or
+human confirmation. Existing whole-batch authority and exact-content checks
+remain responsible for preventing execution of partial or unapproved plans.
+
 Every process launch resolves two independent role settings before adapter
 arguments are built. `access` selects Runner's containment boundary
 (`sandboxed` by default or explicit `host`). `harness_config` selects whether

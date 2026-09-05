@@ -16,6 +16,7 @@ type Config struct {
 	RunnerID             string                  `json:"runner_id"`
 	Harnesses            []HarnessConfig         `json:"harnesses"`
 	Roles                map[string]RoleConfig   `json:"roles"`
+	PlannerImplementers  []string                `json:"planner_implementers,omitempty"`
 	ImplementerLadder    []string                `json:"implementer_ladder,omitempty"`
 	Workflow             *WorkflowConfig         `json:"workflow"`
 	DoctorRequirements   []CapabilityRequirement `json:"doctor_requirements,omitempty"`
@@ -28,6 +29,7 @@ type Config struct {
 }
 
 type RoleConfig struct {
+	Description       string   `json:"description,omitempty"`
 	Extends           string   `json:"extends,omitempty"`
 	Harness           string   `json:"harness,omitempty"`
 	Access            string   `json:"access,omitempty"`
@@ -38,7 +40,7 @@ type RoleConfig struct {
 	Model             *string  `json:"model,omitempty"`
 	Reasoning         string   `json:"reasoning,omitempty"`
 	PreserveReasoning *bool    `json:"preserve_reasoning,omitempty"`
-	PlanningSupport   string   `json:"planning_support,omitempty"`
+	TaskGranularity   string   `json:"task_granularity,omitempty"`
 	TimeoutSeconds    int      `json:"timeout_seconds,omitempty"`
 }
 
@@ -141,6 +143,8 @@ func validReasoningEffort(harness, value string) bool {
 		return true
 	case "off":
 		return strings.TrimSpace(harness) == HarnessPiCLI
+	case "max":
+		return strings.TrimSpace(harness) == HarnessCodexCLI
 	default:
 		return false
 	}

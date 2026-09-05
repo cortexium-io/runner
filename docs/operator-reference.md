@@ -152,7 +152,7 @@ config. This non-interactive example uses an external path:
   --project-dir . \
   --harness codex \
   --reasoning high \
-  --planning-support standard \
+  --task-granularity standard \
   --max-parallelism 1 \
   --autonomous-issues \
   --base-update-review required \
@@ -217,10 +217,10 @@ flags. `--model` and
 `--planner-*`, `--implementer-*`, or `--reviewer-*` flag overrides the shared
 value for that role. Init expands the result into complete role definitions in
 the config; these flags do not create a hidden runtime fallback.
-`--planning-support` stores regular (`standard`) or smaller (`high`) downstream
+`--task-granularity` stores regular (`standard`) or smaller (`small`) downstream
 task sizing for both implementer and reviewer. The guided prompt uses the clearer
 regular/smaller wording. The role-specific
-`--implementer-planning-support` and `--reviewer-planning-support` flags
+`--implementer-task-granularity` and `--reviewer-task-granularity` flags
 override it. Runner never infers this setting from a harness or model name.
 `--base-update-review required` sends every clean automatic base refresh through
 implementation and QA again. The required policy is written into the config
@@ -1067,6 +1067,25 @@ Runner does not start or publish work from a partial snapshot.
 This operator utility invokes the planner immediately and is distinct from
 `add plan`, which only creates a `Plan` event for the normal running coordinator.
 
+You do not need to stop the background Runner to preview, stage, create, or
+approve a standalone plan. Use the same operator configuration as the service.
+Only another standalone `plan` command holds the planning lock; the worker keeps
+its separate lifetime lock, PID, and runtime status throughout.
+
+The planner invocation shares `max_parallelism` and any configured rolling
+admission budget with background assignments. If all slots are occupied, the CLI
+reports capacity exhaustion without creating cards or starting a paid call;
+retry when capacity is available, or use `add plan` for queued planning. A short
+admission handoff may wait, but a model call or human approval prompt never holds
+that shared gate. Staging and release briefly exclude interrupted-state recovery,
+so an in-progress batch is not mistaken for a crashed operation. Unapproved
+staged cards still cannot execute.
+
+Install this build and restart the service once before using concurrent planning;
+both processes must use the updated coordination and the same configuration.
+This locking change requires no new configuration or skill settings.
+Schema/configuration maintenance retains its existing restart requirements.
+
 Start an interactive multiline idea using the auto-detected project-local config:
 
 ```bash
@@ -1205,7 +1224,7 @@ A role defines agent-specific execution settings:
     "harness_config": "isolated",
     "skills": ["runner-reviewer"],
     "reasoning": "high",
-    "planning_support": "standard",
+    "task_granularity": "standard",
     "timeout_seconds": 3600
   }
 }
@@ -1271,12 +1290,19 @@ edit such as `role edit implementer --access host --harness-config inherit`
 only when unrestricted host access is intended. Changing a config never changes
 an already-running harness process; restart Runner for later work to use the new
 policy.
-Implementer and reviewer roles also accept `planning_support`: `standard` uses
-the ordinary concise planning contract, while `high` asks the planner for
+Implementer and reviewer roles also accept `task_granularity`: `standard` uses
+the ordinary concise planning contract, while `small` asks the planner for
 smaller coherent slices, explicit boundaries and assumptions, literal acceptance
 criteria, and observable proof obligations. It never reduces correctness or
 verification requirements and does not add fields to the plan schema. Change
-it with `role edit ROLE --planning-support standard|high`.
+it with `role edit ROLE --task-granularity standard|small`.
+
+Codex roles accept `low`, `medium`, `high`, `xhigh`, or `max` reasoning; the
+selected model and installed Codex must support the requested effort. Runner
+passes it through unchanged and does not map `max` to `xhigh`. Claude and Pi
+retain their existing effort contracts; `max` is not an alias for either.
+No role default changes when upgrading.
+
 When `harness` is `pi`, set
 `roles.<role>.model` to the full `provider/model-id` string that Pi CLI
 recognizes, for example:
@@ -1362,7 +1388,7 @@ profiles or edit a built-in role after initialization. For example:
 ./cortexium-runner role edit reviewer \
   --config /absolute/operator/path/runner.json \
   --reasoning xhigh \
-  --planning-support high
+  --task-granularity small
 ```
 
 Base roles describe authority and result contracts, not specialties. Product
@@ -1379,10 +1405,71 @@ removed, and a custom role cannot be removed while a workflow rule or another
 role still references it. A role referenced by `implementer_ladder` likewise
 cannot be removed until the ladder is changed or cleared.
 
+### Planner-selected execution profiles
+
+Profile selection is optional. A profile is an existing named implementer role
+with its model, reasoning, permissions, timeout, and task granularity. Give it a
+`description` explaining suitable tasks, then list allowed IDs in
+`planner_implementers`, in preferred order. No new model or reasoning scale is
+introduced. The planner suggests a profile and a short reason on each card;
+approving the plan approves that choice with the rest of the card.
+
+```bash
+cortexium-runner role add mechanical --extends implementer \
+  --model YOUR_SMALLER_MODEL --reasoning medium --task-granularity small \
+  --description 'Prefer for bounded mechanical edits with existing examples and straightforward proof.'
+cortexium-runner role edit implementer \
+  --description 'General implementation and tasks with substantial design uncertainty.'
+cortexium-runner role edit planner --implementer-profile mechanical --implementer-profile implementer
+```
+
+The corresponding top-level setting is
+`"planner_implementers": ["mechanical", "implementer"]`. Inspect the resolved
+roles with `role show NAME --json`. Use
+`role edit planner --clear-implementer-profiles` to disable selection for future
+plans. Empty selections retain the configured default. Without a ladder, a
+selected profile stays fixed on retries. With `implementer_ladder`, every allowed
+profile must be in that ladder; retries start at the selected entry and advance
+toward its end. Removed or disallowed selections on already-approved cards block
+execution until the operator restores the profile or replans and approves the
+card. Config edits use the current resolved role for subsequent invocations.
+
+Profile reasons consider contract clarity, applicable repository examples,
+verification strength, and the consequence of mistakes—not file count or a
+universal model ranking. See [Evaluating model profiles](model-profile-evaluation.md)
+for an opt-in Codex comparison setup and end-to-end measurement guidance.
+
+`task_granularity` replaces `planning_support`: migrate the old key and CLI flag
+to `task_granularity` / `--task-granularity`, and replace its `high` value with
+`small`. `standard` is unchanged. Old keys and values are rejected.
+
+### QA follow-up scope
+
+The first review gathers all concrete blockers reasonably visible within the
+approved card. Runner saves rejected assessments privately with the reviewed
+commit, base revision, approved content, proof obligations, and human-comment
+context. With matching history, the next review verifies those findings and the
+repair diff, reusing still-valid passed conclusions. Findings distinguish
+unresolved issues, repair regressions, and concrete late discoveries. New feature
+requests and stylistic preferences do not expand acceptance requirements.
+
+A changed base or task context, missing history, or unavailable prior commit
+causes a renewed full review. Accepted review feedback is cleared. This policy
+works with one model, equal reasoning settings, or no escalation ladder. Refresh
+the bundled skills before starting Runner; Doctor checks their
+contents against the embedded versions.
+
+On rework, the implementer independently reassesses the requirements and current
+diff, preserving sound work without assuming the earlier approach is correct.
+Its `work_done` report describes whether that approach was preserved and improved,
+partly replaced, or largely replaced, and why (or notes insufficient history).
+This is qualitative evidence for later evaluation, not an automated reuse metric.
+
 ### Implementer ladder
 
 `implementer_ladder` is optional. When omitted, Runner always launches the
-`ready_lane` rule's configured implementer role. When present, it lists complete
+`ready_lane` rule's configured implementer role unless an approved card selects
+a planner-enabled profile (above). When present, it lists complete
 implementer role profiles in escalation order. The first entry must be the
 workflow implementer role; later entries must be unique custom roles that
 inherit the implementer contract. The list needs at least two entries and

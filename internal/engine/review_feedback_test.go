@@ -29,7 +29,7 @@ func TestAgentQAFeedbackIsPrivateBoundedAndInjectedIntoNextImplementation(t *tes
 		}},
 		Maintainability: execution.ReviewMaintainabilityResult{Status: "passed"},
 	}
-	if err := service.saveReviewFeedback(item, content, assessment); err != nil {
+	if err := service.saveReviewFeedback(item, content, assessment, nil); err != nil {
 		t.Fatalf("save feedback: %v", err)
 	}
 	path := service.reviewFeedbackPath(item.ID)
@@ -113,4 +113,45 @@ func reviewFeedbackTestEngine(root string) *Engine {
 			config.WorkRolePlanner: config.WorkRolePlanner, config.WorkRoleImplementer: config.WorkRoleImplementer, config.WorkRoleReviewer: config.WorkRoleReviewer,
 		},
 	}}
+}
+
+func TestReviewBaselineSurvivesRestartAndInvalidatesOnChangedContext(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "worktrees")
+	service := reviewFeedbackTestEngine(root)
+	item := github.WorkItem{ID: "PVTI_baseline", Role: config.WorkRoleReviewer, Repository: "owner/repo"}
+	content := github.DelegatedContentFor(github.WorkItem{ID: item.ID, Body: "Approved behavior"})
+	spec := service.assignment(item, content, nil, nil).Spec
+	digest := reviewContextDigest(spec, []string{"Fix the approved behavior"})
+	baseline := execution.ReviewBaseline{CommitOID: strings.Repeat("a", 40), BaseOID: strings.Repeat("b", 40), ContextDigest: digest}
+	assessment := execution.ReviewAssessment{Verdict: "needs_changes", Summary: "Fix one defect", Criteria: []execution.ReviewCriterionResult{{Criterion: "behavior", Status: "failed", Summary: "Defect", Evidence: []string{"source:1"}}, {Criterion: "other", Status: "passed", Summary: "Still correct", Evidence: []string{"source:2"}}}}
+	if err := service.saveReviewFeedback(item, content, assessment, &baseline); err != nil {
+		t.Fatal(err)
+	}
+	restarted := reviewFeedbackTestEngine(root)
+	record, err := restarted.loadReviewFeedbackRecord(item, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := matchingReviewBaseline(record, baseline.BaseOID, digest)
+	if got == nil || got.CommitOID != baseline.CommitOID || len(got.Assessment.Criteria) != 2 || got.Assessment.Criteria[1].Status != "passed" {
+		t.Fatalf("lost prior review: %#v", got)
+	}
+	if matchingReviewBaseline(record, "changed base", digest) != nil {
+		t.Fatal("changed base reused review")
+	}
+	if matchingReviewBaseline(record, baseline.BaseOID, reviewContextDigest(spec, []string{"Different request"})) != nil {
+		t.Fatal("changed human context reused review")
+	}
+	spec.RequiredVerification = append(spec.RequiredVerification, "new proof")
+	if matchingReviewBaseline(record, baseline.BaseOID, reviewContextDigest(spec, []string{"Fix the approved behavior"})) != nil {
+		t.Fatal("changed proof reused review")
+	}
+	record.Baseline.CommitOID = "--unsafe"
+	if matchingReviewBaseline(record, baseline.BaseOID, digest) != nil {
+		t.Fatal("invalid revision reused")
+	}
+	changed := github.DelegatedContentFor(github.WorkItem{ID: item.ID, Body: "Changed requirements"})
+	if record, err := restarted.loadReviewFeedbackRecord(item, changed); err != nil || record != nil {
+		t.Fatalf("changed approved task retained history: %#v %v", record, err)
+	}
 }

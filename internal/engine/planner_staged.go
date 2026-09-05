@@ -26,10 +26,12 @@ type projectPlanOutlineCard struct {
 }
 
 type projectPlanCard struct {
-	Objective        string   `json:"objective"`
-	DoneWhen         []string `json:"done_when"`
-	ProofObligations []string `json:"proof_obligations"`
-	Assumptions      []string `json:"assumptions"`
+	ImplementationProfile string   `json:"implementation_profile"`
+	ProfileReason         string   `json:"profile_reason"`
+	Objective             string   `json:"objective"`
+	DoneWhen              []string `json:"done_when"`
+	ProofObligations      []string `json:"proof_obligations"`
+	Assumptions           []string `json:"assumptions"`
 }
 
 type projectPlanDetails struct {
@@ -137,12 +139,14 @@ func projectPlanDetailsSchema(cardCount int) []byte {
 		return result
 	}
 	card := map[string]any{
-		"type": "object", "required": []string{"objective", "done_when", "proof_obligations", "assumptions"},
+		"type": "object", "required": []string{"objective", "done_when", "proof_obligations", "assumptions", "implementation_profile", "profile_reason"},
 		"properties": map[string]any{
-			"objective":         map[string]any{"type": "string", "minLength": 1},
-			"done_when":         stringList(true),
-			"proof_obligations": stringList(true),
-			"assumptions":       stringList(false),
+			"implementation_profile": map[string]any{"type": "string"},
+			"profile_reason":         map[string]any{"type": "string"},
+			"objective":              map[string]any{"type": "string", "minLength": 1},
+			"done_when":              stringList(true),
+			"proof_obligations":      stringList(true),
+			"assumptions":            stringList(false),
 		},
 		"additionalProperties": false,
 	}
@@ -264,6 +268,7 @@ func assembleStagedProjectPlan(outline projectPlanOutline, details projectPlanDe
 			dependencies[dependencyIndex] = outline.Cards[dependency-1].Title
 		}
 		plan.WorkItems[index] = github.PlannedItem{
+			ImplementationProfile: strings.TrimSpace(card.ImplementationProfile), ProfileReason: strings.TrimSpace(card.ProfileReason),
 			Title: outlineCard.Title, Repository: strings.TrimSpace(repository), Summary: card.Objective,
 			AcceptanceCriteria: card.DoneWhen, Verification: card.ProofObligations,
 			Risks: card.Assumptions, NonGoals: []string{}, Dependencies: dependencies,

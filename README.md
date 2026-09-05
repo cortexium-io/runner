@@ -371,15 +371,18 @@ conditions and proof obligations; the implementer chooses the smallest reliable
 way to prove them after inspecting the repository. Runner enforces the shared
 result, workspace-integrity, and lifecycle contracts.
 
+The planner can optionally suggest existing named model-and-reasoning profiles
+for each card. See [planner-selected execution profiles](docs/operator-reference.md#planner-selected-execution-profiles) for configuration and approval behavior.
+
 Planning never guesses model capability from a model name. During `init`, choose
 regular or smaller task sizing. Smaller sizing creates more explicit cards for
 less capable downstream agents without weakening their requirements. The saved
-config represents these choices as `planning_support: standard|high`. Change
+config represents these choices as `task_granularity: standard|small`. Change
 either role later with, for example:
 
 ```bash
-cortexium-runner role edit implementer --config "$RUNNER_CONFIG" --planning-support high
-cortexium-runner role edit reviewer --config "$RUNNER_CONFIG" --planning-support high
+cortexium-runner role edit implementer --config "$RUNNER_CONFIG" --task-granularity small
+cortexium-runner role edit reviewer --config "$RUNNER_CONFIG" --task-granularity small
 ```
 
 Override both downstream roles for one planning call without changing the saved

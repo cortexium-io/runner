@@ -72,6 +72,7 @@ func completeProjectTestConfig(project config.ProjectConfig) config.ProjectConfi
 func testApproval(item github.WorkItem) string {
 	project := completeProjectTestConfig(config.ProjectConfig{GitHubProjectConfig: config.GitHubProjectConfig{Owner: "owner", Number: 4}})
 	metadata := github.DecodePlannedItemMetadata(item.Body)
+	item.ImplementationProfile = metadata.ImplementationProfile
 	if item.Repository == "" {
 		item.Repository = metadata.Repository
 	}
@@ -146,6 +147,7 @@ func signTestActionAssertion(project config.ProjectConfig, item github.WorkItem,
 		PlanningBatchFingerprint  string   `json:"planning_batch_fingerprint,omitempty"`
 		PlanningBatchSize         int      `json:"planning_batch_size,omitempty"`
 		PlanningItemIndex         int      `json:"planning_item_index,omitempty"`
+		ImplementationProfile     string   `json:"implementation_profile,omitempty"`
 	}{
 		Version: "v2", Authority: hex.EncodeToString(authorityDigest[:12]), ProjectOwner: strings.TrimSpace(project.Owner), ProjectNumber: project.Number,
 		State: strings.TrimSpace(state), Role: strings.TrimSpace(role), ItemID: strings.TrimSpace(item.ID),
@@ -155,6 +157,7 @@ func signTestActionAssertion(project config.ProjectConfig, item github.WorkItem,
 		PlanningSourceID: strings.TrimSpace(item.PlanningSourceID), PlanningSourceLane: strings.TrimSpace(item.PlanningSourceLane),
 		PlanningSourceFingerprint: strings.TrimSpace(item.PlanningSourceFingerprint), PlanningDestination: strings.TrimSpace(item.PlanningDestination),
 		PlanningBatchFingerprint: strings.TrimSpace(item.PlanningBatchFingerprint), PlanningBatchSize: item.PlanningBatchSize, PlanningItemIndex: item.PlanningItemIndex,
+		ImplementationProfile: item.ImplementationProfile,
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {

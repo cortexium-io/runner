@@ -22,6 +22,8 @@ type ProcessLock struct {
 	released   bool
 }
 
+var ErrProjectLockBusy = errors.New("Runner Project operation is busy")
+
 type RuntimeState struct {
 	PID        int       `json:"pid"`
 	Owner      string    `json:"owner"`
@@ -40,14 +42,51 @@ type projectLockMetadata struct {
 }
 
 func AcquireProcessLock(project config.GitHubProjectConfig) (*ProcessLock, error) {
+	return acquireLocalProjectLock(project, "worker")
+}
+
+// AcquirePlanningLock serializes standalone plan generation and batch release,
+// independently of the worker's lifetime and runtime-status file.
+func AcquirePlanningLock(project config.GitHubProjectConfig) (*ProcessLock, error) {
+	return acquireLocalProjectLock(project, "planning")
+}
+
+// AcquireAdmissionLock protects checking shared capacity and recording starts.
+// Callers must release it before invoking a harness.
+func AcquireAdmissionLock(project config.GitHubProjectConfig) (*ProcessLock, error) {
+	return acquireLocalProjectLock(project, "admission")
+}
+
+// AcquirePlanningMutationLock excludes interrupted-state recovery while a CLI
+// stages or releases a batch. It does not cover model calls or human review.
+func AcquirePlanningMutationLock(project config.GitHubProjectConfig) (*ProcessLock, error) {
+	return acquireLocalProjectLock(project, "planning-mutation")
+}
+
+func AcquireExecutionSlot(project config.GitHubProjectConfig, maximum int) (*ProcessLock, error) {
+	for slot := 0; slot < maximum; slot++ {
+		lock, err := acquireLocalProjectLock(project, fmt.Sprintf("execution-%d", slot))
+		if errors.Is(err, ErrProjectLockBusy) {
+			continue
+		}
+		return lock, err
+	}
+	return nil, fmt.Errorf("all %d Runner execution slots are in use: %w", maximum, ErrProjectLockBusy)
+}
+
+func acquireLocalProjectLock(project config.GitHubProjectConfig, purpose string) (*ProcessLock, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolve user cache directory for Runner lock: %w", err)
 	}
-	return acquireProjectProcessLockAt(filepath.Join(cacheDir, "cortexium-runner", "locks"), project)
+	return acquireProjectLockAt(filepath.Join(cacheDir, "cortexium-runner", "locks"), project, purpose)
 }
 
 func acquireProjectProcessLockAt(lockDir string, project config.GitHubProjectConfig) (*ProcessLock, error) {
+	return acquireProjectLockAt(lockDir, project, "worker")
+}
+
+func acquireProjectLockAt(lockDir string, project config.GitHubProjectConfig, purpose string) (*ProcessLock, error) {
 	owner := strings.TrimSpace(project.Owner)
 	if owner == "" || project.Number <= 0 {
 		return nil, errors.New("GitHub Project owner and positive number are required for the Runner lock")
@@ -56,6 +95,9 @@ func acquireProjectProcessLockAt(lockDir string, project config.GitHubProjectCon
 		return nil, fmt.Errorf("create Runner lock directory: %w", err)
 	}
 	path := filepath.Join(lockDir, projectLockFileName(owner, project.Number))
+	if purpose != "worker" {
+		path = strings.TrimSuffix(path, ".lock") + "-" + purpose + ".lock"
+	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open Runner lock %s: %w", path, err)
@@ -72,7 +114,10 @@ func acquireProjectProcessLockAt(lockDir string, project config.GitHubProjectCon
 		if metadata.PID > 0 {
 			detail = fmt.Sprintf(" (PID %d, started %s)", metadata.PID, metadata.StartedAt.Format(time.RFC3339))
 		}
-		return nil, fmt.Errorf("another Runner process is already active for GitHub Project %s/%d%s; lock: %s", owner, project.Number, detail, path)
+		if purpose == "worker" {
+			return nil, fmt.Errorf("another Runner process is already active for GitHub Project %s/%d%s; lock: %s: %w", owner, project.Number, detail, path, ErrProjectLockBusy)
+		}
+		return nil, fmt.Errorf("Runner %s is already active for GitHub Project %s/%d%s: %w", purpose, owner, project.Number, detail, ErrProjectLockBusy)
 	}
 	metadata := projectLockMetadata{PID: os.Getpid(), Owner: owner, Project: project.Number, StartedAt: time.Now().UTC()}
 	if err := writeProjectLockMetadata(file, metadata); err != nil {
@@ -80,7 +125,11 @@ func acquireProjectProcessLockAt(lockDir string, project config.GitHubProjectCon
 		file.Close()
 		return nil, fmt.Errorf("record Runner lock metadata: %w", err)
 	}
-	lock := &ProcessLock{file: file, Path: path, StartedAt: metadata.StartedAt, statusPath: projectStatusPath(path)}
+	lock := &ProcessLock{file: file, Path: path, StartedAt: metadata.StartedAt}
+	if purpose != "worker" {
+		return lock, nil
+	}
+	lock.statusPath = projectStatusPath(path)
 	if err := lock.UpdateRuntime(RuntimeState{PID: metadata.PID, Owner: owner, Project: project.Number, StartedAt: metadata.StartedAt}); err != nil {
 		_ = unlockFile(file)
 		_ = file.Close()
@@ -90,7 +139,7 @@ func acquireProjectProcessLockAt(lockDir string, project config.GitHubProjectCon
 }
 
 func (l *ProcessLock) UpdateRuntime(state RuntimeState) error {
-	if l == nil || l.file == nil || l.released {
+	if l == nil || l.file == nil || l.released || l.statusPath == "" {
 		return errors.New("Runner process lock is not active")
 	}
 	if state.PID == 0 {
@@ -128,7 +177,10 @@ func (l *ProcessLock) Release() error {
 		return nil
 	}
 	l.released = true
-	removeErr := os.Remove(l.statusPath)
+	var removeErr error
+	if l.statusPath != "" {
+		removeErr = os.Remove(l.statusPath)
+	}
 	if errors.Is(removeErr, os.ErrNotExist) {
 		removeErr = nil
 	}

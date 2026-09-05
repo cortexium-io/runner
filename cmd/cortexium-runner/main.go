@@ -164,6 +164,7 @@ func runConfiguredWorker(ctx context.Context, configPath string, once bool, poll
 	if err != nil {
 		return fmt.Errorf("configure runner: %w", err)
 	}
+	service.EnableLocalAdmission()
 	attachMetricsStore(service, cfg, stdout)
 	projectLock, err := github.AcquireProcessLock(*cfg.GitHubProject)
 	if err != nil {

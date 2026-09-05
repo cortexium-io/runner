@@ -94,7 +94,7 @@ an external config path; interactive `init` defaults to `.cortexium/runner.json`
   --project-dir . \
   --harness codex \
   --reasoning high \
-  --planning-support standard \
+  --task-granularity standard \
   --max-parallelism 1 \
   --base-update-review required \
   --auto-merge=false

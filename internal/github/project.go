@@ -52,6 +52,7 @@ type WorkItem struct {
 	PlanningBatchFingerprint  string   `json:"planning_batch_fingerprint,omitempty"`
 	PlanningBatchSize         int      `json:"planning_batch_size,omitempty"`
 	PlanningItemIndex         int      `json:"planning_item_index,omitempty"`
+	ImplementationProfile     string   `json:"implementation_profile,omitempty"`
 	PlanningMetadataInvalid   bool     `json:"-"`
 }
 
@@ -61,6 +62,8 @@ type PlannedDependency struct {
 }
 
 type PlannedItem struct {
+	ImplementationProfile     string              `json:"implementation_profile,omitempty"`
+	ProfileReason             string              `json:"profile_reason,omitempty"`
 	Title                     string              `json:"title"`
 	Repository                string              `json:"repository,omitempty"`
 	Summary                   string              `json:"summary"`
@@ -1070,6 +1073,7 @@ func (s *Project) ValidateStagedPlanningChildBodies(item WorkItem, bodies ...str
 		candidate.PlanningBatchFingerprint = metadata.PlanningBatchFingerprint
 		candidate.PlanningBatchSize = metadata.PlanningBatchSize
 		candidate.PlanningItemIndex = metadata.PlanningItemIndex
+		candidate.ImplementationProfile = metadata.ImplementationProfile
 		candidate.PlanningMetadataInvalid = false
 		if err := s.validateStagedChild(candidate); err == nil {
 			return nil
@@ -1305,6 +1309,7 @@ func (s *Project) createStaged(ctx context.Context, planned PlannedItem, revalid
 		PlanningSourceFingerprint: strings.TrimSpace(planned.PlanningSourceFingerprint), PlanningDestination: strings.TrimSpace(planned.PlanningDestination),
 		PlanningBatchFingerprint: strings.TrimSpace(planned.PlanningBatchFingerprint),
 		PlanningBatchSize:        planned.PlanningBatchSize, PlanningItemIndex: planned.PlanningItemIndex,
+		ImplementationProfile:   planned.ImplementationProfile,
 		PlanningMetadataInvalid: !planned.DependencyIDsResolved,
 	}
 	for _, dependency := range planned.ResolvedDependencies {

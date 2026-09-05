@@ -447,3 +447,21 @@ func byteSlicesToStrings(values [][]byte) []string {
 	}
 	return result
 }
+
+func TestReviewerPromptUsesEvidenceToSelectReviewScope(t *testing.T) {
+	assignment := reviewerAssignment()
+	initial := reviewerAuditPrompt(assignment, "Test harness")
+	if !strings.Contains(initial, "Initial or renewed review:") || strings.Contains(initial, "BEGIN PRIOR REVIEW DATA") {
+		t.Fatal("initial review used nonexistent baseline")
+	}
+	assignment.Spec.ReviewBaseline = &ReviewBaseline{CommitOID: strings.Repeat("a", 40), Assessment: ReviewAssessment{Verdict: "needs_changes", Summary: "Repair the scoped defect"}}
+	followup := reviewerAuditPrompt(assignment, "Test harness")
+	for _, want := range []string{"Follow-up review:", strings.Repeat("a", 40) + " to HEAD", "Repair the scoped defect", "unresolved prior finding", "repair regression", "late finding", "Return results for all required proof keys"} {
+		if !strings.Contains(followup, want) {
+			t.Fatalf("missing follow-up context %q", want)
+		}
+	}
+	if strings.Contains(followup, "Initial or renewed review:") {
+		t.Fatal("conflicting initial scope on follow-up")
+	}
+}

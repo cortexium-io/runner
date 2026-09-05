@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/engine"
+	"github.com/cortexium-io/runner/internal/github"
 )
 
 func TestPlanJSONHonorsExplicitStaging(t *testing.T) {
@@ -63,12 +65,29 @@ esac
 			if err := config.SaveConfig(configPath, cfg); err != nil {
 				t.Fatal(err)
 			}
+			worker, err := github.AcquireProcessLock(*cfg.GitHubProject)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer worker.Release()
+			before, active, err := github.InspectProcessState(*cfg.GitHubProject)
+			if err != nil || !active {
+				t.Fatalf("worker not active: %v", err)
+			}
 			args := []string{"--config", configPath, "--idea", "Build a slice", "--json"}
 			if mode != "preview" {
 				args = append(args, mode)
 			}
 			var output bytes.Buffer
-			err := runPlan(t.Context(), args, strings.NewReader(""), &output)
+			err = runPlan(t.Context(), args, strings.NewReader(""), &output)
+			after, active, inspectErr := github.InspectProcessState(*cfg.GitHubProject)
+			if inspectErr != nil || !active || after != before {
+				t.Fatalf("CLI planning changed worker runtime state: before=%+v after=%+v active=%t err=%v", before, after, active, inspectErr)
+			}
+			if duplicate, lockErr := github.AcquireProcessLock(*cfg.GitHubProject); !errors.Is(lockErr, github.ErrProjectLockBusy) {
+				_ = duplicate.Release()
+				t.Fatalf("CLI planning released worker ownership: %v", lockErr)
+			}
 			if mode != "preview" {
 				if err == nil || !strings.Contains(err.Error(), "test staging failure") {
 					t.Fatalf("explicit staging did not propagate the GitHub error: %v; output: %s", err, &output)

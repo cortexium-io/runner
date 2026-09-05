@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,17 +18,18 @@ import (
 
 const (
 	reviewFeedbackVersion   = 1
-	maxReviewFeedbackBytes  = 64 * 1024
+	maxReviewFeedbackBytes  = 1024 * 1024
 	maxReviewFeedbackItems  = 20
 	maxReviewFeedbackLength = 2_000
 	reviewFeedbackDelimiter = "---"
 )
 
 type reviewFeedbackRecord struct {
-	Version                int      `json:"version"`
-	ItemID                 string   `json:"item_id"`
-	DelegatedContentDigest string   `json:"delegated_content_digest"`
-	Items                  []string `json:"items"`
+	Baseline               *execution.ReviewBaseline `json:"baseline,omitempty"`
+	Version                int                       `json:"version"`
+	ItemID                 string                    `json:"item_id"`
+	DelegatedContentDigest string                    `json:"delegated_content_digest"`
+	Items                  []string                  `json:"items"`
 }
 
 func (s *Engine) reviewFeedbackPath(itemID string) string {
@@ -39,7 +41,7 @@ func (s *Engine) reviewFeedbackPath(itemID string) string {
 	)
 }
 
-func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.DelegatedContent, assessment execution.ReviewAssessment) error {
+func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.DelegatedContent, assessment execution.ReviewAssessment, baseline *execution.ReviewBaseline) error {
 	items := actionableReviewFeedback(assessment)
 	if len(items) == 0 {
 		return errors.New("Agent QA requested changes without actionable feedback")
@@ -47,6 +49,10 @@ func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.Delegat
 	record := reviewFeedbackRecord{
 		Version: reviewFeedbackVersion, ItemID: strings.TrimSpace(item.ID),
 		DelegatedContentDigest: strings.TrimSpace(content.Digest), Items: items,
+	}
+	if baseline != nil {
+		record.Baseline = baseline
+		record.Baseline.Assessment = assessment
 	}
 	encoded, err := json.Marshal(record)
 	if err != nil {
@@ -75,6 +81,14 @@ func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.Delegat
 }
 
 func (s *Engine) loadReviewFeedback(item github.WorkItem, content github.DelegatedContent) ([]string, error) {
+	record, err := s.loadReviewFeedbackRecord(item, content)
+	if err != nil || record == nil {
+		return nil, err
+	}
+	return record.Items, nil
+}
+
+func (s *Engine) loadReviewFeedbackRecord(item github.WorkItem, content github.DelegatedContent) (*reviewFeedbackRecord, error) {
 	path := s.reviewFeedbackPath(item.ID)
 	encoded, mode, state, err := securefs.ReadFile(path, maxReviewFeedbackBytes)
 	if err != nil {
@@ -119,7 +133,7 @@ func (s *Engine) loadReviewFeedback(item github.WorkItem, content github.Delegat
 			return nil, fmt.Errorf("private Agent QA feedback item %d is invalid", index)
 		}
 	}
-	return record.Items, nil
+	return &record, nil
 }
 
 func (s *Engine) clearReviewFeedback(itemID string) error {
@@ -179,4 +193,36 @@ func ensureJSONEOF(decoder *json.Decoder) error {
 		return err
 	}
 	return nil
+}
+
+// Comments and proof obligations can change without changing the card body.
+func reviewContextDigest(spec execution.Spec, comments []string) string {
+	data, _ := json.Marshal(struct {
+		Repository, Content string
+		Proof, Comments     []string
+	}{spec.Repository, spec.DelegatedContentDigest, spec.RequiredVerification, compactNonEmpty(comments)})
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
+func matchingReviewBaseline(record *reviewFeedbackRecord, base, contextDigest string) *execution.ReviewBaseline {
+	if record == nil || record.Baseline == nil {
+		return nil
+	}
+	baseline := record.Baseline
+	if baseline.BaseOID != base || baseline.ContextDigest != contextDigest || !reviewObjectID(baseline.CommitOID) {
+		return nil
+	}
+	return baseline
+}
+
+func reviewObjectID(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	for _, c := range value {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }

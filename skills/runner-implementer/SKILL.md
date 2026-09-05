@@ -59,7 +59,11 @@ satisfies current requirements and credible risks.
    fixed-size simulation steps as fast as the CPU allows without rendering or
    wall-clock pacing, and control randomness where relevant. Use a short
    real-time smoke only for actual pacing or scheduler integration.
-9. On a retry, address all actionable QA findings together and rerun only the
+9. On a retry, reassess the requirements and current diff independently. Preserve
+   sound work, but do not assume the previous implementation is the right
+   foundation. Replace task-owned approaches when the evidence warrants it,
+   without discarding valid work merely because the model or effort changed.
+   Address all actionable QA findings together and rerun only the
    evidence affected by the fix or earlier blocker. Re-establish any previously
    passing obligation that the correction could affect, and inspect the complete
    cumulative diff for regressions introduced by the correction. Before editing,
@@ -89,3 +93,9 @@ and concrete evidence for each Runner-owned proof obligation in the same order.
 Name what actually ran or was observed. Never present an unrun command, intended
 fallback, or inference as verification, and never report success with incomplete
 acceptance conditions.
+
+On a retry, include a short `work_done` entry stating whether the prior approach
+was preserved and improved, partly replaced, or largely replaced, with the
+concrete reason. Describe the actual changes, not a judgment of the previous
+model; say when the available history is insufficient to tell. This is a
+qualitative repair report, not a measured percentage of reused code.

@@ -95,6 +95,11 @@ func (s *Engine) CheckProjectPlanningAvailability(ctx context.Context) error {
 }
 
 func (s *Engine) PlanProject(ctx context.Context, idea string) (ProjectPlan, error) {
+	guard, err := s.acquireLocalAdmission(ctx, true)
+	if err != nil {
+		return ProjectPlan{}, err
+	}
+	defer guard.Release()
 	admission, err := s.AdmissionStatus(time.Now().UTC())
 	if err != nil {
 		return ProjectPlan{}, err
@@ -103,6 +108,11 @@ func (s *Engine) PlanProject(ctx context.Context, idea string) (ProjectPlan, err
 	if admission.Configured && !admission.Allowed {
 		return ProjectPlan{}, fmt.Errorf("agent admission paused: %s", admission.Summary())
 	}
+	slot, err := s.acquireLocalExecutionSlot()
+	if err != nil {
+		return ProjectPlan{}, err
+	}
+	defer slot.Release()
 	role := s.cfg.RoleIDForContract(config.WorkRolePlanner)
 	startedAt := time.Now().UTC()
 	attemptID := metrics.NewAttemptID()
@@ -120,12 +130,11 @@ func (s *Engine) PlanProject(ctx context.Context, idea string) (ProjectPlan, err
 	}
 	trace := metrics.NewAttemptTrace(s.observeMetrics, event)
 	ctx = metrics.WithAttemptTrace(ctx, trace)
-	if s.observeMetrics != nil {
-		started := event
-		started.Kind = metrics.EventStarted
-		if observeErr := s.observeMetrics(started); observeErr != nil && s.cfg.AdmissionBudget != nil {
-			return ProjectPlan{}, fmt.Errorf("persist admission reservation: %w", observeErr)
-		}
+	if observeErr := s.recordAttemptStart(event); observeErr != nil && s.cfg.AdmissionBudget != nil {
+		return ProjectPlan{}, fmt.Errorf("persist admission reservation: %w", observeErr)
+	}
+	if err := guard.Release(); err != nil {
+		return ProjectPlan{}, err
 	}
 	plan, harnessResult, err := s.planProjectWithRole(ctx, role, idea)
 	if s.observeMetrics != nil {
@@ -164,16 +173,20 @@ func (s *Engine) planProjectWithRole(ctx context.Context, role, idea string) (Pr
 	}
 	finishRepository(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
 	planningContext := projectPlannerExecutionContext{}
+	for _, id := range s.cfg.PlannerImplementers {
+		profile, _ := s.cfg.RoleProfile(id)
+		planningContext.Profiles = append(planningContext.Profiles, plannerExecutionProfile{ID: id, Description: profile.Description, Model: profile.Model, Reasoning: profile.Reasoning, TaskGranularity: profile.TaskGranularity, TimeoutSeconds: profile.TimeoutSeconds})
+	}
 	implementerRole := s.cfg.RoleIDForContract(config.WorkRoleImplementer)
 	if profile, ok := s.cfg.RoleProfile(implementerRole); ok {
 		if profile.TimeoutSeconds > 0 {
 			planningContext.ImplementerTimeout = time.Duration(profile.TimeoutSeconds) * time.Second
 		}
-		planningContext.ImplementerSupport = config.EffectivePlanningSupport(profile.PlanningSupport)
+		planningContext.ImplementerGranularity = config.EffectiveTaskGranularity(profile.TaskGranularity)
 	}
 	reviewerRole := s.cfg.RoleIDForContract(config.WorkRoleReviewer)
 	if profile, ok := s.cfg.RoleProfile(reviewerRole); ok {
-		planningContext.ReviewerSupport = config.EffectivePlanningSupport(profile.PlanningSupport)
+		planningContext.ReviewerGranularity = config.EffectiveTaskGranularity(profile.TaskGranularity)
 	}
 	prompt := projectPlannerPrompt(skills, planningContext, s.cfg.GitHubProject.IntakeRepository, idea)
 	harnessResult, err := s.runPlannerHarness(ctx, role, harness, workingDir, prompt)
@@ -203,30 +216,46 @@ func (s *Engine) planProjectWithRole(ctx context.Context, role, idea string) (Pr
 	return plan, harnessResult, nil
 }
 
+type plannerExecutionProfile struct {
+	ID              string  `json:"id"`
+	Description     string  `json:"description"`
+	Model           *string `json:"model,omitempty"`
+	Reasoning       string  `json:"reasoning,omitempty"`
+	TaskGranularity string  `json:"task_granularity,omitempty"`
+	TimeoutSeconds  int     `json:"timeout_seconds,omitempty"`
+}
+
 type projectPlannerExecutionContext struct {
-	ImplementerTimeout time.Duration
-	ImplementerSupport string
-	ReviewerSupport    string
+	Profiles               []plannerExecutionProfile
+	ImplementerTimeout     time.Duration
+	ImplementerGranularity string
+	ReviewerGranularity    string
 }
 
 func projectPlannerPrompt(skills []string, executionContext projectPlannerExecutionContext, repository, idea string) string {
 	// Planning workflow lives in the installed skill. This prompt contains only
-	// selected skill names, runtime budget, operator-selected downstream support,
-	// and approved project context.
+	// selected skills, runtime budget, operator-approved profiles and task sizing,
+	// the profile-selection contract, and approved project context.
 	var b strings.Builder
+	if len(executionContext.Profiles) > 0 {
+		profiles, _ := json.Marshal(executionContext.Profiles)
+		fmt.Fprintf(&b, "Allowed execution profiles (operator configuration data): %s\nChoose an implementation_profile from these IDs when its description fits the card; explain the task-specific choice in profile_reason using contract clarity, applicable repository examples, verification strength, and the consequence of mistakes. Choose the least costly suitable profile according to operator guidance; the list is in operator preference order, not a universal capability ranking. Model and reasoning are bundled: never invent a model, effort, or profile, and do not assume reasoning levels are equivalent across models. Empty strings keep the configured default.\n", profiles)
+	} else {
+		b.WriteString("Use empty strings for implementation_profile and profile_reason; Runner uses the configured default.\n")
+	}
 	b.WriteString("Use these skills for this planner assignment: ")
 	b.WriteString(strings.Join(skills, ", "))
 	b.WriteString(".")
 	if executionContext.ImplementerTimeout > 0 {
 		fmt.Fprintf(&b, "\nConfigured implementer timeout: %s.", executionContext.ImplementerTimeout)
 	}
-	implementerSupport := config.EffectivePlanningSupport(executionContext.ImplementerSupport)
-	reviewerSupport := config.EffectivePlanningSupport(executionContext.ReviewerSupport)
-	if implementerSupport == config.PlanningSupportHigh || reviewerSupport == config.PlanningSupportHigh {
+	implementerGranularity := config.EffectiveTaskGranularity(executionContext.ImplementerGranularity)
+	reviewerGranularity := config.EffectiveTaskGranularity(executionContext.ReviewerGranularity)
+	if implementerGranularity == config.TaskGranularitySmall || reviewerGranularity == config.TaskGranularitySmall {
 		b.WriteString("\nOperator-selected downstream task sizing:")
-		fmt.Fprintf(&b, "\n- Implementer: %s.", implementerSupport)
-		fmt.Fprintf(&b, "\n- Reviewer: %s.", reviewerSupport)
-		b.WriteString("\nApply the planning-support behavior defined by the runner-planner skill. Support affects decomposition and specificity, never correctness, scope, or verification rigor.")
+		fmt.Fprintf(&b, "\n- Implementer: %s.", implementerGranularity)
+		fmt.Fprintf(&b, "\n- Reviewer: %s.", reviewerGranularity)
+		b.WriteString("\nApply the task-granularity behavior defined by the runner-planner skill. Granularity affects decomposition and specificity, never correctness, scope, or verification rigor.")
 	}
 	if repository = strings.TrimSpace(repository); repository != "" {
 		fmt.Fprintf(&b, "\nCanonical repository: %s. Runner binds it to every work item; do not return repository fields.", repository)
@@ -241,6 +270,11 @@ func projectPlannerPrompt(skills []string, executionContext projectPlannerExecut
 }
 
 func (s *Engine) ApplyProjectPlan(ctx context.Context, plan ProjectPlan) ([]github.WorkItem, error) {
+	guard, err := s.acquireLocalGate(ctx, true, github.AcquirePlanningMutationLock)
+	if err != nil {
+		return nil, err
+	}
+	defer guard.Release()
 	target, err := s.prepareDirectProjectPlan(&plan)
 	if err != nil {
 		return nil, err
@@ -307,6 +341,11 @@ func (s *Engine) validateStagedProjectPlanApproval(batchFingerprint string, chil
 }
 
 func (s *Engine) ApplyProjectPlanApproval(ctx context.Context, approval ProjectPlanApproval) ([]github.WorkItem, error) {
+	guard, err := s.acquireLocalGate(ctx, true, github.AcquirePlanningMutationLock)
+	if err != nil {
+		return nil, err
+	}
+	defer guard.Release()
 	if strings.TrimSpace(approval.BatchFingerprint) == "" || len(approval.Children) == 0 {
 		return nil, errors.New("staged plan approval preview is incomplete; preview the complete batch again")
 	}
@@ -367,6 +406,20 @@ func (s *Engine) normalizeProjectPlan(plan *ProjectPlan) error {
 	}
 	if err := s.normalizePlanRepositories(&normalized); err != nil {
 		return err
+	}
+	for _, card := range normalized.WorkItems {
+		if card.ImplementationProfile == "" {
+			if card.ProfileReason != "" {
+				return fmt.Errorf("card %q has a profile reason without a profile", card.Title)
+			}
+			continue
+		}
+		if strings.TrimSpace(card.ProfileReason) == "" {
+			return fmt.Errorf("card %q requires a profile reason", card.Title)
+		}
+		if _, err := s.cfg.SelectedImplementer(s.cfg.RoleIDForContract(config.WorkRoleImplementer), card.ImplementationProfile, 0); err != nil {
+			return fmt.Errorf("card %q: %w", card.Title, err)
+		}
 	}
 	*plan = normalized
 	return nil
@@ -880,6 +933,8 @@ func normalizeProjectPlan(plan ProjectPlan) (ProjectPlan, error) {
 		item.Title = strings.TrimSpace(item.Title)
 		item.Repository = strings.TrimSpace(item.Repository)
 		item.Summary = strings.TrimSpace(item.Summary)
+		item.ImplementationProfile = strings.TrimSpace(item.ImplementationProfile)
+		item.ProfileReason = strings.TrimSpace(item.ProfileReason)
 		if item.Risks == nil || item.NonGoals == nil {
 			return ProjectPlan{}, fmt.Errorf("project plan work_items[%d] must explicitly include risks and non_goals arrays", index)
 		}
