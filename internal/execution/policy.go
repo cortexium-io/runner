@@ -187,6 +187,11 @@ func claudeProfileArgsForConfig(profile ExecutionProfile, workspace profileWorks
 	}
 	if requiresFullHarnessAccess(profile) {
 		args = append(args, "--dangerously-skip-permissions")
+		if len(repositoryReferencePaths(profile, workspace)) > 0 {
+			// Host mode retains ambient configuration, but reference directories
+			// must not contribute Claude instructions merely through --add-dir.
+			args = append(args, "--settings", `{"env":{"CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD":"0"}}`)
+		}
 	} else {
 		args = append(args,
 			"--permission-mode", config.ClaudePermissionDontAsk,
@@ -264,6 +269,8 @@ func claudeSandboxSettingsForConfig(profile ExecutionProfile, workspace profileW
 		if roots := repositoryReadRoots(profile, workspace); len(roots) > 0 {
 			filesystem["denyWrite"] = roots
 		}
+	} else if roots := repositoryReferencePaths(profile, workspace); len(roots) > 0 {
+		filesystem["denyWrite"] = roots
 	}
 	if safeTools && profile.Role == RoleImplementer {
 		// npm's content-addressed cache is the only home-directory exception.
@@ -299,7 +306,7 @@ func claudeSandboxSettingsForConfig(profile ExecutionProfile, workspace profileW
 }
 
 func repositoryReferencePaths(profile ExecutionProfile, workspace profileWorkspace) []string {
-	if profile.Role != RolePlanner && profile.Role != RoleReviewer {
+	if profile.Role != RolePlanner && profile.Role != RoleImplementer && profile.Role != RoleReviewer {
 		return nil
 	}
 	paths := make([]string, 0, len(workspace.ReferenceRoots))

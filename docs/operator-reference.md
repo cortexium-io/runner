@@ -449,7 +449,7 @@ Doctor probe when file-write and reviewer conformance are not needed.
 
 Runner performs no GitHub operations and assigns only a private temporary Git
 repository, which it removes afterward. Configured repository references remain
-read-only context for planner and reviewer profiles. The command uses the
+read-only context for planner, implementer, and reviewer profiles. The command uses the
 profile's configured model, reasoning, access, harness configuration, pinned
 skills, safe tools, and explicit MCP grants. Consequently, a `host` profile is
 still host-access and `host/inherit` remains unrestricted; the result labels
@@ -573,7 +573,7 @@ path.
 ### Repository references
 
 `repository_references` optionally exposes existing secondary Git checkouts to
-planner and reviewer contracts as evidence:
+planner, implementer, and reviewer contracts as evidence:
 
 ```json
 "repository_references": [
@@ -608,14 +608,24 @@ git -C /absolute/path/to/legacy-frontend status --short
 git -C /absolute/path/to/legacy-frontend rev-parse HEAD
 ```
 
-Planner and reviewer contracts receive every configured reference; custom
-roles inherit the behavior of their base contract. Implementer and probe
+Planner, implementer, and reviewer contracts receive every configured reference;
+custom roles inherit the behavior of their base contract. Probe
 contracts never receive references, and there is intentionally no per-role
 reference list. Sandboxed Codex and Claude receive explicit read access while
 write access is denied. Claude is also prevented from loading project
 instructions from an added reference directory. Pi roles using references must
 select `access: "host"`, because Pi cannot enforce a read-only reference root.
 Host mode remains unrestricted and may see more than the configured list.
+
+Implementer launches validate references on every attempt, including retries,
+and permit source inspection while retaining write access only to the assigned
+worktree and allowed runtime/cache locations under sandboxed execution. No
+configuration migration is needed when upgrading to implementer reference
+support. Existing cards can retain obsolete instructions denying this access:
+use `retry --feedback` to explicitly supersede that restriction on a blocked
+card while preserving its task scope. Do not hand-edit authenticated planning
+metadata. Runner embeds the updated role skill in each launch; `init` refreshes
+installed skill copies when needed.
 
 Reference files are labeled as untrusted evidence, not instructions or Runner
 authority. The entire root is readable, including ignored files, because Git

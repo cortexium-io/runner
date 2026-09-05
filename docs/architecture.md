@@ -515,12 +515,14 @@ The live readiness probe always forces `sandboxed` plus `isolated`. Setup and
 production launches share the same required-flag table, and unsupported
 installed CLIs fail before model invocation.
 
-Optional `repository_references` are a fixed extension of planner and reviewer
-profiles, including custom roles with those contracts. Implementer and probe
+Optional `repository_references` are a fixed extension of planner, implementer,
+and reviewer profiles, including custom roles with those contracts. Probe
 profiles never receive them. Normal doctor and every eligible launch resolve
 symlinks and verify that each reference is an exact, non-overlapping Git root
 with a clean tracked/untracked state and `HEAD` equal to its full configured
-commit. Runner does not mutate or synchronize reference checkouts. Codex gets
+commit, including implementation retries. Implementation edits remain in the
+assigned worktree; reference source inspection is explicitly permitted in the
+launch prompt. Runner does not mutate or synchronize reference checkouts. Codex gets
 explicit filesystem reads; Claude gets repeated additional-directory reads,
 explicit write denials, and disabled instruction loading from those additional
 directories. Pi requires `host` for references because it cannot enforce a

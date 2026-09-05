@@ -198,7 +198,8 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	}
 	defer artifacts.close()
 
-	launchWorkspace, err := prepareProfileWorkspace(profile, metadata.WorktreePath)
+	protectedRoots := append([]string{e.cfg.WorkingDir, e.cfg.WorkspaceWriteRoot}, e.config.ReferenceProtectedRoots...)
+	launchWorkspace, err := prepareExecutionWorkspace(ctx, e.run, profile, metadata.WorktreePath, e.config.RepositoryReferences, protectedRoots...)
 	if err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
@@ -212,7 +213,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	args := e.profileWorkspaceWriteArgs(profile, launchWorkspace, mcpArgs, artifacts.outputPath(), artifacts.schemaPath(), assignment)
 	harnessStartedAt := time.Now()
 	finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
-	result, runErr := e.runCodex(ctx, args, metadata.WorktreePath, strings.NewReader(e.workspaceWritePrompt(assignment)))
+	result, runErr := e.runCodex(ctx, args, metadata.WorktreePath, strings.NewReader(e.workspaceWritePrompt(assignment)+profileReferenceInstruction(launchWorkspace)))
 	harnessDuration := time.Since(harnessStartedAt).Milliseconds()
 	usage := parseCodexUsage(result.Stdout)
 	lastMessage, readErr := artifacts.readResult()

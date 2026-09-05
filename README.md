@@ -23,7 +23,7 @@ server, or required GitHub Actions workflow.
 > `"access": "host"` with `"harness_config": "inherit"` is unrestricted agent
 > execution under the Runner operating-system account.
 > Configured repository references expose their entire root, including ignored
-> files, to planner and reviewer roles. Use dedicated reference checkouts that
+> files, to planner, implementer, and reviewer roles. Use dedicated reference checkouts that
 > contain no credentials or unrelated private material.
 
 Sandboxed Codex roles receive only minimum runtime reads plus their assigned
@@ -433,7 +433,7 @@ Pi implementer and reviewer roles require `host`, and every inherited Pi role
 requires `host`, because Pi does not provide an OS sandbox for ambient shell and
 edit tools.
 
-Planner and reviewer roles can also receive pinned evidence from secondary
+Planner, implementer, and reviewer roles can also receive pinned evidence from secondary
 local Git checkouts. Add an optional top-level list, then run connected doctor:
 
 ```json
@@ -447,8 +447,8 @@ local Git checkouts. Add an optional top-level list, then run connected doctor:
 ```
 
 Runner verifies the exact clean checkout and commit again immediately before
-each eligible launch. It never changes the reference, and implementers never
-receive it. Sandboxed Codex and Claude keep it read-only; Pi references require
+each eligible launch, including implementation retries. It never changes the
+reference. Sandboxed Codex and Claude keep it read-only; Pi references require
 explicit host access. See [repository references](docs/operator-reference.md#repository-references)
 for the complete safety and maintenance contract.
 
