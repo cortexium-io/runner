@@ -36,6 +36,19 @@ minimum system runtime files, and the implementer's npm cache. Native and
 external sandbox implementations still have platform limits; use a dedicated
 OS account or external sandbox for stronger host isolation.
 
+Focused QA checks receive a disposable copy of the exact candidate source.
+The reviewer can restore its existing locked dependencies and create build,
+cache, and test output there without changing the read-only reviewed checkout.
+Source, tests, manifests, and lockfiles must remain unchanged; Runner rejects
+the review result if copied source changes. With `safe_tools` enabled, this
+focused stage permits npm-registry and loopback access, not arbitrary package
+registries or external services. Other prerequisites must already be available
+within the configured access boundary. Local applications must use this copy
+and their own loopback port, not a shared server. The copy is removed after the
+stage. No new configuration is required. After upgrading, restart the service
+with the new binary and run `doctor --fix --offline --config PATH` to refresh the
+bundled reviewer skill before retrying a card blocked by missing QA dependencies.
+
 Host-access Claude roles use `--dangerously-skip-permissions`; host-access Codex
 roles use `danger-full-access`. Pi implementation and review require host access
 because Pi has no native OS sandbox for its shell/edit tools. Every adapter

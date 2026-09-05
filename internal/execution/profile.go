@@ -237,15 +237,16 @@ func (profile ExecutionProfile) allowsTool(class ToolClass) bool {
 // profileWorkspace owns the process cwd, primary repository, and validated
 // read-only reference roots conveyed to a launch.
 type profileWorkspace struct {
-	Dir            string
-	ReadRoot       string
-	ReferenceRoots []config.RepositoryReference
-	GitReadRoots   []string
-	ToolReadPaths  []string
-	TempDir        string
-	TrustedToolDir string
-	ToolPath       string
-	cleanup        func() error
+	Dir              string
+	VerificationRoot string
+	ReadRoot         string
+	ReferenceRoots   []config.RepositoryReference
+	GitReadRoots     []string
+	ToolReadPaths    []string
+	TempDir          string
+	TrustedToolDir   string
+	ToolPath         string
+	cleanup          func() error
 }
 
 func prepareExecutionWorkspace(ctx context.Context, run subprocess.Runner, profile ExecutionProfile, requestedRoot string, references []config.RepositoryReference, protectedRoots ...string) (profileWorkspace, error) {
