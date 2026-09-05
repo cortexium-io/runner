@@ -22,6 +22,8 @@ type pullRequestObservation struct {
 	inspected    bool
 }
 
+var errPullRequestBranchFetch = errors.New("pull request branch fetch failed")
+
 func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkItem) ([]RunResult, bool, error) {
 	warnings := []RunResult{}
 	changed := false
@@ -31,6 +33,24 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 	checksFailedEvent, hasChecksFailedEvent := s.cfg.WorkflowEventFor(config.WorkflowEventPRChecksFailed)
 	outdatedEvent, hasOutdatedEvent := s.cfg.WorkflowEventFor(config.WorkflowEventPROutOfDate)
 	publicationLane := s.cfg.PublicationLaneID()
+	reconcileAfterBranchFetchFailure := func(action github.AuthorizedAction, cause error) (bool, error) {
+		if !errors.Is(cause, errPullRequestBranchFetch) {
+			return false, nil
+		}
+		// A previously OPEN PR may have merged and lost its branch during
+		// the fetch. Only a fresh, validated terminal observation can turn
+		// that failure into completion; a missing ref alone proves nothing.
+		details, err := manager.InspectAuthorized(ctx, action)
+		if err != nil {
+			return false, errors.Join(cause, fmt.Errorf("reinspect pull request after branch fetch failure: %w", err))
+		}
+		handled, terminalChanged, warning, err := s.reconcileTerminalPullRequest(ctx, action, details, mergedEvent, hasMergedEvent, closedEvent, hasClosedEvent)
+		changed = changed || terminalChanged
+		if warning != nil {
+			warnings = append(warnings, *warning)
+		}
+		return handled, err
+	}
 	blockAutoMerge := func(action github.AuthorizedAction, laneID, summary string, cause error) error {
 		if !hasOutdatedEvent {
 			return cause
@@ -60,6 +80,9 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		prepared, err := s.workspaceForItem(ctx, item, delegatedContentDigest, repoRoot)
 		if err == nil {
 			return prepared, false, nil
+		}
+		if handled, terminalErr := reconcileAfterBranchFetchFailure(action, err); handled || terminalErr != nil {
+			return workspace.Metadata{}, handled, terminalErr
 		}
 		if !hasOutdatedEvent {
 			return workspace.Metadata{}, false, err
@@ -444,6 +467,11 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		}
 		needsRefresh, alreadyIntegrated, err := s.branchNeedsBaseRefresh(ctx, repoRoot, item.Branch, defaultString(details.BaseRefName, s.baseBranch()))
 		if err != nil {
+			if handled, terminalErr := reconcileAfterBranchFetchFailure(action, err); terminalErr != nil {
+				return warnings, changed, terminalErr
+			} else if handled {
+				continue
+			}
 			if !hasOutdatedEvent {
 				return warnings, changed, err
 			}
@@ -783,7 +811,7 @@ func (s *Engine) branchNeedsBaseRefresh(ctx context.Context, repoRoot, branch, b
 	baseBranch = defaultString(baseBranch, s.baseBranch())
 	fetched, err := s.git(ctx, []string{"fetch", remote, remoteRefspec(remote, baseBranch), remoteRefspec(remote, branch)}, repoRoot, 2*time.Minute)
 	if err != nil {
-		return false, false, fmt.Errorf("fetch pull request branches: %w", commandFailure(err, fetched))
+		return false, false, fmt.Errorf("%w: fetch pull request branches: %w", errPullRequestBranchFetch, commandFailure(err, fetched))
 	}
 	ancestor, err := s.git(ctx, []string{"merge-base", "--is-ancestor", remote + "/" + baseBranch, remote + "/" + branch}, repoRoot, 30*time.Second)
 	if err == nil && ancestor.ExitCode == 0 {
@@ -866,7 +894,7 @@ func (s *Engine) syncWorkspaceBranch(ctx context.Context, metadata workspace.Met
 	fetched, fetchErr := s.git(ctx, []string{"fetch", remote, remoteRefspec(remote, branch)}, worktreePath, 2*time.Minute)
 	if fetchErr != nil {
 		if strings.TrimSpace(item.PullRequest) != "" {
-			return fmt.Errorf("fetch current pull request head: %w", commandFailure(fetchErr, fetched))
+			return fmt.Errorf("%w: fetch current pull request head: %w", errPullRequestBranchFetch, commandFailure(fetchErr, fetched))
 		}
 		return nil
 	}
