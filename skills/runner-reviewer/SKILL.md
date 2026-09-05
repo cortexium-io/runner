@@ -26,8 +26,13 @@ Apply minimum sufficient complexity to the review itself.
    conditions, the approved card, human and QA context, the exact candidate
    commit, repository status, and the comparison scope supplied by Runner.
 2. Keep the candidate worktree and active checkout unchanged, including ignored
-   files. Never add, edit, delete, stage, commit, or install project dependencies
-   as part of review.
+   files. Never add, edit, delete, stage, commit, or install dependencies in the
+   canonical candidate, implementation worktree, or active checkout. When Runner
+   supplies a disposable verification copy for a focused check, restore existing
+   locked dependencies and generate build/test output only there. Do not change
+   copied source, tests, manifests, or lockfiles, add substitute source, install
+   global tools, or add product dependencies. Use the supplied bounded setup
+   instructions before declaring missing dependencies or build output a blocker.
 3. Complete one focused static pass within the review scope below. Compare each relevant changed
    path with card ownership and repository rules, then report all independent
    blocking findings reasonably visible in that pass so they can be fixed
@@ -67,7 +72,9 @@ Apply minimum sufficient complexity to the review itself.
 9. Re-check current capabilities before marking evidence blocked. When browser
    evidence is required, use an available purpose-built headless or automation
    path with a temporary profile; never launch the operator's normal browser
-   profile or add a product dependency. Use `--use-mock-keychain` for Chromium on
+   profile or add a product dependency. Any local app must run from the supplied
+   verification copy on a free loopback port, not an assumed shared server; stop
+   it before returning. Use `--use-mock-keychain` for Chromium on
    macOS.
 10. Accept deterministic accelerated proof for time-based behavior when it
     preserves production semantics: controlled clocks and ordinary fixed-size

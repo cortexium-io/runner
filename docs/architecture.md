@@ -410,6 +410,20 @@ entering push, pull-request publication, or worktree cleanup paths. An accepted
 unchanged candidate receives an exclusive private publication record keyed by
 its commit and binding the item/content identity, commit/tree, approved base,
 repository, and full destination branch ref.
+When the source audit leaves a concrete dynamic check unresolved, the focused
+review stage receives a disposable source copy inside its private neutral
+workspace. It contains no Git administration and does not reuse implementation
+dependencies or build artifacts. The reviewer may restore existing locked
+dependencies and generate build/test output there, but not alter candidate
+source, tests, manifests, or lockfiles. Runner bounds copying with the existing
+snapshot limits, refuses external symlinks, and verifies the copied source with
+no-follow hashes after the harness returns, including on failure. A changed
+source invalidates the result. The canonical review and implementation snapshots
+remain unchanged and are still checked by the engine. Only focused reviewer
+safe-tool invocations receive npm-registry access in addition to loopback;
+dependency caches remain in private temporary space. Audit-only invocations do
+not prepare this copy or gain package-network access. All harnesses use the same
+copy lifecycle; Pi still requires explicitly configured host access.
 Publication replays that record under a sanitized privileged Git profile,
 re-fetches and compares the approved base, re-resolves the accepted tree,
 refreshes Project authority, validates the configured remote repository, and

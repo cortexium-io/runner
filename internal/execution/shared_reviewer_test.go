@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -193,6 +194,7 @@ func TestAssembleReviewerContentRejectsInvalidOrAmbiguousContent(t *testing.T) {
 }
 
 type sharedReviewerHarnessRunner struct {
+	onRun            func(string) error
 	response         string
 	responses        []string
 	responseIndex    int
@@ -204,7 +206,12 @@ type sharedReviewerHarnessRunner struct {
 	timeouts         []time.Duration
 }
 
-func (r *sharedReviewerHarnessRunner) Run(_ context.Context, command string, args []string, _ string, timeout time.Duration) (subprocess.Result, error) {
+func (r *sharedReviewerHarnessRunner) Run(_ context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	if r.onRun != nil {
+		if err := r.onRun(dir); err != nil {
+			return subprocess.Result{}, err
+		}
+	}
 	r.args = append([]string(nil), args...)
 	r.allArgs = append(r.allArgs, append([]string(nil), args...))
 	r.timeouts = append(r.timeouts, timeout)
@@ -369,11 +376,33 @@ func TestAllReviewersUseFreshFocusedStageOnlyForUnresolvedProofs(t *testing.T) {
 	for _, kind := range []string{config.HarnessCodexCLI, config.HarnessClaudeCLI, config.HarnessPiCLI} {
 		t.Run(kind, func(t *testing.T) {
 			run := &sharedReviewerHarnessRunner{responses: []string{audit, resolution}}
+			fixture := verificationFixture(t)
+			var verificationDir string
+			run.onRun = func(dir string) error {
+				copyDir := filepath.Join(dir, "verification")
+				if len(run.inputs) == 1 {
+					if _, err := os.Stat(copyDir); !os.IsNotExist(err) {
+						t.Fatal("audit stage prepared dynamic verification")
+					}
+					return nil
+				}
+				verificationDir = copyDir
+				if content, err := os.ReadFile(filepath.Join(copyDir, "app.js")); err != nil || string(content) != `process.stdout.write("candidate")` {
+					t.Fatalf("focused harness did not receive exact source: %q %v", content, err)
+				}
+				if _, err := os.Lstat(filepath.Join(copyDir, ".git")); !os.IsNotExist(err) {
+					t.Fatal("verification exposed Git administration")
+				}
+				if err := os.Mkdir(filepath.Join(copyDir, "node_modules"), 0o700); err != nil {
+					return err
+				}
+				return os.WriteFile(filepath.Join(copyDir, "node_modules", "fixture"), []byte("restored dependency"), 0o600)
+			}
 			enabled := true
 			cfg := config.ExecutionConfig{
 				Skills: []string{"runner-reviewer"}, SafeTools: true,
 				Harness: config.HarnessConfig{
-					Kind: kind, Command: kind, Enabled: &enabled, WorkingDir: t.TempDir(), WorkspaceWriteRoot: t.TempDir(), TimeoutSeconds: 30,
+					Kind: kind, Command: kind, Enabled: &enabled, WorkingDir: fixture.ReadRoot, WorkspaceWriteRoot: t.TempDir(), TimeoutSeconds: 30,
 				},
 			}
 			if kind == config.HarnessPiCLI {
@@ -391,6 +420,15 @@ func TestAllReviewersUseFreshFocusedStageOnlyForUnresolvedProofs(t *testing.T) {
 			}
 			if len(run.inputs) != 2 || len(run.allArgs) != 2 {
 				t.Fatalf("reviewer calls = inputs %d args %d, want one audit and one focused verification", len(run.inputs), len(run.allArgs))
+			}
+			if verificationDir == "" {
+				t.Fatal("no verification copy was used")
+			}
+			if _, err := os.Stat(verificationDir); !os.IsNotExist(err) {
+				t.Fatal("verification workspace was not cleaned")
+			}
+			if _, err := os.Stat(filepath.Join(fixture.ReadRoot, "node_modules")); !os.IsNotExist(err) {
+				t.Fatal("review modified canonical candidate")
 			}
 			focusedPrompt := run.inputs[1]
 			if !strings.Contains(focusedPrompt, `"key":"P2"`) || !strings.Contains(focusedPrompt, assignment.Spec.RequiredVerification[1]) || strings.Contains(focusedPrompt, `"key":"P1"`) || strings.Contains(focusedPrompt, assignment.Spec.RequiredVerification[0]) {

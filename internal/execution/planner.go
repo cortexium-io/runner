@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -65,7 +66,7 @@ func RunProbeWithUsage(ctx context.Context, kind string, cfg config.ExecutionCon
 	return runStructuredHarness(ctx, RoleProbe, kind, cfg, cfg.Harness.WorkingDir, prompt, schema, "prefer", metrics.StageHarnessRun, run)
 }
 
-func runStructuredHarness(ctx context.Context, role RoleContract, kind string, cfg config.ExecutionConfig, workingDir, prompt string, schema []byte, piConstrainedSamplingStrict, stageName string, run subprocess.Runner) (StructuredHarnessResult, error) {
+func runStructuredHarness(ctx context.Context, role RoleContract, kind string, cfg config.ExecutionConfig, workingDir, prompt string, schema []byte, piConstrainedSamplingStrict, stageName string, run subprocess.Runner) (result StructuredHarnessResult, resultErr error) {
 	if run == nil {
 		run = subprocess.OSRunner{}
 	}
@@ -91,6 +92,20 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 	}
 	defer workspace.cleanup()
+	if role == RoleReviewer && stageName == metrics.StageReviewerVerify {
+		verification, err := prepareReviewerVerification(ctx, &workspace, snapshotLimits(cfg.ResourceLimits))
+		if err != nil {
+			return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryManual), fmt.Errorf("prepare reviewer verification copy: %w", err)
+		}
+		defer func() {
+			if err := verification.verify(); err != nil {
+				result.FailureClass, result.RetryDisposition = FailureIntegrityViolation, RetryNone
+				result.Message = ""
+				resultErr = errors.Join(resultErr, fmt.Errorf("reviewer verification source integrity: %w", err))
+			}
+		}()
+		prompt += reviewerVerificationInstruction(workspace)
+	}
 	if role == RolePlanner || role == RoleReviewer {
 		prompt += trustedSkillInstructions(cfg)
 	}

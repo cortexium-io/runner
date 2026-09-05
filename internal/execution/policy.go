@@ -64,6 +64,9 @@ func codexProfileArgsForConfig(profile ExecutionProfile, workspace profileWorksp
 				name = codexReviewerBrowserPermissionProfile
 				description = "Runner reviewer with local browser QA"
 				network = `{enabled=true,mode="limited",allow_local_binding=true,domains={"localhost"="allow","127.0.0.1"="allow"}}`
+				if workspace.VerificationRoot != "" {
+					network = `{enabled=true,mode="limited",allow_local_binding=true,domains={"localhost"="allow","127.0.0.1"="allow","registry.npmjs.org"="allow"}}`
+				}
 			}
 		case RoleImplementer:
 			name = codexImplementationWritePermissionProfile
@@ -285,7 +288,7 @@ func claudeSandboxSettingsForConfig(profile ExecutionProfile, workspace profileW
 	}
 	if profile.allowsTool(ToolReadShell) || profile.allowsTool(ToolShell) {
 		domains := []string{"localhost", "127.0.0.1"}
-		if safeTools && profile.Role == RoleImplementer {
+		if safeTools && (profile.Role == RoleImplementer || profile.Role == RoleReviewer && workspace.VerificationRoot != "") {
 			domains = append(domains, "registry.npmjs.org")
 		}
 		sandbox["network"] = map[string]any{"allowLocalBinding": true, "allowedDomains": domains}
