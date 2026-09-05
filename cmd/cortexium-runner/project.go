@@ -227,7 +227,7 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	if err != nil {
 		return err
 	}
-	if *jsonOutput && !*create {
+	if *jsonOutput && !*create && !*stageOnly {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(plan)
