@@ -54,7 +54,7 @@ Preview adopting and synchronizing an existing board:
   --project-dir . \
   --harness codex \
   --reasoning high \
-  --planning-support standard \
+  --task-granularity standard \
   --max-parallelism 1 \
   --base-update-review required \
   --auto-merge=false \

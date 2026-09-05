@@ -452,6 +452,9 @@ func validateWorkflowConfig(c Config) error {
 	if c.GitHubProject != nil && c.GitHubProject.AutoMerge && publicationLane == "" {
 		return errors.New("github_project.auto_merge requires a workflow publish_pull_request rule")
 	}
+	if err := validatePlannerImplementers(c); err != nil {
+		return err
+	}
 	if err := validateImplementerLadder(c); err != nil {
 		return err
 	}

@@ -57,6 +57,9 @@ func commandFailure(err error, result subprocess.Result) error {
 func FormatPlannedItemBody(item PlannedItem) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(item.Summary))
+	if item.ImplementationProfile != "" {
+		fmt.Fprintf(&b, "\n\n## Execution profile\n\n%s — %s\n", item.ImplementationProfile, item.ProfileReason)
+	}
 	if strings.TrimSpace(item.ProjectGoal) != "" {
 		b.WriteString("\n\n## Project outcome\n\n")
 		b.WriteString(strings.TrimSpace(item.ProjectGoal))
@@ -152,6 +155,7 @@ func FormatPlannedItemBody(item PlannedItem) string {
 		PlanningSourceFingerprint: strings.TrimSpace(item.PlanningSourceFingerprint), PlanningDestination: strings.TrimSpace(item.PlanningDestination),
 		PlanningBatchFingerprint: strings.TrimSpace(item.PlanningBatchFingerprint),
 		PlanningBatchSize:        item.PlanningBatchSize, PlanningItemIndex: item.PlanningItemIndex,
+		ImplementationProfile: item.ImplementationProfile,
 	})
 	b.WriteString("\n\n## Runner planning metadata\n\n")
 	b.WriteString("This operator-visible metadata is authenticated with the staged batch and is not editable scheduling input.\n\n```json\n")
@@ -170,6 +174,7 @@ type PlannedItemMetadata struct {
 	PlanningBatchFingerprint  string   `json:"planning_batch_fingerprint,omitempty"`
 	PlanningBatchSize         int      `json:"planning_batch_size,omitempty"`
 	PlanningItemIndex         int      `json:"planning_item_index,omitempty"`
+	ImplementationProfile     string   `json:"implementation_profile,omitempty"`
 }
 
 type plannedItemMetadataWire struct {
@@ -184,6 +189,7 @@ type plannedItemMetadataWire struct {
 	PlanningBatchFingerprint  string              `json:"planning_batch_fingerprint"`
 	PlanningBatchSize         int                 `json:"planning_batch_size"`
 	PlanningItemIndex         int                 `json:"planning_item_index"`
+	ImplementationProfile     string              `json:"implementation_profile,omitempty"`
 }
 
 var errPlanningDependencyIDsPending = errors.New("Runner planning dependency IDs are not finalized")
@@ -288,6 +294,7 @@ func decodePlannedItemMetadata(body string) (PlannedItemMetadata, bool, error) {
 		Repository: wire.Repository, PlanningSourceID: wire.PlanningSourceID, PlanningSourceLane: wire.PlanningSourceLane,
 		PlanningSourceFingerprint: wire.PlanningSourceFingerprint, PlanningDestination: wire.PlanningDestination,
 		PlanningBatchFingerprint: wire.PlanningBatchFingerprint, PlanningBatchSize: wire.PlanningBatchSize, PlanningItemIndex: wire.PlanningItemIndex,
+		ImplementationProfile: wire.ImplementationProfile,
 	}
 	if strings.TrimSpace(payload[end+len(suffix):]) != "" {
 		return metadata, true, errors.New("Runner planning metadata must be the final canonical section")
@@ -295,6 +302,7 @@ func decodePlannedItemMetadata(body string) (PlannedItemMetadata, bool, error) {
 	canonical, _ := json.Marshal(wire)
 	if string(canonical) != payload[:end] || wire.Version != 1 || wire.PlanningSourceLane == "" || wire.PlanningSourceFingerprint == "" ||
 		wire.PlanningDestination == "" || wire.PlanningBatchFingerprint == "" || wire.PlanningBatchSize < 1 || wire.PlanningItemIndex < 1 ||
+		wire.ImplementationProfile != strings.TrimSpace(wire.ImplementationProfile) ||
 		wire.Repository != strings.TrimSpace(wire.Repository) || wire.PlanningSourceID != strings.TrimSpace(wire.PlanningSourceID) ||
 		wire.PlanningSourceLane != strings.TrimSpace(wire.PlanningSourceLane) || wire.PlanningSourceFingerprint != strings.TrimSpace(wire.PlanningSourceFingerprint) ||
 		wire.PlanningDestination != strings.TrimSpace(wire.PlanningDestination) || wire.PlanningBatchFingerprint != strings.TrimSpace(wire.PlanningBatchFingerprint) {

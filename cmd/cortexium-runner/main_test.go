@@ -96,7 +96,7 @@ func TestInitCreatesStandaloneConfigAndCanSynchronizeIt(t *testing.T) {
 		t.Fatalf("init dry run created config: %v", err)
 	}
 	output.Reset()
-	if err := run(t.Context(), []string{"init", "--owner", "example", "--project-number", "7", "--repository", "example/repo", "--project-dir", project, "--config", configPath, "--max-parallelism", "3", "--max-qa-rejections", "4", "--admission-window", "24h", "--max-admission-attempts", "12", "--max-admission-harness-time", "8h", "--max-admission-tokens", "1000000", "--max-admission-cost-usd", "25", "--auto-merge", "--autonomous-issues", "--trusted-issue-author", "maintainer", "--harness", "codex", "--model", "gpt-test", "--reasoning", "high", "--planning-support", "high", "--reviewer-harness", "pi", "--reviewer-access", "host", "--reviewer-harness-config", "inherit", "--reviewer-model", "qwen/local", "--reviewer-reasoning", "xhigh", "--base-update-review", "required"}, strings.NewReader(""), &output); err != nil {
+	if err := run(t.Context(), []string{"init", "--owner", "example", "--project-number", "7", "--repository", "example/repo", "--project-dir", project, "--config", configPath, "--max-parallelism", "3", "--max-qa-rejections", "4", "--admission-window", "24h", "--max-admission-attempts", "12", "--max-admission-harness-time", "8h", "--max-admission-tokens", "1000000", "--max-admission-cost-usd", "25", "--auto-merge", "--autonomous-issues", "--trusted-issue-author", "maintainer", "--harness", "codex", "--model", "gpt-test", "--reasoning", "high", "--task-granularity", "small", "--reviewer-harness", "pi", "--reviewer-access", "host", "--reviewer-harness-config", "inherit", "--reviewer-model", "qwen/local", "--reviewer-reasoning", "xhigh", "--base-update-review", "required"}, strings.NewReader(""), &output); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 	if expected := "Agent admission: rolling 24h0m0s window · 12 attempt(s) · 8h0m0s harness time · 1000000 reported tokens · $25.0000 reported cost"; !strings.Contains(output.String(), expected) {
@@ -107,7 +107,7 @@ func TestInitCreatesStandaloneConfigAndCanSynchronizeIt(t *testing.T) {
 		t.Fatalf("load initialized config: %v", err)
 	}
 	workflow := loaded.EffectiveWorkflow()
-	if loaded.GitHubProject.Owner != "example" || loaded.GitHubProject.Number != 7 || loaded.GitHubProject.TransitionField != config.RunnerTransitionFieldName || loaded.MaxParallelism != 3 || !loaded.GitHubProject.AutoMerge || loaded.GitHubProject.MergeMethod != config.MergeMethodMerge || loaded.Workflow == nil || workflow.Lanes["agent_qa"].MaxQARejections != 4 || workflow.Lanes["plan"].Name != "Plan" || loaded.Roles[config.WorkRolePlanner].Harness != config.HarnessCodexCLI || loaded.Roles[config.WorkRolePlanner].Model == nil || *loaded.Roles[config.WorkRolePlanner].Model != "gpt-test" || loaded.Roles[config.WorkRolePlanner].Reasoning != "high" || loaded.Roles[config.WorkRolePlanner].PlanningSupport != "" || loaded.Roles[config.WorkRoleImplementer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleReviewer].Harness != config.HarnessPiCLI || loaded.Roles[config.WorkRoleReviewer].Access != config.RoleAccessHost || loaded.Roles[config.WorkRoleReviewer].HarnessConfig != config.HarnessConfigModeInherit || loaded.Roles[config.WorkRoleReviewer].Model == nil || *loaded.Roles[config.WorkRoleReviewer].Model != "qwen/local" || loaded.Roles[config.WorkRoleReviewer].Reasoning != "xhigh" || loaded.GitHubProject.IntakeRepository != "example/repo" {
+	if loaded.GitHubProject.Owner != "example" || loaded.GitHubProject.Number != 7 || loaded.GitHubProject.TransitionField != config.RunnerTransitionFieldName || loaded.MaxParallelism != 3 || !loaded.GitHubProject.AutoMerge || loaded.GitHubProject.MergeMethod != config.MergeMethodMerge || loaded.Workflow == nil || workflow.Lanes["agent_qa"].MaxQARejections != 4 || workflow.Lanes["plan"].Name != "Plan" || loaded.Roles[config.WorkRolePlanner].Harness != config.HarnessCodexCLI || loaded.Roles[config.WorkRolePlanner].Model == nil || *loaded.Roles[config.WorkRolePlanner].Model != "gpt-test" || loaded.Roles[config.WorkRolePlanner].Reasoning != "high" || loaded.Roles[config.WorkRolePlanner].TaskGranularity != "" || loaded.Roles[config.WorkRoleImplementer].TaskGranularity != config.TaskGranularitySmall || loaded.Roles[config.WorkRoleReviewer].TaskGranularity != config.TaskGranularitySmall || loaded.Roles[config.WorkRoleReviewer].Harness != config.HarnessPiCLI || loaded.Roles[config.WorkRoleReviewer].Access != config.RoleAccessHost || loaded.Roles[config.WorkRoleReviewer].HarnessConfig != config.HarnessConfigModeInherit || loaded.Roles[config.WorkRoleReviewer].Model == nil || *loaded.Roles[config.WorkRoleReviewer].Model != "qwen/local" || loaded.Roles[config.WorkRoleReviewer].Reasoning != "xhigh" || loaded.GitHubProject.IntakeRepository != "example/repo" {
 		t.Fatalf("unexpected initialized config %#v", loaded)
 	}
 	if loaded.AdmissionBudget == nil || loaded.AdmissionBudget.WindowSeconds != 86400 || loaded.AdmissionBudget.MaxAttempts != 12 || loaded.AdmissionBudget.MaxHarnessSeconds != 28800 || loaded.AdmissionBudget.MaxReportedTokens != 1000000 || loaded.AdmissionBudget.MaxReportedCostUSD == nil || *loaded.AdmissionBudget.MaxReportedCostUSD != 25 {
@@ -458,23 +458,23 @@ func TestInitHarnessConfigurationDefaultsIsolatedAndAcceptsExplicitInheritance(t
 	}
 }
 
-func TestInitPlanningSupportDefaultsRemainOperatorControlled(t *testing.T) {
+func TestInitTaskGranularityDefaultsRemainOperatorControlled(t *testing.T) {
 	implementer, reviewer := "", ""
-	if err := applyInitPlanningSupportDefaults(config.PlanningSupportHigh, &implementer, &reviewer); err != nil {
+	if err := applyInitTaskGranularityDefaults(config.TaskGranularitySmall, &implementer, &reviewer); err != nil {
 		t.Fatal(err)
 	}
-	if implementer != config.PlanningSupportHigh || reviewer != config.PlanningSupportHigh {
-		t.Fatalf("shared planning support was not applied: %q/%q", implementer, reviewer)
+	if implementer != config.TaskGranularitySmall || reviewer != config.TaskGranularitySmall {
+		t.Fatalf("shared task granularity was not applied: %q/%q", implementer, reviewer)
 	}
-	implementer, reviewer = config.PlanningSupportStandard, ""
-	if err := applyInitPlanningSupportDefaults(config.PlanningSupportHigh, &implementer, &reviewer); err != nil {
+	implementer, reviewer = config.TaskGranularityStandard, ""
+	if err := applyInitTaskGranularityDefaults(config.TaskGranularitySmall, &implementer, &reviewer); err != nil {
 		t.Fatal(err)
 	}
-	if implementer != config.PlanningSupportStandard || reviewer != config.PlanningSupportHigh {
-		t.Fatalf("role-specific planning support was overwritten: %q/%q", implementer, reviewer)
+	if implementer != config.TaskGranularityStandard || reviewer != config.TaskGranularitySmall {
+		t.Fatalf("role-specific task granularity was overwritten: %q/%q", implementer, reviewer)
 	}
-	if err := applyInitPlanningSupportDefaults("automatic", &implementer, &reviewer); err == nil || !strings.Contains(err.Error(), "standard or high") {
-		t.Fatalf("unknown planning support was accepted: %v", err)
+	if err := applyInitTaskGranularityDefaults("automatic", &implementer, &reviewer); err == nil || !strings.Contains(err.Error(), "standard or small") {
+		t.Fatalf("unknown task granularity was accepted: %v", err)
 	}
 }
 
@@ -607,33 +607,33 @@ func TestRoleEditAllAcceptsOnlyHarnessConfiguration(t *testing.T) {
 	}
 }
 
-func TestRoleEditChangesOnlySelectedPlanningSupport(t *testing.T) {
+func TestRoleEditChangesOnlySelectedTaskGranularity(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "runner.json")
 	cfg := completeCLITestConfig(t.TempDir())
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	if err := run(t.Context(), []string{"role", "edit", "reviewer", "--config", configPath, "--planning-support", "high"}, strings.NewReader(""), &output); err != nil {
-		t.Fatalf("edit reviewer planning support: %v\n%s", err, output.String())
+	if err := run(t.Context(), []string{"role", "edit", "reviewer", "--config", configPath, "--task-granularity", "small"}, strings.NewReader(""), &output); err != nil {
+		t.Fatalf("edit reviewer task granularity: %v\n%s", err, output.String())
 	}
 	loaded, err := config.LoadConfig(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Roles[config.WorkRoleReviewer].PlanningSupport != config.PlanningSupportHigh || loaded.Roles[config.WorkRoleImplementer].PlanningSupport != config.PlanningSupportStandard {
-		t.Fatalf("role planning support edit changed another role: %#v", loaded.Roles)
+	if loaded.Roles[config.WorkRoleReviewer].TaskGranularity != config.TaskGranularitySmall || loaded.Roles[config.WorkRoleImplementer].TaskGranularity != config.TaskGranularityStandard {
+		t.Fatalf("role task granularity edit changed another role: %#v", loaded.Roles)
 	}
 	output.Reset()
 	if err := run(t.Context(), []string{"role", "show", "reviewer", "--config", configPath}, strings.NewReader(""), &output); err != nil || !strings.Contains(output.String(), "Planner task sizing: small") {
-		t.Fatalf("role show omitted planning support: %v\n%s", err, output.String())
+		t.Fatalf("role show omitted task granularity: %v\n%s", err, output.String())
 	}
-	if err := run(t.Context(), []string{"role", "edit", "reviewer", "--config", configPath, "--clear-planning-support"}, strings.NewReader(""), io.Discard); err != nil {
-		t.Fatalf("clear reviewer planning support: %v", err)
+	if err := run(t.Context(), []string{"role", "edit", "reviewer", "--config", configPath, "--clear-task-granularity"}, strings.NewReader(""), io.Discard); err != nil {
+		t.Fatalf("clear reviewer task granularity: %v", err)
 	}
 	loaded, err = config.LoadConfig(configPath)
-	if err != nil || loaded.Roles[config.WorkRoleReviewer].PlanningSupport != "" {
-		t.Fatalf("planning support override was not cleared: config=%#v err=%v", loaded, err)
+	if err != nil || loaded.Roles[config.WorkRoleReviewer].TaskGranularity != "" {
+		t.Fatalf("task granularity override was not cleared: config=%#v err=%v", loaded, err)
 	}
 }
 
@@ -1879,5 +1879,45 @@ func writeFakeCommand(t *testing.T, dir, name, version string) {
 	content := "#!/bin/sh\nif [ \"$1\" = \"--help\" ] || { [ \"$1\" = \"exec\" ] && [ \"$2\" = \"--help\" ]; }; then printf '%b\\n' '" + help + "'; else printf '%s\\n' '" + version + "'; fi\n"
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write fake %s: %v", name, err)
+	}
+}
+
+func TestRoleCLIEnablesInspectsAndDisablesPlannerProfiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runner.json")
+	if err := config.SaveConfig(path, completeCLITestConfig("/project")); err != nil {
+		t.Fatal(err)
+	}
+	command := func(args ...string) error {
+		return run(t.Context(), append(args, "--config", path), strings.NewReader(""), io.Discard)
+	}
+	if err := command("role", "add", "mechanical", "--extends", "implementer", "--model", "small-model", "--reasoning", "medium", "--description", "Mechanical changes with examples"); err != nil {
+		t.Fatal(err)
+	}
+	if err := command("role", "edit", "planner", "--implementer-profile", "mechanical"); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(loaded.PlannerImplementers, ",") != "mechanical" {
+		t.Fatalf("lost profiles: %#v", loaded.PlannerImplementers)
+	}
+	profile, _ := loaded.RoleProfile("mechanical")
+	if profile.Description != "Mechanical changes with examples" || profile.Reasoning != "medium" || *profile.Model != "small-model" {
+		t.Fatalf("lost profile: %#v", profile)
+	}
+	var out bytes.Buffer
+	if err := run(t.Context(), []string{"role", "show", "planner", "--config", path}, strings.NewReader(""), &out); err != nil || !strings.Contains(out.String(), "Planner implementation profiles: mechanical") {
+		t.Fatalf("profile not inspectable: %v %s", err, out.String())
+	}
+	if err := command("role", "remove", "mechanical"); err == nil {
+		t.Fatal("removed active planner profile")
+	}
+	if err := command("role", "edit", "planner", "--clear-implementer-profiles"); err != nil {
+		t.Fatal(err)
+	}
+	if err := command("role", "remove", "mechanical"); err != nil {
+		t.Fatal(err)
 	}
 }

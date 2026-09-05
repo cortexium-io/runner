@@ -69,6 +69,7 @@ type actionAssertionPayload struct {
 	PlanningBatchFingerprint  string   `json:"planning_batch_fingerprint,omitempty"`
 	PlanningBatchSize         int      `json:"planning_batch_size,omitempty"`
 	PlanningItemIndex         int      `json:"planning_item_index,omitempty"`
+	ImplementationProfile     string   `json:"implementation_profile,omitempty"`
 }
 
 type planningBatchAssertionPayload struct {
@@ -100,6 +101,7 @@ type planningBatchChildPayload struct {
 	PlanningBatchFingerprint  string   `json:"planning_batch_fingerprint"`
 	PlanningBatchSize         int      `json:"planning_batch_size"`
 	PlanningItemIndex         int      `json:"planning_item_index"`
+	ImplementationProfile     string   `json:"implementation_profile,omitempty"`
 }
 
 // DelegatedContent is the immutable execution input carried from approval to
@@ -122,6 +124,7 @@ type delegatedContentPayload struct {
 	PlanningBatchFingerprint  string   `json:"planning_batch_fingerprint,omitempty"`
 	PlanningBatchSize         int      `json:"planning_batch_size,omitempty"`
 	PlanningItemIndex         int      `json:"planning_item_index,omitempty"`
+	ImplementationProfile     string   `json:"implementation_profile,omitempty"`
 }
 
 // DelegatedContentFor returns the one canonical delegated-content identity.
@@ -135,6 +138,7 @@ func DelegatedContentFor(item WorkItem) DelegatedContent {
 		PlanningSourceFingerprint: strings.TrimSpace(item.PlanningSourceFingerprint), PlanningDestination: strings.TrimSpace(item.PlanningDestination),
 		PlanningBatchFingerprint: strings.TrimSpace(item.PlanningBatchFingerprint),
 		PlanningBatchSize:        item.PlanningBatchSize, PlanningItemIndex: item.PlanningItemIndex,
+		ImplementationProfile: item.ImplementationProfile,
 	}
 	encoded, _ := json.Marshal(payload)
 	digest := sha256.Sum256(encoded)
@@ -444,6 +448,7 @@ func (s *Project) planningBatchPayload(source WorkItem, children []WorkItem, sta
 			PlanningSourceID: child.PlanningSourceID, PlanningSourceLane: child.PlanningSourceLane,
 			PlanningSourceFingerprint: child.PlanningSourceFingerprint, PlanningDestination: child.PlanningDestination,
 			PlanningBatchFingerprint: child.PlanningBatchFingerprint, PlanningBatchSize: child.PlanningBatchSize, PlanningItemIndex: child.PlanningItemIndex,
+			ImplementationProfile: child.ImplementationProfile,
 		}
 		if dependencies := compactNonEmpty(child.Dependencies); len(dependencies) > 0 {
 			boundChild.Dependencies = dependencies
@@ -633,6 +638,7 @@ func (s *Project) actionPayload(item WorkItem, role, state, authority string) ac
 		PlanningSourceFingerprint: strings.TrimSpace(item.PlanningSourceFingerprint), PlanningDestination: strings.TrimSpace(item.PlanningDestination),
 		PlanningBatchFingerprint: strings.TrimSpace(item.PlanningBatchFingerprint),
 		PlanningBatchSize:        item.PlanningBatchSize, PlanningItemIndex: item.PlanningItemIndex,
+		ImplementationProfile: item.ImplementationProfile,
 	}
 }
 

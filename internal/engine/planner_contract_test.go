@@ -71,7 +71,7 @@ func TestPlannerCanonicalizesKnownRepresentationResidueLocally(t *testing.T) {
 	run := &canonicalizingPlannerRunner{}
 	roles := config.RoleTemplate(config.HarnessCodexCLI)
 	implementer := roles[config.WorkRoleImplementer]
-	implementer.PlanningSupport = config.PlanningSupportHigh
+	implementer.TaskGranularity = config.TaskGranularitySmall
 	roles[config.WorkRoleImplementer] = implementer
 	cfg := config.Config{
 		ConfigVersion: config.ConfigVersion,
@@ -93,7 +93,7 @@ func TestPlannerCanonicalizesKnownRepresentationResidueLocally(t *testing.T) {
 		t.Fatalf("expected one canonical project plan, calls=%d plan=%#v", run.calls, plan)
 	}
 	initialPrompt := run.inputs[0]
-	for _, dynamic := range []string{"Configured implementer timeout: 2h0m0s", "- Implementer: high.", "- Reviewer: standard.", "Build one useful feature"} {
+	for _, dynamic := range []string{"Configured implementer timeout: 2h0m0s", "- Implementer: small.", "- Reviewer: standard.", "Build one useful feature"} {
 		if strings.Count(initialPrompt, dynamic) != 1 {
 			t.Fatalf("planner prompt must contain dynamic context %q exactly once:\n%s", dynamic, initialPrompt)
 		}
@@ -148,27 +148,48 @@ func TestProjectPlannerPromptPinsCanonicalRepository(t *testing.T) {
 	}
 }
 
-func TestProjectPlannerPromptIncludesOnlyOperatorSelectedHighSupport(t *testing.T) {
+func TestProjectPlannerPromptIncludesOnlyOperatorSelectedSmallGranularity(t *testing.T) {
 	standard := projectPlannerPrompt([]string{"runner-planner"}, projectPlannerExecutionContext{}, "owner/repo", "Build one useful feature")
 	if strings.Contains(standard, "downstream task sizing") {
-		t.Fatalf("standard planning support added redundant prompt text:\n%s", standard)
+		t.Fatalf("standard task granularity added redundant prompt text:\n%s", standard)
 	}
-	high := projectPlannerPrompt([]string{"runner-planner"}, projectPlannerExecutionContext{
-		ImplementerSupport: config.PlanningSupportHigh,
-		ReviewerSupport:    config.PlanningSupportStandard,
+	small := projectPlannerPrompt([]string{"runner-planner"}, projectPlannerExecutionContext{
+		ImplementerGranularity: config.TaskGranularitySmall,
+		ReviewerGranularity:    config.TaskGranularityStandard,
 	}, "owner/repo", "Build one useful feature")
 	for _, required := range []string{
 		"Operator-selected downstream task sizing:",
-		"- Implementer: high.",
+		"- Implementer: small.",
 		"- Reviewer: standard.",
-		"Support affects decomposition and specificity, never correctness, scope, or verification rigor.",
+		"Granularity affects decomposition and specificity, never correctness, scope, or verification rigor.",
 	} {
-		if strings.Count(high, required) != 1 {
-			t.Fatalf("high planning support must contain %q exactly once:\n%s", required, high)
+		if strings.Count(small, required) != 1 {
+			t.Fatalf("small task granularity must contain %q exactly once:\n%s", required, small)
 		}
 	}
-	if strings.Contains(strings.ToLower(high), "model") {
-		t.Fatalf("planning support prompt inferred model capability:\n%s", high)
+	if strings.Contains(strings.ToLower(small), "model") {
+		t.Fatalf("task granularity prompt inferred model capability:\n%s", small)
+	}
+}
+
+func TestProjectPlannerPromptPreservesDistinctEffortsForTheSameModel(t *testing.T) {
+	model := "gpt-5.6-sol"
+	profiles := []plannerExecutionProfile{
+		{ID: "sol_medium", Model: &model, Reasoning: "medium", Description: "Clear contracts", TaskGranularity: "standard", TimeoutSeconds: 7200},
+		{ID: "sol_high", Model: &model, Reasoning: "high", Description: "Interacting states", TaskGranularity: "standard", TimeoutSeconds: 7200},
+	}
+	prompt := projectPlannerPrompt([]string{"runner-planner"}, projectPlannerExecutionContext{Profiles: profiles}, "owner/repo", "Build one feature")
+	line, _, _ := strings.Cut(prompt, "\n")
+	_, encoded, ok := strings.Cut(line, ": ")
+	if !ok {
+		t.Fatal("missing execution profile data")
+	}
+	var decoded []plannerExecutionProfile
+	if err := json.Unmarshal([]byte(encoded), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, profiles) {
+		t.Fatalf("planner lost operator profile choices: %#v", decoded)
 	}
 }
 
@@ -313,4 +334,39 @@ func plannerArgumentValue(args []string, name string) string {
 		}
 	}
 	return ""
+}
+
+func TestPlannerProfileSelectionIsValidatedAndBindsBatchFingerprint(t *testing.T) {
+	cfg := completeEngineTestConfig(config.Config{ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"}})
+	cfg.Roles["mechanical"] = config.RoleConfig{Extends: config.WorkRoleImplementer, Description: "Mechanical changes"}
+	cfg.PlannerImplementers = []string{"mechanical"}
+	service, err := New(cfg, &fakeGitHubProjectRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := ProjectPlan{GoalSummary: "Ship", ProjectSuccessCriteria: []string{"Works"}, WorkItems: []github.PlannedItem{{Title: "Build", Summary: "Build", AcceptanceCriteria: []string{"Works"}, Verification: []string{"Proof"}, Risks: []string{}, NonGoals: []string{}, ImplementationProfile: "mechanical", ProfileReason: "Existing pattern"}}}
+	if err := service.normalizeProjectPlan(&plan); err != nil {
+		t.Fatal(err)
+	}
+	first, err := planningBatchFingerprint("source", "plan", "ready", plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.WorkItems[0].ImplementationProfile = "invented"
+	if err := service.normalizeProjectPlan(&plan); err == nil {
+		t.Fatal("invented planner choice accepted")
+	}
+	changed, _ := planningBatchFingerprint("source", "plan", "ready", plan)
+	if first == changed {
+		t.Fatal("profile did not bind planning approval")
+	}
+	plan.WorkItems[0].ImplementationProfile = "mechanical"
+	plan.WorkItems[0].ProfileReason = ""
+	if err := service.normalizeProjectPlan(&plan); err == nil {
+		t.Fatal("missing reason accepted")
+	}
+	plan.WorkItems[0].ImplementationProfile = ""
+	if err := service.normalizeProjectPlan(&plan); err != nil {
+		t.Fatalf("default rejected: %v", err)
+	}
 }

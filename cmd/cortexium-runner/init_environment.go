@@ -34,12 +34,12 @@ func prepareInitTools(cfg config.Config, dryRun bool, stdout io.Writer) error {
 		if profile.Model != nil && strings.TrimSpace(*profile.Model) != "" {
 			model = strings.TrimSpace(*profile.Model)
 		}
-		planningSupport := ""
+		taskGranularity := ""
 		if role == config.WorkRoleImplementer || role == config.WorkRoleReviewer {
-			planningSupport = " · task sizing " + taskSizingLabel(profile.PlanningSupport)
+			taskGranularity = " · task sizing " + taskSizingLabel(profile.TaskGranularity)
 		}
 		mode := config.EffectiveHarnessConfigMode(profile.HarnessConfig)
-		fmt.Fprintf(stdout, "  %s: %s · model %s · reasoning %s · access %s · harness config %s%s\n", role, profile.Harness, model, profile.Reasoning, config.EffectiveRoleAccess(profile.Access), mode, planningSupport)
+		fmt.Fprintf(stdout, "  %s: %s · model %s · reasoning %s · access %s · harness config %s%s\n", role, profile.Harness, model, profile.Reasoning, config.EffectiveRoleAccess(profile.Access), mode, taskGranularity)
 		if config.EffectiveRoleAccess(profile.Access) == config.RoleAccessHost && mode == config.HarnessConfigModeInherit {
 			fmt.Fprintln(stdout, "    WARNING: this role inherits ambient tools and configuration with unrestricted host access")
 		}
@@ -78,7 +78,7 @@ func prepareInitTools(cfg config.Config, dryRun bool, stdout io.Writer) error {
 }
 
 func taskSizingLabel(value string) string {
-	if config.EffectivePlanningSupport(value) == config.PlanningSupportHigh {
+	if config.EffectiveTaskGranularity(value) == config.TaskGranularitySmall {
 		return "small"
 	}
 	return "regular"

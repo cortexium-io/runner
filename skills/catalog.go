@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const bundledSkillVersion = "1.7.2"
+const bundledSkillVersion = "1.8.1"
 
 var bundledSkillIDs = []string{
 	"runner-planner",
@@ -19,9 +19,9 @@ var bundledSkillIDs = []string{
 }
 
 var bundledSkillSHA256 = map[string]string{
-	"runner-implementer": "7fe090fa53ec046e58768f6f1434a0f872d0d1b8fd15992ea35676fb65e957a2",
-	"runner-planner":     "c2afd545b22b41dd4aec98e22454c996d930f7d93aff05ce0098272fc75fe737",
-	"runner-reviewer":    "8ddb6948b3e74e6231410d624775a8936dee208a64a575412f55498d16d730fd",
+	"runner-implementer": "52a11cee2407369ee4d98c56d1c38a1dec543fcfec174f42bcb0fd900c9342c0",
+	"runner-planner":     "ae5725a60ea9ec195bd64c49b369af91c29d57d7444c5665c4e6b745badb8109",
+	"runner-reviewer":    "e84890296ebbe8cff2b49da24859cd818cf77f2e6879bb36f05808191b7b8898",
 }
 
 func ValidID(value string) bool {

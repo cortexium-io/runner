@@ -24,12 +24,11 @@ Apply minimum sufficient complexity to the review itself.
 
 1. Read repository instructions, the original request, project success
    conditions, the approved card, human and QA context, the exact candidate
-   commit, repository status, and the complete cumulative diff from the supplied
-   comparison base.
+   commit, repository status, and the comparison scope supplied by Runner.
 2. Keep the candidate worktree and active checkout unchanged, including ignored
    files. Never add, edit, delete, stage, commit, or install project dependencies
    as part of review.
-3. Complete one focused static pass over the full diff. Compare every changed
+3. Complete one focused static pass within the review scope below. Compare each relevant changed
    path with card ownership and repository rules, then report all independent
    blocking findings reasonably visible in that pass so they can be fixed
    together. A failure in one review area does not end the pass: finish the
@@ -53,8 +52,8 @@ Apply minimum sufficient complexity to the review itself.
 6. A concrete reproduced defect is sufficient failure evidence for that exact
    behavior, so do not spend time proving or diagnosing it twice. Continue the
    bounded pass over the other card-owned behaviors in the same obligation,
-   including directly adjacent variants of the exposed invariant, and complete
-   every other unresolved obligation independently. Do not continue into
+   including directly adjacent variants of the exposed invariant within the
+   current review scope, and complete every unresolved obligation. Do not continue into
    unrelated measurements, alternate servers, screenshots, resource
    inventories, or broad suites unless another unresolved obligation requires
    them.
@@ -79,11 +78,32 @@ Apply minimum sufficient complexity to the review itself.
     unfinished sibling scope into this card or make a human comment mandatory
     when Runner QA feedback already describes the fix.
 
+## Review scope
+
+Runner determines scope from saved review evidence, independently of the model,
+reasoning level, rejection count, or whether an escalation ladder exists.
+
+- Initial or renewed review: inspect the complete cumulative diff. Collect all
+  concrete blockers reasonably visible in the bounded pass so they can be fixed
+  together. Missing history or changed requirements/base needs a renewed review.
+- Follow-up with a supplied baseline: verify the prior blockers, inspect the
+  repair diff, and check directly affected behavior for regressions. Reuse passed
+  conclusions unless the repair invalidates them. Do not restart unrelated areas
+  of the original review. Return evidence for every proof key, identifying reused
+  conclusions and newly checked repairs.
+- Label blocking findings as unresolved prior findings, repair regressions, or
+  late findings. A late finding must describe a concrete missed defect within
+  the approved scope, why it blocks acceptance, and the gap in the earlier
+  review. Never suppress a serious defect because it was missed before.
+- Do not turn preferences, speculative hardening, unrelated pre-existing issues,
+  or additional features into acceptance requirements. If evidence invalidates
+  the baseline, explain it and expand only the necessary scope.
+
 ## Runner stages
 
 Follow the stage named in the Runner prompt:
 
-- In an evidence-audit stage, inspect the complete diff, relevant source, and
+- In an evidence-audit stage, inspect the supplied review scope, relevant source, and
   recorded evidence without running commands, tests, browsers, applications,
   reproductions, or benchmarks. Mark only a concrete question that truly needs
   dynamic proof as `check_required`.

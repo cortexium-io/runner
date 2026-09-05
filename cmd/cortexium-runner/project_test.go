@@ -247,24 +247,30 @@ func TestHumanWorkDestinationUsesConfiguredPlanAndReadyLanes(t *testing.T) {
 	}
 }
 
-func TestApplyPlanPlanningSupportOverridesBothDownstreamRoles(t *testing.T) {
+func TestApplyPlanTaskGranularityOverridesBothDownstreamRoles(t *testing.T) {
 	cfg := completeCLITestConfig(t.TempDir())
-	if err := applyPlanPlanningSupport(&cfg, config.PlanningSupportHigh); err != nil {
-		t.Fatalf("apply planning support: %v", err)
+	cfg.Roles["mechanical"] = config.RoleConfig{Extends: config.WorkRoleImplementer, TaskGranularity: config.TaskGranularityStandard, Description: "Mechanical"}
+	cfg.PlannerImplementers = []string{"mechanical"}
+	if err := applyPlanTaskGranularity(&cfg, config.TaskGranularitySmall); err != nil {
+		t.Fatalf("apply task granularity: %v", err)
 	}
 	for _, contract := range []string{config.WorkRoleImplementer, config.WorkRoleReviewer} {
 		roleID := cfg.RoleIDForContract(contract)
 		profile, ok := cfg.RoleProfile(roleID)
-		if !ok || profile.PlanningSupport != config.PlanningSupportHigh {
-			t.Fatalf("%s planning support = %#v, found=%t", contract, profile, ok)
+		if !ok || profile.TaskGranularity != config.TaskGranularitySmall {
+			t.Fatalf("%s task granularity = %#v, found=%t", contract, profile, ok)
 		}
 	}
+	if profile, _ := cfg.RoleProfile("mechanical"); profile.TaskGranularity != config.TaskGranularitySmall {
+		t.Fatal("small-tasks override omitted planner-selectable profile")
+	}
+
 	plannerID := cfg.RoleIDForContract(config.WorkRolePlanner)
-	if profile, ok := cfg.RoleProfile(plannerID); !ok || profile.PlanningSupport != "" {
+	if profile, ok := cfg.RoleProfile(plannerID); !ok || profile.TaskGranularity != "" {
 		t.Fatalf("planner profile was changed: %#v, found=%t", profile, ok)
 	}
-	if err := applyPlanPlanningSupport(&cfg, "automatic"); err == nil || !strings.Contains(err.Error(), "standard or high") {
-		t.Fatalf("invalid planning support error = %v", err)
+	if err := applyPlanTaskGranularity(&cfg, "automatic"); err == nil || !strings.Contains(err.Error(), "standard or small") {
+		t.Fatalf("invalid task granularity error = %v", err)
 	}
 }
 
@@ -305,7 +311,7 @@ func TestPlanRejectsCreateWithStageOnly(t *testing.T) {
 	}
 }
 
-func TestPlanSharesTheProjectProcessLockWithTheWorker(t *testing.T) {
+func TestPlanSerializesOtherStandalonePlanning(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
@@ -314,15 +320,15 @@ func TestPlanSharesTheProjectProcessLockWithTheWorker(t *testing.T) {
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatal(err)
 	}
-	projectLock, err := github.AcquireProcessLock(*cfg.GitHubProject)
+	projectLock, err := github.AcquirePlanningLock(*cfg.GitHubProject)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer projectLock.Release()
 
 	err = runPlan(t.Context(), []string{"--config", configPath, "--idea", "Plan this safely."}, strings.NewReader(""), io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "another Runner process is already active") {
-		t.Fatalf("planning did not honor the worker lock: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "planning is already active") {
+		t.Fatalf("planning did not honor the standalone planning lock: %v", err)
 	}
 }
 
@@ -510,4 +516,17 @@ func (r *eofBetweenReads) Read(destination []byte) (int, error) {
 		return count, nil
 	}
 	return 0, io.EOF
+}
+
+func TestPlanApprovalPreviewShowsSelectedExecutionProfile(t *testing.T) {
+	var output bytes.Buffer
+	writeProjectPlanItems(&output, engine.ProjectPlan{WorkItems: []github.PlannedItem{{Title: "Bounded task", ImplementationProfile: "mechanical", ProfileReason: "Existing pattern"}}}, false)
+	if !strings.Contains(output.String(), "execution profile: mechanical — Existing pattern") {
+		t.Fatal("plan preview hides profile choice")
+	}
+	output.Reset()
+	writeStagedProjectPlanSummary(&output, engine.ProjectPlanApproval{Children: []github.WorkItem{{ID: "item", ImplementationProfile: "mechanical"}}})
+	if !strings.Contains(output.String(), "Execution profile: mechanical") {
+		t.Fatal("staged approval hides profile choice")
+	}
 }

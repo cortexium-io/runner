@@ -32,6 +32,7 @@ func TestDelegatedContentDigestBindsExecutionDefiningApprovedContent(t *testing.
 	}
 
 	mutations := map[string]func(*WorkItem){
+		"execution profile":           func(item *WorkItem) { item.ImplementationProfile = "stronger" },
 		"body":                        func(item *WorkItem) { item.Body = "changed body" },
 		"repository":                  func(item *WorkItem) { item.Repository = "owner/other" },
 		"dependencies":                func(item *WorkItem) { item.Dependencies = []string{"PVTI_a"} },

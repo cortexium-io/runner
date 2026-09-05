@@ -61,6 +61,30 @@ func TestCodexInvocationMCPOverridesFollowUserConfigIsolation(t *testing.T) {
 	}
 }
 
+func TestCodexInvocationPreservesMaxReasoningWithoutRemapping(t *testing.T) {
+	model := "gpt-5.6-luna"
+	executor := NewCodexExecutor(config.ExecutionConfig{
+		HarnessConfigMode: config.HarnessConfigModeIsolated,
+		Harness: config.HarnessConfig{
+			Kind: config.HarnessCodexCLI, Command: "codex", Model: &model, ReasoningEffort: "max",
+		},
+	}, nil)
+	for _, role := range []RoleContract{RoleReviewer, RoleImplementer} {
+		profile, err := ProfileForRole(role, config.RoleAccessSandboxed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		workspace := profileWorkspace{Dir: "/workspace"}
+		args := executor.args(profile, workspace, nil, "/result", "/schema", Assignment{})
+		if role == RoleImplementer {
+			args = executor.profileWorkspaceWriteArgs(profile, workspace, nil, "/result", "/schema", Assignment{})
+		}
+		if !containsArgPair(args, "--model", model) || !containsArgPair(args, "-c", `model_reasoning_effort="max"`) {
+			t.Fatalf("%s lost model/effort selection: %v", role, args)
+		}
+	}
+}
+
 func TestExecutionContentSchemaIsSmallStrictAndShared(t *testing.T) {
 	var schema map[string]any
 	if err := json.Unmarshal(executionContentSchema, &schema); err != nil {

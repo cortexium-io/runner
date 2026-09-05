@@ -17,8 +17,8 @@ const (
 	HarnessConfigModeIsolated = "isolated"
 	HarnessConfigModeInherit  = "inherit"
 
-	PlanningSupportStandard = "standard"
-	PlanningSupportHigh     = "high"
+	TaskGranularityStandard = "standard"
+	TaskGranularitySmall    = "small"
 
 	CapabilityTypeLocalTool = "local_tool"
 	CapabilityTypeSkill     = "skill"
@@ -66,16 +66,16 @@ func ValidHarnessConfigMode(value string) bool {
 	}
 }
 
-func EffectivePlanningSupport(value string) string {
+func EffectiveTaskGranularity(value string) string {
 	if strings.TrimSpace(value) == "" {
-		return PlanningSupportStandard
+		return TaskGranularityStandard
 	}
 	return strings.TrimSpace(value)
 }
 
-func ValidPlanningSupport(value string) bool {
-	switch EffectivePlanningSupport(value) {
-	case PlanningSupportStandard, PlanningSupportHigh:
+func ValidTaskGranularity(value string) bool {
+	switch EffectiveTaskGranularity(value) {
+	case TaskGranularityStandard, TaskGranularitySmall:
 		return true
 	default:
 		return false

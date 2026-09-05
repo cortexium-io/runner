@@ -48,6 +48,7 @@ func runRole(args []string, stdout io.Writer) error {
 }
 
 type roleView struct {
+	PlannerImplementers       []string          `json:"planner_implementers,omitempty"`
 	ID                        string            `json:"id"`
 	Builtin                   bool              `json:"builtin"`
 	Configured                bool              `json:"configured"`
@@ -70,6 +71,9 @@ func roleViews(cfg config.Config) []roleView {
 				view.ImplementerLadder = append([]string(nil), cfg.ImplementerLadder...)
 				break
 			}
+		}
+		if view.Contract == config.WorkRolePlanner {
+			view.PlannerImplementers = append([]string(nil), cfg.PlannerImplementers...)
 		}
 		views = append(views, view)
 	}
@@ -146,7 +150,7 @@ func runRoleShow(args []string, stdout io.Writer) error {
 		}
 		fmt.Fprintf(stdout, "Role: %s\nContract: %s\nBuilt-in: %t\nHarness: %s\nAccess: %s\nHarness configuration: %s\nSkills: %s\nReasoning: %s\nTimeout: %s\n", terminalSafeText(view.ID), terminalSafeText(view.Contract), view.Builtin, terminalSafeText(view.Resolved.Harness), terminalSafeText(config.EffectiveRoleAccess(view.Resolved.Access)), terminalSafeText(config.EffectiveHarnessConfigMode(view.Resolved.HarnessConfig)), terminalSafeText(strings.Join(view.Resolved.Skills, ", ")), terminalSafeText(view.Resolved.Reasoning), time.Duration(view.Resolved.TimeoutSeconds)*time.Second)
 		if view.Contract == config.WorkRoleImplementer || view.Contract == config.WorkRoleReviewer {
-			fmt.Fprintf(stdout, "Planner task sizing: %s\n", terminalSafeText(taskSizingLabel(view.Resolved.PlanningSupport)))
+			fmt.Fprintf(stdout, "Planner task sizing: %s\n", terminalSafeText(taskSizingLabel(view.Resolved.TaskGranularity)))
 		}
 		if view.Resolved.Harness == config.HarnessPiCLI {
 			fmt.Fprintf(stdout, "Preserve reasoning across Pi turns: %t\n", view.Resolved.PreserveReasoning != nil && *view.Resolved.PreserveReasoning)
@@ -160,6 +164,12 @@ func runRoleShow(args []string, stdout io.Writer) error {
 		}
 		if view.Definition.Extends != "" {
 			fmt.Fprintf(stdout, "Extends: %s\n", terminalSafeText(view.Definition.Extends))
+		}
+		if view.Resolved.Description != "" {
+			fmt.Fprintf(stdout, "Description: %s\n", terminalSafeText(view.Resolved.Description))
+		}
+		if len(view.PlannerImplementers) > 0 {
+			fmt.Fprintf(stdout, "Planner implementation profiles: %s\n", terminalSafeText(strings.Join(view.PlannerImplementers, ", ")))
 		}
 		if view.ImplementerLadderPosition > 0 {
 			fmt.Fprintf(stdout, "Implementer ladder: %d/%d (%s)\n", view.ImplementerLadderPosition, len(view.ImplementerLadder), terminalSafeText(strings.Join(view.ImplementerLadder, " -> ")))
@@ -185,15 +195,19 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	harness := flags.String("harness", "", "harness override: codex, claude, or pi")
 	access := flags.String("access", "", "access override: sandboxed or host")
 	harnessConfig := flags.String("harness-config", "", "harness configuration override: isolated or inherit")
+	description := flags.String("description", "", "operator guidance for when this execution profile is suitable")
+	clearPlannerProfiles := flags.Bool("clear-implementer-profiles", false, "disable planner selection of implementation profiles")
+	var plannerProfiles stringListFlag
+	flags.Var(&plannerProfiles, "implementer-profile", "allow the planner to suggest this named implementer role; repeat in preferred order")
 	model := flags.String("model", "", "model override for the selected harness")
 	reasoning := flags.String("reasoning", "", "reasoning effort override")
-	planningSupport := flags.String("planning-support", "", "task sizing override: standard (regular) or high (small)")
+	taskGranularity := flags.String("task-granularity", "", "task sizing override: standard (regular) or small")
 	timeout := flags.Duration("timeout", 0, "execution timeout override")
 	clearModel := flags.Bool("clear-model", false, "remove the model override")
 	clearSkills := flags.Bool("clear-skills", false, "remove skill overrides and inherit from the parent")
 	clearMCPServers := flags.Bool("clear-mcp-servers", false, "remove MCP server overrides and inherit from the parent")
 	clearRuntime := flags.Bool("clear-runtime-overrides", false, "remove harness, access, harness configuration, model, reasoning, Pi reasoning preservation, and timeout overrides")
-	clearPlanningSupport := flags.Bool("clear-planning-support", false, "remove the task sizing override and inherit from the parent")
+	clearTaskGranularity := flags.Bool("clear-task-granularity", false, "remove the task sizing override and inherit from the parent")
 	preserveReasoning := flags.Bool("preserve-reasoning", false, "preserve reasoning from earlier Pi assistant turns")
 	noPreserveReasoning := flags.Bool("no-preserve-reasoning", false, "keep only the most recent Pi reasoning (default)")
 	clearPreserveReasoning := flags.Bool("clear-preserve-reasoning", false, "remove the Pi reasoning-preservation override and inherit from the parent")
@@ -245,8 +259,8 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	if *clearModel && strings.TrimSpace(*model) != "" {
 		return errors.New("--clear-model and --model cannot be used together")
 	}
-	if *clearPlanningSupport && strings.TrimSpace(*planningSupport) != "" {
-		return errors.New("--clear-planning-support and --planning-support cannot be used together")
+	if *clearTaskGranularity && strings.TrimSpace(*taskGranularity) != "" {
+		return errors.New("--clear-task-granularity and --task-granularity cannot be used together")
 	}
 	if *safeTools && *noSafeTools {
 		return errors.New("--safe-tools and --no-safe-tools cannot be used together")
@@ -338,14 +352,14 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	if *clearPreserveReasoning {
 		definition.PreserveReasoning = nil
 	}
-	if visited["planning-support"] {
-		if !config.ValidPlanningSupport(*planningSupport) {
-			return errors.New("--planning-support must be standard or high")
+	if visited["task-granularity"] {
+		if !config.ValidTaskGranularity(*taskGranularity) {
+			return errors.New("--task-granularity must be standard or small")
 		}
-		definition.PlanningSupport = config.EffectivePlanningSupport(*planningSupport)
+		definition.TaskGranularity = config.EffectiveTaskGranularity(*taskGranularity)
 	}
-	if *clearPlanningSupport {
-		definition.PlanningSupport = ""
+	if *clearTaskGranularity {
+		definition.TaskGranularity = ""
 	}
 	if visited["timeout"] {
 		if *timeout <= 0 || *timeout%time.Second != 0 {
@@ -366,7 +380,19 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	if cfg.Roles == nil {
 		cfg.Roles = map[string]config.RoleConfig{}
 	}
+	if visited["description"] {
+		definition.Description = strings.TrimSpace(*description)
+	}
 	cfg.Roles[id] = definition
+	if *clearPlannerProfiles || len(plannerProfiles) > 0 {
+		if cfg.RoleContract(id) != config.WorkRolePlanner {
+			return errors.New("--implementer-profile and --clear-implementer-profiles require a planner role")
+		}
+		if *clearPlannerProfiles && len(plannerProfiles) > 0 {
+			return errors.New("cannot set and clear implementer profiles together")
+		}
+		cfg.PlannerImplementers = append([]string(nil), plannerProfiles...)
+	}
 	if *clearImplementerLadder {
 		if cfg.RoleContract(id) != config.WorkRoleImplementer || cfg.RoleIDForContract(config.WorkRoleImplementer) != id {
 			return errors.New("--clear-implementer-ladder requires the workflow implementer role")
@@ -472,6 +498,11 @@ func runRoleRemove(args []string, stdout io.Writer) error {
 	sort.Strings(dependents)
 	if len(dependents) > 0 {
 		return fmt.Errorf("role %q is inherited by %s", id, strings.Join(dependents, ", "))
+	}
+	for _, profile := range cfg.PlannerImplementers {
+		if profile == id {
+			return fmt.Errorf("role %q is referenced by planner_implementers", id)
+		}
 	}
 	delete(cfg.Roles, id)
 	if err := config.SaveConfig(*configPath, cfg); err != nil {

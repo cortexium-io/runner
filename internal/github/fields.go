@@ -315,6 +315,7 @@ func decodeProjectItemNode(raw projectItemNode) WorkItem {
 	item.PlanningBatchFingerprint = metadata.PlanningBatchFingerprint
 	item.PlanningBatchSize = metadata.PlanningBatchSize
 	item.PlanningItemIndex = metadata.PlanningItemIndex
+	item.ImplementationProfile = metadata.ImplementationProfile
 	return item
 }
 

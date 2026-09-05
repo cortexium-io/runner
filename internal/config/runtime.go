@@ -14,6 +14,7 @@ type RuntimeConfig struct {
 	Harnesses            []HarnessConfig
 	Roles                map[string]RoleConfig
 	RoleContracts        map[string]string
+	PlannerImplementers  []string
 	ImplementerLadder    []string
 	Workflow             ResolvedWorkflow
 	DoctorRequirements   []CapabilityRequirement
@@ -62,6 +63,7 @@ func (c Config) Resolve() (RuntimeConfig, error) {
 		Harnesses:            append([]HarnessConfig(nil), c.Harnesses...),
 		Roles:                roles,
 		RoleContracts:        contracts,
+		PlannerImplementers:  append([]string(nil), c.PlannerImplementers...),
 		ImplementerLadder:    append([]string(nil), c.ImplementerLadder...),
 		Workflow:             c.resolvedWorkflow(),
 		DoctorRequirements:   c.EffectiveDoctorRequirements(),
@@ -189,7 +191,7 @@ func (c RuntimeConfig) ExecutionRoleIDs() []string {
 			result = append(result, role)
 		}
 	}
-	for _, rawRole := range c.ImplementerLadder {
+	for _, rawRole := range append(append([]string(nil), c.ImplementerLadder...), c.PlannerImplementers...) {
 		role := strings.TrimSpace(rawRole)
 		if role != "" && !seen[role] {
 			seen[role] = true
