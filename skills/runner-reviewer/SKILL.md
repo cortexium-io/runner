@@ -55,8 +55,9 @@ Apply minimum sufficient complexity to the review itself.
    test files, rewrite tests, invent another framework, build a custom harness,
    or repeat an expensive passing check.
 6. A concrete reproduced defect is sufficient failure evidence for that exact
-   behavior, so do not spend time proving or diagnosing it twice. Continue the
-   bounded pass over the other card-owned behaviors in the same obligation,
+   behavior, so do not spend time proving or diagnosing it twice. An unexplained
+   timing failure follows the bounded confirmation rule below instead. Continue
+   the bounded pass over the other card-owned behaviors in the same obligation,
    including directly adjacent variants of the exposed invariant within the
    current review scope, and complete every unresolved obligation. Do not continue into
    unrelated measurements, alternate servers, screenshots, resource
@@ -84,6 +85,30 @@ Apply minimum sufficient complexity to the review itself.
 11. Report concrete, non-duplicative, actionable required changes. Do not expand
     unfinished sibling scope into this card or make a human comment mandatory
     when Runner QA feedback already describes the fix.
+
+## Unexplained timing failures
+
+A test timeout without evidence of a violated requirement is not yet a concrete
+application defect. In evidence audit, defer that unresolved question as
+`check_required`; do not reject solely from a historical timeout report.
+
+In focused verification, inspect the existing failure evidence, then confirm an
+unexplained timing failure once with the smallest affected existing test or
+coupled group, capturing a trace or equivalent diagnostic output. Keep the
+candidate, assertions, timeout, worker count, and relevant environment unchanged;
+do not increase limits, warm up the application deliberately, or change the
+test to obtain a pass. An existing unchanged automatic retry with adequate
+diagnostics already counts as this confirmation. Do not add further reruns.
+
+Record both outcomes, the exact check and settings, and the relevant trace
+observations in the returned evidence, not just temporary artifact paths. If the
+confirmation proves the required behavior and no concrete defect remains, mark
+it `passed` with an explicit intermittent-failure caveat. A later pass does not
+erase an observed defect or excuse a violated timing/reliability requirement.
+If evidence establishes such a violation, mark it `failed`. If confirmation
+remains inconclusive or cannot run with available capabilities, mark it
+`blocked`, explaining the missing proof without inventing an application cause.
+Continue the other unresolved checks; never loop until green.
 
 ## Review scope
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -551,5 +552,59 @@ func TestReviewerMergedSummaryDescribesFinalChecks(t *testing.T) {
 		if merged.Summary != test.want || merged.Criteria["P1"].Summary != "retained finding" || merged.Criteria["P2"].Summary != "resolved observation" {
 			t.Fatalf("incorrect merged review: %#v", merged)
 		}
+	}
+}
+
+func TestReviewerTimingConfirmationRetainsEvidenceAndVerdict(t *testing.T) {
+	initial := "Browse test timed out at reload with a 30s limit and two workers; cause unknown."
+	for _, test := range []struct {
+		name, status, confirmation, verdict string
+	}{
+		{"confirmed behavior", "passed", "One unchanged traced confirmation passed in 4.5s; reload completed in 355ms. Initial timeout remains unexplained and is recorded as intermittent.", "accept"},
+		{"observed defect", "failed", "Confirmation trace shows restored sorting is incorrect after reload; the required behavior is violated.", "needs_changes"},
+		{"inconclusive confirmation", "blocked", "One unchanged traced confirmation also timed out before the assertions; the available diagnostics do not establish an application cause or the required behavior.", "blocked"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assignment := reviewerAssignment()
+			assignment.Spec.RequiredVerification = []string{"Browse restores sorting after reload"}
+			passed := reviewerContentCheck{Status: "passed", Summary: "Source inspected", Evidence: []string{"The candidate diff follows repository rules."}}
+			audit := reviewerContent{
+				Criteria:        map[string]reviewerContentCheck{"P1": {Status: "check_required", Summary: "Does browsing restore sorting after reload?", Evidence: []string{initial}}},
+				RepositoryRules: passed,
+				Maintainability: ReviewMaintainabilityResult{Status: "passed", Summary: "Focused diff", Evidence: []string{"No unrelated changes."}},
+			}
+			unresolved := reviewerUnresolvedChecks(assignment, audit)
+			if len(unresolved) != 1 || !slices.Equal(unresolved[0].Evidence, []string{initial}) {
+				t.Fatalf("timing evidence lost before confirmation: %#v", unresolved)
+			}
+			resolution := reviewerResolutionContent{Checks: map[string]reviewerContentCheck{"P1": {
+				Status: test.status, Summary: test.confirmation, Evidence: []string{initial, test.confirmation},
+			}}, Summary: test.confirmation}
+			encoded, err := json.Marshal(resolution)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := decodeReviewerResolutionContent(unresolved, string(encoded))
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err = json.Marshal(mergeReviewerResolution(audit, decoded))
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := assembleReviewerContent(assignment, string(encoded))
+			if err != nil || result.ReviewAssessment == nil {
+				t.Fatalf("assemble timing result: %#v, %v", result, err)
+			}
+			if result.ReviewAssessment.Verdict != test.verdict || !slices.Equal(result.ReviewAssessment.Criteria[0].Evidence, []string{initial, test.confirmation}) {
+				t.Fatalf("confirmation changed verdict or lost evidence: %#v", result.ReviewAssessment)
+			}
+			if test.status == "blocked" {
+				output := reviewerExecutorOutput(result)
+				if output.FailureClass != FailureCapabilityUnavailable || output.RetryDisposition != RetryManual {
+					t.Fatalf("inconclusive proof became a code rejection or automatic retry: %#v", output)
+				}
+			}
+		})
 	}
 }

@@ -1878,7 +1878,15 @@ or ordinary fixed-size simulation steps executed without wall-clock pacing;
 real-time smoke checks remain short and are required only when real scheduling,
 pacing, or presentation integration is part of the claim.
 
-Bundled skills 1.8.3 clarify this read-only inspection boundary. After upgrading,
+An unexplained timing failure gets one focused, unchanged confirmation with a
+trace or equivalent diagnostics inside the existing verification call. An
+existing diagnostic retry counts toward that bound. The reviewer records both
+outcomes and diagnostic observations, including an intermittent-failure caveat
+when confirmation passes. It must not raise timeouts, change assertions, or
+rerun until green. Concrete defects remain failures; inconclusive required
+proof remains capability-blocked without consuming a QA rejection.
+
+Bundled skills 1.8.4 add this timing-failure guidance. After upgrading,
 use `doctor --fix --offline` with the project configuration to refresh installed
 bundled skills, reviewing locally customized copies before replacement. No
 configuration or Project-field migration is required.

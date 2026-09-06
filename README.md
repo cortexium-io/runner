@@ -558,6 +558,16 @@ bounded audit: the reviewer continues through its remaining card-owned behavior
 and groups directly adjacent variants of an exposed invariant so one QA attempt
 returns all reasonably visible blockers together.
 
+For an unexplained test timeout, reviewer guidance requires one focused,
+unchanged confirmation with a trace or equivalent diagnostics before deciding
+the result. QA records both outcomes and any intermittent-failure caveat; a
+passing confirmation does not erase a concrete defect or a required timing
+guarantee. Inconclusive proof remains capability-blocked rather than becoming
+a speculative code rejection. This adds no harness stage or retry loop and
+does not change the configured QA rejection limit. After upgrading, refresh the
+bundled reviewer skill with
+`cortexium-runner doctor --config "$RUNNER_CONFIG" --fix --offline`.
+
 `cortexium-runner status` lists only currently executable agent-lane cards as
 `Queued work`. Cards held by a dependency, transition recovery, incomplete
 planning batch, or invalid lifecycle authority appear separately as `Waiting

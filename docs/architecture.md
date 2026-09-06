@@ -286,6 +286,13 @@ approved scope; this context does not reopen resolved proof keys. The handoff
 does not claim that unresolved source inspection already happened. Runner merges
 the observations and derives the verdict and final summary from the merged
 checks, not from superseded stage summaries.
+The bundled reviewer distinguishes concrete defects from unexplained timing
+failures. Its focused stage permits one unchanged, traced confirmation of the
+smallest affected check, counting an existing diagnostic retry toward that
+bound. Both outcomes and diagnostic observations belong in structured evidence;
+a passing confirmation retains an intermittent-failure caveat, while unresolved
+proof remains blocked. This is guidance inside the existing harness invocation,
+not an additional Runner retry mechanism or a change to QA rejection accounting.
 Operator-selected `standard` or `high`
 task sizing changes only decomposition and specificity for implementer and
 reviewer roles. Runner never infers capability from model names, and the shared
