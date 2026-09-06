@@ -50,7 +50,7 @@ const (
 	OutcomeBlocked    = "blocked"
 )
 
-// FailureClass is an adapter-owned, privacy-safe reason for an unsuccessful
+// FailureClass is a Runner-owned, privacy-safe reason for an unsuccessful
 // attempt. It is deliberately separate from model-authored summaries and raw
 // subprocess diagnostics so orchestration and telemetry never need to infer
 // recovery policy from text written to GitHub.
@@ -65,6 +65,7 @@ const (
 	FailureCanceled               FailureClass = "canceled"
 	FailureInvalidContract        FailureClass = "invalid_contract"
 	FailureCapabilityUnavailable  FailureClass = "capability_unavailable"
+	FailureReviewIncomplete       FailureClass = "review_incomplete"
 	FailureBrowserStartup         FailureClass = "browser_startup"
 	FailureNeedsInput             FailureClass = "needs_input"
 	FailurePermissionDenied       FailureClass = "permission_denied"

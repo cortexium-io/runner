@@ -1649,8 +1649,12 @@ automatic retries for unknown errors. Raw diagnostics stay local, not in GitHub
 reports or metrics. It cannot recover diagnostics already discarded by an older
 Runner version.
 
-If Agent QA reports unavailable browser capability, stop repeated retries. A
-capability-blocked review does not increment the QA rejection count. On macOS,
+If Runner reports unavailable browser capability, stop repeated retries. A
+capability blocker does not increment the QA rejection count. An inconclusive
+QA verdict instead reports `review_incomplete` ("QA evidence incomplete"); that
+label alone does not diagnose a browser, Docker, permission, or dependency
+failure. Inspect the retained local metrics/evidence before choosing recovery.
+On macOS,
 Codex's native sandbox can reject Chromium's Mach-port registration even while
 local servers and repository operations work. Runner therefore launches the
 pinned browser as a separate local process with only three tools, loopback-only
@@ -1878,15 +1882,29 @@ or ordinary fixed-size simulation steps executed without wall-clock pacing;
 real-time smoke checks remain short and are required only when real scheduling,
 pacing, or presentation integration is part of the claim.
 
-An unexplained timing failure gets one focused, unchanged confirmation with a
-trace or equivalent diagnostics inside the existing verification call. An
-existing diagnostic retry counts toward that bound. The reviewer records both
-outcomes and diagnostic observations, including an intermittent-failure caveat
-when confirmation passes. It must not raise timeouts, change assertions, or
-rerun until green. Concrete defects remain failures; inconclusive required
-proof remains capability-blocked without consuming a QA rejection.
+The implementer must return self-contained evidence in each proof entry. After
+a failure and rerun, include affected file/test names, commands/selectors,
+worker counts, timeout limits, relevant non-secret environment differences,
+both outcomes, and diagnostic observations. Runner retains these entries bound
+to the candidate; ignored reports and temporary logs are not copied into QA.
+Artifact paths and aggregate pass counts alone do not establish the result.
 
-Bundled skills 1.8.4 add this timing-failure guidance. After upgrading,
+A known unexplained timing failure gets one focused, unchanged confirmation with
+a trace or equivalent diagnostics inside the existing verification call. An
+existing unchanged diagnostic retry counts toward that bound. When historical
+test names, settings, or reports are missing, QA gathers fresh evidence with the
+smallest existing check covering the unresolved requirement under documented
+repository settings. It must distinguish fresh verification from reproducing
+the old run and retain uncertainty about unknown historical failures. Fresh
+focused success is not evidence that the full historical suite passed. QA must
+not raise timeouts, reduce concurrency, change assertions, or rerun until green.
+Concrete defects remain failures; genuinely inconclusive proof reports
+`review_incomplete`, retaining the manual QA retry lane without consuming a
+QA rejection. This is not an instruction to repair tooling or implementation
+unless the evidence identifies such a problem.
+
+Bundled skills 1.8.5 add the evidence handoff and fresh-verification fallback.
+After upgrading,
 use `doctor --fix --offline` with the project configuration to refresh installed
 bundled skills, reviewing locally customized copies before replacement. No
 configuration or Project-field migration is required.

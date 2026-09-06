@@ -3245,6 +3245,43 @@ func TestHarnessFailureRetriesInPlaceBeforeBlocking(t *testing.T) {
 	}
 }
 
+func TestIncompleteReviewPreservesQARejectionsAndManualRetryLane(t *testing.T) {
+	item := github.WorkItem{
+		ID: "PVTI_incomplete", Title: "Verify behavior", Body: "Acceptance criteria", Repository: "owner/repo",
+		Status: "Agent QA", Role: config.WorkRoleReviewer, QAFailures: 2,
+	}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, qaFailures: item.QAFailures}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := mustAuthorizeTest(t, service.source, item)
+	_, lane := service.laneForItem(item)
+	output := execution.Output{
+		Outcome: execution.OutcomeNeedsInput, Summary: "Review checks: 8 passed, 0 failed, 1 blocked.",
+		FailureClass: execution.FailureReviewIncomplete, RetryDisposition: execution.RetryManual, RemoteDetailSafe: true,
+	}
+	result := service.failExecution(t.Context(), action, lane, RunResult{Item: item}, "Agent QA failed", errors.New(output.Summary), output)
+	if result.Outcome != execution.OutcomeNeedsInput || result.FailureClass != "review_incomplete" || result.RetryDisposition != string(execution.RetryManual) || result.RetryAfter != "" {
+		t.Fatalf("incomplete review changed recovery policy: %#v", result)
+	}
+	if project.status != "Blocked" || project.phase != "agent_qa" || project.qaFailures != item.QAFailures ||
+		!strings.Contains(project.result, "QA evidence incomplete") || !strings.Contains(project.result, "cortexium-runner retry") {
+		t.Fatalf("incomplete review lost count, lane or actionable report: status=%q phase=%q failures=%d result=%q", project.status, project.phase, project.qaFailures, project.result)
+	}
+	plan, err := service.PlanProjectItemRetry(t.Context(), item.ID)
+	if err != nil || plan.TargetLaneID != "agent_qa" {
+		t.Fatalf("incomplete QA could not be retried in place: %#v, %v", plan, err)
+	}
+	retried, err := service.ApplyProjectItemRetry(t.Context(), plan)
+	if err != nil || retried.Status != "Agent QA" || retried.QAFailures != item.QAFailures {
+		t.Fatalf("manual retry lost QA state: %#v, %v", retried, err)
+	}
+}
+
 func TestNonRetryableFailureDoesNotPublishRetryAction(t *testing.T) {
 	item := github.WorkItem{ID: "PVTI_no_retry", Title: "Review feature", Status: "Agent QA", Role: config.WorkRoleReviewer}
 	item.Approval = testApproval(item)

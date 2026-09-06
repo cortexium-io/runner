@@ -123,7 +123,12 @@ detailed usage and model-authored evidence remain local.
 
 Execution adapters map allowlisted adapter-owned structured failures and
 Runner-observed failures to a stable failure class plus `automatic`, `manual`,
-or `none` retry disposition. Codex provider classification reads only the terminal
+or `none` retry disposition. A structured blocked QA verdict becomes
+`review_incomplete` with manual retry, not a capability diagnosis. Its fixed
+remote label is "QA evidence incomplete"; model-authored detail remains local.
+Runner/adapter-detected capability failures retain `capability_unavailable`.
+Neither classification consumes a QA rejection.
+Codex provider classification reads only the terminal
 `turn.failed` event in its native JSONL stream. One narrow startup exception
 recognizes Codex's exact fatal `thread/start` envelope for a required
 `runner_browser` MCP startup timeout: Runner must have granted the browser,
@@ -286,13 +291,20 @@ approved scope; this context does not reopen resolved proof keys. The handoff
 does not claim that unresolved source inspection already happened. Runner merges
 the observations and derives the verdict and final summary from the merged
 checks, not from superseded stage summaries.
-The bundled reviewer distinguishes concrete defects from unexplained timing
-failures. Its focused stage permits one unchanged, traced confirmation of the
-smallest affected check, counting an existing diagnostic retry toward that
-bound. Both outcomes and diagnostic observations belong in structured evidence;
-a passing confirmation retains an intermittent-failure caveat, while unresolved
-proof remains blocked. This is guidance inside the existing harness invocation,
-not an additional Runner retry mechanism or a change to QA rejection accounting.
+The bundled implementer supplies self-contained command, scope, settings, and
+outcome evidence in the existing candidate-bound record. Failed checks and
+reruns include affected test identities and both outcomes; temporary reports
+are not copied across role workspaces. The reviewer distinguishes concrete
+defects from unexplained timing failures. Its focused stage permits one
+unchanged diagnostic confirmation of a known check, counting an existing
+adequately diagnosed unchanged retry toward that bound. If historical details
+are missing, it gathers fresh evidence for the unresolved behavior using
+documented repository settings, without inventing historical settings or
+reopening resolved obligations. Both available historical and fresh results,
+diagnostic observations, and uncertainty belong in structured evidence. Fresh
+focused success does not establish an unknown full-suite result. Genuinely
+inconclusive proof remains blocked. This is guidance inside the existing harness
+invocation, not another Runner retry mechanism or a change to rejection accounting.
 Operator-selected `standard` or `high`
 task sizing changes only decomposition and specificity for implementer and
 reviewer roles. Runner never infers capability from model names, and the shared

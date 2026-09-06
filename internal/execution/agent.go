@@ -454,6 +454,7 @@ func appendVerificationOwnershipInstructions(b *strings.Builder, approvedChecks 
 		entryLabel = "entry"
 	}
 	fmt.Fprintf(b, "For a successful result, return exactly %d verification evidence %s: one for each obligation, in the same order. Combine related observations for the same obligation into its single entry.\n", approvedChecks, entryLabel)
+	b.WriteString("These candidate-bound entries are the evidence handoff to QA; temporary logs and ignored reports are not copied. Follow the implementer skill's self-contained evidence guidance, including affected test identities, commands/settings, and both outcomes after a failed check and rerun.\n")
 }
 
 func (e AgentExecutor) timeout() time.Duration {

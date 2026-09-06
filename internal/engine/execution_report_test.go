@@ -42,6 +42,35 @@ func TestExecutionReportBoundsStructuredRetryField(t *testing.T) {
 	}
 }
 
+func TestExecutionReportDistinguishesIncompleteReviewFromUnavailableCapability(t *testing.T) {
+	for _, test := range []struct {
+		class execution.FailureClass
+		want  string
+	}{
+		{execution.FailureReviewIncomplete, "QA evidence incomplete"},
+		{execution.FailureCapabilityUnavailable, "required local capability as unavailable"},
+	} {
+		t.Run(string(test.class), func(t *testing.T) {
+			private := "token=secret missing report /private/test-output.log"
+			output := execution.Output{
+				Outcome: execution.OutcomeNeedsInput, Summary: private, Blocker: &private,
+				Verification: []string{private}, RemoteDetailSafe: true,
+				FailureClass: test.class, RetryDisposition: execution.RetryManual,
+			}
+			report := formatExecutionReport("Retryable Runner blocker", output)
+			if !strings.Contains(report, test.want) || !strings.Contains(report, "Failure: "+string(test.class)+"; retry: manual") {
+				t.Fatalf("report lost its classification: %q", report)
+			}
+			if strings.Contains(report, "token=") || strings.Contains(report, "/private/") {
+				t.Fatalf("report exposed model-authored evidence: %q", report)
+			}
+			if test.class == execution.FailureReviewIncomplete && strings.Contains(report, "capability") {
+				t.Fatalf("incomplete review inferred a tooling failure: %q", report)
+			}
+		})
+	}
+}
+
 func TestExecutionReportPublishesOnlyRunnerSanitizedCandidateCorrection(t *testing.T) {
 	correction := "Candidate failed `git diff --cached --check` because it contains trailing whitespace. Correct every reported line before retrying."
 	output := execution.Output{

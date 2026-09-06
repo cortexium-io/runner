@@ -122,7 +122,7 @@ func TestAssembleReviewerContentDerivesBlockedOutcome(t *testing.T) {
 		t.Fatalf("Runner-derived blocked authority is wrong: %#v", structured)
 	}
 	output := reviewerExecutorOutput(structured)
-	if output.FailureClass != FailureCapabilityUnavailable || output.RetryDisposition != RetryManual || !output.RemoteDetailSafe {
+	if output.FailureClass != FailureReviewIncomplete || output.RetryDisposition != RetryManual || !output.RemoteDetailSafe {
 		t.Fatalf("blocked reviewer output is not manually retryable: %#v", output)
 	}
 }
@@ -556,15 +556,17 @@ func TestReviewerMergedSummaryDescribesFinalChecks(t *testing.T) {
 }
 
 func TestReviewerTimingConfirmationRetainsEvidenceAndVerdict(t *testing.T) {
-	initial := "Browse test timed out at reload with a 30s limit and two workers; cause unknown."
+	knownTimeout := "Browse test timed out at reload with a 30s limit and two workers; cause unknown."
 	for _, test := range []struct {
-		name, status, confirmation, verdict string
+		name, status, confirmation, verdict, history string
 	}{
-		{"confirmed behavior", "passed", "One unchanged traced confirmation passed in 4.5s; reload completed in 355ms. Initial timeout remains unexplained and is recorded as intermittent.", "accept"},
-		{"observed defect", "failed", "Confirmation trace shows restored sorting is incorrect after reload; the required behavior is violated.", "needs_changes"},
-		{"inconclusive confirmation", "blocked", "One unchanged traced confirmation also timed out before the assertions; the available diagnostics do not establish an application cause or the required behavior.", "blocked"},
+		{"confirmed behavior", "passed", "One unchanged traced confirmation passed in 4.5s; reload completed in 355ms. Initial timeout remains unexplained and is recorded as intermittent.", "accept", knownTimeout},
+		{"observed defect", "failed", "Confirmation trace shows restored sorting is incorrect after reload; the required behavior is violated.", "needs_changes", knownTimeout},
+		{"inconclusive confirmation", "blocked", "One unchanged traced confirmation also timed out before the assertions; the available diagnostics do not establish an application cause or the required behavior.", "blocked", knownTimeout},
+		{"fresh proof with missing history", "passed", "Fresh candidate verification: npm run test:unit -- src/app/ListRoute.test.ts passed under documented four-worker, jsdom, 5s defaults. The named restoration tests establish the required behavior; this does not reproduce the unidentified failures or prove the historical full suite passed.", "accept", "Implementer reported ten timeouts followed by isolated passes; affected tests and original settings were not recorded."},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			initial := test.history
 			assignment := reviewerAssignment()
 			assignment.Spec.RequiredVerification = []string{"Browse restores sorting after reload"}
 			passed := reviewerContentCheck{Status: "passed", Summary: "Source inspected", Evidence: []string{"The candidate diff follows repository rules."}}
@@ -601,7 +603,7 @@ func TestReviewerTimingConfirmationRetainsEvidenceAndVerdict(t *testing.T) {
 			}
 			if test.status == "blocked" {
 				output := reviewerExecutorOutput(result)
-				if output.FailureClass != FailureCapabilityUnavailable || output.RetryDisposition != RetryManual {
+				if output.FailureClass != FailureReviewIncomplete || output.RetryDisposition != RetryManual {
 					t.Fatalf("inconclusive proof became a code rejection or automatic retry: %#v", output)
 				}
 			}
