@@ -210,3 +210,37 @@ func TestHarnessCheckRejectsTooShortTimeout(t *testing.T) {
 		t.Fatalf("timeout error = %v", err)
 	}
 }
+
+func TestHarnessCLIReportsBrowserStartupFailureForEveryRole(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "runner.json")
+	if err := config.SaveConfig(configPath, completeCLITestConfig(t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	var help []string
+	for _, role := range []execution.RoleContract{execution.RolePlanner, execution.RoleImplementer, execution.RoleReviewer} {
+		root, command, err := execution.RequiredHarnessFlags(config.HarnessCodexCLI, role, config.RoleAccessSandboxed, config.HarnessConfigModeIsolated)
+		if err != nil {
+			t.Fatal(err)
+		}
+		help = append(help, root...)
+		help = append(help, command...)
+	}
+	const fatal = "Error: thread/start: thread/start failed: error creating thread: Fatal error: Failed to initialize session: required MCP servers failed to initialize: runner_browser: MCP client startup timed out after 60s (code -32603)"
+	script := "#!/bin/sh\ncase \"$*\" in\n" +
+		"*--version*) printf '%s\\n' 'codex-cli startup-fixture'; exit 0;;\n" +
+		"*--help*) printf '%s\\n' '" + strings.Join(help, " ") + "'; exit 0;;\nesac\n" +
+		"printf '%s\\n' '" + fatal + "' >&2\nexit 1\n"
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, config.HarnessCodexCLI), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var output bytes.Buffer
+	err := run(t.Context(), []string{"harness", "check", "--config", configPath}, strings.NewReader(""), &output)
+	if err == nil || !strings.Contains(err.Error(), "conformance failed") {
+		t.Fatalf("startup failure did not fail the CLI check: %v\n%s", err, output.String())
+	}
+	if count := strings.Count(output.String(), fatal); count != 3 {
+		t.Fatalf("expected one startup diagnostic per role, got %d:\n%s", count, output.String())
+	}
+}

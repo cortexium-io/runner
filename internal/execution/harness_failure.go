@@ -6,9 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
 type HarnessFailureEvidence struct {
@@ -18,6 +21,17 @@ type HarnessFailureEvidence struct {
 }
 
 func classifyHarnessFailure(runErr error, evidence HarnessFailureEvidence) (Output, bool) {
+	if evidence.FailureClass == FailureBrowserStartup {
+		output := classifiedBlockedOutput(
+			"Runner's runner_browser MCP server timed out before the Codex session started.",
+			"Runner can retry browser startup. If retries are exhausted, check the local browser capability before retrying manually.",
+			FailureBrowserStartup, RetryAutomatic, "",
+		)
+		// This narrow startup envelope contains only fixed CLI text and a
+		// timestamp. Keep the local diagnostic; GitHub still receives a template.
+		output.DiscardDiagnostics = false
+		return output, true
+	}
 	if evidence.FailureClass == FailureTransientExternal {
 		return classifiedBlockedOutput(
 			"The harness provider reported a transient service failure.",
@@ -66,6 +80,41 @@ func classifyHarnessFailure(runErr error, evidence HarnessFailureEvidence) (Outp
 	}
 
 	return Output{}, false
+}
+
+func codexFailureEvidence(result subprocess.Result, runErr error, safeTools bool) HarnessFailureEvidence {
+	if evidence := codexFailureEvidenceFromStdout(result.Stdout); evidence.FailureClass != FailureNone {
+		return evidence
+	}
+	// Codex emits no JSONL event when thread/start fails. Accept only its exact
+	// pre-session fatal envelope for our required, pinned browser, with a plain
+	// exit-status error after successful process teardown. A joined cleanup
+	// error, cancellation, nonempty/truncated stdout, or any additional stderr
+	// text fails closed. Once a session emits output this exception cannot apply.
+	if _, exited := runErr.(*exec.ExitError); !exited || result.ExitCode != 1 || !safeTools || result.Stdout != "" {
+		return HarnessFailureEvidence{}
+	}
+	reason := fmt.Sprintf("required MCP servers failed to initialize: %s: MCP client startup timed out after %ds", runnerBrowserMCPServer, runnerBrowserStartupTimeoutSeconds)
+	fatal := "Error: thread/start: thread/start failed: error creating thread: Fatal error: Failed to initialize session: " + reason + " (code -32603)"
+	lines := strings.Split(strings.TrimSpace(result.Stderr), "\n")
+	if lines[len(lines)-1] != fatal {
+		return HarnessFailureEvidence{}
+	}
+	lines = lines[:len(lines)-1]
+	if len(lines) > 0 && lines[0] == "Reading prompt from stdin..." {
+		lines = lines[1:]
+	}
+	if len(lines) == 1 {
+		timestamp, message, found := strings.Cut(lines[0], " ERROR codex_core::session: ")
+		if _, err := time.Parse(time.RFC3339Nano, timestamp); err != nil || !found || message != "Failed to create session: "+reason {
+			return HarnessFailureEvidence{}
+		}
+		lines = lines[1:]
+	}
+	if len(lines) != 0 {
+		return HarnessFailureEvidence{}
+	}
+	return HarnessFailureEvidence{FailureClass: FailureBrowserStartup, RetryDisposition: RetryAutomatic}
 }
 
 // codexFailureEvidenceFromStdout accepts only the terminal failure event from

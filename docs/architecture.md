@@ -123,18 +123,26 @@ detailed usage and model-authored evidence remain local.
 
 Execution adapters map allowlisted adapter-owned structured failures and
 Runner-observed failures to a stable failure class plus `automatic`, `manual`,
-or `none` retry disposition. Codex classification reads only the terminal
-`turn.failed` event in its native JSONL stream; progress events,
-model-authored text, and raw stdout/stderr never create provider-capacity,
-session-limit, retry, or provider-supplied retry-timing authority. A recognized
-transient Codex service failure returns the card to its current role lane as
+or `none` retry disposition. Codex provider classification reads only the terminal
+`turn.failed` event in its native JSONL stream. One narrow startup exception
+recognizes Codex's exact fatal `thread/start` envelope for a required
+`runner_browser` MCP startup timeout: Runner must have granted the browser,
+stdout must be empty, stderr must contain only the known fatal line and optional
+fixed prompt-reading/session-error lines, and the subprocess must return a plain
+exit-status-1 error after successful teardown. Additional diagnostics, other
+servers, output truncation, cancellation, or cleanup errors do not qualify.
+This produces `browser_startup`, never provider-capacity or QA-rejection evidence.
+Progress events, model-authored text, and arbitrary stdout/stderr phrases have
+no recovery authority. A recognized transient Codex service failure or browser
+startup timeout returns the card to its current role lane as
 `Waiting for harness provider` and retries after 30 seconds, two minutes, and
 five minutes. A fourth consecutive failure moves it to the configured error
 lane for manual recovery. These operational retries do not increment `QA
 Failures`; a process restart may retry sooner because the short backoff is
 deliberately in-memory. Opaque harness failures stay unknown and are never
-automatically retried. The
-optional rolling admission budget is evaluated from local history before agent
+automatically retried. Browser startup failures retain their bounded local
+startup diagnostic; Project reports use only a fixed browser-startup template.
+The optional rolling admission budget is evaluated from local history before agent
 claims. Exhaustion pauses all new claims, including QA, without canceling
 in-flight attempts; PR reconciliation still runs. Reported-token and cost
 ceilings fail closed when attempts are unfinished or lack the required reported
@@ -271,8 +279,10 @@ reviewer roles. Runner never infers capability from model names, and the shared
 plan schema and acceptance rigor remain unchanged. A claim records `Planning`,
 `Implementing`, or `Reviewing` in the visible `Runner Activity` field. A card
 whose authenticated dependencies are incomplete records `Waiting for
-dependencies`. A recognized transient Codex provider failure records `Waiting
-for harness provider` while its bounded retry remains in the same role lane.
+dependencies`. A recognized transient Codex provider failure or pre-session
+browser startup timeout records `Waiting for harness provider` while its bounded
+retry remains in the same role lane; the result classification distinguishes
+provider failures from `browser_startup`.
 The Project owns one read-only eligibility classifier for agent-lane cards.
 Queue selection, final claim validation, and operator status consume that same
 decision, so an ineligible card cannot be presented as executable. Status keeps
@@ -575,6 +585,13 @@ user/global npm configuration, and cache live in a separate mode-`0700`
 host-owned directory that is absent from harness sandbox write grants. A role
 may explicitly disable this profile. In inherited mode Runner adds this server
 alongside the ambient MCP configuration.
+
+Each native harness invocation establishes its own configured MCP connections.
+Runner's stdio browser server and isolated profile are invocation-scoped, not
+shared across cards or between implementation and independent QA. The private
+npm package cache is reused across invocations. A card can require multiple
+invocations (including separate review stages); each initializes its own
+connections. Runner does not maintain a persistent browser service or pool.
 
 Pi implementer and reviewer roles receive the same three browser operations
 through a temporary Runner-generated extension that forwards to the pinned

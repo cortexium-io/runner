@@ -63,6 +63,12 @@ func TestCandidateValidationIsAStableFailureClass(t *testing.T) {
 	}
 }
 
+func TestBrowserStartupIsAStableFailureClass(t *testing.T) {
+	if !validFailureClass("browser_startup") {
+		t.Fatal("browser startup failure class is not accepted by metrics")
+	}
+}
+
 func TestAutomaticRetryIsAStableDisposition(t *testing.T) {
 	if !validRetryDisposition("automatic") {
 		t.Fatal("automatic retry disposition is not accepted by metrics")

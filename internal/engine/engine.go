@@ -1498,20 +1498,24 @@ func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.Aut
 		summary = "Runner stopped; retained work is ready to resume."
 	}
 	automaticRetry := output.RetryDisposition == execution.RetryAutomatic &&
-		(output.FailureClass == execution.FailureTransientExternal || output.FailureClass == execution.FailureCapacityExhausted)
+		(output.FailureClass == execution.FailureTransientExternal || output.FailureClass == execution.FailureCapacityExhausted || output.FailureClass == execution.FailureBrowserStartup)
 	var scheduledRetry automaticRetryState
 	if automaticRetry {
+		unavailable := "Harness provider"
+		if output.FailureClass == execution.FailureBrowserStartup {
+			unavailable = "Runner browser startup"
+		}
 		var scheduled bool
 		scheduledRetry, scheduled = s.nextAutomaticRetry(item.ID, time.Now().UTC())
 		if scheduled {
 			target = laneID
 			output.RetryAfter = scheduledRetry.notBefore.Format(time.RFC3339)
-			summary = fmt.Sprintf("Harness provider unavailable; automatic retry %d of %d is scheduled.", scheduledRetry.failures, maxAutomaticRetries)
+			summary = fmt.Sprintf("%s unavailable; automatic retry %d of %d is scheduled.", unavailable, scheduledRetry.failures, maxAutomaticRetries)
 		} else {
 			automaticRetry = false
 			output.RetryDisposition = execution.RetryManual
 			output.RetryAfter = ""
-			summary = fmt.Sprintf("Harness provider remained unavailable after %d automatic retries.", maxAutomaticRetries)
+			summary = fmt.Sprintf("%s remained unavailable after %d automatic retries.", unavailable, maxAutomaticRetries)
 			output.Summary = summary
 		}
 	}

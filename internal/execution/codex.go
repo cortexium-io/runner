@@ -129,10 +129,13 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 	}
 	summary := summarizeCodexResult(result, lastMessage)
 	if err != nil {
-		if output, known := classifyHarnessFailure(err, codexFailureEvidenceFromStdout(result.Stdout)); known {
+		if output, known := classifyHarnessFailure(err, codexFailureEvidence(result, err, e.config.SafeTools)); known {
 			finishStageFromOutput(finishHarness, output, err, usage)
 			output.Usage = usage
 			output.HarnessDurationMilliseconds = harnessDuration
+			if output.FailureClass == FailureBrowserStartup {
+				err = commandFailure(err, result)
+			}
 			return output, fmt.Errorf("run codex cli: %w", err)
 		}
 		output := blockedOutputWithFailure("Codex CLI failed: "+summary, FailureUnknown, RetryNone)
@@ -226,7 +229,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	if runErr == nil {
 		finishStageFromOutput(finishHarness, Output{Outcome: OutcomeSucceeded}, nil, usage)
 		structured, structuredErr = assembleExecutionContent(assignment, lastMessage)
-	} else if classified, known := classifyHarnessFailure(runErr, codexFailureEvidenceFromStdout(result.Stdout)); known {
+	} else if classified, known := classifyHarnessFailure(runErr, codexFailureEvidence(result, runErr, e.config.SafeTools)); known {
 		finishStageFromOutput(finishHarness, classified, runErr, usage)
 	} else {
 		finishStageFromOutput(finishHarness, blockedOutputWithFailure("Harness execution failed.", FailureUnknown, RetryNone), runErr, usage)
@@ -252,9 +255,12 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	finishStageFromOutput(finishVerify, Output{Outcome: OutcomeSucceeded}, nil, metrics.Usage{})
 
 	if runErr != nil {
-		if output, known := classifyHarnessFailure(runErr, codexFailureEvidenceFromStdout(result.Stdout)); known {
+		if output, known := classifyHarnessFailure(runErr, codexFailureEvidence(result, runErr, e.config.SafeTools)); known {
 			output.Usage = usage
 			output.HarnessDurationMilliseconds = harnessDuration
+			if output.FailureClass == FailureBrowserStartup {
+				runErr = commandFailure(runErr, result)
+			}
 			return output, fmt.Errorf("run codex cli workspace-write: %w", runErr)
 		}
 		output := blockedOutputWithFailure("Codex CLI workspace-write failed: "+summary, FailureUnknown, RetryNone)
