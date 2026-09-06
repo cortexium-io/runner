@@ -939,105 +939,125 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 		return s.failExecution(ctx, action, lane, result, "Retained implementation result is not safe to resume", err,
 			integrityViolationOutput("Retained implementation result is not safe to resume", err))
 	}
-	if resumed {
-		output = checkpoint.Output
-		result.ResumedCheckpoint = true
-	} else {
-		switch harness {
-		case config.HarnessCodexCLI:
-			cfg := s.executionConfig(executionRole, harness, workingDir)
-			executor := execution.NewCodexExecutor(cfg, s.run)
-			output, err = executor.ExecuteWorkspaceWrite(ctx, assignment, func(metadata workspace.Metadata) error {
-				preparedWorkspace = metadata
-				result.WorktreePath = metadata.WorktreePath
-				result.Branch = metadata.BranchName
-				return nil
-			})
-		case config.HarnessClaudeCLI, config.HarnessPiCLI:
-			cfg := s.executionConfig(executionRole, harness, workingDir)
-			executor := execution.NewAgentExecutor(harness, cfg, s.run)
-			output, err = executor.ExecuteWorkspaceWrite(ctx, assignment, func(metadata workspace.Metadata) error {
-				preparedWorkspace = metadata
-				result.WorktreePath = metadata.WorktreePath
-				result.Branch = metadata.BranchName
-				return nil
-			})
-		default:
-			err = errors.New("implementation requires Codex CLI, Claude Code, or Pi CLI")
-		}
-	}
-	result.HarnessDurationMilliseconds = output.HarnessDurationMilliseconds
-	result.Usage = output.Usage
-	result.WorkDone = append([]string(nil), output.WorkDone...)
-	result.Verification = append([]string(nil), output.Verification...)
-	result.FailureClass = string(output.FailureClass)
-	result.RetryDisposition = string(output.RetryDisposition)
-	result.RetryAfter = output.RetryAfter
-	if strings.TrimSpace(output.Outcome) == "" {
-		output.Outcome = execution.OutcomeBlocked
-	}
-	if strings.TrimSpace(output.Summary) == "" {
-		output.Summary = "Harness execution did not return a summary."
-	}
-	result.Outcome = output.Outcome
-	result.Summary = output.Summary
-	if err != nil {
-		result.Error = err.Error()
-	}
-	if err != nil || output.Outcome != execution.OutcomeSucceeded {
-		if err == nil {
-			err = errors.New(output.Summary)
-		}
-		return s.failExecution(ctx, action, lane, result, "Implementation failed", err, output)
-	}
-	if result.Branch == "" || result.WorktreePath == "" {
-		err = errors.New("implementation did not return its isolated branch and worktree")
-		return s.failExecution(ctx, action, lane, result, "Implementation workspace evidence is incomplete", err, blockedExecutorOutput("Implementation workspace evidence is incomplete", err))
-	}
-	if _, err := verificationEvidenceEntries(assignment.Spec.RequiredVerification, output.Verification); err != nil {
-		invalid := blockedExecutorOutput("Implementation returned invalid verification evidence", err)
-		invalid.FailureClass = execution.FailureInvalidContract
-		return s.failExecution(ctx, action, lane, result, "Implementation returned invalid verification evidence", err, invalid)
-	}
 	candidate := checkpoint.Candidate
-	if !resumed {
-		checkpointSnapshot, err = s.workspaceSnapshotState(ctx, preparedWorkspace.WorktreePath)
-		if err != nil {
-			return s.failExecution(ctx, action, lane, result, "Completed implementation workspace could not be checkpointed", err,
-				integrityViolationOutput("Completed implementation workspace could not be checkpointed", err, output))
-		}
-		if err := s.saveImplementationCheckpoint(item, delegatedContent, checkpointContext, preparedWorkspace, checkpointSnapshot, workspace.Candidate{}, output); err != nil {
-			return s.failExecution(ctx, action, lane, result, "Completed implementation result could not be checkpointed", err,
-				integrityViolationOutput("Completed implementation result could not be checkpointed", err, output))
-		}
-	}
-	if candidate.CommitOID == "" {
-		candidate, err = workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).ConstructCandidateForMergeMethod(ctx, preparedWorkspace, item.Title, s.cfg.GitHubProject.MergeMethod)
-		if err != nil {
-			if correction, recoverable := workspace.CandidateValidationCorrection(err); recoverable {
-				if clearErr := s.clearImplementationCheckpoint(item.ID); clearErr != nil {
-					combined := errors.Join(err, fmt.Errorf("clear invalid candidate checkpoint: %w", clearErr))
-					return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be committed for QA", combined,
-						integrityViolationOutput("Implementation candidate could not be committed for QA", combined, output))
-				}
-				return s.failExecution(ctx, action, lane, result, "Implementation candidate needs correction before QA", err,
-					candidateValidationOutput(correction, output))
+	// Keep one corrective pass inside the current action and admission claim.
+	// Candidate content errors are not QA rejections or provider retries.
+	for correctionAttempt := 0; ; correctionAttempt++ {
+		if resumed {
+			output = checkpoint.Output
+			result.ResumedCheckpoint = true
+		} else {
+			switch harness {
+			case config.HarnessCodexCLI:
+				cfg := s.executionConfig(executionRole, harness, workingDir)
+				executor := execution.NewCodexExecutor(cfg, s.run)
+				output, err = executor.ExecuteWorkspaceWrite(ctx, assignment, func(metadata workspace.Metadata) error {
+					preparedWorkspace = metadata
+					result.WorktreePath = metadata.WorktreePath
+					result.Branch = metadata.BranchName
+					return nil
+				})
+			case config.HarnessClaudeCLI, config.HarnessPiCLI:
+				cfg := s.executionConfig(executionRole, harness, workingDir)
+				executor := execution.NewAgentExecutor(harness, cfg, s.run)
+				output, err = executor.ExecuteWorkspaceWrite(ctx, assignment, func(metadata workspace.Metadata) error {
+					preparedWorkspace = metadata
+					result.WorktreePath = metadata.WorktreePath
+					result.Branch = metadata.BranchName
+					return nil
+				})
+			default:
+				err = errors.New("implementation requires Codex CLI, Claude Code, or Pi CLI")
 			}
-			return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be committed for QA", err,
-				integrityViolationOutput("Implementation candidate could not be committed for QA", err, output))
 		}
-		checkpointSnapshot, err = s.workspaceSnapshotState(ctx, preparedWorkspace.WorktreePath)
-		if err != nil || !checkpointSnapshot.Clean || checkpointSnapshot.Head != candidate.CommitOID || checkpointSnapshot.Tree != candidate.TreeOID {
+		result.HarnessDurationMilliseconds += output.HarnessDurationMilliseconds
+		result.Usage = result.Usage.Add(output.Usage)
+		result.WorkDone = append([]string(nil), output.WorkDone...)
+		result.Verification = append([]string(nil), output.Verification...)
+		result.FailureClass = string(output.FailureClass)
+		result.RetryDisposition = string(output.RetryDisposition)
+		result.RetryAfter = output.RetryAfter
+		if strings.TrimSpace(output.Outcome) == "" {
+			output.Outcome = execution.OutcomeBlocked
+		}
+		if strings.TrimSpace(output.Summary) == "" {
+			output.Summary = "Harness execution did not return a summary."
+		}
+		result.Outcome = output.Outcome
+		result.Summary = output.Summary
+		if err != nil {
+			result.Error = err.Error()
+		}
+		if err != nil || output.Outcome != execution.OutcomeSucceeded {
 			if err == nil {
-				err = errors.New("committed implementation candidate does not match its checkpoint snapshot")
+				err = errors.New(output.Summary)
 			}
-			return s.failExecution(ctx, action, lane, result, "Committed implementation candidate could not be checkpointed", err,
-				integrityViolationOutput("Committed implementation candidate could not be checkpointed", err, output))
+			return s.failExecution(ctx, action, lane, result, "Implementation failed", err, output)
 		}
-		if err := s.saveImplementationCheckpoint(item, delegatedContent, checkpointContext, preparedWorkspace, checkpointSnapshot, candidate, output); err != nil {
-			return s.failExecution(ctx, action, lane, result, "Committed implementation result could not be checkpointed", err,
-				integrityViolationOutput("Committed implementation result could not be checkpointed", err, output))
+		if result.Branch == "" || result.WorktreePath == "" {
+			err = errors.New("implementation did not return its isolated branch and worktree")
+			return s.failExecution(ctx, action, lane, result, "Implementation workspace evidence is incomplete", err, blockedExecutorOutput("Implementation workspace evidence is incomplete", err))
 		}
+		if _, err := verificationEvidenceEntries(assignment.Spec.RequiredVerification, output.Verification); err != nil {
+			invalid := blockedExecutorOutput("Implementation returned invalid verification evidence", err)
+			invalid.FailureClass = execution.FailureInvalidContract
+			return s.failExecution(ctx, action, lane, result, "Implementation returned invalid verification evidence", err, invalid)
+		}
+		if !resumed {
+			checkpointSnapshot, err = s.workspaceSnapshotState(ctx, preparedWorkspace.WorktreePath)
+			if err != nil {
+				return s.failExecution(ctx, action, lane, result, "Completed implementation workspace could not be checkpointed", err,
+					integrityViolationOutput("Completed implementation workspace could not be checkpointed", err, output))
+			}
+			if err := s.saveImplementationCheckpoint(item, delegatedContent, checkpointContext, preparedWorkspace, checkpointSnapshot, workspace.Candidate{}, output); err != nil {
+				return s.failExecution(ctx, action, lane, result, "Completed implementation result could not be checkpointed", err,
+					integrityViolationOutput("Completed implementation result could not be checkpointed", err, output))
+			}
+		}
+		if candidate.CommitOID == "" {
+			candidate, err = workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).ConstructCandidateForMergeMethod(ctx, preparedWorkspace, item.Title, s.cfg.GitHubProject.MergeMethod)
+			if err != nil {
+				if correction, recoverable := workspace.CandidateValidationCorrection(err); recoverable {
+					if clearErr := s.clearImplementationCheckpoint(item.ID); clearErr != nil {
+						combined := errors.Join(err, fmt.Errorf("clear invalid candidate checkpoint: %w", clearErr))
+						return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be committed for QA", combined,
+							integrityViolationOutput("Implementation candidate could not be committed for QA", combined, output))
+					}
+					if correctionAttempt == 0 && ctx.Err() == nil {
+						refreshedAction, _, refreshErr := s.source.RefreshDelegatedContent(ctx, action)
+						if refreshErr != nil {
+							result.Outcome = execution.OutcomeBlocked
+							result.Summary = "Approved delegated content is no longer current before candidate correction"
+							result.Error = refreshErr.Error()
+							result.FailureClass = string(execution.FailureIntegrityViolation)
+							result.RetryDisposition = string(execution.RetryManual)
+							return result
+						}
+						action = refreshedAction
+						assignment = candidateCorrectionAssignment(assignment, correction, output)
+						resumed = false
+						continue
+					}
+					return s.failExecution(ctx, action, lane, result, "Implementation candidate needs correction before QA", err,
+						candidateValidationOutput(correction, output))
+				}
+				return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be committed for QA", err,
+					integrityViolationOutput("Implementation candidate could not be committed for QA", err, output))
+			}
+			checkpointSnapshot, err = s.workspaceSnapshotState(ctx, preparedWorkspace.WorktreePath)
+			if err != nil || !checkpointSnapshot.Clean || checkpointSnapshot.Head != candidate.CommitOID || checkpointSnapshot.Tree != candidate.TreeOID {
+				if err == nil {
+					err = errors.New("committed implementation candidate does not match its checkpoint snapshot")
+				}
+				return s.failExecution(ctx, action, lane, result, "Committed implementation candidate could not be checkpointed", err,
+					integrityViolationOutput("Committed implementation candidate could not be checkpointed", err, output))
+			}
+			if err := s.saveImplementationCheckpoint(item, delegatedContent, checkpointContext, preparedWorkspace, checkpointSnapshot, candidate, output); err != nil {
+				return s.failExecution(ctx, action, lane, result, "Committed implementation result could not be checkpointed", err,
+					integrityViolationOutput("Committed implementation result could not be checkpointed", err, output))
+			}
+		}
+		break
 	}
 	if err := s.saveVerificationEvidence(item, delegatedContent, preparedWorkspace, candidate, assignment.Spec.RequiredVerification, output.Verification); err != nil {
 		return s.failExecution(ctx, action, lane, result, "Implementation verification evidence is incomplete", err,

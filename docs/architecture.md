@@ -199,10 +199,16 @@ any mismatch removes the stale checkpoint. The checkpoint is cleared after the
 successful transition to Agent QA, so it cannot bypass later independent QA.
 Ordinary candidate-content failures such as unresolved conflicts or
 `git diff --cached --check` errors are not workspace-integrity failures. Runner
-publishes a bounded correction, clears the unusable checkpoint, and sends an
-explicit retry through implementation. Operator-supplied retry feedback also
-clears the checkpoint before changing the card, while unchanged Runner-side
-post-processing failures retain it.
+clears the unusable checkpoint and gives the same implementer one immediate
+corrective pass inside the current action, after revalidating approval. The
+pass retains the worktree, approved scope, QA feedback, and earlier verification
+as untrusted historical evidence; Runner restages and rechecks the result before
+QA. Both harness calls count toward usage, but neither candidate failure consumes
+a QA rejection. A second candidate-content failure blocks with a bounded,
+privacy-safe correction and requires an explicit retry through implementation;
+integrity failures never enter this automatic correction path.
+Operator-supplied retry feedback also clears the checkpoint before changing the
+card, while unchanged Runner-side post-processing failures retain it.
 
 Pi result attribution comes only from its native JSON event stream. Explicit
 `lmstudio/...` stages with tools must produce one session-provenanced

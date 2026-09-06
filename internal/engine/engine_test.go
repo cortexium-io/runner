@@ -376,6 +376,7 @@ type baseFetchFailureRunner struct{ project *fakeGitHubProjectRunner }
 type successfulImplementationRunner struct {
 	project *fakeGitHubProjectRunner
 	inspect func(string) error
+	stdout  string
 	dir     string
 	args    []string
 	calls   int
@@ -430,7 +431,7 @@ func (r *successfulImplementationRunner) Run(ctx context.Context, command string
 		if err := os.WriteFile(argumentValue(args, "--output-last-message"), encoded, 0o600); err != nil {
 			return subprocess.Result{}, err
 		}
-		return subprocess.Result{}, nil
+		return subprocess.Result{Stdout: r.stdout}, nil
 	default:
 		return r.project.Run(ctx, command, args, dir, timeout)
 	}
@@ -3436,7 +3437,7 @@ func TestBlockedItemRetryCanReplaceStaleFeedbackAndResetQAFailures(t *testing.T)
 	}
 }
 
-func TestCandidateValidationPublishesCorrectionAndPlainRetryRerunsImplementation(t *testing.T) {
+func TestCandidateValidationBoundsCorrectionAndPlainRetryRerunsImplementation(t *testing.T) {
 	repo, _ := createPublicationRepository(t)
 	item := github.WorkItem{
 		ID: "PVTI_candidate_correction", Title: "Correct candidate content", Body: "Acceptance criteria", URL: "https://github.com/owner/repo/issues/78",
@@ -3447,7 +3448,7 @@ func TestCandidateValidationPublishesCorrectionAndPlainRetryRerunsImplementation
 	runner := &successfulImplementationRunner{project: project}
 	runner.inspect = func(dir string) error {
 		content := "corrected candidate\n"
-		if runner.calls == 1 {
+		if runner.calls <= 2 {
 			content = "PRIVATE-CANDIDATE-CONTENT  \n"
 		}
 		return os.WriteFile(filepath.Join(dir, "candidate.md"), []byte(content), 0o644)
@@ -3459,7 +3460,7 @@ func TestCandidateValidationPublishesCorrectionAndPlainRetryRerunsImplementation
 		t.Fatal(err)
 	}
 	first := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, item))
-	if first.Outcome != execution.OutcomeBlocked || first.FailureClass != string(execution.FailureCandidateValidation) || first.RetryDisposition != string(execution.RetryManual) || runner.calls != 1 {
+	if first.Outcome != execution.OutcomeBlocked || first.FailureClass != string(execution.FailureCandidateValidation) || first.RetryDisposition != string(execution.RetryManual) || runner.calls != 2 {
 		t.Fatalf("candidate validation did not produce a retryable content failure: result=%#v harness_calls=%d", first, runner.calls)
 	}
 	if project.status != "Blocked" || project.phase != "ready" || !strings.Contains(project.result, "trailing whitespace") || !strings.Contains(project.result, "git diff --cached --check") {
@@ -3491,11 +3492,114 @@ func TestCandidateValidationPublishesCorrectionAndPlainRetryRerunsImplementation
 		}
 	}
 	second := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, retried))
-	if second.Outcome != execution.OutcomeSucceeded || second.ResumedCheckpoint || runner.calls != 2 || project.status != "Agent QA" {
+	if second.Outcome != execution.OutcomeSucceeded || second.ResumedCheckpoint || runner.calls != 3 || project.status != "Agent QA" {
 		t.Fatalf("plain retry did not rerun and correct the implementation: result=%#v harness_calls=%d status=%q", second, runner.calls, project.status)
 	}
 	if !strings.Contains(strings.Join(runner.args, " "), "trailing whitespace") {
 		t.Fatalf("retry assignment omitted the actionable candidate correction: %s", strings.Join(runner.args, " "))
+	}
+}
+
+func TestCandidateValidationCorrectsImmediatelyWithoutQARejection(t *testing.T) {
+	for _, test := range []struct {
+		name, content, reason string
+	}{
+		{"EOF blank line", "retained implementation\n\n", "new blank lines at end of file"},
+		{"trailing whitespace", "retained implementation  \n", "trailing whitespace"},
+		{"conflict marker", "<<<<<<< HEAD\nretained implementation\n=======\nother implementation\n>>>>>>> other\n", "leftover conflict markers"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo, _ := createPublicationRepository(t)
+			item := github.WorkItem{
+				ID: "PVTI_immediate_correction", Title: "Correct candidate content", Body: "Acceptance criteria",
+				Repository: "owner/repo", Status: "In Progress", Phase: "ready", Role: config.WorkRoleImplementer,
+				Result: "Preserve the existing sorting fix.", QAFailures: 1,
+			}
+			item.Approval = testApproval(item)
+			project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, qaFailures: item.QAFailures}
+			runner := &successfulImplementationRunner{
+				project: project, stdout: `{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":10}}`,
+			}
+			var originalWorktree string
+			runner.inspect = func(dir string) error {
+				if runner.calls == 1 {
+					originalWorktree = dir
+					return os.WriteFile(filepath.Join(dir, "candidate.md"), []byte(test.content), 0o644)
+				}
+				if runner.calls != 2 || dir != originalWorktree || project.status == "Blocked" || project.status == "Agent QA" || project.qaFailures != 1 {
+					t.Fatalf("correction changed workspace, count, or lane: calls=%d dir=%q status=%q failures=%d", runner.calls, dir, project.status, project.qaFailures)
+				}
+				prompt := strings.Join(runner.args, " ")
+				for _, want := range []string{test.reason, "one automatic attempt", "Preserve the existing sorting fix.", "Completed the approved work.", "Verified the clean workspace.", "untrusted historical evidence", "Runner owns staging and commits", "pre-correction candidate", "every original proof obligation"} {
+					if !strings.Contains(prompt, want) {
+						t.Errorf("correction prompt omitted %q", want)
+					}
+				}
+				return os.WriteFile(filepath.Join(dir, "candidate.md"), []byte("retained implementation\n"), 0o644)
+			}
+			service, err := New(completeEngineTestConfig(config.Config{
+				ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+			}), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, item))
+			if result.Outcome != execution.OutcomeSucceeded || result.Error != "" || result.FailureClass != "" || runner.calls != 2 || project.status != "Agent QA" || project.qaFailures != 1 {
+				t.Fatalf("candidate was not corrected in the same action: result=%#v calls=%d status=%q failures=%d", result, runner.calls, project.status, project.qaFailures)
+			}
+			if result.Usage.InputTokens != 200 || result.Usage.CacheReadInputTokens != 80 || result.Usage.OutputTokens != 20 {
+				t.Fatalf("correction usage was lost or duplicated: %#v", result.Usage)
+			}
+			if got := runGitTest(t, result.WorktreePath, "status", "--porcelain"); got != "" {
+				t.Fatalf("corrected candidate was not committed cleanly: %q", got)
+			}
+			if got := runGitTest(t, result.WorktreePath, "show", "HEAD:candidate.md"); got != "retained implementation\n" {
+				t.Fatalf("candidate did not contain the correction: %q", got)
+			}
+			if _, err := os.Stat(service.implementationCheckpointPath(item.ID)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("successful correction retained its checkpoint: %v", err)
+			}
+		})
+	}
+}
+
+func TestCandidateCorrectionDoesNotBypassAuthorityOrIntegrity(t *testing.T) {
+	for _, failure := range []string{"approval changed", "index flag", "correction integrity failure"} {
+		t.Run(failure, func(t *testing.T) {
+			repo, _ := createPublicationRepository(t)
+			item := github.WorkItem{
+				ID: "PVTI_unsafe_correction", Title: "Correct candidate content", Body: "Acceptance criteria",
+				Repository: "owner/repo", Status: "Ready", Role: config.WorkRoleImplementer,
+			}
+			item.Approval = testApproval(item)
+			project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+			runner := &successfulImplementationRunner{project: project}
+			runner.inspect = func(dir string) error {
+				if failure == "index flag" || failure == "correction integrity failure" && runner.calls == 2 {
+					return runGitMutation(dir, "update-index", "--assume-unchanged", "README.md")
+				}
+				if failure == "approval changed" {
+					changed := item
+					changed.Body = "Different unapproved requirements."
+					project.itemsJSON = `{"items":[` + projectItemJSON(changed) + `]}`
+				}
+				return os.WriteFile(filepath.Join(dir, "candidate.md"), []byte("retained implementation\n\n"), 0o644)
+			}
+			service, err := New(completeEngineTestConfig(config.Config{
+				ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+			}), runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, item))
+			wantCalls := 1
+			if failure == "correction integrity failure" {
+				wantCalls = 2
+			}
+			if result.Outcome != execution.OutcomeBlocked || result.FailureClass != string(execution.FailureIntegrityViolation) || runner.calls != wantCalls || project.status == "Agent QA" {
+				t.Fatalf("unsafe candidate did not fail closed: result=%#v calls=%d status=%q", result, runner.calls, project.status)
+			}
+		})
 	}
 }
 
