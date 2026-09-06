@@ -123,25 +123,7 @@ func codexFailureEvidence(result subprocess.Result, runErr error, safeTools bool
 // message rather than typed HTTP fields, so matching remains limited to fixed
 // statuses and the authenticated Codex service endpoint.
 func codexFailureEvidenceFromStdout(stdout string) HarnessFailureEvidence {
-	scanner := bufio.NewScanner(strings.NewReader(stdout))
-	scanner.Buffer(make([]byte, 64*1024), maxHarnessDiagnosticBytes)
-	var terminalMessage string
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 || line[0] != '{' {
-			continue
-		}
-		var event struct {
-			Type  string `json:"type"`
-			Error *struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		if json.Unmarshal(line, &event) != nil || event.Type != "turn.failed" || event.Error == nil {
-			continue
-		}
-		terminalMessage = strings.ToLower(strings.TrimSpace(event.Error.Message))
-	}
+	terminalMessage := strings.ToLower(codexTerminalFailureMessage(stdout))
 	if terminalMessage == "" {
 		return HarnessFailureEvidence{}
 	}
@@ -165,6 +147,29 @@ func codexFailureEvidenceFromStdout(stdout string) HarnessFailureEvidence {
 		}
 	}
 	return HarnessFailureEvidence{}
+}
+
+func codexTerminalFailureMessage(stdout string) string {
+	scanner := bufio.NewScanner(strings.NewReader(stdout))
+	scanner.Buffer(make([]byte, 64*1024), maxHarnessDiagnosticBytes)
+	var terminalMessage string
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		var event struct {
+			Type  string `json:"type"`
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(line, &event) != nil || event.Type != "turn.failed" || event.Error == nil {
+			continue
+		}
+		terminalMessage = strings.TrimSpace(event.Error.Message)
+	}
+	return terminalMessage
 }
 
 func codexFailureHasHTTPStatus(message, status string) bool {

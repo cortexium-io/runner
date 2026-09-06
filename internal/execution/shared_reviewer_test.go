@@ -25,6 +25,8 @@ func reviewerAssignment() Assignment {
 		RequiredVerification:   []string{"behavior.txt contains ready", "git diff --check passes"},
 		RecordedVerification:   []VerificationEvidence{{Criterion: "behavior.txt contains ready", Evidence: "focused check passed at the candidate commit"}},
 		ReviewRequired:         true,
+		ReviewBaseOID:          strings.Repeat("a", 40),
+		ReviewCandidateOID:     strings.Repeat("b", 40),
 	}}
 }
 
@@ -72,6 +74,7 @@ func TestReviewerAuditPromptBindsProofsAndDefersDynamicChecks(t *testing.T) {
 		"It does not complete the audit of the whole proof key or path", "A failed key records status; it is not a stop signal",
 		"inspect directly adjacent card-owned paths, operations, and state transitions", "Group all independent blockers",
 		"one or more blocking violations",
+		"Read-only shell commands", "git diff " + assignment.Spec.ReviewBaseOID + "..." + assignment.Spec.ReviewCandidateOID,
 		"fresh focused-verification stage containing only the unresolved checks",
 	} {
 		if !strings.Contains(prompt, required) {
@@ -363,6 +366,9 @@ func TestAllReviewersUseOneSharedAuditSchemaWhenEvidenceIsConclusive(t *testing.
 
 func TestAllReviewersUseFreshFocusedStageOnlyForUnresolvedProofs(t *testing.T) {
 	assignment := reviewerAssignment()
+	assignment.Spec.RecordedVerification = append(assignment.Spec.RecordedVerification, VerificationEvidence{
+		Criterion: assignment.Spec.RequiredVerification[1], Evidence: "Original diff-check evidence at the pinned candidate; artifact: runtime/diff-check.log",
+	})
 	wantAuditSchema, err := reviewerAuditSchema(len(assignment.Spec.RequiredVerification))
 	if err != nil {
 		t.Fatal(err)
@@ -434,6 +440,17 @@ func TestAllReviewersUseFreshFocusedStageOnlyForUnresolvedProofs(t *testing.T) {
 			if !strings.Contains(focusedPrompt, `"key":"P2"`) || !strings.Contains(focusedPrompt, assignment.Spec.RequiredVerification[1]) || strings.Contains(focusedPrompt, `"key":"P1"`) || strings.Contains(focusedPrompt, assignment.Spec.RequiredVerification[0]) {
 				t.Fatalf("focused stage did not contain only unresolved proof P2:\n%s", focusedPrompt)
 			}
+			for _, want := range []string{assignment.Spec.RecordedVerification[1].Evidence, assignment.Spec.ReviewBaseOID, assignment.Spec.ReviewCandidateOID} {
+				if !strings.Contains(focusedPrompt, want) {
+					t.Fatalf("%s lost unresolved-check context %q", kind, want)
+				}
+			}
+			if strings.Contains(focusedPrompt, assignment.Spec.RecordedVerification[0].Evidence) || strings.Contains(focusedPrompt, "already audited the approved request") {
+				t.Fatal("focused stage replayed resolved evidence or presumed missing source inspection")
+			}
+			if output.Summary != "Review checks: 4 passed, 0 failed, 0 blocked." {
+				t.Fatalf("resolved review retained an obsolete stage summary: %q", output.Summary)
+			}
 			if kind == config.HarnessPiCLI {
 				structuredExtensions := 0
 				for _, source := range run.extensionSources {
@@ -501,5 +518,38 @@ func TestReviewerPromptUsesEvidenceToSelectReviewScope(t *testing.T) {
 	}
 	if strings.Contains(followup, "Initial or renewed review:") {
 		t.Fatal("conflicting initial scope on follow-up")
+	}
+}
+
+func TestReviewerFocusedCrossCuttingCheckReceivesApprovedScopeAndRepairBase(t *testing.T) {
+	assignment := reviewerAssignment()
+	assignment.Spec.ReviewBaseline = &ReviewBaseline{CommitOID: strings.Repeat("c", 40)}
+	assignment.Spec.ApprovedBodySnapshot = "Shared controls are in scope; transport changes are excluded."
+	for _, area := range []string{"repository_rules", "maintainability"} {
+		prompt := reviewerResolutionPrompt(assignment, "Codex CLI", []reviewerUnresolvedCheck{{Key: "M", Area: area, Question: "Does the diff stay in scope?"}})
+		for _, want := range []string{assignment.Spec.ApprovedBodySnapshot, assignment.Spec.Task.Instructions, "git diff " + assignment.Spec.ReviewBaseline.CommitOID + " HEAD", "Do not assume their source inspection"} {
+			if !strings.Contains(prompt, want) {
+				t.Fatalf("cross-cutting check lost %q", want)
+			}
+		}
+	}
+}
+
+func TestReviewerMergedSummaryDescribesFinalChecks(t *testing.T) {
+	for _, test := range []struct{ audit, resolved, want string }{
+		{"passed", "passed", "Review checks: 4 passed, 0 failed, 0 blocked."},
+		{"failed", "passed", "Review checks: 3 passed, 1 failed, 0 blocked."},
+		{"passed", "blocked", "Review checks: 3 passed, 0 failed, 1 blocked."},
+		{"failed", "blocked", "Review checks: 2 passed, 1 failed, 1 blocked."},
+	} {
+		content := reviewerContent{
+			Criteria:        map[string]reviewerContentCheck{"P1": {Status: test.audit, Summary: "retained finding"}, "P2": {Status: "check_required", Summary: "obsolete gap"}},
+			RepositoryRules: reviewerContentCheck{Status: "passed"}, Maintainability: ReviewMaintainabilityResult{Status: "passed"},
+			Summary: "Initial inspection was blocked.",
+		}
+		merged := mergeReviewerResolution(content, reviewerResolutionContent{Checks: map[string]reviewerContentCheck{"P2": {Status: test.resolved, Summary: "resolved observation"}}, Summary: "Dynamic checks passed."})
+		if merged.Summary != test.want || merged.Criteria["P1"].Summary != "retained finding" || merged.Criteria["P2"].Summary != "resolved observation" {
+			t.Fatalf("incorrect merged review: %#v", merged)
+		}
 	}
 }

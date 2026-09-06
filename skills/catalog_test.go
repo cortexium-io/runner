@@ -64,6 +64,7 @@ func TestBundledSkillsOwnReusableRoleWorkflow(t *testing.T) {
 			"test files, rewrite tests",
 			"Do not assume a browser",
 			"In an evidence-audit stage",
+			"read-only file tools or shell commands",
 			"In a focused-verification stage",
 		},
 	}
@@ -84,7 +85,7 @@ func TestBundledSkillsDoNotRetainObsoleteReviewOrTestChoreography(t *testing.T) 
 	for skillID, forbidden := range map[string][]string{
 		"runner-planner":     {"exact existing command", "half that timeout"},
 		"runner-implementer": {"only when the approved body"},
-		"runner-reviewer":    {"static stage", "criterion stage", "At most one", "stop investigating that path"},
+		"runner-reviewer":    {"static stage", "criterion stage", "At most one", "stop investigating that path", "without running commands"},
 	} {
 		skill, _ := (EmbeddedCatalog{}).Get(skillID)
 		for _, value := range forbidden {

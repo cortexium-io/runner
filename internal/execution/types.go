@@ -14,6 +14,8 @@ type Spec struct {
 	RequiredVerification   []string               `json:"required_verification,omitempty"`
 	RecordedVerification   []VerificationEvidence `json:"recorded_verification,omitempty"`
 	ReviewBaseline         *ReviewBaseline        `json:"review_baseline,omitempty"`
+	ReviewBaseOID          string                 `json:"review_base_oid,omitempty"`
+	ReviewCandidateOID     string                 `json:"review_candidate_oid,omitempty"`
 	ReviewRequired         bool                   `json:"review_required,omitempty"`
 }
 

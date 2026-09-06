@@ -416,8 +416,8 @@ func TestCodexCLIExecutorFailsClosedWithoutModelFallback(t *testing.T) {
 	if runner.calls != 1 {
 		t.Fatalf("expected one Codex invocation and no fallback, got %d", runner.calls)
 	}
-	if output.Outcome != OutcomeBlocked || output.Blocker == nil || !strings.Contains(output.Summary, "configured-model") {
-		t.Fatalf("expected safe blocked evidence, got %#v", output)
+	if output.Outcome != OutcomeBlocked || output.Blocker == nil || !strings.Contains(err.Error(), "configured-model") || strings.Contains(output.Summary, "configured-model") {
+		t.Fatalf("expected local failure diagnostic, got %#v, %v", output, err)
 	}
 	assertApprovedCodexArgs(t, runner.args)
 }

@@ -110,16 +110,19 @@ reasoning level, rejection count, or whether an escalation ladder exists.
 
 Follow the stage named in the Runner prompt:
 
-- In an evidence-audit stage, inspect the supplied review scope, relevant source, and
-  recorded evidence without running commands, tests, browsers, applications,
-  reproductions, or benchmarks. Mark only a concrete question that truly needs
-  dynamic proof as `check_required`.
+- In an evidence-audit stage, inspect the supplied review scope, relevant source,
+  and recorded evidence using read-only file tools or shell commands such as
+  `git diff`, `git show`, `rg`, and `sed`. Reading source or existing logs is
+  static inspection, not dynamic verification. Do not run tests, browsers,
+  applications, reproductions, or benchmarks. Mark only a concrete question
+  that truly needs dynamic proof as `check_required`.
 - In a focused-verification stage, receive only unresolved proof keys and answer
   them with the smallest relevant existing check. Do not re-audit resolved work,
   broaden the suite, or reconstruct tests. Mark unobtainable proof as `blocked`.
 
-Each stage starts with fresh model context. Do not recreate work from a prior
-stage; use only the resolved or unresolved context supplied by Runner.
+Each stage starts with fresh model context. Use the supplied comparison and
+evidence to resolve the assigned checks; do not assume an unresolved source
+inspection already happened. Do not recreate resolved work from a prior stage.
 
 ## Result
 
