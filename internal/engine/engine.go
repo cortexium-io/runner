@@ -1192,6 +1192,8 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	commentContext := humanCommentContext(comments)
 	assignment := s.assignment(qaItem, delegatedContent, reviewFeedback, commentContext)
+	assignment.Spec.ReviewBaseOID = preparedWorkspace.BaseRevision
+	assignment.Spec.ReviewCandidateOID = candidate.CommitOID
 	reviewContext := reviewContextDigest(assignment.Spec, commentContext)
 	baseline := matchingReviewBaseline(reviewRecord, preparedWorkspace.BaseRevision, reviewContext)
 	if baseline != nil {

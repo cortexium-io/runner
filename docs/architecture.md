@@ -142,6 +142,10 @@ Failures`; a process restart may retry sooner because the short backoff is
 deliberately in-memory. Opaque harness failures stay unknown and are never
 automatically retried. Browser startup failures retain their bounded local
 startup diagnostic; Project reports use only a fixed browser-startup template.
+For unknown Codex exits, bounded local diagnostics prefer the terminal
+`turn.failed` reason, falling back to the tails of both output streams. Opening
+progress and a partial model result do not replace the terminal failure. This
+does not grant new retry authority or expose raw diagnostics in Project reports.
 The optional rolling admission budget is evaluated from local history before agent
 claims. Exhaustion pauses all new claims, including QA, without canceling
 in-flight attempts; PR reconciliation still runs. Reported-token and cost
@@ -269,10 +273,19 @@ rather than a hidden local plan store. Runner extracts the exact approved
 proof obligations from that immutable card body and passes them to every
 downstream harness. The implementer chooses the smallest reliable proof method;
 the shared reviewer first receives fixed Runner-owned proof keys for a
-source-and-evidence audit that cannot run dynamic checks. All concrete
+source-and-evidence audit that permits read-only file/Git/log inspection,
+including shell commands, but cannot run dynamic checks. Runner supplies the
+exact base and candidate commits rather than asking the reviewer to guess the
+comparison from local branch names. Already merged dependencies are part of that
+base and their current source remains available for integrated checks. All concrete
 unresolved questions enter a fresh focused-verification invocation, even when
-another key already failed; that invocation sees no resolved proof obligations.
-Runner merges those observations and derives the verdict.
+another key already failed. That invocation receives the pinned comparison,
+repair baseline when present, and original recorded evidence for unresolved
+proofs. An unresolved repository-rule or maintainability check also receives the
+approved scope; this context does not reopen resolved proof keys. The handoff
+does not claim that unresolved source inspection already happened. Runner merges
+the observations and derives the verdict and final summary from the merged
+checks, not from superseded stage summaries.
 Operator-selected `standard` or `high`
 task sizing changes only decomposition and specificity for implementer and
 reviewer roles. Runner never infers capability from model names, and the shared

@@ -5030,6 +5030,10 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 			if len(prompts) != 1 {
 				t.Fatalf("reviewer prompt count = %d, want one", len(prompts))
 			}
+			candidateOID := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "rev-parse", "HEAD"))
+			if !strings.Contains(prompts[0], "git diff "+prepared.BaseRevision+"..."+candidateOID) {
+				t.Fatal("QA did not receive the exact Runner-owned base and candidate comparison")
+			}
 			if got := strings.Contains(prompts[0], "Follow-up review:"); got != (test.failures == 1) {
 				t.Fatalf("baseline review scope mismatch: follow-up=%t failures=%d", got, test.failures)
 			}

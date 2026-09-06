@@ -1641,6 +1641,14 @@ receive a fixed browser-startup classification. If retries exhaust, inspect
 the local log and run the browser conformance check above before a manual retry.
 No configuration, Project-field, or skill migration is needed for this fix.
 
+For unknown Codex CLI exits, local Runner output retains the terminal
+`turn.failed` reason when present, otherwise bounded tails of stderr and stdout.
+Diagnostics are limited to 4,000 bytes; full session transcripts are not retained.
+This avoids losing the failure behind opening progress output without adding
+automatic retries for unknown errors. Raw diagnostics stay local, not in GitHub
+reports or metrics. It cannot recover diagnostics already discarded by an older
+Runner version.
+
 If Agent QA reports unavailable browser capability, stop repeated retries. A
 capability-blocked review does not increment the QA rejection count. On macOS,
 Codex's native sandbox can reject Chromium's Mach-port registration even while
@@ -1816,20 +1824,35 @@ a command, test framework, file, or implementation technique. The implementer
 inspects the repository and selects the smallest reliable proof method, adding
 or updating durable focused tests when that is the clearest protection for
 changed behavior or an important invariant. The reviewer first completes one
-source-and-evidence audit without running dynamic checks. Finding one defect
+source-and-evidence audit without running dynamic checks. Read-only shell
+commands to inspect files, diffs, and existing logs are allowed. Runner provides
+the exact candidate/base comparison; the reviewer must not substitute a stale
+local branch as the base. Finding one defect
 establishes failure for that exact behavior but does not end the bounded audit
 of the proof obligation. The reviewer continues through its remaining
 card-owned behavior and groups concrete variants of directly exposed invariants
 in the same result. If any concrete proof questions remain, Runner starts a
 fresh focused-verification call containing only unresolved proof keys, even
-when another key already failed; that call reuses the smallest relevant existing
-checks. It does not create tests, benchmarks, a custom harness, or broad
-diagnostics unrelated to a concrete diff concern. Roles do not assume a browser
+when another key already failed. It carries the pinned comparison, any repair
+baseline, and the original evidence for those keys. Unresolved repository-rule
+or maintainability checks also receive the approved scope. The stage may inspect
+the necessary source; it does not assume an incomplete audit already happened.
+Evidence paths outside its isolated workspace are not automatically copied, and
+missing logs are not themselves candidate defects. Final summaries describe the
+merged check results rather than repeating obsolete stage blockers.
+The focused stage reuses the smallest relevant existing checks. It does not
+create tests, benchmarks, a custom harness, or broad diagnostics unrelated to a
+concrete diff concern. Roles do not assume a browser
 or any other interface. Broad or long-running checks belong only at the narrowest
 integration boundary that needs them. Time-based behavior uses controlled clocks
 or ordinary fixed-size simulation steps executed without wall-clock pacing;
 real-time smoke checks remain short and are required only when real scheduling,
 pacing, or presentation integration is part of the claim.
+
+Bundled skills 1.8.3 clarify this read-only inspection boundary. After upgrading,
+use `doctor --fix --offline` with the project configuration to refresh installed
+bundled skills, reviewing locally customized copies before replacement. No
+configuration or Project-field migration is required.
 
 When integration or release evidence cannot be established on the delivery
 cards, a final project-readiness card depends on the relevant delivery paths.

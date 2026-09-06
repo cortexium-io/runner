@@ -152,7 +152,10 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 				output = blockedOutputWithFailure("Harness execution failed.", FailureUnknown, RetryNone)
 			}
 			finishStageFromOutput(finishHarness, output, runErr, usage)
-			return structuredHarnessFailure(output, usage, duration), fmt.Errorf("run Codex %s: %w", role, commandFailure(runErr, result))
+			if !output.DiscardDiagnostics {
+				runErr = codexCommandFailure(runErr, result)
+			}
+			return structuredHarnessFailure(output, usage, duration), fmt.Errorf("run Codex %s: %w", role, runErr)
 		}
 		finishStageFromOutput(finishHarness, Output{Outcome: OutcomeSucceeded}, nil, usage)
 		data, err := artifacts.readResult()

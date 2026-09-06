@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/metrics"
@@ -127,22 +128,21 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 	if err == nil && readErr != nil {
 		err = readErr
 	}
-	summary := summarizeCodexResult(result, lastMessage)
 	if err != nil {
 		if output, known := classifyHarnessFailure(err, codexFailureEvidence(result, err, e.config.SafeTools)); known {
 			finishStageFromOutput(finishHarness, output, err, usage)
 			output.Usage = usage
 			output.HarnessDurationMilliseconds = harnessDuration
 			if output.FailureClass == FailureBrowserStartup {
-				err = commandFailure(err, result)
+				err = codexCommandFailure(err, result)
 			}
 			return output, fmt.Errorf("run codex cli: %w", err)
 		}
-		output := blockedOutputWithFailure("Codex CLI failed: "+summary, FailureUnknown, RetryNone)
+		output := blockedOutputWithFailure("Codex CLI failed.", FailureUnknown, RetryNone)
 		finishStageFromOutput(finishHarness, output, err, usage)
 		output.Usage = usage
 		output.HarnessDurationMilliseconds = harnessDuration
-		return output, fmt.Errorf("run codex cli: %w", err)
+		return output, fmt.Errorf("run codex cli: %w", codexCommandFailure(err, result))
 	}
 	finishStageFromOutput(finishHarness, Output{Outcome: OutcomeSucceeded}, nil, usage)
 	structured, err := assembleExecutionContent(assignment, lastMessage)
@@ -223,7 +223,6 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	if runErr == nil && readErr != nil {
 		runErr = readErr
 	}
-	summary := summarizeCodexResult(result, lastMessage)
 	var structured StructuredExecutionResult
 	var structuredErr error
 	if runErr == nil {
@@ -245,7 +244,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 		output.HarnessDurationMilliseconds = harnessDuration
 		causes := []error{verifyErr}
 		if runErr != nil {
-			causes = append([]error{fmt.Errorf("run codex cli workspace-write: %w", runErr)}, causes...)
+			causes = append([]error{fmt.Errorf("run codex cli workspace-write: %w", codexCommandFailure(runErr, result))}, causes...)
 		}
 		if structuredErr != nil {
 			causes = append([]error{structuredErr}, causes...)
@@ -259,14 +258,14 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 			output.Usage = usage
 			output.HarnessDurationMilliseconds = harnessDuration
 			if output.FailureClass == FailureBrowserStartup {
-				runErr = commandFailure(runErr, result)
+				runErr = codexCommandFailure(runErr, result)
 			}
 			return output, fmt.Errorf("run codex cli workspace-write: %w", runErr)
 		}
-		output := blockedOutputWithFailure("Codex CLI workspace-write failed: "+summary, FailureUnknown, RetryNone)
+		output := blockedOutputWithFailure("Codex CLI workspace-write failed.", FailureUnknown, RetryNone)
 		output.Usage = usage
 		output.HarnessDurationMilliseconds = harnessDuration
-		return output, fmt.Errorf("run codex cli workspace-write: %w", runErr)
+		return output, fmt.Errorf("run codex cli workspace-write: %w", codexCommandFailure(runErr, result))
 	}
 	if structuredErr != nil {
 		output := blockedOutputWithFailure("Codex CLI workspace-write returned invalid execution content: "+structuredErr.Error(), FailureInvalidContract, RetryNone)
@@ -587,20 +586,39 @@ func parsePorcelainFilesByStatus(output string, statusFilter string) []string {
 	return files
 }
 
-func summarizeCodexResult(result subprocess.Result, lastMessage string) string {
-	if strings.TrimSpace(lastMessage) != "" {
-		return strings.TrimSpace(lastMessage)
+// Diagnostics remain local and never grant retry authority. Prefer Codex's
+// terminal event to model/tool output; keep the stream tail if it is absent.
+func codexCommandFailure(err error, result subprocess.Result) error {
+	const limit = 4000
+	detail := codexTerminalFailureMessage(result.Stdout)
+	if detail == "" {
+		stdout, stderr := strings.TrimSpace(result.Stdout), strings.TrimSpace(result.Stderr)
+		switch {
+		case stdout != "" && stderr != "":
+			const stderrLabel, stdoutLabel = "stderr:\n", "\nstdout:\n"
+			streamLimit := (limit - len(stderrLabel) - len(stdoutLabel)) / 2
+			detail = stderrLabel + diagnosticTail(stderr, streamLimit) + stdoutLabel + diagnosticTail(stdout, streamLimit)
+		case stderr != "":
+			detail = stderr
+		default:
+			detail = stdout
+		}
 	}
-	if strings.TrimSpace(result.Stdout) != "" {
-		return truncate(strings.TrimSpace(result.Stdout), 4000)
+	if detail == "" {
+		return err
 	}
-	if strings.TrimSpace(result.Stderr) != "" {
-		return truncate(strings.TrimSpace(result.Stderr), 4000)
+	return fmt.Errorf("%w: %s", err, diagnosticTail(detail, limit))
+}
+
+func diagnosticTail(detail string, limit int) string {
+	if len(detail) <= limit {
+		return detail
 	}
-	if result.ExitCode != 0 {
-		return fmt.Sprintf("codex exited with status %d", result.ExitCode)
+	start := len(detail) - (limit - 3)
+	for start < len(detail) && !utf8.RuneStart(detail[start]) {
+		start++
 	}
-	return "codex completed without captured output"
+	return "..." + detail[start:]
 }
 
 func compactText(values []string) []string {
