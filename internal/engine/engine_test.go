@@ -3154,75 +3154,94 @@ func TestRetryableHarnessFailurePublishesSafeReasonAndNextAction(t *testing.T) {
 	}
 }
 
-func TestTransientHarnessFailureRetriesInPlaceBeforeBlocking(t *testing.T) {
-	item := github.WorkItem{
-		ID: "PVTI_automatic_retry", Title: "Review feature", Body: "Acceptance criteria", Repository: "owner/repo",
-		Status: "Agent QA", Role: config.WorkRoleReviewer, QAFailures: 1,
-	}
-	item.Approval = testApproval(item)
-	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
-	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(),
-		GitHubProject: &config.GitHubProjectConfig{
-			Owner: "owner", Number: 4, IntakeRepository: "owner/repo",
-		},
-	}), project)
-	if err != nil {
-		t.Fatalf("configure engine: %v", err)
-	}
-	loadItem := func() github.WorkItem {
-		t.Helper()
-		items, err := service.source.LifecycleItems(t.Context())
-		if err != nil {
-			t.Fatalf("load retry item: %v", err)
-		}
-		for _, current := range items {
-			if current.ID == item.ID {
-				return current
+func TestHarnessFailureRetriesInPlaceBeforeBlocking(t *testing.T) {
+	for _, class := range []execution.FailureClass{execution.FailureTransientExternal, execution.FailureCapacityExhausted, execution.FailureBrowserStartup} {
+		t.Run(string(class), func(t *testing.T) {
+			item := github.WorkItem{
+				ID: "PVTI_automatic_retry", Title: "Review feature", Body: "Acceptance criteria", Repository: "owner/repo",
+				Status: "Agent QA", Role: config.WorkRoleReviewer, QAFailures: 1,
 			}
-		}
-		t.Fatalf("retry item %s is missing", item.ID)
-		return github.WorkItem{}
-	}
+			item.Approval = testApproval(item)
+			project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+			service, err := New(completeEngineTestConfig(config.Config{
+				ProjectDir: t.TempDir(),
+				GitHubProject: &config.GitHubProjectConfig{
+					Owner: "owner", Number: 4, IntakeRepository: "owner/repo",
+				},
+			}), project)
+			if err != nil {
+				t.Fatalf("configure engine: %v", err)
+			}
+			loadItem := func() github.WorkItem {
+				t.Helper()
+				items, err := service.source.LifecycleItems(t.Context())
+				if err != nil {
+					t.Fatalf("load retry item: %v", err)
+				}
+				for _, current := range items {
+					if current.ID == item.ID {
+						return current
+					}
+				}
+				t.Fatalf("retry item %s is missing", item.ID)
+				return github.WorkItem{}
+			}
 
-	blocker := "Runner can retry after a short provider recovery delay."
-	output := execution.Output{
-		Outcome: execution.OutcomeBlocked, Summary: "The harness provider reported a transient service failure.",
-		WorkDone: []string{}, Blocker: &blocker, RemoteDetailSafe: true, DiscardDiagnostics: true,
-		FailureClass: execution.FailureTransientExternal, RetryDisposition: execution.RetryAutomatic,
-	}
-	for attempt := 1; attempt <= maxAutomaticRetries+1; attempt++ {
-		current := loadItem()
-		current.Role = config.WorkRoleReviewer
-		action := mustAuthorizeTest(t, service.source, current)
-		_, lane := service.laneForItem(current)
-		result := service.failExecution(t.Context(), action, lane, RunResult{Item: current, Error: "token=private"}, "Agent QA failed", errors.New("exit status 1"), output)
-		current = loadItem()
-		if current.QAFailures != 1 {
-			t.Fatalf("provider retry changed QA rejection count on attempt %d: %#v", attempt, current)
-		}
-		if attempt <= maxAutomaticRetries {
-			if result.Outcome != "retry_scheduled" || result.RetryDisposition != string(execution.RetryAutomatic) || result.RetryAfter == "" ||
-				current.Status != "Agent QA" || current.Activity != config.RunnerActivityWaitingForHarness || strings.Contains(current.Result, "cortexium-runner retry") {
-				t.Fatalf("automatic retry %d was not retained in place: result=%#v item=%#v", attempt, result, current)
+			blocker := "Runner can retry after a short provider recovery delay."
+			output := execution.Output{
+				Outcome: execution.OutcomeBlocked, Summary: "The harness provider reported a transient service failure.",
+				WorkDone: []string{}, Blocker: &blocker, RemoteDetailSafe: true, DiscardDiagnostics: true,
+				FailureClass: class, RetryDisposition: execution.RetryAutomatic,
 			}
-			if !service.automaticRetryPending(current, time.Now()) {
-				t.Fatalf("automatic retry %d was not delayed", attempt)
+			diagnostic := "token=private"
+			if class == execution.FailureBrowserStartup {
+				diagnostic = "local CLI startup envelope"
+				output.DiscardDiagnostics = false
 			}
-			service.automaticRetryMu.Lock()
-			state := service.automaticRetries[item.ID]
-			state.notBefore = time.Now().Add(-time.Second)
-			service.automaticRetries[item.ID] = state
-			service.automaticRetryMu.Unlock()
-			continue
-		}
-		if result.Outcome != execution.OutcomeBlocked || result.RetryDisposition != string(execution.RetryManual) ||
-			current.Status != "Blocked" || current.Phase != "agent_qa" || !strings.Contains(current.Result, "cortexium-runner retry") {
-			t.Fatalf("exhausted provider retries were not made actionable: result=%#v item=%#v", result, current)
-		}
-		if strings.Contains(current.Result, "token") || result.Error != "" {
-			t.Fatalf("provider retry exposed retained diagnostics: result=%#v item=%#v", result, current)
-		}
+			for attempt := 1; attempt <= maxAutomaticRetries+1; attempt++ {
+				current := loadItem()
+				current.Role = config.WorkRoleReviewer
+				action := mustAuthorizeTest(t, service.source, current)
+				_, lane := service.laneForItem(current)
+				result := service.failExecution(t.Context(), action, lane, RunResult{Item: current, Error: diagnostic}, "Agent QA failed", errors.New(diagnostic), output)
+				current = loadItem()
+				if result.FailureClass != string(class) || !strings.Contains(current.Result, "Failure: "+string(class)) {
+					t.Fatalf("retry lost its failure classification: result=%#v item=%#v", result, current)
+				}
+				if class == execution.FailureBrowserStartup && (!strings.Contains(result.Summary, "browser startup") || !strings.Contains(current.Result, "runner_browser")) {
+					t.Fatalf("browser startup was mistaken for a provider failure: result=%#v item=%#v", result, current)
+				}
+				if current.QAFailures != 1 {
+					t.Fatalf("provider retry changed QA rejection count on attempt %d: %#v", attempt, current)
+				}
+				expectedLocalError := ""
+				if !output.DiscardDiagnostics {
+					expectedLocalError = diagnostic
+				}
+				if strings.Contains(current.Result, diagnostic) || result.Error != expectedLocalError {
+					t.Fatalf("retry violated diagnostic retention/privacy: result=%#v item=%#v", result, current)
+				}
+				if attempt <= maxAutomaticRetries {
+					if result.Outcome != "retry_scheduled" || result.RetryDisposition != string(execution.RetryAutomatic) || result.RetryAfter == "" ||
+						current.Status != "Agent QA" || current.Activity != config.RunnerActivityWaitingForHarness || strings.Contains(current.Result, "cortexium-runner retry") {
+						t.Fatalf("automatic retry %d was not retained in place: result=%#v item=%#v", attempt, result, current)
+					}
+					if !service.automaticRetryPending(current, time.Now()) {
+						t.Fatalf("automatic retry %d was not delayed", attempt)
+					}
+					service.automaticRetryMu.Lock()
+					state := service.automaticRetries[item.ID]
+					state.notBefore = time.Now().Add(-time.Second)
+					service.automaticRetries[item.ID] = state
+					service.automaticRetryMu.Unlock()
+					continue
+				}
+				if result.Outcome != execution.OutcomeBlocked || result.RetryDisposition != string(execution.RetryManual) ||
+					current.Status != "Blocked" || current.Phase != "agent_qa" || !strings.Contains(current.Result, "cortexium-runner retry") {
+					t.Fatalf("exhausted provider retries were not made actionable: result=%#v item=%#v", result, current)
+				}
+			}
+		})
 	}
 }
 

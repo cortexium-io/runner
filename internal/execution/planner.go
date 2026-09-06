@@ -147,7 +147,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		duration := time.Since(startedAt).Milliseconds()
 		usage := parseCodexUsage(result.Stdout)
 		if runErr != nil {
-			output, known := classifyHarnessFailure(runErr, codexFailureEvidenceFromStdout(result.Stdout))
+			output, known := classifyHarnessFailure(runErr, codexFailureEvidence(result, runErr, cfg.SafeTools))
 			if !known {
 				output = blockedOutputWithFailure("Harness execution failed.", FailureUnknown, RetryNone)
 			}

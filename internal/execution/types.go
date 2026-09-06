@@ -63,6 +63,7 @@ const (
 	FailureCanceled               FailureClass = "canceled"
 	FailureInvalidContract        FailureClass = "invalid_contract"
 	FailureCapabilityUnavailable  FailureClass = "capability_unavailable"
+	FailureBrowserStartup         FailureClass = "browser_startup"
 	FailureNeedsInput             FailureClass = "needs_input"
 	FailurePermissionDenied       FailureClass = "permission_denied"
 	FailureAuthenticationRequired FailureClass = "authentication_required"
