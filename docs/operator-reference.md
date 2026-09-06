@@ -1708,6 +1708,35 @@ CLI retries are human authorization events. A running Runner checks newly
 available work on its next poll without waiting for unrelated harness actions
 to finish.
 
+CLI `retry` and `approve` writes share the short mutation guard used by planning
+and background recovery. You do not need to stop the service: it continues
+observing other work and cannot mistake these live transitions for abandoned
+ones. The guard is not held while you inspect a preview or answer a prompt.
+
+If an interrupted update has left a previously executed, unpublished
+implementation in `Needs assessment` with its Runner approval missing, preview
+and explicitly reauthorize just that card:
+
+```bash
+cortexium-runner retry --config /absolute/operator/path/runner.json --item ITEM_ID --reauthorize --dry-run
+cortexium-runner retry --config /absolute/operator/path/runner.json --item ITEM_ID --reauthorize
+```
+
+The second command requires a terminal and defaults to **No**. Inspect the
+exact body, runtime fields, destination, and retained worktree before choosing
+Yes. In this mode `--json` is preview-only, and `--feedback` is not allowed.
+Runner requires unchanged approved content and its existing private worktree
+identity, the configured Ready implementation phase, no PR or QA commit, and
+valid complete-batch sibling authority. It checks these again before writing.
+This cannot individually approve a new staged child or recover changed task
+scope. Ordinary `retry` remains restricted to validly signed blocked work.
+
+Reauthorization moves only the selected card to Ready, preserves its branch,
+uncommitted work, private QA feedback, and QA failure count, and replaces the
+assessment error with a fixed operator-retry result. It does not grant QA
+acceptance, approve siblings, or reset the review budget. No config migration,
+skill update, or new state store is required for this recovery path.
+
 ## Workflow configuration
 
 See

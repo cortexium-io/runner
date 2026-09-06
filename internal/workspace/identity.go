@@ -48,6 +48,65 @@ func activeIdentityPath(worktreeRoot, workID string) string {
 	return filepath.Join(worktreeRoot, ".runner-state", workID+".json")
 }
 
+// ValidateRetainedIdentity is a read-only recovery check. Unlike Prepare it
+// never creates, reopens, quarantines, or changes a workspace. Its private
+// content binding proves that this exact work previously reached execution.
+func (p GitProvider) ValidateRetainedIdentity(ctx context.Context, request Request) (Identity, error) {
+	repoRoot, err := p.repositoryRoot(ctx, request.WorkingDir)
+	if err != nil {
+		return Identity{}, err
+	}
+	root, err := resolveWorktreeRoot(repoRoot, request.WorktreeRoot)
+	if err != nil {
+		return Identity{}, err
+	}
+	if err := securefs.ValidatePrivateDir(root); err != nil {
+		return Identity{}, err
+	}
+	workID, branch, err := resolveWorktreeNames(request.WorkID, request.BranchPrefix, request.BranchName)
+	if err != nil {
+		return Identity{}, err
+	}
+	content, mode, state, err := securefs.ReadFile(activeIdentityPath(root, workID), 64*1024)
+	if err != nil {
+		return Identity{}, err
+	}
+	if !state.Exists || mode.Perm() != 0o600 {
+		return Identity{}, errors.New("recovery requires an existing private mode-0600 workspace identity")
+	}
+	if err := securefs.ValidateOwnedRegularFile(state, uint32(os.Geteuid())); err != nil {
+		return Identity{}, err
+	}
+	recorded, err := decodeIdentity(content)
+	if err != nil {
+		return Identity{}, err
+	}
+	baseRef, err := p.canonicalBaseRef(ctx, repoRoot, request.BaseRef)
+	if err != nil {
+		return Identity{}, err
+	}
+	path := filepath.Join(root, workID)
+	expected, err := newIdentity(request.ItemID, request.DelegatedContentDigest, baseRef, recorded.BaseRevision, branch, request.Repository, path)
+	if err != nil {
+		return Identity{}, err
+	}
+	if recorded != expected {
+		return Identity{}, workspaceIdentityMismatch(expected, recorded, true, "")
+	}
+	registeredBranch, registered, err := p.registeredWorktree(ctx, repoRoot, path)
+	if err != nil {
+		return Identity{}, err
+	}
+	if !registered || registeredBranch != branch || !p.branchExists(ctx, repoRoot, branch) {
+		return Identity{}, errors.New("recovery requires the matching retained task branch and registered worktree")
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return Identity{}, errors.New("retained worktree is missing or is not a no-follow directory")
+	}
+	return recorded, nil
+}
+
 func readIdentity(path string) (Identity, bool, error) {
 	content, _, state, err := securefs.ReadFile(path, 64*1024)
 	if err != nil {

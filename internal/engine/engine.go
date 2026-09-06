@@ -117,6 +117,11 @@ func (s *Engine) PlanProjectItemApproval(ctx context.Context, selector string) (
 }
 
 func (s *Engine) ApplyProjectItemApproval(ctx context.Context, plan github.ApprovalPlan) (github.WorkItem, error) {
+	guard, err := s.acquireLocalGate(ctx, true, github.AcquirePlanningMutationLock)
+	if err != nil {
+		return github.WorkItem{}, err
+	}
+	defer guard.Release()
 	return s.source.ApplyApproval(ctx, plan)
 }
 
@@ -129,6 +134,11 @@ func (s *Engine) PlanProjectItemRetryWithFeedback(ctx context.Context, selector,
 }
 
 func (s *Engine) ApplyProjectItemRetry(ctx context.Context, plan github.RetryPlan) (github.WorkItem, error) {
+	guard, err := s.acquireLocalGate(ctx, true, github.AcquirePlanningMutationLock)
+	if err != nil {
+		return github.WorkItem{}, err
+	}
+	defer guard.Release()
 	if strings.TrimSpace(plan.FeedbackOverride) != "" {
 		if err := errors.Join(s.clearReviewFeedback(plan.Item.ID), s.clearImplementationCheckpoint(plan.Item.ID)); err != nil {
 			return github.WorkItem{}, fmt.Errorf("replace private retry context: %w", err)

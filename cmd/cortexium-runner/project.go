@@ -526,6 +526,7 @@ func runApprove(ctx context.Context, args []string, stdin io.Reader, stdout io.W
 	if err != nil {
 		return err
 	}
+	service.EnableLocalAdmission()
 	if *jsonOutput {
 		payload := map[string]any{"applied": false, "approval": plan}
 		encoder := json.NewEncoder(stdout)
@@ -668,10 +669,11 @@ func writeAuthorizationBoundRuntimePreview(output io.Writer, item github.WorkIte
 }
 
 func runRetry(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
-	flags := newFlagSet("retry", "cortexium-runner retry [--config PATH] [--item ID|URL|TITLE] [--feedback TEXT] [--dry-run]", stdout)
+	flags := newFlagSet("retry", "cortexium-runner retry [--config PATH] [--item ID|URL|TITLE] [--feedback TEXT | --reauthorize] [--dry-run]", stdout)
 	configPath := flags.String("config", "", "trusted operator config path; defaults to .cortexium/runner.json")
 	selector := flags.String("item", "", "blocked GitHub Project item id, URL, or exact title; omit in a terminal to choose")
 	feedback := flags.String("feedback", "", "replace stale retry feedback and reset the QA failure count")
+	reauthorize := flags.Bool("reauthorize", false, "review and reauthorize retained unpublished implementation in assessment; requires terminal confirmation; --json previews only")
 	dryRun := flags.Bool("dry-run", false, "preview the retry destination without changing GitHub")
 	jsonOutput := flags.Bool("json", false, "write the retry plan as JSON")
 	proceed, err := parseFlags(flags, args, "retry")
@@ -691,6 +693,13 @@ func runRetry(ctx context.Context, args []string, stdin io.Reader, stdout io.Wri
 		return err
 	}
 	selected := strings.TrimSpace(*selector)
+	service.EnableLocalAdmission()
+	if *reauthorize {
+		if selected == "" || strings.TrimSpace(*feedback) != "" {
+			return errors.New("retry --reauthorize requires --item and cannot be combined with --feedback")
+		}
+		return runRetryReauthorization(ctx, service, selected, *dryRun, *jsonOutput, stdin, stdout)
+	}
 	if selected == "" {
 		if !*jsonOutput {
 			writeProgress(stdout, "Loading retryable blocked work…")

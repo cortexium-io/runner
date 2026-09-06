@@ -58,7 +58,8 @@ func AcquireAdmissionLock(project config.GitHubProjectConfig) (*ProcessLock, err
 }
 
 // AcquirePlanningMutationLock excludes interrupted-state recovery while a CLI
-// stages or releases a batch. It does not cover model calls or human review.
+// stages, approves, retries, or releases work. It does not cover model calls or
+// human review.
 func AcquirePlanningMutationLock(project config.GitHubProjectConfig) (*ProcessLock, error) {
 	return acquireLocalProjectLock(project, "planning-mutation")
 }
