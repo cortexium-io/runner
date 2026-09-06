@@ -544,12 +544,29 @@ process's reservations cannot be hidden by an engine-local cache. Claimed starts
 are recorded before dispatch, and already-claimed work is still completed if a
 later claim fails. Budget and capacity exhaustion do not authorize extra work.
 
-Standalone batch writes also exclude interrupted-state recovery, with recovery's
-snapshot acquired inside the same short mutation guard. While a CLI batch is
-being staged or released, the worker continues observation and ordinary
-reconciliation but defers recovery. The guard is not held during planning or
-human confirmation. Existing whole-batch authority and exact-content checks
-remain responsible for preventing execution of partial or unapproved plans.
+CLI batch writes, approvals, retries, and explicit reauthorization exclude
+interrupted-state recovery, with recovery's snapshot acquired inside the same
+short mutation guard. While a CLI mutation is in progress, the worker continues
+observation and ordinary reconciliation but defers recovery. The guard is not
+held during planning, previews, or human confirmation. Existing whole-batch
+authority and exact-content checks remain responsible for preventing execution
+of partial or unapproved plans.
+
+`retry --reauthorize` is a narrow operator recovery path for an unpublished
+implementation parked in assessment with its approval missing. It requires a
+retained registered worktree and private identity matching the exact delegated
+content, item, repository, branch, path, and configured base ref. It never
+creates an identity as recovery evidence. The operator must confirm the exact
+card and runtime-state preview in a default-No terminal prompt. Runner rechecks
+that preview and the private identity under the mutation guard, and validates
+every batch sibling and any source release before changing only this card.
+Recovery preserves private feedback, worktree changes, and the QA failure count;
+it replaces the recovery error with a fixed retry classification and returns to
+implementation, never directly to QA, publication, or completion. Missing or
+changed content bindings, unapproved/incomplete batches, non-implementation
+phases, existing PRs, and QA commit snapshots fail closed. This is explicit new
+operator authority for retained work, not automatic reconstruction of a lost
+signature. It adds no persistent journal or approval store.
 
 Every process launch resolves two independent role settings before adapter
 arguments are built. `access` selects Runner's containment boundary

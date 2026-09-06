@@ -1512,7 +1512,9 @@ case "$1 $2" in
 			*"node(id:\$item_id)"*)
 				printf '{"data":{"node":{"id":"PVTI_retry","status":{"name":"Blocked"},"approval":{"text":"%s"},"result":{"text":"Previous browser blocker."},"phase":{"text":"agent_qa"},"content":{"title":"Retry browser review","body":"Acceptance criteria","repository":{"nameWithOwner":"example/repo"},"url":"https://github.com/example/repo/issues/2"}}}}\n' "$FAKE_GH_RETRY_APPROVAL" ;;
 			*"items(first:100,after:"*)
-				if [ -n "${FAKE_GH_RETRY_APPROVAL:-}" ]; then
+				if [ -n "${FAKE_GH_ITEMS_JSON:-}" ]; then
+					printf '%s\n' "$FAKE_GH_ITEMS_JSON"
+				elif [ -n "${FAKE_GH_RETRY_APPROVAL:-}" ]; then
 					printf '{"data":{"node":{"items":{"nodes":[{"id":"PVTI_retry","status":{"name":"Blocked"},"approval":{"text":"%s"},"result":{"text":"Previous browser blocker."},"phase":{"text":"agent_qa"},"content":{"title":"Retry browser review","body":"Acceptance criteria","repository":{"nameWithOwner":"example/repo"},"url":"https://github.com/example/repo/issues/2"}}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}\n' "$FAKE_GH_RETRY_APPROVAL"
 				else
 					printf '%s\n' '{"data":{"node":{"items":{"nodes":[{"id":"PVTI_approval","status":{"name":"Needs assessment"},"approval":{"text":""},"content":{"title":"Review public request","body":"Acceptance criteria","repository":{"nameWithOwner":"example/repo"},"url":"https://github.com/example/repo/issues/1"}}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}'

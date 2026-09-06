@@ -569,6 +569,10 @@ preserves the prior result and QA failure count as context, and checks the card
 on the next poll. Use `cortexium-runner retry` when the card should return to its
 recorded lane instead, or `retry --feedback` when stale feedback and the QA
 failure count must be replaced and reset.
+If a retained unpublished implementation has lost its approval and landed in
+assessment, `retry --reauthorize` provides an explicit, confirmed single-card
+recovery without resetting its work or QA count. See the
+[recovery requirements and commands](docs/operator-reference.md).
 
 ## Useful commands
 
