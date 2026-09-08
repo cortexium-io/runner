@@ -2,9 +2,53 @@ package metrics
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
+
+func TestPromptContextRejectsFreeTextAtHistoryBoundary(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "history.jsonl"))
+	event := Event{Version: EventVersion, Kind: EventCompleted, AttemptID: "attempt",
+		PromptContexts: []PromptContext{{Layout: "stable-first-v1", GuidanceDigest: "raw prompt content"}}}
+	if err := store.Append(event); err == nil {
+		t.Fatal("history accepted free text as a context digest")
+	}
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.Path(), append(encoded, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	history, err := store.Read()
+	if err != nil || history.MalformedRecords != 1 || len(history.Attempts) != 0 {
+		t.Fatalf("malformed context was not excluded on read: %#v %v", history, err)
+	}
+}
+
+func TestPromptContextIsPinnedToStageAndAggregatedForAttempt(t *testing.T) {
+	var events []Event
+	trace := NewAttemptTrace(func(event Event) error { events = append(events, event); return nil }, Event{AttemptID: "attempt"})
+	ctx := WithAttemptTrace(t.Context(), trace)
+	first := PromptContext{Layout: "stable-first-v1", GuidanceDigest: "sha256:" + strings.Repeat("a", 64)}
+	second := PromptContext{Layout: "stable-first-v1", GuidanceDigest: "sha256:" + strings.Repeat("b", 64)}
+	RecordPromptContext(ctx, PromptContext{Layout: "prompt=secret", GuidanceDigest: "secret"})
+	RecordPromptContext(ctx, first)
+	finish := StartStage(ctx, StagePlannerOutline)
+	RecordPromptContext(ctx, second)
+	finish(StageOutcomeSucceeded, "", "", Usage{})
+	StartStage(ctx, StagePlannerDetails)(StageOutcomeSucceeded, "", "", Usage{})
+	if len(events) != 4 || !reflect.DeepEqual(events[1].PromptContexts, []PromptContext{first}) ||
+		!reflect.DeepEqual(events[3].PromptContexts, []PromptContext{second}) ||
+		!reflect.DeepEqual(trace.PromptContexts(), []PromptContext{first, second}) {
+		t.Fatalf("context changed mid-stage or unsafe payload was retained: %#v", events)
+	}
+}
 
 func TestAttemptTraceEmitsOnlyStructuredStageFields(t *testing.T) {
 	var events []Event

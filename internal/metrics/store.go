@@ -76,6 +76,9 @@ func (s *Store) Append(event Event) error {
 	if err := ValidateUsage(event.Usage); err != nil {
 		return fmt.Errorf("invalid metrics usage: %w", err)
 	}
+	if !validPromptContexts(event.PromptContexts) {
+		return fmt.Errorf("metrics prompt context requires a layout ID and SHA-256 guidance digest")
+	}
 	event.Version = EventVersion
 	encoded, err := json.Marshal(event)
 	if err != nil {
@@ -126,7 +129,7 @@ func (s *Store) Read() (ReadResult, error) {
 	scanner.Buffer(make([]byte, 64*1024), maxEventBytes)
 	for scanner.Scan() {
 		var event Event
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil || event.Version != EventVersion || strings.TrimSpace(event.AttemptID) == "" || !validEventKind(event.Kind) || !validFailureClass(event.FailureClass) || !validFailureOperation(event.FailureOperation) || !validRetryDisposition(event.RetryDisposition) || event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 || event.PublicationAttempts < 0 || event.PublicationAttempts > 3 || ValidateUsage(event.Usage) != nil {
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil || event.Version != EventVersion || strings.TrimSpace(event.AttemptID) == "" || !validEventKind(event.Kind) || !validFailureClass(event.FailureClass) || !validFailureOperation(event.FailureOperation) || !validRetryDisposition(event.RetryDisposition) || event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 || event.PublicationAttempts < 0 || event.PublicationAttempts > 3 || ValidateUsage(event.Usage) != nil || !validPromptContexts(event.PromptContexts) {
 			result.MalformedRecords++
 			continue
 		}
@@ -148,6 +151,7 @@ func (s *Store) Read() (ReadResult, error) {
 			stage := stagesByAttempt[event.AttemptID][event.StageID]
 			stage.StageID = event.StageID
 			stage.Name = event.Stage
+			stage.PromptContexts = event.PromptContexts
 			if event.Kind == EventStageStarted {
 				stage.StartedAt = event.StartedAt
 				stage.Completed = false

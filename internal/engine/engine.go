@@ -18,28 +18,30 @@ import (
 )
 
 type RunResult struct {
-	Item                        github.WorkItem `json:"item"`
-	Harness                     string          `json:"harness"`
-	Outcome                     string          `json:"outcome"`
-	Summary                     string          `json:"summary"`
-	WorktreePath                string          `json:"worktree_path,omitempty"`
-	WorktreeCleaned             bool            `json:"worktree_cleaned,omitempty"`
-	Branch                      string          `json:"branch,omitempty"`
-	Error                       string          `json:"error,omitempty"`
-	WorkDone                    []string        `json:"work_done,omitempty"`
-	Verification                []string        `json:"verification,omitempty"`
-	FailureClass                string          `json:"failure_class,omitempty"`
-	FailureOperation            string          `json:"failure_operation,omitempty"`
-	PublicationAttempts         int             `json:"publication_attempts,omitempty"`
-	RetryDisposition            string          `json:"retry_disposition,omitempty"`
-	RetryAfter                  string          `json:"retry_after,omitempty"`
-	Usage                       metrics.Usage   `json:"usage"`
-	StartedAt                   time.Time       `json:"started_at,omitempty"`
-	FinishedAt                  time.Time       `json:"finished_at,omitempty"`
-	DurationMilliseconds        int64           `json:"duration_milliseconds,omitempty"`
-	HarnessDurationMilliseconds int64           `json:"harness_duration_milliseconds,omitempty"`
-	MetricsError                string          `json:"metrics_error,omitempty"`
-	ResumedCheckpoint           bool            `json:"resumed_checkpoint,omitempty"`
+	Item                        github.WorkItem         `json:"item"`
+	Harness                     string                  `json:"harness"`
+	Outcome                     string                  `json:"outcome"`
+	Summary                     string                  `json:"summary"`
+	WorktreePath                string                  `json:"worktree_path,omitempty"`
+	WorktreeCleaned             bool                    `json:"worktree_cleaned,omitempty"`
+	Branch                      string                  `json:"branch,omitempty"`
+	Error                       string                  `json:"error,omitempty"`
+	WorkDone                    []string                `json:"work_done,omitempty"`
+	Verification                []string                `json:"verification,omitempty"`
+	FailureClass                string                  `json:"failure_class,omitempty"`
+	FailureOperation            string                  `json:"failure_operation,omitempty"`
+	PublicationAttempts         int                     `json:"publication_attempts,omitempty"`
+	RetryDisposition            string                  `json:"retry_disposition,omitempty"`
+	RetryAfter                  string                  `json:"retry_after,omitempty"`
+	Usage                       metrics.Usage           `json:"usage"`
+	StartedAt                   time.Time               `json:"started_at,omitempty"`
+	FinishedAt                  time.Time               `json:"finished_at,omitempty"`
+	DurationMilliseconds        int64                   `json:"duration_milliseconds,omitempty"`
+	HarnessDurationMilliseconds int64                   `json:"harness_duration_milliseconds,omitempty"`
+	MetricsError                string                  `json:"metrics_error,omitempty"`
+	ResumedCheckpoint           bool                    `json:"resumed_checkpoint,omitempty"`
+	ReviewFindings              []metrics.ReviewFinding `json:"review_findings,omitempty"`
+	CandidateOID                string                  `json:"candidate_oid,omitempty"`
 }
 
 type Engine struct {
@@ -626,11 +628,16 @@ func (s *Engine) newItemAttempt(item github.WorkItem) metrics.Event {
 	if profile.Model != nil {
 		model = strings.TrimSpace(*profile.Model)
 	}
+	repository := strings.TrimSpace(item.Repository)
+	if repository == "" {
+		repository = s.cfg.GitHubProject.IntakeRepository
+	}
 	return metrics.Event{
 		AttemptID: metrics.NewAttemptID(), RunnerID: s.cfg.RunnerID,
 		ProjectOwner: s.cfg.GitHubProject.Owner, ProjectNumber: s.cfg.GitHubProject.Number,
 		ItemID: item.ID, ItemTitle: item.Title, Role: executionRole, Harness: harness,
-		Model: model, Reasoning: profile.Reasoning, Iteration: item.QAFailures + 1, StartedAt: time.Now().UTC(),
+		Repository: repository,
+		Model:      model, Reasoning: profile.Reasoning, Iteration: item.QAFailures + 1, StartedAt: time.Now().UTC(),
 	}
 }
 
@@ -680,6 +687,9 @@ func (s *Engine) executeItem(ctx context.Context, admitted admittedAction) (resu
 		completed.Summary = result.Summary
 		completed.WorkDone = append([]string(nil), result.WorkDone...)
 		completed.Verification = append([]string(nil), result.Verification...)
+		completed.ReviewFindings = result.ReviewFindings
+		completed.CandidateOID = result.CandidateOID
+		completed.PromptContexts = trace.PromptContexts()
 		completed.ResumedCheckpoint = result.ResumedCheckpoint
 		completed.FailureClass = result.FailureClass
 		completed.FailureOperation = result.FailureOperation
@@ -1290,6 +1300,10 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	result.Outcome, result.Summary = output.Outcome, output.Summary
 	if err != nil {
 		result.Error = err.Error()
+	}
+	if err == nil && output.ReviewAssessment != nil {
+		result.ReviewFindings = reviewFindingObservations(*output.ReviewAssessment)
+		result.CandidateOID = candidate.CommitOID
 	}
 	if output.ReviewAssessment != nil && output.ReviewAssessment.Verdict == "needs_changes" {
 		if feedbackErr := s.saveReviewFeedback(item, delegatedContent, *output.ReviewAssessment, &execution.ReviewBaseline{CommitOID: candidate.CommitOID, BaseOID: preparedWorkspace.BaseRevision, ContextDigest: reviewContext}); feedbackErr != nil {

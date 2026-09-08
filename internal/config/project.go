@@ -168,6 +168,9 @@ func (c Config) Validate() error {
 	if c.MaxParallelism <= 0 || c.MaxParallelism > MaxSupportedParallelism {
 		return fmt.Errorf("max_parallelism must be between 1 and %d", MaxSupportedParallelism)
 	}
+	if c.EffectiveGuidanceMinOccurrences() < 2 {
+		return errors.New("guidance_min_occurrences must be at least 2 (or omitted for 2)")
+	}
 	if err := validateAdmissionBudget(c.AdmissionBudget); err != nil {
 		return err
 	}

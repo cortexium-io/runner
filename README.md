@@ -605,6 +605,9 @@ cortexium-runner status --verbose --config "$RUNNER_CONFIG"
 # Local usage, timing, harness-call count, saved-result resumes, and attempt history
 cortexium-runner metrics --config "$RUNNER_CONFIG"
 
+# Private recurring-failure drafts for review (never automatically activated)
+cortexium-runner guidance --config "$RUNNER_CONFIG"
+
 # Preview and retry a blocked card to its recorded lane
 cortexium-runner retry --dry-run --config "$RUNNER_CONFIG"
 cortexium-runner retry --config "$RUNNER_CONFIG"

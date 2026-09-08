@@ -11,14 +11,16 @@ import (
 type traceContextKey struct{}
 
 // AttemptTrace carries the already-sanitized attempt identity into Runner-owned
-// stages. Stage records contain enums, timestamps, and usage only; callers
+// stages. Stage records contain enums, timestamps, usage, and context hashes; callers
 // cannot attach prompts, command arguments, diagnostics, or arbitrary detail.
 type AttemptTrace struct {
 	observer func(Event) error
 	base     Event
 
-	mu     sync.Mutex
-	errors []error
+	mu                   sync.Mutex
+	errors               []error
+	promptContexts       []PromptContext
+	currentPromptContext *PromptContext
 }
 
 func NewAttemptTrace(observer func(Event) error, base Event) *AttemptTrace {
@@ -33,6 +35,31 @@ func WithAttemptTrace(ctx context.Context, trace *AttemptTrace) context.Context 
 }
 
 type FinishStage func(outcome, failureClass, retryDisposition string, usage Usage)
+
+func RecordPromptContext(ctx context.Context, value PromptContext) {
+	trace, _ := ctx.Value(traceContextKey{}).(*AttemptTrace)
+	if trace == nil || !validPromptContext(value) {
+		return
+	}
+	trace.mu.Lock()
+	defer trace.mu.Unlock()
+	trace.currentPromptContext = &value
+	for _, previous := range trace.promptContexts {
+		if previous == value {
+			return
+		}
+	}
+	trace.promptContexts = append(trace.promptContexts, value)
+}
+
+func (t *AttemptTrace) PromptContexts() []PromptContext {
+	if t == nil {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]PromptContext(nil), t.promptContexts...)
+}
 
 func StartStage(ctx context.Context, name string) FinishStage {
 	trace, _ := ctx.Value(traceContextKey{}).(*AttemptTrace)
@@ -62,6 +89,7 @@ func StartStage(ctx context.Context, name string) FinishStage {
 			}
 			finishedAt := time.Now().UTC()
 			completed := trace.stageEvent(EventStageCompleted, stageID, name)
+			completed.PromptContexts = started.PromptContexts
 			completed.StartedAt = startedAt
 			completed.FinishedAt = finishedAt
 			completed.DurationMilliseconds = finishedAt.Sub(startedAt).Milliseconds()
@@ -100,6 +128,13 @@ func (t *AttemptTrace) stageEvent(kind, stageID, name string) Event {
 	event.Summary = ""
 	event.WorkDone = nil
 	event.Verification = nil
+	event.ReviewFindings = nil
+	event.PromptContexts = nil
+	t.mu.Lock()
+	if t.currentPromptContext != nil {
+		event.PromptContexts = []PromptContext{*t.currentPromptContext}
+	}
+	t.mu.Unlock()
 	event.ResumedCheckpoint = false
 	event.Usage = Usage{}
 	return event

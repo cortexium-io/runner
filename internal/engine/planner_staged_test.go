@@ -57,6 +57,12 @@ func TestStagedProjectPlannerAssemblesFixedKeyPlan(t *testing.T) {
 	if strings.Contains(prompts[0], "Pi") || strings.Contains(prompts[1], "Pi") || strings.Contains(prompts[1], "exact command") {
 		t.Fatalf("shared planner retained harness-specific or prescribed-test language:\n%s\n%s", prompts[0], prompts[1])
 	}
+	for _, prompt := range prompts {
+		if strings.Count(prompt, "Plan the export feature.") != 1 ||
+			strings.Index(prompt, "Shared planning contract") > strings.Index(prompt, "Plan the export feature.") {
+			t.Fatal("planner stage instructions must precede the changing task exactly once")
+		}
+	}
 	var detailSchema map[string]any
 	if err := json.Unmarshal(schemas[1], &detailSchema); err != nil {
 		t.Fatal(err)

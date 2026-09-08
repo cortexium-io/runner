@@ -147,6 +147,9 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 		if attempt.ResumedCheckpoint {
 			fmt.Fprintln(output, "    resumed: exact saved implementation result; harness was not invoked again")
 		}
+		for _, context := range attempt.PromptContexts {
+			fmt.Fprintf(output, "    prompt: %s · pinned guidance %s\n", terminalSafeText(context.Layout), terminalSafeText(context.GuidanceDigest))
+		}
 		if attempt.FailureClass != "" {
 			fmt.Fprintf(output, "    recovery: %s", terminalSafeText(string(attempt.FailureClass)))
 			if attempt.RetryDisposition != "" {

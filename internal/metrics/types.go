@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -180,36 +181,76 @@ func (u Usage) Add(other Usage) Usage {
 }
 
 type Event struct {
-	Version                     int       `json:"version"`
-	Kind                        string    `json:"kind"`
-	AttemptID                   string    `json:"attempt_id"`
-	RunnerID                    string    `json:"runner_id"`
-	ProjectOwner                string    `json:"project_owner"`
-	ProjectNumber               int       `json:"project_number"`
-	ItemID                      string    `json:"item_id,omitempty"`
-	ItemTitle                   string    `json:"item_title"`
-	Role                        string    `json:"role"`
-	Harness                     string    `json:"harness"`
-	Model                       string    `json:"model,omitempty"`
-	Reasoning                   string    `json:"reasoning,omitempty"`
-	Iteration                   int       `json:"iteration,omitempty"`
-	StartedAt                   time.Time `json:"started_at"`
-	FinishedAt                  time.Time `json:"finished_at,omitempty"`
-	DurationMilliseconds        int64     `json:"duration_milliseconds,omitempty"`
-	HarnessDurationMilliseconds int64     `json:"harness_duration_milliseconds,omitempty"`
-	Outcome                     string    `json:"outcome,omitempty"`
-	FailureClass                string    `json:"failure_class,omitempty"`
-	FailureOperation            string    `json:"failure_operation,omitempty"`
-	PublicationAttempts         int       `json:"publication_attempts,omitempty"`
-	RetryDisposition            string    `json:"retry_disposition,omitempty"`
-	RetryAfter                  string    `json:"retry_after,omitempty"`
-	StageID                     string    `json:"stage_id,omitempty"`
-	Stage                       string    `json:"stage,omitempty"`
-	Summary                     string    `json:"summary,omitempty"`
-	WorkDone                    []string  `json:"work_done,omitempty"`
-	Verification                []string  `json:"verification,omitempty"`
-	ResumedCheckpoint           bool      `json:"resumed_checkpoint,omitempty"`
-	Usage                       Usage     `json:"usage"`
+	Version                     int             `json:"version"`
+	Kind                        string          `json:"kind"`
+	AttemptID                   string          `json:"attempt_id"`
+	RunnerID                    string          `json:"runner_id"`
+	ProjectOwner                string          `json:"project_owner"`
+	ProjectNumber               int             `json:"project_number"`
+	Repository                  string          `json:"repository,omitempty"`
+	ItemID                      string          `json:"item_id,omitempty"`
+	ItemTitle                   string          `json:"item_title"`
+	Role                        string          `json:"role"`
+	Harness                     string          `json:"harness"`
+	Model                       string          `json:"model,omitempty"`
+	Reasoning                   string          `json:"reasoning,omitempty"`
+	Iteration                   int             `json:"iteration,omitempty"`
+	StartedAt                   time.Time       `json:"started_at"`
+	FinishedAt                  time.Time       `json:"finished_at,omitempty"`
+	DurationMilliseconds        int64           `json:"duration_milliseconds,omitempty"`
+	HarnessDurationMilliseconds int64           `json:"harness_duration_milliseconds,omitempty"`
+	Outcome                     string          `json:"outcome,omitempty"`
+	FailureClass                string          `json:"failure_class,omitempty"`
+	FailureOperation            string          `json:"failure_operation,omitempty"`
+	PublicationAttempts         int             `json:"publication_attempts,omitempty"`
+	RetryDisposition            string          `json:"retry_disposition,omitempty"`
+	RetryAfter                  string          `json:"retry_after,omitempty"`
+	StageID                     string          `json:"stage_id,omitempty"`
+	Stage                       string          `json:"stage,omitempty"`
+	Summary                     string          `json:"summary,omitempty"`
+	WorkDone                    []string        `json:"work_done,omitempty"`
+	Verification                []string        `json:"verification,omitempty"`
+	ReviewFindings              []ReviewFinding `json:"review_findings,omitempty"`
+	CandidateOID                string          `json:"candidate_oid,omitempty"`
+	PromptContexts              []PromptContext `json:"prompt_contexts,omitempty"`
+	ResumedCheckpoint           bool            `json:"resumed_checkpoint,omitempty"`
+	Usage                       Usage           `json:"usage"`
+}
+
+// PromptContext fingerprints Runner-owned static guidance only. It is not the
+// full provider request, repository instructions, or a provider cache key.
+type PromptContext struct {
+	Layout         string `json:"layout"`
+	GuidanceDigest string `json:"guidance_digest"`
+}
+
+func validPromptContext(value PromptContext) bool {
+	if len(value.Layout) == 0 || len(value.Layout) > 64 || !strings.HasPrefix(value.GuidanceDigest, "sha256:") {
+		return false
+	}
+	for _, r := range value.Layout {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			return false
+		}
+	}
+	digest, err := hex.DecodeString(strings.TrimPrefix(value.GuidanceDigest, "sha256:"))
+	return err == nil && len(digest) == 32
+}
+
+func validPromptContexts(values []PromptContext) bool {
+	for _, value := range values {
+		if !validPromptContext(value) {
+			return false
+		}
+	}
+	return true
+}
+
+// ReviewFinding retains validated failed checks as local, untrusted evidence.
+// These observations never become assignment instructions automatically.
+type ReviewFinding struct {
+	Area    string `json:"area"`
+	Summary string `json:"summary"`
 }
 
 type Attempt struct {
@@ -219,16 +260,17 @@ type Attempt struct {
 }
 
 type Stage struct {
-	StageID              string    `json:"stage_id"`
-	Name                 string    `json:"name"`
-	StartedAt            time.Time `json:"started_at"`
-	FinishedAt           time.Time `json:"finished_at,omitempty"`
-	DurationMilliseconds int64     `json:"duration_milliseconds,omitempty"`
-	Outcome              string    `json:"outcome,omitempty"`
-	FailureClass         string    `json:"failure_class,omitempty"`
-	RetryDisposition     string    `json:"retry_disposition,omitempty"`
-	Usage                Usage     `json:"usage"`
-	Completed            bool      `json:"completed"`
+	StageID              string          `json:"stage_id"`
+	Name                 string          `json:"name"`
+	StartedAt            time.Time       `json:"started_at"`
+	FinishedAt           time.Time       `json:"finished_at,omitempty"`
+	DurationMilliseconds int64           `json:"duration_milliseconds,omitempty"`
+	Outcome              string          `json:"outcome,omitempty"`
+	FailureClass         string          `json:"failure_class,omitempty"`
+	RetryDisposition     string          `json:"retry_disposition,omitempty"`
+	Usage                Usage           `json:"usage"`
+	PromptContexts       []PromptContext `json:"prompt_contexts,omitempty"`
+	Completed            bool            `json:"completed"`
 }
 
 type Summary struct {

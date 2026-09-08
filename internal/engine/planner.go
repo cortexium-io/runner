@@ -125,7 +125,8 @@ func (s *Engine) PlanProject(ctx context.Context, idea string) (ProjectPlan, err
 	event := metrics.Event{
 		AttemptID: attemptID, RunnerID: s.cfg.RunnerID,
 		ProjectOwner: s.cfg.GitHubProject.Owner, ProjectNumber: s.cfg.GitHubProject.Number,
-		ItemTitle: "Interactive project planning", Role: role, Harness: harness,
+		Repository: s.cfg.GitHubProject.IntakeRepository,
+		ItemTitle:  "Interactive project planning", Role: role, Harness: harness,
 		Model: model, Reasoning: profile.Reasoning, Iteration: 1, StartedAt: startedAt,
 	}
 	trace := metrics.NewAttemptTrace(s.observeMetrics, event)
@@ -144,6 +145,7 @@ func (s *Engine) PlanProject(ctx context.Context, idea string) (ProjectPlan, err
 		event.DurationMilliseconds = finished.Sub(startedAt).Milliseconds()
 		event.HarnessDurationMilliseconds = harnessResult.DurationMilliseconds
 		event.Usage = harnessResult.Usage
+		event.PromptContexts = trace.PromptContexts()
 		event.Outcome = execution.OutcomeSucceeded
 		event.Summary = "Project plan generated."
 		if err != nil {

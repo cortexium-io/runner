@@ -5149,6 +5149,8 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 			if err != nil {
 				t.Fatalf("configure service: %v", err)
 			}
+			historyStore := metrics.NewStore(filepath.Join(t.TempDir(), "metrics.jsonl"))
+			service.SetMetricsObserver(historyStore.Append)
 			if test.priorFeedback {
 				var baseline *execution.ReviewBaseline
 				if test.failures == 1 {
@@ -5172,6 +5174,20 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 				t.Fatalf("reviewer prompt count = %d, want one", len(prompts))
 			}
 			candidateOID := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "rev-parse", "HEAD"))
+			history, historyErr := historyStore.Read()
+			if historyErr != nil || len(history.Attempts) != 1 {
+				t.Fatalf("QA history missing: %#v %v", history, historyErr)
+			}
+			attempt := history.Attempts[0]
+			if !attempt.Completed || attempt.Repository != item.Repository || attempt.CandidateOID != candidateOID ||
+				len(attempt.ReviewFindings) == 0 || len(attempt.PromptContexts) != 1 || attempt.PromptContexts[0].Layout != "stable-first-v1" {
+				t.Fatalf("QA provenance or structured finding was not retained: %#v", attempt)
+			}
+			for _, stage := range attempt.Stages {
+				if stage.Name == metrics.StageReviewerAudit && len(stage.PromptContexts) != 1 {
+					t.Fatal("reviewer stage lost its pinned context")
+				}
+			}
 			if !strings.Contains(prompts[0], "git diff "+prepared.BaseRevision+"..."+candidateOID) {
 				t.Fatal("QA did not receive the exact Runner-owned base and candidate comparison")
 			}
