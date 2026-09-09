@@ -587,6 +587,11 @@ The live readiness probe always forces `sandboxed` plus `isolated`. Setup and
 production launches share the same required-flag table, and unsupported
 installed CLIs fail before model invocation.
 
+Codex invocation policy is supplied to the `exec` subcommand, alongside model,
+reasoning, and MCP overrides. Only the root-only approval flag precedes `exec`.
+Keeping all configuration overrides at the same command level prevents
+subcommand overrides from displacing Runner's permission and isolation policy.
+
 Optional `repository_references` are a fixed extension of planner, implementer,
 and reviewer profiles, including custom roles with those contracts. Probe
 profiles never receive them. Normal doctor and every eligible launch resolve
