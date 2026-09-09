@@ -244,6 +244,7 @@ type profileWorkspace struct {
 	GitReadRoots     []string
 	ToolReadPaths    []string
 	TempDir          string
+	NPMCacheDir      string
 	TrustedToolDir   string
 	ToolPath         string
 	cleanup          func() error
@@ -344,6 +345,11 @@ func populateProfileWorkspacePaths(workspace *profileWorkspace, repositoryRoot s
 		return fmt.Errorf("resolve repository Git metadata for sandbox: %w", err)
 	}
 	workspace.GitReadRoots = gitRoots
+	npmCache, err := sandboxpath.NPMCacheRoot()
+	if err != nil {
+		return fmt.Errorf("resolve npm cache for sandbox: %w", err)
+	}
+	workspace.NPMCacheDir = npmCache
 	workspace.ToolReadPaths = developmentToolReadPaths()
 	if gitToolDir := macOSGitToolDirectory(); gitToolDir != "" {
 		workspace.ToolReadPaths = minimalPathRoots(append(workspace.ToolReadPaths, gitToolDir))
@@ -568,8 +574,8 @@ func codexStandaloneRoot(path string) string {
 }
 
 func developmentToolReadPathsWith(lookPath func(string) (string, error), evalSymlinks func(string) (string, error)) []string {
-	paths := make([]string, 0, 9)
-	for _, tool := range []string{"node", "npm", "npx"} {
+	paths := make([]string, 0, 12)
+	for _, tool := range []string{"node", "npm", "npx", "go"} {
 		found, err := lookPath(tool)
 		if err != nil || strings.TrimSpace(found) == "" {
 			continue
@@ -625,16 +631,34 @@ func homebrewRuntimeReadPaths(paths []string) []string {
 }
 
 func developmentToolPath() string {
-	directories := []string{macOSGitToolDirectory()}
-	for _, tool := range []string{"node", "npm", "npx"} {
-		if path, err := exec.LookPath(tool); err == nil && filepath.IsAbs(path) {
+	return developmentToolPathWith(exec.LookPath, macOSGitToolDirectory(), os.Getenv("PATH"))
+}
+
+func developmentToolPathWith(lookPath func(string) (string, error), gitToolDirectory, operatorPath string) string {
+	directories := []string{gitToolDirectory}
+	for _, tool := range []string{"node", "npm", "npx", "go"} {
+		if path, err := lookPath(tool); err == nil && filepath.IsAbs(path) {
 			directories = append(directories, filepath.Dir(filepath.Clean(path)))
 		}
 	}
 	directories = append(directories, "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
-	seen := map[string]bool{}
-	result := make([]string, 0, len(directories))
+	allowed := make(map[string]bool, len(directories))
 	for _, directory := range directories {
+		if directory != "" {
+			allowed[filepath.Clean(directory)] = true
+		}
+	}
+	ordered := []string{gitToolDirectory}
+	for _, directory := range filepath.SplitList(operatorPath) {
+		directory = filepath.Clean(directory)
+		if filepath.IsAbs(directory) && allowed[directory] {
+			ordered = append(ordered, directory)
+		}
+	}
+	ordered = append(ordered, directories...)
+	seen := map[string]bool{}
+	result := make([]string, 0, len(ordered))
+	for _, directory := range ordered {
 		if directory == "" || seen[directory] {
 			continue
 		}

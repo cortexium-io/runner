@@ -25,6 +25,14 @@ const (
 	codexSkipHostSkillDiscoveryConfig            = "features.skip_host_skill_discovery=true"
 )
 
+var packageDevelopmentDomains = []string{
+	"registry.npmjs.org",
+	"proxy.golang.org",
+	"sum.golang.org",
+	// The public Go module proxy redirects module archives here.
+	"storage.googleapis.com",
+}
+
 func requiresFullHarnessAccess(profile ExecutionProfile) bool {
 	return profile.Sandbox == SandboxFullAccess
 }
@@ -63,10 +71,7 @@ func codexProfileArgsForConfig(profile ExecutionProfile, workspace profileWorksp
 			if safeTools {
 				name = codexReviewerBrowserPermissionProfile
 				description = "Runner reviewer with local browser QA"
-				network = `{enabled=true,mode="limited",allow_local_binding=true,domains={"localhost"="allow","127.0.0.1"="allow"}}`
-				if workspace.VerificationRoot != "" {
-					network = `{enabled=true,mode="limited",allow_local_binding=true,domains={"localhost"="allow","127.0.0.1"="allow","registry.npmjs.org"="allow"}}`
-				}
+				network = codexLimitedNetwork(developmentNetworkDomains(profile, workspace, safeTools))
 			}
 		case RoleImplementer:
 			name = codexImplementationWritePermissionProfile
@@ -76,7 +81,7 @@ func codexProfileArgsForConfig(profile ExecutionProfile, workspace profileWorksp
 				name = codexImplementerDevelopmentPermissionProfile
 				description = "Runner implementer with package and local-app access"
 				filesystem = fmt.Sprintf(`{":minimal"="read",":workspace_roots"={"."="write"},%s="write"}`, strconv.Quote(sandboxpath.NPMCachePolicyPath()))
-				network = `{enabled=true,mode="limited",allow_local_binding=true,domains={"localhost"="allow","127.0.0.1"="allow","registry.npmjs.org"="allow"}}`
+				network = codexLimitedNetwork(developmentNetworkDomains(profile, workspace, safeTools))
 			}
 		}
 		readPaths := append(repositoryReferencePaths(profile, workspace), sandboxAdditionalReadPaths(workspace, safeTools)...)
@@ -296,11 +301,7 @@ func claudeSandboxSettingsForConfig(profile ExecutionProfile, workspace profileW
 		"allowUnsandboxedCommands": false, "filesystem": filesystem,
 	}
 	if profile.allowsTool(ToolReadShell) || profile.allowsTool(ToolShell) {
-		domains := []string{"localhost", "127.0.0.1"}
-		if safeTools && (profile.Role == RoleImplementer || profile.Role == RoleReviewer && workspace.VerificationRoot != "") {
-			domains = append(domains, "registry.npmjs.org")
-		}
-		sandbox["network"] = map[string]any{"allowLocalBinding": true, "allowedDomains": domains}
+		sandbox["network"] = map[string]any{"allowLocalBinding": true, "allowedDomains": developmentNetworkDomains(profile, workspace, safeTools)}
 	}
 	settings := map[string]any{"sandbox": sandbox}
 	if !inheritsHarnessConfiguration(harnessConfigMode) {
@@ -328,6 +329,22 @@ func repositoryReferencePaths(profile ExecutionProfile, workspace profileWorkspa
 		}
 	}
 	return minimalPathRoots(paths)
+}
+
+func developmentNetworkDomains(profile ExecutionProfile, workspace profileWorkspace, safeTools bool) []string {
+	domains := []string{"localhost", "127.0.0.1"}
+	if safeTools && (profile.Role == RoleImplementer || profile.Role == RoleReviewer && workspace.VerificationRoot != "") {
+		domains = append(domains, packageDevelopmentDomains...)
+	}
+	return domains
+}
+
+func codexLimitedNetwork(domains []string) string {
+	entries := make([]string, 0, len(domains))
+	for _, domain := range domains {
+		entries = append(entries, strconv.Quote(domain)+`="allow"`)
+	}
+	return `{enabled=true,mode="limited",allow_local_binding=true,domains={` + strings.Join(entries, ",") + `}}`
 }
 
 func repositoryReadRoots(profile ExecutionProfile, workspace profileWorkspace) []string {
@@ -394,6 +411,18 @@ func sandboxEnvironment(workspace profileWorkspace) map[string]string {
 		"GIT_CONFIG_NOSYSTEM": "1",
 		"GIT_CONFIG_SYSTEM":   "/dev/null",
 		"GIT_TERMINAL_PROMPT": "0",
+		"GOCACHE":             filepath.Join(tempDir, "go-build-cache"),
+		"GOENV":               filepath.Join(tempDir, "go-env"),
+		"GOMODCACHE":          filepath.Join(tempDir, "go-mod-cache"),
+		"GONOPROXY":           "",
+		"GONOSUMDB":           "",
+		"GOPATH":              filepath.Join(tempDir, "go"),
+		"GOPRIVATE":           "",
+		"GOPROXY":             "https://proxy.golang.org",
+		"GOSUMDB":             "sum.golang.org",
+		"GOTOOLCHAIN":         "local",
+		"GOVCS":               "*:off",
+		"HOME":                tempDir,
 		"NODE_COMPILE_CACHE":  filepath.Join(tempDir, "node-compile-cache"),
 		"TMPDIR":              tempDir,
 		"XDG_CONFIG_HOME":     tempDir,
@@ -402,6 +431,9 @@ func sandboxEnvironment(workspace profileWorkspace) map[string]string {
 	}
 	if workspace.ToolPath != "" {
 		environment["PATH"] = workspace.ToolPath
+	}
+	if workspace.NPMCacheDir != "" {
+		environment["NPM_CONFIG_CACHE"] = filepath.Clean(workspace.NPMCacheDir)
 	}
 	return environment
 }
@@ -413,7 +445,9 @@ func codexSandboxEnvironmentConfig(workspace profileWorkspace) string {
 	}
 	keys := []string{
 		"GIT_ATTR_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM",
-		"GIT_CONFIG_SYSTEM", "GIT_TERMINAL_PROMPT", "NODE_COMPILE_CACHE",
+		"GIT_CONFIG_SYSTEM", "GIT_TERMINAL_PROMPT", "GOCACHE", "GOENV",
+		"GOMODCACHE", "GONOPROXY", "GONOSUMDB", "GOPATH", "GOPRIVATE",
+		"GOPROXY", "GOSUMDB", "GOTOOLCHAIN", "GOVCS", "HOME", "NODE_COMPILE_CACHE", "NPM_CONFIG_CACHE",
 		"PATH", "TMPDIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "ZDOTDIR",
 	}
 	entries := make([]string, 0, len(environment))

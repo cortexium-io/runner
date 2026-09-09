@@ -492,10 +492,11 @@ snapshot limits, refuses external symlinks, and verifies the copied source with
 no-follow hashes after the harness returns, including on failure. A changed
 source invalidates the result. The canonical review and implementation snapshots
 remain unchanged and are still checked by the engine. Only focused reviewer
-safe-tool invocations receive npm-registry access in addition to loopback;
-dependency caches remain in private temporary space. Audit-only invocations do
-not prepare this copy or gain package-network access. All harnesses use the same
-copy lifecycle; Pi still requires explicitly configured host access.
+safe-tool invocations receive the bounded npm and public Go package hosts in
+addition to loopback; dependency and build caches remain in private temporary
+space. Audit-only invocations do not prepare this copy or gain package-network
+access. All harnesses use the same copy lifecycle; Pi still requires explicitly
+configured host access.
 Publication replays that record under a sanitized privileged Git profile,
 re-fetches and compares the approved base, re-resolves the accepted tree,
 refreshes Project authority, validates the configured remote repository, and
@@ -659,10 +660,17 @@ when that distinction matters.
 
 A sandboxed Codex or Claude implementer or reviewer receives Runner's bounded
 development profile by default. Package commands run inside the native
-filesystem sandbox; implementer network access is limited to the npm registry
-and loopback. The filesystem profile exposes the assigned workspace, minimum
-system runtime files, and the implementer's npm cache instead of the operator's
-home directory. The Runner-owned `runner_browser` MCP definition is pinned,
+filesystem sandbox. Runner discovers the installed Node and Go executables and
+exposes only their resolved executable/runtime roots read-only. Go build,
+module, configuration, and home state use the invocation-private runtime
+directory. Its public module path is fixed to `proxy.golang.org`,
+`storage.googleapis.com` for the proxy's archive redirects, and the authenticated
+`sum.golang.org` checksum database; direct VCS fallback is disabled.
+Implementer network access is otherwise limited to the npm registry and
+loopback. Planners and audit-only reviewers receive no package-download network
+access. The filesystem profile exposes the assigned workspace, minimum system
+runtime files, and the implementer's npm cache instead of the operator's home
+directory. The Runner-owned `runner_browser` MCP definition is pinned,
 headless, temporary-profile, loopback-only, external-DNS-disabled,
 telemetry-free, and independent of ambient harness MCP configuration. Its cwd,
 user/global npm configuration, and cache live in a separate mode-`0700`

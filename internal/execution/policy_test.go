@@ -312,6 +312,7 @@ func TestCodexImplementerSafeToolsUseBoundedDevelopmentNetwork(t *testing.T) {
 		`filesystem={":minimal"="read",":workspace_roots"={"."="write"},"~/.npm"="write"}`,
 		`workspace_roots={"/worktree"=true}`,
 		`"localhost"="allow"`, `"127.0.0.1"="allow"`, `"registry.npmjs.org"="allow"`,
+		`"proxy.golang.org"="allow"`, `"sum.golang.org"="allow"`, `"storage.googleapis.com"="allow"`,
 	} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("safe implementer profile omitted %q: %s", expected, joined)
@@ -329,16 +330,20 @@ func TestSandboxProfilesGrantOnlyResolvedGitAndDevelopmentToolReads(t *testing.T
 	workspace := profileWorkspace{
 		Dir: "/worktrees/assignment", ReadRoot: "/worktrees/assignment",
 		GitReadRoots:   []string{"/repos/project/.git"},
-		ToolReadPaths:  []string{"/opt/tools/node/24", "/opt/tools/npm", "/opt/tools/bin/node"},
+		ToolReadPaths:  []string{"/opt/tools/node/24", "/opt/tools/npm", "/opt/tools/go/1.27.1", "/opt/tools/bin/node"},
 		TempDir:        "/private/runtime",
+		NPMCacheDir:    "/operator/.npm",
 		TrustedToolDir: "/private/trusted-browser",
 		ToolPath:       "/opt/tools/bin:/usr/bin:/bin",
 	}
 	codex := strings.Join(codexProfileArgs(profile, workspace, true), " ")
 	claude := strings.Join(claudeProfileArgs(profile, workspace, true), " ")
-	for _, allowed := range []string{"/repos/project/.git", "/opt/tools/node/24", "/opt/tools/npm", "/opt/tools/bin/node"} {
+	for _, allowed := range []string{"/repos/project/.git", "/opt/tools/node/24", "/opt/tools/npm", "/opt/tools/go/1.27.1", "/opt/tools/bin/node"} {
 		if !strings.Contains(codex, strconv.Quote(allowed)+`="read"`) {
 			t.Fatalf("Codex profile omitted exact read grant %q: %s", allowed, codex)
+		}
+		if strings.Contains(codex, strconv.Quote(allowed)+`="write"`) {
+			t.Fatalf("Codex profile made development tool path writable %q: %s", allowed, codex)
 		}
 		if !strings.Contains(claude, allowed) {
 			t.Fatalf("Claude profile omitted exact read grant %q: %s", allowed, claude)
@@ -346,7 +351,16 @@ func TestSandboxProfilesGrantOnlyResolvedGitAndDevelopmentToolReads(t *testing.T
 	}
 	for _, expected := range []string{
 		`"/private/runtime"="write"`,
-		`shell_environment_policy.set={GIT_ATTR_NOSYSTEM="1",GIT_CONFIG_GLOBAL="/dev/null",GIT_CONFIG_NOSYSTEM="1",GIT_CONFIG_SYSTEM="/dev/null",GIT_TERMINAL_PROMPT="0",NODE_COMPILE_CACHE="/private/runtime/node-compile-cache",PATH="/opt/tools/bin:/usr/bin:/bin",TMPDIR="/private/runtime",XDG_CONFIG_HOME="/private/runtime",XDG_STATE_HOME="/private/runtime",ZDOTDIR="/private/runtime"}`,
+		`GOCACHE="/private/runtime/go-build-cache"`,
+		`GOENV="/private/runtime/go-env"`,
+		`GOMODCACHE="/private/runtime/go-mod-cache"`,
+		`GONOPROXY=""`, `GONOSUMDB=""`,
+		`GOPATH="/private/runtime/go"`, `GOPRIVATE=""`,
+		`GOPROXY="https://proxy.golang.org"`, `GOSUMDB="sum.golang.org"`,
+		`GOTOOLCHAIN="local"`, `GOVCS="*:off"`, `HOME="/private/runtime"`,
+		`NODE_COMPILE_CACHE="/private/runtime/node-compile-cache"`,
+		`NPM_CONFIG_CACHE="/operator/.npm"`,
+		`PATH="/opt/tools/bin:/usr/bin:/bin"`, `TMPDIR="/private/runtime"`,
 	} {
 		if !strings.Contains(codex, expected) {
 			t.Fatalf("Codex sandbox omitted private runtime policy %q: %s", expected, codex)
@@ -355,7 +369,20 @@ func TestSandboxProfilesGrantOnlyResolvedGitAndDevelopmentToolReads(t *testing.T
 	for _, expected := range []string{
 		`"allowWrite":["/private/runtime","~/.npm"]`,
 		`"GIT_CONFIG_GLOBAL":"/dev/null"`,
+		`"GOCACHE":"/private/runtime/go-build-cache"`,
+		`"GOENV":"/private/runtime/go-env"`,
+		`"GOMODCACHE":"/private/runtime/go-mod-cache"`,
+		`"GONOPROXY":""`,
+		`"GONOSUMDB":""`,
+		`"GOPATH":"/private/runtime/go"`,
+		`"GOPRIVATE":""`,
+		`"GOPROXY":"https://proxy.golang.org"`,
+		`"GOSUMDB":"sum.golang.org"`,
+		`"GOTOOLCHAIN":"local"`,
+		`"GOVCS":"*:off"`,
+		`"HOME":"/private/runtime"`,
 		`"NODE_COMPILE_CACHE":"/private/runtime/node-compile-cache"`,
+		`"NPM_CONFIG_CACHE":"/operator/.npm"`,
 		`"PATH":"/opt/tools/bin:/usr/bin:/bin"`,
 		`"TMPDIR":"/private/runtime"`,
 		`"XDG_STATE_HOME":"/private/runtime"`,
@@ -424,7 +451,7 @@ func TestReviewerProfilesDefaultToNativeIsolation(t *testing.T) {
 			t.Fatalf("Claude reviewer sandbox omitted %s: %#v", expected, claude)
 		}
 	}
-	for _, forbidden := range []string{"registry.npmjs.org", "https://", "dangerously-skip-permissions"} {
+	for _, forbidden := range []string{"dangerously-skip-permissions"} {
 		if strings.Contains(joinedClaude, forbidden) {
 			t.Fatalf("Claude reviewer profile widened access with %q: %#v", forbidden, claude)
 		}
@@ -440,6 +467,26 @@ func TestReviewerProfilesDefaultToNativeIsolation(t *testing.T) {
 	pi := piProfileArgs(piHost)
 	if !contains(pi, "--no-approve") || !containsArgPair(pi, "--tools", "read,grep,find,ls,bash,"+piStructuredResultTool) || contains(pi, "--approve") {
 		t.Fatalf("Pi host reviewer did not suppress ambient resources or fix tools: %#v", pi)
+	}
+}
+
+func TestPlannerAndAuditOnlyReviewerCannotDownloadPackages(t *testing.T) {
+	for _, role := range []RoleContract{RolePlanner, RoleReviewer} {
+		profile, err := ProfileForRole(role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		workspace := profileWorkspace{Dir: "/neutral", ReadRoot: "/candidate"}
+		codex := strings.Join(codexProfileArgs(profile, workspace, true), " ")
+		claude := claudeSandboxSettings(profile, workspace, true)
+		for _, domain := range packageDevelopmentDomains {
+			if strings.Contains(codex, `"`+domain+`"="allow"`) {
+				t.Fatalf("Codex %s gained package download access: %s", role, codex)
+			}
+		}
+		if !strings.Contains(claude, `"allowedDomains":["localhost","127.0.0.1"]`) {
+			t.Fatalf("Claude %s gained package download access: %s", role, claude)
+		}
 	}
 }
 
@@ -496,7 +543,7 @@ func TestClaudeImplementerSafeToolsUseBoundedDevelopmentProfile(t *testing.T) {
 		`"mcpServers":{"runner_browser"`, `chrome-devtools-mcp@1.7.0`,
 		`--allowed-url-pattern=http://localhost:*/*`, `--allowed-url-pattern=http://127.0.0.1:*/*`,
 		`--host-resolver-rules=MAP * ~NOTFOUND`,
-		`"allowedDomains":["localhost","127.0.0.1","registry.npmjs.org"]`,
+		`"allowedDomains":["localhost","127.0.0.1","registry.npmjs.org","proxy.golang.org","sum.golang.org","storage.googleapis.com"]`,
 		`"denyRead":["/home/operator"]`, `"allowRead":["/worktree","~/.npm"]`, `"allowWrite":["~/.npm"]`,
 		`mcp__runner_browser__*`,
 	} {

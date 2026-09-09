@@ -151,13 +151,21 @@ func TestReviewerVerificationPackageNetworkIsFocusedAndOptIn(t *testing.T) {
 			if focused {
 				launch.VerificationRoot = "/neutral/verification"
 			}
-			for _, policy := range []string{
-				strings.Join(codexProfileArgs(profile, launch, safe), " "),
-				claudeSandboxSettings(profile, launch, safe),
-			} {
-				if strings.Contains(policy, "registry.npmjs.org") != (focused && safe) {
-					t.Fatalf("unexpected package network: focused=%v safe=%v %s", focused, safe, policy)
+			codex := strings.Join(codexProfileArgs(profile, launch, safe), " ")
+			claude := claudeSandboxSettings(profile, launch, safe)
+			for _, domain := range packageDevelopmentDomains {
+				if strings.Contains(codex, `"`+domain+`"="allow"`) != (focused && safe) {
+					t.Fatalf("unexpected Codex package network domain %s: focused=%v safe=%v %s", domain, focused, safe, codex)
 				}
+			}
+			expectedClaudeDomains := `"allowedDomains":["localhost","127.0.0.1"]`
+			if focused && safe {
+				expectedClaudeDomains = `"allowedDomains":["localhost","127.0.0.1","registry.npmjs.org","proxy.golang.org","sum.golang.org","storage.googleapis.com"]`
+			}
+			if !strings.Contains(claude, expectedClaudeDomains) {
+				t.Fatalf("unexpected Claude package network: focused=%v safe=%v %s", focused, safe, claude)
+			}
+			for _, policy := range []string{codex, claude} {
 				if strings.Contains(policy, `"/candidate"="write"`) || strings.Contains(policy, "danger-full-access") {
 					t.Fatalf("candidate isolation widened: %s", policy)
 				}

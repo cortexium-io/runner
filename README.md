@@ -458,11 +458,20 @@ explicit host access. See [repository references](docs/operator-reference.md#rep
 for the complete safety and maintenance contract.
 
 Sandboxed Codex and Claude implementers and reviewers receive Runner's safe
-development tools by default. `npm` and `npx` stay inside the role's native
-filesystem sandbox; implementer network access is limited to the npm registry
-and loopback. The sandbox can read the assigned workspace and required system
-tools, but not the rest of the operator's home directory; the npm cache is the
-implementer's narrow home-directory exception. Browser checks use a pinned
+development tools by default. Runner discovers the operator's installed
+`node`, `npm`, `npx`, and `go` executables and grants their resolved runtime
+roots read-only. Package and build commands stay inside the role's native
+filesystem sandbox. Go's build cache, module cache, environment file, and home
+state use the invocation-private runtime directory. Public Go modules use only
+`proxy.golang.org`, its `storage.googleapis.com` archive redirect, and
+`sum.golang.org`; direct VCS fallback is disabled and checksum verification
+remains enabled.
+Implementer package network access is otherwise limited to the npm registry
+and loopback. Focused reviewer verification gets the same package hosts in its
+disposable source copy, while planners and audit-only reviewers do not. The
+sandbox can read the assigned workspace and required system tools, but not the
+rest of the operator's home directory; the npm cache is the implementer's
+narrow home-directory exception. Browser checks use a pinned
 three-tool Chrome DevTools server with a temporary profile, mock keychain,
 disabled external name resolution, telemetry/CrUX, and redacted headers.
 Runner resolves that trusted server from a separate mode-`0700` host-owned cwd
