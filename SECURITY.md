@@ -32,8 +32,12 @@ content, or personal data in a public issue.
   contract, repository integrity checks, and publication authority.
 - Sandboxed Codex and Claude implementers and reviewers receive a default bounded
   development profile. Package commands remain inside the native filesystem
-  sandbox; implementers receive network access only to the npm registry and
-  loopback. Their sandbox filesystem profile permits the assigned workspace,
+  sandbox. Safe-tool implementers receive loopback and the npm registry plus the
+  fixed public Go module path through `proxy.golang.org`, the
+  `storage.googleapis.com` archive redirect, and `sum.golang.org`. Focused
+  reviewer verification receives the same package hosts only in its disposable
+  source copy; planners and audit-only reviewers receive no package-download
+  access. Their sandbox filesystem profile permits the assigned workspace,
   minimum system runtime files, and the implementer's npm cache rather than
   ambient operator-home reads. Runner injects a pinned headless Chrome MCP with a temporary
   profile, mock keychain, three-tool surface, disabled telemetry/CrUX, redacted
