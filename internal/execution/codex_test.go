@@ -465,8 +465,8 @@ func assertApprovedCodexArgs(t *testing.T, args []string) {
 	if !containsArgPair(args, "-c", `model_reasoning_effort="medium"`) {
 		t.Fatalf("expected explicit reasoning effort in args %#v", args)
 	}
-	if execIndex, effortIndex, modelIndex := slices.Index(args, "exec"), slices.Index(args, "-c"), slices.Index(args, "--model"); execIndex < 0 || effortIndex < 0 || modelIndex < 0 || effortIndex > execIndex || modelIndex > execIndex {
-		t.Fatalf("model config must be applied before exec so it cannot replace permission and MCP overrides: %#v", args)
+	if execIndex, effortIndex, modelIndex := slices.Index(args, "exec"), slices.Index(args, "-c"), slices.Index(args, "--model"); execIndex < 0 || effortIndex < 0 || modelIndex < 0 || effortIndex < execIndex || modelIndex < execIndex {
+		t.Fatalf("model config must be applied on exec alongside permission and MCP overrides: %#v", args)
 	}
 	for _, expected := range [][2]string{{"--ask-for-approval", config.CodexApprovalNever}, {"--config", `default_permissions="runner_repository_read"`}} {
 		if !containsArgPair(args, expected[0], expected[1]) {

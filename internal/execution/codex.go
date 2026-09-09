@@ -419,12 +419,11 @@ func blockedOutputWithFailure(summary string, class FailureClass, retry RetryDis
 }
 
 func (e CodexExecutor) args(profile ExecutionProfile, workspace profileWorkspace, mcpArgs []string, outputPath string, schemaPath string, assignment Assignment) []string {
-	args := codexProfileArgsForConfig(profile, workspace, e.config.SafeTools, e.config.HarnessConfigMode, e.cfg.Command)
+	args := codexInvocationArgs(profile, workspace, e.config.SafeTools, e.config.HarnessConfigMode, e.cfg.Command)
 	if model := e.modelID(); model != "" {
 		args = append(args, "--model", model)
 	}
 	args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", strings.TrimSpace(e.cfg.ReasoningEffort)))
-	args = append(args, codexExecArgsForConfig(profile, workspace, e.config.HarnessConfigMode)...)
 	// Codex 0.153 must receive invocation MCP overrides after
 	// exec --ignore-user-config or its stdio handshake can stall.
 	args = append(args, mcpArgs...)
@@ -436,12 +435,11 @@ func (e CodexExecutor) args(profile ExecutionProfile, workspace profileWorkspace
 }
 
 func (e CodexExecutor) profileWorkspaceWriteArgs(profile ExecutionProfile, workspace profileWorkspace, mcpArgs []string, outputPath string, schemaPath string, assignment Assignment) []string {
-	args := codexProfileArgsForConfig(profile, workspace, e.config.SafeTools, e.config.HarnessConfigMode, e.cfg.Command)
+	args := codexInvocationArgs(profile, workspace, e.config.SafeTools, e.config.HarnessConfigMode, e.cfg.Command)
 	if model := e.modelID(); model != "" {
 		args = append(args, "--model", model)
 	}
 	args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", strings.TrimSpace(e.cfg.ReasoningEffort)))
-	args = append(args, codexExecArgsForConfig(profile, workspace, e.config.HarnessConfigMode)...)
 	// Keep the MCP override after Codex's user-config isolation flag; see args.
 	args = append(args, mcpArgs...)
 	args = append(args,

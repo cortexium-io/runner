@@ -3,6 +3,7 @@ package execution
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -54,10 +55,7 @@ func TestInheritedHarnessConfigurationRetainsContainmentChoiceAndAmbientResource
 	if err != nil {
 		t.Fatal(err)
 	}
-	codex := append(
-		codexProfileArgsForConfig(profile, workspace, true, config.HarnessConfigModeInherit, "codex"),
-		codexExecArgsForConfig(profile, workspace, config.HarnessConfigModeInherit)...,
-	)
+	codex := codexInvocationArgs(profile, workspace, true, config.HarnessConfigModeInherit, "codex")
 	joinedCodex := strings.Join(codex, " ")
 	for _, forbidden := range []string{"--ignore-user-config", "--ignore-rules", codexSkipHostSkillDiscoveryConfig, "mcp_servers={}", "--disable apps"} {
 		if strings.Contains(joinedCodex, forbidden) {
@@ -533,5 +531,33 @@ func TestEveryHarnessSupportsTheImplementerRole(t *testing.T) {
 func TestUnknownExecutionRoleFailsClosed(t *testing.T) {
 	if err := ValidateHarnessProfile(config.HarnessCodexCLI, RoleContract("unknown")); err == nil {
 		t.Fatal("unknown execution role was accepted")
+	}
+}
+
+// Codex exec resolves its own config overrides. Root-level config can be lost
+// when the subcommand also supplies overrides, including Runner's MCP policy.
+func TestCodexInvocationAppliesPolicyOnExec(t *testing.T) {
+	workspace := profileWorkspace{Dir: "/worktree", ReadRoot: "/worktree"}
+	for _, role := range []RoleContract{RolePlanner, RoleSynthesis, RoleReviewer, RoleProbe, RoleImplementer} {
+		for _, mode := range []string{config.HarnessConfigModeIsolated, config.HarnessConfigModeInherit} {
+			t.Run(string(role)+"/"+mode, func(t *testing.T) {
+				profile, err := ProfileForRole(role)
+				if err != nil {
+					t.Fatal(err)
+				}
+				args := codexInvocationArgs(profile, workspace, false, mode, "codex")
+				if !slices.Equal(args[:3], []string{"--ask-for-approval", config.CodexApprovalNever, "exec"}) {
+					t.Fatalf("only the root-only approval flag may precede exec: %#v", args)
+				}
+				execArgs := codexExecArgsForConfig(profile, workspace, mode)
+				if !slices.Equal(args[2:2+len(execArgs)], execArgs) {
+					t.Fatalf("exec isolation must precede invocation policy: %#v", args)
+				}
+				policy := codexProfileArgsForConfig(profile, workspace, false, mode, "codex")
+				if !slices.Equal(args[2+len(execArgs):], policy[2:]) {
+					t.Fatalf("exec omitted its execution policy: %#v", args)
+				}
+			})
+		}
 	}
 }
