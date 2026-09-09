@@ -94,6 +94,18 @@ Name what actually ran or was observed. Never present an unrun command, intended
 fallback, or inference as verification, and never report success with incomplete
 acceptance conditions.
 
+Make each verification entry usable without access to temporary files: identify
+the existing command or observation, scope, result, and relevant non-secret
+settings. When tests fail or time out and are rerun, include the affected file
+and test names, original and rerun commands/selectors, worker counts, timeout
+limits, relevant environment differences, and both outcomes. Preserve the
+failure's diagnostic observations and any intermittent-failure caveat; aggregate
+pass counts or "all passed separately" are not sufficient evidence. Keep this
+compact within the existing per-obligation entry. Runner retains these entries
+bound to the committed candidate, but does not copy ignored reports or temporary
+logs into QA. Artifact paths may supplement the evidence, never replace it.
+Do not include credentials, sensitive payloads, or raw diagnostic dumps.
+
 On a retry, include a short `work_done` entry stating whether the prior approach
 was preserved and improved, partly replaced, or largely replaced, with the
 concrete reason. Describe the actual changes, not a judgment of the previous

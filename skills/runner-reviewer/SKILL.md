@@ -55,8 +55,9 @@ Apply minimum sufficient complexity to the review itself.
    test files, rewrite tests, invent another framework, build a custom harness,
    or repeat an expensive passing check.
 6. A concrete reproduced defect is sufficient failure evidence for that exact
-   behavior, so do not spend time proving or diagnosing it twice. Continue the
-   bounded pass over the other card-owned behaviors in the same obligation,
+   behavior, so do not spend time proving or diagnosing it twice. An unexplained
+   timing failure follows the bounded confirmation rule below instead. Continue
+   the bounded pass over the other card-owned behaviors in the same obligation,
    including directly adjacent variants of the exposed invariant within the
    current review scope, and complete every unresolved obligation. Do not continue into
    unrelated measurements, alternate servers, screenshots, resource
@@ -85,6 +86,49 @@ Apply minimum sufficient complexity to the review itself.
     unfinished sibling scope into this card or make a human comment mandatory
     when Runner QA feedback already describes the fix.
 
+## Unexplained timing failures
+
+A test timeout without evidence of a violated requirement is not yet a concrete
+application defect. In evidence audit, defer the unresolved required behavior as
+`check_required`; do not make reconstructing a historical run an acceptance
+condition or reject solely from a historical timeout report.
+
+In focused verification, use the available source and evidence to choose the
+smallest existing check that can establish the unresolved requirement:
+
+- When the affected test and historical settings are known, confirm the
+  unexplained timing failure once with that test or its smallest coupled group,
+  capturing a trace or equivalent diagnostics. Keep the candidate, assertions,
+  timeout, worker count, and relevant environment unchanged. An existing
+  unchanged automatic retry with adequate diagnostics counts as this
+  confirmation; do not add further reruns.
+- When test identities, settings, or reports are missing, gather fresh evidence
+  for the exact candidate using the repository's documented commands and
+  configuration. State the selected scope and settings and that this is fresh
+  verification, not reproduction of the historical run. Missing history alone
+  is not a blocker when current verification can establish the required behavior.
+  Use the smallest existing suite that covers the unresolved requirement when
+  individual affected tests cannot be identified; a complete suite is warranted
+  only when the approved obligation or repository policy requires it. If this
+  fresh check times out without establishing a defect, its recorded settings
+  allow the single unchanged confirmation above, not a further retry loop.
+
+Do not increase limits, reduce concurrency, warm up the application deliberately,
+or change source or assertions to obtain a pass. Fresh focused evidence does not
+prove that an entire historical suite passed or that unknown failures were fixed.
+
+Record available historical outcomes separately from fresh results, name any
+missing details, and include the exact check and settings and relevant diagnostic
+observations in the returned evidence, not just temporary artifact paths. If the
+check proves the required behavior and no concrete defect remains, mark it
+`passed`, retaining any unexplained historical failure as a caveat, not claiming
+an unverified intermittent cause. A later pass does not
+erase an observed defect or excuse a violated timing/reliability requirement.
+If evidence establishes such a violation, mark it `failed`. If confirmation
+remains inconclusive or cannot run with available capabilities, mark it
+`blocked`, explaining the missing proof without inventing an application cause.
+Continue the other unresolved checks; never loop until green.
+
 ## Review scope
 
 Runner determines scope from saved review evidence, independently of the model,
@@ -92,7 +136,8 @@ reasoning level, rejection count, or whether an escalation ladder exists.
 
 - Initial or renewed review: inspect the complete cumulative diff. Collect all
   concrete blockers reasonably visible in the bounded pass so they can be fixed
-  together. Missing history or changed requirements/base needs a renewed review.
+  together. A missing review baseline or changed requirements/base needs a
+  renewed review; missing historical test reports alone do not.
 - Follow-up with a supplied baseline: verify the prior blockers, inspect the
   repair diff, and check directly affected behavior for regressions. Reuse passed
   conclusions unless the repair invalidates them. Do not restart unrelated areas

@@ -119,6 +119,7 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 		return output, err
 	}
 	args := e.args(profile, launchWorkspace, mcpArgs, artifacts.outputPath(), artifacts.schemaPath(), assignment)
+	recordPromptContext(ctx, harnessGuidance(config.HarnessCodexCLI, e.config, true))
 	harnessStartedAt := time.Now()
 	finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
 	result, err := e.runCodex(ctx, args, launchWorkspace.Dir, strings.NewReader(e.projectPrompt(assignment, launchWorkspace)))
@@ -214,6 +215,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 		return output, err
 	}
 	args := e.profileWorkspaceWriteArgs(profile, launchWorkspace, mcpArgs, artifacts.outputPath(), artifacts.schemaPath(), assignment)
+	recordPromptContext(ctx, harnessGuidance(config.HarnessCodexCLI, e.config, true))
 	harnessStartedAt := time.Now()
 	finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
 	result, runErr := e.runCodex(ctx, args, metadata.WorktreePath, strings.NewReader(e.workspaceWritePrompt(assignment)+profileReferenceInstruction(launchWorkspace)))
@@ -457,11 +459,11 @@ func (e CodexExecutor) modelID() string {
 }
 
 func (e CodexExecutor) projectPrompt(assignment Assignment, workspace profileWorkspace) string {
-	return buildCodexPrompt(assignment) + trustedSkillInstructions(e.config) + codexMCPPromptForConfig(e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode) + profileRepositoryInstruction(workspace)
+	return harnessGuidance(config.HarnessCodexCLI, e.config, true) + buildCodexPrompt(assignment) + profileRepositoryInstruction(workspace)
 }
 
 func (e CodexExecutor) workspaceWritePrompt(assignment Assignment) string {
-	return buildWorkspaceWriteCodexPrompt(assignment) + trustedSkillInstructions(e.config) + codexMCPPromptForConfig(e.config.MCPServers, e.config.SafeTools, e.config.HarnessConfigMode)
+	return harnessGuidance(config.HarnessCodexCLI, e.config, true) + buildWorkspaceWriteCodexPrompt(assignment)
 }
 
 func (e CodexExecutor) runCodex(ctx context.Context, args []string, workingDir string, input io.Reader) (subprocess.Result, error) {
@@ -486,56 +488,11 @@ func validateExecutionHarness(kind string, harness config.HarnessConfig) error {
 }
 
 func buildCodexPrompt(assignment Assignment) string {
-	packet := assignment.Spec
-	var b strings.Builder
-	b.WriteString("You are executing one approved local Runner assignment through Codex CLI.\n")
-	b.WriteString("Runner has applied its fixed read-only execution profile. This assignment expects an analysis or review result rather than implementation changes.\n")
-	b.WriteString("If the Runner-provided capabilities are insufficient, return a blocked outcome and identify the missing capability.\n\n")
-	b.WriteString("Title: ")
-	b.WriteString(packet.Task.Title)
-	b.WriteString("\n\nApproved resolved instructions:\n")
-	b.WriteString(resolvedInstructions(assignment))
-	if len(packet.ContextRefs) > 0 {
-		b.WriteString("\n\nContext references:\n")
-		for _, ref := range packet.ContextRefs {
-			b.WriteString("- ")
-			b.WriteString(ref)
-			b.WriteByte('\n')
-		}
-	}
-	appendStructuredResultInstructions(&b)
-	return b.String()
+	return buildHarnessPrompt(assignment, false, "Codex CLI")
 }
 
 func buildWorkspaceWriteCodexPrompt(assignment Assignment) string {
-	packet := assignment.Spec
-	var b strings.Builder
-	b.WriteString("You are executing one approved local Runner assignment through Codex CLI.\n")
-	b.WriteString("Runner has applied its fixed implementer profile in an isolated Git worktree.\n")
-	b.WriteString("If the Runner-provided capabilities are insufficient, return a blocked outcome and identify the missing capability.\n\n")
-	b.WriteString("Title: ")
-	b.WriteString(packet.Task.Title)
-	b.WriteString("\n\nApproved resolved instructions:\n")
-	b.WriteString(resolvedInstructions(assignment))
-	if len(packet.ContextRefs) > 0 {
-		b.WriteString("\n\nContext references:\n")
-		for _, ref := range packet.ContextRefs {
-			b.WriteString("- ")
-			b.WriteString(ref)
-			b.WriteByte('\n')
-		}
-	}
-	if len(packet.RequiredVerification) > 0 {
-		b.WriteString("\n\nRunner-owned proof obligations:\n")
-		for _, verification := range packet.RequiredVerification {
-			b.WriteString("- ")
-			b.WriteString(verification)
-			b.WriteByte('\n')
-		}
-		appendVerificationOwnershipInstructions(&b, len(packet.RequiredVerification))
-	}
-	appendStructuredResultInstructions(&b)
-	return b.String()
+	return buildHarnessPrompt(assignment, true, "Codex CLI")
 }
 
 func appendStructuredResultInstructions(b *strings.Builder) {

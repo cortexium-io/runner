@@ -34,7 +34,7 @@ root. Internal packages do not parse CLI flags or reach back into `cmd`.
 | `internal/engine` | Work selection, transitions, retries, planning, implementation/QA sequencing, PR reconciliation | Harness command syntax or GitHub transport details |
 | `internal/execution` | Assignment envelopes, native harness invocation, role-scoped primary and reference read roots, schema-backed structured results (including Pi's provider-compatible temporary result extensions), reviewer evidence, planner invocation | GitHub workflow state |
 | `internal/github` | Project schema/items, intake, approvals, process locks, branches, and pull requests | Agent execution |
-| `internal/metrics` | Append-only attempt and fixed-name stage events, harness-reported usage values, durable local history, and aggregates | Prompts, transcripts, raw harness output, free-form stage payloads, or estimated cost |
+| `internal/metrics` | Append-only attempt and fixed-name stage events, reported usage, context fingerprints, local history, aggregates, and draft recurring-failure projections | Prompts, transcripts, raw harness output, active guidance, free-form stage payloads, or estimated cost |
 | `internal/setup` | Capability inspection, doctor readiness, skill installation, allowlisted prerequisites | Work execution |
 | `internal/workspace` | Task-scoped isolated worktree creation and validated cleanup, plus immutable-reference validation, without modifying configured checkouts or deleting task branches | Agent prompts or publication |
 | `internal/subprocess` | Process execution, bounded output, and process-group cancellation | Domain behavior |
@@ -81,8 +81,8 @@ by subcommand; they still compile into one `main` package and one binary.
 
 The public command surface keeps first-class operations at the root: `init` and
 `doctor` prepare and diagnose the runner; `plan`, `approve`, and `retry` manage
-work; `run`, `status`, and `metrics` operate it; `role` manages extensible role
-profiles; `workflow validate` and `workflow explain` inspect the typed workflow;
+work; `run`, `status`, `metrics`, and `guidance` operate it; `role` manages
+extensible role profiles; `workflow validate` and `workflow explain` inspect the typed workflow;
 and `harness check` qualifies configured execution profiles against a private
 temporary Git repository.
 `init` is idempotent for an existing config and owns GitHub Project field/status
@@ -110,8 +110,8 @@ Execution adapters parse only counters exposed by the native harness. Events are
 appended to a runner-keyed JSONL file in the user configuration directory. The
 event boundary keeps telemetry failure non-fatal to workflow execution and
 preserves unfinished attempts and stages after a process interruption. Stage
-events carry identity, timing, enums, and usage only. The history deliberately
-excludes prompts, transcripts, raw responses, command arguments, raw local
+events carry identity, timing, enums, usage, and prompt-context fingerprints.
+The history deliberately excludes prompts, transcripts, raw responses, command arguments, raw local
 errors, and free-form stage payloads. Completed attempts may additionally carry
 a fixed publication-operation enum and a bounded attempt count; provider error
 text is never persisted. `metrics` reads and aggregates this store, including
@@ -121,9 +121,38 @@ admission decision. GitHub
 cards receive only fixed bounded execution, recovery, and QA classifications;
 detailed usage and model-authored evidence remain local.
 
+Completed QA attempts also retain failed-check summaries and the reviewed
+candidate commit after the existing integrity checks. Blocked proof and warning
+findings are not recorded as confirmed defects. The `guidance` command projects
+this private history into unapproved drafts; the running service replays it once
+and examines each newly completed attempt for a threshold crossing. There is no
+second journal, scheduler, model call, or prompt-injection path. Distinct cards
+count as incidents; retries do not. Project, repository, role, harness, failure
+operation, and finding category separate patterns. Exact QA wording (apart from
+whitespace) and fixed Runner classifications are signals for human investigation,
+not proof of a shared cause. Publishing guidance remains an explicit reviewed
+repository-documentation or skill change. Drafts neither grant authority nor
+change admission, acceptance, retry, or workflow rules.
+
+Runner renders pinned skill/capability guidance and fixed stage instructions
+before variable assignment and evidence data. Each attempt records the distinct
+`prompt_contexts` used; each stage pins its context at start. `layout` identifies
+Runner's prompt layout and `guidance_digest` hashes the exact pinned skill and
+capability text. These fields do not fingerprint repository files, subsequent
+tool reads, a whole provider request, or provider cache state. Repository
+instructions still come from the normal isolated execution workspace. Native
+harnesses retain ownership of conversation rendering, tools, schemas, model
+routing, and cache controls; Runner does not trade isolation or reviewer
+independence for a more reusable prefix.
+
 Execution adapters map allowlisted adapter-owned structured failures and
 Runner-observed failures to a stable failure class plus `automatic`, `manual`,
-or `none` retry disposition. Codex provider classification reads only the terminal
+or `none` retry disposition. A structured blocked QA verdict becomes
+`review_incomplete` with manual retry, not a capability diagnosis. Its fixed
+remote label is "QA evidence incomplete"; model-authored detail remains local.
+Runner/adapter-detected capability failures retain `capability_unavailable`.
+Neither classification consumes a QA rejection.
+Codex provider classification reads only the terminal
 `turn.failed` event in its native JSONL stream. One narrow startup exception
 recognizes Codex's exact fatal `thread/start` envelope for a required
 `runner_browser` MCP startup timeout: Runner must have granted the browser,
@@ -194,10 +223,16 @@ any mismatch removes the stale checkpoint. The checkpoint is cleared after the
 successful transition to Agent QA, so it cannot bypass later independent QA.
 Ordinary candidate-content failures such as unresolved conflicts or
 `git diff --cached --check` errors are not workspace-integrity failures. Runner
-publishes a bounded correction, clears the unusable checkpoint, and sends an
-explicit retry through implementation. Operator-supplied retry feedback also
-clears the checkpoint before changing the card, while unchanged Runner-side
-post-processing failures retain it.
+clears the unusable checkpoint and gives the same implementer one immediate
+corrective pass inside the current action, after revalidating approval. The
+pass retains the worktree, approved scope, QA feedback, and earlier verification
+as untrusted historical evidence; Runner restages and rechecks the result before
+QA. Both harness calls count toward usage, but neither candidate failure consumes
+a QA rejection. A second candidate-content failure blocks with a bounded,
+privacy-safe correction and requires an explicit retry through implementation;
+integrity failures never enter this automatic correction path.
+Operator-supplied retry feedback also clears the checkpoint before changing the
+card, while unchanged Runner-side post-processing failures retain it.
 
 Pi result attribution comes only from its native JSON event stream. Explicit
 `lmstudio/...` stages with tools must produce one session-provenanced
@@ -286,6 +321,20 @@ approved scope; this context does not reopen resolved proof keys. The handoff
 does not claim that unresolved source inspection already happened. Runner merges
 the observations and derives the verdict and final summary from the merged
 checks, not from superseded stage summaries.
+The bundled implementer supplies self-contained command, scope, settings, and
+outcome evidence in the existing candidate-bound record. Failed checks and
+reruns include affected test identities and both outcomes; temporary reports
+are not copied across role workspaces. The reviewer distinguishes concrete
+defects from unexplained timing failures. Its focused stage permits one
+unchanged diagnostic confirmation of a known check, counting an existing
+adequately diagnosed unchanged retry toward that bound. If historical details
+are missing, it gathers fresh evidence for the unresolved behavior using
+documented repository settings, without inventing historical settings or
+reopening resolved obligations. Both available historical and fresh results,
+diagnostic observations, and uncertainty belong in structured evidence. Fresh
+focused success does not establish an unknown full-suite result. Genuinely
+inconclusive proof remains blocked. This is guidance inside the existing harness
+invocation, not another Runner retry mechanism or a change to rejection accounting.
 Operator-selected `standard` or `high`
 task sizing changes only decomposition and specificity for implementer and
 reviewer roles. Runner never infers capability from model names, and the shared

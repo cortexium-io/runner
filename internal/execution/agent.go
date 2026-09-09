@@ -63,11 +63,13 @@ func (e AgentExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 	defer launchWorkspace.cleanup()
-	prompt := buildHarnessPrompt(assignment, false, e.displayName())
+	guidance := harnessGuidance(e.kind, e.config, true)
+	prompt := guidance + buildHarnessPrompt(assignment, false, e.displayName())
+	recordPromptContext(ctx, guidance)
 	harnessStartedAt := time.Now()
 	finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
 	schema := executionContentSchemaForVerification(len(assignment.Spec.RequiredVerification))
-	result, lastMessage, usage, failureEvidence, err := e.runHarness(ctx, e.profileProjectArgs(profile, launchWorkspace, schema), launchWorkspace.Dir, strings.NewReader(prompt+trustedSkillInstructions(e.config)+runnerBrowserPrompt(e.config.SafeTools)+profileRepositoryInstruction(launchWorkspace)), schema, "prefer")
+	result, lastMessage, usage, failureEvidence, err := e.runHarness(ctx, e.profileProjectArgs(profile, launchWorkspace, schema), launchWorkspace.Dir, strings.NewReader(prompt+profileRepositoryInstruction(launchWorkspace)), schema, "prefer")
 	harnessDuration := time.Since(harnessStartedAt).Milliseconds()
 	if err != nil {
 		if output, known := classifyHarnessFailure(err, failureEvidence); known {
@@ -154,7 +156,9 @@ func (e AgentExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 	defer launchWorkspace.cleanup()
-	prompt := buildHarnessPrompt(assignment, true, e.displayName()) + trustedSkillInstructions(e.config) + runnerBrowserPrompt(e.config.SafeTools) + profileReferenceInstruction(launchWorkspace)
+	guidance := harnessGuidance(e.kind, e.config, true)
+	prompt := guidance + buildHarnessPrompt(assignment, true, e.displayName()) + profileReferenceInstruction(launchWorkspace)
+	recordPromptContext(ctx, guidance)
 	if launchWorkspace.Dir != metadata.WorktreePath {
 		prompt += "\n\nAssigned worktree: " + metadata.WorktreePath
 		if len(launchWorkspace.ReferenceRoots) == 0 {
@@ -405,13 +409,13 @@ func extractHarnessResultAndUsage(kind, stdout, piProvenance string, piNativeStr
 
 func buildHarnessPrompt(assignment Assignment, workspaceWrite bool, displayName string) string {
 	var b strings.Builder
-	b.WriteString(buildHarnessTaskPrompt(assignment, workspaceWrite, displayName))
+	b.WriteString(harnessTaskInstructions(workspaceWrite, displayName))
 	appendStructuredResultInstructions(&b)
+	b.WriteString(harnessTaskContext(assignment, workspaceWrite))
 	return b.String()
 }
 
-func buildHarnessTaskPrompt(assignment Assignment, workspaceWrite bool, displayName string) string {
-	packet := assignment.Spec
+func harnessTaskInstructions(workspaceWrite bool, displayName string) string {
 	var b strings.Builder
 	b.WriteString("You are executing one approved local Runner assignment through ")
 	b.WriteString(displayName)
@@ -422,7 +426,16 @@ func buildHarnessTaskPrompt(assignment Assignment, workspaceWrite bool, displayN
 		b.WriteString("Runner has applied its fixed read-only execution profile. This assignment expects an analysis or review result rather than implementation changes.\n")
 	}
 	b.WriteString("If the Runner-provided capabilities are insufficient, report the exact missing capability through the requested structured content.\n\n")
-	b.WriteString("Title: ")
+	if workspaceWrite {
+		appendVerificationOwnershipInstructions(&b)
+	}
+	return b.String()
+}
+
+func harnessTaskContext(assignment Assignment, workspaceWrite bool) string {
+	packet := assignment.Spec
+	var b strings.Builder
+	b.WriteString("\n\nTitle: ")
 	b.WriteString(packet.Task.Title)
 	b.WriteString("\n\nApproved resolved instructions:\n")
 	b.WriteString(resolvedInstructions(assignment))
@@ -441,19 +454,20 @@ func buildHarnessTaskPrompt(assignment Assignment, workspaceWrite bool, displayN
 			b.WriteString(verification)
 			b.WriteByte('\n')
 		}
-		appendVerificationOwnershipInstructions(&b, len(packet.RequiredVerification))
+		entryLabel := "entries"
+		if len(packet.RequiredVerification) == 1 {
+			entryLabel = "entry"
+		}
+		fmt.Fprintf(&b, "For a successful result, return exactly %d verification evidence %s: one for each obligation, in the same order.\n", len(packet.RequiredVerification), entryLabel)
 	}
 	return b.String()
 }
 
-func appendVerificationOwnershipInstructions(b *strings.Builder, approvedChecks int) {
+func appendVerificationOwnershipInstructions(b *strings.Builder) {
 	b.WriteString("These obligations define what must be proved, not how. After inspecting the repository, choose the smallest reliable proof method for each obligation and meaningful changed-behavior failure. Reuse existing focused tests and commands before creating anything new; add or update durable tests when that is the simplest reliable regression protection. Do not create a second test framework, overlapping coverage, a repository scratch script, or a custom verification harness.\n")
 	b.WriteString("Do not substitute broader checks, repeat expensive passing evidence, or invent unrelated verification work. Stop when the approved behavior is complete and every obligation has reliable evidence. ")
-	entryLabel := "entries"
-	if approvedChecks == 1 {
-		entryLabel = "entry"
-	}
-	fmt.Fprintf(b, "For a successful result, return exactly %d verification evidence %s: one for each obligation, in the same order. Combine related observations for the same obligation into its single entry.\n", approvedChecks, entryLabel)
+	b.WriteString("Combine related observations for the same obligation into its single entry.\n")
+	b.WriteString("These candidate-bound entries are the evidence handoff to QA; temporary logs and ignored reports are not copied. Follow the implementer skill's self-contained evidence guidance, including affected test identities, commands/settings, and both outcomes after a failed check and rerun.\n")
 }
 
 func (e AgentExecutor) timeout() time.Duration {

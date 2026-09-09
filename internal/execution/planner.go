@@ -106,15 +106,8 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		}()
 		prompt += reviewerVerificationInstruction(workspace)
 	}
-	if role == RolePlanner || role == RoleReviewer {
-		prompt += trustedSkillInstructions(cfg)
-	}
-	if kind == config.HarnessCodexCLI {
-		prompt += codexMCPPromptForConfig(cfg.MCPServers, cfg.SafeTools, cfg.HarnessConfigMode)
-	} else if kind == config.HarnessClaudeCLI {
-		prompt += runnerBrowserPrompt(cfg.SafeTools)
-	}
-	prompt += profileRepositoryInstruction(workspace)
+	guidance := harnessGuidance(kind, cfg, role == RolePlanner || role == RoleReviewer)
+	prompt = guidance + prompt + profileRepositoryInstruction(workspace)
 	switch kind {
 	case config.HarnessCodexCLI:
 		artifacts, err := newStructuredResultArtifacts("runner-plan", schema)
@@ -140,6 +133,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		// exec --ignore-user-config or its stdio handshake can stall.
 		args = append(args, mcpArgs...)
 		args = append(args, "--output-last-message", artifacts.outputPath(), "--output-schema", artifacts.schemaPath())
+		recordPromptContext(ctx, guidance)
 		startedAt := time.Now()
 		finishHarness := metrics.StartStage(ctx, stageName)
 		result, runErr := subprocess.RunBoundedHeadTailInput(ctx, run, command, args, workspace.Dir, timeout, strings.NewReader(prompt), maxHarnessDiagnosticBytes, harnessTruncationMarker)
@@ -184,6 +178,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 				args = append(args, "--thinking", effort)
 			}
 		}
+		recordPromptContext(ctx, guidance)
 		startedAt := time.Now()
 		finishHarness := metrics.StartStage(ctx, stageName)
 		result, lastMessage, usage, failureEvidence, runErr := executor.runHarnessWithPiTransport(ctx, args, workspace.Dir, strings.NewReader(prompt), schema, piConstrainedSamplingStrict, piDirectNative)

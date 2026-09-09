@@ -546,9 +546,11 @@ configured authority, which the report labels explicitly.
 
 `doctor --probe-harnesses` and ordinary `harness check` do not run browser QA.
 If a required capability is still unavailable, Runner blocks the card with a
-retry destination instead of
-treating an unrun check as passed. A capability-blocked review does not consume
-a QA rejection. When QA does request changes, Runner stores the
+retry destination instead of treating an unrun check as passed. An inconclusive
+QA verdict is reported as `review_incomplete` ("QA evidence incomplete"), not
+as a tooling diagnosis; `capability_unavailable` is reserved for Runner/adapter
+capability failures. Neither consumes a QA rejection. When QA does request
+changes, Runner stores the
 actionable detail privately beside its state and supplies it to the next
 implementation, while the GitHub Project receives only a bounded summary.
 Runner also supplies that retained feedback to the subsequent reviewer so it
@@ -557,6 +559,19 @@ A failed proof obligation records the review result but does not stop that
 bounded audit: the reviewer continues through its remaining card-owned behavior
 and groups directly adjacent variants of an exposed invariant so one QA attempt
 returns all reasonably visible blockers together.
+
+Implementer guidance requires self-contained evidence, including affected test
+names, commands/settings, and both outcomes after failures and reruns. Runner
+retains that text bound to the candidate; temporary or ignored reports are not
+copied into QA. For a known unexplained timeout, QA gets one unchanged diagnostic
+confirmation. When historical details are missing, it instead gathers fresh
+evidence for the unresolved requirement using documented repository settings,
+without claiming to reproduce the historical run. A passing focused check does
+not establish an unknown full-suite result or erase a concrete defect.
+Genuinely inconclusive proof remains blocked. This adds no harness stage or
+automatic retry loop and does not change the configured QA rejection limit.
+After upgrading, refresh the bundled implementer and reviewer skills with
+`cortexium-runner doctor --config "$RUNNER_CONFIG" --fix --offline`.
 
 `cortexium-runner status` lists only currently executable agent-lane cards as
 `Queued work`. Cards held by a dependency, transition recovery, incomplete
@@ -589,6 +604,9 @@ cortexium-runner status --verbose --config "$RUNNER_CONFIG"
 
 # Local usage, timing, harness-call count, saved-result resumes, and attempt history
 cortexium-runner metrics --config "$RUNNER_CONFIG"
+
+# Private recurring-failure drafts for review (never automatically activated)
+cortexium-runner guidance --config "$RUNNER_CONFIG"
 
 # Preview and retry a blocked card to its recorded lane
 cortexium-runner retry --dry-run --config "$RUNNER_CONFIG"

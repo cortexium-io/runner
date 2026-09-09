@@ -72,6 +72,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		return runStatus(ctx, args[1:], stdout)
 	case "metrics":
 		return runMetrics(args[1:], stdout)
+	case "guidance":
+		return runGuidance(args[1:], stdout)
 	case "harness":
 		return runHarness(ctx, args[1:], stdout)
 	case "workflow":
@@ -108,6 +110,7 @@ Execution:
   cortexium-runner run [--config PATH] [--once] [--poll-interval DURATION] [--max-idle-interval DURATION]
   cortexium-runner status [--config PATH]
   cortexium-runner metrics [--config PATH] [--item ID|TITLE] [--json]
+  cortexium-runner guidance [--config PATH] [--min-occurrences N] [--json]
 
 Customization:
   cortexium-runner role list|show|add|edit|remove [options]
@@ -165,7 +168,9 @@ func runConfiguredWorker(ctx context.Context, configPath string, once bool, poll
 		return fmt.Errorf("configure runner: %w", err)
 	}
 	service.EnableLocalAdmission()
-	attachMetricsStore(service, cfg, stdout)
+	if store := attachMetricsStore(service, cfg, stdout); store != nil {
+		service.SetMetricsObserver(guidanceMetricsObserver(store, cfg, stdout))
+	}
 	projectLock, err := github.AcquireProcessLock(*cfg.GitHubProject)
 	if err != nil {
 		return err

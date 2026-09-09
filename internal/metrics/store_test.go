@@ -89,6 +89,27 @@ func TestStoreRejectsStageWithoutStableIdentity(t *testing.T) {
 	}
 }
 
+func TestStoreRetainsIncompleteReviewClassification(t *testing.T) {
+	store := NewStore(t.TempDir() + "/metrics.jsonl")
+	event := Event{
+		Kind: EventCompleted, AttemptID: "incomplete_review", Role: "reviewer", Outcome: "needs_input",
+		FailureClass: "review_incomplete", RetryDisposition: "manual",
+		Summary:      "Review checks: 8 passed, 0 failed, 1 blocked.",
+		Verification: []string{"Historical test names were missing; current verification remained inconclusive."},
+	}
+	if err := store.Append(event); err != nil {
+		t.Fatal(err)
+	}
+	history, err := store.Read()
+	if err != nil || history.MalformedRecords != 0 || len(history.Attempts) != 1 {
+		t.Fatalf("incomplete review was lost from metrics: %#v, %v", history, err)
+	}
+	got := history.Attempts[0]
+	if got.FailureClass != event.FailureClass || got.RetryDisposition != "manual" || len(got.Verification) != 1 || got.Verification[0] != event.Verification[0] {
+		t.Fatalf("incomplete review changed in durable metrics: %#v", got)
+	}
+}
+
 func TestSummaryCountsEveryModelCallStageAsHarnessInvocation(t *testing.T) {
 	stages := []string{StageHarnessRun, StagePlannerOutline, StagePlannerDetails, StageReviewerAudit, StageReviewerVerify}
 	attempt := Attempt{Stages: make([]Stage, 0, len(stages))}

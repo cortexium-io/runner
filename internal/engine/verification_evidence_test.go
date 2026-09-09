@@ -16,7 +16,10 @@ func TestVerificationEvidenceIsPrivateAndBoundToCandidateAndCriteria(t *testing.
 	metadata := workspace.Metadata{BranchName: "runner/evidence", Identity: workspace.Identity{Repository: "owner/repo"}}
 	candidate := workspace.Candidate{CommitOID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeOID: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
 	criteria := []string{"focused test passes", "diff check passes"}
-	evidence := []string{"go test ./focused passed", "git diff --check passed"}
+	evidence := []string{
+		"go test ./focused -run TestRestore -timeout 30s -parallel 2: TestRestore timed out. One unchanged rerun passed; the trace showed restoration completed. Original cause remains unknown. No environment changes.",
+		"git diff --check passed",
+	}
 	if err := service.saveVerificationEvidence(item, content, metadata, candidate, criteria, evidence); err != nil {
 		t.Fatalf("save evidence: %v", err)
 	}

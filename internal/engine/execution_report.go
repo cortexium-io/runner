@@ -40,6 +40,8 @@ func remoteDiagnosticSummary(output execution.Output) string {
 		return "Runner rejected an invalid structured-result contract."
 	case execution.FailureCapabilityUnavailable:
 		return "Runner classified a required local capability as unavailable."
+	case execution.FailureReviewIncomplete:
+		return "QA evidence incomplete. Required checks could not be established; details are retained locally."
 	case execution.FailureBrowserStartup:
 		return "Runner's runner_browser MCP server timed out before the Codex session started."
 	case execution.FailureNeedsInput:
@@ -82,7 +84,7 @@ func recoveryClassification(output execution.Output) string {
 func boundedFailureClass(class execution.FailureClass) string {
 	switch class {
 	case execution.FailureTransientExternal, execution.FailureCapacityExhausted, execution.FailureTimeout,
-		execution.FailureCanceled, execution.FailureInvalidContract, execution.FailureCapabilityUnavailable, execution.FailureBrowserStartup,
+		execution.FailureCanceled, execution.FailureInvalidContract, execution.FailureCapabilityUnavailable, execution.FailureReviewIncomplete, execution.FailureBrowserStartup,
 		execution.FailureNeedsInput, execution.FailurePermissionDenied, execution.FailureAuthenticationRequired,
 		execution.FailureInvalidConfiguration, execution.FailureCandidateValidation, execution.FailureIntegrityViolation:
 		return string(class)

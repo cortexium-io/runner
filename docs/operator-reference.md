@@ -105,7 +105,7 @@ continues observing unrelated Project and pull-request events while harness
 actions are in flight. It does nothing once you stop it. Use
 `cortexium-runner run --once` for one synchronous polling cycle in a diagnostic
 or scripted workflow. `init`, `doctor`, `plan`, `approve`, `retry`, `status`,
-`metrics`, `role`, `workflow`, and `harness` are one-shot commands that exit
+`metrics`, `guidance`, `role`, `workflow`, and `harness` are one-shot commands that exit
 when they finish. Running
 `cortexium-runner` without arguments shows help; every command supports
 `--help`, and `--version` prints the installed version.
@@ -562,8 +562,8 @@ that application state. Attempt and stage start records are written before work
 and completion records afterward, so an abrupt stop remains visible. Attempt
 records can contain concise task and verification summaries. Stage records are
 restricted to attempt identity, a fixed stage name, timing, outcome, recovery
-classification, and reported usage; neither record type contains prompts,
-transcripts, command arguments, raw harness responses, or raw failure
+classification, reported usage, and prompt-context fingerprints; neither record
+type contains prompts, transcripts, command arguments, raw harness responses, or raw failure
 diagnostics. Runner never estimates missing tokens or cost: Claude Code cost is
 shown only when Claude reports it, Codex token counts are shown when its JSON
 event stream includes them, and unavailable Pi counters remain explicitly
@@ -571,6 +571,94 @@ unavailable. History begins with the first metrics-enabled run and cannot
 reconstruct earlier attempts. Runner does not yet rotate or expire this history
 automatically. The `metrics` output shows its exact `History` path; to clear it,
 stop Runner and delete that one file. The next attempt recreates it.
+
+### Recurring-failure drafts and shared guidance
+
+```bash
+cortexium-runner guidance --config "$RUNNER_CONFIG"
+cortexium-runner guidance --config "$RUNNER_CONFIG" --min-occurrences 3 --json
+```
+
+`guidance` is a read-only, local view of that history. It needs no GitHub or
+model call and can run while the background service is working. The service
+also emits a fixed, content-free notice when a new draft reaches the threshold.
+By default, a pattern must occur on **two distinct cards**. Set the optional
+top-level configuration field `"guidance_min_occurrences": 3` to require three
+(any integer of at least two is valid); restart the service to apply it.
+`--min-occurrences` overrides the threshold for one inspection only. Existing
+configs need no migration, and `init` preserves this setting.
+
+The detector groups exact failed QA finding text, normalizing whitespace only,
+and Runner's fixed failure-class/operation combinations. It separates projects,
+repositories, roles, harnesses, and finding categories. Multiple findings or
+retries of one card count once per pattern. A different model on the same role
+can contribute another card; model, reasoning, attempt ID, candidate commit
+when available, and prompt-context fingerprints remain in the draft's incident
+references. Use `metrics --item CARD_ID --json` to inspect the original evidence
+and cost, including all retries.
+
+Drafts suggest an investigation destination: project knowledge for repeated
+failed QA findings, skill guidance for repeated evidence/contract/candidate
+validation problems, and Runner/tooling investigation for other classified
+failures. These are triage suggestions, **not diagnosed root causes**. A blocked
+review is an evidence gap, not a confirmed code defect. Unknown failures, human
+input requests, cancellation, stage-only records, and records without repository
+provenance do not produce drafts. Old history lacks the new structured QA
+observations; Runner does not guess them from prose or backfill missing scope.
+Different wording is not automatically clustered. Distinct cards are a useful
+signal, not proof that two incidents have independent causes.
+
+No draft is activated, injected into prompts, written into a skill, or posted to
+GitHub. Drafts have stable IDs and are reconstructed from the existing private
+history; there is no extra memory database or persistent approval queue. Restart
+rebuilds the same view without announcing existing drafts again. History and
+drafts currently have no automatic expiry or resolved/dismissed state. Review
+current source and fixes before turning an old pattern into guidance.
+
+To publish a useful lesson, independently check its incident evidence and then
+make an explicitly approved, ordinary Git change to the appropriate project
+guide or role skill. Keep a project guide small and link it from the project's
+`AGENTS.md`: orientation, concrete invariants, established test entrypoints, and
+short validated lessons with source references. Do not copy raw logs, card
+transcripts, secrets, or model-authored instructions into it. Merge related
+lessons, remove obsolete ones, and prefer a Runner code fix when the mistake can
+be prevented deterministically. Guidance must not relax acceptance conditions,
+security boundaries, or independent QA.
+
+### Context layout and token caching
+
+Runner places pinned skill/capability text and fixed role/stage instructions
+before changing card titles, approved bodies, proof lists, prior review data,
+and workspace paths. It does not insert live draft counts, timestamps, or
+history into that prefix. The planner, implementer, and shared reviewer use
+this layout across Codex CLI, Claude Code, and Pi. Repository guidance remains
+part of normal repository instruction/source inspection, not an automatically
+injected or hot-reloaded memory block.
+
+`metrics` exposes `prompt_contexts`: a `layout` version and a SHA-256
+`guidance_digest` of the actual pinned skill/capability text. Stages retain the
+version selected at start; attempts list the distinct versions encountered.
+An exact saved-result resume does not pretend a new prompt was sent. The digest
+does **not** cover repository instruction files, arbitrary tool results, the
+entire provider request, or cache contents. No prompt text is logged.
+
+Stable-first rendering removes avoidable prefix changes; it does not guarantee
+cache hits. Native harnesses control the rendered messages, tools, output
+schemas, routing, and provider caching. In particular, shared text alone does
+not ensure an eligible reusable prefix, and switching models or configurations
+can prevent reuse. Runner does not set API-only cache keys, retention policies,
+or breakpoints through unsupported CLI flags. See OpenAI's
+[prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching).
+
+Compare total reported usage, cost when available, harness time, and rejection
+counts for completed cards including all attempts, grouped by model/reasoning
+and prompt context. Cache counters alone are not a success metric, and missing
+provider counters are not evidence of zero caching. A changed prefix may lose
+an existing cache entry; correctness, useful context, and isolation take
+precedence over retaining stale guidance. Live cache/cost gains need a measured
+project trial; local prompt tests do not establish them.
+
+### Repository workspace
 
 `project_dir` is the source checkout for the one configured
 `intake_repository`. Its configured GitHub remote must identify that same
@@ -781,15 +869,28 @@ The lifecycle generated by `init` is:
    as bounded historical planning context on a human-authorized retry.
    Completing the planning card records that the batch was released; the source
    issue remains open until all exact children have merged successfully.
-4. An implementer works in an isolated branch/worktree. Success moves the same
-   card to `Agent QA`. Runner stores the structured work and verification
-   evidence on the card. Errors or requests for human input move it to
-   `Blocked` and retain the intended retry lane, except recognized transient
-   provider failures and pre-session browser startup timeouts, which receive
-   bounded operational retries in the same role lane. Ctrl-C is different: Runner
-   uses a fresh bounded context to verify the retained workspace and returns
-   the card to the interrupted role lane for the next run.
-5. Runner constructs the candidate commit before QA. Acceptance validates its
+4. An implementer works in an isolated branch/worktree. Runner constructs the
+   candidate commit before moving the same card to `Agent QA`. It retains the
+   structured work and verification evidence privately and records a summarized
+   outcome on the card.
+   If implementation's staged candidate has unresolved conflicts or fails
+   `git diff --cached --check`, Runner retains the worktree, clears the unusable
+   saved result, and immediately gives the same implementer one corrective pass
+   within the current action. The card stays in progress; no polling delay or
+   QA rejection is involved. The implementer receives the correction and prior
+   evidence, while Runner still owns staging, commits, and final validation.
+   Both harness calls count toward usage. If candidate validation fails again,
+   Runner records an actionable `candidate_validation` blocker without publishing
+   file contents or paths. The recorded plain retry reruns implementation with
+   that correction. Git identity and administration failures remain private
+   workspace-integrity blockers and do not trigger automatic correction.
+   Other errors or requests for human input move the card to `Blocked` and
+   retain the intended retry lane, except recognized transient provider failures
+   and pre-session browser startup timeouts, which receive bounded operational
+   retries in the same role lane. Ctrl-C is different: Runner uses a fresh bounded
+   context to verify the retained workspace and returns the card to the
+   interrupted role lane for the next run.
+5. QA reviews the candidate commit. Acceptance validates its
    immutable publication tuple, re-fetches the approved base, and pushes that
    exact accepted commit OID to its recorded full branch ref under sanitized
    Git configuration. If publication or its Project transition is interrupted,
@@ -805,13 +906,6 @@ The lifecycle generated by `init` is:
    worktree. The task branch is retained. `Runner Activity` shows `Awaiting
    human review` or the current automatic-integration wait until the card leaves
    `PR Ready`.
-   If the candidate has unresolved conflicts or fails
-   `git diff --cached --check`, Runner records an actionable
-   `candidate_validation` blocker without
-   publishing file contents or paths, clears the unusable saved result, and
-   retains the worktree. The recorded plain retry reruns implementation with
-   that correction. Git identity and administration failures remain private
-   workspace-integrity blockers.
    With `github_project.auto_merge: true`, this queues the PR for the separate
    integration action. Reconciliation asks GitHub to merge only after the PR
    owns its repository/base integration resource and still matches the latest
@@ -1649,8 +1743,12 @@ automatic retries for unknown errors. Raw diagnostics stay local, not in GitHub
 reports or metrics. It cannot recover diagnostics already discarded by an older
 Runner version.
 
-If Agent QA reports unavailable browser capability, stop repeated retries. A
-capability-blocked review does not increment the QA rejection count. On macOS,
+If Runner reports unavailable browser capability, stop repeated retries. A
+capability blocker does not increment the QA rejection count. An inconclusive
+QA verdict instead reports `review_incomplete` ("QA evidence incomplete"); that
+label alone does not diagnose a browser, Docker, permission, or dependency
+failure. Inspect the retained local metrics/evidence before choosing recovery.
+On macOS,
 Codex's native sandbox can reject Chromium's Mach-port registration even while
 local servers and repository operations work. Runner therefore launches the
 pinned browser as a separate local process with only three tools, loopback-only
@@ -1878,7 +1976,29 @@ or ordinary fixed-size simulation steps executed without wall-clock pacing;
 real-time smoke checks remain short and are required only when real scheduling,
 pacing, or presentation integration is part of the claim.
 
-Bundled skills 1.8.3 clarify this read-only inspection boundary. After upgrading,
+The implementer must return self-contained evidence in each proof entry. After
+a failure and rerun, include affected file/test names, commands/selectors,
+worker counts, timeout limits, relevant non-secret environment differences,
+both outcomes, and diagnostic observations. Runner retains these entries bound
+to the candidate; ignored reports and temporary logs are not copied into QA.
+Artifact paths and aggregate pass counts alone do not establish the result.
+
+A known unexplained timing failure gets one focused, unchanged confirmation with
+a trace or equivalent diagnostics inside the existing verification call. An
+existing unchanged diagnostic retry counts toward that bound. When historical
+test names, settings, or reports are missing, QA gathers fresh evidence with the
+smallest existing check covering the unresolved requirement under documented
+repository settings. It must distinguish fresh verification from reproducing
+the old run and retain uncertainty about unknown historical failures. Fresh
+focused success is not evidence that the full historical suite passed. QA must
+not raise timeouts, reduce concurrency, change assertions, or rerun until green.
+Concrete defects remain failures; genuinely inconclusive proof reports
+`review_incomplete`, retaining the manual QA retry lane without consuming a
+QA rejection. This is not an instruction to repair tooling or implementation
+unless the evidence identifies such a problem.
+
+Bundled skills 1.8.5 add the evidence handoff and fresh-verification fallback.
+After upgrading,
 use `doctor --fix --offline` with the project configuration to refresh installed
 bundled skills, reviewing locally customized copies before replacement. No
 configuration or Project-field migration is required.
