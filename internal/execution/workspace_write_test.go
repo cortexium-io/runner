@@ -220,6 +220,7 @@ func runLiveWorkspaceAssignment(t *testing.T, kind string, assignment Assignment
 	}
 	repo := initGitRepo(t)
 	cfg := config.ExecutionConfig{
+		Skills:           []string{"runner-implementer"},
 		WorkspaceBaseRef: "HEAD",
 		Harness: config.HarnessConfig{
 			Kind: kind, Command: liveHarnessCommand(kind), WorkingDir: repo, WorkspaceWriteRoot: filepath.Join(t.TempDir(), "worktrees"), TimeoutSeconds: timeoutSeconds, ReasoningEffort: reasoningEffort,

@@ -143,6 +143,15 @@ func codexExecIsolationArgs(profile ExecutionProfile, workspace profileWorkspace
 	return codexExecArgsForConfig(profile, workspace, config.HarnessConfigModeIsolated)
 }
 
+func codexInvocationArgs(profile ExecutionProfile, workspace profileWorkspace, safeTools bool, harnessConfigMode, command string) []string {
+	policy := codexProfileArgsForConfig(profile, workspace, safeTools, harnessConfigMode, command)
+	// Approval is a root-only flag. Apply the remaining invocation policy on
+	// exec, after its isolation flags, so exec resolves these overrides itself.
+	args := append([]string(nil), policy[:2]...)
+	args = append(args, codexExecArgsForConfig(profile, workspace, harnessConfigMode)...)
+	return append(args, policy[2:]...)
+}
+
 func codexExecArgsForConfig(profile ExecutionProfile, workspace profileWorkspace, harnessConfigMode string) []string {
 	args := []string{"exec"}
 	if !inheritsHarnessConfiguration(harnessConfigMode) {
