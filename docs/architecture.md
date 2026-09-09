@@ -321,6 +321,15 @@ approved scope; this context does not reopen resolved proof keys. The handoff
 does not claim that unresolved source inspection already happened. Runner merges
 the observations and derives the verdict and final summary from the merged
 checks, not from superseded stage summaries.
+The bundled work-role guidance runs heavyweight verification commands
+sequentially within each assignment, without changing a command's configured
+workers or timeout. A server required by the active check is allowed; unrelated
+test suites, browser runs, builds, and installs must not overlap. The focused
+review prompt reinforces this rule. It is not a host-wide resource lock or a
+change to admission of independent cards. When accidental overlap contributed
+to a timing failure, the bounded confirmation corrects that scheduling and
+records the difference instead of claiming an unchanged reproduction or proof
+of concurrent-load reliability.
 The bundled implementer supplies self-contained command, scope, settings, and
 outcome evidence in the existing candidate-bound record. Failed checks and
 reruns include affected test identities and both outcomes; temporary reports
