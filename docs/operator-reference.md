@@ -41,11 +41,14 @@ The reviewer can restore its existing locked dependencies and create build,
 cache, and test output there without changing the read-only reviewed checkout.
 Source, tests, manifests, and lockfiles must remain unchanged; Runner rejects
 the review result if copied source changes. With `safe_tools` enabled, this
-focused stage permits npm-registry and loopback access, not arbitrary package
-registries or external services. Other prerequisites must already be available
-within the configured access boundary. Local applications must use this copy
-and their own loopback port, not a shared server. The copy is removed after the
-stage. No new configuration is required. After upgrading, restart the service
+focused stage permits loopback and the npm registry plus the fixed public Go
+module path through `proxy.golang.org`, the `storage.googleapis.com` archive
+redirect, and `sum.golang.org`. It does not permit arbitrary package registries
+or external services; audit-only review gets no package-download access. Other
+prerequisites must already be available within the configured access boundary.
+Local applications must use this copy and their own loopback port, not a shared
+server. The copy is removed after the stage. No new configuration is required.
+After upgrading, restart the service
 with the new binary and run `doctor --fix --offline --config PATH` to refresh the
 bundled reviewer skill before retrying a card blocked by missing QA dependencies.
 
@@ -1675,11 +1678,16 @@ Browser rendering, console inspection, and interaction checks are optional
 harness capabilities, not part of the basic structured-result adapter
 contract. Sandboxed Codex and Claude implementers and reviewers receive
 Runner's bounded development profile by default. It provides package commands
-inside the native filesystem sandbox, npm-registry and loopback network access
-for implementers, and a pinned `runner_browser` server restricted to loopback
-pages with external name resolution disabled. The browser uses a temporary
-profile and mock keychain; it cannot attach to the operator's normal browser
-profile. Its `npx` cwd and npm configuration are temporary mode-`0700`
+inside the native filesystem sandbox. Safe-tool implementers receive loopback
+and the npm registry plus the fixed public Go module path through
+`proxy.golang.org`, the `storage.googleapis.com` archive redirect, and
+`sum.golang.org`; focused reviewer verification receives the same package hosts
+only in its disposable source copy. Planners and audit-only reviewers receive
+no package-download access. The profile also provides a pinned `runner_browser`
+server restricted to loopback pages with external name resolution disabled.
+The browser uses a temporary profile and mock keychain; it cannot attach to the
+operator's normal browser profile. Its `npx` cwd and npm configuration are
+temporary mode-`0700`
 host-owned paths, while its reusable package cache remains under the same
 private root; none are writable from the harness sandbox. Runner does
 not download Chrome. Chrome or Chromium 149+ is required
