@@ -244,6 +244,7 @@ type profileWorkspace struct {
 	GitReadRoots     []string
 	ToolReadPaths    []string
 	TempDir          string
+	NPMCacheDir      string
 	TrustedToolDir   string
 	ToolPath         string
 	cleanup          func() error
@@ -344,6 +345,11 @@ func populateProfileWorkspacePaths(workspace *profileWorkspace, repositoryRoot s
 		return fmt.Errorf("resolve repository Git metadata for sandbox: %w", err)
 	}
 	workspace.GitReadRoots = gitRoots
+	npmCache, err := sandboxpath.NPMCacheRoot()
+	if err != nil {
+		return fmt.Errorf("resolve npm cache for sandbox: %w", err)
+	}
+	workspace.NPMCacheDir = npmCache
 	workspace.ToolReadPaths = developmentToolReadPaths()
 	if gitToolDir := macOSGitToolDirectory(); gitToolDir != "" {
 		workspace.ToolReadPaths = minimalPathRoots(append(workspace.ToolReadPaths, gitToolDir))
@@ -568,8 +574,8 @@ func codexStandaloneRoot(path string) string {
 }
 
 func developmentToolReadPathsWith(lookPath func(string) (string, error), evalSymlinks func(string) (string, error)) []string {
-	paths := make([]string, 0, 9)
-	for _, tool := range []string{"node", "npm", "npx"} {
+	paths := make([]string, 0, 12)
+	for _, tool := range []string{"node", "npm", "npx", "go"} {
 		found, err := lookPath(tool)
 		if err != nil || strings.TrimSpace(found) == "" {
 			continue
@@ -625,16 +631,34 @@ func homebrewRuntimeReadPaths(paths []string) []string {
 }
 
 func developmentToolPath() string {
-	directories := []string{macOSGitToolDirectory()}
-	for _, tool := range []string{"node", "npm", "npx"} {
-		if path, err := exec.LookPath(tool); err == nil && filepath.IsAbs(path) {
+	return developmentToolPathWith(exec.LookPath, macOSGitToolDirectory(), os.Getenv("PATH"))
+}
+
+func developmentToolPathWith(lookPath func(string) (string, error), gitToolDirectory, operatorPath string) string {
+	directories := []string{gitToolDirectory}
+	for _, tool := range []string{"node", "npm", "npx", "go"} {
+		if path, err := lookPath(tool); err == nil && filepath.IsAbs(path) {
 			directories = append(directories, filepath.Dir(filepath.Clean(path)))
 		}
 	}
 	directories = append(directories, "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
-	seen := map[string]bool{}
-	result := make([]string, 0, len(directories))
+	allowed := make(map[string]bool, len(directories))
 	for _, directory := range directories {
+		if directory != "" {
+			allowed[filepath.Clean(directory)] = true
+		}
+	}
+	ordered := []string{gitToolDirectory}
+	for _, directory := range filepath.SplitList(operatorPath) {
+		directory = filepath.Clean(directory)
+		if filepath.IsAbs(directory) && allowed[directory] {
+			ordered = append(ordered, directory)
+		}
+	}
+	ordered = append(ordered, directories...)
+	seen := map[string]bool{}
+	result := make([]string, 0, len(ordered))
+	for _, directory := range ordered {
 		if directory == "" || seen[directory] {
 			continue
 		}
@@ -660,15 +684,37 @@ func macOSGitToolDirectory() string {
 }
 
 func developmentToolRuntimeRoot(path string) string {
+	// Never promote a tool under the operator home into a home-wide read grant.
+	// If the home boundary is unavailable, omit inferred runtime roots entirely.
+	home, err := os.UserHomeDir()
+	if err != nil || !filepath.IsAbs(home) {
+		return ""
+	}
+	homePaths := []string{filepath.Clean(home)}
+	if resolved, resolveErr := filepath.EvalSymlinks(home); resolveErr == nil && filepath.IsAbs(resolved) {
+		homePaths = append(homePaths, filepath.Clean(resolved))
+	}
+
 	for directory := filepath.Dir(path); ; directory = filepath.Dir(directory) {
 		if filepath.Base(directory) == "bin" {
 			root := filepath.Dir(directory)
 			switch root {
 			case string(filepath.Separator), "/usr", "/System", "/bin", "/sbin":
 				return ""
-			default:
-				return filepath.Clean(root)
 			}
+			root = filepath.Clean(root)
+			rootPaths := []string{root}
+			if resolved, resolveErr := filepath.EvalSymlinks(root); resolveErr == nil && filepath.IsAbs(resolved) {
+				rootPaths = append(rootPaths, filepath.Clean(resolved))
+			}
+			for _, candidateRoot := range rootPaths {
+				for _, candidateHome := range homePaths {
+					if pathInsideOrEqual(candidateHome, candidateRoot) {
+						return ""
+					}
+				}
+			}
+			return root
 		}
 		parent := filepath.Dir(directory)
 		if parent == directory {

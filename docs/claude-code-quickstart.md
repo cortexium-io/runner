@@ -94,11 +94,16 @@ Operator-home reads are denied except for the
 assigned root and the implementer's npm cache. Claude still uses its existing
 login.
 
-Implementer and reviewer roles also inherit Runner's safe development tools:
-bounded npm/loopback access and an isolated, headless `runner_browser` limited
-to localhost pages. Runner launches that browser package from host-owned npm
-state that is not writable by the role sandbox. Verify the local prerequisites
-or opt out per role:
+Implementer and reviewer roles also inherit Runner's safe development tools.
+Safe-tool implementers receive loopback and the npm registry plus the fixed
+public Go module path through `proxy.golang.org`, the `storage.googleapis.com`
+archive redirect, and `sum.golang.org`. Focused reviewer verification receives
+the same package hosts only in its disposable source copy; planners and
+audit-only reviewers receive no package-download access. The profile also
+provides an isolated, headless `runner_browser` limited to localhost pages.
+Runner launches that browser package from host-owned npm state that is not
+writable by the role sandbox. Verify the local prerequisites or opt out per
+role:
 
 ```bash
 cortexium-runner doctor --config /absolute/operator/path/runner.json
