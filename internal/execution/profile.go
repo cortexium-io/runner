@@ -684,15 +684,37 @@ func macOSGitToolDirectory() string {
 }
 
 func developmentToolRuntimeRoot(path string) string {
+	// Never promote a tool under the operator home into a home-wide read grant.
+	// If the home boundary is unavailable, omit inferred runtime roots entirely.
+	home, err := os.UserHomeDir()
+	if err != nil || !filepath.IsAbs(home) {
+		return ""
+	}
+	homePaths := []string{filepath.Clean(home)}
+	if resolved, resolveErr := filepath.EvalSymlinks(home); resolveErr == nil && filepath.IsAbs(resolved) {
+		homePaths = append(homePaths, filepath.Clean(resolved))
+	}
+
 	for directory := filepath.Dir(path); ; directory = filepath.Dir(directory) {
 		if filepath.Base(directory) == "bin" {
 			root := filepath.Dir(directory)
 			switch root {
 			case string(filepath.Separator), "/usr", "/System", "/bin", "/sbin":
 				return ""
-			default:
-				return filepath.Clean(root)
 			}
+			root = filepath.Clean(root)
+			rootPaths := []string{root}
+			if resolved, resolveErr := filepath.EvalSymlinks(root); resolveErr == nil && filepath.IsAbs(resolved) {
+				rootPaths = append(rootPaths, filepath.Clean(resolved))
+			}
+			for _, candidateRoot := range rootPaths {
+				for _, candidateHome := range homePaths {
+					if pathInsideOrEqual(candidateHome, candidateRoot) {
+						return ""
+					}
+				}
+			}
+			return root
 		}
 		parent := filepath.Dir(directory)
 		if parent == directory {
