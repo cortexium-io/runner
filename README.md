@@ -597,6 +597,11 @@ If a retained unpublished implementation has lost its approval and landed in
 assessment, `retry --reauthorize` provides an explicit, confirmed single-card
 recovery without resetting its work or QA count. See the
 [recovery requirements and commands](docs/operator-reference.md).
+For a paused QA candidate with a retained PR and withdrawn approval,
+`retry --reauthorize --qa-only` previews and confirms one local review of the
+exact candidate and current requirements. It leaves the card paused, preserves
+history, and cannot implement, publish, merge, or retry automatically—even on
+acceptance. `--dry-run` and `--json` only preview this operation.
 
 ## Useful commands
 

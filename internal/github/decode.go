@@ -85,7 +85,7 @@ func FormatPlannedItemBody(item PlannedItem) string {
 		}
 	}
 	if strings.TrimSpace(item.ProjectSource) != "" {
-		b.WriteString("\n## Original project request\n\n--- BEGIN ORIGINAL REQUEST ---\n")
+		b.WriteString("\n## Original project request\n\nHistorical planning provenance: approval-status statements here describe the original request, not the card's current Runner authority. Substantive constraints and non-goals still apply.\n\n--- BEGIN ORIGINAL REQUEST ---\n")
 		b.WriteString(strings.TrimSpace(item.ProjectSource))
 		b.WriteString("\n--- END ORIGINAL REQUEST ---")
 	}

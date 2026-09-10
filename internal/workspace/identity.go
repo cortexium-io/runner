@@ -52,6 +52,29 @@ func activeIdentityPath(worktreeRoot, workID string) string {
 // never creates, reopens, quarantines, or changes a workspace. Its private
 // content binding proves that this exact work previously reached execution.
 func (p GitProvider) ValidateRetainedIdentity(ctx context.Context, request Request) (Identity, error) {
+	return p.validateRetainedIdentity(ctx, request, false)
+}
+
+// InspectRetainedReview reads the original private binding without changing it
+// to the current card body. The caller must separately preview and authorize
+// the current review requirements. This grants no normal workflow authority.
+func (p GitProvider) InspectRetainedReview(ctx context.Context, request Request) (Metadata, error) {
+	identity, err := p.validateRetainedIdentity(ctx, request, true)
+	if err != nil {
+		return Metadata{}, err
+	}
+	repoRoot, err := p.repositoryRoot(ctx, request.WorkingDir)
+	if err != nil {
+		return Metadata{}, err
+	}
+	snapshot, err := CaptureCheckoutSnapshotWithLimits(ctx, p.run, repoRoot, 30*time.Second, p.limits)
+	if err != nil {
+		return Metadata{}, err
+	}
+	return bindGitAdministration(metadataFor(repoRoot, snapshot, identity))
+}
+
+func (p GitProvider) validateRetainedIdentity(ctx context.Context, request Request, reviewOriginalContent bool) (Identity, error) {
 	repoRoot, err := p.repositoryRoot(ctx, request.WorkingDir)
 	if err != nil {
 		return Identity{}, err
@@ -80,6 +103,9 @@ func (p GitProvider) ValidateRetainedIdentity(ctx context.Context, request Reque
 	recorded, err := decodeIdentity(content)
 	if err != nil {
 		return Identity{}, err
+	}
+	if reviewOriginalContent {
+		request.DelegatedContentDigest = recorded.DelegatedContentDigest
 	}
 	baseRef, err := p.canonicalBaseRef(ctx, repoRoot, request.BaseRef)
 	if err != nil {

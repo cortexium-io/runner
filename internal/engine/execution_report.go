@@ -66,6 +66,8 @@ func remoteDiagnosticSummary(output execution.Output) string {
 			return "Runner could not validate the retained QA acceptance record. No reviewer ran; inspect the local acceptance state before retrying."
 		}
 		return "Runner detected a workspace integrity violation and blocked continuation."
+	case execution.FailureIntegrityUnverified:
+		return "Runner could not complete the workspace integrity check. This does not establish a workspace change; publication is blocked until verification succeeds."
 	default:
 		return "Runner classified an unknown local failure. Details are retained locally."
 	}
@@ -91,7 +93,7 @@ func boundedFailureClass(class execution.FailureClass) string {
 	case execution.FailureTransientExternal, execution.FailureCapacityExhausted, execution.FailureTimeout,
 		execution.FailureCanceled, execution.FailureInvalidContract, execution.FailureCapabilityUnavailable, execution.FailureReviewIncomplete, execution.FailureBrowserStartup,
 		execution.FailureNeedsInput, execution.FailurePermissionDenied, execution.FailureAuthenticationRequired,
-		execution.FailureInvalidConfiguration, execution.FailureCandidateValidation, execution.FailureIntegrityViolation:
+		execution.FailureInvalidConfiguration, execution.FailureCandidateValidation, execution.FailureIntegrityViolation, execution.FailureIntegrityUnverified:
 		return string(class)
 	default:
 		return string(execution.FailureUnknown)

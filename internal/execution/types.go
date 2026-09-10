@@ -17,6 +17,7 @@ type Spec struct {
 	ReviewBaseOID          string                 `json:"review_base_oid,omitempty"`
 	ReviewCandidateOID     string                 `json:"review_candidate_oid,omitempty"`
 	ReviewRequired         bool                   `json:"review_required,omitempty"`
+	ReviewOnly             bool                   `json:"review_only,omitempty"`
 }
 
 // ReviewBaseline is historical evidence from a completed review of the same
@@ -73,6 +74,7 @@ const (
 	FailureInvalidConfiguration   FailureClass = "invalid_configuration"
 	FailureCandidateValidation    FailureClass = "candidate_validation"
 	FailureIntegrityViolation     FailureClass = "integrity_violation"
+	FailureIntegrityUnverified    FailureClass = "integrity_unverified"
 )
 
 type RetryDisposition string

@@ -61,6 +61,7 @@ func TestExecutionReportDistinguishesIncompleteReviewFromUnavailableCapability(t
 	}{
 		{execution.FailureReviewIncomplete, "QA evidence incomplete"},
 		{execution.FailureCapabilityUnavailable, "required local capability as unavailable"},
+		{execution.FailureIntegrityUnverified, "does not establish a workspace change"},
 	} {
 		t.Run(string(test.class), func(t *testing.T) {
 			private := "token=secret missing report /private/test-output.log"

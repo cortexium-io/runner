@@ -169,6 +169,12 @@ func (m PullRequestManager) InspectAuthorized(ctx context.Context, action Author
 	return m.inspect(ctx, item.Repository, item.PullRequest, false, false)
 }
 
+// InspectForRecovery validates the destination and reads PR identity without
+// granting an action permission to publish, refresh, comment, or merge.
+func (m PullRequestManager) InspectForRecovery(ctx context.Context, repository, pullRequest string) (PullRequestDetails, error) {
+	return m.inspect(ctx, repository, pullRequest, false, false)
+}
+
 // InspectAuthorizedWithFeedback performs the heavier review/comment lookup for
 // the uncommon paths that actually consume trusted human feedback.
 func (m PullRequestManager) InspectAuthorizedWithFeedback(ctx context.Context, action AuthorizedAction) (PullRequestDetails, error) {

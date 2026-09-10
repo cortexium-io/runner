@@ -1247,16 +1247,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation verification evidence is not valid for QA", err,
 			integrityViolationOutput("Implementation verification evidence is not valid for QA", err), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
-	cfg := s.executionConfig(item.Role, harness, reviewWorkspace.Path)
-	var output execution.Output
-	switch harness {
-	case config.HarnessCodexCLI:
-		output, err = execution.NewCodexExecutor(cfg, s.run).Execute(ctx, assignment)
-	case config.HarnessClaudeCLI, config.HarnessPiCLI:
-		output, err = execution.NewAgentExecutor(harness, cfg, s.run).Execute(ctx, assignment)
-	default:
-		err = fmt.Errorf("unsupported reviewer harness %q", harness)
-	}
+	output, err := s.runReviewer(ctx, item.Role, reviewWorkspace.Path, assignment)
 	result.HarnessDurationMilliseconds = output.HarnessDurationMilliseconds
 	result.Usage = output.Usage
 	result.WorkDone = append([]string(nil), output.WorkDone...)
@@ -1264,38 +1255,46 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	result.FailureClass = string(output.FailureClass)
 	result.RetryDisposition = string(output.RetryDisposition)
 	result.RetryAfter = output.RetryAfter
-	currentReviewSnapshot, snapshotErr := s.checkoutSnapshotState(ctx, reviewWorkspace.Path)
+	verifyCtx, cancelVerify := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancelVerify()
+	currentReviewSnapshot, snapshotErr := s.checkoutSnapshotState(verifyCtx, reviewWorkspace.Path)
 	if snapshotErr != nil {
 		combinedErr := errors.Join(err, snapshotErr)
 		return s.failExecution(ctx, action, lane, result, "Private Agent QA workspace integrity check failed", combinedErr,
-			integrityViolationOutput("Private Agent QA workspace integrity check failed", combinedErr, output))
+			integrityUnverifiedOutput("Private Agent QA workspace integrity check could not complete", combinedErr, output))
 	}
 	if currentReviewSnapshot.Fingerprint != reviewSnapshot.Fingerprint {
 		integrityErr := snapshotChangeError("private review content changed while Agent QA was running; Runner will not publish unreviewed side effects", reviewSnapshot, currentReviewSnapshot)
 		combinedErr := errors.Join(err, integrityErr)
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Agent QA changed the private review workspace", combinedErr, integrityViolationOutput("Agent QA changed the private review workspace", combinedErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
-	currentSnapshot, snapshotErr := s.checkoutSnapshotState(ctx, preparedWorkspace.WorktreePath)
+	currentSnapshot, snapshotErr := s.checkoutSnapshotState(verifyCtx, preparedWorkspace.WorktreePath)
 	if snapshotErr != nil {
 		combinedErr := errors.Join(err, snapshotErr)
 		return s.failExecution(ctx, action, lane, result, "Implementation workspace integrity check failed after Agent QA", combinedErr,
-			integrityViolationOutput("Implementation workspace integrity check failed after Agent QA", combinedErr, output))
+			integrityUnverifiedOutput("Implementation workspace integrity check could not complete after Agent QA", combinedErr, output))
 	}
 	if currentSnapshot.Fingerprint != qaSnapshot.Fingerprint {
 		integrityErr := snapshotChangeError("implementation content changed while Agent QA was running; Runner will not publish unreviewed side effects", qaSnapshot, currentSnapshot)
 		combinedErr := errors.Join(err, integrityErr)
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation workspace changed during Agent QA", combinedErr, integrityViolationOutput("Implementation workspace changed during Agent QA", combinedErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
-	currentSourceSnapshot, sourceSnapshotErr := s.checkoutSnapshotState(ctx, repoRoot)
+	currentSourceSnapshot, sourceSnapshotErr := s.checkoutSnapshotState(verifyCtx, repoRoot)
 	if sourceSnapshotErr != nil {
 		combinedErr := errors.Join(err, sourceSnapshotErr)
 		return s.failExecution(ctx, action, lane, result, "Active checkout integrity check failed after agent QA", combinedErr,
-			integrityViolationOutput("Active checkout integrity check failed after agent QA", combinedErr, output))
+			integrityUnverifiedOutput("Active checkout integrity check could not complete after Agent QA", combinedErr, output))
 	}
 	if currentSourceSnapshot.Fingerprint != sourceSnapshot.Fingerprint {
 		integrityErr := snapshotChangeError("active project checkout changed while agent QA was running; Runner will not publish unreviewed side effects", sourceSnapshot, currentSourceSnapshot)
 		combinedErr := errors.Join(err, integrityErr)
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Agent QA changed the active project checkout", combinedErr, integrityViolationOutput("Agent QA changed the active project checkout", combinedErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return s.failExecution(ctx, action, lane, result, "Runner stopped during QA", ctx.Err(), execution.Output{
+			Outcome: execution.OutcomeBlocked, Summary: "Harness execution was canceled.",
+			FailureClass: execution.FailureCanceled, RetryDisposition: execution.RetryNone, RemoteDetailSafe: true, DiscardDiagnostics: true,
+		})
 	}
 	result.Outcome, result.Summary = output.Outcome, output.Summary
 	if err != nil {
@@ -1592,6 +1591,13 @@ func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.Aut
 	if output.FailureClass == execution.FailureCanceled {
 		detail = "Runner stopped before the harness attempt completed. The card returned to its previous lane, and Runner retained the isolated workspace so the next run can resume safely."
 	}
+	if output.FailureClass == execution.FailureNeedsInput {
+		summary = "Awaiting human input."
+		detail = "Runner paused because the agent requested clarification. The question and evidence are retained in the local Runner output. Resolve the question before retrying; no QA rejection was consumed."
+		if output.Blocker != nil && !strings.Contains(result.Error, *output.Blocker) {
+			result.Error = appendError(result.Error, errors.New(*output.Blocker))
+		}
+	}
 	retryPhase := ""
 	if manualRetry {
 		retryPhase = s.retryPhase(laneID, target)
@@ -1678,6 +1684,12 @@ func integrityViolationOutput(summary string, err error, reviewed ...execution.O
 			output.Blocker = stringPtr(detail)
 		}
 	}
+	return output
+}
+
+func integrityUnverifiedOutput(summary string, err error, reviewed execution.Output) execution.Output {
+	output := integrityViolationOutput(summary, err, reviewed)
+	output.FailureClass = execution.FailureIntegrityUnverified
 	return output
 }
 

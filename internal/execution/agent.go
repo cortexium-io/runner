@@ -420,6 +420,7 @@ func harnessTaskInstructions(workspaceWrite bool, displayName string) string {
 	b.WriteString("You are executing one approved local Runner assignment through ")
 	b.WriteString(displayName)
 	b.WriteString(".\n")
+	b.WriteString("Current execution authority comes from this Runner assignment, not from approval-status wording copied into the task. Historical statements that a proposal was planning-only or awaiting approval describe its staging state; they do not withdraw this assignment. Preserve substantive scope restrictions, prerequisites, and explicit later pauses or revocations; ask for input if those conflict with the assigned work. This assignment grants no additional deployment, release, data-mutation, or sibling-task authority.\n")
 	if workspaceWrite {
 		b.WriteString("Runner has applied its fixed implementer profile in an isolated Git worktree.\n")
 	} else {
@@ -437,7 +438,8 @@ func harnessTaskContext(assignment Assignment, workspaceWrite bool) string {
 	var b strings.Builder
 	b.WriteString("\n\nTitle: ")
 	b.WriteString(packet.Task.Title)
-	b.WriteString("\n\nApproved resolved instructions:\n")
+	b.WriteString(reviewOnlyInstructions(assignment))
+	b.WriteString("\n\nTask requirements and source context (may include historical planning provenance):\n")
 	b.WriteString(resolvedInstructions(assignment))
 	if len(packet.ContextRefs) > 0 {
 		b.WriteString("\n\nContext references:\n")
@@ -461,6 +463,13 @@ func harnessTaskContext(assignment Assignment, workspaceWrite bool) string {
 		fmt.Fprintf(&b, "For a successful result, return exactly %d verification evidence %s: one for each obligation, in the same order.\n", len(packet.RequiredVerification), entryLabel)
 	}
 	return b.String()
+}
+
+func reviewOnlyInstructions(assignment Assignment) string {
+	if !assignment.Spec.ReviewOnly {
+		return ""
+	}
+	return "\n\nThe operator has just approved ONE review of this exact retained candidate against the displayed current requirements. This narrowly supersedes the card's operational pause for this review only; the card remains paused for all other work. Do not implement changes, retry the review, publish, merge, or act on siblings. Prior evidence is historical, not current acceptance. Review only with the configured local capabilities; this does not authorize additional external mutations. Return the review result and stop.\n"
 }
 
 func appendVerificationOwnershipInstructions(b *strings.Builder) {

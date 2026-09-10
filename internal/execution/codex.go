@@ -406,6 +406,10 @@ func structuredExecutorOutput(result StructuredExecutionResult) Output {
 		Blocker:          result.Blocker,
 		ReviewAssessment: result.ReviewAssessment,
 	}
+	if result.Outcome == OutcomeNeedsInput {
+		output.FailureClass = FailureNeedsInput
+		output.RetryDisposition = RetryManual
+	}
 	return output
 }
 

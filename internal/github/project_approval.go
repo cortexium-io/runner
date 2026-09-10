@@ -65,6 +65,9 @@ func (s *Project) PlanApproval(ctx context.Context, selector string) (ApprovalPl
 	if stagedBatchSourceID(item, items) != "" {
 		return s.planBatchApproval(items, item)
 	}
+	if item.Approval == "" && item.Branch != "" && item.PullRequest != "" {
+		return ApprovalPlan{}, errors.New("retained PR work cannot use fresh approval; keep its candidate and runtime history. QA-only recovery requires a Blocked reviewer-phase card: preview `retry --item ITEM_ID --reauthorize --qa-only --dry-run`")
+	}
 	if !s.approvableStatus(item.Status) {
 		return ApprovalPlan{}, fmt.Errorf("project item %s in status %q cannot be approved; move it to assessment and preview approval again", item.ID, item.Status)
 	}

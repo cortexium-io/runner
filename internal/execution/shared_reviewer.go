@@ -333,7 +333,7 @@ func reviewerFocusedTaskPrompt(assignment Assignment) string {
 		strings.TrimSpace(assignment.Spec.Task.Title),
 		strings.TrimSpace(assignment.Spec.Repository),
 		strings.TrimSpace(assignment.Spec.DelegatedContentDigest),
-	) + reviewerComparisonPrompt(assignment)
+	) + reviewerComparisonPrompt(assignment) + reviewOnlyInstructions(assignment)
 }
 
 func reviewerCriterionKey(index int) string {

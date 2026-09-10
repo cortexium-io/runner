@@ -31,6 +31,9 @@ func (s *Project) PlanRetry(ctx context.Context, selector string) (RetryPlan, er
 	}
 	action, err := s.validateAction(item)
 	if err != nil {
+		if item.Approval == "" && item.Branch != "" && item.PullRequest != "" {
+			return RetryPlan{}, errors.New("retained PR work has no Runner approval; for one review without implementation or publication, preview `retry --item ITEM_ID --reauthorize --qa-only --dry-run`; do not clear its runtime history")
+		}
 		return RetryPlan{}, errors.New("blocked item has invalid Runner authority; move it to assessment and run approve again")
 	}
 	return s.retryPlanForAction(action)

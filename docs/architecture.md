@@ -636,6 +636,21 @@ phases, existing PRs, and QA commit snapshots fail closed. This is explicit new
 operator authority for retained work, not automatic reconstruction of a lost
 signature. It adds no persistent journal or approval store.
 
+`retry --reauthorize --qa-only` is a separate synchronous operator boundary for
+an existing Blocked reviewer-phase candidate whose approval was withdrawn. It
+does not create an `AuthorizedAction`, sign Project authority, or enter the
+workflow graph. A default-No terminal confirmation binds a single-use in-memory
+preview to the current item/context, exact retained candidate and workspace,
+PR identity, configured reviewer, and immutable repository references. All
+bindings are rechecked before and after the review. The private historical
+workspace content identity is inspected, not rebound: changed requirements get
+fresh review without discarding old feedback/proof or reusing old acceptance.
+The original candidate, PR, card, approval, and rejection counts remain
+unchanged on every verdict. A per-item local review lock and existing execution
+admission bound concurrency; no new scheduler, persistent approval store, or
+Project fields are introduced. No implementation, base refresh, publication,
+merge, sibling authorization, or automatic retry is reachable from this path.
+
 Every process launch resolves two independent role settings before adapter
 arguments are built. `access` selects Runner's containment boundary
 (`sandboxed` by default or explicit `host`). `harness_config` selects whether

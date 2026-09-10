@@ -64,6 +64,16 @@ func AcquirePlanningMutationLock(project config.GitHubProjectConfig) (*ProcessLo
 	return acquireLocalProjectLock(project, "planning-mutation")
 }
 
+// AcquireQAReviewLock prevents overlapping one-shot operator reviews of one
+// retained item without holding the worker or Project mutation lock.
+func AcquireQAReviewLock(project config.GitHubProjectConfig, itemID string) (*ProcessLock, error) {
+	if strings.TrimSpace(itemID) == "" {
+		return nil, errors.New("QA review lock requires an item ID")
+	}
+	digest := sha256.Sum256([]byte(itemID))
+	return acquireLocalProjectLock(project, fmt.Sprintf("qa-review-%x", digest))
+}
+
 func AcquireExecutionSlot(project config.GitHubProjectConfig, maximum int) (*ProcessLock, error) {
 	for slot := 0; slot < maximum; slot++ {
 		lock, err := acquireLocalProjectLock(project, fmt.Sprintf("execution-%d", slot))
