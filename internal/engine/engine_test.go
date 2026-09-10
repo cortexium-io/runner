@@ -5278,6 +5278,37 @@ func TestAcceptedAgentQAPublishesPRAndMovesToHumanGate(t *testing.T) {
 	if reopened.WorktreePath != preparedWorkspace.WorktreePath || reopened.BranchName != item.Branch {
 		t.Fatalf("recreated workspace changed task identity: before=%#v after=%#v", preparedWorkspace, reopened)
 	}
+	// A CI-only retry can reconstruct the already accepted commit in a new
+	// worktree. Its filesystem snapshot is new, so fresh QA must be able to
+	// accept and republish the same commit without overwriting old evidence.
+	reopenedSnapshot, err := workspace.CaptureCheckoutSnapshotStateWithLimits(t.Context(), subprocess.OSRunner{}, reopened.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopenedSnapshot.Head != record.CommitOID || reopenedSnapshot.Tree != record.TreeOID || reopenedSnapshot.Fingerprint == record.AcceptanceSnapshot {
+		t.Fatalf("recreated workspace did not retain the candidate with a new snapshot: %#v", reopenedSnapshot)
+	}
+	item.Approval = testApproval(item)
+	retryProject := &fakeGitHubProjectRunner{
+		itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`,
+		qaCommit:  item.QACommit, pullRequest: item.PullRequest, baseRevision: reopened.BaseRevision,
+	}
+	retryRunner := &candidateInspectingReviewer{project: retryProject}
+	retryService, err := New(completeEngineTestConfig(cfg), retryRunner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retryResults, err := retryService.RunCycle(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retryResults) != 1 || retryResults[0].Outcome != execution.OutcomeSucceeded || retryResults[0].ResumedCheckpoint ||
+		retryRunner.head != record.CommitOID || retryProject.qaCommit != record.CommitOID || retryProject.status != "PR Ready" || retryProject.pullRequest != item.PullRequest {
+		t.Fatalf("recreated acceptance did not complete fresh QA and reuse its PR: results=%#v reviewer_head=%q status=%q PR=%q", retryResults, retryRunner.head, retryProject.status, retryProject.pullRequest)
+	}
+	if retained, err := os.ReadFile(recordPath); err != nil || string(retained) != string(recordContent) {
+		t.Fatalf("fresh acceptance changed the original immutable evidence: %v", err)
+	}
 }
 
 func TestAgentQAResumesExactAcceptanceWithoutAnotherReviewerRun(t *testing.T) {

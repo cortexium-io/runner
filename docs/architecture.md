@@ -321,6 +321,15 @@ approved scope; this context does not reopen resolved proof keys. The handoff
 does not claim that unresolved source inspection already happened. Runner merges
 the observations and derives the verdict and final summary from the merged
 checks, not from superseded stage summaries.
+The bundled work-role guidance runs heavyweight verification commands
+sequentially within each assignment, without changing a command's configured
+workers or timeout. A server required by the active check is allowed; unrelated
+test suites, browser runs, builds, and installs must not overlap. The focused
+review prompt reinforces this rule. It is not a host-wide resource lock or a
+change to admission of independent cards. When accidental overlap contributed
+to a timing failure, the bounded confirmation corrects that scheduling and
+records the difference instead of claiming an unchanged reproduction or proof
+of concurrent-load reliability.
 The bundled implementer supplies self-contained command, scope, settings, and
 outcome evidence in the existing candidate-bound record. Failed checks and
 reruns include affected test identities and both outcomes; temporary reports
@@ -379,8 +388,14 @@ issue comment. Before starting a reviewer, Runner checks for an existing tuple
 bound to the exact item, delegated content, repository, branch, base revision,
 candidate commit, tree, and clean workspace snapshot. An exact match resumes
 only the idempotent comment, push, pull-request lookup or creation, and Project
-transition. Changed or malformed state fails closed and never inherits the old
-acceptance.
+transition. If only the workspace snapshot differs (for example, after cleanup
+and recreation for a CI-only retry), Runner runs fresh QA against the unchanged
+candidate. It never transfers the old acceptance to the new snapshot. A fresh
+accepted review gets a separate immutable snapshot-specific record; the first
+record remains the candidate identity and prior-publication lease anchor.
+Changed item/content, repository, destination, base, or commit/tree bindings and
+malformed records still fail closed. A retained-acceptance blocker explicitly
+reports that no reviewer ran and directs the operator to local acceptance state.
 
 Approval and staged-batch authority carry one canonical delegated-content
 digest over the exact approved body snapshot, repository, immutable dependency
@@ -481,7 +496,10 @@ worktree, and the active checkout around Agent QA before
 entering push, pull-request publication, or worktree cleanup paths. An accepted
 unchanged candidate receives an exclusive private publication record keyed by
 its commit and binding the item/content identity, commit/tree, approved base,
-repository, and full destination branch ref.
+repository, and full destination branch ref. Subsequent accepted reviews of the
+same candidate in a different workspace snapshot are additionally keyed by the
+snapshot digest. Neither the original nor a snapshot-specific record is
+overwritten, and publication requires the exact record for its current snapshot.
 When the source audit leaves a concrete dynamic check unresolved, the focused
 review stage receives a disposable source copy inside its private neutral
 workspace. It contains no Git administration and does not reuse implementation

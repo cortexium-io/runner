@@ -1190,8 +1190,8 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	publicationRecord, resumedAcceptance, err := gitProvider.LoadPublicationAcceptance(ctx, preparedWorkspace, qaSnapshot)
 	if err != nil {
-		return s.failExecution(ctx, action, lane, result, "Retained QA acceptance is not safe to resume", err,
-			integrityViolationOutput("Retained QA acceptance is not safe to resume", err))
+		return s.failExecution(ctx, action, lane, result, retainedAcceptanceResumeFailure, err,
+			integrityViolationOutput(retainedAcceptanceResumeFailure, err))
 	}
 	if resumedAcceptance {
 		result.ResumedCheckpoint = true

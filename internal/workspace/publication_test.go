@@ -259,6 +259,126 @@ func TestPublicationAcceptanceRecordsExactTupleExclusively(t *testing.T) {
 	}
 }
 
+func TestPublicationAcceptanceRequiresFreshQAForChangedWorkspaceSnapshot(t *testing.T) {
+	repo := initGitRepo(t)
+	runGitTest(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+	root := filepath.Join(t.TempDir(), "worktrees")
+	provider := NewGitProvider(subprocess.OSRunner{})
+	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
+		WorkingDir: repo, WorktreeRoot: root, WorkID: "renew_acceptance", BranchPrefix: "runner", BaseRef: "origin/main",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "accepted.txt"), []byte("accepted bytes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := provider.ConstructCandidate(t.Context(), prepared, "Accepted candidate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "Original QA report.", "Original acceptance.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalPath := publicationRecordPath(root, candidate.CommitOID)
+	originalBytes, err := os.ReadFile(originalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Equivalent bytes in a newly materialized administrative file still change
+	// the no-follow filesystem identity, as happens when a worktree is recreated.
+	markerPath := filepath.Join(prepared.WorktreePath, ".git")
+	marker, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(markerPath+".replacement", marker, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(markerPath+".replacement", markerPath); err != nil {
+		t.Fatal(err)
+	}
+	current, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !current.Clean || current.Head != accepted.Head || current.Tree != accepted.Tree || current.Fingerprint == accepted.Fingerprint {
+		t.Fatalf("fixture did not change only the workspace snapshot: before=%#v after=%#v", accepted, current)
+	}
+	if record, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, current); err != nil || found || record != (PublicationRecord{}) {
+		t.Fatalf("changed workspace must require fresh QA, not reuse acceptance or block: found=%t record=%#v err=%v", found, record, err)
+	}
+	if err := provider.PublishAccepted(t.Context(), prepared, original, "origin", "main", PublicationPushPolicy{MergeMethod: "merge"}, func() error { return nil }); err == nil || !strings.Contains(err.Error(), "no longer matches the accepted QA snapshot") {
+		t.Fatalf("old acceptance did not reject workspace drift before publication: %v", err)
+	}
+	if prior, err := provider.HasPriorPublicationAcceptance(t.Context(), prepared, candidate.CommitOID); err != nil || !prior {
+		t.Fatalf("workspace drift lost the prior publication lease proof: prior=%t err=%v", prior, err)
+	}
+	renewed, err := provider.RecordPublicationAcceptance(t.Context(), prepared, current, "Fresh QA report.", "Fresh acceptance.")
+	if err != nil {
+		t.Fatalf("record fresh QA of the unchanged commit: %v", err)
+	}
+	if renewed.AcceptanceSnapshot != current.Fingerprint || renewed.AcceptanceReport != "Fresh QA report." {
+		t.Fatalf("fresh acceptance did not bind the new review: %#v", renewed)
+	}
+	loaded, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, current)
+	if err != nil || !found || loaded != renewed {
+		t.Fatalf("fresh acceptance did not resume: found=%t record=%#v err=%v", found, loaded, err)
+	}
+	if replay, err := provider.RecordPublicationAcceptance(t.Context(), prepared, current, "Fresh QA report.", "Fresh acceptance."); err != nil || replay != renewed {
+		t.Fatalf("fresh acceptance was not idempotent: record=%#v err=%v", replay, err)
+	}
+	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, current, "Different report.", "Fresh acceptance."); err == nil {
+		t.Fatal("fresh acceptance was overwritten with a different report")
+	}
+	after, err := os.ReadFile(originalPath)
+	if err != nil || string(after) != string(originalBytes) {
+		t.Fatalf("original immutable acceptance changed: err=%v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		change func(*PublicationRecord)
+	}{
+		{"item", func(r *PublicationRecord) { r.ItemID = "another-item" }},
+		{"requirements", func(r *PublicationRecord) { r.DelegatedContentDigest = "v1:changed" }},
+		{"base ref", func(r *PublicationRecord) { r.ApprovedBaseRef = "refs/remotes/origin/other" }},
+		{"base commit", func(r *PublicationRecord) { r.ApprovedBaseOID = strings.Repeat("a", 40) }},
+		{"candidate commit", func(r *PublicationRecord) { r.CommitOID = strings.Repeat("a", 40) }},
+		{"candidate tree", func(r *PublicationRecord) { r.TreeOID = strings.Repeat("a", 40) }},
+		{"repository", func(r *PublicationRecord) { r.Repository = "other/repository" }},
+		{"destination", func(r *PublicationRecord) { r.DestinationRef = "refs/heads/other" }},
+		{"malformed snapshot", func(r *PublicationRecord) { r.AcceptanceSnapshot = "" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			changed := original
+			test.change(&changed)
+			content, err := json.Marshal(changed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(originalPath, content, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := os.WriteFile(originalPath, originalBytes, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			})
+			if _, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, current); err == nil || found {
+				t.Fatalf("changed anchor was bypassed by snapshot-specific acceptance: found=%t err=%v", found, err)
+			}
+			if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, current, "Fresh QA report.", "Fresh acceptance."); err == nil {
+				t.Fatal("fresh QA laundered the changed anchor")
+			}
+		})
+	}
+}
+
 func TestPublicationAcceptanceIgnoresLegacyReviewBoundaryRecord(t *testing.T) {
 	repo := initGitRepo(t)
 	root := filepath.Join(t.TempDir(), "worktrees")

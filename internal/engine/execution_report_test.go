@@ -1,11 +1,23 @@
 package engine
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/execution"
 )
+
+func TestExecutionReportIdentifiesRetainedAcceptanceFailureWithoutPrivateDetails(t *testing.T) {
+	output := integrityViolationOutput(retainedAcceptanceResumeFailure, errors.New("private-record-path token=secret"))
+	report := formatExecutionReport("Retryable Runner blocker", output)
+	if !strings.Contains(report, "retained QA acceptance record") || !strings.Contains(report, "No reviewer ran") || !strings.Contains(report, "retry: manual") {
+		t.Fatalf("retained acceptance failure lost its specific recovery context: %q", report)
+	}
+	if strings.Contains(report, "private-record-path") || strings.Contains(report, "token=secret") || strings.Contains(report, "workspace integrity violation") {
+		t.Fatalf("retained acceptance failure leaked details or reported workspace corruption: %q", report)
+	}
+}
 
 func TestExecutionReportSuppressesSchemaValidModelAndCLIPayloads(t *testing.T) {
 	secretPayload := `raw CLI payload token=secret session_id=private stack trace prompt text`
