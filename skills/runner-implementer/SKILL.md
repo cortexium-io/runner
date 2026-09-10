@@ -86,6 +86,21 @@ satisfies current requirements and credible risks.
 12. Never run `git add`, `git rm`, `git update-index`, or `git commit`; the Runner
     commits every task-owned edit after verification.
 
+## Verification scheduling
+
+Run heavyweight verification commands sequentially within this assignment.
+Do not overlap test suites, browser runs, builds, or dependency installation
+through parallel tool calls or background jobs. Wait for one command and its
+workers to finish before starting the next. An application server required by
+the active check may remain running; stop unused check-owned processes. Do not
+interrupt another assignment's work.
+
+Keep each command's configured worker count and timeout. Sequential commands do
+not mean serializing workers inside a test runner or changing Runner's admission
+limits. If an earlier failure involved overlapping heavyweight commands, record
+that scheduling difference in subsequent evidence instead of claiming an
+unchanged reproduction or masking the failure by relaxing tests.
+
 ## Result
 
 Return a truthful status, concise summary, work completed, changed artifacts,

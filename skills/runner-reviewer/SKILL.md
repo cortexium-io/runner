@@ -86,6 +86,26 @@ Apply minimum sufficient complexity to the review itself.
     unfinished sibling scope into this card or make a human comment mandatory
     when Runner QA feedback already describes the fix.
 
+## Verification scheduling
+
+Run heavyweight verification commands sequentially within this assignment.
+Do not overlap test suites, browser runs, builds, or dependency installation
+through parallel tool calls or background jobs. Wait for one command and its
+workers to finish before starting the next. An application server required by
+the active check may remain running; stop unused check-owned processes. Do not
+interrupt another assignment's work.
+
+Keep each command's configured worker count and timeout. Sequential commands do
+not mean serializing workers inside a test runner. This is guidance for the
+work you launch, not a change to Runner's admission limits or permission to
+cancel other cards.
+
+If a failed run overlapped heavyweight commands, restore sequential scheduling
+before the bounded confirmation below. Record the overlap and scheduling change;
+do not recreate accidental contention or call the corrected run an unchanged
+reproduction. A sequential pass does not establish concurrent-load reliability
+or erase a concrete defect.
+
 ## Unexplained timing failures
 
 A test timeout without evidence of a violated requirement is not yet a concrete
@@ -99,7 +119,8 @@ smallest existing check that can establish the unresolved requirement:
 - When the affected test and historical settings are known, confirm the
   unexplained timing failure once with that test or its smallest coupled group,
   capturing a trace or equivalent diagnostics. Keep the candidate, assertions,
-  timeout, worker count, and relevant environment unchanged. An existing
+  timeout, worker count, and relevant environment unchanged, except for correcting
+  accidental overlap as described above. An existing
   unchanged automatic retry with adequate diagnostics counts as this
   confirmation; do not add further reruns.
 - When test identities, settings, or reports are missing, gather fresh evidence
@@ -113,9 +134,10 @@ smallest existing check that can establish the unresolved requirement:
   fresh check times out without establishing a defect, its recorded settings
   allow the single unchanged confirmation above, not a further retry loop.
 
-Do not increase limits, reduce concurrency, warm up the application deliberately,
-or change source or assertions to obtain a pass. Fresh focused evidence does not
-prove that an entire historical suite passed or that unknown failures were fixed.
+Do not increase limits, reduce a command's configured worker count, warm up the
+application deliberately, or change source or assertions to obtain a pass.
+Fresh focused evidence does not prove that an entire historical suite passed
+or that unknown failures were fixed.
 
 Record available historical outcomes separately from fresh results, name any
 missing details, and include the exact check and settings and relevant diagnostic

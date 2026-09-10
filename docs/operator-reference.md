@@ -1991,6 +1991,13 @@ or ordinary fixed-size simulation steps executed without wall-clock pacing;
 real-time smoke checks remain short and are required only when real scheduling,
 pacing, or presentation integration is part of the claim.
 
+Implementers and reviewers run heavyweight verification commands sequentially
+within an assignment: no overlapping test suites, browser runs, builds, or
+dependency installation through parallel tool calls or background jobs. A server
+needed by the active check may remain running. Commands retain their configured
+worker counts and timeouts. This is agent guidance, not a host-wide resource lock;
+independent cards still follow Runner's configured admission limits.
+
 The implementer must return self-contained evidence in each proof entry. After
 a failure and rerun, include affected file/test names, commands/selectors,
 worker counts, timeout limits, relevant non-secret environment differences,
@@ -2006,13 +2013,18 @@ smallest existing check covering the unresolved requirement under documented
 repository settings. It must distinguish fresh verification from reproducing
 the old run and retain uncertainty about unknown historical failures. Fresh
 focused success is not evidence that the full historical suite passed. QA must
-not raise timeouts, reduce concurrency, change assertions, or rerun until green.
+not raise timeouts, reduce a command's configured worker count, change assertions,
+or rerun until green. If heavyweight commands accidentally overlapped, correct
+their scheduling before the bounded confirmation and record that difference;
+do not recreate the overlap or describe the corrected run as an unchanged
+reproduction. A sequential pass does not establish concurrent-load reliability.
 Concrete defects remain failures; genuinely inconclusive proof reports
 `review_incomplete`, retaining the manual QA retry lane without consuming a
 QA rejection. This is not an instruction to repair tooling or implementation
 unless the evidence identifies such a problem.
 
-Bundled skills 1.8.5 add the evidence handoff and fresh-verification fallback.
+Bundled skills 1.8.6 add sequential heavyweight verification to the existing
+evidence handoff and fresh-verification fallback.
 After upgrading,
 use `doctor --fix --offline` with the project configuration to refresh installed
 bundled skills, reviewing locally customized copies before replacement. No
