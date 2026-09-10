@@ -239,6 +239,24 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 	if err := recoveryGuard.Release(); err != nil {
 		return prepared, err
 	}
+	// ReadyItems is also the established manual-intake authorization boundary.
+	// Evaluate it before pull-request reconciliation so an ordinary card moved
+	// to Ready has its exact current snapshot signed before any retained PR or
+	// workspace state can be used. Selection is repeated after reconciliation
+	// because those deterministic actions may change which work is claimable.
+	boundReady, err := s.source.ReadyItems(ctx, items, len(items))
+	if err != nil {
+		return pollPreparation{}, fmt.Errorf("authorize manual Ready intake before pull request reconciliation: %w", err)
+	}
+	for _, action := range boundReady {
+		for index := range items {
+			if items[index].ID == action.Item.ID {
+				items[index] = action.Item
+				break
+			}
+		}
+	}
+	prepared.items = items
 	reconciliationItems, err := s.itemsWithoutResourceConflicts(items, inFlight)
 	if err != nil {
 		return pollPreparation{}, fmt.Errorf("derive pull-request reconciliation resources: %w", err)

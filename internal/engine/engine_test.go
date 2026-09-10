@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -201,6 +202,32 @@ func (r terminalNoInspectRunner) Run(ctx context.Context, command string, args [
 		return subprocess.Result{}, errors.New("terminal pull request must not be inspected")
 	}
 	return r.project.Run(ctx, command, args, dir, timeout)
+}
+
+type retainedReadyPullRequestRunner struct {
+	project  *fakeGitHubProjectRunner
+	events   []string
+	beforePR github.WorkItem
+	prViews  int
+}
+
+func (r *retainedReadyPullRequestRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	joined := strings.Join(args, " ")
+	if command == "gh" && len(args) >= 2 && args[0] == "pr" && args[1] == "view" {
+		r.prViews++
+		r.events = append(r.events, "reconcile")
+		r.project.mu.Lock()
+		if len(r.project.remoteItems) == 1 {
+			r.beforePR = r.project.remoteItems[0]
+		}
+		r.project.mu.Unlock()
+		return subprocess.Result{Stdout: `{"url":"https://github.com/cortexium-io/worker/pull/6","number":6,"state":"OPEN","headRepository":{"nameWithOwner":"cortexium-io/worker"},"headRefName":"runner/assignment_pvti_ladocj1xis4bi652zg6nxxa","headRefOid":"786027d19daddd8415a1421fab493fcd6301fd80","baseRefName":"main","baseRefOid":"","mergeStateStatus":"CLEAN","comments":[],"reviews":[]}`}, nil
+	}
+	result, err := r.project.Run(ctx, command, args, dir, timeout)
+	if err == nil && command == "gh" && strings.Contains(joined, "--field-id F_approval") && strings.Contains(joined, "--text") {
+		r.events = append(r.events, "authorize")
+	}
+	return result, err
 }
 
 type failingPullRequestInspectionRunner struct{ project *fakeGitHubProjectRunner }
@@ -4570,6 +4597,127 @@ func TestPreparePollClaimsReadyWorkWithoutReprocessingTerminalPullRequests(t *te
 	}
 	if lifecycleCalls != 2 {
 		t.Fatalf("Project snapshots = %d, want initial observation and fresh ready claim only", lifecycleCalls)
+	}
+}
+
+func TestPreparePollAuthorizesRetainedBlockedToReadyRetryBeforePullRequestReconciliation(t *testing.T) {
+	const (
+		candidate   = "786027d19daddd8415a1421fab493fcd6301fd80"
+		branch      = "runner/assignment_pvti_ladocj1xis4bi652zg6nxxa"
+		pullRequest = "https://github.com/cortexium-io/worker/pull/6"
+	)
+	initial := github.WorkItem{
+		ID: "PVTI_lADOCj1xis4Bi652zg6NxXA", Title: "Repair Worker issue #5", Body: "Approved repair packet.",
+		URL: "https://github.com/cortexium-io/worker/issues/5", Repository: "cortexium-io/worker", IssueState: "OPEN", Status: "Ready",
+		Result: "Agent QA requested the retained correction.", Phase: "agent_qa", QAFailures: 5,
+		Branch: branch, PullRequest: pullRequest, QACommit: candidate,
+	}
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(initial) + `]}`}
+	runner := &retainedReadyPullRequestRunner{project: project}
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir:    t.TempDir(),
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "cortexium-io/worker", AutoMerge: false},
+	}), runner)
+	if err != nil {
+		t.Fatalf("configure service: %v", err)
+	}
+	retainedArtifacts := map[string][]byte{
+		service.reviewFeedbackPath(initial.ID):           []byte("retained Agent QA feedback\n"),
+		service.verificationEvidencePath(initial.ID):     []byte("retained candidate verification evidence\n"),
+		service.implementationCheckpointPath(initial.ID): []byte("retained implementation checkpoint\n"),
+	}
+	for path, content := range retainedArtifacts {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("prepare retained runtime state: %v", err)
+		}
+		if err := os.WriteFile(path, content, 0o600); err != nil {
+			t.Fatalf("write retained runtime state: %v", err)
+		}
+	}
+
+	prepared, err := service.preparePoll(t.Context(), 1, false, nil)
+	if err != nil {
+		t.Fatalf("prepare retained Ready retry: %v", err)
+	}
+	if len(prepared.claimed) != 1 || prepared.claimed[0].action.Item.ID != initial.ID {
+		t.Fatalf("retained Ready retry did not reach implementation intake: %#v", prepared.claimed)
+	}
+	if runner.prViews != 1 || !reflect.DeepEqual(runner.events, []string{"authorize", "reconcile"}) {
+		t.Fatalf("Ready snapshot was not authorized before pull request reconciliation: views=%d events=%#v", runner.prViews, runner.events)
+	}
+	bound := runner.beforePR
+	if bound.Approval == "" || bound.Approval != testApproval(bound) {
+		t.Fatalf("pull request reconciliation did not receive exact current Ready authority: %#v", bound)
+	}
+	wantBound := initial
+	wantBound.Approval = bound.Approval
+	if !reflect.DeepEqual(bound, wantBound) {
+		t.Fatalf("snapshot binding changed retained retry state:\n got: %#v\nwant: %#v", bound, wantBound)
+	}
+	claimed := prepared.claimed[0].action.Item
+	if claimed.Branch != branch || claimed.PullRequest != pullRequest || claimed.QACommit != candidate || claimed.Result != initial.Result || claimed.QAFailures != 5 {
+		t.Fatalf("implementation intake lost retained retry history: %#v", claimed)
+	}
+	for path, want := range retainedArtifacts {
+		got, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("read retained runtime state %s: %v", path, readErr)
+		}
+		if !bytes.Equal(got, want) {
+			t.Fatalf("retained runtime state %s changed:\n got: %q\nwant: %q", path, got, want)
+		}
+	}
+}
+
+func TestPreparePollDoesNotAuthorizeInvalidRetainedReadyPullRequestState(t *testing.T) {
+	base := github.WorkItem{
+		ID: "PVTI_invalid_retry", Title: "Invalid retained retry", Body: "Approved repair packet.",
+		URL: "https://github.com/cortexium-io/worker/issues/5", Repository: "cortexium-io/worker", IssueState: "OPEN", Status: "Ready",
+		Result: "Retained result.", Phase: "agent_qa", QAFailures: 5,
+		Branch: "runner/assignment_pvti_invalid", PullRequest: "https://github.com/cortexium-io/worker/pull/6", QACommit: strings.Repeat("a", 40),
+	}
+	foreignKey := []byte("foreign-runner-approval-key-32bytes")
+	foreign := base
+	foreign.Approval = signTestActionAssertion(completeProjectTestConfig(config.ProjectConfig{
+		GitHubProjectConfig: config.GitHubProjectConfig{Owner: "owner", Number: 4},
+	}), foreign, config.WorkRoleImplementer, "ready", foreignKey)
+	modified := base
+	modified.Approval = testApproval(modified)
+	modified.Body = "Content changed after authorization."
+	staged := base
+	staged.Body = github.FormatPlannedItemBody(github.PlannedItem{
+		Summary: "Staged work.", Repository: staged.Repository, PlanningSourceLane: "local_plan",
+		PlanningSourceFingerprint: "v1:" + strings.Repeat("b", 64), PlanningDestination: "Ready",
+		PlanningBatchFingerprint: "v1:" + strings.Repeat("c", 64), PlanningBatchSize: 1, PlanningItemIndex: 1, DependencyIDsResolved: true,
+	})
+
+	for _, test := range []struct {
+		name string
+		item github.WorkItem
+	}{
+		{name: "forged", item: func() github.WorkItem { item := base; item.Approval = "v2:forged"; return item }()},
+		{name: "foreign", item: foreign},
+		{name: "content modified", item: modified},
+		{name: "staged child missing authority", item: staged},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(test.item) + `]}`}
+			runner := &retainedReadyPullRequestRunner{project: project}
+			service, err := New(completeEngineTestConfig(config.Config{
+				ProjectDir:    t.TempDir(),
+				GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "cortexium-io/worker", AutoMerge: false},
+			}), runner)
+			if err != nil {
+				t.Fatalf("configure service: %v", err)
+			}
+			prepared, prepareErr := service.preparePoll(t.Context(), 1, false, nil)
+			if prepareErr == nil || len(prepared.claimed) != 0 {
+				t.Fatalf("invalid retained authority reached intake: claimed=%#v error=%v", prepared.claimed, prepareErr)
+			}
+			if runner.prViews != 0 {
+				t.Fatalf("invalid retained authority reached privileged pull request inspection: views=%d events=%#v", runner.prViews, runner.events)
+			}
+		})
 	}
 }
 
