@@ -362,7 +362,7 @@ func TestCodexCLIExecutorReturnsEveryStructuredOutcome(t *testing.T) {
 	}
 }
 
-func TestModelAuthoredBlockedTextHasNoRecoveryAuthority(t *testing.T) {
+func TestModelAuthoredBlockedTextCannotAuthorizeAutomaticRecovery(t *testing.T) {
 	blocker := "You've hit your session limit; retry after 10:40 with token=secret"
 	runner := &structuredResultCommandRunner{result: StructuredExecutionResult{
 		Outcome: OutcomeBlocked, Summary: blocker, WorkDone: []string{}, Verification: []string{}, Blocker: &blocker,
@@ -371,8 +371,8 @@ func TestModelAuthoredBlockedTextHasNoRecoveryAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("schema-valid blocked result should remain local task output: %v", err)
 	}
-	if output.Outcome != OutcomeBlocked || output.FailureClass != FailureNone || output.RetryDisposition != "" || output.RetryAfter != "" || output.RemoteDetailSafe {
-		t.Fatalf("model-authored text gained trusted recovery authority: %#v", output)
+	if output.Outcome != OutcomeBlocked || output.FailureClass != FailureAgentBlocked || output.RetryDisposition != RetryManual || output.RetryAfter != "" || output.RemoteDetailSafe {
+		t.Fatalf("model-authored text changed the fixed manual recovery boundary: %#v", output)
 	}
 }
 

@@ -1591,9 +1591,15 @@ func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.Aut
 	if output.FailureClass == execution.FailureCanceled {
 		detail = "Runner stopped before the harness attempt completed. The card returned to its previous lane, and Runner retained the isolated workspace so the next run can resume safely."
 	}
-	if output.FailureClass == execution.FailureNeedsInput {
+	switch output.FailureClass {
+	case execution.FailureNeedsInput:
 		summary = "Awaiting human input."
 		detail = "Runner paused because the agent requested clarification. The question and evidence are retained in the local Runner output. Resolve the question before retrying; no QA rejection was consumed."
+	case execution.FailureAgentBlocked:
+		summary = "Work blocked."
+		detail = "Runner paused because the agent could not complete the assigned work. The blocker and evidence are retained in the local Runner output. Resolve the blocker before retrying; no QA rejection was consumed."
+	}
+	if output.FailureClass == execution.FailureNeedsInput || output.FailureClass == execution.FailureAgentBlocked {
 		if output.Blocker != nil && !strings.Contains(result.Error, *output.Blocker) {
 			result.Error = appendError(result.Error, errors.New(*output.Blocker))
 		}

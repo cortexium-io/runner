@@ -101,7 +101,7 @@ func (d *GuidanceDetector) Observe(event Event) []string {
 	if validFailureClass(event.FailureClass) && validFailureOperation(event.FailureOperation) {
 		destination := "runner"
 		switch event.FailureClass {
-		case "", "unknown", "canceled", "needs_input":
+		case "", "unknown", "canceled", "needs_input", "agent_blocked":
 			destination = ""
 		case "invalid_contract", "review_incomplete", "candidate_validation":
 			destination = "skill"

@@ -60,6 +60,7 @@ func TestExecutionReportDistinguishesIncompleteReviewFromUnavailableCapability(t
 		want  string
 	}{
 		{execution.FailureReviewIncomplete, "QA evidence incomplete"},
+		{execution.FailureAgentBlocked, "agent reported incomplete work"},
 		{execution.FailureCapabilityUnavailable, "required local capability as unavailable"},
 		{execution.FailureIntegrityUnverified, "does not establish a workspace change"},
 	} {

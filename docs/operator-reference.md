@@ -2089,13 +2089,27 @@ Concrete defects remain failures; genuinely inconclusive proof reports
 QA rejection. This is not an instruction to repair tooling or implementation
 unless the evidence identifies such a problem.
 
-Bundled skills 1.8.7 retain sequential heavyweight verification, evidence
-handoff, and fresh-verification fallback, and separate temporary planning
-approval status from executable task requirements.
+Bundled skills 1.8.8 retain sequential heavyweight verification, evidence
+handoff, and fresh-verification fallback, separate temporary planning approval
+status from executable task requirements, and check required operator inputs
+before expensive verification.
 After upgrading,
 use `doctor --fix --offline` with the project configuration to refresh installed
 bundled skills, reviewing locally customized copies before replacement. No
 configuration or Project-field migration is required.
+
+An agent that needs a decision, permission, credentials, access, or designated
+test data should return `needs_input`. Runner reports `Awaiting human input.`
+and follows the configured input route. A generic agent `blocked` outcome is
+classified as `agent_blocked`, reports `Work blocked.`, and follows the configured
+error route; Runner does not guess its cause from free-form text. When stopping
+in `Blocked`, both retain the manual retry lane. Partial work and local evidence
+are preserved without consuming a QA rejection or publishing an incomplete
+candidate. The detailed blocker is kept
+in local Runner output, not copied to the Project. Inspect that output and
+`metrics --item ITEM_ID` before retrying; supply the missing prerequisites
+through the project's approved local setup rather than repeatedly rerunning
+passing checks. Neither outcome grants additional data-mutation authority.
 
 When integration or release evidence cannot be established on the delivery
 cards, a final project-readiness card depends on the relevant delivery paths.

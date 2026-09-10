@@ -406,8 +406,12 @@ func structuredExecutorOutput(result StructuredExecutionResult) Output {
 		Blocker:          result.Blocker,
 		ReviewAssessment: result.ReviewAssessment,
 	}
-	if result.Outcome == OutcomeNeedsInput {
+	switch result.Outcome {
+	case OutcomeNeedsInput:
 		output.FailureClass = FailureNeedsInput
+		output.RetryDisposition = RetryManual
+	case OutcomeBlocked:
+		output.FailureClass = FailureAgentBlocked
 		output.RetryDisposition = RetryManual
 	}
 	return output
@@ -501,6 +505,7 @@ func buildWorkspaceWriteCodexPrompt(assignment Assignment) string {
 
 func appendStructuredResultInstructions(b *strings.Builder) {
 	b.WriteString("\nReturn the structured outcome through the harness's required structured-output mechanism. Include a concise summary, concrete work_done entries, and a verification entry for each check actually performed. Never describe an unrun check as verification. Set blockers to [] for succeeded. Set blockers to exactly one non-empty reason for needs_input or blocked.")
+	b.WriteString("\nUse needs_input when completion requires an operator decision, clarification, permission, credentials, access, or designated test data. Group all known missing prerequisites into one actionable blocker without exposing secrets. Use blocked for an unresolved technical or verification impediment when no specific operator input is being requested. Neither outcome is success or permission to weaken acceptance; retain partial work and report completed and missing proof separately.")
 	b.WriteString("\nWhen the harness provides a dedicated Runner finalization tool, follow that tool's own completion instructions exactly. Otherwise, the entire final response must be exactly one JSON object. Do not use Markdown, a code fence, headings, bullets, or commentary outside that object.")
 	b.WriteString("\nDo not return blocker or review_assessment fields. Runner derives its internal result from this execution content.")
 }
