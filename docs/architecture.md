@@ -379,8 +379,14 @@ issue comment. Before starting a reviewer, Runner checks for an existing tuple
 bound to the exact item, delegated content, repository, branch, base revision,
 candidate commit, tree, and clean workspace snapshot. An exact match resumes
 only the idempotent comment, push, pull-request lookup or creation, and Project
-transition. Changed or malformed state fails closed and never inherits the old
-acceptance.
+transition. If only the workspace snapshot differs (for example, after cleanup
+and recreation for a CI-only retry), Runner runs fresh QA against the unchanged
+candidate. It never transfers the old acceptance to the new snapshot. A fresh
+accepted review gets a separate immutable snapshot-specific record; the first
+record remains the candidate identity and prior-publication lease anchor.
+Changed item/content, repository, destination, base, or commit/tree bindings and
+malformed records still fail closed. A retained-acceptance blocker explicitly
+reports that no reviewer ran and directs the operator to local acceptance state.
 
 Approval and staged-batch authority carry one canonical delegated-content
 digest over the exact approved body snapshot, repository, immutable dependency
@@ -481,7 +487,10 @@ worktree, and the active checkout around Agent QA before
 entering push, pull-request publication, or worktree cleanup paths. An accepted
 unchanged candidate receives an exclusive private publication record keyed by
 its commit and binding the item/content identity, commit/tree, approved base,
-repository, and full destination branch ref.
+repository, and full destination branch ref. Subsequent accepted reviews of the
+same candidate in a different workspace snapshot are additionally keyed by the
+snapshot digest. Neither the original nor a snapshot-specific record is
+overwritten, and publication requires the exact record for its current snapshot.
 When the source audit leaves a concrete dynamic check unresolved, the focused
 review stage receives a disposable source copy inside its private neutral
 workspace. It contains no Git administration and does not reuse implementation

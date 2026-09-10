@@ -7,6 +7,8 @@ import (
 	"github.com/cortexium-io/runner/internal/execution"
 )
 
+const retainedAcceptanceResumeFailure = "Retained QA acceptance is not safe to resume"
+
 func formatExecutionReport(title string, output execution.Output) string {
 	parts := make([]string, 0, 3)
 	if title = strings.TrimSpace(title); title != "" {
@@ -60,6 +62,9 @@ func remoteDiagnosticSummary(output execution.Output) string {
 		}
 		return "Runner rejected a candidate that needs correction before QA."
 	case execution.FailureIntegrityViolation:
+		if output.RemoteDetailSafe && output.Summary == retainedAcceptanceResumeFailure {
+			return "Runner could not validate the retained QA acceptance record. No reviewer ran; inspect the local acceptance state before retrying."
+		}
 		return "Runner detected a workspace integrity violation and blocked continuation."
 	default:
 		return "Runner classified an unknown local failure. Details are retained locally."

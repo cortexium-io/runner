@@ -1044,7 +1044,14 @@ tree. If that private checkout, the retained implementation worktree, and the
 active checkout remain unchanged after acceptance, Runner writes an
 exclusive private publication record keyed by the commit and binding the
 approved item/content, commit/tree, base ref/OID, repository, and full branch
-ref. An exact retry reuses that tuple; a conflicting collision fails closed.
+ref. An exact retry reuses that tuple. If a CI-only retry recreates the worktree
+without changing the candidate or its approved identity, the new workspace
+fingerprint requires fresh QA. A successful review receives a separate immutable
+snapshot-specific record and can reuse the same commit and PR; the original
+acceptance is preserved. Changed approval, destination, base, or candidate
+bindings and malformed records still fail closed. The retained-acceptance error
+states that no reviewer ran; inspect the local acceptance state rather than
+treating it as a QA rejection or repeatedly retrying an unresolved blocker.
 
 On macOS and Linux, repository snapshots use the same no-follow secure-filesystem
 boundary as workspace roots and `.gitignore` updates. The fingerprint includes

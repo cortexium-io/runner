@@ -3,6 +3,7 @@ package workspace
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -759,8 +760,9 @@ func validObjectID(value string) bool {
 }
 
 // RecordPublicationAcceptance creates or reuses only the exact immutable tuple
-// for the unchanged QA snapshot. A commit-key collision with any different
-// identity is rejected.
+// for the unchanged QA snapshot. Fresh QA of the same candidate in a different
+// workspace snapshot gets a separate record; the first acceptance remains the
+// immutable candidate identity and prior-publication lease anchor.
 func (p GitProvider) RecordPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot, report, comment string) (PublicationRecord, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
@@ -794,7 +796,8 @@ func (p GitProvider) RecordPublicationAcceptance(ctx context.Context, metadata M
 
 // LoadPublicationAcceptance returns an existing exact acceptance without
 // creating one. It revalidates the live candidate before allowing Runner to
-// skip another reviewer invocation after an interrupted publication.
+// skip another reviewer invocation after an interrupted publication. A new
+// workspace snapshot requires fresh QA, not reuse of the old acceptance.
 func (p GitProvider) LoadPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot) (PublicationRecord, bool, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
@@ -935,7 +938,10 @@ func (p GitProvider) validatedPublicationAcceptance(ctx context.Context, metadat
 	if err := securefs.ValidatePrivateDir(worktreeRoot); err != nil {
 		return PublicationRecord{}, "", fmt.Errorf("validate private publication state root: %w", err)
 	}
-	recordPath := publicationRecordPath(worktreeRoot, record.CommitOID)
+	recordPath, err := publicationAcceptancePath(worktreeRoot, record)
+	if err != nil {
+		return PublicationRecord{}, "", err
+	}
 	recordRoot := filepath.Dir(recordPath)
 	if createRecordRoot {
 		if err := securefs.EnsurePrivateDir(recordRoot); err != nil {
@@ -947,6 +953,33 @@ func (p GitProvider) validatedPublicationAcceptance(ctx context.Context, metadat
 
 func publicationRecordPath(worktreeRoot, commitOID string) string {
 	return filepath.Join(worktreeRoot, ".runner-state", "publications", fmt.Sprintf("v%d", publicationRecordVersion), commitOID+".json")
+}
+
+// publicationAcceptancePath preserves the first immutable record as the
+// candidate identity anchor. Only the workspace snapshot and its QA evidence
+// may differ in subsequent records; changes to any authority or Git object
+// binding still fail closed. The digest makes the snapshot safe as a filename.
+func publicationAcceptancePath(worktreeRoot string, expected PublicationRecord) (string, error) {
+	path := publicationRecordPath(worktreeRoot, expected.CommitOID)
+	first, err := readPublicationRecord(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return path, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read publication identity anchor: %w", err)
+	}
+	identity := expected
+	identity.AcceptanceSnapshot = first.AcceptanceSnapshot
+	identity.AcceptanceReport = first.AcceptanceReport
+	identity.AcceptanceComment = first.AcceptanceComment
+	if identity != first {
+		return "", fmt.Errorf("publication commit %s is already bound to a different immutable tuple", expected.CommitOID)
+	}
+	if first.AcceptanceSnapshot == expected.AcceptanceSnapshot {
+		return path, nil
+	}
+	name := fmt.Sprintf("%s-%x.json", expected.CommitOID, sha256.Sum256([]byte(expected.AcceptanceSnapshot)))
+	return filepath.Join(filepath.Dir(path), name), nil
 }
 
 func readPublicationRecord(path string) (PublicationRecord, error) {
@@ -967,9 +1000,11 @@ func readPublicationRecord(path string) (PublicationRecord, error) {
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		return PublicationRecord{}, errors.New("publication record contains trailing data")
 	}
+	snapshotHash, snapshotPrefix := strings.CutPrefix(record.AcceptanceSnapshot, "sha256:")
 	if record.Version != publicationRecordVersion || !validObjectID(record.CommitOID) || !validObjectID(record.TreeOID) ||
+		!snapshotPrefix || len(snapshotHash) != 64 || !validObjectID(snapshotHash) ||
 		strings.TrimSpace(record.AcceptanceReport) == "" || strings.TrimSpace(record.AcceptanceComment) == "" || strings.ContainsAny(record.AcceptanceReport+record.AcceptanceComment, "\x00") {
-		return PublicationRecord{}, fmt.Errorf("invalid publication record version or object identity %s", strconv.Quote(record.CommitOID))
+		return PublicationRecord{}, fmt.Errorf("invalid publication record version, snapshot, evidence, or object identity %s", strconv.Quote(record.CommitOID))
 	}
 	return record, nil
 }
@@ -1012,7 +1047,11 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 	if !config.ValidRepositoryName(record.Repository) {
 		return errors.New("publication tuple repository must use owner/repository format")
 	}
-	persisted, err := readPublicationRecord(publicationRecordPath(filepath.Dir(metadata.Identity.WorktreePath), record.CommitOID))
+	recordPath, err := publicationAcceptancePath(filepath.Dir(metadata.Identity.WorktreePath), record)
+	if err != nil {
+		return err
+	}
+	persisted, err := readPublicationRecord(recordPath)
 	if err != nil {
 		return fmt.Errorf("read immutable publication tuple: %w", err)
 	}
