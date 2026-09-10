@@ -1260,6 +1260,18 @@ instead. The result prints a compact receipt and a fingerprint-bound command:
 ./cortexium-runner plan --config /absolute/operator/path/runner.json --approve-staged v1:BATCH_FINGERPRINT
 ```
 
+With `--json`, preview-only planning writes the plan directly. Successful
+`--stage-only` writes `{ "plan": ..., "staged": ... }`; successful `--create`
+writes `{ "plan": ..., "released": ... }`. If planning completes but staging
+fails, stdout still contains one valid JSON object with the complete `plan`
+(including `open_decisions`) and an `error` string. The command also reports
+the error on stderr and exits nonzero; scripts should retain stdout on failure.
+An error response is not a staging or approval receipt: a GitHub failure may
+have left partial unapproved cards. Open decisions prevent all card creation;
+answer them in the idea and rerun the same command, keeping `--stage-only` when
+a separate approval is intended. Runner does not automatically rerun the
+planner or add a persistent plan store for this CLI output recovery.
+
 Generated cards contain the original request, project outcome, project-wide
 success criteria and constraints, a local objective, acceptance criteria, proof
 obligations, selected assumptions and risks, repository, dependencies, and
@@ -2089,13 +2101,27 @@ Concrete defects remain failures; genuinely inconclusive proof reports
 QA rejection. This is not an instruction to repair tooling or implementation
 unless the evidence identifies such a problem.
 
-Bundled skills 1.8.7 retain sequential heavyweight verification, evidence
-handoff, and fresh-verification fallback, and separate temporary planning
-approval status from executable task requirements.
+Bundled skills 1.8.8 retain sequential heavyweight verification, evidence
+handoff, and fresh-verification fallback, separate temporary planning approval
+status from executable task requirements, and check required operator inputs
+before expensive verification.
 After upgrading,
 use `doctor --fix --offline` with the project configuration to refresh installed
 bundled skills, reviewing locally customized copies before replacement. No
 configuration or Project-field migration is required.
+
+An agent that needs a decision, permission, credentials, access, or designated
+test data should return `needs_input`. Runner reports `Awaiting human input.`
+and follows the configured input route. A generic agent `blocked` outcome is
+classified as `agent_blocked`, reports `Work blocked.`, and follows the configured
+error route; Runner does not guess its cause from free-form text. When stopping
+in `Blocked`, both retain the manual retry lane. Partial work and local evidence
+are preserved without consuming a QA rejection or publishing an incomplete
+candidate. The detailed blocker is kept
+in local Runner output, not copied to the Project. Inspect that output and
+`metrics --item ITEM_ID` before retrying; supply the missing prerequisites
+through the project's approved local setup rather than repeatedly rerunning
+passing checks. Neither outcome grants additional data-mutation authority.
 
 When integration or release evidence cannot be established on the delivery
 cards, a final project-readiness card depends on the relevant delivery paths.

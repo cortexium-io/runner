@@ -69,6 +69,7 @@ const (
 	FailureReviewIncomplete       FailureClass = "review_incomplete"
 	FailureBrowserStartup         FailureClass = "browser_startup"
 	FailureNeedsInput             FailureClass = "needs_input"
+	FailureAgentBlocked           FailureClass = "agent_blocked"
 	FailurePermissionDenied       FailureClass = "permission_denied"
 	FailureAuthenticationRequired FailureClass = "authentication_required"
 	FailureInvalidConfiguration   FailureClass = "invalid_configuration"

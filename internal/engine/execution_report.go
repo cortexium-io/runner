@@ -48,6 +48,8 @@ func remoteDiagnosticSummary(output execution.Output) string {
 		return "Runner's runner_browser MCP server timed out before the Codex session started."
 	case execution.FailureNeedsInput:
 		return "Runner classified the attempt as requiring operator input."
+	case execution.FailureAgentBlocked:
+		return "The agent reported incomplete work. Its blocker and evidence are retained locally."
 	case execution.FailurePermissionDenied:
 		return "Runner classified a local permission failure."
 	case execution.FailureAuthenticationRequired:
@@ -92,7 +94,7 @@ func boundedFailureClass(class execution.FailureClass) string {
 	switch class {
 	case execution.FailureTransientExternal, execution.FailureCapacityExhausted, execution.FailureTimeout,
 		execution.FailureCanceled, execution.FailureInvalidContract, execution.FailureCapabilityUnavailable, execution.FailureReviewIncomplete, execution.FailureBrowserStartup,
-		execution.FailureNeedsInput, execution.FailurePermissionDenied, execution.FailureAuthenticationRequired,
+		execution.FailureNeedsInput, execution.FailureAgentBlocked, execution.FailurePermissionDenied, execution.FailureAuthenticationRequired,
 		execution.FailureInvalidConfiguration, execution.FailureCandidateValidation, execution.FailureIntegrityViolation, execution.FailureIntegrityUnverified:
 		return string(class)
 	default:

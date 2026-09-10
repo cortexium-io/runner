@@ -82,6 +82,18 @@ func TestClarificationOutputRetainsPrivateQuestionAndManualRecovery(t *testing.T
 	}
 }
 
+func TestAgentBlockedOutputRetainsEvidenceAndManualRecovery(t *testing.T) {
+	blocker := "Supply the approved disposable record and private session file."
+	output := structuredExecutorOutput(StructuredExecutionResult{
+		Outcome: OutcomeBlocked, Summary: "Required proof has not run", Blocker: &blocker,
+		WorkDone: []string{"Retained the test implementation."}, Verification: []string{"Fixture checks passed; actual persistence was not run."},
+	})
+	if output.Outcome != OutcomeBlocked || output.FailureClass != "agent_blocked" || output.RetryDisposition != RetryManual ||
+		output.RemoteDetailSafe || output.DiscardDiagnostics || *output.Blocker != blocker || len(output.WorkDone) != 1 || len(output.Verification) != 1 {
+		t.Fatalf("agent blocker lost its private evidence or manual recovery: %#v", output)
+	}
+}
+
 func TestTaskPromptSeparatesStagingProvenanceWithoutRemovingRestrictions(t *testing.T) {
 	body := "Planning only; this proposal remains unapproved.\nNo production deployment.\nLater operator pause: do not run until credentials are supplied."
 	assignment := Assignment{Spec: Spec{ApprovedBodySnapshot: body}}
@@ -119,6 +131,19 @@ func TestAgentExecutorsCanonicalizeTypeResidueLocallyInOneCall(t *testing.T) {
 			}}
 			output, err := NewAgentExecutor(kind, cfg, run).Execute(t.Context(), testPollResponse(testCodexCLIAssignmentSpec()).Assignments[0])
 			if err != nil || output.Outcome != OutcomeSucceeded || run.calls != 1 {
+				t.Fatalf("calls=%d output=%#v error=%v", run.calls, output, err)
+			}
+		})
+	}
+}
+
+func TestAgentExecutorsClassifyBlockedResultsWithoutAnotherCall(t *testing.T) {
+	for _, kind := range []string{config.HarnessClaudeCLI, config.HarnessPiCLI} {
+		t.Run(kind, func(t *testing.T) {
+			run := &oneResultAgentRunner{kind: kind, output: `{"outcome":"blocked","summary":"Required proof unavailable","work_done":[],"verification":[],"blockers":["Inspect the unresolved proof."]}`}
+			cfg := config.ExecutionConfig{Harness: config.HarnessConfig{Kind: kind, Command: kind, WorkingDir: t.TempDir(), TimeoutSeconds: 30}}
+			output, err := NewAgentExecutor(kind, cfg, run).Execute(t.Context(), testPollResponse(testCodexCLIAssignmentSpec()).Assignments[0])
+			if err != nil || output.Outcome != OutcomeBlocked || output.FailureClass != FailureAgentBlocked || output.RetryDisposition != RetryManual || output.RemoteDetailSafe || run.calls != 1 {
 				t.Fatalf("calls=%d output=%#v error=%v", run.calls, output, err)
 			}
 		})

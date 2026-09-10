@@ -110,6 +110,23 @@ func TestStoreRetainsIncompleteReviewClassification(t *testing.T) {
 	}
 }
 
+func TestStoreRetainsManualRecoveryClassifications(t *testing.T) {
+	for _, class := range []string{"needs_input", "agent_blocked", "integrity_unverified"} {
+		t.Run(class, func(t *testing.T) {
+			store := NewStore(t.TempDir() + "/metrics.jsonl")
+			event := Event{Kind: EventCompleted, AttemptID: "paused", Outcome: "blocked", FailureClass: class, RetryDisposition: "manual"}
+			if err := store.Append(event); err != nil {
+				t.Fatal(err)
+			}
+			history, err := store.Read()
+			if err != nil || history.MalformedRecords != 0 || len(history.Attempts) != 1 || !history.Attempts[0].Completed ||
+				history.Attempts[0].FailureClass != class || history.Attempts[0].RetryDisposition != "manual" {
+				t.Fatalf("manual recovery was lost from durable metrics: %#v %v", history, err)
+			}
+		})
+	}
+}
+
 func TestSummaryCountsEveryModelCallStageAsHarnessInvocation(t *testing.T) {
 	stages := []string{StageHarnessRun, StagePlannerOutline, StagePlannerDetails, StageReviewerAudit, StageReviewerVerify}
 	attempt := Attempt{Stages: make([]Stage, 0, len(stages))}

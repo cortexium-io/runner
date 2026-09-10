@@ -147,7 +147,11 @@ independence for a more reusable prefix.
 
 Execution adapters map allowlisted adapter-owned structured failures and
 Runner-observed failures to a stable failure class plus `automatic`, `manual`,
-or `none` retry disposition. A structured blocked QA verdict becomes
+or `none` retry disposition. Non-review agent outcomes `needs_input` and
+`blocked` receive `needs_input` and `agent_blocked` respectively, with manual
+recovery and retained retry lanes when stopping in `Blocked`. Their private
+blocker text does not grant automatic retries or public-diagnostic authority; Runner does not infer a
+provider failure from it. A structured blocked QA verdict becomes
 `review_incomplete` with manual retry, not a capability diagnosis. Its fixed
 remote label is "QA evidence incomplete"; model-authored detail remains local.
 Runner/adapter-detected capability failures retain `capability_unavailable`.

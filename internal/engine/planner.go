@@ -375,7 +375,7 @@ func (s *Engine) prepareDirectProjectPlan(plan *ProjectPlan) (string, error) {
 	}
 	if len(plan.OpenDecisions) > 0 {
 		return "", fmt.Errorf(
-			"cannot stage cards while %d open decision(s) require human input; add the answers to the project idea and rerun with --create",
+			"cannot stage cards while %d open decision(s) require human input; add the answers to the project idea and rerun the same planning command",
 			len(plan.OpenDecisions),
 		)
 	}

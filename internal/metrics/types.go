@@ -67,8 +67,8 @@ func validStageOutcome(outcome string) bool {
 func validFailureClass(class string) bool {
 	switch class {
 	case "", "unknown", "transient_external", "capacity_exhausted", "timeout", "canceled",
-		"invalid_contract", "capability_unavailable", "review_incomplete", "browser_startup", "needs_input", "permission_denied",
-		"authentication_required", "invalid_configuration", "candidate_validation", "integrity_violation":
+		"invalid_contract", "capability_unavailable", "review_incomplete", "browser_startup", "needs_input", "agent_blocked", "permission_denied",
+		"authentication_required", "invalid_configuration", "candidate_validation", "integrity_violation", "integrity_unverified":
 		return true
 	default:
 		return false

@@ -99,7 +99,7 @@ func TestGuidanceRunnerFailuresAreInvestigationNotProductRules(t *testing.T) {
 			t.Fatalf("classification became a product instruction: %#v", drafts)
 		}
 	}
-	for _, class := range []string{"unknown", "canceled", "needs_input", "invented"} {
+	for _, class := range []string{"unknown", "canceled", "needs_input", "agent_blocked", "invented"} {
 		detector := NewGuidanceDetector(2)
 		for _, item := range []string{"one", "two"} {
 			event := guidanceEvent(item)

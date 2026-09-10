@@ -280,6 +280,13 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	}
 	staged, err := service.ApplyProjectPlan(ctx, plan)
 	if err != nil {
+		if *jsonOutput {
+			// Staging failure must not discard a completed, potentially paid
+			// planning result or turn its preservation into a successful exit.
+			encoder := json.NewEncoder(stdout)
+			encoder.SetIndent("", "  ")
+			return errors.Join(err, encoder.Encode(map[string]any{"plan": plan, "error": err.Error()}))
+		}
 		return err
 	}
 	if len(staged) == 0 || strings.TrimSpace(staged[0].PlanningBatchFingerprint) == "" {
