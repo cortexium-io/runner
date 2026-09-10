@@ -1260,6 +1260,18 @@ instead. The result prints a compact receipt and a fingerprint-bound command:
 ./cortexium-runner plan --config /absolute/operator/path/runner.json --approve-staged v1:BATCH_FINGERPRINT
 ```
 
+With `--json`, preview-only planning writes the plan directly. Successful
+`--stage-only` writes `{ "plan": ..., "staged": ... }`; successful `--create`
+writes `{ "plan": ..., "released": ... }`. If planning completes but staging
+fails, stdout still contains one valid JSON object with the complete `plan`
+(including `open_decisions`) and an `error` string. The command also reports
+the error on stderr and exits nonzero; scripts should retain stdout on failure.
+An error response is not a staging or approval receipt: a GitHub failure may
+have left partial unapproved cards. Open decisions prevent all card creation;
+answer them in the idea and rerun the same command, keeping `--stage-only` when
+a separate approval is intended. Runner does not automatically rerun the
+planner or add a persistent plan store for this CLI output recovery.
+
 Generated cards contain the original request, project outcome, project-wide
 success criteria and constraints, a local objective, acceptance criteria, proof
 obligations, selected assumptions and risks, repository, dependencies, and
