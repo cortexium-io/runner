@@ -5225,6 +5225,14 @@ func TestAcceptedAgentQAPublishesPRAndMovesToHumanGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare implementation worktree: %v", err)
 	}
+	// Keep the original administrative file's inode allocated after cleanup.
+	// Otherwise Linux may reuse it when recreating this worktree, making the
+	// snapshot-change fixture depend on filesystem allocation timing.
+	originalMarker, err := os.Open(filepath.Join(preparedWorkspace.WorktreePath, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer originalMarker.Close()
 	if err := os.WriteFile(filepath.Join(preparedWorkspace.WorktreePath, "feature.txt"), []byte("accepted implementation\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
