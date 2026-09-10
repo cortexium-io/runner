@@ -1529,6 +1529,7 @@ case "$1 $2" in
   "api repos/example/repo/rules/branches/main") printf '%s\n' '[]' ;;
   "label list") printf '%s\n' '[{"name":"needs-assessment"}]' ;;
   "issue list") printf '%s\n' '[]' ;;
+  "pr view") printf '%s\n' "$FAKE_GH_PR_JSON" ;;
   "issue view") printf '%s\n' '{"labels":[{"name":"needs-assessment"}]}' ;;
   "issue edit") exit 0 ;;
   "project item-edit") exit 0 ;;

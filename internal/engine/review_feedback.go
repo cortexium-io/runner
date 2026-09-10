@@ -89,6 +89,21 @@ func (s *Engine) loadReviewFeedback(item github.WorkItem, content github.Delegat
 }
 
 func (s *Engine) loadReviewFeedbackRecord(item github.WorkItem, content github.DelegatedContent) (*reviewFeedbackRecord, error) {
+	record, err := s.readReviewFeedbackRecord(item)
+	if err != nil || record == nil {
+		return nil, err
+	}
+	if record.DelegatedContentDigest != strings.TrimSpace(content.Digest) {
+		if err := s.clearReviewFeedback(item.ID); err != nil {
+			return nil, fmt.Errorf("remove stale Agent QA feedback: %w", err)
+		}
+		return nil, nil
+	}
+	return record, nil
+}
+
+// readReviewFeedbackRecord never discards history during an operator preview.
+func (s *Engine) readReviewFeedbackRecord(item github.WorkItem) (*reviewFeedbackRecord, error) {
 	path := s.reviewFeedbackPath(item.ID)
 	encoded, mode, state, err := securefs.ReadFile(path, maxReviewFeedbackBytes)
 	if err != nil {
@@ -117,12 +132,6 @@ func (s *Engine) loadReviewFeedbackRecord(item github.WorkItem, content github.D
 	}
 	if record.Version != reviewFeedbackVersion || strings.TrimSpace(record.ItemID) != strings.TrimSpace(item.ID) {
 		return nil, errors.New("private Agent QA feedback identity does not match this item")
-	}
-	if record.DelegatedContentDigest != strings.TrimSpace(content.Digest) {
-		if err := s.clearReviewFeedback(item.ID); err != nil {
-			return nil, fmt.Errorf("remove stale Agent QA feedback: %w", err)
-		}
-		return nil, nil
 	}
 	if len(record.Items) == 0 || len(record.Items) > maxReviewFeedbackItems {
 		return nil, errors.New("private Agent QA feedback contains an invalid item count")

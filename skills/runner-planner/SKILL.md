@@ -26,6 +26,11 @@ clarity, operability, maintainability, and reliable proof require, and no more.
 1. Read the repository instructions, manifests, relevant code and tests, and the
    complete approved project context. Preserve the original request for
    downstream traceability.
+   Keep temporary staging/approval status out of executable goals, constraints,
+   assumptions, and acceptance conditions. Describe future work conditionally
+   ("once approved"), not as permanently "planning-only" or "unapproved".
+   Preserve the original request as historical provenance and retain substantive
+   restrictions such as no production deployment or required mutation consent.
 2. State the project outcome, observable project-wide success conditions, hard
    constraints, and selected reversible assumptions. Reserve open decisions for
    missing human choices that prevent every safe complete plan; make reasonable

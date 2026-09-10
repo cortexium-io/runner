@@ -1003,6 +1003,12 @@ that approved snapshot and digest; an issue URL remains provenance and is not an
 independent harness context reference. Mutable content mismatches return to
 assessment before a harness is invoked, while title-only changes do not alter
 the delegated-content identity.
+Harness prompts distinguish current validated Runner authority from historical
+planning provenance. Planner-generated goals and acceptance conditions describe
+work once approved, rather than embedding permanent "planning-only" or
+"unapproved" instructions. Original requests remain intact for traceability;
+substantive restrictions, prerequisites, and later operational pauses still
+apply. Runner does not strip restrictions or silently edit signed card bodies.
 Implementation workspaces have a separate private identity record outside the
 mutable worktree. That record binds the Project item ID, delegated-content
 digest, full approved base ref and exact resolved base commit, repository,
@@ -1850,6 +1856,66 @@ assessment error with a fixed operator-retry result. It does not grant QA
 acceptance, approve siblings, or reset the review budget. No config migration,
 skill update, or new state store is required for this recovery path.
 
+### One-shot QA of a paused retained candidate
+
+When approval was withdrawn from existing QA work, do not clear its phase,
+branch, PR, feedback, or rejection count to make fresh approval accept it.
+Instead, preview an explicitly review-only operation:
+
+```bash
+cortexium-runner retry --config /absolute/operator/path/runner.json --item ITEM_ID --reauthorize --qa-only --dry-run
+cortexium-runner retry --config /absolute/operator/path/runner.json --item ITEM_ID --reauthorize --qa-only
+```
+
+The second command requires interactive terminal confirmation, defaulting to
+No. `--json` is preview-only; `--feedback` cannot be combined with this mode.
+The original card must remain Blocked with missing approval, a configured
+reviewer phase, no active transition/activity, and a retained clean candidate
+whose branch and commit match its open PR. Auto-merge must be disabled.
+This does not approve fresh staged proposals or bypass complete-batch approval.
+
+Inspect the exact current body, historical comments/feedback, retained content
+identity, candidate/tree, comparison base, current PR base, and reference pins.
+If the body changed during reconciliation, the preview explicitly shows the
+different content identities. The original full body is not stored in the
+workspace identity: consult source history if a textual comparison is needed.
+The confirmation authorizes review against the displayed current requirements,
+not rewriting the old workspace binding. Prior feedback remains historical;
+proof from a different content identity is retained on disk but not reused for
+the new requirements. No previous QA acceptance is reused.
+
+Runner rechecks the preview before execution and after review. Changed card
+content/runtime state, PR identity, candidate, workspace, reference pins, or
+review context invalidate the operation. One confirmation is single-use, even
+if the attempt fails. Reviews of the same item cannot overlap; the operation
+shares global execution admission with the background service without taking
+its lifetime lock or holding the Project mutation lock during model calls.
+
+This is one normal reviewer attempt (source audit and, when needed, its bounded
+focused-verification stage), not one model call. It reviews the exact candidate
+against its retained base; it never refreshes or rewrites that candidate. The
+complete candidate-bound result is printed locally, and normal private attempt
+metrics are recorded. Save the terminal output if a full standalone report is
+needed. There are no GitHub writes: the card stays Blocked with approval empty,
+even on acceptance. Existing feedback, proof records, rejection counts, and PR
+state remain untouched. Publication, implementation, merge, siblings, external
+mutation authority, and automatic retries are not granted. Any subsequent work
+requires a separate human decision; another QA attempt requires a new preview
+and confirmation. No configuration or Project-field migration is required.
+
+### Clarification and interrupted integrity checks
+
+A structured implementation clarification is reported as "Awaiting human
+input", preserving the manual retry phase and local question without consuming
+a QA rejection or exposing model-authored diagnostics on the board.
+
+After QA stops, Runner checks workspace integrity with a separate bounded
+30-second context. Cancellation with unchanged work returns to the interrupted
+lane. A detected change still blocks as `integrity_violation`. A check that
+cannot complete blocks as `integrity_unverified`, preserving the QA retry lane;
+it does not claim the reviewer changed files. Neither condition permits
+publication without a successful integrity check.
+
 ## Workflow configuration
 
 See
@@ -2023,8 +2089,9 @@ Concrete defects remain failures; genuinely inconclusive proof reports
 QA rejection. This is not an instruction to repair tooling or implementation
 unless the evidence identifies such a problem.
 
-Bundled skills 1.8.6 add sequential heavyweight verification to the existing
-evidence handoff and fresh-verification fallback.
+Bundled skills 1.8.7 retain sequential heavyweight verification, evidence
+handoff, and fresh-verification fallback, and separate temporary planning
+approval status from executable task requirements.
 After upgrading,
 use `doctor --fix --offline` with the project configuration to refresh installed
 bundled skills, reviewing locally customized copies before replacement. No

@@ -20,6 +20,16 @@ type ReauthorizationPlan struct {
 	next AuthorizedAction
 }
 
+// InspectRecoveryItem is read-only and deliberately does not construct an
+// AuthorizedAction. Operator-only review must not mint workflow authority.
+func (s *Project) InspectRecoveryItem(ctx context.Context, selector string) (WorkItem, error) {
+	items, err := s.LifecycleItems(ctx)
+	if err != nil {
+		return WorkItem{}, err
+	}
+	return selectProjectItem(items, selector)
+}
+
 func (s *Project) PlanReauthorization(ctx context.Context, selector string) (ReauthorizationPlan, error) {
 	items, err := s.LifecycleItems(ctx)
 	if err != nil {
@@ -33,6 +43,9 @@ func (s *Project) PlanReauthorization(ctx context.Context, selector string) (Rea
 }
 
 func (s *Project) planReauthorization(item WorkItem, items []WorkItem) (ReauthorizationPlan, error) {
+	if item.Approval == "" && item.Branch != "" && item.PullRequest != "" {
+		return ReauthorizationPlan{}, errors.New("retained PR work needs an explicitly scoped review; preview `retry --item ITEM_ID --reauthorize --qa-only --dry-run` while preserving its runtime history")
+	}
 	if !strings.EqualFold(strings.TrimSpace(item.Status), s.assessmentStatus()) || strings.TrimSpace(item.Approval) != "" {
 		return ReauthorizationPlan{}, errors.New("reauthorization requires a card in assessment with missing Runner approval")
 	}

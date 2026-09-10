@@ -128,8 +128,10 @@ type delegatedContentPayload struct {
 }
 
 // DelegatedContentFor returns the one canonical delegated-content identity.
-// Callers constructing privileged assignments must obtain the item from an
-// AuthorizedAction; this helper is also used while signing and validating it.
+// Normal workflow assignments must obtain the item from an AuthorizedAction;
+// the synchronous operator-only QA path instead binds an exact, single-use
+// preview without minting workflow authority. This helper is also used while
+// signing and validating actions.
 func DelegatedContentFor(item WorkItem) DelegatedContent {
 	payload := delegatedContentPayload{
 		Version: "v1", Body: strings.TrimSpace(item.Body), Repository: strings.TrimSpace(item.Repository),

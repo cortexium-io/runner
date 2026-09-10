@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const bundledSkillVersion = "1.8.6"
+const bundledSkillVersion = "1.8.7"
 
 var bundledSkillIDs = []string{
 	"runner-planner",
@@ -20,7 +20,7 @@ var bundledSkillIDs = []string{
 
 var bundledSkillSHA256 = map[string]string{
 	"runner-implementer": "5bd5a467a5f7366e0ab5c2273ad2b3533beabc5d77c9532ee54347713023cb15",
-	"runner-planner":     "ae5725a60ea9ec195bd64c49b369af91c29d57d7444c5665c4e6b745badb8109",
+	"runner-planner":     "fba2e357a66e2b7035830e681a710596d3beadb78124aaa429166c76c1db63f6",
 	"runner-reviewer":    "f099620d464c6c45f25d631f9a0061485301f8d93be17516ef0e7cb711590883",
 }
 

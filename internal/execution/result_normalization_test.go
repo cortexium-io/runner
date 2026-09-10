@@ -72,6 +72,28 @@ func TestAssembleExecutionContentDerivesInternalBlockerWithoutNulls(t *testing.T
 	}
 }
 
+func TestClarificationOutputRetainsPrivateQuestionAndManualRecovery(t *testing.T) {
+	question := "May I use the disposable tenant secret-example?"
+	output := structuredExecutorOutput(StructuredExecutionResult{
+		Outcome: OutcomeNeedsInput, Summary: "Clarification required", WorkDone: []string{}, Blocker: &question,
+	})
+	if output.FailureClass != FailureNeedsInput || output.RetryDisposition != RetryManual || output.RemoteDetailSafe || output.DiscardDiagnostics || *output.Blocker != question {
+		t.Fatalf("clarification lost its private question or recovery classification: %#v", output)
+	}
+}
+
+func TestTaskPromptSeparatesStagingProvenanceWithoutRemovingRestrictions(t *testing.T) {
+	body := "Planning only; this proposal remains unapproved.\nNo production deployment.\nLater operator pause: do not run until credentials are supplied."
+	assignment := Assignment{Spec: Spec{ApprovedBodySnapshot: body}}
+	for _, write := range []bool{false, true} {
+		prompt := buildHarnessPrompt(assignment, write, "Test harness")
+		if !strings.Contains(prompt, body) || strings.Contains(prompt, "Approved resolved instructions:") ||
+			!strings.Contains(prompt, "explicit later pauses or revocations") || !strings.Contains(prompt, "Current execution authority") {
+			t.Fatalf("prompt lost the requirements/provenance boundary: %s", prompt)
+		}
+	}
+}
+
 func TestAssembleExecutionContentRejectsNullLegacyAndContradictoryBlockers(t *testing.T) {
 	assignment := testPollResponse(testCodexCLIAssignmentSpec()).Assignments[0]
 	for name, value := range map[string]string{
