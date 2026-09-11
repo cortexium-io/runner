@@ -483,17 +483,28 @@ func (s *pinnedHEADState) close() {
 }
 
 func readPinnedControlFile(directory *securefs.Directory, name string, budget *securefs.SnapshotBudget) (pinnedControlFile, error) {
-	if _, err := directory.HashPathWithBudget(name, budget); err != nil {
+	// A parallel assignment may update a sibling ref while this parent is
+	// pinned. Bind the exact child throughout the read, not parent timestamps.
+	before, err := directory.HashEntryWithBudget(name, budget)
+	if err != nil {
 		return pinnedControlFile{}, err
 	}
 	content, _, state, err := directory.ReadFile(name, gitControlFileLimit)
 	if err != nil {
 		return pinnedControlFile{}, err
 	}
-	if _, err := directory.HashPathWithBudget(name, budget); err != nil {
+	after, err := directory.HashEntryWithBudget(name, budget)
+	if err != nil {
 		return pinnedControlFile{}, err
 	}
-	return pinnedControlFile{directory: directory, name: name, state: state, content: content}, nil
+	if !bytes.Equal(before, after) {
+		return pinnedControlFile{}, fmt.Errorf("%w while pinning Git control file %q", securefs.ErrChanged, name)
+	}
+	pinned := pinnedControlFile{directory: directory, name: name, state: state, content: content}
+	if err := pinned.verify(); err != nil {
+		return pinnedControlFile{}, err
+	}
+	return pinned, nil
 }
 
 func (f *pinnedControlFile) verify() error {

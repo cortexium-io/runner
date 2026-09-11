@@ -3,6 +3,7 @@
 package securefs
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +13,171 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+func TestHashEntryAllowsSiblingUpdatesDuringCapture(t *testing.T) {
+	for _, missing := range []bool{false, true} {
+		name := "regular"
+		stage := snapshotStageRegularOpened
+		if missing {
+			name, stage = "missing", snapshotStageMissingObserved
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			if !missing {
+				if err := os.WriteFile(filepath.Join(root, "current"), []byte("head\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			directory, err := OpenDir(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer directory.Close()
+			before, err := directory.HashEntryWithBudget("current", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed := false
+			digest, err := directory.hashPathWithRootVerifier("current", nil, func(current string) {
+				if current != stage {
+					return
+				}
+				observed = true
+				// An exact read-stage interleaving, with no timing-dependent loop.
+				lock := filepath.Join(root, "sibling.lock")
+				if err := os.WriteFile(lock, []byte("other\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(lock, filepath.Join(root, "sibling")); err != nil {
+					t.Fatal(err)
+				}
+			}, directory.VerifyIdentity)
+			if !observed {
+				t.Fatal("capture never reached the sibling-update interleaving")
+			}
+			if err != nil || !bytes.Equal(digest, before) {
+				t.Fatalf("sibling update changed entry snapshot: digest=%x want=%x error=%v", digest, before, err)
+			}
+			if _, err := directory.HashPath("current"); !errors.Is(err, ErrChanged) {
+				t.Fatalf("general snapshot lost strict directory verification: %v", err)
+			}
+		})
+	}
+}
+
+func TestHashEntryRejectsTamperingDuringCapture(t *testing.T) {
+	for _, mutation := range []string{"file-content", "file-replacement", "file-symlink", "file-mode", "parent-replacement", "parent-symlink", "unsafe-parent-mode", "missing-appeared"} {
+		t.Run(mutation, func(t *testing.T) {
+			base := t.TempDir()
+			root := filepath.Join(base, "refs")
+			if err := os.Mkdir(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(root, "current")
+			write := func(name, content string) {
+				t.Helper()
+				if err := os.WriteFile(name, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			stage := snapshotStageRegularRead
+			if mutation == "missing-appeared" {
+				stage = snapshotStageMissingObserved
+			} else {
+				write(path, "before\n")
+			}
+			directory, err := OpenDir(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer directory.Close()
+			observed := false
+			digest, err := directory.hashPathWithRootVerifier("current", nil, func(current string) {
+				if current != stage {
+					return
+				}
+				observed = true
+				switch mutation {
+				case "file-content", "missing-appeared":
+					write(path, "alter!\n")
+				case "file-replacement", "file-symlink":
+					if err := os.Rename(path, path+".old"); err != nil {
+						t.Fatal(err)
+					}
+					if mutation == "file-symlink" {
+						if err := os.Symlink(path+".old", path); err != nil {
+							t.Fatal(err)
+						}
+					} else {
+						write(path, "before\n")
+					}
+				case "file-mode":
+					if err := os.Chmod(path, 0o644); err != nil {
+						t.Fatal(err)
+					}
+				case "unsafe-parent-mode":
+					if err := os.Chmod(root, 0o777); err != nil {
+						t.Fatal(err)
+					}
+				case "parent-replacement", "parent-symlink":
+					if err := os.Rename(root, root+".old"); err != nil {
+						t.Fatal(err)
+					}
+					if mutation == "parent-symlink" {
+						if err := os.Symlink(root+".old", root); err != nil {
+							t.Fatal(err)
+						}
+					} else {
+						if err := os.Mkdir(root, 0o700); err != nil {
+							t.Fatal(err)
+						}
+						write(path, "before\n")
+					}
+				}
+			}, directory.VerifyIdentity)
+			if !observed {
+				t.Fatal("capture never reached the tampering interleaving")
+			}
+			if err == nil || digest != nil {
+				t.Fatalf("tampering was certified: digest=%x error=%v", digest, err)
+			}
+		})
+	}
+}
+
+func TestHashEntryRetainsLeafScopeAndSnapshotBudget(t *testing.T) {
+	root := t.TempDir()
+	for name, content := range map[string]string{"exact": "1234", "aggregate": "123", "oversized": "12345"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	directory, err := OpenDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	for _, name := range []string{"", ".", "..", "nested/exact", "../exact", "/exact"} {
+		if digest, err := directory.HashEntryWithBudget(name, nil); err == nil || digest != nil {
+			t.Fatalf("non-leaf %q was certified: digest=%x error=%v", name, digest, err)
+		}
+	}
+	budget, err := NewSnapshotBudget(SnapshotLimits{MaxEntries: 3, MaxFileBytes: 4, MaxTotalBytes: 6})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := directory.HashEntryWithBudget("exact", budget); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"aggregate": "maximum aggregate bytes", "oversized": "maximum individual bytes"} {
+		if digest, err := directory.HashEntryWithBudget(name, budget); err == nil || digest != nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("budget for %s: digest=%x error=%v, want %s", name, digest, err, want)
+		}
+	}
+	if digest, err := directory.HashEntryWithBudget("missing", budget); err == nil || digest != nil || !strings.Contains(err.Error(), "maximum entries") {
+		t.Fatalf("entry limit bypassed: digest=%x error=%v", digest, err)
+	}
+}
 
 type snapshotHashResult struct {
 	digest []byte
