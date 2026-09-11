@@ -44,11 +44,26 @@ func (d *Directory) HashPathWithBudget(relativePath string, budget *SnapshotBudg
 	return d.hashPathWithBudget(relativePath, budget, nil)
 }
 
+// HashEntryWithBudget hashes one named child while allowing unrelated entries
+// in its pinned parent to change. The child remains fully metadata/content
+// checked; the parent must retain its no-follow identity and safe permissions.
+// General repository snapshots must continue to use HashPathWithBudget.
+func (d *Directory) HashEntryWithBudget(name string, budget *SnapshotBudget) ([]byte, error) {
+	if err := validateLeaf(name); err != nil {
+		return nil, err
+	}
+	return d.hashPathWithRootVerifier(name, budget, nil, d.VerifyIdentity)
+}
+
 func (d *Directory) hashPath(relativePath string, observe snapshotObserver) ([]byte, error) {
 	return d.hashPathWithBudget(relativePath, nil, observe)
 }
 
 func (d *Directory) hashPathWithBudget(relativePath string, budget *SnapshotBudget, observe snapshotObserver) ([]byte, error) {
+	return d.hashPathWithRootVerifier(relativePath, budget, observe, d.Verify)
+}
+
+func (d *Directory) hashPathWithRootVerifier(relativePath string, budget *SnapshotBudget, observe snapshotObserver, verifyRoot func() error) ([]byte, error) {
 	components, err := snapshotPathComponents(relativePath)
 	if err != nil {
 		return nil, err
@@ -57,7 +72,7 @@ func (d *Directory) hashPathWithBudget(relativePath string, budget *SnapshotBudg
 	if err := budget.AddEntry(budgetPath); err != nil {
 		return nil, err
 	}
-	if err := d.Verify(); err != nil {
+	if err := verifyRoot(); err != nil {
 		return nil, err
 	}
 
@@ -73,7 +88,7 @@ func (d *Directory) hashPathWithBudget(relativePath string, budget *SnapshotBudg
 		var before unix.Stat_t
 		if err := unix.Fstatat(parentFD, component, &before, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 			if errors.Is(err, unix.ENOENT) {
-				return d.hashMissingPath(parentFD, component, directories, observe)
+				return d.hashMissingPath(parentFD, component, directories, observe, verifyRoot)
 			}
 			return nil, err
 		}
@@ -107,7 +122,7 @@ func (d *Directory) hashPathWithBudget(relativePath string, budget *SnapshotBudg
 	var before unix.Stat_t
 	if err := unix.Fstatat(parentFD, leaf, &before, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		if errors.Is(err, unix.ENOENT) {
-			return d.hashMissingPath(parentFD, leaf, directories, observe)
+			return d.hashMissingPath(parentFD, leaf, directories, observe, verifyRoot)
 		}
 		return nil, err
 	}
@@ -126,7 +141,7 @@ func (d *Directory) hashPathWithBudget(relativePath string, budget *SnapshotBudg
 	if err != nil {
 		return nil, err
 	}
-	if err := verifySnapshotDirectories(d, directories); err != nil {
+	if err := verifySnapshotDirectories(directories, verifyRoot); err != nil {
 		return nil, err
 	}
 	return digest, nil
@@ -170,7 +185,7 @@ func snapshotPathComponents(relativePath string) ([]string, error) {
 	return components, nil
 }
 
-func (d *Directory) hashMissingPath(parentFD int, name string, directories []snapshotDirectory, observe snapshotObserver) ([]byte, error) {
+func (d *Directory) hashMissingPath(parentFD int, name string, directories []snapshotDirectory, observe snapshotObserver, verifyRoot func() error) ([]byte, error) {
 	callSnapshotObserver(observe, snapshotStageMissingObserved)
 	var appeared unix.Stat_t
 	if err := unix.Fstatat(parentFD, name, &appeared, unix.AT_SYMLINK_NOFOLLOW); !errors.Is(err, unix.ENOENT) {
@@ -179,7 +194,7 @@ func (d *Directory) hashMissingPath(parentFD int, name string, directories []sna
 		}
 		return nil, fmt.Errorf("verify missing snapshot path component %q: %w", name, err)
 	}
-	if err := verifySnapshotDirectories(d, directories); err != nil {
+	if err := verifySnapshotDirectories(directories, verifyRoot); err != nil {
 		return nil, err
 	}
 	digest := sha256.New()
@@ -353,7 +368,7 @@ func verifyOpenedAndNamedObject(fd, parentFD int, name string, initial FileState
 	return nil
 }
 
-func verifySnapshotDirectories(root *Directory, directories []snapshotDirectory) error {
+func verifySnapshotDirectories(directories []snapshotDirectory, verifyRoot func() error) error {
 	for index := len(directories) - 1; index >= 0; index-- {
 		directory := directories[index]
 		var opened, named unix.Stat_t
@@ -367,7 +382,7 @@ func verifySnapshotDirectories(root *Directory, directories []snapshotDirectory)
 			return fmt.Errorf("%w while traversing snapshot ancestor %q", ErrChanged, directory.name)
 		}
 	}
-	return root.Verify()
+	return verifyRoot()
 }
 
 func callSnapshotObserver(observe snapshotObserver, stage string) {

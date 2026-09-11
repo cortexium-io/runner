@@ -570,6 +570,10 @@ func TestCaptureSnapshotAllowsUnrelatedSiblingBranchMutation(t *testing.T) {
 	repo := initGitRepo(t)
 	runGitTest(t, repo, "checkout", "-b", "runner/current")
 	current := strings.TrimSuffix(runGitTest(t, repo, "rev-parse", "--verify", "HEAD"), "\n")
+	before, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, repo, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sibling := filepath.Join(repo, ".git", "refs", "heads", "runner", "unrelated")
 	runner := &snapshotMutationRunner{
 		Runner: subprocess.OSRunner{},
@@ -584,6 +588,9 @@ func TestCaptureSnapshotAllowsUnrelatedSiblingBranchMutation(t *testing.T) {
 	snapshot, err := captureDefaultSnapshotState(t.Context(), runner, repo, 30*time.Second)
 	if err != nil || snapshot.Fingerprint == "" || snapshot.Branch != "runner/current" {
 		t.Fatalf("unrelated sibling branch blocked current snapshot: snapshot=%#v error=%v", snapshot, err)
+	}
+	if snapshot.Fingerprint != before.Fingerprint {
+		t.Fatalf("unrelated sibling branch changed current snapshot: before=%q after=%q", before.Fingerprint, snapshot.Fingerprint)
 	}
 }
 

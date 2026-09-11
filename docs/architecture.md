@@ -479,6 +479,13 @@ sparse-checkout, alternates, grafts, replacement refs, and default hook names.
 The manifest records filesystem identity as well as content so replacement with
 an equivalent-looking object is still drift.
 
+Individual Git control-file reads, including initial loose HEAD-reference
+pinning, require their parent directories to retain no-follow identity and safe
+permissions, not unchanged timestamps from unrelated sibling-ref updates. The
+exact child is hashed before and after reading and its pinned state is verified;
+content changes, substitution, and a missing target appearing still fail closed.
+General path snapshots and protected-directory checks remain metadata-strict.
+
 Task checkpoints use that complete manifest. Active-checkout and QA-boundary
 comparisons exclude only `branch.*` entries from the shared repository config,
 because unrelated concurrent branch publication and maintenance legitimately
