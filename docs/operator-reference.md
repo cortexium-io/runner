@@ -1996,6 +1996,17 @@ cannot complete blocks as `integrity_unverified`, preserving the QA retry lane;
 it does not claim the reviewer changed files. Neither condition permits
 publication without a successful integrity check.
 
+When candidate staging encounters Git's exact lock-exists error for the pinned
+worktree index, Runner retries that index operation twice, 100 milliseconds
+apart. It never deletes the lock. If contention persists before QA, the card
+blocks as `integrity_unverified` with its QA retry phase and rejection count
+preserved. Inspect the local diagnostic and active Git processes; after the lock
+owner finishes, use the recorded plain `retry` command to resume QA on the
+retained candidate. This does not authorize implementation or bypass candidate
+checks. Unknown Git errors and actual identity changes remain fail-closed.
+Use `git --no-optional-locks status` for operator inspection of active worktrees
+so the inspection does not compete for Git's optional index-refresh lock.
+
 ## Workflow configuration
 
 See
