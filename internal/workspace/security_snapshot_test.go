@@ -280,6 +280,27 @@ func TestCaptureSnapshotRejectsProtectedGitMetadataReplacementRace(t *testing.T)
 	}
 }
 
+func TestCaptureSnapshotAllowsUnrelatedFetchMetadataUpdates(t *testing.T) {
+	repo := initGitRepo(t)
+	before, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, repo, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &snapshotMutationRunner{
+		Runner: subprocess.OSRunner{},
+		match:  "ls-files --modified --deleted --others",
+		mutate: func() {
+			// A parallel fetch changes the common directory timestamps without
+			// changing this candidate or any protected hook/configuration.
+			writeSnapshotTestFile(t, filepath.Join(repo, ".git", "FETCH_HEAD"), "unrelated fetch result\n")
+		},
+	}
+	after, err := captureDefaultSnapshotState(t.Context(), runner, repo, 30*time.Second)
+	if err != nil || after.Fingerprint != before.Fingerprint {
+		t.Fatalf("unrelated fetch metadata invalidated the candidate: fingerprint=%q want=%q error=%v", after.Fingerprint, before.Fingerprint, err)
+	}
+}
+
 func TestCaptureSnapshotIncludesInitializedUninitializedAndNestedSubmodules(t *testing.T) {
 	leaf := initGitRepo(t)
 	child := initGitRepo(t)
