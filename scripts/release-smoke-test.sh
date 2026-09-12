@@ -26,11 +26,13 @@ case "$1 $2" in
   "api graphql")
     case "$*" in
       *"fields(first:100,after:"*) printf '%s\n' '{"data":{"node":{"fields":{"nodes":[{"__typename":"ProjectV2SingleSelectField","id":"F_status","name":"Status","dataType":"SINGLE_SELECT","options":[{"id":"O_assessment","name":"Needs assessment"},{"id":"O_backlog","name":"Backlog"},{"id":"O_plan","name":"Plan"},{"id":"O_ready","name":"Ready"},{"id":"O_running","name":"In Progress"},{"id":"O_qa","name":"Agent QA"},{"id":"O_pr_ready","name":"PR Ready"},{"id":"O_blocked","name":"Blocked"},{"id":"O_done","name":"Done"}]},{"__typename":"ProjectV2Field","id":"F_result","name":"Runner Result","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_approval","name":"Runner Approval","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_phase","name":"Runner Phase","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_transition","name":"Runner Transition","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_activity","name":"Runner Activity","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_qa","name":"QA Failures","dataType":"NUMBER"},{"__typename":"ProjectV2Field","id":"F_branch","name":"Runner Branch","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_pr","name":"Pull Request","dataType":"TEXT"},{"__typename":"ProjectV2Field","id":"F_qa_commit","name":"QA Commit","dataType":"TEXT"}],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}' ;;
+		*"items(first:100,after:"*) printf '%s\n' '{"data":{"node":{"items":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}' ;;
       *) printf '%s\n' '{"data":{"node":{"views":{"nodes":[{"id":"PVTV_board","name":"Board","layout":"BOARD_LAYOUT"}]}}}}' ;;
     esac ;;
   "project view") printf '%s\n' '{"id":"PVT_smoke","number":42}' ;;
   "repo view") printf '%s\n' '{"nameWithOwner":"example/runner","hasIssuesEnabled":true}' ;;
   "label list") printf '%s\n' '[{"name":"needs-assessment"}]' ;;
+	"issue list") printf '%s\n' '[]' ;;
   *) printf '%s\n' "unexpected fake gh invocation: $*" >&2; exit 1 ;;
 esac
 EOF
@@ -83,6 +85,7 @@ cortexium-runner retry --help >/dev/null
 doctor_output=$(cortexium-runner doctor --config "$config")
 printf '%s\n' "$doctor_output"
 printf '%s\n' "$doctor_output" | grep -Fqx 'Ready to run: yes'
+cortexium-runner run --once --config "$config"
 
 test -f "$dirty_file"
 cmp "$dirty_reference" "$dirty_file"
