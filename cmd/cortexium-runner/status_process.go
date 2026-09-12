@@ -141,8 +141,15 @@ func annotateRunnerSubprocesses(processes []runnerSubprocess, cfg config.Config,
 		return processes
 	}
 	item := active[0]
-	attemptRole := cfg.AttemptRole(item.Role, item.QAFailures)
-	profile, exists := cfg.RoleProfile(attemptRole)
+	runtime, err := cfg.Resolve()
+	if err != nil {
+		return processes
+	}
+	attemptRole, err := runtime.SelectedImplementer(item.Role, item.ImplementationProfile, item.QAFailures)
+	if err != nil {
+		return processes
+	}
+	profile, exists := runtime.RoleProfile(attemptRole)
 	if !exists {
 		return processes
 	}

@@ -92,15 +92,71 @@ func TestAnnotateRunnerSubprocessesAddsUnambiguousCardAndTimeout(t *testing.T) {
 
 func TestAnnotateRunnerSubprocessesUsesCurrentImplementerLadderProfile(t *testing.T) {
 	cfg := completeCLITestConfig(t.TempDir())
+	claude := cfg.Harnesses[0]
+	claude.Kind, claude.Command = config.HarnessClaudeCLI, "claude"
+	cfg.Harnesses = append(cfg.Harnesses, claude)
 	cfg.Roles["implementer_luna"] = config.RoleConfig{
 		Extends: config.WorkRoleImplementer, Harness: config.HarnessClaudeCLI, TimeoutSeconds: 1800,
 	}
 	cfg.ImplementerLadder = []string{config.WorkRoleImplementer, "implementer_luna"}
+	if _, err := cfg.Resolve(); err != nil {
+		t.Fatal(err)
+	}
 	processes := []runnerSubprocess{{PID: 101, Harness: config.HarnessClaudeCLI, Command: "claude", Health: "alive"}}
 	active := []github.WorkItem{{Title: "Refine the shell", Role: config.WorkRoleImplementer, QAFailures: 1}}
 	annotated := annotateRunnerSubprocesses(processes, cfg, active)
 	if annotated[0].Role != "implementer_luna" || annotated[0].ItemTitle != "Refine the shell" || annotated[0].TimeoutSeconds != 1800 {
 		t.Fatalf("process status used the primary implementer instead of the selected ladder profile: %#v", annotated[0])
+	}
+}
+
+func TestAnnotateRunnerSubprocessesHonorsApprovedStartingProfile(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		selected string
+		failures int
+		ladder   bool
+		want     string
+		timeout  int
+	}{
+		{"selected first attempt", "stronger", 0, true, "stronger", 1200},
+		{"selected final ladder step", "stronger", 1, true, "stronger", 1200},
+		{"advance from selected step", "mechanical", 1, true, "stronger", 1200},
+		{"selection without ladder", "mechanical", 2, false, "mechanical", 1800},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := completeCLITestConfig(t.TempDir())
+			cfg.Roles["mechanical"] = config.RoleConfig{Extends: config.WorkRoleImplementer, Description: "Mechanical changes", TimeoutSeconds: 1800}
+			cfg.Roles["stronger"] = config.RoleConfig{Extends: config.WorkRoleImplementer, Description: "Complex changes", TimeoutSeconds: 1200}
+			cfg.PlannerImplementers = []string{"mechanical", "stronger"}
+			if tc.ladder {
+				cfg.ImplementerLadder = []string{config.WorkRoleImplementer, "mechanical", "stronger"}
+			}
+			if _, err := cfg.Resolve(); err != nil {
+				t.Fatal(err)
+			}
+			processes := []runnerSubprocess{{PID: 101, Harness: config.HarnessCodexCLI, Command: "codex", Health: "alive"}}
+			active := []github.WorkItem{{Title: "Build the shell", Role: config.WorkRoleImplementer, ImplementationProfile: tc.selected, QAFailures: tc.failures}}
+			annotated := annotateRunnerSubprocesses(processes, cfg, active)
+			if annotated[0].Role != tc.want || annotated[0].ItemTitle != "Build the shell" || annotated[0].TimeoutSeconds != tc.timeout {
+				t.Fatalf("status ignored the approved starting profile: got %#v, want role %q and timeout %d", annotated[0], tc.want, tc.timeout)
+			}
+		})
+	}
+}
+
+func TestAnnotateRunnerSubprocessesDoesNotGuessUnavailableSelection(t *testing.T) {
+	cfg := completeCLITestConfig(t.TempDir())
+	cfg.Roles["removed_selection"] = config.RoleConfig{Extends: config.WorkRoleImplementer, Description: "No longer allowed for planning"}
+	if _, err := cfg.Resolve(); err != nil {
+		t.Fatal(err)
+	}
+	processes := []runnerSubprocess{{PID: 101, Harness: config.HarnessCodexCLI, Command: "codex", Health: "alive"}}
+	want := processes[0]
+	active := []github.WorkItem{{Title: "Build the shell", Role: config.WorkRoleImplementer, ImplementationProfile: "removed_selection"}}
+	annotated := annotateRunnerSubprocesses(processes, cfg, active)
+	if annotated[0] != want {
+		t.Fatalf("unavailable selection was silently substituted: got %#v, want %#v", annotated[0], want)
 	}
 }
 
