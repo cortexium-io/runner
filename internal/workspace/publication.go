@@ -28,6 +28,10 @@ var privilegedGitMu sync.Mutex
 
 var ErrPublicationBaseChanged = errors.New("publication base revision changed")
 
+// ErrCandidateIndexBusy means Git could not acquire this worktree's index lock
+// after bounded retries. It does not establish a candidate integrity violation.
+var ErrCandidateIndexBusy = errors.New("candidate Git index is locked")
+
 type Candidate struct {
 	CommitOID string
 	TreeOID   string
@@ -605,15 +609,48 @@ func (p GitProvider) stageCandidatePath(ctx context.Context, profile subprocess.
 		return err
 	}
 	if !exists {
-		if result, removeErr := p.privilegedGit(ctx, profile, "update-index", "--force-remove", "--", path); removeErr != nil {
-			return fmt.Errorf("remove deleted candidate path %q: %w", path, commandError(removeErr, result))
+		if err := p.updateCandidateIndex(ctx, profile, "--force-remove", "--", path); err != nil {
+			return fmt.Errorf("remove deleted candidate path %q: %w", path, err)
 		}
 		return nil
 	}
-	if result, updateErr := p.privilegedGit(ctx, profile, "update-index", "--add", "--cacheinfo", mode, objectID, path); updateErr != nil {
-		return fmt.Errorf("stage candidate path %q: %w", path, commandError(updateErr, result))
+	if err := p.updateCandidateIndex(ctx, profile, "--add", "--cacheinfo", mode, objectID, path); err != nil {
+		return fmt.Errorf("stage candidate path %q: %w", path, err)
 	}
 	return nil
+}
+
+func (p GitProvider) updateCandidateIndex(ctx context.Context, profile subprocess.PrivilegedGitProfile, args ...string) error {
+	for attempt := 0; ; attempt++ {
+		result, err := p.privilegedGit(ctx, profile, append([]string{"update-index"}, args...)...)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		firstLine, _, _ := strings.Cut(result.Stderr, "\n")
+		// Privileged Git uses the C locale and the exact pinned index path.
+		// Do not infer contention from arbitrary diagnostics or another lock.
+		lockDiagnostic := "fatal: Unable to create '" + profile.IndexFile + ".lock': File exists."
+		// A joined transport, capture-limit, or cleanup error is not a plain
+		// Git refusal, even when stderr also contains the expected lock line.
+		if result.ExitCode != 128 || err.Error() != "exit status 128" || firstLine != lockDiagnostic {
+			return commandError(err, result)
+		}
+		if attempt == 2 {
+			return fmt.Errorf("%w: %w", ErrCandidateIndexBusy, commandError(err, result))
+		}
+		// A status refresh can briefly own index.lock. Retry only the refused
+		// index write, never remove the lock or rerun the implementation model.
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func (p GitProvider) candidatePathEntry(ctx context.Context, profile subprocess.PrivilegedGitProfile, path string) (string, string, bool, error) {

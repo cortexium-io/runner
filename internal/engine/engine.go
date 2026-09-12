@@ -1188,6 +1188,10 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	gitProvider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
 	candidate, err := gitProvider.ConstructCandidateForMergeMethod(ctx, preparedWorkspace, item.Title, s.cfg.GitHubProject.MergeMethod)
 	if err != nil {
+		if errors.Is(err, workspace.ErrCandidateIndexBusy) {
+			return s.failExecution(ctx, action, lane, result, "Candidate Git index remains locked; inspect the active Git process before retrying QA", err,
+				integrityUnverifiedOutput("Candidate Git index remains locked; inspect the active Git process before retrying QA", err, execution.Output{}))
+		}
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation candidate could not be committed for QA", err,
 			integrityViolationOutput("Implementation candidate could not be committed for QA", err), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
