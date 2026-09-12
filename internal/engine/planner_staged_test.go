@@ -74,6 +74,40 @@ func TestStagedProjectPlannerAssemblesFixedKeyPlan(t *testing.T) {
 	}
 }
 
+func TestPlannerStagePrefixesStayStableAcrossRequestsAndOutlines(t *testing.T) {
+	var prefixes [2]string
+	for index, idea := range []string{"Implement the accepted desktop flow.", "Repair the documented protocol boundary."} {
+		calls := 0
+		call := func(_ context.Context, prompt string, _ []byte) (execution.StructuredHarnessResult, error) {
+			prefix, remainder, found := strings.Cut(prompt, "--- BEGIN PROJECT IDEA ---")
+			request, _, closed := strings.Cut(remainder, "--- END PROJECT IDEA ---")
+			if !found || !closed || strings.TrimSpace(request) != idea || strings.Count(prompt, "--- BEGIN PROJECT IDEA ---") != 1 {
+				t.Fatal("planner did not retain the changing request exactly once after its instructions")
+			}
+			stage := calls
+			calls++
+			if index == 0 {
+				prefixes[stage] = prefix
+			} else if prefix != prefixes[stage] {
+				t.Fatal("changing request or outline altered the stable planner-stage prefix")
+			}
+			if stage == 0 {
+				outline := projectPlanOutline{GoalSummary: idea, ProjectSuccessCriteria: []string{idea}, ProjectConstraints: []string{}, OpenDecisions: []string{}, Cards: []projectPlanOutlineCard{{Title: idea, Dependencies: []int{}}}}
+				encoded, _ := json.Marshal(outline)
+				return execution.StructuredHarnessResult{Message: string(encoded)}, nil
+			}
+			return execution.StructuredHarnessResult{Message: `{"cards":{"C1":{"objective":"Complete the requested behavior","done_when":["Behavior is correct"],"proof_obligations":["Behavior is demonstrated"],"assumptions":[]}}}`}, nil
+		}
+		prompt := projectPlannerPrompt([]string{"runner-planner"}, projectPlannerExecutionContext{}, "owner/repo", idea)
+		if _, err := runStagedProjectPlanner(t.Context(), prompt, "owner/repo", call, call); err != nil {
+			t.Fatal(err)
+		}
+		if calls != 2 {
+			t.Fatalf("planner stages = %d, want 2", calls)
+		}
+	}
+}
+
 func TestStagedProjectPlannerRejectsInvalidOutlineBeforeDetails(t *testing.T) {
 	calls := 0
 	call := func(_ context.Context, _ string, _ []byte) (execution.StructuredHarnessResult, error) {
