@@ -56,6 +56,9 @@ Apply minimum sufficient complexity to the review itself.
    Distinguish sandbox proof from host-only/native-release proof. Use an applicable
    exact-candidate host receipt; do not retry a known unavailable host operation
    from the sandbox or accept a weaker substitute as proof of that capability.
+   A changed candidate needs a newly bound evidence record, not necessarily a
+   rerun of every underlying check. Verify the stated reuse rationale and delta
+   coverage; an old receipt alone does not certify the whole new candidate.
 5. The implementer owns how proof is produced. Require a different method only
    when the supplied method cannot establish the obligation. Do not create new
    test files, rewrite tests, invent another framework, build a custom harness,

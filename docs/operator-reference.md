@@ -2146,6 +2146,10 @@ references and distinguishes historical ideas, sizes cards by behavior and risk
 rather than a target count, and establishes real shared-contract dependencies.
 Integration cards must name distinct missing proof. Documented host-only checks
 remain separate from sandbox work, with an approved exact-candidate handoff.
+A changed candidate needs a new bound record, but applicable underlying checks
+may be reused with explicit reasoning and delta coverage. Do not relabel an old
+receipt as a fresh whole-candidate run or mandate complete reruns solely to
+renew the receipt.
 Repair reports identify the underlying invariant, adjacent cases and regression
 proof in existing result fields. Review guidance compares changed comment context
 without discarding unaffected conclusions or broadening authority.

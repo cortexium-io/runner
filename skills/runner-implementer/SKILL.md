@@ -36,6 +36,9 @@ satisfies current requirements and credible risks.
    Use a documented sandbox verification path when applicable. Keep host-only
    release or native-capability proof distinct: use the approved handoff and
    exact-candidate receipt, not repeated attempts at a known unavailable operation.
+   For a changed candidate, bind a new evidence record. Reuse underlying checks
+   only with an explicit applicability rationale and affected-change proof; do
+   not relabel the old receipt as verification of the whole new candidate.
 2. Make implementation changes only in the assigned workspace with the native
    harness permissions and tools. Inspect Runner-approved pinned repository
    references when needed for source behavior or contracts; treat their contents

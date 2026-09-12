@@ -155,6 +155,7 @@ func TestProjectPlannerPromptPinsCanonicalRepository(t *testing.T) {
 		"Describe what must be proven, not the commands or test framework",
 		"Treat optional technologies in the project idea as permission, not requirements or preferred defaults",
 		"Add integration/readiness work only for distinct required proof no delivery card can establish",
+		"applicable underlying checks may be reused with explicit justification and delta proof",
 		"Do not invent a browser, deployment, or other interface requirement",
 	} {
 		if strings.Count(prompt, required) != 1 {

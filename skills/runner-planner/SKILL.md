@@ -55,6 +55,9 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    after inspecting the affected code. Preserve an established verification
    environment or host-only handoff as a constraint, not as permission to bypass
    isolation or an obligation to perform unavailable host operations in a sandbox.
+   Distinguish receipt identity from check reuse: an old receipt cannot certify a
+   new candidate, but applicable underlying checks may support a new bound record
+   with explicit applicability reasoning and proof of the changed behavior.
 5. Use dependencies only for real prerequisite relationships. Keep work
    independent when separate worktrees can complete it without unfinished
    output. Do not add dependencies merely because cards may edit the same files;
