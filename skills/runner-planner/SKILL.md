@@ -28,7 +28,14 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    downstream traceability. Identify exact accepted documents, designs, commits,
    or reference paths in the affected cards; distinguish them from historical or
    rejected ideas. Do not substitute an available example for a missing approved
-   reference. Carry repository facts needed by the tool-free details stage in
+   reference. Distinguish immutable contract/reference pins, a card's starting
+   base, and its changed final candidate. An explicit fixed execution-base
+   requirement takes precedence. Otherwise, use each card's fresh
+   operator-confirmed starting base and account for accepted in-scope predecessor
+   merges; do not freeze every later card to the batch's initial commit. A
+   pre-edit identity check must not require the changed final candidate to equal
+   its starting base. Stop on unexplained identity conflicts.
+   Carry repository facts needed by the tool-free details stage in
    the outline's constraints, especially shared contracts and verification setup.
    Keep temporary staging/approval status out of executable goals, constraints,
    assumptions, and acceptance conditions. Describe future work conditionally

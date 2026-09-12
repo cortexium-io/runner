@@ -2169,10 +2169,12 @@ Concrete defects remain failures; genuinely inconclusive proof reports
 QA rejection. This is not an instruction to repair tooling or implementation
 unless the evidence identifies such a problem.
 
-Bundled skills 1.8.9 retain sequential heavyweight verification, evidence
+Bundled skills 1.8.10 retain sequential heavyweight verification, evidence
 handoff, and fresh-verification fallback. Planner guidance carries exact accepted
-references and distinguishes historical ideas, sizes cards by behavior and risk
-rather than a target count, and establishes real shared-contract dependencies.
+references and distinguishes historical ideas. It separates immutable reference
+pins, each card's current accepted starting base, and final candidate identity,
+while honoring explicitly fixed execution bases. It sizes cards by behavior and
+risk rather than a target count and establishes real shared-contract dependencies.
 Integration cards must name distinct missing proof. Documented host-only checks
 remain separate from sandbox work, with an approved exact-candidate handoff.
 A changed candidate needs a new bound record, but applicable underlying checks
