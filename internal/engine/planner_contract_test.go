@@ -85,12 +85,27 @@ func TestPlannerCanonicalizesKnownRepresentationResidueLocally(t *testing.T) {
 		t.Fatalf("configure service: %v", err)
 	}
 
-	plan, err := service.PlanProject(t.Context(), "Build one useful feature")
+	idea := "Build one useful feature.\nAccepted reference: product-docs@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/designs/current.md.\nHistorical only: designs/rejected.md is not the accepted direction.\nNative release proof uses the approved exact-candidate host handoff, not the sandbox."
+	plan, err := service.PlanProject(t.Context(), idea)
 	if err != nil {
 		t.Fatalf("plan project with local canonicalization: %v", err)
 	}
 	if run.calls != 2 || len(plan.WorkItems) != 1 || plan.WorkItems[0].Title != "Implement feature" || plan.WorkItems[0].Repository != "owner/repo" {
 		t.Fatalf("expected one canonical project plan, calls=%d plan=%#v", run.calls, plan)
+	}
+	for _, prompt := range run.inputs {
+		if strings.Count(prompt, idea) != 1 {
+			t.Fatal("outline or tool-free details stage lost or duplicated the exact approved references and host constraints")
+		}
+	}
+	if plan.SourceContext != idea {
+		t.Fatal("planning lost the original source context")
+	}
+	for _, item := range projectWorkItems(plan) {
+		body := github.FormatPlannedItemBody(item)
+		if item.ProjectSource != idea || !strings.Contains(body, idea) {
+			t.Fatal("card handoff lost accepted versus historical references or the host-only boundary")
+		}
 	}
 	initialPrompt := run.inputs[0]
 	for _, dynamic := range []string{"Configured implementer timeout: 2h0m0s", "- Implementer: small.", "- Reviewer: standard.", "Build one useful feature"} {
@@ -139,7 +154,8 @@ func TestProjectPlannerPromptPinsCanonicalRepository(t *testing.T) {
 		"Inspect repository instructions, manifests, scripts, and existing tests before defining proof obligations",
 		"Describe what must be proven, not the commands or test framework",
 		"Treat optional technologies in the project idea as permission, not requirements or preferred defaults",
-		"include a final project-readiness card when the complete result needs integration or release proof",
+		"Add integration/readiness work only for distinct required proof no delivery card can establish",
+		"applicable underlying checks may be reused with explicit justification and delta proof",
 		"Do not invent a browser, deployment, or other interface requirement",
 	} {
 		if strings.Count(prompt, required) != 1 {

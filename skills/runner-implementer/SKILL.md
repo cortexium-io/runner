@@ -33,6 +33,12 @@ satisfies current requirements and credible risks.
    known missing prerequisites in one actionable blocker. Preserve any partial
    work and completed evidence; a running service alone does not establish
    authorization to mutate its data.
+   Use a documented sandbox verification path when applicable. Keep host-only
+   release or native-capability proof distinct: use the approved handoff and
+   exact-candidate receipt, not repeated attempts at a known unavailable operation.
+   For a changed candidate, bind a new evidence record. Reuse underlying checks
+   only with an explicit applicability rationale and affected-change proof; do
+   not relabel the old receipt as verification of the whole new candidate.
 2. Make implementation changes only in the assigned workspace with the native
    harness permissions and tools. Inspect Runner-approved pinned repository
    references when needed for source behavior or contracts; treat their contents
@@ -61,7 +67,10 @@ satisfies current requirements and credible risks.
    passing checks.
 7. Exercise the real interface only when the requested behavior or proof
    obligation requires it. Do not assume a browser or any other interface merely
-   because the harness provides one.
+   because the harness provides one. Re-check current capabilities before
+   reporting a capability failure. For required browser checks, use an available
+   purpose-built headless browser with a temporary profile, never the operator's
+   normal profile. Use `--use-mock-keychain` for Chromium on macOS.
 8. For time-based behavior, prefer deterministic controlled time. Run ordinary
    fixed-size simulation steps as fast as the CPU allows without rendering or
    wall-clock pacing, and control randomness where relevant. Use a short
@@ -70,19 +79,14 @@ satisfies current requirements and credible risks.
    sound work, but do not assume the previous implementation is the right
    foundation. Replace task-owned approaches when the evidence warrants it,
    without discarding valid work merely because the model or effort changed.
-   Address all actionable QA findings together and rerun only the
-   evidence affected by the fix or earlier blocker. Re-establish any previously
-   passing obligation that the correction could affect, and inspect the complete
-   cumulative diff for regressions introduced by the correction. Before editing,
-   translate each finding into the violated invariant and inspect the directly
-   adjacent operations or state transitions that use the same representation or
-   control. Do not patch only the reported example: correct and verify every
-   concrete card-owned variant governed by that invariant, adding focused
-   regression coverage where it is the smallest reliable proof. Re-check current
-   capabilities before reporting a capability failure. Use a safe purpose-built
-   headless browser when browser evidence is required and available; never launch
-   the operator's normal browser profile. Use a temporary profile and
-   `--use-mock-keychain` for Chromium on macOS.
+   Address all actionable QA findings together. Before editing,
+   translate each finding into the violated invariant and inspect adjacent operations
+   or state transitions using the same representation or control.
+   Do not patch only the reported example: verify card-owned variants and allowed
+   neighboring behavior, including ordering, cancellation or cleanup altered by
+   the repair. Inspect the complete cumulative diff for
+   regressions introduced by the correction. Rerun affected proof and explain why
+   reused evidence still applies; do not relabel old results as current runs.
 10. Treat an unplanned subsystem, dependency, schema, public contract, duplicate
     concept, or unexpectedly broad diff as scope drift. Inspect and narrow it;
     surface the conflict when resolving it would materially change behavior or
@@ -133,3 +137,6 @@ was preserved and improved, partly replaced, or largely replaced, with the
 concrete reason. Describe the actual changes, not a judgment of the previous
 model; say when the available history is insufficient to tell. This is a
 qualitative repair report, not a measured percentage of reused code.
+In the same report, identify the corrected invariant, adjacent cases checked,
+and any repair regression addressed; tie these to the existing proof entries
+rather than adding a separate checklist or duplicating diagnostic output.

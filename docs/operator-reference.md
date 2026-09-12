@@ -2140,10 +2140,19 @@ Concrete defects remain failures; genuinely inconclusive proof reports
 QA rejection. This is not an instruction to repair tooling or implementation
 unless the evidence identifies such a problem.
 
-Bundled skills 1.8.8 retain sequential heavyweight verification, evidence
-handoff, and fresh-verification fallback, separate temporary planning approval
-status from executable task requirements, and check required operator inputs
-before expensive verification.
+Bundled skills 1.8.9 retain sequential heavyweight verification, evidence
+handoff, and fresh-verification fallback. Planner guidance carries exact accepted
+references and distinguishes historical ideas, sizes cards by behavior and risk
+rather than a target count, and establishes real shared-contract dependencies.
+Integration cards must name distinct missing proof. Documented host-only checks
+remain separate from sandbox work, with an approved exact-candidate handoff.
+A changed candidate needs a new bound record, but applicable underlying checks
+may be reused with explicit reasoning and delta coverage. Do not relabel an old
+receipt as a fresh whole-candidate run or mandate complete reruns solely to
+renew the receipt.
+Repair reports identify the underlying invariant, adjacent cases and regression
+proof in existing result fields. Review guidance compares changed comment context
+without discarding unaffected conclusions or broadening authority.
 After upgrading,
 use `doctor --fix --offline` with the project configuration to refresh installed
 bundled skills, reviewing locally customized copies before replacement. No
@@ -2162,13 +2171,15 @@ in local Runner output, not copied to the Project. Inspect that output and
 through the project's approved local setup rather than repeatedly rerunning
 passing checks. Neither outcome grants additional data-mutation authority.
 
-When integration or release evidence cannot be established on the delivery
-cards, a final project-readiness card depends on the relevant delivery paths.
-Earlier cards run focused checks; the readiness card runs the repository's
-complete established local suite once and the smallest required real-entrypoint
-smoke. That card is the explicit local go-live gate. It does not require CI, and
-it does not invent browser, deployment, or test-framework work absent from the
-project contract.
+When distinct integration or release evidence cannot be established on delivery
+cards, a project-readiness card depends on the relevant delivery paths and names
+that proof gap. It is not mandatory for every multi-card plan and must not simply
+repeat completed checks. Verification follows the project's policy: focused
+development and repair checks, explicit reuse of unaffected evidence, broader
+checks for concrete cross-cutting risk, and complete required proof against the
+integrated candidate. A host-only gate uses its approved handoff; it is not
+silently replaced by weaker sandbox proof. None of this invents browser,
+deployment, CI, or test-framework requirements absent from the project contract.
 
 Codex roles can grant explicitly named local stdio MCP servers:
 
