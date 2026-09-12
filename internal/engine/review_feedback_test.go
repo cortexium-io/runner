@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -115,15 +117,19 @@ func reviewFeedbackTestEngine(root string) *Engine {
 	}}
 }
 
-func TestReviewBaselineSurvivesRestartAndInvalidatesOnChangedContext(t *testing.T) {
+func TestReviewBaselineSurvivesRestartAndKeepsCommentHistorySeparateFromBindings(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "worktrees")
 	service := reviewFeedbackTestEngine(root)
 	item := github.WorkItem{ID: "PVTI_baseline", Role: config.WorkRoleReviewer, Repository: "owner/repo"}
-	content := github.DelegatedContentFor(github.WorkItem{ID: item.ID, Body: "Approved behavior"})
-	spec := service.assignment(item, content, nil, nil).Spec
-	digest := reviewContextDigest(spec, []string{"Fix the approved behavior"})
-	baseline := execution.ReviewBaseline{CommitOID: strings.Repeat("a", 40), BaseOID: strings.Repeat("b", 40), ContextDigest: digest}
-	assessment := execution.ReviewAssessment{Verdict: "needs_changes", Summary: "Fix one defect", Criteria: []execution.ReviewCriterionResult{{Criterion: "behavior", Status: "failed", Summary: "Defect", Evidence: []string{"source:1"}}, {Criterion: "other", Status: "passed", Summary: "Still correct", Evidence: []string{"source:2"}}}}
+	content := github.DelegatedContentFor(github.WorkItem{ID: item.ID, Body: "## Proof obligations\n- behavior\n- other"})
+	priorComments := []string{"@dan: Fix the approved behavior"}
+	spec := service.assignment(item, content, nil, priorComments).Spec
+	digest := reviewBaselineBindingDigest(spec)
+	assessment := rejectedReviewAssessment(spec)
+	baseline := execution.ReviewBaseline{
+		CommitOID: strings.Repeat("a", 40), BaseOID: strings.Repeat("b", 40), BindingDigest: digest,
+		CommentContext: append([]string{}, priorComments...), Assessment: assessment,
+	}
 	if err := service.saveReviewFeedback(item, content, assessment, &baseline); err != nil {
 		t.Fatal(err)
 	}
@@ -132,26 +138,104 @@ func TestReviewBaselineSurvivesRestartAndInvalidatesOnChangedContext(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := matchingReviewBaseline(record, baseline.BaseOID, digest)
+	got := matchingReviewBaseline(record, spec, baseline.BaseOID, digest)
 	if got == nil || got.CommitOID != baseline.CommitOID || len(got.Assessment.Criteria) != 2 || got.Assessment.Criteria[1].Status != "passed" {
 		t.Fatalf("lost prior review: %#v", got)
 	}
-	if matchingReviewBaseline(record, "changed base", digest) != nil {
-		t.Fatal("changed base reused review")
-	}
-	if matchingReviewBaseline(record, baseline.BaseOID, reviewContextDigest(spec, []string{"Different request"})) != nil {
-		t.Fatal("changed human context reused review")
-	}
-	spec.RequiredVerification = append(spec.RequiredVerification, "new proof")
-	if matchingReviewBaseline(record, baseline.BaseOID, reviewContextDigest(spec, []string{"Fix the approved behavior"})) != nil {
-		t.Fatal("changed proof reused review")
-	}
-	record.Baseline.CommitOID = "--unsafe"
-	if matchingReviewBaseline(record, baseline.BaseOID, digest) != nil {
-		t.Fatal("invalid revision reused")
+	if !slices.Equal(got.CommentContext, priorComments) {
+		t.Fatalf("lost prior comment context: %#v", got.CommentContext)
 	}
 	changed := github.DelegatedContentFor(github.WorkItem{ID: item.ID, Body: "Changed requirements"})
 	if record, err := restarted.loadReviewFeedbackRecord(item, changed); err != nil || record != nil {
 		t.Fatalf("changed approved task retained history: %#v %v", record, err)
+	}
+}
+
+func TestMatchingReviewBaselineReusesCommentChangesAndRejectsIncompatibleHistory(t *testing.T) {
+	service := reviewFeedbackTestEngine("unused")
+	item := github.WorkItem{ID: "PVTI_baseline", Role: config.WorkRoleReviewer, Repository: "owner/repo"}
+	content := github.DelegatedContentFor(github.WorkItem{ID: item.ID, Body: "## Proof obligations\n- behavior\n- other"})
+	priorComments := []string{"@dan: Fix the approved behavior"}
+	spec := service.assignment(item, content, nil, priorComments).Spec
+	digest := reviewBaselineBindingDigest(spec)
+	baseline := execution.ReviewBaseline{
+		CommitOID: strings.Repeat("a", 40), BaseOID: strings.Repeat("b", 40), BindingDigest: digest,
+		CommentContext: append([]string{}, priorComments...), Assessment: rejectedReviewAssessment(spec),
+	}
+	record := &reviewFeedbackRecord{
+		Baseline: &baseline, Version: reviewFeedbackVersion, ItemID: item.ID,
+		DelegatedContentDigest: content.Digest, Items: []string{"prior finding"},
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded reviewFeedbackRecord
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("decode valid review baseline: %v", err)
+	}
+	record = &decoded
+
+	changedCommentsSpec := service.assignment(item, content, nil, []string{"@dan: Please continue with the approved correction."}).Spec
+	if changed := matchingReviewBaseline(record, changedCommentsSpec, baseline.BaseOID, reviewBaselineBindingDigest(changedCommentsSpec)); changed == nil {
+		t.Fatal("comment-only context change discarded compatible review history")
+	}
+	if matchingReviewBaseline(nil, spec, baseline.BaseOID, digest) != nil || matchingReviewBaseline(&reviewFeedbackRecord{}, spec, baseline.BaseOID, digest) != nil {
+		t.Fatal("missing review history was reused")
+	}
+	if matchingReviewBaseline(record, spec, "changed base", digest) != nil {
+		t.Fatal("changed base reused review")
+	}
+	changedRepository := spec
+	changedRepository.Repository = "owner/other"
+	if matchingReviewBaseline(record, changedRepository, baseline.BaseOID, reviewBaselineBindingDigest(changedRepository)) != nil {
+		t.Fatal("changed repository reused review")
+	}
+	changedProof := spec
+	changedProof.RequiredVerification = append(append([]string{}, spec.RequiredVerification...), "new proof")
+	if matchingReviewBaseline(record, changedProof, baseline.BaseOID, reviewBaselineBindingDigest(changedProof)) != nil {
+		t.Fatal("changed proof reused review")
+	}
+	record.Baseline.CommitOID = "--unsafe"
+	if matchingReviewBaseline(record, spec, baseline.BaseOID, digest) != nil {
+		t.Fatal("invalid revision reused")
+	}
+	record.Baseline.CommitOID = baseline.CommitOID
+	record.Baseline.CommentContext = nil
+	if matchingReviewBaseline(record, spec, baseline.BaseOID, digest) != nil {
+		t.Fatal("baseline with missing comment history was reused")
+	}
+	record.Baseline.CommentContext = priorComments
+	record.Baseline.Assessment.Criteria[0].Criterion = "unbound proof"
+	if matchingReviewBaseline(record, spec, baseline.BaseOID, digest) != nil {
+		t.Fatal("malformed proof assessment was reused")
+	}
+
+	var malformed reviewFeedbackRecord
+	if err := json.Unmarshal([]byte(`{"version":1,"item_id":"PVTI_baseline","delegated_content_digest":"v1:approved","items":["prior finding"],"baseline":{"commit_oid":7}}`), &malformed); err != nil {
+		t.Fatalf("malformed baseline prevented safe feedback decode: %v", err)
+	}
+	if malformed.Baseline != nil || !slices.Equal(malformed.Items, []string{"prior finding"}) {
+		t.Fatalf("malformed baseline was reused or safe feedback was lost: %#v", malformed)
+	}
+}
+
+func rejectedReviewAssessment(spec execution.Spec) execution.ReviewAssessment {
+	criteria := make([]execution.ReviewCriterionResult, len(spec.RequiredVerification))
+	for index, criterion := range spec.RequiredVerification {
+		criteria[index] = execution.ReviewCriterionResult{
+			Criterion: criterion, Status: "passed", Summary: "The prior review passed this obligation.", Evidence: []string{"prior review evidence"},
+		}
+	}
+	criteria[0].Status = "failed"
+	criteria[0].Summary = "The prior review found a defect."
+	return execution.ReviewAssessment{
+		Criteria: criteria,
+		Rules: []execution.ReviewRuleResult{{
+			RuleSourceID: "repository_instructions", RuleSourceVersion: "current", Status: "passed",
+			Summary: "Repository instructions passed.", Findings: []execution.ReviewRuleFinding{},
+		}},
+		Maintainability: execution.ReviewMaintainabilityResult{Status: "passed", Summary: "Maintainability passed.", Evidence: []string{"prior maintainability review"}},
+		Verdict:         "needs_changes", Summary: "Fix the prior defect.",
 	}
 }

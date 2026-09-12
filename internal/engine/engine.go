@@ -239,6 +239,24 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 	if err := recoveryGuard.Release(); err != nil {
 		return prepared, err
 	}
+	// ReadyItems is also the established manual-intake authorization boundary.
+	// Evaluate it before pull-request reconciliation so an ordinary card moved
+	// to Ready has its exact current snapshot signed before any retained PR or
+	// workspace state can be used. Selection is repeated after reconciliation
+	// because those deterministic actions may change which work is claimable.
+	boundReady, err := s.source.ReadyItems(ctx, items, len(items))
+	if err != nil {
+		return pollPreparation{}, fmt.Errorf("authorize manual Ready intake before pull request reconciliation: %w", err)
+	}
+	for _, action := range boundReady {
+		for index := range items {
+			if items[index].ID == action.Item.ID {
+				items[index] = action.Item
+				break
+			}
+		}
+	}
+	prepared.items = items
 	reconciliationItems, err := s.itemsWithoutResourceConflicts(items, inFlight)
 	if err != nil {
 		return pollPreparation{}, fmt.Errorf("derive pull-request reconciliation resources: %w", err)
@@ -1234,8 +1252,8 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	assignment := s.assignment(qaItem, delegatedContent, reviewFeedback, commentContext)
 	assignment.Spec.ReviewBaseOID = preparedWorkspace.BaseRevision
 	assignment.Spec.ReviewCandidateOID = candidate.CommitOID
-	reviewContext := reviewContextDigest(assignment.Spec, commentContext)
-	baseline := matchingReviewBaseline(reviewRecord, preparedWorkspace.BaseRevision, reviewContext)
+	reviewBinding := reviewBaselineBindingDigest(assignment.Spec)
+	baseline := matchingReviewBaseline(reviewRecord, assignment.Spec, preparedWorkspace.BaseRevision, reviewBinding)
 	if baseline != nil {
 		if _, objectErr := s.git(ctx, []string{"-C", reviewWorkspace.Path, "cat-file", "-e", baseline.CommitOID + "^{commit}"}, "", 10*time.Second); objectErr == nil {
 			assignment.Spec.ReviewBaseline = baseline
@@ -1305,7 +1323,10 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		result.CandidateOID = candidate.CommitOID
 	}
 	if output.ReviewAssessment != nil && output.ReviewAssessment.Verdict == "needs_changes" {
-		if feedbackErr := s.saveReviewFeedback(item, delegatedContent, *output.ReviewAssessment, &execution.ReviewBaseline{CommitOID: candidate.CommitOID, BaseOID: preparedWorkspace.BaseRevision, ContextDigest: reviewContext}); feedbackErr != nil {
+		if feedbackErr := s.saveReviewFeedback(item, delegatedContent, *output.ReviewAssessment, &execution.ReviewBaseline{
+			CommitOID: candidate.CommitOID, BaseOID: preparedWorkspace.BaseRevision, BindingDigest: reviewBinding,
+			CommentContext: append([]string{}, commentContext...),
+		}); feedbackErr != nil {
 			return s.failExecution(ctx, action, lane, result, "Agent QA feedback could not be retained safely", feedbackErr, integrityViolationOutput("Agent QA feedback could not be retained safely", feedbackErr, output))
 		}
 		failures := item.QAFailures + 1

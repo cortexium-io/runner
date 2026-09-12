@@ -14,6 +14,7 @@ type Spec struct {
 	RequiredVerification   []string               `json:"required_verification,omitempty"`
 	RecordedVerification   []VerificationEvidence `json:"recorded_verification,omitempty"`
 	ReviewBaseline         *ReviewBaseline        `json:"review_baseline,omitempty"`
+	ReviewCommentContext   []string               `json:"review_comment_context,omitempty"`
 	ReviewBaseOID          string                 `json:"review_base_oid,omitempty"`
 	ReviewCandidateOID     string                 `json:"review_candidate_oid,omitempty"`
 	ReviewRequired         bool                   `json:"review_required,omitempty"`
@@ -23,10 +24,11 @@ type Spec struct {
 // ReviewBaseline is historical evidence from a completed review of the same
 // approved task and base. It does not grant authority or replace current proof.
 type ReviewBaseline struct {
-	CommitOID     string           `json:"commit_oid"`
-	BaseOID       string           `json:"base_oid"`
-	ContextDigest string           `json:"context_digest"`
-	Assessment    ReviewAssessment `json:"assessment"`
+	CommitOID      string           `json:"commit_oid"`
+	BaseOID        string           `json:"base_oid"`
+	BindingDigest  string           `json:"binding_digest"`
+	CommentContext []string         `json:"comment_context"`
+	Assessment     ReviewAssessment `json:"assessment"`
 }
 
 // VerificationEvidence is candidate-bound historical evidence supplied to a
