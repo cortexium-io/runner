@@ -264,7 +264,7 @@ func projectPlannerPrompt(skills []string, executionContext projectPlannerExecut
 	}
 	b.WriteString("\nInspect repository instructions, manifests, scripts, and existing tests before defining proof obligations. Describe what must be proven, not the commands or test framework; the implementer chooses the smallest reliable method after inspecting the affected code. Never require temporary scripts or overlapping checks.")
 	b.WriteString("\nTreat optional technologies in the project idea as permission, not requirements or preferred defaults. Add an optional dependency or external service only when it materially simplifies the requested result without weakening local development or verification.")
-	b.WriteString("\nFor a multi-item plan, include a final project-readiness card when the complete result needs integration or release proof that no earlier card can establish. Its proof obligations cover the established complete local suite and the smallest required real-entrypoint smoke. Do not invent a browser, deployment, or other interface requirement.")
+	b.WriteString("\nRetain exact accepted references and established shared-contract or verification-environment constraints in the affected card details. Historical ideas are not accepted requirements. Add integration/readiness work only for distinct required proof no delivery card can establish; name that gap rather than repeating completed checks. Keep host-only proof and its approved handoff distinct from sandbox work. Do not invent a browser, deployment, or other interface requirement.")
 	b.WriteString("\n\nApproved project idea:\n--- BEGIN PROJECT IDEA ---\n")
 	b.WriteString(strings.TrimSpace(idea))
 	b.WriteString("\n--- END PROJECT IDEA ---")

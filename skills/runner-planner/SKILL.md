@@ -25,7 +25,11 @@ clarity, operability, maintainability, and reliable proof require, and no more.
 
 1. Read the repository instructions, manifests, relevant code and tests, and the
    complete approved project context. Preserve the original request for
-   downstream traceability.
+   downstream traceability. Identify exact accepted documents, designs, commits,
+   or reference paths in the affected cards; distinguish them from historical or
+   rejected ideas. Do not substitute an available example for a missing approved
+   reference. Carry repository facts needed by the tool-free details stage in
+   the outline's constraints, especially shared contracts and verification setup.
    Keep temporary staging/approval status out of executable goals, constraints,
    assumptions, and acceptance conditions. Describe future work conditionally
    ("once approved"), not as permanently "planning-only" or "unapproved".
@@ -39,21 +43,32 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    boundaries. Each card must deliver coherent progress in one uninterrupted
    implementer invocation. Split independently verifiable behavior; combine
    fragments whose separation would leave a partial flow, inconsistent
-   contract, duplicate path, or unusable intermediate state.
+   contract, duplicate path, or unusable intermediate state. Size by behavior,
+   independent failure modes and proof, not a preferred card count. A single
+   user journey may cross several separately reviewable authority or data
+   boundaries. For visual work, establish the accepted direction in an early
+   useful slice rather than first comparing it at final readiness.
 4. Give every card one objective, observable completion conditions, proof
    obligations, selected assumptions, and dependencies. A proof obligation says
    what evidence must establish, not which command, framework, file, tool, or
    implementation technique must produce it. The implementer owns that choice
-   after inspecting the affected code.
+   after inspecting the affected code. Preserve an established verification
+   environment or host-only handoff as a constraint, not as permission to bypass
+   isolation or an obligation to perform unavailable host operations in a sandbox.
 5. Use dependencies only for real prerequisite relationships. Keep work
    independent when separate worktrees can complete it without unfinished
    output. Do not add dependencies merely because cards may edit the same files;
    Runner isolates task branches and handles their integration separately.
+   When consumers need a new shared contract, identify its owner and establish
+   that contract before depending on it. Consumers of an already fixed contract
+   can proceed independently.
 6. Cover the primary user journey and only the empty states, failures,
    persistence, recovery, compatibility, security, or domain invariants that
    materially affect completeness.
 7. Include a project-readiness card only when integration or release evidence
-   cannot be established by the delivery cards themselves. Its proof obligations
+   cannot be established by the delivery cards themselves. Name that additional
+   evidence; merely repeating delivery checks or closing cards is not a separate
+   outcome. Its proof obligations
    may cover the established complete local suite once and the smallest required
    real-entrypoint smoke; it must not invent a test framework or interface.
 8. Do not create separate reviewer cards, cleanup filler, ceremonial testing
