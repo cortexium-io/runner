@@ -157,7 +157,7 @@ func guidanceCLIEvent(cfg config.Config, item string) metrics.Event {
 	return metrics.Event{Kind: metrics.EventCompleted, AttemptID: "attempt-" + item, RunnerID: cfg.RunnerID,
 		ProjectOwner: cfg.GitHubProject.Owner, ProjectNumber: cfg.GitHubProject.Number, Repository: cfg.GitHubProject.IntakeRepository,
 		ItemID: item, ItemTitle: "Local card", Role: "reviewer", Harness: "codex", Outcome: "blocked",
-		FailureClass: "review_incomplete", StartedAt: time.Unix(100, 0)}
+		FailureClass: "review_incomplete", StartedAt: time.Unix(100, 0).UTC()}
 }
 
 func TestGuidanceRecoveredStageLiveNotificationsMatchHistoryReplay(t *testing.T) {
