@@ -43,7 +43,7 @@ func TestMetricsCommandFiltersItemsAndReportsOnlyHarnessCost(t *testing.T) {
 	if err := runMetrics([]string{"--config", configPath, "--item", "PVTI_one"}, &output); err != nil {
 		t.Fatalf("metrics: %v", err)
 	}
-	for _, expected := range []string{"Recorded attempts: 1", "Harness invocations: 1", "saved-result resumes: 1", "resumed: exact saved implementation result", "12 input", "$0.7500", "Build shell", "capacity_exhausted", "retry manual", "publication_inspect_pull_request", "3 attempt(s)", "stage: harness_run"} {
+	for _, expected := range []string{"Recorded attempts: 1", "Harness invocations: 1", "saved-result resumes: 1", "resumed: exact saved implementation result", "12 input", "$0.7500", "Build shell", "capacity_exhausted", "retry manual", "publication_inspect_pull_request", "3 attempt(s)", "stage: harness_run", "Stage evidence: 1/1 attempts", "harness_run: 1/1 completed", "stage time is not test time"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("output omitted %q:\n%s", expected, output.String())
 		}
@@ -62,5 +62,8 @@ func TestMetricsCommandFiltersItemsAndReportsOnlyHarnessCost(t *testing.T) {
 	}
 	if decoded.Summary.Attempts != 2 || decoded.Summary.UnfinishedAttempts != 1 || decoded.Summary.HarnessInvocations != 1 || decoded.Summary.ResumedCheckpointAttempts != 1 || decoded.Summary.CostCoveredAttempts != 1 {
 		t.Fatalf("unexpected JSON summary: %#v", decoded.Summary)
+	}
+	if decoded.Summary.StageCoveredAttempts != 1 || len(decoded.Summary.Stages) != 1 || decoded.Summary.Stages[0].DurationMilliseconds != 50000 {
+		t.Fatalf("JSON omitted measured stage coverage: %#v", decoded.Summary)
 	}
 }

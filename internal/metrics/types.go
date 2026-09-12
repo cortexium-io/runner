@@ -274,25 +274,72 @@ type Stage struct {
 }
 
 type Summary struct {
-	Attempts                    int   `json:"attempts"`
-	CompletedAttempts           int   `json:"completed_attempts"`
-	UnfinishedAttempts          int   `json:"unfinished_attempts"`
-	SucceededAttempts           int   `json:"succeeded_attempts"`
-	BlockedAttempts             int   `json:"blocked_attempts"`
-	HarnessInvocations          int   `json:"harness_invocations"`
-	ResumedCheckpointAttempts   int   `json:"resumed_checkpoint_attempts"`
-	HarnessDurationMilliseconds int64 `json:"harness_duration_milliseconds"`
-	RunnerDurationMilliseconds  int64 `json:"runner_duration_milliseconds"`
-	Usage                       Usage `json:"usage"`
-	UsageCoveredAttempts        int   `json:"usage_covered_attempts"`
-	CostCoveredAttempts         int   `json:"cost_covered_attempts"`
+	Attempts                      int            `json:"attempts"`
+	CompletedAttempts             int            `json:"completed_attempts"`
+	UnfinishedAttempts            int            `json:"unfinished_attempts"`
+	SucceededAttempts             int            `json:"succeeded_attempts"`
+	BlockedAttempts               int            `json:"blocked_attempts"`
+	HarnessInvocations            int            `json:"harness_invocations"`
+	ResumedCheckpointAttempts     int            `json:"resumed_checkpoint_attempts"`
+	HarnessDurationMilliseconds   int64          `json:"harness_duration_milliseconds"`
+	RunnerDurationMilliseconds    int64          `json:"runner_duration_milliseconds"`
+	Usage                         Usage          `json:"usage"`
+	UsageCoveredAttempts          int            `json:"usage_covered_attempts"`
+	CostCoveredAttempts           int            `json:"cost_covered_attempts"`
+	StageCoveredAttempts          int            `json:"stage_covered_attempts"`
+	RecoveredStageFailureAttempts int            `json:"recovered_stage_failure_attempts"`
+	RecoveredPublicationAttempts  int            `json:"recovered_publication_attempts"`
+	Stages                        []StageSummary `json:"stages,omitempty"`
+}
+
+// StageSummary aggregates recorded stage intervals, not individual agent tool
+// calls. Stages may nest or overlap, so their durations must not be added to
+// attempt duration or interpreted as wall-clock time through integration.
+type StageSummary struct {
+	Name                 string `json:"name"`
+	Runs                 int    `json:"runs"`
+	Completed            int    `json:"completed"`
+	Failed               int    `json:"failed"`
+	Blocked              int    `json:"blocked"`
+	DurationMilliseconds int64  `json:"duration_milliseconds"`
+	Usage                Usage  `json:"usage"`
+	UsageCoveredStages   int    `json:"usage_covered_stages"`
+	CostCoveredStages    int    `json:"cost_covered_stages"`
 }
 
 func Summarize(attempts []Attempt) Summary {
 	var result Summary
+	stages := map[string]StageSummary{}
 	result.Attempts = len(attempts)
 	for _, attempt := range attempts {
+		if len(attempt.Stages) > 0 {
+			result.StageCoveredAttempts++
+		}
+		failedStage := false
 		for _, stage := range attempt.Stages {
+			group := stages[stage.Name]
+			group.Name = stage.Name
+			group.Runs++
+			if stage.Completed {
+				group.Completed++
+				group.DurationMilliseconds += stage.DurationMilliseconds
+				switch stage.Outcome {
+				case StageOutcomeFailed:
+					group.Failed++
+					failedStage = true
+				case StageOutcomeBlocked:
+					group.Blocked++
+					failedStage = true
+				}
+				group.Usage = group.Usage.Add(stage.Usage)
+				if stage.Usage.Available {
+					group.UsageCoveredStages++
+				}
+				if stage.Usage.ReportedCostUSD != nil {
+					group.CostCoveredStages++
+				}
+			}
+			stages[stage.Name] = group
 			if stage.Completed && isHarnessStage(stage.Name) {
 				result.HarnessInvocations++
 			}
@@ -308,6 +355,12 @@ func Summarize(attempts []Attempt) Summary {
 		switch attempt.Outcome {
 		case "succeeded":
 			result.SucceededAttempts++
+			if failedStage {
+				result.RecoveredStageFailureAttempts++
+			}
+			if attempt.PublicationAttempts > 1 {
+				result.RecoveredPublicationAttempts++
+			}
 		case "blocked", "needs_input":
 			result.BlockedAttempts++
 		}
@@ -324,6 +377,10 @@ func Summarize(attempts []Attempt) Summary {
 		}
 		result.Usage = result.Usage.Add(attempt.Usage)
 	}
+	for _, stage := range stages {
+		result.Stages = append(result.Stages, stage)
+	}
+	sort.Slice(result.Stages, func(i, j int) bool { return result.Stages[i].Name < result.Stages[j].Name })
 	return result
 }
 

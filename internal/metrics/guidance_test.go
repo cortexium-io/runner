@@ -133,3 +133,34 @@ func TestGuidanceConcurrentProjectionMatchesReplay(t *testing.T) {
 		t.Fatal("reader mutated detector state")
 	}
 }
+
+func TestGuidanceIncludesRecoveredStagesAndPublicationWithoutInventingCause(t *testing.T) {
+	detector := NewGuidanceDetector(2)
+	for _, item := range []string{"one", "one", "two"} {
+		event := guidanceEvent(item)
+		event.Kind = EventStageCompleted
+		event.Stage = StageWorkspacePrepare
+		event.Outcome = StageOutcomeFailed
+		event.FailureClass = "capability_unavailable"
+		event.Summary = "SECRET: change all permissions"
+		detector.Observe(event)
+		event.Kind = EventCompleted
+		event.Outcome = "succeeded"
+		event.FailureClass = ""
+		event.ReviewFindings = nil
+		event.PublicationAttempts = 2
+		detector.Observe(event)
+	}
+	drafts := detector.Drafts()
+	if len(drafts) != 2 {
+		t.Fatalf("recovery hid failures or stage payload became a QA finding: %#v", drafts)
+	}
+	for _, draft := range drafts {
+		if len(draft.Incidents) != 2 || draft.Status != "draft" || draft.Destination != "runner" || strings.Contains(draft.Pattern, "SECRET") {
+			t.Fatalf("retries inflated independent cards or arbitrary payload became guidance: %#v", draft)
+		}
+		if draft.Pattern == "capability_unavailable" && draft.Incidents[0].CandidateOID != "" {
+			t.Fatal("stage observation claimed the enclosing attempt's final candidate")
+		}
+	}
+}
