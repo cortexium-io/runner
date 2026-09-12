@@ -29,6 +29,7 @@ const (
 	StageReviewerVerify     = "reviewer_verification"
 	StageResultValidate     = "result_validate"
 	StageWorkspaceVerify    = "workspace_verify"
+	StageCandidateConstruct = "candidate_construct"
 	StageProjectTransition  = "project_transition"
 	StagePublishPullRequest = "publish_pull_request"
 	StagePlannerApply       = "planner_apply"
@@ -44,7 +45,7 @@ func validStageName(name string) bool {
 	switch name {
 	case StageWorkspacePrepare, StageRepositoryPrepare, StageHarnessRun, StagePlannerOutline,
 		StagePlannerDetails, StageReviewerAudit, StageReviewerVerify, StageResultValidate,
-		StageWorkspaceVerify, StageProjectTransition, StagePublishPullRequest,
+		StageWorkspaceVerify, StageCandidateConstruct, StageProjectTransition, StagePublishPullRequest,
 		StagePlannerApply:
 		return true
 	default:
