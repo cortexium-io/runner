@@ -2064,6 +2064,43 @@ func TestInterruptedDirectProjectPlanRejectsChangedPlanWithoutWrites(t *testing.
 	}
 }
 
+func TestDirectProjectPlanDoesNotCombineAnotherUnapprovedRequest(t *testing.T) {
+	for _, missingStatus := range []bool{false, true} {
+		t.Run(fmt.Sprintf("missing status %t", missingStatus), func(t *testing.T) {
+			project := &fakeGitHubProjectRunner{failCreateAt: 2}
+			service, err := New(completeEngineTestConfig(config.Config{
+				ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+			}), project)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.ApplyProjectPlan(t.Context(), directProjectPlanFixture()); err == nil {
+				t.Fatal("expected interrupted staging")
+			}
+			project.failCreateAt = 0
+			if missingStatus {
+				project.remoteItems[0].Status = ""
+			}
+			other := directProjectPlanFixture()
+			other.SourceContext = "A different planning request"
+			before := append([]string(nil), project.calls...)
+			beforeItems, _ := json.Marshal(project.remoteItems)
+			if _, err := service.ApplyProjectPlan(t.Context(), other); err == nil || !strings.Contains(err.Error(), "interrupted local project plan") {
+				t.Fatalf("different request bypassed pending-plan protection: %v", err)
+			}
+			for _, call := range project.calls[len(before):] {
+				if strings.HasPrefix(call, "project item-") || strings.HasPrefix(call, "issue edit ") || strings.Contains(call, "mutation(") {
+					t.Fatalf("pending-plan refusal mutated GitHub: %s", call)
+				}
+			}
+			afterItems, _ := json.Marshal(project.remoteItems)
+			if string(beforeItems) != string(afterItems) || project.createCount != 2 {
+				t.Fatalf("pending-plan refusal changed retained children or created new ones: %s", afterItems)
+			}
+		})
+	}
+}
+
 func TestDirectProjectPlanApprovalRejectsChangedChildAfterPreview(t *testing.T) {
 	project := &fakeGitHubProjectRunner{}
 	service, err := New(completeEngineTestConfig(config.Config{

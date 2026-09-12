@@ -102,7 +102,7 @@ Getting started:
 
 Project work:
   cortexium-runner add plan|ready [--config PATH] --title TEXT (--body TEXT|--body-file PATH) [--dry-run]
-  cortexium-runner plan [--config PATH] [--idea TEXT|--idea-file PATH] [--create|--stage-only|--approve-staged FINGERPRINT]
+  cortexium-runner plan [--config PATH] [--idea TEXT|--idea-file PATH|--plan-file PATH] [--create|--stage-only|--approve-staged FINGERPRINT]
   cortexium-runner approve [--config PATH] --item ID|URL [--dry-run]
   cortexium-runner retry [--config PATH] [--item ID|URL|TITLE] [--feedback TEXT] [--dry-run]
 
