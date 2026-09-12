@@ -243,7 +243,10 @@ func (s *gitControlSnapshot) Finish(head, registration, index, status, replaceme
 			return nil, fmt.Errorf("verify linked Git directory: %w", err)
 		}
 	}
-	if err := s.commonDirectory.Verify(); err != nil {
+	// The shared root may gain or replace FETCH_HEAD and similar bookkeeping
+	// during another assignment's fetch. Its security-sensitive children were
+	// verified individually above; the directory itself must keep its identity.
+	if err := s.commonDirectory.VerifyIdentity(); err != nil {
 		return nil, fmt.Errorf("verify common Git directory: %w", err)
 	}
 

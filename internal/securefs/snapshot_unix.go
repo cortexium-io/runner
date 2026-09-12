@@ -55,6 +55,15 @@ func (d *Directory) HashEntryWithBudget(name string, budget *SnapshotBudget) ([]
 	return d.hashPathWithRootVerifier(name, budget, nil, d.VerifyIdentity)
 }
 
+// HashPathWithIdentityRoot allows unrelated entries in the pinned root to
+// change. The root retains its no-follow identity and safe permissions; all
+// descendants traversed during the hash remain metadata-strict. This is for
+// individually protected paths in shared control directories, not general
+// repository snapshots.
+func (d *Directory) HashPathWithIdentityRoot(relativePath string, budget *SnapshotBudget) ([]byte, error) {
+	return d.hashPathWithRootVerifier(relativePath, budget, nil, d.VerifyIdentity)
+}
+
 func (d *Directory) hashPath(relativePath string, observe snapshotObserver) ([]byte, error) {
 	return d.hashPathWithBudget(relativePath, nil, observe)
 }

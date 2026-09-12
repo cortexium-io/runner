@@ -81,7 +81,7 @@ func (s *gitControlSnapshot) pinProtectedGitMetadata() error {
 }
 
 func (s *gitControlSnapshot) pinProtectedDirectory(directory *securefs.Directory, scope, path string) error {
-	digest, err := directory.HashPathWithBudget(path, s.budget)
+	digest, err := directory.HashPathWithIdentityRoot(path, s.budget)
 	if err != nil {
 		return err
 	}
@@ -150,7 +150,7 @@ func (s *gitControlSnapshot) finishReplacementRefs(value string) (string, error)
 }
 
 func (s *gitControlSnapshot) pinProtectedPath(directory *securefs.Directory, scope, path string) error {
-	digest, err := directory.HashPathWithBudget(path, s.budget)
+	digest, err := directory.HashPathWithIdentityRoot(path, s.budget)
 	if err != nil {
 		return err
 	}
@@ -173,7 +173,7 @@ func (s *gitControlSnapshot) finishProtectedGitMetadata() (string, error) {
 	})
 	manifest := strings.Builder{}
 	for _, path := range paths {
-		current, err := path.directory.HashPathWithBudget(path.path, s.budget)
+		current, err := path.directory.HashPathWithIdentityRoot(path.path, s.budget)
 		if err != nil {
 			return "", fmt.Errorf("verify protected %s Git metadata %q: %w", path.scope, path.path, err)
 		}

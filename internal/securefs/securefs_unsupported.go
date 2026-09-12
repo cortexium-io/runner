@@ -49,6 +49,9 @@ func (d *Directory) HashPathWithBudget(string, *SnapshotBudget) ([]byte, error) 
 func (d *Directory) HashEntryWithBudget(string, *SnapshotBudget) ([]byte, error) {
 	return nil, errUnsupported
 }
+func (d *Directory) HashPathWithIdentityRoot(string, *SnapshotBudget) ([]byte, error) {
+	return nil, errUnsupported
+}
 func (d *Directory) DiscoverFiles([]string, []string) (*PathDiscovery, error) {
 	return nil, errUnsupported
 }
