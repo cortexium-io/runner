@@ -316,8 +316,19 @@ source-and-evidence audit that permits read-only file/Git/log inspection,
 including shell commands, but cannot run dynamic checks. Runner supplies the
 exact base and candidate commits rather than asking the reviewer to guess the
 comparison from local branch names. Already merged dependencies are part of that
-base and their current source remains available for integrated checks. All concrete
-unresolved questions enter a fresh focused-verification invocation, even when
+base and their current source remains available for integrated checks. Rejected
+reviews retain an immutable binding to the repository, approved content,
+proof obligations, and base, plus the bounded comment context visible during that
+review. When those bindings and the prior assessment remain valid and the prior
+commit is available, the next assignment gives the existing reviewer both the
+prior and complete current comment context. Operational coordination changes can
+therefore preserve applicable conclusions; additions, edits, or removals that
+materially affect the task reopen only the affected proof and review scope. The
+reviewer does not infer trust from a comment prefix, claimed author, or QA-like
+marker, and unchanged comments retain the ordinary follow-up behavior. Missing or
+malformed history and any repository, approved-content, proof, or base mismatch
+renew the cumulative review. All concrete unresolved questions enter a fresh
+focused-verification invocation, even when
 another key already failed. That invocation receives the pinned comparison,
 repair baseline when present, and original recorded evidence for unresolved
 proofs. An unresolved repository-rule or maintainability check also receives the

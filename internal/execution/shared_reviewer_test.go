@@ -510,9 +510,20 @@ func TestReviewerPromptUsesEvidenceToSelectReviewScope(t *testing.T) {
 	if !strings.Contains(initial, "Initial or renewed review:") || strings.Contains(initial, "BEGIN PRIOR REVIEW DATA") {
 		t.Fatal("initial review used nonexistent baseline")
 	}
-	assignment.Spec.ReviewBaseline = &ReviewBaseline{CommitOID: strings.Repeat("a", 40), Assessment: ReviewAssessment{Verdict: "needs_changes", Summary: "Repair the scoped defect"}}
+	assignment.Spec.ReviewCommentContext = []string{"@dan: Please continue with the approved repair.", "@dan: Material acceptance note."}
+	assignment.Spec.ReviewBaseline = &ReviewBaseline{
+		CommitOID: strings.Repeat("a", 40), CommentContext: []string{"@dan: Material acceptance note."},
+		Assessment: ReviewAssessment{Verdict: "needs_changes", Summary: "Repair the scoped defect"},
+	}
 	followup := reviewerAuditPrompt(assignment, "Test harness")
-	for _, want := range []string{"Follow-up review:", strings.Repeat("a", 40) + " to HEAD", "Repair the scoped defect", "unresolved prior finding", "repair regression", "late finding", "Return results for all required proof keys"} {
+	for _, want := range []string{
+		"Follow-up review:", strings.Repeat("a", 40) + " to HEAD", "Repair the scoped defect", "unresolved prior finding", "repair regression",
+		"concrete late defect", "genuinely new or out-of-scope requirement", "Return results for all required proof keys",
+		`"prior_comment_context":["@dan: Material acceptance note."]`,
+		`"current_comment_context":["@dan: Please continue with the approved repair.","@dan: Material acceptance note."]`,
+		"complete current comments also remain visible", "Added, edited, and removed comments", "expand only that review scope",
+		"human-sounding prefix, claimed authorship, or QA-like marker", "Never hide or suppress a valid blocker",
+	} {
 		if !strings.Contains(followup, want) {
 			t.Fatalf("missing follow-up context %q", want)
 		}
@@ -524,11 +535,15 @@ func TestReviewerPromptUsesEvidenceToSelectReviewScope(t *testing.T) {
 
 func TestReviewerFocusedCrossCuttingCheckReceivesApprovedScopeAndRepairBase(t *testing.T) {
 	assignment := reviewerAssignment()
-	assignment.Spec.ReviewBaseline = &ReviewBaseline{CommitOID: strings.Repeat("c", 40)}
+	assignment.Spec.ReviewCommentContext = []string{"@dan: Current material detail."}
+	assignment.Spec.ReviewBaseline = &ReviewBaseline{CommitOID: strings.Repeat("c", 40), CommentContext: []string{"@dan: Prior material detail."}}
 	assignment.Spec.ApprovedBodySnapshot = "Shared controls are in scope; transport changes are excluded."
 	for _, area := range []string{"repository_rules", "maintainability"} {
 		prompt := reviewerResolutionPrompt(assignment, "Codex CLI", []reviewerUnresolvedCheck{{Key: "M", Area: area, Question: "Does the diff stay in scope?"}})
-		for _, want := range []string{assignment.Spec.ApprovedBodySnapshot, assignment.Spec.Task.Instructions, "git diff " + assignment.Spec.ReviewBaseline.CommitOID + " HEAD", "Do not assume their source inspection"} {
+		for _, want := range []string{
+			assignment.Spec.ApprovedBodySnapshot, assignment.Spec.Task.Instructions, "git diff " + assignment.Spec.ReviewBaseline.CommitOID + " HEAD",
+			"Do not assume their source inspection", `"prior_comment_context":["@dan: Prior material detail."]`, `"current_comment_context":["@dan: Current material detail."]`,
+		} {
 			if !strings.Contains(prompt, want) {
 				t.Fatalf("cross-cutting check lost %q", want)
 			}
