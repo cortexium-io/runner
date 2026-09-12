@@ -22,6 +22,54 @@ and judging. Check component results, harness versions, settings, and telemetry
 coverage. An aggregate score divided by average cost is not cost per accepted
 Runner card.
 
+## Evaluate process changes before changing models
+
+First compare the next completed batch in each participating project with its
+own baseline. Keep model/reasoning profiles, retry limits, global concurrency,
+permissions, and acceptance requirements fixed. Record the Runner and skill
+versions, project-policy changes, approved card IDs, starting bases, and any
+operator interventions in the existing trial evidence. Different projects and
+different task mixes are not interchangeable control groups.
+
+Use the existing read-only commands; exporting metrics does not run a model or
+retry work. Keep exports private because attempt evidence can contain project
+details:
+
+```bash
+umask 077
+cortexium-runner metrics --config /absolute/operator/path/runner.json --json > metrics.json
+cortexium-runner metrics --config /absolute/operator/path/runner.json --item CARD_ID
+```
+
+Filter the export to the approved batch's exact item IDs, retaining every
+attempt through its observed terminal state. Include blocked/exhausted work and
+manual recoveries, rather than comparing only the successful attempts. Account
+for planning at batch level, including failed staging and any paid replanning;
+a saved-plan staging retry is not another planner invocation.
+
+| Question | Evidence to use | Interpretation boundary |
+| --- | --- | --- |
+| Did delivery get faster or cheaper? | All batch attempts, reported usage/cost, and the observed release-to-Done/Blocked timeline | Attempt durations exclude gaps between attempts and may overlap across cards. Missing monetary cost is unavailable, not zero. |
+| Are tests being repeated unnecessarily? | Retained per-check results, candidate/environment identity, start/end times where recorded, and reuse explanations | A stage interval is not test time. A renewed receipt is not a fresh test execution. Distinguish justified reruns after relevant changes from repetitions on unchanged inputs. |
+| Did quality improve? | Recorded `review_verdict`, exact candidate, private findings, and the relevant repair diff | Rejection exhaustion is still `needs_changes`; accepted QA followed by publication failure is not a code rejection. Distinguish unresolved findings, repair regressions, and late discoveries from new requirements. |
+| Are setup and publication costs hidden by eventual success? | Failed/blocked stages, publication attempt counts and failing operations, plus retained failure/fallback reports | Count failures inside successful attempts. A shared failure label or a later success does not establish its cause. |
+| Did planning improve? | The actual proposal, approved scope, dependencies, and observed repairs | Judge coherent behavior/risk boundaries and real dependencies, not a target card count. Record human amendments; do not attribute them to the planner. |
+
+Do not rerun completed checks merely to obtain missing timings. Mark measurement
+coverage explicitly, and retain named failure/rerun reports when checks do run.
+Keep commands, arguments, and raw diagnostics in appropriately private project
+evidence rather than adding them to Runner's structured stage telemetry. A
+high cache-read count does not by itself establish low end-to-end cost; preserve
+the reported counters and the provider's definitions without guessing prices.
+
+Summarize time, usage, unnecessary repetition, setup failures, QA findings, and
+human intervention together. One before/after batch is an operational signal,
+not a causal A/B result. Keep improvements that remove demonstrated waste
+without weakening proof; investigate apparent savings accompanied by missing
+evidence or later defects. Only then start a separate model-profile comparison.
+Recurring observations can inform the existing private `guidance` drafts, but
+must be independently reviewed before becoming repository or skill instructions.
+
 ## Opt-in comparison profiles
 
 | Profile | Model / reasoning | Task-selection hypothesis |
@@ -86,7 +134,7 @@ automatically classify a rejection and choose its next model.
 - Keep the approved task, starting base, harness version, tools, permissions,
   timeout, task granularity, and verification requirements equal. Run each
   candidate independently; do not seed one comparison with another's solution.
-- Keep planner and reviewer fixed (Astra Medium for the current trial baseline).
+- Keep planner and reviewer fixed at the trial's approved profiles.
   Change only one comparison at a time: Luna Max versus Terra Medium, or Sol
   Medium versus Sol High. Include representative tasks, not just easy successes.
 - Record first-pass acceptance and total implementation, QA, repair, and required
