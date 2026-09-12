@@ -495,7 +495,10 @@ pinning, require their parent directories to retain no-follow identity and safe
 permissions, not unchanged timestamps from unrelated sibling-ref updates. The
 exact child is hashed before and after reading and its pinned state is verified;
 content changes, substitution, and a missing target appearing still fail closed.
-General path snapshots and protected-directory checks remain metadata-strict.
+Protected Git metadata paths likewise verify their shared administration root
+by identity, so unrelated `FETCH_HEAD` updates cannot invalidate a candidate.
+Their traversed descendants and explicitly pinned protected directories remain
+metadata-strict. General repository path snapshots are unchanged.
 
 Task checkpoints use that complete manifest. Active-checkout and QA-boundary
 comparisons exclude only `branch.*` entries from the shared repository config,

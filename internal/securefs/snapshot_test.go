@@ -179,6 +179,89 @@ func TestHashEntryRetainsLeafScopeAndSnapshotBudget(t *testing.T) {
 	}
 }
 
+func TestHashPathWithIdentityRootKeepsDescendantsStrict(t *testing.T) {
+	for _, mutation := range []string{"unrelated-root-entry", "root-replacement", "unsafe-root", "ancestor-replacement", "ancestor-entry", "leaf-content", "missing-appeared"} {
+		t.Run(mutation, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "control")
+			nested := filepath.Join(root, "hooks")
+			if err := os.MkdirAll(nested, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			write := func(path, content string) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			leaf := filepath.Join(nested, "pre-commit")
+			stage := snapshotStageRegularRead
+			if mutation == "missing-appeared" {
+				stage = snapshotStageMissingObserved
+			} else {
+				write(leaf, "before\n")
+			}
+			directory, err := OpenDir(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer directory.Close()
+			before, err := directory.HashPathWithIdentityRoot("hooks/pre-commit", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed := false
+			digest, err := directory.hashPathWithRootVerifier("hooks/pre-commit", nil, func(current string) {
+				if current != stage || observed {
+					return
+				}
+				observed = true
+				switch mutation {
+				case "unrelated-root-entry":
+					write(filepath.Join(root, "FETCH_HEAD"), "other\n")
+				case "root-replacement", "ancestor-replacement":
+					target := root
+					if mutation == "ancestor-replacement" {
+						target = nested
+					}
+					if err := os.Rename(target, target+".old"); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.MkdirAll(nested, 0o700); err != nil {
+						t.Fatal(err)
+					}
+					write(leaf, "before\n")
+				case "unsafe-root":
+					if err := os.Chmod(root, 0o777); err != nil {
+						t.Fatal(err)
+					}
+				case "ancestor-entry":
+					write(filepath.Join(nested, "another-hook"), "other\n")
+				default:
+					write(leaf, "after!\n")
+				}
+			}, directory.VerifyIdentity)
+			if !observed {
+				t.Fatal("mutation boundary was not reached")
+			}
+			if mutation != "unrelated-root-entry" {
+				if err == nil || digest != nil {
+					t.Fatalf("protected path mutation was certified: digest=%x err=%v", digest, err)
+				}
+				return
+			}
+			if err != nil || !bytes.Equal(before, digest) {
+				t.Fatalf("unrelated root update invalidated the protected path: digest=%x err=%v", digest, err)
+			}
+			if after, err := directory.HashPathWithIdentityRoot("hooks/pre-commit", nil); err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("public control-path hash rejected root bookkeeping: digest=%x err=%v", after, err)
+			}
+			if _, err := directory.HashPath("hooks/pre-commit"); !errors.Is(err, ErrChanged) {
+				t.Fatalf("general repository path hash no longer checks root metadata: %v", err)
+			}
+		})
+	}
+}
+
 type snapshotHashResult struct {
 	digest []byte
 	err    error
