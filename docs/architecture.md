@@ -623,6 +623,17 @@ after every child is released. Polling and claiming validate that commit and
 all siblings, so interrupted release remains fail-closed even when compensating
 cleanup also fails.
 
+Direct CLI JSON includes the original planning request and configured Project,
+repository, base-branch and destination identity. `plan --plan-file` loads that
+untrusted proposal without a harness call; optional `--stage-only` uses the same
+normalization, exact-child matching, provenance checks and short mutation guard
+as fresh staging. Existing receipts are not imported as authority. Open decisions,
+changed targets, changed or partially released children, and other unapproved
+local batches prevent staging. An unchanged saved proposal resumes partial
+staging without changing its fingerprint or creating duplicate children. This
+uses operator-retained JSON, not another persistent planning store; imported
+plans still require a separate complete-batch approval.
+
 Local coordination separates the worker lifetime from standalone planning.
 `run` alone owns the worker lock and runtime-status file. Standalone `plan`
 commands serialize with one another, not with the service. Both CLI-owned

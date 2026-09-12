@@ -1278,17 +1278,43 @@ instead. The result prints a compact receipt and a fingerprint-bound command:
 ./cortexium-runner plan --config /absolute/operator/path/runner.json --approve-staged v1:BATCH_FINGERPRINT
 ```
 
-With `--json`, preview-only planning writes the plan directly. Successful
+With `--json`, preview-only planning writes the plan directly, including its
+original `source_context` and `target` (Project owner/number, repository, base
+branch and destination). Retain this JSON privately; it contains the original
+request and may contain sensitive project context. Successful
 `--stage-only` writes `{ "plan": ..., "staged": ... }`; successful `--create`
 writes `{ "plan": ..., "released": ... }`. If planning completes but staging
 fails, stdout still contains one valid JSON object with the complete `plan`
 (including `open_decisions`) and an `error` string. The command also reports
 the error on stderr and exits nonzero; scripts should retain stdout on failure.
 An error response is not a staging or approval receipt: a GitHub failure may
-have left partial unapproved cards. Open decisions prevent all card creation;
-answer them in the idea and rerun the same command, keeping `--stage-only` when
-a separate approval is intended. Runner does not automatically rerun the
+have left partial unapproved cards. Runner does not automatically rerun the
 planner or add a persistent plan store for this CLI output recovery.
+
+Save a generated proposal, then stage it without another planner call:
+
+```bash
+umask 077
+./cortexium-runner plan --config /absolute/operator/path/runner.json --idea-file project-idea.md --json > proposal.json
+./cortexium-runner plan --config /absolute/operator/path/runner.json --plan-file proposal.json --stage-only --json > staging-result.json
+```
+
+`--plan-file` also accepts the whole JSON staging result or error response;
+only its `plan` is imported. Existing `staged`, `released`, and `error` fields
+grant no authority. Omit `--stage-only` to inspect the saved proposal without
+changing GitHub. Imported proposals cannot use `--create`, idea flags,
+`--small-tasks`, or `--approve-staged` in the same command. Approve the complete
+staged batch separately with its displayed `--approve-staged` command.
+
+The saved file must be regular JSON no larger than 2 MiB. Runner rejects missing
+or mismatched target/context metadata, unknown plan fields, invalid dependencies,
+foreign repositories, and unavailable execution profiles. JSON from older
+versions without replay metadata is not importable. Open decisions still
+prevent every card creation. Either answer them in the idea and rerun the same
+planning command, or explicitly review and amend the saved proposal: update
+`source_context` with the answers, update affected cards and proof obligations,
+and remove only resolved `open_decisions`. Then stage it for fresh approval.
+Do not overwrite your sole saved proposal with the output of its own replay.
 
 Generated cards contain the original request, project outcome, project-wide
 success criteria and constraints, a local objective, acceptance criteria, proof
@@ -1316,11 +1342,15 @@ default-No `approve --item` confirmation after the refreshed complete preview.
 Before accepting interactive project text or launching another planner, Runner
 checks for an earlier unapproved direct-planning batch. A complete batch must be
 reviewed with the displayed `plan --approve-staged` command. An incomplete batch
-is reported with its exact Project item IDs and must be reviewed and removed by
-the operator before replanning; Runner never silently combines or deletes it.
-Retries within the original staging operation reuse the exact batch instead of
-creating duplicates and reject changed or partially released children rather
-than treating them as approved. The destination lane determines their role.
+is reported with its exact Project item IDs. Resume it using the original saved
+JSON with `--plan-file` and `--stage-only`; matching children, dependencies and
+batch identity are reused. A changed proposal, changed child, unrelated pending
+batch or partially released batch is refused before new writes. If the original
+JSON is unavailable or the proposal needs changes after partial staging, review
+and remove that unapproved batch before replanning or staging the revised one;
+Runner never silently combines or deletes it. Replaying a complete unapproved
+batch creates no duplicate cards and does not release it. The destination lane
+determines the role after separate approval.
 
 ## Roles and harnesses
 
