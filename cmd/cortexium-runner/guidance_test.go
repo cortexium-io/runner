@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -157,4 +158,51 @@ func guidanceCLIEvent(cfg config.Config, item string) metrics.Event {
 		ProjectOwner: cfg.GitHubProject.Owner, ProjectNumber: cfg.GitHubProject.Number, Repository: cfg.GitHubProject.IntakeRepository,
 		ItemID: item, ItemTitle: "Local card", Role: "reviewer", Harness: "codex", Outcome: "blocked",
 		FailureClass: "review_incomplete", StartedAt: time.Unix(100, 0)}
+}
+
+func TestGuidanceRecoveredStageLiveNotificationsMatchHistoryReplay(t *testing.T) {
+	cfg := completeCLITestConfig(t.TempDir())
+	store := metrics.NewStore(filepath.Join(t.TempDir(), "history.jsonl"))
+	var notifications bytes.Buffer
+	observe := guidanceMetricsObserver(store, cfg, &notifications)
+	live := metrics.NewGuidanceDetector(2)
+	for _, item := range []string{"one", "one", "two"} {
+		event := guidanceCLIEvent(cfg, item)
+		event.Kind = metrics.EventStageCompleted
+		event.StageID = "prepare-" + item
+		event.Stage = metrics.StageWorkspacePrepare
+		event.Outcome = metrics.StageOutcomeFailed
+		event.FailureClass = "capability_unavailable"
+		event.StartedAt = event.StartedAt.Add(time.Second)
+		event.CandidateOID = strings.Repeat("a", 40)
+		if err := observe(event); err != nil {
+			t.Fatal(err)
+		}
+		live.Observe(event)
+		event.Kind = metrics.EventCompleted
+		event.Stage, event.StageID = "", ""
+		event.Outcome, event.FailureClass = "succeeded", ""
+		event.CandidateOID = strings.Repeat("b", 40)
+		if err := observe(event); err != nil {
+			t.Fatal(err)
+		}
+		live.Observe(event)
+	}
+	if strings.Count(notifications.String(), "guidance draft available:") != 1 {
+		t.Fatalf("recovered stage notification was lost or duplicated: %s", notifications.String())
+	}
+	history, err := store.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed := metrics.NewGuidanceDetector(2)
+	replayGuidance(replayed, cfg, history)
+	if !reflect.DeepEqual(live.Drafts(), replayed.Drafts()) {
+		t.Fatalf("live/replay incident evidence differs:\nlive: %#v\nreplay: %#v", live.Drafts(), replayed.Drafts())
+	}
+	notifications.Reset()
+	observe = guidanceMetricsObserver(store, cfg, &notifications)
+	if err := observe(history.Attempts[0].Event); err != nil || notifications.Len() != 0 {
+		t.Fatalf("restart notified an existing incident: %v, %s", err, notifications.String())
+	}
 }

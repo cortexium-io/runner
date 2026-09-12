@@ -524,6 +524,17 @@ metrics. Use
 machine-readable output. `status` includes a compact accumulated total and the
 current admission-budget state.
 
+The summary groups recorded stages by name, with completed/unfinished counts,
+failed and blocked counts, recorded duration, and reported usage/cost coverage.
+It includes completed stages inside unfinished attempts and failures inside
+attempts that later succeeded. Recovered publication retries are counted
+separately. Stage durations may nest or overlap: do not add them to attempt
+duration or interpret their sum as time through integration. Stage coverage is
+explicit, so older attempts without it are not treated as zero-work runs.
+Individual test-command duration/repetition and the causes of waits between
+attempts remain unavailable; an implementation-stage interval is not measured
+test time. Inspect retained project verification evidence for those details.
+
 After a Project planning card produces a valid executable plan, Runner stores
 that exact normalized plan in a private mode-`0600` checkpoint before creating
 the first child. The record is bound to the approved source content, bounded
@@ -599,6 +610,13 @@ can contribute another card; model, reasoning, attempt ID, candidate commit
 when available, and prompt-context fingerprints remain in the draft's incident
 references. Use `metrics --item CARD_ID --json` to inspect the original evidence
 and cost, including all retries.
+
+Completed failed or blocked stages also contribute, even when their enclosing
+attempt later succeeds; replaying history preserves those incidents. Stage
+observations do not claim the final candidate's identity, which may have changed
+after the incident. Repeated successful publication recoveries produce a
+separate investigation draft, not a guessed transport diagnosis. Stage and
+attempt observations of the same failure on one card still count once.
 
 Drafts suggest an investigation destination: project knowledge for repeated
 failed QA findings, skill guidance for repeated evidence/contract/candidate

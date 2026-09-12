@@ -84,7 +84,25 @@ func guidanceEventInScope(event metrics.Event, cfg config.Config) bool {
 
 func replayGuidance(detector *metrics.GuidanceDetector, cfg config.Config, history metrics.ReadResult) {
 	for _, attempt := range history.Attempts {
-		if attempt.Completed && guidanceEventInScope(attempt.Event, cfg) {
+		if !guidanceEventInScope(attempt.Event, cfg) {
+			continue
+		}
+		for _, stage := range attempt.Stages {
+			if !stage.Completed {
+				continue
+			}
+			event := attempt.Event
+			event.Kind = metrics.EventStageCompleted
+			event.Stage = stage.Name
+			event.StageID = stage.StageID
+			event.StartedAt = stage.StartedAt
+			event.Outcome = stage.Outcome
+			event.FailureClass = stage.FailureClass
+			event.FailureOperation = ""
+			event.PromptContexts = stage.PromptContexts
+			detector.Observe(event)
+		}
+		if attempt.Completed {
 			detector.Observe(attempt.Event)
 		}
 	}

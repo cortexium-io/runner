@@ -58,7 +58,20 @@ func NewGuidanceDetector(minimum int) *GuidanceDetector {
 // Observe returns only newly eligible draft IDs. Retries, duplicate events,
 // and stages cannot inflate the count of independent cards.
 func (d *GuidanceDetector) Observe(event Event) []string {
-	if event.Kind != EventCompleted || event.ItemID == "" || event.AttemptID == "" ||
+	if event.Kind == EventStageCompleted {
+		if !validStageName(event.Stage) || (event.Outcome != StageOutcomeFailed && event.Outcome != StageOutcomeBlocked) {
+			return nil
+		}
+		// A completed failed stage remains an incident even if the enclosing
+		// attempt later succeeds. Never treat stage payload as a QA finding.
+		event.ReviewFindings = nil
+		// The final attempt's candidate can differ from its earlier stage.
+		// Keep live and history projections honest about that missing binding.
+		event.CandidateOID = ""
+	} else if event.Kind != EventCompleted {
+		return nil
+	}
+	if event.ItemID == "" || event.AttemptID == "" ||
 		event.RunnerID == "" || event.ProjectOwner == "" || event.ProjectNumber <= 0 || event.Repository == "" {
 		return nil
 	}
@@ -111,6 +124,11 @@ func (d *GuidanceDetector) Observe(event Event) []string {
 				"The same Runner failure classification occurred on independent cards; a shared root cause is not yet established.", destination,
 				"Inspect the referenced attempts and distinguish provider/tooling incidents, Runner defects, and missing agent guidance. Prefer a code fix for a deterministic Runner defect. Do not turn an outage or an evidence gap into a product rule.")
 		}
+	}
+	if event.Kind == EventCompleted && event.Outcome == "succeeded" && event.PublicationAttempts > 1 && event.PublicationAttempts <= 3 {
+		add("publication_recovery", "publication needed multiple attempts",
+			"Publication needed retries on independent cards but subsequently succeeded; the retained evidence does not establish a shared cause.", "runner",
+			"Inspect recorded publication stages and local diagnostics. Distinguish transient provider failures from a deterministic Runner defect; do not infer a Git transport fix or rerun accepted implementation or QA from this observation alone.")
 	}
 	for _, finding := range event.ReviewFindings {
 		switch finding.Area {

@@ -95,6 +95,18 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 	fmt.Fprintf(output, "Harness invocations: %d · saved-result resumes: %d\n", view.Summary.HarnessInvocations, view.Summary.ResumedCheckpointAttempts)
 	fmt.Fprintf(output, "Agent time: %s · Runner/GitHub overhead: %s\n",
 		formatMetricDuration(view.Summary.HarnessDurationMilliseconds), formatMetricDuration(view.Summary.RunnerDurationMilliseconds))
+	if view.Summary.StageCoveredAttempts > 0 {
+		fmt.Fprintf(output, "Stage evidence: %d/%d attempts · successful attempts with failed/blocked stages: %d · recovered publication retries: %d\n",
+			view.Summary.StageCoveredAttempts, view.Summary.Attempts, view.Summary.RecoveredStageFailureAttempts, view.Summary.RecoveredPublicationAttempts)
+		for _, stage := range view.Summary.Stages {
+			fmt.Fprintf(output, "  %s: %d/%d completed · %d failed · %d blocked · %s recorded\n",
+				terminalSafeText(stage.Name), stage.Completed, stage.Runs, stage.Failed, stage.Blocked, formatMetricDuration(stage.DurationMilliseconds))
+		}
+		fmt.Fprintln(output, "Stage durations may overlap; they are not extra wall time.")
+	} else {
+		fmt.Fprintln(output, "Stage evidence: unavailable from the recorded attempts")
+	}
+	fmt.Fprintln(output, "Individual test-command duration/repetition and between-attempt wait causes: unavailable; stage time is not test time.")
 	usage := view.Summary.Usage
 	if view.Summary.UsageCoveredAttempts > 0 {
 		fmt.Fprintf(output, "Reported tokens: %d input · %d cache read · %d cache write · %d output",
