@@ -1597,11 +1597,13 @@ author, or QA-like marker does not make a comment trusted or hide it from review
 Findings distinguish unresolved prior issues, repair regressions, concrete late
 defects, and genuinely new or out-of-scope requirements without suppressing valid
 blockers. A repository, approved-content, proof-obligation, or base mismatch;
-missing or malformed baseline data; an unavailable prior commit; or invalid
-authority prevents reuse and causes a renewed full review. Accepted review
-feedback is cleared. This policy works with one model, equal reasoning settings,
-or no escalation ladder. Refresh the bundled skills before starting Runner;
-Doctor checks their contents against the embedded versions.
+missing or malformed baseline data; or an unavailable prior commit prevents reuse
+and causes a renewed full review after the normal authority checks. Invalid
+execution authority instead blocks execution; historical baseline evidence never
+grants authority. Accepted review feedback is cleared. This policy works with one
+model, equal reasoning settings, or no escalation ladder. Refresh the bundled
+skills before starting Runner; Doctor checks their contents against the embedded
+versions.
 
 On rework, the implementer independently reassesses the requirements and current
 diff, preserving sound work without assuming the earlier approach is correct.
