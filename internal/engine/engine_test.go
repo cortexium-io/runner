@@ -3048,9 +3048,20 @@ func TestImplementationResumesCompletedHarnessAfterPostProcessingFailure(t *test
 		t.Fatal(err)
 	}
 	firstAction := mustAuthorizeTest(t, service.source, item)
-	first := service.executeImplementation(t.Context(), firstAction)
+	var constructions []metrics.Event
+	observe := func(event metrics.Event) error {
+		if event.Stage == metrics.StageCandidateConstruct && event.Kind == metrics.EventStageCompleted {
+			constructions = append(constructions, event)
+		}
+		return nil
+	}
+	firstContext := metrics.WithAttemptTrace(t.Context(), metrics.NewAttemptTrace(observe, service.newItemAttempt(item)))
+	first := service.executeImplementation(firstContext, firstAction)
 	if first.Outcome != execution.OutcomeBlocked || runner.calls != 1 || !strings.Contains(first.Error, "verification") {
 		t.Fatalf("post-processing failure did not retain one completed harness run: result=%#v harness_calls=%d", first, runner.calls)
+	}
+	if len(constructions) != 1 || constructions[0].Outcome != metrics.StageOutcomeSucceeded {
+		t.Fatalf("post-processing failure obscured successful candidate construction: %#v", constructions)
 	}
 	if _, err := os.Stat(service.implementationCheckpointPath(item.ID)); err != nil {
 		t.Fatalf("completed harness checkpoint is missing: %v", err)
@@ -3070,9 +3081,13 @@ func TestImplementationResumesCompletedHarnessAfterPostProcessingFailure(t *test
 		project.remoteItems[index] = retried
 	}
 	secondAction := mustAuthorizeTest(t, service.source, retried)
-	second := service.executeImplementation(t.Context(), secondAction)
+	secondContext := metrics.WithAttemptTrace(t.Context(), metrics.NewAttemptTrace(observe, service.newItemAttempt(retried)))
+	second := service.executeImplementation(secondContext, secondAction)
 	if second.Outcome != execution.OutcomeSucceeded || !second.ResumedCheckpoint || runner.calls != 1 || project.status != "Agent QA" {
 		t.Fatalf("retry repeated completed model work or failed to continue: result=%#v harness_calls=%d status=%q", second, runner.calls, project.status)
+	}
+	if len(constructions) != 1 {
+		t.Fatalf("saved candidate resume invented another construction stage: %#v", constructions)
 	}
 	if _, err := os.Stat(service.implementationCheckpointPath(item.ID)); !os.IsNotExist(err) {
 		t.Fatalf("successful transition retained completed checkpoint: %v", err)
@@ -3544,9 +3559,29 @@ func TestCandidateValidationBoundsCorrectionAndPlainRetryRerunsImplementation(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	first := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, item))
+	historyStore := metrics.NewStore(filepath.Join(t.TempDir(), "metrics.jsonl"))
+	service.SetMetricsObserver(historyStore.Append)
+	first := service.executeItem(t.Context(), admittedAction{
+		action: mustAuthorizeTest(t, service.source, item), event: service.newItemAttempt(item),
+	})
 	if first.Outcome != execution.OutcomeBlocked || first.FailureClass != string(execution.FailureCandidateValidation) || first.RetryDisposition != string(execution.RetryManual) || runner.calls != 2 {
 		t.Fatalf("candidate validation did not produce a retryable content failure: result=%#v harness_calls=%d", first, runner.calls)
+	}
+	history, err := historyStore.Read()
+	if err != nil || history.MalformedRecords != 0 || len(history.Attempts) != 1 {
+		t.Fatalf("read exhausted candidate metrics: history=%#v error=%v", history, err)
+	}
+	var dispositions []string
+	for _, stage := range history.Attempts[0].Stages {
+		if stage.Name == metrics.StageCandidateConstruct {
+			if !stage.Completed || stage.Outcome != metrics.StageOutcomeFailed || stage.FailureClass != string(execution.FailureCandidateValidation) {
+				t.Fatalf("exhausted correction lost a validation failure: %#v", stage)
+			}
+			dispositions = append(dispositions, stage.RetryDisposition)
+		}
+	}
+	if !reflect.DeepEqual(dispositions, []string{string(execution.RetryAutomatic), string(execution.RetryManual)}) {
+		t.Fatalf("candidate metrics exceeded or obscured the correction bound: %v", dispositions)
 	}
 	if project.status != "Blocked" || project.phase != "ready" || !strings.Contains(project.result, "trailing whitespace") || !strings.Contains(project.result, "git diff --cached --check") {
 		t.Fatalf("candidate correction was not published safely: status=%q phase=%q result=%q", project.status, project.phase, project.result)
@@ -3588,10 +3623,12 @@ func TestCandidateValidationBoundsCorrectionAndPlainRetryRerunsImplementation(t 
 func TestCandidateValidationCorrectsImmediatelyWithoutQARejection(t *testing.T) {
 	for _, test := range []struct {
 		name, content, reason string
+		metricsError          bool
 	}{
-		{"EOF blank line", "retained implementation\n\n", "new blank lines at end of file"},
-		{"trailing whitespace", "retained implementation  \n", "trailing whitespace"},
-		{"conflict marker", "<<<<<<< HEAD\nretained implementation\n=======\nother implementation\n>>>>>>> other\n", "leftover conflict markers"},
+		{"EOF blank line", "retained implementation\n\n", "new blank lines at end of file", false},
+		{"trailing whitespace", "retained implementation  \n", "trailing whitespace", false},
+		{"conflict marker", "<<<<<<< HEAD\nretained implementation\n=======\nother implementation\n>>>>>>> other\n", "leftover conflict markers", false},
+		{"candidate metrics unavailable", "retained implementation\n\n", "new blank lines at end of file", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repo, _ := createPublicationRepository(t)
@@ -3628,12 +3665,47 @@ func TestCandidateValidationCorrectsImmediatelyWithoutQARejection(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			result := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, item))
+			historyStore := metrics.NewStore(filepath.Join(t.TempDir(), "metrics.jsonl"))
+			service.SetMetricsObserver(func(event metrics.Event) error {
+				if test.metricsError && event.Stage == metrics.StageCandidateConstruct {
+					return errors.New("candidate telemetry unavailable")
+				}
+				return historyStore.Append(event)
+			})
+			result := service.executeItem(t.Context(), admittedAction{
+				action: mustAuthorizeTest(t, service.source, item), event: service.newItemAttempt(item),
+			})
 			if result.Outcome != execution.OutcomeSucceeded || result.Error != "" || result.FailureClass != "" || runner.calls != 2 || project.status != "Agent QA" || project.qaFailures != 1 {
 				t.Fatalf("candidate was not corrected in the same action: result=%#v calls=%d status=%q failures=%d", result, runner.calls, project.status, project.qaFailures)
 			}
 			if result.Usage.InputTokens != 200 || result.Usage.CacheReadInputTokens != 80 || result.Usage.OutputTokens != 20 {
 				t.Fatalf("correction usage was lost or duplicated: %#v", result.Usage)
+			}
+			history, err := historyStore.Read()
+			if err != nil || history.MalformedRecords != 0 || len(history.Attempts) != 1 || !history.Attempts[0].Completed || history.Attempts[0].Outcome != execution.OutcomeSucceeded {
+				t.Fatalf("successful correction was not retained: history=%#v error=%v", history, err)
+			}
+			var candidates []metrics.Stage
+			for _, stage := range history.Attempts[0].Stages {
+				if stage.Name == metrics.StageCandidateConstruct {
+					candidates = append(candidates, stage)
+					if !stage.Completed || stage.StartedAt.IsZero() || stage.FinishedAt.Before(stage.StartedAt) || stage.Usage.Available {
+						t.Fatalf("candidate stage lost timing or fabricated model usage: %#v", stage)
+					}
+				}
+			}
+			if test.metricsError {
+				if !strings.Contains(result.MetricsError, "candidate telemetry unavailable") || len(candidates) != 0 {
+					t.Fatalf("candidate telemetry failure was hidden or invented stage evidence: result=%#v stages=%#v", result, candidates)
+				}
+			} else {
+				if result.MetricsError != "" || len(candidates) != 2 || candidates[0].Outcome != metrics.StageOutcomeFailed || candidates[0].FailureClass != string(execution.FailureCandidateValidation) || candidates[0].RetryDisposition != string(execution.RetryAutomatic) || candidates[1].Outcome != metrics.StageOutcomeSucceeded || candidates[1].FailureClass != "" || candidates[1].RetryDisposition != "" {
+					t.Fatalf("candidate recovery stage evidence is incomplete: stages=%#v metrics_error=%q", candidates, result.MetricsError)
+				}
+				summary := metrics.Summarize(history.Attempts)
+				if summary.RecoveredStageFailureAttempts != 1 || summary.HarnessInvocations != 2 || summary.Usage.InputTokens != 200 || summary.Usage.OutputTokens != 20 {
+					t.Fatalf("summary lost recovered failure or duplicated correction usage: %#v", summary)
+				}
 			}
 			if got := runGitTest(t, result.WorktreePath, "status", "--porcelain"); got != "" {
 				t.Fatalf("corrected candidate was not committed cleanly: %q", got)
@@ -3676,13 +3748,35 @@ func TestCandidateCorrectionDoesNotBypassAuthorityOrIntegrity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			result := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, item))
+			var candidates []metrics.Event
+			trace := metrics.NewAttemptTrace(func(event metrics.Event) error {
+				if event.Stage == metrics.StageCandidateConstruct && event.Kind == metrics.EventStageCompleted {
+					candidates = append(candidates, event)
+				}
+				return nil
+			}, service.newItemAttempt(item))
+			result := service.executeImplementation(metrics.WithAttemptTrace(t.Context(), trace), mustAuthorizeTest(t, service.source, item))
 			wantCalls := 1
 			if failure == "correction integrity failure" {
 				wantCalls = 2
 			}
 			if result.Outcome != execution.OutcomeBlocked || result.FailureClass != string(execution.FailureIntegrityViolation) || runner.calls != wantCalls || project.status == "Agent QA" {
 				t.Fatalf("unsafe candidate did not fail closed: result=%#v calls=%d status=%q", result, runner.calls, project.status)
+			}
+			if len(candidates) != wantCalls {
+				t.Fatalf("candidate construction lost stage evidence: %#v", candidates)
+			}
+			for i, stage := range candidates {
+				wantClass, wantRetry := string(execution.FailureCandidateValidation), string(execution.RetryManual)
+				if failure == "index flag" || failure == "correction integrity failure" && i == 1 {
+					wantClass = string(execution.FailureIntegrityViolation)
+				}
+				if failure == "correction integrity failure" && i == 0 {
+					wantRetry = string(execution.RetryAutomatic)
+				}
+				if stage.Outcome != metrics.StageOutcomeFailed || stage.FailureClass != wantClass || stage.RetryDisposition != wantRetry || stage.Summary != "" || stage.Verification != nil || stage.WorkDone != nil {
+					t.Fatalf("candidate stage misreported correction authority or exposed free-form evidence: %#v", stage)
+				}
 			}
 		})
 	}

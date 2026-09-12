@@ -105,7 +105,8 @@ interactive planning attempt. It also emits fixed-name stage events around
 workspace and repository preparation, ordinary harness execution, the planner's
 repository-aware outline and tool-free details calls, the reviewer's evidence
 audit and optional focused-verification call, result validation,
-workspace verification, Project transitions, and PR publication.
+workspace verification, candidate construction and its correction-admission
+guards, Project transitions, and PR publication.
 Execution adapters parse only counters exposed by the native harness. Events are
 appended to a runner-keyed JSONL file in the user configuration directory. The
 event boundary keeps telemetry failure non-fatal to workflow execution and

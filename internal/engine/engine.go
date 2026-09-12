@@ -1045,10 +1045,14 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 			}
 		}
 		if candidate.CommitOID == "" {
+			finishCandidate := metrics.StartStage(ctx, metrics.StageCandidateConstruct)
 			candidate, err = workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).ConstructCandidateForMergeMethod(ctx, preparedWorkspace, item.Title, s.cfg.GitHubProject.MergeMethod)
 			if err != nil {
 				if correction, recoverable := workspace.CandidateValidationCorrection(err); recoverable {
+					// Include the recovery guards before recording whether an
+					// automatic correction was actually admitted.
 					if clearErr := s.clearImplementationCheckpoint(item.ID); clearErr != nil {
+						finishCandidate(metrics.StageOutcomeFailed, string(execution.FailureCandidateValidation), string(execution.RetryManual), metrics.Usage{})
 						combined := errors.Join(err, fmt.Errorf("clear invalid candidate checkpoint: %w", clearErr))
 						return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be committed for QA", combined,
 							integrityViolationOutput("Implementation candidate could not be committed for QA", combined, output))
@@ -1056,6 +1060,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 					if correctionAttempt == 0 && ctx.Err() == nil {
 						refreshedAction, _, refreshErr := s.source.RefreshDelegatedContent(ctx, action)
 						if refreshErr != nil {
+							finishCandidate(metrics.StageOutcomeFailed, string(execution.FailureCandidateValidation), string(execution.RetryManual), metrics.Usage{})
 							result.Outcome = execution.OutcomeBlocked
 							result.Summary = "Approved delegated content is no longer current before candidate correction"
 							result.Error = refreshErr.Error()
@@ -1063,17 +1068,21 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 							result.RetryDisposition = string(execution.RetryManual)
 							return result
 						}
+						finishCandidate(metrics.StageOutcomeFailed, string(execution.FailureCandidateValidation), string(execution.RetryAutomatic), metrics.Usage{})
 						action = refreshedAction
 						assignment = candidateCorrectionAssignment(assignment, correction, output)
 						resumed = false
 						continue
 					}
+					finishCandidate(metrics.StageOutcomeFailed, string(execution.FailureCandidateValidation), string(execution.RetryManual), metrics.Usage{})
 					return s.failExecution(ctx, action, lane, result, "Implementation candidate needs correction before QA", err,
 						candidateValidationOutput(correction, output))
 				}
+				finishCandidate(metrics.StageOutcomeFailed, string(execution.FailureIntegrityViolation), string(execution.RetryManual), metrics.Usage{})
 				return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be committed for QA", err,
 					integrityViolationOutput("Implementation candidate could not be committed for QA", err, output))
 			}
+			finishCandidate(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
 			checkpointSnapshot, err = s.workspaceSnapshotState(ctx, preparedWorkspace.WorktreePath)
 			if err != nil || !checkpointSnapshot.Clean || checkpointSnapshot.Head != candidate.CommitOID || checkpointSnapshot.Tree != candidate.TreeOID {
 				if err == nil {
