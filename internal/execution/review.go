@@ -193,6 +193,28 @@ func validateReviewAssessmentForAssignment(assignment Assignment, outcome string
 	return nil
 }
 
+// ValidateReviewBaseline checks that private historical review data still has
+// the exact structure expected by the current proof contract. Baseline data is
+// evidence only; this validation does not grant review or execution authority.
+func ValidateReviewBaseline(spec Spec, baseline *ReviewBaseline) error {
+	if baseline == nil {
+		return errors.New("review baseline is missing")
+	}
+	if baseline.CommentContext == nil {
+		return errors.New("review baseline comment context is missing")
+	}
+	for index, comment := range baseline.CommentContext {
+		if strings.TrimSpace(comment) == "" {
+			return fmt.Errorf("review baseline comment context %d is empty", index)
+		}
+	}
+	if baseline.Assessment.Verdict != "needs_changes" {
+		return errors.New("review baseline must contain a completed rejected assessment")
+	}
+	spec.ReviewRequired = true
+	return validateReviewAssessmentForAssignment(Assignment{Spec: spec}, OutcomeSucceeded, &baseline.Assessment)
+}
+
 func validateReviewCheck(status string, summary string, evidence []string, field string) error {
 	if status != "passed" && status != "failed" && status != "blocked" {
 		return fmt.Errorf("%s.status is invalid", field)

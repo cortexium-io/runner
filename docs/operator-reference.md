@@ -1584,17 +1584,24 @@ to `task_granularity` / `--task-granularity`, and replace its `high` value with
 
 The first review gathers all concrete blockers reasonably visible within the
 approved card. Runner saves rejected assessments privately with the reviewed
-commit, base revision, approved content, proof obligations, and human-comment
-context. With matching history, the next review verifies those findings and the
-repair diff, reusing still-valid passed conclusions. Findings distinguish
-unresolved issues, repair regressions, and concrete late discoveries. New feature
-requests and stylistic preferences do not expand acceptance requirements.
+commit, base revision, repository, approved content, proof obligations, and the
+bounded comment context seen by that review. With compatible, verifiable history,
+the next review verifies those findings and the repair diff, reusing still-valid
+passed conclusions. Runner also supplies the complete current comments and an
+exact prior/current comparison. Operational coordination changes can retain
+applicable conclusions; material additions, edits, and removals cause the existing
+reviewer to reassess affected conclusions and expand only the affected scope.
+Unchanged comments retain the established follow-up behavior. A prefix, claimed
+author, or QA-like marker does not make a comment trusted or hide it from review.
 
-A changed base or task context, missing history, or unavailable prior commit
-causes a renewed full review. Accepted review feedback is cleared. This policy
-works with one model, equal reasoning settings, or no escalation ladder. Refresh
-the bundled skills before starting Runner; Doctor checks their
-contents against the embedded versions.
+Findings distinguish unresolved prior issues, repair regressions, concrete late
+defects, and genuinely new or out-of-scope requirements without suppressing valid
+blockers. A repository, approved-content, proof-obligation, or base mismatch;
+missing or malformed baseline data; an unavailable prior commit; or invalid
+authority prevents reuse and causes a renewed full review. Accepted review
+feedback is cleared. This policy works with one model, equal reasoning settings,
+or no escalation ladder. Refresh the bundled skills before starting Runner;
+Doctor checks their contents against the embedded versions.
 
 On rework, the implementer independently reassesses the requirements and current
 diff, preserving sound work without assuming the earlier approach is correct.
