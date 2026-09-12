@@ -93,6 +93,13 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 	}
 	fmt.Fprintf(output, "Recorded attempts: %d · %d completed · %d unfinished\n", view.Summary.Attempts, view.Summary.CompletedAttempts, view.Summary.UnfinishedAttempts)
 	fmt.Fprintf(output, "Harness invocations: %d · saved-result resumes: %d\n", view.Summary.HarnessInvocations, view.Summary.ResumedCheckpointAttempts)
+	if view.Summary.ReviewVerdictCoveredAttempts > 0 {
+		fmt.Fprintf(output, "Recorded QA verdicts: %d · %d accepted · %d changes requested · %d blocked\n",
+			view.Summary.ReviewVerdictCoveredAttempts, view.Summary.ReviewAcceptedAttempts, view.Summary.ReviewChangesRequestedAttempts, view.Summary.ReviewBlockedAttempts)
+	} else {
+		fmt.Fprintln(output, "Recorded QA verdicts: unavailable (no validated verdicts recorded)")
+	}
+	fmt.Fprintln(output, "QA verdicts are separate from publication outcomes; missing verdicts are not inferred, and saved-acceptance resumes do not add a new verdict.")
 	fmt.Fprintf(output, "Agent time: %s · Runner/GitHub overhead: %s\n",
 		formatMetricDuration(view.Summary.HarnessDurationMilliseconds), formatMetricDuration(view.Summary.RunnerDurationMilliseconds))
 	if view.Summary.StageCoveredAttempts > 0 {
@@ -153,11 +160,14 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 		}
 		fmt.Fprintf(output, "  - %s · %s · %s/%s · %s · reasoning %s · iteration %d · %s\n", attempt.StartedAt.Local().Format(time.RFC3339), terminalSafeText(state), terminalSafeText(attempt.Role), terminalSafeText(attempt.Harness), terminalSafeText(model), terminalSafeText(reasoning), attempt.Iteration, formatStatusDuration(elapsed))
 		fmt.Fprintf(output, "    %s\n", terminalSafeText(attempt.ItemTitle))
+		if attempt.ReviewVerdict != "" {
+			fmt.Fprintf(output, "    QA verdict: %s\n", terminalSafeText(attempt.ReviewVerdict))
+		}
 		if attempt.Completed && strings.TrimSpace(attempt.Summary) != "" {
 			fmt.Fprintf(output, "    %s\n", terminalSafeText(strings.Join(strings.Fields(attempt.Summary), " ")))
 		}
 		if attempt.ResumedCheckpoint {
-			fmt.Fprintln(output, "    resumed: exact saved implementation result; harness was not invoked again")
+			fmt.Fprintln(output, "    resumed: exact saved checkpoint; harness was not invoked again")
 		}
 		for _, context := range attempt.PromptContexts {
 			fmt.Fprintf(output, "    prompt: %s · pinned guidance %s\n", terminalSafeText(context.Layout), terminalSafeText(context.GuidanceDigest))

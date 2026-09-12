@@ -40,6 +40,7 @@ type RunResult struct {
 	HarnessDurationMilliseconds int64                   `json:"harness_duration_milliseconds,omitempty"`
 	MetricsError                string                  `json:"metrics_error,omitempty"`
 	ResumedCheckpoint           bool                    `json:"resumed_checkpoint,omitempty"`
+	ReviewVerdict               string                  `json:"review_verdict,omitempty"`
 	ReviewFindings              []metrics.ReviewFinding `json:"review_findings,omitempty"`
 	CandidateOID                string                  `json:"candidate_oid,omitempty"`
 }
@@ -705,6 +706,7 @@ func (s *Engine) executeItem(ctx context.Context, admitted admittedAction) (resu
 		completed.Summary = result.Summary
 		completed.WorkDone = append([]string(nil), result.WorkDone...)
 		completed.Verification = append([]string(nil), result.Verification...)
+		completed.ReviewVerdict = result.ReviewVerdict
 		completed.ReviewFindings = result.ReviewFindings
 		completed.CandidateOID = result.CandidateOID
 		completed.PromptContexts = trace.PromptContexts()
@@ -1319,6 +1321,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		result.Error = err.Error()
 	}
 	if err == nil && output.ReviewAssessment != nil {
+		result.ReviewVerdict = output.ReviewAssessment.Verdict
 		result.ReviewFindings = reviewFindingObservations(*output.ReviewAssessment)
 		result.CandidateOID = candidate.CommitOID
 	}

@@ -512,8 +512,8 @@ Use `doctor` for installation and configuration readiness.
 `metrics` reports the recorded duration, outcome, role, harness, model,
 reasoning level, QA iteration, recovery classification, harness-reported token
 counters, and harness-reported monetary cost for each attempt. Its summary also
-shows completed harness invocations and planner or implementation attempts that
-resumed an exact saved result without another model call. It also shows a
+shows completed harness invocations and attempts that resumed an exact saved
+plan, implementation result, or QA acceptance without another model call. It also shows a
 stage timeline for workspace preparation, repository preparation, harness
 execution, result validation, workspace verification, Project
 transitions, and pull-request publication when those stages apply. A recovered
@@ -523,6 +523,17 @@ metrics. Use
 `metrics --item ID_OR_TITLE` for one card or `metrics --json` for
 machine-readable output. `status` includes a compact accumulated total and the
 current admission-budget state.
+
+Completed review attempts also record `review_verdict`: `accept`,
+`needs_changes`, or `blocked`, after result validation and workspace integrity
+checks. This includes one-shot operator QA. The verdict is distinct from the
+attempt outcome: QA can accept a candidate whose publication subsequently
+fails, and a rejection that exhausts the configured limit still records
+`needs_changes`. The summary counts these recorded verdicts separately.
+This is diagnostic evidence, never approval or publication authority. Missing
+verdicts are unavailable, not inferred from historical summaries, roles, or
+attempt outcomes. Resuming saved acceptance without another review does not
+record a new verdict; stage records do not carry attempt verdicts either.
 
 The summary groups recorded stages by name, with completed/unfinished counts,
 failed and blocked counts, recorded duration, and reported usage/cost coverage.

@@ -55,7 +55,7 @@ func TestAttemptTraceEmitsOnlyStructuredStageFields(t *testing.T) {
 	trace := NewAttemptTrace(func(event Event) error {
 		events = append(events, event)
 		return nil
-	}, Event{AttemptID: "att_1", RunnerID: "runner", ItemTitle: "Task", Role: "implementer", Harness: "codex"})
+	}, Event{AttemptID: "att_1", RunnerID: "runner", ItemTitle: "Task", Role: "implementer", Harness: "codex", ReviewVerdict: "accept"})
 	ctx := WithAttemptTrace(context.Background(), trace)
 	finish := StartStage(ctx, StageHarnessRun)
 	finish(StageOutcomeFailed, "timeout", "manual", Usage{Available: true, InputTokens: 12})
@@ -67,7 +67,7 @@ func TestAttemptTraceEmitsOnlyStructuredStageFields(t *testing.T) {
 	if completed.Stage != StageHarnessRun || completed.Outcome != StageOutcomeFailed || completed.FailureClass != "timeout" || completed.RetryDisposition != "manual" || completed.Usage.InputTokens != 12 {
 		t.Fatalf("unexpected completed stage: %#v", completed)
 	}
-	if completed.Summary != "" || completed.WorkDone != nil || completed.Verification != nil {
+	if completed.Summary != "" || completed.WorkDone != nil || completed.Verification != nil || completed.ReviewVerdict != "" || events[0].ReviewVerdict != "" {
 		t.Fatalf("stage event admitted arbitrary attempt payload: %#v", completed)
 	}
 }

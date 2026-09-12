@@ -95,6 +95,21 @@ func validFailureOperation(operation string) bool {
 	}
 }
 
+func validReviewVerdict(event Event) bool {
+	if event.ReviewVerdict == "" {
+		return true
+	}
+	if event.Kind != EventCompleted {
+		return false
+	}
+	switch event.ReviewVerdict {
+	case "accept", "needs_changes", "blocked":
+		return true
+	default:
+		return false
+	}
+}
+
 // Usage contains only counters reported by a harness. Runner never estimates
 // token usage or monetary cost when a harness does not expose those values.
 type Usage struct {
@@ -180,6 +195,9 @@ func (u Usage) Add(other Usage) Usage {
 	return u
 }
 
+// Event records an attempt or stage. ReviewVerdict is a validated review
+// decision, not the attempt's publication outcome or an authorization. Empty
+// means no validated verdict was recorded.
 type Event struct {
 	Version                     int             `json:"version"`
 	Kind                        string          `json:"kind"`
@@ -210,6 +228,7 @@ type Event struct {
 	Summary                     string          `json:"summary,omitempty"`
 	WorkDone                    []string        `json:"work_done,omitempty"`
 	Verification                []string        `json:"verification,omitempty"`
+	ReviewVerdict               string          `json:"review_verdict,omitempty"`
 	ReviewFindings              []ReviewFinding `json:"review_findings,omitempty"`
 	CandidateOID                string          `json:"candidate_oid,omitempty"`
 	PromptContexts              []PromptContext `json:"prompt_contexts,omitempty"`
@@ -274,22 +293,26 @@ type Stage struct {
 }
 
 type Summary struct {
-	Attempts                      int            `json:"attempts"`
-	CompletedAttempts             int            `json:"completed_attempts"`
-	UnfinishedAttempts            int            `json:"unfinished_attempts"`
-	SucceededAttempts             int            `json:"succeeded_attempts"`
-	BlockedAttempts               int            `json:"blocked_attempts"`
-	HarnessInvocations            int            `json:"harness_invocations"`
-	ResumedCheckpointAttempts     int            `json:"resumed_checkpoint_attempts"`
-	HarnessDurationMilliseconds   int64          `json:"harness_duration_milliseconds"`
-	RunnerDurationMilliseconds    int64          `json:"runner_duration_milliseconds"`
-	Usage                         Usage          `json:"usage"`
-	UsageCoveredAttempts          int            `json:"usage_covered_attempts"`
-	CostCoveredAttempts           int            `json:"cost_covered_attempts"`
-	StageCoveredAttempts          int            `json:"stage_covered_attempts"`
-	RecoveredStageFailureAttempts int            `json:"recovered_stage_failure_attempts"`
-	RecoveredPublicationAttempts  int            `json:"recovered_publication_attempts"`
-	Stages                        []StageSummary `json:"stages,omitempty"`
+	Attempts                       int            `json:"attempts"`
+	CompletedAttempts              int            `json:"completed_attempts"`
+	UnfinishedAttempts             int            `json:"unfinished_attempts"`
+	SucceededAttempts              int            `json:"succeeded_attempts"`
+	BlockedAttempts                int            `json:"blocked_attempts"`
+	HarnessInvocations             int            `json:"harness_invocations"`
+	ResumedCheckpointAttempts      int            `json:"resumed_checkpoint_attempts"`
+	HarnessDurationMilliseconds    int64          `json:"harness_duration_milliseconds"`
+	RunnerDurationMilliseconds     int64          `json:"runner_duration_milliseconds"`
+	Usage                          Usage          `json:"usage"`
+	UsageCoveredAttempts           int            `json:"usage_covered_attempts"`
+	CostCoveredAttempts            int            `json:"cost_covered_attempts"`
+	StageCoveredAttempts           int            `json:"stage_covered_attempts"`
+	RecoveredStageFailureAttempts  int            `json:"recovered_stage_failure_attempts"`
+	RecoveredPublicationAttempts   int            `json:"recovered_publication_attempts"`
+	ReviewVerdictCoveredAttempts   int            `json:"review_verdict_covered_attempts"`
+	ReviewAcceptedAttempts         int            `json:"review_accepted_attempts"`
+	ReviewChangesRequestedAttempts int            `json:"review_changes_requested_attempts"`
+	ReviewBlockedAttempts          int            `json:"review_blocked_attempts"`
+	Stages                         []StageSummary `json:"stages,omitempty"`
 }
 
 // StageSummary aggregates recorded stage intervals, not individual agent tool
@@ -349,6 +372,17 @@ func Summarize(attempts []Attempt) Summary {
 			continue
 		}
 		result.CompletedAttempts++
+		switch attempt.ReviewVerdict {
+		case "accept":
+			result.ReviewAcceptedAttempts++
+			result.ReviewVerdictCoveredAttempts++
+		case "needs_changes":
+			result.ReviewChangesRequestedAttempts++
+			result.ReviewVerdictCoveredAttempts++
+		case "blocked":
+			result.ReviewBlockedAttempts++
+			result.ReviewVerdictCoveredAttempts++
+		}
 		if attempt.ResumedCheckpoint {
 			result.ResumedCheckpointAttempts++
 		}

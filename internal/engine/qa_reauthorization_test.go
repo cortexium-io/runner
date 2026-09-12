@@ -122,11 +122,11 @@ func TestQAOnlyReauthorizationPreservesOriginalStateAndConsumesOneReview(t *test
 			}
 			result, err := service.RunQAReauthorization(t.Context(), plan)
 			if verdict == "provider_failure" {
-				if err == nil || result.Outcome != execution.OutcomeBlocked {
+				if err == nil || result.Outcome != execution.OutcomeBlocked || result.ReviewVerdict != "" {
 					t.Fatalf("failure=%#v %v", result, err)
 				}
 			} else {
-				if err != nil || result.Assessment == nil || result.Assessment.Verdict != verdict {
+				if err != nil || result.Assessment == nil || result.Assessment.Verdict != verdict || result.ReviewVerdict != verdict {
 					t.Fatalf("review=%#v %v", result, err)
 				}
 			}
@@ -152,6 +152,9 @@ func TestQAOnlyReauthorizationPreservesOriginalStateAndConsumesOneReview(t *test
 				}
 				if event.Kind == metrics.EventCompleted {
 					completed++
+					if event.ReviewVerdict != result.ReviewVerdict {
+						t.Fatalf("one-shot review verdict missing from metrics: %#v", event)
+					}
 				}
 			}
 			if started != 1 || completed != 1 {
@@ -230,7 +233,7 @@ func TestQAOnlyReauthorizationRefusesChangedOrUnreviewableState(t *testing.T) {
 			}
 			before := runner.project.remoteItems[0]
 			result, err := service.RunQAReauthorization(t.Context(), plan)
-			if err == nil || result.Assessment != nil || !reflect.DeepEqual(before, runner.project.remoteItems[0]) {
+			if err == nil || result.Assessment != nil || result.ReviewVerdict != "" || !reflect.DeepEqual(before, runner.project.remoteItems[0]) {
 				t.Fatalf("invalid review was authorized or changed card: %#v %v", result, err)
 			}
 			if !strings.Contains(change, "during review") && runner.reviewCalls != 0 {

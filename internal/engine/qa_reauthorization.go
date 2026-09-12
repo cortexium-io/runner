@@ -207,6 +207,7 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 			event.RetryDisposition, event.Usage, event.CandidateOID = string(execution.RetryNone), result.Usage, result.CandidateOID
 			event.PromptContexts = trace.PromptContexts()
 			event.WorkDone, event.Verification = result.WorkDone, result.Verification
+			event.ReviewVerdict = result.ReviewVerdict
 			event.ReviewFindings = result.ReviewFindings
 			if observeErr := s.observeMetrics(event); observeErr != nil {
 				result.MetricsError = observeErr.Error()
@@ -274,6 +275,7 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	}
 	result.Outcome, result.Summary, result.Assessment = output.Outcome, output.Summary, output.ReviewAssessment
 	if output.ReviewAssessment != nil {
+		result.ReviewVerdict = output.ReviewAssessment.Verdict
 		result.ReviewFindings = reviewFindingObservations(*output.ReviewAssessment)
 	}
 	if output.ReviewAssessment != nil && output.ReviewAssessment.Verdict == "needs_changes" {
