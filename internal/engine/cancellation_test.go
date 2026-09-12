@@ -84,7 +84,7 @@ func TestCanceledQAStillChecksIntegrityAndNeverPublishes(t *testing.T) {
 					t.Fatalf("incomplete check alleged mutation or lost retry phase: %s / %s", project.result, project.phase)
 				}
 			}
-			if results[0].FailureClass != string(wantClass) || project.status != wantStatus || project.qaFailures != 2 || project.pullRequest != "" {
+			if results[0].FailureClass != string(wantClass) || results[0].ReviewVerdict != "" || project.status != wantStatus || project.qaFailures != 2 || project.pullRequest != "" {
 				t.Fatalf("cancellation lost integrity/recovery boundary: %#v status=%s failures=%d", results, project.status, project.qaFailures)
 			}
 		})

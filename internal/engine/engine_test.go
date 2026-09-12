@@ -584,12 +584,16 @@ func (r *resumedAcceptanceRunner) Run(ctx context.Context, command string, args 
 }
 
 type candidateInspectingReviewer struct {
-	project    *fakeGitHubProjectRunner
-	head, tree string
-	status     string
+	project         *fakeGitHubProjectRunner
+	head, tree      string
+	status          string
+	failPublication bool
 }
 
 func (r *candidateInspectingReviewer) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	if r.failPublication && command == "gh" && len(args) >= 2 && args[0] == "pr" && args[1] == "create" {
+		return subprocess.Result{Stderr: "HTTP 503: Service Unavailable", ExitCode: 1}, errors.New("publication unavailable")
+	}
 	if command == "codex" {
 		target := profileReadRoot(args, dir)
 		git := subprocess.OSRunner{}
@@ -5387,6 +5391,9 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 				t.Fatalf("QA history missing: %#v %v", history, historyErr)
 			}
 			attempt := history.Attempts[0]
+			if results[0].ReviewVerdict != "needs_changes" || attempt.ReviewVerdict != "needs_changes" {
+				t.Fatalf("QA rejection was lost or replaced by exhaustion: result=%#v attempt=%#v", results[0], attempt)
+			}
 			if !attempt.Completed || attempt.Repository != item.Repository || attempt.CandidateOID != candidateOID ||
 				len(attempt.ReviewFindings) == 0 || len(attempt.PromptContexts) != 1 || attempt.PromptContexts[0].Layout != "stable-first-v1" {
 				t.Fatalf("QA provenance or structured finding was not retained: %#v", attempt)
@@ -5621,6 +5628,43 @@ func TestAcceptedAgentQAPublishesPRAndMovesToHumanGate(t *testing.T) {
 	}
 }
 
+func TestAcceptedAgentQARetainsVerdictWhenPublicationFails(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_publication_failure", Title: "Accepted candidate", Body: "Criteria", Repository: "owner/repo",
+		Status: "Agent QA", Phase: "agent_qa", Branch: "cortexium/task",
+	}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	runner := &candidateInspectingReviewer{project: project, failPublication: true}
+	service, err := New(completeEngineTestConfig(config.Config{ProjectDir: repo}), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := workspace.NewGitProvider(subprocess.OSRunner{}).Prepare(t.Context(), service.workspaceRequestForItem(item, github.DelegatedContentFor(item).Digest, repo, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadata.WorktreePath, "feature.txt"), []byte("accepted implementation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := metrics.NewStore(filepath.Join(t.TempDir(), "metrics.jsonl"))
+	service.SetMetricsObserver(store.Append)
+	results, err := service.RunCycle(t.Context())
+	if err != nil || len(results) != 1 {
+		t.Fatalf("QA cycle: %#v %v", results, err)
+	}
+	result := results[0]
+	if result.ReviewVerdict != "accept" || result.Outcome != execution.OutcomeBlocked || result.FailureOperation != "publication_create_pull_request" ||
+		result.FailureClass != string(execution.FailureTransientExternal) || result.CandidateOID != runner.head || project.qaFailures != 0 {
+		t.Fatalf("publication failure obscured QA acceptance or changed rejection count: %#v", result)
+	}
+	history, err := store.Read()
+	if err != nil || len(history.Attempts) != 1 || history.Attempts[0].ReviewVerdict != "accept" || history.Attempts[0].Outcome != result.Outcome {
+		t.Fatalf("QA verdict missing from completed publication-failure history: %#v %v", history, err)
+	}
+}
+
 func TestAgentQAResumesExactAcceptanceWithoutAnotherReviewerRun(t *testing.T) {
 	repo, _ := createPublicationRepository(t)
 	item := github.WorkItem{
@@ -5668,7 +5712,7 @@ func TestAgentQAResumesExactAcceptanceWithoutAnotherReviewerRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resume accepted QA: %v", err)
 	}
-	if runner.reviewRuns != 0 || len(results) != 1 || !results[0].ResumedCheckpoint || results[0].Outcome != execution.OutcomeSucceeded ||
+	if runner.reviewRuns != 0 || len(results) != 1 || !results[0].ResumedCheckpoint || results[0].ReviewVerdict != "" || results[0].Outcome != execution.OutcomeSucceeded ||
 		project.status != "PR Ready" || project.pullRequest != "https://github.com/owner/repo/pull/12" {
 		t.Fatalf("accepted publication was not resumed exactly: review_runs=%d results=%#v status=%q PR=%q", runner.reviewRuns, results, project.status, project.pullRequest)
 	}
@@ -6021,7 +6065,7 @@ func TestAgentQAFailsClosedWhenWorkspaceChangesDuringReview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run QA cycle: %v", err)
 	}
-	if len(results) != 1 || results[0].Outcome != execution.OutcomeBlocked || project.status != "Blocked" || project.phase != "ready" || project.pullRequest != "" || !strings.Contains(results[0].Summary, "changed the private review workspace") {
+	if len(results) != 1 || results[0].Outcome != execution.OutcomeBlocked || results[0].ReviewVerdict != "" || project.status != "Blocked" || project.phase != "ready" || project.pullRequest != "" || !strings.Contains(results[0].Summary, "changed the private review workspace") {
 		t.Fatalf("workspace mutation did not fail closed before publication: results=%#v status=%q PR=%q", results, project.status, project.pullRequest)
 	}
 	if !strings.Contains(results[0].Error, `"changed-during-qa.txt"`) {

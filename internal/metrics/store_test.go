@@ -1,11 +1,61 @@
 package metrics
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestStoreValidatesReviewVerdictsOnAppendAndRead(t *testing.T) {
+	for _, test := range []struct {
+		name, kind, verdict string
+		valid               bool
+	}{
+		{"unavailable", EventCompleted, "", true},
+		{"accepted", EventCompleted, "accept", true},
+		{"rejected", EventCompleted, "needs_changes", true},
+		{"incomplete", EventCompleted, "blocked", true},
+		{"free text", EventCompleted, "private diagnostic", false},
+		{"premature", EventStarted, "accept", false},
+		{"stage verdict", EventStageCompleted, "accept", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := NewStore(t.TempDir() + "/metrics.jsonl")
+			event := Event{Version: EventVersion, Kind: test.kind, AttemptID: "review", Outcome: "blocked", ReviewVerdict: test.verdict}
+			if test.kind == EventStageCompleted {
+				event.StageID, event.Stage = "stage", StageReviewerAudit
+			}
+			err := store.Append(event)
+			if (err == nil) != test.valid {
+				t.Fatalf("append validity=%t, want %t: %v", err == nil, test.valid, err)
+			}
+			if err != nil && strings.Contains(err.Error(), test.verdict) {
+				t.Fatal("invalid verdict leaked into the diagnostic")
+			}
+			// Also check records written outside Append, including invalid ones.
+			encoded, err := json.Marshal(event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(store.Path(), append(encoded, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			history, err := store.Read()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.valid {
+				if history.MalformedRecords != 0 || len(history.Attempts) != 1 || history.Attempts[0].ReviewVerdict != test.verdict {
+					t.Fatalf("validated verdict not retained: %#v", history)
+				}
+			} else if history.MalformedRecords != 1 || len(history.Attempts) != 0 {
+				t.Fatalf("invalid verdict admitted on read: %#v", history)
+			}
+		})
+	}
+}
 
 func TestStoreFoldsDurableAttemptEventsAndIgnoresMalformedRecords(t *testing.T) {
 	path := t.TempDir() + "/metrics.jsonl"

@@ -128,6 +128,7 @@ func (t *AttemptTrace) stageEvent(kind, stageID, name string) Event {
 	event.Summary = ""
 	event.WorkDone = nil
 	event.Verification = nil
+	event.ReviewVerdict = ""
 	event.ReviewFindings = nil
 	event.PromptContexts = nil
 	t.mu.Lock()

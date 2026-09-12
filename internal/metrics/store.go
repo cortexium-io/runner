@@ -70,6 +70,9 @@ func (s *Store) Append(event Event) error {
 	if !validFailureClass(event.FailureClass) || !validFailureOperation(event.FailureOperation) || !validRetryDisposition(event.RetryDisposition) {
 		return fmt.Errorf("metrics recovery fields must use fixed enum values")
 	}
+	if !validReviewVerdict(event) {
+		return fmt.Errorf("metrics review verdict requires a completed attempt and a fixed verdict value")
+	}
 	if event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 || event.PublicationAttempts < 0 || event.PublicationAttempts > 3 {
 		return fmt.Errorf("metrics durations or publication attempt count are invalid")
 	}
@@ -129,7 +132,7 @@ func (s *Store) Read() (ReadResult, error) {
 	scanner.Buffer(make([]byte, 64*1024), maxEventBytes)
 	for scanner.Scan() {
 		var event Event
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil || event.Version != EventVersion || strings.TrimSpace(event.AttemptID) == "" || !validEventKind(event.Kind) || !validFailureClass(event.FailureClass) || !validFailureOperation(event.FailureOperation) || !validRetryDisposition(event.RetryDisposition) || event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 || event.PublicationAttempts < 0 || event.PublicationAttempts > 3 || ValidateUsage(event.Usage) != nil || !validPromptContexts(event.PromptContexts) {
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil || event.Version != EventVersion || strings.TrimSpace(event.AttemptID) == "" || !validEventKind(event.Kind) || !validFailureClass(event.FailureClass) || !validFailureOperation(event.FailureOperation) || !validRetryDisposition(event.RetryDisposition) || !validReviewVerdict(event) || event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 || event.PublicationAttempts < 0 || event.PublicationAttempts > 3 || ValidateUsage(event.Usage) != nil || !validPromptContexts(event.PromptContexts) {
 			result.MalformedRecords++
 			continue
 		}

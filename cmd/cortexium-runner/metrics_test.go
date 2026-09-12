@@ -43,13 +43,16 @@ func TestMetricsCommandFiltersItemsAndReportsOnlyHarnessCost(t *testing.T) {
 	if err := runMetrics([]string{"--config", configPath, "--item", "PVTI_one"}, &output); err != nil {
 		t.Fatalf("metrics: %v", err)
 	}
-	for _, expected := range []string{"Recorded attempts: 1", "Harness invocations: 1", "saved-result resumes: 1", "resumed: exact saved implementation result", "12 input", "$0.7500", "Build shell", "capacity_exhausted", "retry manual", "publication_inspect_pull_request", "3 attempt(s)", "stage: harness_run", "Stage evidence: 1/1 attempts", "harness_run: 1/1 completed", "stage time is not test time"} {
+	for _, expected := range []string{"Recorded attempts: 1", "Harness invocations: 1", "saved-result resumes: 1", "resumed: exact saved checkpoint", "12 input", "$0.7500", "Build shell", "capacity_exhausted", "retry manual", "publication_inspect_pull_request", "3 attempt(s)", "stage: harness_run", "Stage evidence: 1/1 attempts", "harness_run: 1/1 completed", "stage time is not test time"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("output omitted %q:\n%s", expected, output.String())
 		}
 	}
 	if strings.Contains(output.String(), "Review shell") {
 		t.Fatalf("item filter leaked another attempt:\n%s", output.String())
+	}
+	if !strings.Contains(output.String(), "Recorded QA verdicts: unavailable") {
+		t.Fatalf("old metrics fabricated QA coverage:\n%s", output.String())
 	}
 
 	output.Reset()
@@ -65,5 +68,53 @@ func TestMetricsCommandFiltersItemsAndReportsOnlyHarnessCost(t *testing.T) {
 	}
 	if decoded.Summary.StageCoveredAttempts != 1 || len(decoded.Summary.Stages) != 1 || decoded.Summary.Stages[0].DurationMilliseconds != 50000 {
 		t.Fatalf("JSON omitted measured stage coverage: %#v", decoded.Summary)
+	}
+}
+
+func TestMetricsCommandReportsQAIndependentlyOfPublication(t *testing.T) {
+	t.Setenv("CORTEXIUM_RUNNER_STATE_DIR", t.TempDir())
+	cfg := completeCLITestConfig(t.TempDir())
+	configPath := filepath.Join(t.TempDir(), "runner.json")
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	store, err := runnermetrics.NewDefaultStore(cfg.RunnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []runnermetrics.Event{
+		{Kind: runnermetrics.EventCompleted, AttemptID: "accepted", ReviewVerdict: "accept", Outcome: "blocked", FailureOperation: "publication_create_pull_request"},
+		{Kind: runnermetrics.EventCompleted, AttemptID: "exhausted", ReviewVerdict: "needs_changes", Outcome: "blocked"},
+		{Kind: runnermetrics.EventCompleted, AttemptID: "incomplete", ReviewVerdict: "blocked", Outcome: "needs_input"},
+		{Kind: runnermetrics.EventCompleted, AttemptID: "resumed", Outcome: "succeeded", ResumedCheckpoint: true},
+	} {
+		if err := store.Append(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var output bytes.Buffer
+	if err := runMetrics([]string{"--config", configPath}, &output); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"Recorded QA verdicts: 3 · 1 accepted · 1 changes requested · 1 blocked", "QA verdict: accept", "QA verdict: needs_changes", "QA verdict: blocked", "failed operation: publication_create_pull_request", "missing verdicts are not inferred"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("metrics omitted %q:\n%s", expected, output.String())
+		}
+	}
+	output.Reset()
+	if err := runMetrics([]string{"--config", configPath, "--json"}, &output); err != nil {
+		t.Fatal(err)
+	}
+	var view metricsOutput
+	if err := json.Unmarshal(output.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Summary.ReviewVerdictCoveredAttempts != 3 || view.Summary.ReviewAcceptedAttempts != 1 || view.Summary.ReviewChangesRequestedAttempts != 1 || view.Summary.ReviewBlockedAttempts != 1 || len(view.Attempts) != 4 {
+		t.Fatalf("JSON omitted review coverage: %#v", view)
+	}
+	for _, attempt := range view.Attempts {
+		if attempt.AttemptID == "accepted" && (attempt.ReviewVerdict != "accept" || attempt.Outcome != "blocked") {
+			t.Fatalf("JSON conflated QA and publication outcomes: %#v", attempt)
+		}
 	}
 }

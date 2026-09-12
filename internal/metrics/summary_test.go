@@ -2,6 +2,25 @@ package metrics
 
 import "testing"
 
+func TestSummarySeparatesRecordedReviewVerdictsFromAttemptOutcomes(t *testing.T) {
+	attempts := []Attempt{
+		{Completed: true, Event: Event{Outcome: "blocked", ReviewVerdict: "accept", FailureOperation: "publication_create_pull_request"}},
+		{Completed: true, Event: Event{Outcome: "rejected", ReviewVerdict: "needs_changes"}},
+		{Completed: true, Event: Event{Outcome: "blocked", ReviewVerdict: "needs_changes"}}, // Exhausted QA is still a rejection.
+		{Completed: true, Event: Event{Outcome: "needs_input", ReviewVerdict: "blocked"}},
+		{Completed: true, Event: Event{Outcome: "succeeded", Role: "reviewer"}},        // Legacy record: do not infer acceptance.
+		{Completed: true, Event: Event{Outcome: "succeeded", ResumedCheckpoint: true}}, // Publication replay is not a new review.
+		{Event: Event{ReviewVerdict: "accept"}},                                        // An unfinished attempt cannot supply a completed verdict.
+	}
+	summary := Summarize(attempts)
+	if summary.ReviewVerdictCoveredAttempts != 4 || summary.ReviewAcceptedAttempts != 1 || summary.ReviewChangesRequestedAttempts != 2 || summary.ReviewBlockedAttempts != 1 {
+		t.Fatalf("review verdicts were inferred, lost, or replaced by attempt outcomes: %#v", summary)
+	}
+	if summary.CompletedAttempts != 6 || summary.SucceededAttempts != 2 || summary.BlockedAttempts != 3 || summary.ResumedCheckpointAttempts != 1 {
+		t.Fatalf("review accounting changed existing attempt accounting: %#v", summary)
+	}
+}
+
 func TestSummaryRetainsFailedStagesInsideSuccessWithoutDoubleCountingUsage(t *testing.T) {
 	cost := 0.25
 	attempts := []Attempt{
