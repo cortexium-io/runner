@@ -32,6 +32,44 @@ type reviewFeedbackRecord struct {
 	Items                  []string                  `json:"items"`
 }
 
+func (record *reviewFeedbackRecord) UnmarshalJSON(data []byte) error {
+	var stored struct {
+		Baseline               json.RawMessage `json:"baseline"`
+		Version                int             `json:"version"`
+		ItemID                 string          `json:"item_id"`
+		DelegatedContentDigest string          `json:"delegated_content_digest"`
+		Items                  []string        `json:"items"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&stored); err != nil {
+		return err
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return err
+	}
+	*record = reviewFeedbackRecord{
+		Version: stored.Version, ItemID: stored.ItemID,
+		DelegatedContentDigest: stored.DelegatedContentDigest, Items: stored.Items,
+	}
+	if len(stored.Baseline) == 0 || bytes.Equal(bytes.TrimSpace(stored.Baseline), []byte("null")) {
+		return nil
+	}
+	baselineDecoder := json.NewDecoder(bytes.NewReader(stored.Baseline))
+	baselineDecoder.DisallowUnknownFields()
+	var baseline execution.ReviewBaseline
+	if err := baselineDecoder.Decode(&baseline); err != nil {
+		// Invalid baseline evidence cannot prevent use of the separately bounded
+		// actionable feedback. Omitting it forces a renewed cumulative review.
+		return nil
+	}
+	if err := ensureJSONEOF(baselineDecoder); err != nil {
+		return nil
+	}
+	record.Baseline = &baseline
+	return nil
+}
+
 func (s *Engine) reviewFeedbackPath(itemID string) string {
 	return filepath.Join(
 		s.implementationWorkspaceRoot(),
@@ -204,21 +242,23 @@ func ensureJSONEOF(decoder *json.Decoder) error {
 	return nil
 }
 
-// Comments and proof obligations can change without changing the card body.
-func reviewContextDigest(spec execution.Spec, comments []string) string {
+// The baseline binding covers immutable review inputs. Comment context is kept
+// separately on the baseline so the reviewer can compare changes without
+// treating every coordination update as a new task contract.
+func reviewBaselineBindingDigest(spec execution.Spec) string {
 	data, _ := json.Marshal(struct {
 		Repository, Content string
-		Proof, Comments     []string
-	}{spec.Repository, spec.DelegatedContentDigest, spec.RequiredVerification, compactNonEmpty(comments)})
+		Proof               []string
+	}{spec.Repository, spec.DelegatedContentDigest, spec.RequiredVerification})
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
 
-func matchingReviewBaseline(record *reviewFeedbackRecord, base, contextDigest string) *execution.ReviewBaseline {
+func matchingReviewBaseline(record *reviewFeedbackRecord, spec execution.Spec, base, bindingDigest string) *execution.ReviewBaseline {
 	if record == nil || record.Baseline == nil {
 		return nil
 	}
 	baseline := record.Baseline
-	if baseline.BaseOID != base || baseline.ContextDigest != contextDigest || !reviewObjectID(baseline.CommitOID) {
+	if baseline.BaseOID != base || baseline.BindingDigest != bindingDigest || !reviewObjectID(baseline.CommitOID) || execution.ValidateReviewBaseline(spec, baseline) != nil {
 		return nil
 	}
 	return baseline
