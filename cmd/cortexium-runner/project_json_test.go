@@ -180,6 +180,17 @@ esac
 				!reflect.DeepEqual(plan.WorkItems[0].Verification, []string{"The behavior is demonstrated"}) {
 				t.Fatalf("generated plan fields were lost: %#v", plan)
 			}
+			// Every actual CLI output shape, including a failed staging result,
+			// retains enough information for zero-model replay of the exact plan.
+			savedPath := filepath.Join(t.TempDir(), "generated.json")
+			if err := os.WriteFile(savedPath, output.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := readProjectPlanFile(savedPath, cfg)
+			plan.SourceContext = "Build a slice"
+			if err != nil || !reflect.DeepEqual(loaded, plan) {
+				t.Fatalf("generated CLI output cannot replay the original proposal: got=%#v want=%#v error=%v", loaded, plan, err)
+			}
 		})
 	}
 }

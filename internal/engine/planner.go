@@ -43,6 +43,10 @@ func (s *Engine) CheckProjectPlanningAvailability(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("inspect prior local project planning: %w", err)
 	}
+	return s.checkProjectPlanningBatches(items, "")
+}
+
+func (s *Engine) checkProjectPlanningBatches(items []github.WorkItem, resumeFingerprint string) error {
 	assessmentStatus := strings.TrimSpace(s.cfg.LaneStatus(s.cfg.EffectiveWorkflow().IntakeLane))
 	type batch struct {
 		fingerprint string
@@ -53,7 +57,7 @@ func (s *Engine) CheckProjectPlanningAvailability(ctx context.Context) error {
 	for _, item := range items {
 		fingerprint := strings.TrimSpace(item.PlanningBatchFingerprint)
 		if strings.TrimSpace(item.PlanningSourceID) != "" || item.PlanningSourceLane != directProjectPlanSourceLane || fingerprint == "" ||
-			!strings.EqualFold(strings.TrimSpace(item.Status), assessmentStatus) {
+			(strings.TrimSpace(item.Status) != "" && !strings.EqualFold(strings.TrimSpace(item.Status), assessmentStatus)) {
 			continue
 		}
 		current := batches[fingerprint]
@@ -78,6 +82,10 @@ func (s *Engine) CheckProjectPlanningAvailability(ctx context.Context) error {
 		return fmt.Errorf("GitHub Project contains %d prior local planning batches; review their unapproved cards before starting another planner call", len(fingerprints))
 	}
 	current := batches[fingerprints[0]]
+	if resumeFingerprint != "" && current.fingerprint == resumeFingerprint {
+		// The staging path still validates exact child content and provenance.
+		return nil
+	}
 	sort.Slice(current.items, func(left, right int) bool {
 		return current.items[left].PlanningItemIndex < current.items[right].PlanningItemIndex
 	})
@@ -89,7 +97,7 @@ func (s *Engine) CheckProjectPlanningAvailability(ctx context.Context) error {
 		return fmt.Errorf("a complete unapproved project plan is already staged as batch %s; review it with `--approve-staged %s` using the same config instead of running the planner again", current.fingerprint, current.fingerprint)
 	}
 	return fmt.Errorf(
-		"an interrupted local project plan already has %d of %d unapproved card(s): %s; remove that partial batch from the Project before running the planner again",
+		"an interrupted local project plan already has %d of %d unapproved card(s): %s; resume the exact saved JSON with --plan-file and --stage-only, or review and remove that partial batch before running the planner again",
 		len(current.items), current.expected, strings.Join(identities, ", "),
 	)
 }
@@ -375,7 +383,7 @@ func (s *Engine) prepareDirectProjectPlan(plan *ProjectPlan) (string, error) {
 	}
 	if len(plan.OpenDecisions) > 0 {
 		return "", fmt.Errorf(
-			"cannot stage cards while %d open decision(s) require human input; add the answers to the project idea and rerun the same planning command",
+			"cannot stage cards while %d open decision(s) require human input; add the answers to the project idea and rerun the same planning command, or review and amend the saved plan, update its source_context and affected cards, and stage with --plan-file and --stage-only",
 			len(plan.OpenDecisions),
 		)
 	}
@@ -396,6 +404,14 @@ func (s *Engine) directProjectPlanDestination() (string, error) {
 		return "", errors.New("workflow plan_lane has no valid creates_in destination")
 	}
 	return destination.Name, nil
+}
+
+// ValidateProjectPlan applies the same structural, dependency, repository and
+// configured-profile checks to imported proposals as generated ones. This does
+// not grant approval or permit open decisions to pass the staging gate.
+func (s *Engine) ValidateProjectPlan(plan ProjectPlan) (ProjectPlan, error) {
+	err := s.normalizeProjectPlan(&plan)
+	return plan, err
 }
 
 func (s *Engine) normalizeProjectPlan(plan *ProjectPlan) error {
@@ -464,6 +480,9 @@ func (s *Engine) applyProjectPlanAtStatus(ctx context.Context, plan ProjectPlan,
 	}
 	matched, err := matchDirectProjectPlanChildren(existing, plannedItems, fingerprint, s.cfg.LaneStatus(s.cfg.EffectiveWorkflow().IntakeLane))
 	if err != nil {
+		return nil, err
+	}
+	if err := s.checkProjectPlanningBatches(existing, fingerprint); err != nil {
 		return nil, err
 	}
 	if len(matched) > 0 {

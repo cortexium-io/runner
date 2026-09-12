@@ -116,10 +116,11 @@ func resolveWorkItemBody(direct, filePath string) (string, error) {
 }
 
 func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) (returnErr error) {
-	flags := newFlagSet("plan", "cortexium-runner plan [--config PATH] [--idea TEXT|--idea-file PATH] [--small-tasks] [--create|--stage-only|--approve-staged FINGERPRINT]", stdout)
+	flags := newFlagSet("plan", "cortexium-runner plan [--config PATH] [--idea TEXT|--idea-file PATH|--plan-file PATH] [--small-tasks] [--create|--stage-only|--approve-staged FINGERPRINT]", stdout)
 	configPath := flags.String("config", "", "trusted operator config path; defaults to .cortexium/runner.json")
 	idea := flags.String("idea", "", "project idea and constraints; omit both idea flags for interactive multiline input")
 	ideaFile := flags.String("idea-file", "", "file containing the project idea and constraints; omit both idea flags for interactive multiline input")
+	planFile := flags.String("plan-file", "", "saved JSON plan to preview or stage without calling the planner; approval is a separate --approve-staged action")
 	smallTasks := flags.Bool("small-tasks", false, "plan smaller independently verifiable tasks for this run")
 	create := flags.Bool("create", false, "create and approve the proposed cards after the preview")
 	stageOnly := flags.Bool("stage-only", false, "stage the proposed cards unapproved for a separate review")
@@ -140,13 +141,17 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		return errors.New("use --create or --stage-only for a new plan, or --approve-staged to release an already reviewed batch, not both")
 	}
 	approvingStaged := strings.TrimSpace(*approveStaged) != ""
+	importingPlan := strings.TrimSpace(*planFile) != ""
+	if importingPlan && (strings.TrimSpace(*idea) != "" || strings.TrimSpace(*ideaFile) != "" || *smallTasks || *create || approvingStaged) {
+		return errors.New("--plan-file can only preview or --stage-only an existing proposal; do not combine it with idea flags, --small-tasks, --create, or --approve-staged")
+	}
 	if approvingStaged && (strings.TrimSpace(*idea) != "" || strings.TrimSpace(*ideaFile) != "" || *smallTasks) {
 		return errors.New("--approve-staged identifies an existing exact batch and cannot be combined with --idea, --idea-file, or --small-tasks")
 	}
 	if approvingStaged && (*jsonOutput || !isTerminalFile(stdin) || !isTerminalFile(stdout)) {
 		return errors.New("--approve-staged requires an interactive terminal so the exact complete batch can be reviewed and explicitly accepted")
 	}
-	promptForIdea := !approvingStaged && strings.TrimSpace(*idea) == "" && strings.TrimSpace(*ideaFile) == "" && isTerminalFile(stdin) && isTerminalFile(stdout)
+	promptForIdea := !approvingStaged && !importingPlan && strings.TrimSpace(*idea) == "" && strings.TrimSpace(*ideaFile) == "" && isTerminalFile(stdin) && isTerminalFile(stdout)
 	if promptForIdea && *jsonOutput {
 		return errors.New("interactive plan input cannot be combined with --json; use --idea, --idea-file, or pipe the idea on standard input")
 	}
@@ -178,7 +183,7 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		}
 	}
 	projectIdea := ""
-	if !approvingStaged {
+	if !approvingStaged && !importingPlan {
 		projectIdea, err = resolvePlanIdea(*idea, *ideaFile, ideaInput, stdout, promptForIdea)
 		if err != nil {
 			return err
@@ -193,7 +198,7 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 			returnErr = err
 		}
 	}()
-	if !approvingStaged {
+	if !approvingStaged && !importingPlan {
 		if err := service.CheckProjectPlanningAvailability(ctx); err != nil {
 			return err
 		}
@@ -221,17 +226,26 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		return nil
 	}
 	attachMetricsStore(service, cfg, stdout)
-	if !*jsonOutput {
-		writeProgress(stdout, "Planning your project. This may take a moment…")
+	var plan engine.ProjectPlan
+	if importingPlan {
+		plan, err = readProjectPlanFile(strings.TrimSpace(*planFile), cfg)
+		if err == nil {
+			plan, err = service.ValidateProjectPlan(plan)
+		}
+	} else {
+		if !*jsonOutput {
+			writeProgress(stdout, "Planning your project. This may take a moment…")
+		}
+		plan, err = service.PlanProject(ctx, projectIdea)
 	}
-	plan, err := service.PlanProject(ctx, projectIdea)
 	if err != nil {
 		return err
 	}
+	document := newProjectPlanDocument(cfg, plan)
 	if *jsonOutput && !*create && !*stageOnly {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
-		return encoder.Encode(plan)
+		return encoder.Encode(document)
 	}
 	if !*jsonOutput {
 		fmt.Fprintf(stdout, "%s\n\n", terminalSafeText(plan.GoalSummary))
@@ -268,7 +282,11 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		stageCards, releaseStaged = planApplyMode(false, false, true)
 	}
 	if !stageCards {
-		fmt.Fprintln(stdout, "\nPreview only. Re-run with --create to create and approve these GitHub Project cards, or --stage-only to leave them staged for separate review.")
+		if importingPlan {
+			fmt.Fprintln(stdout, "\nPreview only. Re-run with the same --plan-file and --stage-only to stage this proposal for separate approval.")
+		} else {
+			fmt.Fprintln(stdout, "\nPreview only. Re-run with --create to create and approve these GitHub Project cards, or --stage-only to leave them staged for separate review.")
+		}
 		return nil
 	}
 	cardLabel := "cards"
@@ -285,7 +303,7 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 			// planning result or turn its preservation into a successful exit.
 			encoder := json.NewEncoder(stdout)
 			encoder.SetIndent("", "  ")
-			return errors.Join(err, encoder.Encode(map[string]any{"plan": plan, "error": err.Error()}))
+			return errors.Join(err, encoder.Encode(map[string]any{"plan": document, "error": err.Error()}))
 		}
 		return err
 	}
@@ -303,12 +321,17 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		}
 		released, err := service.ApplyProjectPlanApproval(ctx, approval)
 		if err != nil {
+			if *jsonOutput {
+				encoder := json.NewEncoder(stdout)
+				encoder.SetIndent("", "  ")
+				return errors.Join(err, encoder.Encode(map[string]any{"plan": document, "error": err.Error()}))
+			}
 			return err
 		}
 		if *jsonOutput {
 			encoder := json.NewEncoder(stdout)
 			encoder.SetIndent("", "  ")
-			return encoder.Encode(map[string]any{"plan": plan, "released": engine.ProjectPlanApproval{
+			return encoder.Encode(map[string]any{"plan": document, "released": engine.ProjectPlanApproval{
 				BatchFingerprint: approval.BatchFingerprint,
 				Destination:      approval.Destination,
 				Children:         released,
@@ -320,7 +343,7 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	if *jsonOutput {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
-		return encoder.Encode(map[string]any{"plan": plan, "staged": approval})
+		return encoder.Encode(map[string]any{"plan": document, "staged": approval})
 	}
 	writeStagedProjectPlanReceipt(stdout, approval, *configPath)
 	return nil
