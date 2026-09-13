@@ -48,6 +48,18 @@ or external services; audit-only review gets no package-download access. Other
 prerequisites must already be available within the configured access boundary.
 Local applications must use this copy and their own loopback port, not a shared
 server. The copy is removed after the stage. No new configuration is required.
+The verification copy intentionally has no `.git`. If repository policy accepts
+Runner-bound verification, run its required underlying command there rather
+than a standalone verifier that needs its own Git checkout. Runner checks the
+canonical candidate identity and copied-source integrity; the reviewer must
+record the actual command, settings, exit status, and concrete outcomes in its
+structured evidence, not only link to temporary logs. Preserve all required
+checks and failed attempts. Do not initialize Git in the verification copy,
+expose shared Git metadata, run tests in the canonical checkout, or manufacture
+a standalone receipt.
+An explicitly required standalone receipt or host-only check still requires
+its documented proof path or an approved policy clarification.
+
 After upgrading, restart the service
 with the new binary and run `doctor --fix --offline --config PATH` to refresh the
 bundled reviewer skill before retrying a card blocked by missing QA dependencies.

@@ -541,6 +541,13 @@ addition to loopback; dependency and build caches remain in private temporary
 space. Audit-only invocations do not prepare this copy or gain package-network
 access. All harnesses use the same copy lifecycle; Pi still requires explicitly
 configured host access.
+Repository verification policies may use this Runner-owned candidate binding
+and source-integrity check instead of requiring a standalone Git-checking
+wrapper inside the Git-less copy. The underlying required commands and settings
+still apply. Their actual outcomes belong in the structured review evidence,
+not just in temporary artifact paths. This does not produce a standalone
+wrapper's receipt or satisfy separately required host-only proof; an explicit
+repository requirement for either remains in force.
 Publication replays that record under a sanitized privileged Git profile,
 re-fetches and compares the approved base, re-resolves the accepted tree,
 refreshes Project authority, validates the configured remote repository, and
