@@ -212,6 +212,68 @@ func TestReviewerVerificationStageRejectsTamperingAndCleansFailedLaunch(t *testi
 	}
 }
 
+func TestReviewerVerificationRunsRepositoryCommandWithoutGit(t *testing.T) {
+	makeCommand, err := exec.LookPath("make")
+	if err != nil {
+		t.Skip("make is required for the repository verification entrypoint check")
+	}
+	fixture := verificationFixture(t)
+	makefile := ".PHONY: verify\nverify:\n\t@test ! -e .git\n\t@test -f app.js\n\t@mkdir -p test-results\n\t@printf 'candidate verified\\n' > test-results/verification.log\n"
+	if err := os.WriteFile(filepath.Join(fixture.ReadRoot, "Makefile"), []byte(makefile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := reviewerResolutionSchema([]reviewerUnresolvedCheck{{Key: "P1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := &sharedReviewerHarnessRunner{response: `{"checks":{"P1":{"status":"passed","evidence":["make verify exited 0 in the Git-less verification copy; test-results/verification.log: candidate verified."]}},"summary":"The required repository command passed."}`}
+	var verificationDir string
+	run.onRun = func(dir string) error {
+		prompt := run.inputs[len(run.inputs)-1]
+		for _, instruction := range []string{
+			"When repository policy permits Runner-bound evidence",
+			"Do not manufacture a standalone receipt",
+			"Report the actual command, settings, exit status",
+		} {
+			if !strings.Contains(prompt, instruction) {
+				t.Fatalf("verification guidance omitted %q", instruction)
+			}
+		}
+		verificationDir = filepath.Join(dir, "verification")
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		command := exec.CommandContext(ctx, makeCommand, "verify")
+		command.Dir = verificationDir
+		command.Env = []string{"PATH=" + os.Getenv("PATH")}
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("run repository command in Git-less copy: %v %s", err, output)
+		}
+		log, err := os.ReadFile(filepath.Join(verificationDir, "test-results", "verification.log"))
+		if err != nil || string(log) != "candidate verified\n" {
+			t.Fatalf("verification evidence missing: %q %v", log, err)
+		}
+		return nil
+	}
+	cfg := config.ExecutionConfig{Harness: config.HarnessConfig{Kind: config.HarnessCodexCLI, Command: config.HarnessCodexCLI, WorkingDir: fixture.ReadRoot, TimeoutSeconds: 30}}
+	result, err := runStructuredHarness(t.Context(), RoleReviewer, config.HarnessCodexCLI, cfg, fixture.ReadRoot, "Verify the candidate with make verify.", schema, "require", metrics.StageReviewerVerify, run)
+	if err != nil {
+		t.Fatalf("repository verification stage failed: %v", err)
+	}
+	resolved, err := decodeReviewerResolutionContent([]reviewerUnresolvedCheck{{Key: "P1"}}, result.Message)
+	if err != nil || resolved.Checks["P1"].Status != "passed" || len(run.inputs) != 1 {
+		t.Fatalf("verification did not retain the command outcome in one stage: %#v %v", resolved, err)
+	}
+	if verificationDir == "" {
+		t.Fatal("verification command was not run")
+	}
+	if _, err := os.Stat(verificationDir); !os.IsNotExist(err) {
+		t.Fatal("verification copy was not cleaned")
+	}
+	if _, err := os.Stat(filepath.Join(fixture.ReadRoot, "test-results")); !os.IsNotExist(err) {
+		t.Fatal("verification wrote into the canonical candidate")
+	}
+}
+
 // This tool-dependent proof stays out of the ordinary Go feedback loop. It
 // uses only a local locked package and loopback; no registry or model calls.
 func TestReviewerVerificationNodeSmoke(t *testing.T) {
