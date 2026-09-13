@@ -57,6 +57,10 @@ a saved-plan staging retry is not another planner invocation.
 
 Do not rerun completed checks merely to obtain missing timings. Mark measurement
 coverage explicitly, and retain named failure/rerun reports when checks do run.
+For focused QA, inspect the original verification request and audit context
+retained in the final private evidence as well as the resolved result. Older
+results may omit the request; without it, an unchanged-candidate rerun's reason
+may remain unknown rather than demonstrably necessary or unnecessary.
 Keep commands, arguments, and raw diagnostics in appropriately private project
 evidence rather than adding them to Runner's structured stage telemetry. A
 high cache-read count does not by itself establish low end-to-end cost; preserve

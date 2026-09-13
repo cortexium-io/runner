@@ -337,6 +337,16 @@ approved scope; this context does not reopen resolved proof keys. The handoff
 does not claim that unresolved source inspection already happened. Runner merges
 the observations and derives the verdict and final summary from the merged
 checks, not from superseded stage summaries.
+Each resolved check retains its original verification question and audit context
+in the existing private evidence, clearly labelled as preceding verification.
+Its status and summary describe the final result. This preserves why dynamic
+checks were requested without adding model-authored details to stage telemetry.
+Recorded implementation evidence is loaded only when its private record matches
+the approved content, workspace, candidate commit/tree, and proof obligations.
+That binding does not independently attest to the reported commands or their
+adequacy. A pre-commit reference in report prose alone does not require a rerun;
+the reviewer examines whether the reported tested delta covers the final
+candidate and identifies any concrete remaining gap or invalidating change.
 The bundled work-role guidance runs heavyweight verification commands
 sequentially within each assignment, without changing a command's configured
 workers or timeout. A server required by the active check is allowed; unrelated

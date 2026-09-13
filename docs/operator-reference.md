@@ -2156,6 +2156,14 @@ the necessary source; it does not assume an incomplete audit already happened.
 Evidence paths outside its isolated workspace are not automatically copied, and
 missing logs are not themselves candidate defects. Final summaries describe the
 merged check results rather than repeating obsolete stage blockers.
+The final private evidence also retains each focused check's original audit
+question and context, labelled as historical rather than a current blocker.
+Use these alongside the actual result and candidate identity to investigate
+repeated verification; older results may not retain the original question.
+Runner's binding of implementation evidence to the approved candidate is not
+independent proof that the reported commands passed. Reviewers still assess
+coverage and invalidating changes, but a pre-commit HEAD mentioned in a report
+does not by itself require repeating a check over the same final tested delta.
 The focused stage reuses the smallest relevant existing checks. It does not
 create tests, benchmarks, a custom harness, or broad diagnostics unrelated to a
 concrete diff concern. Roles do not assume a browser
