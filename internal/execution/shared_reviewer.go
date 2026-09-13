@@ -227,6 +227,9 @@ func reviewerComparisonPrompt(assignment Assignment) string {
 	var b strings.Builder
 	if assignment.Spec.ReviewBaseOID != "" && assignment.Spec.ReviewCandidateOID != "" {
 		fmt.Fprintf(&b, "\n\nRunner-pinned comparison: base %s; candidate %s. Cumulative diff: git diff %s...%s in the canonical read-only repository. Use this only when the current review scope requires cumulative inspection; follow-up and focused checks keep their narrower scope. Do not guess a base from a local branch name. Already merged dependency work is part of the base; inspect its current source when an integrated proof obligation requires it.\n", assignment.Spec.ReviewBaseOID, assignment.Spec.ReviewCandidateOID, assignment.Spec.ReviewBaseOID, assignment.Spec.ReviewCandidateOID)
+		if len(assignment.Spec.RecordedVerification) > 0 {
+			b.WriteString("\nRunner loaded the supplied recorded implementation evidence only after its private record matched the approved content, workspace, candidate commit/tree, and proof obligations. This binds the report to the pinned candidate; it does not independently attest that reported commands ran, passed, or adequately cover the obligation. A pre-commit HEAD mentioned in report prose is not by itself a reason to repeat verification: inspect whether the reported tested delta covers the final candidate and whether later changes invalidate it. Do not assume untested changes were covered. If dynamic verification is still necessary, state the concrete evidence gap or changed behavior that requires it, including why supplied results cannot answer the question.\n")
+		}
 	}
 	if baseline := assignment.Spec.ReviewBaseline; baseline != nil {
 		fmt.Fprintf(&b, "\nFollow-up repair comparison: git diff %s HEAD. Prior conclusions are historical evidence, not proof that an unresolved check has been completed.\n", baseline.CommitOID)
@@ -485,11 +488,12 @@ func mergeReviewerResolution(content reviewerContent, resolution reviewerResolut
 	for key, check := range resolution.Checks {
 		switch key {
 		case "R":
-			content.RepositoryRules = check
+			content.RepositoryRules = mergeReviewerCheck(content.RepositoryRules, check)
 		case "M":
+			check = mergeReviewerCheck(reviewerContentCheck{Summary: content.Maintainability.Summary, Evidence: content.Maintainability.Evidence}, check)
 			content.Maintainability = ReviewMaintainabilityResult{Status: check.Status, Summary: check.Summary, Evidence: check.Evidence}
 		default:
-			content.Criteria[key] = check
+			content.Criteria[key] = mergeReviewerCheck(content.Criteria[key], check)
 		}
 	}
 	// Stage summaries may describe gaps that the next stage resolved, or claim
@@ -502,6 +506,18 @@ func mergeReviewerResolution(content reviewerContent, resolution reviewerResolut
 	counts[content.Maintainability.Status]++
 	content.Summary = fmt.Sprintf("Review checks: %d passed, %d failed, %d blocked.", counts["passed"], counts["failed"], counts["blocked"])
 	return content
+}
+
+func mergeReviewerCheck(audit, resolved reviewerContentCheck) reviewerContentCheck {
+	// Keep the audit's question and rationale as historical context, without
+	// turning a resolved gap back into a current blocker or trusting the next
+	// model invocation to repeat it. Use the existing private evidence path.
+	request := "Verification requested (before focused checks): " + audit.Summary
+	if len(audit.Evidence) > 0 {
+		request += "\nAudit context: " + strings.Join(audit.Evidence, "\n")
+	}
+	resolved.Evidence = append([]string{request}, resolved.Evidence...)
+	return resolved
 }
 
 func assembleReviewerContent(assignment Assignment, value string) (StructuredExecutionResult, error) {

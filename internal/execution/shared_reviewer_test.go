@@ -77,6 +77,11 @@ func TestReviewerAuditPromptBindsProofsAndDefersDynamicChecks(t *testing.T) {
 		"one or more blocking violations",
 		"Read-only shell commands", "git diff " + assignment.Spec.ReviewBaseOID + "..." + assignment.Spec.ReviewCandidateOID,
 		"fresh focused-verification stage containing only the unresolved checks",
+		"private record matched the approved content, workspace, candidate commit/tree, and proof obligations",
+		"it does not independently attest that reported commands ran, passed",
+		"A pre-commit HEAD mentioned in report prose is not by itself a reason to repeat verification",
+		"Do not assume untested changes were covered",
+		"including why supplied results cannot answer the question",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("reviewer prompt omitted %q:\n%s", required, prompt)
@@ -89,6 +94,14 @@ func TestReviewerAuditPromptBindsProofsAndDefersDynamicChecks(t *testing.T) {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("reviewer prompt retained staged or numeric orchestration %q:\n%s", forbidden, prompt)
 		}
+	}
+}
+
+func TestReviewerComparisonDoesNotClaimMissingEvidenceIsBound(t *testing.T) {
+	assignment := reviewerAssignment()
+	assignment.Spec.RecordedVerification = nil
+	if strings.Contains(reviewerComparisonPrompt(assignment), "Runner loaded") {
+		t.Fatal("missing evidence was described as a matching private record")
 	}
 }
 
@@ -452,6 +465,12 @@ func TestAllReviewersUseFreshFocusedStageOnlyForUnresolvedProofs(t *testing.T) {
 			if output.Summary != "Review checks: 4 passed, 0 failed, 0 blocked." {
 				t.Fatalf("resolved review retained an obsolete stage summary: %q", output.Summary)
 			}
+			if got := output.ReviewAssessment.Criteria[1].Evidence; !slices.Equal(got, []string{
+				"Verification requested (before focused checks): Does git diff --check pass for the exact candidate?\nAudit context: No candidate-bound result was recorded for this obligation.",
+				"git diff --check exited successfully.",
+			}) {
+				t.Fatalf("%s lost the original verification request or final result: %#v", kind, got)
+			}
 			if kind == config.HarnessPiCLI {
 				structuredExtensions := 0
 				for _, source := range run.extensionSources {
@@ -570,6 +589,45 @@ func TestReviewerMergedSummaryDescribesFinalChecks(t *testing.T) {
 	}
 }
 
+func TestReviewerResolutionRetainsRequestsAcrossCheckAreasAndVerdicts(t *testing.T) {
+	for status, verdict := range map[string]string{"passed": "accept", "failed": "needs_changes", "blocked": "blocked"} {
+		t.Run(status, func(t *testing.T) {
+			assignment := reviewerAssignment()
+			assignment.Spec.RequiredVerification = []string{"approved behavior"}
+			audit := reviewerContent{
+				Criteria: map[string]reviewerContentCheck{"P1": {
+					Status: "check_required", Summary: "Criterion question?", Evidence: []string{"Criterion gap."},
+				}},
+				RepositoryRules: reviewerContentCheck{Status: "check_required", Summary: "Rule question?", Evidence: []string{"Rule gap."}},
+				Maintainability: ReviewMaintainabilityResult{Status: "check_required", Summary: "Maintainability question?", Evidence: []string{"Maintainability gap."}},
+			}
+			resolved := reviewerContentCheck{Status: status, Summary: "Current observation.", Evidence: []string{"Current evidence."}}
+			merged := mergeReviewerResolution(audit, reviewerResolutionContent{Checks: map[string]reviewerContentCheck{"P1": resolved, "R": resolved, "M": resolved}})
+			for area, check := range map[string]reviewerContentCheck{
+				"Criterion": merged.Criteria["P1"], "Rule": merged.RepositoryRules,
+				"Maintainability": {Status: merged.Maintainability.Status, Summary: merged.Maintainability.Summary, Evidence: merged.Maintainability.Evidence},
+			} {
+				if check.Status != status || check.Summary != resolved.Summary || !slices.Equal(check.Evidence, []string{
+					"Verification requested (before focused checks): " + area + " question?\nAudit context: " + area + " gap.", "Current evidence.",
+				}) {
+					t.Fatalf("%s lost audit context or replaced current state: %#v", area, check)
+				}
+			}
+			encoded, err := json.Marshal(merged)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := assembleReviewerContent(assignment, string(encoded))
+			if err != nil || result.ReviewAssessment == nil || result.ReviewAssessment.Verdict != verdict {
+				t.Fatalf("historical context changed final verdict: %#v, %v", result, err)
+			}
+			if !slices.Equal(resolved.Evidence, []string{"Current evidence."}) {
+				t.Fatal("merging mutated the focused-stage evidence")
+			}
+		})
+	}
+}
+
 func TestReviewerTimingConfirmationRetainsEvidenceAndVerdict(t *testing.T) {
 	knownTimeout := "Browse test timed out at reload with a 30s limit and two workers; cause unknown."
 	for _, test := range []struct {
@@ -613,7 +671,10 @@ func TestReviewerTimingConfirmationRetainsEvidenceAndVerdict(t *testing.T) {
 			if err != nil || result.ReviewAssessment == nil {
 				t.Fatalf("assemble timing result: %#v, %v", result, err)
 			}
-			if result.ReviewAssessment.Verdict != test.verdict || !slices.Equal(result.ReviewAssessment.Criteria[0].Evidence, []string{initial, test.confirmation}) {
+			if result.ReviewAssessment.Verdict != test.verdict || !slices.Equal(result.ReviewAssessment.Criteria[0].Evidence, []string{
+				"Verification requested (before focused checks): Does browsing restore sorting after reload?\nAudit context: " + initial,
+				initial, test.confirmation,
+			}) {
 				t.Fatalf("confirmation changed verdict or lost evidence: %#v", result.ReviewAssessment)
 			}
 			if test.status == "blocked" {
