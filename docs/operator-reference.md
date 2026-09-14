@@ -48,17 +48,20 @@ or external services; audit-only review gets no package-download access. Other
 prerequisites must already be available within the configured access boundary.
 Local applications must use this copy and their own loopback port, not a shared
 server. The copy is removed after the stage. No new configuration is required.
-The verification copy intentionally has no `.git`. If repository policy accepts
-Runner-bound verification, run its required underlying command there rather
-than a standalone verifier that needs its own Git checkout. Runner checks the
-canonical candidate identity and copied-source integrity; the reviewer must
-record the actual command, settings, exit status, and concrete outcomes in its
-structured evidence, not only link to temporary logs. Preserve all required
-checks and failed attempts. Do not initialize Git in the verification copy,
-expose shared Git metadata, run tests in the canonical checkout, or manufacture
-a standalone receipt.
-An explicitly required standalone receipt or host-only check still requires
-its documented proof path or an approved policy clarification.
+The verification copy has a fresh standalone `.git` index for source inventory
+(`git ls-files`), not a link to the project's Git data. It contains only copied
+source blobs and index entries, with no commits, history, remotes, inherited
+templates, or shared objects. Git revision and diff audits still belong in the
+canonical read-only checkout. Runner verifies copied source, initial private Git
+metadata, and logical index entries after the stage; normal index cache refreshes
+are allowed.
+Run the repository's required validation launcher and retain its complete-suite
+or standalone receipt requirements. If repository policy accepts equivalent
+underlying commands with Runner-bound evidence, record their actual commands,
+settings, exit status, and outcomes. Preserve failed attempts. Do not replace
+the index, expose shared Git metadata, run tests in the canonical checkout, or
+manufacture a receipt. History-dependent or host-only checks still require
+their documented proof path; the temporary index does not invent that evidence.
 
 After upgrading, restart the service
 with the new binary and run `doctor --fix --offline --config PATH` to refresh the

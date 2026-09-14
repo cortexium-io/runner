@@ -410,8 +410,8 @@ func TestAllReviewersUseFreshFocusedStageOnlyForUnresolvedProofs(t *testing.T) {
 				if content, err := os.ReadFile(filepath.Join(copyDir, "app.js")); err != nil || string(content) != `process.stdout.write("candidate")` {
 					t.Fatalf("focused harness did not receive exact source: %q %v", content, err)
 				}
-				if _, err := os.Lstat(filepath.Join(copyDir, ".git")); !os.IsNotExist(err) {
-					t.Fatal("verification exposed Git administration")
+				if info, err := os.Lstat(filepath.Join(copyDir, ".git")); err != nil || !info.IsDir() {
+					t.Fatal("verification did not prepare a standalone source index")
 				}
 				if err := os.Mkdir(filepath.Join(copyDir, "node_modules"), 0o700); err != nil {
 					return err
