@@ -58,6 +58,9 @@ func (d *Directory) DiscoverFiles([]string, []string) (*PathDiscovery, error) {
 func (d *Directory) DiscoverFilesWithBudget([]string, []string, *SnapshotBudget) (*PathDiscovery, error) {
 	return nil, errUnsupported
 }
+func (d *Directory) ReadDirNamesWithBudget(*SnapshotBudget) ([]string, error) {
+	return nil, errUnsupported
+}
 func (d *Directory) OpenDir(string) (*Directory, error)   { return nil, errUnsupported }
 func (d *Directory) OpenFile(string) (*PinnedFile, error) { return nil, errUnsupported }
 func (d *Directory) ReadFile(string, int64) ([]byte, os.FileMode, FileState, error) {

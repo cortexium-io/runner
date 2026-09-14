@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,12 +20,13 @@ import (
 // The canonical candidate remains read-only; only generated files in this
 // disposable copy may change. Pin copied source before invoking any harness.
 type reviewerVerification struct {
-	path     string
-	identity os.FileInfo
-	files    map[string][]byte
-	gitFiles map[string][]byte
-	gitIndex string
-	limits   workspace.SnapshotLimits
+	path           string
+	identity       os.FileInfo
+	files          map[string][]byte
+	gitFiles       map[string][]byte
+	gitDirectories map[string][]string
+	gitIndex       string
+	limits         workspace.SnapshotLimits
 }
 
 func prepareReviewerVerification(ctx context.Context, launch *profileWorkspace, limits workspace.SnapshotLimits) (*reviewerVerification, error) {
@@ -131,22 +133,40 @@ func prepareReviewerVerification(ctx context.Context, launch *profileWorkspace, 
 		verification.files[path] = digest
 	}
 	// Git may refresh stat-cache data in its index during normal reads. Pin its
-	// logical entries separately, and no-follow hash all other initial metadata.
+	// logical entries separately. Pin both metadata and the complete directory
+	// inventory: additions such as commondir, attributes or split indexes must
+	// not acquire authority simply because they were absent during preparation.
 	gitBudget, err := securefs.NewSnapshotBudget(limits)
 	if err != nil {
 		return nil, err
 	}
 	verification.gitFiles = map[string][]byte{}
+	verification.gitDirectories = map[string][]string{}
 	err = filepath.WalkDir(filepath.Join(destination, ".git"), func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() || path == filepath.Join(destination, ".git", "index") {
+		if path == filepath.Join(destination, ".git", "index") {
 			return nil
 		}
 		relative, err := filepath.Rel(destination, path)
 		if err != nil {
 			return err
+		}
+		if entry.IsDir() {
+			directory, err := securefs.OpenDir(path)
+			if err != nil {
+				return err
+			}
+			names, readErr := directory.ReadDirNamesWithBudget(gitBudget)
+			closeErr := directory.Close()
+			if readErr != nil {
+				return readErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+			verification.gitDirectories[relative] = names
 		}
 		digest, err := root.HashPathWithBudget(relative, gitBudget)
 		if err == nil {
@@ -200,6 +220,23 @@ func (v *reviewerVerification) verify() error {
 		}
 		if !bytes.Equal(before, after) {
 			return fmt.Errorf("verification Git metadata changed: %s", path)
+		}
+	}
+	for path, before := range v.gitDirectories {
+		directory, err := securefs.OpenDir(filepath.Join(v.path, path))
+		if err != nil {
+			return err
+		}
+		after, readErr := directory.ReadDirNamesWithBudget(gitBudget)
+		closeErr := directory.Close()
+		if readErr != nil {
+			return readErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if !slices.Equal(before, after) {
+			return fmt.Errorf("verification Git directory entries changed: %s", path)
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

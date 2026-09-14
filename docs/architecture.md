@@ -558,7 +558,8 @@ review stage receives a disposable source copy inside its private neutral
 workspace. It does not reuse implementation dependencies, build artifacts, or
 Git administration. Runner creates a fresh standalone index containing only
 the copied source, including tracked files excluded by ignore rules. This uses
-the config-free privileged Git boundary and literal, filter-free staging; no
+the isolated privileged Git boundary and batched literal, filter-free blob and
+index staging, rather than subprocesses for each file; no
 templates, commits, history, remotes, or shared object links are inherited.
 Repository launchers can use `git ls-files` without access to shared Git writes.
 Revision and diff audits still use the canonical read-only checkout: the fresh
@@ -568,9 +569,14 @@ output there, but not alter candidate
 source, tests, manifests, or lockfiles. Runner bounds copying with the existing
 snapshot limits, refuses external symlinks, and verifies the copied source with
 no-follow hashes after the harness returns, including on failure. A changed
-source invalidates the result. Initial private Git metadata and the index's
-logical entries are also checked; harmless index stat-cache refreshes are
-allowed, but changed inventory is not. The canonical review and implementation
+source invalidates the result. Runner also checks the complete initial Git
+directory inventory and metadata, rejecting added controls, directory replacement
+and auxiliary indexes. It captures the bounded index bytes without following
+links and parses them in a new Runner-owned Git directory, never by letting
+privileged Git reopen agent-writable metadata or object stores. Logical file and
+staged entries are compared: harmless stat-cache refreshes are allowed, but
+changed inventory, hidden entries and intent-to-add changes are not.
+The canonical review and implementation
 snapshots remain unchanged and are still checked by the engine. Only focused reviewer
 safe-tool invocations receive the bounded npm and public Go package hosts in
 addition to loopback; dependency and build caches remain in private temporary

@@ -52,9 +52,12 @@ The verification copy has a fresh standalone `.git` index for source inventory
 (`git ls-files`), not a link to the project's Git data. It contains only copied
 source blobs and index entries, with no commits, history, remotes, inherited
 templates, or shared objects. Git revision and diff audits still belong in the
-canonical read-only checkout. Runner verifies copied source, initial private Git
-metadata, and logical index entries after the stage; normal index cache refreshes
-are allowed.
+canonical read-only checkout. Runner verifies copied source, the complete private
+Git directory inventory and metadata, and logical/staged index entries after the
+stage. Normal index cache refreshes are allowed; added Git controls, split-index
+sidecars and hidden-entry changes are not. The post-review index is read without
+following links and parsed separately from the writable copy. Source staging is
+batched, with no per-file Git subprocesses and no source-defined filters.
 Run the repository's required validation launcher and retain its complete-suite
 or standalone receipt requirements. If repository policy accepts equivalent
 underlying commands with Runner-bound evidence, record their actual commands,

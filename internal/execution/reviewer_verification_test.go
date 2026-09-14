@@ -120,30 +120,66 @@ func TestReviewerVerificationRejectsChangedOrRedirectedSource(t *testing.T) {
 }
 
 func TestReviewerVerificationRejectsChangedGitInventoryAndControls(t *testing.T) {
-	for _, mutation := range []string{"remove-entry", "hide-entry", "config", "redirect-index", "redirect-git"} {
+	for _, mutation := range []string{"remove-entry", "hide-entry", "skip-worktree", "intent-to-add", "config", "redirect-index", "redirect-git", "redirect-empty-directory", "commondir", "attributes", "alternates", "new-directory", "split-index"} {
 		t.Run(mutation, func(t *testing.T) {
 			launch := verificationFixture(t)
+			if mutation == "intent-to-add" {
+				if err := os.WriteFile(filepath.Join(launch.ReadRoot, "app.js"), nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			copy, err := prepareReviewerVerification(t.Context(), &launch, workspace.DefaultSnapshotLimits())
 			if err != nil {
 				t.Fatal(err)
 			}
 			switch mutation {
-			case "remove-entry", "hide-entry":
+			case "remove-entry", "hide-entry", "skip-worktree":
 				args := []string{"update-index", "--force-remove", "app.js"}
 				if mutation == "hide-entry" {
 					args = []string{"update-index", "--assume-unchanged", "app.js"}
+				}
+				if mutation == "skip-worktree" {
+					args = []string{"update-index", "--skip-worktree", "app.js"}
 				}
 				command := exec.CommandContext(t.Context(), "git", args...)
 				command.Dir = launch.VerificationRoot
 				if output, err := command.CombinedOutput(); err != nil {
 					t.Fatalf("mutate private index: %v %s", err, output)
 				}
+			case "intent-to-add":
+				for _, args := range [][]string{{"rm", "--cached", "app.js"}, {"add", "--intent-to-add", "app.js"}} {
+					command := exec.CommandContext(t.Context(), "git", args...)
+					command.Dir = launch.VerificationRoot
+					if output, err := command.CombinedOutput(); err != nil {
+						t.Fatalf("change intent to add: %v %s", err, output)
+					}
+				}
 			case "config":
 				err = os.WriteFile(filepath.Join(launch.VerificationRoot, ".git", "config"), []byte("[remote \"origin\"]\nurl = https://invalid.example/repo\n"), 0o600)
-			case "redirect-index", "redirect-git":
+			case "commondir", "attributes", "alternates", "new-directory":
+				paths := map[string]string{"commondir": "commondir", "attributes": "info/attributes", "alternates": "objects/info/alternates", "new-directory": "hooks"}
+				path := filepath.Join(launch.VerificationRoot, ".git", paths[mutation])
+				if mutation == "new-directory" {
+					err = os.Mkdir(path, 0o700)
+				} else {
+					if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					err = os.WriteFile(path, []byte(t.TempDir()+"\n"), 0o600)
+				}
+			case "split-index":
+				command := exec.CommandContext(t.Context(), "git", "update-index", "--split-index")
+				command.Dir = launch.VerificationRoot
+				if output, err := command.CombinedOutput(); err != nil {
+					t.Fatalf("split private index: %v %s", err, output)
+				}
+			case "redirect-index", "redirect-git", "redirect-empty-directory":
 				path := filepath.Join(launch.VerificationRoot, ".git")
 				if mutation == "redirect-index" {
 					path = filepath.Join(path, "index")
+				}
+				if mutation == "redirect-empty-directory" {
+					path = filepath.Join(path, "refs", "heads")
 				}
 				if err := os.Rename(path, path+"-original"); err != nil {
 					t.Fatal(err)
@@ -190,6 +226,19 @@ func TestReviewerVerificationRejectsExternalLinksAndBoundsCopies(t *testing.T) {
 				t.Fatal("failed copy exposed to harness")
 			}
 		})
+	}
+}
+
+func TestReviewerVerificationRejectsSourceOmittedByGit(t *testing.T) {
+	launch := verificationFixture(t)
+	if err := os.Symlink("app.js", filepath.Join(launch.ReadRoot, ".gitmodules")); err != nil {
+		t.Fatal(err)
+	}
+	if copy, err := prepareReviewerVerification(t.Context(), &launch, workspace.DefaultSnapshotLimits()); err == nil || copy != nil {
+		t.Fatal("Git silently omitted a copied source path from the verification inventory")
+	}
+	if launch.VerificationRoot != "" {
+		t.Fatal("incomplete source inventory exposed to reviewer")
 	}
 }
 

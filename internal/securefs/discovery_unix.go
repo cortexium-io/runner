@@ -155,6 +155,24 @@ func (d *PathDiscovery) walk(directory *Directory, relativeDirectory string, pro
 	return nil
 }
 
+// ReadDirNamesWithBudget lists a pinned directory without following links and
+// charges each name before retaining it. The caller can compare a closed set of
+// entries, including directories, without walking newly introduced subtrees.
+func (d *Directory) ReadDirNamesWithBudget(budget *SnapshotBudget) ([]string, error) {
+	if err := d.Verify(); err != nil {
+		return nil, err
+	}
+	names, err := directoryNames(d, budget)
+	if err != nil {
+		return nil, err
+	}
+	if err := d.Verify(); err != nil {
+		return nil, err
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
 func directoryNames(directory *Directory, budget *SnapshotBudget) ([]string, error) {
 	fd, err := unix.Openat(directory.fd, ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
