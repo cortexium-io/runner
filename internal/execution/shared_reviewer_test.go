@@ -67,13 +67,13 @@ func TestReviewerAuditSchemaUsesFixedProofKeys(t *testing.T) {
 
 func TestReviewerAuditPromptBindsProofsAndDefersDynamicChecks(t *testing.T) {
 	assignment := reviewerAssignment()
-	prompt := reviewerAuditPrompt(assignment, "Pi CLI")
+	prompt := harnessGuidance(config.HarnessPiCLI, config.ExecutionConfig{Skills: []string{"runner-reviewer"}}, true) + reviewerAuditPrompt(assignment, "Pi CLI")
 	for _, required := range []string{
 		`"key":"P1"`, `"key":"P2"`, assignment.Spec.RequiredVerification[0], assignment.Spec.RequiredVerification[1],
 		"focused check passed at the candidate commit", "The implementer owns how proof is produced",
-		"source and evidence triage, not test execution", "Do not run tests", "establishes failure for that exact behavior",
-		"It does not complete the audit of the whole proof key or path", "A failed key records status; it is not a stop signal",
-		"inspect directly adjacent card-owned paths, operations, and state transitions", "Group all independent blockers",
+		"source and evidence triage, not test execution", "Do not run tests",
+		"A failed proof key records status; it is not a stop signal",
+		"directly adjacent card-owned paths", "every independent blocker found in the bounded pass",
 		"one or more blocking violations",
 		"Read-only shell commands", "git diff " + assignment.Spec.ReviewBaseOID + "..." + assignment.Spec.ReviewCandidateOID,
 		"fresh focused-verification stage containing only the unresolved checks",
@@ -508,8 +508,8 @@ func TestReviewerContinuesIndependentFocusedVerificationAfterAuditFailure(t *tes
 		t.Fatalf("reviewer did not complete the independent check: calls=%d assessment=%#v", len(run.inputs), output.ReviewAssessment)
 	}
 	if !strings.Contains(run.inputs[1], `"key":"P2"`) || strings.Contains(run.inputs[1], `"key":"P1"`) ||
-		!strings.Contains(run.inputs[1], "Complete the rest of that bounded check and every other supplied check independently") ||
-		!strings.Contains(run.inputs[1], "report every concrete failing case encountered") ||
+		!strings.Contains(run.inputs[1], "Return one observation for every key assigned to this stage") ||
+		!strings.Contains(run.inputs[1], "every independent blocker found in the bounded pass") ||
 		strings.Contains(run.inputs[1], "stop investigating that path") {
 		t.Fatalf("focused verification did not isolate the unresolved check:\n%s", run.inputs[1])
 	}

@@ -2221,8 +2221,18 @@ Concrete defects remain failures; genuinely inconclusive proof reports
 QA rejection. This is not an instruction to repair tooling or implementation
 unless the evidence identifies such a problem.
 
-Bundled skills 1.8.10 retain sequential heavyweight verification, evidence
-handoff, and fresh-verification fallback. Planner guidance carries exact accepted
+Bundled skills 1.8.11 keep shared role rules in the pinned skills and stage
+procedures in Runner's prompts. Reviewer timeout confirmation, heavyweight-check
+scheduling, and interface execution guidance appear only in focused verification,
+not in the source-and-evidence audit. This is deterministic stage selection,
+not keyword filtering of findings or a model-specific relaxation. The shared
+reviewer skill still requires all visible blockers, reliable candidate-bound
+evidence, and unchanged canonical workspaces. Shared harness capability guidance
+does not authorize dynamic checks during the static audit. Implementer verification policy
+also has one home in its skill, rather than being repeated in the launch prompt.
+
+Sequential heavyweight verification, complete evidence handoff, and the
+fresh-verification fallback remain unchanged. Planner guidance carries exact accepted
 references and distinguishes historical ideas. It separates immutable reference
 pins, each card's current accepted starting base, and final candidate identity,
 while honoring explicitly fixed execution bases. It sizes cards by behavior and

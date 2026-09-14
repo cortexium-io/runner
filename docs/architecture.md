@@ -145,6 +145,13 @@ instructions still come from the normal isolated execution workspace. Native
 harnesses retain ownership of conversation rendering, tools, schemas, model
 routing, and cache controls; Runner does not trade isolation or reviewer
 independence for a more reusable prefix.
+Shared role policy lives in the pinned skill; stage prompts add the permissions,
+procedure, and result contract for that stage. Detailed reviewer scheduling,
+timeout confirmation, and interface procedures appear only in focused
+verification, not the static audit. This routing uses the known stage, not
+keywords in assignment evidence or model-specific exceptions.
+Harness capability-discovery guidance remains shared; it does not override the
+static stage's prohibition on dynamic checks.
 
 Execution adapters map allowlisted adapter-owned structured failures and
 Runner-observed failures to a stable failure class plus `automatic`, `manual`,
@@ -356,11 +363,12 @@ That binding does not independently attest to the reported commands or their
 adequacy. A pre-commit reference in report prose alone does not require a rerun;
 the reviewer examines whether the reported tested delta covers the final
 candidate and identifies any concrete remaining gap or invalidating change.
-The bundled work-role guidance runs heavyweight verification commands
-sequentially within each assignment, without changing a command's configured
-workers or timeout. A server required by the active check is allowed; unrelated
-test suites, browser runs, builds, and installs must not overlap. The focused
-review prompt reinforces this rule. It is not a host-wide resource lock or a
+The bundled implementer skill and focused reviewer prompt each require
+heavyweight verification commands to run sequentially within their assignment,
+without changing a command's configured workers or timeout. A server required
+by the active check is allowed; unrelated test suites, browser runs, builds, and
+installs must not overlap. The static reviewer audit cannot execute these
+checks. This is not a host-wide resource lock or a
 change to admission of independent cards. When accidental overlap contributed
 to a timing failure, the bounded confirmation corrects that scheduling and
 records the difference instead of claiming an unchanged reproduction or proof

@@ -260,15 +260,17 @@ func TestWorkspaceWritePromptsDelegateProofMethodWithoutAgentExpansion(t *testin
 		"pi":     buildHarnessPrompt(assignment, true, "Pi CLI"),
 	} {
 		t.Run(name, func(t *testing.T) {
+			prompt = harnessGuidance(name, config.ExecutionConfig{Skills: []string{"runner-implementer"}}, true) + prompt
+			prompt = strings.Join(strings.Fields(prompt), " ")
 			for _, required := range []string{
 				"Runner-owned proof obligations:",
 				"These obligations define what must be proved, not how.",
-				"choose the smallest reliable proof method",
-				"add or update durable tests when that is the simplest reliable regression protection",
+				"smallest reliable method",
+				"Add or update durable test code when it is the simplest reliable protection",
 				"Do not create a second test framework",
-				"Do not substitute broader checks",
+				"Run a broad or complete suite only",
 				"return exactly 1 verification evidence entry",
-				"Combine related observations for the same obligation",
+				"Combine related observations in the corresponding evidence entry",
 			} {
 				if strings.Count(prompt, required) != 1 {
 					t.Fatalf("prompt must contain %q exactly once:\n%s", required, prompt)

@@ -31,6 +31,14 @@ versions, project-policy changes, approved card IDs, starting bases, and any
 operator interventions in the existing trial evidence. Different projects and
 different task mixes are not interchangeable control groups.
 
+For prompt or skill changes, also retain each stage's `prompt_contexts` layout
+and `guidance_digest`. Compare assembled prompts for the same assignment and
+stage to detect duplicated or misplaced guidance. Fewer bytes or words prove
+only a smaller prompt, not fewer provider tokens, better cache reuse, lower
+total cost, or unchanged quality. Check those outcomes using the next approved
+real work and the evidence below; do not create extra product work just to
+exercise a prompt change.
+
 Use the existing read-only commands; exporting metrics does not run a model or
 retry work. Keep exports private because attempt evidence can contain project
 details:
