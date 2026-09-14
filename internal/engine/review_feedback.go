@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/github"
@@ -19,10 +20,10 @@ import (
 const (
 	reviewFeedbackVersion   = 1
 	maxReviewFeedbackBytes  = 1024 * 1024
-	maxReviewFeedbackItems  = 20
-	maxReviewFeedbackLength = 2_000
 	reviewFeedbackDelimiter = "---"
 )
+
+var errReviewFeedbackLimit = errors.New("Agent QA feedback exceeds the 1 MiB safety limit; no feedback was truncated or replaced")
 
 type reviewFeedbackRecord struct {
 	Baseline               *execution.ReviewBaseline `json:"baseline,omitempty"`
@@ -80,7 +81,10 @@ func (s *Engine) reviewFeedbackPath(itemID string) string {
 }
 
 func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.DelegatedContent, assessment execution.ReviewAssessment, baseline *execution.ReviewBaseline) error {
-	items := actionableReviewFeedback(assessment)
+	items, err := actionableReviewFeedback(assessment)
+	if err != nil {
+		return err
+	}
 	if len(items) == 0 {
 		return errors.New("Agent QA requested changes without actionable feedback")
 	}
@@ -89,15 +93,16 @@ func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.Delegat
 		DelegatedContentDigest: strings.TrimSpace(content.Digest), Items: items,
 	}
 	if baseline != nil {
-		record.Baseline = baseline
+		copy := *baseline
+		record.Baseline = &copy
 		record.Baseline.Assessment = assessment
 	}
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		return fmt.Errorf("encode Agent QA feedback: %w", err)
 	}
-	if len(encoded) > maxReviewFeedbackBytes {
-		return errors.New("encoded Agent QA feedback exceeds the private storage limit")
+	if len(encoded)+1 > maxReviewFeedbackBytes {
+		return errReviewFeedbackLimit
 	}
 	path := s.reviewFeedbackPath(item.ID)
 	if err := securefs.EnsurePrivateDir(filepath.Dir(path)); err != nil {
@@ -159,6 +164,9 @@ func (s *Engine) readReviewFeedbackRecord(item github.WorkItem) (*reviewFeedback
 	if err := securefs.ValidateOwnedRegularFile(state, uint32(os.Geteuid())); err != nil {
 		return nil, fmt.Errorf("validate private Agent QA feedback: %w", err)
 	}
+	if !utf8.Valid(encoded) {
+		return nil, errors.New("private Agent QA feedback is not valid UTF-8")
+	}
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.DisallowUnknownFields()
 	var record reviewFeedbackRecord
@@ -171,13 +179,24 @@ func (s *Engine) readReviewFeedbackRecord(item github.WorkItem) (*reviewFeedback
 	if record.Version != reviewFeedbackVersion || strings.TrimSpace(record.ItemID) != strings.TrimSpace(item.ID) {
 		return nil, errors.New("private Agent QA feedback identity does not match this item")
 	}
-	if len(record.Items) == 0 || len(record.Items) > maxReviewFeedbackItems {
-		return nil, errors.New("private Agent QA feedback contains an invalid item count")
+	if err := validateReviewFeedbackItems(record.Items); err != nil {
+		return nil, err
 	}
-	for index := range record.Items {
-		record.Items[index] = strings.TrimSpace(record.Items[index])
-		if record.Items[index] == "" || len(record.Items[index]) > maxReviewFeedbackLength || strings.Contains(record.Items[index], reviewFeedbackDelimiter) {
-			return nil, fmt.Errorf("private Agent QA feedback item %d is invalid", index)
+	if record.Baseline != nil {
+		// The complete assessment is the source for actionable feedback. This
+		// also recovers historical byte-clipped items without rewriting their
+		// record. Validate its shape here, not its applicability to a new task
+		// or candidate: content binding and review reuse have separate gates.
+		var spec execution.Spec
+		for _, criterion := range record.Baseline.Assessment.Criteria {
+			spec.RequiredVerification = append(spec.RequiredVerification, criterion.Criterion)
+		}
+		if execution.ValidateReviewBaseline(spec, record.Baseline) == nil {
+			items, err := actionableReviewFeedback(record.Baseline.Assessment)
+			if err != nil {
+				return nil, err
+			}
+			record.Items = items
 		}
 	}
 	return &record, nil
@@ -191,21 +210,14 @@ func (s *Engine) clearReviewFeedback(itemID string) error {
 	return err
 }
 
-func actionableReviewFeedback(assessment execution.ReviewAssessment) []string {
-	items := make([]string, 0, maxReviewFeedbackItems)
+func actionableReviewFeedback(assessment execution.ReviewAssessment) ([]string, error) {
+	var items []string
 	add := func(label, summary string, evidence []string) {
-		if len(items) >= maxReviewFeedbackItems {
-			return
-		}
 		value := strings.TrimSpace(label) + ": " + strings.TrimSpace(summary)
 		if evidence = compactNonEmpty(evidence); len(evidence) > 0 {
-			value += " Evidence: " + strings.Join(evidence, "; ")
+			value += "\nEvidence:\n- " + strings.Join(evidence, "\n- ")
 		}
-		value = strings.Join(strings.Fields(value), " ")
 		value = strings.ReplaceAll(value, reviewFeedbackDelimiter, "—")
-		if len(value) > maxReviewFeedbackLength {
-			value = value[:maxReviewFeedbackLength]
-		}
 		if strings.TrimSpace(value) != "" {
 			items = append(items, value)
 		}
@@ -213,9 +225,14 @@ func actionableReviewFeedback(assessment execution.ReviewAssessment) []string {
 	for _, criterion := range assessment.Criteria {
 		if criterion.Status == "failed" {
 			add("Failed criterion "+strings.TrimSpace(criterion.Criterion), criterion.Summary, criterion.Evidence)
+		} else if criterion.Status == "blocked" {
+			add("Blocked criterion "+strings.TrimSpace(criterion.Criterion), criterion.Summary, criterion.Evidence)
 		}
 	}
 	for _, rule := range assessment.Rules {
+		if rule.Status == "blocked" {
+			add("Blocked repository-rule check", rule.Summary, nil)
+		}
 		for _, finding := range rule.Findings {
 			if finding.Severity == "blocking" {
 				add("Blocking repository-rule finding", finding.Summary, finding.Evidence)
@@ -224,11 +241,44 @@ func actionableReviewFeedback(assessment execution.ReviewAssessment) []string {
 	}
 	if assessment.Maintainability.Status == "failed" {
 		add("Failed maintainability check", assessment.Maintainability.Summary, assessment.Maintainability.Evidence)
+	} else if assessment.Maintainability.Status == "blocked" {
+		add("Blocked maintainability check", assessment.Maintainability.Summary, assessment.Maintainability.Evidence)
 	}
 	if len(items) == 0 && strings.TrimSpace(assessment.Summary) != "" {
 		add("Agent QA summary", assessment.Summary, nil)
 	}
-	return items
+	if len(items) == 0 {
+		return nil, nil
+	}
+	return items, validateReviewFeedbackItems(items)
+}
+
+func validateReviewFeedbackItems(items []string) error {
+	if len(items) == 0 {
+		return errors.New("private Agent QA feedback contains no actionable items")
+	}
+	totalBytes := 0
+	for index, item := range items {
+		if strings.TrimSpace(item) == "" || !utf8.ValidString(item) || strings.Contains(item, reviewFeedbackDelimiter) {
+			return fmt.Errorf("private Agent QA feedback item %d is invalid", index)
+		}
+		// Include the separators used when passing findings to an assignment.
+		if len(item)+3 > maxReviewFeedbackBytes-totalBytes {
+			return errReviewFeedbackLimit
+		}
+		totalBytes += len(item) + 3
+	}
+	return nil
+}
+
+func reviewFeedbackFailureOutput(summary string, err error, reviewed ...execution.Output) execution.Output {
+	output := integrityViolationOutput(summary, err, reviewed...)
+	if errors.Is(err, errReviewFeedbackLimit) {
+		output.FailureClass = execution.FailureInvalidContract
+		output.Summary = errReviewFeedbackLimit.Error()
+		output.Blocker = stringPtr(errReviewFeedbackLimit.Error())
+	}
+	return output
 }
 
 func ensureJSONEOF(decoder *json.Decoder) error {

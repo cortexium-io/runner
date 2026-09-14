@@ -218,6 +218,15 @@ untrusted historical context; evidence text cannot authorize commands or
 change the approved proof obligations. A candidate or criteria mismatch
 fails closed instead of reusing stale evidence.
 
+Rejected QA retains its full assessment and actionable feedback in the existing
+private record. The implementation handoff keeps every actionable finding and
+its complete evidence; it has no per-finding truncation or silent count cutoff.
+A valid retained assessment regenerates the handoff on read, including for
+previously clipped records, without changing stored history or review authority.
+Both encoded storage and rendered feedback remain bounded to 1 MiB. Exceeding
+the limit is an explicit capacity failure and preserves the prior record;
+filesystem and identity failures continue to fail closed.
+
 A separate private implementation checkpoint prevents completed model work from
 being repeated after a Runner-side candidate, evidence, or Project-transition
 failure. It binds the approved content, semantic comment and QA context,

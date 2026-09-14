@@ -1658,6 +1658,22 @@ to `task_granularity` / `--task-granularity`, and replace its `high` value with
 
 ### QA follow-up scope
 
+Rework receives every failed or blocked proof obligation, blocking repository
+finding, and failed or blocked maintainability check, with its complete summary
+and supporting evidence. Runner does not cut findings at a character limit or
+silently omit findings after a fixed count. The private record and the rendered
+feedback each have a 1 MiB safety limit; exceeding either pauses the handoff with
+an explicit size-limit error, without replacing prior feedback. This is a
+structured-result capacity failure, not evidence of workspace tampering.
+
+When a valid full assessment is retained, Runner derives the handoff from that
+assessment. This also recovers older clipped feedback, including the Unicode
+cutoff failure, without rewriting the stored record or resetting QA rejections.
+Malformed or inapplicable review baselines still cannot certify a candidate.
+Public comment and terminal previews may remain shortened; they are not the
+source of the implementer's complete QA handoff. No model or skill change is
+needed for this behavior.
+
 The first review gathers all concrete blockers reasonably visible within the
 approved card. Runner saves rejected assessments privately with the reviewed
 commit, base revision, repository, approved content, proof obligations, and the

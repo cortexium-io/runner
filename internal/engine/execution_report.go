@@ -39,6 +39,9 @@ func remoteDiagnosticSummary(output execution.Output) string {
 	case execution.FailureCanceled:
 		return "Runner classified the harness attempt as canceled."
 	case execution.FailureInvalidContract:
+		if output.RemoteDetailSafe && output.Summary == errReviewFeedbackLimit.Error() {
+			return errReviewFeedbackLimit.Error()
+		}
 		return "Runner rejected an invalid structured-result contract."
 	case execution.FailureCapabilityUnavailable:
 		return "Runner classified a required local capability as unavailable."
