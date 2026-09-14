@@ -564,8 +564,9 @@ func (r plannerProviderFailureRunner) Run(ctx context.Context, command string, a
 }
 
 type reviewerRejectRunner struct {
-	project *fakeGitHubProjectRunner
-	prompts *[]string
+	project  *fakeGitHubProjectRunner
+	prompts  *[]string
+	evidence string
 }
 
 type reviewerAcceptRunner struct{ project *fakeGitHubProjectRunner }
@@ -867,7 +868,7 @@ func (r reviewerAcceptRunner) Run(ctx context.Context, command string, args []st
 		target := profileReadRoot(args, dir)
 		r.project.qaCommit = runnerGitRevision(ctx, target, timeout, "HEAD")
 		r.project.baseRevision = runnerGitRevision(ctx, target, timeout, "origin/main")
-		encoded, encodeErr := reviewerContentForSchema(args, false)
+		encoded, encodeErr := reviewerContentForSchema(args, false, "")
 		if encodeErr != nil {
 			return subprocess.Result{}, encodeErr
 		}
@@ -906,7 +907,7 @@ func (r reviewerRejectRunner) Run(ctx context.Context, command string, args []st
 		return runEngineTestGit(ctx, args, dir, timeout)
 	case "codex":
 		outputPath := argumentValue(args, "--output-last-message")
-		encoded, encodeErr := reviewerContentForSchema(args, true)
+		encoded, encodeErr := reviewerContentForSchema(args, true, r.evidence)
 		if encodeErr != nil {
 			return subprocess.Result{}, encodeErr
 		}
@@ -919,7 +920,7 @@ func (r reviewerRejectRunner) Run(ctx context.Context, command string, args []st
 	}
 }
 
-func reviewerContentForSchema(args []string, reject bool) ([]byte, error) {
+func reviewerContentForSchema(args []string, reject bool, evidence string) ([]byte, error) {
 	schema, err := os.ReadFile(argumentValue(args, "--output-schema"))
 	if err != nil {
 		return nil, fmt.Errorf("read reviewer schema: %w", err)
@@ -942,8 +943,11 @@ func reviewerContentForSchema(args []string, reject bool) ([]byte, error) {
 	}
 	summary := "Agent QA accepted the implementation."
 	if reject && len(criteria) > 0 {
+		if evidence == "" {
+			evidence = "feature_test.go lacks the edge case"
+		}
 		criteria[decoded.Properties.Criteria.Required[0]] = map[string]any{
-			"status": "failed", "summary": "A required edge case is missing.", "evidence": []string{"feature_test.go lacks the edge case"},
+			"status": "failed", "summary": "A required edge case is missing.", "evidence": []string{evidence},
 		}
 		summary = "Add the missing edge-case test."
 	}
@@ -5418,10 +5422,14 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 		name, wantStatus, wantPhase, wantOutcome, wantSummary string
 		failures                                              int
 		priorFeedback                                         bool
+		evidence                                              string
+		overLimit                                             bool
 	}{
 		{name: "first rejection", failures: 0, wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected, wantSummary: "rejection 1 of 3"},
 		{name: "second rejection", failures: 1, priorFeedback: true, wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected, wantSummary: "rejection 2 of 3"},
 		{name: "third rejection blocks", failures: 2, priorFeedback: true, wantStatus: "Blocked", wantPhase: "ready", wantOutcome: execution.OutcomeBlocked, wantSummary: "rejection 3 of 3"},
+		{name: "complete long feedback", evidence: strings.Repeat("ø context ", 400) + "Tail: undo shows both branches; restore visibility and verify redo.", wantStatus: "Ready", wantPhase: "ready", wantOutcome: config.WorkflowOutcomeRejected, wantSummary: "rejection 1 of 3"},
+		{name: "oversized record", evidence: strings.Repeat("a", 700_000), overLimit: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			repo, _ := createPublicationRepository(t)
@@ -5445,7 +5453,7 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 				ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: repo,
 				GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
 			}
-			service, err := New(completeEngineTestConfig(cfg), reviewerRejectRunner{project: project, prompts: &prompts})
+			service, err := New(completeEngineTestConfig(cfg), reviewerRejectRunner{project: project, prompts: &prompts, evidence: test.evidence})
 			if err != nil {
 				t.Fatalf("configure service: %v", err)
 			}
@@ -5473,11 +5481,29 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 			if err != nil {
 				t.Fatalf("run QA cycle: %v", err)
 			}
+			if test.overLimit {
+				if len(results) != 1 {
+					t.Fatalf("QA result count = %d, want one", len(results))
+				}
+				if results[0].FailureClass != string(execution.FailureInvalidContract) || results[0].RetryDisposition != string(execution.RetryManual) || project.qaFailures != test.failures || project.status != "Blocked" || !strings.Contains(project.result, "1 MiB") || strings.Contains(project.result, "integrity violation") || len(prompts) != 1 {
+					t.Fatalf("feedback capacity failure lost its safe classification or retried QA: class=%v result=%q status=%s failures=%d prompts=%d", results[0].FailureClass, project.result, project.status, project.qaFailures, len(prompts))
+				}
+				if _, err := os.Stat(service.reviewFeedbackPath(item.ID)); !os.IsNotExist(err) {
+					t.Fatalf("oversized review stored partial feedback: %v", err)
+				}
+				return
+			}
 			if len(results) != 1 || results[0].Outcome != test.wantOutcome || project.status != test.wantStatus || project.phase != test.wantPhase || project.qaFailures != test.failures+1 || !strings.Contains(results[0].Summary, test.wantSummary) {
 				t.Fatalf("unexpected QA routing: results=%#v status=%q phase=%q failures=%d", results, project.status, project.phase, project.qaFailures)
 			}
 			if len(prompts) != 1 {
 				t.Fatalf("reviewer prompt count = %d, want one", len(prompts))
+			}
+			if test.evidence != "" {
+				feedback, err := service.loadReviewFeedback(item, github.DelegatedContentFor(item))
+				if err != nil || !strings.Contains(service.assignment(item, github.DelegatedContentFor(item), feedback, nil).Spec.Task.Instructions, test.evidence) {
+					t.Fatalf("completed QA lost full repair evidence: %v", err)
+				}
 			}
 			candidateOID := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "rev-parse", "HEAD"))
 			history, historyErr := historyStore.Read()

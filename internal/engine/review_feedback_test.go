@@ -1,17 +1,144 @@
 package engine
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/github"
 )
+
+func TestAgentQAFeedbackKeepsUnicodeAndEvidenceBeyondOldCutoff(t *testing.T) {
+	for _, character := range []string{"ø", "€", "😀"} {
+		t.Run(character, func(t *testing.T) {
+			service := reviewFeedbackTestEngine(filepath.Join(t.TempDir(), "worktrees"))
+			item := github.WorkItem{ID: "PVTI_unicode", Role: config.WorkRoleImplementer}
+			content := github.DelegatedContentFor(github.WorkItem{ID: item.ID, Body: "Approved body"})
+			const prefix = "Agent QA summary: "
+			summary := strings.Repeat("a", 1999-len(prefix)) + character + "\nUndo reproduction:\n  primary and alternative are both visible."
+			if err := service.saveReviewFeedback(item, content, execution.ReviewAssessment{Verdict: "needs_changes", Summary: summary}, nil); err != nil {
+				t.Fatal(err)
+			}
+			feedback, err := service.loadReviewFeedback(item, content)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(feedback) != 1 || feedback[0] != prefix+summary || !utf8.ValidString(feedback[0]) {
+				t.Fatalf("feedback changed across save/load: %#v", feedback)
+			}
+			if !strings.Contains(service.assignment(item, content, feedback, nil).Spec.Task.Instructions, summary) {
+				t.Fatal("implementer did not receive the complete finding")
+			}
+		})
+	}
+}
+
+func TestAgentQAFeedbackKeepsEveryActionableFinding(t *testing.T) {
+	service := reviewFeedbackTestEngine(filepath.Join(t.TempDir(), "worktrees"))
+	item := github.WorkItem{ID: "PVTI_all_findings", Role: config.WorkRoleImplementer}
+	content := github.DelegatedContentFor(github.WorkItem{ID: item.ID, Body: "Approved body"})
+	assessment := execution.ReviewAssessment{Verdict: "needs_changes", Summary: "Address all findings."}
+	var expected []string
+	for index := range 25 {
+		evidence := fmt.Sprintf("Complete evidence for finding %d:\n  %s\nTail-%d", index, strings.Repeat("context ", 400), index)
+		assessment.Criteria = append(assessment.Criteria, execution.ReviewCriterionResult{
+			Criterion: fmt.Sprintf("criterion-%d", index), Status: "failed", Summary: "Required correction", Evidence: []string{evidence},
+		})
+		expected = append(expected, evidence)
+	}
+	assessment.Criteria = append(assessment.Criteria, execution.ReviewCriterionResult{Criterion: "remaining proof", Status: "blocked", Summary: "Missing retained artifact", Evidence: []string{"Gather the missing proof after the correction."}})
+	assessment.Rules = []execution.ReviewRuleResult{{Status: "failed", Findings: []execution.ReviewRuleFinding{{Severity: "blocking", Summary: "Preserve ownership", Evidence: []string{"Rule finding after all criteria."}}}}}
+	assessment.Maintainability = execution.ReviewMaintainabilityResult{Status: "failed", Summary: "Remove duplicate logic", Evidence: []string{"Maintainability finding after all criteria."}}
+	expected = append(expected, "Gather the missing proof after the correction.", "Rule finding after all criteria.", "Maintainability finding after all criteria.")
+	if err := service.saveReviewFeedback(item, content, assessment, nil); err != nil {
+		t.Fatal(err)
+	}
+	feedback, err := service.loadReviewFeedback(item, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(feedback) != len(expected) {
+		t.Fatalf("retained %d of %d actionable findings", len(feedback), len(expected))
+	}
+	instructions := service.assignment(item, content, feedback, nil).Spec.Task.Instructions
+	for _, evidence := range expected {
+		if !strings.Contains(instructions, evidence) {
+			t.Fatalf("implementer lost complete evidence ending %q", evidence[len(evidence)-20:])
+		}
+	}
+}
+
+func TestAgentQAFeedbackRecoversFullAssessmentWithoutRewritingHistory(t *testing.T) {
+	service := reviewFeedbackTestEngine(filepath.Join(t.TempDir(), "worktrees"))
+	item := github.WorkItem{ID: "PVTI_old_cutoff", Role: config.WorkRoleImplementer, Repository: "owner/repo", QAFailures: 1}
+	content := github.DelegatedContentFor(github.WorkItem{ID: item.ID, Body: "## Proof obligations\n- branch visibility"})
+	spec := service.assignment(item, content, nil, nil).Spec
+	assessment := rejectedReviewAssessment(spec)
+	assessment.Criteria[0].Evidence = []string{strings.Repeat("context ", 400) + "\nActual reproduction: undo shows both branches.\nCause: clearing conditionalBranches."}
+	baseline := &execution.ReviewBaseline{CommitOID: strings.Repeat("a", 40), BaseOID: strings.Repeat("b", 40), BindingDigest: reviewBaselineBindingDigest(spec), CommentContext: []string{}, Assessment: assessment}
+	// Reproduce the historical writer: cutting a multibyte character grows the
+	// decoded item to 2,002 bytes. The complete assessment is still intact.
+	broken := (strings.Repeat("a", 1999) + "€")[:2000]
+	record := reviewFeedbackRecord{Version: reviewFeedbackVersion, ItemID: item.ID, DelegatedContentDigest: content.Digest, Baseline: baseline, Items: []string{broken}}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := service.reviewFeedbackPath(item.ID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	feedback, err := service.loadReviewFeedback(item, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(service.assignment(item, content, feedback, nil).Spec.Task.Instructions, assessment.Criteria[0].Evidence[0]) {
+		t.Fatal("recovery used the clipped item rather than the retained assessment")
+	}
+	preview, err := service.readReviewFeedbackRecord(item)
+	if err != nil || !slices.Equal(preview.Items, feedback) {
+		t.Fatalf("preview and execution disagree: %#v %v", preview, err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(after, encoded) || preview.Baseline.CommitOID != baseline.CommitOID || item.QAFailures != 1 {
+		t.Fatalf("read-only recovery changed retained history: %v", err)
+	}
+}
+
+func TestAgentQAFeedbackOversizeNeverReplacesRetainedEvidence(t *testing.T) {
+	for _, summary := range []string{strings.Repeat("a", 1024*1024), strings.Repeat("<", 200_000)} {
+		service := reviewFeedbackTestEngine(filepath.Join(t.TempDir(), "worktrees"))
+		item := github.WorkItem{ID: "PVTI_over_limit", Role: config.WorkRoleImplementer}
+		content := github.DelegatedContentFor(github.WorkItem{ID: item.ID, Body: "Approved body"})
+		if err := service.saveReviewFeedback(item, content, execution.ReviewAssessment{Verdict: "needs_changes", Summary: "Retain original evidence"}, nil); err != nil {
+			t.Fatal(err)
+		}
+		path := service.reviewFeedbackPath(item.ID)
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = service.saveReviewFeedback(item, content, execution.ReviewAssessment{Verdict: "needs_changes", Summary: summary}, nil)
+		if err == nil || !strings.Contains(err.Error(), "1 MiB") {
+			t.Fatalf("oversized feedback should report its limit, got %v", err)
+		}
+		after, readErr := os.ReadFile(path)
+		if readErr != nil || !bytes.Equal(before, after) {
+			t.Fatalf("oversized feedback changed the existing record: %v", readErr)
+		}
+	}
+}
 
 func TestAgentQAFeedbackIsPrivateBoundedAndInjectedIntoNextImplementation(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "worktrees")

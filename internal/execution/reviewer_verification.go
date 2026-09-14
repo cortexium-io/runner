@@ -7,20 +7,26 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/securefs"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
 
-// A verification copy has no Git administration or shared build artifacts.
+// A verification copy has a fresh source-only Git index, never shared Git
+// administration, history, or build artifacts.
 // The canonical candidate remains read-only; only generated files in this
 // disposable copy may change. Pin copied source before invoking any harness.
 type reviewerVerification struct {
-	path     string
-	identity os.FileInfo
-	files    map[string][]byte
-	limits   workspace.SnapshotLimits
+	path           string
+	identity       os.FileInfo
+	files          map[string][]byte
+	gitFiles       map[string][]byte
+	gitDirectories map[string][]string
+	gitIndex       string
+	limits         workspace.SnapshotLimits
 }
 
 func prepareReviewerVerification(ctx context.Context, launch *profileWorkspace, limits workspace.SnapshotLimits) (*reviewerVerification, error) {
@@ -106,6 +112,14 @@ func prepareReviewerVerification(ctx context.Context, launch *profileWorkspace, 
 	if err != nil {
 		return nil, err
 	}
+	paths := make([]string, 0, len(verification.files))
+	for path := range verification.files {
+		paths = append(paths, path)
+	}
+	verification.gitIndex, err = workspace.PrepareVerificationIndex(ctx, destination, paths)
+	if err != nil {
+		return nil, err
+	}
 	root, err := securefs.OpenDir(destination)
 	if err != nil {
 		return nil, err
@@ -117,6 +131,51 @@ func prepareReviewerVerification(ctx context.Context, launch *profileWorkspace, 
 			return nil, err
 		}
 		verification.files[path] = digest
+	}
+	// Git may refresh stat-cache data in its index during normal reads. Pin its
+	// logical entries separately. Pin both metadata and the complete directory
+	// inventory: additions such as commondir, attributes or split indexes must
+	// not acquire authority simply because they were absent during preparation.
+	gitBudget, err := securefs.NewSnapshotBudget(limits)
+	if err != nil {
+		return nil, err
+	}
+	verification.gitFiles = map[string][]byte{}
+	verification.gitDirectories = map[string][]string{}
+	err = filepath.WalkDir(filepath.Join(destination, ".git"), func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == filepath.Join(destination, ".git", "index") {
+			return nil
+		}
+		relative, err := filepath.Rel(destination, path)
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			directory, err := securefs.OpenDir(path)
+			if err != nil {
+				return err
+			}
+			names, readErr := directory.ReadDirNamesWithBudget(gitBudget)
+			closeErr := directory.Close()
+			if readErr != nil {
+				return readErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+			verification.gitDirectories[relative] = names
+		}
+		digest, err := root.HashPathWithBudget(relative, gitBudget)
+		if err == nil {
+			verification.gitFiles[relative] = digest
+		}
+		return err
+	})
+	if err != nil {
+		return nil, err
 	}
 	launch.VerificationRoot = destination
 	return verification, nil
@@ -150,6 +209,45 @@ func (v *reviewerVerification) verify() error {
 			return fmt.Errorf("candidate source changed in verification copy: %s", path)
 		}
 	}
+	gitBudget, err := securefs.NewSnapshotBudget(v.limits)
+	if err != nil {
+		return err
+	}
+	for path, before := range v.gitFiles {
+		after, err := root.HashPathWithBudget(path, gitBudget)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(before, after) {
+			return fmt.Errorf("verification Git metadata changed: %s", path)
+		}
+	}
+	for path, before := range v.gitDirectories {
+		directory, err := securefs.OpenDir(filepath.Join(v.path, path))
+		if err != nil {
+			return err
+		}
+		after, readErr := directory.ReadDirNamesWithBudget(gitBudget)
+		closeErr := directory.Close()
+		if readErr != nil {
+			return readErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		if !slices.Equal(before, after) {
+			return fmt.Errorf("verification Git directory entries changed: %s", path)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	index, err := workspace.ReadVerificationIndex(ctx, v.path)
+	if err != nil {
+		return err
+	}
+	if index != v.gitIndex {
+		return fmt.Errorf("verification Git inventory changed")
+	}
 	return root.Verify()
 }
 
@@ -157,8 +255,8 @@ func reviewerVerificationInstruction(launch profileWorkspace) string {
 	return fmt.Sprintf(`
 
 Runner-prepared disposable verification copy: %s
-This copy contains the canonical candidate's source, without Git administration or the implementer's dependencies/build output. Run the unresolved dynamic checks here, not in the read-only repository or another running checkout. Git/source audit commands still use the canonical read-only root.
-Missing .git is intentional, not by itself an unavailable test capability. When repository policy permits Runner-bound evidence, run the required underlying repository command in this copy rather than a standalone wrapper that requires its own Git checkout. Runner binds the review to the canonical candidate and checks copied source after the stage. Preserve every required check, environment setting, and setup restriction from the repository policy; this does not waive a separately required standalone receipt or host-only proof. Do not manufacture a standalone receipt, initialize Git in the verification copy, expose shared Git administration, or run dynamic checks in the canonical checkout. Report the actual command, settings, exit status, and concrete results in the structured evidence for the supplied candidate; preserve failed attempts and do not rely solely on paths in this disposable copy, which is removed after the stage.
+This copy contains the canonical candidate's source and a fresh standalone Git index for file-inventory commands such as git ls-files. It has no commits, history, remotes, shared Git administration, or implementation dependencies/build output. Run required repository validation entrypoints here, not in the read-only repository or another running checkout. Git history, revision identity, and diff audits still use the canonical read-only root; this temporary index is not the candidate commit or publication authority.
+Runner binds the review to the canonical candidate and checks copied source and Git inventory after the stage. Preserve every required check, environment setting, and setup restriction from repository policy, including complete validation and any standalone receipt or host-only proof. When repository policy permits Runner-bound evidence, an equivalent underlying command remains acceptable; never bypass a required launcher or weaken its checks. Do not manufacture a standalone receipt, replace the prepared index, expose shared Git administration, or run dynamic checks in the canonical checkout. Report the actual command, settings, exit status, and concrete results in structured evidence for the supplied candidate; preserve failed attempts and do not rely solely on paths in this disposable copy, which is removed after the stage.
 You may restore the existing locked dependencies and produce disposable build, cache, and test output in this copy. This is verification setup, not permission to change source, tests, manifests, lockfiles, or add product dependencies. Runner checks every copied source file after this stage and rejects changed source. Do not add substitute source or tests to make a check pass.
 Use the repository's existing reproducible setup and focused commands. For npm use npm ci --ignore-scripts --no-audit --no-fund --cache %s; run only specific necessary build steps within the configured sandbox, never an unrestricted install-script workaround. Keep all generated artifacts inside this private workspace. Sandbox safe tools permit loopback and the npm registry plus the fixed public Go module path through proxy.golang.org, the storage.googleapis.com archive redirect, and sum.golang.org for this focused stage, not arbitrary external services; audit-only review receives no package-download access, while host access retains its explicitly configured boundary.
 Start a candidate-local application on a free loopback port only if needed, use that exact URL, and stop it before returning. Do not assume a server on a default port belongs to this candidate. Missing node_modules or dist alone is not a blocker before attempting permitted setup. Report concrete unavailable prerequisites or failed setup honestly; never bypass sandbox restrictions or change shared resources.

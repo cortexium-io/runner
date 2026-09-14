@@ -946,7 +946,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 	}
 	reviewFeedback, err := s.loadReviewFeedback(item, delegatedContent)
 	if err != nil {
-		return s.failExecution(ctx, action, lane, result, "Previous Agent QA feedback is not safe to use", err, integrityViolationOutput("Previous Agent QA feedback is not safe to use", err))
+		return s.failExecution(ctx, action, lane, result, "Previous Agent QA feedback is not safe to use", err, reviewFeedbackFailureOutput("Previous Agent QA feedback is not safe to use", err))
 	}
 	comments, err := s.source.ItemComments(ctx, item)
 	if err != nil {
@@ -1257,7 +1257,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	reviewRecord, err := s.loadReviewFeedbackRecord(item, delegatedContent)
 	if err != nil {
-		return s.failExecution(ctx, action, lane, result, "Previous Agent QA feedback is not safe to use for review", err, integrityViolationOutput("Previous Agent QA feedback is not safe to use for review", err))
+		return s.failExecution(ctx, action, lane, result, "Previous Agent QA feedback is not safe to use for review", err, reviewFeedbackFailureOutput("Previous Agent QA feedback is not safe to use for review", err))
 	}
 	var reviewFeedback []string
 	if reviewRecord != nil {
@@ -1343,7 +1343,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 			CommitOID: candidate.CommitOID, BaseOID: preparedWorkspace.BaseRevision, BindingDigest: reviewBinding,
 			CommentContext: append([]string{}, commentContext...),
 		}); feedbackErr != nil {
-			return s.failExecution(ctx, action, lane, result, "Agent QA feedback could not be retained safely", feedbackErr, integrityViolationOutput("Agent QA feedback could not be retained safely", feedbackErr, output))
+			return s.failExecution(ctx, action, lane, result, "Agent QA feedback could not be retained safely", feedbackErr, reviewFeedbackFailureOutput("Agent QA feedback could not be retained safely", feedbackErr, output))
 		}
 		failures := item.QAFailures + 1
 		outcome := config.WorkflowOutcomeRejected

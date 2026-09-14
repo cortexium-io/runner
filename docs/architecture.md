@@ -145,6 +145,13 @@ instructions still come from the normal isolated execution workspace. Native
 harnesses retain ownership of conversation rendering, tools, schemas, model
 routing, and cache controls; Runner does not trade isolation or reviewer
 independence for a more reusable prefix.
+Shared role policy lives in the pinned skill; stage prompts add the permissions,
+procedure, and result contract for that stage. Detailed reviewer scheduling,
+timeout confirmation, and interface procedures appear only in focused
+verification, not the static audit. This routing uses the known stage, not
+keywords in assignment evidence or model-specific exceptions.
+Harness capability-discovery guidance remains shared; it does not override the
+static stage's prohibition on dynamic checks.
 
 Execution adapters map allowlisted adapter-owned structured failures and
 Runner-observed failures to a stable failure class plus `automatic`, `manual`,
@@ -217,6 +224,15 @@ commit and tree. Agent QA may reuse adequate evidence but receives it only as
 untrusted historical context; evidence text cannot authorize commands or
 change the approved proof obligations. A candidate or criteria mismatch
 fails closed instead of reusing stale evidence.
+
+Rejected QA retains its full assessment and actionable feedback in the existing
+private record. The implementation handoff keeps every actionable finding and
+its complete evidence; it has no per-finding truncation or silent count cutoff.
+A valid retained assessment regenerates the handoff on read, including for
+previously clipped records, without changing stored history or review authority.
+Both encoded storage and rendered feedback remain bounded to 1 MiB. Exceeding
+the limit is an explicit capacity failure and preserves the prior record;
+filesystem and identity failures continue to fail closed.
 
 A separate private implementation checkpoint prevents completed model work from
 being repeated after a Runner-side candidate, evidence, or Project-transition
@@ -347,11 +363,12 @@ That binding does not independently attest to the reported commands or their
 adequacy. A pre-commit reference in report prose alone does not require a rerun;
 the reviewer examines whether the reported tested delta covers the final
 candidate and identifies any concrete remaining gap or invalidating change.
-The bundled work-role guidance runs heavyweight verification commands
-sequentially within each assignment, without changing a command's configured
-workers or timeout. A server required by the active check is allowed; unrelated
-test suites, browser runs, builds, and installs must not overlap. The focused
-review prompt reinforces this rule. It is not a host-wide resource lock or a
+The bundled implementer skill and focused reviewer prompt each require
+heavyweight verification commands to run sequentially within their assignment,
+without changing a command's configured workers or timeout. A server required
+by the active check is allowed; unrelated test suites, browser runs, builds, and
+installs must not overlap. The static reviewer audit cannot execute these
+checks. This is not a host-wide resource lock or a
 change to admission of independent cards. When accidental overlap contributed
 to a timing failure, the bounded confirmation corrects that scheduling and
 records the difference instead of claiming an unchanged reproduction or proof
@@ -538,26 +555,42 @@ snapshot digest. Neither the original nor a snapshot-specific record is
 overwritten, and publication requires the exact record for its current snapshot.
 When the source audit leaves a concrete dynamic check unresolved, the focused
 review stage receives a disposable source copy inside its private neutral
-workspace. It contains no Git administration and does not reuse implementation
-dependencies or build artifacts. The reviewer may restore existing locked
-dependencies and generate build/test output there, but not alter candidate
+workspace. It does not reuse implementation dependencies, build artifacts, or
+Git administration. Runner creates a fresh standalone index containing only
+the copied source, including tracked files excluded by ignore rules. This uses
+the isolated privileged Git boundary and batched literal, filter-free blob and
+index staging, rather than subprocesses for each file; no
+templates, commits, history, remotes, or shared object links are inherited.
+Repository launchers can use `git ls-files` without access to shared Git writes.
+Revision and diff audits still use the canonical read-only checkout: the fresh
+index is file-inventory support, not candidate identity or publication authority.
+The reviewer may restore existing locked dependencies and generate build/test
+output there, but not alter candidate
 source, tests, manifests, or lockfiles. Runner bounds copying with the existing
 snapshot limits, refuses external symlinks, and verifies the copied source with
 no-follow hashes after the harness returns, including on failure. A changed
-source invalidates the result. The canonical review and implementation snapshots
-remain unchanged and are still checked by the engine. Only focused reviewer
+source invalidates the result. Runner also checks the complete initial Git
+directory inventory and metadata, rejecting added controls, directory replacement
+and auxiliary indexes. It captures the bounded index bytes without following
+links and parses them in a new Runner-owned Git directory, never by letting
+privileged Git reopen agent-writable metadata or object stores. Logical file and
+staged entries are compared: harmless stat-cache refreshes are allowed, but
+changed inventory, hidden entries and intent-to-add changes are not.
+The canonical review and implementation
+snapshots remain unchanged and are still checked by the engine. Only focused reviewer
 safe-tool invocations receive the bounded npm and public Go package hosts in
 addition to loopback; dependency and build caches remain in private temporary
 space. Audit-only invocations do not prepare this copy or gain package-network
 access. All harnesses use the same copy lifecycle; Pi still requires explicitly
 configured host access.
-Repository verification policies may use this Runner-owned candidate binding
-and source-integrity check instead of requiring a standalone Git-checking
-wrapper inside the Git-less copy. The underlying required commands and settings
-still apply. Their actual outcomes belong in the structured review evidence,
-not just in temporary artifact paths. This does not produce a standalone
-wrapper's receipt or satisfy separately required host-only proof; an explicit
-repository requirement for either remains in force.
+Run repository-required validation entrypoints in the disposable copy, including
+complete suites and receipt generation when required. Policies may instead
+accept equivalent underlying commands with Runner-owned candidate binding, but
+Runner does not grant permission to bypass a required launcher. Record actual
+commands, settings, outcomes, and failed attempts in structured review evidence,
+not just temporary artifact paths. A history-dependent launcher or host-only
+check still needs its documented proof path; the fresh index cannot establish
+historical revision claims or replace external proof.
 Publication replays that record under a sanitized privileged Git profile,
 re-fetches and compares the approved base, re-resolves the accepted tree,
 refreshes Project authority, validates the configured remote repository, and

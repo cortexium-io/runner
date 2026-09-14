@@ -48,17 +48,23 @@ or external services; audit-only review gets no package-download access. Other
 prerequisites must already be available within the configured access boundary.
 Local applications must use this copy and their own loopback port, not a shared
 server. The copy is removed after the stage. No new configuration is required.
-The verification copy intentionally has no `.git`. If repository policy accepts
-Runner-bound verification, run its required underlying command there rather
-than a standalone verifier that needs its own Git checkout. Runner checks the
-canonical candidate identity and copied-source integrity; the reviewer must
-record the actual command, settings, exit status, and concrete outcomes in its
-structured evidence, not only link to temporary logs. Preserve all required
-checks and failed attempts. Do not initialize Git in the verification copy,
-expose shared Git metadata, run tests in the canonical checkout, or manufacture
-a standalone receipt.
-An explicitly required standalone receipt or host-only check still requires
-its documented proof path or an approved policy clarification.
+The verification copy has a fresh standalone `.git` index for source inventory
+(`git ls-files`), not a link to the project's Git data. It contains only copied
+source blobs and index entries, with no commits, history, remotes, inherited
+templates, or shared objects. Git revision and diff audits still belong in the
+canonical read-only checkout. Runner verifies copied source, the complete private
+Git directory inventory and metadata, and logical/staged index entries after the
+stage. Normal index cache refreshes are allowed; added Git controls, split-index
+sidecars and hidden-entry changes are not. The post-review index is read without
+following links and parsed separately from the writable copy. Source staging is
+batched, with no per-file Git subprocesses and no source-defined filters.
+Run the repository's required validation launcher and retain its complete-suite
+or standalone receipt requirements. If repository policy accepts equivalent
+underlying commands with Runner-bound evidence, record their actual commands,
+settings, exit status, and outcomes. Preserve failed attempts. Do not replace
+the index, expose shared Git metadata, run tests in the canonical checkout, or
+manufacture a receipt. History-dependent or host-only checks still require
+their documented proof path; the temporary index does not invent that evidence.
 
 After upgrading, restart the service
 with the new binary and run `doctor --fix --offline --config PATH` to refresh the
@@ -1658,6 +1664,22 @@ to `task_granularity` / `--task-granularity`, and replace its `high` value with
 
 ### QA follow-up scope
 
+Rework receives every failed or blocked proof obligation, blocking repository
+finding, and failed or blocked maintainability check, with its complete summary
+and supporting evidence. Runner does not cut findings at a character limit or
+silently omit findings after a fixed count. The private record and the rendered
+feedback each have a 1 MiB safety limit; exceeding either pauses the handoff with
+an explicit size-limit error, without replacing prior feedback. This is a
+structured-result capacity failure, not evidence of workspace tampering.
+
+When a valid full assessment is retained, Runner derives the handoff from that
+assessment. This also recovers older clipped feedback, including the Unicode
+cutoff failure, without rewriting the stored record or resetting QA rejections.
+Malformed or inapplicable review baselines still cannot certify a candidate.
+Public comment and terminal previews may remain shortened; they are not the
+source of the implementer's complete QA handoff. No model or skill change is
+needed for this behavior.
+
 The first review gathers all concrete blockers reasonably visible within the
 approved card. Runner saves rejected assessments privately with the reviewed
 commit, base revision, repository, approved content, proof obligations, and the
@@ -2205,8 +2227,18 @@ Concrete defects remain failures; genuinely inconclusive proof reports
 QA rejection. This is not an instruction to repair tooling or implementation
 unless the evidence identifies such a problem.
 
-Bundled skills 1.8.10 retain sequential heavyweight verification, evidence
-handoff, and fresh-verification fallback. Planner guidance carries exact accepted
+Bundled skills 1.8.11 keep shared role rules in the pinned skills and stage
+procedures in Runner's prompts. Reviewer timeout confirmation, heavyweight-check
+scheduling, and interface execution guidance appear only in focused verification,
+not in the source-and-evidence audit. This is deterministic stage selection,
+not keyword filtering of findings or a model-specific relaxation. The shared
+reviewer skill still requires all visible blockers, reliable candidate-bound
+evidence, and unchanged canonical workspaces. Shared harness capability guidance
+does not authorize dynamic checks during the static audit. Implementer verification policy
+also has one home in its skill, rather than being repeated in the launch prompt.
+
+Sequential heavyweight verification, complete evidence handoff, and the
+fresh-verification fallback remain unchanged. Planner guidance carries exact accepted
 references and distinguishes historical ideas. It separates immutable reference
 pins, each card's current accepted starting base, and final candidate identity,
 while honoring explicitly fixed execution bases. It sizes cards by behavior and
