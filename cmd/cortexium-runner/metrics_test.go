@@ -191,19 +191,89 @@ func TestMetricsCommandReportsQAIndependentlyOfPublication(t *testing.T) {
 }
 
 func TestMetricItemFilterRefusesAmbiguousTitlesAndNeverUsesSubstrings(t *testing.T) {
-	attempts := []runnermetrics.Attempt{
+	knownItems := []runnermetrics.Attempt{
 		{Event: runnermetrics.Event{AttemptID: "one", ItemID: "PVTI_one", ItemTitle: "Shared history"}},
 		{Event: runnermetrics.Event{AttemptID: "two", ItemID: "PVTI_two", ItemTitle: "Shared history"}},
 	}
-	filtered, err := filterMetricAttempts(attempts, "PVTI_one")
+	filtered, err := filterMetricAttempts(knownItems, "PVTI_one")
 	if err != nil || len(filtered) != 1 || filtered[0].AttemptID != "one" {
 		t.Fatalf("exact item ID filter mixed attempts: %#v error=%v", filtered, err)
 	}
-	if filtered, err = filterMetricAttempts(attempts, "Shared history"); err == nil || len(filtered) != 0 {
+	if filtered, err = filterMetricAttempts(knownItems, "Shared history"); err == nil || len(filtered) != 0 {
 		t.Fatalf("ambiguous title was allowed to mix items: %#v error=%v", filtered, err)
 	}
-	if filtered, err = filterMetricAttempts(attempts, "history"); err != nil || len(filtered) != 0 {
+	if filtered, err = filterMetricAttempts(knownItems, "history"); err != nil || len(filtered) != 0 {
 		t.Fatalf("substring selector unexpectedly matched an item: %#v error=%v", filtered, err)
+	}
+
+	for name, attempts := range map[string][]runnermetrics.Attempt{
+		"two unavailable IDs": {
+			{Event: runnermetrics.Event{AttemptID: "unknown-one", ItemTitle: "Unknown identity"}},
+			{Event: runnermetrics.Event{AttemptID: "unknown-two", ItemTitle: "Unknown identity"}},
+		},
+		"known and unavailable IDs": {
+			{Event: runnermetrics.Event{AttemptID: "known", ItemID: "PVTI_known", ItemTitle: "Incomplete identity"}},
+			{Event: runnermetrics.Event{AttemptID: "unknown", ItemTitle: "Incomplete identity"}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			filtered, err := filterMetricAttempts(attempts, attempts[0].ItemTitle)
+			if err == nil || len(filtered) != 0 {
+				t.Fatalf("title filter joined potentially distinct cards: %#v error=%v", filtered, err)
+			}
+		})
+	}
+
+	repeatedKnownID := []runnermetrics.Attempt{
+		{Event: runnermetrics.Event{AttemptID: "known-one", ItemID: "PVTI_same", ItemTitle: "Known identity"}},
+		{Event: runnermetrics.Event{AttemptID: "known-two", ItemID: "pvti_SAME", ItemTitle: "Known identity"}},
+	}
+	if filtered, err = filterMetricAttempts(repeatedKnownID, "Known identity"); err != nil || len(filtered) != 2 {
+		t.Fatalf("attempts with one known card identity were rejected: %#v error=%v", filtered, err)
+	}
+	singleUnknown := []runnermetrics.Attempt{{Event: runnermetrics.Event{AttemptID: "single", ItemTitle: "Only match"}}}
+	if filtered, err = filterMetricAttempts(singleUnknown, "Only match"); err != nil || len(filtered) != 1 {
+		t.Fatalf("single exact title match was rejected: %#v error=%v", filtered, err)
+	}
+}
+
+func TestMetricsCommandDoesNotRenderExactTitleCollisionsWithUnavailableItemIDs(t *testing.T) {
+	t.Setenv("CORTEXIUM_RUNNER_STATE_DIR", t.TempDir())
+	cfg := completeCLITestConfig(t.TempDir())
+	configPath := filepath.Join(t.TempDir(), "runner.json")
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	store, err := runnermetrics.NewDefaultStore(cfg.RunnerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []runnermetrics.Event{
+		{Kind: runnermetrics.EventCompleted, AttemptID: "unknown-one", ItemTitle: "Same title", WorkDone: []string{"FIRST_CARD_PRIVATE_EVIDENCE"}},
+		{Kind: runnermetrics.EventCompleted, AttemptID: "unknown-two", ItemTitle: "Same title", WorkDone: []string{"SECOND_CARD_PRIVATE_EVIDENCE"}},
+	} {
+		if err := store.Append(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, mode := range []struct {
+		name string
+		args []string
+	}{
+		{name: "human", args: []string{"--config", configPath, "--item", "Same title"}},
+		{name: "json", args: []string{"--config", configPath, "--item", "Same title", "--json"}},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			var output bytes.Buffer
+			err := runMetrics(mode.args, &output)
+			if err == nil || !strings.Contains(err.Error(), "without one unambiguous card ID") {
+				t.Fatalf("ambiguous title was not refused safely: output=%q error=%v", output.String(), err)
+			}
+			if output.Len() != 0 {
+				t.Fatalf("ambiguous %s history disclosed retained evidence: %q", mode.name, output.String())
+			}
+		})
 	}
 }
 
