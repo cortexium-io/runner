@@ -118,3 +118,43 @@ func TestMetricsCommandReportsQAIndependentlyOfPublication(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteMetricsRendersDetailedHistoryWithExplicitProvenanceAndUnknowns(t *testing.T) {
+	candidate := runnermetrics.ObjectIdentity{CommitOID: strings.Repeat("a", 40), TreeOID: strings.Repeat("b", 40)}
+	attempt := runnermetrics.Attempt{Completed: true, Event: runnermetrics.Event{
+		Kind: runnermetrics.EventCompleted, AttemptID: "attempt", ItemID: "PVTI_history", ItemTitle: "Explain history", Role: "reviewer", Harness: "codex",
+		StartedAt: time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC), Outcome: "succeeded", Summary: "Accepted repair.", ModelReportedSummary: "The repair satisfies the request.",
+		WorkDone: []string{"Inspected repair."}, Verification: []string{"Focused check passed."}, ReviewVerdict: "accept",
+		ReviewDetails:   []runnermetrics.ReviewDetail{{Area: "acceptance", Name: "proof", Status: "passed", Summary: "The model reported coverage.", Evidence: []string{"reported check"}}},
+		ApprovedRequest: &runnermetrics.ApprovedRequest{DelegatedContentDigest: "v1:" + strings.Repeat("c", 64), BodySnapshot: "Exact approved content"},
+		CandidateOID:    candidate.CommitOID,
+		Lineage: &runnermetrics.ObservedLineage{Repository: "owner/repo", Branch: "runner/history", Base: runnermetrics.ObjectIdentity{CommitOID: strings.Repeat("d", 40)}, Candidate: candidate, EvidenceCandidate: candidate, ReviewedCandidate: candidate,
+			PublishedCandidate: runnermetrics.ObjectIdentity{CommitOID: strings.Repeat("e", 40), TreeOID: candidate.TreeOID}, PullRequestURL: "https://github.com/owner/repo/pull/7", PullRequestNumber: 7},
+	}}
+	view := metricsOutput{RunnerID: "runner", HistoryPath: "/protected/history", Summary: runnermetrics.Summarize([]runnermetrics.Attempt{attempt}), Attempts: []runnermetrics.Attempt{attempt}, DetailedHistory: true}
+	var output bytes.Buffer
+	writeMetrics(&output, view)
+	for _, expected := range []string{
+		"Runner-observed approval digest", "Exact approved content", "Runner-observed candidate commit", "Runner-observed published candidate commit",
+		"Runner-observed pull request", "Runner-observed merge commit: unavailable", "model-reported work", "model-reported verification",
+		"model-reported summary", "Runner-classified outcome", "model-reported review detail (Runner-validated)", "harness-reported usage: unavailable",
+	} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("detailed history omitted %q:\n%s", expected, output.String())
+		}
+	}
+	encoded, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"runner_observed_approved_request", "runner_observed_lineage", "model_reported_summary", "model_reported_review_details"} {
+		if !bytes.Contains(encoded, []byte(expected)) {
+			t.Fatalf("JSON omitted provenance field %q: %s", expected, encoded)
+		}
+	}
+	for _, forbidden := range []string{"raw_transcript", "hidden_reasoning", "command_environment", "credential"} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("JSON exposed forbidden field %q: %s", forbidden, encoded)
+		}
+	}
+}

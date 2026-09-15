@@ -112,7 +112,11 @@ appended to a runner-keyed JSONL file in the user configuration directory. The
 event boundary keeps telemetry failure non-fatal to workflow execution and
 preserves unfinished attempts and stages after a process interruption. Stage
 events carry identity, timing, enums, usage, and prompt-context fingerprints.
-The history deliberately excludes prompts, transcripts, raw responses, command arguments, raw local
+Attempt completions may also retain the exact protected approved body/digest,
+bounded model reports and review details, and only code/publication identities
+observed at Runner-controlled boundaries. The history deliberately excludes
+assembled provider prompts, transcripts, hidden reasoning, credentials, raw
+responses, command or environment payloads, raw local
 errors, and free-form stage payloads. Completed attempts may additionally carry
 a fixed publication-operation enum and a bounded attempt count; provider error
 text is never persisted. `metrics` reads and aggregates this store, including
@@ -217,6 +221,15 @@ commit and tree. Agent QA may reuse adequate evidence but receives it only as
 untrusted historical context; evidence text cannot authorize commands or
 change the approved proof obligations. A candidate or criteria mismatch
 fails closed instead of reusing stale evidence.
+
+The same bounded reports are copied at attempt completion into the existing
+owner-only append-only metrics history before replaceable checkpoints or QA
+feedback cease to be current. Each retained approval digest resolves to its
+protected body snapshot. Model-reported work, rationale, verification, review,
+and usage remain distinct from Runner-observed repository, branch, base,
+candidate, review, publication, pull-request, and merge identities. Missing
+identities remain unavailable. This history is read-only evidence, never
+recovery state or workflow authority.
 
 A separate private implementation checkpoint prevents completed model work from
 being repeated after a Runner-side candidate, evidence, or Project-transition

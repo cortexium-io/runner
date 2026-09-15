@@ -13,6 +13,13 @@ import (
 const EventVersion = 1
 
 const (
+	maxApprovedBodyBytes = 256 * 1024
+	maxEvidenceEntries   = 1000
+	maxEvidenceTextBytes = 8 * 1024
+	maxIdentityTextBytes = 1024
+)
+
+const (
 	EventStarted        = "started"
 	EventCompleted      = "completed"
 	EventStageStarted   = "stage_started"
@@ -200,41 +207,79 @@ func (u Usage) Add(other Usage) Usage {
 // decision, not the attempt's publication outcome or an authorization. Empty
 // means no validated verdict was recorded.
 type Event struct {
-	Version                     int             `json:"version"`
-	Kind                        string          `json:"kind"`
-	AttemptID                   string          `json:"attempt_id"`
-	RunnerID                    string          `json:"runner_id"`
-	ProjectOwner                string          `json:"project_owner"`
-	ProjectNumber               int             `json:"project_number"`
-	Repository                  string          `json:"repository,omitempty"`
-	ItemID                      string          `json:"item_id,omitempty"`
-	ItemTitle                   string          `json:"item_title"`
-	Role                        string          `json:"role"`
-	Harness                     string          `json:"harness"`
-	Model                       string          `json:"model,omitempty"`
-	Reasoning                   string          `json:"reasoning,omitempty"`
-	Iteration                   int             `json:"iteration,omitempty"`
-	StartedAt                   time.Time       `json:"started_at"`
-	FinishedAt                  time.Time       `json:"finished_at,omitempty"`
-	DurationMilliseconds        int64           `json:"duration_milliseconds,omitempty"`
-	HarnessDurationMilliseconds int64           `json:"harness_duration_milliseconds,omitempty"`
-	Outcome                     string          `json:"outcome,omitempty"`
-	FailureClass                string          `json:"failure_class,omitempty"`
-	FailureOperation            string          `json:"failure_operation,omitempty"`
-	PublicationAttempts         int             `json:"publication_attempts,omitempty"`
-	RetryDisposition            string          `json:"retry_disposition,omitempty"`
-	RetryAfter                  string          `json:"retry_after,omitempty"`
-	StageID                     string          `json:"stage_id,omitempty"`
-	Stage                       string          `json:"stage,omitempty"`
-	Summary                     string          `json:"summary,omitempty"`
-	WorkDone                    []string        `json:"work_done,omitempty"`
-	Verification                []string        `json:"verification,omitempty"`
-	ReviewVerdict               string          `json:"review_verdict,omitempty"`
-	ReviewFindings              []ReviewFinding `json:"review_findings,omitempty"`
-	CandidateOID                string          `json:"candidate_oid,omitempty"`
-	PromptContexts              []PromptContext `json:"prompt_contexts,omitempty"`
-	ResumedCheckpoint           bool            `json:"resumed_checkpoint,omitempty"`
-	Usage                       Usage           `json:"usage"`
+	Version                     int              `json:"version"`
+	Kind                        string           `json:"kind"`
+	AttemptID                   string           `json:"attempt_id"`
+	RunnerID                    string           `json:"runner_id"`
+	ProjectOwner                string           `json:"project_owner"`
+	ProjectNumber               int              `json:"project_number"`
+	Repository                  string           `json:"repository,omitempty"`
+	ItemID                      string           `json:"item_id,omitempty"`
+	ItemTitle                   string           `json:"item_title"`
+	Role                        string           `json:"role"`
+	Harness                     string           `json:"harness"`
+	Model                       string           `json:"model,omitempty"`
+	Reasoning                   string           `json:"reasoning,omitempty"`
+	Iteration                   int              `json:"iteration,omitempty"`
+	StartedAt                   time.Time        `json:"started_at"`
+	FinishedAt                  time.Time        `json:"finished_at,omitempty"`
+	DurationMilliseconds        int64            `json:"duration_milliseconds,omitempty"`
+	HarnessDurationMilliseconds int64            `json:"harness_duration_milliseconds,omitempty"`
+	Outcome                     string           `json:"outcome,omitempty"`
+	FailureClass                string           `json:"failure_class,omitempty"`
+	FailureOperation            string           `json:"failure_operation,omitempty"`
+	PublicationAttempts         int              `json:"publication_attempts,omitempty"`
+	RetryDisposition            string           `json:"retry_disposition,omitempty"`
+	RetryAfter                  string           `json:"retry_after,omitempty"`
+	StageID                     string           `json:"stage_id,omitempty"`
+	Stage                       string           `json:"stage,omitempty"`
+	Summary                     string           `json:"summary,omitempty"`
+	ModelReportedSummary        string           `json:"model_reported_summary,omitempty"`
+	WorkDone                    []string         `json:"work_done,omitempty"`
+	Verification                []string         `json:"verification,omitempty"`
+	ReviewVerdict               string           `json:"review_verdict,omitempty"`
+	ReviewFindings              []ReviewFinding  `json:"review_findings,omitempty"`
+	ReviewDetails               []ReviewDetail   `json:"model_reported_review_details,omitempty"`
+	CandidateOID                string           `json:"candidate_oid,omitempty"`
+	RunnerObservation           string           `json:"runner_observed_outcome,omitempty"`
+	ApprovedRequest             *ApprovedRequest `json:"runner_observed_approved_request,omitempty"`
+	Lineage                     *ObservedLineage `json:"runner_observed_lineage,omitempty"`
+	PromptContexts              []PromptContext  `json:"prompt_contexts,omitempty"`
+	ResumedCheckpoint           bool             `json:"resumed_checkpoint,omitempty"`
+	Usage                       Usage            `json:"usage"`
+}
+
+// ApprovedRequest is the exact immutable approval pair Runner received for an
+// attempt. BodySnapshot is retained only in the owner-only local metrics store;
+// it is never copied into prompts beyond the existing assignment boundary or
+// published to GitHub by the metrics path.
+type ApprovedRequest struct {
+	DelegatedContentDigest string `json:"delegated_content_digest"`
+	BodySnapshot           string `json:"body_snapshot"`
+}
+
+// ObjectIdentity is a commit/tree pair observed by Runner. TreeOID is optional
+// because not every provider boundary exposes it; absent values stay absent.
+type ObjectIdentity struct {
+	CommitOID string `json:"commit_oid,omitempty"`
+	TreeOID   string `json:"tree_oid,omitempty"`
+}
+
+// ObservedLineage contains only identities obtained at Runner-controlled
+// boundaries. Model-authored summaries and verification claims live in the
+// existing report fields and must not be copied into this structure.
+type ObservedLineage struct {
+	Repository         string         `json:"repository,omitempty"`
+	Branch             string         `json:"branch,omitempty"`
+	Base               ObjectIdentity `json:"base,omitempty"`
+	Candidate          ObjectIdentity `json:"candidate,omitempty"`
+	EvidenceCandidate  ObjectIdentity `json:"evidence_candidate,omitempty"`
+	ReviewedCandidate  ObjectIdentity `json:"reviewed_candidate,omitempty"`
+	RebasedCandidate   ObjectIdentity `json:"rebased_candidate,omitempty"`
+	PublishedCandidate ObjectIdentity `json:"published_candidate,omitempty"`
+	PullRequestURL     string         `json:"pull_request_url,omitempty"`
+	PullRequestNumber  int            `json:"pull_request_number,omitempty"`
+	Merge              ObjectIdentity `json:"merge,omitempty"`
 }
 
 // PromptContext fingerprints Runner-owned static guidance only. It is not the
@@ -258,6 +303,9 @@ func validPromptContext(value PromptContext) bool {
 }
 
 func validPromptContexts(values []PromptContext) bool {
+	if len(values) > maxEvidenceEntries {
+		return false
+	}
 	for _, value := range values {
 		if !validPromptContext(value) {
 			return false
@@ -266,11 +314,147 @@ func validPromptContexts(values []PromptContext) bool {
 	return true
 }
 
+func validRetainedAttemptEvidence(event Event) bool {
+	if event.Kind != EventCompleted && (event.Lineage != nil || event.RunnerObservation != "" ||
+		event.Summary != "" || event.ModelReportedSummary != "" || len(event.WorkDone) != 0 || len(event.Verification) != 0 || event.ReviewVerdict != "" ||
+		len(event.ReviewFindings) != 0 || len(event.ReviewDetails) != 0 || event.CandidateOID != "") {
+		return false
+	}
+	if event.Kind != EventStarted && event.Kind != EventCompleted && event.ApprovedRequest != nil {
+		return false
+	}
+	if !validBoundedEvidence(event.WorkDone) || !validBoundedEvidence(event.Verification) ||
+		len(event.ReviewFindings) > maxEvidenceEntries || len(event.ReviewDetails) > maxEvidenceEntries ||
+		len(event.Summary) > maxEvidenceTextBytes || len(event.ModelReportedSummary) > maxEvidenceTextBytes || len(event.RunnerObservation) > maxEvidenceTextBytes {
+		return false
+	}
+	reviewEvidenceEntries := 0
+	for _, detail := range event.ReviewDetails {
+		reviewEvidenceEntries += len(detail.Evidence)
+		if !validReviewArea(detail.Area) || !validReviewStatus(detail.Status) || len(detail.Name) > maxIdentityTextBytes ||
+			strings.TrimSpace(detail.Summary) == "" || len(detail.Summary) > maxEvidenceTextBytes || !validBoundedEvidence(detail.Evidence) || reviewEvidenceEntries > maxEvidenceEntries {
+			return false
+		}
+	}
+	for _, finding := range event.ReviewFindings {
+		if strings.TrimSpace(finding.Area) == "" || strings.TrimSpace(finding.Summary) == "" ||
+			len(finding.Area) > maxIdentityTextBytes || len(finding.Summary) > maxEvidenceTextBytes {
+			return false
+		}
+	}
+	if event.CandidateOID != "" && !validObjectID(event.CandidateOID) {
+		return false
+	}
+	if event.ApprovedRequest != nil {
+		approval := event.ApprovedRequest
+		if !validDelegatedContentDigest(approval.DelegatedContentDigest) || len(approval.BodySnapshot) > maxApprovedBodyBytes {
+			return false
+		}
+	}
+	if event.Lineage == nil {
+		return true
+	}
+	if event.ApprovedRequest == nil {
+		return false
+	}
+	lineage := event.Lineage
+	if len(lineage.Repository) > maxIdentityTextBytes || len(lineage.Branch) > maxIdentityTextBytes ||
+		len(lineage.PullRequestURL) > maxIdentityTextBytes || lineage.PullRequestNumber < 0 ||
+		!validObjectIdentity(lineage.Base) || !validObjectIdentity(lineage.Candidate) ||
+		!validObjectIdentity(lineage.EvidenceCandidate) || !validObjectIdentity(lineage.ReviewedCandidate) ||
+		!validObjectIdentity(lineage.RebasedCandidate) || !validObjectIdentity(lineage.PublishedCandidate) || !validObjectIdentity(lineage.Merge) {
+		return false
+	}
+	if (lineage.Repository != "" && strings.TrimSpace(lineage.Repository) == "") || (lineage.Branch != "" && strings.TrimSpace(lineage.Branch) == "") ||
+		(lineage.PullRequestURL == "") != (lineage.PullRequestNumber == 0) {
+		return false
+	}
+	if lineage.PullRequestURL != "" && !strings.HasPrefix(lineage.PullRequestURL, "https://github.com/") {
+		return false
+	}
+	if event.CandidateOID != "" && lineage.Candidate.CommitOID != "" && event.CandidateOID != lineage.Candidate.CommitOID {
+		return false
+	}
+	if lineage.EvidenceCandidate.CommitOID != "" && lineage.EvidenceCandidate != lineage.Candidate {
+		return false
+	}
+	if lineage.ReviewedCandidate.CommitOID != "" && lineage.Candidate.CommitOID == "" {
+		return false
+	}
+	return lineage.Repository != "" || lineage.Branch != "" || lineage.PullRequestURL != "" || lineage.PullRequestNumber != 0 ||
+		lineage.Base.CommitOID != "" || lineage.Candidate.CommitOID != "" || lineage.EvidenceCandidate.CommitOID != "" ||
+		lineage.ReviewedCandidate.CommitOID != "" || lineage.RebasedCandidate.CommitOID != "" || lineage.PublishedCandidate.CommitOID != "" || lineage.Merge.CommitOID != ""
+}
+
+func validReviewArea(value string) bool {
+	switch value {
+	case "acceptance", "repository_rules", "maintainability":
+		return true
+	default:
+		return false
+	}
+}
+
+func validReviewStatus(value string) bool {
+	switch value {
+	case "passed", "failed", "blocked":
+		return true
+	default:
+		return false
+	}
+}
+
+func validBoundedEvidence(values []string) bool {
+	if len(values) > maxEvidenceEntries {
+		return false
+	}
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" || len(value) > maxEvidenceTextBytes {
+			return false
+		}
+	}
+	return true
+}
+
+func validDelegatedContentDigest(value string) bool {
+	if !strings.HasPrefix(value, "v1:") {
+		return false
+	}
+	decoded, err := hex.DecodeString(strings.TrimPrefix(value, "v1:"))
+	return err == nil && len(decoded) == 32
+}
+
+func validObjectIdentity(value ObjectIdentity) bool {
+	if value.TreeOID != "" && value.CommitOID == "" {
+		return false
+	}
+	return (value.CommitOID == "" || validObjectID(value.CommitOID)) && (value.TreeOID == "" || validObjectID(value.TreeOID))
+}
+
+func validObjectID(value string) bool {
+	if len(value) != 40 && len(value) != 64 || strings.ToLower(value) != value {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && (len(decoded) == 20 || len(decoded) == 32)
+}
+
 // ReviewFinding retains validated failed checks as local, untrusted evidence.
 // These observations never become assignment instructions automatically.
 type ReviewFinding struct {
 	Area    string `json:"area"`
 	Summary string `json:"summary"`
+}
+
+// ReviewDetail retains one bounded structured model-reported QA result.
+// Runner validates its shape and status, but its text is not an observation of
+// command execution and never grants workflow authority.
+type ReviewDetail struct {
+	Area     string   `json:"area"`
+	Name     string   `json:"name,omitempty"`
+	Status   string   `json:"status"`
+	Summary  string   `json:"summary"`
+	Evidence []string `json:"evidence,omitempty"`
 }
 
 type Attempt struct {

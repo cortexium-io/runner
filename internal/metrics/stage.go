@@ -126,10 +126,16 @@ func (t *AttemptTrace) stageEvent(kind, stageID, name string) Event {
 	event.RetryDisposition = ""
 	event.RetryAfter = ""
 	event.Summary = ""
+	event.ModelReportedSummary = ""
 	event.WorkDone = nil
 	event.Verification = nil
 	event.ReviewVerdict = ""
 	event.ReviewFindings = nil
+	event.ReviewDetails = nil
+	event.CandidateOID = ""
+	event.RunnerObservation = ""
+	event.ApprovedRequest = nil
+	event.Lineage = nil
 	event.PromptContexts = nil
 	t.mu.Lock()
 	if t.currentPromptContext != nil {

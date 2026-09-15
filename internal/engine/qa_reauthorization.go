@@ -184,6 +184,8 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	item := plan.Item
 	item.Role = plan.Role
 	event := s.newItemAttempt(item)
+	content := github.DelegatedContentFor(item)
+	event.ApprovedRequest = &metrics.ApprovedRequest{DelegatedContentDigest: content.Digest, BodySnapshot: content.BodySnapshot}
 	if err := s.recordAttemptStart(event); err != nil && s.cfg.AdmissionBudget != nil {
 		return result, err
 	}
@@ -193,6 +195,12 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	trace := metrics.NewAttemptTrace(s.observeMetrics, event)
 	ctx = metrics.WithAttemptTrace(ctx, trace)
 	result.RunResult = RunResult{Item: plan.Item, Harness: event.Harness, CandidateOID: plan.Candidate.CommitOID, WorktreePath: metadata.WorktreePath, Branch: metadata.BranchName, Outcome: execution.OutcomeBlocked, RetryDisposition: string(execution.RetryNone)}
+	observeApprovedRequest(&result.RunResult, content)
+	observeWorkspaceLineage(&result.RunResult, metadata)
+	observeCandidateLineage(&result.RunResult, plan.Candidate)
+	if len(plan.Verification) > 0 {
+		observedLineage(&result.RunResult).EvidenceCandidate = metrics.ObjectIdentity{CommitOID: plan.Candidate.CommitOID, TreeOID: plan.Candidate.TreeOID}
+	}
 	defer func() {
 		result.StartedAt, result.FinishedAt = event.StartedAt, time.Now().UTC()
 		result.DurationMilliseconds = result.FinishedAt.Sub(result.StartedAt).Milliseconds()
@@ -203,12 +211,17 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 		if s.observeMetrics != nil {
 			event.Kind, event.FinishedAt = metrics.EventCompleted, result.FinishedAt
 			event.DurationMilliseconds, event.HarnessDurationMilliseconds = result.DurationMilliseconds, result.HarnessDurationMilliseconds
-			event.Outcome, event.Summary, event.FailureClass = result.Outcome, "One-shot operator QA finished; card remains paused.", result.FailureClass
+			event.Outcome, event.Summary, event.FailureClass = result.Outcome, "", result.FailureClass
+			event.RunnerObservation = "One-shot operator QA finished; card remains paused."
+			event.ModelReportedSummary = boundedHistoryText(result.ModelReportedSummary, 8*1024)
 			event.RetryDisposition, event.Usage, event.CandidateOID = string(execution.RetryNone), result.Usage, result.CandidateOID
 			event.PromptContexts = trace.PromptContexts()
-			event.WorkDone, event.Verification = result.WorkDone, result.Verification
+			event.WorkDone, event.Verification = boundedHistoryEvidence(result.WorkDone), boundedHistoryEvidence(result.Verification)
 			event.ReviewVerdict = result.ReviewVerdict
-			event.ReviewFindings = result.ReviewFindings
+			event.ReviewFindings = boundedHistoryFindings(result.ReviewFindings)
+			event.ReviewDetails = result.ReviewDetails
+			event.ApprovedRequest = result.ApprovedRequest
+			event.Lineage = result.Lineage
 			if observeErr := s.observeMetrics(event); observeErr != nil {
 				result.MetricsError = observeErr.Error()
 			}
@@ -241,6 +254,12 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	result.Usage, result.HarnessDurationMilliseconds = output.Usage, output.HarnessDurationMilliseconds
 	result.WorkDone, result.Verification = output.WorkDone, output.Verification
 	result.FailureClass = string(output.FailureClass)
+	result.ModelReportedSummary = output.Summary
+	if output.ReviewAssessment != nil {
+		result.ReviewVerdict = output.ReviewAssessment.Verdict
+		result.ReviewFindings = reviewFindingObservations(*output.ReviewAssessment)
+		result.ReviewDetails = reviewDetailObservations(*output.ReviewAssessment)
+	}
 	verifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 	currentReview, err := s.checkoutSnapshotState(verifyCtx, review.Path)
@@ -275,8 +294,7 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	}
 	result.Outcome, result.Summary, result.Assessment = output.Outcome, output.Summary, output.ReviewAssessment
 	if output.ReviewAssessment != nil {
-		result.ReviewVerdict = output.ReviewAssessment.Verdict
-		result.ReviewFindings = reviewFindingObservations(*output.ReviewAssessment)
+		observedLineage(&result.RunResult).ReviewedCandidate = metrics.ObjectIdentity{CommitOID: plan.Candidate.CommitOID, TreeOID: plan.Candidate.TreeOID}
 	}
 	if output.ReviewAssessment != nil && output.ReviewAssessment.Verdict == "needs_changes" {
 		result.Outcome = config.WorkflowOutcomeRejected

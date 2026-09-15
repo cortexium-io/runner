@@ -536,6 +536,15 @@ metrics. Use
 machine-readable output. `status` includes a compact accumulated total and the
 current admission-budget state.
 
+An item-filtered view also renders the protected approved-content snapshot and
+digest and every retained Runner-observed repository, branch, base, candidate,
+evidence-bound candidate, reviewed candidate, rebased/published candidate,
+pull-request, and merge identity. Missing observations print as `unavailable`;
+they are never inferred from model prose. Summary/rationale, work,
+verification, review details, and usage are labelled as model- or
+harness-reported. JSON uses explicit
+`runner_observed_*` and `model_reported_*` fields for the same provenance.
+
 Completed review attempts also record `review_verdict`: `accept`,
 `needs_changes`, or `blocked`, after result validation and workspace integrity
 checks. This includes one-shot operator QA. The verdict is distinct from the
@@ -595,18 +604,23 @@ transition.
 
 Runner stores an append-only JSONL history in the user configuration directory,
 outside the project repository; set `CORTEXIUM_RUNNER_STATE_DIR` to relocate
-that application state. Attempt and stage start records are written before work
+that application state. The directory is mode `0700`; the effective-user-owned,
+single-link history file is mode `0600` and is opened without following a
+substituted leaf. Attempt and stage start records are written before work
 and completion records afterward, so an abrupt stop remains visible. Attempt
-records can contain concise task and verification summaries. Stage records are
+records contain bounded reports and may contain the exact protected approved
+body snapshot and digest plus structured Runner-observed lineage. Stage records are
 restricted to attempt identity, a fixed stage name, timing, outcome, recovery
-classification, reported usage, and prompt-context fingerprints; neither record
-type contains prompts, transcripts, command arguments, raw harness responses, or raw failure
-diagnostics. Runner never estimates missing tokens or cost: Claude Code cost is
+classification, reported usage, and prompt-context fingerprints. The history
+does not retain assembled provider prompts, transcripts, hidden reasoning,
+credentials, command or environment payloads, raw harness responses, or raw
+failure diagnostics. Runner never estimates missing tokens or cost: Claude Code cost is
 shown only when Claude reports it, Codex token counts are shown when its JSON
 event stream includes them, and unavailable Pi counters remain explicitly
 unavailable. History begins with the first metrics-enabled run and cannot
-reconstruct earlier attempts. Runner does not yet rotate or expire this history
-automatically. The `metrics` output shows its exact `History` path; to clear it,
+reconstruct earlier attempts. The file has a fixed 64 MiB ceiling; exhaustion
+refuses another append without changing earlier records rather than rotating or
+silently discarding attempts. The `metrics` output shows its exact `History` path; to clear it,
 stop Runner and delete that one file. The next attempt recreates it.
 
 ### Recurring-failure drafts and shared guidance

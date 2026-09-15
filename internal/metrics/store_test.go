@@ -1,8 +1,11 @@
 package metrics
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +25,7 @@ func TestStoreValidatesReviewVerdictsOnAppendAndRead(t *testing.T) {
 		{"stage verdict", EventStageCompleted, "accept", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			store := NewStore(t.TempDir() + "/metrics.jsonl")
+			store := NewStore(privateMetricsPath(t))
 			event := Event{Version: EventVersion, Kind: test.kind, AttemptID: "review", Outcome: "blocked", ReviewVerdict: test.verdict}
 			if test.kind == EventStageCompleted {
 				event.StageID, event.Stage = "stage", StageReviewerAudit
@@ -58,7 +61,7 @@ func TestStoreValidatesReviewVerdictsOnAppendAndRead(t *testing.T) {
 }
 
 func TestStoreFoldsDurableAttemptEventsAndIgnoresMalformedRecords(t *testing.T) {
-	path := t.TempDir() + "/metrics.jsonl"
+	path := privateMetricsPath(t)
 	store := NewStore(path)
 	startedAt := time.Date(2026, 8, 7, 8, 0, 0, 0, time.UTC)
 	start := Event{Kind: EventStarted, AttemptID: "att_1", RunnerID: "runner", ItemID: "item", ItemTitle: "Build it", Role: "implementer", Harness: "claude", StartedAt: startedAt}
@@ -132,7 +135,7 @@ func TestStoreFoldsDurableAttemptEventsAndIgnoresMalformedRecords(t *testing.T) 
 }
 
 func TestStoreRejectsStageWithoutStableIdentity(t *testing.T) {
-	store := NewStore(t.TempDir() + "/metrics.jsonl")
+	store := NewStore(privateMetricsPath(t))
 	err := store.Append(Event{Kind: EventStageStarted, AttemptID: "att_1", Stage: StageHarnessRun})
 	if err == nil || !strings.Contains(err.Error(), "stage_id") {
 		t.Fatalf("invalid stage event was accepted: %v", err)
@@ -140,7 +143,7 @@ func TestStoreRejectsStageWithoutStableIdentity(t *testing.T) {
 }
 
 func TestStoreRetainsIncompleteReviewClassification(t *testing.T) {
-	store := NewStore(t.TempDir() + "/metrics.jsonl")
+	store := NewStore(privateMetricsPath(t))
 	event := Event{
 		Kind: EventCompleted, AttemptID: "incomplete_review", Role: "reviewer", Outcome: "needs_input",
 		FailureClass: "review_incomplete", RetryDisposition: "manual",
@@ -163,7 +166,7 @@ func TestStoreRetainsIncompleteReviewClassification(t *testing.T) {
 func TestStoreRetainsManualRecoveryClassifications(t *testing.T) {
 	for _, class := range []string{"needs_input", "agent_blocked", "integrity_unverified"} {
 		t.Run(class, func(t *testing.T) {
-			store := NewStore(t.TempDir() + "/metrics.jsonl")
+			store := NewStore(privateMetricsPath(t))
 			event := Event{Kind: EventCompleted, AttemptID: "paused", Outcome: "blocked", FailureClass: class, RetryDisposition: "manual"}
 			if err := store.Append(event); err != nil {
 				t.Fatal(err)
@@ -189,7 +192,7 @@ func TestSummaryCountsEveryModelCallStageAsHarnessInvocation(t *testing.T) {
 }
 
 func TestStoreRejectsFreeFormStageAndRecoveryFields(t *testing.T) {
-	store := NewStore(t.TempDir() + "/metrics.jsonl")
+	store := NewStore(privateMetricsPath(t))
 	for _, event := range []Event{
 		{Kind: EventStageStarted, AttemptID: "attempt", StageID: "stage", Stage: "prompt=secret"},
 		{Kind: EventStageCompleted, AttemptID: "attempt", StageID: "stage", Stage: StageHarnessRun, Outcome: "raw error"},
@@ -203,7 +206,7 @@ func TestStoreRejectsFreeFormStageAndRecoveryFields(t *testing.T) {
 }
 
 func TestStoreRejectsInvalidNumericMetrics(t *testing.T) {
-	store := NewStore(t.TempDir() + "/metrics.jsonl")
+	store := NewStore(privateMetricsPath(t))
 	for _, event := range []Event{
 		{Kind: EventCompleted, AttemptID: "negative_duration", DurationMilliseconds: -1},
 		{Kind: EventCompleted, AttemptID: "too_many_publication_attempts", PublicationAttempts: 4},
@@ -217,7 +220,7 @@ func TestStoreRejectsInvalidNumericMetrics(t *testing.T) {
 }
 
 func TestStoreTreatsInvalidNumericHistoryAsMalformed(t *testing.T) {
-	path := t.TempDir() + "/metrics.jsonl"
+	path := privateMetricsPath(t)
 	if err := os.WriteFile(path, []byte(`{"version":1,"kind":"completed","attempt_id":"forged","usage":{"available":true,"input_tokens":-1}}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +234,7 @@ func TestStoreTreatsInvalidNumericHistoryAsMalformed(t *testing.T) {
 }
 
 func TestStorePreservesUnfinishedAttempt(t *testing.T) {
-	store := NewStore(t.TempDir() + "/metrics.jsonl")
+	store := NewStore(privateMetricsPath(t))
 	if err := store.Append(Event{Kind: EventStarted, AttemptID: "att_running", RunnerID: "runner", ItemTitle: "Still running", Role: "reviewer", Harness: "codex", StartedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
@@ -244,4 +247,170 @@ func TestStorePreservesUnfinishedAttempt(t *testing.T) {
 	}
 }
 
+func privateMetricsPath(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(root, "metrics.jsonl")
+}
+
 func floatPtr(value float64) *float64 { return &value }
+
+func TestStoreRetainsImmutableAttemptEvidenceAcrossReplacementCleanupAndRestart(t *testing.T) {
+	path := privateMetricsPath(t)
+	store := NewStore(path)
+	approval := &ApprovedRequest{DelegatedContentDigest: "v1:" + strings.Repeat("a", 64), BodySnapshot: "Exact approved body"}
+	firstCandidate := ObjectIdentity{CommitOID: strings.Repeat("b", 40), TreeOID: strings.Repeat("c", 40)}
+	secondCandidate := ObjectIdentity{CommitOID: strings.Repeat("d", 40), TreeOID: strings.Repeat("e", 40)}
+	started := time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC)
+	first := Event{
+		Kind: EventCompleted, AttemptID: "attempt-rejected", ItemID: "PVTI_history", ItemTitle: "Retain history", Role: "reviewer", Harness: "codex",
+		StartedAt: started, FinishedAt: started.Add(time.Minute), Outcome: "rejected", ReviewVerdict: "needs_changes",
+		Summary: "Repair the mismatch.", WorkDone: []string{"Reviewed the first candidate."}, Verification: []string{"Focused check failed."},
+		ReviewFindings:  []ReviewFinding{{Area: "acceptance", Summary: "Candidate mismatched the approved identity."}},
+		ApprovedRequest: approval, CandidateOID: firstCandidate.CommitOID,
+		Lineage: &ObservedLineage{Repository: "owner/repo", Branch: "runner/history", Base: ObjectIdentity{CommitOID: strings.Repeat("1", 40)}, Candidate: firstCandidate, EvidenceCandidate: firstCandidate, ReviewedCandidate: firstCandidate},
+	}
+	second := Event{
+		Kind: EventCompleted, AttemptID: "attempt-repair", ItemID: first.ItemID, ItemTitle: first.ItemTitle, Role: "reviewer", Harness: "codex",
+		StartedAt: started.Add(time.Hour), FinishedAt: started.Add(time.Hour + time.Minute), Outcome: "succeeded", ReviewVerdict: "accept",
+		Summary: "Repair accepted and published.", WorkDone: []string{"Reviewed the repaired candidate."}, Verification: []string{"Focused repair and adjacent regression checks passed."},
+		ApprovedRequest: approval, CandidateOID: secondCandidate.CommitOID,
+		Lineage: &ObservedLineage{Repository: "owner/repo", Branch: "runner/history", Base: ObjectIdentity{CommitOID: strings.Repeat("2", 40)}, Candidate: secondCandidate, EvidenceCandidate: secondCandidate, ReviewedCandidate: secondCandidate, PublishedCandidate: ObjectIdentity{CommitOID: strings.Repeat("f", 40), TreeOID: secondCandidate.TreeOID}, PullRequestURL: "https://github.com/owner/repo/pull/8", PullRequestNumber: 8, Merge: ObjectIdentity{CommitOID: strings.Repeat("3", 40)}},
+	}
+	for _, event := range []Event{first, second} {
+		if err := store.Append(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	replacement := first
+	replacement.Outcome = "succeeded"
+	replacement.Summary = "forged replacement"
+	if err := store.Append(replacement); err != nil {
+		t.Fatal(err)
+	}
+
+	history, err := NewStore(path).Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.MalformedRecords != 1 || len(history.Attempts) != 2 {
+		t.Fatalf("immutable attempts were lost after restart: %#v", history)
+	}
+	if history.Attempts[0].AttemptID != second.AttemptID || history.Attempts[1].AttemptID != first.AttemptID || history.Attempts[1].Outcome != "rejected" {
+		t.Fatalf("attempt replacement changed retained history: %#v", history.Attempts)
+	}
+	if history.Attempts[0].ApprovedRequest == nil || *history.Attempts[0].ApprovedRequest != *approval || history.Attempts[0].Lineage.PublishedCandidate.CommitOID != second.Lineage.PublishedCandidate.CommitOID {
+		t.Fatalf("approval or lineage was not retained: %#v", history.Attempts[0])
+	}
+	if !slices.Equal(history.Attempts[1].Verification, first.Verification) || history.Attempts[1].ReviewFindings[0] != first.ReviewFindings[0] {
+		t.Fatalf("replaced operational evidence was not preserved: %#v", history.Attempts[1])
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("history is not owner-only: info=%v err=%v", info, err)
+	}
+}
+
+func TestStoreRefusesMismatchedMalformedOversizedAndSubstitutedHistoryWithoutCorruption(t *testing.T) {
+	path := privateMetricsPath(t)
+	store := NewStore(path)
+	candidate := ObjectIdentity{CommitOID: strings.Repeat("a", 40), TreeOID: strings.Repeat("b", 40)}
+	valid := Event{Version: EventVersion, Kind: EventCompleted, AttemptID: "valid", Outcome: "succeeded", CandidateOID: candidate.CommitOID,
+		ApprovedRequest: &ApprovedRequest{DelegatedContentDigest: "v1:" + strings.Repeat("c", 64), BodySnapshot: "approved"},
+		Lineage:         &ObservedLineage{Repository: "owner/repo", Candidate: candidate, EvidenceCandidate: candidate}}
+	if err := store.Append(valid); err != nil {
+		t.Fatal(err)
+	}
+	changed := valid
+	changed.AttemptID = "changed"
+	changed.Lineage = &ObservedLineage{Repository: "owner/repo", Candidate: ObjectIdentity{CommitOID: strings.Repeat("d", 40), TreeOID: strings.Repeat("e", 40)}, EvidenceCandidate: candidate}
+	changed.CandidateOID = changed.Lineage.Candidate.CommitOID
+	if err := store.Append(changed); err == nil {
+		t.Fatal("changed candidate inherited a prior evidence binding")
+	}
+	excessive := valid
+	excessive.AttemptID = "excessive"
+	excessive.Verification = make([]string, maxEvidenceEntries+1)
+	for index := range excessive.Verification {
+		excessive.Verification[index] = "bounded"
+	}
+	if err := store.Append(excessive); err == nil {
+		t.Fatal("excessive evidence was accepted")
+	}
+	broken := valid
+	broken.AttemptID = "broken"
+	broken.ApprovedRequest = &ApprovedRequest{DelegatedContentDigest: "v1:broken", BodySnapshot: "unresolvable"}
+	encoded, _ := json.Marshal(broken)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = file.Write(append(encoded, '\n'))
+	_, _ = file.Write(append(bytes.Repeat([]byte{'x'}, maxEventBytes+1), '\n'))
+	_ = file.Close()
+	history, err := store.Read()
+	if err != nil || len(history.Attempts) != 1 || history.MalformedRecords != 2 || history.Attempts[0].AttemptID != valid.AttemptID {
+		t.Fatalf("invalid input corrupted prior history: %#v %v", history, err)
+	}
+
+	external := filepath.Join(t.TempDir(), "external")
+	if err := os.WriteFile(external, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Append(valid); err == nil {
+		t.Fatal("substituted history leaf was accepted")
+	}
+	content, _ := os.ReadFile(external)
+	if string(content) != "unchanged" {
+		t.Fatalf("substitution target was modified: %q", content)
+	}
+}
+
+func TestRetainedAttemptEvidenceValidationSeparatesClaimsAndObservedIdentity(t *testing.T) {
+	candidate := ObjectIdentity{CommitOID: strings.Repeat("a", 40), TreeOID: strings.Repeat("b", 40)}
+	event := Event{
+		Kind: EventCompleted, AttemptID: "validated", CandidateOID: candidate.CommitOID,
+		Summary: "Runner classification", ModelReportedSummary: "Model rationale", WorkDone: []string{"Model action"}, Verification: []string{"Model verification claim"},
+		Usage:           Usage{Available: false},
+		ReviewDetails:   []ReviewDetail{{Area: "acceptance", Name: "proof", Status: "passed", Summary: "Model review", Evidence: []string{"reported evidence"}}},
+		ApprovedRequest: &ApprovedRequest{DelegatedContentDigest: "v1:" + strings.Repeat("c", 64), BodySnapshot: "approved"},
+		Lineage:         &ObservedLineage{Repository: "owner/repo", Candidate: candidate, EvidenceCandidate: candidate},
+	}
+	if !validRetainedAttemptEvidence(event) {
+		t.Fatal("valid bounded provenance was rejected")
+	}
+	started := Event{Kind: EventStarted, AttemptID: "unfinished", ApprovedRequest: event.ApprovedRequest}
+	if !validRetainedAttemptEvidence(started) {
+		t.Fatal("unfinished attempt lost its exact approved request identity")
+	}
+	changed := event
+	changed.Lineage = &ObservedLineage{Repository: "owner/repo", Candidate: ObjectIdentity{CommitOID: strings.Repeat("d", 40), TreeOID: strings.Repeat("e", 40)}, EvidenceCandidate: candidate}
+	changed.CandidateOID = changed.Lineage.Candidate.CommitOID
+	if validRetainedAttemptEvidence(changed) {
+		t.Fatal("prior candidate receipt certified a changed candidate")
+	}
+	broken := event
+	broken.ApprovedRequest = &ApprovedRequest{DelegatedContentDigest: "v1:missing", BodySnapshot: "approved"}
+	if validRetainedAttemptEvidence(broken) {
+		t.Fatal("broken approval digest was presented as inspectable")
+	}
+	oversized := event
+	oversized.Verification = []string{strings.Repeat("x", maxEvidenceTextBytes+1)}
+	if validRetainedAttemptEvidence(oversized) {
+		t.Fatal("oversized model report was retained")
+	}
+	stage := event
+	stage.Kind = EventStageCompleted
+	if validRetainedAttemptEvidence(stage) {
+		t.Fatal("attempt-only private evidence leaked into a stage record")
+	}
+}

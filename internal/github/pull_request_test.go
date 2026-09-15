@@ -151,6 +151,19 @@ func TestPullRequestRoutineInspectionOmitsHeavyCollections(t *testing.T) {
 	}
 }
 
+func TestPullRequestInspectionRetainsObservedMergeCommit(t *testing.T) {
+	merge := strings.Repeat("f", 40)
+	runner := &pullRequestTestRunner{viewOutput: `{"url":"https://github.com/owner/repo/pull/12","number":12,"state":"MERGED","headRepository":{"nameWithOwner":"owner/repo"},"headRefName":"cortexium/task","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","baseRefName":"main","baseRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","mergeCommit":{"oid":"` + merge + `"},"mergeStateStatus":"UNKNOWN"}`}
+	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "12"})
+	details, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorized(t.Context(), action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.State != "MERGED" || details.MergeCommitOID != merge {
+		t.Fatalf("merge observation was lost: %#v", details)
+	}
+}
+
 func TestPullRequestFeedbackEnforcesCombinedEntryLimitBeforeAggregation(t *testing.T) {
 	for count := MaxPullRequestFeedbackEntries; count <= MaxPullRequestFeedbackEntries+1; count++ {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
@@ -286,7 +299,7 @@ func TestGitHubPullRequestManagerRequestsAutoMergeWithoutBypassingProtections(t 
 	if err != nil {
 		t.Fatalf("request auto merge: %v", err)
 	}
-	if got := strings.Join(runner.calls, "\n"); got != "pr view https://github.com/owner/repo/pull/12 --repo owner/repo --json url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,autoMergeRequest\npr merge https://github.com/owner/repo/pull/12 --repo owner/repo --auto --merge --match-head-commit "+head {
+	if got := strings.Join(runner.calls, "\n"); got != "pr view https://github.com/owner/repo/pull/12 --repo owner/repo --json url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeCommit,mergeStateStatus,autoMergeRequest\npr merge https://github.com/owner/repo/pull/12 --repo owner/repo --auto --merge --match-head-commit "+head {
 		t.Fatalf("auto-merge command = %q", got)
 	}
 	if strings.Contains(strings.Join(runner.calls, " "), "--admin") {

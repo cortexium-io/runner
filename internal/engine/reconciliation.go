@@ -11,6 +11,7 @@ import (
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/github"
+	"github.com/cortexium-io/runner/internal/metrics"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
 
@@ -720,11 +721,61 @@ func (s *Engine) reconcileTerminalPullRequest(
 		}
 		item = action.Item
 	}
+	if changed {
+		if observeErr := s.recordTerminalPullRequestObservation(action, details, verb); observeErr != nil {
+			value := RunResult{Item: item, Outcome: "warning", Summary: "Final pull request outcome could not be retained; Runner preserved the workspace evidence.", Error: observeErr.Error()}
+			return true, changed, &value, nil
+		}
+	}
 	if _, cleanupErr := s.cleanupAuthorizedItemWorkspace(ctx, action); cleanupErr != nil {
 		value := workspaceCleanupWarning(item, cleanupErr)
 		warning = &value
 	}
 	return true, changed, warning, nil
+}
+
+func (s *Engine) recordTerminalPullRequestObservation(action github.AuthorizedAction, details github.PullRequestDetails, verb string) error {
+	if s.observeMetrics == nil {
+		return nil
+	}
+	content, err := action.DelegatedContent()
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	event := s.newItemAttempt(action.Item)
+	event.Kind = metrics.EventCompleted
+	event.Role = "runner"
+	event.Harness = "runner"
+	event.Model = ""
+	event.Reasoning = ""
+	event.StartedAt = now
+	event.FinishedAt = now
+	event.Outcome = execution.OutcomeSucceeded
+	if details.State == "CLOSED" {
+		event.Outcome = execution.OutcomeBlocked
+	}
+	event.RunnerObservation = fmt.Sprintf("Pull request %s was %s.", strings.TrimSpace(details.URL), strings.TrimSpace(verb))
+	event.ApprovedRequest = &metrics.ApprovedRequest{DelegatedContentDigest: content.Digest, BodySnapshot: content.BodySnapshot}
+	event.Lineage = &metrics.ObservedLineage{
+		Repository: action.Item.Repository, Branch: details.HeadRefName,
+		PullRequestURL: details.URL, PullRequestNumber: details.Number,
+	}
+	if validReconciliationObjectID(details.BaseRefOID) {
+		event.Lineage.Base.CommitOID = details.BaseRefOID
+	}
+	if validReconciliationObjectID(action.Item.QACommit) {
+		event.CandidateOID = action.Item.QACommit
+		event.Lineage.Candidate.CommitOID = action.Item.QACommit
+		event.Lineage.ReviewedCandidate.CommitOID = action.Item.QACommit
+	}
+	if validReconciliationObjectID(details.HeadRefOID) {
+		event.Lineage.PublishedCandidate.CommitOID = details.HeadRefOID
+	}
+	if validReconciliationObjectID(details.MergeCommitOID) {
+		event.Lineage.Merge.CommitOID = details.MergeCommitOID
+	}
+	return s.observeMetrics(event)
 }
 
 // terminalPullRequestTreeMatchesQA permits a rebase-only repository to

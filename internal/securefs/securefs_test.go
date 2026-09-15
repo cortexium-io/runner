@@ -321,3 +321,51 @@ func TestVerifyEmptyUsesPinnedDirectory(t *testing.T) {
 		t.Fatalf("non-empty pinned directory was accepted: %v", err)
 	}
 }
+
+func TestAppendFileIsBoundedAndRejectsUnsafeExistingLeaf(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "history")
+	if err := EnsurePrivateDir(root); err != nil {
+		t.Fatal(err)
+	}
+	directory, err := OpenDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	if err := directory.AppendFile("events.jsonl", []byte("first\n"), 0o600, 12); err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.AppendFile("events.jsonl", []byte("second\n"), 0o600, 12); err == nil {
+		t.Fatal("append exceeded the fixed history limit")
+	}
+	content, err := os.ReadFile(filepath.Join(root, "events.jsonl"))
+	if err != nil || string(content) != "first\n" {
+		t.Fatalf("limit failure corrupted prior content: %q %v", content, err)
+	}
+
+	unsafe := filepath.Join(root, "unsafe")
+	if err := os.WriteFile(unsafe, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.AppendFile("unsafe", []byte("secret"), 0o600, 12); err == nil {
+		t.Fatal("permissive existing history was silently repaired and used")
+	}
+	if info, err := os.Stat(unsafe); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("unsafe file mode changed: %v %v", info, err)
+	}
+
+	external := filepath.Join(t.TempDir(), "external")
+	if err := os.WriteFile(external, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, "substituted")); err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.AppendFile("substituted", []byte("changed"), 0o600, 20); err == nil {
+		t.Fatal("symlinked history leaf was accepted")
+	}
+	content, _ = os.ReadFile(external)
+	if string(content) != "unchanged" {
+		t.Fatalf("external substitution target changed: %q", content)
+	}
+}

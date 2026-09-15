@@ -20,6 +20,7 @@ type metricsOutput struct {
 	Summary          runnermetrics.Summary       `json:"summary"`
 	Attempts         []runnermetrics.Attempt     `json:"attempts"`
 	MalformedRecords int                         `json:"malformed_records,omitempty"`
+	DetailedHistory  bool                        `json:"-"`
 }
 
 func runMetrics(args []string, stdout io.Writer) error {
@@ -54,6 +55,7 @@ func runMetrics(args []string, stdout io.Writer) error {
 	view := metricsOutput{
 		RunnerID: cfg.RunnerID, Project: cfg.GitHubProject, HistoryPath: store.Path(),
 		Summary: runnermetrics.Summarize(attempts), Attempts: attempts, MalformedRecords: history.MalformedRecords,
+		DetailedHistory: strings.TrimSpace(*item) != "",
 	}
 	if *jsonOutput {
 		encoder := json.NewEncoder(stdout)
@@ -143,7 +145,9 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 			state = "unfinished"
 		}
 		model := strings.TrimSpace(attempt.Model)
-		if model == "" {
+		if attempt.Harness == "runner" {
+			model = "not applicable"
+		} else if model == "" {
 			model = "harness-native"
 		}
 		if len(attempt.Usage.Models) > 0 {
@@ -155,17 +159,28 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 			model += " (reported: " + strings.Join(reportedModels, ", ") + ")"
 		}
 		reasoning := strings.TrimSpace(attempt.Reasoning)
-		if reasoning == "" {
+		if attempt.Harness == "runner" {
+			reasoning = "not applicable"
+		} else if reasoning == "" {
 			reasoning = "harness-native"
 		}
 		fmt.Fprintf(output, "  - %s · %s · %s/%s · %s · reasoning %s · iteration %d · %s\n", attempt.StartedAt.Local().Format(time.RFC3339), terminalSafeText(state), terminalSafeText(attempt.Role), terminalSafeText(attempt.Harness), terminalSafeText(model), terminalSafeText(reasoning), attempt.Iteration, formatStatusDuration(elapsed))
 		fmt.Fprintf(output, "    %s\n", terminalSafeText(attempt.ItemTitle))
+		if attempt.Completed {
+			fmt.Fprintf(output, "    Runner-classified outcome: %s\n", terminalSafeText(attempt.Outcome))
+		}
 		if attempt.ReviewVerdict != "" {
-			fmt.Fprintf(output, "    QA verdict: %s\n", terminalSafeText(attempt.ReviewVerdict))
+			fmt.Fprintf(output, "    model-reported QA verdict (Runner-validated): %s\n", terminalSafeText(attempt.ReviewVerdict))
 		}
-		if attempt.Completed && strings.TrimSpace(attempt.Summary) != "" {
-			fmt.Fprintf(output, "    %s\n", terminalSafeText(strings.Join(strings.Fields(attempt.Summary), " ")))
+		if attempt.ModelReportedSummary != "" {
+			fmt.Fprintf(output, "    model-reported summary: %s\n", terminalSafeText(strings.Join(strings.Fields(attempt.ModelReportedSummary), " ")))
 		}
+		if attempt.RunnerObservation != "" {
+			fmt.Fprintf(output, "    Runner-classified outcome detail: %s\n", terminalSafeText(attempt.RunnerObservation))
+		} else if attempt.Completed && attempt.ModelReportedSummary == "" && strings.TrimSpace(attempt.Summary) != "" {
+			fmt.Fprintf(output, "    legacy summary (provenance unavailable): %s\n", terminalSafeText(strings.Join(strings.Fields(attempt.Summary), " ")))
+		}
+		writeMetricHistoryEvidence(output, attempt, view.DetailedHistory)
 		if attempt.ResumedCheckpoint {
 			fmt.Fprintln(output, "    resumed: exact saved checkpoint; harness was not invoked again")
 		}
@@ -192,19 +207,69 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 			fmt.Fprintf(output, "    publication recovered after %d attempts\n", attempt.PublicationAttempts)
 		}
 		if attempt.Usage.ReportedCostUSD != nil {
-			fmt.Fprintf(output, "    usage: %d input · %d cache read · %d output · $%.4f reported\n",
+			fmt.Fprintf(output, "    harness-reported usage: %d input · %d cache read · %d output · $%.4f reported\n",
 				attempt.Usage.InputTokens, attempt.Usage.CacheReadInputTokens, attempt.Usage.OutputTokens, *attempt.Usage.ReportedCostUSD)
 		} else if attempt.Usage.Available {
-			fmt.Fprintf(output, "    usage: %d input · %d cache read · %d output · cost not reported\n",
+			fmt.Fprintf(output, "    harness-reported usage: %d input · %d cache read · %d output · cost not reported\n",
 				attempt.Usage.InputTokens, attempt.Usage.CacheReadInputTokens, attempt.Usage.OutputTokens)
 		} else if attempt.Completed {
-			fmt.Fprintln(output, "    usage: not reported by harness")
+			fmt.Fprintln(output, "    harness-reported usage: unavailable")
 		}
-		writeMetricEvidence(output, "work", attempt.WorkDone)
-		writeMetricEvidence(output, "verification", attempt.Verification)
+		writeMetricEvidence(output, "model-reported work", attempt.WorkDone)
+		writeMetricEvidence(output, "model-reported verification", attempt.Verification)
+		for _, finding := range attempt.ReviewFindings {
+			fmt.Fprintf(output, "    model-reported review finding (Runner-validated): %s · %s\n", terminalSafeText(finding.Area), terminalSafeText(finding.Summary))
+		}
+		for _, detail := range attempt.ReviewDetails {
+			fmt.Fprintf(output, "    model-reported review detail (Runner-validated): %s · %s · %s · %s\n",
+				terminalSafeText(detail.Area), metricAvailable(detail.Name), terminalSafeText(detail.Status), terminalSafeText(detail.Summary))
+			writeMetricEvidence(output, "model-reported review evidence", detail.Evidence)
+		}
 		writeMetricStages(output, attempt.Stages)
 	}
 	fmt.Fprintf(output, "\nHistory: %s\n", terminalSafeText(view.HistoryPath))
+}
+
+func writeMetricHistoryEvidence(output io.Writer, attempt runnermetrics.Attempt, detailed bool) {
+	if !detailed {
+		return
+	}
+	if attempt.ApprovedRequest == nil {
+		fmt.Fprintln(output, "    Runner-observed approval: unavailable")
+	} else {
+		fmt.Fprintf(output, "    Runner-observed approval digest: %s\n", terminalSafeText(attempt.ApprovedRequest.DelegatedContentDigest))
+		fmt.Fprintf(output, "    protected approved content: %s\n", terminalSafeText(attempt.ApprovedRequest.BodySnapshot))
+	}
+	lineage := attempt.Lineage
+	if lineage == nil {
+		lineage = &runnermetrics.ObservedLineage{}
+	}
+	fmt.Fprintf(output, "    Runner-observed repository: %s\n", metricAvailable(lineage.Repository))
+	fmt.Fprintf(output, "    Runner-observed branch: %s\n", metricAvailable(lineage.Branch))
+	writeMetricObjectIdentity(output, "base", lineage.Base)
+	writeMetricObjectIdentity(output, "candidate", lineage.Candidate)
+	writeMetricObjectIdentity(output, "evidence-bound candidate", lineage.EvidenceCandidate)
+	writeMetricObjectIdentity(output, "reviewed candidate", lineage.ReviewedCandidate)
+	writeMetricObjectIdentity(output, "rebased candidate", lineage.RebasedCandidate)
+	writeMetricObjectIdentity(output, "published candidate", lineage.PublishedCandidate)
+	if lineage.PullRequestURL == "" {
+		fmt.Fprintln(output, "    Runner-observed pull request: unavailable")
+	} else {
+		fmt.Fprintf(output, "    Runner-observed pull request: %s · number %d\n", terminalSafeText(lineage.PullRequestURL), lineage.PullRequestNumber)
+	}
+	writeMetricObjectIdentity(output, "merge", lineage.Merge)
+}
+
+func writeMetricObjectIdentity(output io.Writer, label string, identity runnermetrics.ObjectIdentity) {
+	fmt.Fprintf(output, "    Runner-observed %s commit: %s\n", label, metricAvailable(identity.CommitOID))
+	fmt.Fprintf(output, "    Runner-observed %s tree: %s\n", label, metricAvailable(identity.TreeOID))
+}
+
+func metricAvailable(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "unavailable"
+	}
+	return terminalSafeText(value)
 }
 
 func writeMetricStages(output io.Writer, stages []runnermetrics.Stage) {

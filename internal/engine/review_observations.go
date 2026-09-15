@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/metrics"
 )
@@ -28,4 +31,44 @@ func reviewFindingObservations(review execution.ReviewAssessment) []metrics.Revi
 		findings = append(findings, metrics.ReviewFinding{Area: "maintainability", Summary: review.Maintainability.Summary})
 	}
 	return findings
+}
+
+func reviewDetailObservations(assessment execution.ReviewAssessment) []metrics.ReviewDetail {
+	const maximumDetails = 1000
+	result := make([]metrics.ReviewDetail, 0, min(maximumDetails, len(assessment.Criteria)+len(assessment.Rules)+1))
+	remainingEvidence := maximumDetails
+	add := func(area, name, status, summary string, evidence []string) {
+		if len(result) >= maximumDetails {
+			return
+		}
+		boundedEvidence := make([]string, 0, min(100, min(remainingEvidence, len(evidence))))
+		for _, value := range evidence {
+			if len(boundedEvidence) >= 100 || remainingEvidence == 0 {
+				break
+			}
+			if value = boundedHistoryText(value, 8*1024); value != "" {
+				boundedEvidence = append(boundedEvidence, value)
+				remainingEvidence--
+			}
+		}
+		result = append(result, metrics.ReviewDetail{
+			Area: area, Name: boundedHistoryText(name, 1024), Status: strings.TrimSpace(status),
+			Summary: boundedHistoryText(summary, 8*1024), Evidence: boundedEvidence,
+		})
+	}
+	for _, criterion := range assessment.Criteria {
+		add("acceptance", criterion.Criterion, criterion.Status, criterion.Summary, criterion.Evidence)
+	}
+	for _, rule := range assessment.Rules {
+		name := strings.TrimSpace(rule.RuleSourceID)
+		if version := strings.TrimSpace(rule.RuleSourceVersion); version != "" {
+			name += "@" + version
+		}
+		add("repository_rules", name, rule.Status, rule.Summary, nil)
+		for index, finding := range rule.Findings {
+			add("repository_rules", fmt.Sprintf("%s finding %d (%s)", name, index+1, strings.TrimSpace(finding.Severity)), rule.Status, finding.Summary, finding.Evidence)
+		}
+	}
+	add("maintainability", "maintainability", assessment.Maintainability.Status, assessment.Maintainability.Summary, assessment.Maintainability.Evidence)
+	return result
 }
