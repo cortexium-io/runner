@@ -11,6 +11,7 @@ import (
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/github"
+	"github.com/cortexium-io/runner/internal/metrics"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
 
@@ -223,8 +224,21 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		reworkRequested := s.reworkRequested(item, laneID)
 		awaitingHuman := publicationLane != "" && laneID == publicationLane
 		if terminalPullRequestLane(s.cfg, laneID, mergedEvent, hasMergedEvent, closedEvent, hasClosedEvent) {
-			if _, cleanupErr := s.cleanupAuthorizedItemWorkspace(ctx, action); cleanupErr != nil {
-				warnings = append(warnings, workspaceCleanupWarning(item, cleanupErr))
+			details, inspectErr := manager.InspectAuthorized(ctx, action)
+			if inspectErr != nil {
+				warnings = append(warnings, RunResult{Item: item, Outcome: "warning", Summary: "Terminal pull request could not be reinspected before retained-history recovery and cleanup.", Error: inspectErr.Error()})
+				continue
+			}
+			handled, terminalChanged, warning, terminalErr := s.reconcileTerminalPullRequest(ctx, action, details, mergedEvent, hasMergedEvent, closedEvent, hasClosedEvent)
+			changed = changed || terminalChanged
+			if terminalErr != nil {
+				return warnings, changed, terminalErr
+			}
+			if warning != nil {
+				warnings = append(warnings, *warning)
+			}
+			if !handled {
+				warnings = append(warnings, RunResult{Item: item, Outcome: "warning", Summary: "Terminal Project item still has an open pull request; Runner preserved the workspace for diagnosis."})
 			}
 			continue
 		}
@@ -708,6 +722,20 @@ func (s *Engine) reconcileTerminalPullRequest(
 		return true, false, nil, nil
 	}
 	targetStatus := s.cfg.LaneStatus(event.To)
+	retained, retainErr := s.terminalPullRequestObservationRetained(action, details, verb)
+	if retainErr != nil {
+		value := RunResult{Item: item, Outcome: "warning", Summary: "Final pull request history could not be checked; Runner preserved the Project state and workspace evidence.", Error: retainErr.Error()}
+		return true, false, &value, nil
+	}
+	if !retained {
+		// Retain the terminal observation before changing Project state. If the
+		// append fails, leaving the item and workspace in place lets the next
+		// reconciliation retry without losing the only cleanup-bound evidence.
+		if observeErr := s.recordTerminalPullRequestObservation(action, details, verb); observeErr != nil {
+			value := RunResult{Item: item, Outcome: "warning", Summary: "Final pull request outcome could not be retained; Runner preserved the Project state and workspace evidence.", Error: observeErr.Error()}
+			return true, false, &value, nil
+		}
+	}
 	if !strings.EqualFold(strings.TrimSpace(item.Status), strings.TrimSpace(targetStatus)) {
 		phase := s.retryPhase(laneID, event.To)
 		if err := s.transitionProjectItem(ctx, action, targetStatus, fmt.Sprintf("Pull request %s was %s.", details.URL, verb), phase); err != nil {
@@ -725,6 +753,82 @@ func (s *Engine) reconcileTerminalPullRequest(
 		warning = &value
 	}
 	return true, changed, warning, nil
+}
+
+func (s *Engine) recordTerminalPullRequestObservation(action github.AuthorizedAction, details github.PullRequestDetails, verb string) error {
+	if s.observeMetrics == nil {
+		return nil
+	}
+	event, err := s.terminalPullRequestObservation(action, details, verb)
+	if err != nil {
+		return err
+	}
+	return s.observeMetrics(event)
+}
+
+func (s *Engine) terminalPullRequestObservationRetained(action github.AuthorizedAction, details github.PullRequestDetails, verb string) (bool, error) {
+	if s.readMetricsHistory == nil {
+		return false, nil
+	}
+	expected, err := s.terminalPullRequestObservation(action, details, verb)
+	if err != nil {
+		return false, err
+	}
+	history, err := s.readMetricsHistory()
+	if err != nil {
+		return false, err
+	}
+	for _, attempt := range history.Attempts {
+		if !attempt.Completed || attempt.ItemID != expected.ItemID || attempt.Role != expected.Role || attempt.Harness != expected.Harness ||
+			attempt.Outcome != expected.Outcome || attempt.RunnerObservation != expected.RunnerObservation || attempt.ApprovedRequest == nil ||
+			expected.ApprovedRequest == nil || *attempt.ApprovedRequest != *expected.ApprovedRequest || attempt.Lineage == nil ||
+			expected.Lineage == nil || *attempt.Lineage != *expected.Lineage {
+			continue
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (s *Engine) terminalPullRequestObservation(action github.AuthorizedAction, details github.PullRequestDetails, verb string) (metrics.Event, error) {
+	content, err := action.DelegatedContent()
+	if err != nil {
+		return metrics.Event{}, err
+	}
+	now := time.Now().UTC()
+	event := s.newItemAttempt(action.Item)
+	event.Kind = metrics.EventCompleted
+	event.Role = "runner"
+	event.Harness = "runner"
+	event.Model = ""
+	event.Reasoning = ""
+	event.StartedAt = now
+	event.FinishedAt = now
+	event.Outcome = execution.OutcomeSucceeded
+	if details.State == "CLOSED" {
+		event.Outcome = execution.OutcomeBlocked
+	}
+	event.RunnerObservation = fmt.Sprintf("Pull request %s was %s.", strings.TrimSpace(details.URL), strings.TrimSpace(verb))
+	event.ApprovedRequest = metrics.NewApprovedRequest(content.Digest, github.DelegatedContentSnapshotFor(action.Item))
+	event.Lineage = &metrics.ObservedLineage{
+		Repository: action.Item.Repository, Branch: details.HeadRefName,
+		PullRequestURL: details.URL, PullRequestNumber: details.Number,
+	}
+	if validReconciliationObjectID(details.BaseRefOID) {
+		event.Lineage.Base.CommitOID = details.BaseRefOID
+	}
+	if validReconciliationObjectID(action.Item.QACommit) {
+		event.CandidateOID = action.Item.QACommit
+		event.Lineage.Candidate.CommitOID = action.Item.QACommit
+		event.Lineage.ReviewedCandidate.CommitOID = action.Item.QACommit
+	}
+	if validReconciliationObjectID(details.HeadRefOID) {
+		event.Lineage.PublishedCandidate.CommitOID = details.HeadRefOID
+	}
+	if validReconciliationObjectID(details.MergeCommitOID) {
+		event.Lineage.Merge.CommitOID = details.MergeCommitOID
+	}
+	return event, nil
 }
 
 // terminalPullRequestTreeMatchesQA permits a rebase-only repository to

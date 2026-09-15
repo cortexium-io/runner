@@ -120,7 +120,11 @@ harness/environment identity; config contents are not copied into telemetry.
 Installed guidance is separately identified by `prompt_contexts`, since an
 installed skill can differ from the bundle. Missing historical identities remain
 unknown rather than being filled from the current installation at export time.
-The history deliberately excludes prompts, transcripts, raw responses, command arguments, raw local
+Attempt completions may also retain the exact protected approved body/digest,
+bounded model reports and review details, and only code/publication identities
+observed at Runner-controlled boundaries. The history deliberately excludes
+assembled provider prompts, transcripts, hidden reasoning, credentials, raw
+responses, command or environment payloads, raw local
 errors, and free-form stage payloads. Completed attempts may additionally carry
 a fixed publication-operation enum and a bounded attempt count; provider error
 text is never persisted. `metrics` reads and aggregates this store, including
@@ -247,6 +251,26 @@ commit and tree. Agent QA may reuse adequate evidence but receives it only as
 untrusted historical context; evidence text cannot authorize commands or
 change the approved proof obligations. A candidate or criteria mismatch
 fails closed instead of reusing stale evidence.
+
+The same bounded reports are copied at attempt completion into the existing
+owner-only append-only metrics history. Each approved-content digest resolves
+to the exact canonical snapshot it covers, including the body, repository,
+dependencies, planning metadata, and selected implementation profile. No action
+assertion is retained, and the snapshot cannot authorize work. If fixed limits
+clip an otherwise valid model report, the retained record marks that report
+incomplete instead of implying the bounded prefix is complete. Model-reported
+work, rationale, verification, review,
+and usage remain distinct from Runner-observed repository, branch, base,
+candidate, review, publication, pull-request, and merge identities. Missing
+identities remain unavailable. This history is read-only evidence, never
+recovery state or workflow authority.
+
+Terminal pull-request observations are retained before Runner changes the
+Project lane or removes the task workspace. Reconciliation checks the existing
+history before retrying an interrupted terminal cleanup, so a completed Project
+transition cannot cause the only merge or closure observation to disappear.
+These deterministic observations do not consume model admission budgets or
+inflate harness-attempt summaries.
 
 Rejected QA retains its full assessment and actionable feedback in the existing
 private record. The implementation handoff keeps every actionable finding and

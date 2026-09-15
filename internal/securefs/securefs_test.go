@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -319,5 +320,100 @@ func TestVerifyEmptyUsesPinnedDirectory(t *testing.T) {
 	}
 	if err := directory.VerifyEmpty(); err == nil {
 		t.Fatalf("non-empty pinned directory was accepted: %v", err)
+	}
+}
+
+func TestAppendFileIsBoundedAndRejectsUnsafeExistingLeaf(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "history")
+	if err := EnsurePrivateDir(root); err != nil {
+		t.Fatal(err)
+	}
+	directory, err := OpenDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	if err := directory.AppendFile("events.jsonl", []byte("first\n"), 0o600, 12); err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.AppendFile("events.jsonl", []byte("second\n"), 0o600, 12); err == nil {
+		t.Fatal("append exceeded the fixed history limit")
+	}
+	content, err := os.ReadFile(filepath.Join(root, "events.jsonl"))
+	if err != nil || string(content) != "first\n" {
+		t.Fatalf("limit failure corrupted prior content: %q %v", content, err)
+	}
+
+	unsafe := filepath.Join(root, "unsafe")
+	if err := os.WriteFile(unsafe, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.AppendFile("unsafe", []byte("secret"), 0o600, 12); err == nil {
+		t.Fatal("permissive existing history was silently repaired and used")
+	}
+	if info, err := os.Stat(unsafe); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("unsafe file mode changed: %v %v", info, err)
+	}
+	if err := unix.Mkfifo(filepath.Join(root, "pipe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.AppendFile("pipe", []byte("secret"), 0o600, 12); err == nil {
+		t.Fatal("non-regular history was accepted")
+	}
+
+	external := filepath.Join(t.TempDir(), "external")
+	if err := os.WriteFile(external, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, "substituted")); err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.AppendFile("substituted", []byte("changed"), 0o600, 20); err == nil {
+		t.Fatal("symlinked history leaf was accepted")
+	}
+	content, _ = os.ReadFile(external)
+	if string(content) != "unchanged" {
+		t.Fatalf("external substitution target changed: %q", content)
+	}
+}
+
+func TestAppendFileSerializesConcurrentLocalWritersAtLimit(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "history")
+	if err := EnsurePrivateDir(root); err != nil {
+		t.Fatal(err)
+	}
+	const writers = 128
+	record := []byte(strings.Repeat("x", 63) + "\n")
+	limit := int64(32 * len(record))
+	results := make(chan error, writers)
+	var wait sync.WaitGroup
+	for range writers {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			directory, err := OpenDir(root)
+			if err == nil {
+				err = directory.AppendFile("events.jsonl", record, 0o600, limit)
+				_ = directory.Close()
+			}
+			results <- err
+		}()
+	}
+	wait.Wait()
+	close(results)
+	succeeded := 0
+	for err := range results {
+		if err == nil {
+			succeeded++
+		} else if !strings.Contains(err.Error(), "storage limit") {
+			t.Fatalf("concurrent append failed for an unexpected reason: %v", err)
+		}
+	}
+	content, err := os.ReadFile(filepath.Join(root, "events.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if succeeded != 32 || int64(len(content)) != limit {
+		t.Fatalf("concurrent limit admitted %d records and %d bytes, want 32 and %d", succeeded, len(content), limit)
 	}
 }

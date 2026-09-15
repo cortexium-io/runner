@@ -187,8 +187,15 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 		if attempt.ReviewVerdict != "" {
 			fmt.Fprintf(output, "    QA verdict: %s\n", terminalSafeText(attempt.ReviewVerdict))
 		}
-		if attempt.Completed && strings.TrimSpace(attempt.Summary) != "" {
-			fmt.Fprintf(output, "    %s\n", terminalSafeText(strings.Join(strings.Fields(attempt.Summary), " ")))
+		summary := attempt.Summary
+		if strings.TrimSpace(summary) == "" {
+			summary = attempt.RunnerObservation
+		}
+		if strings.TrimSpace(summary) == "" {
+			summary = attempt.ModelReportedSummary
+		}
+		if attempt.Completed && strings.TrimSpace(summary) != "" {
+			fmt.Fprintf(output, "    %s\n", terminalSafeText(strings.Join(strings.Fields(summary), " ")))
 		}
 		if attempt.ResumedCheckpoint {
 			fmt.Fprintln(output, "    resumed: exact saved checkpoint; harness was not invoked again")

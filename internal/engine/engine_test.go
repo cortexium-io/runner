@@ -136,14 +136,27 @@ func (r closedPullRequestRunner) Run(ctx context.Context, command string, args [
 	return r.project.Run(ctx, command, args, dir, timeout)
 }
 
-type mergedPullRequestRunner struct{ project *fakeGitHubProjectRunner }
+type mergedPullRequestRunner struct {
+	project *fakeGitHubProjectRunner
+	head    string
+	base    string
+	merge   string
+}
 
 func (r mergedPullRequestRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
 	if command == "git" {
 		return runEngineTestGit(ctx, args, dir, timeout)
 	}
 	if command == "gh" && len(args) >= 2 && args[0] == "pr" && args[1] == "view" {
-		return subprocess.Result{Stdout: `{"url":"https://github.com/owner/repo/pull/12","number":12,"state":"MERGED","headRepository":{"nameWithOwner":"owner/repo"},"headRefName":"cortexium/task","headRefOid":"qa-head","baseRefName":"main","baseRefOid":"","mergeStateStatus":"UNKNOWN","comments":[],"reviews":[]}`}, nil
+		head := r.head
+		if head == "" {
+			head = "qa-head"
+		}
+		merge := "null"
+		if r.merge != "" {
+			merge = `{"oid":"` + r.merge + `"}`
+		}
+		return subprocess.Result{Stdout: `{"url":"https://github.com/owner/repo/pull/12","number":12,"state":"MERGED","headRepository":{"nameWithOwner":"owner/repo"},"headRefName":"cortexium/task","headRefOid":"` + head + `","baseRefName":"main","baseRefOid":"` + r.base + `","mergeCommit":` + merge + `,"mergeStateStatus":"UNKNOWN","comments":[],"reviews":[]}`}, nil
 	}
 	return r.project.Run(ctx, command, args, dir, timeout)
 }
@@ -3563,7 +3576,7 @@ func TestCandidateValidationBoundsCorrectionAndPlainRetryRerunsImplementation(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	historyStore := metrics.NewStore(filepath.Join(t.TempDir(), "metrics.jsonl"))
+	historyStore := metrics.NewStore(filepath.Join(t.TempDir(), "metrics", "metrics.jsonl"))
 	service.SetMetricsObserver(historyStore.Append)
 	first := service.executeItem(t.Context(), admittedAction{
 		action: mustAuthorizeTest(t, service.source, item), event: service.newItemAttempt(item),
@@ -3615,12 +3628,51 @@ func TestCandidateValidationBoundsCorrectionAndPlainRetryRerunsImplementation(t 
 			break
 		}
 	}
-	second := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, retried))
+	second := service.executeItem(t.Context(), admittedAction{
+		action: mustAuthorizeTest(t, service.source, retried), event: service.newItemAttempt(retried),
+	})
 	if second.Outcome != execution.OutcomeSucceeded || second.ResumedCheckpoint || runner.calls != 3 || project.status != "Agent QA" {
 		t.Fatalf("plain retry did not rerun and correct the implementation: result=%#v harness_calls=%d status=%q", second, runner.calls, project.status)
 	}
 	if !strings.Contains(strings.Join(runner.args, " "), "trailing whitespace") {
 		t.Fatalf("retry assignment omitted the actionable candidate correction: %s", strings.Join(runner.args, " "))
+	}
+	retained, err := historyStore.Read()
+	if err != nil || retained.MalformedRecords != 0 || len(retained.Attempts) != 2 {
+		t.Fatalf("two attempts were not retained: history=%#v err=%v", retained, err)
+	}
+	if retained.Attempts[0].Outcome != execution.OutcomeSucceeded || retained.Attempts[1].Outcome != execution.OutcomeBlocked ||
+		retained.Attempts[0].AttemptID == retained.Attempts[1].AttemptID ||
+		!reflect.DeepEqual(retained.Attempts[1], history.Attempts[0]) {
+		t.Fatal("repair replaced the failed attempt")
+	}
+	action := mustAuthorizeTest(t, service.source, github.WorkItem{ID: item.ID})
+	approved, err := action.DelegatedContent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := service.workspaceForItem(t.Context(), action.Item, approved.Digest, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := workspace.Candidate{CommitOID: second.CandidateOID, TreeOID: second.Lineage.Candidate.TreeOID}
+	criteria := service.assignment(action.Item, approved, nil, nil).Spec.RequiredVerification
+	replacement := make([]string, len(criteria))
+	for index := range replacement {
+		replacement[index] = "Later operational evidence replaces the current receipt."
+	}
+	if err := service.saveVerificationEvidence(action.Item, approved, metadata, candidate, criteria, replacement); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.clearImplementationCheckpoint(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if cleaned, err := service.cleanupAuthorizedItemWorkspace(t.Context(), action); err != nil || !cleaned.WorktreeRemoved {
+		t.Fatalf("cleanup did not complete: %+v %v", cleaned, err)
+	}
+	restartedHistory, err := metrics.NewStore(historyStore.Path()).Read()
+	if err != nil || !reflect.DeepEqual(restartedHistory, retained) {
+		t.Fatalf("replacement, cleanup or restart changed immutable history: %v", err)
 	}
 }
 
@@ -3669,7 +3721,7 @@ func TestCandidateValidationCorrectsImmediatelyWithoutQARejection(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			historyStore := metrics.NewStore(filepath.Join(t.TempDir(), "metrics.jsonl"))
+			historyStore := metrics.NewStore(filepath.Join(t.TempDir(), "metrics", "metrics.jsonl"))
 			service.SetMetricsObserver(func(event metrics.Event) error {
 				if test.metricsError && event.Stage == metrics.StageCandidateConstruct {
 					return errors.New("candidate telemetry unavailable")
@@ -4594,6 +4646,71 @@ func TestRunCycleRecoversInterruptedMergedCardDirectlyToDone(t *testing.T) {
 	}
 }
 
+func TestTerminalHistorySurvivesAppendFailureCleanupAndRestart(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	base := strings.TrimSpace(runGitTest(t, repo, "rev-parse", "HEAD"))
+	item := github.WorkItem{
+		ID: "PVTI_terminal_history", Title: "Retain terminal history", Body: "Exact criteria", Repository: "owner/repo", Status: "PR Ready",
+		PullRequest: "https://github.com/owner/repo/pull/12", Branch: "cortexium/task", QACommit: base,
+	}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	cfg := completeEngineTestConfig(config.Config{ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"}})
+	service, err := New(cfg, mergedPullRequestRunner{project: project, head: base, base: base, merge: strings.Repeat("d", 40)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := workspace.NewGitProvider(subprocess.OSRunner{}).Prepare(t.Context(), workspace.Request{
+		WorkingDir: repo, WorktreeRoot: service.implementationWorkspaceRoot(), WorkID: "assignment_" + safeRefComponent(item.ID),
+		ItemID: item.ID, DelegatedContentDigest: github.DelegatedContentFor(item).Digest, Repository: item.Repository,
+		BranchName: item.Branch, BaseRef: "origin/main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metricsRoot := filepath.Join(t.TempDir(), "metrics")
+	if err := os.Mkdir(metricsRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := metrics.NewStore(filepath.Join(metricsRoot, "history.jsonl"))
+	service.SetMetricsObserver(func(metrics.Event) error { return errors.New("simulated append failure") })
+	results, _, err := service.runCycle(t.Context(), false)
+	if err != nil || len(results) != 1 || results[0].Outcome != "warning" || project.status != "" {
+		t.Fatalf("append failure advanced terminal state: results=%#v status=%q err=%v", results, project.status, err)
+	}
+	if _, err := os.Lstat(prepared.WorktreePath); err != nil {
+		t.Fatalf("append failure removed workspace evidence: %v", err)
+	}
+	// Simulate the retained pre-recovery failure mode: the Project transition
+	// reached GitHub even though the following local append did not.
+	action := mustAuthorizeTest(t, service.source, item)
+	if err := service.transitionProjectItem(t.Context(), action, "Done", "Pull request merged.", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, err := New(cfg, mergedPullRequestRunner{project: project, head: base, base: base, merge: strings.Repeat("d", 40)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.SetMetricsObserver(store.Append)
+	restarted.SetMetricsHistoryReader(store.Read)
+	results, _, err = restarted.runCycle(t.Context(), false)
+	if err != nil || len(results) != 0 || project.status != "Done" {
+		t.Fatalf("restart did not retain and finish terminal outcome: results=%#v status=%q err=%v", results, project.status, err)
+	}
+	if _, err := os.Lstat(prepared.WorktreePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("successful retained terminal outcome did not clean workspace: %v", err)
+	}
+	history, err := metrics.NewStore(store.Path()).Read()
+	if err != nil || history.MalformedRecords != 0 || len(history.Attempts) != 1 {
+		t.Fatalf("terminal history did not survive restart: history=%#v err=%v", history, err)
+	}
+	retained := history.Attempts[0]
+	if retained.RunnerObservation == "" || retained.ApprovedRequest == nil || retained.ApprovedRequest.Snapshot != github.DelegatedContentSnapshotFor(item) || retained.Lineage == nil || retained.Lineage.Merge.CommitOID != strings.Repeat("d", 40) {
+		t.Fatalf("terminal history lost approval or lineage: %#v", retained)
+	}
+}
+
 func TestTerminalPullRequestMismatchPreservesWorkspaceForDiagnosis(t *testing.T) {
 	repo, _ := createPublicationRepository(t)
 	runGitTest(t, repo, "checkout", "-b", "cortexium/task")
@@ -5275,6 +5392,62 @@ func TestAgentQARefreshesAndRequeuesWhenBaseMovedBeforeQA(t *testing.T) {
 	}
 }
 
+func TestAgentQAAlreadyContainedBaseRetainsActualCandidateLineage(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_contained_base", Title: "Preserve candidate lineage", Body: "Criteria", Repository: "owner/repo",
+		Status: "Agent QA", Phase: "agent_qa", Role: config.WorkRoleReviewer, Branch: "cortexium/task",
+	}
+	item.Approval = testApproval(item)
+	prepared, err := workspace.NewGitProvider(subprocess.OSRunner{}).Prepare(t.Context(), workspace.Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(filepath.Dir(repo), ".runner-worktrees"),
+		WorkID: "assignment_" + safeRefComponent(item.ID), ItemID: item.ID,
+		DelegatedContentDigest: github.DelegatedContentFor(item).Digest, Repository: item.Repository,
+		BranchName: item.Branch, BaseRef: "origin/main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "feature.txt"), []byte("candidate feature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitTest(t, prepared.WorktreePath, "add", "feature.txt")
+	runGitTest(t, prepared.WorktreePath, "commit", "-m", "Candidate feature")
+	advanceRemoteBase(t, repo, "base.txt", "new base\n")
+	runGitTest(t, prepared.WorktreePath, "fetch", "origin", "main")
+	baseOID := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "rev-parse", "origin/main"))
+	// Simulate recovery after the branch incorporated the base, before the
+	// private base identity advanced. HEAD must remain distinct from the base.
+	runGitTest(t, prepared.WorktreePath, "merge", "--no-edit", "origin/main")
+	candidateOID := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "rev-parse", "HEAD"))
+	if candidateOID == baseOID || prepared.BaseRevision == baseOID {
+		t.Fatal("fixture did not retain a distinct candidate and stale base identity")
+	}
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	runner := &reviewForbiddenRunner{project: project}
+	service, err := New(completeEngineTestConfig(config.Config{ProjectDir: repo}), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := metrics.NewStore(filepath.Join(t.TempDir(), "metrics", "history.jsonl"))
+	service.SetMetricsObserver(store.Append)
+	results, err := service.RunCycle(t.Context())
+	if err != nil || len(results) != 1 || results[0].Outcome != "warning" || runner.reviewCalls != 0 || project.status != "Ready" {
+		t.Fatalf("base recovery changed QA routing: results=%#v calls=%d status=%s err=%v", results, runner.reviewCalls, project.status, err)
+	}
+	history, err := metrics.NewStore(store.Path()).Read()
+	if err != nil || history.MalformedRecords != 0 || len(history.Attempts) != 1 || !history.Attempts[0].Completed {
+		t.Fatalf("refresh history was not retained: %#v %v", history, err)
+	}
+	lineage := history.Attempts[0].Lineage
+	if lineage == nil || lineage.Base.CommitOID != baseOID || lineage.RebasedCandidate.CommitOID != candidateOID {
+		t.Fatalf("base revision was confused with the actual refreshed candidate: lineage=%#v base=%s candidate=%s", lineage, baseOID, candidateOID)
+	}
+	if head := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "rev-parse", "HEAD")); head != candidateOID {
+		t.Fatalf("already-contained refresh rewrote the candidate: got %s want %s", head, candidateOID)
+	}
+}
+
 func TestImplementationRefreshesRetainedCandidateBeforeRunningAgent(t *testing.T) {
 	repo, _ := createPublicationRepository(t)
 	workID := "assignment_" + safeRefComponent("PVTI_base_before_implementation")
@@ -5457,7 +5630,7 @@ func TestAgentQARejectionUsesConfiguredRetryAndExhaustedTransitions(t *testing.T
 			if err != nil {
 				t.Fatalf("configure service: %v", err)
 			}
-			historyStore := metrics.NewStore(filepath.Join(t.TempDir(), "metrics.jsonl"))
+			historyStore := metrics.NewStore(filepath.Join(t.TempDir(), "metrics", "metrics.jsonl"))
 			service.SetMetricsObserver(historyStore.Append)
 			if test.priorFeedback {
 				var baseline *execution.ReviewBaseline
@@ -5768,7 +5941,7 @@ func TestAcceptedAgentQARetainsVerdictWhenPublicationFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(metadata.WorktreePath, "feature.txt"), []byte("accepted implementation\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	store := metrics.NewStore(filepath.Join(t.TempDir(), "metrics.jsonl"))
+	store := metrics.NewStore(filepath.Join(t.TempDir(), "metrics", "metrics.jsonl"))
 	service.SetMetricsObserver(store.Append)
 	results, err := service.RunCycle(t.Context())
 	if err != nil || len(results) != 1 {

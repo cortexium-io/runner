@@ -155,10 +155,10 @@ func (s *Engine) PlanProject(ctx context.Context, idea string) (ProjectPlan, err
 		event.Usage = harnessResult.Usage
 		event.PromptContexts = trace.PromptContexts()
 		event.Outcome = execution.OutcomeSucceeded
-		event.Summary = "Project plan generated."
+		event.RunnerObservation = "Project plan generated."
 		if err != nil {
 			event.Outcome = execution.OutcomeBlocked
-			event.Summary = "Project planning failed."
+			event.RunnerObservation = "Project planning failed."
 			event.FailureClass = string(harnessResult.FailureClass)
 			event.RetryDisposition = string(harnessResult.RetryDisposition)
 			event.RetryAfter = harnessResult.RetryAfter

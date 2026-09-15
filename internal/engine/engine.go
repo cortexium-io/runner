@@ -18,31 +18,36 @@ import (
 )
 
 type RunResult struct {
-	Item                        github.WorkItem         `json:"item"`
-	Harness                     string                  `json:"harness"`
-	Outcome                     string                  `json:"outcome"`
-	Summary                     string                  `json:"summary"`
-	WorktreePath                string                  `json:"worktree_path,omitempty"`
-	WorktreeCleaned             bool                    `json:"worktree_cleaned,omitempty"`
-	Branch                      string                  `json:"branch,omitempty"`
-	Error                       string                  `json:"error,omitempty"`
-	WorkDone                    []string                `json:"work_done,omitempty"`
-	Verification                []string                `json:"verification,omitempty"`
-	FailureClass                string                  `json:"failure_class,omitempty"`
-	FailureOperation            string                  `json:"failure_operation,omitempty"`
-	PublicationAttempts         int                     `json:"publication_attempts,omitempty"`
-	RetryDisposition            string                  `json:"retry_disposition,omitempty"`
-	RetryAfter                  string                  `json:"retry_after,omitempty"`
-	Usage                       metrics.Usage           `json:"usage"`
-	StartedAt                   time.Time               `json:"started_at,omitempty"`
-	FinishedAt                  time.Time               `json:"finished_at,omitempty"`
-	DurationMilliseconds        int64                   `json:"duration_milliseconds,omitempty"`
-	HarnessDurationMilliseconds int64                   `json:"harness_duration_milliseconds,omitempty"`
-	MetricsError                string                  `json:"metrics_error,omitempty"`
-	ResumedCheckpoint           bool                    `json:"resumed_checkpoint,omitempty"`
-	ReviewVerdict               string                  `json:"review_verdict,omitempty"`
-	ReviewFindings              []metrics.ReviewFinding `json:"review_findings,omitempty"`
-	CandidateOID                string                  `json:"candidate_oid,omitempty"`
+	Item                        github.WorkItem          `json:"item"`
+	Harness                     string                   `json:"harness"`
+	Outcome                     string                   `json:"outcome"`
+	Summary                     string                   `json:"summary"`
+	WorktreePath                string                   `json:"worktree_path,omitempty"`
+	WorktreeCleaned             bool                     `json:"worktree_cleaned,omitempty"`
+	Branch                      string                   `json:"branch,omitempty"`
+	Error                       string                   `json:"error,omitempty"`
+	WorkDone                    []string                 `json:"work_done,omitempty"`
+	Verification                []string                 `json:"verification,omitempty"`
+	FailureClass                string                   `json:"failure_class,omitempty"`
+	FailureOperation            string                   `json:"failure_operation,omitempty"`
+	PublicationAttempts         int                      `json:"publication_attempts,omitempty"`
+	RetryDisposition            string                   `json:"retry_disposition,omitempty"`
+	RetryAfter                  string                   `json:"retry_after,omitempty"`
+	Usage                       metrics.Usage            `json:"usage"`
+	StartedAt                   time.Time                `json:"started_at,omitempty"`
+	FinishedAt                  time.Time                `json:"finished_at,omitempty"`
+	DurationMilliseconds        int64                    `json:"duration_milliseconds,omitempty"`
+	HarnessDurationMilliseconds int64                    `json:"harness_duration_milliseconds,omitempty"`
+	MetricsError                string                   `json:"metrics_error,omitempty"`
+	ResumedCheckpoint           bool                     `json:"resumed_checkpoint,omitempty"`
+	ReviewVerdict               string                   `json:"review_verdict,omitempty"`
+	ReviewFindings              []metrics.ReviewFinding  `json:"review_findings,omitempty"`
+	ReviewDetails               []metrics.ReviewDetail   `json:"model_reported_review_details,omitempty"`
+	ModelReportedSummary        string                   `json:"model_reported_summary,omitempty"`
+	CandidateOID                string                   `json:"candidate_oid,omitempty"`
+	ApprovedRequest             *metrics.ApprovedRequest `json:"runner_observed_approved_request,omitempty"`
+	Lineage                     *metrics.ObservedLineage `json:"runner_observed_lineage,omitempty"`
+	modelReportIncomplete       bool
 }
 
 type Engine struct {
@@ -431,7 +436,11 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 			continue
 		}
 		reserveResources(resources, occupied)
-		admitted := admittedAction{action: claimedAction, resources: resources, slot: slot, event: s.newItemAttempt(claimedAction.Item)}
+		event := s.newItemAttempt(claimedAction.Item)
+		if content, contentErr := claimedAction.DelegatedContent(); contentErr == nil {
+			event.ApprovedRequest = metrics.NewApprovedRequest(content.Digest, github.DelegatedContentSnapshotFor(claimedAction.Item))
+		}
+		admitted := admittedAction{action: claimedAction, resources: resources, slot: slot, event: event}
 		if err := s.recordAttemptStart(admitted.event); err != nil {
 			admitted.metricsStartError = err.Error()
 		}
@@ -745,12 +754,28 @@ func (s *Engine) executeItem(ctx context.Context, admitted admittedAction) (resu
 		completed.DurationMilliseconds = result.DurationMilliseconds
 		completed.HarnessDurationMilliseconds = result.HarnessDurationMilliseconds
 		completed.Outcome = result.Outcome
-		completed.Summary = result.Summary
-		completed.WorkDone = append([]string(nil), result.WorkDone...)
-		completed.Verification = append([]string(nil), result.Verification...)
+		summary := boundedHistoryText(result.Summary, 8*1024)
+		completed.Summary = ""
+		var incomplete bool
+		completed.ModelReportedSummary, incomplete = boundedHistoryTextWithStatus(result.ModelReportedSummary, 8*1024)
+		completed.WorkDone, incomplete = boundedHistoryEvidenceWithStatus(result.WorkDone, incomplete)
+		completed.Verification, incomplete = boundedHistoryEvidenceWithStatus(result.Verification, incomplete)
 		completed.ReviewVerdict = result.ReviewVerdict
-		completed.ReviewFindings = result.ReviewFindings
+		completed.ReviewFindings, incomplete = boundedHistoryFindingsWithStatus(result.ReviewFindings, incomplete)
+		completed.ReviewDetails = result.ReviewDetails
+		incomplete = incomplete || result.modelReportIncomplete
+		if result.ModelReportedSummary != "" || len(result.WorkDone) != 0 || len(result.Verification) != 0 || result.ReviewVerdict != "" || len(result.ReviewFindings) != 0 || len(result.ReviewDetails) != 0 {
+			complete := !incomplete
+			completed.ModelReportComplete = &complete
+		}
 		completed.CandidateOID = result.CandidateOID
+		if completed.ModelReportedSummary == "" || completed.ModelReportedSummary != summary {
+			completed.RunnerObservation = summary
+		}
+		if result.ApprovedRequest != nil {
+			completed.ApprovedRequest = result.ApprovedRequest
+		}
+		completed.Lineage = result.Lineage
 		completed.PromptContexts = trace.PromptContexts()
 		completed.ResumedCheckpoint = result.ResumedCheckpoint
 		completed.FailureClass = result.FailureClass
@@ -779,11 +804,92 @@ func (s *Engine) executeItem(ctx context.Context, admitted admittedAction) (resu
 	return result
 }
 
+func observeApprovedRequest(result *RunResult, item github.WorkItem, content github.DelegatedContent) {
+	if result == nil {
+		return
+	}
+	result.ApprovedRequest = metrics.NewApprovedRequest(content.Digest, github.DelegatedContentSnapshotFor(item))
+}
+
+func boundedHistoryText(value string, limit int) string {
+	result, _ := boundedHistoryTextWithStatus(value, limit)
+	return result
+}
+
+func boundedHistoryTextWithStatus(value string, limit int) (string, bool) {
+	if len(value) <= limit {
+		return strings.TrimSpace(value), false
+	}
+	return boundedReviewText(value, limit-3), true
+}
+
+func boundedHistoryEvidenceWithStatus(values []string, incomplete bool) ([]string, bool) {
+	result := make([]string, 0, min(1000, len(values)))
+	for _, value := range values {
+		if len(result) >= 1000 {
+			incomplete = true
+			break
+		}
+		var truncated bool
+		if value, truncated = boundedHistoryTextWithStatus(value, 8*1024); value != "" {
+			result = append(result, value)
+		}
+		incomplete = incomplete || truncated
+	}
+	return result, incomplete
+}
+
+func boundedHistoryFindingsWithStatus(values []metrics.ReviewFinding, incomplete bool) ([]metrics.ReviewFinding, bool) {
+	result := make([]metrics.ReviewFinding, 0, min(1000, len(values)))
+	for _, value := range values {
+		if len(result) >= 1000 {
+			incomplete = true
+			break
+		}
+		area, areaTruncated := boundedHistoryTextWithStatus(value.Area, 1024)
+		summary, summaryTruncated := boundedHistoryTextWithStatus(value.Summary, 8*1024)
+		incomplete = incomplete || areaTruncated || summaryTruncated
+		if area != "" && summary != "" {
+			result = append(result, metrics.ReviewFinding{Area: area, Summary: summary})
+		}
+	}
+	return result, incomplete
+}
+
+func observedLineage(result *RunResult) *metrics.ObservedLineage {
+	if result.Lineage == nil {
+		result.Lineage = &metrics.ObservedLineage{}
+	}
+	return result.Lineage
+}
+
+func observeWorkspaceLineage(result *RunResult, metadata workspace.Metadata) {
+	if result == nil {
+		return
+	}
+	lineage := observedLineage(result)
+	lineage.Repository = strings.TrimSpace(metadata.Identity.Repository)
+	lineage.Branch = strings.TrimSpace(metadata.BranchName)
+	lineage.Base.CommitOID = strings.TrimSpace(metadata.BaseRevision)
+}
+
+func observeCandidateLineage(result *RunResult, candidate workspace.Candidate) {
+	if result == nil || strings.TrimSpace(candidate.CommitOID) == "" {
+		return
+	}
+	lineage := observedLineage(result)
+	lineage.Candidate = metrics.ObjectIdentity{CommitOID: strings.TrimSpace(candidate.CommitOID), TreeOID: strings.TrimSpace(candidate.TreeOID)}
+	result.CandidateOID = lineage.Candidate.CommitOID
+}
+
 func (s *Engine) executePlanner(ctx context.Context, action github.AuthorizedAction) RunResult {
 	item := action.Item
 	laneID, lane := s.laneForItem(item)
 	harness := s.roleHarness(item.Role)
 	result := RunResult{Item: item, Harness: harness}
+	if approved, approvedErr := action.DelegatedContent(); approvedErr == nil {
+		observeApprovedRequest(&result, item, approved)
+	}
 	refreshedAction, delegatedContent, err := s.source.RefreshDelegatedContent(ctx, action)
 	if err != nil {
 		result.Outcome = execution.OutcomeBlocked
@@ -796,6 +902,7 @@ func (s *Engine) executePlanner(ctx context.Context, action github.AuthorizedAct
 	action = refreshedAction
 	item = action.Item
 	result.Item = item
+	observeApprovedRequest(&result, item, delegatedContent)
 	idea := strings.TrimSpace(delegatedContent.BodySnapshot)
 	if idea == "" {
 		idea = "Plan approved GitHub Project item " + strings.TrimSpace(item.ID)
@@ -923,6 +1030,9 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 	executionRole := s.executionRole(item)
 	harness := s.roleHarness(executionRole)
 	result := RunResult{Item: item, Harness: harness}
+	if approved, approvedErr := action.DelegatedContent(); approvedErr == nil {
+		observeApprovedRequest(&result, item, approved)
+	}
 	refreshedAction, delegatedContent, err := s.source.RefreshDelegatedContent(ctx, action)
 	if err != nil {
 		result.Outcome = execution.OutcomeBlocked
@@ -934,6 +1044,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 	}
 	action = refreshedAction
 	item = action.Item
+	observeApprovedRequest(&result, item, delegatedContent)
 	executionRole, err = s.cfg.SelectedImplementer(item.Role, item.ImplementationProfile, item.QAFailures)
 	if err != nil {
 		return s.failExecution(ctx, action, lane, result, "Approved execution profile is unavailable", err, blockedExecutorOutput("Approved execution profile is unavailable", err))
@@ -957,6 +1068,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 		return s.failExecution(ctx, action, lane, result, "Implementation workspace is not ready", err, blockedExecutorOutput("Implementation workspace is not ready", err))
 	}
 	result.WorktreePath, result.Branch = preparedBeforeImplementation.WorktreePath, preparedBeforeImplementation.BranchName
+	observeWorkspaceLineage(&result, preparedBeforeImplementation)
 	currentBaseResult, currentBaseErr := s.git(ctx, []string{"rev-parse", "--verify", preparedBeforeImplementation.BaseRef}, workingDir, 30*time.Second)
 	currentBaseRevision := strings.TrimSpace(currentBaseResult.Stdout)
 	if currentBaseErr != nil || currentBaseRevision == "" {
@@ -967,6 +1079,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 			transientExecutorOutput("Base revision could not be verified before implementation"))
 	}
 	if currentBaseRevision != preparedBeforeImplementation.BaseRevision {
+		observedLineage(&result).Base.CommitOID = currentBaseRevision
 		provider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
 		if _, candidateErr := provider.ConstructCandidateForMergeMethod(ctx, preparedBeforeImplementation, item.Title, s.cfg.GitHubProject.MergeMethod); candidateErr != nil {
 			return s.failExecution(ctx, action, lane, result, "Retained implementation candidate could not be committed before its base refresh", candidateErr,
@@ -976,6 +1089,9 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 		if refreshErr != nil {
 			return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be refreshed", refreshErr,
 				blockedExecutorOutput("Implementation candidate could not be refreshed", refreshErr))
+		}
+		if strings.TrimSpace(refresh.CommitOID) != "" {
+			observedLineage(&result).RebasedCandidate.CommitOID = strings.TrimSpace(refresh.CommitOID)
 		}
 		refreshContext := "Runner refreshed the retained candidate onto the current target base before this attempt."
 		if refresh.Conflicted {
@@ -1057,6 +1173,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 		}
 		result.Outcome = output.Outcome
 		result.Summary = output.Summary
+		result.ModelReportedSummary = output.Summary
 		if err != nil {
 			result.Error = err.Error()
 		}
@@ -1125,6 +1242,8 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 					integrityViolationOutput("Implementation candidate could not be committed for QA", err, output))
 			}
 			finishCandidate(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
+			observeWorkspaceLineage(&result, preparedWorkspace)
+			observeCandidateLineage(&result, candidate)
 			checkpointSnapshot, err = s.workspaceSnapshotState(ctx, preparedWorkspace.WorktreePath)
 			if err != nil || !checkpointSnapshot.Clean || checkpointSnapshot.Head != candidate.CommitOID || checkpointSnapshot.Tree != candidate.TreeOID {
 				if err == nil {
@@ -1138,12 +1257,15 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 					integrityViolationOutput("Committed implementation result could not be checkpointed", err, output))
 			}
 		}
+		observeWorkspaceLineage(&result, preparedWorkspace)
+		observeCandidateLineage(&result, candidate)
 		break
 	}
 	if err := s.saveVerificationEvidence(item, delegatedContent, preparedWorkspace, candidate, assignment.Spec.RequiredVerification, output.Verification); err != nil {
 		return s.failExecution(ctx, action, lane, result, "Implementation verification evidence is incomplete", err,
 			integrityViolationOutput("Implementation verification evidence is incomplete", err))
 	}
+	observedLineage(&result).EvidenceCandidate = metrics.ObjectIdentity{CommitOID: candidate.CommitOID, TreeOID: candidate.TreeOID}
 	target := lane.Transitions[config.WorkflowOutcomeSuccess]
 	implementationReport := formatExecutionReport("Implementation completed", output)
 	finishTransition := metrics.StartStage(ctx, metrics.StageProjectTransition)
@@ -1168,6 +1290,9 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	_, lane := s.laneForItem(item)
 	harness := s.roleHarness(item.Role)
 	result := RunResult{Item: item, Harness: harness}
+	if approved, approvedErr := action.DelegatedContent(); approvedErr == nil {
+		observeApprovedRequest(&result, item, approved)
+	}
 	refreshedAction, delegatedContent, err := s.source.RefreshDelegatedContent(ctx, action)
 	if err != nil {
 		result.Outcome = execution.OutcomeBlocked
@@ -1180,6 +1305,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	action = refreshedAction
 	item = action.Item
 	result.Item = item
+	observeApprovedRequest(&result, item, delegatedContent)
 	finishRepository := metrics.StartStage(ctx, metrics.StageRepositoryPrepare)
 	repoRoot, err := s.repositoryDir(ctx, item.Repository)
 	if err != nil {
@@ -1202,6 +1328,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	finishWorkspace(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
 	result.WorktreePath, result.Branch = preparedWorkspace.WorktreePath, preparedWorkspace.BranchName
+	observeWorkspaceLineage(&result, preparedWorkspace)
 	currentBaseResult, currentBaseErr := s.git(ctx, []string{"rev-parse", "--verify", preparedWorkspace.BaseRef}, repoRoot, 30*time.Second)
 	currentBaseRevision := strings.TrimSpace(currentBaseResult.Stdout)
 	if currentBaseErr != nil || currentBaseRevision == "" {
@@ -1212,10 +1339,14 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 			transientExecutorOutput("Base revision could not be verified before QA"))
 	}
 	if currentBaseRevision != preparedWorkspace.BaseRevision {
+		observedLineage(&result).Base.CommitOID = currentBaseRevision
 		refresh, refreshErr := github.NewPullRequestManager(s.run, s.source).RefreshUnpublishedBranchAuthorized(ctx, action, preparedWorkspace, s.baseBranch(), s.remoteName(), s.cfg.GitHubProject.MergeMethod)
 		if refreshErr != nil {
 			return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be refreshed before QA", refreshErr,
 				blockedExecutorOutput("Implementation candidate could not be refreshed before QA", refreshErr))
+		}
+		if strings.TrimSpace(refresh.CommitSHA) != "" {
+			observedLineage(&result).RebasedCandidate.CommitOID = strings.TrimSpace(refresh.CommitSHA)
 		}
 		target := lane.Transitions[config.WorkflowOutcomeRejected]
 		detail := "The base branch advanced before Agent QA. Runner refreshed the retained candidate locally; implementation and QA will run again before publication."
@@ -1246,6 +1377,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation candidate could not be committed for QA", err,
 			integrityViolationOutput("Implementation candidate could not be committed for QA", err), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
+	observeCandidateLineage(&result, candidate)
 	qaSnapshot, err := s.checkoutSnapshotState(ctx, preparedWorkspace.WorktreePath)
 	if err != nil {
 		return s.failExecution(ctx, action, lane, result, "Implementation workspace could not be snapshotted for QA", err, blockedExecutorOutput("Implementation workspace could not be snapshotted for QA", err))
@@ -1270,6 +1402,9 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	if resumedAcceptance {
 		result.ResumedCheckpoint = true
+		lineage := observedLineage(&result)
+		lineage.ReviewedCandidate = metrics.ObjectIdentity{CommitOID: publicationRecord.CommitOID, TreeOID: publicationRecord.TreeOID}
+		lineage.EvidenceCandidate = lineage.ReviewedCandidate
 		return s.publishAcceptedQA(ctx, action, lane, result, repoRoot, preparedWorkspace, publicationRecord)
 	}
 	reviewWorkspace, err := gitProvider.PrepareReviewWorkspace(ctx, preparedWorkspace, candidate)
@@ -1330,6 +1465,10 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	result.FailureClass = string(output.FailureClass)
 	result.RetryDisposition = string(output.RetryDisposition)
 	result.RetryAfter = output.RetryAfter
+	result.ModelReportedSummary = output.Summary
+	if output.ReviewAssessment != nil {
+		result.ReviewDetails, result.modelReportIncomplete = reviewDetailObservations(*output.ReviewAssessment)
+	}
 	verifyCtx, cancelVerify := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancelVerify()
 	currentReviewSnapshot, snapshotErr := s.checkoutSnapshotState(verifyCtx, reviewWorkspace.Path)
@@ -1378,7 +1517,8 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	if err == nil && output.ReviewAssessment != nil {
 		result.ReviewVerdict = output.ReviewAssessment.Verdict
 		result.ReviewFindings = reviewFindingObservations(*output.ReviewAssessment)
-		result.CandidateOID = candidate.CommitOID
+		observeCandidateLineage(&result, candidate)
+		observedLineage(&result).ReviewedCandidate = metrics.ObjectIdentity{CommitOID: candidate.CommitOID, TreeOID: candidate.TreeOID}
 	}
 	if output.ReviewAssessment != nil && output.ReviewAssessment.Verdict == "needs_changes" {
 		if feedbackErr := s.saveReviewFeedback(item, delegatedContent, *output.ReviewAssessment, &execution.ReviewBaseline{
@@ -1456,6 +1596,8 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "QA acceptance could not be bound to the committed candidate", recordErr,
 			integrityViolationOutput("QA acceptance could not be bound to the committed candidate", recordErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
+	lineage := observedLineage(&result)
+	lineage.EvidenceCandidate = metrics.ObjectIdentity{CommitOID: publicationRecord.CommitOID, TreeOID: publicationRecord.TreeOID}
 	return s.publishAcceptedQA(ctx, action, lane, result, repoRoot, preparedWorkspace, publicationRecord)
 }
 
@@ -1469,6 +1611,10 @@ func (s *Engine) publishAcceptedQA(
 	publicationRecord workspace.PublicationRecord,
 ) RunResult {
 	item := action.Item
+	observeWorkspaceLineage(&result, preparedWorkspace)
+	observeCandidateLineage(&result, workspace.Candidate{CommitOID: publicationRecord.CommitOID, TreeOID: publicationRecord.TreeOID})
+	lineage := observedLineage(&result)
+	lineage.ReviewedCandidate = metrics.ObjectIdentity{CommitOID: publicationRecord.CommitOID, TreeOID: publicationRecord.TreeOID}
 	qaReport := publicationRecord.AcceptanceReport
 	qaComment := publicationRecord.AcceptanceComment
 	target := lane.Transitions[config.WorkflowOutcomeSuccess]
@@ -1496,6 +1642,9 @@ func (s *Engine) publishAcceptedQA(
 		if refreshErr != nil {
 			result.Error = appendError(result.Error, fmt.Errorf("refresh unpublished candidate after base move: %w", refreshErr))
 			return RunResult{}, false
+		}
+		if strings.TrimSpace(refresh.CommitSHA) != "" {
+			observedLineage(&result).RebasedCandidate.CommitOID = strings.TrimSpace(refresh.CommitSHA)
 		}
 		target := lane.Transitions[config.WorkflowOutcomeRejected]
 		detail := "The base branch advanced while Agent QA was running. Runner refreshed the retained candidate locally; implementation and QA will run again before publication."
@@ -1564,6 +1713,9 @@ func (s *Engine) publishAcceptedQA(
 		return s.failExecution(ctx, action, lane, result, "PR publication failed", err, transientExecutorOutput("Pull request publication failed"))
 	}
 	result.PublicationAttempts = published.Attempts
+	lineage.PublishedCandidate = metrics.ObjectIdentity{CommitOID: published.CommitSHA, TreeOID: publicationRecord.TreeOID}
+	lineage.PullRequestURL = published.URL
+	lineage.PullRequestNumber = published.Number
 	finishPublish(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
 	item.PullRequest = published.URL
 	finishTransition := metrics.StartStage(ctx, metrics.StageProjectTransition)

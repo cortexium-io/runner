@@ -1,6 +1,9 @@
 package github
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"runtime"
 	"strings"
@@ -17,6 +20,14 @@ func TestDelegatedContentDigestBindsExecutionDefiningApprovedContent(t *testing.
 		PlanningDestination: "Ready", PlanningBatchFingerprint: "v1:batch", PlanningBatchSize: 2, PlanningItemIndex: 1,
 	}
 	original := DelegatedContentFor(base)
+	snapshot := DelegatedContentSnapshotFor(base)
+	digest := sha256.Sum256([]byte(snapshot))
+	var retained delegatedContentPayload
+	if err := json.Unmarshal([]byte(snapshot), &retained); err != nil || original.Digest != "v1:"+hex.EncodeToString(digest[:]) ||
+		retained.Body != strings.TrimSpace(base.Body) || retained.Repository != base.Repository || len(retained.Dependencies) != 2 ||
+		strings.Contains(snapshot, "mutable lifecycle") || strings.Contains(snapshot, "Presentation title") {
+		t.Fatalf("snapshot lost canonical approved content or included mutable state: %s (%v)", snapshot, err)
+	}
 	if original.BodySnapshot != "exact approved body" || len(original.Digest) != len("v1:")+64 {
 		t.Fatalf("unexpected delegated content: %#v", original)
 	}

@@ -39,6 +39,9 @@ func EvaluateAdmission(budget *config.AdmissionBudgetConfig, attempts []metrics.
 	decision.WindowStart = now.Add(-time.Duration(budget.WindowSeconds) * time.Second)
 	windowAttempts := make([]metrics.Attempt, 0, len(attempts))
 	for _, attempt := range attempts {
+		if attempt.IsRunnerObservation() {
+			continue
+		}
 		if attempt.StartedAt.IsZero() || attempt.StartedAt.Before(decision.WindowStart) || attempt.StartedAt.After(now) {
 			continue
 		}

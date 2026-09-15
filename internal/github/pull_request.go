@@ -25,6 +25,7 @@ type PullRequestDetails struct {
 	HeadRefOID       string
 	BaseRefName      string
 	BaseRefOID       string
+	MergeCommitOID   string
 	MergeStateStatus string
 	Feedback         string
 	AutoMergeEnabled bool
@@ -201,7 +202,7 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 	if err != nil {
 		return PullRequestDetails{}, err
 	}
-	fields := "url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeStateStatus,autoMergeRequest"
+	fields := "url,number,state,headRepository,headRefName,headRefOid,baseRefName,baseRefOid,mergeCommit,mergeStateStatus,autoMergeRequest"
 	if includeFeedback {
 		fields += ",comments,reviews"
 	}
@@ -219,10 +220,13 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 		HeadRepository *struct {
 			NameWithOwner string `json:"nameWithOwner"`
 		} `json:"headRepository"`
-		HeadRefName      string `json:"headRefName"`
-		HeadRefOID       string `json:"headRefOid"`
-		BaseRefName      string `json:"baseRefName"`
-		BaseRefOID       string `json:"baseRefOid"`
+		HeadRefName string `json:"headRefName"`
+		HeadRefOID  string `json:"headRefOid"`
+		BaseRefName string `json:"baseRefName"`
+		BaseRefOID  string `json:"baseRefOid"`
+		MergeCommit *struct {
+			OID string `json:"oid"`
+		} `json:"mergeCommit"`
 		MergeStateStatus string `json:"mergeStateStatus"`
 		AutoMergeRequest *struct {
 			EnabledAt string `json:"enabledAt"`
@@ -291,6 +295,9 @@ func (m PullRequestManager) inspect(ctx context.Context, repository, selector st
 		HeadRefName: strings.TrimSpace(payload.HeadRefName), HeadRefOID: strings.TrimSpace(payload.HeadRefOID),
 		BaseRefName: strings.TrimSpace(payload.BaseRefName), BaseRefOID: strings.TrimSpace(payload.BaseRefOID),
 		MergeStateStatus: strings.ToUpper(strings.TrimSpace(payload.MergeStateStatus)), AutoMergeEnabled: payload.AutoMergeRequest != nil,
+	}
+	if payload.MergeCommit != nil {
+		details.MergeCommitOID = strings.TrimSpace(payload.MergeCommit.OID)
 	}
 	if includeChecks {
 		if len(payload.StatusCheckRollup) > MaxPullRequestChecks {

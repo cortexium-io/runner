@@ -1,18 +1,24 @@
 package metrics
 
 import (
-	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/cortexium-io/runner/internal/securefs"
 )
 
-const maxEventBytes = 2 * 1024 * 1024
+const (
+	maxEventBytes   = 2 * 1024 * 1024
+	maxHistoryBytes = 64 * 1024 * 1024
+)
 
 type Store struct {
 	path string
@@ -82,6 +88,9 @@ func (s *Store) Append(event Event) error {
 	if !validPromptContexts(event.PromptContexts) {
 		return fmt.Errorf("metrics prompt context requires a layout ID and SHA-256 guidance digest")
 	}
+	if !validRetainedAttemptEvidence(event) {
+		return fmt.Errorf("metrics attempt evidence is invalid or exceeds a fixed limit")
+	}
 	if !validRunContext(event.RunContext) {
 		return fmt.Errorf("metrics run context requires bounded build versions and a SHA-256 config digest")
 	}
@@ -96,19 +105,16 @@ func (s *Store) Append(event Event) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return fmt.Errorf("create metrics directory: %w", err)
+	if err := securefs.EnsurePrivateDir(filepath.Dir(s.path)); err != nil {
+		return fmt.Errorf("create private metrics directory: %w", err)
 	}
-	file, err := os.OpenFile(s.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	directory, err := securefs.OpenDir(filepath.Dir(s.path))
 	if err != nil {
-		return fmt.Errorf("open metrics history: %w", err)
+		return fmt.Errorf("open private metrics directory: %w", err)
 	}
-	defer file.Close()
-	if _, err := file.Write(encoded); err != nil {
-		return fmt.Errorf("append metrics history: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		return fmt.Errorf("sync metrics history: %w", err)
+	defer directory.Close()
+	if err := directory.AppendFile(filepath.Base(s.path), encoded, 0o600, maxHistoryBytes); err != nil {
+		return fmt.Errorf("append private metrics history: %w", err)
 	}
 	return nil
 }
@@ -116,26 +122,47 @@ func (s *Store) Append(event Event) error {
 func (s *Store) Read() (ReadResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	file, err := os.Open(s.path)
-	if os.IsNotExist(err) {
+	directory, err := securefs.OpenDir(filepath.Dir(s.path))
+	if errors.Is(err, os.ErrNotExist) {
 		return ReadResult{}, nil
 	}
 	if err != nil {
-		return ReadResult{}, fmt.Errorf("open metrics history: %w", err)
+		return ReadResult{}, fmt.Errorf("open private metrics directory: %w", err)
 	}
-	defer file.Close()
+	defer directory.Close()
+	encoded, mode, state, err := directory.ReadAppendFile(filepath.Base(s.path), maxHistoryBytes)
+	if errors.Is(err, os.ErrNotExist) || err == nil && !state.Exists {
+		return ReadResult{}, nil
+	}
+	if err != nil {
+		return ReadResult{}, fmt.Errorf("read private metrics history: %w", err)
+	}
+	if mode.Perm() != 0o600 {
+		return ReadResult{}, fmt.Errorf("private metrics history mode is %04o, want 0600", mode.Perm())
+	}
+	if err := securefs.ValidateOwnedRegularFile(state, uint32(os.Geteuid())); err != nil {
+		return ReadResult{}, fmt.Errorf("validate private metrics history: %w", err)
+	}
 
 	byID := map[string]Attempt{}
 	order := []string{}
 	seen := map[string]bool{}
+	attemptIdentities := map[string]attemptIdentity{}
+	approvalsByAttempt := map[string]*ApprovedRequest{}
 	stagesByAttempt := map[string]map[string]Stage{}
+	stageIdentitiesByAttempt := map[string]map[string]attemptIdentity{}
 	stageOrderByAttempt := map[string][]string{}
 	result := ReadResult{}
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), maxEventBytes)
-	for scanner.Scan() {
+	for _, line := range bytes.Split(encoded, []byte{'\n'}) {
+		if len(line) == 0 {
+			continue
+		}
+		if len(line) > maxEventBytes {
+			result.MalformedRecords++
+			continue
+		}
 		var event Event
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil || event.Version != EventVersion || strings.TrimSpace(event.AttemptID) == "" || !validEventKind(event.Kind) || !validFailureClass(event.FailureClass) || !validFailureOperation(event.FailureOperation) || !validRetryDisposition(event.RetryDisposition) || !validReviewVerdict(event) || event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 || event.PublicationAttempts < 0 || event.PublicationAttempts > 3 || ValidateUsage(event.Usage) != nil || !validPromptContexts(event.PromptContexts) || !validRunContext(event.RunContext) {
+		if err := json.Unmarshal(line, &event); err != nil || event.Version != EventVersion || strings.TrimSpace(event.AttemptID) == "" || !validEventKind(event.Kind) || !validFailureClass(event.FailureClass) || !validFailureOperation(event.FailureOperation) || !validRetryDisposition(event.RetryDisposition) || !validReviewVerdict(event) || event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 || event.PublicationAttempts < 0 || event.PublicationAttempts > 3 || ValidateUsage(event.Usage) != nil || !validPromptContexts(event.PromptContexts) || !validRetainedAttemptEvidence(event) || !validRunContext(event.RunContext) {
 			result.MalformedRecords++
 			continue
 		}
@@ -150,11 +177,22 @@ func (s *Store) Read() (ReadResult, error) {
 			}
 			if stagesByAttempt[event.AttemptID] == nil {
 				stagesByAttempt[event.AttemptID] = map[string]Stage{}
+				stageIdentitiesByAttempt[event.AttemptID] = map[string]attemptIdentity{}
 			}
-			if _, exists := stagesByAttempt[event.AttemptID][event.StageID]; !exists {
+			identity := identityForEvent(event)
+			if attemptIdentity, ok := attemptIdentities[event.AttemptID]; ok && identity != attemptIdentity {
+				result.MalformedRecords++
+				continue
+			}
+			previous, exists := stagesByAttempt[event.AttemptID][event.StageID]
+			if exists && (previous.Name != event.Stage || stageIdentitiesByAttempt[event.AttemptID][event.StageID] != identity || event.Kind == EventStageStarted || previous.Completed) {
+				result.MalformedRecords++
+				continue
+			}
+			if !exists {
 				stageOrderByAttempt[event.AttemptID] = append(stageOrderByAttempt[event.AttemptID], event.StageID)
 			}
-			stage := stagesByAttempt[event.AttemptID][event.StageID]
+			stage := previous
 			stage.StageID = event.StageID
 			stage.Name = event.Stage
 			stage.PromptContexts = event.PromptContexts
@@ -174,28 +212,55 @@ func (s *Store) Read() (ReadResult, error) {
 				stage.Completed = true
 			}
 			stagesByAttempt[event.AttemptID][event.StageID] = stage
+			stageIdentitiesByAttempt[event.AttemptID][event.StageID] = identity
 			continue
+		}
+		identity := identityForEvent(event)
+		if previous, ok := attemptIdentities[event.AttemptID]; ok && previous != identity {
+			result.MalformedRecords++
+			continue
+		}
+		if approval, ok := approvalsByAttempt[event.AttemptID]; ok && event.ApprovedRequest != nil && *approval != *event.ApprovedRequest {
+			result.MalformedRecords++
+			continue
+		}
+		attemptIdentities[event.AttemptID] = identity
+		if event.ApprovedRequest != nil {
+			approval := *event.ApprovedRequest
+			approvalsByAttempt[event.AttemptID] = &approval
 		}
 		current := byID[event.AttemptID]
 		if event.Kind == EventStarted {
+			if current.AttemptID != "" {
+				result.MalformedRecords++
+				continue
+			}
 			current.Event = event
 			current.Completed = false
 		} else if event.Kind == EventCompleted {
+			if current.Completed {
+				result.MalformedRecords++
+				continue
+			}
 			if current.AttemptID != "" && event.StartedAt.IsZero() {
 				event.StartedAt = current.StartedAt
+			}
+			if event.ApprovedRequest == nil {
+				event.ApprovedRequest = approvalsByAttempt[event.AttemptID]
 			}
 			current.Event = event
 			current.Completed = true
 		}
 		byID[event.AttemptID] = current
 	}
-	if err := scanner.Err(); err != nil {
-		return ReadResult{}, fmt.Errorf("read metrics history: %w", err)
-	}
 	for _, id := range order {
 		attempt := byID[id]
 		if attempt.AttemptID != "" {
 			for _, stageID := range stageOrderByAttempt[id] {
+				if stageIdentitiesByAttempt[id][stageID] != attemptIdentities[id] {
+					result.MalformedRecords++
+					continue
+				}
 				attempt.Stages = append(attempt.Stages, stagesByAttempt[id][stageID])
 			}
 			SortStages(attempt.Stages)
@@ -204,6 +269,33 @@ func (s *Store) Read() (ReadResult, error) {
 	}
 	SortNewest(result.Attempts)
 	return result, nil
+}
+
+// attemptIdentity contains the fields that identify one immutable attempt and
+// therefore must agree across its start, stages, and completion. Evidence and
+// timing fields intentionally remain outside the join key because they evolve
+// while the attempt runs.
+type attemptIdentity struct {
+	RunnerID, RunVersion, SkillsVersion, ConfigDigest string
+	ProjectOwner, Repository, ItemID, ItemTitle       string
+	Role, Harness, Model, Reasoning                   string
+	ProjectNumber, Iteration                          int
+	HasRunContext                                     bool
+}
+
+func identityForEvent(event Event) attemptIdentity {
+	identity := attemptIdentity{
+		RunnerID: event.RunnerID, ProjectOwner: event.ProjectOwner, ProjectNumber: event.ProjectNumber,
+		Repository: event.Repository, ItemID: event.ItemID, ItemTitle: event.ItemTitle,
+		Role: event.Role, Harness: event.Harness, Model: event.Model, Reasoning: event.Reasoning, Iteration: event.Iteration,
+	}
+	if event.RunContext != nil {
+		identity.HasRunContext = true
+		identity.RunVersion = event.RunContext.RunnerVersion
+		identity.SkillsVersion = event.RunContext.BundledSkillsVersion
+		identity.ConfigDigest = event.RunContext.ConfigDigest
+	}
+	return identity
 }
 
 func validEventKind(kind string) bool {

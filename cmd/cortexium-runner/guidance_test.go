@@ -77,7 +77,7 @@ func TestGuidanceCLIProjectsPrivateHistoryWithoutChangingIt(t *testing.T) {
 
 func TestGuidanceObserverNotifiesOnceAndRebuildsOnRestart(t *testing.T) {
 	cfg := completeCLITestConfig(t.TempDir())
-	store := metrics.NewStore(filepath.Join(t.TempDir(), "history.jsonl"))
+	store := metrics.NewStore(filepath.Join(t.TempDir(), "metrics", "history.jsonl"))
 	var notifications bytes.Buffer
 	observe := guidanceMetricsObserver(store, cfg, &notifications)
 	for _, item := range []string{"one", "one", "two", "two"} {
@@ -114,7 +114,7 @@ func (unavailableGuidanceOutput) Write([]byte) (int, error) { return 0, io.ErrCl
 
 func TestGuidanceNotificationFailureDoesNotFailMetrics(t *testing.T) {
 	cfg := completeCLITestConfig(t.TempDir())
-	store := metrics.NewStore(filepath.Join(t.TempDir(), "history.jsonl"))
+	store := metrics.NewStore(filepath.Join(t.TempDir(), "metrics", "history.jsonl"))
 	observe := guidanceMetricsObserver(store, cfg, unavailableGuidanceOutput{})
 	for _, item := range []string{"one", "two"} {
 		if err := observe(guidanceCLIEvent(cfg, item)); err != nil {
@@ -162,7 +162,7 @@ func guidanceCLIEvent(cfg config.Config, item string) metrics.Event {
 
 func TestGuidanceRecoveredStageLiveNotificationsMatchHistoryReplay(t *testing.T) {
 	cfg := completeCLITestConfig(t.TempDir())
-	store := metrics.NewStore(filepath.Join(t.TempDir(), "history.jsonl"))
+	store := metrics.NewStore(filepath.Join(t.TempDir(), "metrics", "history.jsonl"))
 	var notifications bytes.Buffer
 	observe := guidanceMetricsObserver(store, cfg, &notifications)
 	live := metrics.NewGuidanceDetector(2)

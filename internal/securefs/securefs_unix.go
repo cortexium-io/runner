@@ -575,6 +575,107 @@ func (d *Directory) ReplaceFile(name string, content []byte, mode os.FileMode, e
 	return unix.Fsync(d.fd)
 }
 
+// ReadAppendFile reads a stable snapshot while holding the shared counterpart
+// of AppendFile's lock. Content may advance before the lock is acquired, but
+// identity, ownership and stable readback checks still apply under the lock.
+func (d *Directory) ReadAppendFile(name string, limit int64) ([]byte, os.FileMode, FileState, error) {
+	pinned, err := d.OpenFile(name)
+	if errors.Is(err, unix.ENOENT) {
+		return nil, 0o600, FileState{}, nil
+	}
+	if err != nil {
+		return nil, 0, FileState{}, err
+	}
+	defer pinned.Close()
+	fd := int(pinned.file.Fd())
+	if err := unix.Flock(fd, unix.LOCK_SH); err != nil {
+		return nil, 0, FileState{}, err
+	}
+	defer func() { _ = unix.Flock(fd, unix.LOCK_UN) }()
+	var opened unix.Stat_t
+	if err := unix.Fstat(fd, &opened); err != nil {
+		return nil, 0, FileState{}, err
+	}
+	pinned.initial = stateFromStat(opened)
+	if err := ValidateOwnedRegularFile(pinned.initial, uint32(os.Geteuid())); err != nil {
+		return nil, 0, FileState{}, err
+	}
+	content, err := pinned.ReadAll(limit)
+	if err == nil {
+		err = d.VerifyIdentity()
+	}
+	return content, os.FileMode(opened.Mode & 0o777), pinned.initial, err
+}
+
+// AppendFile appends one bounded record through the pinned directory without
+// following a substituted leaf. It validates the descriptor that receives the
+// bytes, so callers do not need a path-level check separated from the write.
+func (d *Directory) AppendFile(name string, content []byte, mode os.FileMode, maxBytes int64) error {
+	if err := validateLeaf(name); err != nil {
+		return err
+	}
+	if maxBytes <= 0 || int64(len(content)) > maxBytes {
+		return errors.New("secure append exceeds its storage limit")
+	}
+	if err := d.VerifyIdentity(); err != nil {
+		return err
+	}
+	created := true
+	fd, err := unix.Openat(d.fd, name, unix.O_WRONLY|unix.O_APPEND|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, uint32(mode.Perm()))
+	if errors.Is(err, unix.EEXIST) {
+		created = false
+		fd, err = unix.Openat(d.fd, name, unix.O_WRONLY|unix.O_APPEND|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
+	}
+	if err != nil {
+		return err
+	}
+	file := os.NewFile(uintptr(fd), filepath.Join(d.path, name))
+	if file == nil {
+		_ = unix.Close(fd)
+		return errors.New("create secure append file handle")
+	}
+	defer file.Close()
+	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
+		return err
+	}
+	defer func() { _ = unix.Flock(fd, unix.LOCK_UN) }()
+	if created {
+		if err := file.Chmod(mode.Perm()); err != nil {
+			return err
+		}
+	}
+	var opened, named unix.Stat_t
+	if err := unix.Fstat(fd, &opened); err != nil {
+		return err
+	}
+	state := stateFromStat(opened)
+	if err := ValidateOwnedRegularFile(state, uint32(os.Geteuid())); err != nil {
+		return err
+	}
+	if os.FileMode(opened.Mode&0o777) != mode.Perm() {
+		return fmt.Errorf("secure append file mode is %04o, want %04o", opened.Mode&0o777, mode.Perm())
+	}
+	if opened.Size > maxBytes-int64(len(content)) {
+		return errors.New("secure append exceeds its storage limit")
+	}
+	if err := unix.Fstatat(d.fd, name, &named, unix.AT_SYMLINK_NOFOLLOW); err != nil || !sameObject(opened, named) {
+		return fmt.Errorf("%w before appending %s", ErrChanged, filepath.Join(d.path, name))
+	}
+	if _, err := file.Write(content); err != nil {
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	if err := unix.Fstatat(d.fd, name, &named, unix.AT_SYMLINK_NOFOLLOW); err != nil || !sameObject(opened, named) {
+		return fmt.Errorf("%w after appending %s", ErrChanged, filepath.Join(d.path, name))
+	}
+	if err := d.VerifyIdentity(); err != nil {
+		return err
+	}
+	return unix.Fsync(d.fd)
+}
+
 func WriteFileExclusive(path string, content []byte, mode os.FileMode) error {
 	directory, err := OpenDir(filepath.Dir(path))
 	if err != nil {

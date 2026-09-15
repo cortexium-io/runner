@@ -57,7 +57,7 @@ func TestLocalPlanningSharesCapacityAndFreshBudgetHistory(t *testing.T) {
 			if mode == "budget exhausted" {
 				cfg.AdmissionBudget = &config.AdmissionBudgetConfig{WindowSeconds: 3600, MaxAttempts: 1}
 			}
-			historyPath := filepath.Join(t.TempDir(), "history.jsonl")
+			historyPath := filepath.Join(t.TempDir(), "metrics", "history.jsonl")
 			newService := func(runner subprocess.Runner) *Engine {
 				t.Helper()
 				service, err := New(cfg, runner)

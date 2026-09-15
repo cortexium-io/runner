@@ -133,6 +133,14 @@ type delegatedContentPayload struct {
 // preview without minting workflow authority. This helper is also used while
 // signing and validating actions.
 func DelegatedContentFor(item WorkItem) DelegatedContent {
+	digest := sha256.Sum256([]byte(DelegatedContentSnapshotFor(item)))
+	return DelegatedContent{Digest: "v1:" + hex.EncodeToString(digest[:]), BodySnapshot: strings.TrimSpace(item.Body)}
+}
+
+// DelegatedContentSnapshotFor returns the canonical content covered by the
+// delegated digest, without action assertions or mutable workflow state. Like
+// DelegatedContentFor, it does not itself establish approval authority.
+func DelegatedContentSnapshotFor(item WorkItem) string {
 	payload := delegatedContentPayload{
 		Version: "v1", Body: strings.TrimSpace(item.Body), Repository: strings.TrimSpace(item.Repository),
 		Dependencies:     canonicalDelegatedDependencies(item.Dependencies),
@@ -143,8 +151,7 @@ func DelegatedContentFor(item WorkItem) DelegatedContent {
 		ImplementationProfile: item.ImplementationProfile,
 	}
 	encoded, _ := json.Marshal(payload)
-	digest := sha256.Sum256(encoded)
-	return DelegatedContent{Digest: "v1:" + hex.EncodeToString(digest[:]), BodySnapshot: payload.Body}
+	return string(encoded)
 }
 
 func canonicalDelegatedDependencies(values []string) []string {
