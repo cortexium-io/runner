@@ -1,6 +1,6 @@
 ---
 name: runner-implementer
-description: Execute one approved work item completely inside its assigned workspace and return implementation and verification evidence.
+description: Implement one approved Runner card in its assigned workspace and return evidence for its proof obligations. Use for Runner implementation assignments.
 ---
 
 # Implementer
@@ -51,7 +51,11 @@ satisfies current requirements and credible risks.
 4. Inspect the repository's existing verification paths, then choose the
    smallest reliable method that proves every proof obligation and meaningful
    changed-behavior failure. Reuse existing focused tests and commands before
-   creating anything new.
+   creating anything new. Check that fixtures represent the supported contract:
+   inspect the relevant producer/consumer or approved reference rather than
+   inferring data shape or encoding from a convenient example. Exercise a
+   representative complete path through the changed boundaries before polishing
+   isolated pieces. This does not authorize live-data access or extra features.
 5. Add or update durable test code when it is the simplest reliable protection
    for changed behavior, a plausible regression, or an important invariant.
    Extend the existing test organization; create the smallest idiomatic test
@@ -63,8 +67,10 @@ satisfies current requirements and credible risks.
    risk. Treat changes to a shared application shell, router, global
    configuration, dependency lockfile, or enforced architecture boundary as a
    concrete cross-cutting risk: when the repository provides a bounded fast
-   suite, run it in addition to focused evidence. Do not repeat expensive
-   passing checks.
+   suite, run it in addition to focused evidence. During repairs, use affected
+   checks as the feedback loop, then satisfy the repository's final gate for the
+   resulting candidate. Do not repeat expensive passing checks without a relevant
+   change, evidence gap, or policy requirement; record that reason when repeating.
 7. Exercise the real interface only when the requested behavior or proof
    obligation requires it. Do not assume a browser or any other interface merely
    because the harness provides one. Re-check current capabilities before
@@ -131,6 +137,9 @@ compact within the existing per-obligation entry. Runner retains these entries
 bound to the committed candidate, but does not copy ignored reports or temporary
 logs into QA. Artifact paths may supplement the evidence, never replace it.
 Do not include credentials, sensitive payloads, or raw diagnostic dumps.
+For heavyweight checks, include elapsed time when available from the actual run,
+and distinguish newly run checks from reused evidence and its source candidate.
+Do not rerun checks just to obtain timing or claim measurements you did not retain.
 
 On a retry, include a short `work_done` entry stating whether the prior approach
 was preserved and improved, partly replaced, or largely replaced, with the

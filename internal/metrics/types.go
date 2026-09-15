@@ -2,7 +2,9 @@ package metrics
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"math"
 	"sort"
@@ -13,10 +15,10 @@ import (
 const EventVersion = 1
 
 const (
-	maxApprovedBodyBytes = 256 * 1024
-	maxEvidenceEntries   = 1000
-	maxEvidenceTextBytes = 8 * 1024
-	maxIdentityTextBytes = 1024
+	maxApprovedSnapshotBytes = 256 * 1024
+	maxEvidenceEntries       = 1000
+	maxEvidenceTextBytes     = 8 * 1024
+	maxIdentityTextBytes     = 1024
 )
 
 const (
@@ -211,6 +213,7 @@ type Event struct {
 	Kind                        string           `json:"kind"`
 	AttemptID                   string           `json:"attempt_id"`
 	RunnerID                    string           `json:"runner_id"`
+	RunContext                  *RunContext      `json:"run_context,omitempty"`
 	ProjectOwner                string           `json:"project_owner"`
 	ProjectNumber               int              `json:"project_number"`
 	Repository                  string           `json:"repository,omitempty"`
@@ -240,6 +243,7 @@ type Event struct {
 	ReviewVerdict               string           `json:"review_verdict,omitempty"`
 	ReviewFindings              []ReviewFinding  `json:"review_findings,omitempty"`
 	ReviewDetails               []ReviewDetail   `json:"model_reported_review_details,omitempty"`
+	ModelReportComplete         *bool            `json:"model_report_complete,omitempty"`
 	CandidateOID                string           `json:"candidate_oid,omitempty"`
 	RunnerObservation           string           `json:"runner_observed_outcome,omitempty"`
 	ApprovedRequest             *ApprovedRequest `json:"runner_observed_approved_request,omitempty"`
@@ -249,13 +253,21 @@ type Event struct {
 	Usage                       Usage            `json:"usage"`
 }
 
-// ApprovedRequest is the exact immutable approval pair Runner received for an
-// attempt. BodySnapshot is retained only in the owner-only local metrics store;
-// it is never copied into prompts beyond the existing assignment boundary or
-// published to GitHub by the metrics path.
+// ApprovedRequest retains the exact canonical content covered by the observed
+// delegated digest. The snapshot includes the approved body and execution-defining
+// metadata, but no action assertion. It is private evidence, never authority.
 type ApprovedRequest struct {
 	DelegatedContentDigest string `json:"delegated_content_digest"`
-	BodySnapshot           string `json:"body_snapshot"`
+	Snapshot               string `json:"snapshot"`
+}
+
+// NewApprovedRequest preserves the supplied identity; validation refuses a
+// snapshot whose bytes do not match it rather than manufacturing a new identity.
+func NewApprovedRequest(delegatedContentDigest, snapshot string) *ApprovedRequest {
+	return &ApprovedRequest{
+		DelegatedContentDigest: strings.TrimSpace(delegatedContentDigest),
+		Snapshot:               snapshot,
+	}
 }
 
 // ObjectIdentity is a commit/tree pair observed by Runner. TreeOID is optional
@@ -280,6 +292,29 @@ type ObservedLineage struct {
 	PullRequestURL     string         `json:"pull_request_url,omitempty"`
 	PullRequestNumber  int            `json:"pull_request_number,omitempty"`
 	Merge              ObjectIdentity `json:"merge,omitempty"`
+}
+
+// RunContext identifies the CLI build and loaded operator configuration when
+// the event was recorded, not when history is exported. It grants no authority.
+// BundledSkillsVersion identifies the bundle, not necessarily the installed
+// role guidance; PromptContext records the guidance actually supplied.
+type RunContext struct {
+	RunnerVersion        string `json:"runner_version"`
+	BundledSkillsVersion string `json:"bundled_skills_version"`
+	ConfigDigest         string `json:"config_digest"`
+}
+
+func validRunContext(value *RunContext) bool {
+	if value == nil {
+		return true // Unrecorded identity is unknown, never inferred from today's config.
+	}
+	if len(value.RunnerVersion) == 0 || len(value.RunnerVersion) > 128 ||
+		len(value.BundledSkillsVersion) == 0 || len(value.BundledSkillsVersion) > 128 ||
+		!strings.HasPrefix(value.ConfigDigest, "sha256:") {
+		return false
+	}
+	digest, err := hex.DecodeString(strings.TrimPrefix(value.ConfigDigest, "sha256:"))
+	return err == nil && len(digest) == sha256.Size
 }
 
 // PromptContext fingerprints Runner-owned static guidance only. It is not the
@@ -317,7 +352,7 @@ func validPromptContexts(values []PromptContext) bool {
 func validRetainedAttemptEvidence(event Event) bool {
 	if event.Kind != EventCompleted && (event.Lineage != nil || event.RunnerObservation != "" ||
 		event.Summary != "" || event.ModelReportedSummary != "" || len(event.WorkDone) != 0 || len(event.Verification) != 0 || event.ReviewVerdict != "" ||
-		len(event.ReviewFindings) != 0 || len(event.ReviewDetails) != 0 || event.CandidateOID != "") {
+		len(event.ReviewFindings) != 0 || len(event.ReviewDetails) != 0 || event.ModelReportComplete != nil || event.CandidateOID != "") {
 		return false
 	}
 	if event.Kind != EventStarted && event.Kind != EventCompleted && event.ApprovedRequest != nil {
@@ -347,7 +382,10 @@ func validRetainedAttemptEvidence(event Event) bool {
 	}
 	if event.ApprovedRequest != nil {
 		approval := event.ApprovedRequest
-		if !validDelegatedContentDigest(approval.DelegatedContentDigest) || len(approval.BodySnapshot) > maxApprovedBodyBytes {
+		digest := sha256.Sum256([]byte(approval.Snapshot))
+		if !validDelegatedContentDigest(approval.DelegatedContentDigest) ||
+			approval.DelegatedContentDigest != "v1:"+hex.EncodeToString(digest[:]) ||
+			!json.Valid([]byte(approval.Snapshot)) || len(approval.Snapshot) > maxApprovedSnapshotBytes {
 			return false
 		}
 	}

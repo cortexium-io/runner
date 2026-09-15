@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -256,12 +258,48 @@ func privateMetricsPath(t *testing.T) string {
 	return filepath.Join(root, "metrics.jsonl")
 }
 
+func TestStoreRejectsMalformedRunIdentityOnWriteAndRead(t *testing.T) {
+	for name, identity := range map[string]*RunContext{
+		"missing versions":  {ConfigDigest: "sha256:" + strings.Repeat("a", 64)},
+		"raw configuration": {RunnerVersion: "dev", BundledSkillsVersion: "1.8.13", ConfigDigest: "private config contents"},
+		"oversized version": {RunnerVersion: strings.Repeat("x", 129), BundledSkillsVersion: "1.8.13", ConfigDigest: "sha256:" + strings.Repeat("a", 64)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := NewStore(privateMetricsPath(t))
+			event := Event{Version: EventVersion, Kind: EventCompleted, AttemptID: "invalid", RunContext: identity}
+			if err := store.Append(event); err == nil {
+				t.Fatal("accepted invalid run identity")
+			}
+			encoded, err := json.Marshal(event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(store.Path(), append(encoded, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			history, err := store.Read()
+			if err != nil || history.MalformedRecords != 1 || len(history.Attempts) != 0 {
+				t.Fatalf("read accepted invalid identity: %#v error=%v", history, err)
+			}
+		})
+	}
+}
+
 func floatPtr(value float64) *float64 { return &value }
+
+func approvedRequestFixture(body string) *ApprovedRequest {
+	snapshot, _ := json.Marshal(struct {
+		Version string `json:"version"`
+		Body    string `json:"body"`
+	}{Version: "v1", Body: body})
+	digest := sha256.Sum256(snapshot)
+	return NewApprovedRequest("v1:"+hex.EncodeToString(digest[:]), string(snapshot))
+}
 
 func TestStoreRetainsImmutableAttemptEvidenceAcrossReplacementCleanupAndRestart(t *testing.T) {
 	path := privateMetricsPath(t)
 	store := NewStore(path)
-	approval := &ApprovedRequest{DelegatedContentDigest: "v1:" + strings.Repeat("a", 64), BodySnapshot: "Exact approved body"}
+	approval := approvedRequestFixture("Exact approved body")
 	firstCandidate := ObjectIdentity{CommitOID: strings.Repeat("b", 40), TreeOID: strings.Repeat("c", 40)}
 	secondCandidate := ObjectIdentity{CommitOID: strings.Repeat("d", 40), TreeOID: strings.Repeat("e", 40)}
 	started := time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC)
@@ -319,7 +357,7 @@ func TestStoreRefusesMismatchedMalformedOversizedAndSubstitutedHistoryWithoutCor
 	store := NewStore(path)
 	candidate := ObjectIdentity{CommitOID: strings.Repeat("a", 40), TreeOID: strings.Repeat("b", 40)}
 	valid := Event{Version: EventVersion, Kind: EventCompleted, AttemptID: "valid", Outcome: "succeeded", CandidateOID: candidate.CommitOID,
-		ApprovedRequest: &ApprovedRequest{DelegatedContentDigest: "v1:" + strings.Repeat("c", 64), BodySnapshot: "approved"},
+		ApprovedRequest: approvedRequestFixture("approved"),
 		Lineage:         &ObservedLineage{Repository: "owner/repo", Candidate: candidate, EvidenceCandidate: candidate}}
 	if err := store.Append(valid); err != nil {
 		t.Fatal(err)
@@ -342,7 +380,7 @@ func TestStoreRefusesMismatchedMalformedOversizedAndSubstitutedHistoryWithoutCor
 	}
 	broken := valid
 	broken.AttemptID = "broken"
-	broken.ApprovedRequest = &ApprovedRequest{DelegatedContentDigest: "v1:broken", BodySnapshot: "unresolvable"}
+	broken.ApprovedRequest = NewApprovedRequest("v1:broken", "unresolvable")
 	encoded, _ := json.Marshal(broken)
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -382,7 +420,7 @@ func TestRetainedAttemptEvidenceValidationSeparatesClaimsAndObservedIdentity(t *
 		Summary: "Runner classification", ModelReportedSummary: "Model rationale", WorkDone: []string{"Model action"}, Verification: []string{"Model verification claim"},
 		Usage:           Usage{Available: false},
 		ReviewDetails:   []ReviewDetail{{Area: "acceptance", Name: "proof", Status: "passed", Summary: "Model review", Evidence: []string{"reported evidence"}}},
-		ApprovedRequest: &ApprovedRequest{DelegatedContentDigest: "v1:" + strings.Repeat("c", 64), BodySnapshot: "approved"},
+		ApprovedRequest: approvedRequestFixture("approved"),
 		Lineage:         &ObservedLineage{Repository: "owner/repo", Candidate: candidate, EvidenceCandidate: candidate},
 	}
 	if !validRetainedAttemptEvidence(event) {
@@ -399,9 +437,14 @@ func TestRetainedAttemptEvidenceValidationSeparatesClaimsAndObservedIdentity(t *
 		t.Fatal("prior candidate receipt certified a changed candidate")
 	}
 	broken := event
-	broken.ApprovedRequest = &ApprovedRequest{DelegatedContentDigest: "v1:missing", BodySnapshot: "approved"}
+	broken.ApprovedRequest = NewApprovedRequest("v1:missing", "approved")
 	if validRetainedAttemptEvidence(broken) {
 		t.Fatal("broken approval digest was presented as inspectable")
+	}
+	tamperedBody := event
+	tamperedBody.ApprovedRequest = NewApprovedRequest(event.ApprovedRequest.DelegatedContentDigest, `{"version":"v1","body":"different content"}`)
+	if validRetainedAttemptEvidence(tamperedBody) {
+		t.Fatal("approved body no longer matched its retained content digest")
 	}
 	oversized := event
 	oversized.Verification = []string{strings.Repeat("x", maxEvidenceTextBytes+1)}
@@ -412,5 +455,58 @@ func TestRetainedAttemptEvidenceValidationSeparatesClaimsAndObservedIdentity(t *
 	stage.Kind = EventStageCompleted
 	if validRetainedAttemptEvidence(stage) {
 		t.Fatal("attempt-only private evidence leaked into a stage record")
+	}
+}
+
+func TestStoreRejectsCrossItemAttemptAndStageJoins(t *testing.T) {
+	store := NewStore(privateMetricsPath(t))
+	base := Event{Kind: EventStarted, AttemptID: "shared", RunnerID: "runner", ProjectOwner: "owner", ProjectNumber: 8,
+		Repository: "owner/repo", ItemID: "item-a", ItemTitle: "A", Role: "implementer", Harness: "codex", StartedAt: time.Now().UTC()}
+	if err := store.Append(base); err != nil {
+		t.Fatal(err)
+	}
+	foreignStage := base
+	foreignStage.Kind, foreignStage.StageID, foreignStage.Stage = EventStageStarted, "foreign", StageHarnessRun
+	foreignStage.ItemID, foreignStage.ItemTitle = "item-b", "B"
+	if err := store.Append(foreignStage); err != nil {
+		t.Fatal(err)
+	}
+	validStage := base
+	validStage.Kind, validStage.StageID, validStage.Stage = EventStageStarted, "valid", StageHarnessRun
+	if err := store.Append(validStage); err != nil {
+		t.Fatal(err)
+	}
+	completed := base
+	completed.Kind, completed.Outcome = EventCompleted, "succeeded"
+	if err := store.Append(completed); err != nil {
+		t.Fatal(err)
+	}
+	history, err := store.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.MalformedRecords != 1 || len(history.Attempts) != 1 || history.Attempts[0].ItemID != "item-a" || len(history.Attempts[0].Stages) != 1 || history.Attempts[0].Stages[0].StageID != "valid" {
+		t.Fatalf("cross-item records mixed into one attempt: %#v", history)
+	}
+}
+
+func TestStoreRejectsApprovalReplacementWithinAttempt(t *testing.T) {
+	store := NewStore(privateMetricsPath(t))
+	started := Event{Kind: EventStarted, AttemptID: "approval", ItemID: "item", ApprovedRequest: approvedRequestFixture("first")}
+	if err := store.Append(started); err != nil {
+		t.Fatal(err)
+	}
+	completed := started
+	completed.Kind, completed.Outcome = EventCompleted, "succeeded"
+	completed.ApprovedRequest = approvedRequestFixture("second")
+	if err := store.Append(completed); err != nil {
+		t.Fatal(err)
+	}
+	history, err := store.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.MalformedRecords != 1 || len(history.Attempts) != 1 || history.Attempts[0].Completed || *history.Attempts[0].ApprovedRequest != *started.ApprovedRequest {
+		t.Fatalf("approval replacement changed immutable attempt identity: %#v", history)
 	}
 }

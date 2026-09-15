@@ -34,13 +34,14 @@ func TestReviewObservationsExcludeEvidenceGapsAndPreferences(t *testing.T) {
 
 func TestAttemptLineageHelpersRetainOnlyExplicitRunnerObservations(t *testing.T) {
 	result := RunResult{}
-	content := github.DelegatedContent{Digest: "v1:" + strings.Repeat("a", 64), BodySnapshot: "Exact approved request"}
-	observeApprovedRequest(&result, content)
+	item := github.WorkItem{Body: "Exact approved request", Repository: "owner/repo", Dependencies: []string{"predecessor"}, ImplementationProfile: "careful"}
+	content := github.DelegatedContentFor(item)
+	observeApprovedRequest(&result, item, content)
 	metadata := workspace.Metadata{BranchName: "runner/history", BaseRevision: strings.Repeat("b", 40), Identity: workspace.Identity{Repository: "owner/repo"}}
 	observeWorkspaceLineage(&result, metadata)
 	candidate := workspace.Candidate{CommitOID: strings.Repeat("c", 40), TreeOID: strings.Repeat("d", 40)}
 	observeCandidateLineage(&result, candidate)
-	if result.ApprovedRequest == nil || result.ApprovedRequest.DelegatedContentDigest != content.Digest || result.ApprovedRequest.BodySnapshot != content.BodySnapshot {
+	if result.ApprovedRequest == nil || result.ApprovedRequest.DelegatedContentDigest != content.Digest || result.ApprovedRequest.Snapshot != github.DelegatedContentSnapshotFor(item) {
 		t.Fatalf("approved request observation changed: %#v", result.ApprovedRequest)
 	}
 	if result.Lineage == nil || result.Lineage.Repository != "owner/repo" || result.Lineage.Branch != metadata.BranchName || result.Lineage.Base.CommitOID != metadata.BaseRevision || result.Lineage.Candidate.CommitOID != candidate.CommitOID || result.Lineage.Candidate.TreeOID != candidate.TreeOID {
@@ -57,10 +58,34 @@ func TestReviewDetailObservationsRetainBoundedStructuredReview(t *testing.T) {
 		Rules:           []execution.ReviewRuleResult{{RuleSourceID: "AGENTS.md", RuleSourceVersion: "current", Status: "failed", Summary: "One rule failed.", Findings: []execution.ReviewRuleFinding{{Severity: "blocking", Summary: "Unsafe mode.", Evidence: []string{"mode was 0644"}}}}},
 		Maintainability: execution.ReviewMaintainabilityResult{Status: "passed", Summary: "Readable.", Evidence: []string{"small explicit helper"}},
 	}
-	details := reviewDetailObservations(review)
+	details, incomplete := reviewDetailObservations(review)
+	if incomplete {
+		t.Fatal("small complete review was marked incomplete")
+	}
 	if len(details) != 4 || details[0].Area != "acceptance" || details[0].Name != "Exact candidate" || details[0].Evidence[1] != "focused delta test" ||
 		details[1].Name != "AGENTS.md@current" || details[2].Summary != "Unsafe mode." || details[3].Area != "maintainability" {
 		t.Fatalf("structured review detail was lost: %#v", details)
+	}
+}
+
+func TestBoundedHistoryMarksClippedModelEvidenceIncomplete(t *testing.T) {
+	values := make([]string, 1001)
+	for index := range values {
+		values[index] = "reported evidence"
+	}
+	bounded, incomplete := boundedHistoryEvidenceWithStatus(values, false)
+	if len(bounded) != 1000 || !incomplete {
+		t.Fatalf("bounded evidence was not explicitly incomplete: entries=%d incomplete=%t", len(bounded), incomplete)
+	}
+	review := execution.ReviewAssessment{Criteria: []execution.ReviewCriterionResult{{
+		Criterion: "bounded", Status: "passed", Summary: "reported", Evidence: make([]string, 101),
+	}}}
+	for index := range review.Criteria[0].Evidence {
+		review.Criteria[0].Evidence[index] = "detail"
+	}
+	details, incomplete := reviewDetailObservations(review)
+	if len(details) != 2 || len(details[0].Evidence) != 100 || !incomplete {
+		t.Fatalf("bounded review did not retain an explicit incomplete marker: details=%#v incomplete=%t", details, incomplete)
 	}
 }
 
@@ -93,7 +118,7 @@ func TestTerminalPullRequestObservationRetainsFinalObservedLineage(t *testing.T)
 	if err := service.recordTerminalPullRequestObservation(action, details, "merged"); err != nil {
 		t.Fatal(err)
 	}
-	if retained.ApprovedRequest == nil || retained.ApprovedRequest.BodySnapshot != item.Body || retained.ApprovedRequest.DelegatedContentDigest != github.DelegatedContentFor(item).Digest {
+	if retained.ApprovedRequest == nil || retained.ApprovedRequest.Snapshot != github.DelegatedContentSnapshotFor(item) || retained.ApprovedRequest.DelegatedContentDigest != github.DelegatedContentFor(item).Digest {
 		t.Fatalf("final observation lost exact approval: %#v", retained.ApprovedRequest)
 	}
 	if retained.Lineage == nil || retained.Lineage.Candidate.CommitOID != qaCommit || retained.Lineage.ReviewedCandidate.CommitOID != qaCommit ||

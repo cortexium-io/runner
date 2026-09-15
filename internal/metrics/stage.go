@@ -132,6 +132,7 @@ func (t *AttemptTrace) stageEvent(kind, stageID, name string) Event {
 	event.ReviewVerdict = ""
 	event.ReviewFindings = nil
 	event.ReviewDetails = nil
+	event.ModelReportComplete = nil
 	event.CandidateOID = ""
 	event.RunnerObservation = ""
 	event.ApprovedRequest = nil

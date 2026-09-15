@@ -142,6 +142,9 @@ func runStatus(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	if running {
 		fmt.Fprintf(stdout, "PID: %d\n", process.PID)
+		if process.Stopping {
+			fmt.Fprintf(stdout, "Stopping — finishing %d active assignment(s); no new work will start.\n", process.Active)
+		}
 		fmt.Fprintf(stdout, "Started: %s\n", formatStatusTime(process.StartedAt))
 		if !process.StartedAt.IsZero() {
 			fmt.Fprintf(stdout, "Uptime: %s\n", formatStatusDuration(time.Since(process.StartedAt)))

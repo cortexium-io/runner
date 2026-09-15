@@ -91,6 +91,9 @@ func (s *Store) Append(event Event) error {
 	if !validRetainedAttemptEvidence(event) {
 		return fmt.Errorf("metrics attempt evidence is invalid or exceeds a fixed limit")
 	}
+	if !validRunContext(event.RunContext) {
+		return fmt.Errorf("metrics run context requires bounded build versions and a SHA-256 config digest")
+	}
 	event.Version = EventVersion
 	encoded, err := json.Marshal(event)
 	if err != nil {
@@ -136,7 +139,10 @@ func (s *Store) Read() (ReadResult, error) {
 	byID := map[string]Attempt{}
 	order := []string{}
 	seen := map[string]bool{}
+	attemptIdentities := map[string]attemptIdentity{}
+	approvalsByAttempt := map[string]*ApprovedRequest{}
 	stagesByAttempt := map[string]map[string]Stage{}
+	stageIdentitiesByAttempt := map[string]map[string]attemptIdentity{}
 	stageOrderByAttempt := map[string][]string{}
 	result := ReadResult{}
 	for _, line := range bytes.Split(encoded, []byte{'\n'}) {
@@ -148,7 +154,7 @@ func (s *Store) Read() (ReadResult, error) {
 			continue
 		}
 		var event Event
-		if err := json.Unmarshal(line, &event); err != nil || event.Version != EventVersion || strings.TrimSpace(event.AttemptID) == "" || !validEventKind(event.Kind) || !validFailureClass(event.FailureClass) || !validFailureOperation(event.FailureOperation) || !validRetryDisposition(event.RetryDisposition) || !validReviewVerdict(event) || event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 || event.PublicationAttempts < 0 || event.PublicationAttempts > 3 || ValidateUsage(event.Usage) != nil || !validPromptContexts(event.PromptContexts) || !validRetainedAttemptEvidence(event) {
+		if err := json.Unmarshal(line, &event); err != nil || event.Version != EventVersion || strings.TrimSpace(event.AttemptID) == "" || !validEventKind(event.Kind) || !validFailureClass(event.FailureClass) || !validFailureOperation(event.FailureOperation) || !validRetryDisposition(event.RetryDisposition) || !validReviewVerdict(event) || event.DurationMilliseconds < 0 || event.HarnessDurationMilliseconds < 0 || event.PublicationAttempts < 0 || event.PublicationAttempts > 3 || ValidateUsage(event.Usage) != nil || !validPromptContexts(event.PromptContexts) || !validRetainedAttemptEvidence(event) || !validRunContext(event.RunContext) {
 			result.MalformedRecords++
 			continue
 		}
@@ -163,9 +169,15 @@ func (s *Store) Read() (ReadResult, error) {
 			}
 			if stagesByAttempt[event.AttemptID] == nil {
 				stagesByAttempt[event.AttemptID] = map[string]Stage{}
+				stageIdentitiesByAttempt[event.AttemptID] = map[string]attemptIdentity{}
+			}
+			identity := identityForEvent(event)
+			if attemptIdentity, ok := attemptIdentities[event.AttemptID]; ok && identity != attemptIdentity {
+				result.MalformedRecords++
+				continue
 			}
 			previous, exists := stagesByAttempt[event.AttemptID][event.StageID]
-			if exists && (previous.Name != event.Stage || event.Kind == EventStageStarted || previous.Completed) {
+			if exists && (previous.Name != event.Stage || stageIdentitiesByAttempt[event.AttemptID][event.StageID] != identity || event.Kind == EventStageStarted || previous.Completed) {
 				result.MalformedRecords++
 				continue
 			}
@@ -192,7 +204,22 @@ func (s *Store) Read() (ReadResult, error) {
 				stage.Completed = true
 			}
 			stagesByAttempt[event.AttemptID][event.StageID] = stage
+			stageIdentitiesByAttempt[event.AttemptID][event.StageID] = identity
 			continue
+		}
+		identity := identityForEvent(event)
+		if previous, ok := attemptIdentities[event.AttemptID]; ok && previous != identity {
+			result.MalformedRecords++
+			continue
+		}
+		if approval, ok := approvalsByAttempt[event.AttemptID]; ok && event.ApprovedRequest != nil && *approval != *event.ApprovedRequest {
+			result.MalformedRecords++
+			continue
+		}
+		attemptIdentities[event.AttemptID] = identity
+		if event.ApprovedRequest != nil {
+			approval := *event.ApprovedRequest
+			approvalsByAttempt[event.AttemptID] = &approval
 		}
 		current := byID[event.AttemptID]
 		if event.Kind == EventStarted {
@@ -210,6 +237,9 @@ func (s *Store) Read() (ReadResult, error) {
 			if current.AttemptID != "" && event.StartedAt.IsZero() {
 				event.StartedAt = current.StartedAt
 			}
+			if event.ApprovedRequest == nil {
+				event.ApprovedRequest = approvalsByAttempt[event.AttemptID]
+			}
 			current.Event = event
 			current.Completed = true
 		}
@@ -219,6 +249,10 @@ func (s *Store) Read() (ReadResult, error) {
 		attempt := byID[id]
 		if attempt.AttemptID != "" {
 			for _, stageID := range stageOrderByAttempt[id] {
+				if stageIdentitiesByAttempt[id][stageID] != attemptIdentities[id] {
+					result.MalformedRecords++
+					continue
+				}
 				attempt.Stages = append(attempt.Stages, stagesByAttempt[id][stageID])
 			}
 			SortStages(attempt.Stages)
@@ -227,6 +261,33 @@ func (s *Store) Read() (ReadResult, error) {
 	}
 	SortNewest(result.Attempts)
 	return result, nil
+}
+
+// attemptIdentity contains the fields that identify one immutable attempt and
+// therefore must agree across its start, stages, and completion. Evidence and
+// timing fields intentionally remain outside the join key because they evolve
+// while the attempt runs.
+type attemptIdentity struct {
+	RunnerID, RunVersion, SkillsVersion, ConfigDigest string
+	ProjectOwner, Repository, ItemID, ItemTitle       string
+	Role, Harness, Model, Reasoning                   string
+	ProjectNumber, Iteration                          int
+	HasRunContext                                     bool
+}
+
+func identityForEvent(event Event) attemptIdentity {
+	identity := attemptIdentity{
+		RunnerID: event.RunnerID, ProjectOwner: event.ProjectOwner, ProjectNumber: event.ProjectNumber,
+		Repository: event.Repository, ItemID: event.ItemID, ItemTitle: event.ItemTitle,
+		Role: event.Role, Harness: event.Harness, Model: event.Model, Reasoning: event.Reasoning, Iteration: event.Iteration,
+	}
+	if event.RunContext != nil {
+		identity.HasRunContext = true
+		identity.RunVersion = event.RunContext.RunnerVersion
+		identity.SkillsVersion = event.RunContext.BundledSkillsVersion
+		identity.ConfigDigest = event.RunContext.ConfigDigest
+	}
+	return identity
 }
 
 func validEventKind(kind string) bool {

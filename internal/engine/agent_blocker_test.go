@@ -58,7 +58,7 @@ func TestAgentStopsRetainWorkspaceAndRetryWithoutPublishingDiagnostics(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			historyStore := metrics.NewStore(filepath.Join(t.TempDir(), "metrics.jsonl"))
+			historyStore := metrics.NewStore(filepath.Join(t.TempDir(), "metrics", "metrics.jsonl"))
 			service.SetMetricsObserver(historyStore.Append)
 			results, err := service.RunCycle(t.Context())
 			if err != nil || len(results) != 1 {

@@ -473,10 +473,7 @@ func reviewOnlyInstructions(assignment Assignment) string {
 }
 
 func appendVerificationOwnershipInstructions(b *strings.Builder) {
-	b.WriteString("These obligations define what must be proved, not how. After inspecting the repository, choose the smallest reliable proof method for each obligation and meaningful changed-behavior failure. Reuse existing focused tests and commands before creating anything new; add or update durable tests when that is the simplest reliable regression protection. Do not create a second test framework, overlapping coverage, a repository scratch script, or a custom verification harness.\n")
-	b.WriteString("Do not substitute broader checks, repeat expensive passing evidence, or invent unrelated verification work. Stop when the approved behavior is complete and every obligation has reliable evidence. ")
-	b.WriteString("Combine related observations for the same obligation into its single entry.\n")
-	b.WriteString("These candidate-bound entries are the evidence handoff to QA; temporary logs and ignored reports are not copied. Follow the implementer skill's self-contained evidence guidance, including affected test identities, commands/settings, and both outcomes after a failed check and rerun.\n")
+	b.WriteString("The implementer skill owns verification method, scope, and evidence quality. These obligations define what must be proved, not how. Complete the approved behavior and every obligation before returning. Combine related observations in the corresponding evidence entry; Runner retains those entries bound to the committed candidate, not temporary logs or ignored reports.\n")
 }
 
 func (e AgentExecutor) timeout() time.Duration {

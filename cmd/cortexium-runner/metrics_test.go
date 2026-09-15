@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +14,71 @@ import (
 	"github.com/cortexium-io/runner/internal/config"
 	runnermetrics "github.com/cortexium-io/runner/internal/metrics"
 )
+
+func TestMetricsRunIdentityIsRetainedAtRecordingNotExport(t *testing.T) {
+	for _, mode := range []string{"cli", "service"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("CORTEXIUM_RUNNER_STATE_DIR", t.TempDir())
+			cfg := completeCLITestConfig(t.TempDir())
+			profile := cfg.Roles[config.WorkRoleImplementer]
+			profile.Description = "private-config-content-not-for-history"
+			cfg.Roles[config.WorkRoleImplementer] = profile
+			store, err := runnermetrics.NewDefaultStore(cfg.RunnerID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observe := metricsRunObserver(cfg, store.Append)
+			if mode == "service" {
+				observe = guidanceMetricsObserver(store, cfg, io.Discard)
+			}
+			// Changing even the shared map after attachment must not relabel this run.
+			profile.Reasoning = "high"
+			profile.Description = "changed configuration"
+			cfg.Roles[config.WorkRoleImplementer] = profile
+			if err := observe(runnermetrics.Event{Kind: runnermetrics.EventCompleted, AttemptID: "original", Outcome: "succeeded"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := metricsRunObserver(cfg, store.Append)(runnermetrics.Event{Kind: runnermetrics.EventStarted, AttemptID: "later"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Append(runnermetrics.Event{Kind: runnermetrics.EventCompleted, AttemptID: "unknown"}); err != nil {
+				t.Fatal(err)
+			}
+			configPath := filepath.Join(t.TempDir(), "runner.json")
+			if err := config.SaveConfig(configPath, cfg); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			if code := execute(t.Context(), []string{"metrics", "--config", configPath, "--json"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+				t.Fatalf("metrics CLI exit %d: %s", code, &stderr)
+			}
+			var view metricsOutput
+			if err := json.Unmarshal(stdout.Bytes(), &view); err != nil || len(view.Attempts) != 3 {
+				t.Fatalf("metrics export: attempts=%d error=%v", len(view.Attempts), err)
+			}
+			first, later := view.Attempts[0].RunContext, view.Attempts[1].RunContext
+			if first == nil || later == nil || first.RunnerVersion != buildVersion() || first.BundledSkillsVersion == "" ||
+				first.ConfigDigest == later.ConfigDigest || view.Attempts[2].RunContext != nil {
+				t.Fatalf("lost historical run identity: first=%+v later=%+v unknown=%+v", first, later, view.Attempts[2].RunContext)
+			}
+			raw, err := os.ReadFile(store.Path())
+			if err != nil || bytes.Contains(raw, []byte("private-config-content")) || bytes.Contains(raw, []byte("changed configuration")) {
+				t.Fatalf("config contents leaked into history: %v", err)
+			}
+			if info, err := os.Stat(store.Path()); err != nil || info.Mode().Perm() != 0o600 {
+				t.Fatalf("metrics history not private: %v", err)
+			}
+		})
+	}
+}
+
+func TestMetricsRunObserverPreservesWriteFailures(t *testing.T) {
+	want := errors.New("disk full")
+	observe := metricsRunObserver(completeCLITestConfig(t.TempDir()), func(runnermetrics.Event) error { return want })
+	if err := observe(runnermetrics.Event{}); !errors.Is(err, want) {
+		t.Fatalf("metrics write failure hidden from admission controls: %v", err)
+	}
+}
 
 func TestMetricsCommandFiltersItemsAndReportsOnlyHarnessCost(t *testing.T) {
 	stateDir := t.TempDir()
@@ -119,42 +187,15 @@ func TestMetricsCommandReportsQAIndependentlyOfPublication(t *testing.T) {
 	}
 }
 
-func TestWriteMetricsRendersDetailedHistoryWithExplicitProvenanceAndUnknowns(t *testing.T) {
-	candidate := runnermetrics.ObjectIdentity{CommitOID: strings.Repeat("a", 40), TreeOID: strings.Repeat("b", 40)}
-	attempt := runnermetrics.Attempt{Completed: true, Event: runnermetrics.Event{
-		Kind: runnermetrics.EventCompleted, AttemptID: "attempt", ItemID: "PVTI_history", ItemTitle: "Explain history", Role: "reviewer", Harness: "codex",
-		StartedAt: time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC), Outcome: "succeeded", Summary: "Accepted repair.", ModelReportedSummary: "The repair satisfies the request.",
-		WorkDone: []string{"Inspected repair."}, Verification: []string{"Focused check passed."}, ReviewVerdict: "accept",
-		ReviewDetails:   []runnermetrics.ReviewDetail{{Area: "acceptance", Name: "proof", Status: "passed", Summary: "The model reported coverage.", Evidence: []string{"reported check"}}},
-		ApprovedRequest: &runnermetrics.ApprovedRequest{DelegatedContentDigest: "v1:" + strings.Repeat("c", 64), BodySnapshot: "Exact approved content"},
-		CandidateOID:    candidate.CommitOID,
-		Lineage: &runnermetrics.ObservedLineage{Repository: "owner/repo", Branch: "runner/history", Base: runnermetrics.ObjectIdentity{CommitOID: strings.Repeat("d", 40)}, Candidate: candidate, EvidenceCandidate: candidate, ReviewedCandidate: candidate,
-			PublishedCandidate: runnermetrics.ObjectIdentity{CommitOID: strings.Repeat("e", 40), TreeOID: candidate.TreeOID}, PullRequestURL: "https://github.com/owner/repo/pull/7", PullRequestNumber: 7},
-	}}
-	view := metricsOutput{RunnerID: "runner", HistoryPath: "/protected/history", Summary: runnermetrics.Summarize([]runnermetrics.Attempt{attempt}), Attempts: []runnermetrics.Attempt{attempt}, DetailedHistory: true}
+func TestWriteMetricsPreservesSummaryForRetainedProvenanceFields(t *testing.T) {
+	started := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	attempts := []runnermetrics.Attempt{
+		{Completed: true, Event: runnermetrics.Event{AttemptID: "model", ItemTitle: "Model report", Role: "implementer", Harness: "codex", StartedAt: started, Outcome: "succeeded", ModelReportedSummary: "model summary"}},
+		{Completed: true, Event: runnermetrics.Event{AttemptID: "runner", ItemTitle: "Runner observation", Role: "runner", Harness: "runner", StartedAt: started, Outcome: "succeeded", RunnerObservation: "runner summary"}},
+	}
 	var output bytes.Buffer
-	writeMetrics(&output, view)
-	for _, expected := range []string{
-		"Runner-observed approval digest", "Exact approved content", "Runner-observed candidate commit", "Runner-observed published candidate commit",
-		"Runner-observed pull request", "Runner-observed merge commit: unavailable", "model-reported work", "model-reported verification",
-		"model-reported summary", "Runner-classified outcome", "model-reported review detail (Runner-validated)", "harness-reported usage: unavailable",
-	} {
-		if !strings.Contains(output.String(), expected) {
-			t.Fatalf("detailed history omitted %q:\n%s", expected, output.String())
-		}
-	}
-	encoded, err := json.Marshal(view)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, expected := range []string{"runner_observed_approved_request", "runner_observed_lineage", "model_reported_summary", "model_reported_review_details"} {
-		if !bytes.Contains(encoded, []byte(expected)) {
-			t.Fatalf("JSON omitted provenance field %q: %s", expected, encoded)
-		}
-	}
-	for _, forbidden := range []string{"raw_transcript", "hidden_reasoning", "command_environment", "credential"} {
-		if bytes.Contains(encoded, []byte(forbidden)) {
-			t.Fatalf("JSON exposed forbidden field %q: %s", forbidden, encoded)
-		}
+	writeMetrics(&output, metricsOutput{RunnerID: "runner", Summary: runnermetrics.Summarize(attempts), Attempts: attempts})
+	if !strings.Contains(output.String(), "model summary") || !strings.Contains(output.String(), "runner summary") {
+		t.Fatalf("existing metrics view lost retained summaries:\n%s", output.String())
 	}
 }

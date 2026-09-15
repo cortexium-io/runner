@@ -603,6 +603,10 @@ func (d *Directory) AppendFile(name string, content []byte, mode os.FileMode, ma
 		return errors.New("create secure append file handle")
 	}
 	defer file.Close()
+	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
+		return err
+	}
+	defer func() { _ = unix.Flock(fd, unix.LOCK_UN) }()
 	if created {
 		if err := file.Chmod(mode.Perm()); err != nil {
 			return err
@@ -629,6 +633,12 @@ func (d *Directory) AppendFile(name string, content []byte, mode os.FileMode, ma
 		return err
 	}
 	if err := file.Sync(); err != nil {
+		return err
+	}
+	if err := unix.Fstatat(d.fd, name, &named, unix.AT_SYMLINK_NOFOLLOW); err != nil || !sameObject(opened, named) {
+		return fmt.Errorf("%w after appending %s", ErrChanged, filepath.Join(d.path, name))
+	}
+	if err := d.VerifyIdentity(); err != nil {
 		return err
 	}
 	return unix.Fsync(d.fd)

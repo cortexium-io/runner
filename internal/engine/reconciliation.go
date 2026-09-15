@@ -224,8 +224,18 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		reworkRequested := s.reworkRequested(item, laneID)
 		awaitingHuman := publicationLane != "" && laneID == publicationLane
 		if terminalPullRequestLane(s.cfg, laneID, mergedEvent, hasMergedEvent, closedEvent, hasClosedEvent) {
-			if _, cleanupErr := s.cleanupAuthorizedItemWorkspace(ctx, action); cleanupErr != nil {
-				warnings = append(warnings, workspaceCleanupWarning(item, cleanupErr))
+			details, inspectErr := manager.InspectAuthorized(ctx, action)
+			if inspectErr != nil {
+				warnings = append(warnings, RunResult{Item: item, Outcome: "warning", Summary: "Terminal pull request could not be reinspected before retained-history recovery and cleanup.", Error: inspectErr.Error()})
+				continue
+			}
+			_, terminalChanged, warning, terminalErr := s.reconcileTerminalPullRequest(ctx, action, details, mergedEvent, hasMergedEvent, closedEvent, hasClosedEvent)
+			changed = changed || terminalChanged
+			if terminalErr != nil {
+				return warnings, changed, terminalErr
+			}
+			if warning != nil {
+				warnings = append(warnings, *warning)
 			}
 			continue
 		}
@@ -709,6 +719,20 @@ func (s *Engine) reconcileTerminalPullRequest(
 		return true, false, nil, nil
 	}
 	targetStatus := s.cfg.LaneStatus(event.To)
+	retained, retainErr := s.terminalPullRequestObservationRetained(action, details, verb)
+	if retainErr != nil {
+		value := RunResult{Item: item, Outcome: "warning", Summary: "Final pull request history could not be checked; Runner preserved the Project state and workspace evidence.", Error: retainErr.Error()}
+		return true, false, &value, nil
+	}
+	if !retained {
+		// Retain the terminal observation before changing Project state. If the
+		// append fails, leaving the item and workspace in place lets the next
+		// reconciliation retry without losing the only cleanup-bound evidence.
+		if observeErr := s.recordTerminalPullRequestObservation(action, details, verb); observeErr != nil {
+			value := RunResult{Item: item, Outcome: "warning", Summary: "Final pull request outcome could not be retained; Runner preserved the Project state and workspace evidence.", Error: observeErr.Error()}
+			return true, false, &value, nil
+		}
+	}
 	if !strings.EqualFold(strings.TrimSpace(item.Status), strings.TrimSpace(targetStatus)) {
 		phase := s.retryPhase(laneID, event.To)
 		if err := s.transitionProjectItem(ctx, action, targetStatus, fmt.Sprintf("Pull request %s was %s.", details.URL, verb), phase); err != nil {
@@ -721,12 +745,6 @@ func (s *Engine) reconcileTerminalPullRequest(
 		}
 		item = action.Item
 	}
-	if changed {
-		if observeErr := s.recordTerminalPullRequestObservation(action, details, verb); observeErr != nil {
-			value := RunResult{Item: item, Outcome: "warning", Summary: "Final pull request outcome could not be retained; Runner preserved the workspace evidence.", Error: observeErr.Error()}
-			return true, changed, &value, nil
-		}
-	}
 	if _, cleanupErr := s.cleanupAuthorizedItemWorkspace(ctx, action); cleanupErr != nil {
 		value := workspaceCleanupWarning(item, cleanupErr)
 		warning = &value
@@ -738,9 +756,41 @@ func (s *Engine) recordTerminalPullRequestObservation(action github.AuthorizedAc
 	if s.observeMetrics == nil {
 		return nil
 	}
-	content, err := action.DelegatedContent()
+	event, err := s.terminalPullRequestObservation(action, details, verb)
 	if err != nil {
 		return err
+	}
+	return s.observeMetrics(event)
+}
+
+func (s *Engine) terminalPullRequestObservationRetained(action github.AuthorizedAction, details github.PullRequestDetails, verb string) (bool, error) {
+	if s.readMetricsHistory == nil {
+		return false, nil
+	}
+	expected, err := s.terminalPullRequestObservation(action, details, verb)
+	if err != nil {
+		return false, err
+	}
+	history, err := s.readMetricsHistory()
+	if err != nil {
+		return false, err
+	}
+	for _, attempt := range history.Attempts {
+		if !attempt.Completed || attempt.ItemID != expected.ItemID || attempt.Role != expected.Role || attempt.Harness != expected.Harness ||
+			attempt.Outcome != expected.Outcome || attempt.RunnerObservation != expected.RunnerObservation || attempt.ApprovedRequest == nil ||
+			expected.ApprovedRequest == nil || *attempt.ApprovedRequest != *expected.ApprovedRequest || attempt.Lineage == nil ||
+			expected.Lineage == nil || *attempt.Lineage != *expected.Lineage {
+			continue
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (s *Engine) terminalPullRequestObservation(action github.AuthorizedAction, details github.PullRequestDetails, verb string) (metrics.Event, error) {
+	content, err := action.DelegatedContent()
+	if err != nil {
+		return metrics.Event{}, err
 	}
 	now := time.Now().UTC()
 	event := s.newItemAttempt(action.Item)
@@ -756,7 +806,7 @@ func (s *Engine) recordTerminalPullRequestObservation(action github.AuthorizedAc
 		event.Outcome = execution.OutcomeBlocked
 	}
 	event.RunnerObservation = fmt.Sprintf("Pull request %s was %s.", strings.TrimSpace(details.URL), strings.TrimSpace(verb))
-	event.ApprovedRequest = &metrics.ApprovedRequest{DelegatedContentDigest: content.Digest, BodySnapshot: content.BodySnapshot}
+	event.ApprovedRequest = metrics.NewApprovedRequest(content.Digest, github.DelegatedContentSnapshotFor(action.Item))
 	event.Lineage = &metrics.ObservedLineage{
 		Repository: action.Item.Repository, Branch: details.HeadRefName,
 		PullRequestURL: details.URL, PullRequestNumber: details.Number,
@@ -775,7 +825,7 @@ func (s *Engine) recordTerminalPullRequestObservation(action github.AuthorizedAc
 	if validReconciliationObjectID(details.MergeCommitOID) {
 		event.Lineage.Merge.CommitOID = details.MergeCommitOID
 	}
-	return s.observeMetrics(event)
+	return event, nil
 }
 
 // terminalPullRequestTreeMatchesQA permits a rebase-only repository to

@@ -8,6 +8,29 @@ import (
 	"github.com/cortexium-io/runner/internal/execution"
 )
 
+func TestExecutionReportDistinguishesFeedbackLimitFromTampering(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		err   error
+		class execution.FailureClass
+		want  string
+	}{
+		{"limit", errReviewFeedbackLimit, execution.FailureInvalidContract, "feedback exceeds the 1 MiB safety limit"},
+		{"tampering", errors.New("private path and contents"), execution.FailureIntegrityViolation, "workspace integrity violation"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := reviewFeedbackFailureOutput("Agent QA feedback could not be retained safely", test.err)
+			report := formatExecutionReport("Retryable Runner blocker", output)
+			if output.FailureClass != test.class || output.RetryDisposition != execution.RetryManual || !strings.Contains(report, test.want) {
+				t.Fatalf("incorrect feedback failure: %#v, %q", output, report)
+			}
+			if strings.Contains(report, "private path") || (test.class == execution.FailureInvalidContract && strings.Contains(report, "integrity violation")) {
+				t.Fatalf("misleading or unsafe report: %q", report)
+			}
+		})
+	}
+}
+
 func TestExecutionReportIdentifiesRetainedAcceptanceFailureWithoutPrivateDetails(t *testing.T) {
 	output := integrityViolationOutput(retainedAcceptanceResumeFailure, errors.New("private-record-path token=secret"))
 	report := formatExecutionReport("Retryable Runner blocker", output)

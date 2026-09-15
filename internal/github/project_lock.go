@@ -15,23 +15,29 @@ import (
 )
 
 type ProcessLock struct {
-	file       *os.File
-	Path       string
-	StartedAt  time.Time
-	statusPath string
-	released   bool
+	file         *os.File
+	Path         string
+	StartedAt    time.Time
+	statusPath   string
+	controlState RuntimeState
+	released     bool
 }
 
 var ErrProjectLockBusy = errors.New("Runner Project operation is busy")
 
 type RuntimeState struct {
-	PID        int       `json:"pid"`
-	Owner      string    `json:"owner"`
-	Project    int       `json:"project"`
-	StartedAt  time.Time `json:"started_at"`
-	LastPollAt time.Time `json:"last_poll_at,omitempty"`
-	NextPollAt time.Time `json:"next_poll_at,omitempty"`
-	LastError  string    `json:"last_error,omitempty"`
+	PID            int       `json:"pid"`
+	Owner          string    `json:"owner"`
+	Project        int       `json:"project"`
+	StartedAt      time.Time `json:"started_at"`
+	LastPollAt     time.Time `json:"last_poll_at,omitempty"`
+	NextPollAt     time.Time `json:"next_poll_at,omitempty"`
+	LastError      string    `json:"last_error,omitempty"`
+	StopSupported  bool      `json:"stop_supported,omitempty"`
+	Stopping       bool      `json:"stopping,omitempty"`
+	Active         int       `json:"active_assignments,omitempty"`
+	Executable     string    `json:"executable,omitempty"`
+	LaunchdService string    `json:"launchd_service,omitempty"`
 }
 
 type projectLockMetadata struct {
@@ -156,6 +162,11 @@ func (l *ProcessLock) UpdateRuntime(state RuntimeState) error {
 	if state.PID == 0 {
 		state.PID = os.Getpid()
 	}
+	if l.controlState.StopSupported {
+		state.StopSupported = true
+		state.Executable = l.controlState.Executable
+		state.LaunchdService = l.controlState.LaunchdService
+	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode Runner runtime state: %w", err)
@@ -188,6 +199,10 @@ func (l *ProcessLock) Release() error {
 		return nil
 	}
 	l.released = true
+	if l.controlState.StopSupported {
+		// Requests belong to this process incarnation, never its successor.
+		_ = os.Remove(stopRequestPath(l.Path, l.controlState))
+	}
 	var removeErr error
 	if l.statusPath != "" {
 		removeErr = os.Remove(l.statusPath)
@@ -232,14 +247,10 @@ func InspectProcessState(project config.GitHubProjectConfig) (RuntimeState, bool
 		return RuntimeState{}, false, nil
 	}
 	var state RuntimeState
-	data, readErr := os.ReadFile(projectStatusPath(path))
-	if readErr == nil {
-		if err := json.Unmarshal(data, &state); err != nil {
-			return RuntimeState{}, true, fmt.Errorf("decode Runner runtime state: %w", err)
-		}
-	} else if !errors.Is(readErr, os.ErrNotExist) {
+	exists, readErr := readProcessRecord(projectStatusPath(path), &state)
+	if readErr != nil {
 		return RuntimeState{}, true, fmt.Errorf("read Runner runtime state: %w", readErr)
-	} else {
+	} else if !exists {
 		metadata := readProjectLockMetadata(file)
 		state = RuntimeState{PID: metadata.PID, Owner: metadata.Owner, Project: metadata.Project, StartedAt: metadata.StartedAt}
 	}

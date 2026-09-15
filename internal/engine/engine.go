@@ -47,6 +47,7 @@ type RunResult struct {
 	CandidateOID                string                   `json:"candidate_oid,omitempty"`
 	ApprovedRequest             *metrics.ApprovedRequest `json:"runner_observed_approved_request,omitempty"`
 	Lineage                     *metrics.ObservedLineage `json:"runner_observed_lineage,omitempty"`
+	modelReportIncomplete       bool
 }
 
 type Engine struct {
@@ -66,6 +67,7 @@ type Engine struct {
 	admissionCacheGeneration   uint64
 	automaticRetryMu           sync.Mutex
 	automaticRetries           map[string]automaticRetryState
+	stopRequested              func() (bool, error)
 }
 
 // SetMetricsObserver attaches attempt telemetry. It remains non-critical when
@@ -95,7 +97,14 @@ type PollState struct {
 	NextPollAt time.Time
 	LastError  string
 	Admission  AdmissionDecision
+	Stopping   bool
+	Active     int
 }
+
+// SetStopCheck installs the local operator stop request reader. It is checked
+// only by the coordinator: acknowledging a stop cannot race another admission.
+// The request never cancels an already admitted action's context.
+func (s *Engine) SetStopCheck(check func() (bool, error)) { s.stopRequested = check }
 
 const (
 	DefaultPollInterval    = 30 * time.Second
@@ -429,7 +438,7 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 		reserveResources(resources, occupied)
 		event := s.newItemAttempt(claimedAction.Item)
 		if content, contentErr := claimedAction.DelegatedContent(); contentErr == nil {
-			event.ApprovedRequest = &metrics.ApprovedRequest{DelegatedContentDigest: content.Digest, BodySnapshot: content.BodySnapshot}
+			event.ApprovedRequest = metrics.NewApprovedRequest(content.Digest, github.DelegatedContentSnapshotFor(claimedAction.Item))
 		}
 		admitted := admittedAction{action: claimedAction, resources: resources, slot: slot, event: event}
 		if err := s.recordAttemptStart(admitted.event); err != nil {
@@ -486,6 +495,17 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 	nextIntakeSync := time.Time{}
 	inFlight := map[string][]string{}
 	completed := make(chan actionCompletion, s.maxParallelism())
+	controlTimer := time.NewTicker(250 * time.Millisecond)
+	defer controlTimer.Stop()
+	stopping := false
+	lastPoll := PollState{}
+	reportStopping := func() {
+		if onPoll != nil {
+			state := lastPoll
+			state.Stopping, state.Active, state.NextPollAt = true, len(inFlight), time.Time{}
+			onPoll(state)
+		}
+	}
 	pollTimer := time.NewTimer(0)
 	defer pollTimer.Stop()
 	resetPollTimer := func(delay time.Duration) {
@@ -503,7 +523,22 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 		}
 	}
 	for {
+		if !stopping && s.stopRequested != nil {
+			requested, err := s.stopRequested()
+			if err != nil && onError != nil {
+				onError(fmt.Errorf("read local stop request; draining safely: %w", err))
+			}
+			if requested || err != nil {
+				stopping = true
+				reportStopping()
+			}
+		}
+		if stopping && len(inFlight) == 0 {
+			return nil
+		}
 		select {
+		case <-controlTimer.C:
+			// Wake for local control without polling GitHub or canceling work.
 		case <-ctx.Done():
 			for len(inFlight) > 0 {
 				completion := <-completed
@@ -516,8 +551,15 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 			delete(inFlight, completion.itemID)
 			s.finishAutomaticRetry(completion.result)
 			reportResult(completion.result)
-			resetPollTimer(0)
+			if stopping {
+				reportStopping()
+			} else {
+				resetPollTimer(0)
+			}
 		case <-pollTimer.C:
+			if stopping {
+				continue
+			}
 			now := time.Now()
 			syncIntake := !now.Before(nextIntakeSync)
 			available := s.maxParallelism() - len(inFlight)
@@ -575,6 +617,7 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 				if err != nil {
 					state.LastError = err.Error()
 				}
+				lastPoll = state
 				onPoll(state)
 			}
 			resetPollTimer(delay)
@@ -713,12 +756,18 @@ func (s *Engine) executeItem(ctx context.Context, admitted admittedAction) (resu
 		completed.Outcome = result.Outcome
 		summary := boundedHistoryText(result.Summary, 8*1024)
 		completed.Summary = ""
-		completed.ModelReportedSummary = boundedHistoryText(result.ModelReportedSummary, 8*1024)
-		completed.WorkDone = boundedHistoryEvidence(result.WorkDone)
-		completed.Verification = boundedHistoryEvidence(result.Verification)
+		var incomplete bool
+		completed.ModelReportedSummary, incomplete = boundedHistoryTextWithStatus(result.ModelReportedSummary, 8*1024)
+		completed.WorkDone, incomplete = boundedHistoryEvidenceWithStatus(result.WorkDone, incomplete)
+		completed.Verification, incomplete = boundedHistoryEvidenceWithStatus(result.Verification, incomplete)
 		completed.ReviewVerdict = result.ReviewVerdict
-		completed.ReviewFindings = boundedHistoryFindings(result.ReviewFindings)
+		completed.ReviewFindings, incomplete = boundedHistoryFindingsWithStatus(result.ReviewFindings, incomplete)
 		completed.ReviewDetails = result.ReviewDetails
+		incomplete = incomplete || result.modelReportIncomplete
+		if result.ModelReportedSummary != "" || len(result.WorkDone) != 0 || len(result.Verification) != 0 || result.ReviewVerdict != "" || len(result.ReviewFindings) != 0 || len(result.ReviewDetails) != 0 {
+			complete := !incomplete
+			completed.ModelReportComplete = &complete
+		}
 		completed.CandidateOID = result.CandidateOID
 		if completed.ModelReportedSummary == "" || completed.ModelReportedSummary != summary {
 			completed.RunnerObservation = summary
@@ -755,49 +804,56 @@ func (s *Engine) executeItem(ctx context.Context, admitted admittedAction) (resu
 	return result
 }
 
-func observeApprovedRequest(result *RunResult, content github.DelegatedContent) {
+func observeApprovedRequest(result *RunResult, item github.WorkItem, content github.DelegatedContent) {
 	if result == nil {
 		return
 	}
-	result.ApprovedRequest = &metrics.ApprovedRequest{
-		DelegatedContentDigest: strings.TrimSpace(content.Digest),
-		BodySnapshot:           content.BodySnapshot,
-	}
+	result.ApprovedRequest = metrics.NewApprovedRequest(content.Digest, github.DelegatedContentSnapshotFor(item))
 }
 
 func boundedHistoryText(value string, limit int) string {
-	if len(value) <= limit {
-		return strings.TrimSpace(value)
-	}
-	return boundedReviewText(value, limit-3)
-}
-
-func boundedHistoryEvidence(values []string) []string {
-	result := make([]string, 0, min(1000, len(values)))
-	for _, value := range values {
-		if len(result) >= 1000 {
-			break
-		}
-		if value = boundedHistoryText(value, 8*1024); value != "" {
-			result = append(result, value)
-		}
-	}
+	result, _ := boundedHistoryTextWithStatus(value, limit)
 	return result
 }
 
-func boundedHistoryFindings(values []metrics.ReviewFinding) []metrics.ReviewFinding {
+func boundedHistoryTextWithStatus(value string, limit int) (string, bool) {
+	if len(value) <= limit {
+		return strings.TrimSpace(value), false
+	}
+	return boundedReviewText(value, limit-3), true
+}
+
+func boundedHistoryEvidenceWithStatus(values []string, incomplete bool) ([]string, bool) {
+	result := make([]string, 0, min(1000, len(values)))
+	for _, value := range values {
+		if len(result) >= 1000 {
+			incomplete = true
+			break
+		}
+		var truncated bool
+		if value, truncated = boundedHistoryTextWithStatus(value, 8*1024); value != "" {
+			result = append(result, value)
+		}
+		incomplete = incomplete || truncated
+	}
+	return result, incomplete
+}
+
+func boundedHistoryFindingsWithStatus(values []metrics.ReviewFinding, incomplete bool) ([]metrics.ReviewFinding, bool) {
 	result := make([]metrics.ReviewFinding, 0, min(1000, len(values)))
 	for _, value := range values {
 		if len(result) >= 1000 {
+			incomplete = true
 			break
 		}
-		area := boundedHistoryText(value.Area, 1024)
-		summary := boundedHistoryText(value.Summary, 8*1024)
+		area, areaTruncated := boundedHistoryTextWithStatus(value.Area, 1024)
+		summary, summaryTruncated := boundedHistoryTextWithStatus(value.Summary, 8*1024)
+		incomplete = incomplete || areaTruncated || summaryTruncated
 		if area != "" && summary != "" {
 			result = append(result, metrics.ReviewFinding{Area: area, Summary: summary})
 		}
 	}
-	return result
+	return result, incomplete
 }
 
 func observedLineage(result *RunResult) *metrics.ObservedLineage {
@@ -832,7 +888,7 @@ func (s *Engine) executePlanner(ctx context.Context, action github.AuthorizedAct
 	harness := s.roleHarness(item.Role)
 	result := RunResult{Item: item, Harness: harness}
 	if approved, approvedErr := action.DelegatedContent(); approvedErr == nil {
-		observeApprovedRequest(&result, approved)
+		observeApprovedRequest(&result, item, approved)
 	}
 	refreshedAction, delegatedContent, err := s.source.RefreshDelegatedContent(ctx, action)
 	if err != nil {
@@ -846,7 +902,7 @@ func (s *Engine) executePlanner(ctx context.Context, action github.AuthorizedAct
 	action = refreshedAction
 	item = action.Item
 	result.Item = item
-	observeApprovedRequest(&result, delegatedContent)
+	observeApprovedRequest(&result, item, delegatedContent)
 	idea := strings.TrimSpace(delegatedContent.BodySnapshot)
 	if idea == "" {
 		idea = "Plan approved GitHub Project item " + strings.TrimSpace(item.ID)
@@ -975,7 +1031,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 	harness := s.roleHarness(executionRole)
 	result := RunResult{Item: item, Harness: harness}
 	if approved, approvedErr := action.DelegatedContent(); approvedErr == nil {
-		observeApprovedRequest(&result, approved)
+		observeApprovedRequest(&result, item, approved)
 	}
 	refreshedAction, delegatedContent, err := s.source.RefreshDelegatedContent(ctx, action)
 	if err != nil {
@@ -988,7 +1044,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 	}
 	action = refreshedAction
 	item = action.Item
-	observeApprovedRequest(&result, delegatedContent)
+	observeApprovedRequest(&result, item, delegatedContent)
 	executionRole, err = s.cfg.SelectedImplementer(item.Role, item.ImplementationProfile, item.QAFailures)
 	if err != nil {
 		return s.failExecution(ctx, action, lane, result, "Approved execution profile is unavailable", err, blockedExecutorOutput("Approved execution profile is unavailable", err))
@@ -1048,7 +1104,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 	}
 	reviewFeedback, err := s.loadReviewFeedback(item, delegatedContent)
 	if err != nil {
-		return s.failExecution(ctx, action, lane, result, "Previous Agent QA feedback is not safe to use", err, integrityViolationOutput("Previous Agent QA feedback is not safe to use", err))
+		return s.failExecution(ctx, action, lane, result, "Previous Agent QA feedback is not safe to use", err, reviewFeedbackFailureOutput("Previous Agent QA feedback is not safe to use", err))
 	}
 	comments, err := s.source.ItemComments(ctx, item)
 	if err != nil {
@@ -1235,7 +1291,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	harness := s.roleHarness(item.Role)
 	result := RunResult{Item: item, Harness: harness}
 	if approved, approvedErr := action.DelegatedContent(); approvedErr == nil {
-		observeApprovedRequest(&result, approved)
+		observeApprovedRequest(&result, item, approved)
 	}
 	refreshedAction, delegatedContent, err := s.source.RefreshDelegatedContent(ctx, action)
 	if err != nil {
@@ -1249,7 +1305,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	action = refreshedAction
 	item = action.Item
 	result.Item = item
-	observeApprovedRequest(&result, delegatedContent)
+	observeApprovedRequest(&result, item, delegatedContent)
 	finishRepository := metrics.StartStage(ctx, metrics.StageRepositoryPrepare)
 	repoRoot, err := s.repositoryDir(ctx, item.Repository)
 	if err != nil {
@@ -1378,7 +1434,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	reviewRecord, err := s.loadReviewFeedbackRecord(item, delegatedContent)
 	if err != nil {
-		return s.failExecution(ctx, action, lane, result, "Previous Agent QA feedback is not safe to use for review", err, integrityViolationOutput("Previous Agent QA feedback is not safe to use for review", err))
+		return s.failExecution(ctx, action, lane, result, "Previous Agent QA feedback is not safe to use for review", err, reviewFeedbackFailureOutput("Previous Agent QA feedback is not safe to use for review", err))
 	}
 	var reviewFeedback []string
 	if reviewRecord != nil {
@@ -1413,7 +1469,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	if output.ReviewAssessment != nil {
 		result.ReviewVerdict = output.ReviewAssessment.Verdict
 		result.ReviewFindings = reviewFindingObservations(*output.ReviewAssessment)
-		result.ReviewDetails = reviewDetailObservations(*output.ReviewAssessment)
+		result.ReviewDetails, result.modelReportIncomplete = reviewDetailObservations(*output.ReviewAssessment)
 	}
 	verifyCtx, cancelVerify := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancelVerify()
@@ -1469,7 +1525,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 			CommitOID: candidate.CommitOID, BaseOID: preparedWorkspace.BaseRevision, BindingDigest: reviewBinding,
 			CommentContext: append([]string{}, commentContext...),
 		}); feedbackErr != nil {
-			return s.failExecution(ctx, action, lane, result, "Agent QA feedback could not be retained safely", feedbackErr, integrityViolationOutput("Agent QA feedback could not be retained safely", feedbackErr, output))
+			return s.failExecution(ctx, action, lane, result, "Agent QA feedback could not be retained safely", feedbackErr, reviewFeedbackFailureOutput("Agent QA feedback could not be retained safely", feedbackErr, output))
 		}
 		failures := item.QAFailures + 1
 		outcome := config.WorkflowOutcomeRejected

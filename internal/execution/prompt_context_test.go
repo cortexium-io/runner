@@ -33,7 +33,7 @@ func TestPromptStablePrefixSurvivesDifferentCardsAndProofCounts(t *testing.T) {
 				if !found || !otherFound || prefix != other {
 					t.Fatal("card-specific data split the stable instruction prefix")
 				}
-				if len(prefix) < 1000 || !strings.Contains(prefix, "structured-output mechanism") {
+				if !strings.Contains(prefix, "structured-output mechanism") {
 					t.Fatal("stable stage/output instructions remain behind dynamic context")
 				}
 				if strings.Count(second, two.Spec.Task.Title) != 1 {
@@ -41,6 +41,42 @@ func TestPromptStablePrefixSurvivesDifferentCardsAndProofCounts(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestReviewerStageGuidanceIsScopedAcrossHarnesses(t *testing.T) {
+	assignment := reviewerAssignment()
+	checks := []reviewerUnresolvedCheck{{Key: "P2", Question: "Does the required interaction complete?"}}
+	for _, kind := range []string{config.HarnessCodexCLI, config.HarnessClaudeCLI, config.HarnessPiCLI} {
+		t.Run(kind, func(t *testing.T) {
+			cfg := config.ExecutionConfig{Skills: []string{"runner-reviewer"}}
+			guidance := harnessGuidance(kind, cfg, true)
+			audit := guidance + reviewerAuditPrompt(assignment, reviewerHarnessDisplayName(kind))
+			focused := guidance + reviewerResolutionPrompt(assignment, reviewerHarnessDisplayName(kind), checks)
+			t.Logf("assembled audit: %d bytes / %d words; focused: %d bytes / %d words", len(audit), len(strings.Fields(audit)), len(focused), len(strings.Fields(focused)))
+			for _, prompt := range []string{audit, focused} {
+				if strings.Count(prompt, "The implementer owns how proof is produced") != 1 {
+					t.Fatal("shared evidence policy must have one authoritative home")
+				}
+				for _, boundary := range []string{"Never add, edit, delete, stage, commit", "A failed proof key records status", "Do not relabel an old receipt"} {
+					if !strings.Contains(prompt, boundary) {
+						t.Fatalf("review stage lost shared boundary %q", boundary)
+					}
+				}
+			}
+			for _, procedure := range []string{"Verification scheduling", "Unexplained timing failures", "unchanged automatic retry with adequate diagnostics", "deliberately warm up the app"} {
+				if strings.Contains(audit, procedure) || strings.Count(focused, procedure) != 1 {
+					t.Fatalf("dynamic-only procedure %q is missing, duplicated, or loaded during static audit", procedure)
+				}
+			}
+			if !strings.Contains(audit, "Do not run tests") || !strings.Contains(focused, "Never loop until green") ||
+				!strings.Contains(focused, "Choose the smallest existing check") {
+				t.Fatal("stage execution boundaries changed")
+			}
+			if strings.Contains(focused, `"key":"P1"`) || !strings.Contains(focused, `"key":"P2"`) {
+				t.Fatal("focused verification must receive only unresolved checks")
+			}
+		})
 	}
 }
 

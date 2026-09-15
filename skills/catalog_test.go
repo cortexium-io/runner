@@ -56,16 +56,13 @@ func TestBundledSkillsOwnReusableRoleWorkflow(t *testing.T) {
 		},
 		"runner-reviewer": {
 			"Complete one focused static pass",
-			"A failure in one review area does not end the pass",
 			"A failed proof key records status; it is not a stop signal",
 			"directly adjacent card-owned paths",
-			"Evaluate every Runner-owned proof obligation exactly once",
+			"Return one observation for every key assigned to this stage",
 			"The implementer owns how proof is produced",
-			"test files, rewrite tests",
+			"rewrite tests",
 			"Do not assume a browser",
-			"In an evidence-audit stage",
-			"read-only file tools or shell commands",
-			"In a focused-verification stage",
+			"The stage prompt defines whether dynamic checks are allowed",
 		},
 	}
 	for skillID, required := range checks {

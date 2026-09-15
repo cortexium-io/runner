@@ -94,7 +94,13 @@ func WithEnvironmentVariable(ctx context.Context, key, value string) (context.Co
 // interface: a test adapter that delegates to OSRunner preserves the environment
 // boundary without gaining access to or reconstructing the environment.
 func RunPrivilegedGit(ctx context.Context, runner Runner, profile PrivilegedGitProfile, args []string, timeout time.Duration) (Result, error) {
-	return runPrivilegedGit(ctx, runner, profile, args, timeout, "")
+	return runPrivilegedGit(ctx, runner, profile, args, timeout, "", nil)
+}
+
+// RunPrivilegedGitInput provides stdin for literal batch operations, retaining
+// the same pinned selectors, isolated environment and fail-closed output bounds.
+func RunPrivilegedGitInput(ctx context.Context, profile PrivilegedGitProfile, args []string, input io.Reader, timeout time.Duration) (Result, error) {
+	return runPrivilegedGit(ctx, nil, profile, args, timeout, "", input)
 }
 
 // RunPrivilegedGitNetwork is the privileged fetch/push variant. It retains the
@@ -117,10 +123,10 @@ func RunPrivilegedGitNetwork(ctx context.Context, runner Runner, profile Privile
 	if repositoryURL == "" {
 		return Result{}, errors.New("privileged network Git requires one literal GitHub URL")
 	}
-	return runPrivilegedGit(ctx, runner, profile, args, timeout, repositoryURL)
+	return runPrivilegedGit(ctx, runner, profile, args, timeout, repositoryURL, nil)
 }
 
-func runPrivilegedGit(ctx context.Context, runner Runner, profile PrivilegedGitProfile, args []string, timeout time.Duration, repositoryURL string) (Result, error) {
+func runPrivilegedGit(ctx context.Context, runner Runner, profile PrivilegedGitProfile, args []string, timeout time.Duration, repositoryURL string, input io.Reader) (Result, error) {
 	if runner == nil {
 		runner = OSRunner{}
 	}
@@ -148,6 +154,9 @@ func runPrivilegedGit(ctx context.Context, runner Runner, profile PrivilegedGitP
 	}
 	gitArgs = append(gitArgs, args...)
 	ctx = context.WithValue(ctx, commandEnvironmentContextKey{}, validated.environment(os.Environ(), repositoryURL != ""))
+	if input != nil {
+		return runOSCommandFailClosed(ctx, "git", gitArgs, validated.WorkTree, timeout, commandEnvironment(ctx), input, GitStdoutLimit, DiagnosticStderrLimit)
+	}
 	return RunFailClosed(ctx, runner, "git", gitArgs, validated.WorkTree, timeout, GitStdoutLimit, DiagnosticStderrLimit)
 }
 

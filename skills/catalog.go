@@ -10,7 +10,8 @@ import (
 	"strings"
 )
 
-const bundledSkillVersion = "1.8.10"
+// BundledVersion identifies the skill bundle shipped in this Runner build.
+const BundledVersion = "1.8.13"
 
 var bundledSkillIDs = []string{
 	"runner-planner",
@@ -19,9 +20,9 @@ var bundledSkillIDs = []string{
 }
 
 var bundledSkillSHA256 = map[string]string{
-	"runner-implementer": "d9516fd6192d6c963dc85637d348b3cce7d5e4a512096fc03457fb3701ec9823",
-	"runner-planner":     "d1149c09965e1cedc7e36970a760105e2b83fa6b0bcbb91417fc36fe75c5041e",
-	"runner-reviewer":    "6af580b824ec9508f24fb4488a867d494650c9630ad1506cf65f5358673f3ce7",
+	"runner-implementer": "454ba17532561cd295971037460bd8f1f87d7b2032c44f8b45a39ecd15da9a61",
+	"runner-planner":     "16453b97be349af39d85cc7d92ff053d1d1200e7fc06ab343504328b6c6c9c0c",
+	"runner-reviewer":    "917d003b102c920329f46803804f2a9b64c991d76e5fd5b7031560a19b348147",
 }
 
 func ValidID(value string) bool {
@@ -83,7 +84,7 @@ func (EmbeddedCatalog) Get(id string) (Skill, bool) {
 	}
 	digest := sha256.Sum256(content)
 	return Skill{
-		ID: id, Version: bundledSkillVersion, SHA256: hex.EncodeToString(digest[:]), Content: content,
+		ID: id, Version: BundledVersion, SHA256: hex.EncodeToString(digest[:]), Content: content,
 	}, true
 }
 

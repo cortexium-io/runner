@@ -8,8 +8,56 @@ import (
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/execution"
+	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/metrics"
 )
+
+func TestPlannerContractHandoffSurvivesDetailsAndCardRendering(t *testing.T) {
+	constraints := []string{
+		"Inspected api/contracts.json at commit abc123: attributes may be null; read identity from profile.profile.id.",
+		"Supported source encoding is defined by decodeLiteral in src/literals.ts, not by the historical example.",
+		"Use approved synthetic records; no customer mutations or production deployment.",
+	}
+	outline := projectPlanOutline{
+		GoalSummary: "Edit supported profiles", ProjectSuccessCriteria: []string{"Open, edit, save and reopen supported profiles without losing unrelated data."},
+		ProjectConstraints: constraints, OpenDecisions: []string{},
+		Cards: []projectPlanOutlineCard{{Title: "Edit a profile", Dependencies: []int{}}},
+	}
+	outlineCalls, detailCalls := 0, 0
+	result, err := runStagedProjectPlanner(t.Context(), "Keep supported profile editing working.", "owner/repo",
+		func(context.Context, string, []byte) (execution.StructuredHarnessResult, error) {
+			outlineCalls++
+			encoded, err := json.Marshal(outline)
+			return execution.StructuredHarnessResult{Message: string(encoded)}, err
+		},
+		func(_ context.Context, prompt string, _ []byte) (execution.StructuredHarnessResult, error) {
+			detailCalls++
+			_, data, ok := strings.Cut(prompt, "--- BEGIN OUTLINE DATA ---\n")
+			data, _, closed := strings.Cut(data, "\n--- END OUTLINE DATA ---")
+			var received projectPlanOutline
+			if !ok || !closed || json.Unmarshal([]byte(data), &received) != nil {
+				t.Fatal("details did not receive the validated outline")
+			}
+			if strings.Join(received.ProjectConstraints, "\n") != strings.Join(constraints, "\n") {
+				t.Fatalf("contract facts changed in handoff: %#v", received.ProjectConstraints)
+			}
+			return execution.StructuredHarnessResult{Message: `{"cards":{"C1":{"implementation_profile":"bounded","profile_reason":"The producer shape and encoding contract are fixed; existing round-trip checks detect preservation errors.","objective":"Edit supported profiles using the referenced contract.","done_when":["Saving an edit preserves unrelated profile fields."],"proof_obligations":["Round-trip preservation for supported inputs is demonstrated."],"assumptions":[]}}}`}, nil
+		})
+	if err != nil || outlineCalls != 1 || detailCalls != 1 {
+		t.Fatalf("staged planning: outline=%d details=%d error=%v", outlineCalls, detailCalls, err)
+	}
+	plan, err := decodeProjectPlan(result.Message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.SourceContext = "Original approved request; no live customer data."
+	body := github.FormatPlannedItemBody(projectWorkItems(plan)[0])
+	for _, fact := range append(constraints, plan.SourceContext, plan.ProjectSuccessCriteria[0]) {
+		if strings.Count(body, fact) != 1 {
+			t.Fatalf("staged card lost or duplicated contract context %q", fact)
+		}
+	}
+}
 
 func TestStagedProjectPlannerAssemblesFixedKeyPlan(t *testing.T) {
 	responses := []string{

@@ -33,27 +33,35 @@ func reviewFindingObservations(review execution.ReviewAssessment) []metrics.Revi
 	return findings
 }
 
-func reviewDetailObservations(assessment execution.ReviewAssessment) []metrics.ReviewDetail {
+func reviewDetailObservations(assessment execution.ReviewAssessment) ([]metrics.ReviewDetail, bool) {
 	const maximumDetails = 1000
 	result := make([]metrics.ReviewDetail, 0, min(maximumDetails, len(assessment.Criteria)+len(assessment.Rules)+1))
 	remainingEvidence := maximumDetails
+	incomplete := false
 	add := func(area, name, status, summary string, evidence []string) {
 		if len(result) >= maximumDetails {
+			incomplete = true
 			return
 		}
 		boundedEvidence := make([]string, 0, min(100, min(remainingEvidence, len(evidence))))
 		for _, value := range evidence {
 			if len(boundedEvidence) >= 100 || remainingEvidence == 0 {
+				incomplete = true
 				break
 			}
-			if value = boundedHistoryText(value, 8*1024); value != "" {
+			var truncated bool
+			if value, truncated = boundedHistoryTextWithStatus(value, 8*1024); value != "" {
 				boundedEvidence = append(boundedEvidence, value)
 				remainingEvidence--
 			}
+			incomplete = incomplete || truncated
 		}
+		boundedName, nameTruncated := boundedHistoryTextWithStatus(name, 1024)
+		boundedSummary, summaryTruncated := boundedHistoryTextWithStatus(summary, 8*1024)
+		incomplete = incomplete || nameTruncated || summaryTruncated
 		result = append(result, metrics.ReviewDetail{
-			Area: area, Name: boundedHistoryText(name, 1024), Status: strings.TrimSpace(status),
-			Summary: boundedHistoryText(summary, 8*1024), Evidence: boundedEvidence,
+			Area: area, Name: boundedName, Status: strings.TrimSpace(status),
+			Summary: boundedSummary, Evidence: boundedEvidence,
 		})
 	}
 	for _, criterion := range assessment.Criteria {
@@ -70,5 +78,5 @@ func reviewDetailObservations(assessment execution.ReviewAssessment) []metrics.R
 		}
 	}
 	add("maintainability", "maintainability", assessment.Maintainability.Status, assessment.Maintainability.Summary, assessment.Maintainability.Evidence)
-	return result
+	return result, incomplete
 }

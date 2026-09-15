@@ -6,9 +6,39 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
+
+func TestReadDirNamesIsBoundedAndPinsDirectory(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"two", "one", "three"} {
+		if err := os.WriteFile(filepath.Join(root, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	directory, err := OpenDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	budget, _ := NewSnapshotBudget(SnapshotLimits{MaxEntries: 3, MaxFileBytes: 1, MaxTotalBytes: 1})
+	if names, err := directory.ReadDirNamesWithBudget(budget); err != nil || !slices.Equal(names, []string{"one", "three", "two"}) {
+		t.Fatalf("directory inventory: %q %v", names, err)
+	}
+	budget, _ = NewSnapshotBudget(SnapshotLimits{MaxEntries: 2, MaxFileBytes: 1, MaxTotalBytes: 1})
+	if names, err := directory.ReadDirNamesWithBudget(budget); names != nil || err == nil || !strings.Contains(err.Error(), "maximum entries") {
+		t.Fatalf("unbounded directory inventory: %q %v", names, err)
+	}
+	if err := os.Rename(root, root+"-moved"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Rename(root+"-moved", root) })
+	if names, err := directory.ReadDirNamesWithBudget(nil); names != nil || err == nil {
+		t.Fatalf("substituted directory accepted: %q %v", names, err)
+	}
+}
 
 func TestDiscoverFilesRejectsControlFileCreatedDuringTraversal(t *testing.T) {
 	root := t.TempDir()

@@ -185,7 +185,7 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	item.Role = plan.Role
 	event := s.newItemAttempt(item)
 	content := github.DelegatedContentFor(item)
-	event.ApprovedRequest = &metrics.ApprovedRequest{DelegatedContentDigest: content.Digest, BodySnapshot: content.BodySnapshot}
+	event.ApprovedRequest = metrics.NewApprovedRequest(content.Digest, github.DelegatedContentSnapshotFor(item))
 	if err := s.recordAttemptStart(event); err != nil && s.cfg.AdmissionBudget != nil {
 		return result, err
 	}
@@ -195,7 +195,7 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	trace := metrics.NewAttemptTrace(s.observeMetrics, event)
 	ctx = metrics.WithAttemptTrace(ctx, trace)
 	result.RunResult = RunResult{Item: plan.Item, Harness: event.Harness, CandidateOID: plan.Candidate.CommitOID, WorktreePath: metadata.WorktreePath, Branch: metadata.BranchName, Outcome: execution.OutcomeBlocked, RetryDisposition: string(execution.RetryNone)}
-	observeApprovedRequest(&result.RunResult, content)
+	observeApprovedRequest(&result.RunResult, item, content)
 	observeWorkspaceLineage(&result.RunResult, metadata)
 	observeCandidateLineage(&result.RunResult, plan.Candidate)
 	if len(plan.Verification) > 0 {
@@ -213,13 +213,20 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 			event.DurationMilliseconds, event.HarnessDurationMilliseconds = result.DurationMilliseconds, result.HarnessDurationMilliseconds
 			event.Outcome, event.Summary, event.FailureClass = result.Outcome, "", result.FailureClass
 			event.RunnerObservation = "One-shot operator QA finished; card remains paused."
-			event.ModelReportedSummary = boundedHistoryText(result.ModelReportedSummary, 8*1024)
+			var incomplete bool
+			event.ModelReportedSummary, incomplete = boundedHistoryTextWithStatus(result.ModelReportedSummary, 8*1024)
 			event.RetryDisposition, event.Usage, event.CandidateOID = string(execution.RetryNone), result.Usage, result.CandidateOID
 			event.PromptContexts = trace.PromptContexts()
-			event.WorkDone, event.Verification = boundedHistoryEvidence(result.WorkDone), boundedHistoryEvidence(result.Verification)
+			event.WorkDone, incomplete = boundedHistoryEvidenceWithStatus(result.WorkDone, incomplete)
+			event.Verification, incomplete = boundedHistoryEvidenceWithStatus(result.Verification, incomplete)
 			event.ReviewVerdict = result.ReviewVerdict
-			event.ReviewFindings = boundedHistoryFindings(result.ReviewFindings)
+			event.ReviewFindings, incomplete = boundedHistoryFindingsWithStatus(result.ReviewFindings, incomplete)
 			event.ReviewDetails = result.ReviewDetails
+			incomplete = incomplete || result.modelReportIncomplete
+			if result.ModelReportedSummary != "" || len(result.WorkDone) != 0 || len(result.Verification) != 0 || result.ReviewVerdict != "" || len(result.ReviewFindings) != 0 || len(result.ReviewDetails) != 0 {
+				complete := !incomplete
+				event.ModelReportComplete = &complete
+			}
 			event.ApprovedRequest = result.ApprovedRequest
 			event.Lineage = result.Lineage
 			if observeErr := s.observeMetrics(event); observeErr != nil {
@@ -258,7 +265,7 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	if output.ReviewAssessment != nil {
 		result.ReviewVerdict = output.ReviewAssessment.Verdict
 		result.ReviewFindings = reviewFindingObservations(*output.ReviewAssessment)
-		result.ReviewDetails = reviewDetailObservations(*output.ReviewAssessment)
+		result.ReviewDetails, result.modelReportIncomplete = reviewDetailObservations(*output.ReviewAssessment)
 	}
 	verifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()

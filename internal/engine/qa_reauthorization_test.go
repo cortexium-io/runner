@@ -281,7 +281,7 @@ func TestQAOnlyReviewSharesAdmissionWithoutTakingWorkerLock(t *testing.T) {
 			}
 			if mode == "budget exhausted" {
 				service.cfg.AdmissionBudget = &config.AdmissionBudgetConfig{WindowSeconds: 3600, MaxAttempts: 1}
-				store := metrics.NewStore(filepath.Join(t.TempDir(), "metrics.jsonl"))
+				store := metrics.NewStore(filepath.Join(t.TempDir(), "metrics", "metrics.jsonl"))
 				service.SetMetricsObserver(store.Append)
 				service.SetMetricsHistoryReader(store.Read)
 				event := service.newItemAttempt(runner.project.remoteItems[0])

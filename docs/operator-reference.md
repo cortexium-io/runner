@@ -48,17 +48,23 @@ or external services; audit-only review gets no package-download access. Other
 prerequisites must already be available within the configured access boundary.
 Local applications must use this copy and their own loopback port, not a shared
 server. The copy is removed after the stage. No new configuration is required.
-The verification copy intentionally has no `.git`. If repository policy accepts
-Runner-bound verification, run its required underlying command there rather
-than a standalone verifier that needs its own Git checkout. Runner checks the
-canonical candidate identity and copied-source integrity; the reviewer must
-record the actual command, settings, exit status, and concrete outcomes in its
-structured evidence, not only link to temporary logs. Preserve all required
-checks and failed attempts. Do not initialize Git in the verification copy,
-expose shared Git metadata, run tests in the canonical checkout, or manufacture
-a standalone receipt.
-An explicitly required standalone receipt or host-only check still requires
-its documented proof path or an approved policy clarification.
+The verification copy has a fresh standalone `.git` index for source inventory
+(`git ls-files`), not a link to the project's Git data. It contains only copied
+source blobs and index entries, with no commits, history, remotes, inherited
+templates, or shared objects. Git revision and diff audits still belong in the
+canonical read-only checkout. Runner verifies copied source, the complete private
+Git directory inventory and metadata, and logical/staged index entries after the
+stage. Normal index cache refreshes are allowed; added Git controls, split-index
+sidecars and hidden-entry changes are not. The post-review index is read without
+following links and parsed separately from the writable copy. Source staging is
+batched, with no per-file Git subprocesses and no source-defined filters.
+Run the repository's required validation launcher and retain its complete-suite
+or standalone receipt requirements. If repository policy accepts equivalent
+underlying commands with Runner-bound evidence, record their actual commands,
+settings, exit status, and outcomes. Preserve failed attempts. Do not replace
+the index, expose shared Git metadata, run tests in the canonical checkout, or
+manufacture a receipt. History-dependent or host-only checks still require
+their documented proof path; the temporary index does not invent that evidence.
 
 After upgrading, restart the service
 with the new binary and run `doctor --fix --offline --config PATH` to refresh the
@@ -94,8 +100,9 @@ cortexium-runner update
 `update --version vMAJOR.MINOR.PATCH` selects an exact release. The native
 updater verifies the checksum, archive contents, and downloaded binary version,
 then atomically replaces the resolved executable. Run `doctor` afterward and
-rerun `init` when it reports newly required Project fields. An already running
-Runner process keeps its loaded release until it is stopped and restarted.
+rerun `init` when it reports newly required Project fields. For supported local
+launchd workers, the updater drains and reloads the services using this exact
+executable. See [graceful stop and managed upgrades](#graceful-stop-and-managed-upgrades).
 
 To build the current checkout instead, use the Go version declared in
 [`go.mod`](../go.mod):
@@ -124,6 +131,74 @@ or scripted workflow. `init`, `doctor`, `plan`, `approve`, `retry`, `status`,
 when they finish. Running
 `cortexium-runner` without arguments shows help; every command supports
 `--help`, and `--version` prints the installed version.
+
+## Graceful stop and managed upgrades
+
+```bash
+cortexium-runner stop
+cortexium-runner stop --wait --timeout 10m
+cortexium-runner stop --config /absolute/operator/path/runner.json --wait
+```
+
+`stop` discovers the current user's continuous workers on this machine from
+their existing local process records. It requires no GitHub access or config
+unless the optional project filter is supplied. It does not target other users,
+remote machines, arbitrary harness processes, standalone `plan`/retained-QA
+commands, or new workers started after discovery. `run --once` remains a bounded
+one-shot command, not a drainable continuous worker.
+
+The command requests each selected worker to stop admitting assignments, then
+waits for acknowledgment. The worker finishes already-admitted actions, including
+their normal evidence, publication and Project transitions, without canceling
+their contexts. Subsequent roles, automatic retry attempts, polling reconciliation
+and intake do not start after acknowledgment. A stop arriving during a poll is
+acknowledged when that poll returns; work admitted before acknowledgment belongs
+to the set being drained. Existing per-action timeouts and safe failure behavior
+still apply. Shutdown does not wait for all cards to reach Done, CI or human gates.
+
+`status` shows `Stopping` and the remaining active-assignment count; JSON exposes
+`process.stopping` and `process.active_assignments`. `--wait` waits for the selected
+worker locks to be released and, on launchd, for their jobs to be unloaded.
+`--timeout` bounds acknowledgment/shutdown waiting; interruption or timeout returns
+nonzero without killing work or canceling an accepted stop request. Repeating a
+request is safe. Requests are owner-only, bounded, atomic, and bound to the exact
+project/PID/start-time incarnation, so stale requests cannot stop a replacement.
+
+On macOS, a directly launched GUI-domain LaunchAgent is identified using its
+launchd service identity, PID and executable. After draining and releasing its
+resources, Runner unloads that exact job with `bootout`. This works even with
+`KeepAlive=true` and leaves the plist and persistent enabled/disabled settings
+unchanged. Normal configured startup on the next login remains intact. System
+LaunchDaemons and wrapper-launched jobs are not automatically managed. Other
+supervisors must be configured not to respawn an intentionally stopped worker.
+`stop` does not install or invent a service definition.
+
+For a release build, `update` downloads and validates the new binary before
+requesting any stop. It automatically drains only supported, currently running
+launchd services using the executable being replaced, atomically replaces the
+binary, then reloads those exact services and checks for a fresh successful poll.
+It does not restart services that were already stopped or take over a stop already
+in progress. Foreground workers require `stop --wait`, followed by `update` and an
+explicit `run`; their terminal sessions are not recreated. A standalone CLI command
+is not a continuous worker and is not canceled or restarted by this procedure.
+
+The updater retains the original service paths and content digests in memory.
+A changed definition or interveningly reloaded job is left untouched. After a
+fully completed drain, replacement failure/cancellation still attempts to reload
+the same services with the binary left on disk. If draining fails or is interrupted,
+the binary is not replaced and the command reports that accepted stop requests
+remain active; inspect each service before recovery. A failed reload or readiness
+check is reported explicitly, including whether the binary was replaced.
+The update command does not migrate project configuration, install skills, or
+roll back a successfully installed binary because of a readiness failure.
+
+Workers started with an older binary do not understand stop requests. They are
+reported as unsupported and never signaled or killed; the first upgrade still
+requires an idle maintenance boundary. The bootstrap installer and manual
+`go install` do not use the native updater's drain/reload sequence.
+
+`Ctrl-C` and SIGTERM retain their existing cancellation/recovery behavior. A
+graceful request does not protect a process from OS shutdown or an explicit kill.
 
 ## Quick start
 
@@ -536,14 +611,15 @@ metrics. Use
 machine-readable output. `status` includes a compact accumulated total and the
 current admission-budget state.
 
-An item-filtered view also renders the protected approved-content snapshot and
-digest and every retained Runner-observed repository, branch, base, candidate,
-evidence-bound candidate, reviewed candidate, rebased/published candidate,
-pull-request, and merge identity. Missing observations print as `unavailable`;
-they are never inferred from model prose. Summary/rationale, work,
-verification, review details, and usage are labelled as model- or
-harness-reported. JSON uses explicit
-`runner_observed_*` and `model_reported_*` fields for the same provenance.
+New CLI-recorded attempts include `run_context` with the recording build's
+`runner_version`, `bundled_skills_version`, and `config_digest`. The last is a
+SHA-256 fingerprint of the loaded config after CLI overrides, not its contents.
+It can distinguish changed configurations but cannot reconstruct them or detect
+changes to native harness settings, environment, or files referenced by path.
+The bundled skill version is not proof of the installed role guidance; use the
+stage's `prompt_contexts` for that. Older attempts retain unknown identity, and
+exporting them with a newer Runner does not relabel them. These fields confer no
+approval, receipt validity, or cache guarantee.
 
 Completed review attempts also record `review_verdict`: `accept`,
 `needs_changes`, or `blocked`, after result validation and workspace integrity
@@ -609,7 +685,9 @@ single-link history file is mode `0600` and is opened without following a
 substituted leaf. Attempt and stage start records are written before work
 and completion records afterward, so an abrupt stop remains visible. Attempt
 records contain bounded reports and may contain the exact protected approved
-body snapshot and digest plus structured Runner-observed lineage. Stage records are
+canonical approved-content snapshot and its validated delegated-content digest,
+and structured Runner-observed lineage. A bounded report says explicitly when
+its retained details are incomplete. Stage records are
 restricted to attempt identity, a fixed stage name, timing, outcome, recovery
 classification, reported usage, and prompt-context fingerprints. The history
 does not retain assembled provider prompts, transcripts, hidden reasoning,
@@ -618,7 +696,8 @@ failure diagnostics. Runner never estimates missing tokens or cost: Claude Code 
 shown only when Claude reports it, Codex token counts are shown when its JSON
 event stream includes them, and unavailable Pi counters remain explicitly
 unavailable. History begins with the first metrics-enabled run and cannot
-reconstruct earlier attempts. The file has a fixed 64 MiB ceiling; exhaustion
+reconstruct earlier attempts. Cooperative local writers serialize each append
+and its limit check. The file has a fixed 64 MiB ceiling; exhaustion
 refuses another append without changing earlier records rather than rotating or
 silently discarding attempts. The `metrics` output shows its exact `History` path; to clear it,
 stop Runner and delete that one file. The next attempt recreates it.
@@ -1672,6 +1751,22 @@ to `task_granularity` / `--task-granularity`, and replace its `high` value with
 
 ### QA follow-up scope
 
+Rework receives every failed or blocked proof obligation, blocking repository
+finding, and failed or blocked maintainability check, with its complete summary
+and supporting evidence. Runner does not cut findings at a character limit or
+silently omit findings after a fixed count. The private record and the rendered
+feedback each have a 1 MiB safety limit; exceeding either pauses the handoff with
+an explicit size-limit error, without replacing prior feedback. This is a
+structured-result capacity failure, not evidence of workspace tampering.
+
+When a valid full assessment is retained, Runner derives the handoff from that
+assessment. This also recovers older clipped feedback, including the Unicode
+cutoff failure, without rewriting the stored record or resetting QA rejections.
+Malformed or inapplicable review baselines still cannot certify a candidate.
+Public comment and terminal previews may remain shortened; they are not the
+source of the implementer's complete QA handoff. No model or skill change is
+needed for this behavior.
+
 The first review gathers all concrete blockers reasonably visible within the
 approved card. Runner saves rejected assessments privately with the reviewed
 commit, base revision, repository, approved content, proof obligations, and the
@@ -2219,8 +2314,18 @@ Concrete defects remain failures; genuinely inconclusive proof reports
 QA rejection. This is not an instruction to repair tooling or implementation
 unless the evidence identifies such a problem.
 
-Bundled skills 1.8.10 retain sequential heavyweight verification, evidence
-handoff, and fresh-verification fallback. Planner guidance carries exact accepted
+Bundled skills 1.8.11 keep shared role rules in the pinned skills and stage
+procedures in Runner's prompts. Reviewer timeout confirmation, heavyweight-check
+scheduling, and interface execution guidance appear only in focused verification,
+not in the source-and-evidence audit. This is deterministic stage selection,
+not keyword filtering of findings or a model-specific relaxation. The shared
+reviewer skill still requires all visible blockers, reliable candidate-bound
+evidence, and unchanged canonical workspaces. Shared harness capability guidance
+does not authorize dynamic checks during the static audit. Implementer verification policy
+also has one home in its skill, rather than being repeated in the launch prompt.
+
+Sequential heavyweight verification, complete evidence handoff, and the
+fresh-verification fallback remain unchanged. Planner guidance carries exact accepted
 references and distinguishes historical ideas. It separates immutable reference
 pins, each card's current accepted starting base, and final candidate identity,
 while honoring explicitly fixed execution bases. It sizes cards by behavior and

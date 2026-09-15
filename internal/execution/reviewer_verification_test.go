@@ -43,10 +43,19 @@ func TestReviewerVerificationKeepsSourceIsolatedAndAllowsGeneratedOutput(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{".git", "node_modules", "dist"} {
+	if info, err := os.Lstat(filepath.Join(launch.VerificationRoot, ".git")); err != nil || !info.IsDir() {
+		t.Fatalf("fresh standalone Git index missing: %v", err)
+	}
+	for _, name := range []string{"node_modules", "dist", ".git/commondir", ".git/objects/info/alternates"} {
 		if _, err := os.Lstat(filepath.Join(launch.VerificationRoot, name)); !os.IsNotExist(err) {
 			t.Fatalf("unexpected artifact %s: %v", name, err)
 		}
+	}
+	// A Git status refresh may update index cache bytes, but not its inventory.
+	status := exec.CommandContext(t.Context(), "git", "status", "--porcelain")
+	status.Dir = launch.VerificationRoot
+	if output, err := status.CombinedOutput(); err != nil {
+		t.Fatalf("private index status: %v %s", err, output)
 	}
 	for _, name := range []string{"node_modules", "dist", "test-results"} {
 		path := filepath.Join(launch.VerificationRoot, name)
@@ -110,6 +119,83 @@ func TestReviewerVerificationRejectsChangedOrRedirectedSource(t *testing.T) {
 	}
 }
 
+func TestReviewerVerificationRejectsChangedGitInventoryAndControls(t *testing.T) {
+	for _, mutation := range []string{"remove-entry", "hide-entry", "skip-worktree", "intent-to-add", "config", "redirect-index", "redirect-git", "redirect-empty-directory", "commondir", "attributes", "alternates", "new-directory", "split-index"} {
+		t.Run(mutation, func(t *testing.T) {
+			launch := verificationFixture(t)
+			if mutation == "intent-to-add" {
+				if err := os.WriteFile(filepath.Join(launch.ReadRoot, "app.js"), nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			copy, err := prepareReviewerVerification(t.Context(), &launch, workspace.DefaultSnapshotLimits())
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch mutation {
+			case "remove-entry", "hide-entry", "skip-worktree":
+				args := []string{"update-index", "--force-remove", "app.js"}
+				if mutation == "hide-entry" {
+					args = []string{"update-index", "--assume-unchanged", "app.js"}
+				}
+				if mutation == "skip-worktree" {
+					args = []string{"update-index", "--skip-worktree", "app.js"}
+				}
+				command := exec.CommandContext(t.Context(), "git", args...)
+				command.Dir = launch.VerificationRoot
+				if output, err := command.CombinedOutput(); err != nil {
+					t.Fatalf("mutate private index: %v %s", err, output)
+				}
+			case "intent-to-add":
+				for _, args := range [][]string{{"rm", "--cached", "app.js"}, {"add", "--intent-to-add", "app.js"}} {
+					command := exec.CommandContext(t.Context(), "git", args...)
+					command.Dir = launch.VerificationRoot
+					if output, err := command.CombinedOutput(); err != nil {
+						t.Fatalf("change intent to add: %v %s", err, output)
+					}
+				}
+			case "config":
+				err = os.WriteFile(filepath.Join(launch.VerificationRoot, ".git", "config"), []byte("[remote \"origin\"]\nurl = https://invalid.example/repo\n"), 0o600)
+			case "commondir", "attributes", "alternates", "new-directory":
+				paths := map[string]string{"commondir": "commondir", "attributes": "info/attributes", "alternates": "objects/info/alternates", "new-directory": "hooks"}
+				path := filepath.Join(launch.VerificationRoot, ".git", paths[mutation])
+				if mutation == "new-directory" {
+					err = os.Mkdir(path, 0o700)
+				} else {
+					if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					err = os.WriteFile(path, []byte(t.TempDir()+"\n"), 0o600)
+				}
+			case "split-index":
+				command := exec.CommandContext(t.Context(), "git", "update-index", "--split-index")
+				command.Dir = launch.VerificationRoot
+				if output, err := command.CombinedOutput(); err != nil {
+					t.Fatalf("split private index: %v %s", err, output)
+				}
+			case "redirect-index", "redirect-git", "redirect-empty-directory":
+				path := filepath.Join(launch.VerificationRoot, ".git")
+				if mutation == "redirect-index" {
+					path = filepath.Join(path, "index")
+				}
+				if mutation == "redirect-empty-directory" {
+					path = filepath.Join(path, "refs", "heads")
+				}
+				if err := os.Rename(path, path+"-original"); err != nil {
+					t.Fatal(err)
+				}
+				err = os.Symlink(path+"-original", path)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := copy.verify(); err == nil {
+				t.Fatal("changed or redirected Git inventory accepted")
+			}
+		})
+	}
+}
+
 func TestReviewerVerificationRejectsExternalLinksAndBoundsCopies(t *testing.T) {
 	for _, scenario := range []string{"external-link", "entries", "file-bytes", "total-bytes", "canceled"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -140,6 +226,19 @@ func TestReviewerVerificationRejectsExternalLinksAndBoundsCopies(t *testing.T) {
 				t.Fatal("failed copy exposed to harness")
 			}
 		})
+	}
+}
+
+func TestReviewerVerificationRejectsSourceOmittedByGit(t *testing.T) {
+	launch := verificationFixture(t)
+	if err := os.Symlink("app.js", filepath.Join(launch.ReadRoot, ".gitmodules")); err != nil {
+		t.Fatal(err)
+	}
+	if copy, err := prepareReviewerVerification(t.Context(), &launch, workspace.DefaultSnapshotLimits()); err == nil || copy != nil {
+		t.Fatal("Git silently omitted a copied source path from the verification inventory")
+	}
+	if launch.VerificationRoot != "" {
+		t.Fatal("incomplete source inventory exposed to reviewer")
 	}
 }
 
@@ -212,13 +311,13 @@ func TestReviewerVerificationStageRejectsTamperingAndCleansFailedLaunch(t *testi
 	}
 }
 
-func TestReviewerVerificationRunsRepositoryCommandWithoutGit(t *testing.T) {
+func TestReviewerVerificationRunsGitDependentRepositoryCommand(t *testing.T) {
 	makeCommand, err := exec.LookPath("make")
 	if err != nil {
 		t.Skip("make is required for the repository verification entrypoint check")
 	}
 	fixture := verificationFixture(t)
-	makefile := ".PHONY: verify\nverify:\n\t@test ! -e .git\n\t@test -f app.js\n\t@mkdir -p test-results\n\t@printf 'candidate verified\\n' > test-results/verification.log\n"
+	makefile := ".PHONY: verify\nverify:\n\t@git ls-files --cached --others --exclude-standard | grep -qx app.js\n\t@test -f app.js\n\t@mkdir -p test-results\n\t@printf 'candidate verified\\n' > test-results/verification.log\n"
 	if err := os.WriteFile(filepath.Join(fixture.ReadRoot, "Makefile"), []byte(makefile), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -226,11 +325,14 @@ func TestReviewerVerificationRunsRepositoryCommandWithoutGit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := &sharedReviewerHarnessRunner{response: `{"checks":{"P1":{"status":"passed","evidence":["make verify exited 0 in the Git-less verification copy; test-results/verification.log: candidate verified."]}},"summary":"The required repository command passed."}`}
+	run := &sharedReviewerHarnessRunner{response: `{"checks":{"P1":{"status":"passed","evidence":["make verify exited 0 using the disposable source index; test-results/verification.log: candidate verified."]}},"summary":"The required repository command passed."}`}
 	var verificationDir string
 	run.onRun = func(dir string) error {
 		prompt := run.inputs[len(run.inputs)-1]
 		for _, instruction := range []string{
+			"fresh standalone Git index",
+			"no commits, history, remotes, shared Git administration",
+			"including complete validation",
 			"When repository policy permits Runner-bound evidence",
 			"Do not manufacture a standalone receipt",
 			"Report the actual command, settings, exit status",
@@ -246,7 +348,7 @@ func TestReviewerVerificationRunsRepositoryCommandWithoutGit(t *testing.T) {
 		command.Dir = verificationDir
 		command.Env = []string{"PATH=" + os.Getenv("PATH")}
 		if output, err := command.CombinedOutput(); err != nil {
-			t.Fatalf("run repository command in Git-less copy: %v %s", err, output)
+			t.Fatalf("run Git-dependent repository command: %v %s", err, output)
 		}
 		log, err := os.ReadFile(filepath.Join(verificationDir, "test-results", "verification.log"))
 		if err != nil || string(log) != "candidate verified\n" {
@@ -286,7 +388,9 @@ func TestReviewerVerificationNodeSmoke(t *testing.T) {
 		"package-lock.json":    `{"name":"qa-fixture","version":"1.0.0","lockfileVersion":3,"packages":{"":{"name":"qa-fixture","version":"1.0.0","dependencies":{"qa-proof":"file:fixture"}},"fixture":{"name":"qa-proof","version":"1.0.0"},"node_modules/qa-proof":{"resolved":"fixture","link":true}}}`,
 		"fixture/package.json": `{"name":"qa-proof","version":"1.0.0","type":"module","main":"index.js"}`,
 		"fixture/index.js":     `export default "exact candidate";`,
-		"app.js": `import http from 'node:http'; import assert from 'node:assert/strict'; import proof from 'qa-proof';
+		"app.js": `import http from 'node:http'; import assert from 'node:assert/strict'; import proof from 'qa-proof'; import { execFileSync } from 'node:child_process';
+const files = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {encoding: 'utf8'}).split('\0');
+assert(files.includes('app.js') && files.includes('package-lock.json'));
 const server = http.createServer((req, res) => res.end(proof));
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 try { const response = await fetch('http://127.0.0.1:' + server.address().port); assert.equal(await response.text(), 'exact candidate'); console.log('candidate app verified'); }
