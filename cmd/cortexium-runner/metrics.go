@@ -366,6 +366,9 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 		project = fmt.Sprintf("%s/%d", view.Project.Owner, view.Project.Number)
 	}
 	fmt.Fprintf(output, "Runner metrics: %s\nGitHub Project: %s\n", terminalSafeText(view.RunnerID), terminalSafeText(project))
+	if view.MalformedRecords > 0 {
+		fmt.Fprintf(output, "History warning: ignored %d malformed record(s)\n", view.MalformedRecords)
+	}
 	if len(view.Attempts) == 0 {
 		fmt.Fprintln(output, "Recorded attempts: 0 (history starts after metrics-enabled Runner executions)")
 		fmt.Fprintf(output, "History: %s\n", terminalSafeText(view.HistoryPath))
@@ -409,9 +412,6 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 		fmt.Fprintf(output, "Reported cost: $%.4f (%d/%d completed attempts reported cost)\n", *usage.ReportedCostUSD, view.Summary.CostCoveredAttempts, view.Summary.CompletedAttempts)
 	} else {
 		fmt.Fprintln(output, "Reported cost: unavailable; Runner does not estimate it")
-	}
-	if view.MalformedRecords > 0 {
-		fmt.Fprintf(output, "History warning: ignored %d malformed record(s)\n", view.MalformedRecords)
 	}
 	fmt.Fprintln(output, "\nChronological history (oldest first):")
 	for index, attempt := range view.Attempts {

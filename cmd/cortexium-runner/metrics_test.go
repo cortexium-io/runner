@@ -83,6 +83,16 @@ func TestMetricsRunObserverPreservesWriteFailures(t *testing.T) {
 	}
 }
 
+func TestWriteMetricsReportsMalformedOnlyHistoryHonestly(t *testing.T) {
+	var output bytes.Buffer
+	writeMetrics(&output, metricsOutput{RunnerID: "runner", HistoryPath: "private-history.jsonl", MalformedRecords: 1})
+	for _, expected := range []string{"History warning: ignored 1 malformed record(s)", "Recorded attempts: 0"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("malformed-only history omitted %q:\n%s", expected, output.String())
+		}
+	}
+}
+
 func TestMetricsCommandFiltersItemsAndReportsOnlyHarnessCost(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("CORTEXIUM_RUNNER_STATE_DIR", stateDir)
