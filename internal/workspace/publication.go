@@ -222,8 +222,10 @@ func recoverableCandidateError(correction string, cause error) error {
 }
 
 type BaseRefresh struct {
-	Updated       bool
-	Conflicted    bool
+	Updated    bool
+	Conflicted bool
+	// CommitOID is the resulting candidate HEAD, which can remain unchanged
+	// when only its private base identity advances. It is never a base-only ID.
 	CommitOID     string
 	ConflictFiles []string
 	Summary       string
@@ -1287,10 +1289,14 @@ func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteN
 		return nil
 	}
 	if result, ancestorErr := p.privilegedGit(ctx, profile, "merge-base", "--is-ancestor", metadata.BaseRef, "HEAD"); ancestorErr == nil && result.ExitCode == 0 {
+		candidateOID, err := p.privilegedScalar(ctx, profile, "rev-parse", "--verify", "HEAD")
+		if err != nil || !validObjectID(candidateOID) {
+			return BaseRefresh{}, errors.New("resolve already-contained candidate revision")
+		}
 		if err := advanceIdentity(); err != nil {
 			return BaseRefresh{}, err
 		}
-		return BaseRefresh{Updated: currentBase != metadata.BaseRevision, CommitOID: currentBase, Summary: "Pull request branch already contains the current base branch."}, nil
+		return BaseRefresh{Updated: currentBase != metadata.BaseRevision, CommitOID: candidateOID, Summary: "Pull request branch already contains the current base branch."}, nil
 	}
 	mergeArgs := []string{"merge", "--no-edit", metadata.BaseRef}
 	if mergeMethod == config.MergeMethodRebase {

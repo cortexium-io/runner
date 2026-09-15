@@ -5392,6 +5392,62 @@ func TestAgentQARefreshesAndRequeuesWhenBaseMovedBeforeQA(t *testing.T) {
 	}
 }
 
+func TestAgentQAAlreadyContainedBaseRetainsActualCandidateLineage(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	item := github.WorkItem{
+		ID: "PVTI_contained_base", Title: "Preserve candidate lineage", Body: "Criteria", Repository: "owner/repo",
+		Status: "Agent QA", Phase: "agent_qa", Role: config.WorkRoleReviewer, Branch: "cortexium/task",
+	}
+	item.Approval = testApproval(item)
+	prepared, err := workspace.NewGitProvider(subprocess.OSRunner{}).Prepare(t.Context(), workspace.Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(filepath.Dir(repo), ".runner-worktrees"),
+		WorkID: "assignment_" + safeRefComponent(item.ID), ItemID: item.ID,
+		DelegatedContentDigest: github.DelegatedContentFor(item).Digest, Repository: item.Repository,
+		BranchName: item.Branch, BaseRef: "origin/main",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "feature.txt"), []byte("candidate feature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitTest(t, prepared.WorktreePath, "add", "feature.txt")
+	runGitTest(t, prepared.WorktreePath, "commit", "-m", "Candidate feature")
+	advanceRemoteBase(t, repo, "base.txt", "new base\n")
+	runGitTest(t, prepared.WorktreePath, "fetch", "origin", "main")
+	baseOID := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "rev-parse", "origin/main"))
+	// Simulate recovery after the branch incorporated the base, before the
+	// private base identity advanced. HEAD must remain distinct from the base.
+	runGitTest(t, prepared.WorktreePath, "merge", "--no-edit", "origin/main")
+	candidateOID := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "rev-parse", "HEAD"))
+	if candidateOID == baseOID || prepared.BaseRevision == baseOID {
+		t.Fatal("fixture did not retain a distinct candidate and stale base identity")
+	}
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	runner := &reviewForbiddenRunner{project: project}
+	service, err := New(completeEngineTestConfig(config.Config{ProjectDir: repo}), runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := metrics.NewStore(filepath.Join(t.TempDir(), "metrics", "history.jsonl"))
+	service.SetMetricsObserver(store.Append)
+	results, err := service.RunCycle(t.Context())
+	if err != nil || len(results) != 1 || results[0].Outcome != "warning" || runner.reviewCalls != 0 || project.status != "Ready" {
+		t.Fatalf("base recovery changed QA routing: results=%#v calls=%d status=%s err=%v", results, runner.reviewCalls, project.status, err)
+	}
+	history, err := metrics.NewStore(store.Path()).Read()
+	if err != nil || history.MalformedRecords != 0 || len(history.Attempts) != 1 || !history.Attempts[0].Completed {
+		t.Fatalf("refresh history was not retained: %#v %v", history, err)
+	}
+	lineage := history.Attempts[0].Lineage
+	if lineage == nil || lineage.Base.CommitOID != baseOID || lineage.RebasedCandidate.CommitOID != candidateOID {
+		t.Fatalf("base revision was confused with the actual refreshed candidate: lineage=%#v base=%s candidate=%s", lineage, baseOID, candidateOID)
+	}
+	if head := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "rev-parse", "HEAD")); head != candidateOID {
+		t.Fatalf("already-contained refresh rewrote the candidate: got %s want %s", head, candidateOID)
+	}
+}
+
 func TestImplementationRefreshesRetainedCandidateBeforeRunningAgent(t *testing.T) {
 	repo, _ := createPublicationRepository(t)
 	workID := "assignment_" + safeRefComponent("PVTI_base_before_implementation")
