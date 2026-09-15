@@ -638,6 +638,9 @@ cortexium-runner status --verbose --config "$RUNNER_CONFIG"
 # Local usage, timing, harness-call count, saved-result resumes, and attempt history
 cortexium-runner metrics --config "$RUNNER_CONFIG"
 
+# Chronological private history for one card, with explicit fact provenance
+cortexium-runner metrics --config "$RUNNER_CONFIG" --item ITEM_ID --json
+
 # Private recurring-failure drafts for review (never automatically activated)
 cortexium-runner guidance --config "$RUNNER_CONFIG"
 
