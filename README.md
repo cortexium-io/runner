@@ -70,8 +70,10 @@ release, including an intentional downgrade. The command applies the same
 checksum, archive-shape, and binary-version checks as the bootstrap installer
 and atomically replaces the resolved executable. Run `cortexium-runner doctor`
 after updating; if a release adds Project fields, rerun `init` to synchronize
-them before starting Runner. Updating the file does not restart a Runner process
-that is already running; stop and restart that process to use the new release.
+them before starting Runner. The native updater drains supported local launchd
+workers using this executable, replaces it, and reloads those same services.
+Foreground workers must first be stopped with `stop --wait` and restarted with
+`run`. Older workers without graceful-stop support need one idle-boundary upgrade.
 
 To inspect the installer before running it:
 
@@ -278,7 +280,24 @@ When that behaves as expected, run continuously in the foreground:
 cortexium-runner run --config "$RUNNER_CONFIG"
 ```
 
-Stop it with `Ctrl-C`. Runner gives an interrupted attempt a short bounded
+To finish active assignments and stop without starting new ones, use another terminal:
+
+```bash
+cortexium-runner stop
+cortexium-runner stop --wait
+```
+
+By default this targets all your local continuous Runner workers. Add
+`--config PATH` to select just one project. `--wait` confirms shutdown;
+`--timeout 10m` limits waiting without killing work or withdrawing the request.
+Cards can be left in QA or Ready for the next startup: stopping does not wait
+for an entire batch, CI, or human approval. A managed macOS worker unloads its
+own launchd job after draining, so `KeepAlive` cannot immediately restart it.
+No plist edits or manual `launchctl` calls are required to stop.
+See [graceful stop and upgrades](docs/operator-reference.md#graceful-stop-and-managed-upgrades)
+for scope, restart behavior, and recovery limitations.
+
+`Ctrl-C` is still an interrupt, not a graceful stop. Runner gives an interrupted attempt a short bounded
 integrity-check window, returns the card to the role's previous lane, and
 retains its isolated worktree for the next run. Installing Runner starts no
 background service.

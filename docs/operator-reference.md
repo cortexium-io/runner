@@ -100,8 +100,9 @@ cortexium-runner update
 `update --version vMAJOR.MINOR.PATCH` selects an exact release. The native
 updater verifies the checksum, archive contents, and downloaded binary version,
 then atomically replaces the resolved executable. Run `doctor` afterward and
-rerun `init` when it reports newly required Project fields. An already running
-Runner process keeps its loaded release until it is stopped and restarted.
+rerun `init` when it reports newly required Project fields. For supported local
+launchd workers, the updater drains and reloads the services using this exact
+executable. See [graceful stop and managed upgrades](#graceful-stop-and-managed-upgrades).
 
 To build the current checkout instead, use the Go version declared in
 [`go.mod`](../go.mod):
@@ -130,6 +131,74 @@ or scripted workflow. `init`, `doctor`, `plan`, `approve`, `retry`, `status`,
 when they finish. Running
 `cortexium-runner` without arguments shows help; every command supports
 `--help`, and `--version` prints the installed version.
+
+## Graceful stop and managed upgrades
+
+```bash
+cortexium-runner stop
+cortexium-runner stop --wait --timeout 10m
+cortexium-runner stop --config /absolute/operator/path/runner.json --wait
+```
+
+`stop` discovers the current user's continuous workers on this machine from
+their existing local process records. It requires no GitHub access or config
+unless the optional project filter is supplied. It does not target other users,
+remote machines, arbitrary harness processes, standalone `plan`/retained-QA
+commands, or new workers started after discovery. `run --once` remains a bounded
+one-shot command, not a drainable continuous worker.
+
+The command requests each selected worker to stop admitting assignments, then
+waits for acknowledgment. The worker finishes already-admitted actions, including
+their normal evidence, publication and Project transitions, without canceling
+their contexts. Subsequent roles, automatic retry attempts, polling reconciliation
+and intake do not start after acknowledgment. A stop arriving during a poll is
+acknowledged when that poll returns; work admitted before acknowledgment belongs
+to the set being drained. Existing per-action timeouts and safe failure behavior
+still apply. Shutdown does not wait for all cards to reach Done, CI or human gates.
+
+`status` shows `Stopping` and the remaining active-assignment count; JSON exposes
+`process.stopping` and `process.active_assignments`. `--wait` waits for the selected
+worker locks to be released and, on launchd, for their jobs to be unloaded.
+`--timeout` bounds acknowledgment/shutdown waiting; interruption or timeout returns
+nonzero without killing work or canceling an accepted stop request. Repeating a
+request is safe. Requests are owner-only, bounded, atomic, and bound to the exact
+project/PID/start-time incarnation, so stale requests cannot stop a replacement.
+
+On macOS, a directly launched GUI-domain LaunchAgent is identified using its
+launchd service identity, PID and executable. After draining and releasing its
+resources, Runner unloads that exact job with `bootout`. This works even with
+`KeepAlive=true` and leaves the plist and persistent enabled/disabled settings
+unchanged. Normal configured startup on the next login remains intact. System
+LaunchDaemons and wrapper-launched jobs are not automatically managed. Other
+supervisors must be configured not to respawn an intentionally stopped worker.
+`stop` does not install or invent a service definition.
+
+For a release build, `update` downloads and validates the new binary before
+requesting any stop. It automatically drains only supported, currently running
+launchd services using the executable being replaced, atomically replaces the
+binary, then reloads those exact services and checks for a fresh successful poll.
+It does not restart services that were already stopped or take over a stop already
+in progress. Foreground workers require `stop --wait`, followed by `update` and an
+explicit `run`; their terminal sessions are not recreated. A standalone CLI command
+is not a continuous worker and is not canceled or restarted by this procedure.
+
+The updater retains the original service paths and content digests in memory.
+A changed definition or interveningly reloaded job is left untouched. After a
+fully completed drain, replacement failure/cancellation still attempts to reload
+the same services with the binary left on disk. If draining fails or is interrupted,
+the binary is not replaced and the command reports that accepted stop requests
+remain active; inspect each service before recovery. A failed reload or readiness
+check is reported explicitly, including whether the binary was replaced.
+The update command does not migrate project configuration, install skills, or
+roll back a successfully installed binary because of a readiness failure.
+
+Workers started with an older binary do not understand stop requests. They are
+reported as unsupported and never signaled or killed; the first upgrade still
+requires an idle maintenance boundary. The bootstrap installer and manual
+`go install` do not use the native updater's drain/reload sequence.
+
+`Ctrl-C` and SIGTERM retain their existing cancellation/recovery behavior. A
+graceful request does not protect a process from OS shutdown or an explicit kill.
 
 ## Quick start
 

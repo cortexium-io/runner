@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -70,6 +71,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		return runRetry(ctx, args[1:], stdin, stdout)
 	case "status":
 		return runStatus(ctx, args[1:], stdout)
+	case "stop":
+		return runStop(ctx, args[1:], stdout)
 	case "metrics":
 		return runMetrics(args[1:], stdout)
 	case "guidance":
@@ -108,6 +111,7 @@ Project work:
 
 Execution:
   cortexium-runner run [--config PATH] [--once] [--poll-interval DURATION] [--max-idle-interval DURATION]
+  cortexium-runner stop [--config PATH] [--wait] [--timeout DURATION]
   cortexium-runner status [--config PATH]
   cortexium-runner metrics [--config PATH] [--item ID|TITLE] [--json]
   cortexium-runner guidance [--config PATH] [--min-occurrences N] [--json]
@@ -198,11 +202,32 @@ func runConfiguredWorker(ctx context.Context, configPath string, once bool, poll
 		}
 	}
 	if !once {
+		executable, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		executable, err = filepath.EvalSymlinks(executable)
+		if err != nil {
+			return err
+		}
+		launchdService, err := currentLaunchdService(ctx, executable)
+		if err != nil {
+			return fmt.Errorf("identify managed Runner: %w", err)
+		}
+		if err := projectLock.EnableGracefulStop(executable, launchdService); err != nil {
+			return err
+		}
+		service.SetStopCheck(projectLock.StopRequested)
+		draining := false
 		writeProgress(stdout, "Runner started. Checking the GitHub Project for work…")
 		lastAdmissionSummary := ""
-		return service.RunLoop(ctx, pollInterval, maxIdleInterval, writeResult, func(err error) {
+		loopErr := service.RunLoop(ctx, pollInterval, maxIdleInterval, writeResult, func(err error) {
 			fmt.Fprintf(stdout, "runner error: %s\n", terminalSafeText(err.Error()))
 		}, func(poll engine.PollState) {
+			if poll.Stopping && !draining {
+				fmt.Fprintf(stdout, "Runner stopping: finishing %d active assignment(s); no new work will start.\n", poll.Active)
+			}
+			draining = poll.Stopping
 			admissionSummary := ""
 			if poll.Admission.Configured && !poll.Admission.Allowed {
 				admissionSummary = poll.Admission.Summary()
@@ -213,10 +238,20 @@ func runConfiguredWorker(ctx context.Context, configPath string, once bool, poll
 				fmt.Fprintln(stdout, "Runner admission resumed: the rolling budget has capacity.")
 			}
 			lastAdmissionSummary = admissionSummary
-			if err := projectLock.UpdateRuntime(github.RuntimeState{PID: os.Getpid(), Owner: cfg.GitHubProject.Owner, Project: cfg.GitHubProject.Number, StartedAt: startedAt, LastPollAt: poll.LastPollAt, NextPollAt: poll.NextPollAt, LastError: poll.LastError}); err != nil {
+			if err := projectLock.UpdateRuntime(github.RuntimeState{PID: os.Getpid(), Owner: cfg.GitHubProject.Owner, Project: cfg.GitHubProject.Number, StartedAt: startedAt, LastPollAt: poll.LastPollAt, NextPollAt: poll.NextPollAt, LastError: poll.LastError, Stopping: poll.Stopping, Active: poll.Active}); err != nil {
 				fmt.Fprintf(stdout, "runner status error: %s\n", terminalSafeText(err.Error()))
 			}
 		})
+		if draining && loopErr == nil && ctx.Err() == nil {
+			if err := projectLock.Release(); err != nil {
+				return err
+			}
+			fmt.Fprintln(stdout, "Runner drained; stopping.")
+			cleanup, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			return unloadDrainedLaunchdService(cleanup, launchdService, os.Getpid())
+		}
+		return loopErr
 	}
 	writeProgress(stdout, "Running one GitHub Project cycle…")
 	results, err := service.RunCycle(ctx)

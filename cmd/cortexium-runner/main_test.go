@@ -913,7 +913,7 @@ func TestExecuteEscapesTerminalControlInErrors(t *testing.T) {
 
 func TestEveryCommandHelpReturnsSuccess(t *testing.T) {
 	commands := [][]string{
-		{"init", "--help"}, {"doctor", "--help"}, {"update", "--help"}, {"plan", "--help"}, {"approve", "--help"}, {"retry", "--help"}, {"status", "--help"}, {"run", "--help"},
+		{"init", "--help"}, {"doctor", "--help"}, {"update", "--help"}, {"plan", "--help"}, {"approve", "--help"}, {"retry", "--help"}, {"status", "--help"}, {"run", "--help"}, {"stop", "--help"},
 		{"harness", "--help"}, {"harness", "check", "--help"},
 		{"workflow", "--help"}, {"workflow", "validate", "--help"}, {"workflow", "explain", "--help"},
 		{"role", "--help"}, {"role", "list", "--help"}, {"role", "show", "--help"}, {"role", "add", "--help"}, {"role", "edit", "--help"}, {"role", "remove", "--help"},

@@ -203,6 +203,21 @@ usage, and harness-time ceilings fail closed for unfinished attempts.
 The long-running engine reuses parsed admission history until an attempt starts
 or completes; stage-only telemetry does not cause another full JSONL replay.
 
+Local graceful stop is a distinct coordinator state, not an admission budget or
+Project workflow lane. An owner-only, bounded, atomically published request beside
+the existing worker lock is bound to that worker's project/PID/start time. The
+continuous coordinator checks local control independently of the GitHub poll timer,
+acknowledges draining between polls, starts no subsequent polls or assignments,
+and collects every admitted action's normal result without canceling its context.
+Runtime status exposes the draining state and active count. Releasing the worker
+removes its request; a replacement instance cannot inherit a stale stop request.
+No harness protocol, prompt, Project field, scheduling journal or inbound server
+is added. Standalone commands retain their own bounded lifetimes.
+The CLI handles verified GUI launchd jobs only after engine/resource cleanup,
+unloading them to prevent KeepAlive respawn. The native updater validates its
+candidate first, then drains/reloads only the previously running services attached
+to the executable being replaced. Service definitions are not rewritten.
+
 An optional implementer ladder is a validated ordered list of implementer role
 profiles. It never retries within one execution attempt. After a reviewer
 returns a valid `needs_changes` verdict, the existing authenticated `QA

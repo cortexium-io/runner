@@ -36,6 +36,9 @@ type Options struct {
 	ReleasesURL    string
 	CheckOnly      bool
 	HTTPClient     *http.Client
+	// Quiesce runs after download, checksum and executable validation, directly
+	// before replacement. Its resume function runs on success and failure.
+	Quiesce func(context.Context, string) (func() error, error)
 }
 
 type Result struct {
@@ -118,7 +121,7 @@ func Run(ctx context.Context, options Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := replaceExecutable(ctx, executablePath, binary, target); err != nil {
+	if err := replaceExecutable(ctx, executablePath, binary, target, options.Quiesce); err != nil {
 		return Result{}, err
 	}
 	result.Updated = true
@@ -269,7 +272,7 @@ func extractBinary(archive []byte, packageName string) ([]byte, error) {
 	return binary, nil
 }
 
-func replaceExecutable(ctx context.Context, executablePath string, binary []byte, version string) (returnErr error) {
+func replaceExecutable(ctx context.Context, executablePath string, binary []byte, version string, quiesce func(context.Context, string) (func() error, error)) (returnErr error) {
 	directory := filepath.Dir(executablePath)
 	temporary, err := os.CreateTemp(directory, ".cortexium-runner-update-*")
 	if err != nil {
@@ -299,9 +302,27 @@ func replaceExecutable(ctx context.Context, executablePath string, binary []byte
 	if err != nil || strings.TrimSpace(string(output)) != "cortexium-runner "+version {
 		return errors.New("downloaded binary reported an unexpected version")
 	}
+	replaced := false
+	if quiesce != nil {
+		resume, err := quiesce(ctx, executablePath)
+		if resume != nil {
+			defer func() {
+				if err := resume(); err != nil {
+					returnErr = errors.Join(returnErr, fmt.Errorf("restore Runner services (binary replaced=%t): %w", replaced, err))
+				}
+			}()
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.Rename(temporaryPath, executablePath); err != nil {
 		return fmt.Errorf("atomically replace %s: %w", executablePath, err)
 	}
+	replaced = true
 	return nil
 }
 
