@@ -205,6 +205,9 @@ func TestMetricItemFilterRefusesAmbiguousTitlesAndNeverUsesSubstrings(t *testing
 	if filtered, err = filterMetricAttempts(knownItems, "history"); err != nil || len(filtered) != 0 {
 		t.Fatalf("substring selector unexpectedly matched an item: %#v error=%v", filtered, err)
 	}
+	if filtered, err = filterMetricAttempts(knownItems, "pvti_one"); err != nil || len(filtered) != 0 {
+		t.Fatalf("case-changed item ID unexpectedly matched an exact identity: %#v error=%v", filtered, err)
+	}
 
 	for name, attempts := range map[string][]runnermetrics.Attempt{
 		"two unavailable IDs": {
@@ -214,6 +217,10 @@ func TestMetricItemFilterRefusesAmbiguousTitlesAndNeverUsesSubstrings(t *testing
 		"known and unavailable IDs": {
 			{Event: runnermetrics.Event{AttemptID: "known", ItemID: "PVTI_known", ItemTitle: "Incomplete identity"}},
 			{Event: runnermetrics.Event{AttemptID: "unknown", ItemTitle: "Incomplete identity"}},
+		},
+		"case-distinct IDs": {
+			{Event: runnermetrics.Event{AttemptID: "upper", ItemID: "PVTI_same", ItemTitle: "Case-sensitive identity"}},
+			{Event: runnermetrics.Event{AttemptID: "lower", ItemID: "pvti_same", ItemTitle: "Case-sensitive identity"}},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -226,7 +233,7 @@ func TestMetricItemFilterRefusesAmbiguousTitlesAndNeverUsesSubstrings(t *testing
 
 	repeatedKnownID := []runnermetrics.Attempt{
 		{Event: runnermetrics.Event{AttemptID: "known-one", ItemID: "PVTI_same", ItemTitle: "Known identity"}},
-		{Event: runnermetrics.Event{AttemptID: "known-two", ItemID: "pvti_SAME", ItemTitle: "Known identity"}},
+		{Event: runnermetrics.Event{AttemptID: "known-two", ItemID: "PVTI_same", ItemTitle: "Known identity"}},
 	}
 	if filtered, err = filterMetricAttempts(repeatedKnownID, "Known identity"); err != nil || len(filtered) != 2 {
 		t.Fatalf("attempts with one known card identity were rejected: %#v error=%v", filtered, err)

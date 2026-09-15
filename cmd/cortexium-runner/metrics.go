@@ -335,7 +335,7 @@ func filterMetricAttempts(attempts []runnermetrics.Attempt, selector string) ([]
 	}
 	var result []runnermetrics.Attempt
 	for _, attempt := range attempts {
-		if strings.EqualFold(strings.TrimSpace(attempt.ItemID), selector) {
+		if strings.TrimSpace(attempt.ItemID) == selector {
 			result = append(result, attempt)
 		}
 	}
@@ -344,13 +344,13 @@ func filterMetricAttempts(attempts []runnermetrics.Attempt, selector string) ([]
 	}
 	// A shared title does not prove that records with missing IDs belong to the
 	// same card. Multiple title matches are safe only when every retained record
-	// carries the same non-empty item ID.
+	// carries the same non-empty exact item ID.
 	matchedItemID := ""
 	for _, attempt := range attempts {
 		if !strings.EqualFold(strings.TrimSpace(attempt.ItemTitle), selector) {
 			continue
 		}
-		itemID := strings.ToLower(strings.TrimSpace(attempt.ItemID))
+		itemID := strings.TrimSpace(attempt.ItemID)
 		if len(result) > 0 && (itemID == "" || matchedItemID == "" || itemID != matchedItemID) {
 			return nil, fmt.Errorf("item title %q matches records without one unambiguous card ID; use an exact item ID", selector)
 		}
