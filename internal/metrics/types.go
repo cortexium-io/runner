@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"math"
@@ -204,6 +205,7 @@ type Event struct {
 	Kind                        string          `json:"kind"`
 	AttemptID                   string          `json:"attempt_id"`
 	RunnerID                    string          `json:"runner_id"`
+	RunContext                  *RunContext     `json:"run_context,omitempty"`
 	ProjectOwner                string          `json:"project_owner"`
 	ProjectNumber               int             `json:"project_number"`
 	Repository                  string          `json:"repository,omitempty"`
@@ -235,6 +237,29 @@ type Event struct {
 	PromptContexts              []PromptContext `json:"prompt_contexts,omitempty"`
 	ResumedCheckpoint           bool            `json:"resumed_checkpoint,omitempty"`
 	Usage                       Usage           `json:"usage"`
+}
+
+// RunContext identifies the CLI build and loaded operator configuration when
+// the event was recorded, not when history is exported. It grants no authority.
+// BundledSkillsVersion identifies the bundle, not necessarily the installed
+// role guidance; PromptContext records the guidance actually supplied.
+type RunContext struct {
+	RunnerVersion        string `json:"runner_version"`
+	BundledSkillsVersion string `json:"bundled_skills_version"`
+	ConfigDigest         string `json:"config_digest"`
+}
+
+func validRunContext(value *RunContext) bool {
+	if value == nil {
+		return true // Unrecorded identity is unknown, never inferred from today's config.
+	}
+	if len(value.RunnerVersion) == 0 || len(value.RunnerVersion) > 128 ||
+		len(value.BundledSkillsVersion) == 0 || len(value.BundledSkillsVersion) > 128 ||
+		!strings.HasPrefix(value.ConfigDigest, "sha256:") {
+		return false
+	}
+	digest, err := hex.DecodeString(strings.TrimPrefix(value.ConfigDigest, "sha256:"))
+	return err == nil && len(digest) == sha256.Size
 }
 
 // PromptContext fingerprints Runner-owned static guidance only. It is not the

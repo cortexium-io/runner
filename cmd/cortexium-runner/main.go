@@ -245,7 +245,7 @@ func attachMetricsStore(service *engine.Engine, cfg config.Config, output io.Wri
 		}
 		return nil
 	}
-	service.SetMetricsObserver(store.Append)
+	service.SetMetricsObserver(metricsRunObserver(cfg, store.Append))
 	service.SetMetricsHistoryReader(store.Read)
 	return store
 }

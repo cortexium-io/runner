@@ -48,6 +48,7 @@ Shared planning contract — outline:
 Inspect the supplied project and repository context, then return the project outcome and the ordered card outline through the required structured-output mechanism.
 Choose the smallest complete set of coherent cards. Do not collapse independently verifiable behavior merely to reduce the card count, and do not create artificial microtasks. The schema ceiling is emergency loop protection, never planning guidance.
 Each dependency is the 1-based position of an earlier prerequisite card. Keep independent work independent. Do not return card details yet.
+The next stage has no repository tools: retain the inspected contract facts, their exact sources, supported representative inputs, and authorized verification setup in project_constraints. Distinguish facts from assumptions; resolve inspectable questions here. Keep this handoff concise rather than copying the request.
 Make reasonable reversible choices. Record selected defaults in project_constraints and use open_decisions only when a missing human choice prevents every safe, complete plan. Use [] when there is no open decision.` + "\n\n" + basePrompt
 	outlineResult, err := outlineCall(ctx, outlinePrompt, projectPlanOutlineSchema)
 	mergePlannerStage(&aggregate, outlineResult)
@@ -75,6 +76,7 @@ Return one details object for each supplied exact Runner-owned key.
 
 For every card, objective states its complete task boundary; done_when contains observable completion conditions; proof_obligations state what evidence must establish; assumptions records selected task-local defaults or constraints. Proof obligations must not prescribe commands, test frameworks, implementation techniques, or an interface the requested behavior does not need. The implementer will inspect the repository and choose the smallest reliable proof method.
 
+Use the outline's sourced contract facts when defining acceptance and selecting profiles; do not turn an assumption into a verified fact. Runner attaches the original request and shared criteria/constraints to every card, so add only task-local details and relevant references, not another copy of the shared context.
 Do not repeat titles or dependencies and do not inspect the repository again. Include all required arrays, using [] when no assumption applies. Do not add or omit cards.
 
 %s

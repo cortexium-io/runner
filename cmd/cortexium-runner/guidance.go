@@ -123,10 +123,11 @@ func guidanceMetricsObserver(store *metrics.Store, cfg config.Config, output io.
 	} else {
 		replayGuidance(detector, cfg, history)
 	}
+	appendEvent := metricsRunObserver(cfg, store.Append)
 	return func(event metrics.Event) error {
 		mu.Lock()
 		defer mu.Unlock()
-		if err := store.Append(event); err != nil {
+		if err := appendEvent(event); err != nil {
 			return err
 		}
 		if guidanceEventInScope(event, cfg) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +12,27 @@ import (
 
 	"github.com/cortexium-io/runner/internal/config"
 	runnermetrics "github.com/cortexium-io/runner/internal/metrics"
+	bundledskills "github.com/cortexium-io/runner/skills"
 )
+
+// Snapshot once at service/CLI construction, not at export time. Only the digest
+// is retained: config paths, commands, environment values and reference contents
+// do not become new telemetry payloads. This is not an effective-harness digest.
+func metricsRunObserver(cfg config.Config, observe func(runnermetrics.Event) error) func(runnermetrics.Event) error {
+	encoded, err := json.Marshal(cfg)
+	identity := runnermetrics.RunContext{
+		RunnerVersion: buildVersion(), BundledSkillsVersion: bundledskills.BundledVersion,
+		ConfigDigest: fmt.Sprintf("sha256:%x", sha256.Sum256(encoded)),
+	}
+	return func(event runnermetrics.Event) error {
+		if err != nil {
+			return errors.New("metrics run configuration could not be fingerprinted")
+		}
+		context := identity
+		event.RunContext = &context
+		return observe(event)
+	}
+}
 
 type metricsOutput struct {
 	RunnerID         string                      `json:"runner_id"`
@@ -160,6 +181,9 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 		}
 		fmt.Fprintf(output, "  - %s · %s · %s/%s · %s · reasoning %s · iteration %d · %s\n", attempt.StartedAt.Local().Format(time.RFC3339), terminalSafeText(state), terminalSafeText(attempt.Role), terminalSafeText(attempt.Harness), terminalSafeText(model), terminalSafeText(reasoning), attempt.Iteration, formatStatusDuration(elapsed))
 		fmt.Fprintf(output, "    %s\n", terminalSafeText(attempt.ItemTitle))
+		if identity := attempt.RunContext; identity != nil {
+			fmt.Fprintf(output, "    run: %s · bundled skills %s · config %s\n", terminalSafeText(identity.RunnerVersion), terminalSafeText(identity.BundledSkillsVersion), terminalSafeText(identity.ConfigDigest))
+		}
 		if attempt.ReviewVerdict != "" {
 			fmt.Fprintf(output, "    QA verdict: %s\n", terminalSafeText(attempt.ReviewVerdict))
 		}

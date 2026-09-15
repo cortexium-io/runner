@@ -14,6 +14,7 @@ import (
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/engine"
 	"github.com/cortexium-io/runner/internal/github"
+	"github.com/cortexium-io/runner/internal/metrics"
 )
 
 func TestPlanJSONHonorsExplicitStaging(t *testing.T) {
@@ -30,6 +31,7 @@ func TestPlanJSONHonorsExplicitStaging(t *testing.T) {
 		{name: "create with open decision", mode: "--create", openDecision: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("CORTEXIUM_RUNNER_STATE_DIR", t.TempDir())
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("XDG_CACHE_HOME", t.TempDir())
 			bin := t.TempDir()
@@ -113,6 +115,15 @@ esac
 			}
 			var output, stderr bytes.Buffer
 			code := execute(t.Context(), args, strings.NewReader(""), &output, &stderr)
+			store, metricsErr := metrics.NewDefaultStore(cfg.RunnerID)
+			if metricsErr != nil {
+				t.Fatal(metricsErr)
+			}
+			history, metricsErr := store.Read()
+			if metricsErr != nil || len(history.Attempts) != 1 || history.Attempts[0].RunContext == nil ||
+				history.Attempts[0].RunContext.RunnerVersion != buildVersion() {
+				t.Fatalf("planner CLI did not retain its run identity: %#v error=%v", history, metricsErr)
+			}
 			after, active, inspectErr := github.InspectProcessState(*cfg.GitHubProject)
 			if inspectErr != nil || !active || after != before {
 				t.Fatalf("CLI planning changed worker runtime state: before=%+v after=%+v active=%t err=%v", before, after, active, inspectErr)
