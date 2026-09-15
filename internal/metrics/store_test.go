@@ -452,6 +452,14 @@ func TestRetainedAttemptEvidenceValidationSeparatesClaimsAndObservedIdentity(t *
 	if validRetainedAttemptEvidence(oversized) {
 		t.Fatal("oversized model report was retained")
 	}
+	excessive := event
+	excessive.Verification = make([]string, maxEvidenceEntries+1)
+	for index := range excessive.Verification {
+		excessive.Verification[index] = "bounded"
+	}
+	if validRetainedAttemptEvidence(excessive) {
+		t.Fatal("excessive model report was retained")
+	}
 	stage := event
 	stage.Kind = EventStageCompleted
 	if validRetainedAttemptEvidence(stage) {
