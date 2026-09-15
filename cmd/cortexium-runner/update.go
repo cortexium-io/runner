@@ -33,6 +33,9 @@ func runUpdate(ctx context.Context, args []string, stdout io.Writer) error {
 	result, err := updater.Run(ctx, updater.Options{
 		CurrentVersion: buildVersion(), TargetVersion: *target, ExecutablePath: executable,
 		ReleasesURL: releasesURL, CheckOnly: *check,
+		Quiesce: func(ctx context.Context, executable string) (func() error, error) {
+			return prepareRunnerUpdate(ctx, executable, stdout)
+		},
 	})
 	if err != nil {
 		return err

@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,52 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestReplacementValidatesBeforeDrainAndResumesAfterSwitch(t *testing.T) {
+	current := filepath.Join(t.TempDir(), "cortexium-runner")
+	writeVersionScript(t, current, "v1.0.0")
+	stopped, resumed := false, false
+	quiesce := func(ctx context.Context, path string) (func() error, error) {
+		output, err := exec.Command(path, "--version").Output()
+		if err != nil || !strings.Contains(string(output), "v1.0.0") {
+			t.Fatalf("replacement happened before drain: %q %v", output, err)
+		}
+		stopped = true
+		return func() error {
+			output, err := exec.Command(path, "--version").Output()
+			if err != nil || !strings.Contains(string(output), "v2.0.0") {
+				t.Fatalf("resume happened before replacement: %q %v", output, err)
+			}
+			resumed = true
+			return nil
+		}, nil
+	}
+	if err := replaceExecutable(t.Context(), current, versionScript("v9.0.0"), "v2.0.0", quiesce); err == nil || stopped {
+		t.Fatal("invalid candidate interrupted workers")
+	}
+	if err := replaceExecutable(t.Context(), current, versionScript("v2.0.0"), "v2.0.0", quiesce); err != nil || !stopped || !resumed {
+		t.Fatalf("replacement lifecycle: stopped=%v resumed=%v err=%v", stopped, resumed, err)
+	}
+}
+
+func TestReplacementCancellationRestoresServicesWithoutSwitchingBinary(t *testing.T) {
+	current := filepath.Join(t.TempDir(), "cortexium-runner")
+	writeVersionScript(t, current, "v1.0.0")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	resumed := false
+	err := replaceExecutable(ctx, current, versionScript("v2.0.0"), "v2.0.0", func(context.Context, string) (func() error, error) {
+		cancel()
+		return func() error { resumed = true; return nil }, nil
+	})
+	if !errors.Is(err, context.Canceled) || !resumed {
+		t.Fatalf("canceled update: %v resumed=%v", err, resumed)
+	}
+	output, err := exec.Command(current, "--version").Output()
+	if err != nil || !strings.Contains(string(output), "v1.0.0") {
+		t.Fatalf("canceled update replaced binary: %q %v", output, err)
+	}
+}
 
 func TestRunReplacesExecutableWithVerifiedRelease(t *testing.T) {
 	testRunReplacesExecutable(t, "v0.2.0", "v0.3.0")

@@ -62,6 +62,7 @@ type Engine struct {
 	admissionCacheGeneration   uint64
 	automaticRetryMu           sync.Mutex
 	automaticRetries           map[string]automaticRetryState
+	stopRequested              func() (bool, error)
 }
 
 // SetMetricsObserver attaches attempt telemetry. It remains non-critical when
@@ -91,7 +92,14 @@ type PollState struct {
 	NextPollAt time.Time
 	LastError  string
 	Admission  AdmissionDecision
+	Stopping   bool
+	Active     int
 }
+
+// SetStopCheck installs the local operator stop request reader. It is checked
+// only by the coordinator: acknowledging a stop cannot race another admission.
+// The request never cancels an already admitted action's context.
+func (s *Engine) SetStopCheck(check func() (bool, error)) { s.stopRequested = check }
 
 const (
 	DefaultPollInterval    = 30 * time.Second
@@ -478,6 +486,17 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 	nextIntakeSync := time.Time{}
 	inFlight := map[string][]string{}
 	completed := make(chan actionCompletion, s.maxParallelism())
+	controlTimer := time.NewTicker(250 * time.Millisecond)
+	defer controlTimer.Stop()
+	stopping := false
+	lastPoll := PollState{}
+	reportStopping := func() {
+		if onPoll != nil {
+			state := lastPoll
+			state.Stopping, state.Active, state.NextPollAt = true, len(inFlight), time.Time{}
+			onPoll(state)
+		}
+	}
 	pollTimer := time.NewTimer(0)
 	defer pollTimer.Stop()
 	resetPollTimer := func(delay time.Duration) {
@@ -495,7 +514,22 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 		}
 	}
 	for {
+		if !stopping && s.stopRequested != nil {
+			requested, err := s.stopRequested()
+			if err != nil && onError != nil {
+				onError(fmt.Errorf("read local stop request; draining safely: %w", err))
+			}
+			if requested || err != nil {
+				stopping = true
+				reportStopping()
+			}
+		}
+		if stopping && len(inFlight) == 0 {
+			return nil
+		}
 		select {
+		case <-controlTimer.C:
+			// Wake for local control without polling GitHub or canceling work.
 		case <-ctx.Done():
 			for len(inFlight) > 0 {
 				completion := <-completed
@@ -508,8 +542,15 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 			delete(inFlight, completion.itemID)
 			s.finishAutomaticRetry(completion.result)
 			reportResult(completion.result)
-			resetPollTimer(0)
+			if stopping {
+				reportStopping()
+			} else {
+				resetPollTimer(0)
+			}
 		case <-pollTimer.C:
+			if stopping {
+				continue
+			}
 			now := time.Now()
 			syncIntake := !now.Before(nextIntakeSync)
 			available := s.maxParallelism() - len(inFlight)
@@ -567,6 +608,7 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 				if err != nil {
 					state.LastError = err.Error()
 				}
+				lastPoll = state
 				onPoll(state)
 			}
 			resetPollTimer(delay)
