@@ -167,7 +167,7 @@ func TestMetricsCommandReportsQAIndependentlyOfPublication(t *testing.T) {
 	if err := runMetrics([]string{"--config", configPath}, &output); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"Recorded QA verdicts: 3 · 1 accepted · 1 changes requested · 1 blocked", "QA verdict: accept", "QA verdict: needs_changes", "QA verdict: blocked", "failed operation: publication_create_pull_request", "missing verdicts are not inferred"} {
+	for _, expected := range []string{"Recorded QA verdicts: 3 · 1 accepted · 1 changes requested · 1 blocked", "Model-reported:", "review outcome: accept", "review outcome: needs_changes", "review outcome: blocked", "failed operation: publication_create_pull_request", "missing verdicts are not inferred"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("metrics omitted %q:\n%s", expected, output.String())
 		}
