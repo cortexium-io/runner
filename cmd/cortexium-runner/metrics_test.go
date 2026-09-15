@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +14,71 @@ import (
 	"github.com/cortexium-io/runner/internal/config"
 	runnermetrics "github.com/cortexium-io/runner/internal/metrics"
 )
+
+func TestMetricsRunIdentityIsRetainedAtRecordingNotExport(t *testing.T) {
+	for _, mode := range []string{"cli", "service"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv("CORTEXIUM_RUNNER_STATE_DIR", t.TempDir())
+			cfg := completeCLITestConfig(t.TempDir())
+			profile := cfg.Roles[config.WorkRoleImplementer]
+			profile.Description = "private-config-content-not-for-history"
+			cfg.Roles[config.WorkRoleImplementer] = profile
+			store, err := runnermetrics.NewDefaultStore(cfg.RunnerID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observe := metricsRunObserver(cfg, store.Append)
+			if mode == "service" {
+				observe = guidanceMetricsObserver(store, cfg, io.Discard)
+			}
+			// Changing even the shared map after attachment must not relabel this run.
+			profile.Reasoning = "high"
+			profile.Description = "changed configuration"
+			cfg.Roles[config.WorkRoleImplementer] = profile
+			if err := observe(runnermetrics.Event{Kind: runnermetrics.EventCompleted, AttemptID: "original", Outcome: "succeeded"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := metricsRunObserver(cfg, store.Append)(runnermetrics.Event{Kind: runnermetrics.EventStarted, AttemptID: "later"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Append(runnermetrics.Event{Kind: runnermetrics.EventCompleted, AttemptID: "unknown"}); err != nil {
+				t.Fatal(err)
+			}
+			configPath := filepath.Join(t.TempDir(), "runner.json")
+			if err := config.SaveConfig(configPath, cfg); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			if code := execute(t.Context(), []string{"metrics", "--config", configPath, "--json"}, strings.NewReader(""), &stdout, &stderr); code != 0 {
+				t.Fatalf("metrics CLI exit %d: %s", code, &stderr)
+			}
+			var view metricsOutput
+			if err := json.Unmarshal(stdout.Bytes(), &view); err != nil || len(view.Attempts) != 3 {
+				t.Fatalf("metrics export: attempts=%d error=%v", len(view.Attempts), err)
+			}
+			first, later := view.Attempts[0].RunContext, view.Attempts[1].RunContext
+			if first == nil || later == nil || first.RunnerVersion != buildVersion() || first.BundledSkillsVersion == "" ||
+				first.ConfigDigest == later.ConfigDigest || view.Attempts[2].RunContext != nil {
+				t.Fatalf("lost historical run identity: first=%+v later=%+v unknown=%+v", first, later, view.Attempts[2].RunContext)
+			}
+			raw, err := os.ReadFile(store.Path())
+			if err != nil || bytes.Contains(raw, []byte("private-config-content")) || bytes.Contains(raw, []byte("changed configuration")) {
+				t.Fatalf("config contents leaked into history: %v", err)
+			}
+			if info, err := os.Stat(store.Path()); err != nil || info.Mode().Perm() != 0o600 {
+				t.Fatalf("metrics history not private: %v", err)
+			}
+		})
+	}
+}
+
+func TestMetricsRunObserverPreservesWriteFailures(t *testing.T) {
+	want := errors.New("disk full")
+	observe := metricsRunObserver(completeCLITestConfig(t.TempDir()), func(runnermetrics.Event) error { return want })
+	if err := observe(runnermetrics.Event{}); !errors.Is(err, want) {
+		t.Fatalf("metrics write failure hidden from admission controls: %v", err)
+	}
+}
 
 func TestMetricsCommandFiltersItemsAndReportsOnlyHarnessCost(t *testing.T) {
 	stateDir := t.TempDir()

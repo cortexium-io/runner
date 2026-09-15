@@ -1,6 +1,6 @@
 ---
 name: runner-reviewer
-description: Review completed work against its acceptance conditions and repository-wide rules with minimal, evidence-backed verification.
+description: Review Runner-assigned candidates against supplied proof obligations and repository rules. Follow the assigned evidence-audit or focused-verification stage.
 ---
 
 # Reviewer
@@ -54,6 +54,13 @@ operation or a weaker substitute.
 
 Match evidence to the claim: rendered appearance needs rendered inspection,
 interaction needs the interaction, and maintainability needs source evidence.
+For contract or integration claims, check that the evidence uses supported
+representative data and the actual producer/consumer boundary. A large passing
+suite with incompatible fixtures does not establish the claimed journey. Keep
+this within the assigned obligations; do not add unsupported legacy behavior or
+require live-data access. When requesting fresh verification, name the concrete
+gap or invalidated evidence and the smallest scope that can resolve it; broad
+checks need a cross-cutting risk or repository-policy reason.
 Do not assume a browser, UI, network, database, or deployment merely because a
 tool exists. The stage prompt defines whether dynamic checks are allowed.
 

@@ -44,10 +44,38 @@ retry work. Keep exports private because attempt evidence can contain project
 details:
 
 ```bash
+# Choose a new batch directory under an existing private, durable parent.
+# Do not use /tmp or an execution worktree for the only retained copy.
+trial_dir=/absolute/private/trials/UNIQUE_BATCH_ID
 umask 077
-cortexium-runner metrics --config /absolute/operator/path/runner.json --json > metrics.json
+mkdir "$trial_dir"
+cortexium-runner metrics --config /absolute/operator/path/runner.json --json > "$trial_dir/metrics-before.json"
 cortexium-runner metrics --config /absolute/operator/path/runner.json --item CARD_ID
 ```
+
+Save the planner's JSON proposal there when planning is already authorized; do
+not rerun planning to recreate missing evidence. Retain an after-batch metrics
+export, exact approved item IDs, source and candidate/merge commits, and any
+needed check reports in the same private trial location. Use the existing trial
+record for each human intervention: time, card/attempt/candidate, reason, action,
+and result, distinguishing diagnosis, product repair, scope amendment, retry,
+environment repair, and Runner upgrade. Record human time only when measured.
+Runner does not capture work done outside its assignments or copy temporary
+reports automatically. Keep diagnostic summaries self-contained and redact
+credentials and customer payloads rather than retaining raw sessions.
+
+New attempt records include `run_context`: Runner build, bundled skill version,
+and a digest of the loaded config including CLI overrides. These are captured
+at execution, not export. Retain relevant operator settings and changes in the
+private trial record as well: a digest cannot reconstruct them, identify an
+unlabelled development binary, or detect changed native harness configuration,
+environment, or referenced files. Use `prompt_contexts` for actual supplied
+guidance; the bundled version alone does not prove which skills were installed.
+Missing historical identity stays unknown. No current version is backfilled.
+These telemetry fields are not injected into model prompts. The stable-first
+prompt layout is unchanged; a revised skill changes the shared guidance prefix,
+not a per-attempt timestamp or run identity in that prefix. Cache reuse across
+models or harness sessions is still not guaranteed.
 
 Filter the export to the approved batch's exact item IDs, retaining every
 attempt through its observed terminal state. Include blocked/exhausted work and
@@ -97,6 +125,15 @@ paginated response does not establish global absence. Profile selection should
 consider contract clarity, evidence that examples apply, whether checks can
 detect mistakes, and their consequences. Slow tests or missing browser tools do
 not establish a need for a stronger model.
+
+The planner should name the hardest card-owned invariant and why the selected
+profile can handle it. A small UI diff can still involve source preservation,
+occurrence identity, or interacting selection/history. Conversely, a consumer
+of a fixed, verified prerequisite contract can be much more bounded than the
+card that establishes that contract. Require applicable evidence, not merely
+"established patterns" in the selection reason. Resolve inspectable contract
+questions in planning; moving an undocumented assumption to a stronger model
+does not resolve it. This guidance changes no configured profile or ladder.
 
 Use a separate operator-owned test configuration for an isolated test project.
 Do not run a second coordinator against the same live Project. The commands below

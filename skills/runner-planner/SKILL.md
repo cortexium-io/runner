@@ -1,6 +1,6 @@
 ---
 name: runner-planner
-description: Turn a project goal or source-backed request into a dependency-aware set of reviewable work items without implementing them.
+description: Plan Runner-assigned projects as dependency-aware work items with completion conditions and proof obligations. Use for Runner planning assignments.
 ---
 
 # Planner
@@ -35,8 +35,12 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    merges; do not freeze every later card to the batch's initial commit. A
    pre-edit identity check must not require the changed final candidate to equal
    its starting base. Stop on unexplained identity conflicts.
-   Carry repository facts needed by the tool-free details stage in
-   the outline's constraints, especially shared contracts and verification setup.
+   Carry repository facts needed by the tool-free details stage in the outline's
+   constraints: the applicable contract and its source, supported data shapes,
+   and authorized verification setup. Distinguish inspected facts from selected
+   defaults and unresolved assumptions. A fixture or similarly named helper is
+   not proof of the producer's contract. Resolve inspectable questions before
+   handoff; a stronger implementation profile cannot replace a missing contract.
    Keep temporary staging/approval status out of executable goals, constraints,
    assumptions, and acceptance conditions. Describe future work conditionally
    ("once approved"), not as permanently "planning-only" or "unapproved".
@@ -54,7 +58,9 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    independent failure modes and proof, not a preferred card count. A single
    user journey may cross several separately reviewable authority or data
    boundaries. For visual work, establish the accepted direction in an early
-   useful slice rather than first comparing it at final readiness.
+   useful slice rather than first comparing it at final readiness. Prove the
+   smallest complete journey across the changed boundaries early; do not defer
+   discovery of whether the pieces work together to a final catch-all card.
 4. Give every card one objective, observable completion conditions, proof
    obligations, selected assumptions, and dependencies. A proof obligation says
    what evidence must establish, not which command, framework, file, tool, or
@@ -72,9 +78,13 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    When consumers need a new shared contract, identify its owner and establish
    that contract before depending on it. Consumers of an already fixed contract
    can proceed independently.
-6. Cover the primary user journey and only the empty states, failures,
-   persistence, recovery, compatibility, security, or domain invariants that
-   materially affect completeness.
+6. Ground acceptance in supported representative inputs and existing behavior,
+   not only newly constructed happy-path fixtures. When an existing format or
+   service is involved, identify the relevant producer/consumer contract and
+   preservation requirements. Do not invent compatibility with unsupported data
+   or require live customer data. Cover the primary user journey and only the
+   empty states, failures, persistence, recovery, compatibility, security, or
+   domain invariants that materially affect completeness.
 7. Include a project-readiness card only when integration or release evidence
    cannot be established by the delivery cards themselves. Name that additional
    evidence; merely repeating delivery checks or closing cards is not a separate
@@ -115,18 +125,26 @@ together; do not invent either, infer cross-model reasoning equivalence, or
 change the requirements to suit a cheaper profile. Leave the selection empty
 when the configured default is appropriate or no profiles are supplied.
 
-Base the reason on contract clarity, applicable repository examples, the strength
-of available verification, and the consequence of a mistake. A few files or a
-familiar component do not make a task mechanical when state transitions, partial
-data, authorization, or recovery need independent reasoning. Prefer a cheaper
-profile when the solution is well bounded and mistakes are reliably detectable;
-use operator guidance for uncertainty or high-consequence work. Do not infer a
+Base the reason on the hardest card-owned invariant, contract clarity, applicable
+repository examples, verification strength, and the consequence of a mistake.
+Explain why an example applies or which prerequisite removes the uncertainty;
+"established patterns" alone is not a reason. A few files or a familiar component
+do not make a task mechanical when state transitions, partial data, authorization,
+or recovery need independent reasoning. Source-preserving edits, repeated-occurrence
+identity, or interacting selection and history can require substantial reasoning
+even behind a small UI change. Prefer a cheaper profile when the contract is
+fixed, the solution is well bounded, and mistakes are reliably detectable; use
+operator guidance for uncertainty or high-consequence work. Do not infer a
 universal capability ladder from model names, effort labels, or aggregate
 benchmarks. Missing tools, slow checks, and provider failures are environment
 constraints, not evidence that a different model will solve the card.
 
 ## Verification economy
 
+- Runner attaches the original request, project criteria, and constraints to
+  each card. Keep shared facts there once; card details should add the local
+  boundary, relevant contract references, and observable proof, not copy the
+  whole request or sibling requirements into every field.
 - Prefer one proof obligation that covers related claims over overlapping proof.
 - Broad suites and full-system evidence belong only at the narrowest integration
   boundary that needs them.

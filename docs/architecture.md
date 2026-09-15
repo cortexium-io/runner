@@ -112,6 +112,14 @@ appended to a runner-keyed JSONL file in the user configuration directory. The
 event boundary keeps telemetry failure non-fatal to workflow execution and
 preserves unfinished attempts and stages after a process interruption. Stage
 events carry identity, timing, enums, usage, and prompt-context fingerprints.
+CLI observers snapshot `run_context` when attached: the Runner version, bundled
+skill version, and SHA-256 digest of the JSON-encoded loaded operator config
+(including CLI overrides). Both service and standalone planning/QA paths retain
+it in their events. The digest is diagnostic, not authorization or an effective
+harness/environment identity; config contents are not copied into telemetry.
+Installed guidance is separately identified by `prompt_contexts`, since an
+installed skill can differ from the bundle. Missing historical identities remain
+unknown rather than being filled from the current installation at export time.
 The history deliberately excludes prompts, transcripts, raw responses, command arguments, raw local
 errors, and free-form stage payloads. Completed attempts may additionally carry
 a fixed publication-operation enum and a bounded attempt count; provider error

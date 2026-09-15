@@ -542,6 +542,16 @@ metrics. Use
 machine-readable output. `status` includes a compact accumulated total and the
 current admission-budget state.
 
+New CLI-recorded attempts include `run_context` with the recording build's
+`runner_version`, `bundled_skills_version`, and `config_digest`. The last is a
+SHA-256 fingerprint of the loaded config after CLI overrides, not its contents.
+It can distinguish changed configurations but cannot reconstruct them or detect
+changes to native harness settings, environment, or files referenced by path.
+The bundled skill version is not proof of the installed role guidance; use the
+stage's `prompt_contexts` for that. Older attempts retain unknown identity, and
+exporting them with a newer Runner does not relabel them. These fields confer no
+approval, receipt validity, or cache guarantee.
+
 Completed review attempts also record `review_verdict`: `accept`,
 `needs_changes`, or `blocked`, after result validation and workspace integrity
 checks. This includes one-shot operator QA. The verdict is distinct from the

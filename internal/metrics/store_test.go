@@ -3,6 +3,7 @@ package metrics
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -241,6 +242,33 @@ func TestStorePreservesUnfinishedAttempt(t *testing.T) {
 	}
 	if len(history.Attempts) != 1 || history.Attempts[0].Completed || Summarize(history.Attempts).UnfinishedAttempts != 1 {
 		t.Fatalf("unfinished attempt was not preserved: %#v", history)
+	}
+}
+
+func TestStoreRejectsMalformedRunIdentityOnWriteAndRead(t *testing.T) {
+	for name, identity := range map[string]*RunContext{
+		"missing versions":  {ConfigDigest: "sha256:" + strings.Repeat("a", 64)},
+		"raw configuration": {RunnerVersion: "dev", BundledSkillsVersion: "1.8.13", ConfigDigest: "private config contents"},
+		"oversized version": {RunnerVersion: strings.Repeat("x", 129), BundledSkillsVersion: "1.8.13", ConfigDigest: "sha256:" + strings.Repeat("a", 64)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := NewStore(filepath.Join(t.TempDir(), "history.jsonl"))
+			event := Event{Version: EventVersion, Kind: EventCompleted, AttemptID: "invalid", RunContext: identity}
+			if err := store.Append(event); err == nil {
+				t.Fatal("accepted invalid run identity")
+			}
+			encoded, err := json.Marshal(event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(store.Path(), append(encoded, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			history, err := store.Read()
+			if err != nil || history.MalformedRecords != 1 || len(history.Attempts) != 0 {
+				t.Fatalf("read accepted invalid identity: %#v error=%v", history, err)
+			}
+		})
 	}
 }
 
