@@ -192,10 +192,14 @@ func TestWriteMetricsPreservesSummaryForRetainedProvenanceFields(t *testing.T) {
 	attempts := []runnermetrics.Attempt{
 		{Completed: true, Event: runnermetrics.Event{AttemptID: "model", ItemTitle: "Model report", Role: "implementer", Harness: "codex", StartedAt: started, Outcome: "succeeded", ModelReportedSummary: "model summary"}},
 		{Completed: true, Event: runnermetrics.Event{AttemptID: "runner", ItemTitle: "Runner observation", Role: "runner", Harness: "runner", StartedAt: started, Outcome: "succeeded", RunnerObservation: "runner summary"}},
+		{Completed: true, Event: runnermetrics.Event{AttemptID: "refused", ItemTitle: "Refused review", Role: "reviewer", Harness: "codex", StartedAt: started, Outcome: "blocked", ModelReportedSummary: "unvalidated acceptance claim", RunnerObservation: "Runner refused changed review workspace"}},
 	}
 	var output bytes.Buffer
 	writeMetrics(&output, metricsOutput{RunnerID: "runner", Summary: runnermetrics.Summarize(attempts), Attempts: attempts})
 	if !strings.Contains(output.String(), "model summary") || !strings.Contains(output.String(), "runner summary") {
 		t.Fatalf("existing metrics view lost retained summaries:\n%s", output.String())
+	}
+	if !strings.Contains(output.String(), "Runner refused changed review workspace") || strings.Contains(output.String(), "unvalidated acceptance claim") {
+		t.Fatalf("model claim concealed Runner's observed refusal:\n%s", output.String())
 	}
 }

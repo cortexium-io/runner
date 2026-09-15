@@ -189,10 +189,10 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 		}
 		summary := attempt.Summary
 		if strings.TrimSpace(summary) == "" {
-			summary = attempt.ModelReportedSummary
+			summary = attempt.RunnerObservation
 		}
 		if strings.TrimSpace(summary) == "" {
-			summary = attempt.RunnerObservation
+			summary = attempt.ModelReportedSummary
 		}
 		if attempt.Completed && strings.TrimSpace(summary) != "" {
 			fmt.Fprintf(output, "    %s\n", terminalSafeText(strings.Join(strings.Fields(summary), " ")))
