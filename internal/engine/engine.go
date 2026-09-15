@@ -1467,8 +1467,6 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	result.RetryAfter = output.RetryAfter
 	result.ModelReportedSummary = output.Summary
 	if output.ReviewAssessment != nil {
-		result.ReviewVerdict = output.ReviewAssessment.Verdict
-		result.ReviewFindings = reviewFindingObservations(*output.ReviewAssessment)
 		result.ReviewDetails, result.modelReportIncomplete = reviewDetailObservations(*output.ReviewAssessment)
 	}
 	verifyCtx, cancelVerify := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -1517,6 +1515,8 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		result.Error = err.Error()
 	}
 	if err == nil && output.ReviewAssessment != nil {
+		result.ReviewVerdict = output.ReviewAssessment.Verdict
+		result.ReviewFindings = reviewFindingObservations(*output.ReviewAssessment)
 		observeCandidateLineage(&result, candidate)
 		observedLineage(&result).ReviewedCandidate = metrics.ObjectIdentity{CommitOID: candidate.CommitOID, TreeOID: candidate.TreeOID}
 	}

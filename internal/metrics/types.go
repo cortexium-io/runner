@@ -352,7 +352,7 @@ func validPromptContexts(values []PromptContext) bool {
 func validRetainedAttemptEvidence(event Event) bool {
 	if event.Kind != EventCompleted && (event.Lineage != nil || event.RunnerObservation != "" ||
 		event.Summary != "" || event.ModelReportedSummary != "" || len(event.WorkDone) != 0 || len(event.Verification) != 0 || event.ReviewVerdict != "" ||
-		len(event.ReviewFindings) != 0 || len(event.ReviewDetails) != 0 || event.ModelReportComplete != nil || event.CandidateOID != "") {
+		len(event.ReviewFindings) != 0 || len(event.ReviewDetails) != 0 || event.ModelReportComplete != nil) {
 		return false
 	}
 	if event.Kind != EventStarted && event.Kind != EventCompleted && event.ApprovedRequest != nil {
@@ -501,6 +501,12 @@ type Attempt struct {
 	Stages    []Stage `json:"stages,omitempty"`
 }
 
+// IsRunnerObservation identifies deterministic reconciliation records, which
+// belong in item history but are not harness attempts or admission spending.
+func (e Event) IsRunnerObservation() bool {
+	return e.Kind == EventCompleted && e.Role == "runner" && e.Harness == "runner" && e.Model == "" && e.Reasoning == ""
+}
+
 type Stage struct {
 	StageID              string          `json:"stage_id"`
 	Name                 string          `json:"name"`
@@ -556,8 +562,11 @@ type StageSummary struct {
 func Summarize(attempts []Attempt) Summary {
 	var result Summary
 	stages := map[string]StageSummary{}
-	result.Attempts = len(attempts)
 	for _, attempt := range attempts {
+		if attempt.IsRunnerObservation() {
+			continue
+		}
+		result.Attempts++
 		if len(attempt.Stages) > 0 {
 			result.StageCoveredAttempts++
 		}

@@ -269,6 +269,8 @@ Terminal pull-request observations are retained before Runner changes the
 Project lane or removes the task workspace. Reconciliation checks the existing
 history before retrying an interrupted terminal cleanup, so a completed Project
 transition cannot cause the only merge or closure observation to disappear.
+These deterministic observations do not consume model admission budgets or
+inflate harness-attempt summaries.
 
 Rejected QA retains its full assessment and actionable feedback in the existing
 private record. The implementation handoff keeps every actionable finding and

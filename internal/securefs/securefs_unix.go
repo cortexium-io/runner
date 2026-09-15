@@ -575,6 +575,38 @@ func (d *Directory) ReplaceFile(name string, content []byte, mode os.FileMode, e
 	return unix.Fsync(d.fd)
 }
 
+// ReadAppendFile reads a stable snapshot while holding the shared counterpart
+// of AppendFile's lock. Content may advance before the lock is acquired, but
+// identity, ownership and stable readback checks still apply under the lock.
+func (d *Directory) ReadAppendFile(name string, limit int64) ([]byte, os.FileMode, FileState, error) {
+	pinned, err := d.OpenFile(name)
+	if errors.Is(err, unix.ENOENT) {
+		return nil, 0o600, FileState{}, nil
+	}
+	if err != nil {
+		return nil, 0, FileState{}, err
+	}
+	defer pinned.Close()
+	fd := int(pinned.file.Fd())
+	if err := unix.Flock(fd, unix.LOCK_SH); err != nil {
+		return nil, 0, FileState{}, err
+	}
+	defer func() { _ = unix.Flock(fd, unix.LOCK_UN) }()
+	var opened unix.Stat_t
+	if err := unix.Fstat(fd, &opened); err != nil {
+		return nil, 0, FileState{}, err
+	}
+	pinned.initial = stateFromStat(opened)
+	if err := ValidateOwnedRegularFile(pinned.initial, uint32(os.Geteuid())); err != nil {
+		return nil, 0, FileState{}, err
+	}
+	content, err := pinned.ReadAll(limit)
+	if err == nil {
+		err = d.VerifyIdentity()
+	}
+	return content, os.FileMode(opened.Mode & 0o777), pinned.initial, err
+}
+
 // AppendFile appends one bounded record through the pinned directory without
 // following a substituted leaf. It validates the descriptor that receives the
 // bytes, so callers do not need a path-level check separated from the write.
@@ -589,10 +621,10 @@ func (d *Directory) AppendFile(name string, content []byte, mode os.FileMode, ma
 		return err
 	}
 	created := true
-	fd, err := unix.Openat(d.fd, name, unix.O_WRONLY|unix.O_APPEND|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, uint32(mode.Perm()))
+	fd, err := unix.Openat(d.fd, name, unix.O_WRONLY|unix.O_APPEND|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, uint32(mode.Perm()))
 	if errors.Is(err, unix.EEXIST) {
 		created = false
-		fd, err = unix.Openat(d.fd, name, unix.O_WRONLY|unix.O_APPEND|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		fd, err = unix.Openat(d.fd, name, unix.O_WRONLY|unix.O_APPEND|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
 	}
 	if err != nil {
 		return err

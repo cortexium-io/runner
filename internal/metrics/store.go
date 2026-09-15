@@ -122,7 +122,15 @@ func (s *Store) Append(event Event) error {
 func (s *Store) Read() (ReadResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	encoded, mode, state, err := securefs.ReadFile(s.path, maxHistoryBytes)
+	directory, err := securefs.OpenDir(filepath.Dir(s.path))
+	if errors.Is(err, os.ErrNotExist) {
+		return ReadResult{}, nil
+	}
+	if err != nil {
+		return ReadResult{}, fmt.Errorf("open private metrics directory: %w", err)
+	}
+	defer directory.Close()
+	encoded, mode, state, err := directory.ReadAppendFile(filepath.Base(s.path), maxHistoryBytes)
 	if errors.Is(err, os.ErrNotExist) || err == nil && !state.Exists {
 		return ReadResult{}, nil
 	}

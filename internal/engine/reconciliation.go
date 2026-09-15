@@ -229,13 +229,16 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 				warnings = append(warnings, RunResult{Item: item, Outcome: "warning", Summary: "Terminal pull request could not be reinspected before retained-history recovery and cleanup.", Error: inspectErr.Error()})
 				continue
 			}
-			_, terminalChanged, warning, terminalErr := s.reconcileTerminalPullRequest(ctx, action, details, mergedEvent, hasMergedEvent, closedEvent, hasClosedEvent)
+			handled, terminalChanged, warning, terminalErr := s.reconcileTerminalPullRequest(ctx, action, details, mergedEvent, hasMergedEvent, closedEvent, hasClosedEvent)
 			changed = changed || terminalChanged
 			if terminalErr != nil {
 				return warnings, changed, terminalErr
 			}
 			if warning != nil {
 				warnings = append(warnings, *warning)
+			}
+			if !handled {
+				warnings = append(warnings, RunResult{Item: item, Outcome: "warning", Summary: "Terminal Project item still has an open pull request; Runner preserved the workspace for diagnosis."})
 			}
 			continue
 		}

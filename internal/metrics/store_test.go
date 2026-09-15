@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -508,5 +509,46 @@ func TestStoreRejectsApprovalReplacementWithinAttempt(t *testing.T) {
 	}
 	if history.MalformedRecords != 1 || len(history.Attempts) != 1 || history.Attempts[0].Completed || *history.Attempts[0].ApprovedRequest != *started.ApprovedRequest {
 		t.Fatalf("approval replacement changed immutable attempt identity: %#v", history)
+	}
+}
+
+func TestStoreReadsWhileAnotherStoreAppends(t *testing.T) {
+	path := privateMetricsPath(t)
+	writer, reader := NewStore(path), NewStore(path)
+	work := make([]string, 32)
+	for index := range work {
+		work[index] = strings.Repeat("x", 8*1024)
+	}
+	if err := writer.Append(Event{Kind: EventCompleted, AttemptID: "initial", WorkDone: work}); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		<-start
+		for index := range 128 {
+			if err := writer.Append(Event{Kind: EventCompleted, AttemptID: strconv.Itoa(index)}); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	close(start)
+	var readErr error
+	for range 128 {
+		if _, readErr = reader.Read(); readErr != nil {
+			break
+		}
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if readErr != nil {
+		t.Fatalf("ordinary concurrent append broke a history read: %v", readErr)
+	}
+	history, err := reader.Read()
+	if err != nil || history.MalformedRecords != 0 || len(history.Attempts) != 129 {
+		t.Fatalf("concurrent history was incomplete: attempts=%d malformed=%d err=%v", len(history.Attempts), history.MalformedRecords, err)
 	}
 }

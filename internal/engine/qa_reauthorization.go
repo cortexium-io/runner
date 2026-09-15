@@ -263,8 +263,6 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	result.FailureClass = string(output.FailureClass)
 	result.ModelReportedSummary = output.Summary
 	if output.ReviewAssessment != nil {
-		result.ReviewVerdict = output.ReviewAssessment.Verdict
-		result.ReviewFindings = reviewFindingObservations(*output.ReviewAssessment)
 		result.ReviewDetails, result.modelReportIncomplete = reviewDetailObservations(*output.ReviewAssessment)
 	}
 	verifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -301,6 +299,8 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	}
 	result.Outcome, result.Summary, result.Assessment = output.Outcome, output.Summary, output.ReviewAssessment
 	if output.ReviewAssessment != nil {
+		result.ReviewVerdict = output.ReviewAssessment.Verdict
+		result.ReviewFindings = reviewFindingObservations(*output.ReviewAssessment)
 		observedLineage(&result.RunResult).ReviewedCandidate = metrics.ObjectIdentity{CommitOID: plan.Candidate.CommitOID, TreeOID: plan.Candidate.TreeOID}
 	}
 	if output.ReviewAssessment != nil && output.ReviewAssessment.Verdict == "needs_changes" {

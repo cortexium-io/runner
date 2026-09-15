@@ -697,7 +697,8 @@ shown only when Claude reports it, Codex token counts are shown when its JSON
 event stream includes them, and unavailable Pi counters remain explicitly
 unavailable. History begins with the first metrics-enabled run and cannot
 reconstruct earlier attempts. Cooperative local writers serialize each append
-and its limit check. The file has a fixed 64 MiB ceiling; exhaustion
+and its limit check; readers hold a shared lock for a consistent snapshot while
+Runner is active. The file has a fixed 64 MiB ceiling; exhaustion
 refuses another append without changing earlier records rather than rotating or
 silently discarding attempts. The `metrics` output shows its exact `History` path; to clear it,
 stop Runner and delete that one file. The next attempt recreates it.

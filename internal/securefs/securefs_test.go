@@ -354,6 +354,12 @@ func TestAppendFileIsBoundedAndRejectsUnsafeExistingLeaf(t *testing.T) {
 	if info, err := os.Stat(unsafe); err != nil || info.Mode().Perm() != 0o644 {
 		t.Fatalf("unsafe file mode changed: %v %v", info, err)
 	}
+	if err := unix.Mkfifo(filepath.Join(root, "pipe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := directory.AppendFile("pipe", []byte("secret"), 0o600, 12); err == nil {
+		t.Fatal("non-regular history was accepted")
+	}
 
 	external := filepath.Join(t.TempDir(), "external")
 	if err := os.WriteFile(external, []byte("unchanged"), 0o600); err != nil {

@@ -66,6 +66,9 @@ func (d *Directory) OpenFile(string) (*PinnedFile, error) { return nil, errUnsup
 func (d *Directory) ReadFile(string, int64) ([]byte, os.FileMode, FileState, error) {
 	return nil, 0, FileState{}, errUnsupported
 }
+func (d *Directory) ReadAppendFile(string, int64) ([]byte, os.FileMode, FileState, error) {
+	return nil, 0, FileState{}, errUnsupported
+}
 func (d *Directory) ReplaceFile(string, []byte, os.FileMode, FileState) error { return errUnsupported }
 func (d *Directory) AppendFile(string, []byte, os.FileMode, int64) error      { return errUnsupported }
 func (f *PinnedFile) Close() error                                            { return nil }

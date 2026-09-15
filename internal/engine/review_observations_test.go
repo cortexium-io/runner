@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/execution"
@@ -128,5 +129,13 @@ func TestTerminalPullRequestObservationRetainsFinalObservedLineage(t *testing.T)
 	}
 	if retained.Model != "" || retained.Reasoning != "" || retained.RunnerObservation == "" {
 		t.Fatalf("Runner observation was presented as a model report: %#v", retained)
+	}
+	history := []metrics.Attempt{{Event: retained, Completed: true}}
+	decision := EvaluateAdmission(&config.AdmissionBudgetConfig{WindowSeconds: 3600, MaxAttempts: 1, MaxReportedTokens: 1}, history, time.Now().UTC())
+	if !decision.Allowed || decision.Attempts != 0 {
+		t.Fatalf("deterministic observation consumed or blocked model admission: %+v", decision)
+	}
+	if summary := metrics.Summarize(history); summary.Attempts != 0 || summary.HarnessInvocations != 0 {
+		t.Fatalf("deterministic observation inflated harness totals: %+v", summary)
 	}
 }

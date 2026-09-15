@@ -3628,12 +3628,51 @@ func TestCandidateValidationBoundsCorrectionAndPlainRetryRerunsImplementation(t 
 			break
 		}
 	}
-	second := service.executeImplementation(t.Context(), mustAuthorizeTest(t, service.source, retried))
+	second := service.executeItem(t.Context(), admittedAction{
+		action: mustAuthorizeTest(t, service.source, retried), event: service.newItemAttempt(retried),
+	})
 	if second.Outcome != execution.OutcomeSucceeded || second.ResumedCheckpoint || runner.calls != 3 || project.status != "Agent QA" {
 		t.Fatalf("plain retry did not rerun and correct the implementation: result=%#v harness_calls=%d status=%q", second, runner.calls, project.status)
 	}
 	if !strings.Contains(strings.Join(runner.args, " "), "trailing whitespace") {
 		t.Fatalf("retry assignment omitted the actionable candidate correction: %s", strings.Join(runner.args, " "))
+	}
+	retained, err := historyStore.Read()
+	if err != nil || retained.MalformedRecords != 0 || len(retained.Attempts) != 2 {
+		t.Fatalf("two attempts were not retained: history=%#v err=%v", retained, err)
+	}
+	if retained.Attempts[0].Outcome != execution.OutcomeSucceeded || retained.Attempts[1].Outcome != execution.OutcomeBlocked ||
+		retained.Attempts[0].AttemptID == retained.Attempts[1].AttemptID ||
+		!reflect.DeepEqual(retained.Attempts[1], history.Attempts[0]) {
+		t.Fatal("repair replaced the failed attempt")
+	}
+	action := mustAuthorizeTest(t, service.source, github.WorkItem{ID: item.ID})
+	approved, err := action.DelegatedContent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := service.workspaceForItem(t.Context(), action.Item, approved.Digest, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := workspace.Candidate{CommitOID: second.CandidateOID, TreeOID: second.Lineage.Candidate.TreeOID}
+	criteria := service.assignment(action.Item, approved, nil, nil).Spec.RequiredVerification
+	replacement := make([]string, len(criteria))
+	for index := range replacement {
+		replacement[index] = "Later operational evidence replaces the current receipt."
+	}
+	if err := service.saveVerificationEvidence(action.Item, approved, metadata, candidate, criteria, replacement); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.clearImplementationCheckpoint(item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if cleaned, err := service.cleanupAuthorizedItemWorkspace(t.Context(), action); err != nil || !cleaned.WorktreeRemoved {
+		t.Fatalf("cleanup did not complete: %+v %v", cleaned, err)
+	}
+	restartedHistory, err := metrics.NewStore(historyStore.Path()).Read()
+	if err != nil || !reflect.DeepEqual(restartedHistory, retained) {
+		t.Fatalf("replacement, cleanup or restart changed immutable history: %v", err)
 	}
 }
 
