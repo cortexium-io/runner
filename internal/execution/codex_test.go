@@ -265,10 +265,6 @@ func TestWorkspaceWritePromptsDelegateProofMethodWithoutAgentExpansion(t *testin
 			for _, required := range []string{
 				"Runner-owned proof obligations:",
 				"These obligations define what must be proved, not how.",
-				"smallest reliable method",
-				"Add or update durable test code when it is the simplest reliable protection",
-				"Do not create a second test framework",
-				"Run a broad or complete suite only",
 				"return exactly 1 verification evidence entry",
 				"Combine related observations in the corresponding evidence entry",
 			} {

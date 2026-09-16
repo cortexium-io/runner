@@ -2571,18 +2571,45 @@ throwaway card through implementation, Agent QA, and PR publication remains the
 final proof of real write permissions and end-to-end harness behavior.
 
 The opt-in launch evaluation accepts any non-empty subset of the advertised
-harnesses and one or two repetitions. It runs exactly four scenarios for each
-selected harness: three planner contracts plus one seeded-regression reviewer
-contract. Each selected harness also proves implementation while preparing its
-reviewer fixture. `--smoke` keeps only the most demanding planner contract, so
-the smoke path makes three model calls per selected harness. Use one smoke run
-of the affected harness while iterating; reserve the full matrix
-twice from one clean candidate (24 scenario executions) for initial qualification
-or harness-facing contract changes. It makes paid model calls, performs no
-GitHub writes, and streams sanitized `EVAL_CASE`
-start/completion records plus one `EVAL_SUMMARY` per run. Retained mode-`0600`
-JSONL contains only candidate, case identity, fixed outcomes, duration, and
-harness-reported usage; prompts, results, and diagnostics are never retained.
+harnesses and one or two repetitions. Each full run has seven scenarios per
+harness: three planner contracts, one exact-file implementer check, and three
+reviewer candidates. The reviewer cases cover correct record editing with
+sufficient backend tests, a tenant-access defect accompanied by passing shallow
+tests, and an access-control repair that discards record ownership. The last
+case supplies the prior rejected assessment so review must detect a regression
+in previously accepted behavior.
+
+`--smoke` selects one planner, one implementer, and both the correct and
+access-defective reviewer candidates: four scenarios per harness. A scenario
+can invoke multiple model stages; scenario counts are not model-call counts.
+Use the affected harness while iterating. Reserve the full matrix twice from
+one clean candidate (42 scenarios across all three harnesses) for qualification
+that requires cross-harness evidence. All model calls remain paid and opt-in;
+there are no GitHub writes.
+
+Sanitized `EVAL_CASE` records retain expected and observed verdicts and fixed
+`review_judgment` labels. `EVAL_SUMMARY.reviewer_judgments` counts `correct`,
+`false_acceptance`, `unnecessary_rejection`, `missed_defect` (rejection without
+failing the affected proof), and `incomplete_review`. Execution and admission
+failures remain separate from judgments. Reviewer judgment failures do not skip
+later candidates; execution or budget failures stop the run. A correct verdict
+and failed-proof match are useful signals, not independent validation of the
+reviewer's natural-language reasoning or a general correctness guarantee.
+
+Each candidate's visible tests run before review, and their actual result is
+supplied as evidence bound to the candidate. Expected verdicts and reference
+assertions for faulty candidates remain outside the reviewer workspace. Ordinary
+tests independently confirm that the visible suites pass and reference
+assertions expose the seeded faults. These fixture checks use Go and temporary
+local repositories, without browsers or live models.
+
+Private mode-`0600` JSONL includes `duration_ms` for the whole scenario,
+`harness_duration_ms` for reported harness execution, and
+`fixture_test_duration_ms` for the backend tests run before review. The remainder
+includes setup and orchestration; none of these fields measures all tests a
+reviewer may execute internally. Inspect applicable private review evidence for
+that question. Prompts, results, and diagnostics are not retained in this
+sanitized artifact.
 
 ```bash
 candidate=$(git rev-parse HEAD)

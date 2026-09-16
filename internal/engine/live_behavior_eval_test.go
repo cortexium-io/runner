@@ -152,11 +152,10 @@ func TestEvalHarnessRoleAccessRequiresExplicitPiHostApproval(t *testing.T) {
 	}
 }
 
-// TestLiveRunnerBehaviorEval is the one opt-in paid launch matrix. Its full mode
-// runs exactly three planner scenarios and one seeded-reviewer scenario per
-// selected harness. Smoke mode keeps only the most demanding planner scenario.
-// Each harness also proves its implementer contract while creating the reviewer
-// fixture. Normal go test runs always skip this test.
+// TestLiveRunnerBehaviorEval is the opt-in paid matrix. Full runs cover three
+// planner cases, one implementer, and three independently specified reviewer
+// candidates. Smoke keeps one planner and both a correct and faulty reviewer
+// candidate. Normal go test runs skip all model calls.
 func TestLiveRunnerBehaviorEval(t *testing.T) {
 	requested := strings.TrimSpace(os.Getenv("CORTEXIUM_RUNNER_EVAL_HARNESSES"))
 	if requested == "" {
@@ -181,7 +180,9 @@ func TestLiveRunnerBehaviorEval(t *testing.T) {
 	defer cancel()
 
 	harnesses := compactEvalHarnesses(requested)
-	scenarios := plannerEvalScenarios(os.Getenv("CORTEXIUM_RUNNER_EVAL_SMOKE") == "1")
+	smoke := os.Getenv("CORTEXIUM_RUNNER_EVAL_SMOKE") == "1"
+	scenarios := plannerEvalScenarios(smoke)
+	reviews := reviewerEvalScenarios(t, smoke)
 	for _, kind := range harnesses {
 		if !config.ValidHarnessKind(kind) {
 			t.Fatalf("unsupported eval harness %q", kind)
@@ -199,22 +200,30 @@ func TestLiveRunnerBehaviorEval(t *testing.T) {
 				return
 			}
 		}
-		role := config.WorkRoleImplementer + "+" + config.WorkRoleReviewer
-		result := coordinator.runCase(ctx, kind, role, "seeded_reviewer_regression", func(ctx context.Context) evalCaseResult {
-			return runLiveSeededReviewerEval(ctx, t, kind, settings, func(usage metrics.Usage, durationMS int64) error {
-				return coordinator.beforeAdditionalHarnessCall(kind, role, "seeded_reviewer_regression", durationMS, usage)
-			})
+		result := coordinator.runCase(ctx, kind, config.WorkRoleImplementer, "exact_file_write", func(ctx context.Context) evalCaseResult {
+			return runLiveImplementationEval(ctx, t, kind, settings)
 		})
 		if result.Err != nil {
-			t.Errorf("%s seeded reviewer case failed (class=%s retry=%s)", kind, result.FailureClass, result.RetryDisposition)
+			t.Errorf("%s implementer failed (class=%s retry=%s)", kind, result.FailureClass, result.RetryDisposition)
 			return
 		}
+		for _, scenario := range reviews {
+			result := coordinator.runCase(ctx, kind, config.WorkRoleReviewer, scenario.name, func(ctx context.Context) evalCaseResult {
+				return runLiveReviewerEval(ctx, t, kind, settings, scenario)
+			})
+			if result.Err != nil {
+				t.Errorf("%s reviewer case %s failed (judgment=%s class=%s)", kind, scenario.name, result.ReviewJudgment, result.FailureClass)
+				if result.FailureStage != "reviewer_verdict" {
+					return
+				}
+			}
+		}
 	}
-	wantAttempts := len(harnesses) * (len(scenarios) + 1)
+	wantAttempts := len(harnesses) * (len(scenarios) + 1 + len(reviews))
 	if len(coordinator.attempts) != wantAttempts {
 		t.Fatalf("live matrix executed %d scenarios, want %d", len(coordinator.attempts), wantAttempts)
 	}
-	passed = true
+	passed = !t.Failed()
 }
 
 func compactEvalHarnesses(value string) []string {
@@ -315,101 +324,44 @@ func runLivePlannerEval(ctx context.Context, t *testing.T, kind string, settings
 	return result
 }
 
-func runLiveSeededReviewerEval(ctx context.Context, t *testing.T, kind string, settings evalSettings, admitReviewer func(metrics.Usage, int64) error) evalCaseResult {
+func runLiveImplementationEval(ctx context.Context, t *testing.T, kind string, settings evalSettings) evalCaseResult {
 	t.Helper()
 	repo, _ := createPublicationRepository(t)
-	readRoot := repo
-	usage := metrics.Usage{}
-	var harnessDuration int64
-	roleAccess, accessErr := evalHarnessRoleAccess(kind, settings)
-	if accessErr != nil {
-		return evalCaseResult{Outcome: execution.OutcomeBlocked, FailureClass: string(execution.FailureInvalidConfiguration), RetryDisposition: string(execution.RetryNone), FailureStage: "implementation_execution", Err: accessErr}
-	}
-	{
-		enabled := true
-		cfg := config.ExecutionConfig{
-			WorkspaceBaseRef: "HEAD", RoleAccess: roleAccess, Skills: []string{"runner-implementer"},
-			Harness: config.HarnessConfig{Kind: kind, Command: kind, Enabled: &enabled, WorkingDir: repo, WorkspaceWriteRoot: filepath.Join(t.TempDir(), "worktrees"), TimeoutSeconds: int(settings.CaseTimeout.Seconds()), ReasoningEffort: settings.Reasoning},
-		}
-		if selected := settings.modelForHarness(kind); selected != "" {
-			model := selected
-			cfg.Harness.Model = &model
-		}
-		assignment := execution.Assignment{Spec: execution.Spec{
-			ID: "behavior_eval_implementation_" + kind, ItemID: "PVTI_behavior_eval_implementation_" + kind,
-			Repository: "owner/repo", DelegatedContentDigest: "v1:behavior-eval-implementation",
-			Task:                 execution.Task{Title: "Implement exact behavior fixture", Instructions: "Use the runner-implementer skill. Create behavior.txt containing exactly ready followed by a newline. Run a byte-exact content check and git diff --check. Make no other change."},
-			RequiredVerification: []string{"behavior.txt contains exactly ready followed by a newline", "git diff --check passes"},
-		}}
-		var prepared workspace.Metadata
-		var output execution.Output
-		var err error
-		capture := func(metadata workspace.Metadata) error {
-			prepared = metadata
-			return nil
-		}
-		if kind == config.HarnessCodexCLI {
-			output, err = execution.NewCodexExecutor(cfg, nil).ExecuteWorkspaceWrite(ctx, assignment, capture)
-		} else {
-			output, err = execution.NewAgentExecutor(kind, cfg, nil).ExecuteWorkspaceWrite(ctx, assignment, capture)
-		}
-		usage = usage.Add(output.Usage)
-		harnessDuration += output.HarnessDurationMilliseconds
-		if err != nil || output.Outcome != execution.OutcomeSucceeded {
-			return evalCaseResult{Outcome: output.Outcome, FailureClass: string(output.FailureClass), RetryDisposition: string(output.RetryDisposition), RetryAfter: output.RetryAfter, FailureStage: "implementation_execution", HarnessDurationMilliseconds: harnessDuration, Usage: usage, Err: errors.Join(err, errors.New("implementation fixture failed"))}
-		}
-		readRoot = prepared.WorktreePath
-		content, readErr := os.ReadFile(filepath.Join(readRoot, "behavior.txt"))
-		if readErr != nil || string(content) != "ready\n" {
-			return evalCaseResult{Outcome: "blocked", FailureClass: string(execution.FailureInvalidContract), RetryDisposition: string(execution.RetryNone), FailureStage: "fixture_content", HarnessDurationMilliseconds: harnessDuration, Usage: usage, Err: errors.New("implementation fixture content was invalid")}
-		}
-		if err := admitReviewer(usage, harnessDuration); err != nil {
-			return evalCaseResult{Outcome: "blocked", FailureClass: string(execution.FailureCapacityExhausted), RetryDisposition: string(execution.RetryNone), FailureStage: "admission", HarnessDurationMilliseconds: harnessDuration, Usage: usage, Err: err}
-		}
-	}
-	artifact := filepath.Join(readRoot, "behavior.txt")
-	if err := os.WriteFile(artifact, []byte("broken\n"), 0o600); err != nil {
-		return evalCaseResult{Err: err, FailureClass: string(execution.FailureInvalidConfiguration), RetryDisposition: string(execution.RetryNone)}
+	access, err := evalHarnessRoleAccess(kind, settings)
+	if err != nil {
+		return evalCaseResult{Outcome: execution.OutcomeBlocked, FailureClass: string(execution.FailureInvalidConfiguration), FailureStage: "implementation_execution", Err: err}
 	}
 	cfg := config.ExecutionConfig{
-		RoleAccess: roleAccess,
-		Skills:     []string{"runner-reviewer"},
-		Harness:    config.HarnessConfig{Kind: kind, Command: kind, WorkingDir: readRoot, TimeoutSeconds: int(settings.CaseTimeout.Seconds()), ReasoningEffort: settings.Reasoning},
+		WorkspaceBaseRef: "HEAD", RoleAccess: access, Skills: []string{"runner-implementer"},
+		Harness: config.HarnessConfig{Kind: kind, Command: kind, WorkingDir: repo, WorkspaceWriteRoot: filepath.Join(t.TempDir(), "worktrees"), TimeoutSeconds: int(settings.CaseTimeout.Seconds()), ReasoningEffort: settings.Reasoning},
 	}
-	if selected := settings.modelForHarness(kind); selected != "" {
-		model := selected
+	if model := settings.modelForHarness(kind); model != "" {
 		cfg.Harness.Model = &model
 	}
 	assignment := execution.Assignment{Spec: execution.Spec{
-		ID:                   "behavior_eval_reviewer_" + kind,
-		Task:                 execution.Task{Title: "Detect seeded behavior regression", Instructions: "Use the runner-reviewer skill. Inspect the complete diff and behavior.txt. Make no changes. Reject unless behavior.txt contains exactly ready followed by a newline and git diff --check passes."},
+		ID: "behavior_eval_implementation_" + kind, ItemID: "PVTI_behavior_eval_implementation_" + kind,
+		Repository: "owner/repo", DelegatedContentDigest: "v1:behavior-eval-implementation",
+		Task:                 execution.Task{Title: "Implement exact behavior fixture", Instructions: "Use the runner-implementer skill. Create behavior.txt containing exactly ready followed by a newline. Run a byte-exact content check and git diff --check. Make no other change."},
 		RequiredVerification: []string{"behavior.txt contains exactly ready followed by a newline", "git diff --check passes"},
-		ReviewRequired:       true,
 	}}
+	var prepared workspace.Metadata
+	capture := func(metadata workspace.Metadata) error { prepared = metadata; return nil }
 	var output execution.Output
-	var err error
 	if kind == config.HarnessCodexCLI {
-		output, err = execution.NewCodexExecutor(cfg, nil).Execute(ctx, assignment)
+		output, err = execution.NewCodexExecutor(cfg, nil).ExecuteWorkspaceWrite(ctx, assignment, capture)
 	} else {
-		output, err = execution.NewAgentExecutor(kind, cfg, nil).Execute(ctx, assignment)
+		output, err = execution.NewAgentExecutor(kind, cfg, nil).ExecuteWorkspaceWrite(ctx, assignment, capture)
 	}
-	usage = usage.Add(output.Usage)
-	harnessDuration += output.HarnessDurationMilliseconds
-	verdictFailed := err == nil && (output.Outcome != execution.OutcomeSucceeded || output.ReviewAssessment == nil || output.ReviewAssessment.Verdict != "needs_changes")
-	if verdictFailed {
-		output.Outcome = execution.OutcomeBlocked
-		output.FailureClass = execution.FailureInvalidContract
-		output.RetryDisposition = execution.RetryNone
-		err = errors.New("reviewer did not reject the seeded regression")
+	result := evalCaseResult{Outcome: output.Outcome, FailureClass: string(output.FailureClass), RetryDisposition: string(output.RetryDisposition), RetryAfter: output.RetryAfter, HarnessDurationMilliseconds: output.HarnessDurationMilliseconds, Usage: output.Usage, Err: err}
+	if err != nil || output.Outcome != execution.OutcomeSucceeded {
+		result.Err = errors.Join(err, errors.New("implementation fixture failed"))
+		result.FailureStage = "implementation_execution"
+		return result
 	}
-	result := evalCaseResult{
-		Outcome: output.Outcome, FailureClass: string(output.FailureClass), RetryDisposition: string(output.RetryDisposition), RetryAfter: output.RetryAfter,
-		HarnessDurationMilliseconds: harnessDuration, Usage: usage, Err: err,
-	}
-	if verdictFailed {
-		result.FailureStage = "reviewer_verdict"
-	} else if err != nil {
-		result.FailureStage = "reviewer_execution"
+	content, err := os.ReadFile(filepath.Join(prepared.WorktreePath, "behavior.txt"))
+	if err != nil || string(content) != "ready\n" {
+		result.Err = errors.New("implementation fixture content was invalid")
+		result.Outcome, result.FailureClass, result.FailureStage = execution.OutcomeBlocked, string(execution.FailureInvalidContract), "fixture_content"
 	}
 	return result
 }

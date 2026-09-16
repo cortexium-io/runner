@@ -1,0 +1,13 @@
+package records
+
+import "testing"
+
+func TestUpdateTitle(t *testing.T) {
+	records := map[string]Record{"r1": {Tenant: "alice", Title: "old"}}
+	if err := Update(records, "alice", "r1", "new"); err != nil {
+		t.Fatal(err)
+	}
+	if got := records["r1"].Title; got != "new" {
+		t.Fatalf("title = %q, want new", got)
+	}
+}

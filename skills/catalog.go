@@ -11,7 +11,7 @@ import (
 )
 
 // BundledVersion identifies the skill bundle shipped in this Runner build.
-const BundledVersion = "1.8.13"
+const BundledVersion = "1.8.14"
 
 var bundledSkillIDs = []string{
 	"runner-planner",
@@ -20,9 +20,9 @@ var bundledSkillIDs = []string{
 }
 
 var bundledSkillSHA256 = map[string]string{
-	"runner-implementer": "454ba17532561cd295971037460bd8f1f87d7b2032c44f8b45a39ecd15da9a61",
-	"runner-planner":     "16453b97be349af39d85cc7d92ff053d1d1200e7fc06ab343504328b6c6c9c0c",
-	"runner-reviewer":    "917d003b102c920329f46803804f2a9b64c991d76e5fd5b7031560a19b348147",
+	"runner-implementer": "5f40407a11181310a5d2e50b15d753d59c89a9a7581c59143c0ba3b924161939",
+	"runner-planner":     "60c309562d2819a6d2193db59dfcdb423a214e4f8a64f2d717bd318e3be2c6df",
+	"runner-reviewer":    "fdb25d3872145d6c348eb555005f6ff0aca6d6548d923e75e5e85cc1313822a3",
 }
 
 func ValidID(value string) bool {

@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/metrics"
 )
 
@@ -32,6 +34,10 @@ type evalSettings struct {
 }
 
 type evalCaseResult struct {
+	FixtureTestDurationMS       int64
+	ExpectedVerdict             string
+	ObservedVerdict             string
+	ReviewJudgment              string
 	Outcome                     string
 	FailureClass                string
 	RetryDisposition            string
@@ -43,35 +49,42 @@ type evalCaseResult struct {
 }
 
 type evalCaseRecord struct {
-	Event            string        `json:"event"`
-	Candidate        string        `json:"candidate"`
-	Run              int           `json:"run"`
-	Harness          string        `json:"harness"`
-	Role             string        `json:"role"`
-	Case             string        `json:"case"`
-	Outcome          string        `json:"outcome,omitempty"`
-	FailureClass     string        `json:"failure_class,omitempty"`
-	RetryDisposition string        `json:"retry_disposition,omitempty"`
-	RetryAfter       string        `json:"retry_after,omitempty"`
-	FailureStage     string        `json:"failure_stage,omitempty"`
-	DurationMS       int64         `json:"duration_ms,omitempty"`
-	Usage            metrics.Usage `json:"usage,omitempty"`
+	FixtureTestDurationMS int64         `json:"fixture_test_duration_ms,omitempty"`
+	HarnessDurationMS     int64         `json:"harness_duration_ms,omitempty"`
+	ExpectedVerdict       string        `json:"expected_verdict,omitempty"`
+	ObservedVerdict       string        `json:"observed_verdict,omitempty"`
+	ReviewJudgment        string        `json:"review_judgment,omitempty"`
+	Event                 string        `json:"event"`
+	Candidate             string        `json:"candidate"`
+	Run                   int           `json:"run"`
+	Harness               string        `json:"harness"`
+	Role                  string        `json:"role"`
+	Case                  string        `json:"case"`
+	Outcome               string        `json:"outcome,omitempty"`
+	FailureClass          string        `json:"failure_class,omitempty"`
+	RetryDisposition      string        `json:"retry_disposition,omitempty"`
+	RetryAfter            string        `json:"retry_after,omitempty"`
+	FailureStage          string        `json:"failure_stage,omitempty"`
+	DurationMS            int64         `json:"duration_ms,omitempty"`
+	Usage                 metrics.Usage `json:"usage,omitempty"`
 }
 
 type evalSummaryRecord struct {
-	Event     string          `json:"event"`
-	Candidate string          `json:"candidate"`
-	Run       int             `json:"run"`
-	Passed    bool            `json:"passed"`
-	Summary   metrics.Summary `json:"summary"`
+	ReviewerJudgments map[string]int  `json:"reviewer_judgments,omitempty"`
+	Event             string          `json:"event"`
+	Candidate         string          `json:"candidate"`
+	Run               int             `json:"run"`
+	Passed            bool            `json:"passed"`
+	Summary           metrics.Summary `json:"summary"`
 }
 
 type evalCoordinator struct {
-	settings evalSettings
-	started  time.Time
-	attempts []metrics.Attempt
-	output   io.Writer
-	artifact *os.File
+	reviewerJudgments map[string]int
+	settings          evalSettings
+	started           time.Time
+	attempts          []metrics.Attempt
+	output            io.Writer
+	artifact          *os.File
 }
 
 func evalSettingsFromEnvironment() (evalSettings, error) {
@@ -170,7 +183,8 @@ func (c *evalCoordinator) beforeCase() error {
 	if time.Since(c.started) >= c.settings.AggregateTime {
 		return errors.New("aggregate live-evaluation wall-time ceiling reached")
 	}
-	decision := EvaluateAdmission(c.admissionBudget(12), c.attempts, time.Now())
+	// Full matrix: seven cases for each of three harnesses.
+	decision := EvaluateAdmission(c.admissionBudget(21), c.attempts, time.Now())
 	if !decision.Allowed {
 		return errors.New(decision.Reason)
 	}
@@ -183,24 +197,6 @@ func (c *evalCoordinator) admissionBudget(maxAttempts int) *config.AdmissionBudg
 		MaxAttempts:   maxAttempts, MaxHarnessSeconds: int64(c.settings.AggregateTime / time.Second),
 		MaxReportedTokens: c.settings.MaxTokens, MaxReportedCostUSD: c.settings.MaxCostUSD,
 	}
-}
-
-func (c *evalCoordinator) beforeAdditionalHarnessCall(harness, role, caseID string, durationMS int64, usage metrics.Usage) error {
-	if time.Since(c.started) >= c.settings.AggregateTime {
-		return errors.New("aggregate live-evaluation wall-time ceiling reached")
-	}
-	now := time.Now()
-	partial := metrics.Attempt{Event: metrics.Event{
-		AttemptID: metrics.NewAttemptID(), Kind: metrics.EventCompleted, ItemTitle: caseID,
-		Harness: harness, Role: role, StartedAt: now, FinishedAt: now,
-		HarnessDurationMilliseconds: durationMS, Outcome: "succeeded", Usage: usage,
-	}, Completed: true}
-	attempts := append(append([]metrics.Attempt(nil), c.attempts...), partial)
-	decision := EvaluateAdmission(c.admissionBudget(0), attempts, now)
-	if !decision.Allowed {
-		return errors.New(decision.Reason)
-	}
-	return nil
 }
 
 func (c *evalCoordinator) runCase(ctx context.Context, harness, role, caseID string, run func(context.Context) evalCaseResult) evalCaseResult {
@@ -248,17 +244,25 @@ func (c *evalCoordinator) runCase(ctx context.Context, harness, role, caseID str
 		last.Outcome, last.FailureClass, last.RetryDisposition = result.Outcome, result.FailureClass, result.RetryDisposition
 	}
 	c.emit("EVAL_CASE", evalCaseRecord{
+		FixtureTestDurationMS: result.FixtureTestDurationMS, HarnessDurationMS: result.HarnessDurationMilliseconds,
+		ExpectedVerdict: result.ExpectedVerdict, ObservedVerdict: result.ObservedVerdict, ReviewJudgment: result.ReviewJudgment,
 		Event: "completed", Candidate: c.settings.Candidate, Run: c.settings.Run, Harness: harness, Role: role, Case: caseID,
 		Outcome: result.Outcome, FailureClass: result.FailureClass, RetryDisposition: result.RetryDisposition, RetryAfter: result.RetryAfter, FailureStage: result.FailureStage,
 		DurationMS: duration.Milliseconds(), Usage: result.Usage,
 	})
+	if result.ReviewJudgment != "" {
+		if c.reviewerJudgments == nil {
+			c.reviewerJudgments = map[string]int{}
+		}
+		c.reviewerJudgments[result.ReviewJudgment]++
+	}
 	return result
 }
 
 func (c *evalCoordinator) finish(passed bool) {
 	c.emit("EVAL_SUMMARY", evalSummaryRecord{
 		Event: "summary", Candidate: c.settings.Candidate, Run: c.settings.Run,
-		Passed: passed, Summary: metrics.Summarize(c.attempts),
+		Passed: passed, Summary: metrics.Summarize(c.attempts), ReviewerJudgments: c.reviewerJudgments,
 	})
 }
 
@@ -266,12 +270,34 @@ func (c *evalCoordinator) emit(prefix string, record any) {
 	if event, ok := record.(evalCaseRecord); ok && !validEvalFailureStage(event.FailureStage) {
 		panic("invalid evaluation failure stage")
 	}
+	if event, ok := record.(evalCaseRecord); ok && !validEvalReviewRecord(event) {
+		panic("invalid evaluation review judgment")
+	}
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Fprintf(c.output, "%s %s\n", prefix, encoded)
 	fmt.Fprintln(c.artifact, string(encoded))
+}
+
+func validEvalReviewRecord(record evalCaseRecord) bool {
+	switch record.ExpectedVerdict {
+	case "", "accept", "needs_changes":
+	default:
+		return false
+	}
+	switch record.ObservedVerdict {
+	case "", "accept", "needs_changes", "blocked":
+	default:
+		return false
+	}
+	switch record.ReviewJudgment {
+	case "", "correct", "false_acceptance", "unnecessary_rejection", "missed_defect", "incomplete_review":
+		return true
+	default:
+		return false
+	}
 }
 
 func validEvalFailureStage(stage string) bool {
@@ -357,21 +383,6 @@ func TestEvalCoordinatorFailsClosedWhenConfiguredUsageIsUnavailable(t *testing.T
 	}
 }
 
-func TestEvalCoordinatorRefusesAdditionalHarnessCallWithoutConfiguredUsage(t *testing.T) {
-	artifact := t.TempDir() + "/summary.jsonl"
-	coordinator, err := newEvalCoordinator(evalSettings{
-		Candidate: "abc123", Run: 1, ArtifactPath: artifact,
-		CaseTimeout: time.Second, AggregateTime: time.Minute, MaxTokens: 100,
-	}, io.Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer coordinator.Close()
-	if err := coordinator.beforeAdditionalHarnessCall("codex", "implementer+reviewer", "seeded_regression", 1, metrics.Usage{}); err == nil || !strings.Contains(err.Error(), "lack token usage") {
-		t.Fatalf("additional harness call was admitted without configured usage: %v", err)
-	}
-}
-
 func TestEvalRecordsExcludePromptsResultsAndDiagnostics(t *testing.T) {
 	artifact := t.TempDir() + "/summary.jsonl"
 	var output strings.Builder
@@ -404,6 +415,58 @@ func TestEvalRecordsExcludePromptsResultsAndDiagnostics(t *testing.T) {
 	info, err := os.Stat(artifact)
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("evaluation artifact permissions = %v error=%v", info.Mode().Perm(), err)
+	}
+}
+
+func TestEvalRecordsRetainReviewerJudgmentsAndSeparateTestTime(t *testing.T) {
+	artifact := filepath.Join(t.TempDir(), "summary.jsonl")
+	coordinator, err := newEvalCoordinator(evalSettings{
+		Candidate: "abc123", Run: 1, ArtifactPath: artifact,
+		CaseTimeout: time.Second, AggregateTime: time.Minute,
+	}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer coordinator.Close()
+	for _, verdict := range []string{"accept", "needs_changes"} {
+		coordinator.runCase(t.Context(), "codex", "reviewer", verdict, func(context.Context) evalCaseResult {
+			scenario := reviewerEvalScenario{wantVerdict: "accept", failedCriterion: -1}
+			return evalCaseResult{Outcome: "succeeded", ExpectedVerdict: "accept", ObservedVerdict: verdict,
+				ReviewJudgment:        reviewerEvalJudgment(scenario, &execution.ReviewAssessment{Verdict: verdict}),
+				FixtureTestDurationMS: 12, HarnessDurationMilliseconds: 34}
+		})
+	}
+	coordinator.finish(false)
+	content, err := os.ReadFile(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summary evalSummaryRecord
+	var completed []evalCaseRecord
+	for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
+		var record evalCaseRecord
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatal(err)
+		}
+		if record.Event == "summary" {
+			if err := json.Unmarshal([]byte(line), &summary); err != nil {
+				t.Fatal(err)
+			}
+		} else if record.Event == "completed" {
+			completed = append(completed, record)
+		}
+	}
+	if len(completed) != 2 || completed[0].ReviewJudgment != "correct" || completed[1].ReviewJudgment != "unnecessary_rejection" {
+		t.Fatalf("review outcomes = %#v", completed)
+	}
+	if completed[0].FixtureTestDurationMS != 12 || completed[0].HarnessDurationMS != 34 || completed[1].ObservedVerdict != "needs_changes" {
+		t.Fatalf("lost timing or verdict evidence: %#v", completed)
+	}
+	if summary.ReviewerJudgments["correct"] != 1 || summary.ReviewerJudgments["unnecessary_rejection"] != 1 {
+		t.Fatalf("review summary = %#v", summary.ReviewerJudgments)
+	}
+	if validEvalReviewRecord(evalCaseRecord{ObservedVerdict: "private model response"}) || validEvalReviewRecord(evalCaseRecord{ReviewJudgment: "private diagnostic"}) {
+		t.Fatal("review telemetry accepted unrestricted content")
 	}
 }
 

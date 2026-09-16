@@ -212,20 +212,22 @@ model tier reproducible without changing Runner defaults. A tool-capable
 Pi model and `--allow-pi-host` are required when Pi is selected. The evaluator
 uses Pi's fixed host-access profile in a disposable worktree because Pi has no
 native OS sandbox; use a trusted machine or external sandbox. Codex and Claude
-remain natively sandboxed. Each selected harness evaluates
-three planner contracts and one seeded-regression reviewer contract; each
-selected harness also proves its implementer contract while preparing that
-fixture. `--smoke` keeps only the most demanding planner contract, for three
-model calls per harness. Use one smoke repetition of only the affected harness
-while iterating. Reserve the full
-three-harness, two-run command above for initial qualification or changes to
-skills, prompts, schemas, execution profiles, or harness adapters. The script
-streams sanitized `EVAL_CASE` progress and `EVAL_SUMMARY` aggregates and retains
-only a private JSONL summary. Per-case and aggregate time are always bounded.
-The required token ceiling and optional cost ceiling fail closed when reported
-usage is unavailable. Reported tokens include cache reads and writes, so choose
-the ceiling from the selected providers' observed counters; use the cost ceiling
-when spend is the concern. Normal tests and Doctor never run these paid probes.
+remain natively sandboxed. Full mode runs three planner cases, one implementer
+case, and three reviewer candidates per harness. The reviewer corpus includes a
+correct implementation, a defect with passing shallow tests, and a repair that
+introduces an adjacent regression. Smoke mode keeps one planner, the implementer,
+and both a correct and faulty reviewer candidate (four scenarios per harness).
+Use the affected harness while iterating; reserve a full repeated matrix for
+qualification that needs cross-harness evidence.
+
+The script retains private sanitized outcomes, expected/observed review verdicts,
+judgment counts, whole-case time, harness time, and fixture-test time. Read the
+[operator evaluation reference](operator-reference.md#development) for the
+interpretation boundaries and corpus details. Per-case and aggregate time remain
+bounded. The required token ceiling and optional cost ceiling fail closed when
+reported usage is unavailable. Reported tokens include cache reads and writes,
+so select the ceiling from observed counters. Ordinary tests validate the
+fixtures and reporting but never call a model; Doctor also skips these probes.
 
 Harness and model quality remain an operator decision. These probes provide
 evidence for that decision; they do not create a Runner allowlist or prevent a

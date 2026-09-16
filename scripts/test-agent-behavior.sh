@@ -5,7 +5,7 @@ usage() {
 	printf '%s\n' 'usage: scripts/test-agent-behavior.sh --candidate SHA --repeat 1|2 --max-tokens N [--smoke] [--codex-model MODEL] [--claude-model MODEL] [--pi-model PROVIDER/MODEL --allow-pi-host] [--reasoning LEVEL] [--case-timeout-seconds N] [--max-seconds N] [--max-cost-usd N] HARNESS[,HARNESS...]' >&2
 	printf '%s\n' '  HARNESS may be codex, claude, or pi; model overrides apply only to their selected harness.' >&2
 	printf '%s\n' '  --allow-pi-host accepts that Pi implementer/reviewer calls are not OS-sandboxed.' >&2
-	printf '%s\n' '  --smoke runs one demanding planner case plus the implementer/reviewer journey per harness.' >&2
+	printf '%s\n' '  --smoke runs one planner, one implementer, and two reviewer cases per harness.' >&2
 }
 
 candidate=
@@ -106,9 +106,9 @@ elif [ "$allow_pi_host" = true ]; then
 	printf '%s\n' '--allow-pi-host is only valid when pi is selected' >&2
 	exit 2
 fi
-cases_per_harness=4
+cases_per_harness=7
 if [ "$smoke" = true ]; then
-	cases_per_harness=2
+	cases_per_harness=4
 fi
 expected_cases=$((harness_count * cases_per_harness))
 expected_total=$((expected_cases * repeat))

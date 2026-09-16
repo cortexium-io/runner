@@ -44,3 +44,16 @@ existing authenticated Project state over additional schedulers, queues, state
 journals, compatibility layers, or abstractions without a demonstrated need.
 Protect behavior with focused tests and review the complete diff before
 finishing.
+
+Choose the lowest, fastest test level that faithfully proves the changed
+behavior. Test record validation and persistence at the backend boundary;
+use a browser when form interaction, rendering, or browser integration is the
+behavior at risk. Keep representative integration coverage where lower levels
+cannot prove the contract. Reuse existing checks before adding tests.
+
+For material changes, identify a plausible incorrect implementation and the
+assertion that would detect it. Derive expected results from the requirement,
+not from the implementation under test; investigate failing tests before changing
+their expectations. In Go, use tables for cases with common execution and
+assertions, and separate tests for different workflows. Keep relevant setup and
+expected results visible; avoid scenario switches and configurable test frameworks.
