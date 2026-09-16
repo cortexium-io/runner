@@ -700,8 +700,23 @@ reconstruct earlier attempts. Cooperative local writers serialize each append
 and its limit check; readers hold a shared lock for a consistent snapshot while
 Runner is active. The file has a fixed 64 MiB ceiling; exhaustion
 refuses another append without changing earlier records rather than rotating or
-silently discarding attempts. The `metrics` output shows its exact `History` path; to clear it,
-stop Runner and delete that one file. The next attempt recreates it.
+silently discarding attempts.
+
+Use `metrics --item ITEM_ID` (or an unambiguous exact title) for a chronological
+oldest-first history of one card. Both the terminal and `--json` forms separate
+`runner_observed`, `model_reported`, and provenance-unavailable legacy facts.
+The view includes the protected canonical approved-content snapshot and digest,
+bounded reported rationale/actions/verification/review/usage, and every retained
+base, candidate, evidence-candidate, reviewed, rebased, published, pull-request,
+and merge identity. Missing facts are shown as unavailable; in JSON, unavailable
+usage is omitted and named in `unavailable`, never represented by zero counters.
+A verification evidence candidate is not relabeled as certifying a later rebased
+or published commit. Malformed records are counted and ignored while valid
+selected records remain readable. The command only projects the metrics store:
+its output is not approval, recovery state, or workflow input.
+
+The `metrics` output shows its exact `History` path; to clear it, stop Runner and
+delete that one file. The next attempt recreates it.
 
 ### Recurring-failure drafts and shared guidance
 
