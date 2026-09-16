@@ -110,6 +110,42 @@ evidence or later defects. Only then start a separate model-profile comparison.
 Recurring observations can inform the existing private `guidance` drafts, but
 must be independently reviewed before becoming repository or skill instructions.
 
+## Test quality and verification cost
+
+Use the existing behavior evaluator's reviewer corpus before interpreting a
+prompt change as a quality improvement. It contains correct record editing,
+a tenant-access defect with passing shallow tests, and a repair that drops
+ownership data. Expected judgments are specified independently of model output;
+ordinary Go tests validate the candidates against literal reference assertions.
+See the [operator reference](operator-reference.md#development) for bounded
+live commands and reporting. Compare the same cases, profiles, and environments.
+Count false acceptance, unnecessary rejection, missed defects, incomplete
+reviews, and execution failures alongside time and usage. Passing the small
+corpus is evidence for those cases, not a certification of reviewer quality.
+
+For repository test costs, capture JSON from a required run rather than adding
+another measurement pass. For Runner's PR gate, an uncached measurement is:
+
+```bash
+go test -race -json -count=1 ./... > "$trial_dir/tests.jsonl"
+```
+
+Use package completion events for package durations and top-level test
+completion events to identify expensive tests. Do not sum a parent and its
+subtests, or sum concurrent package times and call it wall time. Measure command
+wall time separately; retain OS, Go version, race mode, candidate, and cache
+conditions. A single before/after sample is diagnostic, not a speedup claim.
+Keep the existing PR race and vet gates. Measure the effect of a simpler test
+with the same scenarios and execution mode before changing any gate.
+
+Prefer focused backend tests for record edits and their validation/persistence
+permutations. Use component tests for form logic and browser checks only where
+interaction, rendering, or integration requires them. Preserve representative
+boundary checks when lower-level tests cannot establish the contract. For Go,
+use tables for common test logic and separate tests for distinct workflows;
+keep expectations visible and avoid adding a configurable harness to save a
+little duplication.
+
 ## Opt-in comparison profiles
 
 | Profile | Model / reasoning | Task-selection hypothesis |

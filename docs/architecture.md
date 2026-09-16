@@ -374,8 +374,13 @@ constraints to every generated child card. Implementers and reviewers therefore
 receive the stable product and task contract through ordinary Project data
 rather than a hidden local plan store. Runner extracts the exact approved
 proof obligations from that immutable card body and passes them to every
-downstream harness. The implementer chooses the smallest reliable proof method;
-the shared reviewer first receives fixed Runner-owned proof keys for a
+downstream harness. The implementer chooses the lowest, fastest test level that
+faithfully proves the behavior. Backend validation and persistence use backend tests; browser
+checks cover interaction, rendering, or integration that lower levels cannot
+establish. Material changes connect a plausible fault to an assertion derived
+from the requirement or an independent reference. Passing suites and coverage
+counts do not by themselves prove correctness. The shared reviewer first receives
+fixed Runner-owned proof keys for a
 source-and-evidence audit that permits read-only file/Git/log inspection,
 including shell commands, but cannot run dynamic checks. Runner supplies the
 exact base and candidate commits rather than asking the reviewer to guess the

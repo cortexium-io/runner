@@ -71,6 +71,10 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    Distinguish receipt identity from check reuse: an old receipt cannot certify a
    new candidate, but applicable underlying checks may support a new bound record
    with explicit applicability reasoning and proof of the changed behavior.
+   Scope each obligation to the behavior at risk so the implementer can use the
+   lowest, fastest faithful check. A record update needs validation and
+   persistence evidence; form interaction is a separate UI concern. Do not turn
+   coverage of every feature into browser coverage of every permutation.
 5. Use dependencies only for real prerequisite relationships. Keep work
    independent when separate worktrees can complete it without unfinished
    output. Do not add dependencies merely because cards may edit the same files;

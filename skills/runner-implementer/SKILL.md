@@ -49,18 +49,26 @@ satisfies current requirements and credible risks.
    not report success for scaffolding, cleanup, comments, or preparation when
    the card requires functioning behavior.
 4. Inspect the repository's existing verification paths, then choose the
-   smallest reliable method that proves every proof obligation and meaningful
-   changed-behavior failure. Reuse existing focused tests and commands before
+   lowest, fastest test level that faithfully proves every proof obligation and
+   meaningful changed-behavior failure. Reuse existing focused tests and commands before
    creating anything new. Check that fixtures represent the supported contract:
    inspect the relevant producer/consumer or approved reference rather than
-   inferring data shape or encoding from a convenient example. Exercise a
-   representative complete path through the changed boundaries before polishing
-   isolated pieces. This does not authorize live-data access or extra features.
+   inferring data shape or encoding from a convenient example. For material
+   changes, name a plausible incorrect implementation and the assertion that
+   would catch it. Derive expected results from the requirement or an independent
+   reference; investigate failures before changing expectations. For bug fixes,
+   show failure before the fix and success afterward when feasible. Exercise the
+   relevant producer/consumer boundary when isolated checks cannot prove it.
+   This does not authorize live-data access or extra features.
 5. Add or update durable test code when it is the simplest reliable protection
    for changed behavior, a plausible regression, or an important invariant.
    Extend the existing test organization; create the smallest idiomatic test
    entrypoint only when no suitable one exists. Do not create a second test
    framework, overlapping coverage, repository scratch script, or custom harness.
+   Keep scenario setup and expected results visible. In Go, use tables when
+   cases share execution and assertions; use separate tests for different
+   workflows. Prefer small concrete fakes and simple setup helpers to branching
+   scenario runners. Test count and coverage percentage are not completion goals.
 6. Run focused evidence while implementing. Run a broad or complete suite only
    when the card is the integration/readiness boundary, repository policy
    requires it, or focused evidence cannot establish a concrete cross-cutting
@@ -71,8 +79,12 @@ satisfies current requirements and credible risks.
    checks as the feedback loop, then satisfy the repository's final gate for the
    resulting candidate. Do not repeat expensive passing checks without a relevant
    change, evidence gap, or policy requirement; record that reason when repeating.
-7. Exercise the real interface only when the requested behavior or proof
-   obligation requires it. Do not assume a browser or any other interface merely
+7. Test validation and persistence through backend tests. Use component tests
+   for form logic and browser checks for interaction, rendering, or integration
+   that lower levels cannot establish. Keep permutations at the lower level and
+   representative journeys at the integration boundary. Exercise a real command
+   or application entrypoint when its wiring is at risk, without duplicating every
+   lower-level case there. Do not assume a browser or any other interface merely
    because the harness provides one. Re-check current capabilities before
    reporting a capability failure. For required browser checks, use an available
    purpose-built headless browser with a temporary profile, never the operator's
