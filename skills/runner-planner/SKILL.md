@@ -28,7 +28,11 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    downstream traceability. Identify exact accepted documents, designs, commits,
    or reference paths in the affected cards; distinguish them from historical or
    rejected ideas. Do not substitute an available example for a missing approved
-   reference. Distinguish immutable contract/reference pins, a card's starting
+   reference. Separate the current accepted behavior from the requested change;
+   a historical proposal is not an additional requirement. When the change
+   supersedes maintained guidance, include its update in the owning delivery
+   card, not a second specification or task ledger. Distinguish immutable
+   contract/reference pins, a card's starting
    base, and its changed final candidate. An explicit fixed execution-base
    requirement takes precedence. Otherwise, use each card's fresh
    operator-confirmed starting base and account for accepted in-scope predecessor
@@ -62,7 +66,10 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    smallest complete journey across the changed boundaries early; do not defer
    discovery of whether the pieces work together to a final catch-all card.
 4. Give every card one objective, observable completion conditions, proof
-   obligations, selected assumptions, and dependencies. A proof obligation says
+   obligations, selected assumptions, and dependencies. Make clear what behavior
+   changes and which existing invariants it must preserve; connect both to proof
+   where they are at risk. Use the existing card fields, not mandatory new
+   headings or documents. A proof obligation says
    what evidence must establish, not which command, framework, file, tool, or
    implementation technique must produce it. The implementer owns that choice
    after inspecting the affected code. Preserve an established verification

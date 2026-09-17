@@ -374,7 +374,12 @@ constraints to every generated child card. Implementers and reviewers therefore
 receive the stable product and task contract through ordinary Project data
 rather than a hidden local plan store. Runner extracts the exact approved
 proof obligations from that immutable card body and passes them to every
-downstream harness. The implementer chooses the lowest, fastest test level that
+downstream harness. Planner guidance distinguishes requested behavior changes
+from existing invariants that must survive, with proof for both where at risk.
+Superseded maintained documentation is updated in the owning delivery card;
+historical proposals do not add requirements. These use the existing card
+fields, not another specification store or task ledger.
+The implementer chooses the lowest, fastest test level that
 faithfully proves the behavior. Backend validation and persistence use backend tests; browser
 checks cover interaction, rendering, or integration that lower levels cannot
 establish. Material changes connect a plausible fault to an assertion derived
@@ -405,6 +410,12 @@ approved scope; this context does not reopen resolved proof keys. The handoff
 does not claim that unresolved source inspection already happened. Runner merges
 the observations and derives the verdict and final summary from the merged
 checks, not from superseded stage summaries.
+For in-scope security concerns, reviewer guidance calls for independent
+examination of existing controls and the claimed boundary violation. Established
+defects, unresolved questions, and refuted claims use the existing stage statuses
+and check evidence, not a new finding schema or extra audit stage. Reuse requires
+checking relevant source and conditions; an old commit reference alone is not
+proof, and a disproved claim does not exempt its surrounding area from review.
 Each resolved check retains its original verification question and audit context
 in the existing private evidence, clearly labelled as preceding verification.
 Its status and summary describe the final result. This preserves why dynamic

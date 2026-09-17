@@ -113,7 +113,8 @@ must be independently reviewed before becoming repository or skill instructions.
 ## Test quality and verification cost
 
 Use the existing behavior evaluator's reviewer corpus before interpreting a
-prompt change as a quality improvement. It contains correct record editing,
+prompt change as a quality improvement. It contains correct record editing
+with an unsubstantiated prior security allegation that must be independently checked,
 a tenant-access defect with passing shallow tests, and a repair that drops
 ownership data. Expected judgments are specified independently of model output;
 ordinary Go tests validate the candidates against literal reference assertions.
@@ -137,6 +138,9 @@ wall time separately; retain OS, Go version, race mode, candidate, and cache
 conditions. A single before/after sample is diagnostic, not a speedup claim.
 Keep the existing PR race and vet gates. Measure the effect of a simpler test
 with the same scenarios and execution mode before changing any gate.
+The [maintainer guide](open-source-maintainer-setup.md#go-ci-caches) describes
+the opt-in baseline/refreshed CI cache comparison; it keeps race-test execution
+fresh and includes cache transfer overhead in the comparison.
 
 Prefer focused backend tests for record edits and their validation/persistence
 permutations. Use component tests for form logic and browser checks only where

@@ -67,7 +67,7 @@ func TestReleaseWorkflowContract(t *testing.T) {
 	}
 	for _, line := range strings.Split(workflow, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "uses:") && !regexp.MustCompile(`@[0-9a-f]{40}(?:\s|$)`).MatchString(trimmed) {
+		if strings.HasPrefix(trimmed, "uses:") && trimmed != "uses: ./.github/actions/setup-go" && !regexp.MustCompile(`@[0-9a-f]{40}(?:\s|$)`).MatchString(trimmed) {
 			t.Errorf("action is not pinned to a full commit SHA: %s", trimmed)
 		}
 	}
@@ -105,6 +105,51 @@ func TestReleaseWorkflowContract(t *testing.T) {
 	finalStep := workflow[strings.Index(workflow, "- name: Publish verified GitHub release"):]
 	requireContains(t, finalStep, "GH_TOKEN: ${{ github.token }}")
 	requireNotContains(t, finalStep, "git ls-remote")
+}
+
+func TestGoCacheWorkflowContract(t *testing.T) {
+	actionBytes, err := os.ReadFile(filepath.Join("..", ".github", "actions", "setup-go", "action.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := string(actionBytes)
+	requireContains(t, action,
+		"go-version-file: go.mod", "cache: false",
+		"$(go env GOCACHE)", "$(go env GOMODCACHE)",
+		"${{ steps.paths.outputs.build }}", "${{ steps.paths.outputs.modules }}",
+		"${{ github.run_id }}-${{ github.run_attempt }}",
+	)
+	// The restore prefix keeps platform, toolchain, workload and dependencies;
+	// only the unique run suffix is omitted. No broader fallback is allowed.
+	prefix := "go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.image }}-${{ steps.go.outputs.go-version }}-${{ inputs.workload }}-${{ hashFiles('go.mod', 'go.sum') }}-"
+	requireContains(t, action, "key: "+prefix+"${{ github.run_id }}-${{ github.run_attempt }}")
+	_, restoreKeys, ok := strings.Cut(action, "restore-keys: |\n")
+	if !ok || strings.TrimSpace(restoreKeys) != prefix {
+		t.Fatalf("unexpected Go cache fallback: %q", restoreKeys)
+	}
+	for _, line := range strings.Split(action, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "uses:") && !regexp.MustCompile(`@[0-9a-f]{40}(?:\s|$)`).MatchString(trimmed) {
+			t.Errorf("cache action dependency is not pinned: %s", trimmed)
+		}
+	}
+	requireNotContains(t, action, "save-always:", "enableCrossOsArchive:", "github.token", "secrets.")
+
+	ciBytes, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ci := string(ciBytes)
+	requireContains(t, ci, "permissions:\n  contents: read", "default: false")
+	requireContains(t, jobSection(t, ci, "pr-check"), "workload: race", "run: go test -race ./...", "run: go vet ./...")
+	requireContains(t, jobSection(t, ci, "platform-matrix"), "!inputs.compare-cache", "workload: test")
+	requireContains(t, jobSection(t, ci, "release-candidate"), "!inputs.compare-cache", "needs: platform-matrix", "workload: readiness", "sh scripts/test-release-readiness.sh")
+	requireContains(t, jobSection(t, ci, "cache-comparison"),
+		"github.event_name == 'workflow_dispatch' && inputs.compare-cache",
+		"policy: [baseline, refreshed]", "workload: race",
+		"run: /usr/bin/time -p go test -count=1 -race ./...", "run: go vet ./...",
+	)
+	requireNotContains(t, ci, "cache-hit", "contents: write", "pull_request_target")
 }
 
 func TestReleaseSourceGate(t *testing.T) {
