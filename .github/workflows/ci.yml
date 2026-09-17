@@ -65,7 +65,7 @@ jobs:
       - name: Set up Go
         uses: ./.github/actions/setup-go
         with:
-          workload: readiness
+          workload: race
       - name: Run release-readiness harness
         run: sh scripts/test-release-readiness.sh
 

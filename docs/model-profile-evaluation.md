@@ -142,6 +142,24 @@ The [maintainer guide](open-source-maintainer-setup.md#go-ci-caches) describes
 the opt-in baseline/refreshed CI cache comparison; it keeps race-test execution
 fresh and includes cache transfer overhead in the comparison.
 
+On 2026-09-17, two paired Linux x64/Go 1.26.6 runs at `db6f3bc` used
+`go test -count=1 -race ./...` and vet with identical source and checks:
+
+| Run | Cache policy | Race command | Complete job |
+| --- | --- | --- | --- |
+| [First](https://github.com/cortexium-io/runner/actions/runs/35197754732) | Existing snapshot | 70.20 s | 93 s |
+| First | Refreshed, initial cache miss | 101.93 s | 132 s |
+| [Second](https://github.com/cortexium-io/runner/actions/runs/35198001630) | Existing snapshot | 94.71 s | 123 s |
+| Second | Refreshed, previous snapshot restored | 45.44 s | 62 s |
+
+All four jobs passed. The existing policy restored the same approximately
+38 MiB snapshot and skipped saving both times; the refreshed policy restored
+its approximately 73 MiB first snapshot and saved an updated one. Job durations
+include setup and cache transfer/save, but exclude queue time. The cold-start
+penalty and baseline variation matter: this is a bounded positive signal for
+retaining the cache change, not a universal speedup estimate. This comparison
+does not measure macOS, release-build performance, or model-token caching.
+
 Prefer focused backend tests for record edits and their validation/persistence
 permutations. Use component tests for form logic and browser checks only where
 interaction, rendering, or integration requires them. Preserve representative

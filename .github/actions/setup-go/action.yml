@@ -2,7 +2,7 @@ name: Set up Go with a refreshed workload cache
 description: Use the repository Go version and retain successful jobs' updated build and module caches.
 inputs:
   workload:
-    description: Cache family (race, test, or readiness); keep different build modes separate.
+    description: Build mode (race or test); readiness shares race to seed main's cache for PRs.
     required: true
 runs:
   using: composite

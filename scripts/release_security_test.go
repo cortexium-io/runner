@@ -73,7 +73,7 @@ func TestReleaseWorkflowContract(t *testing.T) {
 	}
 
 	build := jobSection(t, workflow, "build")
-	requireContains(t, build, "contents: read")
+	requireContains(t, build, "contents: read", "uses: ./.github/actions/setup-go", "workload: race")
 	requireNotContains(t, build, "contents: write")
 	if count := strings.Count(build, "github.token"); count != 1 {
 		t.Fatalf("release build must expose the read-only repository token only to source verification; got %d uses", count)
@@ -91,6 +91,7 @@ func TestReleaseWorkflowContract(t *testing.T) {
 	requireNotContains(t, publish,
 		"actions/checkout@",
 		"actions/setup-go@",
+		"./.github/actions/setup-go",
 		"go test",
 		"go build",
 		"npm ",
@@ -143,7 +144,7 @@ func TestGoCacheWorkflowContract(t *testing.T) {
 	requireContains(t, ci, "permissions:\n  contents: read", "default: false")
 	requireContains(t, jobSection(t, ci, "pr-check"), "workload: race", "run: go test -race ./...", "run: go vet ./...")
 	requireContains(t, jobSection(t, ci, "platform-matrix"), "!inputs.compare-cache", "workload: test")
-	requireContains(t, jobSection(t, ci, "release-candidate"), "!inputs.compare-cache", "needs: platform-matrix", "workload: readiness", "sh scripts/test-release-readiness.sh")
+	requireContains(t, jobSection(t, ci, "release-candidate"), "!inputs.compare-cache", "needs: platform-matrix", "workload: race", "sh scripts/test-release-readiness.sh")
 	requireContains(t, jobSection(t, ci, "cache-comparison"),
 		"github.event_name == 'workflow_dispatch' && inputs.compare-cache",
 		"policy: [baseline, refreshed]", "workload: race",

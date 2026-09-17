@@ -340,9 +340,11 @@ CI and release builds use the pinned official Go setup and cache actions through
 `.github/actions/setup-go`. `go.mod` remains the toolchain authority. Successful
 jobs save refreshed Go build and module caches under a unique run/attempt key;
 restores stay within the same OS/architecture, runner image, Go version,
-dependency digest, and `race`, `test`, or `readiness` workload. GitHub's normal
-branch/PR visibility and repository cache quota/eviction still apply. No new
-write permissions, cache cleanup service, or third-party action is required.
+dependency digest, and `race` or `test` build mode. Main's race-enabled readiness
+jobs populate the same family as PR checks so new PRs can restore it; non-race
+platform tests stay separate. GitHub's normal branch/PR visibility and repository
+cache quota/eviction still apply. No new write permissions, cache cleanup
+service, or additional vendor action is required.
 
 Cache hits never skip required checks. In particular, release readiness retains
 `go test -count=1 -race ./...`: test execution is fresh even when compilation is
