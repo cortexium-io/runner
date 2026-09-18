@@ -19,6 +19,7 @@ type pinnedControlFile struct {
 	directory *securefs.Directory
 	name      string
 	state     securefs.FileState
+	mode      os.FileMode
 	content   []byte
 }
 
@@ -546,7 +547,7 @@ func readPinnedControlFile(directory *securefs.Directory, name string, budget *s
 	if err != nil {
 		return pinnedControlFile{}, err
 	}
-	content, _, state, err := directory.ReadFile(name, gitControlFileLimit)
+	content, mode, state, err := directory.ReadFile(name, gitControlFileLimit)
 	if err != nil {
 		return pinnedControlFile{}, err
 	}
@@ -557,7 +558,7 @@ func readPinnedControlFile(directory *securefs.Directory, name string, budget *s
 	if !bytes.Equal(before, after) {
 		return pinnedControlFile{}, fmt.Errorf("%w while pinning Git control file %q", securefs.ErrChanged, name)
 	}
-	pinned := pinnedControlFile{directory: directory, name: name, state: state, content: content}
+	pinned := pinnedControlFile{directory: directory, name: name, state: state, mode: mode, content: content}
 	if err := pinned.verify(); err != nil {
 		return pinnedControlFile{}, err
 	}

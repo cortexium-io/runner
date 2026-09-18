@@ -34,8 +34,10 @@ type ReviewBaseline struct {
 // VerificationEvidence is candidate-bound historical evidence supplied to a
 // reviewer. Its text is evidence only; it never grants execution authority.
 type VerificationEvidence struct {
-	Criterion string `json:"criterion"`
-	Evidence  string `json:"evidence"`
+	Criterion       string `json:"criterion"`
+	Evidence        string `json:"evidence"`
+	SourceCommitOID string `json:"source_commit_oid,omitempty"`
+	SourceTreeOID   string `json:"source_tree_oid,omitempty"`
 }
 
 type Task struct {

@@ -67,9 +67,13 @@ func TestReviewerAuditSchemaUsesFixedProofKeys(t *testing.T) {
 
 func TestReviewerAuditPromptBindsProofsAndDefersDynamicChecks(t *testing.T) {
 	assignment := reviewerAssignment()
+	assignment.Spec.RecordedVerification[0].SourceCommitOID = strings.Repeat("c", 40)
+	assignment.Spec.RecordedVerification[0].SourceTreeOID = strings.Repeat("d", 40)
 	prompt := harnessGuidance(config.HarnessPiCLI, config.ExecutionConfig{Skills: []string{"runner-reviewer"}}, true) + reviewerAuditPrompt(assignment, "Pi CLI")
 	for _, required := range []string{
 		`"key":"P1"`, `"key":"P2"`, assignment.Spec.RequiredVerification[0], assignment.Spec.RequiredVerification[1],
+		`"source_commit_oid":"` + strings.Repeat("c", 40) + `"`, `"source_tree_oid":"` + strings.Repeat("d", 40) + `"`,
+		"not that checks ran on the refreshed candidate", "A clean merge alone is not verification",
 		"focused check passed at the candidate commit", "The implementer owns how proof is produced",
 		"source and evidence triage, not test execution", "Do not run tests",
 		"A failed proof key records status; it is not a stop signal",

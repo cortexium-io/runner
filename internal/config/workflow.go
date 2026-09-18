@@ -141,7 +141,7 @@ func WorkflowTemplate(requireReviewAfterBaseUpdate bool) WorkflowConfig {
 			{
 				ID: "pull_request_out_of_date", Trigger: WorkflowTrigger{Event: WorkflowEventPROutOfDate},
 				Action: WorkflowAction{Type: WorkflowActionUpdateBranch, RequireReview: &requireReview, Transitions: map[string]string{
-					"updated": "ready", "conflict": "ready", WorkflowOutcomeError: "blocked",
+					"updated": "agent_qa", "conflict": "ready", WorkflowOutcomeError: "blocked",
 				}},
 			},
 		},
@@ -688,7 +688,11 @@ func validateWorkflowEvents(c Config, workflow ResolvedWorkflow) error {
 				if target == workflow.ActiveLane {
 					return fmt.Errorf("workflow %s action transitions.%s cannot target active_lane", event.On, outcome)
 				}
-				if outcome != WorkflowOutcomeError && c.RoleContract(workflow.Lanes[target].Role) != WorkRoleImplementer {
+				contract := c.RoleContract(workflow.Lanes[target].Role)
+				if outcome == "updated" && contract != WorkRoleImplementer && contract != WorkRoleReviewer {
+					return fmt.Errorf("workflow %s action transitions.%s must target an implementer or reviewer lane", event.On, outcome)
+				}
+				if outcome == "conflict" && contract != WorkRoleImplementer {
 					return fmt.Errorf("workflow %s action transitions.%s must target an implementer lane", event.On, outcome)
 				}
 			}

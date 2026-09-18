@@ -43,6 +43,12 @@ func (s *Engine) saveVerificationEvidence(item github.WorkItem, content github.D
 	if err != nil {
 		return err
 	}
+	return s.saveVerificationEntries(item, content, metadata, candidate, entries)
+}
+
+// Entries retain their original source candidate across Runner-owned clean
+// refreshes. Binding them to a new review does not attest any new test run.
+func (s *Engine) saveVerificationEntries(item github.WorkItem, content github.DelegatedContent, metadata workspace.Metadata, candidate workspace.Candidate, entries []execution.VerificationEvidence) error {
 	record := verificationEvidenceRecord{
 		Version: verificationEvidenceVersion, ItemID: strings.TrimSpace(item.ID), DelegatedContentDigest: strings.TrimSpace(content.Digest),
 		Repository: strings.TrimSpace(metadata.Identity.Repository), Branch: strings.TrimSpace(metadata.BranchName),
@@ -118,6 +124,10 @@ func (s *Engine) loadVerificationEvidence(item github.WorkItem, content github.D
 		if record.Entries[index].Criterion != strings.TrimSpace(criteria[index]) {
 			return nil, errors.New("private verification evidence does not match the approved item, content, workspace, candidate, or criteria")
 		}
+		if record.Entries[index].SourceCommitOID == "" {
+			record.Entries[index].SourceCommitOID = record.CommitOID
+			record.Entries[index].SourceTreeOID = record.TreeOID
+		}
 	}
 	return append([]execution.VerificationEvidence(nil), record.Entries...), nil
 }
@@ -143,6 +153,9 @@ func validateVerificationEvidenceRecord(record verificationEvidenceRecord) error
 		return errors.New("private verification evidence has an invalid identity or entry count")
 	}
 	for index, entry := range record.Entries {
+		if (entry.SourceCommitOID != "" || entry.SourceTreeOID != "") && (!reviewObjectID(entry.SourceCommitOID) || !reviewObjectID(entry.SourceTreeOID)) {
+			return fmt.Errorf("private verification evidence entry %d has invalid source identity", index)
+		}
 		if strings.TrimSpace(entry.Criterion) == "" || strings.TrimSpace(entry.Evidence) == "" || len(entry.Criterion) > maxVerificationEvidenceLength || len(entry.Evidence) > maxVerificationEvidenceLength {
 			return fmt.Errorf("private verification evidence entry %d is invalid", index)
 		}

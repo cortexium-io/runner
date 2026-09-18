@@ -594,7 +594,7 @@ Ref packing has a narrow exception: a disappearing terminal loose ref or a
 replaced `packed-refs` file gets at most one secure reference-snapshot refresh,
 which must resolve the original target to the originally pinned commit. Empty
 ref directories pruned by Git may disappear, but existing directory replacements
-are rejected. No other snapshot control is recaptured or forgiven, and the
+are rejected. No unrelated snapshot control is recaptured or forgiven, and the
 original resource budget still applies. The fingerprint binds the symbolic chain
 and terminal commit, not loose-versus-packed storage. If the refresh itself
 races or cannot prove the same target, capture fails closed.
@@ -608,6 +608,13 @@ comparisons exclude only `branch.*` entries from the shared repository config,
 because unrelated concurrent branch publication and maintenance legitimately
 change those tracking entries. All other local config, including
 security-relevant Git controls, remains integrity-bound.
+During these checkout captures only, a replaced common config may be pinned
+once more within the original budget. Both files must be owned regular files
+with one link and the same safe permissions. Git parses private copies of the
+pinned bytes with includes disabled; all non-branch settings must match exactly.
+The replacement must remain stable through completion, and every other original
+snapshot control is still verified. Full task snapshots retain strict config
+identity checks. This is not a whole-checkout retry on an integrity error.
 
 Indexed gitlinks form recursive manifest nodes. Their index path and recorded
 object ID are always present; initialized nodes add their own HEAD, index/status,
@@ -670,14 +677,15 @@ Publication replays that record under a sanitized privileged Git profile,
 re-fetches and compares the approved base, re-resolves the accepted tree,
 refreshes Project authority, validates the configured remote repository, and
 pushes only the recorded commit OID to the recorded full ref. Base refreshes
-remain local until their resulting tree completes implementation and QA and
+remain local until their resulting tree completes fresh QA (and implementation
+first when conflicts require repair) and
 receives a replacement publication record. During tracked pull-request rework
 in `rebase` mode, workspace synchronization permits the expected local history
 rewrite only when the remote branch still resolves to the card's exact recorded
 QA commit or to an immutable private publication record for the same
 item/content/repository/destination tuple. The latter recovers an interrupted
 Project update without trusting arbitrary divergence. The rewritten history
-remains local through implementation and QA; publication is still the only
+remains local until fresh QA; publication is still the only
 boundary that may replace the remote branch, and does so with that authenticated
 remote commit as its exact force-with-lease value. A successful Project
 transition records the replacement QA commit and removes the stale-field
@@ -694,8 +702,21 @@ automatic mode, pull-request reconciliation claims
 `integration:<repository>/<base>`, using GitHub's enabled auto-merge state as
 the restart-stable owner. It recovers an existing owner before item ordering,
 disarms duplicate owners, and compares only the selected candidate with the
-latest base. A moved base returns the candidate through implementation and QA;
-a clean reviewed candidate is bound to its exact head and base before Runner
+latest base. A clean moved-base refresh follows the configured `updated` route,
+defaulting to QA; conflicts follow the implementation recovery route.
+Pre-QA and pre-publication clean refreshes return to the current reviewer lane.
+The engine validates retained evidence against the exact pre-refresh candidate
+before mutation, then binds it to the refreshed review while preserving its
+original source commit/tree. This is historical evidence, not renewed test
+results or acceptance. QA evaluates changed-base interactions and applicability,
+and runs required current-candidate checks in its verification stage. Evidence
+identity mismatches fail closed rather than silently carrying unrelated proof.
+Private write failures after refresh also fail closed with a blocked item whose
+explicit retry targets implementation to renew the evidence; they do not certify
+or publish a candidate. Repository-required full validation remains enforced.
+Automatic refreshes preserve QA rejection counts and implementer escalation;
+only an explicit human retry/reset grants a new rejection budget.
+A clean reviewed candidate is bound to its exact head and base before Runner
 enables GitHub auto-merge. Manual-review PRs remain at the human gate without
 Runner refreshing them after unrelated merges.
 
@@ -773,6 +794,11 @@ or human review. Admission reloads shared history under that gate so another
 process's reservations cannot be hidden by an engine-local cache. Claimed starts
 are recorded before dispatch, and already-claimed work is still completed if a
 later claim fails. Budget and capacity exhaustion do not authorize extra work.
+The coordinator gives eligible reviewers a bounded admission preference: after
+two successful review claims it prefers one safe non-review action. Ordering
+within each class follows the Project snapshot, and skipped actions do not
+advance the preference. This in-memory coordinator state neither reserves an
+idle slot nor changes resource/dependency safety or configured limits.
 
 CLI batch writes, approvals, retries, and explicit reauthorization exclude
 interrupted-state recovery, with recovery's snapshot acquired inside the same

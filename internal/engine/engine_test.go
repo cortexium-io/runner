@@ -4273,8 +4273,8 @@ func TestReconciliationRetriesWhenBaseMovesAtAutomaticMergeBoundary(t *testing.T
 	}
 	if _, changed, err := service.reconcilePullRequests(t.Context(), items); err != nil {
 		t.Fatalf("retry moving automatic integration base: %v", err)
-	} else if !changed || runner.mergeRequests != 0 || project.status != "Ready" || project.phase != "ready" {
-		t.Fatalf("moving base was not returned through implementation and QA: changed=%t requests=%d status=%q phase=%q", changed, runner.mergeRequests, project.status, project.phase)
+	} else if !changed || runner.mergeRequests != 0 || project.status != "Agent QA" || project.phase != "agent_qa" {
+		t.Fatalf("clean base refresh was not returned through fresh QA: changed=%t requests=%d status=%q phase=%q", changed, runner.mergeRequests, project.status, project.phase)
 	}
 }
 
@@ -5052,7 +5052,7 @@ func TestRequeuesPullRequestWhenHeadChangesAfterQA(t *testing.T) {
 	if _, _, err := service.reconcilePullRequests(t.Context(), items); err != nil {
 		t.Fatalf("reconcile changed PR head: %v", err)
 	}
-	if project.status != "Ready" || project.qaFailures != 0 || !strings.Contains(project.result, "changed after agent QA") {
+	if project.status != "Ready" || project.qaFailures != 2 || !strings.Contains(project.result, "changed after agent QA") {
 		t.Fatalf("changed PR head did not restart implementation and QA: status=%q failures=%d result=%q", project.status, project.qaFailures, project.result)
 	}
 }
@@ -5443,7 +5443,7 @@ func TestAgentQAAlreadyContainedBaseRetainsActualCandidateLineage(t *testing.T) 
 	store := metrics.NewStore(filepath.Join(t.TempDir(), "metrics", "history.jsonl"))
 	service.SetMetricsObserver(store.Append)
 	results, err := service.RunCycle(t.Context())
-	if err != nil || len(results) != 1 || results[0].Outcome != "warning" || runner.reviewCalls != 0 || project.status != "Ready" {
+	if err != nil || len(results) != 1 || results[0].Outcome != "warning" || runner.reviewCalls != 0 || project.status != "Agent QA" {
 		t.Fatalf("base recovery changed QA routing: results=%#v calls=%d status=%s err=%v", results, runner.reviewCalls, project.status, err)
 	}
 	history, err := metrics.NewStore(store.Path()).Read()
@@ -5580,7 +5580,7 @@ func TestAgentQARefreshesAndRequeuesWhenBaseMovesBeforePublication(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].Outcome != "warning" || runner.reviews != 1 || project.status != "Ready" || project.phase != "ready" || project.pullRequest != "" {
+	if len(results) != 1 || results[0].Outcome != "warning" || runner.reviews != 1 || project.status != "Agent QA" || project.phase != "agent_qa" || project.pullRequest != "" {
 		t.Fatalf("base-moved publication was not requeued: results=%#v reviews=%d status=%q phase=%q PR=%q", results, runner.reviews, project.status, project.phase, project.pullRequest)
 	}
 	if !strings.Contains(results[0].Summary, "Base branch advanced") || len(results[0].WorkDone) != 1 || !strings.Contains(project.result, "Runner refreshed the retained candidate locally") {
@@ -6164,8 +6164,8 @@ func TestAutomaticIntegrationRequeuesWhenBaseMovesAfterQA(t *testing.T) {
 	}
 	if _, changed, err := service.reconcilePullRequests(t.Context(), items); err != nil {
 		t.Fatalf("reconcile moved-base integration: %v", err)
-	} else if !changed || runner.mergeRequests != 0 || project.status != "Ready" || project.phase != "ready" || project.activity != "" {
-		t.Fatalf("moved-base integration was not returned for implementation and QA: changed=%t requests=%d status=%q phase=%q activity=%q", changed, runner.mergeRequests, project.status, project.phase, project.activity)
+	} else if !changed || runner.mergeRequests != 0 || project.status != "Agent QA" || project.phase != "agent_qa" || project.activity != "" {
+		t.Fatalf("moved-base integration was not returned for fresh QA: changed=%t requests=%d status=%q phase=%q activity=%q", changed, runner.mergeRequests, project.status, project.phase, project.activity)
 	}
 }
 

@@ -138,6 +138,11 @@ when the configured default is appropriate or no profiles are supplied.
 
 Base the reason on the hardest card-owned invariant, contract clarity, applicable
 repository examples, verification strength, and the consequence of a mistake.
+Distinguish existing invariant-specific tests from tests the implementer must
+still design: a large suite or a promised new test is not an established safety
+net. For coupled native selection/focus, source preservation and undo/history,
+use the operator's profile for substantial reasoning unless an inspected shared
+contract and applicable tests genuinely remove that uncertainty.
 Explain why an example applies or which prerequisite removes the uncertainty;
 "established patterns" alone is not a reason. A few files or a familiar component
 do not make a task mechanical when state transitions, partial data, authorization,
@@ -158,7 +163,9 @@ constraints, not evidence that a different model will solve the card.
   whole request or sibling requirements into every field.
 - Prefer one proof obligation that covers related claims over overlapping proof.
 - Broad suites and full-system evidence belong only at the narrowest integration
-  boundary that needs them.
+  boundary that needs them, unless repository policy requires them earlier.
+  An integration card should add cross-feature journeys and combined-candidate
+  proof, not repeat unchanged feature matrices already covered by delivery cards.
 - For time-based behavior, require deterministic accelerated evidence when it
   preserves production semantics: controlled clocks for schedules and ordinary
   fixed-size simulation steps run without wall-clock pacing or rendering, with

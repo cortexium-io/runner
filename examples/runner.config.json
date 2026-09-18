@@ -215,7 +215,7 @@
           "type": "update_branch",
           "require_review": true,
           "transitions": {
-            "updated": "ready",
+            "updated": "agent_qa",
             "conflict": "ready",
             "error": "blocked"
           }
