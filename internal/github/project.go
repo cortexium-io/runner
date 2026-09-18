@@ -631,9 +631,9 @@ func (s *Project) ResetRejections(ctx context.Context, action AuthorizedAction, 
 }
 
 func (s *Project) TransitionAfterBranchUpdate(ctx context.Context, action AuthorizedAction, targetStatus, targetPhase, detail string) error {
-	return s.transition(ctx, action, targetStatus, detail, targetPhase, false, func(next *WorkItem) {
-		next.QAFailures = 0
-	}, []projectFieldUpdate{numberProjectField(s.qaFailuresFieldName(), 0)})
+	// A changed base is not a new human retry grant. Keep the rejection budget
+	// and the implementer escalation it controls, along with private feedback.
+	return s.transition(ctx, action, targetStatus, detail, targetPhase, false, nil, nil)
 }
 
 func (s *Project) TransitionAutomaticRetry(ctx context.Context, action AuthorizedAction, targetStatus, targetPhase, detail, activity string) error {

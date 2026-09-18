@@ -68,6 +68,7 @@ type Engine struct {
 	automaticRetryMu           sync.Mutex
 	automaticRetries           map[string]automaticRetryState
 	stopRequested              func() (bool, error)
+	consecutiveReviews         int // Owned by the poll coordinator, like in-flight admission.
 }
 
 // SetMetricsObserver attaches attempt telemetry. It remains non-critical when
@@ -368,7 +369,10 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 	prepared.pendingObservation = s.hasPendingObservation(claimSnapshot)
 	prepared.claimed = make([]admittedAction, 0, limit)
 	occupied := occupiedResourceKeys(inFlight)
-	for _, action := range readyActions {
+	for len(readyActions) > 0 {
+		index := s.nextReadyAction(readyActions)
+		action := readyActions[index]
+		readyActions = append(readyActions[:index], readyActions[index+1:]...)
 		item := action.Item
 		if s.automaticRetryPending(item, time.Now()) {
 			continue
@@ -445,6 +449,13 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 			admitted.metricsStartError = err.Error()
 		}
 		prepared.claimed = append(prepared.claimed, admitted)
+		if s.cfg.RoleContract(action.Role) == config.WorkRoleReviewer {
+			if s.consecutiveReviews < 2 {
+				s.consecutiveReviews++
+			}
+		} else {
+			s.consecutiveReviews = 0
+		}
 		prepared.madeProgress = true
 		if len(prepared.claimed) == limit {
 			break

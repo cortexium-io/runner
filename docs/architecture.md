@@ -594,7 +594,7 @@ Ref packing has a narrow exception: a disappearing terminal loose ref or a
 replaced `packed-refs` file gets at most one secure reference-snapshot refresh,
 which must resolve the original target to the originally pinned commit. Empty
 ref directories pruned by Git may disappear, but existing directory replacements
-are rejected. No other snapshot control is recaptured or forgiven, and the
+are rejected. No unrelated snapshot control is recaptured or forgiven, and the
 original resource budget still applies. The fingerprint binds the symbolic chain
 and terminal commit, not loose-versus-packed storage. If the refresh itself
 races or cannot prove the same target, capture fails closed.
@@ -608,6 +608,13 @@ comparisons exclude only `branch.*` entries from the shared repository config,
 because unrelated concurrent branch publication and maintenance legitimately
 change those tracking entries. All other local config, including
 security-relevant Git controls, remains integrity-bound.
+During these checkout captures only, a replaced common config may be pinned
+once more within the original budget. Both files must be owned regular files
+with one link and the same safe permissions. Git parses private copies of the
+pinned bytes with includes disabled; all non-branch settings must match exactly.
+The replacement must remain stable through completion, and every other original
+snapshot control is still verified. Full task snapshots retain strict config
+identity checks. This is not a whole-checkout retry on an integrity error.
 
 Indexed gitlinks form recursive manifest nodes. Their index path and recorded
 object ID are always present; initialized nodes add their own HEAD, index/status,
@@ -773,6 +780,11 @@ or human review. Admission reloads shared history under that gate so another
 process's reservations cannot be hidden by an engine-local cache. Claimed starts
 are recorded before dispatch, and already-claimed work is still completed if a
 later claim fails. Budget and capacity exhaustion do not authorize extra work.
+The coordinator gives eligible reviewers a bounded admission preference: after
+two successful review claims it prefers one safe non-review action. Ordering
+within each class follows the Project snapshot, and skipped actions do not
+advance the preference. This in-memory coordinator state neither reserves an
+idle slot nor changes resource/dependency safety or configured limits.
 
 CLI batch writes, approvals, retries, and explicit reauthorization exclude
 interrupted-state recovery, with recovery's snapshot acquired inside the same

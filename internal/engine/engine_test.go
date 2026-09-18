@@ -5052,7 +5052,7 @@ func TestRequeuesPullRequestWhenHeadChangesAfterQA(t *testing.T) {
 	if _, _, err := service.reconcilePullRequests(t.Context(), items); err != nil {
 		t.Fatalf("reconcile changed PR head: %v", err)
 	}
-	if project.status != "Ready" || project.qaFailures != 0 || !strings.Contains(project.result, "changed after agent QA") {
+	if project.status != "Ready" || project.qaFailures != 2 || !strings.Contains(project.result, "changed after agent QA") {
 		t.Fatalf("changed PR head did not restart implementation and QA: status=%q failures=%d result=%q", project.status, project.qaFailures, project.result)
 	}
 }
