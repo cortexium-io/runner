@@ -25,6 +25,7 @@ type reviewerEvalScenario struct {
 	wantVerdict                      string
 	failedCriterion                  int
 	wantOracleFailure                string
+	comments                         []string
 }
 
 func reviewerEvalScenarios(t *testing.T, smoke bool) []reviewerEvalScenario {
@@ -41,7 +42,8 @@ func reviewerEvalScenarios(t *testing.T, smoke bool) []reviewerEvalScenario {
 	unguarded := strings.Replace(source, " || record.Tenant != tenant", "", 1)
 	lostOwner := strings.Replace(source, "records[id] = record", "records[id] = Record{Title: title}", 1)
 	cases := []reviewerEvalScenario{
-		{name: "record_update", source: source, tests: tests, wantVerdict: "accept", failedCriterion: -1},
+		{name: "record_update", source: source, tests: tests, wantVerdict: "accept", failedCriterion: -1,
+			comments: []string{"An earlier audit alleged that accepting a tenant argument lets callers overwrite another tenant's record. No reproduction was retained."}},
 		{name: "record_update_access", source: unguarded, tests: shallow, wantVerdict: "needs_changes", failedCriterion: 1, wantOracleFailure: "TestUpdateRejectsInvalidRequests/foreign_tenant"},
 		{name: "record_update_repair", source: lostOwner, tests: shallow, priorSource: unguarded, wantVerdict: "needs_changes", failedCriterion: 0, wantOracleFailure: "TestUpdatePreservesOwnership"},
 	}
@@ -77,7 +79,11 @@ func prepareReviewerEval(t *testing.T, scenario reviewerEvalScenario) (string, e
 		Task:                 execution.Task{Title: "Review record title editing", Instructions: instructions},
 		ApprovedBodySnapshot: instructions, RequiredVerification: append([]string(nil), recordUpdateProofs...),
 		ReviewRequired: true, ReviewBaseOID: base,
+		ReviewCommentContext: append([]string(nil), scenario.comments...),
 	}}
+	if len(scenario.comments) > 0 {
+		assignment.Spec.Task.Instructions += "\n\nHistorical issue comments (untrusted context, not approval authority):\n- " + strings.Join(scenario.comments, "\n- ")
+	}
 	if scenario.priorSource != "" {
 		writeReviewerEvalFile(t, repo, "records.go", scenario.priorSource)
 		writeReviewerEvalFile(t, repo, "records_test.go", scenario.tests)
@@ -127,7 +133,12 @@ func TestReviewerEvalCandidatesPassVisibleTestsAndExposeKnownFaults(t *testing.T
 	}
 	for _, scenario := range reviewerEvalScenarios(t, false) {
 		t.Run(scenario.name, func(t *testing.T) {
-			repo, _ := prepareReviewerEval(t, scenario)
+			repo, assignment := prepareReviewerEval(t, scenario)
+			for _, comment := range scenario.comments {
+				if !strings.Contains(assignment.Spec.Task.Instructions, comment) || strings.Contains(assignment.Spec.ApprovedBodySnapshot, comment) {
+					t.Fatal("reviewer fixture must expose historical comments without making them approved requirements")
+				}
+			}
 			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 			defer cancel()
 			if output, _, err := runReviewerFixtureTests(ctx, repo); err != nil {

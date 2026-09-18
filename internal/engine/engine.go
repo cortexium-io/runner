@@ -1775,11 +1775,15 @@ func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.Aut
 	}
 	automaticRetry := output.RetryDisposition == execution.RetryAutomatic &&
 		(output.FailureClass == execution.FailureTransientExternal || output.FailureClass == execution.FailureCapacityExhausted || output.FailureClass == execution.FailureBrowserStartup)
+	retryActivity := config.RunnerActivityWaitingForHarness
 	var scheduledRetry automaticRetryState
 	if automaticRetry {
 		unavailable := "Harness provider"
 		if output.FailureClass == execution.FailureBrowserStartup {
 			unavailable = "Runner browser startup"
+		} else if output.FailureClass == execution.FailureCapacityExhausted {
+			unavailable = "Model capacity"
+			retryActivity = config.RunnerActivityWaitingForCapacity
 		}
 		var scheduled bool
 		scheduledRetry, scheduled = s.nextAutomaticRetry(item.ID, time.Now().UTC())
@@ -1810,7 +1814,13 @@ func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.Aut
 	}
 	detail := strings.TrimSpace(summary)
 	if retrySafe {
-		detail = formatExecutionReport("Retryable Runner blocker", output)
+		title := "Retryable Runner blocker"
+		if scheduledRetry.failures > 0 {
+			// This summary is Runner-owned: retain the attempt/exhaustion count
+			// on the card without publishing any raw provider diagnostics.
+			title = summary
+		}
+		detail = formatExecutionReport(title, output)
 	} else if output.RemoteDetailSafe && output.Outcome != execution.OutcomeSucceeded {
 		detail = formatExecutionReport("Runner blocked", output)
 		if detail == "" {
@@ -1850,7 +1860,7 @@ func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.Aut
 	finishTransition := metrics.StartStage(transitionCtx, metrics.StageProjectTransition)
 	var updateErr error
 	if automaticRetry {
-		updateErr = s.transitionAutomaticRetry(transitionCtx, action, s.cfg.LaneStatus(target), s.phaseForTargetLane(target), detail)
+		updateErr = s.transitionAutomaticRetry(transitionCtx, action, s.cfg.LaneStatus(target), s.phaseForTargetLane(target), detail, retryActivity)
 	} else {
 		updateErr = s.transitionProjectItem(transitionCtx, action, s.cfg.LaneStatus(target), detail, retryPhase)
 	}

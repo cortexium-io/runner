@@ -189,11 +189,15 @@ Progress events, model-authored text, and arbitrary stdout/stderr phrases have
 no recovery authority. A recognized transient Codex service failure or browser
 startup timeout returns the card to its current role lane as
 `Waiting for harness provider` and retries after 30 seconds, two minutes, and
-five minutes. A fourth consecutive failure moves it to the configured error
-lane for manual recovery. These operational retries do not increment `QA
-Failures`; a process restart may retry sooner because the short backoff is
-deliberately in-memory. Opaque harness failures stay unknown and are never
-automatically retried. Browser startup failures retain their bounded local
+five minutes. Codex's terminal `turn.failed` capacity message, exactly
+`Selected model is at capacity. Please try a different model.`, and recognized
+HTTP 429 failures use the same policy with `Waiting for model capacity` activity.
+The card reports the retry number and time; neither the adapter nor the engine
+switches the configured model or reasoning level. A fourth consecutive failure
+moves it to the configured error lane for manual recovery. These operational
+retries do not increment `QA Failures`; a process restart may retry sooner
+because the short backoff is deliberately in-memory. Opaque harness failures
+stay unknown and are never automatically retried. Browser startup failures retain their bounded local
 startup diagnostic; Project reports use only a fixed browser-startup template.
 For unknown Codex exits, bounded local diagnostics prefer the terminal
 `turn.failed` reason, falling back to the tails of both output streams. Opening
@@ -374,7 +378,12 @@ constraints to every generated child card. Implementers and reviewers therefore
 receive the stable product and task contract through ordinary Project data
 rather than a hidden local plan store. Runner extracts the exact approved
 proof obligations from that immutable card body and passes them to every
-downstream harness. The implementer chooses the lowest, fastest test level that
+downstream harness. Planner guidance distinguishes requested behavior changes
+from existing invariants that must survive, with proof for both where at risk.
+Superseded maintained documentation is updated in the owning delivery card;
+historical proposals do not add requirements. These use the existing card
+fields, not another specification store or task ledger.
+The implementer chooses the lowest, fastest test level that
 faithfully proves the behavior. Backend validation and persistence use backend tests; browser
 checks cover interaction, rendering, or integration that lower levels cannot
 establish. Material changes connect a plausible fault to an assertion derived
@@ -405,6 +414,12 @@ approved scope; this context does not reopen resolved proof keys. The handoff
 does not claim that unresolved source inspection already happened. Runner merges
 the observations and derives the verdict and final summary from the merged
 checks, not from superseded stage summaries.
+For in-scope security concerns, reviewer guidance calls for independent
+examination of existing controls and the claimed boundary violation. Established
+defects, unresolved questions, and refuted claims use the existing stage statuses
+and check evidence, not a new finding schema or extra audit stage. Reuse requires
+checking relevant source and conditions; an old commit reference alone is not
+proof, and a disproved claim does not exempt its surrounding area from review.
 Each resolved check retains its original verification question and audit context
 in the existing private evidence, clearly labelled as preceding verification.
 Its status and summary describe the final result. This preserves why dynamic
@@ -575,6 +590,14 @@ pinning, require their parent directories to retain no-follow identity and safe
 permissions, not unchanged timestamps from unrelated sibling-ref updates. The
 exact child is hashed before and after reading and its pinned state is verified;
 content changes, substitution, and a missing target appearing still fail closed.
+Ref packing has a narrow exception: a disappearing terminal loose ref or a
+replaced `packed-refs` file gets at most one secure reference-snapshot refresh,
+which must resolve the original target to the originally pinned commit. Empty
+ref directories pruned by Git may disappear, but existing directory replacements
+are rejected. No other snapshot control is recaptured or forgiven, and the
+original resource budget still applies. The fingerprint binds the symbolic chain
+and terminal commit, not loose-versus-packed storage. If the refresh itself
+races or cannot prove the same target, capture fails closed.
 Protected Git metadata paths likewise verify their shared administration root
 by identity, so unrelated `FETCH_HEAD` updates cannot invalidate a candidate.
 Their traversed descendants and explicitly pinned protected directories remain

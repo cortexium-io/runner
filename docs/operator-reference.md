@@ -90,6 +90,28 @@ strict `vMAJOR.MINOR.PATCH` argument to install a specific release. See the
 [README](../README.md#install) for the inspect-before-running form and `PATH`
 setup.
 
+### Git selection
+
+Runner uses the first `git` executable in its process `PATH`. Doctor reports
+that path and version and requires a successful `git --version`; it does not
+prove that every network push will succeed. Runner's sanitized agent tool PATH
+preserves the same operator selection, including on macOS, rather than giving
+Xcode Git a separate preference. Required Git runtime paths remain read-only
+in sandboxed profiles. Runner neither upgrades Git nor selects the highest
+installed version automatically.
+
+A launchd service uses the `EnvironmentVariables.PATH` in its plist, which can
+differ from an interactive terminal. If publication fails with one Git installation
+but succeeds with another, correct the service's Git selection and run Doctor
+with that same PATH. To avoid changing other tools, prepend a dedicated directory
+containing only a `git` symlink to the chosen executable. Gracefully stop the
+service before changing its environment and reload its plist afterward; an
+already-running worker does not pick up PATH changes. Keep the old selection
+available for rollback. An accepted candidate blocked only on publication can
+then be retried normally without changing the candidate or its QA evidence.
+
+### Updating
+
 For an installed release build, update in place with:
 
 ```bash
@@ -1985,6 +2007,24 @@ This avoids losing the failure behind opening progress output without adding
 automatic retries for unknown errors. Raw diagnostics stay local, not in GitHub
 reports or metrics. It cannot recover diagnostics already discarded by an older
 Runner version.
+
+Codex's exact terminal failure `Selected model is at capacity. Please try a
+different model.` is a retryable `capacity_exhausted` failure, as is a recognized
+HTTP 429 failure. The background engine keeps the card in its current role lane,
+retains its workspace, and shows `Waiting for model capacity`. It retries after
+30 seconds, two minutes, and five minutes without changing the configured model
+or reasoning level or incrementing `QA Failures`. The card's result shows the
+retry count and next retry time; after exhaustion it identifies model capacity
+as the blocker and provides the manual retry command. These attempts share the
+existing in-memory operational retry budget described above; a restart resets it.
+
+This classification requires Codex's terminal `turn.failed` event, not a model
+message, progress error, or arbitrary stdout/stderr containing the same words.
+Unknown diagnostics, invalid model selection, and account-limit text do not
+gain automatic retry authority from mentioning capacity. Authentication failures
+still require operator recovery, and all workspace-integrity checks still apply.
+Standalone CLI planning reports the classification but does not retry itself.
+No configuration, Project-field, or skill migration is needed.
 
 If Runner reports unavailable browser capability, stop repeated retries. A
 capability blocker does not increment the QA rejection count. An inconclusive

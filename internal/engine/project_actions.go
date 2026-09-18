@@ -72,8 +72,8 @@ func (s *Engine) transitionAfterBranchUpdate(ctx context.Context, action github.
 	return s.source.TransitionAfterBranchUpdate(ctx, action, targetStatus, targetPhase, detail)
 }
 
-func (s *Engine) transitionAutomaticRetry(ctx context.Context, action github.AuthorizedAction, targetStatus, targetPhase, detail string) error {
-	return s.source.TransitionAutomaticRetry(ctx, action, targetStatus, targetPhase, detail)
+func (s *Engine) transitionAutomaticRetry(ctx context.Context, action github.AuthorizedAction, targetStatus, targetPhase, detail, activity string) error {
+	return s.source.TransitionAutomaticRetry(ctx, action, targetStatus, targetPhase, detail, activity)
 }
 
 func (s *Engine) transitionChecksFailed(ctx context.Context, action github.AuthorizedAction, targetStatus, targetPhase, detail string) error {

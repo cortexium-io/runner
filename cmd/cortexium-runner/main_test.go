@@ -72,6 +72,9 @@ func TestInitInstallsRoleSkillsAndDoctorVerifiesReadiness(t *testing.T) {
 	if !strings.Contains(after.String(), "Ready to run: yes") || !strings.Contains(after.String(), "authentication is managed by the harness and was not inspected") || !strings.Contains(after.String(), "planner=sandboxed/isolated") || !strings.Contains(after.String(), "implementer=sandboxed/isolated") || !strings.Contains(after.String(), "reviewer=sandboxed/isolated") {
 		t.Fatalf("unexpected doctor output after init: %s", after.String())
 	}
+	if !strings.Contains(after.String(), filepath.Join(bin, "git")) || !strings.Contains(after.String(), "git version 2.50.1") {
+		t.Fatalf("doctor omitted the selected Git path or version: %s", after.String())
+	}
 }
 
 func TestInitCreatesStandaloneConfigAndCanSynchronizeIt(t *testing.T) {
@@ -1550,6 +1553,7 @@ if [ "$1" = "-C" ]; then
   shift 2
 fi
 case "$1 $2" in
+  "--version ") printf '%s\n' 'git version 2.50.1' ;;
   "rev-parse --show-toplevel") (cd "$project_dir" && pwd) ;;
 	"rev-parse --verify") printf '%s\n' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' ;;
 	"config --get") printf '%s\n' 'https://github.com/example/repo.git' ;;

@@ -105,6 +105,60 @@ func TestCapabilityInspectorRejectsHarnessWithoutConfiguredPolicyFlags(t *testin
 	}
 }
 
+type gitVersionRunner struct {
+	result  subprocess.Result
+	err     error
+	command string
+}
+
+func (r *gitVersionRunner) Run(_ context.Context, command string, args []string, _ string, _ time.Duration) (subprocess.Result, error) {
+	if !reflect.DeepEqual(args, []string{"--version"}) {
+		return subprocess.Result{}, errors.New("unexpected Git invocation")
+	}
+	r.command = command
+	return r.result, r.err
+}
+
+func TestInspectGitChecksSelectedExecutable(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		result subprocess.Result
+		err    error
+		ready  bool
+	}{
+		{name: "operator Git", result: subprocess.Result{Stdout: "git version 2.40.1\n"}, ready: true},
+		{name: "Apple Git", result: subprocess.Result{Stdout: "git version 2.50.1 (Apple Git-155)\n"}, ready: true},
+		{name: "launch fails", err: errors.New("exec failed")},
+		{name: "nonzero exit", result: subprocess.Result{Stdout: "git version 2.50.1\n", ExitCode: 1}},
+		{name: "empty output"},
+		{name: "unexpected output", result: subprocess.Result{Stdout: "Git is unavailable\n"}},
+		{name: "missing version", result: subprocess.Result{Stdout: "git version \n"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &gitVersionRunner{result: test.result, err: test.err}
+			inspector := NewInspector(config.Config{}, runner)
+			selected := filepath.Join(t.TempDir(), "operator-git", "git")
+			inspector.lookPath = func(command string) (string, error) {
+				if command != "git" {
+					t.Fatalf("unexpected tool lookup %q", command)
+				}
+				return selected, nil
+			}
+			capability := inspector.inspectTool(t.Context(), "git")
+			want := CapabilityBlocked
+			if test.ready {
+				want = CapabilityAvailable
+			}
+			if runner.command != selected || capability.Status != want || capability.Detail == nil || !strings.Contains(*capability.Detail, selected) {
+				t.Fatalf("Git check selected %q: %#v; want %s at %s", runner.command, capability, want, selected)
+			}
+			if test.ready && (capability.Version == nil || *capability.Version != strings.TrimSpace(test.result.Stdout)) {
+				t.Fatalf("Git version not reported: %#v", capability)
+			}
+		})
+	}
+}
+
 type chromeVersionRunner struct {
 	version string
 	err     error

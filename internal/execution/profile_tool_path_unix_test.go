@@ -8,19 +8,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
 func TestDevelopmentToolPathPreservesOperatorExecutableSelection(t *testing.T) {
 	for _, scenario := range []struct {
 		name          string
 		operatorOrder []string
+		gitFirst      bool
 	}{
 		{name: "Go directory before Node directory containing older Go", operatorOrder: []string{"go", "node"}},
 		{name: "Node directory before Go directory containing older Node", operatorOrder: []string{"node", "go"}},
+		{name: "explicit Git before Go and Node", operatorOrder: []string{"go", "node"}, gitFirst: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			root := t.TempDir()
-			gitDirectory := filepath.Join(root, "xcode")
+			gitDirectory := filepath.Join(root, "operator-git")
 			goDirectory := filepath.Join(root, "go")
 			nodeDirectory := filepath.Join(root, "node")
 			unrelatedDirectory := filepath.Join(root, "unrelated")
@@ -29,7 +34,7 @@ func TestDevelopmentToolPathPreservesOperatorExecutableSelection(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			writeExecutableMarker(t, filepath.Join(gitDirectory, "git"), "xcode-git")
+			writeExecutableMarker(t, filepath.Join(gitDirectory, "git"), "operator-git")
 			writeExecutableMarker(t, filepath.Join(goDirectory, "go"), "operator-go")
 			writeExecutableMarker(t, filepath.Join(nodeDirectory, "node"), "operator-node")
 			writeExecutableMarker(t, filepath.Join(goDirectory, "git"), "competing-git")
@@ -43,16 +48,39 @@ func TestDevelopmentToolPathPreservesOperatorExecutableSelection(t *testing.T) {
 			directories := map[string]string{"go": goDirectory, "node": nodeDirectory}
 			operatorPath := strings.Join([]string{
 				directories[scenario.operatorOrder[0]], unrelatedDirectory,
-				directories[scenario.operatorOrder[1]],
+				directories[scenario.operatorOrder[1]], gitDirectory,
 			}, string(os.PathListSeparator))
+			wantGit := "competing-git"
+			if scenario.gitFirst {
+				operatorPath = gitDirectory + string(os.PathListSeparator) + operatorPath
+				wantGit = "operator-git"
+			}
 			t.Setenv("PATH", operatorPath)
-			path := developmentToolPathWith(exec.LookPath, gitDirectory, operatorPath)
+			// Both ordinary and privileged Runner commands must use the same
+			// Git that the sanitized agent environment will select.
+			gitDir := filepath.Join(root, ".git")
+			profile, err := subprocess.NewPrivilegedGitProfile(root, gitDir, gitDir, filepath.Join(gitDir, "index"), filepath.Join(gitDir, "objects"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, privileged := range []bool{false, true} {
+				var result subprocess.Result
+				if privileged {
+					result, err = subprocess.RunPrivilegedGit(t.Context(), nil, profile, []string{"version"}, 5*time.Second)
+				} else {
+					result, err = subprocess.RunGit(t.Context(), subprocess.OSRunner{}, []string{"version"}, root, 5*time.Second)
+				}
+				if err != nil || strings.TrimSpace(result.Stdout) != wantGit {
+					t.Fatalf("Runner Git (privileged=%t) = %q, %v; want %q", privileged, result.Stdout, err, wantGit)
+				}
+			}
+			path := developmentToolPathWith(exec.LookPath, operatorPath)
 			if contains(filepath.SplitList(path), unrelatedDirectory) {
 				t.Fatalf("sandbox PATH inherited unrelated operator directory: %s", path)
 			}
 
 			t.Setenv("PATH", path)
-			for tool, want := range map[string]string{"git": "xcode-git", "go": "operator-go", "node": "operator-node"} {
+			for tool, want := range map[string]string{"git": wantGit, "go": "operator-go", "node": "operator-node"} {
 				command := exec.Command(tool)
 				output, err := command.CombinedOutput()
 				if err != nil {

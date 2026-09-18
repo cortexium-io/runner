@@ -120,8 +120,8 @@ func codexFailureEvidence(result subprocess.Result, runErr error, safeTools bool
 // codexFailureEvidenceFromStdout accepts only the terminal failure event from
 // Codex CLI's --json stream. Progress errors and model-authored result content
 // are deliberately ignored. Codex currently exposes the provider reason as a
-// message rather than typed HTTP fields, so matching remains limited to fixed
-// statuses and the authenticated Codex service endpoint.
+// message rather than typed HTTP fields, so matching remains limited to known
+// service diagnostics. Model capacity requires the complete observed message.
 func codexFailureEvidenceFromStdout(stdout string) HarnessFailureEvidence {
 	terminalMessage := strings.ToLower(codexTerminalFailureMessage(stdout))
 	if terminalMessage == "" {
@@ -130,7 +130,8 @@ func codexFailureEvidenceFromStdout(stdout string) HarnessFailureEvidence {
 	if codexFailureHasHTTPStatus(terminalMessage, "401") {
 		return HarnessFailureEvidence{FailureClass: FailureAuthenticationRequired, RetryDisposition: RetryManual}
 	}
-	if codexFailureHasHTTPStatus(terminalMessage, "429") {
+	if codexFailureHasHTTPStatus(terminalMessage, "429") ||
+		terminalMessage == "selected model is at capacity. please try a different model." {
 		return HarnessFailureEvidence{FailureClass: FailureCapacityExhausted, RetryDisposition: RetryAutomatic}
 	}
 	for _, status := range []string{"500", "502", "503", "504"} {

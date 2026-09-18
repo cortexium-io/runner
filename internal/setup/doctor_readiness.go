@@ -47,7 +47,7 @@ func roleHarnessReadiness(cfg config.Config, harnesses []HarnessInspection, capa
 func doctorRecommendations(capabilities []CapabilityState, harnesses []HarnessInspection, missing []config.CapabilityRequirement, sourceReady, projectReady, recommendBundledSetup bool) []string {
 	result := []string{}
 	if !capabilityAvailable(capabilities, config.CapabilityTypeLocalTool, "git") {
-		result = append(result, "Install Git from https://git-scm.com/downloads and ensure `git` is available in PATH, then run doctor again.")
+		result = append(result, "Ensure the Git selected by the Runner process PATH can run `git --version`; install or repair Git if needed (https://git-scm.com/downloads), then run doctor with that same PATH. For launchd, check EnvironmentVariables.PATH and restart the service after changing it.")
 	}
 	if !capabilityAvailable(capabilities, config.CapabilityTypeLocalTool, "gh") {
 		result = append(result, "Install GitHub CLI from https://github.com/cli/cli#installation, authenticate it for the intended GitHub account, then run doctor again.")

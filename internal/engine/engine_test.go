@@ -3278,6 +3278,7 @@ func TestHarnessFailureRetriesInPlaceBeforeBlocking(t *testing.T) {
 			item := github.WorkItem{
 				ID: "PVTI_automatic_retry", Title: "Review feature", Body: "Acceptance criteria", Repository: "owner/repo",
 				Status: "Agent QA", Role: config.WorkRoleReviewer, QAFailures: 1,
+				Branch: "runner/retained", PullRequest: "https://github.com/owner/repo/pull/17", QACommit: strings.Repeat("a", 40),
 			}
 			item.Approval = testApproval(item)
 			project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
@@ -3329,8 +3330,8 @@ func TestHarnessFailureRetriesInPlaceBeforeBlocking(t *testing.T) {
 				if class == execution.FailureBrowserStartup && (!strings.Contains(result.Summary, "browser startup") || !strings.Contains(current.Result, "runner_browser")) {
 					t.Fatalf("browser startup was mistaken for a provider failure: result=%#v item=%#v", result, current)
 				}
-				if current.QAFailures != 1 {
-					t.Fatalf("provider retry changed QA rejection count on attempt %d: %#v", attempt, current)
+				if current.QAFailures != 1 || current.Branch != item.Branch || current.PullRequest != item.PullRequest || current.QACommit != item.QACommit {
+					t.Fatalf("provider retry changed retained candidate or QA rejection count on attempt %d: %#v", attempt, current)
 				}
 				expectedLocalError := ""
 				if !output.DiscardDiagnostics {
@@ -3340,8 +3341,15 @@ func TestHarnessFailureRetriesInPlaceBeforeBlocking(t *testing.T) {
 					t.Fatalf("retry violated diagnostic retention/privacy: result=%#v item=%#v", result, current)
 				}
 				if attempt <= maxAutomaticRetries {
+					activity := config.RunnerActivityWaitingForHarness
+					if class == execution.FailureCapacityExhausted {
+						activity = config.RunnerActivityWaitingForCapacity
+						if !strings.Contains(current.Result, fmt.Sprintf("Model capacity unavailable; automatic retry %d of 3 is scheduled.", attempt)) {
+							t.Fatalf("capacity wait lost its visible retry count: %s", current.Result)
+						}
+					}
 					if result.Outcome != "retry_scheduled" || result.RetryDisposition != string(execution.RetryAutomatic) || result.RetryAfter == "" ||
-						current.Status != "Agent QA" || current.Activity != config.RunnerActivityWaitingForHarness || strings.Contains(current.Result, "cortexium-runner retry") {
+						current.Status != "Agent QA" || current.Activity != activity || strings.Contains(current.Result, "cortexium-runner retry") {
 						t.Fatalf("automatic retry %d was not retained in place: result=%#v item=%#v", attempt, result, current)
 					}
 					if !service.automaticRetryPending(current, time.Now()) {
@@ -3357,6 +3365,9 @@ func TestHarnessFailureRetriesInPlaceBeforeBlocking(t *testing.T) {
 				if result.Outcome != execution.OutcomeBlocked || result.RetryDisposition != string(execution.RetryManual) ||
 					current.Status != "Blocked" || current.Phase != "agent_qa" || !strings.Contains(current.Result, "cortexium-runner retry") {
 					t.Fatalf("exhausted provider retries were not made actionable: result=%#v item=%#v", result, current)
+				}
+				if class == execution.FailureCapacityExhausted && !strings.Contains(current.Result, "Model capacity remained unavailable after 3 automatic retries.") {
+					t.Fatalf("capacity exhaustion lost its actionable reason: %s", current.Result)
 				}
 			}
 		})

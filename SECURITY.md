@@ -129,6 +129,10 @@ content, or personal data in a public issue.
   object, mode, stage, assume-unchanged, and skip-worktree state plus the
   exact current worktree registration and Git-directory relationship; unrelated
   worktree registrations are excluded to avoid volatile integrity failures.
+  Ref packing may move the same terminal commit into `packed-refs` without
+  changing checkout identity. A bounded secure reference refresh verifies that
+  transition; it never retries away changes to other pinned controls. See the
+  [snapshot boundary](docs/architecture.md) for the exact recovery limits.
 - The snapshot also hashes ignored or concealed `.gitignore`, `.gitattributes`,
   and `.gitmodules` files; repository-local ignore/attribute and sparse-checkout
   files; alternates, graft and replacement metadata; and every default Git hook

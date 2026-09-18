@@ -334,6 +334,36 @@ lifecycle reconciliation, not an agent attempt: it consumes no
 Do not make the repository public until the default branch contains the MIT
 license, contribution and security policies, issue forms, and passing CI.
 
+## Go CI caches
+
+CI and release builds use the pinned official Go setup and cache actions through
+`.github/actions/setup-go`. `go.mod` remains the toolchain authority. Successful
+jobs save refreshed Go build and module caches under a unique run/attempt key;
+restores stay within the same OS/architecture, runner image, Go version,
+dependency digest, and `race` or `test` build mode. Main's race-enabled readiness
+jobs populate the same family as PR checks so new PRs can restore it; non-race
+platform tests stay separate. GitHub's normal branch/PR visibility and repository
+cache quota/eviction still apply. No new write permissions, cache cleanup
+service, or additional vendor action is required.
+
+Cache hits never skip required checks. In particular, release readiness retains
+`go test -count=1 -race ./...`: test execution is fresh even when compilation is
+cached. The isolated release publication job still restores no source or Go cache.
+
+For a bounded comparison, dispatch CI with `compare-cache=true` twice in sequence
+on the same unchanged branch commit. Each run compares the original setup-go
+policy with refreshed caches using identical Linux race tests and vet checks.
+The second run exercises the refreshed snapshot saved by the first. Compare
+test command time **and complete job duration**, including cache transfer/save
+time and size, from the Actions logs. Two samples are diagnostic, not a general
+speedup guarantee. This opt-in mode runs no model calls and is **not** release
+readiness evidence; normal manual CI, with the input omitted, still runs both
+platforms and the complete release-candidate gate.
+
+```bash
+gh workflow run ci.yml --ref YOUR_BRANCH -f compare-cache=true
+```
+
 ## Publishing a version
 
 Before the first release, protect `main` with pull requests and the lean

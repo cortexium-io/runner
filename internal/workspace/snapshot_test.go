@@ -594,6 +594,127 @@ func TestCaptureSnapshotAllowsUnrelatedSiblingBranchMutation(t *testing.T) {
 	}
 }
 
+func TestCaptureSnapshotAllowsPackingCurrentReference(t *testing.T) {
+	for _, branch := range []string{"develop", "runner/current"} {
+		t.Run(branch, func(t *testing.T) {
+			repo := initGitRepo(t)
+			runGitTest(t, repo, "checkout", "-b", branch)
+			before, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, repo, 30*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner := &snapshotMutationRunner{
+				Runner: subprocess.OSRunner{},
+				match:  "ls-files --modified --deleted --others",
+				mutate: func() { runGitTest(t, repo, "pack-refs", "--all") },
+			}
+			during, err := captureDefaultCheckoutSnapshotState(t.Context(), runner, repo, 30*time.Second)
+			if err != nil {
+				t.Fatalf("packing current reference blocked snapshot: %v", err)
+			}
+			after, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, repo, 30*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if before.Fingerprint != during.Fingerprint || before.Fingerprint != after.Fingerprint {
+				t.Fatalf("ref packing changed checkout identity: during=%v after=%v", before.ChangedControlState(during), before.ChangedControlState(after))
+			}
+		})
+	}
+}
+
+func TestCaptureSnapshotAllowsRepackingUnrelatedReferences(t *testing.T) {
+	repo := initGitRepo(t)
+	runGitTest(t, repo, "pack-refs", "--all")
+	before, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, repo, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &snapshotMutationRunner{
+		Runner: subprocess.OSRunner{},
+		match:  "ls-files --modified --deleted --others",
+		mutate: func() {
+			runGitTest(t, repo, "branch", "unrelated")
+			runGitTest(t, repo, "pack-refs", "--all")
+		},
+	}
+	after, err := captureDefaultSnapshotState(t.Context(), runner, repo, 30*time.Second)
+	if err != nil || before.Fingerprint != after.Fingerprint {
+		t.Fatalf("repacking unrelated reference changed snapshot: changes=%v error=%v", before.ChangedControlState(after), err)
+	}
+}
+
+func TestCaptureSnapshotRefPackingRecoveryRejectsTampering(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(t *testing.T, repo, previous, target, loose string)
+	}{
+		{name: "deleted without packed fallback", mutate: func(t *testing.T, repo, previous, target, loose string) {
+			if err := os.Remove(loose); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "packed target changed", mutate: func(t *testing.T, repo, previous, target, loose string) {
+			runGitTest(t, repo, "update-ref", target, previous)
+			runGitTest(t, repo, "pack-refs", "--all")
+		}},
+		{name: "loose file replaced with same value", mutate: func(t *testing.T, repo, previous, target, loose string) {
+			content, err := os.ReadFile(loose)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Rename(loose, loose+".old"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(loose, content, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "packed file symlink", mutate: func(t *testing.T, repo, previous, target, loose string) {
+			runGitTest(t, repo, "pack-refs", "--all")
+			packed := filepath.Join(repo, ".git", "packed-refs")
+			if err := os.Rename(packed, packed+".old"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("packed-refs.old", packed); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "reference directory replaced", mutate: func(t *testing.T, repo, previous, target, loose string) {
+			runGitTest(t, repo, "pack-refs", "--all")
+			parent := filepath.Dir(loose)
+			if err := os.Rename(parent, parent+".old"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(parent, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "config changed while packing", mutate: func(t *testing.T, repo, previous, target, loose string) {
+			runGitTest(t, repo, "pack-refs", "--all")
+			runGitTest(t, repo, "config", "core.hooksPath", "/tmp/changed-hooks")
+		}},
+		{name: "replacement added while packing", mutate: func(t *testing.T, repo, previous, target, loose string) {
+			head := strings.TrimSpace(runGitTest(t, repo, "rev-parse", "HEAD"))
+			runGitTest(t, repo, "replace", head, previous)
+			runGitTest(t, repo, "pack-refs", "--all")
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := initGitRepo(t)
+			previous, target, loose := addSnapshotCommit(t, repo)
+			runner := &snapshotMutationRunner{
+				Runner: subprocess.OSRunner{},
+				match:  "ls-files --modified --deleted --others",
+				mutate: func() { test.mutate(t, repo, previous, target, loose) },
+			}
+			if snapshot, err := captureDefaultSnapshotState(t.Context(), runner, repo, 30*time.Second); err == nil || snapshot.Fingerprint != "" {
+				t.Fatalf("tampering was certified: snapshot=%#v error=%v", snapshot, err)
+			}
+		})
+	}
+}
+
 func TestCaptureSnapshotPinsPackedSymbolicHEADReferenceFallback(t *testing.T) {
 	repo := initGitRepo(t)
 	previous, target, loose := addSnapshotCommit(t, repo)
@@ -648,12 +769,17 @@ func TestCaptureSnapshotFollowsStableSymbolicReferenceChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("capture symbolic-reference chain: %v", err)
 	}
-	second, err := captureDefaultSnapshotState(t.Context(), subprocess.OSRunner{}, repo, 30*time.Second)
+	runner := &snapshotMutationRunner{
+		Runner: subprocess.OSRunner{},
+		match:  "ls-files --modified --deleted --others",
+		mutate: func() { runGitTest(t, repo, "pack-refs", "--all") },
+	}
+	second, err := captureDefaultSnapshotState(t.Context(), runner, repo, 30*time.Second)
 	if err != nil {
 		t.Fatalf("repeat symbolic-reference chain snapshot: %v", err)
 	}
 	if first.Fingerprint != second.Fingerprint {
-		t.Fatalf("unchanged symbolic-reference chain was unstable: %q != %q", first.Fingerprint, second.Fingerprint)
+		t.Fatalf("packing terminal reference changed symbolic-reference chain: %q != %q", first.Fingerprint, second.Fingerprint)
 	}
 
 	const secondAlias = "refs/heads/snapshot-alias-two"

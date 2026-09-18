@@ -55,10 +55,9 @@ jobs:
           fetch-tags: false
           persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: ./.github/actions/setup-go
         with:
-          go-version-file: go.mod
-          cache: true
+          workload: race
       - name: Verify tagged source readiness
         run: sh scripts/test-release-readiness.sh
       - name: Build release assets
