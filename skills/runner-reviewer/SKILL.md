@@ -62,6 +62,13 @@ sandbox evidence and host-only/native-release proof; use an applicable exact-
 candidate host receipt, not another attempt at a known unavailable sandbox
 operation or a weaker substitute.
 
+After a Runner-owned clean base refresh, evidence may explicitly name an older
+source commit/tree. Check the combined candidate and changed-base interactions;
+the merge itself is not proof. Reuse applicable checks, but request focused
+verification for invalidated proof and any repository-required current-candidate
+gate. Do not ask implementation to rerun solely because the base changed when
+the supplied verification stage can establish the missing evidence.
+
 Prefer the lowest, fastest test level that faithfully establishes the claim.
 Backend tests establish validation and persistence; component or browser checks
 establish form behavior. Require a browser only for interaction, rendering, or

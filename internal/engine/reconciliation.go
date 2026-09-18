@@ -92,7 +92,7 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			if blocked, cancelErr := cancelAutoMerge(action, github.PullRequestDetails{AutoMergeEnabled: autoMergeEnabled}, laneID); cancelErr != nil || blocked {
 				return workspace.Metadata{}, blocked, cancelErr
 			}
-			target := outdatedEvent.Transitions["updated"]
+			target := outdatedEvent.Transitions["conflict"]
 			detail := "Runner detected a workspace identity mismatch; implementation and QA must run again. Details are retained in local Runner output."
 			if updateErr := s.transitionAfterBranchUpdate(ctx, action, s.cfg.LaneStatus(target), s.phaseForTargetLane(target), detail); updateErr != nil {
 				return workspace.Metadata{}, false, updateErr
@@ -349,7 +349,7 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			if !hasOutdatedEvent {
 				return warnings, changed, fmt.Errorf("pull request %s head no longer matches the QA snapshot and workflow has no %s event", details.URL, config.WorkflowEventPROutOfDate)
 			}
-			target := outdatedEvent.Transitions["updated"]
+			target := outdatedEvent.Transitions["conflict"]
 			detail := "Pull request head changed after agent QA; implementation and QA must run again. Exact commit details are retained in local Runner output."
 			if err := s.transitionAfterBranchUpdate(ctx, action, s.cfg.LaneStatus(target), s.phaseForTargetLane(target), detail); err != nil {
 				return warnings, changed, err
@@ -565,13 +565,13 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		} else if blocked {
 			continue
 		}
-		refresh, err := manager.RefreshBranchAuthorized(ctx, action, preparedWorkspace, defaultString(details.BaseRefName, s.baseBranch()), s.remoteName(), s.cfg.GitHubProject.MergeMethod)
+		refresh, err := s.refreshBranchForQA(ctx, action, preparedWorkspace, defaultString(details.BaseRefName, s.baseBranch()), true)
 		if err != nil {
 			if !hasOutdatedEvent {
 				return warnings, changed, err
 			}
 			target := outdatedEvent.Transitions[config.WorkflowOutcomeError]
-			if updateErr := s.transitionProjectItem(ctx, action, s.cfg.LaneStatus(target), "Runner could not refresh the pull request branch. Details are retained in local Runner output.", s.retryPhase(laneID, target)); updateErr != nil {
+			if updateErr := s.transitionProjectItem(ctx, action, s.cfg.LaneStatus(target), "Runner could not complete the branch refresh safely. Retry through implementation to renew candidate evidence; details are retained in local Runner output.", outdatedEvent.Transitions["conflict"]); updateErr != nil {
 				return warnings, changed, updateErr
 			}
 			warnings = append(warnings, RunResult{Item: item, Outcome: "warning", Summary: "Pull request branch refresh failed.", Error: err.Error()})
@@ -608,7 +608,7 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			if !hasOutdatedEvent {
 				continue
 			}
-			detail := "Runner refreshed the pull request branch locally; implementation and QA must run again before publication."
+			detail := "Runner refreshed the pull request branch locally; fresh QA must verify the combined candidate before publication."
 			if refresh.Conflicted {
 				detail = "Runner found conflicts while refreshing the pull request branch locally. The retained worktree requires resolution before implementation and QA continue."
 			}

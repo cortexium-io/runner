@@ -60,35 +60,6 @@ func FormatPlannedItemBody(item PlannedItem) string {
 	if item.ImplementationProfile != "" {
 		fmt.Fprintf(&b, "\n\n## Execution profile\n\n%s — %s\n", item.ImplementationProfile, item.ProfileReason)
 	}
-	if strings.TrimSpace(item.ProjectGoal) != "" {
-		b.WriteString("\n\n## Project outcome\n\n")
-		b.WriteString(strings.TrimSpace(item.ProjectGoal))
-	}
-	if len(item.ProjectSuccessCriteria) > 0 {
-		b.WriteString("\n\n## Project success criteria\n")
-		for _, criterion := range item.ProjectSuccessCriteria {
-			if strings.TrimSpace(criterion) != "" {
-				b.WriteString("- ")
-				b.WriteString(strings.TrimSpace(criterion))
-				b.WriteByte('\n')
-			}
-		}
-	}
-	if len(item.ProjectConstraints) > 0 {
-		b.WriteString("\n## Project constraints and non-goals\n")
-		for _, constraint := range item.ProjectConstraints {
-			if strings.TrimSpace(constraint) != "" {
-				b.WriteString("- ")
-				b.WriteString(strings.TrimSpace(constraint))
-				b.WriteByte('\n')
-			}
-		}
-	}
-	if strings.TrimSpace(item.ProjectSource) != "" {
-		b.WriteString("\n## Original project request\n\nHistorical planning provenance: approval-status statements here describe the original request, not the card's current Runner authority. Substantive constraints and non-goals still apply.\n\n--- BEGIN ORIGINAL REQUEST ---\n")
-		b.WriteString(strings.TrimSpace(item.ProjectSource))
-		b.WriteString("\n--- END ORIGINAL REQUEST ---")
-	}
 	if strings.TrimSpace(item.Repository) != "" {
 		b.WriteString("\n\nRepository: ")
 		b.WriteString(strings.TrimSpace(item.Repository))
@@ -144,6 +115,37 @@ func FormatPlannedItemBody(item PlannedItem) string {
 				b.WriteByte('\n')
 			}
 		}
+	}
+	// Put the local contract first without discarding any approved project
+	// context or changing existing staged cards and their authority bindings.
+	if strings.TrimSpace(item.ProjectGoal) != "" {
+		b.WriteString("\n\n## Project outcome\n\n")
+		b.WriteString(strings.TrimSpace(item.ProjectGoal))
+	}
+	if len(item.ProjectSuccessCriteria) > 0 {
+		b.WriteString("\n\n## Project success criteria\n")
+		for _, criterion := range item.ProjectSuccessCriteria {
+			if strings.TrimSpace(criterion) != "" {
+				b.WriteString("- ")
+				b.WriteString(strings.TrimSpace(criterion))
+				b.WriteByte('\n')
+			}
+		}
+	}
+	if len(item.ProjectConstraints) > 0 {
+		b.WriteString("\n## Project constraints and non-goals\n")
+		for _, constraint := range item.ProjectConstraints {
+			if strings.TrimSpace(constraint) != "" {
+				b.WriteString("- ")
+				b.WriteString(strings.TrimSpace(constraint))
+				b.WriteByte('\n')
+			}
+		}
+	}
+	if strings.TrimSpace(item.ProjectSource) != "" {
+		b.WriteString("\n## Original project request\n\nHistorical planning provenance: approval-status statements here describe the original request, not the card's current Runner authority. Substantive constraints and non-goals still apply.\n\n--- BEGIN ORIGINAL REQUEST ---\n")
+		b.WriteString(strings.TrimSpace(item.ProjectSource))
+		b.WriteString("\n--- END ORIGINAL REQUEST ---")
 	}
 	if strings.TrimSpace(item.PlanningBatchFingerprint) == "" {
 		return strings.TrimSpace(b.String())

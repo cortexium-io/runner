@@ -38,6 +38,9 @@ func TestPlannedItemMetadataUsesOnlyTheFinalRunnerBlock(t *testing.T) {
 func TestPlannedItemBodyCarriesTheTaskLocalContract(t *testing.T) {
 	item := PlannedItem{
 		Summary:               "Build the complete slice.",
+		ProjectGoal:           "Complete the project.",
+		ProjectSource:         "Original approved request.",
+		ProjectConstraints:    []string{"No deployment."},
 		AcceptanceCriteria:    []string{"The user flow works."},
 		Verification:          []string{"Exercise the browser flow."},
 		Risks:                 []string{"State could be lost on reload."},
@@ -54,11 +57,16 @@ func TestPlannedItemBodyCarriesTheTaskLocalContract(t *testing.T) {
 		"## Assumptions and risks", "State could be lost on reload.",
 		"## Task non-goals", "Do not redesign unrelated pages.",
 		"## Dependencies", "PVTI_foundation — Create the foundation",
+		"Complete the project.", "Original approved request.", "No deployment.",
 		"## Runner planning metadata", `"item_id":"PVTI_foundation"`,
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("planned item body omitted %q:\n%s", expected, body)
 		}
+	}
+	if strings.Index(body, "## Proof obligations") > strings.Index(body, "## Project outcome") ||
+		strings.Index(body, "## Dependencies") > strings.Index(body, "## Original project request") {
+		t.Fatal("shared project context obscures the card-local contract")
 	}
 }
 

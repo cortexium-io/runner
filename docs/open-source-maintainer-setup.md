@@ -82,7 +82,7 @@ skills. When only one supported harness executable is available, `init` can
 persist it for omitted roles; with multiple available harnesses, select one
 shared default or pass `--harness`. Role-specific flags override that value.
 Choose `--base-update-review required` during creation so every PR refresh
-returns through implementation and QA before publication. Keep
+receives fresh QA before publication; conflicts require implementation first. Keep
 `--auto-merge=false` for the normal maintainer gate; use `--auto-merge` only for
 an intentionally autonomous repository. After
 changing the config, use the same preview/synchronize pair:
@@ -324,8 +324,9 @@ Manual-review PRs stay at the human gate when another merge advances the base;
 Runner does not create update churn on the maintainer's behalf. Automatic merge
 is available only when `github_project.auto_merge` is explicitly true. In that
 mode, reconciliation selects one PR per repository/base, updates only that
-candidate without force-pushing, and sends either a clean update or conflict
-back through implementation and QA. Direct PR-head mutation also invalidates
+candidate without force-pushing, and routes clean updates to fresh QA by default
+and conflicts through implementation and QA. Existing explicit workflow routes
+remain in effect. Direct PR-head mutation also invalidates
 QA. After a clean reviewed candidate is current, Runner asks GitHub to merge
 after repository requirements pass and never bypasses them. Integration is
 lifecycle reconciliation, not an agent attempt: it consumes no

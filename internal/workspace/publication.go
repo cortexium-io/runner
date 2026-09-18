@@ -222,8 +222,9 @@ func recoverableCandidateError(correction string, cause error) error {
 }
 
 type BaseRefresh struct {
-	Updated    bool
-	Conflicted bool
+	Updated           bool
+	Conflicted        bool
+	PreviousCommitOID string
 	// CommitOID is the resulting candidate HEAD, which can remain unchanged
 	// when only its private base identity advances. It is never a base-only ID.
 	CommitOID     string
@@ -1199,7 +1200,7 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 
 // RefreshBase updates only the local candidate workspace under the privileged
 // Git profile. Its resulting tree has no publication authority and must pass
-// the normal implementation, integrity, and QA path before publication.
+// integrity checks and fresh QA before publication; conflicts need implementation.
 func (p GitProvider) RefreshBase(ctx context.Context, metadata Metadata, remoteName, baseBranch string) (BaseRefresh, error) {
 	return p.RefreshBaseForMergeMethod(ctx, metadata, remoteName, baseBranch, config.MergeMethodMerge)
 }
@@ -1256,6 +1257,10 @@ func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteN
 	if strings.TrimSpace(status.Stdout) != "" {
 		return BaseRefresh{}, errors.New("cannot refresh a candidate with uncommitted changes")
 	}
+	previousCommit, err := p.privilegedScalar(ctx, profile, "rev-parse", "--verify", "HEAD")
+	if err != nil || !validObjectID(previousCommit) {
+		return BaseRefresh{}, errors.New("resolve candidate before base refresh")
+	}
 	repositoryURL := "https://github.com/" + metadata.Identity.Repository + ".git"
 	baseRefspec := "+refs/heads/" + baseBranch + ":" + metadata.BaseRef
 	branchRef := "refs/remotes/" + remoteName + "/" + metadata.BranchName
@@ -1296,7 +1301,7 @@ func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteN
 		if err := advanceIdentity(); err != nil {
 			return BaseRefresh{}, err
 		}
-		return BaseRefresh{Updated: currentBase != metadata.BaseRevision, CommitOID: candidateOID, Summary: "Pull request branch already contains the current base branch."}, nil
+		return BaseRefresh{Updated: currentBase != metadata.BaseRevision, PreviousCommitOID: previousCommit, CommitOID: candidateOID, Summary: "Pull request branch already contains the current base branch."}, nil
 	}
 	mergeArgs := []string{"merge", "--no-edit", metadata.BaseRef}
 	if mergeMethod == config.MergeMethodRebase {
@@ -1312,7 +1317,7 @@ func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteN
 		if err := advanceIdentity(); err != nil {
 			return BaseRefresh{}, err
 		}
-		return BaseRefresh{Conflicted: true, ConflictFiles: files, Summary: "Base branch update has merge conflicts: " + strings.Join(files, ", ")}, nil
+		return BaseRefresh{Conflicted: true, PreviousCommitOID: previousCommit, ConflictFiles: files, Summary: "Base branch update has merge conflicts: " + strings.Join(files, ", ")}, nil
 	}
 	commitOID, err := p.privilegedScalar(ctx, profile, "rev-parse", "--verify", "HEAD")
 	if err != nil || !validObjectID(commitOID) {
@@ -1342,7 +1347,7 @@ func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteN
 	if err := advanceIdentity(); err != nil {
 		return BaseRefresh{}, err
 	}
-	return BaseRefresh{Updated: true, CommitOID: commitOID, Summary: defaultPublicationSummary(strings.TrimSpace(mergeResult.Stdout), "Base branch update remains local pending implementation and QA.")}, nil
+	return BaseRefresh{Updated: true, PreviousCommitOID: previousCommit, CommitOID: commitOID, Summary: defaultPublicationSummary(strings.TrimSpace(mergeResult.Stdout), "Base branch update remains local pending fresh QA.")}, nil
 }
 
 func (p GitProvider) rejectExecutableMergeConfig(ctx context.Context, profile subprocess.PrivilegedGitProfile) error {

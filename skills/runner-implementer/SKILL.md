@@ -60,6 +60,12 @@ satisfies current requirements and credible risks.
    show failure before the fix and success afterward when feasible. Exercise the
    relevant producer/consumer boundary when isolated checks cannot prove it.
    This does not authorize live-data access or extra features.
+   Before the first handoff, inspect a small set of task-relevant interactions,
+   not just each operation in isolation. For example, selection direction plus
+   delete/undo, inherited versus explicit values, or asynchronous refresh while
+   an input has focus can expose a shared invariant that happy-path tests miss.
+   Choose only supported combinations affected by this card; use existing proof
+   entries rather than adding a new checklist artifact or exhaustive matrix.
 5. Add or update durable test code when it is the simplest reliable protection
    for changed behavior, a plausible regression, or an important invariant.
    Extend the existing test organization; create the smallest idiomatic test
@@ -137,6 +143,13 @@ and concrete evidence for each Runner-owned proof obligation in the same order.
 Name what actually ran or was observed. Never present an unrun command, intended
 fallback, or inference as verification, and never report success with incomplete
 acceptance conditions.
+
+Check the handoff against repository-required proof as well as card obligations.
+Retain identifiable evidence for required setup (such as a locked dependency
+install), suite settings, and final-candidate gates. Include these concisely in
+the relevant proof entry; do not send an unsupported success summary to QA.
+If policy permits reuse, identify the prior candidate, unchanged conditions,
+changed behavior proved now, and why the earlier checks remain applicable.
 
 Make each verification entry usable without access to temporary files: identify
 the existing command or observation, scope, result, and relevant non-secret

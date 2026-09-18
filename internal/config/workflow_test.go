@@ -832,6 +832,30 @@ func TestConfigurationRequiresExplicitBaseUpdateReviewPolicy(t *testing.T) {
 	}
 }
 
+func TestBaseRefreshRoutesCleanUpdatesToReviewOrImplementationOnly(t *testing.T) {
+	for _, test := range []struct {
+		outcome, target string
+		allowed         bool
+	}{
+		{"updated", "agent_qa", true}, {"updated", "ready", true}, {"updated", "done", false},
+		{"conflict", "agent_qa", false}, {"conflict", "ready", true},
+	} {
+		t.Run(test.outcome+"_"+test.target, func(t *testing.T) {
+			cfg := explicitTestConfig()
+			workflow := cloneWorkflow(*cfg.Workflow)
+			for index := range workflow.Rules {
+				if workflow.Rules[index].Trigger.Event == WorkflowEventPROutOfDate {
+					workflow.Rules[index].Action.Transitions[test.outcome] = test.target
+				}
+			}
+			cfg.Workflow = &workflow
+			if err := cfg.Validate(); (err == nil) != test.allowed {
+				t.Fatalf("route allowed=%t error=%v", test.allowed, err)
+			}
+		})
+	}
+}
+
 func TestConfigurationRequiresExplicitMergeMethod(t *testing.T) {
 	cfg := explicitTestConfig()
 	cfg.GitHubProject.MergeMethod = ""

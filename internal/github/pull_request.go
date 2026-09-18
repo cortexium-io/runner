@@ -116,11 +116,12 @@ func PublicationFailureDetails(err error) (string, int) {
 }
 
 type BranchRefreshResult struct {
-	Updated       bool
-	Conflicted    bool
-	CommitSHA     string
-	ConflictFiles []string
-	Summary       string
+	Updated           bool
+	Conflicted        bool
+	PreviousCommitSHA string
+	CommitSHA         string
+	ConflictFiles     []string
+	Summary           string
 }
 
 type ActionRefresher interface {
@@ -816,7 +817,7 @@ func (m PullRequestManager) refreshBranchMode(ctx context.Context, action Author
 	if err != nil {
 		return BranchRefreshResult{}, err
 	}
-	return BranchRefreshResult{Updated: refreshed.Updated, Conflicted: refreshed.Conflicted, CommitSHA: refreshed.CommitOID, ConflictFiles: refreshed.ConflictFiles, Summary: refreshed.Summary}, nil
+	return BranchRefreshResult{Updated: refreshed.Updated, Conflicted: refreshed.Conflicted, PreviousCommitSHA: refreshed.PreviousCommitOID, CommitSHA: refreshed.CommitOID, ConflictFiles: refreshed.ConflictFiles, Summary: refreshed.Summary}, nil
 }
 
 func (m PullRequestManager) RefreshBranchAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, baseBranch, remoteName, mergeMethod string) (BranchRefreshResult, error) {

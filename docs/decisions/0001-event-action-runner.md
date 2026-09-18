@@ -117,7 +117,8 @@ that owner, returns its retained PR to implementation without consuming an
 Agent QA rejection, and lets the next safe candidate claim integration. QA
 publication only queues a PR;
 reconciliation lazily compares the selected candidate with the latest base,
-returns updates or conflicts through implementation and QA, and requests
+returns clean updates through fresh QA by default (preserving explicit custom
+implementation routes), conflicts through implementation and QA, and requests
 automatic merge only for a clean reviewed candidate. Manual-review PRs and
 rework requests are not eagerly refreshed. A tracked `rebase` rework may have a
 local corrected history that diverges from the previously published branch;

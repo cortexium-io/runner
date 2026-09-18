@@ -1298,7 +1298,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 
 func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) RunResult {
 	item := action.Item
-	_, lane := s.laneForItem(item)
+	laneID, lane := s.laneForItem(item)
 	harness := s.roleHarness(item.Role)
 	result := RunResult{Item: item, Harness: harness}
 	if approved, approvedErr := action.DelegatedContent(); approvedErr == nil {
@@ -1351,17 +1351,18 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	if currentBaseRevision != preparedWorkspace.BaseRevision {
 		observedLineage(&result).Base.CommitOID = currentBaseRevision
-		refresh, refreshErr := github.NewPullRequestManager(s.run, s.source).RefreshUnpublishedBranchAuthorized(ctx, action, preparedWorkspace, s.baseBranch(), s.remoteName(), s.cfg.GitHubProject.MergeMethod)
+		refresh, refreshErr := s.refreshBranchForQA(ctx, action, preparedWorkspace, s.baseBranch(), false)
 		if refreshErr != nil {
-			return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be refreshed before QA", refreshErr,
-				blockedExecutorOutput("Implementation candidate could not be refreshed before QA", refreshErr))
+			return s.failExecutionToRetryLane(ctx, action, lane, result, "Candidate refresh could not complete safely; retry through implementation to renew candidate evidence", refreshErr,
+				blockedExecutorOutput("Candidate refresh could not complete safely", refreshErr), lane.Transitions[config.WorkflowOutcomeRejected])
 		}
 		if strings.TrimSpace(refresh.CommitSHA) != "" {
 			observedLineage(&result).RebasedCandidate.CommitOID = strings.TrimSpace(refresh.CommitSHA)
 		}
-		target := lane.Transitions[config.WorkflowOutcomeRejected]
-		detail := "The base branch advanced before Agent QA. Runner refreshed the retained candidate locally; implementation and QA will run again before publication."
+		target := laneID
+		detail := "The base branch advanced before Agent QA. Runner refreshed the retained candidate locally; fresh QA will check the combined candidate and applicability of historical evidence before publication."
 		if refresh.Conflicted {
+			target = lane.Transitions[config.WorkflowOutcomeRejected]
 			detail = "The base branch advanced before Agent QA. Runner retained the candidate with merge conflicts for the implementer to resolve before QA runs again."
 		}
 		if strings.TrimSpace(refresh.Summary) != "" {
@@ -1372,7 +1373,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 				transientExecutorOutput("Base branch advanced but the refreshed candidate could not be requeued"))
 		}
 		result.Outcome = "warning"
-		result.Summary = "Base branch advanced; Runner refreshed the retained candidate and requeued implementation and QA."
+		result.Summary = "Base branch advanced; Runner refreshed the retained candidate and requeued fresh QA."
 		if refresh.Conflicted {
 			result.Summary = "Base branch advanced; Runner retained merge conflicts for implementation and QA."
 		}
@@ -1649,17 +1650,18 @@ func (s *Engine) publishAcceptedQA(
 		if !errors.Is(cause, workspace.ErrIdentityMismatch) && !errors.Is(cause, github.ErrPublicationBaseChanged) {
 			return RunResult{}, false
 		}
-		refresh, refreshErr := pullRequests.RefreshUnpublishedBranchAuthorized(ctx, action, preparedWorkspace, s.baseBranch(), s.remoteName(), s.cfg.GitHubProject.MergeMethod)
+		refresh, refreshErr := s.refreshBranchForQA(ctx, action, preparedWorkspace, s.baseBranch(), false)
 		if refreshErr != nil {
-			result.Error = appendError(result.Error, fmt.Errorf("refresh unpublished candidate after base move: %w", refreshErr))
-			return RunResult{}, false
+			return s.failExecutionToRetryLane(ctx, action, lane, result, "Candidate refresh could not complete safely; retry through implementation to renew candidate evidence", refreshErr,
+				blockedExecutorOutput("Candidate refresh could not complete safely", refreshErr), lane.Transitions[config.WorkflowOutcomeRejected]), true
 		}
 		if strings.TrimSpace(refresh.CommitSHA) != "" {
 			observedLineage(&result).RebasedCandidate.CommitOID = strings.TrimSpace(refresh.CommitSHA)
 		}
-		target := lane.Transitions[config.WorkflowOutcomeRejected]
-		detail := "The base branch advanced while Agent QA was running. Runner refreshed the retained candidate locally; implementation and QA will run again before publication."
+		target, _ := s.laneForItem(action.Item)
+		detail := "The base branch advanced while Agent QA was running. Runner refreshed the retained candidate locally; fresh QA will check the combined candidate and applicability of historical evidence before publication."
 		if refresh.Conflicted {
+			target = lane.Transitions[config.WorkflowOutcomeRejected]
 			detail = "The base branch advanced while Agent QA was running. Runner retained the candidate with merge conflicts for the implementer to resolve before QA runs again."
 		}
 		if strings.TrimSpace(refresh.Summary) != "" {
@@ -1670,7 +1672,7 @@ func (s *Engine) publishAcceptedQA(
 				transientExecutorOutput("Base branch advanced but the refreshed candidate could not be requeued")), true
 		}
 		result.Outcome = "warning"
-		result.Summary = "Base branch advanced; Runner refreshed the retained candidate and requeued implementation and QA."
+		result.Summary = "Base branch advanced; Runner refreshed the retained candidate and requeued fresh QA."
 		if refresh.Conflicted {
 			result.Summary = "Base branch advanced; Runner retained merge conflicts for implementation and QA."
 		}

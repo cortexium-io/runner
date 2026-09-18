@@ -677,14 +677,15 @@ Publication replays that record under a sanitized privileged Git profile,
 re-fetches and compares the approved base, re-resolves the accepted tree,
 refreshes Project authority, validates the configured remote repository, and
 pushes only the recorded commit OID to the recorded full ref. Base refreshes
-remain local until their resulting tree completes implementation and QA and
+remain local until their resulting tree completes fresh QA (and implementation
+first when conflicts require repair) and
 receives a replacement publication record. During tracked pull-request rework
 in `rebase` mode, workspace synchronization permits the expected local history
 rewrite only when the remote branch still resolves to the card's exact recorded
 QA commit or to an immutable private publication record for the same
 item/content/repository/destination tuple. The latter recovers an interrupted
 Project update without trusting arbitrary divergence. The rewritten history
-remains local through implementation and QA; publication is still the only
+remains local until fresh QA; publication is still the only
 boundary that may replace the remote branch, and does so with that authenticated
 remote commit as its exact force-with-lease value. A successful Project
 transition records the replacement QA commit and removes the stale-field
@@ -701,8 +702,21 @@ automatic mode, pull-request reconciliation claims
 `integration:<repository>/<base>`, using GitHub's enabled auto-merge state as
 the restart-stable owner. It recovers an existing owner before item ordering,
 disarms duplicate owners, and compares only the selected candidate with the
-latest base. A moved base returns the candidate through implementation and QA;
-a clean reviewed candidate is bound to its exact head and base before Runner
+latest base. A clean moved-base refresh follows the configured `updated` route,
+defaulting to QA; conflicts follow the implementation recovery route.
+Pre-QA and pre-publication clean refreshes return to the current reviewer lane.
+The engine validates retained evidence against the exact pre-refresh candidate
+before mutation, then binds it to the refreshed review while preserving its
+original source commit/tree. This is historical evidence, not renewed test
+results or acceptance. QA evaluates changed-base interactions and applicability,
+and runs required current-candidate checks in its verification stage. Evidence
+identity mismatches fail closed rather than silently carrying unrelated proof.
+Private write failures after refresh also fail closed with a blocked item whose
+explicit retry targets implementation to renew the evidence; they do not certify
+or publish a candidate. Repository-required full validation remains enforced.
+Automatic refreshes preserve QA rejection counts and implementer escalation;
+only an explicit human retry/reset grants a new rejection budget.
+A clean reviewed candidate is bound to its exact head and base before Runner
 enables GitHub auto-merge. Manual-review PRs remain at the human gate without
 Runner refreshing them after unrelated merges.
 
