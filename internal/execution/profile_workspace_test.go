@@ -333,23 +333,25 @@ func TestExternalGitMetadataFailsClosedUnlessItIsAStandardLinkedWorktree(t *test
 
 func TestDevelopmentToolReadPathsResolveOnlyExecutableAndRuntimeRoots(t *testing.T) {
 	tools := map[string]string{
+		"git":  "/git-launch/bin/git",
 		"node": "/tools/bin/node",
 		"npm":  "/tools/bin/npm",
 		"npx":  "/tools/bin/npx",
 		"go":   "/go-launch/bin/go",
 	}
 	resolved := map[string]string{
-		"/tools/bin/node":   "/tools/node/24/bin/node",
-		"/tools/bin/npm":    "/tools/npm/bin/npm-cli.js",
-		"/tools/bin/npx":    "/tools/npm/bin/npx-cli.js",
-		"/go-launch/bin/go": "/go-runtime/1.27.1/bin/go",
+		"/git-launch/bin/git": "/git-runtime/bin/git",
+		"/tools/bin/node":     "/tools/node/24/bin/node",
+		"/tools/bin/npm":      "/tools/npm/bin/npm-cli.js",
+		"/tools/bin/npx":      "/tools/npm/bin/npx-cli.js",
+		"/go-launch/bin/go":   "/go-runtime/1.27.1/bin/go",
 	}
 	paths := developmentToolReadPathsWith(func(tool string) (string, error) {
 		return tools[tool], nil
 	}, func(path string) (string, error) {
 		return resolved[path], nil
 	})
-	want := []string{"/tools/bin", "/tools/node/24", "/tools/npm", "/go-launch/bin", "/go-runtime/1.27.1"}
+	want := []string{"/git-launch/bin", "/git-runtime", "/tools/bin", "/tools/node/24", "/tools/npm", "/go-launch/bin", "/go-runtime/1.27.1"}
 	for _, path := range want {
 		if !contains(paths, path) {
 			t.Fatalf("development tool paths omitted %q: %#v", path, paths)
@@ -363,8 +365,8 @@ func TestDevelopmentToolReadPathsResolveOnlyExecutableAndRuntimeRoots(t *testing
 
 	path := developmentToolPathWith(func(tool string) (string, error) {
 		return tools[tool], nil
-	}, "/xcode/bin", "/go-launch/bin:/unrelated/bin:/tools/bin")
-	for _, directory := range []string{"/xcode/bin", "/tools/bin", "/go-launch/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"} {
+	}, "/go-launch/bin:/unrelated/bin:/tools/bin:/git-launch/bin")
+	for _, directory := range []string{"/git-launch/bin", "/tools/bin", "/go-launch/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"} {
 		if !contains(strings.Split(path, string(os.PathListSeparator)), directory) {
 			t.Fatalf("development tool PATH omitted %q: %s", directory, path)
 		}

@@ -330,6 +330,15 @@ func (i *Inspector) inspectTool(ctx context.Context, command string) CapabilityS
 		default:
 			result, runErr = i.run.Run(ctx, path, args, "", 5*time.Second)
 		}
+		if command == "git" {
+			version := firstNonEmptyLine(result.Stdout)
+			if runErr != nil || result.ExitCode != 0 || !strings.HasPrefix(version, "git version ") || strings.TrimSpace(strings.TrimPrefix(version, "git version ")) == "" {
+				capability.Status = CapabilityBlocked
+				capability.Detail = stringPtr("selected Git at " + path + " did not return a successful git --version; check the Runner process PATH and Git installation")
+				return capability
+			}
+			capability.Detail = stringPtr("selected from Runner process PATH at " + path + "; used for repository commands and preserved in agent tool PATH")
+		}
 		if runErr == nil {
 			version := firstNonEmptyLine(result.Stdout, result.Stderr)
 			if version != "" {

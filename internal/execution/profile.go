@@ -575,7 +575,7 @@ func codexStandaloneRoot(path string) string {
 
 func developmentToolReadPathsWith(lookPath func(string) (string, error), evalSymlinks func(string) (string, error)) []string {
 	paths := make([]string, 0, 12)
-	for _, tool := range []string{"node", "npm", "npx", "go"} {
+	for _, tool := range []string{"git", "node", "npm", "npx", "go"} {
 		found, err := lookPath(tool)
 		if err != nil || strings.TrimSpace(found) == "" {
 			continue
@@ -631,12 +631,12 @@ func homebrewRuntimeReadPaths(paths []string) []string {
 }
 
 func developmentToolPath() string {
-	return developmentToolPathWith(exec.LookPath, macOSGitToolDirectory(), os.Getenv("PATH"))
+	return developmentToolPathWith(exec.LookPath, os.Getenv("PATH"))
 }
 
-func developmentToolPathWith(lookPath func(string) (string, error), gitToolDirectory, operatorPath string) string {
-	directories := []string{gitToolDirectory}
-	for _, tool := range []string{"node", "npm", "npx", "go"} {
+func developmentToolPathWith(lookPath func(string) (string, error), operatorPath string) string {
+	directories := []string{}
+	for _, tool := range []string{"git", "node", "npm", "npx", "go"} {
 		if path, err := lookPath(tool); err == nil && filepath.IsAbs(path) {
 			directories = append(directories, filepath.Dir(filepath.Clean(path)))
 		}
@@ -648,7 +648,10 @@ func developmentToolPathWith(lookPath func(string) (string, error), gitToolDirec
 			allowed[filepath.Clean(directory)] = true
 		}
 	}
-	ordered := []string{gitToolDirectory}
+	// Keep the operator's selection for Git as well as the language tools.
+	// Prepending Xcode's Git here made agents use a different client from
+	// Doctor and Runner's own fetch/push commands.
+	ordered := []string{}
 	for _, directory := range filepath.SplitList(operatorPath) {
 		directory = filepath.Clean(directory)
 		if filepath.IsAbs(directory) && allowed[directory] {
