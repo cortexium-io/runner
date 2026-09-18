@@ -1354,7 +1354,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		refresh, refreshErr := s.refreshBranchForQA(ctx, action, preparedWorkspace, s.baseBranch(), false)
 		if refreshErr != nil {
 			return s.failExecutionToRetryLane(ctx, action, lane, result, "Candidate refresh could not complete safely; retry through implementation to renew candidate evidence", refreshErr,
-				blockedExecutorOutput("Candidate refresh could not complete safely", refreshErr), lane.Transitions[config.WorkflowOutcomeRejected])
+				integrityUnverifiedOutput("Candidate refresh could not complete safely; retry through implementation to renew candidate evidence", nil, execution.Output{}), lane.Transitions[config.WorkflowOutcomeRejected])
 		}
 		if strings.TrimSpace(refresh.CommitSHA) != "" {
 			observedLineage(&result).RebasedCandidate.CommitOID = strings.TrimSpace(refresh.CommitSHA)
@@ -1653,7 +1653,7 @@ func (s *Engine) publishAcceptedQA(
 		refresh, refreshErr := s.refreshBranchForQA(ctx, action, preparedWorkspace, s.baseBranch(), false)
 		if refreshErr != nil {
 			return s.failExecutionToRetryLane(ctx, action, lane, result, "Candidate refresh could not complete safely; retry through implementation to renew candidate evidence", refreshErr,
-				blockedExecutorOutput("Candidate refresh could not complete safely", refreshErr), lane.Transitions[config.WorkflowOutcomeRejected]), true
+				integrityUnverifiedOutput("Candidate refresh could not complete safely; retry through implementation to renew candidate evidence", nil, execution.Output{}), lane.Transitions[config.WorkflowOutcomeRejected]), true
 		}
 		if strings.TrimSpace(refresh.CommitSHA) != "" {
 			observedLineage(&result).RebasedCandidate.CommitOID = strings.TrimSpace(refresh.CommitSHA)

@@ -108,6 +108,9 @@ func TestBaseRefreshRefusesUnrelatedCandidateEvidence(t *testing.T) {
 	if err != nil || len(results) != 1 || results[0].Outcome != execution.OutcomeBlocked || runner.reviewCalls != 0 || project.phase != "ready" || !strings.Contains(results[0].Error, "verify evidence before base refresh") {
 		t.Fatalf("unrelated candidate evidence was carried into QA: results=%+v calls=%d error=%v", results, runner.reviewCalls, err)
 	}
+	if results[0].RetryDisposition != string(execution.RetryManual) || results[0].FailureClass != string(execution.FailureIntegrityUnverified) {
+		t.Fatalf("unverified evidence did not offer an explicit manual recovery: %+v", results[0])
+	}
 	if entries, err := service.loadVerificationEvidence(item, content, metadata, original, criteria); err != nil || len(entries) != 1 || entries[0].SourceCommitOID != original.CommitOID {
 		t.Fatalf("refused refresh lost or rebound original evidence: %+v error=%v", entries, err)
 	}
