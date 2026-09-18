@@ -49,7 +49,7 @@ type pinnedHEADState struct {
 	budget      *securefs.SnapshotBudget
 	target      string
 	objectID    string
-	directories []*securefs.Directory
+	directories []pinnedReferenceDirectory
 	loose       []pinnedReference
 	packed      *pinnedControlFile
 }
@@ -57,6 +57,12 @@ type pinnedHEADState struct {
 type pinnedReference struct {
 	target string
 	file   pinnedControlFile
+}
+
+type pinnedReferenceDirectory struct {
+	directory *securefs.Directory
+	parent    *securefs.Directory
+	name      string
 }
 
 type worktreeRegistration struct {
@@ -193,7 +199,7 @@ func (s *gitControlSnapshot) Finish(head, registration, index, status, replaceme
 	if err := s.head.verify(); err != nil {
 		return nil, fmt.Errorf("verify worktree HEAD: %w", err)
 	}
-	if err := s.headState.verify(head); err != nil {
+	if err := s.headState.verify(head, s.commonDirectory); err != nil {
 		return nil, fmt.Errorf("verify symbolic HEAD reference: %w", err)
 	}
 	if err := s.commonLink.verify(); err != nil {
@@ -260,9 +266,15 @@ func (s *gitControlSnapshot) Finish(head, registration, index, status, replaceme
 	writeSnapshotPart(identity, "HEAD-file", s.head.content)
 	writeSnapshotPart(identity, "HEAD-target", []byte(s.headState.target))
 	writeSnapshotPart(identity, "HEAD-object", []byte(s.headState.objectID))
-	for _, reference := range s.headState.loose {
+	for index, reference := range s.headState.loose {
 		writeSnapshotPart(identity, "HEAD-reference-target", []byte(reference.target))
-		writeSnapshotPart(identity, "HEAD-reference-file", []byte(controlFileFingerprint(&reference.file)))
+		// Canonicalize the terminal value regardless of loose/packed storage.
+		// Keep symbolic chain edges and the existing loose-ref representation.
+		content := reference.file.content
+		if index == len(s.headState.loose)-1 {
+			content = []byte(s.headState.objectID + "\n")
+		}
+		writeSnapshotPart(identity, "HEAD-reference-file", []byte(digestString(content)))
 	}
 
 	state := map[string]string{
@@ -295,7 +307,7 @@ func (s *gitControlSnapshot) Close() error {
 		}
 	}
 	for index := len(s.headState.directories) - 1; index >= 0; index-- {
-		if err := s.headState.directories[index].Close(); first == nil {
+		if err := s.headState.directories[index].directory.Close(); first == nil {
 			first = err
 		}
 	}
@@ -378,7 +390,7 @@ func pinLooseReference(state *pinnedHEADState, commonDirectory *securefs.Directo
 			state.loose = append(state.loose, pinnedReference{target: target, file: loose})
 			return loose, nil
 		}
-		state.directories = append(state.directories, next)
+		state.directories = append(state.directories, pinnedReferenceDirectory{directory: next, parent: current, name: component})
 		current = next
 	}
 
@@ -449,21 +461,38 @@ func parseGitObjectID(content []byte, label string) (string, error) {
 	return string(value), nil
 }
 
-func (s *pinnedHEADState) verify(head string) error {
+func (s *pinnedHEADState) verify(head string, commonDirectory *securefs.Directory) error {
 	if head != s.objectID {
 		return fmt.Errorf("Git reported HEAD %q instead of pinned object %q", head, s.objectID)
 	}
 	if s.target == "" {
 		return nil
 	}
-	for _, reference := range s.loose {
+	repacked := false
+	for index, reference := range s.loose {
 		if err := reference.file.verify(); err != nil {
-			return fmt.Errorf("verify loose reference path %q: %w", reference.target, err)
+			// pack-refs publishes the packed value before removing a loose ref.
+			// Only that terminal disappearance may recover, never a replaced
+			// loose file, changed symbolic edge, or newly appearing loose ref.
+			if index != len(s.loose)-1 || s.packed != nil || !reference.file.state.Exists ||
+				reference.file.directory.VerifyFile(reference.file.name, securefs.FileState{}) != nil {
+				return fmt.Errorf("verify loose reference path %q: %w", reference.target, err)
+			}
+			if err := s.verifyRepackedReference(commonDirectory, reference.target); err != nil {
+				return fmt.Errorf("verify packed transition for %q: %w", reference.target, err)
+			}
+			if err := reference.file.directory.VerifyFile(reference.file.name, securefs.FileState{}); err != nil {
+				return fmt.Errorf("verify removed loose reference %q: %w", reference.target, err)
+			}
+			repacked = true
 		}
 	}
 	if s.packed != nil {
 		if err := s.packed.verify(); err != nil {
-			return fmt.Errorf("verify packed-reference fallback: %w", err)
+			if err := s.verifyRepackedReference(commonDirectory, s.loose[len(s.loose)-1].target); err != nil {
+				return fmt.Errorf("verify packed-reference fallback: %w", err)
+			}
+			repacked = true
 		}
 	}
 	for index := len(s.directories) - 1; index >= 0; index-- {
@@ -471,16 +500,41 @@ func (s *pinnedHEADState) verify(head string) error {
 		// legitimately change the containing directory while this snapshot is in
 		// progress. The exact HEAD reference was verified above; only require its
 		// parent directories to retain their identity and safe permissions.
-		if err := s.directories[index].VerifyIdentity(); err != nil {
-			return fmt.Errorf("verify symbolic reference directory: %w", err)
+		directory := s.directories[index]
+		if err := directory.directory.VerifyIdentity(); err != nil {
+			// Git can prune empty ref directories after packing. Prove absence
+			// through the original parent, which is itself checked next. An
+			// existing replacement (including a symlink) must still fail.
+			if !repacked || directory.parent.VerifyFile(directory.name, securefs.FileState{}) != nil {
+				return fmt.Errorf("verify symbolic reference directory: %w", err)
+			}
 		}
+	}
+	return nil
+}
+
+// Refresh only the reference snapshot, at most once. All other pinned controls
+// and directories remain subject to their original checks; retrying the whole
+// checkout on ErrChanged could otherwise hide concurrent tampering. The secure
+// read must be stable within the original budget and still name the pinned OID.
+func (s *pinnedHEADState) verifyRepackedReference(commonDirectory *securefs.Directory, target string) error {
+	packed, err := readPinnedControlFile(commonDirectory, "packed-refs", s.budget)
+	if err != nil {
+		return err
+	}
+	objectID, err := packedReferenceObjectID(packed, target)
+	if err != nil {
+		return err
+	}
+	if objectID != s.objectID {
+		return fmt.Errorf("%w: packed reference %q names %q instead of pinned object %q", securefs.ErrChanged, target, objectID, s.objectID)
 	}
 	return nil
 }
 
 func (s *pinnedHEADState) close() {
 	for index := len(s.directories) - 1; index >= 0; index-- {
-		_ = s.directories[index].Close()
+		_ = s.directories[index].directory.Close()
 	}
 	s.directories = nil
 }

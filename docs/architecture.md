@@ -586,6 +586,14 @@ pinning, require their parent directories to retain no-follow identity and safe
 permissions, not unchanged timestamps from unrelated sibling-ref updates. The
 exact child is hashed before and after reading and its pinned state is verified;
 content changes, substitution, and a missing target appearing still fail closed.
+Ref packing has a narrow exception: a disappearing terminal loose ref or a
+replaced `packed-refs` file gets at most one secure reference-snapshot refresh,
+which must resolve the original target to the originally pinned commit. Empty
+ref directories pruned by Git may disappear, but existing directory replacements
+are rejected. No other snapshot control is recaptured or forgiven, and the
+original resource budget still applies. The fingerprint binds the symbolic chain
+and terminal commit, not loose-versus-packed storage. If the refresh itself
+races or cannot prove the same target, capture fails closed.
 Protected Git metadata paths likewise verify their shared administration root
 by identity, so unrelated `FETCH_HEAD` updates cannot invalidate a candidate.
 Their traversed descendants and explicitly pinned protected directories remain
