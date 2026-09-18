@@ -636,9 +636,9 @@ func (s *Project) TransitionAfterBranchUpdate(ctx context.Context, action Author
 	}, []projectFieldUpdate{numberProjectField(s.qaFailuresFieldName(), 0)})
 }
 
-func (s *Project) TransitionAutomaticRetry(ctx context.Context, action AuthorizedAction, targetStatus, targetPhase, detail string) error {
+func (s *Project) TransitionAutomaticRetry(ctx context.Context, action AuthorizedAction, targetStatus, targetPhase, detail, activity string) error {
 	return s.transition(ctx, action, targetStatus, detail, targetPhase, false, func(next *WorkItem) {
-		next.Activity = config.RunnerActivityWaitingForHarness
+		next.Activity = activity
 	}, nil)
 }
 

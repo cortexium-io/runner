@@ -189,11 +189,15 @@ Progress events, model-authored text, and arbitrary stdout/stderr phrases have
 no recovery authority. A recognized transient Codex service failure or browser
 startup timeout returns the card to its current role lane as
 `Waiting for harness provider` and retries after 30 seconds, two minutes, and
-five minutes. A fourth consecutive failure moves it to the configured error
-lane for manual recovery. These operational retries do not increment `QA
-Failures`; a process restart may retry sooner because the short backoff is
-deliberately in-memory. Opaque harness failures stay unknown and are never
-automatically retried. Browser startup failures retain their bounded local
+five minutes. Codex's terminal `turn.failed` capacity message, exactly
+`Selected model is at capacity. Please try a different model.`, and recognized
+HTTP 429 failures use the same policy with `Waiting for model capacity` activity.
+The card reports the retry number and time; neither the adapter nor the engine
+switches the configured model or reasoning level. A fourth consecutive failure
+moves it to the configured error lane for manual recovery. These operational
+retries do not increment `QA Failures`; a process restart may retry sooner
+because the short backoff is deliberately in-memory. Opaque harness failures
+stay unknown and are never automatically retried. Browser startup failures retain their bounded local
 startup diagnostic; Project reports use only a fixed browser-startup template.
 For unknown Codex exits, bounded local diagnostics prefer the terminal
 `turn.failed` reason, falling back to the tails of both output streams. Opening

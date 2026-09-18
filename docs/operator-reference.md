@@ -2008,6 +2008,24 @@ automatic retries for unknown errors. Raw diagnostics stay local, not in GitHub
 reports or metrics. It cannot recover diagnostics already discarded by an older
 Runner version.
 
+Codex's exact terminal failure `Selected model is at capacity. Please try a
+different model.` is a retryable `capacity_exhausted` failure, as is a recognized
+HTTP 429 failure. The background engine keeps the card in its current role lane,
+retains its workspace, and shows `Waiting for model capacity`. It retries after
+30 seconds, two minutes, and five minutes without changing the configured model
+or reasoning level or incrementing `QA Failures`. The card's result shows the
+retry count and next retry time; after exhaustion it identifies model capacity
+as the blocker and provides the manual retry command. These attempts share the
+existing in-memory operational retry budget described above; a restart resets it.
+
+This classification requires Codex's terminal `turn.failed` event, not a model
+message, progress error, or arbitrary stdout/stderr containing the same words.
+Unknown diagnostics, invalid model selection, and account-limit text do not
+gain automatic retry authority from mentioning capacity. Authentication failures
+still require operator recovery, and all workspace-integrity checks still apply.
+Standalone CLI planning reports the classification but does not retry itself.
+No configuration, Project-field, or skill migration is needed.
+
 If Runner reports unavailable browser capability, stop repeated retries. A
 capability blocker does not increment the QA rejection count. An inconclusive
 QA verdict instead reports `review_incomplete` ("QA evidence incomplete"); that

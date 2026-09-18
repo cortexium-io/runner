@@ -26,6 +26,7 @@ const (
 	RunnerActivityCIFailed               = "CI failed — rework queued"
 	RunnerActivityWaitingForDependencies = "Waiting for dependencies"
 	RunnerActivityWaitingForHarness      = "Waiting for harness provider"
+	RunnerActivityWaitingForCapacity     = "Waiting for model capacity"
 )
 
 const (

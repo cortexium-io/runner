@@ -52,7 +52,8 @@ func (s *Engine) automaticRetryPending(item github.WorkItem, now time.Time) bool
 	if !found {
 		return false
 	}
-	if strings.TrimSpace(item.Activity) != config.RunnerActivityWaitingForHarness {
+	activity := strings.TrimSpace(item.Activity)
+	if activity != config.RunnerActivityWaitingForHarness && activity != config.RunnerActivityWaitingForCapacity {
 		delete(s.automaticRetries, item.ID)
 		return false
 	}

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
 func TestClassifyClaudeSessionLimitRequiresStructuredAdapterEvidence(t *testing.T) {
@@ -87,6 +89,7 @@ func TestCodexFailureEvidenceClassifiesTerminalStatusFamilies(t *testing.T) {
 	}{
 		{name: "authentication", input: "HTTP 401 Unauthorized", class: FailureAuthenticationRequired, retry: RetryManual},
 		{name: "capacity", input: "unexpected status 429 Too Many Requests", class: FailureCapacityExhausted, retry: RetryAutomatic},
+		{name: "model capacity", input: "Selected model is at capacity. Please try a different model.", class: FailureCapacityExhausted, retry: RetryAutomatic},
 		{name: "provider", input: "HTTP 503 Service Unavailable", class: FailureTransientExternal, retry: RetryAutomatic},
 		{name: "network", input: "connection reset by peer", class: FailureTransientExternal, retry: RetryAutomatic},
 	}
@@ -96,6 +99,29 @@ func TestCodexFailureEvidenceClassifiesTerminalStatusFamilies(t *testing.T) {
 			evidence := codexFailureEvidenceFromStdout(stdout)
 			if evidence.FailureClass != test.class || evidence.RetryDisposition != test.retry {
 				t.Fatalf("evidence = %#v, want class=%q retry=%q", evidence, test.class, test.retry)
+			}
+		})
+	}
+}
+
+func TestCodexModelCapacityRequiresExactTerminalFailure(t *testing.T) {
+	const reason = "Selected model is at capacity. Please try a different model."
+	for _, test := range []struct {
+		name, stdout, stderr string
+	}{
+		{name: "plain stdout", stdout: reason},
+		{name: "plain stderr", stderr: reason},
+		{name: "progress error", stdout: `{"type":"error","message":` + strconv.Quote(reason) + `}`},
+		{name: "model text", stdout: `{"type":"item.completed","item":{"type":"agent_message","text":` + strconv.Quote(reason) + `}}`},
+		{name: "quoted reason", stdout: `{"type":"turn.failed","error":{"message":` + strconv.Quote("Tool output said: "+reason) + `}}`},
+		{name: "additional reason", stdout: `{"type":"turn.failed","error":{"message":` + strconv.Quote(reason+" Account is disabled.") + `}}`},
+		{name: "account limit", stdout: `{"type":"turn.failed","error":{"message":"You've hit your usage limit. Upgrade your plan to continue."}}`},
+		{name: "invalid model", stdout: `{"type":"turn.failed","error":{"message":"The selected model does not exist or you do not have access to it."}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := subprocess.Result{Stdout: test.stdout, Stderr: test.stderr, ExitCode: 1}
+			if evidence := codexFailureEvidence(result, errors.New("exit status 1"), false); evidence != (HarnessFailureEvidence{}) {
+				t.Fatalf("unproven capacity failure gained retry authority: %#v", evidence)
 			}
 		})
 	}
