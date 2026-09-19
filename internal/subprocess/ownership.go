@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -101,6 +102,13 @@ type ownedProcess struct {
 	pid    int
 	birth  string
 	marker string
+}
+
+func processDisappeared(err error) bool {
+	// Linux can return ESRCH after /proc/<pid>/stat was opened but before
+	// it was read. Both that race and ENOENT prove absence, not an inspection
+	// failure; permissions and other I/O failures must remain fail-closed.
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH)
 }
 
 type invocationOwnership struct {

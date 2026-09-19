@@ -58,7 +58,7 @@ func ownedProcesses(scope, exact string) ([]ownedProcess, error) {
 			continue
 		}
 		stat, err := entry.Info()
-		if os.IsNotExist(err) {
+		if processDisappeared(err) {
 			continue
 		}
 		if err != nil {
@@ -68,14 +68,14 @@ func ownedProcesses(scope, exact string) ([]ownedProcess, error) {
 			continue
 		}
 		process, err := inspectProcess(pid)
-		if os.IsNotExist(err) {
+		if processDisappeared(err) {
 			continue
 		}
 		if err != nil {
 			return nil, err
 		}
 		env, err := processEnvironment(pid)
-		if os.IsNotExist(err) || errors.Is(err, unix.ESRCH) || errors.Is(err, os.ErrPermission) {
+		if processDisappeared(err) || errors.Is(err, os.ErrPermission) {
 			continue
 		}
 		if err != nil {
@@ -100,7 +100,7 @@ func signalOwnedProcess(process ownedProcess, force bool) error {
 	}
 	defer unix.Close(fd)
 	current, err := inspectProcess(process.pid)
-	if os.IsNotExist(err) {
+	if processDisappeared(err) {
 		return nil
 	}
 	if err != nil {
@@ -110,7 +110,7 @@ func signalOwnedProcess(process ownedProcess, force bool) error {
 		return nil
 	}
 	env, err := processEnvironment(process.pid)
-	if os.IsNotExist(err) || errors.Is(err, unix.ESRCH) {
+	if processDisappeared(err) {
 		return nil
 	}
 	if err != nil {

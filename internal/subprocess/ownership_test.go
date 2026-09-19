@@ -205,3 +205,24 @@ func TestExitedProcessIdentityIsAbsent(t *testing.T) {
 		t.Fatalf("exited process is not an inspection error: %v", err)
 	}
 }
+
+func TestProcessDisappearanceIncludesProcReadRace(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		gone bool
+	}{
+		{"path already absent", &os.PathError{Op: "open", Path: "/proc/123/stat", Err: syscall.ENOENT}, true},
+		{"exit during read", &os.PathError{Op: "read", Path: "/proc/123/stat", Err: syscall.ESRCH}, true},
+		{"wrapped exit during read", fmt.Errorf("inspect: %w", &os.PathError{Op: "read", Path: "/proc/123/stat", Err: syscall.ESRCH}), true},
+		{"permission denied", syscall.EPERM, false},
+		{"unreadable identity", syscall.EIO, false},
+		{"still present", nil, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := processDisappeared(test.err); got != test.gone {
+				t.Fatalf("process disappearance = %v, want %v for %v", got, test.gone, test.err)
+			}
+		})
+	}
+}
