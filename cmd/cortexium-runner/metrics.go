@@ -226,7 +226,7 @@ func metricAttemptHistoryFor(attempt runnermetrics.Attempt) metricAttemptHistory
 		if !stage.Completed || strings.TrimSpace(stage.Outcome) == "" {
 			stageHistory.Unavailable = append(stageHistory.Unavailable, "runner_observed_outcome")
 		}
-		if stage.Usage.Available {
+		if stage.Usage.Reported() {
 			usage := stage.Usage
 			stageHistory.Usage = &usage
 		} else {
@@ -240,7 +240,7 @@ func metricAttemptHistoryFor(attempt runnermetrics.Attempt) metricAttemptHistory
 		ReviewFindings: append([]runnermetrics.ReviewFinding(nil), attempt.ReviewFindings...),
 		ReviewDetails:  append([]runnermetrics.ReviewDetail(nil), attempt.ReviewDetails...), Complete: attempt.ModelReportComplete,
 	}
-	if attempt.Usage.Available {
+	if attempt.Usage.Reported() {
 		usage := attempt.Usage
 		reported.Usage = &usage
 	}
@@ -322,7 +322,7 @@ func unavailableAttemptFacts(attempt runnermetrics.Attempt) []string {
 			}
 		}
 	}
-	if !attempt.Usage.Available {
+	if !attempt.Usage.Reported() {
 		unavailable = append(unavailable, "model_reported.usage")
 	}
 	return unavailable
@@ -405,6 +405,8 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 			fmt.Fprintf(output, " · %d reasoning", usage.ReasoningOutputTokens)
 		}
 		fmt.Fprintf(output, " (%d/%d completed attempts reported usage)\n", view.Summary.UsageCoveredAttempts, view.Summary.CompletedAttempts)
+		fmt.Fprintf(output, "Usage completeness: %d complete · %d partial · %d unknown\n", view.Summary.CompleteUsageAttempts, view.Summary.PartialUsageAttempts,
+			view.Summary.UsageCoveredAttempts-view.Summary.CompleteUsageAttempts-view.Summary.PartialUsageAttempts)
 	} else {
 		fmt.Fprintln(output, "Reported tokens: unavailable from the recorded harness responses")
 	}
@@ -531,7 +533,12 @@ func writeMetricReport(output io.Writer, attempt runnermetrics.Attempt) {
 			writeMetricReportedValues(output, "review evidence", detail.Evidence, attempt.ModelReportComplete)
 		}
 	}
-	if attempt.Usage.ReportedCostUSD != nil {
+	if attempt.Usage.Reported() {
+		fmt.Fprintf(output, "      usage completeness: %s\n", attempt.Usage.CoverageStatus())
+	}
+	if attempt.Usage.ReportedCostUSD != nil && !attempt.Usage.Available {
+		fmt.Fprintf(output, "      usage: tokens unavailable; not zero · $%.4f reported cost\n", *attempt.Usage.ReportedCostUSD)
+	} else if attempt.Usage.ReportedCostUSD != nil {
 		fmt.Fprintf(output, "      usage: %d input · %d cache read · %d cache write · %d output · $%.4f reported\n",
 			attempt.Usage.InputTokens, attempt.Usage.CacheReadInputTokens, attempt.Usage.CacheWriteInputTokens, attempt.Usage.OutputTokens, *attempt.Usage.ReportedCostUSD)
 	} else if attempt.Usage.Available {

@@ -69,6 +69,9 @@ type Engine struct {
 	automaticRetries           map[string]automaticRetryState
 	stopRequested              func() (bool, error)
 	consecutiveReviews         int // Owned by the poll coordinator, like in-flight admission.
+	processOwnership           *subprocess.OwnershipScope
+	quarantinedSlotsMu         sync.Mutex
+	quarantinedSlots           []*github.ProcessLock
 }
 
 // SetMetricsObserver attaches attempt telemetry. It remains non-critical when
@@ -126,7 +129,9 @@ func New(cfg config.Config, run subprocess.Runner) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Engine{cfg: resolved, source: source, run: run}, nil
+	return &Engine{cfg: resolved, source: source, run: run,
+		processOwnership: subprocess.NewOwnershipScope(fmt.Sprintf("%s/%d", strings.ToLower(resolved.GitHubProject.Owner), resolved.GitHubProject.Number)),
+	}, nil
 }
 
 func (s *Engine) PlanProjectItemApproval(ctx context.Context, selector string) (github.ApprovalPlan, error) {
@@ -483,7 +488,8 @@ func (s *Engine) syncAssessmentIntake(ctx context.Context, prepared *pollPrepara
 }
 
 func (s *Engine) executeClaimedAction(ctx context.Context, admitted admittedAction) RunResult {
-	defer admitted.slot.Release()
+	ctx = subprocess.WithOwnershipScope(ctx, s.processOwnership)
+	defer s.releaseExecutionSlot(admitted.slot)
 	return s.executeItem(ctx, admitted)
 }
 
@@ -545,6 +551,9 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 			}
 		}
 		if stopping && len(inFlight) == 0 {
+			if s.processOwnership.Unresolved() {
+				return errors.New("cannot confirm graceful drain: owned process cleanup is unresolved")
+			}
 			return nil
 		}
 		select {
@@ -556,6 +565,9 @@ func (s *Engine) RunLoop(ctx context.Context, pollInterval, maxIdleInterval time
 				delete(inFlight, completion.itemID)
 				s.finishAutomaticRetry(completion.result)
 				reportResult(completion.result)
+			}
+			if s.processOwnership.Unresolved() {
+				return errors.New("Runner stopped with unresolved owned process cleanup")
 			}
 			return nil
 		case completion := <-completed:

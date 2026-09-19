@@ -636,6 +636,22 @@ metrics. Use
 machine-readable output. `status` includes a compact accumulated total and the
 current admission-budget state.
 
+New native harness records distinguish usage `coverage`: `complete`, `partial`,
+or `unavailable`. Failed/canceled invocations keep any reported counters as
+partial; unavailable is not zero. Old records with counters but no completeness
+evidence are shown as `unknown`. Collection precedes diagnostic truncation and
+does not retain raw transcripts. Cumulative snapshots are not added repeatedly.
+Combining available and missing invocation usage remains partial; configured
+token/cost budgets pause admission when the rolling window contains partial
+totals. No cost is estimated. A provider that emits nothing before failure
+still has unavailable usage. Extremely large individual event/envelope records
+remain bounded; later ordinary JSONL records can still supply counters.
+
+`harness_cleanup` measures Runner's cleanup after a native harness exits or is
+canceled. It is nested in harness duration, not additional wall time or measured
+test time. Test-command/validation durations still require retained project
+evidence; Runner does not infer them from the harness interval.
+
 New CLI-recorded attempts include `run_context` with the recording build's
 `runner_version`, `bundled_skills_version`, and `config_digest`. The last is a
 SHA-256 fingerprint of the loaded config after CLI overrides, not its contents.
@@ -2559,9 +2575,21 @@ dependency direction.
   continue through the existing bounded error backoff.
 - One active Runner process per Project on one machine; no distributed claim.
 - Harness stdout/stderr and final structured results have explicit size bounds.
-  Every terminal path—success, command failure, timeout, or cancellation—reaps
-  the direct process and terminates its owned process group while preserving
-  output captured before termination. Agent QA uses a newly created private
+  Every terminal path—success, command failure, timeout, or cancellation—uses
+  bounded cleanup of the direct process, original process group, and same-user
+  descendants retaining the invocation's ownership marker on macOS/Linux.
+  This includes detached sessions. Matching uses a random marker and process
+  start identity, never executable names or workspace-path guesses. Output and
+  usage already observed are preserved. `cleanup_unresolved` pauses new agent
+  admission and retains local execution capacity rather than automatically
+  retrying. Inspect the local diagnostic and surviving work, stop only processes
+  whose ownership you have confirmed, then stop/restart Runner before retrying
+  the card. Do not restart repeatedly or broadly kill Node, shells or browsers.
+  Replacement Runners refuse admission while identifiable tagged orphans remain.
+  Independently running tool services, processes that erase their marker, and
+  uninspectable processes are not safely attributable; Runner never guesses and
+  kills them. Unclosed inherited output pipes also produce a cleanup failure.
+  Agent QA uses a newly created private
   candidate checkout, so its trust boundary does not depend on a child remaining
   in that Unix process group. Failed
   harness diagnostics stay in local Runner output and are not copied to GitHub

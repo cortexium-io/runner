@@ -20,6 +20,7 @@ type AdmissionDecision struct {
 	Attempts               int                           `json:"attempts"`
 	CompletedAttempts      int                           `json:"completed_attempts"`
 	UsageCoveredAttempts   int                           `json:"usage_covered_attempts"`
+	PartialUsageAttempts   int                           `json:"partial_usage_attempts"`
 	CostCoveredAttempts    int                           `json:"cost_covered_attempts"`
 	HarnessDurationSeconds int64                         `json:"harness_duration_seconds"`
 	ReportedTokens         int64                         `json:"reported_tokens"`
@@ -69,6 +70,9 @@ func EvaluateAdmission(budget *config.AdmissionBudgetConfig, attempts []metrics.
 		if err := metrics.ValidateUsage(attempt.Usage); err != nil {
 			return decision.deny("cannot verify admission budget because metrics history contains invalid usage")
 		}
+		if attempt.Usage.CoverageStatus() == metrics.UsagePartial {
+			decision.PartialUsageAttempts++
+		}
 		if attempt.Usage.Available {
 			decision.UsageCoveredAttempts++
 			reported, ok := reportedTokens(attempt.Usage)
@@ -93,6 +97,9 @@ func EvaluateAdmission(budget *config.AdmissionBudgetConfig, attempts []metrics.
 		}
 	}
 	decision.HarnessDurationSeconds = harnessDurationMilliseconds / 1000
+	if decision.PartialUsageAttempts > 0 && (budget.MaxReportedTokens > 0 || budget.MaxReportedCostUSD != nil) {
+		return decision.deny(fmt.Sprintf("cannot verify reported-usage budget because %d attempt(s) have only partial usage", decision.PartialUsageAttempts))
+	}
 	if budget.MaxAttempts > 0 {
 		decision.RemainingAttempts = budget.MaxAttempts - decision.Attempts
 		if decision.RemainingAttempts < 0 {

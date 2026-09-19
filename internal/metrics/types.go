@@ -32,6 +32,7 @@ const (
 	StageWorkspacePrepare   = "workspace_prepare"
 	StageRepositoryPrepare  = "repository_prepare"
 	StageHarnessRun         = "harness_run"
+	StageHarnessCleanup     = "harness_cleanup"
 	StagePlannerOutline     = "planner_outline"
 	StagePlannerDetails     = "planner_details"
 	StageReviewerAudit      = "reviewer_audit"
@@ -55,7 +56,7 @@ func validStageName(name string) bool {
 	case StageWorkspacePrepare, StageRepositoryPrepare, StageHarnessRun, StagePlannerOutline,
 		StagePlannerDetails, StageReviewerAudit, StageReviewerVerify, StageResultValidate,
 		StageWorkspaceVerify, StageCandidateConstruct, StageProjectTransition, StagePublishPullRequest,
-		StagePlannerApply:
+		StagePlannerApply, StageHarnessCleanup:
 		return true
 	default:
 		return false
@@ -76,7 +77,7 @@ func validStageOutcome(outcome string) bool {
 // out of the durable enum fields even if a future caller bypasses AttemptTrace.
 func validFailureClass(class string) bool {
 	switch class {
-	case "", "unknown", "transient_external", "capacity_exhausted", "timeout", "canceled",
+	case "", "unknown", "transient_external", "capacity_exhausted", "timeout", "canceled", "cleanup_unresolved",
 		"invalid_contract", "capability_unavailable", "review_incomplete", "browser_startup", "needs_input", "agent_blocked", "permission_denied",
 		"authentication_required", "invalid_configuration", "candidate_validation", "integrity_violation", "integrity_unverified":
 		return true
@@ -124,6 +125,7 @@ func validReviewVerdict(event Event) bool {
 // token usage or monetary cost when a harness does not expose those values.
 type Usage struct {
 	Available               bool                  `json:"available"`
+	Coverage                string                `json:"coverage,omitempty"`
 	InputTokens             int64                 `json:"input_tokens,omitempty"`
 	CacheReadInputTokens    int64                 `json:"cache_read_input_tokens,omitempty"`
 	CacheWriteInputTokens   int64                 `json:"cache_write_input_tokens,omitempty"`
@@ -135,6 +137,28 @@ type Usage struct {
 	Models                  map[string]ModelUsage `json:"models,omitempty"`
 }
 
+const (
+	UsageComplete    = "complete"
+	UsagePartial     = "partial"
+	UsageUnavailable = "unavailable"
+	UsageUnknown     = "unknown"
+)
+
+// CoverageStatus does not invent completeness for historical counters.
+func (u Usage) CoverageStatus() string {
+	if u.Coverage != "" {
+		return u.Coverage
+	}
+	if u.Reported() {
+		return UsageUnknown
+	}
+	return UsageUnavailable
+}
+
+// Reported includes independently reported cost even if token counters are
+// unavailable. Available continues to mean that token counters were supplied.
+func (u Usage) Reported() bool { return u.Available || u.ReportedCostUSD != nil || len(u.Models) > 0 }
+
 type ModelUsage struct {
 	InputTokens           int64    `json:"input_tokens,omitempty"`
 	CacheReadInputTokens  int64    `json:"cache_read_input_tokens,omitempty"`
@@ -144,6 +168,19 @@ type ModelUsage struct {
 }
 
 func ValidateUsage(usage Usage) error {
+	switch usage.Coverage {
+	case "", UsageUnknown:
+	case UsageComplete, UsagePartial:
+		if !usage.Reported() {
+			return errors.New("reported usage coverage requires counters")
+		}
+	case UsageUnavailable:
+		if usage.Reported() {
+			return errors.New("unavailable usage cannot have available counters")
+		}
+	default:
+		return errors.New("invalid usage coverage")
+	}
 	if usage.InputTokens < 0 || usage.CacheReadInputTokens < 0 || usage.CacheWriteInputTokens < 0 ||
 		usage.OutputTokens < 0 || usage.ReasoningOutputTokens < 0 || usage.APIDurationMilliseconds < 0 || usage.Turns < 0 {
 		return errors.New("usage counters cannot be negative")
@@ -167,6 +204,25 @@ func invalidCost(cost *float64) bool {
 }
 
 func (u Usage) Add(other Usage) Usage {
+	// A zero value is an accumulator identity. An explicit unavailable invocation
+	// is not: adding its missing counters makes a reported total partial.
+	left, right := u.CoverageStatus(), other.CoverageStatus()
+	if !u.Reported() && u.Coverage == "" {
+		u.Coverage = other.Coverage
+	} else if !other.Reported() && other.Coverage == "" {
+	} else if (u.Reported() || other.Reported()) && (left == UsagePartial || right == UsagePartial || left == UsageUnavailable || right == UsageUnavailable) {
+		u.Coverage = UsagePartial
+	} else if u.Available != other.Available || (u.ReportedCostUSD == nil) != (other.ReportedCostUSD == nil) {
+		// A cost-only invocation must not make missing tokens look like zero
+		// when combined with an invocation that does report tokens (or vice versa).
+		u.Coverage = UsagePartial
+	} else if left == UsageUnknown || right == UsageUnknown {
+		u.Coverage = UsageUnknown
+	} else if left == UsageComplete && right == UsageComplete {
+		u.Coverage = UsageComplete
+	} else {
+		u.Coverage = UsageUnavailable
+	}
 	u.Available = u.Available || other.Available
 	u.InputTokens += other.InputTokens
 	u.CacheReadInputTokens += other.CacheReadInputTokens
@@ -533,6 +589,8 @@ type Summary struct {
 	RunnerDurationMilliseconds     int64          `json:"runner_duration_milliseconds"`
 	Usage                          Usage          `json:"usage"`
 	UsageCoveredAttempts           int            `json:"usage_covered_attempts"`
+	CompleteUsageAttempts          int            `json:"complete_usage_attempts"`
+	PartialUsageAttempts           int            `json:"partial_usage_attempts"`
 	CostCoveredAttempts            int            `json:"cost_covered_attempts"`
 	StageCoveredAttempts           int            `json:"stage_covered_attempts"`
 	RecoveredStageFailureAttempts  int            `json:"recovered_stage_failure_attempts"`
@@ -637,6 +695,12 @@ func Summarize(attempts []Attempt) Summary {
 		}
 		if attempt.Usage.Available {
 			result.UsageCoveredAttempts++
+			switch attempt.Usage.CoverageStatus() {
+			case UsageComplete:
+				result.CompleteUsageAttempts++
+			case UsagePartial:
+				result.PartialUsageAttempts++
+			}
 		}
 		if attempt.Usage.ReportedCostUSD != nil {
 			result.CostCoveredAttempts++

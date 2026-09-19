@@ -29,6 +29,25 @@ func TestEvaluateAdmissionAppliesRollingAttemptCapacity(t *testing.T) {
 	}
 }
 
+func TestPartialUsageFailsClosedForReportedBudgets(t *testing.T) {
+	now := time.Now().UTC()
+	cost := 0.2
+	limit := 10.0
+	attempts := []metrics.Attempt{{Completed: true, Event: metrics.Event{StartedAt: now.Add(-time.Minute), Usage: metrics.Usage{Available: true, Coverage: metrics.UsagePartial, InputTokens: 12, ReportedCostUSD: &cost}}}}
+	for _, budget := range []*config.AdmissionBudgetConfig{
+		{WindowSeconds: 3600, MaxReportedTokens: 1000},
+		{WindowSeconds: 3600, MaxReportedCostUSD: &limit},
+	} {
+		decision := EvaluateAdmission(budget, attempts, now)
+		if decision.Allowed || decision.ReportedTokens != 12 || decision.PartialUsageAttempts != 1 || !strings.Contains(decision.Reason, "partial usage") {
+			t.Fatalf("partial spending treated as complete: %+v", decision)
+		}
+	}
+	if decision := EvaluateAdmission(&config.AdmissionBudgetConfig{WindowSeconds: 3600, MaxAttempts: 3}, attempts, now); !decision.Allowed {
+		t.Fatalf("attempt-only budget requires token precision: %+v", decision)
+	}
+}
+
 func TestEvaluateAdmissionFailsClosedWhenReportedUsageIsMissing(t *testing.T) {
 	now := time.Now().UTC()
 	attempt := metrics.Attempt{Event: metrics.Event{AttemptID: "attempt", StartedAt: now.Add(-time.Minute)}, Completed: true}

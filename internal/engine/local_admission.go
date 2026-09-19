@@ -53,12 +53,30 @@ func (s *Engine) acquireLocalGate(ctx context.Context, wait bool, acquire func(c
 }
 
 func (s *Engine) acquireLocalExecutionSlot() (*github.ProcessLock, error) {
+	if err := s.processOwnership.CheckAdmission(); err != nil {
+		return nil, err
+	}
 	if !s.localAdmission {
 		return nil, nil
 	}
 	return github.AcquireExecutionSlot(config.GitHubProjectConfig{
 		Owner: s.cfg.GitHubProject.Owner, Number: s.cfg.GitHubProject.Number,
 	}, s.maxParallelism())
+}
+
+func (s *Engine) releaseExecutionSlot(slot *github.ProcessLock) {
+	if slot == nil {
+		return
+	}
+	if s.processOwnership.Unresolved() {
+		// Keep the descriptor reachable: its lock must not be released by GC
+		// while this Runner remains alive with unverified owned work.
+		s.quarantinedSlotsMu.Lock()
+		s.quarantinedSlots = append(s.quarantinedSlots, slot)
+		s.quarantinedSlotsMu.Unlock()
+		return
+	}
+	_ = slot.Release()
 }
 
 func (s *Engine) recordAttemptStart(event metrics.Event) error {

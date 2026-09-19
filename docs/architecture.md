@@ -37,7 +37,7 @@ root. Internal packages do not parse CLI flags or reach back into `cmd`.
 | `internal/metrics` | Append-only attempt and fixed-name stage events, reported usage, context fingerprints, local history, aggregates, and draft recurring-failure projections | Prompts, transcripts, raw harness output, active guidance, free-form stage payloads, or estimated cost |
 | `internal/setup` | Capability inspection, doctor readiness, skill installation, allowlisted prerequisites | Work execution |
 | `internal/workspace` | Task-scoped isolated worktree creation and validated cleanup, plus immutable-reference validation, without modifying configured checkouts or deleting task branches | Agent prompts or publication |
-| `internal/subprocess` | Process execution, bounded output, and process-group cancellation | Domain behavior |
+| `internal/subprocess` | Process execution, bounded output, owned-process cleanup and admission safety | Domain behavior |
 
 ## Dependency direction
 
@@ -107,7 +107,16 @@ repository-aware outline and tool-free details calls, the reviewer's evidence
 audit and optional focused-verification call, result validation,
 workspace verification, candidate construction and its correction-admission
 guards, Project transitions, and PR publication.
-Execution adapters parse only counters exposed by the native harness. Events are
+Execution adapters collect only counters exposed by the native harness, before
+diagnostic truncation/filtering. Codex cumulative snapshots replace earlier
+snapshots; Pi completed-message usage is deduplicated across message and agent
+completion events, including separate agent loops; Claude's JSON envelope
+supplies its available counters. No transcript is added to history. Usage coverage is complete, partial, or
+unavailable; historical counters without coverage remain unknown. Failed or
+canceled invocations retain reported counters as partial, not as a complete
+total or an estimate. Aggregating a reported invocation with an explicitly
+unavailable one remains partial. Token/cost admission budgets fail closed for
+partial totals. Events are
 appended to a runner-keyed JSONL file in the user configuration directory. The
 event boundary keeps telemetry failure non-fatal to workflow execution and
 preserves unfinished attempts and stages after a process interruption. Stage
@@ -236,11 +245,36 @@ state journal. Other failure classes do not change the persisted QA count and
 therefore cannot trigger automatic model escalation. Metrics and admission use
 the selected profile's actual role, harness, model, and reasoning settings.
 
-Every native harness command runs in an owned process group. The subprocess
-boundary enters one teardown path after success, command failure, timeout, or
-cancellation; it terminates the owned process group and reaps the direct process
-before returning. Security after a sandboxed implementer does not rely on that
-group containing a process that creates a new Unix session: Agent QA receives a
+Every native harness command runs in an owned process group and receives a
+random per-invocation environment marker on macOS/Linux. The marker binds the
+Project scope to the supervisor PID/start identity. Codex explicitly forwards
+only this marker through its shell policy and Runner-configured stdio MCP
+environments, without widening environment inheritance. After success, failure,
+timeout or cancellation, the subprocess boundary terminates the original group,
+reaps the direct process, then discovers and terminates same-user processes
+retaining that exact marker, including detached sessions. Signals require a
+matching process start identity and marker; Linux additionally pins the target
+with a pidfd. No process-name or workspace-path sweep is permitted.
+
+Termination, forced-exit verification and pipe drainage have bounded waits.
+Unconfirmed cleanup yields `cleanup_unresolved`, not provider retry authority;
+the engine quarantines local execution slots and refuses new agent admission.
+Deterministic reconciliation can still run. A replacement process checks for
+tagged orphans whose recorded supervisor identity is gone before admission;
+that check reports the problem without killing work. No process journal is
+added. `harness_cleanup` records the cleanup interval nested in harness time;
+it must not be added to total wall time. Validation inside tools is still not a
+separately measured phase without a trustworthy tool receipt.
+
+This is operational ownership, not a sandbox boundary. Processes that erase the
+marker, become uninspectable, or are launched by an independently running remote
+or shared tool service cannot be positively attributed by this mechanism. Runner
+does not guess ownership or kill those services. An inherited output pipe that
+cannot be drained fails closed even when no tagged process is discoverable.
+Abrupt termination of Runner itself cannot run its cleanup; the next admission
+check can detect surviving tagged orphans but cannot reconstruct unreported
+usage or erased markers. Security after a sandboxed implementer does not rely
+on this cleanup mechanism: Agent QA receives a
 new private detached checkout that was never writable by the implementation
 sandbox. Structured-result inputs use one `internal/securefs` artifact
 contract: a unique effective-user-owned mode-`0700` directory with pre-created,

@@ -130,6 +130,62 @@ func TestLocalAdmissionWaitCanBeCanceled(t *testing.T) {
 	}
 }
 
+func TestCleanupFailureRetainsLocalExecutionCapacity(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	cfg := config.RuntimeConfig{MaxParallelism: 1, GitHubProject: config.ProjectConfig{GitHubProjectConfig: config.GitHubProjectConfig{Owner: "cleanup-fixture", Number: 4}}}
+	service := &Engine{cfg: cfg, localAdmission: true, processOwnership: subprocess.NewOwnershipScope(t.Name())}
+	slot, err := service.acquireLocalExecutionSlot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer slot.Release()
+	if extra, err := github.AcquireExecutionSlot(cfg.GitHubProject.GitHubProjectConfig, 1); !errors.Is(err, github.ErrProjectLockBusy) {
+		_ = extra.Release()
+		t.Fatalf("running slot released: %v", err)
+	}
+	service.processOwnership.RecordCleanupFailure()
+	service.releaseExecutionSlot(slot)
+	if len(service.quarantinedSlots) != 1 {
+		t.Fatal("slot no longer retained")
+	}
+	if extra, err := service.acquireLocalExecutionSlot(); err == nil {
+		_ = extra.Release()
+		t.Fatal("unresolved cleanup admitted work")
+	}
+	// An independent CLI must not reclaim the descriptor held by this worker.
+	if extra, err := github.AcquireExecutionSlot(cfg.GitHubProject.GitHubProjectConfig, 1); !errors.Is(err, github.ErrProjectLockBusy) {
+		_ = extra.Release()
+		t.Fatalf("quarantine lost cross-process slot: %v", err)
+	}
+}
+
+func TestSuccessfulCleanupReleasesLocalExecutionCapacity(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	service := &Engine{cfg: config.RuntimeConfig{MaxParallelism: 1, GitHubProject: config.ProjectConfig{GitHubProjectConfig: config.GitHubProjectConfig{Owner: "cleanup-fixture", Number: 4}}}, localAdmission: true}
+	slot, err := service.acquireLocalExecutionSlot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.releaseExecutionSlot(slot)
+	next, err := service.acquireLocalExecutionSlot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Release()
+}
+
+func TestGracefulStopCannotReportUnresolvedCleanupAsDrained(t *testing.T) {
+	service := &Engine{processOwnership: subprocess.NewOwnershipScope(t.Name())}
+	service.processOwnership.RecordCleanupFailure()
+	service.SetStopCheck(func() (bool, error) { return true, nil })
+	err := service.RunLoop(t.Context(), time.Second, time.Second, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "cannot confirm graceful drain") {
+		t.Fatalf("unsafe work reported drained: %v", err)
+	}
+}
+
 func TestLocalBatchMutationDefersRecoveryButNotObservation(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())

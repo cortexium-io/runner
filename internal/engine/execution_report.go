@@ -38,6 +38,8 @@ func remoteDiagnosticSummary(output execution.Output) string {
 		return "Runner classified the harness attempt as timed out."
 	case execution.FailureCanceled:
 		return "Runner classified the harness attempt as canceled."
+	case execution.FailureCleanupUnresolved:
+		return "Runner could not confirm process cleanup. Agent admission is paused pending inspection of surviving work."
 	case execution.FailureInvalidContract:
 		if output.RemoteDetailSafe && output.Summary == errReviewFeedbackLimit.Error() {
 			return errReviewFeedbackLimit.Error()
@@ -95,7 +97,7 @@ func recoveryClassification(output execution.Output) string {
 
 func boundedFailureClass(class execution.FailureClass) string {
 	switch class {
-	case execution.FailureTransientExternal, execution.FailureCapacityExhausted, execution.FailureTimeout,
+	case execution.FailureTransientExternal, execution.FailureCapacityExhausted, execution.FailureTimeout, execution.FailureCleanupUnresolved,
 		execution.FailureCanceled, execution.FailureInvalidContract, execution.FailureCapabilityUnavailable, execution.FailureReviewIncomplete, execution.FailureBrowserStartup,
 		execution.FailureNeedsInput, execution.FailureAgentBlocked, execution.FailurePermissionDenied, execution.FailureAuthenticationRequired,
 		execution.FailureInvalidConfiguration, execution.FailureCandidateValidation, execution.FailureIntegrityViolation, execution.FailureIntegrityUnverified:

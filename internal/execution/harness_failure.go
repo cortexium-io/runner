@@ -21,6 +21,14 @@ type HarnessFailureEvidence struct {
 }
 
 func classifyHarnessFailure(runErr error, evidence HarnessFailureEvidence) (Output, bool) {
+	var cleanup *subprocess.CleanupError
+	if errors.As(runErr, &cleanup) {
+		output := classifiedBlockedOutput("Harness process cleanup could not be confirmed.",
+			"Agent admission is paused. Inspect surviving owned work before restarting Runner or retrying this card.",
+			FailureCleanupUnresolved, RetryManual, "")
+		output.DiscardDiagnostics = false
+		return output, true
+	}
 	if evidence.FailureClass == FailureBrowserStartup {
 		output := classifiedBlockedOutput(
 			"Runner's runner_browser MCP server timed out before the Codex session started.",

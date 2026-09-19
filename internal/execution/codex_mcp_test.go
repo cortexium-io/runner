@@ -45,7 +45,7 @@ func TestCodexMCPProfileArgsExposeOnlyExplicitServer(t *testing.T) {
 	for _, required := range []string{
 		`mcp_servers={browser={command="npx"`,
 		`args=["browser-mcp","--isolated"]`,
-		`env_vars=["BROWSER_PATH"]`,
+		`env_vars=["BROWSER_PATH","CORTEXIUM_RUNNER_PROCESS_OWNER"]`,
 		`enabled_tools=["navigate"]`,
 		`startup_timeout_sec=20`, `tool_timeout_sec=60`,
 		`enabled=true`, `default_tools_approval_mode="approve"`,

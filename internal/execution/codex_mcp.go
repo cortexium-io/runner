@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -172,7 +173,11 @@ func writeCodexMCPServer(builder *strings.Builder, server codexMCPServer) {
 	builder.WriteString(strconv.Quote(strings.TrimSpace(server.Transport.Command)))
 	writeTOMLStringList(builder, "args", server.Transport.Args)
 	writeTOMLStringMap(builder, "env", server.Transport.Env)
-	writeTOMLStringList(builder, "env_vars", server.Transport.EnvVars)
+	envVars := append([]string(nil), server.Transport.EnvVars...)
+	if !slices.Contains(envVars, subprocess.OwnershipEnvironmentVariable) {
+		envVars = append(envVars, subprocess.OwnershipEnvironmentVariable)
+	}
+	writeTOMLStringList(builder, "env_vars", envVars)
 	if server.Transport.CWD != nil && strings.TrimSpace(*server.Transport.CWD) != "" {
 		builder.WriteString(",cwd=")
 		builder.WriteString(strconv.Quote(strings.TrimSpace(*server.Transport.CWD)))

@@ -61,7 +61,7 @@ func usageFromClaudeEnvelope(envelope claudeResultEnvelope) metrics.Usage {
 func parseCodexUsage(stdout string) metrics.Usage {
 	var latest metrics.Usage
 	scanner := bufio.NewScanner(strings.NewReader(stdout))
-	scanner.Buffer(make([]byte, 64*1024), maxHarnessDiagnosticBytes)
+	scanner.Buffer(make([]byte, 64*1024), maxHarnessResultBytes)
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 || line[0] != '{' {
@@ -77,6 +77,7 @@ func parseCodexUsage(stdout string) metrics.Usage {
 				ReasoningOutputTokens int64 `json:"reasoning_output_tokens"`
 			} `json:"usage"`
 			Payload struct {
+				Type string `json:"type"`
 				Info struct {
 					Total *struct {
 						InputTokens           int64 `json:"input_tokens"`
@@ -91,19 +92,19 @@ func parseCodexUsage(stdout string) metrics.Usage {
 		if json.Unmarshal(line, &event) != nil {
 			continue
 		}
-		if event.Usage != nil {
+		if event.Type == "turn.completed" && event.Usage != nil {
 			latest = metrics.Usage{
-				Available: true, InputTokens: event.Usage.InputTokens,
+				Available: true, Coverage: metrics.UsageComplete, InputTokens: event.Usage.InputTokens,
 				CacheReadInputTokens:  event.Usage.CachedInputTokens,
 				CacheWriteInputTokens: event.Usage.CacheWriteInputTokens,
 				OutputTokens:          event.Usage.OutputTokens,
 				ReasoningOutputTokens: event.Usage.ReasoningOutputTokens,
 			}
 		}
-		if event.Payload.Info.Total != nil {
+		if event.Type == "event_msg" && event.Payload.Type == "token_count" && event.Payload.Info.Total != nil {
 			total := event.Payload.Info.Total
 			latest = metrics.Usage{
-				Available: true, InputTokens: total.InputTokens,
+				Available: true, Coverage: metrics.UsagePartial, InputTokens: total.InputTokens,
 				CacheReadInputTokens:  total.CachedInputTokens,
 				CacheWriteInputTokens: total.CacheWriteInputTokens,
 				OutputTokens:          total.OutputTokens,
