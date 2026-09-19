@@ -86,6 +86,7 @@ func TestExecutionReportDistinguishesIncompleteReviewFromUnavailableCapability(t
 		{execution.FailureAgentBlocked, "agent reported incomplete work"},
 		{execution.FailureCapabilityUnavailable, "required local capability as unavailable"},
 		{execution.FailureIntegrityUnverified, "does not establish a workspace change"},
+		{execution.FailureCleanupUnresolved, "could not confirm process cleanup"},
 	} {
 		t.Run(string(test.class), func(t *testing.T) {
 			private := "token=secret missing report /private/test-output.log"

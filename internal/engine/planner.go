@@ -16,6 +16,7 @@ import (
 	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/metrics"
+	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
 type ProjectPlan struct {
@@ -120,7 +121,8 @@ func (s *Engine) PlanProject(ctx context.Context, idea string) (ProjectPlan, err
 	if err != nil {
 		return ProjectPlan{}, err
 	}
-	defer slot.Release()
+	ctx = subprocess.WithOwnershipScope(ctx, s.processOwnership)
+	defer s.releaseExecutionSlot(slot)
 	role := s.cfg.RoleIDForContract(config.WorkRolePlanner)
 	startedAt := time.Now().UTC()
 	attemptID := metrics.NewAttemptID()

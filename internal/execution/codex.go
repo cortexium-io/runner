@@ -122,9 +122,8 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 	recordPromptContext(ctx, harnessGuidance(config.HarnessCodexCLI, e.config, true))
 	harnessStartedAt := time.Now()
 	finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
-	result, err := e.runCodex(ctx, args, launchWorkspace.Dir, strings.NewReader(e.projectPrompt(assignment, launchWorkspace)))
+	result, usage, err := e.runCodex(ctx, args, launchWorkspace.Dir, strings.NewReader(e.projectPrompt(assignment, launchWorkspace)))
 	harnessDuration := time.Since(harnessStartedAt).Milliseconds()
-	usage := parseCodexUsage(result.Stdout)
 	lastMessage, readErr := artifacts.readResult()
 	if err == nil && readErr != nil {
 		err = readErr
@@ -218,9 +217,8 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	recordPromptContext(ctx, harnessGuidance(config.HarnessCodexCLI, e.config, true))
 	harnessStartedAt := time.Now()
 	finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
-	result, runErr := e.runCodex(ctx, args, metadata.WorktreePath, strings.NewReader(e.workspaceWritePrompt(assignment)+profileReferenceInstruction(launchWorkspace)))
+	result, usage, runErr := e.runCodex(ctx, args, metadata.WorktreePath, strings.NewReader(e.workspaceWritePrompt(assignment)+profileReferenceInstruction(launchWorkspace)))
 	harnessDuration := time.Since(harnessStartedAt).Milliseconds()
-	usage := parseCodexUsage(result.Stdout)
 	lastMessage, readErr := artifacts.readResult()
 	if runErr == nil && readErr != nil {
 		runErr = readErr
@@ -232,6 +230,10 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 		structured, structuredErr = assembleExecutionContent(assignment, lastMessage)
 	} else if classified, known := classifyHarnessFailure(runErr, codexFailureEvidence(result, runErr, e.config.SafeTools)); known {
 		finishStageFromOutput(finishHarness, classified, runErr, usage)
+		if classified.FailureClass == FailureCleanupUnresolved {
+			classified.Usage, classified.HarnessDurationMilliseconds = usage, harnessDuration
+			return classified, runErr
+		}
 	} else {
 		finishStageFromOutput(finishHarness, blockedOutputWithFailure("Harness execution failed.", FailureUnknown, RetryNone), runErr, usage)
 	}
@@ -474,8 +476,8 @@ func (e CodexExecutor) workspaceWritePrompt(assignment Assignment) string {
 	return harnessGuidance(config.HarnessCodexCLI, e.config, true) + buildWorkspaceWriteCodexPrompt(assignment)
 }
 
-func (e CodexExecutor) runCodex(ctx context.Context, args []string, workingDir string, input io.Reader) (subprocess.Result, error) {
-	return subprocess.RunBoundedHeadTailInput(ctx, e.run, strings.TrimSpace(e.cfg.Command), args, workingDir, e.timeout(), input, maxHarnessDiagnosticBytes, harnessTruncationMarker)
+func (e CodexExecutor) runCodex(ctx context.Context, args []string, workingDir string, input io.Reader) (subprocess.Result, metrics.Usage, error) {
+	return runCodexWithUsage(ctx, e.run, strings.TrimSpace(e.cfg.Command), args, workingDir, e.timeout(), input)
 }
 
 func (e CodexExecutor) timeout() time.Duration {

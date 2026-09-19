@@ -187,6 +187,10 @@ func (e AgentExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 		structured, structuredErr = assembleExecutionContent(assignment, lastMessage)
 	} else if classified, known := classifyHarnessFailure(runErr, failureEvidence); known {
 		finishStageFromOutput(finishHarness, classified, runErr, usage)
+		if classified.FailureClass == FailureCleanupUnresolved {
+			classified.Usage, classified.HarnessDurationMilliseconds = usage, harnessDuration
+			return classified, runErr
+		}
 	} else {
 		finishStageFromOutput(finishHarness, blockedOutputWithFailure("Harness execution failed.", FailureUnknown, RetryNone), runErr, usage)
 	}
@@ -297,6 +301,7 @@ func (e AgentExecutor) runHarnessWithPiTransport(ctx context.Context, args []str
 	command := strings.TrimSpace(e.cfg.Command)
 	var result subprocess.Result
 	var err error
+	ctx, usageStream := observeHarness(ctx, e.kind)
 	if e.kind == config.HarnessPiCLI {
 		filter := keepPiTextEventLine
 		if structuredPi {
@@ -314,7 +319,7 @@ func (e AgentExecutor) runHarnessWithPiTransport(ctx context.Context, args []str
 			err = fmt.Errorf("verify Pi Runner extension: %w", artifactErr)
 		}
 	}
-	lastMessage, usage, parseErr := extractHarnessResultAndUsage(e.kind, result.Stdout, piProvenance, piNativeStructured, piDirectNative)
+	lastMessage, _, parseErr := extractHarnessResultAndUsage(e.kind, result.Stdout, piProvenance, piNativeStructured, piDirectNative)
 	failureEvidence := HarnessFailureEvidence{}
 	if e.kind == config.HarnessClaudeCLI {
 		failureEvidence = claudeFailureEvidenceFromStdout(result.Stdout)
@@ -325,7 +330,7 @@ func (e AgentExecutor) runHarnessWithPiTransport(ctx context.Context, args []str
 	if err == nil && parseErr != nil {
 		err = parseErr
 	}
-	return result, lastMessage, usage, failureEvidence, err
+	return result, lastMessage, usageStream.finish(result.Stdout, err), failureEvidence, err
 }
 
 func (e AgentExecutor) profileProjectArgs(profile ExecutionProfile, workspace profileWorkspace, schema []byte) []string {

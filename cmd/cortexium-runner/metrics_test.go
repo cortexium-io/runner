@@ -93,6 +93,20 @@ func TestWriteMetricsReportsMalformedOnlyHistoryHonestly(t *testing.T) {
 	}
 }
 
+func TestMetricsPreservesCostOnlyUsageWithoutZeroTokens(t *testing.T) {
+	cost := 0.2
+	attempt := runnermetrics.Attempt{Event: runnermetrics.Event{Usage: runnermetrics.Usage{Coverage: runnermetrics.UsagePartial, ReportedCostUSD: &cost}}}
+	history := metricAttemptHistoryFor(attempt)
+	if history.ModelReported.Usage == nil || history.ModelReported.Usage.Available || history.ModelReported.Usage.Coverage != runnermetrics.UsagePartial {
+		t.Fatalf("cost-only usage lost: %+v", history.ModelReported.Usage)
+	}
+	var output bytes.Buffer
+	writeMetricReport(&output, attempt)
+	if !strings.Contains(output.String(), "tokens unavailable; not zero") || !strings.Contains(output.String(), "$0.2000 reported cost") || !strings.Contains(output.String(), "usage completeness: partial") {
+		t.Fatalf("misleading cost-only report: %s", output.String())
+	}
+}
+
 func TestMetricsCommandFiltersItemsAndReportsOnlyHarnessCost(t *testing.T) {
 	stateDir := t.TempDir()
 	t.Setenv("CORTEXIUM_RUNNER_STATE_DIR", stateDir)

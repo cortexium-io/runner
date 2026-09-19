@@ -136,9 +136,8 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		recordPromptContext(ctx, guidance)
 		startedAt := time.Now()
 		finishHarness := metrics.StartStage(ctx, stageName)
-		result, runErr := subprocess.RunBoundedHeadTailInput(ctx, run, command, args, workspace.Dir, timeout, strings.NewReader(prompt), maxHarnessDiagnosticBytes, harnessTruncationMarker)
+		result, usage, runErr := runCodexWithUsage(ctx, run, command, args, workspace.Dir, timeout, strings.NewReader(prompt))
 		duration := time.Since(startedAt).Milliseconds()
-		usage := parseCodexUsage(result.Stdout)
 		if runErr != nil {
 			output, known := classifyHarnessFailure(runErr, codexFailureEvidence(result, runErr, cfg.SafeTools))
 			if !known {

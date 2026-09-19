@@ -337,11 +337,20 @@ type LineFilteredInputRunner interface {
 
 type OSRunner struct{}
 
+type stdoutObserverKey struct{}
+
+// WithStdoutObserver receives the original stream before any diagnostic
+// truncation/filtering. The observer must be bounded and non-blocking.
+func WithStdoutObserver(ctx context.Context, observer io.Writer) context.Context {
+	return context.WithValue(ctx, stdoutObserverKey{}, observer)
+}
+
 func (OSRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (Result, error) {
 	return runOSCommandWithEnvironment(ctx, command, args, dir, timeout, commandEnvironment(ctx))
 }
 
 func (OSRunner) RunBoundedInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, maxBytesPerStream int, truncationMarker string) (Result, error) {
+	ctx = context.WithValue(ctx, harnessProcessKey{}, true)
 	stdout := newBoundedCapture(maxBytesPerStream, truncationMarker)
 	stderr := newBoundedCapture(maxBytesPerStream, truncationMarker)
 	exitCode, err := runOSCommandToWritersInput(ctx, command, args, dir, timeout, nil, input, stdout, stderr)
@@ -404,6 +413,7 @@ func failClosedResult(command string, result Result, err error, maxStdoutBytes, 
 }
 
 func (OSRunner) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, maxBytesPerStream int, truncationMarker string) (Result, error) {
+	ctx = context.WithValue(ctx, harnessProcessKey{}, true)
 	stdout := newHeadTailCapture(maxBytesPerStream, truncationMarker)
 	stderr := newHeadTailCapture(maxBytesPerStream, truncationMarker)
 	exitCode, err := runOSCommandToWritersInput(ctx, command, args, dir, timeout, nil, input, stdout, stderr)
@@ -411,6 +421,7 @@ func (OSRunner) RunBoundedHeadTailInput(ctx context.Context, command string, arg
 }
 
 func (OSRunner) RunLineFilteredInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, maxBytesPerStream int, truncationMarker string, keep LineFilter) (Result, error) {
+	ctx = context.WithValue(ctx, harnessProcessKey{}, true)
 	stdout := newLineFilteredCapture(maxBytesPerStream, truncationMarker, keep)
 	stderr := newBoundedCapture(maxBytesPerStream, truncationMarker)
 	exitCode, err := runOSCommandToWritersInput(ctx, command, args, dir, timeout, nil, input, stdout, stderr)
@@ -460,8 +471,18 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 	cmd := exec.Command(command, args...)
 	cmd.Dir = dir
 	cmd.Stdin = input
+	if environment == nil {
+		environment = commandEnvironment(ctx)
+	}
 	if environment != nil {
 		cmd.Env = environment
+	}
+	ownership, err := startOwnership(ctx, cmd)
+	if err != nil {
+		return -1, err
+	}
+	if observer, _ := ctx.Value(stdoutObserverKey{}).(io.Writer); observer != nil {
+		stdout = io.MultiWriter(observer, stdout)
 	}
 
 	stdoutReader, stdoutWriter, err := os.Pipe()
@@ -511,7 +532,14 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 		commandErr = ctx.Err()
 	}
 
+	finishCleanup := func(error) {}
+	if ownership != nil {
+		if start, _ := ctx.Value(cleanupObserverKey{}).(func() func(error)); start != nil {
+			finishCleanup = start()
+		}
+	}
 	waitResult, teardownErr := teardownProcessGroup(cmd, waitDone, waitResult, haveWaitResult)
+	teardownErr = errors.Join(teardownErr, ownership.cleanup())
 	if teardownErr != nil {
 		// A process that survived teardown may still hold either output pipe.
 		// Closing the readers prevents an unbounded wait while returning the
@@ -519,7 +547,22 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 		_ = stdoutReader.Close()
 		_ = stderrReader.Close()
 	}
-	copyErr := errors.Join(<-copyDone, <-copyDone)
+	// An escaped/uninspectable descendant can retain a pipe even after its
+	// original process group is gone. Bound drainage independently of cleanup.
+	var copyErr error
+	drainTimer := time.NewTimer(processTerminationGracePeriod)
+	for range 2 {
+		select {
+		case err := <-copyDone:
+			copyErr = errors.Join(copyErr, err)
+		case <-drainTimer.C:
+			teardownErr = errors.Join(teardownErr, errors.New("output pipes remained open after process cleanup"))
+			_ = stdoutReader.Close()
+			_ = stderrReader.Close()
+			copyErr = errors.Join(copyErr, <-copyDone)
+		}
+	}
+	drainTimer.Stop()
 	_ = stdoutReader.Close()
 	_ = stderrReader.Close()
 
@@ -531,8 +574,10 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 		commandExitCode = -1
 	}
 	if teardownErr != nil {
-		commandErr = errors.Join(commandErr, fmt.Errorf("tear down process group: %w", teardownErr))
+		markCleanupUnresolved(ctx)
+		commandErr = errors.Join(commandErr, &CleanupError{Err: teardownErr})
 	}
+	finishCleanup(teardownErr)
 	return commandExitCode, commandErr
 }
 
@@ -566,11 +611,7 @@ func teardownProcessGroup(cmd *exec.Cmd, waitDone <-chan commandWaitResult, wait
 	}
 
 	forceErr := terminateProcessGroup(cmd, true)
-	if !haveWaitResult {
-		waitResult = <-waitDone
-		haveWaitResult = true
-	}
-	_, _, clean, verifyErr := waitForProcessGroup(cmd, waitDone, waitResult, haveWaitResult, processTerminationGracePeriod)
+	waitResult, _, clean, verifyErr := waitForProcessGroup(cmd, waitDone, waitResult, haveWaitResult, processTerminationGracePeriod)
 	if clean {
 		return waitResult, nil
 	}

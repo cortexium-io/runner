@@ -365,6 +365,30 @@ func TestProcessTreeCleanupOnCancellation(t *testing.T) {
 	}
 }
 
+func TestForcedCleanupDoesNotWaitForeverForDirectReap(t *testing.T) {
+	child := exec.Command("sleep", "60")
+	configureProcessGroup(child)
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = child.Process.Kill(); _ = child.Wait() }()
+	// Model a direct wait that cannot complete. Group disappearance alone must
+	// not turn this into either a successful cleanup or an unbounded receive.
+	done := make(chan error, 1)
+	go func() {
+		_, err := teardownProcessGroup(child, make(chan commandWaitResult), commandWaitResult{}, false)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("unconfirmed direct reap accepted")
+		}
+	case <-time.After(3 * processTerminationGracePeriod):
+		t.Fatal("cleanup wait was unbounded")
+	}
+}
+
 type processTreeOutcome struct {
 	result Result
 	err    error
@@ -481,6 +505,10 @@ func runProcessTreeLeader() {
 	child.ExtraFiles = []*os.File{childReadyWriter}
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
+	if os.Getenv("RUNNER_SUBPROCESS_HELPER_DETACHED") == "true" {
+		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		child.Stdout, child.Stderr = nil, nil
+	}
 	if err := child.Start(); err != nil {
 		panic(err)
 	}

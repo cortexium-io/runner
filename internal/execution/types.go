@@ -67,6 +67,7 @@ const (
 	FailureTransientExternal      FailureClass = "transient_external"
 	FailureCapacityExhausted      FailureClass = "capacity_exhausted"
 	FailureTimeout                FailureClass = "timeout"
+	FailureCleanupUnresolved      FailureClass = "cleanup_unresolved"
 	FailureCanceled               FailureClass = "canceled"
 	FailureInvalidContract        FailureClass = "invalid_contract"
 	FailureCapabilityUnavailable  FailureClass = "capability_unavailable"

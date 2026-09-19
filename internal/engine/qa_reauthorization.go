@@ -14,6 +14,7 @@ import (
 	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/metrics"
+	"github.com/cortexium-io/runner/internal/subprocess"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
 
@@ -180,7 +181,8 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	if err != nil {
 		return result, err
 	}
-	defer slot.Release()
+	ctx = subprocess.WithOwnershipScope(ctx, s.processOwnership)
+	defer s.releaseExecutionSlot(slot)
 	item := plan.Item
 	item.Role = plan.Role
 	event := s.newItemAttempt(item)
