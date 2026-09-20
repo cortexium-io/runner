@@ -228,6 +228,12 @@ the `retry` command when the card should return to its recorded planner or
 reviewer lane, or use `retry --feedback` to replace stale feedback and reset the
 QA failure count before implementation.
 
+Retry feedback does not change approved requirements. When a human approves a
+different requirement, use the explicit
+[`amend` preview and confirmation](operator-reference.md#amending-an-approved-requirement)
+for retained unpublished work, then retry. Both implementation and QA will use
+the amended contract, instead of contradictory instructions in a retry result.
+
 For an ordinary card with prerequisites, add exact issue URLs or Project item
 IDs to a `## Dependencies` bullet list in its body before moving it to `Ready`.
 Runner accepts dependencies across planner batches and starts the card only

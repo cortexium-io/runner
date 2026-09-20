@@ -560,6 +560,20 @@ reference. Title or URL presentation changes cannot change the delegated-content
 identity, while changed execution-defining content returns the item to assessment
 without invoking a harness.
 
+An explicit operator `amend` preview/confirmation is the exception for changing
+requirements of clean, retained, unpublished implementation/reviewer work. It
+requires intact prior authority and a stopped coordinator, preserves scheduling
+metadata and candidate history, signs the replacement issue body, and rebinds
+the exact private workspace to its new delegated-content digest. A released
+planning source's exact-child binding is updated when necessary; siblings are
+not reauthorized. The card remains Blocked for a separate ordinary retry in its
+retained phase. Old verification/acceptance cannot prove the revised contract.
+The existing Project transition and private identity stores are reused; no
+parallel requirements store is introduced. Known partial failures are restored
+only against unchanged observed state; uncertain/interrupted operations require
+operator inspection with Runner stopped. Retry feedback, issue comments, and
+repository claims of approval are not substitutes for this boundary.
+
 For an ordinary unsigned item, placing it in the configured `Plan` or `Ready`
 status is the human authorization event for that lane. Runner converts a draft
 to an issue in the configured intake repository when necessary and signs that
