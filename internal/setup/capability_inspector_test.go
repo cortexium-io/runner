@@ -364,12 +364,14 @@ func TestCapabilityInspectorRequiresOneHarnessWithBundledSkills(t *testing.T) {
 
 	descriptor := defaultHarnessDescriptors(home, nil)[0]
 	for _, skill := range (bundledskills.EmbeddedCatalog{}).List() {
-		path := filepath.Join(descriptor.SkillRoot, skill.ID, "SKILL.md")
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatalf("create skill directory: %v", err)
-		}
-		if err := os.WriteFile(path, skill.Content, 0o644); err != nil {
-			t.Fatalf("write skill: %v", err)
+		for _, file := range skill.Files() {
+			path := filepath.Join(descriptor.SkillRoot, skill.ID, file.Path)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("create skill directory: %v", err)
+			}
+			if err := os.WriteFile(path, file.Content, 0o644); err != nil {
+				t.Fatalf("write skill: %v", err)
+			}
 		}
 	}
 
@@ -524,7 +526,7 @@ func TestSkillInstallerInstallsTrustedSkillsWithoutOverwritingDifferences(t *tes
 	workflow := config.WorkflowTemplate(true)
 	cfg := config.Config{Roles: config.RoleTemplate(config.HarnessCodexCLI), Workflow: &workflow}
 	results, err := installer.InstallConfigured(cfg, false)
-	if err != nil || len(results) != len((bundledskills.EmbeddedCatalog{}).List()) {
+	if err != nil || len(results) != len(config.BuiltinRoleIDs()) {
 		t.Fatalf("install skills: results=%#v error=%v", results, err)
 	}
 	path := filepath.Join(home, ".codex", "skills", "runner-implementer", "SKILL.md")

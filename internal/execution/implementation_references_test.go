@@ -19,8 +19,9 @@ import (
 // boundary. The harness stub leaves a task edit for normal integrity checks.
 type implementationReferenceRunner struct {
 	representationResidueRunner
-	args   []string
-	prompt string
+	args    []string
+	prompt  string
+	inspect func(string, []string)
 }
 
 func (r *implementationReferenceRunner) capture(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader) (subprocess.Result, error) {
@@ -30,6 +31,9 @@ func (r *implementationReferenceRunner) capture(ctx context.Context, command str
 	}
 	r.prompt = string(data)
 	r.args = append([]string(nil), args...)
+	if r.inspect != nil {
+		r.inspect(r.prompt, r.args)
+	}
 	return r.Run(ctx, command, args, dir, timeout)
 }
 
@@ -122,7 +126,7 @@ func TestImplementationLaunchValidatesAndExposesReferences(t *testing.T) {
 
 func TestProbeWorkspaceExcludesReferences(t *testing.T) {
 	profile, _ := ProfileForRole(RoleProbe)
-	prepared, err := prepareExecutionWorkspace(t.Context(), subprocess.OSRunner{}, profile, t.TempDir(), []config.RepositoryReference{{Name: "invalid", Path: "/missing-reference"}})
+	prepared, err := prepareExecutionWorkspace(t.Context(), subprocess.OSRunner{}, profile, t.TempDir(), config.ExecutionConfig{RepositoryReferences: []config.RepositoryReference{{Name: "invalid", Path: "/missing-reference"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +145,7 @@ func TestNativeCodexImplementationReferenceContainment(t *testing.T) {
 	reference, worktree := initGitRepo(t), initGitRepo(t)
 	commit := strings.TrimSpace(runGitCommandOutput(t, reference, "rev-parse", "HEAD"))
 	profile, _ := ProfileForRole(RoleImplementer)
-	prepared, err := prepareExecutionWorkspace(t.Context(), subprocess.OSRunner{}, profile, worktree, []config.RepositoryReference{{Name: "fixture", Path: reference, Commit: commit}})
+	prepared, err := prepareExecutionWorkspace(t.Context(), subprocess.OSRunner{}, profile, worktree, config.ExecutionConfig{RepositoryReferences: []config.RepositoryReference{{Name: "fixture", Path: reference, Commit: commit}}})
 	if err != nil {
 		t.Fatal(err)
 	}

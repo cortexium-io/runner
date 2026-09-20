@@ -233,7 +233,8 @@ Harness and model quality remain an operator decision. These probes provide
 evidence for that decision; they do not create a Runner allowlist or prevent a
 user from assigning any supported harness to any role.
 
-Runner installs and verifies its three bundled role skills, disables native
+Runner installs and verifies the selected bundled role skills and optional
+interaction-design references, disables native
 skill discovery and automatic project-instruction discovery for isolated
 launches, and injects the selected pinned embedded instructions. Reviewers
 can inspect repository rules through their explicit read root. Implementers run

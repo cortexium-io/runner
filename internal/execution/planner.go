@@ -87,7 +87,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 	}
 	protectedRoots := append([]string{cfg.Harness.WorkspaceWriteRoot}, cfg.ReferenceProtectedRoots...)
-	workspace, err := prepareExecutionWorkspace(ctx, run, profile, workingDir, cfg.RepositoryReferences, protectedRoots...)
+	workspace, err := prepareExecutionWorkspace(ctx, run, profile, workingDir, cfg, protectedRoots...)
 	if err != nil {
 		return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 	}

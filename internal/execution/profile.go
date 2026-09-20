@@ -237,20 +237,22 @@ func (profile ExecutionProfile) allowsTool(class ToolClass) bool {
 // profileWorkspace owns the process cwd, primary repository, and validated
 // read-only reference roots conveyed to a launch.
 type profileWorkspace struct {
-	Dir              string
-	VerificationRoot string
-	ReadRoot         string
-	ReferenceRoots   []config.RepositoryReference
-	GitReadRoots     []string
-	ToolReadPaths    []string
-	TempDir          string
-	NPMCacheDir      string
-	TrustedToolDir   string
-	ToolPath         string
-	cleanup          func() error
+	Dir                string
+	VerificationRoot   string
+	ReadRoot           string
+	ReferenceRoots     []config.RepositoryReference
+	GitReadRoots       []string
+	ToolReadPaths      []string
+	TempDir            string
+	NPMCacheDir        string
+	TrustedToolDir     string
+	SkillReferenceRoot string
+	ToolPath           string
+	cleanup            func() error
 }
 
-func prepareExecutionWorkspace(ctx context.Context, run subprocess.Runner, profile ExecutionProfile, requestedRoot string, references []config.RepositoryReference, protectedRoots ...string) (profileWorkspace, error) {
+func prepareExecutionWorkspace(ctx context.Context, run subprocess.Runner, profile ExecutionProfile, requestedRoot string, cfg config.ExecutionConfig, protectedRoots ...string) (profileWorkspace, error) {
+	references := cfg.RepositoryReferences
 	if profile.Role != RolePlanner && profile.Role != RoleImplementer && profile.Role != RoleReviewer {
 		references = nil
 	}
@@ -269,6 +271,12 @@ func prepareExecutionWorkspace(ctx context.Context, run subprocess.Runner, profi
 		return profileWorkspace{}, err
 	}
 	workspace.ReferenceRoots = resolvedReferences
+	if profile.Role == RolePlanner || profile.Role == RoleImplementer || profile.Role == RoleReviewer {
+		if err := prepareSkillReferences(&workspace, cfg.Skills); err != nil {
+			_ = workspace.cleanup()
+			return profileWorkspace{}, err
+		}
+	}
 	return workspace, nil
 }
 
@@ -804,6 +812,11 @@ func profileRepositoryInstruction(workspace profileWorkspace) string {
 
 func profileReferenceInstruction(workspace profileWorkspace) string {
 	var builder strings.Builder
+	if workspace.SkillReferenceRoot != "" {
+		builder.WriteString("\n\nRunner-pinned skill reference root: ")
+		builder.WriteString(workspace.SkillReferenceRoot)
+		builder.WriteString("\nResolve a skill's relative reference links under <root>/<skill-id>/. Read only the references relevant to this task, using the assigned stage's permitted read tools. These bundled Markdown files are read-only guidance; installed or repository-local copies are not substitutes.")
+	}
 	if len(workspace.ReferenceRoots) > 0 {
 		builder.WriteString("\n\nRunner-approved read-only repository references:")
 		for _, reference := range workspace.ReferenceRoots {
@@ -837,6 +850,9 @@ func trustedSkillInstructions(cfg config.ExecutionConfig) string {
 		builder.WriteString(":\n--- BEGIN RUNNER-PINNED SKILL ---\n")
 		builder.Write(skill.Content)
 		builder.WriteString("\n--- END RUNNER-PINNED SKILL ---")
+		for _, reference := range skill.References {
+			fmt.Fprintf(&builder, "\nPinned reference: %s/%s sha256:%s", skill.ID, reference.Path, reference.SHA256)
+		}
 	}
 	return builder.String()
 }

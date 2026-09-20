@@ -93,50 +93,55 @@ func installBundledSkill(descriptor HarnessDescriptor, skill bundledskills.Skill
 	path := filepath.Join(descriptor.SkillRoot, skill.ID, "SKILL.md")
 	result := SkillInstallResult{Harness: descriptor.Kind, Skill: skill.ID, Path: path}
 	replacing := false
-	if err := validateSkillInstallPath(descriptor.SkillRoot, path); err != nil {
-		result.Status = CapabilityBlocked
-		result.Detail = err.Error()
-		return result, err
-	}
-	if existing, err := os.ReadFile(path); err == nil {
-		if string(existing) == string(skill.Content) {
-			result.Status = "unchanged"
-			result.Detail = "trusted bundled skill is already installed"
-			return result, nil
-		}
-		if !force {
+	pending := []bundledskills.File{}
+	// Inspect the entire bundle before writing any file. A matching entrypoint
+	// must not hide a missing or independently edited reference.
+	for _, file := range skill.Files() {
+		path := filepath.Join(descriptor.SkillRoot, skill.ID, file.Path)
+		if err := validateSkillInstallPath(descriptor.SkillRoot, path); err != nil {
 			result.Status = CapabilityBlocked
-			result.Detail = "existing skill differs and was left unchanged; review it, then run cortexium-runner doctor --fix"
-			return result, fmt.Errorf("%w: %s for %s", ErrDifferingSkill, skill.ID, descriptor.DisplayName)
+			result.Detail = err.Error()
+			return result, err
 		}
-		replacing = true
-	} else if !errors.Is(err, os.ErrNotExist) {
-		result.Status = CapabilityBlocked
-		result.Detail = "cannot inspect existing skill: " + err.Error()
-		return result, fmt.Errorf("inspect skill %s: %w", skill.ID, err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		result.Status = CapabilityBlocked
-		result.Detail = "cannot create skill directory: " + err.Error()
-		return result, fmt.Errorf("create skill directory: %w", err)
-	}
-	if err := validateSkillInstallPath(descriptor.SkillRoot, path); err != nil {
-		result.Status = CapabilityBlocked
-		result.Detail = err.Error()
-		return result, err
-	}
-	if force {
-		if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-			return result, errors.New("skill file must not be a symbolic link")
+		if existing, err := os.ReadFile(path); err == nil {
+			if string(existing) == string(file.Content) {
+				continue
+			}
+			if !force {
+				result.Status = CapabilityBlocked
+				result.Detail = "existing skill differs and was left unchanged; review it, then run cortexium-runner doctor --fix"
+				return result, fmt.Errorf("%w: %s/%s for %s", ErrDifferingSkill, skill.ID, file.Path, descriptor.DisplayName)
+			}
+			replacing = true
+		} else if !errors.Is(err, os.ErrNotExist) {
+			result.Status = CapabilityBlocked
+			result.Detail = "cannot inspect existing skill: " + err.Error()
+			return result, fmt.Errorf("inspect skill %s: %w", skill.ID, err)
 		}
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return result, fmt.Errorf("replace skill: %w", err)
-		}
+		pending = append(pending, file)
 	}
-	if err := writeFileAtomically(path, skill.Content); err != nil {
-		result.Status = CapabilityBlocked
-		result.Detail = "cannot write skill: " + err.Error()
-		return result, fmt.Errorf("write skill %s: %w", skill.ID, err)
+	if len(pending) == 0 {
+		result.Status = "unchanged"
+		result.Detail = "trusted bundled skill and references are already installed"
+		return result, nil
+	}
+	for _, file := range pending {
+		path := filepath.Join(descriptor.SkillRoot, skill.ID, file.Path)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			result.Status = CapabilityBlocked
+			result.Detail = "cannot create skill directory: " + err.Error()
+			return result, fmt.Errorf("create skill directory: %w", err)
+		}
+		if err := validateSkillInstallPath(descriptor.SkillRoot, path); err != nil {
+			result.Status = CapabilityBlocked
+			result.Detail = err.Error()
+			return result, err
+		}
+		if err := writeFileAtomically(path, file.Content); err != nil {
+			result.Status = CapabilityBlocked
+			result.Detail = "cannot write skill: " + err.Error()
+			return result, fmt.Errorf("write skill %s: %w", skill.ID, err)
+		}
 	}
 	result.Status = "installed"
 	result.Detail = "installed trusted bundled skill"
@@ -160,6 +165,9 @@ func validateSkillInstallPath(root, path string) error {
 			}
 			if !info.IsDir() && current != path {
 				return fmt.Errorf("skill install ancestor must be a directory: %s", current)
+			}
+			if current == path && !info.Mode().IsRegular() {
+				return fmt.Errorf("skill file must be a regular file: %s", current)
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("inspect skill install path: %w", err)

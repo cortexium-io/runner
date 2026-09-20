@@ -96,18 +96,25 @@ func (i *Inspector) harnessExecutionPolicy(harness config.HarnessConfig) string 
 }
 
 func (i *Inspector) requiredBundledSkills(kind string) []bundledskills.Skill {
-	if !i.cfg.HasProject() {
-		return i.catalog.List()
-	}
 	selected := map[string]struct{}{}
-	for _, roleID := range i.cfg.ExecutionRoleIDs() {
-		profile, ok := i.cfg.RoleProfile(roleID)
-		if !ok || strings.TrimSpace(profile.Harness) != strings.TrimSpace(kind) {
-			continue
+	if !i.cfg.HasProject() {
+		// Before project selection, check only the default role skills.
+		// Optional specialties must not become new installation prerequisites.
+		for _, profile := range config.RoleTemplate(kind) {
+			for _, id := range profile.Skills {
+				selected[id] = struct{}{}
+			}
 		}
-		for _, skillID := range profile.Skills {
-			if _, bundled := i.catalog.Get(strings.TrimSpace(skillID)); bundled {
-				selected[strings.TrimSpace(skillID)] = struct{}{}
+	} else {
+		for _, roleID := range i.cfg.ExecutionRoleIDs() {
+			profile, ok := i.cfg.RoleProfile(roleID)
+			if !ok || strings.TrimSpace(profile.Harness) != strings.TrimSpace(kind) {
+				continue
+			}
+			for _, skillID := range profile.Skills {
+				if _, bundled := i.catalog.Get(strings.TrimSpace(skillID)); bundled {
+					selected[strings.TrimSpace(skillID)] = struct{}{}
+				}
 			}
 		}
 	}
@@ -232,19 +239,26 @@ func inspectHarnessSkill(descriptor HarnessDescriptor, skill bundledskills.Skill
 		state.Detail = stringPtr("cannot resolve native skill directory: " + homeErr.Error())
 		return state
 	}
-	path := filepath.Join(descriptor.SkillRoot, skill.ID, "SKILL.md")
-	content, err := os.ReadFile(path)
-	if err != nil {
-		state.Detail = stringPtr("bundled role skill is not installed at " + path)
-		return state
-	}
-	if string(content) != string(skill.Content) {
-		state.Status = CapabilityBlocked
-		state.Detail = stringPtr("installed skill differs from the bundled trusted version at " + path)
-		return state
+	for _, file := range skill.Files() {
+		path := filepath.Join(descriptor.SkillRoot, skill.ID, file.Path)
+		if err := validateSkillInstallPath(descriptor.SkillRoot, path); err != nil {
+			state.Status = CapabilityBlocked
+			state.Detail = stringPtr(err.Error())
+			return state
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			state.Detail = stringPtr("bundled role skill is not installed at " + path)
+			return state
+		}
+		if string(content) != string(file.Content) {
+			state.Status = CapabilityBlocked
+			state.Detail = stringPtr("installed skill differs from the bundled trusted version at " + path)
+			return state
+		}
 	}
 	state.Status = CapabilityAvailable
-	state.Detail = stringPtr("bundled role skill is installed at " + path)
+	state.Detail = stringPtr("bundled skill and references are installed at " + filepath.Join(descriptor.SkillRoot, skill.ID))
 	return state
 }
 
