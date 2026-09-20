@@ -60,8 +60,28 @@ func TestReviewerAuditSchemaUsesFixedProofKeys(t *testing.T) {
 			t.Fatalf("reviewer schema retained Runner-owned field %q: %s", forbidden, schema)
 		}
 	}
-	if !bytes.Contains(schema, []byte(`"check_required"`)) || bytes.Contains(schema, []byte(`"blocked"`)) {
-		t.Fatalf("evidence-audit schema does not defer only unresolved dynamic checks: %s", schema)
+	if !bytes.Contains(schema, []byte(`"check_required"`)) || !bytes.Contains(schema, []byte(`"blocked"`)) {
+		t.Fatalf("evidence-audit schema cannot distinguish dynamic checks from unavailable proof: %s", schema)
+	}
+}
+
+func TestSharedReviewerMissingArtifactsBlocksWithoutAnotherHarnessCall(t *testing.T) {
+	response := `{"criteria":{"P1":{"status":"passed","summary":"Behavior is correct.","evidence":["Source and focused results establish the approved behavior."]},"P2":{"status":"passed","summary":"Diff is clean.","evidence":["No whitespace errors."]}},"repository_rules":{"status":"blocked","summary":"Required retained validation report is unavailable.","evidence":["The receipt is missing from the supplied evidence; this does not demonstrate that validation failed or never ran."]},"maintainability":{"status":"passed","summary":"Focused change.","evidence":["No unrelated edits."]},"summary":"All product checks pass; required historical proof is unavailable."}`
+	for _, kind := range []string{config.HarnessCodexCLI, config.HarnessClaudeCLI, config.HarnessPiCLI} {
+		t.Run(kind, func(t *testing.T) {
+			run := &sharedReviewerHarnessRunner{response: response}
+			cfg := config.ExecutionConfig{Harness: config.HarnessConfig{Kind: kind, Command: kind, WorkingDir: t.TempDir(), TimeoutSeconds: 30}}
+			if kind == config.HarnessPiCLI {
+				cfg.RoleAccess = config.RoleAccessHost
+			}
+			output, err := executeSharedReviewer(t.Context(), kind, cfg, reviewerAssignment(), run)
+			if err != nil || output.ReviewAssessment == nil || output.ReviewAssessment.Verdict != "blocked" || output.FailureClass != FailureReviewIncomplete || output.RetryDisposition != RetryManual {
+				t.Fatalf("missing proof became a code rejection: %#v, %v", output, err)
+			}
+			if len(run.inputs) != 1 {
+				t.Fatalf("unavailable historical artifact triggered %d model calls", len(run.inputs))
+			}
+		})
 	}
 }
 

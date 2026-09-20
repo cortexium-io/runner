@@ -43,6 +43,10 @@ type Candidate struct {
 // process that escaped the implementation process group.
 type ReviewWorkspace struct {
 	Path          string
+	EvidencePath  string
+	evidence      *reviewEvidence
+	candidate     Candidate
+	sourcePath    string
 	parent        string
 	provider      GitProvider
 	sourceProfile subprocess.PrivilegedGitProfile
@@ -77,7 +81,7 @@ func (p GitProvider) PrepareReviewWorkspace(ctx context.Context, metadata Metada
 		_ = os.RemoveAll(parent)
 		return ReviewWorkspace{}, fmt.Errorf("materialize private review workspace: %w", commandError(err, result))
 	}
-	review := ReviewWorkspace{Path: path, parent: parent, provider: p, sourceProfile: sourceProfile}
+	review := ReviewWorkspace{Path: path, parent: parent, provider: p, sourceProfile: sourceProfile, candidate: candidate, sourcePath: metadata.WorktreePath}
 	fail := func(cause error) (ReviewWorkspace, error) {
 		if cleanupErr := review.cleanupLocked(ctx); cleanupErr != nil {
 			cause = errors.Join(cause, cleanupErr)
@@ -183,9 +187,12 @@ func (workspace ReviewWorkspace) cleanupLocked(ctx context.Context) error {
 		return nil
 	}
 	var cleanupErr error
+	if workspace.evidence != nil {
+		cleanupErr = workspace.evidence.root.Close()
+	}
 	result, err := workspace.provider.privilegedGit(ctx, workspace.sourceProfile, "worktree", "remove", "--force", workspace.Path)
 	if err != nil {
-		cleanupErr = fmt.Errorf("remove private review worktree: %w", commandError(err, result))
+		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove private review worktree: %w", commandError(err, result)))
 	}
 	if err := os.RemoveAll(workspace.parent); err != nil {
 		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove private review workspace: %w", err))

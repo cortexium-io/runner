@@ -22,6 +22,7 @@ type Config struct {
 	DoctorRequirements     []CapabilityRequirement `json:"doctor_requirements,omitempty"`
 	ProjectDir             string                  `json:"project_dir"`
 	RepositoryReferences   []RepositoryReference   `json:"repository_references,omitempty"`
+	ReviewEvidencePaths    []string                `json:"review_evidence_paths,omitempty"`
 	MaxParallelism         int                     `json:"max_parallelism"`
 	GuidanceMinOccurrences int                     `json:"guidance_min_occurrences,omitempty"`
 	AdmissionBudget        *AdmissionBudgetConfig  `json:"admission_budget,omitempty"`

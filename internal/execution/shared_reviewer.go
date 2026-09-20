@@ -212,6 +212,8 @@ This stage is source and evidence triage, not test execution. Read-only shell co
 
 A historical unexplained timeout alone does not establish a defect. Defer the unresolved required behavior as check_required; reconstructing a historical run is not an acceptance condition. Complete the bounded source pass required by the reviewer skill, even when a proof key already has a failure.
 
+Distinguish unavailable proof from a demonstrated violation, including for repository_rules. First inspect applicable retained evidence when Runner supplies an evidence bundle. A missing or inaccessible report alone does not prove that required validation failed or was skipped. If a necessary current check can resolve the question within the supplied capabilities, use check_required and identify that check. If required historical proof cannot be established with available evidence or permitted verification, use blocked with the missing input and recovery needed; do not request an expensive rerun merely to reconstruct history. A concrete observed failure or established bypass of a required gate remains failed even if other reports are unavailable. Never treat an evidence gap as acceptance or waive repository-required validation.
+
 The repository_rules check covers concrete violations not already represented by a failed proof obligation. Mark it failed when the single source-review pass establishes one or more blocking violations, and include every independent violation reasonably visible in that pass in its evidence. Mark it check_required only for one concrete unresolved repository-rule question. Do not inventory warnings, style preferences, or speculative improvements. Evaluate maintainability from concrete source evidence and use check_required only when it truly depends on dynamic evidence.
 
 Return only criteria, repository_rules, maintainability, and a concise audit summary through the required structured-output mechanism. Runner will either assemble the review immediately or start a fresh focused-verification stage containing only the unresolved checks.
@@ -253,7 +255,7 @@ func reviewerAuditSchema(criteria int) ([]byte, error) {
 	if criteria < 0 || criteria > maxReviewerEntries {
 		return nil, fmt.Errorf("shared reviewer supports at most %d proof obligations as emergency loop protection", maxReviewerEntries)
 	}
-	check := reviewerCheckSchema([]string{"passed", "failed", "check_required"})
+	check := reviewerCheckSchema([]string{"passed", "failed", "check_required", "blocked"})
 	criterionProperties := make(map[string]any, criteria)
 	criterionKeys := make([]string, criteria)
 	for index := range criterionKeys {
@@ -429,7 +431,7 @@ func normalizeReviewerAuditCheck(check *reviewerContentCheck, field string) erro
 	check.Summary = strings.TrimSpace(check.Summary)
 	trimReviewStrings(check.Evidence)
 	fillReviewerSummaryFromEvidence(check)
-	if check.Status != "passed" && check.Status != "failed" && check.Status != "check_required" {
+	if check.Status != "passed" && check.Status != "failed" && check.Status != "check_required" && check.Status != "blocked" {
 		return fmt.Errorf("%s.status is invalid", field)
 	}
 	validationStatus := check.Status

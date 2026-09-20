@@ -19,6 +19,7 @@ type RuntimeConfig struct {
 	Workflow             ResolvedWorkflow
 	DoctorRequirements   []CapabilityRequirement
 	RepositoryReferences []RepositoryReference
+	ReviewEvidencePaths  []string
 	MaxParallelism       int
 	AdmissionBudget      *AdmissionBudgetConfig
 	ResourceLimits       ResourceLimits
@@ -39,6 +40,8 @@ type ExecutionConfig struct {
 	ResourceLimits          ResourceLimits
 	RepositoryReferences    []RepositoryReference
 	ReferenceProtectedRoots []string
+	// ReviewEvidenceRoot is a Runner-created snapshot, never a configured or model-selected host path.
+	ReviewEvidenceRoot string
 }
 
 func (c Config) Resolve() (RuntimeConfig, error) {
@@ -68,6 +71,7 @@ func (c Config) Resolve() (RuntimeConfig, error) {
 		Workflow:             c.resolvedWorkflow(),
 		DoctorRequirements:   c.EffectiveDoctorRequirements(),
 		RepositoryReferences: cloneRepositoryReferences(c.RepositoryReferences),
+		ReviewEvidencePaths:  append([]string(nil), c.ReviewEvidencePaths...),
 		MaxParallelism:       c.MaxParallelism,
 		AdmissionBudget:      admissionBudget,
 		ResourceLimits:       c.ResolveResourceLimits(),

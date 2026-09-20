@@ -488,6 +488,23 @@ func TestPrepareReviewWorkspaceMaterializesExactCandidateOutsideImplementationCh
 	if got := runGitTest(t, review.Path, "show", "HEAD:reviewed.txt"); got != "reviewed bytes\n" {
 		t.Fatalf("private review content = %q", got)
 	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "receipt.json"), []byte(`{"passed":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wrongCandidate := candidate
+	wrongCandidate.CommitOID = strings.Repeat("f", 40)
+	if err := review.PrepareEvidence(t.Context(), prepared, wrongCandidate, []string{"receipt.json"}, DefaultSnapshotLimits()); err == nil {
+		t.Fatal("evidence bound to a different review candidate")
+	}
+	if err := review.PrepareEvidence(t.Context(), prepared, candidate, []string{"receipt.json"}, DefaultSnapshotLimits()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(review.Path, "receipt.json")); !os.IsNotExist(err) {
+		t.Fatal("untracked evidence contaminated the canonical candidate")
+	}
+	if err := review.VerifyEvidence(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "reviewed.txt"), []byte("late mutation\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

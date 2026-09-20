@@ -204,7 +204,7 @@ func claudeProfileArgsForConfig(profile ExecutionProfile, workspace profileWorks
 	}
 	if requiresFullHarnessAccess(profile) {
 		args = append(args, "--dangerously-skip-permissions")
-		if len(repositoryReferencePaths(profile, workspace)) > 0 {
+		if len(repositoryReferencePaths(profile, workspace)) > 0 || workspace.ReviewEvidenceRoot != "" {
 			// Host mode retains ambient configuration, but reference directories
 			// must not contribute Claude instructions merely through --add-dir.
 			args = append(args, "--settings", `{"env":{"CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD":"0"}}`)
@@ -357,11 +357,17 @@ func repositoryReadRoots(profile ExecutionProfile, workspace profileWorkspace) [
 		paths = append(paths, workspace.ReadRoot)
 	}
 	paths = append(paths, repositoryReferencePaths(profile, workspace)...)
+	if profile.Role == RoleReviewer && workspace.ReviewEvidenceRoot != "" {
+		paths = append(paths, workspace.ReviewEvidenceRoot)
+	}
 	return minimalPathRoots(paths)
 }
 
 func sandboxAdditionalReadPaths(workspace profileWorkspace, safeTools bool) []string {
 	paths := append([]string(nil), workspace.GitReadRoots...)
+	if workspace.ReviewEvidenceRoot != "" {
+		paths = append(paths, workspace.ReviewEvidenceRoot)
+	}
 	if workspace.SkillReferenceRoot != "" {
 		paths = append(paths, workspace.SkillReferenceRoot)
 	}
