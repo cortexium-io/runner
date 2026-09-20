@@ -499,9 +499,9 @@ config and re-check local readiness with:
 ```
 
 `doctor --fix` does not change harness configuration or the repository. It
-replaces differing copies of Runner's three embedded role skills; unchanged
-copies are retained and missing copies are installed. It never stages,
-commits, or untracks files.
+replaces differing copies of the configured Runner-managed skills and their
+pinned references; unchanged files are retained and missing files are installed.
+It never stages, commits, or untracks files.
 
 If Git or GitHub CLI is missing, initialization fails closed and prints manual
 recovery guidance:
@@ -2314,6 +2314,7 @@ The embedded skills are:
 - `runner-planner`
 - `runner-implementer`
 - `runner-reviewer`
+- `runner-interaction-design` (optional, additive design guidance)
 
 Setup refuses to overwrite a differing installed skill unless `--force` is
 explicit during initialization or `doctor --fix` is explicit afterward. In
@@ -2321,6 +2322,69 @@ either case, only the embedded Runner-managed skills are replaced. Privileged
 launches disable native skill discovery and inject the selected embedded copy,
 so a modified installed copy cannot change execution. Role configuration
 rejects skills outside this pinned catalog.
+
+Skills may include reviewed Markdown files under `references/`. Installation
+and Doctor check every bundled file, not just `SKILL.md`; modified or symlinked
+references do not count as ready. A normal install preserves differing files;
+explicit repair replaces only managed files and leaves unrelated files alone.
+Privileged launches use disposable copies of the selected embedded references,
+never installed/reference-repository content. Codex and Claude grant these copies
+read-only access; Pi retains its documented host-access limitations. References
+are loaded on demand, while a stable path/hash manifest participates in the
+prompt guidance fingerprint. Their temporary location is outside the stable
+prefix. Tool-free planner synthesis and capability probes receive no reference
+grant. No internet retrieval, extra MCP server, or automatic model call is added.
+
+### Opt-in interaction design
+
+`runner-interaction-design` complements a role, rather than defining a fourth
+contract or an additional QA pass. For example, add a reviewer profile:
+
+```bash
+cortexium-runner role add ux_reviewer \
+  --config /absolute/operator/path/runner.json \
+  --extends reviewer \
+  --skill runner-reviewer \
+  --skill runner-interaction-design
+```
+
+Select `ux_reviewer` in the relevant existing workflow `run_role` action when
+approving the workflow change. Creating a profile alone does not route work to
+it. For an initial scoped UI trial, replace the ordinary reviewer at that action;
+do not add a second complete QA lane. This changes the reviewer for work using
+that rule, not just a card whose title sounds UI-related. Review the affected
+work before enabling it, and restore the original routing after a bounded trial.
+
+The same approach can create a design-aware planner or implementer. Keep its
+ordinary `runner-planner` or `runner-implementer` skill alongside the design skill.
+Skill lists replace, rather than append to, inherited lists; validation requires
+the matching ordinary skill whenever interaction design is selected. Models,
+reasoning, timeouts, role authority and tool ceilings otherwise inherit unchanged.
+The built-in role defaults do not opt in automatically.
+
+After the explicit configuration change, inspect `workflow validate` and
+`workflow explain`, install/check the selected bundled skill with
+`doctor --config PATH --fix --offline`, and run normal Doctor. Review differing
+managed files before repair. Coordinate a running service's graceful stop and
+restart before upgrading its executable or changing its effective configuration.
+
+The planner records a concise interaction contract in existing card content;
+the implementer inspects relevant rendered states before costly final checks;
+the reviewer critiques the journey using the existing evidence-audit and focused
+verification stages. Static audit does not gain permission to run a browser or
+tests. Requirement violations, improvements, preferences and unobserved behavior
+remain distinct in existing feedback: optional suggestions are not new acceptance
+criteria. Material concerns remain fixed, explicitly human-accepted, concretely
+deferred or unresolved; cross-card concerns are not silently waived or new work
+authority. No additional findings store or automatic card creation is introduced.
+
+Theory references provide contextual principles and their sources, not one
+mandated visual style. A heuristic evaluation is not user research or complete
+accessibility certification. Before broad adoption, use historical raw evidence
+without revealing expected answers and a sound comparison case, then an already
+approved UI journey. Compare useful corrections, false positives, escaped issues,
+rework, and total time/available usage including review overhead. Human assessment
+of the result remains part of acceptance; a small trial is not a causal benchmark.
 
 Runner roles and native harness agent roles are separate concepts. A Runner
 role is the configured planner, implementer, or reviewer profile that selects a

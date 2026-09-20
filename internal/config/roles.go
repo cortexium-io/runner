@@ -280,6 +280,12 @@ func validateRoleConfigs(c Config, roles map[string]RoleConfig) error {
 			}
 			seenSkills[skill] = struct{}{}
 		}
+		if _, design := seenSkills["runner-interaction-design"]; design {
+			baseSkill := "runner-" + c.RoleContract(id)
+			if _, present := seenSkills[baseSkill]; !present {
+				return fmt.Errorf("roles.%s.skills must retain %s alongside runner-interaction-design", id, baseSkill)
+			}
+		}
 		seenMCPServers := map[string]struct{}{}
 		for _, server := range profile.MCPServers {
 			server = strings.TrimSpace(server)

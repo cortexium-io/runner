@@ -166,6 +166,15 @@ instructions still come from the normal isolated execution workspace. Native
 harnesses retain ownership of conversation rendering, tools, schemas, model
 routing, and cache controls; Runner does not trade isolation or reviewer
 independence for a more reusable prefix.
+Selected skills may include an explicit allowlist of hash-pinned Markdown
+references. Runner materializes only those embedded references in a disposable
+private directory outside repository/scratch/cache write grants. Native policies
+grant read access to that directory, not its trusted-runtime parent. Installed
+or repository-local files never supply these instructions. Reference names and
+hashes are part of stable guidance; the per-launch location follows task data and
+reference contents are read on demand. Tool-free synthesis and probe stages do
+not receive them. Host-access profiles retain their explicitly broader boundary;
+file modes are not a substitute for native isolation.
 Shared role policy lives in the pinned skill; stage prompts add the permissions,
 procedure, and result contract for that stage. Detailed reviewer scheduling,
 timeout confirmation, and interface procedures appear only in focused

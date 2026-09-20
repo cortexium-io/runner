@@ -100,7 +100,7 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
 	protectedRoots := append([]string{e.cfg.WorkspaceWriteRoot}, e.config.ReferenceProtectedRoots...)
-	launchWorkspace, err := prepareExecutionWorkspace(ctx, e.run, profile, e.cfg.WorkingDir, e.config.RepositoryReferences, protectedRoots...)
+	launchWorkspace, err := prepareExecutionWorkspace(ctx, e.run, profile, e.cfg.WorkingDir, e.config, protectedRoots...)
 	if err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}
@@ -202,7 +202,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	defer artifacts.close()
 
 	protectedRoots := append([]string{e.cfg.WorkingDir, e.cfg.WorkspaceWriteRoot}, e.config.ReferenceProtectedRoots...)
-	launchWorkspace, err := prepareExecutionWorkspace(ctx, e.run, profile, metadata.WorktreePath, e.config.RepositoryReferences, protectedRoots...)
+	launchWorkspace, err := prepareExecutionWorkspace(ctx, e.run, profile, metadata.WorktreePath, e.config, protectedRoots...)
 	if err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureCapabilityUnavailable, RetryNone), err
 	}

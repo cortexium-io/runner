@@ -6,23 +6,37 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 )
 
 // BundledVersion identifies the skill bundle shipped in this Runner build.
-const BundledVersion = "1.8.16"
+const BundledVersion = "1.9.0"
 
 var bundledSkillIDs = []string{
 	"runner-planner",
 	"runner-implementer",
 	"runner-reviewer",
+	"runner-interaction-design",
 }
 
 var bundledSkillSHA256 = map[string]string{
-	"runner-implementer": "e0641697b04e44de76aae08c9a15b9918e7bc4be0ae3eeee60f32a20b7f38a9c",
-	"runner-planner":     "2e4e2995e7c416829b95756a511776a091edcf288469320fa81e96e352ccbc64",
-	"runner-reviewer":    "671d4f3c03c45df20d61ff4fa6ec146300e61eae436e69abefc477aa19e671e6",
+	"runner-implementer":        "e0641697b04e44de76aae08c9a15b9918e7bc4be0ae3eeee60f32a20b7f38a9c",
+	"runner-planner":            "2e4e2995e7c416829b95756a511776a091edcf288469320fa81e96e352ccbc64",
+	"runner-reviewer":           "671d4f3c03c45df20d61ff4fa6ec146300e61eae436e69abefc477aa19e671e6",
+	"runner-interaction-design": "bda3f969e6f44458926d7877b25f91a22c93ad550283004e7acfd3d33a28e9c3",
+}
+
+// Reference files are a reviewed, finite Markdown allowlist, not a mechanism
+// for loading arbitrary files from installed skills or the target repository.
+var bundledReferenceSHA256 = map[string]map[string]string{
+	"runner-interaction-design": {
+		"references/interaction-models.md":      "181ca6cf0890af5fd3d324efea3b5a814c98f8767c6215d904bce6cce352a9e6",
+		"references/visual-structure.md":        "c7e2d334ab79fef48f9b5dc52e7a7d244a5238eef3623e0c73c4fc2120ef0369",
+		"references/accessible-interactions.md": "f3d7f4d3ca9cff89a7cee2754fd61e423acb62e790d6582220acd1386dc5183c",
+		"references/evaluation.md":              "6bd005cd2981a4a622a6ae4c0359a4f1caf559dcf065c0b3f27f87611f815929",
+	},
 }
 
 func ValidID(value string) bool {
@@ -38,14 +52,27 @@ func ValidID(value string) bool {
 	return true
 }
 
-//go:embed */SKILL.md
+//go:embed */SKILL.md */references/*.md
 var bundledSkills embed.FS
 
 type Skill struct {
-	ID      string `json:"id"`
-	Version string `json:"version"`
+	ID         string `json:"id"`
+	Version    string `json:"version"`
+	SHA256     string `json:"sha256"`
+	Content    []byte `json:"-"`
+	References []File `json:"references,omitempty"`
+}
+
+type File struct {
+	Path    string `json:"path"`
 	SHA256  string `json:"sha256"`
 	Content []byte `json:"-"`
+}
+
+// Files returns the entrypoint and the explicitly bundled references in stable
+// order. Callers never discover additional files from an installed directory.
+func (s Skill) Files() []File {
+	return append([]File{{Path: "SKILL.md", SHA256: s.SHA256, Content: s.Content}}, s.References...)
 }
 
 type Catalog interface {
@@ -83,9 +110,19 @@ func (EmbeddedCatalog) Get(id string) (Skill, bool) {
 		return Skill{}, false
 	}
 	digest := sha256.Sum256(content)
-	return Skill{
+	skill := Skill{
 		ID: id, Version: BundledVersion, SHA256: hex.EncodeToString(digest[:]), Content: content,
-	}, true
+	}
+	for name := range bundledReferenceSHA256[id] {
+		content, err := bundledSkills.ReadFile(id + "/" + name)
+		if err != nil {
+			return Skill{}, false
+		}
+		digest := sha256.Sum256(content)
+		skill.References = append(skill.References, File{Path: name, SHA256: hex.EncodeToString(digest[:]), Content: content})
+	}
+	sort.Slice(skill.References, func(i, j int) bool { return skill.References[i].Path < skill.References[j].Path })
+	return skill, true
 }
 
 func Validate(catalog Catalog) ([]Skill, error) {
@@ -107,6 +144,24 @@ func Validate(catalog Catalog) ([]Skill, error) {
 		actual := hex.EncodeToString(digest[:])
 		if skill.SHA256 != actual || actual != expected {
 			return nil, fmt.Errorf("bundled skill %q does not match its pinned hash", skill.ID)
+		}
+		references := bundledReferenceSHA256[skill.ID]
+		if len(skill.References) != len(references) {
+			return nil, fmt.Errorf("bundled skill %q has an incorrect reference count", skill.ID)
+		}
+		seenReferences := map[string]bool{}
+		for _, reference := range skill.References {
+			expected, pinned := references[reference.Path]
+			if !pinned || seenReferences[reference.Path] || path.Dir(reference.Path) != "references" ||
+				path.Ext(reference.Path) != ".md" || !ValidID(strings.TrimSuffix(path.Base(reference.Path), ".md")) {
+				return nil, fmt.Errorf("bundled skill %q has invalid reference %q", skill.ID, reference.Path)
+			}
+			seenReferences[reference.Path] = true
+			digest := sha256.Sum256(reference.Content)
+			actual := hex.EncodeToString(digest[:])
+			if reference.SHA256 != actual || actual != expected {
+				return nil, fmt.Errorf("bundled skill %q reference %q does not match its pinned hash", skill.ID, reference.Path)
+			}
 		}
 		name, description, err := parseManifest(skill.Content)
 		if err != nil {

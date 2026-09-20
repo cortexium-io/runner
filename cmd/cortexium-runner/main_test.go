@@ -75,6 +75,39 @@ func TestInitInstallsRoleSkillsAndDoctorVerifiesReadiness(t *testing.T) {
 	if !strings.Contains(after.String(), filepath.Join(bin, "git")) || !strings.Contains(after.String(), "git version 2.50.1") {
 		t.Fatalf("doctor omitted the selected Git path or version: %s", after.String())
 	}
+
+	t.Run("optional interaction design references", func(t *testing.T) {
+		root := filepath.Join(home, ".codex", "skills", "runner-interaction-design")
+		if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal("default initialization installed an unselected specialty")
+		}
+		var output bytes.Buffer
+		if err := run(t.Context(), []string{"role", "edit", "reviewer", "--config", configPath, "--skill", "runner-reviewer", "--skill", "runner-interaction-design"}, strings.NewReader(""), &output); err != nil {
+			t.Fatalf("select design skill: %v\n%s", err, output.String())
+		}
+		output.Reset()
+		if err := run(t.Context(), []string{"doctor", "--config", configPath}, strings.NewReader(""), &output); err == nil {
+			t.Fatal("Doctor accepted a selected but uninstalled skill")
+		}
+		output.Reset()
+		if err := run(t.Context(), []string{"doctor", "--config", configPath, "--fix", "--offline"}, strings.NewReader(""), &output); err != nil {
+			t.Fatalf("install selected design skill: %v\n%s", err, output.String())
+		}
+		skill, _ := (bundledskills.EmbeddedCatalog{}).Get("runner-interaction-design")
+		for _, file := range skill.Files() {
+			got, err := os.ReadFile(filepath.Join(root, file.Path))
+			if err != nil || string(got) != string(file.Content) {
+				t.Fatalf("CLI omitted bundled file %s: %v", file.Path, err)
+			}
+		}
+		if err := os.Remove(filepath.Join(root, skill.References[0].Path)); err != nil {
+			t.Fatal(err)
+		}
+		output.Reset()
+		if err := run(t.Context(), []string{"doctor", "--config", configPath}, strings.NewReader(""), &output); err == nil {
+			t.Fatal("Doctor accepted a missing reference beneath a matching entrypoint")
+		}
+	})
 }
 
 func TestInitCreatesStandaloneConfigAndCanSynchronizeIt(t *testing.T) {

@@ -289,6 +289,10 @@ func claudeSandboxSettingsForConfig(profile ExecutionProfile, workspace profileW
 	} else if roots := repositoryReferencePaths(profile, workspace); len(roots) > 0 {
 		filesystem["denyWrite"] = roots
 	}
+	if workspace.SkillReferenceRoot != "" {
+		roots, _ := filesystem["denyWrite"].([]string)
+		filesystem["denyWrite"] = append(roots, workspace.SkillReferenceRoot)
+	}
 	if safeTools && profile.Role == RoleImplementer {
 		// npm's content-addressed cache is the only home-directory exception.
 		// Project files and package execution remain inside the worktree.
@@ -358,6 +362,9 @@ func repositoryReadRoots(profile ExecutionProfile, workspace profileWorkspace) [
 
 func sandboxAdditionalReadPaths(workspace profileWorkspace, safeTools bool) []string {
 	paths := append([]string(nil), workspace.GitReadRoots...)
+	if workspace.SkillReferenceRoot != "" {
+		paths = append(paths, workspace.SkillReferenceRoot)
+	}
 	if safeTools {
 		paths = append(paths, workspace.ToolReadPaths...)
 	}
