@@ -54,6 +54,13 @@ func TestReviewEvidenceCopiesOnlySelectedBytesAndSealsThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Even byte-identical replacement cannot reuse the review's evidence seal.
+	// Keep the original inode allocated: Linux can otherwise reuse it during
+	// immediate unlink/recreate, making this a filesystem-timing fixture.
+	original, err := os.Open(copyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer original.Close()
 	if err := os.Remove(copyPath); err != nil {
 		t.Fatal(err)
 	}
