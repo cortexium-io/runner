@@ -2355,6 +2355,15 @@ do not add a second complete QA lane. This changes the reviewer for work using
 that rule, not just a card whose title sounds UI-related. Review the affected
 work before enabling it, and restore the original routing after a bounded trial.
 
+Existing card authority is bound to its role identity. Do not rename the role
+under already-authorized or retained work: a queued `reviewer` action cannot
+silently become `ux_reviewer`. For a trial on those cards, retain the existing
+reviewer ID and explicitly add the two skills to that profile with `role edit
+reviewer --skill runner-reviewer --skill runner-interaction-design --config PATH`.
+Keep its runtime settings unchanged and restore the prior skill selection after
+the trial. Named inherited profiles are appropriate when routing new work before
+it receives role-bound authority.
+
 The same approach can create a design-aware planner or implementer. Keep its
 ordinary `runner-planner` or `runner-implementer` skill alongside the design skill.
 Skill lists replace, rather than append to, inherited lists; validation requires
