@@ -112,6 +112,18 @@ Re-check the available capabilities before reporting a blocker. Report missing
 required inputs or permissions together; preserve completed evidence and do not
 expand authority or invent credentials to proceed. A missing historical report
 alone is not a blocker when current evidence can establish the required behavior.
+When Runner supplies a read-only evidence bundle, inspect its manifest and the
+applicable reports before requesting fresh checks. Resolve retained paths through
+the supplied mapping; do not execute bundled files, follow external report paths,
+or treat captured bytes as proof that checks ran on the current candidate.
+
+Missing or inaccessible proof does not establish a code defect or a repository-rule
+violation. Use `check_required` during audit when a permitted current check can
+answer the unresolved question; use `blocked` when required proof is unavailable
+and cannot be established within the supplied capabilities. Name the missing input
+and recovery needed. Reserve `failed` for demonstrated violations, including an
+established bypass of required validation. Keep genuine failures even when another
+check lacks evidence; neither missing proof nor a focused pass waives required gates.
 
 ## Result
 

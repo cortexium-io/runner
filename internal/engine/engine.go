@@ -1441,6 +1441,10 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		defer cancel()
 		_ = reviewWorkspace.Cleanup(cleanupCtx)
 	}()
+	if err := reviewWorkspace.PrepareEvidence(ctx, preparedWorkspace, candidate, s.cfg.ReviewEvidencePaths, s.snapshotLimits()); err != nil {
+		return s.failExecution(ctx, action, lane, result, "Selected QA evidence could not be safely captured", err,
+			integrityViolationOutput("Selected QA evidence could not be safely captured", err))
+	}
 	reviewSnapshot, err := s.checkoutSnapshotState(ctx, reviewWorkspace.Path)
 	if err != nil {
 		return s.failExecution(ctx, action, lane, result, "Private Agent QA workspace could not be snapshotted", err,
@@ -1481,7 +1485,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation verification evidence is not valid for QA", err,
 			integrityViolationOutput("Implementation verification evidence is not valid for QA", err), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
-	output, err := s.runReviewer(ctx, item.Role, reviewWorkspace.Path, assignment)
+	output, err := s.runReviewer(ctx, item.Role, reviewWorkspace, assignment)
 	result.HarnessDurationMilliseconds = output.HarnessDurationMilliseconds
 	result.Usage = output.Usage
 	result.WorkDone = append([]string(nil), output.WorkDone...)
@@ -1495,6 +1499,11 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	verifyCtx, cancelVerify := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancelVerify()
+	if evidenceErr := reviewWorkspace.VerifyEvidence(verifyCtx); evidenceErr != nil {
+		combinedErr := errors.Join(err, evidenceErr)
+		return s.failExecution(ctx, action, lane, result, "Retained QA evidence integrity check failed", combinedErr,
+			integrityViolationOutput("Retained QA evidence integrity check failed", combinedErr, output))
+	}
 	currentReviewSnapshot, snapshotErr := s.checkoutSnapshotState(verifyCtx, reviewWorkspace.Path)
 	if snapshotErr != nil {
 		combinedErr := errors.Join(err, snapshotErr)

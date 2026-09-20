@@ -859,11 +859,46 @@ project trial; local prompt tests do not establish them.
 repository whenever `doctor` or Runner performs repository work. The checkout
 does not have to be clean: Runner fingerprints and leaves its tracked and
 untracked files untouched. Each implementation item owns one deterministic
-task branch and worktree outside that checkout; implementation and agent QA use
-that same workspace until the accepted commit has been published. Runner then
+task branch and worktree outside that checkout. Agent QA reads a private detached
+checkout of the exact candidate; dynamic checks use a separate disposable source
+copy. The implementation worktree is retained until publication. Runner then
 removes the local worktree while retaining the branch. Patch handoff files and
 manifests are not generated; the branch and GitHub pull request are the recovery
 path.
+
+### Retained review evidence
+
+By default QA receives committed source and candidate-bound structured evidence,
+not ignored implementation reports. To expose retained receipts, reports, or
+screenshots, select explicit worktree-relative files or subdirectories:
+
+```json
+"review_evidence_paths": ["qa-evidence", "test-results/summary.json"]
+```
+
+Select only evidence meant for review: every file in a selected directory is
+included, including ignored files. Do not select credentials, dependencies, or
+unrelated private material. Paths are literal (no globs), cannot overlap, escape
+the worktree, name the whole worktree, or include `.git`. Runner rejects symlinks,
+hard links, special files, unsafe file ownership/permissions, concurrent capture
+changes, and snapshots exceeding the configured `resource_limits` entry/per-file/
+total-byte limits. Missing selected paths are recorded in the manifest.
+
+Before QA, Runner copies the selection into a private read-only evidence bundle
+outside both the candidate and writable verification copy. The manifest lists
+original relative paths, captured hashes, missing inputs, and the candidate
+commit/tree. Reports keep their original bytes: reviewers map references through
+the manifest, inspect provenance and applicability, and cannot follow arbitrary
+external report paths. This is not a claim that historical checks cover the
+current candidate, nor permission to execute bundled tools or bypass validation.
+The bundle is removed with the private review checkout. Existing implementation
+reports remain untouched. Codex and Claude enforce read-only grants; Pi still
+requires explicitly trusted host access.
+
+If required proof is unavailable and no permitted check can establish it, QA
+reports `blocked` / `review_incomplete` without consuming a rejection or routing
+to implementation. Restore the missing input/access and use ordinary `retry`.
+An observed defect or established skipped required gate still counts as a failure.
 
 ### Repository references
 

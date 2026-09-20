@@ -255,11 +255,15 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	if !reviewSnapshot.Clean || reviewSnapshot.Head != plan.Candidate.CommitOID || reviewSnapshot.Tree != plan.Candidate.TreeOID {
 		return result, errors.New("private review workspace is not the exact previewed clean candidate")
 	}
+	if err := review.PrepareEvidence(ctx, metadata, plan.Candidate, s.cfg.ReviewEvidencePaths, s.snapshotLimits()); err != nil {
+		result.FailureClass = string(execution.FailureIntegrityViolation)
+		return result, err
+	}
 	assignment := s.assignment(item, github.DelegatedContentFor(item), plan.Feedback, plan.Comments)
 	assignment.Spec.ReviewOnly = true
 	assignment.Spec.ReviewBaseOID, assignment.Spec.ReviewCandidateOID = metadata.BaseRevision, plan.Candidate.CommitOID
 	assignment.Spec.RecordedVerification = plan.Verification
-	output, runErr := s.runReviewer(ctx, item.Role, review.Path, assignment)
+	output, runErr := s.runReviewer(ctx, item.Role, review, assignment)
 	result.Usage, result.HarnessDurationMilliseconds = output.Usage, output.HarnessDurationMilliseconds
 	result.WorkDone, result.Verification = output.WorkDone, output.Verification
 	result.FailureClass = string(output.FailureClass)
@@ -269,6 +273,10 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	}
 	verifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
+	if evidenceErr := review.VerifyEvidence(verifyCtx); evidenceErr != nil {
+		result.FailureClass = string(execution.FailureIntegrityViolation)
+		return result, errors.Join(runErr, evidenceErr)
+	}
 	currentReview, err := s.checkoutSnapshotState(verifyCtx, review.Path)
 	if err != nil {
 		result.FailureClass = string(execution.FailureIntegrityUnverified)
@@ -311,9 +319,10 @@ func (s *Engine) RunQAReauthorization(ctx context.Context, plan QAReauthorizatio
 	return result, nil
 }
 
-func (s *Engine) runReviewer(ctx context.Context, role, path string, assignment execution.Assignment) (execution.Output, error) {
+func (s *Engine) runReviewer(ctx context.Context, role string, review workspace.ReviewWorkspace, assignment execution.Assignment) (execution.Output, error) {
 	harness := s.roleHarness(role)
-	cfg := s.executionConfig(role, harness, path)
+	cfg := s.executionConfig(role, harness, review.Path)
+	cfg.ReviewEvidenceRoot = review.EvidencePath
 	switch harness {
 	case config.HarnessCodexCLI:
 		return execution.NewCodexExecutor(cfg, s.run).Execute(ctx, assignment)

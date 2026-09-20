@@ -485,8 +485,22 @@ records the difference instead of claiming an unchanged reproduction or proof
 of concurrent-load reliability.
 The bundled implementer supplies self-contained command, scope, settings, and
 outcome evidence in the existing candidate-bound record. Failed checks and
-reruns include affected test identities and both outcomes; temporary reports
-are not copied across role workspaces. The reviewer distinguishes concrete
+reruns include affected test identities and both outcomes. Reports are not
+implicitly copied across role workspaces. Optional operator-configured
+`review_evidence_paths` select literal worktree-relative files or subtrees for
+a private QA evidence snapshot beside, not inside, the canonical candidate.
+Runner copies only regular, owned, non-group/other-writable, single-link files
+and directories without following links or exposing Git administration. Existing
+snapshot entry, per-file, and total-byte limits apply. It verifies source
+identity/content during capture and seals the resulting files, directories, and
+manifest through review. Missing selections are listed, not silently invented.
+The manifest binds captured bytes and their original path mapping to the review
+candidate; it does not attest that reported checks executed on that candidate.
+Only reviewers receive the disposable bundle, read-only in Codex and Claude;
+Pi retains its explicit host-access requirement. Artifact paths found in reports
+do not authorize additional reads. No dependency tree, executable setup, persistent
+artifact store, or acceptance transfer is introduced.
+The reviewer distinguishes concrete
 defects from unexplained timing failures. Its focused stage permits one
 unchanged diagnostic confirmation of a known check, counting an existing
 adequately diagnosed unchanged retry toward that bound. If historical details
@@ -497,6 +511,10 @@ diagnostic observations, and uncertainty belong in structured evidence. Fresh
 focused success does not establish an unknown full-suite result. Genuinely
 inconclusive proof remains blocked. This is guidance inside the existing harness
 invocation, not another Runner retry mechanism or a change to rejection accounting.
+The initial audit also permits `blocked` for required proof that cannot be
+established with available evidence or permitted verification. Missing reports
+alone are not failed repository rules. Concrete observed failures still take
+precedence over blocked checks; neither status waives required validation.
 Operator-selected `standard` or `high`
 task sizing changes only decomposition and specificity for implementer and
 reviewer roles. Runner never infers capability from model names, and the shared

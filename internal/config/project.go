@@ -196,6 +196,9 @@ func (c Config) Validate() error {
 	if err := validateRepositoryReferences(c); err != nil {
 		return err
 	}
+	if err := ValidateReviewEvidencePaths(c.ReviewEvidencePaths); err != nil {
+		return err
+	}
 	fields := []string{
 		project.ResultField,
 		project.ApprovalField,
