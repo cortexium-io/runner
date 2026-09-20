@@ -137,9 +137,8 @@ func (s *Engine) loadReviewFeedbackRecord(item github.WorkItem, content github.D
 		return nil, err
 	}
 	if record.DelegatedContentDigest != strings.TrimSpace(content.Digest) {
-		if err := s.clearReviewFeedback(item.ID); err != nil {
-			return nil, fmt.Errorf("remove stale Agent QA feedback: %w", err)
-		}
+		// An operator amendment renews the contract, not the historical verdict.
+		// Keep the old record intact without presenting it as current proof.
 		return nil, nil
 	}
 	return record, nil

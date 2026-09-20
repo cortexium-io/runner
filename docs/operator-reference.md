@@ -916,9 +916,10 @@ Implementer launches validate references on every attempt, including retries,
 and permit source inspection while retaining write access only to the assigned
 worktree and allowed runtime/cache locations under sandboxed execution. No
 configuration migration is needed when upgrading to implementer reference
-support. Existing cards can retain obsolete instructions denying this access:
-use `retry --feedback` to explicitly supersede that restriction on a blocked
-card while preserving its task scope. Do not hand-edit authenticated planning
+support. Existing cards can retain obsolete instructions denying this access.
+`retry --feedback` can correct stale operational feedback, but does not amend
+approved requirements. Use the explicit requirement amendment described below
+when the card itself must change. Do not hand-edit authenticated planning
 metadata. Runner embeds the updated role skill in each launch; `init` refreshes
 installed skill copies when needed.
 
@@ -2114,6 +2115,65 @@ attempt reruns implementation with a fresh review budget:
 cortexium-runner retry --config /absolute/operator/path/runner.json --item ITEM_ID \
   --feedback "Keep task-owned edits and leave unrelated operator changes untouched."
 ```
+
+This feedback is historical retry context, not a durable requirement amendment.
+It cannot override the signed card body or its proof obligations, and later
+attempt results replace it. Repository notes and issue comments claiming human
+approval cannot amend that contract either.
+
+### Amending an approved requirement
+
+For an explicitly approved change of requirements on **unpublished retained
+work**, use `amend`. Prepare a complete replacement body that resolves the old
+requirement everywhere it appears, including acceptance criteria, constraints,
+and proof obligations. Preserve the exact Runner planning metadata and
+dependencies; this command cannot change scheduling, repository, or profiles.
+
+```bash
+cortexium-runner amend --config /absolute/operator/path/runner.json \
+  --item ITEM_ID --body-file approved-requirements.md --dry-run
+cortexium-runner stop --config /absolute/operator/path/runner.json --wait
+cortexium-runner amend --config /absolute/operator/path/runner.json \
+  --item ITEM_ID --body-file approved-requirements.md
+cortexium-runner retry --config /absolute/operator/path/runner.json --item ITEM_ID --dry-run
+```
+
+The applying command requires an interactive terminal, previews the complete
+old and new bodies and exact clean candidate, and defaults to **No**. `--json`
+is preview-only. The selected card must have intact existing approval, a
+registered clean committed workspace, an implementation/reviewer retry phase,
+and no PR, QA acceptance, active assignment, or transition. Fresh staged cards
+still require complete-batch approval. Changed previews, workspace identities,
+candidates, and incomplete or invalid batches are refused. No model is called.
+
+Runner updates the issue body and its signed authority, explicitly rebinds only
+that retained workspace to the new content digest, and preserves the candidate,
+branch, rejection count, dependencies, profiles, and siblings. For a released
+Project-driven plan, its source's exact-child release binding is renewed without
+authorizing or changing another child. Previous QA feedback stays historical;
+the old private verification record is archived beside the active record under
+a content-digest suffix. Old proof and acceptance are never relabelled as
+evidence for the revised requirements. Both subsequent implementation and QA
+receive the same revised body and proof obligations through the existing shared
+assignment contract.
+
+The card is left `Blocked`, in its existing retry phase. After checking the
+result, an ordinary `retry` returns it to that phase without resetting the QA
+count; restart the original service when ready. Amendment itself does not
+implement, review, publish, or merge. A reviewer-phase candidate therefore can
+receive fresh QA directly, without another implementation pass.
+
+Applying an amendment requires the coordinator to have fully drained and
+stopped, and excludes concurrent operator QA and Project mutations. Normal
+intake/planning/retry commands retain their concurrent behavior. Failed writes
+are read back: a confirmed commit is recognized, and known partial writes are
+restored only if no intervening operator edits occurred. On an uncertain outcome
+or interrupted amendment, leave Runner stopped and inspect the preview, issue,
+release binding, and workspace identity before recovery; do not clear authority
+or reset history to force a retry. Published work needs separate reassessment
+and is deliberately outside this command's current scope.
+
+### Retry and approval recovery
 
 In a terminal, `cortexium-runner retry --config /absolute/operator/path/runner.json` presents the retryable blocked
 cards as an arrow-key menu. The command preserves the previous result as attempt

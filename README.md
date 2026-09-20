@@ -652,6 +652,10 @@ cortexium-runner retry --config "$RUNNER_CONFIG"
 cortexium-runner retry --config "$RUNNER_CONFIG" --item ITEM_ID \
   --feedback "Correct the reported candidate validation failure."
 
+# Preview an explicitly approved requirements change (not ordinary retry feedback)
+cortexium-runner amend --config "$RUNNER_CONFIG" --item ITEM_ID \
+  --body-file approved-requirements.md --dry-run
+
 # Optional minimal live calls to configured harnesses
 cortexium-runner doctor --probe-harnesses --config "$RUNNER_CONFIG"
 

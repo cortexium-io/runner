@@ -67,6 +67,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		return runPlan(ctx, args[1:], stdin, stdout)
 	case "approve":
 		return runApprove(ctx, args[1:], stdin, stdout)
+	case "amend":
+		return runAmend(ctx, args[1:], stdin, stdout)
 	case "retry":
 		return runRetry(ctx, args[1:], stdin, stdout)
 	case "status":
@@ -107,6 +109,7 @@ Project work:
   cortexium-runner add plan|ready [--config PATH] --title TEXT (--body TEXT|--body-file PATH) [--dry-run]
   cortexium-runner plan [--config PATH] [--idea TEXT|--idea-file PATH|--plan-file PATH] [--create|--stage-only|--approve-staged FINGERPRINT]
   cortexium-runner approve [--config PATH] --item ID|URL [--dry-run]
+  cortexium-runner amend [--config PATH] --item ID|URL --body-file PATH [--dry-run|--json]
   cortexium-runner retry [--config PATH] [--item ID|URL|TITLE] [--feedback TEXT] [--dry-run]
 
 Execution:

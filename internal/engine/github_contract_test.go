@@ -599,6 +599,19 @@ func (r *fakeGitHubProjectRunner) Run(_ context.Context, command string, args []
 		}
 		return subprocess.Result{}, nil
 	case strings.HasPrefix(joined, "issue edit "):
+		if body := argumentValue(args, "--body"); body != "" {
+			r.bodyEditWrites++
+			if r.failBodyEditAt > 0 && r.bodyEditWrites == r.failBodyEditAt {
+				return subprocess.Result{}, errors.New("simulated issue body write failure")
+			}
+			r.loadRemoteItems()
+			for index := range r.remoteItems {
+				if r.remoteItems[index].URL == args[2] {
+					r.remoteItems[index].Body = body
+				}
+			}
+			return subprocess.Result{}, nil
+		}
 		r.issueLabels = withoutNormalizedValue(r.issueLabels, "needs-assessment")
 		return subprocess.Result{}, nil
 	case strings.HasPrefix(joined, "issue comment "):

@@ -193,8 +193,8 @@ func TestAgentQAFeedbackIsPrivateBoundedAndInjectedIntoNextImplementation(t *tes
 	if err != nil || len(feedback) != 0 {
 		t.Fatalf("stale feedback was reused: feedback=%#v err=%v", feedback, err)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("stale feedback was not removed: %v", err)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("historical feedback was removed: %v", err)
 	}
 }
 
