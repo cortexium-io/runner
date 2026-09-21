@@ -17,6 +17,8 @@ import (
 // usageStream keeps counters, not a transcript. A single oversized/malformed
 // record cannot prevent later usage records from being observed.
 type usageStream struct {
+	ctx          context.Context
+	activity     activityStream
 	kind         string
 	pending      []byte
 	discarding   bool
@@ -27,7 +29,7 @@ type usageStream struct {
 }
 
 func observeHarness(ctx context.Context, kind string) (context.Context, *usageStream) {
-	stream := &usageStream{kind: kind}
+	stream := &usageStream{kind: kind, ctx: ctx}
 	ctx = subprocess.WithStdoutObserver(ctx, stream)
 	ctx = subprocess.WithCleanupObserver(ctx, func() func(error) {
 		finish := metrics.StartStage(ctx, metrics.StageHarnessCleanup)
@@ -69,6 +71,7 @@ func (s *usageStream) Write(data []byte) (int, error) {
 				s.pending = nil
 				s.discarding = true
 				s.partial()
+				s.activity.summary.Coverage = "partial"
 				if s.kind == config.HarnessPiCLI {
 					s.piIncomplete = true
 				}
@@ -96,23 +99,32 @@ func (s *usageStream) partial() {
 func (s *usageStream) finish(fallback string, runErr error) metrics.Usage {
 	// Injected runners may return synthetic output without using OSRunner's
 	// observer. Production consumes the original stream exactly once.
-	if !s.observed {
+	live := s.observed
+	if !live {
 		_, _ = io.WriteString(s, fallback)
 	}
 	if !s.discarding && len(s.pending) > 0 {
 		s.consume(s.pending)
 	}
 	s.pending = nil
+	if !live {
+		// Buffered fallback output has no trustworthy event receipt timing.
+		s.activity = activityStream{}
+	}
 	if runErr != nil {
 		s.partial()
 	}
 	if !s.latest.Reported() {
 		s.latest.Coverage = metrics.UsageUnavailable
 	}
+	if s.ctx != nil {
+		metrics.RecordHarnessActivity(s.ctx, s.activity.finish())
+	}
 	return s.latest
 }
 
 func (s *usageStream) consume(line []byte) {
+	s.activity.consume(s.kind, line, time.Now().UTC())
 	var event struct {
 		Type     string            `json:"type"`
 		Message  json.RawMessage   `json:"message"`

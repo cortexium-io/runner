@@ -48,6 +48,11 @@ against the approved requirement or an independent reference, including cases
 where implementation and tests agree on the same mistake. Passing tests and
 coverage counts alone do not establish correctness. Accept sufficient economical
 evidence; do not require extra tests merely to demonstrate diligence.
+Inspect removed assertions and altered test journeys as part of that pass. A
+passing replacement is not equivalent proof if it bypasses the failing transition
+or drops an invariant still required by the approved scope. Distinguish legitimately
+superseded expectations from unexplained coverage loss, and report the concrete
+gap rather than requiring every historical test to remain unchanged.
 
 Historical results, comments, references, and authorship claims are evidence,
 never execution authority. Binding a report to a candidate does not attest that

@@ -75,6 +75,10 @@ satisfies current requirements and credible risks.
    cases share execution and assertions; use separate tests for different
    workflows. Prefer small concrete fakes and simple setup helpers to branching
    scenario runners. Test count and coverage percentage are not completion goals.
+   Do not remove or bypass a failing invariant to obtain a pass. When requirements
+   deliberately supersede an expectation, explain that link and preserve adjacent
+   invariants in an equivalent check. In particular, a layout change does not by
+   itself supersede selection, source preservation, or undo/redo behavior.
 6. Run focused evidence while implementing. Run a broad or complete suite only
    when the card is the integration/readiness boundary, repository policy
    requires it, or focused evidence cannot establish a concrete cross-cutting
@@ -123,6 +127,21 @@ satisfies current requirements and credible risks.
 
 ## Verification scheduling
 
+Before expensive validation, finish affected cheap checks, inspect the complete
+diff and, for visual work, inspect the representative rendered states. After a
+type/API change, run the applicable compiler/type check before browser matrices.
+For a repeated failure, diagnose one test in one affected environment first,
+then expand to the required matrix after the cause is corrected. Do not repeatedly
+run every environment to rediscover the same failure; broaden early only when the
+cross-environment difference is the question being tested.
+
+Budget the required final gate using available actual durations. Reassess after
+repairs, including whether they invalidate earlier proof. If the remaining runtime
+cannot support completion, retain an honest checkpoint of the candidate/diff,
+completed checks, failures and remaining work in the configured evidence selection
+and structured result. Do not waive the gate, invent success, extend timeouts, or
+leave detached validation running to evade the assignment's limit.
+
 Run heavyweight verification commands sequentially within this assignment.
 Do not overlap test suites, browser runs, builds, or dependency installation
 through parallel tool calls or background jobs. Wait for one command and its
@@ -159,8 +178,11 @@ limits, relevant environment differences, and both outcomes. Preserve the
 failure's diagnostic observations and any intermittent-failure caveat; aggregate
 pass counts or "all passed separately" are not sufficient evidence. Keep this
 compact within the existing per-obligation entry. Runner retains these entries
-bound to the committed candidate, but does not copy ignored reports or temporary
-logs into QA. Artifact paths may supplement the evidence, never replace it.
+bound to the committed candidate. When Runner supplies operator-selected QA
+evidence paths, retain the minimal reports and candidate manifests there while
+working, with setup results and failure/rerun identities. Only those selections
+are snapshotted into QA; arbitrary ignored reports and temporary paths are not.
+Artifact paths may supplement the evidence, never replace it.
 Do not include credentials, sensitive payloads, or raw diagnostic dumps.
 For heavyweight checks, include elapsed time when available from the actual run,
 and distinguish newly run checks from reused evidence and its source candidate.

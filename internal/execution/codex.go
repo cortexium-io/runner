@@ -473,7 +473,7 @@ func (e CodexExecutor) projectPrompt(assignment Assignment, workspace profileWor
 }
 
 func (e CodexExecutor) workspaceWritePrompt(assignment Assignment) string {
-	return harnessGuidance(config.HarnessCodexCLI, e.config, true) + buildWorkspaceWriteCodexPrompt(assignment)
+	return harnessGuidance(config.HarnessCodexCLI, e.config, true) + buildWorkspaceWriteCodexPrompt(assignment) + implementationHandoff(e.config)
 }
 
 func (e CodexExecutor) runCodex(ctx context.Context, args []string, workingDir string, input io.Reader) (subprocess.Result, metrics.Usage, error) {

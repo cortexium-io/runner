@@ -11,6 +11,21 @@ func TestReviewEvidencePathsAreExplicitBoundedSelections(t *testing.T) {
 			t.Fatalf("valid evidence paths did not resolve: %v", err)
 		}
 		if len(paths) > 0 {
+			for _, role := range []string{WorkRoleImplementer, WorkRoleReviewer, WorkRolePlanner} {
+				profile, _ := resolved.RoleProfile(role)
+				execution := resolved.Execution(role, profile.Harness, "/workspace")
+				if role == WorkRoleImplementer {
+					if len(execution.ReviewEvidencePaths) != len(paths) {
+						t.Fatal("implementer lacks selected destinations")
+					}
+					execution.ReviewEvidencePaths[0] = "changed"
+					if resolved.ReviewEvidencePaths[0] == "changed" {
+						t.Fatal("execution selection aliases runtime config")
+					}
+				} else if len(execution.ReviewEvidencePaths) > 0 {
+					t.Fatal("non-implementer given evidence-writing destinations")
+				}
+			}
 			resolved.ReviewEvidencePaths[0] = "changed"
 			if cfg.ReviewEvidencePaths[0] == "changed" {
 				t.Fatal("resolved paths alias saved configuration")

@@ -25,11 +25,15 @@ func TestImplementationAdaptersLaunchWithSkillReferences(t *testing.T) {
 			cfg := testWorkspaceWriteConfig(t)
 			cfg.Harness.Kind, cfg.Harness.Command = kind, kind
 			cfg.Skills = []string{"runner-implementer", "runner-interaction-design"}
+			cfg.ReviewEvidencePaths = []string{"test-results/runner-review-evidence"}
 			if kind == config.HarnessPiCLI {
 				cfg.RoleAccess = config.RoleAccessHost
 			}
 			root := ""
 			run := &implementationReferenceRunner{representationResidueRunner: representationResidueRunner{kind: kind}, inspect: func(prompt string, args []string) {
+				if !strings.Contains(prompt, `test-results/runner-review-evidence`) || !strings.Contains(prompt, "Implementation runtime budget:") {
+					t.Fatal("native implementation launch omitted configured handoff/budget")
+				}
 				_, suffix, found := strings.Cut(prompt, "Runner-pinned skill reference root: ")
 				if !found {
 					t.Fatal("implementation prompt lost references")

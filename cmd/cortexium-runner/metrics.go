@@ -105,18 +105,19 @@ type metricUnattributedReport struct {
 }
 
 type metricStageHistory struct {
-	StageID              string                        `json:"stage_id"`
-	Name                 string                        `json:"name"`
-	StartedAt            *time.Time                    `json:"runner_observed_started_at,omitempty"`
-	FinishedAt           *time.Time                    `json:"runner_observed_finished_at,omitempty"`
-	DurationMilliseconds int64                         `json:"runner_observed_duration_milliseconds,omitempty"`
-	Outcome              string                        `json:"runner_observed_outcome,omitempty"`
-	FailureClass         string                        `json:"runner_observed_failure_class,omitempty"`
-	RetryDisposition     string                        `json:"runner_observed_retry_disposition,omitempty"`
-	PromptContexts       []runnermetrics.PromptContext `json:"runner_observed_prompt_contexts,omitempty"`
-	Completed            bool                          `json:"runner_observed_completed"`
-	Usage                *runnermetrics.Usage          `json:"model_reported_usage,omitempty"`
-	Unavailable          []string                      `json:"unavailable,omitempty"`
+	StageID              string                         `json:"stage_id"`
+	Name                 string                         `json:"name"`
+	StartedAt            *time.Time                     `json:"runner_observed_started_at,omitempty"`
+	FinishedAt           *time.Time                     `json:"runner_observed_finished_at,omitempty"`
+	DurationMilliseconds int64                          `json:"runner_observed_duration_milliseconds,omitempty"`
+	Outcome              string                         `json:"runner_observed_outcome,omitempty"`
+	FailureClass         string                         `json:"runner_observed_failure_class,omitempty"`
+	RetryDisposition     string                         `json:"runner_observed_retry_disposition,omitempty"`
+	PromptContexts       []runnermetrics.PromptContext  `json:"runner_observed_prompt_contexts,omitempty"`
+	Completed            bool                           `json:"runner_observed_completed"`
+	Usage                *runnermetrics.Usage           `json:"model_reported_usage,omitempty"`
+	HarnessActivity      *runnermetrics.HarnessActivity `json:"runner_observed_harness_activity,omitempty"`
+	Unavailable          []string                       `json:"unavailable,omitempty"`
 }
 
 func runMetrics(args []string, stdout io.Writer) error {
@@ -210,6 +211,7 @@ func metricAttemptHistoryFor(attempt runnermetrics.Attempt) metricAttemptHistory
 			StageID: stage.StageID, Name: stage.Name, DurationMilliseconds: stage.DurationMilliseconds,
 			Outcome: stage.Outcome, FailureClass: stage.FailureClass, RetryDisposition: stage.RetryDisposition,
 			PromptContexts: append([]runnermetrics.PromptContext(nil), stage.PromptContexts...), Completed: stage.Completed,
+			HarnessActivity: stage.HarnessActivity,
 		}
 		if !stage.StartedAt.IsZero() {
 			started := stage.StartedAt
@@ -652,6 +654,20 @@ func writeMetricStages(output io.Writer, stages []runnermetrics.Stage) {
 			fmt.Fprintf(output, " · retry %s", terminalSafeText(string(stage.RetryDisposition)))
 		}
 		fmt.Fprintln(output)
+		if activity := stage.HarnessActivity; activity != nil {
+			if activity.Coverage == "unavailable" {
+				fmt.Fprintln(output, "        harness activity: unavailable; not zero")
+			} else {
+				fmt.Fprintf(output, "        harness activity: %s · %d tools started / %d completed / %d without completion event · completed tool intervals %s (may overlap; not validation time)\n",
+					terminalSafeText(activity.Coverage), activity.ToolsStarted, activity.ToolsCompleted, activity.ActiveTools, formatMetricDuration(activity.ToolMilliseconds))
+				if !activity.LastEventAt.IsZero() {
+					fmt.Fprintf(output, "        last event observed: %s · %s\n", activity.LastEventAt.UTC().Format(time.RFC3339), terminalSafeText(activity.LastEventKind))
+				}
+				if !activity.OldestActiveAt.IsZero() {
+					fmt.Fprintf(output, "        oldest tool without completion event: %s\n", activity.OldestActiveAt.UTC().Format(time.RFC3339))
+				}
+			}
+		}
 		for _, context := range stage.PromptContexts {
 			fmt.Fprintf(output, "        prompt context fingerprint: %s · pinned guidance %s\n", terminalSafeText(context.Layout), terminalSafeText(context.GuidanceDigest))
 		}
