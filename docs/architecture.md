@@ -189,7 +189,13 @@ or `none` retry disposition. Non-review agent outcomes `needs_input` and
 `blocked` receive `needs_input` and `agent_blocked` respectively, with manual
 recovery and retained retry lanes when stopping in `Blocked`. Their private
 blocker text does not grant automatic retries or public-diagnostic authority; Runner does not infer a
-provider failure from it. A structured blocked QA verdict becomes
+provider failure from it. Implementers additionally support `repair_needed`:
+an explicit request with retained work, identifiable failure evidence and a
+concrete in-scope remaining repair. Only the engine can admit it, after current
+authority, human/review context and retained workspace checks. Ordinary failing
+tests should first be repaired within the current session, not reported as
+blockers. Planning and review contracts do not accept `repair_needed`.
+A structured blocked QA verdict becomes
 `review_incomplete` with manual retry, not a capability diagnosis. Its fixed
 remote label is "QA evidence incomplete"; model-authored detail remains local.
 Runner/adapter-detected capability failures retain `capability_unavailable`.
@@ -344,19 +350,33 @@ being repeated after a Runner-side candidate, evidence, or Project-transition
 failure. It binds the approved content, semantic comment and QA context,
 repository/base/branch identity, proof obligations, and exact workspace
 snapshot. When a candidate exists, its commit and tree are bound as well. Only
-an exact match reconstructs the successful output, with zero new harness usage;
-any mismatch removes the stale checkpoint. The checkpoint is cleared after the
+an exact match reconstructs the successful output, with zero new harness usage.
+A mismatch in a checkpoint with a recorded execution budget stops for explicit
+recovery instead of silently renewing that budget. The checkpoint is cleared after the
 successful transition to Agent QA, so it cannot bypass later independent QA.
 Ordinary candidate-content failures such as unresolved conflicts or
 `git diff --cached --check` errors are not workspace-integrity failures. Runner
-clears the unusable checkpoint and gives the same implementer one immediate
-corrective pass inside the current action, after revalidating approval. The
+gives the same implementer one immediate corrective pass inside the current
+action, after revalidating approval. Candidate correction and model-requested
+implementation repair share that single allowance and the original runtime
+deadline, keeping the same admission/resource claim. The
 pass retains the worktree, approved scope, QA feedback, and earlier verification
 as untrusted historical evidence; Runner restages and rechecks the result before
-QA. Both harness calls count toward usage, but neither candidate failure consumes
-a QA rejection. A second candidate-content failure blocks with a bounded,
-privacy-safe correction and requires an explicit retry through implementation;
-integrity failures never enter this automatic correction path.
+QA. Both harness calls count toward usage, but neither consumes a QA rejection.
+The existing private checkpoint records the spent allowance before launch and
+keeps it through successful post-processing. An interrupted correction cannot
+be relaunched after restart: it stops for inspection and explicit retry. Once a
+non-executing recovery transition is confirmed, the spent checkpoint is cleared;
+the retained workspace and attempt history remain. A later human retry/Ready move
+starts a new budget. Failed transitions keep the guard, so polling cannot silently
+renew it. Successful post-processing can still resume without a model call.
+A second repair request becomes `repair_exhausted`; a second candidate-content
+failure retains its specific `candidate_validation` diagnosis. Provider failures
+during the final corrective pass require manual recovery rather than renewing
+the implementation budget through the provider retry loop. Permission, capability,
+integrity and unresolved-cleanup failures never authorize this correction path.
+The `implementation_repair` metrics stage records admission/refusal, while normal
+harness stages retain each call's usage and timing. It is not another QA stage.
 Operator-supplied retry feedback also clears the checkpoint before changing the
 card, while unchanged Runner-side post-processing failures retain it.
 

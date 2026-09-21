@@ -50,9 +50,10 @@ type Assignment struct {
 }
 
 const (
-	OutcomeSucceeded  = "succeeded"
-	OutcomeNeedsInput = "needs_input"
-	OutcomeBlocked    = "blocked"
+	OutcomeSucceeded    = "succeeded"
+	OutcomeNeedsInput   = "needs_input"
+	OutcomeBlocked      = "blocked"
+	OutcomeRepairNeeded = "repair_needed"
 )
 
 // FailureClass is a Runner-owned, privacy-safe reason for an unsuccessful
@@ -75,6 +76,8 @@ const (
 	FailureBrowserStartup         FailureClass = "browser_startup"
 	FailureNeedsInput             FailureClass = "needs_input"
 	FailureAgentBlocked           FailureClass = "agent_blocked"
+	FailureImplementationRepair   FailureClass = "implementation_repair"
+	FailureRepairExhausted        FailureClass = "repair_exhausted"
 	FailurePermissionDenied       FailureClass = "permission_denied"
 	FailureAuthenticationRequired FailureClass = "authentication_required"
 	FailureInvalidConfiguration   FailureClass = "invalid_configuration"

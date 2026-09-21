@@ -127,6 +127,16 @@ satisfies current requirements and credible risks.
 
 ## Verification scheduling
 
+An ordinary in-scope test failure is part of implementation: diagnose and repair
+it in this session while runtime remains. Do not hand it back merely because
+verification failed. If a fresh pass is genuinely needed for a concrete,
+authorized repair, request `repair_needed` with identifiable failure evidence,
+retained work, and the remaining correction. Runner decides whether its single
+corrective pass and original deadline permit continuation; the request grants
+no authority or extra time. Use `needs_input` for missing human decisions or
+permissions, and `blocked` for unavailable prerequisites, exhausted runtime,
+or repeated failure without progress. Never weaken a check to avoid stopping.
+
 Before expensive validation, finish affected cheap checks, inspect the complete
 diff and, for visual work, inspect the representative rendered states. After a
 type/API change, run the applicable compiler/type check before browser matrices.

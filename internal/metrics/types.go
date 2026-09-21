@@ -29,20 +29,21 @@ const (
 )
 
 const (
-	StageWorkspacePrepare   = "workspace_prepare"
-	StageRepositoryPrepare  = "repository_prepare"
-	StageHarnessRun         = "harness_run"
-	StageHarnessCleanup     = "harness_cleanup"
-	StagePlannerOutline     = "planner_outline"
-	StagePlannerDetails     = "planner_details"
-	StageReviewerAudit      = "reviewer_audit"
-	StageReviewerVerify     = "reviewer_verification"
-	StageResultValidate     = "result_validate"
-	StageWorkspaceVerify    = "workspace_verify"
-	StageCandidateConstruct = "candidate_construct"
-	StageProjectTransition  = "project_transition"
-	StagePublishPullRequest = "publish_pull_request"
-	StagePlannerApply       = "planner_apply"
+	StageWorkspacePrepare     = "workspace_prepare"
+	StageRepositoryPrepare    = "repository_prepare"
+	StageHarnessRun           = "harness_run"
+	StageHarnessCleanup       = "harness_cleanup"
+	StagePlannerOutline       = "planner_outline"
+	StagePlannerDetails       = "planner_details"
+	StageReviewerAudit        = "reviewer_audit"
+	StageReviewerVerify       = "reviewer_verification"
+	StageResultValidate       = "result_validate"
+	StageWorkspaceVerify      = "workspace_verify"
+	StageCandidateConstruct   = "candidate_construct"
+	StageImplementationRepair = "implementation_repair"
+	StageProjectTransition    = "project_transition"
+	StagePublishPullRequest   = "publish_pull_request"
+	StagePlannerApply         = "planner_apply"
 )
 
 const (
@@ -56,7 +57,7 @@ func validStageName(name string) bool {
 	case StageWorkspacePrepare, StageRepositoryPrepare, StageHarnessRun, StagePlannerOutline,
 		StagePlannerDetails, StageReviewerAudit, StageReviewerVerify, StageResultValidate,
 		StageWorkspaceVerify, StageCandidateConstruct, StageProjectTransition, StagePublishPullRequest,
-		StagePlannerApply, StageHarnessCleanup:
+		StagePlannerApply, StageHarnessCleanup, StageImplementationRepair:
 		return true
 	default:
 		return false
@@ -79,7 +80,7 @@ func validFailureClass(class string) bool {
 	switch class {
 	case "", "unknown", "transient_external", "capacity_exhausted", "timeout", "canceled", "cleanup_unresolved",
 		"invalid_contract", "capability_unavailable", "review_incomplete", "browser_startup", "needs_input", "agent_blocked", "permission_denied",
-		"authentication_required", "invalid_configuration", "candidate_validation", "integrity_violation", "integrity_unverified":
+		"authentication_required", "invalid_configuration", "candidate_validation", "implementation_repair", "repair_exhausted", "integrity_violation", "integrity_unverified":
 		return true
 	default:
 		return false

@@ -1151,9 +1151,43 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 			integrityViolationOutput("Retained implementation result is not safe to resume", err))
 	}
 	candidate := checkpoint.Candidate
+	correctionAttempt := 0
+	if checkpoint.CorrectionUsed {
+		correctionAttempt = 1
+	}
+	if resumed && checkpoint.Output.Outcome != execution.OutcomeSucceeded {
+		result.WorkDone, result.Verification = checkpoint.Output.WorkDone, checkpoint.Output.Verification
+		result.ModelReportedSummary = checkpoint.Output.Summary
+		return s.failExecution(ctx, action, lane, result, "Implementation repair was interrupted; inspect retained work before retrying.", nil,
+			implementationRepairStop(checkpoint.Output, "Implementation repair was interrupted; inspect retained work before retrying."))
+	}
+	// All model calls in this action share the original runtime budget. Use
+	// the parent context for post-harness integrity checks and transitions.
+	deadline := time.Now().Add(time.Duration(s.executionConfig(executionRole, harness, workingDir).Harness.TimeoutSeconds) * time.Second)
+	if !checkpoint.ExecutionDeadline.IsZero() {
+		deadline = checkpoint.ExecutionDeadline
+	}
+	if parentDeadline, ok := ctx.Deadline(); ok && parentDeadline.Before(deadline) {
+		deadline = parentDeadline
+	}
+	harnessCtx, cancelHarness := context.WithDeadline(ctx, deadline)
+	defer cancelHarness()
+	assignment.Spec.Task.Instructions += "\n\nOriginal implementation execution deadline (including any corrective pass): " + deadline.UTC().Format(time.RFC3339) + ". Do not start work that cannot fit; retain completed and missing proof honestly."
+	var correctionSnapshot *workspace.Snapshot
+	onPrepared := func(metadata workspace.Metadata) error {
+		if correctionSnapshot != nil {
+			snapshot, snapshotErr := s.workspaceSnapshotState(harnessCtx, metadata.WorktreePath)
+			if snapshotErr != nil || snapshot.Fingerprint != correctionSnapshot.Fingerprint || metadata.WorktreePath != preparedWorkspace.WorktreePath {
+				return errors.Join(snapshotErr, errors.New("retained workspace changed before corrective harness launch"))
+			}
+		}
+		preparedWorkspace = metadata
+		result.WorktreePath, result.Branch = metadata.WorktreePath, metadata.BranchName
+		return nil
+	}
 	// Keep one corrective pass inside the current action and admission claim.
 	// Candidate content errors are not QA rejections or provider retries.
-	for correctionAttempt := 0; ; correctionAttempt++ {
+	for ; ; correctionAttempt++ {
 		if resumed {
 			output = checkpoint.Output
 			result.ResumedCheckpoint = true
@@ -1162,28 +1196,18 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 			case config.HarnessCodexCLI:
 				cfg := s.executionConfig(executionRole, harness, workingDir)
 				executor := execution.NewCodexExecutor(cfg, s.run)
-				output, err = executor.ExecuteWorkspaceWrite(ctx, assignment, func(metadata workspace.Metadata) error {
-					preparedWorkspace = metadata
-					result.WorktreePath = metadata.WorktreePath
-					result.Branch = metadata.BranchName
-					return nil
-				})
+				output, err = executor.ExecuteWorkspaceWrite(harnessCtx, assignment, onPrepared)
 			case config.HarnessClaudeCLI, config.HarnessPiCLI:
 				cfg := s.executionConfig(executionRole, harness, workingDir)
 				executor := execution.NewAgentExecutor(harness, cfg, s.run)
-				output, err = executor.ExecuteWorkspaceWrite(ctx, assignment, func(metadata workspace.Metadata) error {
-					preparedWorkspace = metadata
-					result.WorktreePath = metadata.WorktreePath
-					result.Branch = metadata.BranchName
-					return nil
-				})
+				output, err = executor.ExecuteWorkspaceWrite(harnessCtx, assignment, onPrepared)
 			default:
 				err = errors.New("implementation requires Codex CLI, Claude Code, or Pi CLI")
 			}
 		}
 		result.HarnessDurationMilliseconds += output.HarnessDurationMilliseconds
 		result.Usage = result.Usage.Add(output.Usage)
-		result.WorkDone = append([]string(nil), output.WorkDone...)
+		result.WorkDone = append(result.WorkDone, output.WorkDone...)
 		result.Verification = append([]string(nil), output.Verification...)
 		result.FailureClass = string(output.FailureClass)
 		result.RetryDisposition = string(output.RetryDisposition)
@@ -1199,6 +1223,29 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 		result.ModelReportedSummary = output.Summary
 		if err != nil {
 			result.Error = err.Error()
+		}
+		if err == nil && output.Outcome == execution.OutcomeRepairNeeded {
+			finishRepair := metrics.StartStage(ctx, metrics.StageImplementationRepair)
+			if correctionAttempt == 0 && harnessCtx.Err() == nil {
+				current, snapshot, prepareErr := s.prepareImplementationCorrection(harnessCtx, action, checkpointContext, preparedWorkspace, output, deadline)
+				if prepareErr != nil {
+					failure := implementationCorrectionFailure(output, prepareErr)
+					finishRepair(metrics.StageOutcomeFailed, string(failure.FailureClass), string(failure.RetryDisposition), metrics.Usage{})
+					return s.failExecution(ctx, action, lane, result, failure.Summary, prepareErr, failure)
+				}
+				action, correctionSnapshot = current, &snapshot
+				assignment = implementationRepairAssignment(assignment, output)
+				result.WorkDone = append(result.WorkDone, "Prior unfinished implementation (historical evidence): "+output.Summary, "Prior verification: "+strings.Join(output.Verification, "\n"), "Remaining repair: "+*output.Blocker)
+				finishRepair(metrics.StageOutcomeSucceeded, string(execution.FailureImplementationRepair), string(execution.RetryAutomatic), metrics.Usage{})
+				continue
+			}
+			output = implementationRepairStop(output, "Implementation repair allowance or original runtime budget exhausted; inspect retained work before retrying.")
+			finishRepair(metrics.StageOutcomeBlocked, string(output.FailureClass), string(output.RetryDisposition), metrics.Usage{})
+		}
+		if correctionAttempt > 0 && output.RetryDisposition == execution.RetryAutomatic {
+			// A provider failure during the final corrective pass cannot start
+			// a fresh implementation budget through the provider retry loop.
+			output.RetryDisposition = execution.RetryManual
 		}
 		if err != nil || output.Outcome != execution.OutcomeSucceeded {
 			if err == nil {
@@ -1221,7 +1268,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 				return s.failExecution(ctx, action, lane, result, "Completed implementation workspace could not be checkpointed", err,
 					integrityViolationOutput("Completed implementation workspace could not be checkpointed", err, output))
 			}
-			if err := s.saveImplementationCheckpoint(item, delegatedContent, checkpointContext, preparedWorkspace, checkpointSnapshot, workspace.Candidate{}, output); err != nil {
+			if err := s.saveImplementationCheckpoint(item, delegatedContent, checkpointContext, preparedWorkspace, checkpointSnapshot, workspace.Candidate{}, output, deadline, correctionAttempt > 0); err != nil {
 				return s.failExecution(ctx, action, lane, result, "Completed implementation result could not be checkpointed", err,
 					integrityViolationOutput("Completed implementation result could not be checkpointed", err, output))
 			}
@@ -1233,25 +1280,18 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 				if correction, recoverable := workspace.CandidateValidationCorrection(err); recoverable {
 					// Include the recovery guards before recording whether an
 					// automatic correction was actually admitted.
-					if clearErr := s.clearImplementationCheckpoint(item.ID); clearErr != nil {
-						finishCandidate(metrics.StageOutcomeFailed, string(execution.FailureCandidateValidation), string(execution.RetryManual), metrics.Usage{})
-						combined := errors.Join(err, fmt.Errorf("clear invalid candidate checkpoint: %w", clearErr))
-						return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be committed for QA", combined,
-							integrityViolationOutput("Implementation candidate could not be committed for QA", combined, output))
-					}
-					if correctionAttempt == 0 && ctx.Err() == nil {
-						refreshedAction, _, refreshErr := s.source.RefreshDelegatedContent(ctx, action)
+					if correctionAttempt == 0 && harnessCtx.Err() == nil {
+						unfinished := output
+						unfinished.Outcome, unfinished.Blocker = execution.OutcomeRepairNeeded, &correction
+						refreshedAction, snapshot, refreshErr := s.prepareImplementationCorrection(harnessCtx, action, checkpointContext, preparedWorkspace, unfinished, deadline)
 						if refreshErr != nil {
-							finishCandidate(metrics.StageOutcomeFailed, string(execution.FailureCandidateValidation), string(execution.RetryManual), metrics.Usage{})
-							result.Outcome = execution.OutcomeBlocked
-							result.Summary = "Approved delegated content is no longer current before candidate correction"
-							result.Error = refreshErr.Error()
-							result.FailureClass = string(execution.FailureIntegrityViolation)
-							result.RetryDisposition = string(execution.RetryManual)
-							return result
+							failure := implementationCorrectionFailure(unfinished, refreshErr)
+							finishCandidate(metrics.StageOutcomeFailed, string(failure.FailureClass), string(failure.RetryDisposition), metrics.Usage{})
+							return s.failExecution(ctx, action, lane, result, failure.Summary, refreshErr, failure)
 						}
 						finishCandidate(metrics.StageOutcomeFailed, string(execution.FailureCandidateValidation), string(execution.RetryAutomatic), metrics.Usage{})
 						action = refreshedAction
+						correctionSnapshot = &snapshot
 						assignment = candidateCorrectionAssignment(assignment, correction, output)
 						resumed = false
 						continue
@@ -1275,7 +1315,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 				return s.failExecution(ctx, action, lane, result, "Committed implementation candidate could not be checkpointed", err,
 					integrityViolationOutput("Committed implementation candidate could not be checkpointed", err, output))
 			}
-			if err := s.saveImplementationCheckpoint(item, delegatedContent, checkpointContext, preparedWorkspace, checkpointSnapshot, candidate, output); err != nil {
+			if err := s.saveImplementationCheckpoint(item, delegatedContent, checkpointContext, preparedWorkspace, checkpointSnapshot, candidate, output, deadline, correctionAttempt > 0); err != nil {
 				return s.failExecution(ctx, action, lane, result, "Committed implementation result could not be checkpointed", err,
 					integrityViolationOutput("Committed implementation result could not be checkpointed", err, output))
 			}
@@ -1874,7 +1914,7 @@ func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.Aut
 		summary = "Work blocked."
 		detail = "Runner paused because the agent could not complete the assigned work. The blocker and evidence are retained in the local Runner output. Resolve the blocker before retrying; no QA rejection was consumed."
 	}
-	if output.FailureClass == execution.FailureNeedsInput || output.FailureClass == execution.FailureAgentBlocked {
+	if output.FailureClass == execution.FailureNeedsInput || output.FailureClass == execution.FailureAgentBlocked || output.FailureClass == execution.FailureRepairExhausted {
 		if output.Blocker != nil && !strings.Contains(result.Error, *output.Blocker) {
 			result.Error = appendError(result.Error, errors.New(*output.Blocker))
 		}
@@ -1905,6 +1945,10 @@ func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.Aut
 		finishTransition(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
 		if automaticRetry {
 			s.storeAutomaticRetry(item.ID, scheduledRetry)
+		} else if recovery := s.cfg.Workflow.Lanes[target]; recovery.Role == "" && recovery.OnEnter == "" {
+			if clearErr := s.clearSpentImplementationCorrection(item.ID, output.FailureClass, errors.Is(err, errImplementationCheckpointChanged)); clearErr != nil {
+				result.Error = appendError(result.Error, clearErr)
+			}
 		}
 	}
 	result.Outcome = execution.OutcomeBlocked

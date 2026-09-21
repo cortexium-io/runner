@@ -3,6 +3,7 @@ package engine
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/github"
@@ -30,7 +31,7 @@ func TestImplementationCheckpointResumesOnlyExactTaskContextAndWorkspace(t *test
 		WorkDone:     []string{"Updated the focused implementation."},
 		Verification: []string{"focused check passed", "failure-path check passed"},
 	}
-	if err := service.saveImplementationCheckpoint(item, content, contextDigest, metadata, preCandidate, workspace.Candidate{}, output); err != nil {
+	if err := service.saveImplementationCheckpoint(item, content, contextDigest, metadata, preCandidate, workspace.Candidate{}, output, time.Time{}, false); err != nil {
 		t.Fatalf("save pre-candidate checkpoint: %v", err)
 	}
 	info, err := os.Stat(service.implementationCheckpointPath(item.ID))
@@ -50,7 +51,7 @@ func TestImplementationCheckpointResumesOnlyExactTaskContextAndWorkspace(t *test
 		Fingerprint: "sha256:committed", Head: candidate.CommitOID, Tree: candidate.TreeOID,
 		Branch: metadata.BranchName, Clean: true,
 	}
-	if err := service.saveImplementationCheckpoint(item, content, contextDigest, metadata, committed, candidate, output); err != nil {
+	if err := service.saveImplementationCheckpoint(item, content, contextDigest, metadata, committed, candidate, output, time.Time{}, false); err != nil {
 		t.Fatalf("save committed checkpoint: %v", err)
 	}
 	loaded, found, err = service.loadImplementationCheckpoint(item, content, contextDigest, metadata, committed, criteria)
@@ -64,7 +65,7 @@ func TestImplementationCheckpointResumesOnlyExactTaskContextAndWorkspace(t *test
 		t.Fatalf("candidate-mismatched checkpoint was accepted: found=%v error=%v", found, err)
 	}
 
-	if err := service.saveImplementationCheckpoint(item, content, contextDigest, metadata, committed, candidate, output); err != nil {
+	if err := service.saveImplementationCheckpoint(item, content, contextDigest, metadata, committed, candidate, output, time.Time{}, false); err != nil {
 		t.Fatal(err)
 	}
 	changedContext := implementationContextDigest(content, item, feedback, append(comments, "@maintainer: New direction."), criteria)

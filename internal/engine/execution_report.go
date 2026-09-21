@@ -55,6 +55,10 @@ func remoteDiagnosticSummary(output execution.Output) string {
 		return "Runner classified the attempt as requiring operator input."
 	case execution.FailureAgentBlocked:
 		return "The agent reported incomplete work. Its blocker and evidence are retained locally."
+	case execution.FailureImplementationRepair:
+		return "The implementer requested a bounded in-scope repair; evidence is retained locally."
+	case execution.FailureRepairExhausted:
+		return "Implementation repair stopped at its allowance, deadline, or interruption boundary. Inspect retained work before retrying; no QA rejection was consumed."
 	case execution.FailurePermissionDenied:
 		return "Runner classified a local permission failure."
 	case execution.FailureAuthenticationRequired:
@@ -99,7 +103,7 @@ func boundedFailureClass(class execution.FailureClass) string {
 	switch class {
 	case execution.FailureTransientExternal, execution.FailureCapacityExhausted, execution.FailureTimeout, execution.FailureCleanupUnresolved,
 		execution.FailureCanceled, execution.FailureInvalidContract, execution.FailureCapabilityUnavailable, execution.FailureReviewIncomplete, execution.FailureBrowserStartup,
-		execution.FailureNeedsInput, execution.FailureAgentBlocked, execution.FailurePermissionDenied, execution.FailureAuthenticationRequired,
+		execution.FailureNeedsInput, execution.FailureAgentBlocked, execution.FailureImplementationRepair, execution.FailureRepairExhausted, execution.FailurePermissionDenied, execution.FailureAuthenticationRequired,
 		execution.FailureInvalidConfiguration, execution.FailureCandidateValidation, execution.FailureIntegrityViolation, execution.FailureIntegrityUnverified:
 		return string(class)
 	default:
