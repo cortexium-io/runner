@@ -264,6 +264,9 @@ reaps the direct process, then discovers and terminates same-user processes
 retaining that exact marker, including detached sessions. Signals require a
 matching process start identity and marker; Linux additionally pins the target
 with a pidfd. No process-name or workspace-path sweep is permitted.
+macOS process-table reads retry transient `EINVAL`/`EINTR` at most three times;
+persistent failures retain the operation/PID context and fail closed, never
+becoming an empty process list or permission to release admission capacity.
 
 Termination, forced-exit verification and pipe drainage have bounded waits.
 Unconfirmed cleanup yields `cleanup_unresolved`, not provider retry authority;
@@ -274,6 +277,14 @@ that check reports the problem without killing work. No process journal is
 added. `harness_cleanup` records the cleanup interval nested in harness time;
 it must not be added to total wall time. Validation inside tools is still not a
 separately measured phase without a trustworthy tool receipt.
+Codex/Pi event streams also supply a bounded per-harness-stage activity summary:
+Runner receipt times, fixed event categories, tool counts, completed tool
+interval sums, and tools without observed completion. These intervals can
+overlap and are not validation or CPU time. No commands, tool names, arguments,
+output, or raw event history are retained. Coverage is observed, partial, or
+unavailable; non-streaming harnesses and buffered fallback output have no
+invented activity timing. Summaries are saved when the harness stage ends,
+including cancellation; abrupt Runner termination cannot flush them.
 
 This is operational ownership, not a sandbox boundary. Processes that erase the
 marker, become uninspectable, or are launched by an independently running remote
@@ -489,6 +500,11 @@ reruns include affected test identities and both outcomes. Reports are not
 implicitly copied across role workspaces. Optional operator-configured
 `review_evidence_paths` select literal worktree-relative files or subtrees for
 a private QA evidence snapshot beside, not inside, the canonical candidate.
+Implementer prompts receive the configured selections and effective runtime
+budget at the invocation-specific tail, after reusable guidance/task context.
+The guidance asks for minimal applicable receipts and an index of tested
+candidate/final-diff applicability; it neither invents historical receipts nor
+widens access or waives repository gates when the budget is insufficient.
 Runner copies only regular, owned, non-group/other-writable, single-link files
 and directories without following links or exposing Git administration. Existing
 snapshot entry, per-file, and total-byte limits apply. It verifies source

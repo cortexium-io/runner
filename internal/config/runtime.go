@@ -42,6 +42,8 @@ type ExecutionConfig struct {
 	ReferenceProtectedRoots []string
 	// ReviewEvidenceRoot is a Runner-created snapshot, never a configured or model-selected host path.
 	ReviewEvidenceRoot string
+	// Implementer-visible destinations selected by the operator for QA handoff.
+	ReviewEvidencePaths []string
 }
 
 func (c Config) Resolve() (RuntimeConfig, error) {
@@ -290,6 +292,9 @@ func (c RuntimeConfig) Execution(role, harness, workingDir string) ExecutionConf
 		ResourceLimits:    c.ResourceLimits,
 	}
 	contract := c.RoleContract(role)
+	if contract == WorkRoleImplementer {
+		execution.ReviewEvidencePaths = append([]string(nil), c.ReviewEvidencePaths...)
+	}
 	if len(c.RepositoryReferences) > 0 && (contract == WorkRolePlanner || contract == WorkRoleImplementer || contract == WorkRoleReviewer) {
 		execution.RepositoryReferences = cloneRepositoryReferences(c.RepositoryReferences)
 		execution.ReferenceProtectedRoots = repositoryReferenceProtectedRoots(c.ProjectDir, c.Harnesses)

@@ -307,6 +307,7 @@ type Event struct {
 	PromptContexts              []PromptContext  `json:"prompt_contexts,omitempty"`
 	ResumedCheckpoint           bool             `json:"resumed_checkpoint,omitempty"`
 	Usage                       Usage            `json:"usage"`
+	HarnessActivity             *HarnessActivity `json:"harness_activity,omitempty"`
 }
 
 // ApprovedRequest retains the exact canonical content covered by the observed
@@ -564,17 +565,18 @@ func (e Event) IsRunnerObservation() bool {
 }
 
 type Stage struct {
-	StageID              string          `json:"stage_id"`
-	Name                 string          `json:"name"`
-	StartedAt            time.Time       `json:"started_at"`
-	FinishedAt           time.Time       `json:"finished_at,omitempty"`
-	DurationMilliseconds int64           `json:"duration_milliseconds,omitempty"`
-	Outcome              string          `json:"outcome,omitempty"`
-	FailureClass         string          `json:"failure_class,omitempty"`
-	RetryDisposition     string          `json:"retry_disposition,omitempty"`
-	Usage                Usage           `json:"usage"`
-	PromptContexts       []PromptContext `json:"prompt_contexts,omitempty"`
-	Completed            bool            `json:"completed"`
+	HarnessActivity      *HarnessActivity `json:"harness_activity,omitempty"`
+	StageID              string           `json:"stage_id"`
+	Name                 string           `json:"name"`
+	StartedAt            time.Time        `json:"started_at"`
+	FinishedAt           time.Time        `json:"finished_at,omitempty"`
+	DurationMilliseconds int64            `json:"duration_milliseconds,omitempty"`
+	Outcome              string           `json:"outcome,omitempty"`
+	FailureClass         string           `json:"failure_class,omitempty"`
+	RetryDisposition     string           `json:"retry_disposition,omitempty"`
+	Usage                Usage            `json:"usage"`
+	PromptContexts       []PromptContext  `json:"prompt_contexts,omitempty"`
+	Completed            bool             `json:"completed"`
 }
 
 type Summary struct {

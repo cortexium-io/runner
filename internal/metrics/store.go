@@ -65,6 +65,9 @@ func (s *Store) Append(event Event) error {
 	if !validEventKind(event.Kind) {
 		return fmt.Errorf("unsupported metrics event kind %q", event.Kind)
 	}
+	if !validActivityEvent(event) {
+		return fmt.Errorf("metrics harness activity must be bounded metadata on a completed harness stage")
+	}
 	if event.Kind == EventStageStarted || event.Kind == EventStageCompleted {
 		if strings.TrimSpace(event.StageID) == "" || !validStageName(event.Stage) {
 			return fmt.Errorf("stage metrics event requires a stage_id and fixed stage name")
@@ -166,6 +169,10 @@ func (s *Store) Read() (ReadResult, error) {
 			result.MalformedRecords++
 			continue
 		}
+		if !validActivityEvent(event) {
+			result.MalformedRecords++
+			continue
+		}
 		if !seen[event.AttemptID] {
 			order = append(order, event.AttemptID)
 			seen[event.AttemptID] = true
@@ -209,6 +216,7 @@ func (s *Store) Read() (ReadResult, error) {
 				stage.FailureClass = event.FailureClass
 				stage.RetryDisposition = event.RetryDisposition
 				stage.Usage = event.Usage
+				stage.HarnessActivity = event.HarnessActivity
 				stage.Completed = true
 			}
 			stagesByAttempt[event.AttemptID][event.StageID] = stage

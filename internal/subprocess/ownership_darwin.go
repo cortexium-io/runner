@@ -14,7 +14,7 @@ import (
 func inspectProcess(pid int) (ownedProcess, error) {
 	// SysctlKinfoProc reports EIO for an empty result when a process has exited.
 	// The slice API preserves that distinction from a real inspection failure.
-	infos, err := unix.SysctlKinfoProcSlice("kern.proc.pid", pid)
+	infos, err := processSnapshot("kern.proc.pid", pid, unix.SysctlKinfoProcSlice)
 	if err != nil {
 		return ownedProcess{}, err
 	}
@@ -26,6 +26,23 @@ func inspectProcess(pid int) (ownedProcess, error) {
 		return ownedProcess{}, unix.ESRCH
 	}
 	return ownedProcess{pid: pid, birth: fmt.Sprintf("%d.%d", info.Proc.P_starttime.Sec, info.Proc.P_starttime.Usec)}, nil
+}
+
+// A process-table snapshot can race exec/exit. Retry the kernel read, never
+// interpret EINVAL as absence or relax the identity/marker checks below.
+func processSnapshot(name string, id int, read func(string, ...int) ([]unix.KinfoProc, error)) ([]unix.KinfoProc, error) {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		var infos []unix.KinfoProc
+		infos, err = read(name, id)
+		if err == nil {
+			return infos, nil
+		}
+		if !errors.Is(err, unix.EINVAL) && !errors.Is(err, unix.EINTR) {
+			break
+		}
+	}
+	return nil, fmt.Errorf("read process snapshot %s(%d): %w", name, id, err)
 }
 
 func processEnvironment(pid int) ([]byte, error) {
@@ -72,7 +89,7 @@ func processEnvironment(pid int) ([]byte, error) {
 }
 
 func ownedProcesses(scope, exact string) ([]ownedProcess, error) {
-	infos, err := unix.SysctlKinfoProcSlice("kern.proc.uid", os.Geteuid())
+	infos, err := processSnapshot("kern.proc.uid", os.Geteuid(), unix.SysctlKinfoProcSlice)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +139,7 @@ func signalOwnedProcess(process ownedProcess, force bool) error {
 		return nil
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("verify owned process %d before signal: %w", process.pid, err)
 	}
 	if current.birth != process.birth {
 		return nil
@@ -132,7 +149,7 @@ func signalOwnedProcess(process ownedProcess, force bool) error {
 		return nil
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("verify owned process %d environment before signal: %w", process.pid, err)
 	}
 	if matchingMarker(env, "", process.marker) != process.marker {
 		return errors.New("owned process marker changed")
@@ -143,7 +160,7 @@ func signalOwnedProcess(process ownedProcess, force bool) error {
 		return nil
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("recheck owned process %d identity before signal: %w", process.pid, err)
 	}
 	if current.birth != process.birth {
 		return nil
@@ -156,5 +173,8 @@ func signalOwnedProcess(process ownedProcess, force bool) error {
 	if errors.Is(err, unix.ESRCH) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return fmt.Errorf("signal owned process %d: %w", process.pid, err)
+	}
+	return nil
 }

@@ -21,6 +21,7 @@ type AttemptTrace struct {
 	errors               []error
 	promptContexts       []PromptContext
 	currentPromptContext *PromptContext
+	activity             *HarnessActivity
 }
 
 func NewAttemptTrace(observer func(Event) error, base Event) *AttemptTrace {
@@ -68,6 +69,11 @@ func StartStage(ctx context.Context, name string) FinishStage {
 		return func(string, string, string, Usage) {}
 	}
 	stageID := NewStageID()
+	if harnessStage(name) {
+		trace.mu.Lock()
+		trace.activity = nil
+		trace.mu.Unlock()
+	}
 	startedAt := time.Now().UTC()
 	started := trace.stageEvent(EventStageStarted, stageID, name)
 	started.StartedAt = startedAt
@@ -97,6 +103,12 @@ func StartStage(ctx context.Context, name string) FinishStage {
 			completed.FailureClass = failureClass
 			completed.RetryDisposition = retryDisposition
 			completed.Usage = usage
+			if harnessStage(name) {
+				trace.mu.Lock()
+				completed.HarnessActivity = trace.activity
+				trace.activity = nil
+				trace.mu.Unlock()
+			}
 			trace.emit(completed)
 		})
 	}
@@ -145,6 +157,7 @@ func (t *AttemptTrace) stageEvent(kind, stageID, name string) Event {
 	t.mu.Unlock()
 	event.ResumedCheckpoint = false
 	event.Usage = Usage{}
+	event.HarnessActivity = nil
 	return event
 }
 

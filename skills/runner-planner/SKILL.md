@@ -89,6 +89,12 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    When consumers need a new shared contract, identify its owner and establish
    that contract before depending on it. Consumers of an already fixed contract
    can proceed independently.
+   Also assess integration cost: independent-looking cards that redesign the same
+   selection/history representation or shared contract can force repeated conflict
+   repair and full validation. Give that coupled change one coherent owner, or
+   establish the shared contract in a prerequisite before independent consumers.
+   Shared filenames alone are not a dependency; use concrete coupling and known
+   verification cost, not blanket serialization or an oversized catch-all card.
 6. Ground acceptance in supported representative inputs and existing behavior,
    not only newly constructed happy-path fixtures. When an existing format or
    service is involved, identify the relevant producer/consumer contract and
@@ -157,6 +163,10 @@ constraints, not evidence that a different model will solve the card.
 
 ## Verification economy
 
+- Include required final-gate cost when sizing an uninterrupted assignment. Use
+  observed timings when available; do not assume the whole runtime budget is
+  available for implementation. Avoid fragments whose only independent outcome
+  is another full validation of the same coupled change.
 - Runner attaches the original request, project criteria, and constraints to
   each card. Keep shared facts there once; card details should add the local
   boundary, relevant contract references, and observable proof, not copy the

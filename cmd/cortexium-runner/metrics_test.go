@@ -308,6 +308,30 @@ func TestMetricsCommandDoesNotRenderExactTitleCollisionsWithUnavailableItemIDs(t
 	}
 }
 
+func TestMetricsRetainsHarnessActivityWithoutInventingLegacyTiming(t *testing.T) {
+	activity := &runnermetrics.HarnessActivity{Coverage: "observed", Events: 2, ToolsStarted: 1, ActiveTools: 1,
+		LastEventKind: "shell_started", LastEventAt: time.Date(2026, 9, 21, 1, 0, 0, 0, time.UTC)}
+	stages := []runnermetrics.Stage{
+		{Name: runnermetrics.StageHarnessRun, Completed: true, HarnessActivity: activity},
+		{Name: runnermetrics.StageHarnessRun, Completed: true},
+	}
+	history := metricAttemptHistoryFor(runnermetrics.Attempt{Stages: stages})
+	if history.RunnerObserved.Stages[0].HarnessActivity != activity || history.RunnerObserved.Stages[1].HarnessActivity != nil {
+		t.Fatalf("activity provenance lost: %+v", history.RunnerObserved.Stages)
+	}
+	encoded, err := json.Marshal(history)
+	if err != nil || strings.Count(string(encoded), "runner_observed_harness_activity") != 1 {
+		t.Fatalf("JSON activity missing or invented: %s %v", encoded, err)
+	}
+	var output bytes.Buffer
+	writeMetricStages(&output, stages)
+	for _, want := range []string{"harness activity: observed", "1 without completion event", "not validation time", "2026-09-21T01:00:00Z"} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("missing %q: %s", want, output.String())
+		}
+	}
+}
+
 func TestWriteMetricsPreservesSummaryForRetainedProvenanceFields(t *testing.T) {
 	started := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
 	attempts := []runnermetrics.Attempt{

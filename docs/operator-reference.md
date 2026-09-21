@@ -652,6 +652,20 @@ canceled. It is nested in harness duration, not additional wall time or measured
 test time. Test-command/validation durations still require retained project
 evidence; Runner does not infer them from the harness interval.
 
+Completed Codex/Pi harness stages retain `harness_activity` in metrics. The
+item-history JSON exposes it as `runner_observed_harness_activity`; readable
+metrics show a compact summary. It includes the last event receipt time/category,
+tool start/completion counts, summed completed tool intervals, and the oldest
+tool without a completion event. Use this to distinguish observed tool activity
+from an unexplained quiet interval, not to infer which test ran or whether a
+process survived cleanup. Intervals can overlap; they are not validation/CPU
+time. Commands, tool names, arguments and output are not retained. Coverage is
+`observed`, `partial` (malformed/oversized events or bounded tracking gaps), or
+`unavailable` (including non-streaming Claude JSON and buffered fallback output).
+Older attempts have no backfilled activity. Summaries persist at stage completion,
+including timeout/cancellation, not continuously; abrupt Runner termination can
+lose the in-memory summary.
+
 New CLI-recorded attempts include `run_context` with the recording build's
 `runner_version`, `bundled_skills_version`, and `config_digest`. The last is a
 SHA-256 fingerprint of the loaded config after CLI overrides, not its contents.
@@ -873,7 +887,7 @@ not ignored implementation reports. To expose retained receipts, reports, or
 screenshots, select explicit worktree-relative files or subdirectories:
 
 ```json
-"review_evidence_paths": ["qa-evidence", "test-results/summary.json"]
+"review_evidence_paths": ["test-results/runner-review-evidence"]
 ```
 
 Select only evidence meant for review: every file in a selected directory is
@@ -883,6 +897,16 @@ the worktree, name the whole worktree, or include `.git`. Runner rejects symlink
 hard links, special files, unsafe file ownership/permissions, concurrent capture
 changes, and snapshots exceeding the configured `resource_limits` entry/per-file/
 total-byte limits. Missing selected paths are recorded in the manifest.
+
+Implementers receive these destinations in their task prompt and are asked to
+retain minimal receipts, candidate manifests, setup outcomes and a concise
+applicability index as work progresses. Prefer a dedicated directory already
+covered by the repository's ignored-artifact convention; do not select the whole
+reports tree. The prompt also states the effective implementation runtime budget
+and asks the implementer to reserve time for required final verification. This
+does not extend the timeout or relax a gate. Configuration does not reconstruct
+old reports: when recovering an existing candidate, explicitly collect its
+retained proof without altering results or claiming unobserved checks succeeded.
 
 Before QA, Runner copies the selection into a private read-only evidence bundle
 outside both the candidate and writable verification copy. The manifest lists
