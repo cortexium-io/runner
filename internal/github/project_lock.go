@@ -80,6 +80,16 @@ func AcquireQAReviewLock(project config.GitHubProjectConfig, itemID string) (*Pr
 	return acquireLocalProjectLock(project, fmt.Sprintf("qa-review-%x", digest))
 }
 
+// AcquireVerificationOperationLock coordinates supported standalone checks
+// with offline operator changes. It never holds the Project mutation lock.
+func AcquireVerificationOperationLock(project config.GitHubProjectConfig, entrypoint string) (*ProcessLock, error) {
+	if strings.TrimSpace(entrypoint) == "" {
+		return nil, errors.New("verification operation lock requires a catalog entrypoint")
+	}
+	digest := sha256.Sum256([]byte(entrypoint))
+	return acquireLocalProjectLock(project, fmt.Sprintf("verification-%x", digest))
+}
+
 func AcquireExecutionSlot(project config.GitHubProjectConfig, maximum int) (*ProcessLock, error) {
 	for slot := 0; slot < maximum; slot++ {
 		lock, err := acquireLocalProjectLock(project, fmt.Sprintf("execution-%d", slot))

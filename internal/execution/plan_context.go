@@ -53,6 +53,9 @@ func ValidateAssignmentContext(spec Spec) error {
 		if !spec.ReviewRequired || spec.ItemID != p.ID || spec.VerificationBoundary != VerificationComplete {
 			return errors.New("whole-plan review must target its parent at the complete verification boundary")
 		}
+		if strings.TrimSpace(p.CompleteVerification) == "" {
+			return errors.New("whole-plan review requires the approved coordinator complete-verification entrypoint")
+		}
 		if len(spec.PlanMemberBriefs) != len(p.MemberIDs) {
 			return errors.New("whole-plan review requires every approved member brief")
 		}
@@ -71,6 +74,8 @@ func ValidateAssignmentContext(spec Spec) error {
 		return errors.New("plan card assignment must target a member at the focused verification boundary")
 	} else if len(spec.PlanMemberBriefs) > 0 {
 		return errors.New("card assignment cannot include sibling ownership briefs")
+	} else if p.CompleteVerification != "" {
+		return errors.New("only whole-plan review may promise a coordinator complete-verification entrypoint")
 	}
 	return nil
 }

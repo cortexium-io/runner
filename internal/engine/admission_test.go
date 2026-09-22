@@ -33,7 +33,7 @@ func TestPartialUsageFailsClosedForReportedBudgets(t *testing.T) {
 	now := time.Now().UTC()
 	cost := 0.2
 	limit := 10.0
-	attempts := []metrics.Attempt{{Completed: true, Event: metrics.Event{StartedAt: now.Add(-time.Minute), Usage: metrics.Usage{Available: true, Coverage: metrics.UsagePartial, InputTokens: 12, ReportedCostUSD: &cost}}}}
+	attempts := []metrics.Attempt{{Completed: true, Event: metrics.Event{Harness: "codex", StartedAt: now.Add(-time.Minute), Usage: metrics.Usage{Available: true, Coverage: metrics.UsagePartial, InputTokens: 12, ReportedCostUSD: &cost}}}}
 	for _, budget := range []*config.AdmissionBudgetConfig{
 		{WindowSeconds: 3600, MaxReportedTokens: 1000},
 		{WindowSeconds: 3600, MaxReportedCostUSD: &limit},
@@ -81,7 +81,7 @@ func TestEvaluateAdmissionAppliesDurationTokenAndCostCeilings(t *testing.T) {
 	now := time.Now().UTC()
 	cost := 0.75
 	attempt := metrics.Attempt{Event: metrics.Event{
-		AttemptID: "attempt", StartedAt: now.Add(-time.Minute), HarnessDurationMilliseconds: 120_000,
+		AttemptID: "attempt", Harness: "claude", StartedAt: now.Add(-time.Minute), HarnessDurationMilliseconds: 120_000,
 		Usage: metrics.Usage{Available: true, InputTokens: 100, CacheReadInputTokens: 50, OutputTokens: 25, ReportedCostUSD: &cost},
 	}, Completed: true}
 	tests := []*config.AdmissionBudgetConfig{

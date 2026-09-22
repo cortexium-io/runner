@@ -186,7 +186,10 @@ With Runner active, humans can enqueue either kind of work directly:
 batch for later review. `add ready` creates one sufficiently specified card in
 `Ready`; Runner implements it when its dependencies and resource requirements
 allow. Either command accepts `--body TEXT` instead of `--body-file`, and
-`--dry-run` previews the destination without changing GitHub. These enqueue
+`--dry-run` previews the destination without changing GitHub. Ready previews also
+show the resolved implementation profile, harness, model, and reasoning; use
+`--profile ID` to choose an existing allowed implementation profile explicitly.
+These enqueue
 commands deliberately remain usable while the foreground Runner holds its
 process lock.
 

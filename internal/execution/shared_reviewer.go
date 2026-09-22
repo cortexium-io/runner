@@ -232,6 +232,7 @@ Return only criteria, repository_rules, maintainability, and a concise audit sum
 
 func reviewerComparisonPrompt(assignment Assignment) string {
 	var b strings.Builder
+	b.WriteString(reviewerDeliveryGatePrompt(assignment.Spec))
 	if assignment.Spec.ReviewBaseOID != "" && assignment.Spec.ReviewCandidateOID != "" {
 		fmt.Fprintf(&b, "\n\nRunner-pinned comparison: base %s; candidate %s. Cumulative diff: git diff %s...%s in the canonical read-only repository. Use this only when the current review scope requires cumulative inspection; follow-up and focused checks keep their narrower scope. Do not guess a base from a local branch name. Already merged dependency work is part of the base; inspect its current source when an integrated proof obligation requires it.\n", assignment.Spec.ReviewBaseOID, assignment.Spec.ReviewCandidateOID, assignment.Spec.ReviewBaseOID, assignment.Spec.ReviewCandidateOID)
 		if len(assignment.Spec.RecordedVerification) > 0 {
@@ -243,6 +244,18 @@ func reviewerComparisonPrompt(assignment Assignment) string {
 		fmt.Fprintf(&b, "\nFollow-up repair comparison: git diff %s HEAD. Prior conclusions are historical evidence, not proof that an unresolved check has been completed.\n", baseline.CommitOID)
 	}
 	return b.String()
+}
+
+func reviewerDeliveryGatePrompt(spec Spec) string {
+	if spec.PlanContext == nil || spec.ReviewScope != ReviewScopePlan || ValidateAssignmentContext(spec) != nil {
+		return ""
+	}
+	return fmt.Sprintf(`
+
+Runner-owned post-review delivery gate: %q.
+This authenticated parent assignment separates independent product/engineering acceptance from delivery. After an accepted review, Runner executes this configured complete entrypoint (or assesses independently protected applicable passing proof) and requires a protected passing receipt before final PR publication. A pending post-review gate alone is not a missing pre-review report: do not duplicate that gate in focused verification merely because Runner has not reached it yet. Inspect whether repository procedures are followed at the current stage; procedural compliance is not a claim that the scheduled execution passed.
+Never mark an unrun check or gate-derived success criterion passed because it is scheduled. The approved proof obligations remain factual. An explicit approved requirement to perform a check before QA still requires actual proof/permitted verification, or a blocker requesting an amendment; this scheduling context does not waive it. Preserve concrete failures, unresolved product/engineering questions and failed or unavailable required proof. Request the smallest focused check that resolves such a question. Do not discard check_required, suppress a defect, or infer delivery from review acceptance.
+`, spec.PlanContext.CompleteVerification)
 }
 
 func reviewCommentContextComparison(assignment Assignment) string {

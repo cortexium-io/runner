@@ -17,19 +17,21 @@ import (
 
 func runAdd(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
-		fmt.Fprintln(stdout, "Usage: cortexium-runner add plan|ready [--config PATH] --title TEXT (--body TEXT|--body-file PATH) [--dry-run]")
+		fmt.Fprintln(stdout, "Usage: cortexium-runner add plan|ready [--config PATH] --title TEXT (--body TEXT|--body-file PATH) [--profile ID] [--dry-run]")
 		fmt.Fprintln(stdout, "Use plan for a planner proposal, or ready for one sufficiently specified implementation card.")
+		fmt.Fprintln(stdout, "Ready accepts --profile to select an existing allowed implementation profile; --dry-run displays the resolved profile without authorization.")
 		return nil
 	}
 	mode := strings.ToLower(strings.TrimSpace(args[0]))
 	if mode != "plan" && mode != "ready" {
 		return fmt.Errorf("unknown add destination %q; use plan or ready", mode)
 	}
-	flags := newFlagSet("add "+mode, "cortexium-runner add plan|ready [--config PATH] --title TEXT (--body TEXT|--body-file PATH) [--dry-run]", stdout)
+	flags := newFlagSet("add "+mode, "cortexium-runner add plan|ready [--config PATH] --title TEXT (--body TEXT|--body-file PATH) [--profile ID] [--dry-run]", stdout)
 	configPath := flags.String("config", "", "trusted operator config path; defaults to .cortexium/runner.json")
 	title := flags.String("title", "", "short card title")
 	body := flags.String("body", "", "goal and constraints for Plan, or sufficient implementation detail for Ready")
 	bodyFile := flags.String("body-file", "", "file containing the card body")
+	profile := flags.String("profile", "", "Ready only: exact allowed implementation profile; otherwise use the visible configured default")
 	dryRun := flags.Bool("dry-run", false, "show the destination without changing GitHub")
 	proceed, err := parseFlags(flags, args[1:], "add "+mode)
 	if err != nil || !proceed {
@@ -37,6 +39,9 @@ func runAdd(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	if flags.NArg() != 0 {
 		return errors.New("add does not accept positional arguments after the destination")
+	}
+	if mode != "ready" && *profile != "" {
+		return errors.New("--profile is only supported for add ready")
 	}
 	*configPath = resolveRunnerConfigPath(*configPath, "")
 	cfg, err := config.LoadTrustedConfig(*configPath)
@@ -59,6 +64,14 @@ func runAdd(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if mode == "ready" {
+		var profileSummary string
+		workBody, profileSummary, err = prepareReadyWork(resolved, workBody, *profile)
+		if err != nil {
+			return err
+		}
+		action += " " + profileSummary
+	}
 	if *dryRun {
 		fmt.Fprintf(stdout, "Would add %q to %s in GitHub Project %s/%d. %s\n", terminalSafeText(workTitle), terminalSafeText(targetStatus), terminalSafeText(resolved.GitHubProject.Owner), resolved.GitHubProject.Number, action)
 		return nil
@@ -70,6 +83,44 @@ func runAdd(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	fmt.Fprintf(stdout, "Added %s to %s. %s\n", terminalSafeText(item.ID), terminalSafeText(targetStatus), action)
 	return nil
+}
+
+func prepareReadyWork(cfg config.RuntimeConfig, body, selected string) (string, string, error) {
+	if selected != "" {
+		var err error
+		body, err = github.WithManualImplementationProfile(body, selected)
+		if err != nil {
+			return "", "", err
+		}
+	}
+	selected, err := github.ManualImplementationProfile(body)
+	if err != nil {
+		return "", "", err
+	}
+	// Unannotated ordinary cards keep the configured default (including its
+	// ladder); explicit selections use exactly the same allowlist as execution.
+	role, err := cfg.SelectedImplementer(cfg.RoleIDForContract(config.WorkRoleImplementer), selected, 0)
+	if err != nil {
+		return "", "", err
+	}
+	profile, ok := cfg.RoleProfile(role)
+	if !ok || cfg.RoleContract(role) != config.WorkRoleImplementer {
+		return "", "", errors.New("Ready destination has no implementation profile")
+	}
+	model := "harness default"
+	if profile.Model != nil && strings.TrimSpace(*profile.Model) != "" {
+		model = *profile.Model
+	}
+	reasoning := profile.Reasoning
+	if reasoning == "" {
+		reasoning = "harness default"
+	}
+	selection := "configured default"
+	if selected != "" {
+		selection = "explicit selection"
+	}
+	return body, fmt.Sprintf("Implementation profile: %s (%s); harness: %s; model: %s; reasoning: %s. Existing escalation policy is unchanged.",
+		terminalSafeText(role), selection, terminalSafeText(profile.Harness), terminalSafeText(model), terminalSafeText(reasoning)), nil
 }
 
 func humanWorkDestination(cfg config.RuntimeConfig, mode string) (status, action string, err error) {

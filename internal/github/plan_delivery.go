@@ -199,6 +199,12 @@ func (s *Project) validatePlanMembers(parent WorkItem, children []WorkItem) (Pla
 }
 
 func (s *Project) ValidatePlanDelivery(parent WorkItem, all []WorkItem) (PlanDelivery, error) {
+	return s.validatePlanDeliveryState(parent, all, false)
+}
+
+// Cancellation inspection may read an intact cancelled contract, but no
+// execution/admission caller may treat it as available delivery authority.
+func (s *Project) validatePlanDeliveryState(parent WorkItem, all []WorkItem, allowCancelled bool) (PlanDelivery, error) {
 	if !s.cfg.PlanDelivery {
 		return PlanDelivery{}, errors.New("plan delivery is not enabled")
 	}
@@ -217,7 +223,7 @@ func (s *Project) ValidatePlanDelivery(parent WorkItem, all []WorkItem) (PlanDel
 	if _, err := s.validateAction(parent); err != nil {
 		return PlanDelivery{}, fmt.Errorf("plan delivery lifecycle authority: %w", err)
 	}
-	if parent.Phase == PlanCancelledPhase {
+	if parent.Phase == PlanCancelledPhase && !allowCancelled {
 		return PlanDelivery{}, errors.New("plan delivery was cancelled")
 	}
 	if parent.Branch != PlanBranch(parent.ID) {

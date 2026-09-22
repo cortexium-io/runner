@@ -253,9 +253,10 @@ func comparisonWorkerResult(arm reviewerComparisonArm, metadata reviewerComparis
 		return evalCaseResult{Err: errors.New("worker result no longer matches admitted source/corpus")}
 	}
 	r := response.Result
+	usage := normalizedEvalUsage(r.Usage, config.HarnessCodexCLI)
 	result := evalCaseResult{Outcome: r.Outcome, FailureClass: r.FailureClass, RetryDisposition: r.RetryDisposition, RetryAfter: r.RetryAfter,
 		FailureStage: r.FailureStage, ExpectedVerdict: r.ExpectedVerdict, ObservedVerdict: r.ObservedVerdict, ReviewJudgment: r.ReviewJudgment,
-		Usage: r.Usage, FixtureTestDurationMS: r.FixtureTestDurationMS, HarnessDurationMilliseconds: r.HarnessDurationMS, PromptContexts: r.PromptContexts}
+		Usage: usage, FixtureTestDurationMS: r.FixtureTestDurationMS, HarnessDurationMilliseconds: r.HarnessDurationMS, PromptContexts: r.PromptContexts}
 	if response.Failed {
 		result.Err = errors.New("reviewer evaluation did not complete correctly")
 	}
@@ -270,7 +271,12 @@ func comparisonWorkerResult(arm reviewerComparisonArm, metadata reviewerComparis
 		}
 	}
 	// All audit/focused usage is aggregated once by the existing executor.
-	if metrics.ValidateUsage(r.Usage) != nil || r.Usage.CoverageStatus() != metrics.UsageComplete || !r.Usage.Available || !guidanceAvailable || !assessmentAvailable {
+	// Reuse production admission's checked accounting, rather than introduce
+	// a second total formula in this common old/new-source test harness.
+	now := time.Now()
+	accounting := EvaluateAdmission(&config.AdmissionBudgetConfig{WindowSeconds: 60, MaxReportedTokens: 1<<63 - 1},
+		[]metrics.Attempt{{Completed: true, Event: metrics.Event{Harness: config.HarnessCodexCLI, StartedAt: now, Usage: usage}}}, now)
+	if !accounting.Allowed || metrics.ValidateUsage(usage) != nil || usage.CoverageStatus() != metrics.UsageComplete || !usage.Available || !guidanceAvailable || !assessmentAvailable {
 		result.AdmissionStop = "review usage, observed guidance provenance or retained assessment unavailable"
 	} else {
 		result.ComparisonUsable = r.ObservedVerdict != "" && r.ReviewJudgment != "" &&
@@ -658,7 +664,7 @@ func TestReviewerComparisonRejectsMismatchedEvidenceAndUnknownUsage(t *testing.T
 		}
 	}
 	result := comparisonWorkerResult(arm, metadata, response())
-	if result.Err != nil || result.AdmissionStop != "" || !result.ComparisonUsable || !reflect.DeepEqual(result.Usage, complete) {
+	if result.Err != nil || result.AdmissionStop != "" || !result.ComparisonUsable || !reflect.DeepEqual(result.Usage, normalizedEvalUsage(complete, config.HarnessCodexCLI)) {
 		t.Fatal("stage events double-counted aggregate usage")
 	}
 }

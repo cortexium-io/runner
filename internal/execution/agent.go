@@ -383,6 +383,9 @@ func extractHarnessResultAndUsage(kind, stdout, piProvenance string, piNativeStr
 			return "", metrics.Usage{}, fmt.Errorf("decode Claude result envelope: %w", err)
 		}
 		usage := usageFromClaudeEnvelope(envelope)
+		if err := metrics.ValidateUsage(usage); err != nil {
+			return "", usage, fmt.Errorf("validate Claude usage: %w", err)
+		}
 		if len(envelope.StructuredOutput) > 0 && string(envelope.StructuredOutput) != "null" {
 			return string(envelope.StructuredOutput), usage, nil
 		}
@@ -406,7 +409,7 @@ func extractHarnessResultAndUsage(kind, stdout, piProvenance string, piNativeStr
 		}
 		if err != nil {
 			if usageErr != nil {
-				return result, metrics.Usage{}, errors.Join(err, usageErr)
+				return result, usage, errors.Join(err, usageErr)
 			}
 			return result, usage, err
 		}
@@ -415,7 +418,7 @@ func extractHarnessResultAndUsage(kind, stdout, piProvenance string, piNativeStr
 		// unavailable counters; normal Pi work must not fail because a Pi event
 		// version omitted or reshaped optional usage fields.
 		if usageErr != nil {
-			return result, metrics.Usage{}, nil
+			return result, usage, nil
 		}
 		return result, usage, nil
 	}

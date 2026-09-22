@@ -197,6 +197,14 @@ func (s *Engine) bindDeliveryAssignment(ctx context.Context, item github.WorkIte
 		Repository: delivery.Manifest.Repository, DestinationBranch: delivery.Manifest.DestinationBranch, Branch: delivery.Parent.Branch, MemberIDs: memberIDs}
 	assignment.Spec.ReviewScope, assignment.Spec.VerificationBoundary = execution.ReviewScopeCard, execution.VerificationFocused
 	if item.ID == delivery.Parent.ID {
+		if !assignment.Spec.ReviewRequired || s.cfg.RoleContract(item.Role) != config.WorkRoleReviewer {
+			return errors.New("complete verification handoff requires the authorized parent reviewer")
+		}
+		entry, configured := s.cfg.Verification[delivery.Manifest.CompleteVerification]
+		if !configured || entry.Digest() != delivery.Manifest.VerificationDigest {
+			return errors.New("approved complete verification entrypoint changed before parent review")
+		}
+		assignment.Spec.PlanContext.CompleteVerification = delivery.Manifest.CompleteVerification
 		assignment.Spec.ReviewScope, assignment.Spec.VerificationBoundary = execution.ReviewScopePlan, execution.VerificationComplete
 		assignment.Spec.RequiredVerification = append([]string(nil), delivery.Manifest.SuccessCriteria...)
 		assignment.Spec.PlanMemberBriefs = nil

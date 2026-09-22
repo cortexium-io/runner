@@ -17,11 +17,12 @@ import (
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/subprocess"
+	"github.com/cortexium-io/runner/internal/workspace"
 )
 
-// Observation is freshly collected by Runner, never supplied by the model or
-// copied from a receipt. Integrity protects the complete candidate separately
-// from the narrower input set that governs executable-check applicability.
+// Observation is freshly collected by Runner, never supplied by a model or
+// copied from a receipt. Integrity protects the full candidate separately from
+// executable-check applicability.
 type Observation struct {
 	CommitOID string
 	TreeOID   string
@@ -39,23 +40,30 @@ type Request struct {
 	PlanID       string
 	PlanRevision string
 	Boundary     execution.VerificationBoundary
-	// Observe must also revalidate authority, selected configuration and the
-	// execution permission boundary. It runs before waiting, at grant and after
-	// cleanup. A direct host invocation requires already-approved host access;
-	// otherwise the launcher must itself run inside the existing containment.
+	// Only independently protected coordinator evidence may supply this pair.
+	// A missing pair means run; a supplied tampered pair fails closed.
+	PreviousReceipt *execution.VerificationReceipt
+	PreviousDigest  string
+	// Observe revalidates authority, config, containment and the full candidate
+	// before waiting, at grant, after preparation and after verification/cleanup.
+	// Direct host execution requires already-approved host access.
 	Observe func(context.Context) (Observation, error)
 }
 
 type Result struct {
-	Receipt execution.VerificationReceipt `json:"receipt"`
-	Digest  string                        `json:"digest"`
-	Output  subprocess.Result             `json:"output"`
+	Receipt    execution.VerificationReceipt `json:"receipt"`
+	Digest     string                        `json:"digest"`
+	Output     subprocess.Result             `json:"output"`
+	Historical bool                          `json:"historical"`
+	// A historical check retains its original receipt. Any preparation done in
+	// this invocation is reported separately, not spliced into historical proof.
+	CurrentPreparation *execution.VerificationPreparationReceipt `json:"current_preparation,omitempty"`
+	PreparationOutput  *subprocess.Result                        `json:"preparation_output,omitempty"`
 }
 
-// Run uses configured literal argv only. Its timeout includes claim waiting;
-// cleanup remains bounded by the existing subprocess supervisor. A caller must
-// retain Digest in its protected acceptance record: printing a receipt or its
-// hash does not confer authority or authenticate a model's evidence claim.
+// Run owns one shared claim and deadline through preparation, check, descendant
+// cleanup and final authoritative observation. Neither a receipt nor its printed
+// hash confers authority; the coordinator independently protects provenance.
 func Run(ctx context.Context, req Request) (Result, error) {
 	return run(ctx, req, subprocess.AcquireHeavyVerification)
 }
@@ -63,6 +71,9 @@ func Run(ctx context.Context, req Request) (Result, error) {
 func run(ctx context.Context, req Request, acquire func(context.Context) (context.Context, *subprocess.HeavyClaim, error)) (result Result, err error) {
 	if req.Observe == nil || req.Entry.Command == "" || req.Entry.TimeoutSeconds <= 0 || req.Entrypoint == "" {
 		return result, errors.New("verification requires a configured entrypoint and authoritative observation")
+	}
+	if (req.PreviousReceipt == nil) != (req.PreviousDigest == "") {
+		return result, errors.New("historical verification requires protected receipt and digest together")
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(req.Entry.TimeoutSeconds)*time.Second)
 	defer cancel()
@@ -83,55 +94,42 @@ func run(ctx context.Context, req Request, acquire func(context.Context) (contex
 		SettingsDigest: strings.TrimPrefix(req.Entry.Digest(), "v1:"), Inputs: before.Inputs, Boundary: req.Boundary,
 		Outcome: "failed", ReportDigest: hash([]byte("not started")),
 	}
-	if before.Integrity == "" {
-		return result, errors.New("verification candidate integrity is unavailable")
-	}
-	if before.Inputs.Configuration != receipt.SettingsDigest {
-		return result, errors.New("observed verification settings differ from the selected entrypoint")
+	if before.Integrity == "" || before.Inputs.Configuration != receipt.SettingsDigest {
+		return result, errors.New("verification candidate integrity or selected settings unavailable")
 	}
 	if _, err := receipt.Digest(); err != nil {
 		return result, err
 	}
+	if _, err := applicablePrevious(req, before); err != nil {
+		return result, err
+	}
 	waitStarted := time.Now()
 	commandCtx, claim, err := acquire(ctx)
+	waitMS := time.Since(waitStarted).Milliseconds()
+	receipt.WaitMilliseconds = &waitMS
 	if err != nil {
-		waitMS := time.Since(waitStarted).Milliseconds()
-		receipt.WaitMilliseconds = &waitMS
-		receipt.FinishedAt = time.Now().UTC()
-		receipt.CleanupResolved = true // This invocation never owned execution.
-		if errors.Is(err, context.Canceled) {
-			receipt.Outcome = "canceled"
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			receipt.Outcome = "timeout"
-		}
+		receipt.FinishedAt, receipt.CleanupResolved = time.Now().UTC(), true
+		receipt.Outcome = verificationOutcome(err)
 		digest, digestErr := receipt.Digest()
 		return Result{Receipt: receipt, Digest: digest}, errors.Join(fmt.Errorf("wait for supported heavy verification: %w", err), digestErr)
 	}
-	finished := false
 	defer func() {
-		if !finished {
-			// Authority or inputs can change after waiting. Preserve the observed
-			// wait even when no command was admitted, without inventing run time.
-			finishErr := claim.Finish(nil)
-			err = errors.Join(err, finishErr)
-			receipt.CleanupResolved = finishErr == nil
-			receipt.FinishedAt = time.Now().UTC()
-			switch {
-			case finishErr != nil:
-				receipt.Outcome = "cleanup_unresolved"
-			case errors.Is(err, context.DeadlineExceeded):
-				receipt.Outcome = "timeout"
-			case errors.Is(err, context.Canceled):
-				receipt.Outcome = "canceled"
-			}
-			digest, digestErr := receipt.Digest()
-			result = Result{Receipt: receipt, Digest: digest}
-			err = errors.Join(err, digestErr)
+		finishErr := claim.Finish(err)
+		err = errors.Join(err, finishErr)
+		if result.Historical && err == nil {
+			return
 		}
+		result.Historical = false
+		receipt.FinishedAt = time.Now().UTC()
+		var cleanup *subprocess.CleanupError
+		receipt.CleanupResolved = !errors.As(err, &cleanup)
+		if err != nil {
+			receipt.Outcome = verificationOutcome(err)
+		}
+		digest, digestErr := receipt.Digest()
+		result.Receipt, result.Digest = receipt, digest
+		err = errors.Join(err, digestErr)
 	}()
-	waitMS := time.Since(waitStarted).Milliseconds()
-	receipt.WaitMilliseconds = &waitMS
 	current, err := req.Observe(ctx)
 	if err != nil {
 		return result, err
@@ -142,54 +140,132 @@ func run(ctx context.Context, req Request, acquire func(context.Context) (contex
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	executionStarted := time.Now()
-	var cleanupStart time.Time
-	commandCtx = subprocess.WithCleanupObserver(commandCtx, func() func(error) {
-		cleanupStart = time.Now()
-		return func(error) {}
-	})
-	output, runErr := (subprocess.OSRunner{}).RunBoundedHeadTailInput(commandCtx, req.Entry.Command, req.Entry.Args, req.Directory, 0, nil, 64*1024, "\n[verification output truncated]\n")
-	finishErr := claim.Finish(runErr)
-	finished = true
-	runErr = errors.Join(runErr, finishErr)
-	completed := time.Now()
-	runUntil := completed
-	if !cleanupStart.IsZero() {
-		runUntil = cleanupStart
-		cleanupMS := completed.Sub(cleanupStart).Milliseconds()
-		receipt.CleanupMilliseconds = &cleanupMS
-	}
-	runMS := runUntil.Sub(executionStarted).Milliseconds()
-	receipt.RunMilliseconds = &runMS
-	runStartedAt, runFinishedAt := executionStarted.UTC(), runUntil.UTC()
-	receipt.RunStartedAt, receipt.RunFinishedAt = &runStartedAt, &runFinishedAt
-	receipt.FinishedAt = completed.UTC()
-	report, _ := json.Marshal(output)
-	receipt.ReportDigest = hash(report)
-	var cleanup *subprocess.CleanupError
-	receipt.CleanupResolved = !errors.As(runErr, &cleanup)
-	switch {
-	case !receipt.CleanupResolved:
-		receipt.Outcome = "cleanup_unresolved"
-	case errors.Is(runErr, context.DeadlineExceeded):
-		receipt.Outcome = "timeout"
-	case errors.Is(runErr, context.Canceled):
-		receipt.Outcome = "canceled"
-	case runErr == nil && output.ExitCode == 0:
-		after, observeErr := req.Observe(ctx)
-		if observeErr != nil {
-			runErr = observeErr
-		} else if !reflect.DeepEqual(before, after) {
-			runErr = errors.New("verification candidate or inputs changed during execution")
-		} else {
-			receipt.Outcome = "passed"
+	tryReuse := func(observed Observation) (bool, error) {
+		applicable, err := applicablePrevious(req, observed)
+		if err != nil || !applicable {
+			return false, err
 		}
-	case runErr == nil:
-		runErr = errors.New("verification command failed")
+		after, err := req.Observe(ctx)
+		if err != nil {
+			return false, err
+		}
+		if !reflect.DeepEqual(observed, after) {
+			return false, errors.New("verification bindings changed during reuse assessment")
+		}
+		result.Receipt, result.Digest, result.Historical = *req.PreviousReceipt, req.PreviousDigest, true
+		result.CurrentPreparation = receipt.Preparation
+		return true, nil
 	}
-	digest, digestErr := receipt.Digest()
-	result = Result{Receipt: receipt, Digest: digest, Output: output}
-	return result, errors.Join(runErr, digestErr)
+	if reused, err := tryReuse(current); reused || err != nil {
+		return result, err
+	}
+	if prep := req.Entry.Preparation; prep != nil {
+		if err := validatePreparationCandidate(ctx, req.Directory, req.Entry); err != nil {
+			return result, err
+		}
+		observeWrites := func() (string, error) {
+			return collectContent(ctx, req.Directory, []string{"."}, append([]string{".git"}, req.Entry.DependencyPaths...), workspace.DefaultSnapshotLimits(), true)
+		}
+		protected, err := observeWrites()
+		if err != nil {
+			return result, fmt.Errorf("observe preparation write boundary: %w", err)
+		}
+		phase, output, runErr := runPhase(commandCtx, prep.Command, prep.Args, req.Directory)
+		receipt.Preparation, result.PreparationOutput = &phase, &output
+		if runErr != nil {
+			return result, runErr
+		}
+		after, err := req.Observe(ctx)
+		if err != nil {
+			return result, err
+		}
+		protectedAfter, err := observeWrites()
+		if err != nil {
+			return result, err
+		}
+		// Only actual declared dependency contents may change during preparation.
+		withoutDependencies := after
+		withoutDependencies.Inputs.Dependencies = current.Inputs.Dependencies
+		if protected != protectedAfter || !reflect.DeepEqual(current, withoutDependencies) {
+			return result, errors.New("preparation changed protected source, configuration, runtime or undeclared files")
+		}
+		current, receipt.Inputs = after, after.Inputs
+		if reused, err := tryReuse(current); reused || err != nil {
+			return result, err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	phase, output, runErr := runPhase(commandCtx, req.Entry.Command, req.Entry.Args, req.Directory)
+	result.Output = output
+	receipt.RunStartedAt, receipt.RunFinishedAt = &phase.StartedAt, &phase.RunFinishedAt
+	receipt.RunMilliseconds, receipt.CleanupMilliseconds = &phase.RunMilliseconds, phase.CleanupMilliseconds
+	receipt.ReportDigest = phase.ReportDigest
+	if runErr != nil {
+		return result, runErr
+	}
+	after, err := req.Observe(ctx)
+	if err != nil {
+		return result, err
+	}
+	if !reflect.DeepEqual(current, after) {
+		return result, errors.New("verification candidate or inputs changed during execution")
+	}
+	receipt.Outcome = "passed"
+	return result, nil
+}
+
+func applicablePrevious(req Request, observed Observation) (bool, error) {
+	if req.PreviousReceipt == nil {
+		return false, nil
+	}
+	assessment, err := execution.AssessVerificationReceipt(*req.PreviousReceipt, req.PreviousDigest, execution.VerificationTarget{
+		Repository: req.Repository, PlanID: req.PlanID, CandidateOID: observed.CommitOID, Entrypoint: req.Entrypoint,
+		SettingsDigest: strings.TrimPrefix(req.Entry.Digest(), "v1:"), Inputs: observed.Inputs, Boundary: req.Boundary,
+		RequireCurrentCandidate: req.Entry.RequireCurrentCandidate,
+	})
+	return assessment.Applicable, err
+}
+
+func runPhase(ctx context.Context, command string, args []string, directory string) (execution.VerificationPreparationReceipt, subprocess.Result, error) {
+	phase := execution.VerificationPreparationReceipt{Command: append([]string{command}, args...), StartedAt: time.Now().UTC()}
+	var cleanupStart time.Time
+	ctx = subprocess.WithCleanupObserver(ctx, func() func(error) { cleanupStart = time.Now().UTC(); return func(error) {} })
+	output, err := (subprocess.OSRunner{}).RunBoundedHeadTailInput(ctx, command, args, directory, 0, nil, 64*1024, "\n[verification output truncated]\n")
+	phase.FinishedAt = time.Now().UTC()
+	phase.RunFinishedAt = phase.FinishedAt
+	if !cleanupStart.IsZero() {
+		phase.RunFinishedAt = cleanupStart
+		ms := phase.FinishedAt.Sub(cleanupStart).Milliseconds()
+		phase.CleanupMilliseconds = &ms
+	}
+	phase.RunMilliseconds = phase.RunFinishedAt.Sub(phase.StartedAt).Milliseconds()
+	encoded, _ := json.Marshal(output)
+	phase.ReportDigest = hash(encoded)
+	if err == nil && output.ExitCode != 0 {
+		err = errors.New("verification command failed")
+	}
+	var cleanup *subprocess.CleanupError
+	phase.CleanupResolved = !errors.As(err, &cleanup)
+	phase.Outcome = verificationOutcome(err)
+	return phase, output, err
+}
+
+func verificationOutcome(err error) string {
+	var cleanup *subprocess.CleanupError
+	switch {
+	case errors.As(err, &cleanup):
+		return "cleanup_unresolved"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case err == nil:
+		return "passed"
+	default:
+		return "failed"
+	}
 }
 
 func hash(data []byte) string { digest := sha256.Sum256(data); return hex.EncodeToString(digest[:]) }

@@ -159,7 +159,7 @@ func TestUsageFromPiEventStreamReadsFinalAssistantCounters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !usage.Available || usage.InputTokens != 12 || usage.OutputTokens != 5 || usage.CacheReadInputTokens != 3 || usage.CacheWriteInputTokens != 2 || usage.ReasoningOutputTokens != 1 || usage.Turns != 1 || usage.ReportedCostUSD == nil || *usage.ReportedCostUSD != 0 {
+	if !usage.Available || usage.InputTokens != 17 || usage.OutputTokens != 5 || usage.CacheReadInputTokens != 3 || usage.CacheWriteInputTokens != 2 || usage.ReasoningOutputTokens != 1 || usage.Turns != 1 || usage.ReportedCostUSD == nil || *usage.ReportedCostUSD != 0 {
 		t.Fatalf("Pi usage = %#v", usage)
 	}
 }

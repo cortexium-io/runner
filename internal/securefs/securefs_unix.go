@@ -345,7 +345,7 @@ func (d *Directory) OpenFile(name string) (*PinnedFile, error) {
 	if before.Mode&unix.S_IFMT != unix.S_IFREG {
 		return nil, fmt.Errorf("%s is not a regular file", filepath.Join(d.path, name))
 	}
-	fd, err := unix.Openat(d.fd, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, err := unix.Openat(d.fd, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}

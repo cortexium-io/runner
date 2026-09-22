@@ -104,7 +104,7 @@ func TestDeliveryCLIStagesDurableParentAndReleasesExactManifest(t *testing.T) {
 	if err := service.bindDeliveryAssignment(t.Context(), ready[0].Item, &assignment); err != nil {
 		t.Fatal(err)
 	}
-	if assignment.Spec.PlanContext == nil || assignment.Spec.PlanContext.ApprovedBody != parent.Body || assignment.Spec.PlanContext.ID != parentID || assignment.Spec.PlanContext.Revision != github.PlanRevision(parent.Body) || assignment.Spec.ReviewScope != execution.ReviewScopeCard || len(assignment.Spec.PlanMemberBriefs) != 0 {
+	if assignment.Spec.PlanContext == nil || assignment.Spec.PlanContext.ApprovedBody != parent.Body || assignment.Spec.PlanContext.ID != parentID || assignment.Spec.PlanContext.Revision != github.PlanRevision(parent.Body) || assignment.Spec.PlanContext.CompleteVerification != "" || assignment.Spec.ReviewScope != execution.ReviewScopeCard || len(assignment.Spec.PlanMemberBriefs) != 0 {
 		t.Fatal("member assignment did not receive the exact shared authority without sibling/history duplication")
 	}
 }
@@ -399,6 +399,10 @@ func testDeliveryProductionMilestoneWithPublicationLoss(t *testing.T, reject, cr
 						t.Fatalf("premature child delivery %+v", child)
 					}
 				}
+				status, err := service.WorkStatus(t.Context())
+				if err != nil || len(status.IntegratedUndelivered) != 2 || len(status.Queued) != 0 || len(status.PlanningCompleted) != 0 {
+					t.Fatalf("status confused integration with delivery or admission: %v", err)
+				}
 				if got := strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/"+item.Branch)); got != item.QACommit {
 					t.Fatal("final PR is not exact combined candidate")
 				}
@@ -423,6 +427,10 @@ func testDeliveryProductionMilestoneWithPublicationLoss(t *testing.T, reject, cr
 					if candidate.ID == parentID && candidate.Status != "Done" {
 						t.Fatal("confirmed merge not recorded as delivery")
 					}
+				}
+				status, err = service.WorkStatus(t.Context())
+				if err != nil || len(status.IntegratedUndelivered) != 0 || len(status.PlanningCompleted) != 0 {
+					t.Fatalf("status retained undelivered work after confirmed merge: %v", err)
 				}
 				if runner.creates != 1 || runner.implementations != wantImpl || runner.reviews != wantReview {
 					t.Fatal("delivery recovery repeated model work or PR creation")

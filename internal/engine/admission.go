@@ -58,6 +58,7 @@ func EvaluateAdmission(budget *config.AdmissionBudgetConfig, attempts []metrics.
 		if !attempt.Completed {
 			continue
 		}
+		attempt.Usage, _ = metrics.NormalizeUsage(attempt.Usage, attempt.Harness)
 		decision.CompletedAttempts++
 		if attempt.HarnessDurationMilliseconds < 0 {
 			return decision.deny("cannot verify admission budget because metrics history contains a negative harness duration")
@@ -74,14 +75,17 @@ func EvaluateAdmission(budget *config.AdmissionBudgetConfig, attempts []metrics.
 			decision.PartialUsageAttempts++
 		}
 		if attempt.Usage.Available {
-			decision.UsageCoveredAttempts++
-			reported, ok := reportedTokens(attempt.Usage)
+			reported, ok := metrics.ReportedTokens(attempt.Usage)
 			if !ok {
-				return decision.deny("cannot verify admission budget because reported token usage overflowed")
-			}
-			decision.ReportedTokens, ok = addNonNegative(decision.ReportedTokens, reported)
-			if !ok {
-				return decision.deny("cannot verify admission budget because reported token usage overflowed")
+				if budget.MaxReportedTokens > 0 {
+					return decision.deny("cannot verify admission budget because reported token accounting is unresolved or overflowed")
+				}
+			} else {
+				decision.UsageCoveredAttempts++
+				decision.ReportedTokens, ok = addNonNegative(decision.ReportedTokens, reported)
+				if !ok {
+					return decision.deny("cannot verify admission budget because reported token usage overflowed")
+				}
 			}
 		}
 		if attempt.Usage.ReportedCostUSD != nil {
@@ -132,18 +136,6 @@ func EvaluateAdmission(budget *config.AdmissionBudgetConfig, attempts []metrics.
 		}
 	}
 	return decision
-}
-
-func reportedTokens(usage metrics.Usage) (int64, bool) {
-	total, ok := addNonNegative(usage.InputTokens, usage.CacheReadInputTokens)
-	if !ok {
-		return 0, false
-	}
-	total, ok = addNonNegative(total, usage.CacheWriteInputTokens)
-	if !ok {
-		return 0, false
-	}
-	return addNonNegative(total, usage.OutputTokens)
 }
 
 func addNonNegative(left, right int64) (int64, bool) {

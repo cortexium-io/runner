@@ -243,6 +243,10 @@ func (c *evalCoordinator) runCase(ctx context.Context, harness, role, caseID str
 	defer aggregateCancel()
 	caseContext, cancel := context.WithTimeout(aggregateContext, c.settings.CaseTimeout)
 	result := run(caseContext)
+	// The frozen old comparison worker returns its native historical units.
+	// Summarize normalizes one leaf using its recorded harness on current
+	// Runner; the unchanged old metrics API keeps this shared worker buildable.
+	result.Usage = normalizedEvalUsage(result.Usage, harness)
 	if result.AdmissionStop != "" {
 		c.stopReason = result.AdmissionStop
 	}
@@ -286,6 +290,10 @@ func (c *evalCoordinator) runCase(ctx context.Context, harness, role, caseID str
 		c.reviewerJudgments[result.ReviewJudgment]++
 	}
 	return result
+}
+
+func normalizedEvalUsage(usage metrics.Usage, harness string) metrics.Usage {
+	return metrics.Summarize([]metrics.Attempt{{Completed: true, Event: metrics.Event{Harness: harness, Usage: usage}}}).Usage
 }
 
 func (c *evalCoordinator) finish(passed bool) {

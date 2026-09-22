@@ -34,13 +34,14 @@ type PlanMemberBrief struct {
 // admission. It is assignment data, not model-authored authority. Children keep
 // their own local requirements without copying this shared brief into each card.
 type PlanContext struct {
-	ID                string   `json:"id"`
-	Revision          string   `json:"revision"`
-	ApprovedBody      string   `json:"approved_body"`
-	Repository        string   `json:"repository"`
-	DestinationBranch string   `json:"destination_branch"`
-	Branch            string   `json:"branch"`
-	MemberIDs         []string `json:"member_ids"`
+	ID                   string   `json:"id"`
+	Revision             string   `json:"revision"`
+	ApprovedBody         string   `json:"approved_body"`
+	Repository           string   `json:"repository"`
+	DestinationBranch    string   `json:"destination_branch"`
+	Branch               string   `json:"branch"`
+	MemberIDs            []string `json:"member_ids"`
+	CompleteVerification string   `json:"complete_verification,omitempty"`
 }
 
 type ReviewScope string

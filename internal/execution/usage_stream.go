@@ -131,6 +131,10 @@ func (s *usageStream) consume(line []byte) {
 		Messages []json.RawMessage `json:"messages"`
 	}
 	if json.Unmarshal(line, &event) != nil {
+		s.partial()
+		if s.kind == config.HarnessPiCLI {
+			s.piIncomplete = true
+		}
 		return
 	}
 	switch s.kind {
@@ -159,6 +163,8 @@ func (s *usageStream) consume(line []byte) {
 				usage.Coverage = metrics.UsageUnavailable
 			}
 			s.latest = usage
+		} else {
+			s.partial()
 		}
 	case config.HarnessPiCLI:
 		if event.Type == "agent_start" {
@@ -213,7 +219,13 @@ func (s *usageStream) consumePiMessage(message json.RawMessage) {
 		s.piMessages = make(map[[32]byte]bool)
 	}
 	s.piMessages[digest] = true
-	s.latest = s.latest.Add(usage)
+	total := s.latest.Add(usage)
+	if metrics.ValidateUsage(total) != nil {
+		s.piIncomplete = true
+		s.partial()
+		return
+	}
+	s.latest = total
 	s.partial()
 }
 

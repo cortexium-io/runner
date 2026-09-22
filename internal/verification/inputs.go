@@ -47,6 +47,24 @@ func ObserveCandidate(ctx context.Context, directory, baseOID, approvedRequireme
 	if !before.Clean {
 		return observation, errors.New("supported verification requires a clean committed candidate")
 	}
+	if entry.Preparation != nil {
+		if err := validatePreparationCandidate(ctx, directory, entry); err != nil {
+			return observation, err
+		}
+	}
+	for _, selected := range entry.RuntimePaths {
+		candidate, err := securefs.AbsolutePath(directory)
+		if err != nil {
+			return observation, err
+		}
+		runtimePath, err := securefs.AbsolutePath(selected)
+		if err != nil {
+			return observation, err
+		}
+		if pathsOverlap(candidate, runtimePath) {
+			return observation, errors.New("runtime closure overlaps the actual candidate workspace")
+		}
+	}
 	executable, err := collectInputs(ctx, directory, entry.InputPaths, nil)
 	if err != nil {
 		return observation, err
@@ -95,6 +113,18 @@ type inputEntry struct {
 // guard each read, but a private QA copy of identical executable bytes remains
 // applicable. Directory listings are pinned until their children are checked.
 func collectInputs(ctx context.Context, root string, paths, excluded []string) (string, error) {
+	return collectContent(ctx, root, paths, excluded, workspace.DefaultSnapshotLimits(), false)
+}
+
+func collectContent(ctx context.Context, root string, paths, excluded []string, limits securefs.SnapshotLimits, wholeRoot bool) (string, error) {
+	budget, err := securefs.NewSnapshotBudget(limits)
+	if err != nil {
+		return "", err
+	}
+	return collectContentWithBudget(ctx, root, paths, excluded, budget, wholeRoot)
+}
+
+func collectContentWithBudget(ctx context.Context, root string, paths, excluded []string, budget *securefs.SnapshotBudget, wholeRoot bool) (string, error) {
 	root, err := securefs.AbsolutePath(root)
 	if err != nil {
 		return "", err
@@ -104,15 +134,10 @@ func collectInputs(ctx context.Context, root string, paths, excluded []string) (
 		return "", err
 	}
 	defer directory.Close()
-	budget, err := securefs.NewSnapshotBudget(workspace.DefaultSnapshotLimits())
-	if err != nil {
-		return "", err
-	}
-	remaining := int64(workspace.DefaultSnapshotMaxTotalBytes)
 	var entries []inputEntry
 	exclusions := map[string]bool{}
 	for _, name := range excluded {
-		if err := validateInputPath(name); err != nil {
+		if err := validateInputPath(name); err != nil && !(wholeRoot && name == ".git") {
 			return "", err
 		}
 		exclusions[name] = true
@@ -126,7 +151,7 @@ func collectInputs(ctx context.Context, root string, paths, excluded []string) (
 		if exclusions[relative] {
 			return nil
 		}
-		if err := budget.AddEntry(relative); err != nil {
+		if err := budget.AddEntry(filepath.Join(root, filepath.FromSlash(relative))); err != nil {
 			return err
 		}
 		absolute := filepath.Join(root, filepath.FromSlash(relative))
@@ -151,7 +176,7 @@ func collectInputs(ctx context.Context, root string, paths, excluded []string) (
 			}
 			entries = append(entries, inputEntry{Path: relative, Kind: "directory", Mode: uint32(info.Mode().Perm())})
 			for _, leaf := range names {
-				if leaf == ".git" {
+				if strings.EqualFold(leaf, ".git") && !exclusions[path.Join(relative, leaf)] {
 					return errors.New("Git administrative paths cannot be verification inputs")
 				}
 				if err := visit(child, relative, leaf); err != nil {
@@ -160,23 +185,12 @@ func collectInputs(ctx context.Context, root string, paths, excluded []string) (
 			}
 			return child.Verify()
 		case info.Mode().IsRegular():
-			limit := int64(workspace.DefaultSnapshotMaxFileBytes)
-			if remaining < limit {
-				limit = remaining
-			}
-			if limit <= 0 {
-				return errors.New("verification input byte budget exceeded")
-			}
-			data, mode, state, err := parent.ReadFile(name, limit)
+			content, mode, err := parent.HashFileContent(ctx, name, budget)
 			if err != nil {
 				return err
 			}
-			if !state.Exists {
-				return errors.New("verification input disappeared")
-			}
-			remaining -= int64(len(data))
-			entries = append(entries, inputEntry{Path: relative, Kind: "file", Mode: uint32(mode.Perm()), Digest: hash(data)})
-			return parent.VerifyFile(name, state)
+			entries = append(entries, inputEntry{Path: relative, Kind: "file", Mode: uint32(mode), Digest: hex.EncodeToString(content)})
+			return parent.Verify()
 		case info.Mode()&os.ModeSymlink != 0:
 			// Links are not traversed. Only targets already covered by selected
 			// roots are allowed; an external package-store link needs an explicit
@@ -222,6 +236,26 @@ func collectInputs(ctx context.Context, root string, paths, excluded []string) (
 		}
 	}
 	for _, selected := range paths {
+		if wholeRoot && selected == "." {
+			info, err := os.Lstat(root)
+			if err != nil {
+				return "", err
+			}
+			entries = append(entries, inputEntry{Path: ".", Kind: "directory", Mode: uint32(info.Mode().Perm())})
+			names, err := directory.ReadDirNamesWithBudget(budget)
+			if err != nil {
+				return "", err
+			}
+			for _, name := range names {
+				if strings.EqualFold(name, ".git") && !exclusions[name] {
+					return "", errors.New("Git administrative paths cannot be verification inputs")
+				}
+				if err := visit(directory, "", name); err != nil {
+					return "", err
+				}
+			}
+			continue
+		}
 		if err := validateInputPath(selected); err != nil {
 			return "", err
 		}
@@ -274,7 +308,7 @@ func collectInputs(ctx context.Context, root string, paths, excluded []string) (
 func coveredInput(name string, paths []string, excluded map[string]bool) bool {
 	covered := false
 	for _, selected := range paths {
-		if name == selected || strings.HasPrefix(name, selected+"/") {
+		if name == selected || strings.HasPrefix(name, selected+"/") || selected == "." && name != ".." && !strings.HasPrefix(name, "../") && !path.IsAbs(name) {
 			covered = true
 		}
 	}
@@ -291,7 +325,7 @@ func validateInputPath(name string) error {
 		return fmt.Errorf("invalid verification input path %q", name)
 	}
 	for _, component := range strings.Split(name, "/") {
-		if component == ".git" {
+		if strings.EqualFold(component, ".git") {
 			return errors.New("Git administration cannot be selected as executable input")
 		}
 	}
@@ -303,7 +337,11 @@ func observeEnvironment(ctx context.Context, entry config.VerificationEntrypoint
 		return "", errors.New("verification toolchain identity is not configured")
 	}
 	var tools [][3]string
-	for _, command := range append([]string{entry.Command}, entry.ToolchainCommands...) {
+	commands := append([]string{entry.Command}, entry.ToolchainCommands...)
+	if entry.Preparation != nil {
+		commands = append(commands, entry.Preparation.Command)
+	}
+	for _, command := range commands {
 		if strings.ContainsAny(command, "/\\") && !filepath.IsAbs(command) {
 			return "", errors.New("relative executable paths are not supported; use configured PATH names or absolute executables")
 		}
@@ -315,14 +353,24 @@ func observeEnvironment(ctx context.Context, entry config.VerificationEntrypoint
 		if err != nil {
 			return "", err
 		}
-		data, _, state, err := securefs.ReadFile(resolved, 128*1024*1024)
+		parent, err := securefs.OpenDir(filepath.Dir(resolved))
 		if err != nil {
 			return "", err
 		}
-		if !state.Exists {
-			return "", errors.New("verification toolchain executable disappeared")
+		budget, _ := securefs.NewSnapshotBudget(runtimeLimits)
+		content, mode, readErr := parent.HashFileContent(ctx, filepath.Base(resolved), budget)
+		_ = parent.Close()
+		if readErr != nil {
+			return "", readErr
 		}
-		tools = append(tools, [3]string{command, resolved, hash(data)})
+		if mode.Perm()&0111 == 0 {
+			return "", errors.New("verification toolchain is not executable")
+		}
+		tools = append(tools, [3]string{command, resolved, fmt.Sprintf("%o:%s", mode, hex.EncodeToString(content))})
+	}
+	runtimes, err := ObserveRuntimePaths(ctx, entry.RuntimePaths)
+	if err != nil {
+		return "", err
 	}
 	var env []string
 	for _, value := range os.Environ() {
@@ -340,6 +388,6 @@ func observeEnvironment(ctx context.Context, entry config.VerificationEntrypoint
 	if err != nil || platform.ExitCode != 0 {
 		return "", errors.New("verification platform identity unavailable")
 	}
-	encoded, _ := json.Marshal([]any{runtime.GOOS, runtime.GOARCH, platform.Stdout, tools, env})
+	encoded, _ := json.Marshal([]any{runtime.GOOS, runtime.GOARCH, platform.Stdout, tools, runtimes, env})
 	return hash(encoded), nil
 }

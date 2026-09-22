@@ -143,6 +143,12 @@ func TestFailedOrUncleanExecutionNeverBecomesPassingEvidence(t *testing.T) {
 				r.CleanupResolved = false
 			}
 			pinned, err := r.Digest()
+			if outcome == "passed" {
+				if err == nil {
+					t.Fatal("unresolved cleanup was accepted as passing provenance")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -151,6 +157,51 @@ func TestFailedOrUncleanExecutionNeverBecomesPassingEvidence(t *testing.T) {
 				t.Fatalf("failure history lost or accepted: %#v,%v", result, err)
 			}
 		})
+	}
+}
+
+func TestVerificationReceiptPreparationDoesNotSubstituteForCheck(t *testing.T) {
+	fixture := func() VerificationReceipt {
+		r, _ := observedVerificationFixture()
+		r.Preparation = &VerificationPreparationReceipt{
+			Command: []string{"npm", "ci"}, StartedAt: r.StartedAt,
+			RunFinishedAt: r.StartedAt.Add(40 * time.Millisecond), FinishedAt: r.StartedAt.Add(50 * time.Millisecond),
+			RunMilliseconds: 40, Outcome: "passed", CleanupResolved: true, ReportDigest: strings.Repeat("a", 64),
+		}
+		return r
+	}
+	r := fixture()
+	if _, err := r.Digest(); err != nil {
+		t.Fatalf("valid sequential preparation and check refused: %v", err)
+	}
+	for _, tc := range []struct {
+		name   string
+		change func(*VerificationReceipt)
+	}{
+		{"preparation only", func(r *VerificationReceipt) { r.RunStartedAt, r.RunFinishedAt, r.RunMilliseconds = nil, nil, nil }},
+		{"failed preparation", func(r *VerificationReceipt) { r.Preparation.Outcome = "failed" }},
+		{"unresolved preparation", func(r *VerificationReceipt) { r.Preparation.CleanupResolved = false }},
+		{"overlapping check", func(r *VerificationReceipt) { r.Preparation.FinishedAt = r.RunStartedAt.Add(time.Millisecond) }},
+		{"reversed preparation interval", func(r *VerificationReceipt) {
+			r.Preparation.RunFinishedAt = r.Preparation.StartedAt.Add(-time.Millisecond)
+		}},
+		{"preparation outside invocation", func(r *VerificationReceipt) { r.Preparation.StartedAt = r.StartedAt.Add(-time.Millisecond) }},
+		{"missing preparation report", func(r *VerificationReceipt) { r.Preparation.ReportDigest = "" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := fixture()
+			tc.change(&r)
+			if _, err := r.Digest(); err == nil {
+				t.Fatal("incomplete or contradictory preparation accepted as check proof")
+			}
+		})
+	}
+	// A failed preparation is still observable history without an invented run.
+	r = fixture()
+	r.Outcome, r.Preparation.Outcome = "failed", "failed"
+	r.RunStartedAt, r.RunFinishedAt, r.RunMilliseconds = nil, nil, nil
+	if _, err := r.Digest(); err != nil {
+		t.Fatalf("failed preparation history lost: %v", err)
 	}
 }
 

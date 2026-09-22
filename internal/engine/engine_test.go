@@ -2986,14 +2986,15 @@ func TestImplementerLadderSelectsProfilesFromPersistedQAFailures(t *testing.T) {
 }
 
 func TestImplementationLadderRunsSelectedProfileWithRetainedQAFeedback(t *testing.T) {
-	for _, selected := range []bool{false, true} {
-		t.Run(fmt.Sprintf("planner_selected_%t", selected), func(t *testing.T) {
+	for _, selection := range []string{"ladder", "planner", "manual"} {
+		t.Run(selection, func(t *testing.T) {
+			selected := selection != "ladder"
 			repo, _ := createPublicationRepository(t)
 			item := github.WorkItem{
 				ID: "PVTI_ladder", Title: "Refine implementation", Body: "Acceptance criteria", Repository: "owner/repo",
 				Status: "In Progress", Phase: "ready", Role: config.WorkRoleImplementer, QAFailures: 1,
 			}
-			if selected {
+			if selection == "planner" {
 				item.QAFailures = 0
 				item.ImplementationProfile = "implementer_luna"
 				item.PlanningSourceLane = "local_plan"
@@ -3002,6 +3003,15 @@ func TestImplementationLadderRunsSelectedProfileWithRetainedQAFeedback(t *testin
 				item.PlanningBatchFingerprint = "v1:batch"
 				item.PlanningBatchSize, item.PlanningItemIndex = 1, 1
 				item.Body = github.FormatPlannedItemBody(github.PlannedItem{Summary: item.Body, Repository: item.Repository, ImplementationProfile: item.ImplementationProfile, ProfileReason: "Existing pattern", DependencyIDsResolved: true, PlanningSourceLane: item.PlanningSourceLane, PlanningSourceFingerprint: item.PlanningSourceFingerprint, PlanningDestination: item.PlanningDestination, PlanningBatchFingerprint: item.PlanningBatchFingerprint, PlanningBatchSize: 1, PlanningItemIndex: 1})
+			}
+			if selection == "manual" {
+				item.QAFailures = 0
+				item.ImplementationProfile = "implementer_luna"
+				var err error
+				item.Body, err = github.WithManualImplementationProfile(item.Body, item.ImplementationProfile)
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			item.Approval = testApproval(item)
 			project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, qaFailures: item.QAFailures}

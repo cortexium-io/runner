@@ -43,14 +43,25 @@ type PlanDeliveryConfig struct {
 // VerificationEntrypoint is operator-owned argv, not an expression or a model
 // supplied command. Execution/containment is owned by the verification launcher.
 type VerificationEntrypoint struct {
-	ToolchainCommands      []string `json:"toolchain_commands"`
-	RuntimePaths           []string `json:"runtime_paths,omitempty"`
-	Command                string   `json:"command"`
-	Args                   []string `json:"args,omitempty"`
-	TimeoutSeconds         int      `json:"timeout_seconds"`
-	InputPaths             []string `json:"input_paths"`
-	DependencyPaths        []string `json:"dependency_paths"`
-	DependencyExcludePaths []string `json:"dependency_exclude_paths,omitempty"`
+	Preparation             *VerificationPreparation `json:"preparation,omitempty"`
+	RequireCurrentCandidate bool                     `json:"require_current_candidate,omitempty"`
+	ToolchainCommands       []string                 `json:"toolchain_commands"`
+	RuntimePaths            []string                 `json:"runtime_paths,omitempty"`
+	Command                 string                   `json:"command"`
+	Args                    []string                 `json:"args,omitempty"`
+	TimeoutSeconds          int                      `json:"timeout_seconds"`
+	InputPaths              []string                 `json:"input_paths"`
+	DependencyPaths         []string                 `json:"dependency_paths"`
+	DependencyExcludePaths  []string                 `json:"dependency_exclude_paths,omitempty"`
+}
+
+// VerificationPreparation is one operator-owned dependency preparation command.
+// It shares the entrypoint's directory, environment, containment, heavy claim
+// and total deadline. Only declared dependency roots may change before the
+// actual dependency snapshot becomes the executable check's baseline.
+type VerificationPreparation struct {
+	Command string   `json:"command"`
+	Args    []string `json:"args,omitempty"`
 }
 
 func (e VerificationEntrypoint) Digest() string {

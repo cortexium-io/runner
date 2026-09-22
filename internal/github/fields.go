@@ -308,12 +308,16 @@ func decodeProjectItemNode(raw projectItemNode) WorkItem {
 		item.Repository = metadata.Repository
 	}
 	item.Dependencies = append([]string{}, metadata.Dependencies...)
+	item.ImplementationProfile = metadata.ImplementationProfile
 	if !metadataPresent {
 		manualDependencies, dependenciesPresent, dependenciesErr := decodeManualDependencies(item.Body)
 		item.PlanningMetadataInvalid = dependenciesPresent && dependenciesErr != nil
 		if dependenciesErr == nil {
 			item.Dependencies = append([]string{}, manualDependencies...)
 		}
+		profile, profileErr := ManualImplementationProfile(item.Body)
+		item.PlanningMetadataInvalid = item.PlanningMetadataInvalid || profileErr != nil
+		item.ImplementationProfile = profile
 	}
 	item.PlanningSourceID = metadata.PlanningSourceID
 	item.PlanningSourceLane = metadata.PlanningSourceLane
@@ -322,7 +326,6 @@ func decodeProjectItemNode(raw projectItemNode) WorkItem {
 	item.PlanningBatchFingerprint = metadata.PlanningBatchFingerprint
 	item.PlanningBatchSize = metadata.PlanningBatchSize
 	item.PlanningItemIndex = metadata.PlanningItemIndex
-	item.ImplementationProfile = metadata.ImplementationProfile
 	return item
 }
 

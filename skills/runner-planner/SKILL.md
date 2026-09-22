@@ -105,6 +105,12 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    domain invariants that materially affect completeness.
 7. When Runner supplies a plan-delivery boundary, whole-plan review and complete
    validation belong to that boundary; do not create a duplicate readiness card.
+   Represent Runner's maintained complete gate in its explicit configured delivery
+   obligation, not a duplicate project success criterion requiring QA to attest
+   an execution scheduled after acceptance. Keep product and engineering success
+   criteria factual. Preserve explicit approved pre-QA checks; if their timing
+   conflicts with delivery policy, identify the decision instead of silently
+   rescheduling or waiving them.
    For the individual-card path, include a project-readiness card only when
    integration or release evidence cannot be established by the delivery cards
    themselves. Name that additional

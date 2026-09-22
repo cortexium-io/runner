@@ -53,13 +53,18 @@ func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (Ame
 	newMetadata, newPresent, newErr := decodePlannedItemMetadata(body)
 	var oldDeps, newDeps []string
 	var oldDepsErr, newDepsErr error
+	var oldProfile, newProfile string
+	var oldProfileErr, newProfileErr error
 	if !oldPresent {
 		oldDeps, _, oldDepsErr = decodeManualDependencies(item.Body)
+		oldProfile, oldProfileErr = ManualImplementationProfile(item.Body)
 	}
 	if !newPresent {
 		newDeps, _, newDepsErr = decodeManualDependencies(body)
+		newProfile, newProfileErr = ManualImplementationProfile(body)
 	}
 	if oldErr != nil || newErr != nil || oldPresent != newPresent || !reflect.DeepEqual(oldMetadata, newMetadata) ||
+		oldProfileErr != nil || newProfileErr != nil || oldProfile != newProfile ||
 		oldDepsErr != nil || newDepsErr != nil || !reflect.DeepEqual(oldDeps, newDeps) {
 		return AmendmentPlan{}, errors.New("amendment cannot change repository, dependencies, execution profile, or Runner planning metadata")
 	}

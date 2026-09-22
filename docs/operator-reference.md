@@ -149,7 +149,7 @@ continues observing unrelated Project and pull-request events while harness
 actions are in flight. It does nothing once you stop it. Use
 `cortexium-runner run --once` for one synchronous polling cycle in a diagnostic
 or scripted workflow. `init`, `doctor`, `plan`, `approve`, `retry`, `status`,
-`metrics`, `guidance`, `role`, `workflow`, and `harness` are one-shot commands that exit
+`metrics`, `guidance`, `role`, `workflow`, `delivery`, `verify`, and `harness` are one-shot commands that exit
 when they finish. Running
 `cortexium-runner` without arguments shows help; every command supports
 `--help`, and `--version` prints the installed version.
@@ -595,6 +595,15 @@ transition, invalid current authority, dependencies, an incomplete planning
 batch, or invalid batch or sibling authority appear under `Waiting work` with a
 fixed bounded explanation. `status --json` includes each waiting card, its
 stable reason code, and that summary in `work.waiting`.
+Authenticated plan children that are accepted and integrated, but whose plan has
+not delivered, appear under `Integrated into plan — not delivered`
+(`work.integrated_undelivered` in JSON). They are neither queued nor Done and do
+not satisfy external dependants. Historical parents whose Done state recorded
+only planning completion are labeled separately (`work.planning_completed`);
+that label makes no delivery claim and does not rewrite historical state.
+Cancelled plans remain inspectable under `Cancelled plans — retained work, no
+admission` (`work.cancelled_plans`). Their accepted/integrated children remain
+undelivered; cancellation does not remove recoverable work or grant admission.
 The emitted codes are `transition_locked`, `planning_metadata_invalid`,
 `action_authority_invalid`, `dependencies_incomplete`,
 `planning_batch_incomplete`, `planning_batch_sibling_authority_invalid`,
@@ -635,6 +644,19 @@ metrics. Use
 `metrics --item ID_OR_TITLE` for one card or `metrics --json` for
 machine-readable output. `status` includes a compact accumulated total and the
 current admission-budget state.
+
+Token units are recorded separately as `token_accounting`. With
+`inclusive_input_v1`, input includes cache reads and writes, and output includes
+reported reasoning tokens. The checked total is **input + output**; cache and
+reasoning columns are subsets, not extra tokens to add. `metrics --json`
+summaries expose `reported_tokens` as a number when the units are known, or
+`null` when unavailable, unresolved or invalid—not zero. A partial summary's
+number is only the reported lower bound. Historical records are normalized in
+memory using their saved harness identity, including model breakdowns; raw
+history is not rewritten and current settings never supply missing provenance.
+Unknown or mixed legacy units remain `unresolved`, even with zero cache counts.
+See [reported-token accounting](../internal/metrics/USAGE.md) for provider sources
+and validation rules. These counters are neither a bill nor a provider quota.
 
 New native harness records distinguish usage `coverage`: `complete`, `partial`,
 or `unavailable`. Failed/canceled invocations keep any reported counters as
@@ -1006,7 +1028,19 @@ cortexium-runner add ready \
 
 Use `--body TEXT` for a short inline body. A title and a nonempty body are
 required. `--dry-run` loads and validates the trusted config, then prints the
-resolved Project and lane without changing GitHub.
+resolved Project and lane without changing GitHub. For Ready it also displays the
+resolved starting implementation profile, harness, model, and reasoning. With no
+selection, the current configured default and existing escalation policy apply.
+
+Use `add ready --profile ID` to select an existing allowed implementation profile
+without changing configuration. It is checked against the same allowlist used
+at execution and saved in the visible `## Runner implementation profile` body
+section as one exact ID. Ordinary manually created Ready cards may use that same
+section; the exact body and selection are covered by normal card authorization.
+Malformed, duplicate, conflicting, or unavailable selections are refused, never
+silently substituted. `--profile` is not a planner option and cannot rewrite
+the authenticated profile of an existing planned card. Requirement-only
+amendments also cannot change this execution selection.
 
 `add plan` creates one unsigned Project draft in the configured planner lane.
 The running event loop converts it to an issue, authenticates the exact observed
@@ -1430,7 +1464,9 @@ The available ceilings are attempts, completed harness seconds,
 harness-reported tokens, and harness-reported USD cost. Token and cost ceilings
 fail closed if an attempt in the window is unfinished or lacks the corresponding
 harness-reported counter; harness-time ceilings likewise fail closed for an
-unfinished attempt. Runner also fails closed before the next agent call if
+unfinished attempt. Unresolved token units block a token-total ceiling, but do
+not themselves block independent attempt, harness-time or complete cost
+ceilings. Invalid usage/history still fails closed. Runner also fails closed before the next agent call if
 the configured history contains malformed records or an admission reservation
 cannot be written. Configure ceilings during first-time setup with
 `--admission-window` plus one or more of `--max-admission-attempts`,
@@ -1603,6 +1639,75 @@ and remove that unapproved batch before replanning or staging the revised one;
 Runner never silently combines or deletes it. Replaying a complete unapproved
 batch creates no duplicate cards and does not release it. The destination lane
 determines the role after separate approval.
+
+## Delivery rollout and cancellation
+
+Plan delivery is default off. It applies only to explicitly approved new plans;
+standalone Ready cards retain the individual-card path, and historical Done
+planning parents are not relabeled as delivered. Before rollout, finish existing
+active batches, independently review the configured maintained complete gate and
+its input/dependency/runtime selections, then preview:
+
+```bash
+cortexium-runner delivery migrate --config /absolute/operator/path/runner.json --entrypoint complete --dry-run
+cortexium-runner delivery migrate --config /absolute/operator/path/runner.json --entrypoint complete --json
+```
+
+Both forms are read-only. The preview binds the exact configuration and Project
+snapshot and shows the complete existing catalog entry. Migration can add only
+the exact `Runner Plan Release` TEXT field and enable `plan_delivery` with that
+catalog ID. It does not create a verification command, grant host access, change
+models/limits, alter cards or reinterpret historical planning completion. A
+same-named conflicting or duplicate field is refused, not repaired implicitly.
+
+Gracefully stop the existing service and let assignments and their descendants
+finish. Finish standalone planning, review and configured verification operations
+too. Run the same command without `--dry-run` or `--json` in an interactive
+terminal, review its fresh preview, and explicitly choose Yes (the default is
+No). Piped confirmation is not accepted. Apply acquires the existing Project
+worker/planning/mutation and per-operation guards, checks unresolved owned work,
+then revalidates exactly what was previewed. It does not kill or drain anything.
+No long-running verification holds the Project mutation lock.
+
+The field is confirmed before configuration activation. Only `plan_delivery`
+changes semantically, via conditional secure replacement; an exact private
+`runner.json.before-plan-delivery-<digest>` backup is retained next to the actual
+config filename. Intervening operator edits are preserved. If field creation
+succeeds but later state checks fail, the inert field is retained and config
+activation is refused. Inspect the reported state and review a fresh preview;
+never delete a field to retry. An already matching field/config does not need
+another mutation. No service starts: run normal Doctor and restore the original
+service only after the complete rollout is ready. Do not blindly restore config
+over active work or newly created plan authority.
+
+To cancel an approved, unpublished delivery plan:
+
+```bash
+cortexium-runner delivery cancel --config /absolute/operator/path/runner.json --item PVTI_PARENT --dry-run
+cortexium-runner delivery cancel --config /absolute/operator/path/runner.json --item PVTI_PARENT
+```
+
+The same quiescence and interactive exact-preview rules apply. Cancellation is
+one signed parent transition to `plan_cancelled`: it fences new admission and
+subsequent authority refreshes, preserving the immutable release, member cards,
+branches, accepted work, historical feedback and rejection counts. It does not
+delete, revert, retry or deliver anything. Status and cancellation preview still
+inspect the retained plan; execution does not accept cancelled authority.
+
+Any existing final PR—including one created before a lost Project response—must
+be coordinated separately. Cancellation never closes a PR or undoes a merge.
+Changed membership/authority, running or transition-locked items, and publication
+races refuse apply. If a Project transition write is interrupted, leave work
+stopped, inspect the exact parent and existing transition recovery state, and
+resolve it before resuming; the command does not claim cancellation succeeded or
+grant another retry. Reapplying a freshly inspected already-cancelled plan makes
+no further Project writes. There is no implicit reopen.
+
+These controls do not complete the rollout by themselves. Selective plan
+amendments, production historical-proof reuse and failed-complete-gate owner
+classification remain separate required work before live activation. At this
+stage a failed maintained complete gate blocks safely; it does not yet route a
+repair automatically or authorize a speculative owner/card.
 
 ## Roles and harnesses
 
@@ -2933,7 +3038,8 @@ Each case is bounded to 20 minutes by default, matching the shipped planner
 timeout, and each run remains bounded to 75 minutes.
 The required `--max-tokens` ceiling and optional `--max-cost-usd` ceiling reuse
 Runner admission rules and fail closed when a selected harness does not report
-the configured counter. Reported tokens include cache reads and writes; the
+the configured counter. Reported tokens count inclusive input plus output once;
+cache reads/writes are already included in input, not added again. The
 operator selects a ceiling appropriate for the chosen providers and can use a
 cost ceiling when spend is the concern. Normal tests validate the coordinator, corpus, budget refusal, and
 safe reporting but skip all paid calls. The two live runs are an explicit

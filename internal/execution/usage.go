@@ -53,6 +53,9 @@ func usageFromClaudeEnvelope(envelope claudeResultEnvelope) metrics.Usage {
 			}
 		}
 	}
+	// The returned invalid marker is intentional on normalization failure:
+	// callers without an error return must not consume overflowed counters.
+	usage, _ = metrics.NormalizeUsage(usage, "claude")
 	return usage
 }
 
@@ -90,6 +93,9 @@ func parseCodexUsage(stdout string) metrics.Usage {
 			} `json:"payload"`
 		}
 		if json.Unmarshal(line, &event) != nil {
+			if latest.Reported() {
+				latest.Coverage = metrics.UsagePartial
+			}
 			continue
 		}
 		if event.Type == "turn.completed" && event.Usage != nil {
@@ -100,6 +106,7 @@ func parseCodexUsage(stdout string) metrics.Usage {
 				OutputTokens:          event.Usage.OutputTokens,
 				ReasoningOutputTokens: event.Usage.ReasoningOutputTokens,
 			}
+			latest, _ = metrics.NormalizeUsage(latest, "codex")
 		}
 		if event.Type == "event_msg" && event.Payload.Type == "token_count" && event.Payload.Info.Total != nil {
 			total := event.Payload.Info.Total
@@ -110,6 +117,7 @@ func parseCodexUsage(stdout string) metrics.Usage {
 				OutputTokens:          total.OutputTokens,
 				ReasoningOutputTokens: total.ReasoningOutputTokens,
 			}
+			latest, _ = metrics.NormalizeUsage(latest, "codex")
 		}
 	}
 	return latest

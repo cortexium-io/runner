@@ -173,6 +173,14 @@ func (s *Store) Read() (ReadResult, error) {
 			result.MalformedRecords++
 			continue
 		}
+		// Only a leaf event's recorded harness can establish legacy counter
+		// units. Normalize in memory; append-only history remains untouched.
+		normalized, usageErr := NormalizeUsage(event.Usage, event.Harness)
+		if usageErr != nil {
+			result.MalformedRecords++
+			continue
+		}
+		event.Usage = normalized
 		if !seen[event.AttemptID] {
 			order = append(order, event.AttemptID)
 			seen[event.AttemptID] = true

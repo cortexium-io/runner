@@ -123,7 +123,13 @@ completion events, including separate agent loops; Claude's JSON envelope
 supplies its available counters. No transcript is added to history. Usage coverage is complete, partial, or
 unavailable; historical counters without coverage remain unknown. Failed or
 canceled invocations retain reported counters as partial, not as a complete
-total or an estimate. Aggregating a reported invocation with an explicitly
+total or an estimate. Counter units are independently versioned as
+`inclusive_input_v1`: cache tokens are included in input, reasoning in output.
+Provider reports and historical leaves with known saved harness identities
+normalize before aggregation; unknown/mixed units remain unresolved. One
+checked input-plus-output total serves budgets and summaries. See
+[the accounting contract](../internal/metrics/USAGE.md); history is never rewritten.
+Aggregating a reported invocation with an explicitly
 unavailable one remains partial. Token/cost admission budgets fail closed for
 partial totals. Events are
 appended to a runner-keyed JSONL file in the user configuration directory. The
