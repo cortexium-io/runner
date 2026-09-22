@@ -12,7 +12,7 @@ import (
 )
 
 // BundledVersion identifies the skill bundle shipped in this Runner build.
-const BundledVersion = "1.9.2"
+const BundledVersion = "1.9.3"
 
 var bundledSkillIDs = []string{
 	"runner-planner",
@@ -22,7 +22,7 @@ var bundledSkillIDs = []string{
 }
 
 var bundledSkillSHA256 = map[string]string{
-	"runner-implementer":        "51242639a67dd1f0b9f1492d0708939402678375515f98244ec242786fa61cbe",
+	"runner-implementer":        "95a691b7d5594cfb6e2357488f3638f67ea5f18b72e2b07dc395cdd94ccae3c8",
 	"runner-planner":            "341cb0f0c73e5000c8d8f572c66d667fa3e999c50e02066f2aa528b35a51d11f",
 	"runner-reviewer":           "df1ee2c3a662e0f8eb66ff5406aebf8dca016891ea1af1252eb4395f44f4707f",
 	"runner-interaction-design": "bda3f969e6f44458926d7877b25f91a22c93ad550283004e7acfd3d33a28e9c3",

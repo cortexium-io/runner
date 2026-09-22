@@ -169,7 +169,7 @@ func (e AgentExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	}
 	harnessStartedAt := time.Now()
 	finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
-	schema := executionContentSchemaForVerification(len(assignment.Spec.RequiredVerification))
+	schema := implementationContentSchema(len(assignment.Spec.RequiredVerification))
 	result, lastMessage, usage, failureEvidence, runErr := e.runHarness(
 		ctx,
 		e.profileProjectArgs(profile, launchWorkspace, schema),
@@ -184,7 +184,7 @@ func (e AgentExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	var structuredErr error
 	if runErr == nil {
 		finishStageFromOutput(finishHarness, Output{Outcome: OutcomeSucceeded}, nil, usage)
-		structured, structuredErr = assembleExecutionContent(assignment, lastMessage)
+		structured, structuredErr = assembleImplementationContent(assignment, lastMessage)
 	} else if classified, known := classifyHarnessFailure(runErr, failureEvidence); known {
 		finishStageFromOutput(finishHarness, classified, runErr, usage)
 		if classified.FailureClass == FailureCleanupUnresolved {
@@ -415,7 +415,7 @@ func extractHarnessResultAndUsage(kind, stdout, piProvenance string, piNativeStr
 func buildHarnessPrompt(assignment Assignment, workspaceWrite bool, displayName string) string {
 	var b strings.Builder
 	b.WriteString(harnessTaskInstructions(workspaceWrite, displayName))
-	appendStructuredResultInstructions(&b)
+	appendStructuredResultInstructions(&b, workspaceWrite)
 	b.WriteString(harnessTaskContext(assignment, workspaceWrite))
 	return b.String()
 }

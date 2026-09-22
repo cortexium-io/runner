@@ -3835,7 +3835,7 @@ func TestCandidateCorrectionDoesNotBypassAuthorityOrIntegrity(t *testing.T) {
 			}
 			for i, stage := range candidates {
 				wantClass, wantRetry := string(execution.FailureCandidateValidation), string(execution.RetryManual)
-				if failure == "index flag" || failure == "correction integrity failure" && i == 1 {
+				if failure == "approval changed" || failure == "index flag" || failure == "correction integrity failure" && i == 1 {
 					wantClass = string(execution.FailureIntegrityViolation)
 				}
 				if failure == "correction integrity failure" && i == 0 {

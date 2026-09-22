@@ -17,7 +17,7 @@ const (
 
 func validateSemanticResultEvidence(outcome string, summary string, workDone []string, blocker *string) error {
 	switch strings.TrimSpace(outcome) {
-	case OutcomeSucceeded, OutcomeNeedsInput, OutcomeBlocked:
+	case OutcomeSucceeded, OutcomeNeedsInput, OutcomeBlocked, OutcomeRepairNeeded:
 	default:
 		return fmt.Errorf("unsupported outcome %q", strings.TrimSpace(outcome))
 	}
@@ -32,8 +32,8 @@ func validateSemanticResultEvidence(outcome string, summary string, workDone []s
 			return fmt.Errorf("work_done[%d] cannot be empty", index)
 		}
 	}
-	if (outcome == OutcomeNeedsInput || outcome == OutcomeBlocked) && (blocker == nil || strings.TrimSpace(*blocker) == "") {
-		return errors.New("blocker is required for needs_input or blocked outcomes")
+	if (outcome == OutcomeNeedsInput || outcome == OutcomeBlocked || outcome == OutcomeRepairNeeded) && (blocker == nil || strings.TrimSpace(*blocker) == "") {
+		return errors.New("blocker is required for unfinished outcomes")
 	}
 	return nil
 }

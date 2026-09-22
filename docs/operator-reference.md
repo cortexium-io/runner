@@ -2641,6 +2641,25 @@ in local Runner output, not copied to the Project. Inspect that output and
 through the project's approved local setup rather than repeatedly rerunning
 passing checks. Neither outcome grants additional data-mutation authority.
 
+For ordinary in-scope defects, the implementer should keep repairing within its
+current session. If a fresh pass is genuinely needed, `repair_needed` asks Runner
+for one bounded continuation, carrying retained work, identifiable failure
+evidence and the remaining correction. Runner rechecks authority and workspace
+integrity before admitting it; the card remains in implementation and exposes
+`Repairing implementation (1/1)` as activity. This shares the existing candidate
+formatting-correction allowance and original runtime deadline, not a fresh
+timeout or QA rejection budget. Models, concurrency and required proof do not
+change. Passing evidence is reusable only when applicable to the new candidate.
+
+Another unfinished repair or insufficient remaining runtime stops with
+`repair_exhausted`. Missing inputs/capabilities and integrity problems still stop
+without automatic repair. An interrupted corrective pass also requires explicit
+retry: restarting Runner does not grant another allowance. Inspect the retained
+work and local attempt evidence before using the existing `retry` command or
+moving a blocked card to Ready. Either human action starts a new implementation
+budget; it does not erase QA rejection history. No configuration or Project-field
+migration is needed; update the bundled implementer skill to 1.9.3 using Doctor.
+
 When distinct integration or release evidence cannot be established on delivery
 cards, a project-readiness card depends on the relevant delivery paths and names
 that proof gap. It is not mandatory for every multi-card plan and must not simply

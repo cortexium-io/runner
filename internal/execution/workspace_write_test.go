@@ -569,6 +569,7 @@ func TestWorkspaceWriteCanonicalizesRepresentationWithoutSecondHarnessCall(t *te
 type representationResidueRunner struct {
 	kind        string
 	harnessDirs []string
+	result      string
 }
 
 func (r *representationResidueRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
@@ -595,6 +596,9 @@ func (r *representationResidueRunner) Run(ctx context.Context, command string, a
 	value := corrected
 	if call == 0 {
 		value = strings.TrimSuffix(corrected, "}") + `,"type":"object"}`
+	}
+	if r.result != "" {
+		value = r.result
 	}
 	switch r.kind {
 	case config.HarnessCodexCLI:

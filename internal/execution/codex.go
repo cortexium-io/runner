@@ -65,6 +65,11 @@ func executionContentSchemaForVerification(approvedChecks int) []byte {
 	return []byte(fmt.Sprintf(executionContentSchemaTemplate, limit))
 }
 
+func implementationContentSchema(approvedChecks int) []byte {
+	return []byte(strings.Replace(string(executionContentSchemaForVerification(approvedChecks)),
+		`["succeeded", "needs_input", "blocked"]`, `["succeeded", "needs_input", "blocked", "repair_needed"]`, 1))
+}
+
 func NewCodexExecutor(cfg config.ExecutionConfig, run subprocess.Runner) CodexExecutor {
 	if run == nil {
 		run = subprocess.OSRunner{}
@@ -194,7 +199,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	}
 	finishStageFromOutput(finishWorkspace, Output{Outcome: OutcomeSucceeded}, nil, metrics.Usage{})
 
-	schema := executionContentSchemaForVerification(len(assignment.Spec.RequiredVerification))
+	schema := implementationContentSchema(len(assignment.Spec.RequiredVerification))
 	artifacts, err := newStructuredResultArtifacts("runner-codex-worktree", schema)
 	if err != nil {
 		return blockedOutput("Create Codex result files failed: " + err.Error()), err
@@ -227,7 +232,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	var structuredErr error
 	if runErr == nil {
 		finishStageFromOutput(finishHarness, Output{Outcome: OutcomeSucceeded}, nil, usage)
-		structured, structuredErr = assembleExecutionContent(assignment, lastMessage)
+		structured, structuredErr = assembleImplementationContent(assignment, lastMessage)
 	} else if classified, known := classifyHarnessFailure(runErr, codexFailureEvidence(result, runErr, e.config.SafeTools)); known {
 		finishStageFromOutput(finishHarness, classified, runErr, usage)
 		if classified.FailureClass == FailureCleanupUnresolved {
@@ -284,6 +289,14 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 }
 
 func assembleExecutionContent(assignment Assignment, value string) (StructuredExecutionResult, error) {
+	return assembleRoleExecutionContent(assignment, value, false)
+}
+
+func assembleImplementationContent(assignment Assignment, value string) (StructuredExecutionResult, error) {
+	return assembleRoleExecutionContent(assignment, value, true)
+}
+
+func assembleRoleExecutionContent(assignment Assignment, value string, implementation bool) (StructuredExecutionResult, error) {
 	if assignment.Spec.ReviewRequired {
 		return StructuredExecutionResult{}, errors.New("ordinary execution content is not valid for a reviewer assignment")
 	}
@@ -323,8 +336,11 @@ func assembleExecutionContent(assignment Assignment, value string) (StructuredEx
 	if content.Outcome == OutcomeSucceeded && len(content.Blockers) != 0 {
 		return StructuredExecutionResult{}, errors.New("successful execution content requires blockers to be empty")
 	}
-	if (content.Outcome == OutcomeNeedsInput || content.Outcome == OutcomeBlocked) && len(content.Blockers) != 1 {
-		return StructuredExecutionResult{}, errors.New("needs_input or blocked execution content requires exactly one blocker")
+	if (content.Outcome == OutcomeNeedsInput || content.Outcome == OutcomeBlocked || content.Outcome == OutcomeRepairNeeded) && len(content.Blockers) != 1 {
+		return StructuredExecutionResult{}, errors.New("unfinished execution content requires exactly one blocker")
+	}
+	if content.Outcome == OutcomeRepairNeeded && (!implementation || len(content.WorkDone) == 0 || len(content.Verification) == 0) {
+		return StructuredExecutionResult{}, errors.New("repair_needed requires an implementer result with retained work, failure evidence and a concrete remaining repair")
 	}
 	var blocker *string
 	if len(content.Blockers) == 1 {
@@ -414,6 +430,11 @@ func structuredExecutorOutput(result StructuredExecutionResult) Output {
 		output.RetryDisposition = RetryManual
 	case OutcomeBlocked:
 		output.FailureClass = FailureAgentBlocked
+		output.RetryDisposition = RetryManual
+	case OutcomeRepairNeeded:
+		// A model request is not retry authority. The engine must admit the
+		// bounded correction after validating the current action and workspace.
+		output.FailureClass = FailureImplementationRepair
 		output.RetryDisposition = RetryManual
 	}
 	return output
@@ -505,9 +526,14 @@ func buildWorkspaceWriteCodexPrompt(assignment Assignment) string {
 	return buildHarnessPrompt(assignment, true, "Codex CLI")
 }
 
-func appendStructuredResultInstructions(b *strings.Builder) {
+func appendStructuredResultInstructions(b *strings.Builder, implementation bool) {
 	b.WriteString("\nReturn the structured outcome through the harness's required structured-output mechanism. Include a concise summary, concrete work_done entries, and a verification entry for each check actually performed. Never describe an unrun check as verification. Set blockers to [] for succeeded. Set blockers to exactly one non-empty reason for needs_input or blocked.")
-	b.WriteString("\nUse needs_input when completion requires an operator decision, clarification, permission, credentials, access, or designated test data. Group all known missing prerequisites into one actionable blocker without exposing secrets. Use blocked for an unresolved technical or verification impediment when no specific operator input is being requested. Neither outcome is success or permission to weaken acceptance; retain partial work and report completed and missing proof separately.")
+	b.WriteString("\nUse needs_input when completion requires an operator decision, clarification, permission, credentials, access, or designated test data. Group all known missing prerequisites into one actionable blocker without exposing secrets. Unfinished outcomes are not success or permission to weaken acceptance; retain partial work and report completed and missing proof separately.")
+	if implementation {
+		b.WriteString("\nA failing in-scope test is repair feedback, not a reason to stop: investigate and correct it within this assignment's remaining runtime. If a fresh pass is necessary while authorized repair remains possible, return repair_needed with retained work_done, identifiable failure evidence in verification, and exactly one blockers entry describing the concrete remaining repair. Do not use repair_needed for missing authority, decisions, credentials, capabilities, exhausted runtime, or repeated failure without progress; use needs_input or blocked. Runner may admit at most one corrective pass within the original deadline; this request neither extends the budget nor authorizes more work. Never report success or waive required verification to avoid stopping.")
+	} else {
+		b.WriteString("\nUse blocked for an unresolved technical or verification impediment when no specific operator input is being requested.")
+	}
 	b.WriteString("\nWhen the harness provides a dedicated Runner finalization tool, follow that tool's own completion instructions exactly. Otherwise, the entire final response must be exactly one JSON object. Do not use Markdown, a code fence, headings, bullets, or commentary outside that object.")
 	b.WriteString("\nDo not return blocker or review_assessment fields. Runner derives its internal result from this execution content.")
 }
