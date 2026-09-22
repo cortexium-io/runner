@@ -158,7 +158,8 @@ func writeDeliveryMigrationPreview(out io.Writer, plan engine.DeliveryMigration)
 	after, _ := json.Marshal(plan.Configuration.After)
 	entry, _ := json.MarshalIndent(plan.Configuration.Entrypoint, "", "  ")
 	fmt.Fprintf(out, "Only configuration delta: plan_delivery %s -> %s\nExisting reviewed catalog entry (unchanged):\n%s\n", terminalSafeText(string(before)), terminalSafeText(string(after)), terminalSafeText(string(entry)))
-	fmt.Fprintln(out, "Gracefully stop Runner and wait for assignments/descendants and standalone operations to finish before applying. Existing batches must be fully delivered. No models, limits, card history or other configuration changes; no service start. An exact config backup is retained. A partially created field is retained inert if activation cannot finish.")
+	fmt.Fprintf(out, "Preserve %d legacy Done planning records unchanged. This is administrative history, not authenticated delivery or a dependency/execution authority grant.\n", plan.Project.PreservedLegacyDoneItems)
+	fmt.Fprintln(out, "Gracefully stop Runner and wait for assignments/descendants and standalone operations to finish before applying. Legacy batches must be structurally complete and entirely Done; new delivery contracts must retain current authority and completed delivery. No models, limits, card history or other configuration changes; no service start. An exact config backup is retained. A partially created field is retained inert if activation cannot finish.")
 }
 
 func writeDeliveryCancellationPreview(out io.Writer, plan github.PlanCancellation) {

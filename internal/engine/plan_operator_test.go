@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -295,6 +296,70 @@ func TestDeliveryMigrationRefusesChangedPreviewOrUnfinishedBatch(t *testing.T) {
 			after, _ := os.ReadFile(path)
 			if string(before) != string(after) || runner.creates != 0 {
 				t.Fatal("refusal mutated state")
+			}
+		})
+	}
+}
+
+func TestDeliveryMigrationPreservesLegacyDoneRecordsAndExactPreview(t *testing.T) {
+	for _, changed := range []bool{false, true} {
+		name := "apply preserves history"
+		if changed {
+			name = "changed historical body refuses apply"
+		}
+		t.Run(name, func(t *testing.T) {
+			service, runner, path, _ := migrationEngineFixture(t)
+			runner.project.loadRemoteItems()
+			for i := 1; i <= 9; i++ {
+				planned := github.PlannedItem{Title: fmt.Sprintf("Historical member %d", i), Repository: "owner/repo", Summary: "Historical approved work",
+					PlanningSourceLane: "local_plan", PlanningSourceFingerprint: "v1:legacy-source", PlanningDestination: "Ready",
+					PlanningBatchFingerprint: "v1:legacy-nine", PlanningBatchSize: 9, PlanningItemIndex: i, DependencyIDsResolved: true}
+				item := github.WorkItem{ID: fmt.Sprintf("PVTI_legacy_%d", i), Title: planned.Title, Body: github.FormatPlannedItemBody(planned), Repository: planned.Repository,
+					Status: "Done", Phase: "agent_qa", URL: fmt.Sprintf("https://github.com/owner/repo/issues/%d", i), IssueState: "CLOSED",
+					Branch: fmt.Sprintf("runner/historical-%d", i), PullRequest: fmt.Sprintf("https://github.com/owner/repo/pull/%d", i), QACommit: strings.Repeat("a", 40)}
+				if i == 1 {
+					item.Approval = "stale-historical-assertion"
+				}
+				runner.project.remoteItems = append(runner.project.remoteItems, item)
+			}
+			before, err := service.source.LifecycleItems(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := service.PlanDeliveryMigration(t.Context(), path, "complete")
+			if err != nil || plan.Project.PreservedLegacyDoneItems != 9 {
+				t.Fatalf("legacy preview failed: count=%d error=%v", plan.Project.PreservedLegacyDoneItems, err)
+			}
+			configBefore, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if changed {
+				// This remains structurally complete and Done; only the exact
+				// reviewed snapshot can detect the intervening operator edit.
+				runner.project.remoteItems[0].Body = "Operator amendment\n" + runner.project.remoteItems[0].Body
+			}
+			err = service.ApplyDeliveryMigration(t.Context(), plan)
+			if changed {
+				configAfter, _ := os.ReadFile(path)
+				if err == nil || runner.creates != 0 || string(configBefore) != string(configAfter) {
+					t.Fatal("changed historical record bypassed migration CAS")
+				}
+			} else {
+				if err != nil || runner.creates != 1 {
+					t.Fatalf("migration failed: creates=%d error=%v", runner.creates, err)
+				}
+				after, err := service.source.LifecycleItems(t.Context())
+				if err != nil || !reflect.DeepEqual(before, after) {
+					t.Fatalf("migration rewrote historical fields: %v", err)
+				}
+			}
+			for _, call := range runner.project.calls {
+				for _, forbidden := range []string{"item-edit", "issue edit", "updateProjectV2Item", "pr view"} {
+					if strings.Contains(call, forbidden) {
+						t.Fatalf("migration mutated or reinterpreted historical work: %s", forbidden)
+					}
+				}
 			}
 		})
 	}
