@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,22 +13,49 @@ import (
 )
 
 type Config struct {
-	ConfigVersion          int                     `json:"config_version"`
-	RunnerID               string                  `json:"runner_id"`
-	Harnesses              []HarnessConfig         `json:"harnesses"`
-	Roles                  map[string]RoleConfig   `json:"roles"`
-	PlannerImplementers    []string                `json:"planner_implementers,omitempty"`
-	ImplementerLadder      []string                `json:"implementer_ladder,omitempty"`
-	Workflow               *WorkflowConfig         `json:"workflow"`
-	DoctorRequirements     []CapabilityRequirement `json:"doctor_requirements,omitempty"`
-	ProjectDir             string                  `json:"project_dir"`
-	RepositoryReferences   []RepositoryReference   `json:"repository_references,omitempty"`
-	ReviewEvidencePaths    []string                `json:"review_evidence_paths,omitempty"`
-	MaxParallelism         int                     `json:"max_parallelism"`
-	GuidanceMinOccurrences int                     `json:"guidance_min_occurrences,omitempty"`
-	AdmissionBudget        *AdmissionBudgetConfig  `json:"admission_budget,omitempty"`
-	ResourceLimits         *ResourceLimitsConfig   `json:"resource_limits,omitempty"`
-	GitHubProject          *GitHubProjectConfig    `json:"github_project"`
+	ConfigVersion          int                               `json:"config_version"`
+	RunnerID               string                            `json:"runner_id"`
+	Harnesses              []HarnessConfig                   `json:"harnesses"`
+	Roles                  map[string]RoleConfig             `json:"roles"`
+	PlannerImplementers    []string                          `json:"planner_implementers,omitempty"`
+	ImplementerLadder      []string                          `json:"implementer_ladder,omitempty"`
+	Workflow               *WorkflowConfig                   `json:"workflow"`
+	DoctorRequirements     []CapabilityRequirement           `json:"doctor_requirements,omitempty"`
+	ProjectDir             string                            `json:"project_dir"`
+	RepositoryReferences   []RepositoryReference             `json:"repository_references,omitempty"`
+	ReviewEvidencePaths    []string                          `json:"review_evidence_paths,omitempty"`
+	MaxParallelism         int                               `json:"max_parallelism"`
+	GuidanceMinOccurrences int                               `json:"guidance_min_occurrences,omitempty"`
+	AdmissionBudget        *AdmissionBudgetConfig            `json:"admission_budget,omitempty"`
+	ResourceLimits         *ResourceLimitsConfig             `json:"resource_limits,omitempty"`
+	PlanDelivery           *PlanDeliveryConfig               `json:"plan_delivery,omitempty"`
+	Verification           map[string]VerificationEntrypoint `json:"verification,omitempty"`
+	GitHubProject          *GitHubProjectConfig              `json:"github_project"`
+}
+
+// PlanDeliveryConfig is an explicit rollout boundary. Absence preserves the
+// individual-card workflow, including historical planning-complete records.
+type PlanDeliveryConfig struct {
+	Enabled              bool   `json:"enabled"`
+	CompleteVerification string `json:"complete_verification"`
+}
+
+// VerificationEntrypoint is operator-owned argv, not an expression or a model
+// supplied command. Execution/containment is owned by the verification launcher.
+type VerificationEntrypoint struct {
+	ToolchainCommands      []string `json:"toolchain_commands"`
+	RuntimePaths           []string `json:"runtime_paths,omitempty"`
+	Command                string   `json:"command"`
+	Args                   []string `json:"args,omitempty"`
+	TimeoutSeconds         int      `json:"timeout_seconds"`
+	InputPaths             []string `json:"input_paths"`
+	DependencyPaths        []string `json:"dependency_paths"`
+	DependencyExcludePaths []string `json:"dependency_exclude_paths,omitempty"`
+}
+
+func (e VerificationEntrypoint) Digest() string {
+	encoded, _ := json.Marshal(e)
+	return fmt.Sprintf("v1:%x", sha256.Sum256(encoded))
 }
 
 func (c Config) EffectiveGuidanceMinOccurrences() int {

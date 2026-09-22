@@ -512,7 +512,7 @@ func (r plannerNeedsInputRunner) Run(ctx context.Context, command string, args [
 		}
 		plan, err := stagedPlannerFixtureResponse(args,
 			`{"goal_summary":"Clarify scope","project_success_criteria":["The supported API contract is explicit."],"project_constraints":[],"open_decisions":["Which API version must remain compatible?"],"cards":[{"title":"Implement after clarification","dependencies":[]}]}`,
-			`{"cards":{"C1":{"objective":"Implement the selected compatibility contract.","done_when":["Compatibility is defined."],"proof_obligations":["The selected compatibility behavior is demonstrated."],"assumptions":[]}}}`,
+			`{"cards":{"C1":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Implement the selected compatibility contract.","done_when":["Compatibility is defined."],"proof_obligations":["The selected compatibility behavior is demonstrated."],"assumptions":[]}}}`,
 		)
 		if err != nil {
 			return subprocess.Result{}, err
@@ -547,7 +547,7 @@ func (r plannerStagesBatchRunner) Run(ctx context.Context, command string, args 
 		}
 		details := r.details
 		if strings.TrimSpace(details) == "" {
-			details = `{"cards":{"C1":{"objective":"Build the requested slice.","done_when":["It works."],"proof_obligations":["The requested behavior is demonstrated."],"assumptions":[]}}}`
+			details = `{"cards":{"C1":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Build the requested slice.","done_when":["It works."],"proof_obligations":["The requested behavior is demonstrated."],"assumptions":[]}}}`
 		}
 		plan, err := stagedPlannerFixtureResponse(args, outline, details)
 		if err != nil {
@@ -1495,7 +1495,7 @@ func TestPlannerRetryResumesExactCheckpointAfterPartialChildCreation(t *testing.
 	runner := plannerStagesBatchRunner{
 		project: project, plannerCalls: &plannerCalls,
 		outline: `{"goal_summary":"Deliver both slices","project_success_criteria":["Both slices work."],"project_constraints":[],"open_decisions":[],"cards":[{"title":"Implement first slice","dependencies":[]},{"title":"Implement second slice","dependencies":[1]}]}`,
-		details: `{"cards":{"C1":{"objective":"Build the first slice.","done_when":["The first slice works."],"proof_obligations":["The first behavior is demonstrated."],"assumptions":[]},"C2":{"objective":"Build the second slice.","done_when":["The second slice works."],"proof_obligations":["The second behavior is demonstrated."],"assumptions":[]}}}`,
+		details: `{"cards":{"C1":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Build the first slice.","done_when":["The first slice works."],"proof_obligations":["The first behavior is demonstrated."],"assumptions":[]},"C2":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Build the second slice.","done_when":["The second slice works."],"proof_obligations":["The second behavior is demonstrated."],"assumptions":[]}}}`,
 	}
 	service, err := New(completeEngineTestConfig(config.Config{
 		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
@@ -1682,8 +1682,8 @@ func TestPartialPlannerBatchIsQuarantinedFromExecution(t *testing.T) {
 		t.Fatalf("configure service: %v", err)
 	}
 	plan := ProjectPlan{GoalSummary: "Two-card plan", ProjectSuccessCriteria: []string{"The complete behavior works."}, SourceContext: "Build the complete behavior.", WorkItems: []github.PlannedItem{
-		{Title: "First", Summary: "First slice", AcceptanceCriteria: []string{"First works"}, Verification: []string{"Test first"}, Risks: []string{}, NonGoals: []string{}},
-		{Title: "Second", Summary: "Second slice", AcceptanceCriteria: []string{"Second works"}, Verification: []string{"Test second"}, Risks: []string{}, NonGoals: []string{}},
+		{Title: "First", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "First slice", AcceptanceCriteria: []string{"First works"}, Verification: []string{"Test first"}, Risks: []string{}, NonGoals: []string{}},
+		{Title: "Second", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Second slice", AcceptanceCriteria: []string{"Second works"}, Verification: []string{"Test second"}, Risks: []string{}, NonGoals: []string{}},
 	}}
 	created, err := service.ApplyProjectPlan(t.Context(), plan)
 	if err == nil || len(created) != 1 {
@@ -1866,7 +1866,7 @@ func TestInterruptedDependencyMetadataFinalizationResumesExactBatch(t *testing.T
 	}
 	plan := directProjectPlanFixture()
 	plan.WorkItems = append(plan.WorkItems, github.PlannedItem{
-		Title: "Third direct child", Summary: "Implement the third child.", AcceptanceCriteria: []string{"Third works."},
+		Title: "Third direct child", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Implement the third child.", AcceptanceCriteria: []string{"Third works."},
 		Verification: []string{"Test third."}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{"Second direct child"},
 	})
 	if _, err := service.ApplyProjectPlan(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "finalize dependency metadata") {
@@ -2173,8 +2173,8 @@ func directProjectPlanFixture() ProjectPlan {
 	return ProjectPlan{
 		GoalSummary: "Deliver the direct plan", ProjectSuccessCriteria: []string{"The complete batch works."}, SourceContext: "Build this exact direct plan.",
 		ProjectConstraints: []string{}, OpenDecisions: []string{}, WorkItems: []github.PlannedItem{
-			{Title: "First direct child", Summary: "Implement the first child.", AcceptanceCriteria: []string{"First works."}, Verification: []string{"Test first."}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{}},
-			{Title: "Second direct child", Summary: "Implement the second child.", AcceptanceCriteria: []string{"Second works."}, Verification: []string{"Test second."}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{"First direct child"}},
+			{Title: "First direct child", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Implement the first child.", AcceptanceCriteria: []string{"First works."}, Verification: []string{"Test first."}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{}},
+			{Title: "Second direct child", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Implement the second child.", AcceptanceCriteria: []string{"Second works."}, Verification: []string{"Test second."}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{"First direct child"}},
 		},
 	}
 }
@@ -2197,7 +2197,7 @@ func TestProjectPlanCarriesTheProjectContractIntoEveryCreatedCard(t *testing.T) 
 		ProjectConstraints:     []string{"Keep the implementation in one repository."},
 		SourceContext:          "Build the original product without losing its qualitative requirements.",
 		WorkItems: []github.PlannedItem{{
-			Title: "Build the slice", Summary: "Implement the cohesive slice.", AcceptanceCriteria: []string{"The slice works."},
+			Title: "Build the slice", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Implement the cohesive slice.", AcceptanceCriteria: []string{"The slice works."},
 			Verification: []string{"Exercise the complete user flow."}, Risks: []string{"The visible flow may regress."}, NonGoals: []string{"Do not redesign unrelated screens."},
 		}},
 	}
@@ -2234,7 +2234,7 @@ func TestApplyProjectPlanExplainsHowToResolveOpenDecisions(t *testing.T) {
 		GoalSummary: "Build the game", ProjectSuccessCriteria: []string{"The complete product works."}, SourceContext: "Build the requested product.",
 		OpenDecisions: []string{"Choose a rendering engine", "Choose a map layout"},
 		WorkItems: []github.PlannedItem{{
-			Title: "Build", Summary: "Build the game", AcceptanceCriteria: []string{"The game works"}, Verification: []string{"Test build"}, Risks: []string{}, NonGoals: []string{},
+			Title: "Build", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Build the game", AcceptanceCriteria: []string{"The game works"}, Verification: []string{"Test build"}, Risks: []string{}, NonGoals: []string{},
 		}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "2 open decision(s)") || !strings.Contains(err.Error(), "add the answers to the project idea") {
@@ -2244,7 +2244,7 @@ func TestApplyProjectPlanExplainsHowToResolveOpenDecisions(t *testing.T) {
 
 func TestInterruptedPlannerBatchReusesExistingChildrenWithoutDuplicates(t *testing.T) {
 	plan := ProjectPlan{GoalSummary: "Resumable plan", ProjectSuccessCriteria: []string{"The planned behavior works."}, SourceContext: "Original request", WorkItems: []github.PlannedItem{{
-		Title: "Only child", Repository: "owner/repo", Summary: "Implement once", AcceptanceCriteria: []string{"Works"}, Verification: []string{"Test once"}, Risks: []string{}, NonGoals: []string{},
+		Title: "Only child", Repository: "owner/repo", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Implement once", AcceptanceCriteria: []string{"Works"}, Verification: []string{"Test once"}, Risks: []string{}, NonGoals: []string{},
 	}}}
 	sourceItem := github.WorkItem{ID: "PVTI_plan", Title: "Plan", Status: "In Progress", Phase: "plan", Role: config.WorkRolePlanner}
 	sourceItem.Approval = testApproval(sourceItem)
@@ -2287,8 +2287,8 @@ func TestPlannerBatchStagesEveryChildWithoutApprovalOrRelease(t *testing.T) {
 	plan := ProjectPlan{
 		GoalSummary: "Staged plan", ProjectSuccessCriteria: []string{"The operator reviews every child."}, SourceContext: "Approved request",
 		WorkItems: []github.PlannedItem{
-			{Title: "First child", Repository: "owner/repo", Summary: "First", AcceptanceCriteria: []string{"Works"}, Verification: []string{"Test first"}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{}},
-			{Title: "Second child", Repository: "owner/repo", Summary: "Second", AcceptanceCriteria: []string{"Works"}, Verification: []string{"Test second"}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{"First child"}},
+			{Title: "First child", Repository: "owner/repo", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "First", AcceptanceCriteria: []string{"Works"}, Verification: []string{"Test first"}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{}},
+			{Title: "Second child", Repository: "owner/repo", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Second", AcceptanceCriteria: []string{"Works"}, Verification: []string{"Test second"}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{"First child"}},
 		},
 	}
 	parent := github.WorkItem{ID: "PVTI_plan", Title: "Plan", Body: "Approved request", Status: "In Progress", Phase: "plan", Role: config.WorkRolePlanner}
@@ -2328,7 +2328,7 @@ func TestInterruptedPlannerBatchRejectsChangedExistingChild(t *testing.T) {
 	plan := ProjectPlan{
 		GoalSummary: "Deliver bounded work", ProjectSuccessCriteria: []string{"Every child is reviewed together."}, SourceContext: "Approved planning source",
 		ProjectConstraints: []string{}, OpenDecisions: []string{}, WorkItems: []github.PlannedItem{{
-			Title: project.remoteItems[1].Title, Repository: "owner/repo", Summary: "Implement the bounded child.", AcceptanceCriteria: []string{"The child works."},
+			Title: project.remoteItems[1].Title, Repository: "owner/repo", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Implement the bounded child.", AcceptanceCriteria: []string{"The child works."},
 			Verification: []string{"Run its focused test."}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{},
 		}},
 	}
@@ -2389,7 +2389,7 @@ func TestProjectPlanMaximumIsEnforcedBeforeProjectWrites(t *testing.T) {
 	items := make([]github.PlannedItem, github.MaxPlanningBatchChildren+1)
 	for index := range items {
 		items[index] = github.PlannedItem{
-			Title: fmt.Sprintf("Work %d", index+1), Summary: "Bounded work", AcceptanceCriteria: []string{"Works"},
+			Title: fmt.Sprintf("Work %d", index+1), ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Bounded work", AcceptanceCriteria: []string{"Works"},
 			Verification: []string{"Run the focused test"}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{},
 		}
 	}
@@ -2665,7 +2665,7 @@ func TestStagedPlannerBatchPartialReleaseRemainsUnclaimableWhenCleanupFails(t *t
 
 func TestProjectPlanningAvailabilityBlocksInterruptedBatchBeforePlanner(t *testing.T) {
 	planned := github.PlannedItem{
-		Title: "Interrupted child", Repository: "owner/repo", Summary: "Stage the child.",
+		Title: "Interrupted child", Repository: "owner/repo", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Stage the child.",
 		AcceptanceCriteria: []string{"The child works."}, Verification: []string{"Verify it."},
 		Risks: []string{}, NonGoals: []string{}, Dependencies: []string{}, PlanningSourceLane: directProjectPlanSourceLane,
 		PlanningSourceFingerprint: "v1:source", PlanningDestination: "Ready", PlanningBatchFingerprint: "v1:batch",
@@ -2695,7 +2695,7 @@ func TestProjectPlanningAvailabilityBlocksInterruptedBatchBeforePlanner(t *testi
 
 func TestProjectPlanningAvailabilityDistinguishesCompleteAndReleasedBatch(t *testing.T) {
 	planned := github.PlannedItem{
-		Title: "Planned child", Repository: "owner/repo", Summary: "Stage the child.",
+		Title: "Planned child", Repository: "owner/repo", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Stage the child.",
 		AcceptanceCriteria: []string{"The child works."}, Verification: []string{"Verify it."},
 		Risks: []string{}, NonGoals: []string{}, Dependencies: []string{}, PlanningSourceLane: directProjectPlanSourceLane,
 		PlanningSourceFingerprint: "v1:source", PlanningDestination: "Ready", PlanningBatchFingerprint: "v1:batch",
@@ -2746,7 +2746,7 @@ func stagedPlannerBatchFixture(t *testing.T, count int) (*Engine, *fakeGitHubPro
 	}
 	for index := range plan.WorkItems {
 		plan.WorkItems[index] = github.PlannedItem{
-			Title: fmt.Sprintf("Child %d", index+1), Repository: "owner/repo", Summary: "Implement the bounded child.",
+			Title: fmt.Sprintf("Child %d", index+1), Repository: "owner/repo", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Implement the bounded child.",
 			AcceptanceCriteria: []string{"The child works."}, Verification: []string{"Run its focused test."}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{},
 		}
 	}
@@ -2809,7 +2809,7 @@ func stagedPlannerBatchFixture(t *testing.T, count int) (*Engine, *fakeGitHubPro
 
 func TestPlannerBatchStopsBeforeChildAuthorityWriteWhenParentChanges(t *testing.T) {
 	plan := ProjectPlan{GoalSummary: "Bound plan", ProjectSuccessCriteria: []string{"The planned behavior works."}, SourceContext: "Original request", WorkItems: []github.PlannedItem{{
-		Title: "Bound child", Repository: "owner/repo", Summary: "Implement safely", AcceptanceCriteria: []string{"Works"}, Verification: []string{"Test safety"}, Risks: []string{}, NonGoals: []string{},
+		Title: "Bound child", Repository: "owner/repo", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Implement safely", AcceptanceCriteria: []string{"Works"}, Verification: []string{"Test safety"}, Risks: []string{}, NonGoals: []string{},
 	}}}
 	parent := github.WorkItem{ID: "PVTI_plan", Title: "Plan", Body: "Approved planning request", Status: "In Progress", Phase: "plan", Role: config.WorkRolePlanner}
 	parent.Approval = testApproval(parent)
@@ -2859,7 +2859,7 @@ func TestApplyProjectPlanRejectsDifferentRepository(t *testing.T) {
 	}
 	_, err = service.ApplyProjectPlan(t.Context(), ProjectPlan{
 		GoalSummary: "Wrong repository", ProjectSuccessCriteria: []string{"The change works."}, SourceContext: "Make the requested change.", WorkItems: []github.PlannedItem{{
-			Title: "Wrong", Repository: "other/repo", Summary: "Must be rejected", AcceptanceCriteria: []string{"Rejected"}, Verification: []string{"Test rejection"}, Risks: []string{}, NonGoals: []string{},
+			Title: "Wrong", Repository: "other/repo", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Must be rejected", AcceptanceCriteria: []string{"Rejected"}, Verification: []string{"Test rejection"}, Risks: []string{}, NonGoals: []string{},
 		}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "does not match configured repository") {

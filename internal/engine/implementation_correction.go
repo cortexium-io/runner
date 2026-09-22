@@ -31,7 +31,11 @@ func (s *Engine) prepareImplementationCorrection(ctx context.Context, action git
 	if err != nil {
 		return action, workspace.Snapshot{}, err
 	}
-	if implementationContextDigest(content, current.Item, feedback, humanCommentContext(comments), approvedVerificationContract(content.BodySnapshot)) != contextDigest {
+	assignment := s.assignment(current.Item, content, feedback, humanCommentContext(comments))
+	if err := s.bindDeliveryAssignment(ctx, current.Item, &assignment); err != nil {
+		return action, workspace.Snapshot{}, err
+	}
+	if implementationContextDigest(content, current.Item, feedback, humanCommentContext(comments), approvedVerificationContract(content.BodySnapshot), assignment.Spec) != contextDigest {
 		return action, workspace.Snapshot{}, errors.New("approved requirements or human/review context changed before implementation correction")
 	}
 	after, err := s.workspaceSnapshotState(ctx, metadata.WorktreePath)

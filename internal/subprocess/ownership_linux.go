@@ -42,7 +42,7 @@ func processEnvironment(pid int) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(file, 2*1024*1024))
 }
 
-func ownedProcesses(scope, exact string) ([]ownedProcess, error) {
+func ownedProcessesForVariable(variable, scope, exact string) ([]ownedProcess, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, err
@@ -81,7 +81,8 @@ func ownedProcesses(scope, exact string) ([]ownedProcess, error) {
 		if err != nil {
 			return nil, err
 		}
-		process.marker = matchingMarker(env, scope, exact)
+		process.marker = matchingMarkerForVariable(env, variable, scope, exact)
+		process.variable = variable
 		if process.marker != "" {
 			result = append(result, process)
 		}
@@ -116,7 +117,11 @@ func signalOwnedProcess(process ownedProcess, force bool) error {
 	if err != nil {
 		return err
 	}
-	if matchingMarker(env, "", process.marker) != process.marker {
+	variable := process.variable
+	if variable == "" {
+		variable = ownershipVariable
+	}
+	if matchingMarkerForVariable(env, variable, "", process.marker) != process.marker {
 		return errors.New("owned process marker changed")
 	}
 	signal := unix.SIGTERM

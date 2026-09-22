@@ -372,6 +372,16 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			if strings.TrimSpace(feedbackDetails.Feedback) != "" {
 				feedback = feedbackDetails.Feedback
 			}
+			if item.PlanRelease != "" {
+				// A generic PR rework request identifies no approved owning card.
+				// It cannot grant implementation authority or reset plan allowances.
+				if err := s.transitionProjectItem(ctx, action, item.Status, feedback, laneID); err != nil {
+					return warnings, changed, err
+				}
+				warnings = append(warnings, RunResult{Item: item, Outcome: execution.OutcomeBlocked, Summary: "Plan PR feedback requires explicit owning-card recovery; the candidate and rejection allowance are retained."})
+				changed = true
+				continue
+			}
 			if err := s.resetRejections(ctx, action, feedback, laneID); err != nil {
 				return warnings, changed, err
 			}
@@ -457,7 +467,12 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 				if err := s.transitionChecksFailed(ctx, action, s.cfg.LaneStatus(target), s.phaseForTargetLane(target), detail); err != nil {
 					return warnings, changed, err
 				}
-				warnings = append(warnings, RunResult{Item: item, Outcome: "warning", Summary: "GitHub checks failed; Runner returned the card to implementation without recording an Agent QA rejection."})
+				warning := RunResult{Item: item, Outcome: "warning", Summary: "GitHub checks failed; Runner returned the card to implementation without recording an Agent QA rejection."}
+				if item.PlanRelease != "" {
+					warning.Outcome = execution.OutcomeBlocked
+					warning.Summary = "Final plan PR checks failed; retained candidate requires explicit owning-card recovery. No extra work or QA allowance was granted."
+				}
+				warnings = append(warnings, warning)
 				delete(integrationOwners, integrationKey)
 				changed = true
 				continue
@@ -987,10 +1002,35 @@ func (s *Engine) validateWorkspaceForItem(ctx context.Context, item github.WorkI
 
 func (s *Engine) prepareWorkspaceForItem(ctx context.Context, item github.WorkItem, delegatedContentDigest, repoRoot string, quarantineMismatch bool) (workspace.Metadata, error) {
 	request := s.workspaceRequestForItem(item, delegatedContentDigest, repoRoot, quarantineMismatch)
+	base, err := s.baseBranchForItem(ctx, item)
+	if err != nil {
+		return workspace.Metadata{}, err
+	}
+	request.BaseRef = s.remoteName() + "/" + base
 	return workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).Prepare(ctx, request)
 }
 
 func (s *Engine) syncWorkspaceBranch(ctx context.Context, metadata workspace.Metadata, item github.WorkItem) error {
+	if item.PlanRelease != "" {
+		if err := s.verifyPlanHead(ctx, item, metadata.RepoRoot); err != nil {
+			return err
+		}
+		delivery, _, err := s.source.DeliveryForItem(ctx, item)
+		if err != nil {
+			return err
+		}
+		head := delivery.Parent.QACommit
+		if contained, err := s.git(ctx, []string{"merge-base", "--is-ancestor", head, "HEAD"}, metadata.WorktreePath, 30*time.Second); err == nil && contained.ExitCode == 0 {
+			return nil
+		}
+		return workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).MergePlanHead(ctx, metadata, head, func() error {
+			current, present, err := s.source.DeliveryForItem(ctx, item)
+			if err != nil || !present || current.Revision != delivery.Revision || current.Parent.QACommit != head {
+				return errors.Join(errors.New("plan integration head changed during candidate preparation"), err)
+			}
+			return nil
+		})
+	}
 	worktreePath := metadata.WorktreePath
 	remote := s.remoteName()
 	branch := strings.TrimSpace(item.Branch)

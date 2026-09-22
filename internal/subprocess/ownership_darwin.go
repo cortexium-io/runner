@@ -88,7 +88,7 @@ func processEnvironment(pid int) ([]byte, error) {
 	return data, nil
 }
 
-func ownedProcesses(scope, exact string) ([]ownedProcess, error) {
+func ownedProcessesForVariable(variable, scope, exact string) ([]ownedProcess, error) {
 	infos, err := processSnapshot("kern.proc.uid", os.Geteuid(), unix.SysctlKinfoProcSlice)
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ func ownedProcesses(scope, exact string) ([]ownedProcess, error) {
 			}
 			return nil, fmt.Errorf("inspect process %d environment: %w", pid, err)
 		}
-		marker := matchingMarker(env, scope, exact)
+		marker := matchingMarkerForVariable(env, variable, scope, exact)
 		if marker == "" {
 			continue
 		}
@@ -128,6 +128,7 @@ func ownedProcesses(scope, exact string) ([]ownedProcess, error) {
 			continue
 		}
 		process.marker = marker
+		process.variable = variable
 		result = append(result, process)
 	}
 	return result, nil
@@ -151,7 +152,11 @@ func signalOwnedProcess(process ownedProcess, force bool) error {
 	if err != nil {
 		return fmt.Errorf("verify owned process %d environment before signal: %w", process.pid, err)
 	}
-	if matchingMarker(env, "", process.marker) != process.marker {
+	variable := process.variable
+	if variable == "" {
+		variable = ownershipVariable
+	}
+	if matchingMarkerForVariable(env, variable, "", process.marker) != process.marker {
 		return errors.New("owned process marker changed")
 	}
 	// Recheck birth after reading the environment to reject observed PID reuse.

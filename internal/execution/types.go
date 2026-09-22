@@ -19,7 +19,43 @@ type Spec struct {
 	ReviewCandidateOID     string                 `json:"review_candidate_oid,omitempty"`
 	ReviewRequired         bool                   `json:"review_required,omitempty"`
 	ReviewOnly             bool                   `json:"review_only,omitempty"`
+	PlanContext            *PlanContext           `json:"plan_context,omitempty"`
+	PlanMemberBriefs       []PlanMemberBrief      `json:"plan_member_briefs,omitempty"`
+	ReviewScope            ReviewScope            `json:"review_scope,omitempty"`
+	VerificationBoundary   VerificationBoundary   `json:"verification_boundary,omitempty"`
 }
+
+type PlanMemberBrief struct {
+	ID           string `json:"id"`
+	ApprovedBody string `json:"approved_body"`
+}
+
+// PlanContext is the exact shared context verified by the coordinator before
+// admission. It is assignment data, not model-authored authority. Children keep
+// their own local requirements without copying this shared brief into each card.
+type PlanContext struct {
+	ID                string   `json:"id"`
+	Revision          string   `json:"revision"`
+	ApprovedBody      string   `json:"approved_body"`
+	Repository        string   `json:"repository"`
+	DestinationBranch string   `json:"destination_branch"`
+	Branch            string   `json:"branch"`
+	MemberIDs         []string `json:"member_ids"`
+}
+
+type ReviewScope string
+
+const (
+	ReviewScopeCard ReviewScope = "card"
+	ReviewScopePlan ReviewScope = "plan"
+)
+
+type VerificationBoundary string
+
+const (
+	VerificationFocused  VerificationBoundary = "focused"
+	VerificationComplete VerificationBoundary = "complete"
+)
 
 // ReviewBaseline is historical evidence from a completed review of the same
 // approved task and base. It does not grant authority or replace current proof.

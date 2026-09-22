@@ -22,6 +22,7 @@ func savedPlanFixture() engine.ProjectPlan {
 		SourceContext: "Build the approved slice; no customer data.",
 		WorkItems: []github.PlannedItem{{
 			Title: "Build the slice", Repository: "example/repo", Summary: "Implement the behavior",
+			ImplementationProfile: "implementer", ProfileReason: "Use the configured profile for this bounded slice",
 			AcceptanceCriteria: []string{"It works"}, Verification: []string{"The behavior is demonstrated"},
 			Risks: []string{}, NonGoals: []string{}, Dependencies: []string{},
 		}},

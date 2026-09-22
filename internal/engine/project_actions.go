@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
@@ -26,6 +27,7 @@ func (s *Engine) terminalWorkspaceCleanupPending(itemID string) bool {
 }
 
 func (s *Engine) transitionProjectItem(ctx context.Context, action github.AuthorizedAction, targetStatus, detail, phase string) error {
+	targetStatus, phase, detail, _ = s.planSafeTransition(action, targetStatus, phase, detail)
 	return s.source.Transition(ctx, action, targetStatus, detail, phase)
 }
 
@@ -69,6 +71,7 @@ func (s *Engine) transitionPRReady(ctx context.Context, action github.Authorized
 }
 
 func (s *Engine) transitionAfterBranchUpdate(ctx context.Context, action github.AuthorizedAction, targetStatus, targetPhase, detail string) error {
+	targetStatus, targetPhase, detail, _ = s.planSafeTransition(action, targetStatus, targetPhase, detail)
 	return s.source.TransitionAfterBranchUpdate(ctx, action, targetStatus, targetPhase, detail)
 }
 
@@ -77,7 +80,23 @@ func (s *Engine) transitionAutomaticRetry(ctx context.Context, action github.Aut
 }
 
 func (s *Engine) transitionChecksFailed(ctx context.Context, action github.AuthorizedAction, targetStatus, targetPhase, detail string) error {
+	targetStatus, targetPhase, detail, _ = s.planSafeTransition(action, targetStatus, targetPhase, detail)
 	return s.source.TransitionChecksFailed(ctx, action, targetStatus, targetPhase, detail)
+}
+
+// Generic card recovery cannot assign implementation authority to a plan
+// parent. Without reviewed owning-card targets, retain the candidate and stop
+// explicitly instead of producing an ineligible Ready parent.
+func (s *Engine) planSafeTransition(action github.AuthorizedAction, targetStatus, phase, detail string) (string, string, string, bool) {
+	if action.Item.PlanRelease == "" {
+		return targetStatus, phase, detail, false
+	}
+	target := s.cfg.Workflow.Lanes[s.cfg.LaneIDForStatus(targetStatus)]
+	if s.cfg.RoleContract(target.Role) != config.WorkRoleImplementer && s.cfg.RoleContract(s.cfg.Workflow.Lanes[phase].Role) != config.WorkRoleImplementer {
+		return targetStatus, phase, detail, false
+	}
+	return s.cfg.GitHubProject.BlockedStatus, s.cfg.LaneIDForStatus(s.cfg.GitHubProject.QAStatus),
+		"Plan delivery requires operator recovery: this finding has no reviewed in-scope owning card. Candidate, accepted members and rejection counts are retained. Inspect the retained conflict or failed final-PR checks and authorize an owning-card amendment/recovery; retrying the parent cannot perform implementation.\n\nObserved condition:\n" + detail, true
 }
 
 func (s *Engine) updateActivity(ctx context.Context, action github.AuthorizedAction, activity string) error {

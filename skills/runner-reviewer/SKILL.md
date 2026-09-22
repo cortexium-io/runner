@@ -16,6 +16,18 @@ asking for intermediate approval of already-authorized checks.
   checks, including the original request, accepted references, human/QA context,
   and exact candidate comparison. Do not substitute a historical mockup or
   convenient example for a missing accepted reference.
+- Require both product acceptance and engineering acceptance. Compare what was
+  asked with the actual behavior, including omissions; inspect code quality,
+  architecture, supported contracts and relevant failure behavior independently
+  of the tests. A green suite is not a substitute for either judgment.
+- Use the supplied boundary: focused card review covers the change in shared
+  plan context; whole-plan review covers the combined outcome and integrated
+  journeys. Card-local success does not prove plan completeness. Do not expand
+  card review into unrelated sibling work or run the final gate at every handoff.
+- Preserve human-approved tradeoffs in verified scope. Classify an observed
+  defect, missing required proof, preference and genuine missing decision
+  separately. A preference cannot block acceptance; a new consequential choice
+  needs an amendment, not a new criterion invented during review.
 - Apply minimum sufficient complexity: accept direct, idiomatic, junior-readable
   code whose complexity serves a current requirement. Reject partial behavior,
   correctness or security defects, broken contracts, data-safety failures,
@@ -48,6 +60,9 @@ against the approved requirement or an independent reference, including cases
 where implementation and tests agree on the same mistake. Passing tests and
 coverage counts alone do not establish correctness. Accept sufficient economical
 evidence; do not require extra tests merely to demonstrate diligence.
+Accept a reasoned no-new-test decision when existing checks and observations
+adequately protect the changed behavior; require a concrete uncovered risk to
+ask for another test. Evaluate assertion value, not counts or test-first rituals.
 Inspect removed assertions and altered test journeys as part of that pass. A
 passing replacement is not equivalent proof if it bypasses the failing transition
 or drops an invariant still required by the approved scope. Distinguish legitimately
@@ -66,6 +81,10 @@ verification of the whole new candidate. Preserve the distinction between
 sandbox evidence and host-only/native-release proof; use an applicable exact-
 candidate host receipt, not another attempt at a known unavailable sandbox
 operation or a weaker substitute.
+Runner-observed check receipts remain distinct from implementer claims. Their
+original execution, settings, interval and outcome are historical even when
+Runner establishes current applicability. Refused or unavailable applicability
+does not become a passing check through prose; preserve failed attempt history.
 
 After a Runner-owned clean base refresh, evidence may explicitly name an older
 source commit/tree. Check the combined candidate and changed-base interactions;

@@ -15,7 +15,8 @@ clarity, operability, maintainability, and reliable proof require, and no more.
 
 - Plan supported behavior, established invariants, and credible failure modes;
   do not add speculative features, abstractions, dependencies, or edge cases.
-- Treat optional technology as permission, not a requirement or preference.
+- Specify included and not-included work. Exclude unrelated changes by default;
+  do not fill cards with discretionary polish or extras.
 - Use direct, junior-readable boundaries and one clear representation for each
   domain concept.
 - Keep the plan generic to the request and repository. Never assume a browser,
@@ -102,8 +103,11 @@ clarity, operability, maintainability, and reliable proof require, and no more.
    or require live customer data. Cover the primary user journey and only the
    empty states, failures, persistence, recovery, compatibility, security, or
    domain invariants that materially affect completeness.
-7. Include a project-readiness card only when integration or release evidence
-   cannot be established by the delivery cards themselves. Name that additional
+7. When Runner supplies a plan-delivery boundary, whole-plan review and complete
+   validation belong to that boundary; do not create a duplicate readiness card.
+   For the individual-card path, include a project-readiness card only when
+   integration or release evidence cannot be established by the delivery cards
+   themselves. Name that additional
    evidence; merely repeating delivery checks or closing cards is not a separate
    outcome. Its proof obligations
    may cover the established complete local suite once and the smallest required
@@ -134,13 +138,14 @@ without changing correctness or scope.
 
 ## Execution profiles
 
-When Runner supplies allowed implementation profiles, choose a named profile
-whose operator description fits the card and state a short task-specific reason.
+For every generated card, choose a named profile from Runner's allowed
+implementation profiles and state a short task-specific reason, including when
+the configured default is suitable. Do not leave either field empty.
 Prefer the least costly suitable choice according to that guidance. Use the
 profile's task granularity when defining its card. Model and reasoning travel
 together; do not invent either, infer cross-model reasoning equivalence, or
-change the requirements to suit a cheaper profile. Leave the selection empty
-when the configured default is appropriate or no profiles are supplied.
+change the requirements to suit a cheaper profile. If the allowed profile
+selection is missing, report the missing configuration rather than invent one.
 
 Base the reason on the hardest card-owned invariant, contract clarity, applicable
 repository examples, verification strength, and the consequence of a mistake.
@@ -167,11 +172,15 @@ constraints, not evidence that a different model will solve the card.
   observed timings when available; do not assume the whole runtime budget is
   available for implementation. Avoid fragments whose only independent outcome
   is another full validation of the same coupled change.
-- Runner attaches the original request, project criteria, and constraints to
-  each card. Keep shared facts there once; card details should add the local
+- Runner supplies the approved shared outcome, criteria, decisions and scope.
+  Plan-delivery children reference their verified parent and revision. Keep
+  shared facts there once; card details should add the local
   boundary, relevant contract references, and observable proof, not copy the
   whole request or sibling requirements into every field.
 - Prefer one proof obligation that covers related claims over overlapping proof.
+- A durable new test is not a default deliverable. Reuse sufficient existing
+  assertions; allow a reasoned no-new-test decision when affected checks and
+  direct observations faithfully establish the change and credible regressions.
 - Broad suites and full-system evidence belong only at the narrowest integration
   boundary that needs them, unless repository policy requires them earlier.
   An integration card should add cross-feature journeys and combined-candidate

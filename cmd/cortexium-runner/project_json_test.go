@@ -79,7 +79,7 @@ prompt=$(cat)
 case "$prompt" in
   *'Shared planning contract — card details:'*)
     printf '%s\n' 'details' >> "$FAKE_PLANNER_LOG"
-    printf '%s\n' '{"cards":{"C1":{"objective":"Build the slice","done_when":["It works"],"proof_obligations":["The behavior is demonstrated"],"assumptions":[]}}}' > "$result_path" ;;
+    printf '%s\n' '{"cards":{"C1":{"objective":"Build the slice","implementation_profile":"implementer","profile_reason":"Use the configured profile for this bounded slice","done_when":["It works"],"proof_obligations":["The behavior is demonstrated"],"assumptions":[]}}}' > "$result_path" ;;
   *)
     printf '%s\n' 'outline' >> "$FAKE_PLANNER_LOG"
     printf '%s\n' "$FAKE_PLAN_OUTLINE" > "$result_path" ;;

@@ -240,7 +240,8 @@ type BaseRefresh struct {
 }
 
 // PublicationPushPolicy controls whether publication may rewrite an existing
-// remote branch. ExpectedRemoteOID is required for rebase-mode rewrites and is
+// remote branch. ExpectedRemoteOID is required for rebase-mode rewrites and plan
+// publication from the authenticated integrated head; it is
 // enforced with an exact Git force-with-lease comparison.
 type PublicationPushPolicy struct {
 	MergeMethod       string
@@ -262,6 +263,15 @@ type PublicationRecord struct {
 	AcceptanceSnapshot     string `json:"acceptance_snapshot"`
 	AcceptanceReport       string `json:"acceptance_report"`
 	AcceptanceComment      string `json:"acceptance_comment"`
+	PlanRevision           string `json:"plan_revision,omitempty"`
+	VerificationDigest     string `json:"verification_digest,omitempty"`
+	VerificationReceipt    string `json:"verification_receipt,omitempty"`
+}
+
+type PublicationEvidence struct {
+	PlanRevision        string
+	VerificationDigest  string
+	VerificationReceipt string
 }
 
 // ConstructCandidate stages worktree bytes without Git clean filters, writes a
@@ -810,13 +820,13 @@ func validObjectID(value string) bool {
 // for the unchanged QA snapshot. Fresh QA of the same candidate in a different
 // workspace snapshot gets a separate record; the first acceptance remains the
 // immutable candidate identity and prior-publication lease anchor.
-func (p GitProvider) RecordPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot, report, comment string) (PublicationRecord, error) {
+func (p GitProvider) RecordPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot, report, comment string, evidence ...PublicationEvidence) (PublicationRecord, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
 	if strings.TrimSpace(report) == "" || strings.TrimSpace(comment) == "" {
 		return PublicationRecord{}, errors.New("publication acceptance requires the reviewer report and durable comment")
 	}
-	record, path, err := p.validatedPublicationAcceptance(ctx, metadata, accepted, report, comment, true)
+	record, path, err := p.validatedPublicationAcceptance(ctx, metadata, accepted, report, comment, true, evidence...)
 	if err != nil {
 		return PublicationRecord{}, err
 	}
@@ -845,10 +855,10 @@ func (p GitProvider) RecordPublicationAcceptance(ctx context.Context, metadata M
 // creating one. It revalidates the live candidate before allowing Runner to
 // skip another reviewer invocation after an interrupted publication. A new
 // workspace snapshot requires fresh QA, not reuse of the old acceptance.
-func (p GitProvider) LoadPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot) (PublicationRecord, bool, error) {
+func (p GitProvider) LoadPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot, evidence ...PublicationEvidence) (PublicationRecord, bool, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
-	record, path, err := p.validatedPublicationAcceptance(ctx, metadata, accepted, "", "", false)
+	record, path, err := p.validatedPublicationAcceptance(ctx, metadata, accepted, "", "", false, evidence...)
 	if err != nil {
 		return PublicationRecord{}, false, err
 	}
@@ -861,6 +871,7 @@ func (p GitProvider) LoadPublicationAcceptance(ctx context.Context, metadata Met
 	}
 	record.AcceptanceReport = existing.AcceptanceReport
 	record.AcceptanceComment = existing.AcceptanceComment
+	record.VerificationDigest, record.VerificationReceipt = existing.VerificationDigest, existing.VerificationReceipt
 	if existing != record {
 		return PublicationRecord{}, false, errors.New("existing publication acceptance does not match the current approved candidate")
 	}
@@ -910,7 +921,7 @@ func priorPublicationAcceptance(metadata Metadata, commitOID string) (bool, erro
 	return true, nil
 }
 
-func (p GitProvider) validatedPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot, report, comment string, createRecordRoot bool) (PublicationRecord, string, error) {
+func (p GitProvider) validatedPublicationAcceptance(ctx context.Context, metadata Metadata, accepted Snapshot, report, comment string, createRecordRoot bool, evidence ...PublicationEvidence) (PublicationRecord, string, error) {
 	if err := validateCandidateMetadata(metadata); err != nil {
 		return PublicationRecord{}, "", err
 	}
@@ -981,6 +992,11 @@ func (p GitProvider) validatedPublicationAcceptance(ctx context.Context, metadat
 		Repository: metadata.Identity.Repository, DestinationRef: "refs/heads/" + metadata.BranchName,
 		AcceptanceSnapshot: accepted.Fingerprint, AcceptanceReport: report, AcceptanceComment: comment,
 	}
+	if len(evidence) > 0 {
+		record.PlanRevision = evidence[0].PlanRevision
+		record.VerificationDigest = evidence[0].VerificationDigest
+		record.VerificationReceipt = evidence[0].VerificationReceipt
+	}
 	worktreeRoot := filepath.Dir(metadata.Identity.WorktreePath)
 	if err := securefs.ValidatePrivateDir(worktreeRoot); err != nil {
 		return PublicationRecord{}, "", fmt.Errorf("validate private publication state root: %w", err)
@@ -1008,6 +1024,19 @@ func publicationRecordPath(worktreeRoot, commitOID string) string {
 // binding still fail closed. The digest makes the snapshot safe as a filename.
 func publicationAcceptancePath(worktreeRoot string, expected PublicationRecord) (string, error) {
 	path := publicationRecordPath(worktreeRoot, expected.CommitOID)
+	if expected.PlanRevision != "" {
+		// The same Git object can be accepted first for a child and then for
+		// the combined plan, or for renewed scope. These are distinct review
+		// authorities, not conflicting claims about one legacy card.
+		identity := expected
+		identity.AcceptanceSnapshot, identity.AcceptanceReport, identity.AcceptanceComment = "", "", ""
+		identity.VerificationDigest, identity.VerificationReceipt = "", ""
+		encoded, err := json.Marshal(identity)
+		if err != nil {
+			return "", err
+		}
+		path = filepath.Join(filepath.Dir(path), fmt.Sprintf("%s-plan-%x.json", expected.CommitOID, sha256.Sum256(encoded)))
+	}
 	first, err := readPublicationRecord(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return path, nil
@@ -1019,13 +1048,14 @@ func publicationAcceptancePath(worktreeRoot string, expected PublicationRecord) 
 	identity.AcceptanceSnapshot = first.AcceptanceSnapshot
 	identity.AcceptanceReport = first.AcceptanceReport
 	identity.AcceptanceComment = first.AcceptanceComment
+	identity.VerificationDigest, identity.VerificationReceipt = first.VerificationDigest, first.VerificationReceipt
 	if identity != first {
 		return "", fmt.Errorf("publication commit %s is already bound to a different immutable tuple", expected.CommitOID)
 	}
 	if first.AcceptanceSnapshot == expected.AcceptanceSnapshot {
 		return path, nil
 	}
-	name := fmt.Sprintf("%s-%x.json", expected.CommitOID, sha256.Sum256([]byte(expected.AcceptanceSnapshot)))
+	name := fmt.Sprintf("%s-%x.json", strings.TrimSuffix(filepath.Base(path), ".json"), sha256.Sum256([]byte(expected.AcceptanceSnapshot)))
 	return filepath.Join(filepath.Dir(path), name), nil
 }
 
@@ -1060,6 +1090,18 @@ func readPublicationRecord(path string) (PublicationRecord, error) {
 // The authority callback runs after the final base/tree checks and immediately
 // before the exact OID-to-ref push.
 func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, record PublicationRecord, remoteName, baseBranch string, pushPolicy PublicationPushPolicy, refreshAuthority func() error) error {
+	return p.publishAccepted(ctx, metadata, record, remoteName, baseBranch, pushPolicy, false, refreshAuthority)
+}
+
+// IntegrateAccepted advances only the plan base which this exact candidate was
+// independently reviewed against. An exact lease and ancestry check together
+// permit a fast-forward, never replacement of another accepted child's work.
+// A repeated call observes the already-pushed candidate without another push.
+func (p GitProvider) IntegrateAccepted(ctx context.Context, metadata Metadata, record PublicationRecord, remoteName, planBranch string, refreshAuthority func() error) error {
+	return p.publishAccepted(ctx, metadata, record, remoteName, planBranch, PublicationPushPolicy{MergeMethod: config.MergeMethodMerge}, true, refreshAuthority)
+}
+
+func (p GitProvider) publishAccepted(ctx context.Context, metadata Metadata, record PublicationRecord, remoteName, baseBranch string, pushPolicy PublicationPushPolicy, integrate bool, refreshAuthority func() error) error {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
 	pushPolicy.MergeMethod = config.NormalizeMergeMethod(pushPolicy.MergeMethod)
@@ -1067,8 +1109,8 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 	if !config.ValidMergeMethod(pushPolicy.MergeMethod) {
 		return errors.New("publication requires merge, rebase, or squash merge method")
 	}
-	if pushPolicy.ExpectedRemoteOID != "" && (pushPolicy.MergeMethod != config.MergeMethodRebase || !validObjectID(pushPolicy.ExpectedRemoteOID)) {
-		return errors.New("publication remote lease is only valid for a rebase-mode rewrite with an exact expected commit")
+	if pushPolicy.ExpectedRemoteOID != "" && ((pushPolicy.MergeMethod != config.MergeMethodRebase && record.PlanRevision == "") || !validObjectID(pushPolicy.ExpectedRemoteOID)) {
+		return errors.New("publication remote lease requires rebase-mode or authenticated plan publication with an exact expected commit")
 	}
 	if err := validateCandidateMetadata(metadata); err != nil {
 		return err
@@ -1142,10 +1184,10 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 	if err != nil {
 		return fmt.Errorf("resolve refreshed publication base: %w", err)
 	}
-	if currentBase != record.ApprovedBaseOID {
+	remoteAlreadyAccepted := integrate && currentBase == record.CommitOID
+	if currentBase != record.ApprovedBaseOID && !remoteAlreadyAccepted {
 		return fmt.Errorf("%w: accepted %s, fetched %s", ErrPublicationBaseChanged, record.ApprovedBaseOID, currentBase)
 	}
-	remoteAlreadyAccepted := false
 	if pushPolicy.ExpectedRemoteOID != "" {
 		remoteTrackingRef := "refs/runner/publication-destination"
 		remoteRefspec := "+" + record.DestinationRef + ":" + remoteTrackingRef
@@ -1160,6 +1202,9 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 		if remoteOID == record.CommitOID {
 			remoteAlreadyAccepted = true
 		} else if remoteOID != pushPolicy.ExpectedRemoteOID {
+			if record.PlanRevision != "" {
+				return fmt.Errorf("plan publication destination changed externally: expected %s, found %s", pushPolicy.ExpectedRemoteOID, remoteOID)
+			}
 			priorAccepted, priorErr := priorPublicationAcceptance(metadata, remoteOID)
 			if priorErr != nil {
 				return priorErr
@@ -1195,6 +1240,10 @@ func (p GitProvider) PublishAccepted(ctx context.Context, metadata Metadata, rec
 	}
 	pushRefspec := record.CommitOID + ":" + record.DestinationRef
 	pushArgs := []string{"push", "--porcelain", "--no-verify"}
+	if integrate {
+		pushRefspec = record.CommitOID + ":refs/heads/" + baseBranch
+		pushArgs = append(pushArgs, "--force-with-lease=refs/heads/"+baseBranch+":"+record.ApprovedBaseOID)
+	}
 	if pushPolicy.ExpectedRemoteOID != "" {
 		pushArgs = append(pushArgs, "--force-with-lease="+record.DestinationRef+":"+pushPolicy.ExpectedRemoteOID)
 	}

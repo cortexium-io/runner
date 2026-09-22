@@ -34,6 +34,9 @@ func NewAgentExecutor(kind string, cfg config.ExecutionConfig, run subprocess.Ru
 }
 
 func (e AgentExecutor) Execute(ctx context.Context, assignment Assignment) (Output, error) {
+	if err := ValidateAssignmentContext(assignment.Spec); err != nil {
+		return blockedOutputWithFailure(err.Error(), FailureInvalidContract, RetryNone), err
+	}
 	if !config.ValidHarnessKind(e.kind) || e.kind == config.HarnessCodexCLI {
 		return Output{}, fmt.Errorf("unsupported generic harness kind %q", e.kind)
 	}
@@ -104,6 +107,13 @@ func (e AgentExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 // isolation; Runner owns workspace identity and verifies both the task
 // worktree and active checkout after the harness exits.
 func (e AgentExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Assignment, onPrepared func(workspace.Metadata) error) (Output, error) {
+	if err := ValidateAssignmentContext(assignment.Spec); err != nil {
+		return blockedOutputWithFailure(err.Error(), FailureInvalidContract, RetryNone), err
+	}
+	if assignment.Spec.ReviewRequired {
+		err := errors.New("review assignments cannot execute through the implementation workspace-write entrypoint")
+		return blockedOutputWithFailure(err.Error(), FailureInvalidContract, RetryNone), err
+	}
 	if e.kind != config.HarnessClaudeCLI && e.kind != config.HarnessPiCLI {
 		return Output{}, fmt.Errorf("unsupported implementation harness %q", e.kind)
 	}
@@ -446,6 +456,7 @@ func harnessTaskContext(assignment Assignment, workspaceWrite bool) string {
 	b.WriteString(reviewOnlyInstructions(assignment))
 	b.WriteString("\n\nTask requirements and source context (may include historical planning provenance):\n")
 	b.WriteString(resolvedInstructions(assignment))
+	b.WriteString(planAssignmentContext(packet))
 	if len(packet.ContextRefs) > 0 {
 		b.WriteString("\n\nContext references:\n")
 		for _, ref := range packet.ContextRefs {

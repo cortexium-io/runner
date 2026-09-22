@@ -58,18 +58,24 @@ func (s *Engine) implementationCheckpointPath(itemID string) string {
 	return filepath.Join(s.implementationWorkspaceRoot(), ".runner-state", "implementation", "implementation_"+safeRefComponent(itemID)+".json")
 }
 
-func implementationContextDigest(content github.DelegatedContent, item github.WorkItem, reviewFeedback, comments, criteria []string) string {
+func implementationContextDigest(content github.DelegatedContent, item github.WorkItem, reviewFeedback, comments, criteria []string, delivery ...execution.Spec) string {
 	payload := struct {
-		Version                int      `json:"version"`
-		DelegatedContentDigest string   `json:"delegated_content_digest"`
-		PullRequest            string   `json:"pull_request,omitempty"`
-		ReviewFeedback         []string `json:"review_feedback"`
-		HumanComments          []string `json:"human_comments"`
-		Criteria               []string `json:"criteria"`
+		Version                int                            `json:"version"`
+		DelegatedContentDigest string                         `json:"delegated_content_digest"`
+		PullRequest            string                         `json:"pull_request,omitempty"`
+		ReviewFeedback         []string                       `json:"review_feedback"`
+		HumanComments          []string                       `json:"human_comments"`
+		Criteria               []string                       `json:"criteria"`
+		Plan                   *execution.PlanContext         `json:"plan,omitempty"`
+		ReviewScope            execution.ReviewScope          `json:"review_scope,omitempty"`
+		VerificationBoundary   execution.VerificationBoundary `json:"verification_boundary,omitempty"`
 	}{
 		Version: implementationCheckpointVersion, DelegatedContentDigest: strings.TrimSpace(content.Digest),
 		PullRequest: strings.TrimSpace(item.PullRequest), ReviewFeedback: compactNonEmpty(reviewFeedback),
 		HumanComments: compactNonEmpty(comments), Criteria: compactNonEmpty(criteria),
+	}
+	if len(delivery) > 0 {
+		payload.Plan, payload.ReviewScope, payload.VerificationBoundary = delivery[0].PlanContext, delivery[0].ReviewScope, delivery[0].VerificationBoundary
 	}
 	encoded, _ := json.Marshal(payload)
 	digest := sha256.Sum256(encoded)

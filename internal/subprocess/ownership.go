@@ -18,6 +18,10 @@ import (
 
 const ownershipVariable = "CORTEXIUM_RUNNER_PROCESS_OWNER"
 
+// HeavyOwnershipEnvironmentVariable supplements, never replaces, an enclosing
+// harness marker. Inner cleanup must not signal the harness or its siblings.
+const HeavyOwnershipEnvironmentVariable = "CORTEXIUM_RUNNER_HEAVY_OWNER"
+
 // OwnershipEnvironmentVariable is forwarded explicitly by harnesses with
 // filtered tool environments. It is an operational marker, not a credential.
 const OwnershipEnvironmentVariable = ownershipVariable
@@ -95,13 +99,14 @@ func (s *OwnershipScope) CheckAdmission() error {
 			return errors.New("agent admission paused: owned work survived a previous Runner; inspect and stop that work before retrying")
 		}
 	}
-	return nil
+	return checkHeavyClaim(s.id, "")
 }
 
 type ownedProcess struct {
-	pid    int
-	birth  string
-	marker string
+	pid      int
+	birth    string
+	marker   string
+	variable string
 }
 
 func processDisappeared(err error) bool {
@@ -112,7 +117,15 @@ func processDisappeared(err error) bool {
 }
 
 type invocationOwnership struct {
-	marker string
+	marker   string
+	variable string
+}
+
+func (ownership *invocationOwnership) environmentVariable() string {
+	if ownership.variable != "" {
+		return ownership.variable
+	}
+	return ownershipVariable
 }
 
 // PrepareHarness allows an adapter to forward the exact marker into a filtered
@@ -141,7 +154,7 @@ func startOwnership(ctx context.Context, cmd *exec.Cmd) (*invocationOwnership, e
 	if environment == nil {
 		environment = os.Environ()
 	}
-	cmd.Env = applyEnvironmentOverride(environment, commandEnvironmentOverride{key: ownershipVariable, value: ownership.marker})
+	cmd.Env = applyEnvironmentOverride(environment, commandEnvironmentOverride{key: ownership.environmentVariable(), value: ownership.marker})
 	return ownership, nil
 }
 
@@ -173,7 +186,7 @@ func (ownership *invocationOwnership) cleanup() error {
 	deadline := time.Now().Add(2 * processTerminationGracePeriod)
 	forceAt := time.Now().Add(processTerminationGracePeriod)
 	for {
-		processes, err := ownedProcesses("", ownership.marker)
+		processes, err := ownedProcessesForVariable(ownership.environmentVariable(), "", ownership.marker)
 		if err != nil {
 			return err
 		}
@@ -210,8 +223,16 @@ func (s *OwnershipScope) RecordCleanupFailure() {
 }
 
 func matchingMarker(environment []byte, scope, exact string) string {
+	return matchingMarkerForVariable(environment, ownershipVariable, scope, exact)
+}
+
+func ownedProcesses(scope, exact string) ([]ownedProcess, error) {
+	return ownedProcessesForVariable(ownershipVariable, scope, exact)
+}
+
+func matchingMarkerForVariable(environment []byte, variable, scope, exact string) string {
 	for _, entry := range strings.Split(string(environment), "\x00") {
-		marker, found := strings.CutPrefix(entry, ownershipVariable+"=")
+		marker, found := strings.CutPrefix(entry, variable+"=")
 		if !found {
 			continue
 		}

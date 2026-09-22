@@ -37,7 +37,7 @@ func (r *canonicalizingPlannerRunner) Run(ctx context.Context, command string, a
 		}
 		result, err := stagedPlannerFixtureResponse(args,
 			`{"goal_summary":"Plan the feature","project_success_criteria":["The feature works."],"project_constraints":[],"open_decisions":[],"cards":[{"title":"Implement feature","dependencies":[]}],"type":"object"}`,
-			`{"cards":{"C1":{"objective":"Build the requested feature.","done_when":["The feature works."],"proof_obligations":["The feature works through its user entrypoint."],"assumptions":[]}}}`,
+			`{"cards":{"C1":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Build the requested feature.","done_when":["The feature works."],"proof_obligations":["The feature works through its user entrypoint."],"assumptions":[]}}}`,
 		)
 		if err != nil {
 			return subprocess.Result{}, err
@@ -382,7 +382,17 @@ func TestPlannerProfileSelectionIsValidatedAndBindsBatchFingerprint(t *testing.T
 		t.Fatal("missing reason accepted")
 	}
 	plan.WorkItems[0].ImplementationProfile = ""
+	if err := service.normalizeProjectPlan(&plan); err == nil {
+		t.Fatal("implicit default accepted for generated card")
+	}
+	cfg.PlannerImplementers = nil
+	service, err = New(cfg, &fakeGitHubProjectRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.WorkItems[0].ImplementationProfile = "implementer"
+	plan.WorkItems[0].ProfileReason = "Only allowed profile; bounded existing pattern"
 	if err := service.normalizeProjectPlan(&plan); err != nil {
-		t.Fatalf("default rejected: %v", err)
+		t.Fatalf("explicit default rejected: %v", err)
 	}
 }

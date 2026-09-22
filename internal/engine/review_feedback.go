@@ -26,6 +26,7 @@ const (
 var errReviewFeedbackLimit = errors.New("Agent QA feedback exceeds the 1 MiB safety limit; no feedback was truncated or replaced")
 
 type reviewFeedbackRecord struct {
+	PlanRepair             *planRepairRecord         `json:"plan_repair,omitempty"`
 	Baseline               *execution.ReviewBaseline `json:"baseline,omitempty"`
 	Version                int                       `json:"version"`
 	ItemID                 string                    `json:"item_id"`
@@ -35,11 +36,12 @@ type reviewFeedbackRecord struct {
 
 func (record *reviewFeedbackRecord) UnmarshalJSON(data []byte) error {
 	var stored struct {
-		Baseline               json.RawMessage `json:"baseline"`
-		Version                int             `json:"version"`
-		ItemID                 string          `json:"item_id"`
-		DelegatedContentDigest string          `json:"delegated_content_digest"`
-		Items                  []string        `json:"items"`
+		PlanRepair             *planRepairRecord `json:"plan_repair,omitempty"`
+		Baseline               json.RawMessage   `json:"baseline"`
+		Version                int               `json:"version"`
+		ItemID                 string            `json:"item_id"`
+		DelegatedContentDigest string            `json:"delegated_content_digest"`
+		Items                  []string          `json:"items"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -50,7 +52,8 @@ func (record *reviewFeedbackRecord) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*record = reviewFeedbackRecord{
-		Version: stored.Version, ItemID: stored.ItemID,
+		PlanRepair: stored.PlanRepair,
+		Version:    stored.Version, ItemID: stored.ItemID,
 		DelegatedContentDigest: stored.DelegatedContentDigest, Items: stored.Items,
 	}
 	if len(stored.Baseline) == 0 || bytes.Equal(bytes.TrimSpace(stored.Baseline), []byte("null")) {
@@ -80,7 +83,7 @@ func (s *Engine) reviewFeedbackPath(itemID string) string {
 	)
 }
 
-func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.DelegatedContent, assessment execution.ReviewAssessment, baseline *execution.ReviewBaseline) error {
+func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.DelegatedContent, assessment execution.ReviewAssessment, baseline *execution.ReviewBaseline, repair ...planRepairRecord) error {
 	items, err := actionableReviewFeedback(assessment)
 	if err != nil {
 		return err
@@ -92,11 +95,18 @@ func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.Delegat
 		Version: reviewFeedbackVersion, ItemID: strings.TrimSpace(item.ID),
 		DelegatedContentDigest: strings.TrimSpace(content.Digest), Items: items,
 	}
+	if len(repair) > 0 {
+		record.PlanRepair = &repair[0]
+	}
 	if baseline != nil {
 		copy := *baseline
 		record.Baseline = &copy
 		record.Baseline.Assessment = assessment
 	}
+	return s.writeReviewFeedback(record)
+}
+
+func (s *Engine) writeReviewFeedback(record reviewFeedbackRecord) error {
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		return fmt.Errorf("encode Agent QA feedback: %w", err)
@@ -104,7 +114,7 @@ func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.Delegat
 	if len(encoded)+1 > maxReviewFeedbackBytes {
 		return errReviewFeedbackLimit
 	}
-	path := s.reviewFeedbackPath(item.ID)
+	path := s.reviewFeedbackPath(record.ItemID)
 	if err := securefs.EnsurePrivateDir(filepath.Dir(path)); err != nil {
 		return fmt.Errorf("prepare private Agent QA feedback directory: %w", err)
 	}
@@ -298,7 +308,11 @@ func reviewBaselineBindingDigest(spec execution.Spec) string {
 	data, _ := json.Marshal(struct {
 		Repository, Content string
 		Proof               []string
-	}{spec.Repository, spec.DelegatedContentDigest, spec.RequiredVerification})
+		Plan                *execution.PlanContext         `json:",omitempty"`
+		Scope               execution.ReviewScope          `json:",omitempty"`
+		Boundary            execution.VerificationBoundary `json:",omitempty"`
+		Members             []execution.PlanMemberBrief    `json:",omitempty"`
+	}{spec.Repository, spec.DelegatedContentDigest, spec.RequiredVerification, spec.PlanContext, spec.ReviewScope, spec.VerificationBoundary, spec.PlanMemberBriefs})
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
 

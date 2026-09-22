@@ -780,6 +780,8 @@ func (r *fakeGitHubProjectRunner) applyBatchProjectUpdate(args []string) (subpro
 		case "F_qa_commit":
 			r.qaCommit = textValue
 			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.QACommit = r.qaCommit })
+		case "F_plan_release":
+			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.PlanRelease = textValue })
 		case "F_approval":
 			r.approval = textValue
 			if clear {
@@ -873,6 +875,7 @@ func projectFieldsGraphQLJSON() string {
 		`{"__typename":"ProjectV2Field","id":"F_qa_failures","name":"QA Failures","dataType":"NUMBER"},` +
 		`{"__typename":"ProjectV2Field","id":"F_branch","name":"Runner Branch","dataType":"TEXT"},` +
 		`{"__typename":"ProjectV2Field","id":"F_pr","name":"Pull Request","dataType":"TEXT"},` +
+		`{"__typename":"ProjectV2Field","id":"F_plan_release","name":"Runner Plan Release","dataType":"TEXT"},` +
 		`{"__typename":"ProjectV2Field","id":"F_qa_commit","name":"QA Commit","dataType":"TEXT"}` +
 		`],"pageInfo":{"hasNextPage":false,"endCursor":""}}}}}`
 }
@@ -903,8 +906,9 @@ func legacyItemsGraphQLJSON(encoded string) string {
 			"approval": map[string]any{"text": raw["runnerApproval"]}, "result": map[string]any{"text": raw["runnerResult"]},
 			"phase": map[string]any{"text": raw["runnerPhase"]}, "transition": map[string]any{"text": raw["runnerTransition"]}, "activity": map[string]any{"text": raw["runnerActivity"]}, "qaFailures": map[string]any{"number": raw["qaFailures"]},
 			"branch": map[string]any{"text": raw["runnerBranch"]}, "pullRequest": map[string]any{"text": raw["pullRequest"]},
-			"qaCommit": map[string]any{"text": raw["qaCommit"]},
-			"content":  map[string]any{"id": content["id"], "title": title, "body": content["body"], "url": content["url"], "state": content["state"], "repository": map[string]any{"nameWithOwner": repository}},
+			"qaCommit":    map[string]any{"text": raw["qaCommit"]},
+			"planRelease": map[string]any{"text": raw["planRelease"]},
+			"content":     map[string]any{"id": content["id"], "title": title, "body": content["body"], "url": content["url"], "state": content["state"], "repository": map[string]any{"nameWithOwner": repository}},
 		})
 	}
 	payload, _ := json.Marshal(map[string]any{"data": map[string]any{"node": map[string]any{"items": map[string]any{
@@ -2317,7 +2321,7 @@ func projectItemJSON(item github.WorkItem) string {
 	payload := map[string]any{
 		"id": item.ID, "title": item.Title, "status": item.Status, "runnerApproval": item.Approval,
 		"runnerResult": item.Result, "runnerPhase": item.Phase, "runnerTransition": item.Transition, "runnerActivity": item.Activity, "qaFailures": item.QAFailures,
-		"runnerBranch": item.Branch, "pullRequest": item.PullRequest, "qaCommit": item.QACommit,
+		"runnerBranch": item.Branch, "pullRequest": item.PullRequest, "qaCommit": item.QACommit, "planRelease": item.PlanRelease,
 		"content": map[string]any{"id": item.DraftContentID, "body": item.Body, "url": item.URL, "state": item.IssueState, "repository": item.Repository},
 	}
 	if len(item.Labels) > 0 {

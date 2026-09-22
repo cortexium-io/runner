@@ -70,6 +70,7 @@ type actionAssertionPayload struct {
 	PlanningBatchSize         int      `json:"planning_batch_size,omitempty"`
 	PlanningItemIndex         int      `json:"planning_item_index,omitempty"`
 	ImplementationProfile     string   `json:"implementation_profile,omitempty"`
+	PlanRelease               string   `json:"plan_release,omitempty"`
 }
 
 type planningBatchAssertionPayload struct {
@@ -86,6 +87,7 @@ type planningBatchAssertionPayload struct {
 	BatchFingerprint  string `json:"b"`
 	BatchSize         int    `json:"z"`
 	ChildrenDigest    string `json:"c"`
+	PlanRevision      string `json:"r,omitempty"`
 }
 
 type planningBatchChildPayload struct {
@@ -438,6 +440,15 @@ func (s *Project) planningBatchPayload(source WorkItem, children []WorkItem, sta
 		Destination: strings.TrimSpace(first.PlanningDestination), BatchFingerprint: strings.TrimSpace(first.PlanningBatchFingerprint),
 		BatchSize: len(ordered),
 	}
+	if _, present, err := ParsePlanManifest(source.Body); present {
+		if err != nil {
+			return planningBatchAssertionPayload{}, err
+		}
+		if _, err := s.validatePlanMembers(source, children); err != nil {
+			return planningBatchAssertionPayload{}, err
+		}
+		payload.PlanRevision = PlanRevision(source.Body)
+	}
 	if payload.SourceID == "" || payload.SourceLane == "" || payload.Destination == "" || payload.BatchFingerprint == "" {
 		return planningBatchAssertionPayload{}, errors.New("planning batch authority is missing source, lane, destination, or fingerprint")
 	}
@@ -648,6 +659,7 @@ func (s *Project) actionPayload(item WorkItem, role, state, authority string) ac
 		PlanningBatchFingerprint: strings.TrimSpace(item.PlanningBatchFingerprint),
 		PlanningBatchSize:        item.PlanningBatchSize, PlanningItemIndex: item.PlanningItemIndex,
 		ImplementationProfile: item.ImplementationProfile,
+		PlanRelease:           item.PlanRelease,
 	}
 }
 
@@ -703,6 +715,9 @@ func (s *Project) refreshAuthorizedAction(ctx context.Context, expected Authoriz
 	}
 	if !sameAuthorizedAction(expected, authorized) {
 		return AuthorizedAction{}, errors.New("Project action changed after validation; reload the item and try again")
+	}
+	if err := s.refreshDeliveryAuthority(ctx, current); err != nil {
+		return AuthorizedAction{}, err
 	}
 	return authorized, nil
 }

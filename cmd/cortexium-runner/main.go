@@ -59,6 +59,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		return runInit(ctx, args[1:], stdin, stdout)
 	case "doctor":
 		return runDoctor(ctx, args[1:], stdout)
+	case "verify":
+		return runVerification(ctx, args[1:], stdout)
 	case "update":
 		return runUpdate(ctx, args[1:], stdout)
 	case "add":
@@ -122,6 +124,7 @@ Execution:
 Customization:
   cortexium-runner role list|show|add|edit|remove [options]
   cortexium-runner workflow validate|explain [--config PATH]
+  cortexium-runner verify --config PATH --entrypoint ID [--directory PATH] [--json]
 
 Generated workflow:
   1. init creates or adopts the GitHub Project, synchronizes its fields and statuses,

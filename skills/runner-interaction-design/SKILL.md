@@ -11,6 +11,12 @@ this. Preserve the approved scope, project design language, and assigned role's
 tool and verification boundaries. This skill grants no redesign, approval,
 publication, or additional work authority.
 
+Apply this guidance to changed journeys and their directly affected neighbors,
+not every existing screen. Existing appearance is context, not unquestionable
+authority or an invitation to redesign it. Use the current approved direction
+and explicit human tradeoffs; do not carry an old card's design constants into a
+new task. Identify genuine conflicts before changing scope.
+
 ## Choose the relevant knowledge
 
 Read only references needed for the current decision, from this skill's directory

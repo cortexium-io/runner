@@ -19,6 +19,7 @@ import (
 )
 
 type evalSettings struct {
+	MaxAttempts   int
 	Candidate     string
 	Run           int
 	ArtifactPath  string
@@ -34,6 +35,13 @@ type evalSettings struct {
 }
 
 type evalCaseResult struct {
+	// Only the comparison worker adapter can establish usable observed evidence;
+	// an admission-stop diagnostic is never evidence of completeness.
+	ComparisonUsable            bool
+	ReviewAssessment            *execution.ReviewAssessment
+	AdmissionStop               string
+	Stages                      []metrics.Event
+	PromptContexts              []metrics.PromptContext
 	FixtureTestDurationMS       int64
 	ExpectedVerdict             string
 	ObservedVerdict             string
@@ -49,27 +57,30 @@ type evalCaseResult struct {
 }
 
 type evalCaseRecord struct {
-	FixtureTestDurationMS int64         `json:"fixture_test_duration_ms,omitempty"`
-	HarnessDurationMS     int64         `json:"harness_duration_ms,omitempty"`
-	ExpectedVerdict       string        `json:"expected_verdict,omitempty"`
-	ObservedVerdict       string        `json:"observed_verdict,omitempty"`
-	ReviewJudgment        string        `json:"review_judgment,omitempty"`
-	Event                 string        `json:"event"`
-	Candidate             string        `json:"candidate"`
-	Run                   int           `json:"run"`
-	Harness               string        `json:"harness"`
-	Role                  string        `json:"role"`
-	Case                  string        `json:"case"`
-	Outcome               string        `json:"outcome,omitempty"`
-	FailureClass          string        `json:"failure_class,omitempty"`
-	RetryDisposition      string        `json:"retry_disposition,omitempty"`
-	RetryAfter            string        `json:"retry_after,omitempty"`
-	FailureStage          string        `json:"failure_stage,omitempty"`
-	DurationMS            int64         `json:"duration_ms,omitempty"`
-	Usage                 metrics.Usage `json:"usage,omitempty"`
+	AdmissionStop         string                  `json:"admission_stop,omitempty"`
+	PromptContexts        []metrics.PromptContext `json:"prompt_contexts,omitempty"`
+	FixtureTestDurationMS int64                   `json:"fixture_test_duration_ms,omitempty"`
+	HarnessDurationMS     int64                   `json:"harness_duration_ms,omitempty"`
+	ExpectedVerdict       string                  `json:"expected_verdict,omitempty"`
+	ObservedVerdict       string                  `json:"observed_verdict,omitempty"`
+	ReviewJudgment        string                  `json:"review_judgment,omitempty"`
+	Event                 string                  `json:"event"`
+	Candidate             string                  `json:"candidate"`
+	Run                   int                     `json:"run"`
+	Harness               string                  `json:"harness"`
+	Role                  string                  `json:"role"`
+	Case                  string                  `json:"case"`
+	Outcome               string                  `json:"outcome,omitempty"`
+	FailureClass          string                  `json:"failure_class,omitempty"`
+	RetryDisposition      string                  `json:"retry_disposition,omitempty"`
+	RetryAfter            string                  `json:"retry_after,omitempty"`
+	FailureStage          string                  `json:"failure_stage,omitempty"`
+	DurationMS            int64                   `json:"duration_ms,omitempty"`
+	Usage                 metrics.Usage           `json:"usage,omitempty"`
 }
 
 type evalSummaryRecord struct {
+	AdmissionStop     string          `json:"admission_stop,omitempty"`
 	ReviewerJudgments map[string]int  `json:"reviewer_judgments,omitempty"`
 	Event             string          `json:"event"`
 	Candidate         string          `json:"candidate"`
@@ -79,6 +90,8 @@ type evalSummaryRecord struct {
 }
 
 type evalCoordinator struct {
+	stopReason        string
+	recordErr         error
 	reviewerJudgments map[string]int
 	settings          evalSettings
 	started           time.Time
@@ -166,7 +179,8 @@ func positiveEnvInt(name string) (int, error) {
 }
 
 func newEvalCoordinator(settings evalSettings, output io.Writer) (*evalCoordinator, error) {
-	artifact, err := os.OpenFile(settings.ArtifactPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	// A started evaluation is never silently restarted with a reset budget.
+	artifact, err := os.OpenFile(settings.ArtifactPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open private evaluation artifact: %w", err)
 	}
@@ -180,11 +194,21 @@ func newEvalCoordinator(settings evalSettings, output io.Writer) (*evalCoordinat
 func (c *evalCoordinator) Close() error { return c.artifact.Close() }
 
 func (c *evalCoordinator) beforeCase() error {
+	if c.recordErr != nil {
+		return errors.New("evaluation artifact persistence failed")
+	}
+	if c.stopReason != "" {
+		return errors.New(c.stopReason)
+	}
 	if time.Since(c.started) >= c.settings.AggregateTime {
 		return errors.New("aggregate live-evaluation wall-time ceiling reached")
 	}
 	// Full matrix: seven cases for each of three harnesses.
-	decision := EvaluateAdmission(c.admissionBudget(21), c.attempts, time.Now())
+	maxAttempts := c.settings.MaxAttempts
+	if maxAttempts == 0 {
+		maxAttempts = 21
+	}
+	decision := EvaluateAdmission(c.admissionBudget(maxAttempts), c.attempts, time.Now())
 	if !decision.Allowed {
 		return errors.New(decision.Reason)
 	}
@@ -200,33 +224,33 @@ func (c *evalCoordinator) admissionBudget(maxAttempts int) *config.AdmissionBudg
 }
 
 func (c *evalCoordinator) runCase(ctx context.Context, harness, role, caseID string, run func(context.Context) evalCaseResult) evalCaseResult {
+	if err := ctx.Err(); err != nil {
+		c.stopReason = "evaluation canceled before admission"
+		return evalCaseResult{AdmissionStop: c.stopReason, Err: err}
+	}
 	if err := c.beforeCase(); err != nil {
-		result := evalCaseResult{Outcome: "blocked", FailureClass: "capacity_exhausted", RetryDisposition: "none", Err: err}
-		identity := evalCaseRecord{Candidate: c.settings.Candidate, Run: c.settings.Run, Harness: harness, Role: role, Case: caseID}
-		identity.Event = "started"
-		c.emit("EVAL_CASE", identity)
-		identity.Event, identity.Outcome, identity.FailureClass, identity.RetryDisposition, identity.FailureStage = "completed", result.Outcome, result.FailureClass, result.RetryDisposition, "admission"
-		c.emit("EVAL_CASE", identity)
+		result := evalCaseResult{AdmissionStop: err.Error(), Err: err}
+		c.stopReason = err.Error()
+		// An admission refusal is not an executed assignment or reported usage.
 		return result
 	}
 	c.emit("EVAL_CASE", evalCaseRecord{Event: "started", Candidate: c.settings.Candidate, Run: c.settings.Run, Harness: harness, Role: role, Case: caseID})
+	if c.recordErr != nil {
+		return evalCaseResult{AdmissionStop: "evaluation artifact persistence failed", Err: c.recordErr}
+	}
 	started := time.Now()
-	caseContext, cancel := context.WithTimeout(ctx, c.settings.CaseTimeout)
+	aggregateContext, aggregateCancel := context.WithDeadline(ctx, c.started.Add(c.settings.AggregateTime))
+	defer aggregateCancel()
+	caseContext, cancel := context.WithTimeout(aggregateContext, c.settings.CaseTimeout)
 	result := run(caseContext)
+	if result.AdmissionStop != "" {
+		c.stopReason = result.AdmissionStop
+	}
+	contextErr := caseContext.Err()
 	cancel()
 	duration := time.Since(started)
 	if result.Outcome == "" {
 		result.Outcome = "blocked"
-	}
-	if result.Err != nil {
-		if result.Outcome == "succeeded" {
-			result.Outcome = "blocked"
-			if result.FailureClass == "" {
-				result.FailureClass = "invalid_contract"
-			}
-		} else if result.FailureClass == "" {
-			result.FailureClass = "unknown"
-		}
 	}
 	c.attempts = append(c.attempts, metrics.Attempt{Event: metrics.Event{
 		AttemptID: metrics.NewAttemptID(), Kind: metrics.EventCompleted, ItemTitle: caseID,
@@ -234,22 +258,27 @@ func (c *evalCoordinator) runCase(ctx context.Context, harness, role, caseID str
 		DurationMilliseconds: duration.Milliseconds(), HarnessDurationMilliseconds: result.HarnessDurationMilliseconds,
 		Outcome: result.Outcome, FailureClass: result.FailureClass, RetryDisposition: result.RetryDisposition, RetryAfter: result.RetryAfter, Usage: result.Usage,
 	}, Completed: true})
-	if decision := EvaluateAdmission(c.admissionBudget(0), c.attempts, time.Now()); !decision.Allowed && result.Err == nil {
-		result.Outcome = "blocked"
-		result.FailureClass = "capacity_exhausted"
-		result.RetryDisposition = "none"
-		result.FailureStage = "admission"
-		result.Err = errors.New(decision.Reason)
-		last := &c.attempts[len(c.attempts)-1].Event
-		last.Outcome, last.FailureClass, last.RetryDisposition = result.Outcome, result.FailureClass, result.RetryDisposition
+	if contextErr != nil {
+		result.ComparisonUsable = false
+		c.stopReason, result.AdmissionStop = "evaluation execution deadline or cancellation reached", "evaluation execution deadline or cancellation reached"
+		result.Err = errors.Join(result.Err, contextErr)
+	}
+	if decision := EvaluateAdmission(c.admissionBudget(0), c.attempts, time.Now()); !decision.Allowed {
+		c.stopReason, result.AdmissionStop = decision.Reason, decision.Reason
+		result.Err = errors.Join(result.Err, errors.New(decision.Reason))
 	}
 	c.emit("EVAL_CASE", evalCaseRecord{
+		AdmissionStop: result.AdmissionStop, PromptContexts: result.PromptContexts,
 		FixtureTestDurationMS: result.FixtureTestDurationMS, HarnessDurationMS: result.HarnessDurationMilliseconds,
 		ExpectedVerdict: result.ExpectedVerdict, ObservedVerdict: result.ObservedVerdict, ReviewJudgment: result.ReviewJudgment,
 		Event: "completed", Candidate: c.settings.Candidate, Run: c.settings.Run, Harness: harness, Role: role, Case: caseID,
 		Outcome: result.Outcome, FailureClass: result.FailureClass, RetryDisposition: result.RetryDisposition, RetryAfter: result.RetryAfter, FailureStage: result.FailureStage,
 		DurationMS: duration.Milliseconds(), Usage: result.Usage,
 	})
+	if c.recordErr != nil {
+		result.AdmissionStop = "evaluation artifact persistence failed"
+		result.Err = errors.Join(result.Err, c.recordErr)
+	}
 	if result.ReviewJudgment != "" {
 		if c.reviewerJudgments == nil {
 			c.reviewerJudgments = map[string]int{}
@@ -261,7 +290,8 @@ func (c *evalCoordinator) runCase(ctx context.Context, harness, role, caseID str
 
 func (c *evalCoordinator) finish(passed bool) {
 	c.emit("EVAL_SUMMARY", evalSummaryRecord{
-		Event: "summary", Candidate: c.settings.Candidate, Run: c.settings.Run,
+		AdmissionStop: c.stopReason,
+		Event:         "summary", Candidate: c.settings.Candidate, Run: c.settings.Run,
 		Passed: passed, Summary: metrics.Summarize(c.attempts), ReviewerJudgments: c.reviewerJudgments,
 	})
 }
@@ -278,12 +308,17 @@ func (c *evalCoordinator) emit(prefix string, record any) {
 		panic(err)
 	}
 	fmt.Fprintf(c.output, "%s %s\n", prefix, encoded)
-	fmt.Fprintln(c.artifact, string(encoded))
+	if c.recordErr == nil {
+		_, c.recordErr = fmt.Fprintln(c.artifact, string(encoded))
+		if c.recordErr == nil {
+			c.recordErr = c.artifact.Sync()
+		}
+	}
 }
 
 func validEvalReviewRecord(record evalCaseRecord) bool {
 	switch record.ExpectedVerdict {
-	case "", "accept", "needs_changes":
+	case "", "accept", "needs_changes", "blocked":
 	default:
 		return false
 	}
@@ -293,7 +328,7 @@ func validEvalReviewRecord(record evalCaseRecord) bool {
 		return false
 	}
 	switch record.ReviewJudgment {
-	case "", "correct", "false_acceptance", "unnecessary_rejection", "missed_defect", "incomplete_review":
+	case "", "expected_checks_match", "unexpected_findings", "false_acceptance", "unnecessary_rejection", "missed_defect", "incomplete_review":
 		return true
 	default:
 		return false
@@ -378,7 +413,7 @@ func TestEvalCoordinatorFailsClosedWhenConfiguredUsageIsUnavailable(t *testing.T
 	result := coordinator.runCase(t.Context(), "pi", "planner", "missing_usage", func(context.Context) evalCaseResult {
 		return evalCaseResult{Outcome: "succeeded", HarnessDurationMilliseconds: 1}
 	})
-	if result.Err == nil || !strings.Contains(result.Err.Error(), "lack token usage") || result.Outcome != "blocked" || result.FailureClass != "capacity_exhausted" {
+	if result.Err == nil || !strings.Contains(result.AdmissionStop, "lack token usage") || result.Outcome != "succeeded" || result.FailureClass != "" {
 		t.Fatalf("missing reported usage did not fail closed: %#v", result)
 	}
 }
@@ -432,7 +467,9 @@ func TestEvalRecordsRetainReviewerJudgmentsAndSeparateTestTime(t *testing.T) {
 		coordinator.runCase(t.Context(), "codex", "reviewer", verdict, func(context.Context) evalCaseResult {
 			scenario := reviewerEvalScenario{wantVerdict: "accept", failedCriterion: -1}
 			return evalCaseResult{Outcome: "succeeded", ExpectedVerdict: "accept", ObservedVerdict: verdict,
-				ReviewJudgment:        reviewerEvalJudgment(scenario, &execution.ReviewAssessment{Verdict: verdict}),
+				ReviewJudgment: reviewerEvalJudgment(scenario, &execution.ReviewAssessment{Verdict: verdict,
+					Criteria: []execution.ReviewCriterionResult{{Criterion: recordUpdateProofs[0], Status: "passed"}, {Criterion: recordUpdateProofs[1], Status: "passed"}},
+					Rules:    []execution.ReviewRuleResult{{Status: "passed"}}, Maintainability: execution.ReviewMaintainabilityResult{Status: "passed"}}),
 				FixtureTestDurationMS: 12, HarnessDurationMilliseconds: 34}
 		})
 	}
@@ -456,13 +493,13 @@ func TestEvalRecordsRetainReviewerJudgmentsAndSeparateTestTime(t *testing.T) {
 			completed = append(completed, record)
 		}
 	}
-	if len(completed) != 2 || completed[0].ReviewJudgment != "correct" || completed[1].ReviewJudgment != "unnecessary_rejection" {
+	if len(completed) != 2 || completed[0].ReviewJudgment != "expected_checks_match" || completed[1].ReviewJudgment != "unnecessary_rejection" {
 		t.Fatalf("review outcomes = %#v", completed)
 	}
 	if completed[0].FixtureTestDurationMS != 12 || completed[0].HarnessDurationMS != 34 || completed[1].ObservedVerdict != "needs_changes" {
 		t.Fatalf("lost timing or verdict evidence: %#v", completed)
 	}
-	if summary.ReviewerJudgments["correct"] != 1 || summary.ReviewerJudgments["unnecessary_rejection"] != 1 {
+	if summary.ReviewerJudgments["expected_checks_match"] != 1 || summary.ReviewerJudgments["unnecessary_rejection"] != 1 {
 		t.Fatalf("review summary = %#v", summary.ReviewerJudgments)
 	}
 	if validEvalReviewRecord(evalCaseRecord{ObservedVerdict: "private model response"}) || validEvalReviewRecord(evalCaseRecord{ReviewJudgment: "private diagnostic"}) {
