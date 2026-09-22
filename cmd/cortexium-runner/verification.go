@@ -130,16 +130,32 @@ func runVerification(ctx context.Context, args []string, stdout io.Writer) error
 			return err
 		}
 	} else {
-		fmt.Fprintf(stdout, "Verification policy require_current_candidate=%t; historical=%t.\n", entry.RequireCurrentCandidate, result.Historical)
-		if result.Output.Stdout != "" {
-			fmt.Fprint(stdout, terminalSafeText(result.Output.Stdout))
-		}
-		if result.Output.Stderr != "" {
-			fmt.Fprint(stdout, terminalSafeText(result.Output.Stderr))
-		}
-		if result.Digest != "" {
-			fmt.Fprintf(stdout, "\nVerification %s; receipt %s (standalone observed evidence, not plan acceptance).\n", result.Receipt.Outcome, result.Digest)
-		}
+		writeVerificationResult(stdout, entry.RequireCurrentCandidate, result)
 	}
 	return runErr
+}
+
+func writeVerificationResult(stdout io.Writer, requireCurrentCandidate bool, result verification.Result) {
+	fmt.Fprintf(stdout, "Verification policy require_current_candidate=%t; historical=%t.\n", requireCurrentCandidate, result.Historical)
+	output := result.Output
+	if result.CurrentCandidateOutput != nil && (result.CurrentCandidateCheck == nil || result.CurrentCandidateCheck.Outcome != "passed") {
+		output = *result.CurrentCandidateOutput
+	} else if result.PreparationOutput != nil && result.CurrentPreparation != nil && result.CurrentPreparation.Outcome != "passed" {
+		output = *result.PreparationOutput
+	}
+	if output.Stdout != "" {
+		fmt.Fprint(stdout, terminalSafeText(output.Stdout))
+	}
+	if output.Stderr != "" {
+		fmt.Fprint(stdout, terminalSafeText(output.Stderr))
+	}
+	if result.Invocation.Outcome != "" {
+		fmt.Fprintf(stdout, "\nVerification invocation %s (standalone observed evidence, not plan acceptance).\n", result.Invocation.Outcome)
+	}
+	if result.Receipt != nil && result.Digest != "" {
+		fmt.Fprintf(stdout, "Heavy receipt: %s; outcome=%s; historical=%t.\n", result.Digest, result.Receipt.Outcome, result.Historical)
+	}
+	if guard := result.CurrentCandidateCheck; guard != nil {
+		fmt.Fprintf(stdout, "Current-candidate check: %s; execution=%s.\n", guard.Outcome, guard.ExecutionID)
+	}
 }

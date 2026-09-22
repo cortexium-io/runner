@@ -40,7 +40,7 @@ func (s *Project) EvaluateWorkEligibility(items []WorkItem) []WorkEligibility {
 }
 
 func (s *Project) evaluateWorkEligibilityIn(item WorkItem, index *workItemIndex) WorkEligibility {
-	if item.Phase == PlanAmendingPhase || item.Phase == PlanIntegratedPhase || item.Phase == PlanIntegratingPhase || item.Phase == PlanRepairingPhase || item.Phase == PlanCancelledPhase || item.Phase == PlanProposalPhase || item.Phase == PlanDeliveryPhase {
+	if item.Phase == PlanRetiredPhase || item.Phase == PlanAmendingPhase || item.Phase == PlanIntegratedPhase || item.Phase == PlanIntegratingPhase || item.Phase == PlanRepairingPhase || item.Phase == PlanCancelledPhase || item.Phase == PlanProposalPhase || item.Phase == PlanDeliveryPhase {
 		return waitingWork(item, WorkEligibilityNotAgentLane, "Plan lifecycle reconciliation, not a harness assignment, owns this state.")
 	}
 	if !s.agentStatus(item.Status) {

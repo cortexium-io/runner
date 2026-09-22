@@ -67,6 +67,7 @@ type VerificationReceipt struct {
 	Inputs              VerificationInputs   `json:"inputs"`
 	Boundary            VerificationBoundary `json:"boundary"`
 	Outcome             string               `json:"outcome"`
+	ExitCode            *int                 `json:"exit_code,omitempty"` // nil preserves unavailable/historical observations
 	ReportDigest        string               `json:"report_digest"`
 	CleanupResolved     bool                 `json:"cleanup_resolved"`
 	WaitMilliseconds    *int64               `json:"wait_ms,omitempty"`
@@ -84,6 +85,7 @@ type VerificationPreparationReceipt struct {
 	RunMilliseconds     int64     `json:"run_ms"`
 	CleanupMilliseconds *int64    `json:"cleanup_ms,omitempty"`
 	Outcome             string    `json:"outcome"`
+	ExitCode            *int      `json:"exit_code,omitempty"`
 	ReportDigest        string    `json:"report_digest"`
 	CleanupResolved     bool      `json:"cleanup_resolved"`
 }
@@ -204,6 +206,9 @@ func (r VerificationReceipt) validate() error {
 	if r.Outcome == "passed" && (r.RunStartedAt == nil || !r.CleanupResolved) {
 		return errors.New("passing verification requires an observed check with resolved cleanup")
 	}
+	if r.ExitCode != nil && (r.RunStartedAt == nil || *r.ExitCode < 0 || r.Outcome == "passed" && *r.ExitCode != 0) {
+		return errors.New("verification exit code contradicts its observed check")
+	}
 	if p := r.Preparation; p != nil {
 		_, startOffset := p.StartedAt.Zone()
 		_, finishOffset := p.FinishedAt.Zone()
@@ -218,6 +223,9 @@ func (r VerificationReceipt) validate() error {
 		}
 		if p.CleanupMilliseconds != nil && *p.CleanupMilliseconds < 0 {
 			return errors.New("verification preparation cleanup timing is invalid")
+		}
+		if p.ExitCode != nil && (*p.ExitCode < 0 || p.Outcome == "passed" && *p.ExitCode != 0) {
+			return errors.New("preparation exit code contradicts its outcome")
 		}
 		switch p.Outcome {
 		case "passed", "failed", "timeout", "canceled", "cleanup_unresolved":

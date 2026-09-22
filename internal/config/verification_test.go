@@ -141,3 +141,39 @@ func TestVerificationDigestBindsCurrentCandidatePolicy(t *testing.T) {
 		t.Fatal("requiring current-candidate execution did not change approved settings")
 	}
 }
+
+func TestVerificationCurrentCandidateCheckConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name, command string
+		args          []string
+		valid         bool
+	}{
+		{"PATH executable", "npm", []string{"run", "check:current"}, true},
+		{"absolute executable", "/bin/sh", []string{"scripts/current-check.sh"}, true},
+		{"missing executable", "", nil, false},
+		{"relative executable", "bin/check", nil, false},
+		{"command newline", "npm\n", nil, false},
+		{"NUL argument", "npm", []string{"check\x00"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := explicitTestConfig()
+			entry := VerificationEntrypoint{Command: "npm", ToolchainCommands: []string{"node", "npm"}, TimeoutSeconds: 60, InputPaths: []string{"src"}}
+			without := entry.Digest()
+			entry.CurrentCandidateCheck = &VerificationCurrentCandidateCheck{Command: tc.command, Args: tc.args}
+			cfg.Verification = map[string]VerificationEntrypoint{"complete": entry}
+			if err := ValidateConfiguration(cfg); (err == nil) != tc.valid {
+				t.Fatalf("valid=%v error=%v", tc.valid, err)
+			}
+			if !tc.valid {
+				return
+			}
+			with := entry.Digest()
+			entry.CurrentCandidateCheck.Args = append(entry.CurrentCandidateCheck.Args, "--different")
+			changedArgs := entry.Digest()
+			entry.CurrentCandidateCheck.Command = "/opt/other/check"
+			if without == with || with == changedArgs || changedArgs == entry.Digest() {
+				t.Fatal("current-candidate command/arguments not bound to catalog approval")
+			}
+		})
+	}
+}

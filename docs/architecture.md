@@ -976,6 +976,14 @@ transition without another push or review. `plan_integrated` children satisfy
 within-plan dependencies only; general dependency caches must not convert this
 internal success into external delivery.
 
+If another member advances the authenticated plan head while card QA runs,
+the stale acceptance remains historical and the card returns to the same QA
+lane without spending or resetting its rejection allowance. The next admission
+refreshes the retained candidate locally and reviews that combined candidate
+before integration. Both the observed advance and the refresh's final fetch
+must match the signed plan head; an unexpected remote substitution or uncertain
+mutation fails closed rather than authorizing renewal.
+
 Once every member is integrated, the existing review lane checks the combined
 candidate. Typed repair targets reference failed checks and exact members;
 unowned or out-of-scope findings stop for an amendment or input. The signed
@@ -990,13 +998,18 @@ isolated reviewer; no silent containment fallback exists. Final publication
 rechecks authority and proof. Ambiguous PR creation is read back by exact
 repository, branch, base and head, including merged or closed PRs, before any
 repeat mutation. Only confirmed integration into the destination delivers the
-plan. Existing-member operator amendments fence the parent and retain exact
+plan. Operator amendments fence the parent and retain exact
 before/after state in its existing protected evidence. The new ordinal manifest
 revision signs the exact renewed child contracts; the old/new dependency closure
 determines invalidation. Unaffected acceptance retains its original execution and
-proof identity. This path remains rollout-disabled while membership-changing
-amendments, remaining verification integration and independent rollout review
-are completed.
+proof identity. Explicit additions adopt exact unapproved Assessment issues;
+retirements keep immutable rows in the same signed manifest, together with their
+code, history, counters and evidence. Active and retired members remain one exact
+release-bound union. Original batch sizes describe staging provenance, not the
+new revision's cardinality. Retired members cannot satisfy dependencies, execute,
+reactivate or become Done, and status displays them separately. This path remains
+rollout-disabled while remaining verification integration and independent rollout
+review are completed.
 
 Local coordination separates the worker lifetime from standalone planning.
 `run` alone owns the worker lock and runtime-status file. Standalone `plan`

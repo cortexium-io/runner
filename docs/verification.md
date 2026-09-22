@@ -46,7 +46,11 @@ For a project whose reviewed policy permits ordinary npm lifecycle scripts:
 ```json
 {
   "command": "npm",
-  "args": ["run", "validate:complete"],
+  "args": ["run", "validate:heavy"],
+  "current_candidate_check": {
+    "command": "npm",
+    "args": ["run", "validate:current"]
+  },
   "timeout_seconds": 3600,
   "input_paths": ["src", "tests", "scripts", "package.json", "package-lock.json", "playwright.config.ts"],
   "dependency_paths": ["node_modules", ".runner-npm-cache"],
@@ -71,8 +75,9 @@ The npm CLI also imports installed modules: its package closure, not only its
 small executable script, is declared alongside the actual browser roots.
 
 Preparation is one literal command under the same claim/deadline as the check.
-At grant, applicable independently protected proof skips both preparation and
-the check, avoiding unnecessary installation/network work. Directory existence
+At grant, applicable independently protected heavy proof skips preparation and
+the heavy check, avoiding unnecessary installation/network work. A configured
+`current_candidate_check` still runs freshly before that return. Directory existence
 alone is not preparation proof. Otherwise Runner pins source, authority,
 configuration, runtimes and every worktree path outside the declared dependency
 roots (including ignored files), runs preparation with owned descendant cleanup,
@@ -143,7 +148,8 @@ requires the already-approved host-access profile. Unsupported isolated complete
 verification fails closed rather than silently running on the host.
 
 The entrypoint timeout includes input observation, waiting for the heavy slot,
-preparation and check execution. Authority, configuration and candidate inputs
+preparation, current-candidate guard and heavy check execution. The guard has no
+separate timeout, grant or claim. Authority, configuration and candidate inputs
 are checked before waiting, again at grant, after preparation, and after command
 completion and cleanup, before releasing the claim. A canceled waiter must not start a command. Waiting,
 execution and cleanup have separate observed intervals; unavailable intervals are
@@ -152,8 +158,9 @@ including input observation. Nullable `run_started_at`/`run_finished_at` identif
 the supervised run boundary excluding slot waiting and subsequent cleanup; they
 are not inferred process-spawn times and are absent when launch was refused.
 Preparation has its own command/outcome/report digest and observed UTC run/cleanup
-interval. A failed preparation leaves the check's run endpoints absent; no
-preparation-only result qualifies as a passing check. Cleanup retains the existing
+interval. A failed preparation produces no new heavy receipt; its actual phase
+result and current invocation accounting remain separate. A check that never ran
+is absent, not a fabricated failed or successful check. Cleanup retains the existing
 bounded supervisor and unresolved-ownership quarantine even after timeout.
 
 The resource uses a stable private lock and one durable active claim, outside the
@@ -223,6 +230,50 @@ Historical results return the original receipt unchanged with `historical: true`
 any preparation performed now is separately reported, not relabeled as the old
 check's execution. CLI receipts are still not independently protected plan proof.
 
+### Current-candidate guard and protected pair
+
+`current_candidate_check` is one maintained literal command/argv, not a workflow
+graph. Use it for checks such as broad lint/architecture discovery whose scope
+extends beyond the heavyweight executable-input selection. The maintained native
+complete gate should compose that guard and the heavy entrypoint exactly once;
+manual complete validation must not silently omit the guard. Input selections
+still need to cover all actual heavyweight inputs, including compiler source
+discovery, configuration and relevant optional environment-file absence. A guard
+is not permission to trust an underspecified heavy catalog.
+
+The launcher runs the guard after any needed preparation, before heavy execution
+or either historical-heavy reuse return. It uses the same supervised ownership,
+claim and original deadline. Doctor checks guard availability without execution;
+its executable bytes participate in environment identity. After a normal exit,
+including a nonzero exit, Runner reobserves authority, settings, full candidate
+integrity and applicability inputs before accepting the phase result. Commands
+retain their existing containment, and no guard configuration grants access.
+
+`VerificationEnvelope` pairs the original heavy receipt with a separate guard
+receipt bound to exact current plan revision, repository, candidate/tree/base,
+integrity, entrypoint, settings, argv and execution identity. Protect the digest
+of the entire envelope, not just the heavy member. Guard failure retains the
+original heavy receipt unchanged; absent prior/executed heavy proof remains nil.
+Raw phase output is bounded to 64 KiB head/tail per stream and kept separate from
+its receipt's digest. It is private diagnostic material, not guaranteed secret-free
+and not suitable for automatic wholesale publication.
+
+Envelope assessment authenticates and checks the pair; it does not execute or
+renew a guard. Pending publication recovery must authenticate protected evidence,
+extract only the original heavy member/digest and call the launcher again: it
+can reuse applicable heavy proof but must execute a new guard. A previously
+confirmed terminal merge must not run verification again. A configured guard's
+missing, failed or stale proof cannot satisfy publication acceptance.
+
+The supported `CheckFailure` marker is restricted to observed normal nonzero
+guard/heavy exits with unchanged post-command authority/inputs and resolved claim
+cleanup. Preparation, process-start, timeout, cancellation, missing/tampered proof
+and uncertain cleanup failures are ineligible. No stderr parsing or model decision
+can manufacture this classification. Even an eligible failure requires the
+coordinator's existing bounded review/repair authorization; it is not automatic
+scope expansion. CLI output distinguishes the current invocation outcome from a
+retained historical heavy pass.
+
 ## Review and delivery scheduling
 
 Authenticated whole-plan review identifies the exact post-review complete gate.
@@ -234,6 +285,53 @@ check must never be marked passed because it is scheduled. Explicit approved
 pre-QA obligations, concrete failures and unresolved product questions still need
 actual evidence/permitted focused verification or an amendment/blocker. Standalone
 cards do not acquire post-review scheduling authority from a boundary label.
+
+Whole-plan acceptance is retained in the existing private parent-feedback record
+before the complete gate starts. This progress is not publication authorization:
+the immutable final publication record is created only with accepted QA and a
+passing protected verification envelope. Recovery revalidates the exact approved
+plan/member context, reviewer profile/settings, candidate/base and comment context.
+Applicable original heavy proof remains historical; pending publication runs a
+fresh configured current-candidate guard. Superseded progress is archived without
+rewriting original receipt bytes, assessment, settings or usage. Missing protected
+progress or changed provenance blocks rather than inferring acceptance from prose.
+
+Only the launcher's eligible observed command failure can spend one existing
+reviewer evidence-audit invocation. The spent intent is durable before launch;
+the actual result (including partial/unavailable usage) is retained before any
+Project transition. Recovery with an uncertain spent invocation refuses replay;
+a retained completed result can apply its exact rejection without another model
+or gate run. Classification has no focused-verification follow-up. Unknown causes,
+unanswered proof questions, missing/out-of-scope ownership and invalid results
+require input or an amendment. An `accept` response cannot turn failed complete
+proof into a pass. Concrete findings use the existing approved owning cards and
+parent QA rejection allowance, without resetting or charging it twice.
+Unresolved classifier cleanup retains its private checkout/runtime artifacts and
+actual provider failure/usage, quarantines local admission, and never replays the
+spent invocation. Retained owned paths are local diagnostics, not Project payloads.
+
+Pending final-plan PRs retain their accepted workspace and prepared dependencies
+until the ordinary terminal cleanup. At the serialized automatic-merge boundary,
+Runner authenticates the immutable final acceptance and freshly observes input,
+candidate and original reviewer-setting bindings. An unchanged candidate's
+passing complete proof and current-candidate guard remain applicable with their
+original identities and times; observation does not rerun or relabel them as
+fresh. For a still-pending PR with a valid bound action, missing, tampered or
+changed proof observed before merge disarms automatic merge and returns the plan
+to admitted QA. An unexpected authorization or settings change can invalidate
+that action before the proof hook: Runner fails closed, but an operator must
+coordinate any already-armed GitHub auto-merge. This is not an atomic continuous
+proof guarantee over GitHub state; a PR may merge between observations. Guarded
+migrations still finish or stop existing batches before changing their settings.
+No model, preparation or verification command runs inside pull-request
+reconciliation, and no arbitrary freshness TTL is used.
+
+Confirmed final-PR merge recovery takes precedence over live validation. It rereads
+the exact immutable private publication record and retained workspace identity,
+then verifies current signed parent authority and the exact remote PR tuple.
+The plan branch, checkout, installed dependencies or gate runtime may already be
+gone; they are not needed to record that confirmed delivery. Pending/open PRs
+retain the full current-candidate checks, and closed-without-merge is not delivery.
 
 ## Consumer-boundary fixture
 

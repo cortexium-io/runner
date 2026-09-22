@@ -120,16 +120,20 @@ func TestPlanRefreshedPublicationRecoversBeforeIntegratedHeadCheck(t *testing.T)
 				t.Fatal(err)
 			}
 			current := f.parent(t)
-			if boundary == "unrelated_remote" {
+			if boundary == "unrelated_remote" || boundary == "closed_deleted_branch" {
 				if current.Status == "Done" || current.Status == "PR Ready" || current.QACommit != parent.QACommit || current.PullRequest != "" {
 					t.Fatalf("unrelated remote became publication authority: %s", current.Status)
 				}
-				if head := strings.TrimSpace(runGitTest(t, "", "--git-dir", f.remote, "rev-parse", "refs/heads/"+parent.Branch)); head != foreign {
+				if boundary == "unrelated_remote" && strings.TrimSpace(runGitTest(t, "", "--git-dir", f.remote, "rev-parse", "refs/heads/"+parent.Branch)) != foreign {
 					t.Fatal("foreign remote was overwritten")
 				}
 			} else {
-				if current.Status != "PR Ready" || current.QACommit != candidate || current.PullRequest != "https://github.com/owner/repo/pull/12" {
-					t.Fatalf("exact publication not recovered: status=%s candidate=%s results=%#v", current.Status, current.QACommit, results)
+				wantStatus := "PR Ready"
+				if boundary == "merged_deleted_branch" {
+					wantStatus = "Done"
+				}
+				if current.Status != wantStatus || current.QACommit != candidate || current.PullRequest != "https://github.com/owner/repo/pull/12" {
+					t.Fatalf("exact publication not recovered: status=%s candidate=%s", current.Status, current.QACommit)
 				}
 				if len(results) != 1 || !results[0].ResumedCheckpoint {
 					t.Fatal("recovery did not reuse the protected acceptance")

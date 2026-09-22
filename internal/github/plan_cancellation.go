@@ -45,7 +45,7 @@ func (s *Project) PlanCancellation(ctx context.Context, selector string) (PlanCa
 	if parent.PullRequest != "" || strings.EqualFold(parent.Status, s.doneStatus()) {
 		return PlanCancellation{}, errors.New("published or delivered plans require explicit PR/merge coordination; cancellation does not close PRs or undo delivery")
 	}
-	for _, item := range append([]WorkItem{parent}, delivery.Children...) {
+	for _, item := range append([]WorkItem{parent}, delivery.AllChildren()...) {
 		if strings.EqualFold(item.Status, s.runningStatus()) || item.Transition != "" || item.PullRequest != "" {
 			return PlanCancellation{}, fmt.Errorf("plan item %s is active, transition-locked, or published; gracefully drain Runner and resolve interrupted/published state before cancellation", item.ID)
 		}
@@ -58,10 +58,11 @@ func (s *Project) PlanCancellation(ctx context.Context, selector string) (PlanCa
 	} else if found {
 		return PlanCancellation{}, errors.New("plan branch already has a pull request; recover its exact publication before deciding how to cancel")
 	}
-	sort.Slice(delivery.Children, func(i, j int) bool { return delivery.Children[i].ID < delivery.Children[j].ID })
+	retained := delivery.AllChildren()
+	sort.Slice(retained, func(i, j int) bool { return retained[i].ID < retained[j].ID })
 	plan := PlanCancellation{ID: parent.ID, Revision: delivery.Revision, Repository: parent.Repository, Branch: parent.Branch,
 		QAFailures: parent.QAFailures, AlreadyCancelled: parent.Phase == PlanCancelledPhase, delivery: delivery}
-	for _, item := range delivery.Children {
+	for _, item := range retained {
 		plan.Members = append(plan.Members, PlanCancellationMember{ID: item.ID, Status: item.Status, Phase: item.Phase, Branch: item.Branch, QACommit: item.QACommit, QAFailures: item.QAFailures})
 	}
 	return plan, nil

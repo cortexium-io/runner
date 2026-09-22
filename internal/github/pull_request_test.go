@@ -90,6 +90,10 @@ func (r *pullRequestTestRunner) Run(ctx context.Context, command string, args []
 			return subprocess.Result{Stdout: `[{"url":"https://github.com/owner/repo/pull/12","number":12,"headRefName":"cortexium/task","baseRefName":"main"},{"url":"https://github.com/owner/repo/pull/13","number":13,"headRefName":"cortexium/task","baseRefName":"main"}]`}, nil
 		}
 		if r.existingOpen {
+			if r.viewHead != "" {
+				encoded, _ := json.Marshal([]map[string]any{{"url": "https://github.com/owner/repo/pull/12", "number": 12, "headRefName": r.viewHead, "baseRefName": "main"}})
+				return subprocess.Result{Stdout: string(encoded)}, nil
+			}
 			return subprocess.Result{Stdout: `[{"url":"https://github.com/owner/repo/pull/12","number":12,"headRefName":"cortexium/task","baseRefName":"main"}]`}, nil
 		}
 		return subprocess.Result{Stdout: `[]`}, nil

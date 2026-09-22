@@ -6,7 +6,27 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
+
+// PlanAcceptanceDelta describes the originally integrated change for a
+// retirement preview. It does not claim later members left every line intact,
+// and retirement never reverts this change.
+func (p GitProvider) PlanAcceptanceDelta(ctx context.Context, metadata Metadata, snapshot Snapshot, record PublicationRecord) (string, error) {
+	verified, found, err := p.LoadPublicationAcceptance(ctx, metadata, snapshot, PublicationEvidence{PlanRevision: record.PlanRevision})
+	if err != nil || !found || verified != record {
+		return "", errors.Join(errors.New("retirement preview requires exact retained acceptance"), err)
+	}
+	profile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
+	if err != nil {
+		return "", err
+	}
+	result, err := p.privilegedGit(ctx, profile, "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--stat=120,80,80", record.ApprovedBaseOID, record.CommitOID, "--")
+	if err != nil {
+		return "", fmt.Errorf("inspect original accepted delta: %w", commandError(err, result))
+	}
+	return strings.TrimSpace(result.Stdout), nil
+}
 
 // PublicationAcceptanceDigest identifies the original immutable proof bytes in
 // protected amendment intent. It is not a model-supplied applicability claim.

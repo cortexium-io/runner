@@ -109,6 +109,33 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		changed = true
 		return workspace.Metadata{}, true, nil
 	}
+	returnPlanToQA := func(action github.AuthorizedAction, laneID string, proofErr error) error {
+		// A confirmed merge wins even if tools/proof disappeared after the
+		// initial observation. Never requeue delivered work for missing proof.
+		details, err := manager.InspectAuthorized(ctx, action)
+		if err != nil {
+			return err
+		}
+		handled, terminalChanged, warning, err := s.reconcileTerminalPullRequest(ctx, action, details, mergedEvent, hasMergedEvent, closedEvent, hasClosedEvent)
+		changed = changed || terminalChanged
+		if warning != nil {
+			warnings = append(warnings, *warning)
+		}
+		if err != nil || handled {
+			return err
+		}
+		if blocked, err := cancelAutoMerge(action, details, laneID); err != nil || blocked {
+			return err
+		}
+		target := s.cfg.LaneIDForStatus(s.cfg.GitHubProject.QAStatus)
+		detail := "Final plan verification no longer applies. Runner retained the candidate and evidence and returned the plan for admitted QA; no verification command or model ran in reconciliation."
+		if err := s.transitionAfterBranchUpdate(ctx, action, s.cfg.LaneStatus(target), s.phaseForTargetLane(target), detail); err != nil {
+			return err
+		}
+		warnings = append(warnings, RunResult{Item: action.Item, Outcome: "warning", Summary: "Final plan proof requires renewed QA before merge.", Error: proofErr.Error()})
+		changed = true
+		return nil
+	}
 	requestAutoMerge := func(action github.AuthorizedAction, laneID, headCommit string) (blocked, baseMoved bool, err error) {
 		if !s.cfg.GitHubProject.AutoMerge {
 			return false, false, nil
@@ -125,6 +152,9 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		prepared, blocked, err := prepareWorkspace(current, item, content.Digest, repoRoot, laneID, false)
 		if err != nil || blocked {
 			return blocked, false, err
+		}
+		if err := s.validatePlanMergeProof(ctx, current, prepared, headCommit); err != nil {
+			return true, false, returnPlanToQA(current, laneID, err)
 		}
 		if err := manager.RequestAutoMergeAuthorized(ctx, current, headCommit, s.baseBranch(), prepared.BaseRevision, s.cfg.GitHubProject.MergeMethod); err != nil {
 			if errors.Is(err, github.ErrPublicationBaseChanged) {
@@ -516,10 +546,20 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			continue
 		}
 		if !needsRefresh {
-			if _, blocked, prepareErr := prepareWorkspace(action, item, delegatedContent.Digest, repoRoot, laneID, details.AutoMergeEnabled); prepareErr != nil {
+			prepared, blocked, prepareErr := prepareWorkspace(action, item, delegatedContent.Digest, repoRoot, laneID, details.AutoMergeEnabled)
+			if prepareErr != nil {
 				return warnings, changed, prepareErr
 			} else if blocked {
 				continue
+			}
+			if details.AutoMergeEnabled {
+				if err := s.validatePlanMergeProof(ctx, action, prepared, details.HeadRefOID); err != nil {
+					if err := returnPlanToQA(action, laneID, err); err != nil {
+						return warnings, changed, err
+					}
+					delete(integrationOwners, integrationKey)
+					continue
+				}
 			}
 			if !details.AutoMergeEnabled {
 				if blocked, baseMoved, err := requestAutoMerge(action, laneID, details.HeadRefOID); err != nil {

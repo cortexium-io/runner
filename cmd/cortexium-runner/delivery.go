@@ -118,7 +118,7 @@ func runDelivery(ctx context.Context, args []string, stdin io.Reader, stdout io.
 	} else if mode == "cancel" {
 		fmt.Fprintln(stdout, "Plan cancelled: new admission fenced; members, branches, proof and rejection counts retained. No PR closed and no service started.")
 	} else {
-		fmt.Fprintln(stdout, "Exact existing-member amendment applied. Affected acceptance and parent review invalidated; unaffected original proof, integrated code, history and counters retained. No model work or service start.")
+		fmt.Fprintln(stdout, "Exact contract and membership amendment applied. Affected acceptance and parent review invalidated; unaffected original proof, integrated code, history and counters retained. Retired scope is not code removal or delivery. No model work or service start.")
 	}
 	return nil
 }
@@ -147,7 +147,7 @@ func readDeliveryAmendmentRequest(path string) (github.PlanAmendmentRequest, err
 func writeDeliveryAmendmentPreview(out io.Writer, plan engine.DeliveryAmendment) {
 	encoded, _ := json.MarshalIndent(plan, "", "  ")
 	fmt.Fprintf(out, "Amend the exact approved delivery contract\n%s\n", terminalSafeText(string(encoded)))
-	fmt.Fprintln(out, "Gracefully stop Runner and finish standalone operations before applying. This exact preview binds the before/after contract and retained candidate/proof. Affected members return to Ready without resetting counters; unaffected proof stays historical. The parent needs renewed delivery review. Partial writes remain fenced and resume only from the protected approved intent. No member additions/removals, retargeting, deleted code, model calls or service start.")
+	fmt.Fprintln(out, "Gracefully stop Runner and finish standalone operations before applying. This exact preview binds the before/after contract and retained candidate/proof. Added members must be the exact named unapproved Assessment issues. Retired rows preserve code, evidence and history; retirement does not remove code or satisfy dependencies. Affected active members return to Ready without resetting counters; unaffected proof stays historical. The parent needs renewed delivery review. Partial writes remain fenced and resume only from the protected approved intent. No invented cards, reactivation, retargeting, deleted code, model calls or service start.")
 }
 
 func writeDeliveryMigrationPreview(out io.Writer, plan engine.DeliveryMigration) {

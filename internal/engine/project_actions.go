@@ -37,6 +37,13 @@ func (s *Engine) cleanupAuthorizedItemWorkspace(ctx context.Context, action gith
 		return workspace.CleanupResult{}, err
 	}
 	item := current.Item
+	if item.PlanRelease != "" && strings.TrimSpace(item.PullRequest) != "" && s.cfg.LaneIDForStatus(item.Status) == s.cfg.PublicationLaneID() {
+		// A pending final plan PR still owns its accepted checkout and prepared
+		// dependencies. Removing them would destroy applicable complete proof
+		// before the serialized merge observation. Terminal reconciliation first
+		// transitions the signed item, then uses the ordinary cleanup below.
+		return workspace.CleanupResult{}, nil
+	}
 	repoRoot, err := s.repositoryDir(ctx, item.Repository)
 	if err != nil {
 		return workspace.CleanupResult{}, err

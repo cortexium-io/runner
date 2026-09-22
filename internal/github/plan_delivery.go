@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cortexium-io/runner/internal/config"
 )
@@ -20,6 +21,7 @@ const (
 	PlanRepairingPhase   = "plan_repairing"
 	PlanCancelledPhase   = "plan_cancelled"
 	PlanAmendingPhase    = "plan_amending"
+	PlanRetiredPhase     = "plan_retired"
 	PlanProposalPhase    = "plan_proposal"
 	planManifestPrefix   = "# Runner outcome delivery plan\n\nThe following contract is proposed until the exact batch is approved. Its shared scope applies to every member; mutable execution history is not part of this contract.\n\n```json\n"
 )
@@ -70,15 +72,34 @@ type PlanMember struct {
 	ImplementationProfile string   `json:"implementation_profile"`
 	ProfileDigest         string   `json:"profile_digest"`
 	ProfileReason         string   `json:"profile_reason"`
+	Retired               bool     `json:"retired,omitempty"`
+	RetirementReason      string   `json:"retirement_reason,omitempty"`
+}
+
+func (m PlanManifest) ActiveMembers() []PlanMember {
+	var members []PlanMember
+	for _, member := range m.Members {
+		if !member.Retired {
+			members = append(members, member)
+		}
+	}
+	return members
 }
 
 // PlanDelivery is returned only after release and current lifecycle authority
 // have both been verified. Reading a manifest alone never authorizes work.
 type PlanDelivery struct {
-	Parent   WorkItem
-	Manifest PlanManifest
-	Revision string
-	Children []WorkItem
+	Parent          WorkItem
+	Manifest        PlanManifest
+	Revision        string
+	Children        []WorkItem
+	RetiredChildren []WorkItem
+}
+
+// AllChildren is the exact release-bound union. Retired rows remain authority
+// inputs even though execution, dependencies and completion use active members.
+func (d PlanDelivery) AllChildren() []WorkItem {
+	return append(append([]WorkItem(nil), d.Children...), d.RetiredChildren...)
 }
 
 func FormatPlanManifest(manifest PlanManifest) (string, error) {
@@ -127,14 +148,29 @@ func validatePlanManifest(manifest PlanManifest) error {
 		return errors.New("plan manifest requires a request, outcome, criteria, repository, destination, complete gate and exact members")
 	}
 	seen := map[string]bool{}
+	retired := map[string]bool{}
 	for _, member := range manifest.Members {
 		if member.ID == "" || member.ID != strings.TrimSpace(member.ID) || seen[member.ID] ||
 			strings.TrimSpace(member.ImplementationProfile) == "" || !validPlanDigest(member.ProfileDigest) || strings.TrimSpace(member.ProfileReason) == "" {
 			return errors.New("plan manifest member identity, content or resolved profile/reason is invalid")
 		}
 		seen[member.ID] = true
+		if member.Retired != (strings.TrimSpace(member.RetirementReason) != "") || len(member.RetirementReason) > 4000 || !utf8.ValidString(member.RetirementReason) || strings.ContainsRune(member.RetirementReason, 0) {
+			return errors.New("retired plan members require a bounded explicit retirement reason")
+		}
+		retired[member.ID] = member.Retired
 		if !reflect.DeepEqual(member.Dependencies, canonicalDelegatedDependencies(member.Dependencies)) {
 			return errors.New("plan manifest dependencies must be canonical immutable IDs")
+		}
+	}
+	if len(manifest.ActiveMembers()) == 0 {
+		return errors.New("a delivery plan needs an active member; cancel an entirely retired plan instead")
+	}
+	for _, member := range manifest.ActiveMembers() {
+		for _, dependency := range member.Dependencies {
+			if retired[dependency] {
+				return errors.New("active members cannot depend on retired work; explicitly amend the dependent contract")
+			}
 		}
 	}
 	return nil
@@ -190,9 +226,9 @@ func (s *Project) validatePlanMembers(parent WorkItem, children []WorkItem) (Pla
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].PlanningItemIndex < ordered[j].PlanningItemIndex })
 	for i, child := range ordered {
 		member := manifest.Members[i]
-		if child.ID != member.ID || child.PlanningSourceID != parent.ID || child.Repository != manifest.Repository ||
+		if child.ID != member.ID || child.PlanningItemIndex != i+1 || child.PlanningSourceID != parent.ID || child.Repository != manifest.Repository ||
 			child.ImplementationProfile != member.ImplementationProfile ||
-			member.ProfileDigest != s.cfg.PlanProfileDigests[member.ImplementationProfile] ||
+			(!member.Retired && member.ProfileDigest != s.cfg.PlanProfileDigests[member.ImplementationProfile]) ||
 			!reflect.DeepEqual(canonicalDelegatedDependencies(child.Dependencies), member.Dependencies) {
 			return manifest, errors.New("plan member content, dependency or resolved profile changed after approval")
 		}
@@ -234,12 +270,26 @@ func (s *Project) validatePlanDeliveryState(parent WorkItem, all []WorkItem, all
 	if parent.Branch != PlanBranch(parent.ID) {
 		return PlanDelivery{}, errors.New("plan branch identity changed")
 	}
-	for _, child := range children {
+	delivery := PlanDelivery{Parent: parent, Manifest: manifest, Revision: PlanRevision(parent.Body)}
+	byID := newWorkItemIndex(children).byID
+	for _, member := range manifest.Members {
+		child := byID[member.ID]
 		if _, err := s.validateAction(child); err != nil {
 			return PlanDelivery{}, fmt.Errorf("plan member lifecycle authority: %w", err)
 		}
+		if member.Retired {
+			if child.Status != s.backlogStatus() || child.Phase != PlanRetiredPhase || child.Transition != "" || child.PullRequest != "" {
+				return PlanDelivery{}, errors.New("retired member lifecycle changed; retirement cannot authorize execution or success")
+			}
+			delivery.RetiredChildren = append(delivery.RetiredChildren, child)
+		} else {
+			if child.Phase == PlanRetiredPhase {
+				return PlanDelivery{}, errors.New("active member has a retired lifecycle")
+			}
+			delivery.Children = append(delivery.Children, child)
+		}
 	}
-	return PlanDelivery{Parent: parent, Manifest: manifest, Revision: PlanRevision(parent.Body), Children: children}, nil
+	return delivery, nil
 }
 
 // DeliveryForItem revalidates the complete parent/member authority immediately
@@ -271,6 +321,13 @@ func (s *Project) DeliveryForItem(ctx context.Context, item WorkItem) (PlanDeliv
 		return PlanDelivery{}, false, nil
 	}
 	delivery, err := s.ValidatePlanDelivery(parent, items)
+	if err == nil && item.ID != parent.ID {
+		for _, retired := range delivery.RetiredChildren {
+			if retired.ID == item.ID {
+				return PlanDelivery{}, true, errors.New("retired plan member has no execution authority")
+			}
+		}
+	}
 	return delivery, true, err
 }
 

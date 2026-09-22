@@ -79,7 +79,7 @@ existing operator-selected complete gate after quiescence and exact config/Proje
 revalidation. Previewed cancellation fences the signed parent while retaining
 members, work, release authority and history. Neither operation drains or starts
 work implicitly, overwrites intervening operator edits, or closes a published PR.
-Existing-member amendments preview the complete contract and advance an explicit
+Amendments preview the complete contract and advance an explicit
 ordinal revision. Changed local contracts invalidate the old/new dependency
 closure; shared changes conservatively invalidate all members. Exact original
 acceptance is carried only for unaffected members with historical provenance.
@@ -87,13 +87,26 @@ The parent always needs renewed delivery acceptance. Existing protected parent
 evidence holds the exact approved before/after intent; a `plan_amending` fence
 precedes partial writes and restart finishes only that intent before admission.
 Counts, history and integrated code are retained, not reset or deleted.
-Membership additions/removals remain a subsequent explicit amendment boundary;
-ordinary Project/body edits are never amendments. The core and operator
+Membership is append-only history within that one manifest: additions adopt exact
+open, unapproved Assessment issues; removals explicitly retire existing rows.
+The signed union still includes every active and retired row. Original staging
+batch sizes remain immutable provenance, while the revision-scoped manifest and
+release authenticate exact current membership. Retired scope cannot execute,
+satisfy dependencies, reactivate or become Done. The preview identifies retained
+accepted changes; retiring a row never removes its integrated code. A remaining
+dependent needs an explicit contract amendment, and an entirely retired plan
+must be cancelled instead. Ordinary Project/body edits are never amendments.
+The core and operator
 milestones are not permission to enable live
 delivery before all required controls and the rollout have been independently
-reviewed. Failed complete verification currently blocks safely; protected
-failed-proof classification and bounded owner repair remain required integration
-work, not a completed recovery claim.
+reviewed. Eligible observed command failures use one durably spent existing
+reviewer audit to identify exact approved owning-card repairs, within the parent
+QA rejection allowance. Setup, timeout, provenance and unresolved-cleanup failures
+block without classification; missing ownership or dynamic proof requires input.
+Production-entrypoint fixtures cover failed gate, owned repair, new acceptance,
+and one final PR, plus interruption before/after classification and refusal to
+replay uncertain work. Unresolved classifier processes retain their workspaces
+and quarantine admission. This evidence is deterministic, not a live UX/cost claim.
 
 The heavy launcher supports one explicit dependency preparation command under
 the same claim/deadline, before the stable dependency baseline. Source, authority,
@@ -104,11 +117,19 @@ does not constitute passing check proof.
 
 The launcher can reuse independently protected historical receipts when freshly
 observed applicability still matches; the original execution remains historical.
-The catalog can additionally require the exact current candidate. Production
-acceptance must supply protected prior proof and verify reuse/recovery sequencing
-before the trial; launcher support alone does not complete that integration. The
-FlowStack trial must not omit dependency inputs or treat changed inputs as the
-same execution.
+The catalog can additionally require the exact current candidate. Parent
+acceptance supplies prior proof only from protected coordinator progress;
+recovery preserves the original heavy receipt and separately records the renewed
+current-candidate guard. The immutable publication record is not overwritten.
+Pending-merge reconciliation observes exact proof applicability without running
+a model or gate; changed proof returns to admitted QA while the action remains
+authorized and the PR is still pending. Lost authority fails closed and requires
+operator coordination of any already-armed external auto-merge; this is not a
+continuous atomic guarantee over GitHub state. Confirmed exact merges
+complete before live checkout/tool requirements. Real Git/command fixtures cover
+these recovery and refusal boundaries. Live rollout remains pending independent
+review and the approved trial; it must not omit dependency inputs or treat
+changed inputs as the same execution.
 
 Literal `runtime_paths` bind complete declared external installations, names,
 modes, content and internal links using bounded streaming. Doctor uses the same

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
@@ -59,7 +60,10 @@ func TestRunProducesObservedReceiptAndDistinctIntervals(t *testing.T) {
 
 func TestRunRefusesChangedCandidateAtGrantBeforeCommand(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "launched")
+	guardMarker := filepath.Join(t.TempDir(), "guard-launched")
 	request := requestFixture(t, "-c", "touch \"$1\"", "fixture", marker)
+	request.Entry.CurrentCandidateCheck = &config.VerificationCurrentCandidateCheck{Command: "/bin/sh", Args: []string{"-c", "touch \"$1\"", "fixture", guardMarker}}
+	bindCurrentCandidateObservation(t, &request)
 	grant := func(ctx context.Context) (context.Context, *subprocess.HeavyClaim, error) {
 		writeFixture(t, request.Directory, "src/source.txt", "changed")
 		return ownedTestGrant(ctx)
@@ -68,14 +72,14 @@ func TestRunRefusesChangedCandidateAtGrantBeforeCommand(t *testing.T) {
 	if err == nil {
 		t.Fatal("changed candidate executed")
 	}
-	if result.Receipt.Outcome != "failed" || result.Receipt.WaitMilliseconds == nil || result.Receipt.RunMilliseconds != nil || !result.Receipt.CleanupResolved || result.Digest == "" {
+	if result.Invocation.Outcome != "failed" || result.Invocation.WaitMilliseconds == nil || !result.Invocation.CleanupResolved || result.Receipt != nil || result.Digest != "" {
 		t.Fatalf("pre-execution refusal lost observed accounting: %+v", result)
-	}
-	if result.Receipt.RunStartedAt != nil || result.Receipt.RunFinishedAt != nil {
-		t.Fatal("refusal fabricated a command execution interval")
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("command launched before validation")
+	}
+	if _, err := os.Stat(guardMarker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("current guard launched before authority revalidation")
 	}
 }
 
@@ -92,7 +96,7 @@ func TestRunFailureAndCancellationNeverProducePassingProof(t *testing.T) {
 		result, err := run(t.Context(), request, func(ctx context.Context) (context.Context, *subprocess.HeavyClaim, error) {
 			return ctx, nil, context.Canceled
 		})
-		if !errors.Is(err, context.Canceled) || result.Receipt.Outcome != "canceled" || result.Receipt.WaitMilliseconds == nil || result.Receipt.RunMilliseconds != nil {
+		if !errors.Is(err, context.Canceled) || result.Invocation.Outcome != "canceled" || result.Invocation.WaitMilliseconds == nil || result.Receipt != nil {
 			t.Fatalf("wait accounting lost: %+v %v", result, err)
 		}
 	})
@@ -104,7 +108,7 @@ func TestRunFailureAndCancellationNeverProducePassingProof(t *testing.T) {
 			cancel()
 			return ownedTestGrant(ctx)
 		})
-		if !errors.Is(err, context.Canceled) || result.Receipt.Outcome != "canceled" || result.Receipt.WaitMilliseconds == nil || result.Receipt.RunMilliseconds != nil {
+		if !errors.Is(err, context.Canceled) || result.Invocation.Outcome != "canceled" || result.Invocation.WaitMilliseconds == nil || result.Receipt != nil {
 			t.Fatalf("grant cancellation accounting lost: %+v %v", result, err)
 		}
 	})

@@ -345,6 +345,9 @@ func observeEnvironment(ctx context.Context, entry config.VerificationEntrypoint
 	if entry.Preparation != nil {
 		commands = append(commands, entry.Preparation.Command)
 	}
+	if entry.CurrentCandidateCheck != nil {
+		commands = append(commands, entry.CurrentCandidateCheck.Command)
+	}
 	for _, command := range commands {
 		if strings.ContainsAny(command, "/\\") && !filepath.IsAbs(command) {
 			return "", errors.New("relative executable paths are not supported; use configured PATH names or absolute executables")

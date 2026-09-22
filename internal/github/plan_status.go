@@ -8,6 +8,7 @@ type PlanningProgress struct {
 	IntegratedUndelivered []WorkItem
 	PlanningCompleted     []WorkItem
 	CancelledPlans        []WorkItem
+	RetiredMembers        []WorkItem
 }
 
 func (s *Project) PlanningProgress(items []WorkItem) PlanningProgress {
@@ -16,7 +17,11 @@ func (s *Project) PlanningProgress(items []WorkItem) PlanningProgress {
 	for _, parent := range items {
 		if parent.PlanRelease != "" {
 			delivery, err := s.validatePlanDeliveryState(parent, items, true)
-			if err != nil || s.planningSourceWorkCompletedIn(parent, index) {
+			if err != nil {
+				continue
+			}
+			result.RetiredMembers = append(result.RetiredMembers, delivery.RetiredChildren...)
+			if s.planningSourceWorkCompletedIn(parent, index) {
 				continue
 			}
 			if parent.Phase == PlanCancelledPhase {

@@ -59,6 +59,28 @@ func TestVerificationReadinessUsesConfiguredWholePlanReviewProfile(t *testing.T)
 	}
 }
 
+func TestVerificationReadinessInspectsCurrentGuardWithoutExecuting(t *testing.T) {
+	root := t.TempDir()
+	tool, marker := filepath.Join(root, "current-guard"), filepath.Join(root, "must-not-execute")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\ntouch '"+marker+"'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	entry := config.VerificationEntrypoint{Command: "/bin/sh", ToolchainCommands: []string{"/bin/sh"}, CurrentCandidateCheck: &config.VerificationCurrentCandidateCheck{Command: tool}}
+	inspector := NewInspector(config.Config{Verification: map[string]config.VerificationEntrypoint{"complete": entry}}, nil)
+	if _, ready := inspector.inspectVerification(t.Context()); !ready {
+		t.Fatal("readable current guard refused")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("Doctor executed current guard")
+	}
+	if err := os.Remove(tool); err != nil {
+		t.Fatal(err)
+	}
+	if _, ready := inspector.inspectVerification(t.Context()); ready {
+		t.Fatal("missing current guard passed readiness")
+	}
+}
+
 func TestVerificationReadinessInspectsPreparationAndRuntimeClosure(t *testing.T) {
 	root := t.TempDir()
 	tool := filepath.Join(root, "prepare")

@@ -1460,7 +1460,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		return s.failExecution(ctx, action, lane, result, "Repository is not ready for QA", err, blockedExecutorOutput("Repository is not ready for QA", err))
 	}
 	finishRepository(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
-	if recovered, handled := s.resumeAcceptedPlanPublication(ctx, action, lane, result, repoRoot); handled {
+	if recovered, handled := s.resumeAcceptedPlanPublication(ctx, action, lane, result, repoRoot, attemptID); handled {
 		return recovered
 	}
 	baseBranch, err := s.fetchItemBase(ctx, item, repoRoot)
@@ -1565,6 +1565,10 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 			integrityViolationOutput(retainedAcceptanceResumeFailure, err))
 	}
 	if resumedAcceptance {
+		if deliveryPresent && item.ID == deliveryContext.Parent.ID {
+			err := errors.New("whole-plan acceptance requires protected parent verification recovery")
+			return s.failExecution(ctx, action, lane, result, retainedAcceptanceResumeFailure, err, integrityViolationOutput(retainedAcceptanceResumeFailure, err))
+		}
 		result.ResumedCheckpoint = true
 		lineage := observedLineage(&result)
 		lineage.ReviewedCandidate = metrics.ObjectIdentity{CommitOID: publicationRecord.CommitOID, TreeOID: publicationRecord.TreeOID}
@@ -1742,7 +1746,12 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		}
 		return s.failExecution(ctx, action, lane, result, "Agent QA failed", err, output)
 	}
-	if clearErr := s.clearReviewFeedback(item.ID); clearErr != nil {
+	if clearErr := func() error {
+		if deliveryPresent && item.ID == deliveryContext.Parent.ID {
+			return nil
+		}
+		return s.clearReviewFeedback(item.ID)
+	}(); clearErr != nil {
 		return s.failExecution(ctx, action, lane, result, "Accepted Agent QA feedback could not be cleared safely", clearErr, integrityViolationOutput("Accepted Agent QA feedback could not be cleared safely", clearErr, output))
 	}
 	currentAction, authorizeErr := s.source.Authorize(ctx, github.WorkItem{ID: item.ID})
@@ -1775,10 +1784,19 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		return s.failExecution(ctx, action, lane, result, "Plan scope changed during QA", err, integrityViolationOutput("Plan scope changed during QA", err))
 	}
 	if deliveryPresent && item.ID == deliveryContext.Parent.ID {
-		publicationEvidence, err = s.completePlanVerification(ctx, action, assignment, preparedWorkspace, currentSnapshot, attemptID)
-		if err != nil {
-			return s.failExecution(ctx, action, lane, result, "Whole-plan complete verification did not pass", err, blockedExecutorOutput("Whole-plan complete verification did not pass", err))
+		progress := &planVerificationProgress{Assignment: assignment, Metadata: preparedWorkspace, Candidate: currentSnapshot, AttemptID: attemptID, ReviewerRole: action.Role, SettingsDigest: s.planReviewSettings(action.Role, preparedWorkspace.WorktreePath), QAFailures: action.Item.QAFailures, Accepted: output, Report: qaReport, Comment: qaComment}
+		if reviewRecord != nil && reviewRecord.PlanVerification != nil {
+			// Retain prior observed check bytes; the launcher independently
+			// assesses executable applicability after this new QA acceptance.
+			prior := reviewRecord.PlanVerification
+			if prior.Assignment.Spec.PlanContext.Revision == assignment.Spec.PlanContext.Revision {
+				progress.Gate, progress.EnvelopeDigest = prior.Gate, prior.EnvelopeDigest
+			}
 		}
+		if err := s.savePlanVerification(item, currentContent, progress); err != nil {
+			return s.failExecution(ctx, action, lane, result, "Whole-plan QA acceptance could not be retained safely", err, integrityViolationOutput("Whole-plan QA acceptance could not be retained safely", err, output))
+		}
+		return s.continuePlanVerification(ctx, action, lane, result, progress, attemptID)
 	}
 	publicationRecord, recordErr := gitProvider.RecordPublicationAcceptance(ctx, preparedWorkspace, currentSnapshot, qaReport, qaComment, publicationEvidence)
 	if recordErr != nil {
@@ -1812,6 +1830,15 @@ func (s *Engine) publishAcceptedQA(
 	}
 	if isPlan && item.ID != delivery.Parent.ID {
 		if err := s.integratePlanAcceptance(ctx, action, preparedWorkspace, publicationRecord); err != nil {
+			if errors.Is(err, errPlanMemberAcceptanceStale) {
+				target, _ := s.laneForItem(item)
+				detail := "Another accepted member advanced the authenticated plan head during QA. The prior acceptance remains historical; refresh the retained candidate and run fresh QA before integration."
+				if updateErr := s.transitionAfterBranchUpdate(ctx, action, s.cfg.LaneStatus(target), s.phaseForTargetLane(target), detail); updateErr != nil {
+					return s.failExecution(ctx, action, lane, result, "Stale member acceptance could not be requeued for fresh QA", updateErr, transientExecutorOutput("Stale member acceptance could not be requeued for fresh QA"))
+				}
+				result.Outcome, result.Summary = "warning", "Plan head advanced; retained acceptance is historical and the member is requeued for fresh QA."
+				return result
+			}
 			// Keep a committed integration intent intact. Reconciliation can
 			// finish a lost Git/Project response without another model call.
 			result.Outcome = execution.OutcomeBlocked

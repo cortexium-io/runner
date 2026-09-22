@@ -202,7 +202,7 @@ func TestConfiguredRuntimeReplacementInvalidatesActualReceipt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assessment, err := execution.AssessVerificationReceipt(result.Receipt, result.Digest, execution.VerificationTarget{Repository: request.Repository, CandidateOID: after.CommitOID, Entrypoint: request.Entrypoint, SettingsDigest: result.Receipt.SettingsDigest, Inputs: after.Inputs, Boundary: request.Boundary})
+	assessment, err := execution.AssessVerificationReceipt(*result.Receipt, result.Digest, execution.VerificationTarget{Repository: request.Repository, CandidateOID: after.CommitOID, Entrypoint: request.Entrypoint, SettingsDigest: result.Receipt.SettingsDigest, Inputs: after.Inputs, Boundary: request.Boundary})
 	if err != nil || assessment.Applicable || assessment.Reason != "environment changed" {
 		t.Fatalf("runtime change reused proof: %+v %v", assessment, err)
 	}

@@ -19,6 +19,7 @@ type WorkStatus struct {
 	IntegratedUndelivered []github.WorkItem `json:"integrated_undelivered"`
 	PlanningCompleted     []github.WorkItem `json:"planning_completed"`
 	CancelledPlans        []github.WorkItem `json:"cancelled_plans"`
+	RetiredMembers        []github.WorkItem `json:"retired_members"`
 }
 
 type WaitingWork struct {
@@ -36,6 +37,7 @@ func (s *Engine) WorkStatus(ctx context.Context) (WorkStatus, error) {
 	progress := s.source.PlanningProgress(items)
 	status.IntegratedUndelivered, status.PlanningCompleted = progress.IntegratedUndelivered, progress.PlanningCompleted
 	status.CancelledPlans = progress.CancelledPlans
+	status.RetiredMembers = progress.RetiredMembers
 	eligibilityByID := map[string]github.WorkEligibility{}
 	for _, eligibility := range s.source.EvaluateWorkEligibility(items) {
 		eligibilityByID[eligibility.Item.ID] = eligibility
@@ -77,7 +79,7 @@ func (s *Engine) WorkStatus(ctx context.Context) (WorkStatus, error) {
 			}
 		}
 	}
-	for _, list := range [][]github.WorkItem{status.Items, status.Active, status.Queued, status.Blocked, status.PRReady, status.IntegratedUndelivered, status.PlanningCompleted, status.CancelledPlans} {
+	for _, list := range [][]github.WorkItem{status.Items, status.Active, status.Queued, status.Blocked, status.PRReady, status.IntegratedUndelivered, status.PlanningCompleted, status.CancelledPlans, status.RetiredMembers} {
 		sort.Slice(list, func(i, j int) bool {
 			if strings.EqualFold(list[i].Status, list[j].Status) {
 				return strings.ToLower(list[i].Title) < strings.ToLower(list[j].Title)

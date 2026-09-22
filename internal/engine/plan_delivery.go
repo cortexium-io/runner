@@ -23,22 +23,93 @@ import (
 // synchronization must not reject our own R or overwrite the retained proof.
 // This runs inside the admitted QA resource claim and plan lock, before any fetch
 // or preparation; absent acceptance leaves the normal exact-P path unchanged.
-func (s *Engine) resumeAcceptedPlanPublication(ctx context.Context, action github.AuthorizedAction, lane config.ResolvedWorkflowLane, result RunResult, repoRoot string) (RunResult, bool) {
+func (s *Engine) resumeAcceptedPlanPublication(ctx context.Context, action github.AuthorizedAction, lane config.ResolvedWorkflowLane, result RunResult, repoRoot, attemptID string) (RunResult, bool) {
 	if action.Item.PlanRelease == "" {
 		return RunResult{}, false
 	}
 	fail := func(err error) (RunResult, bool) {
 		return s.failExecution(ctx, action, lane, result, retainedAcceptanceResumeFailure, err, integrityViolationOutput(retainedAcceptanceResumeFailure, err)), true
 	}
-	delivery, _, err := s.planGate(ctx, action)
-	if err != nil {
-		return fail(err)
-	}
 	content, err := action.DelegatedContent()
 	if err != nil {
 		return fail(err)
 	}
 	provider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
+	feedback, err := s.loadReviewFeedbackRecord(action.Item, content)
+	if err != nil {
+		return fail(err)
+	}
+	if feedback != nil && feedback.PlanVerification != nil {
+		p := feedback.PlanVerification
+		// Confirmed delivery precedes every live checkout, dependency, runtime,
+		// catalog and gate operation. The terminal helper rereads the exact
+		// immutable private acceptance and current signed publication authority.
+		if p.Publication != nil {
+			manager := github.NewPullRequestManager(s.run, s.source)
+			merged, found, err := manager.RecoverMergedPlanPublication(ctx, action, p.Metadata, *p.Publication, s.baseBranch())
+			if err != nil {
+				return fail(err)
+			}
+			if found {
+				result.ResumedCheckpoint = true
+				targetLane, _ := s.cfg.Lane(lane.Transitions[config.WorkflowOutcomeSuccess])
+				if targetLane.OnEnter != config.WorkflowActionPublishPR {
+					return fail(errors.New("confirmed publication lost its configured transition"))
+				}
+				if err := s.transitionPRReady(ctx, action, targetLane.Name, p.Publication.AcceptanceReport, p.Metadata.BranchName, merged.URL, p.Publication.CommitOID); err != nil {
+					return fail(err)
+				}
+				result.Outcome = execution.OutcomeSucceeded
+				lineage := observedLineage(&result)
+				lineage.PublishedCandidate = metrics.ObjectIdentity{CommitOID: p.Publication.CommitOID, TreeOID: p.Publication.TreeOID}
+				lineage.PullRequestURL, lineage.PullRequestNumber = merged.URL, merged.Number
+				fresh, err := s.source.Authorize(ctx, github.WorkItem{ID: action.Item.ID})
+				if err != nil {
+					return fail(err)
+				}
+				mergedEvent, hasMerged := s.cfg.WorkflowEventFor(config.WorkflowEventPRMerged)
+				closedEvent, hasClosed := s.cfg.WorkflowEventFor(config.WorkflowEventPRClosed)
+				_, changed, warning, err := s.reconcileTerminalPullRequest(ctx, fresh, merged, mergedEvent, hasMerged, closedEvent, hasClosed)
+				if err != nil {
+					return fail(err)
+				}
+				if warning != nil {
+					return *warning, true
+				}
+				if changed {
+					result.Summary = "Recovered the exact confirmed merged plan; delivery completed without repeating QA or verification."
+				}
+				return result, true
+			}
+		}
+		metadata, err := provider.InspectRetainedReview(ctx, s.workspaceRequestForItem(action.Item, content.Digest, repoRoot, false))
+		if err != nil {
+			return fail(err)
+		}
+		snapshot, err := s.checkoutSnapshotState(ctx, metadata.WorktreePath)
+		if err != nil {
+			return fail(err)
+		}
+		if snapshot.Head != p.Candidate.Head || metadata.BaseRevision != p.Metadata.BaseRevision || action.Item.QAFailures > p.QAFailures && feedback.PlanRepair != nil {
+			if p.classificationPending() {
+				return fail(errors.New("uncertain classifier cannot be discarded for a different candidate"))
+			}
+			// A completed repair or approved destination refresh requires fresh
+			// QA. Preserve prior progress/receipts for applicability, not acceptance.
+			return RunResult{}, false
+		}
+		if metadata.Identity != p.Metadata.Identity || metadata.SourceSnapshot != p.Metadata.SourceSnapshot || snapshot.Fingerprint != p.Candidate.Fingerprint {
+			return fail(errors.New("retained parent candidate or workspace binding changed"))
+		}
+		p.Metadata = metadata // current privileged Git bindings, never persisted as authority
+		result.ResumedCheckpoint = true
+		result.WorktreePath, result.Branch = metadata.WorktreePath, metadata.BranchName
+		return s.continuePlanVerification(ctx, action, lane, result, p, attemptID), true
+	}
+	delivery, _, err := s.planGate(ctx, action)
+	if err != nil {
+		return fail(err)
+	}
 	metadata, err := provider.InspectRetainedReview(ctx, s.workspaceRequestForItem(action.Item, content.Digest, repoRoot, false))
 	if errors.Is(err, os.ErrNotExist) {
 		return RunResult{}, false
@@ -53,38 +124,14 @@ func (s *Engine) resumeAcceptedPlanPublication(ctx context.Context, action githu
 	if err != nil {
 		return fail(err)
 	}
-	record, accepted, err := provider.LoadPublicationAcceptance(ctx, metadata, snapshot, workspace.PublicationEvidence{PlanRevision: delivery.Revision})
+	_, accepted, err := provider.LoadPublicationAcceptance(ctx, metadata, snapshot, workspace.PublicationEvidence{PlanRevision: delivery.Revision})
 	if err != nil {
 		return fail(err)
 	}
 	if !accepted {
 		return RunResult{}, false
 	}
-	if err := s.validateCompletePlanEvidence(ctx, action, metadata, record); err != nil {
-		return fail(err)
-	}
-	result.ResumedCheckpoint = true
-	result.WorktreePath, result.Branch = metadata.WorktreePath, metadata.BranchName
-	observeWorkspaceLineage(&result, metadata)
-	observeCandidateLineage(&result, workspace.Candidate{CommitOID: record.CommitOID, TreeOID: record.TreeOID})
-	lineage := observedLineage(&result)
-	lineage.ReviewedCandidate = metrics.ObjectIdentity{CommitOID: record.CommitOID, TreeOID: record.TreeOID}
-	lineage.EvidenceCandidate = lineage.ReviewedCandidate
-	manager := github.NewPullRequestManager(s.run, s.source)
-	published, found, err := manager.RecoverPlanPublication(ctx, action, metadata, record, s.baseBranch(), s.remoteName(), func(ctx context.Context, fresh github.AuthorizedAction) error {
-		return s.validateCompletePlanEvidence(ctx, fresh, metadata, record)
-	})
-	if err != nil {
-		return fail(err)
-	}
-	if found {
-		// Terminal reconciliation, not this recovered publication, decides
-		// delivery. An exact closed-but-unmerged PR will therefore block.
-		return s.finishAcceptedQAPublication(ctx, action, lane, result, record, published), true
-	}
-	// No PR exists yet. The existing guarded publisher accepts only P or
-	// exact accepted R, skipping the push when R is already present.
-	return s.publishAcceptedQA(ctx, action, lane, result, repoRoot, metadata, record), true
+	return fail(errors.New("final plan acceptance has lost its protected progress; refusing to infer QA or fresh guard provenance from report text"))
 }
 
 func (s *Engine) deliveryManifest(source github.WorkItem, plan ProjectPlan, children []github.WorkItem) (github.PlanManifest, error) {
@@ -189,8 +236,9 @@ func (s *Engine) bindDeliveryAssignment(ctx context.Context, item github.WorkIte
 	if !present {
 		return nil
 	}
-	memberIDs := make([]string, len(delivery.Manifest.Members))
-	for i, member := range delivery.Manifest.Members {
+	members := delivery.Manifest.ActiveMembers()
+	memberIDs := make([]string, len(members))
+	for i, member := range members {
 		memberIDs[i] = member.ID
 	}
 	assignment.Spec.PlanContext = &execution.PlanContext{ID: delivery.Parent.ID, Revision: delivery.Revision, ApprovedBody: delivery.Parent.Body,
@@ -252,6 +300,26 @@ func (s *Engine) baseBranchForItem(ctx context.Context, item github.WorkItem) (s
 }
 
 func (s *Engine) fetchItemBase(ctx context.Context, item github.WorkItem, root string) (string, error) {
+	delivery, present, err := s.source.DeliveryForItem(ctx, item)
+	if err != nil {
+		return "", err
+	}
+	if present && delivery.Parent.ID != item.ID {
+		unlock := s.lockPlan(delivery.Parent.ID)
+		defer unlock()
+		delivery, _, err = s.source.DeliveryForItem(ctx, item)
+		if err != nil {
+			return "", err
+		}
+		guard := func() error { return s.validateMemberPlanHead(ctx, item, delivery) }
+		if err := guard(); err != nil {
+			return "", err
+		}
+		if err := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).VerifyPlanBranch(ctx, root, delivery.Manifest.Repository, s.remoteName(), delivery.Parent.Branch, delivery.Parent.QACommit, guard); err != nil {
+			return "", err
+		}
+		return delivery.Parent.Branch, nil
+	}
 	if item.PlanRelease != "" {
 		if err := s.verifyPlanHead(ctx, item, root); err != nil {
 			return "", err
@@ -266,6 +334,17 @@ func (s *Engine) fetchItemBase(ctx context.Context, item github.WorkItem, root s
 		return "", fmt.Errorf("fetch assignment base: %w", commandFailure(err, result))
 	}
 	return base, nil
+}
+
+func (s *Engine) validateMemberPlanHead(ctx context.Context, item github.WorkItem, expected github.PlanDelivery) error {
+	if _, err := s.source.Authorize(ctx, item); err != nil {
+		return err
+	}
+	current, present, err := s.source.DeliveryForItem(ctx, item)
+	if err != nil || !present || current.Parent.ID == item.ID || current.Revision != expected.Revision || current.Parent.Phase != github.PlanDeliveryPhase || current.Parent.QACommit != expected.Parent.QACommit || current.Parent.Branch != expected.Parent.Branch {
+		return errors.Join(errors.New("member review requires the unchanged authenticated integrated plan head"), err)
+	}
+	return nil
 }
 
 func (s *Engine) verifyPlanHead(ctx context.Context, item github.WorkItem, root string) error {
@@ -292,6 +371,8 @@ func (s *Engine) integratePlanAcceptance(ctx context.Context, action github.Auth
 	return s.integratePlanAcceptanceLocked(ctx, action, metadata, record)
 }
 
+var errPlanMemberAcceptanceStale = errors.New("accepted member requires fresh QA against the advanced plan head")
+
 func (s *Engine) integratePlanAcceptanceLocked(ctx context.Context, action github.AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord) error {
 	delivery, present, err := s.source.DeliveryForItem(ctx, action.Item)
 	if err != nil || !present {
@@ -306,7 +387,14 @@ func (s *Engine) integratePlanAcceptanceLocked(ctx context.Context, action githu
 	}
 	if parent.Item.Phase == github.PlanDeliveryPhase {
 		if parent.Item.QACommit != record.ApprovedBaseOID {
-			return workspace.ErrPublicationBaseChanged
+			provider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
+			if err := provider.VerifyPlanBranchAdvance(ctx, metadata.RepoRoot, delivery.Manifest.Repository, s.remoteName(), delivery.Parent.Branch, record.ApprovedBaseOID, parent.Item.QACommit, func() error { return s.validateMemberPlanHead(ctx, action.Item, delivery) }); err != nil {
+				return err
+			}
+			// No integration intent or Git candidate mutation has occurred.
+			// Keep the old immutable acceptance; ordinary QA admission refreshes
+			// the candidate and cannot reuse this prior-base acceptance.
+			return errPlanMemberAcceptanceStale
 		}
 		if err := s.source.BeginPlanIntegration(ctx, parent, action.Item.ID, record.CommitOID, record.ApprovedBaseOID); err != nil {
 			return err

@@ -26,6 +26,7 @@ const (
 var errReviewFeedbackLimit = errors.New("Agent QA feedback exceeds the 1 MiB safety limit; no feedback was truncated or replaced")
 
 type reviewFeedbackRecord struct {
+	PlanVerification       *planVerificationProgress `json:"plan_verification,omitempty"`
 	PlanAmendment          *planAmendmentRecord      `json:"plan_amendment,omitempty"`
 	PlanRepair             *planRepairRecord         `json:"plan_repair,omitempty"`
 	Baseline               *execution.ReviewBaseline `json:"baseline,omitempty"`
@@ -37,13 +38,14 @@ type reviewFeedbackRecord struct {
 
 func (record *reviewFeedbackRecord) UnmarshalJSON(data []byte) error {
 	var stored struct {
-		PlanAmendment          *planAmendmentRecord `json:"plan_amendment,omitempty"`
-		PlanRepair             *planRepairRecord    `json:"plan_repair,omitempty"`
-		Baseline               json.RawMessage      `json:"baseline"`
-		Version                int                  `json:"version"`
-		ItemID                 string               `json:"item_id"`
-		DelegatedContentDigest string               `json:"delegated_content_digest"`
-		Items                  []string             `json:"items"`
+		PlanVerification       *planVerificationProgress `json:"plan_verification,omitempty"`
+		PlanAmendment          *planAmendmentRecord      `json:"plan_amendment,omitempty"`
+		PlanRepair             *planRepairRecord         `json:"plan_repair,omitempty"`
+		Baseline               json.RawMessage           `json:"baseline"`
+		Version                int                       `json:"version"`
+		ItemID                 string                    `json:"item_id"`
+		DelegatedContentDigest string                    `json:"delegated_content_digest"`
+		Items                  []string                  `json:"items"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -54,9 +56,10 @@ func (record *reviewFeedbackRecord) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*record = reviewFeedbackRecord{
-		PlanAmendment: stored.PlanAmendment,
-		PlanRepair:    stored.PlanRepair,
-		Version:       stored.Version, ItemID: stored.ItemID,
+		PlanVerification: stored.PlanVerification,
+		PlanAmendment:    stored.PlanAmendment,
+		PlanRepair:       stored.PlanRepair,
+		Version:          stored.Version, ItemID: stored.ItemID,
 		DelegatedContentDigest: stored.DelegatedContentDigest, Items: stored.Items,
 	}
 	if len(stored.Baseline) == 0 || bytes.Equal(bytes.TrimSpace(stored.Baseline), []byte("null")) {
@@ -100,6 +103,13 @@ func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.Delegat
 	record := reviewFeedbackRecord{
 		Version: reviewFeedbackVersion, ItemID: strings.TrimSpace(item.ID),
 		DelegatedContentDigest: strings.TrimSpace(content.Digest), Items: items,
+	}
+	prior, err := s.loadReviewFeedbackRecord(item, content)
+	if err != nil {
+		return err
+	}
+	if prior != nil {
+		record.PlanVerification, record.PlanAmendment, record.PlanRepair = prior.PlanVerification, prior.PlanAmendment, prior.PlanRepair
 	}
 	if len(repair) > 0 {
 		record.PlanRepair = &repair[0]
@@ -194,7 +204,12 @@ func (s *Engine) readReviewFeedbackRecord(item github.WorkItem) (*reviewFeedback
 	if record.Version != reviewFeedbackVersion || strings.TrimSpace(record.ItemID) != strings.TrimSpace(item.ID) {
 		return nil, errors.New("private Agent QA feedback identity does not match this item")
 	}
-	if err := validateReviewFeedbackItems(record.Items); err != nil {
+	if record.PlanVerification != nil {
+		if err := record.PlanVerification.validate(); err != nil {
+			return nil, err
+		}
+	}
+	if err := validateReviewFeedbackItems(record.Items); err != nil && !(len(record.Items) == 0 && record.PlanVerification != nil) {
 		return nil, err
 	}
 	if record.Baseline != nil {

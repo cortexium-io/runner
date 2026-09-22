@@ -155,6 +155,14 @@ func FormatPlannedItemBody(item PlannedItem) string {
 	if strings.TrimSpace(item.PlanningBatchFingerprint) == "" {
 		return strings.TrimSpace(b.String())
 	}
+	return appendPlannedItemMetadata(b.String(), item)
+}
+
+// Append Runner-owned provenance without rewriting an operator's local body.
+// Callers must first reject any existing reserved metadata section.
+func appendPlannedItemMetadata(body string, item PlannedItem) string {
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(body))
 	metadata, _ := json.Marshal(plannedItemMetadataWire{
 		Version: 1, Repository: strings.TrimSpace(item.Repository), Dependencies: canonicalDependencies(item.ResolvedDependencies),
 		DependencyIDsResolved: item.DependencyIDsResolved,
