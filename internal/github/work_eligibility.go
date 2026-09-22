@@ -40,6 +40,9 @@ func (s *Project) EvaluateWorkEligibility(items []WorkItem) []WorkEligibility {
 }
 
 func (s *Project) evaluateWorkEligibilityIn(item WorkItem, index *workItemIndex) WorkEligibility {
+	if item.Phase == PlanIntegratedPhase || item.Phase == PlanIntegratingPhase || item.Phase == PlanRepairingPhase || item.Phase == PlanCancelledPhase || item.Phase == PlanProposalPhase || item.Phase == PlanDeliveryPhase {
+		return waitingWork(item, WorkEligibilityNotAgentLane, "Plan lifecycle reconciliation, not a harness assignment, owns this state.")
+	}
 	if !s.agentStatus(item.Status) {
 		return waitingWork(item, WorkEligibilityNotAgentLane, "The card is not in a configured agent lane.")
 	}
@@ -70,8 +73,28 @@ func waitingWork(item WorkItem, reason WorkEligibilityReason, summary string) Wo
 }
 
 func (s *Project) planningBatchEligibilityIn(item WorkItem, index *workItemIndex) (WorkEligibilityReason, string) {
+	if item.PlanRelease != "" {
+		if item.Status != s.qaStatus() {
+			return WorkEligibilityNotAgentLane, "Delivery parents can run independent review, never implementation."
+		}
+		if _, err := s.ValidatePlanDelivery(item, index.all); err != nil {
+			return WorkEligibilityPlanningBatchAuthorityInvalid, "Whole-plan review requires unchanged released membership and authority."
+		}
+	}
 	if sourceID := strings.TrimSpace(item.PlanningSourceID); sourceID != "" {
 		source := index.byID[sourceID]
+		if source.PlanRelease != "" {
+			if source.Phase == PlanIntegratingPhase || source.Phase == PlanRepairingPhase {
+				return WorkEligibilityTransitionLocked, "Waiting for the serialized plan integration or repair transition."
+			}
+			if _, err := s.ValidatePlanDelivery(source, index.all); err != nil {
+				return WorkEligibilityPlanningBatchAuthorityInvalid, "Plan delivery authority is missing, changed, cancelled or incomplete; reassessment is required."
+			}
+			return "", ""
+		}
+		if _, present, _ := ParsePlanManifest(source.Body); present {
+			return WorkEligibilityPlanningBatchIncomplete, "Waiting for the exact outcome-delivery plan to be released."
+		}
 		if source.ID == "" || !strings.EqualFold(strings.TrimSpace(source.Status), s.doneStatus()) {
 			return WorkEligibilityPlanningBatchIncomplete, "Waiting for the planning batch source and complete batch release."
 		}

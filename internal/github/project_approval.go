@@ -370,6 +370,16 @@ func (s *Project) applyBatchApproval(ctx context.Context, plan ApprovalPlan) (Wo
 		}
 	}
 	detail := fmt.Sprintf("Approved and released the complete normalized planning batch of %d work items.", len(batch.Children))
+	if _, delivery, parseErr := ParsePlanManifest(batch.Source.Body); delivery {
+		if parseErr != nil {
+			return WorkItem{}, parseErr
+		}
+		next, err := s.completeDeliveryRelease(ctx, batch.Source, detail, releaseAssertion)
+		if err != nil {
+			return WorkItem{}, errors.Join(err, s.parkBatchInAssessment(ctx, batch.Children))
+		}
+		return next, nil
+	}
 	if err := s.completeStagedPlanningSource(ctx, batch.Source, detail, releaseAssertion); err != nil {
 		cleanupErr := s.parkBatchInAssessment(ctx, batch.Children)
 		return WorkItem{}, errors.Join(fmt.Errorf("complete planning batch release: %w", err), cleanupErr)

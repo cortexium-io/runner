@@ -23,6 +23,8 @@ type RuntimeConfig struct {
 	MaxParallelism       int
 	AdmissionBudget      *AdmissionBudgetConfig
 	ResourceLimits       ResourceLimits
+	PlanDelivery         *PlanDeliveryConfig
+	Verification         map[string]VerificationEntrypoint
 	GitHubProject        ProjectConfig
 }
 
@@ -77,6 +79,8 @@ func (c Config) Resolve() (RuntimeConfig, error) {
 		MaxParallelism:       c.MaxParallelism,
 		AdmissionBudget:      admissionBudget,
 		ResourceLimits:       c.ResolveResourceLimits(),
+		PlanDelivery:         c.PlanDelivery,
+		Verification:         c.Verification,
 		GitHubProject:        c.ResolveProject(),
 	}, nil
 }

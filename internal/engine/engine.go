@@ -72,6 +72,7 @@ type Engine struct {
 	processOwnership           *subprocess.OwnershipScope
 	quarantinedSlotsMu         sync.Mutex
 	quarantinedSlots           []*github.ProcessLock
+	planIntegrations           sync.Map // parent ID -> *sync.Mutex; existing coordinator owns scheduling.
 }
 
 // SetMetricsObserver attaches attempt telemetry. It remains non-critical when
@@ -280,6 +281,22 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 	reconciliationItems, err := s.itemsWithoutResourceConflicts(items, inFlight)
 	if err != nil {
 		return pollPreparation{}, fmt.Errorf("derive pull-request reconciliation resources: %w", err)
+	}
+	planChanged, err := s.reconcilePlans(ctx, reconciliationItems)
+	if err != nil {
+		return pollPreparation{}, fmt.Errorf("reconcile delivery plans: %w", err)
+	}
+	if planChanged {
+		prepared.madeProgress = true
+		items, err = s.source.LifecycleItems(ctx)
+		if err != nil {
+			return pollPreparation{}, err
+		}
+		prepared.items = items
+		reconciliationItems, err = s.itemsWithoutResourceConflicts(items, inFlight)
+		if err != nil {
+			return pollPreparation{}, err
+		}
 	}
 	reconciliationResults, reconciliationChanged, err := s.reconcilePullRequests(ctx, reconciliationItems)
 	if err != nil {
@@ -814,7 +831,7 @@ func (s *Engine) executeItem(ctx context.Context, admitted admittedAction) (resu
 	contract := s.cfg.RoleContract(item.Role)
 	switch contract {
 	case config.WorkRoleReviewer:
-		result = s.executeQA(ctx, action)
+		result = s.executeQA(ctx, action, baseEvent.AttemptID)
 	case config.WorkRolePlanner:
 		result = s.executePlanner(ctx, action)
 	case config.WorkRoleImplementer:
@@ -1002,7 +1019,7 @@ func (s *Engine) executePlanner(ctx context.Context, action github.AuthorizedAct
 		created, err = s.applyPlannerBatch(ctx, action, plan, laneID)
 		if err == nil {
 			result.Summary = fmt.Sprintf("Planning completed and staged %d unapproved work items. Preview and approve the complete batch with `cortexium-runner approve --item %s --dry-run`.", len(created), item.ID)
-			err = s.source.StagePlanningApproval(ctx, action, created, result.Summary)
+			err = s.stagePlannerResult(ctx, action, plan, created, result.Summary)
 		}
 		if err == nil {
 			finishApply(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
@@ -1081,7 +1098,8 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 		finishRepository(metrics.StageOutcomeFailed, string(execution.FailureInvalidConfiguration), string(execution.RetryNone), metrics.Usage{})
 		return s.failExecution(ctx, action, lane, result, "Repository is not ready", err, blockedExecutorOutput("Repository is not ready", err))
 	}
-	if err := s.fetchBase(ctx, workingDir); err != nil {
+	baseBranch, err := s.fetchItemBase(ctx, item, workingDir)
+	if err != nil {
 		finishRepository(metrics.StageOutcomeFailed, string(execution.FailureTransientExternal), string(execution.RetryManual), metrics.Usage{})
 		return s.failExecution(ctx, action, lane, result, "Base branch is not ready", err, transientExecutorOutput("Base branch is not ready"))
 	}
@@ -1108,7 +1126,7 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 			return s.failExecution(ctx, action, lane, result, "Retained implementation candidate could not be committed before its base refresh", candidateErr,
 				integrityViolationOutput("Retained implementation candidate could not be committed before its base refresh", candidateErr))
 		}
-		refresh, refreshErr := provider.RefreshLocalBaseForMergeMethod(ctx, preparedBeforeImplementation, s.remoteName(), s.baseBranch(), s.cfg.GitHubProject.MergeMethod)
+		refresh, refreshErr := provider.RefreshLocalBaseForMergeMethod(ctx, preparedBeforeImplementation, s.remoteName(), baseBranch, s.cfg.GitHubProject.MergeMethod)
 		if refreshErr != nil {
 			return s.failExecution(ctx, action, lane, result, "Implementation candidate could not be refreshed", refreshErr,
 				blockedExecutorOutput("Implementation candidate could not be refreshed", refreshErr))
@@ -1137,7 +1155,10 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 	executionItem.Role = executionRole
 	commentContext := humanCommentContext(comments)
 	assignment := s.assignment(executionItem, delegatedContent, reviewFeedback, commentContext)
-	checkpointContext := implementationContextDigest(delegatedContent, item, reviewFeedback, commentContext, assignment.Spec.RequiredVerification)
+	if err := s.bindDeliveryAssignment(ctx, item, &assignment); err != nil {
+		return s.failExecution(ctx, action, lane, result, "Shared plan authority changed before implementation", err, integrityViolationOutput("Shared plan authority changed before implementation", err))
+	}
+	checkpointContext := implementationContextDigest(delegatedContent, item, reviewFeedback, commentContext, assignment.Spec.RequiredVerification, assignment.Spec)
 	var output execution.Output
 	preparedWorkspace := preparedBeforeImplementation
 	checkpointSnapshot, err := s.workspaceSnapshotState(ctx, preparedWorkspace.WorktreePath)
@@ -1195,10 +1216,12 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 			switch harness {
 			case config.HarnessCodexCLI:
 				cfg := s.executionConfig(executionRole, harness, workingDir)
+				cfg.WorkspaceBaseRef = s.remoteName() + "/" + baseBranch
 				executor := execution.NewCodexExecutor(cfg, s.run)
 				output, err = executor.ExecuteWorkspaceWrite(harnessCtx, assignment, onPrepared)
 			case config.HarnessClaudeCLI, config.HarnessPiCLI:
 				cfg := s.executionConfig(executionRole, harness, workingDir)
+				cfg.WorkspaceBaseRef = s.remoteName() + "/" + baseBranch
 				executor := execution.NewAgentExecutor(harness, cfg, s.run)
 				output, err = executor.ExecuteWorkspaceWrite(harnessCtx, assignment, onPrepared)
 			default:
@@ -1348,8 +1371,14 @@ func (s *Engine) executeImplementation(ctx context.Context, action github.Author
 	return result
 }
 
-func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) RunResult {
+func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, attemptID string) RunResult {
 	item := action.Item
+	if item.PlanRelease != "" {
+		// Retained-publication recovery and ordinary parent QA share the
+		// plan integration owner; neither may race a member-head mutation.
+		unlock := s.lockPlan(item.ID)
+		defer unlock()
+	}
 	laneID, lane := s.laneForItem(item)
 	harness := s.roleHarness(item.Role)
 	result := RunResult{Item: item, Harness: harness}
@@ -1376,7 +1405,11 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		return s.failExecution(ctx, action, lane, result, "Repository is not ready for QA", err, blockedExecutorOutput("Repository is not ready for QA", err))
 	}
 	finishRepository(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
-	if err := s.fetchBase(ctx, repoRoot); err != nil {
+	if recovered, handled := s.resumeAcceptedPlanPublication(ctx, action, lane, result, repoRoot); handled {
+		return recovered
+	}
+	baseBranch, err := s.fetchItemBase(ctx, item, repoRoot)
+	if err != nil {
 		return s.failExecution(ctx, action, lane, result, "Base branch is not ready for QA", err, transientExecutorOutput("Base branch is not ready for QA"))
 	}
 	finishWorkspace := metrics.StartStage(ctx, metrics.StageWorkspacePrepare)
@@ -1403,7 +1436,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	if currentBaseRevision != preparedWorkspace.BaseRevision {
 		observedLineage(&result).Base.CommitOID = currentBaseRevision
-		refresh, refreshErr := s.refreshBranchForQA(ctx, action, preparedWorkspace, s.baseBranch(), false)
+		refresh, refreshErr := s.refreshBranchForQA(ctx, action, preparedWorkspace, baseBranch, false)
 		if refreshErr != nil {
 			return s.failExecutionToRetryLane(ctx, action, lane, result, "Candidate refresh could not complete safely; retry through implementation to renew candidate evidence", refreshErr,
 				integrityUnverifiedOutput("Candidate refresh could not complete safely; retry through implementation to renew candidate evidence", nil, execution.Output{}), lane.Transitions[config.WorkflowOutcomeRejected])
@@ -1428,6 +1461,10 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		result.Summary = "Base branch advanced; Runner refreshed the retained candidate and requeued fresh QA."
 		if refresh.Conflicted {
 			result.Summary = "Base branch advanced; Runner retained merge conflicts for implementation and QA."
+			if item.PlanRelease != "" {
+				result.Outcome = execution.OutcomeBlocked
+				result.Summary = "Plan destination refresh has retained conflicts. Explicit owning-card recovery is required; the parent cannot perform implementation."
+			}
 		}
 		return result
 	}
@@ -1459,7 +1496,15 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		err = errors.New("active project checkout changed before agent QA started; Runner will not attribute pre-existing changes to the reviewer")
 		return s.failExecution(ctx, action, lane, result, "Active project checkout changed before Agent QA", err, integrityViolationOutput("Active project checkout changed before Agent QA", err))
 	}
-	publicationRecord, resumedAcceptance, err := gitProvider.LoadPublicationAcceptance(ctx, preparedWorkspace, qaSnapshot)
+	deliveryContext, deliveryPresent, err := s.source.DeliveryForItem(ctx, item)
+	if err != nil {
+		return s.failExecution(ctx, action, lane, result, "Plan authority changed before QA acceptance recovery", err, integrityViolationOutput("Plan authority changed before QA acceptance recovery", err))
+	}
+	publicationEvidence := workspace.PublicationEvidence{}
+	if deliveryPresent {
+		publicationEvidence.PlanRevision = deliveryContext.Revision
+	}
+	publicationRecord, resumedAcceptance, err := gitProvider.LoadPublicationAcceptance(ctx, preparedWorkspace, qaSnapshot, publicationEvidence)
 	if err != nil {
 		return s.failExecution(ctx, action, lane, result, retainedAcceptanceResumeFailure, err,
 			integrityViolationOutput(retainedAcceptanceResumeFailure, err))
@@ -1510,6 +1555,9 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	}
 	commentContext := humanCommentContext(comments)
 	assignment := s.assignment(qaItem, delegatedContent, reviewFeedback, commentContext)
+	if err := s.bindDeliveryAssignment(ctx, item, &assignment); err != nil {
+		return s.failExecution(ctx, action, lane, result, "Shared plan authority changed before review", err, integrityViolationOutput("Shared plan authority changed before review", err))
+	}
 	assignment.Spec.ReviewBaseOID = preparedWorkspace.BaseRevision
 	assignment.Spec.ReviewCandidateOID = candidate.CommitOID
 	reviewBinding := reviewBaselineBindingDigest(assignment.Spec)
@@ -1594,6 +1642,10 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 		observedLineage(&result).ReviewedCandidate = metrics.ObjectIdentity{CommitOID: candidate.CommitOID, TreeOID: candidate.TreeOID}
 	}
 	if output.ReviewAssessment != nil && output.ReviewAssessment.Verdict == "needs_changes" {
+		if deliveryPresent && item.ID == deliveryContext.Parent.ID {
+			baseline := &execution.ReviewBaseline{Assessment: *output.ReviewAssessment, CommitOID: candidate.CommitOID, BaseOID: preparedWorkspace.BaseRevision, BindingDigest: reviewBinding, CommentContext: append([]string{}, commentContext...)}
+			return s.rejectPlan(ctx, action, assignment, *output.ReviewAssessment, baseline, lane, result)
+		}
 		if feedbackErr := s.saveReviewFeedback(item, delegatedContent, *output.ReviewAssessment, &execution.ReviewBaseline{
 			CommitOID: candidate.CommitOID, BaseOID: preparedWorkspace.BaseRevision, BindingDigest: reviewBinding,
 			CommentContext: append([]string{}, commentContext...),
@@ -1664,7 +1716,16 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction) 
 	item = currentAction.Item
 	qaReport := formatQAReport(*output.ReviewAssessment, output.Verification, output.Usage)
 	qaComment := formatQAComment(*output.ReviewAssessment)
-	publicationRecord, recordErr := gitProvider.RecordPublicationAcceptance(ctx, preparedWorkspace, currentSnapshot, qaReport, qaComment)
+	if err := s.revalidateDeliveryAssignment(ctx, item, assignment); err != nil {
+		return s.failExecution(ctx, action, lane, result, "Plan scope changed during QA", err, integrityViolationOutput("Plan scope changed during QA", err))
+	}
+	if deliveryPresent && item.ID == deliveryContext.Parent.ID {
+		publicationEvidence, err = s.completePlanVerification(ctx, action, assignment, preparedWorkspace, currentSnapshot, attemptID)
+		if err != nil {
+			return s.failExecution(ctx, action, lane, result, "Whole-plan complete verification did not pass", err, blockedExecutorOutput("Whole-plan complete verification did not pass", err))
+		}
+	}
+	publicationRecord, recordErr := gitProvider.RecordPublicationAcceptance(ctx, preparedWorkspace, currentSnapshot, qaReport, qaComment, publicationEvidence)
 	if recordErr != nil {
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "QA acceptance could not be bound to the committed candidate", recordErr,
 			integrityViolationOutput("QA acceptance could not be bound to the committed candidate", recordErr, output), lane.Transitions[config.WorkflowOutcomeRejected])
@@ -1690,6 +1751,28 @@ func (s *Engine) publishAcceptedQA(
 	lineage.ReviewedCandidate = metrics.ObjectIdentity{CommitOID: publicationRecord.CommitOID, TreeOID: publicationRecord.TreeOID}
 	qaReport := publicationRecord.AcceptanceReport
 	qaComment := publicationRecord.AcceptanceComment
+	delivery, isPlan, deliveryErr := s.source.DeliveryForItem(ctx, item)
+	if deliveryErr != nil {
+		return s.failExecution(ctx, action, lane, result, "Plan authority changed before publication", deliveryErr, integrityViolationOutput("Plan authority changed before publication", deliveryErr))
+	}
+	if isPlan && item.ID != delivery.Parent.ID {
+		if err := s.integratePlanAcceptance(ctx, action, preparedWorkspace, publicationRecord); err != nil {
+			// Keep a committed integration intent intact. Reconciliation can
+			// finish a lost Git/Project response without another model call.
+			result.Outcome = execution.OutcomeBlocked
+			result.Summary = "Accepted plan member could not finish integration; retained authority and evidence require reconciliation."
+			result.Error = err.Error()
+			return result
+		}
+		result.Outcome = execution.OutcomeSucceeded
+		result.Summary = "Card accepted and integrated into the plan branch; not yet delivered."
+		return result
+	}
+	if isPlan {
+		if err := s.validateCompletePlanEvidence(ctx, action, preparedWorkspace, publicationRecord); err != nil {
+			return s.failExecution(ctx, action, lane, result, "Plan publication requires current trusted complete verification", err, integrityViolationOutput("Plan publication requires current trusted complete verification", err))
+		}
+	}
 	target := lane.Transitions[config.WorkflowOutcomeSuccess]
 	targetLane, _ := s.cfg.Lane(target)
 	if _, commentErr := s.source.PostIssueComment(ctx, action, qaCommentMarker(item.ID, publicationRecord.CommitOID, qaComment), qaComment); commentErr != nil {
@@ -1736,6 +1819,10 @@ func (s *Engine) publishAcceptedQA(
 		result.Summary = "Base branch advanced; Runner refreshed the retained candidate and requeued fresh QA."
 		if refresh.Conflicted {
 			result.Summary = "Base branch advanced; Runner retained merge conflicts for implementation and QA."
+			if item.PlanRelease != "" {
+				result.Outcome = execution.OutcomeBlocked
+				result.Summary = "Plan destination refresh has retained conflicts. Explicit owning-card recovery is required; the parent cannot perform implementation."
+			}
 		}
 		result.FailureClass = ""
 		result.RetryDisposition = ""
@@ -1773,7 +1860,13 @@ func (s *Engine) publishAcceptedQA(
 	}
 	preparedWorkspace = validatedWorkspace
 	finishPublish := metrics.StartStage(ctx, metrics.StagePublishPullRequest)
-	published, err := pullRequests.PublishAuthorized(ctx, action, preparedWorkspace, publicationRecord, s.baseBranch(), s.remoteName(), s.cfg.GitHubProject.MergeMethod)
+	var proofGuard func(context.Context, github.AuthorizedAction) error
+	if isPlan {
+		proofGuard = func(ctx context.Context, current github.AuthorizedAction) error {
+			return s.validateCompletePlanEvidence(ctx, current, preparedWorkspace, publicationRecord)
+		}
+	}
+	published, err := pullRequests.PublishAuthorized(ctx, action, preparedWorkspace, publicationRecord, s.baseBranch(), s.remoteName(), s.cfg.GitHubProject.MergeMethod, proofGuard)
 	if err != nil {
 		finishPublish(metrics.StageOutcomeFailed, string(execution.FailureTransientExternal), string(execution.RetryManual), metrics.Usage{})
 		if errors.Is(err, github.ErrPublicationBaseChanged) {
@@ -1786,14 +1879,23 @@ func (s *Engine) publishAcceptedQA(
 		result.FailureOperation, result.PublicationAttempts = github.PublicationFailureDetails(err)
 		return s.failExecution(ctx, action, lane, result, "PR publication failed", err, transientExecutorOutput("Pull request publication failed"))
 	}
-	result.PublicationAttempts = published.Attempts
-	lineage.PublishedCandidate = metrics.ObjectIdentity{CommitOID: published.CommitSHA, TreeOID: publicationRecord.TreeOID}
-	lineage.PullRequestURL = published.URL
-	lineage.PullRequestNumber = published.Number
 	finishPublish(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
-	item.PullRequest = published.URL
+	return s.finishAcceptedQAPublication(ctx, action, lane, result, publicationRecord, published)
+}
+
+func (s *Engine) finishAcceptedQAPublication(ctx context.Context, action github.AuthorizedAction, lane config.ResolvedWorkflowLane, result RunResult, record workspace.PublicationRecord, published github.PublishedPullRequest) RunResult {
+	item := action.Item
+	targetLane, _ := s.cfg.Lane(lane.Transitions[config.WorkflowOutcomeSuccess])
+	if targetLane.OnEnter != config.WorkflowActionPublishPR {
+		err := errors.New("publication recovery requires the current PR publication lane; delivery still requires confirmed merge")
+		return s.failExecution(ctx, action, lane, result, retainedAcceptanceResumeFailure, err, integrityViolationOutput(retainedAcceptanceResumeFailure, err))
+	}
+	result.PublicationAttempts = published.Attempts
+	lineage := observedLineage(&result)
+	lineage.PublishedCandidate = metrics.ObjectIdentity{CommitOID: published.CommitSHA, TreeOID: record.TreeOID}
+	lineage.PullRequestURL, lineage.PullRequestNumber = published.URL, published.Number
 	finishTransition := metrics.StartStage(ctx, metrics.StageProjectTransition)
-	if err := s.transitionPRReady(ctx, action, targetLane.Name, qaReport, published.Branch, published.URL, published.CommitSHA); err != nil {
+	if err := s.transitionPRReady(ctx, action, targetLane.Name, record.AcceptanceReport, published.Branch, published.URL, published.CommitSHA); err != nil {
 		finishTransition(metrics.StageOutcomeFailed, string(execution.FailureTransientExternal), string(execution.RetryManual), metrics.Usage{})
 		return s.failExecution(ctx, action, lane, result, "PR was published but Project state could not be updated", err, transientExecutorOutput("The pull request was published but the Project could not be updated"))
 	}
@@ -1802,7 +1904,7 @@ func (s *Engine) publishAcceptedQA(
 	item.Branch = published.Branch
 	item.PullRequest = published.URL
 	item.QACommit = published.CommitSHA
-	currentAction, authorizeErr = s.source.Authorize(ctx, github.WorkItem{ID: item.ID})
+	currentAction, authorizeErr := s.source.Authorize(ctx, github.WorkItem{ID: item.ID})
 	if authorizeErr != nil {
 		result.Error = appendError(result.Error, fmt.Errorf("refresh authority after pull request publication: %w", authorizeErr))
 		return result
@@ -1925,6 +2027,16 @@ func (s *Engine) failExecutionToRetryLane(ctx context.Context, action github.Aut
 		if override := strings.TrimSpace(retryLaneOverride); s.phaseForTargetLane(override) != "" {
 			retryPhase = override
 		}
+	}
+	if item.PlanRelease != "" {
+		// A delivery parent is a review and integration contract, never an
+		// implementation assignment. A conflict or unavailable proof needs
+		// owner routing, not a generic retry which could change shared scope.
+		if role := s.cfg.Workflow.Lanes[target].Role; s.cfg.RoleContract(role) == config.WorkRoleImplementer {
+			target = lane.Transitions[config.WorkflowOutcomeError]
+			automaticRetry = false
+		}
+		retryPhase = laneID
 	}
 	if retryPhase != "" {
 		detail += "\n\n### Next action\n\nAfter the blocker clears, run `cortexium-runner retry --item " + strings.TrimSpace(item.ID) + "`."

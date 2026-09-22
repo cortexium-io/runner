@@ -38,6 +38,7 @@ root. Internal packages do not parse CLI flags or reach back into `cmd`.
 | `internal/setup` | Capability inspection, doctor readiness, skill installation, allowlisted prerequisites | Work execution |
 | `internal/workspace` | Task-scoped isolated worktree creation and validated cleanup, plus immutable-reference validation, without modifying configured checkouts or deleting task branches | Agent prompts or publication |
 | `internal/subprocess` | Process execution, bounded output, owned-process cleanup and admission safety | Domain behavior |
+| `internal/verification` | Supported heavyweight entrypoints, observed input applicability and execution receipts | Plan authority, model judgment or arbitrary shell-command interception |
 
 ## Dependency direction
 
@@ -91,6 +92,14 @@ synchronization, local prerequisite checks, and bundled skill installation.
 explicit `--probe-harnesses` mode additionally proves real authentication,
 model invocation, and structured output once per distinct execution profile;
 normal doctor remains non-billable and does not call a model.
+`verify` launches only configured heavyweight entrypoints under a shared account-local
+resource claim, independent of agent admission. It preserves the caller's containment
+and retains ownership through descendant cleanup. Doctor checks declared executable
+availability without running the entrypoint. Receipts distinguish full candidate
+integrity from executable-check applicability and preserve original execution
+identity when reused; they do not grant authority. See
+[supported heavyweight verification](verification.md) for the explicit input/toolchain
+contract and interrupted-claim recovery.
 `harness check` is the explicit paid adapter-conformance boundary. It invokes
 each configured execution-role profile through the production planner,
 implementer, or shared-reviewer path, verifies that read-only roles leave the
@@ -446,11 +455,14 @@ tool-free stage returns fixed-key details for those Runner-owned cards. Runner
 assembles the canonical plan, rejecting missing, extra, reordered, or
 semantically incomplete details. Every work item has a local objective,
 acceptance criteria, proof obligations, selected assumptions, dependencies, and
-a natural review boundary sized for one configured implementer invocation. Runner appends the
-original approved request, project outcome, cross-cutting criteria, and
-constraints to every generated child card. Implementers and reviewers therefore
-receive the stable product and task contract through ordinary Project data
-rather than a hidden local plan store. Runner extracts the exact approved
+a natural review boundary sized for one configured implementer invocation.
+Every generated card explicitly selects an allowed implementation profile and
+gives a reason, even when only the default profile is allowed. Legacy planning
+appends shared context to each card. With explicit plan delivery enabled, the
+durable parent owns the shared canonical contract and children carry local
+briefs; Runner supplies validated `PlanContext` at execution time. Implementers
+and reviewers therefore receive the stable product and task contract through
+ordinary Project data rather than a hidden local plan store. Runner extracts the exact approved
 proof obligations from that immutable card body and passes them to every
 downstream harness. Planner guidance distinguishes requested behavior changes
 from existing invariants that must survive, with proof for both where at risk.
@@ -665,14 +677,17 @@ absent, retain the human assessment and batch-approval boundaries.
 Issue completion is a deterministic reconciliation action. After Runner
 observes a merged pull request and records the card's authenticated successful
 outcome, it closes that implementation card's issue with GitHub's `completed`
-reason. A planning source can be `Done` while its issue remains open: Runner
+reason. For legacy planning, a source can be `Done` while its issue remains open: Runner
 closes that source issue only when every exact child in its authenticated
 released batch has its own merged-pull-request outcome. A missing, changed,
 blocked, closed-without-merge, or manually moved child keeps the source open.
 Pull-request bodies deliberately contain no source-closing keyword because no
 single child PR is necessarily the final one. Closure failures are reported and
 retried on a later poll without consuming harness capacity or blocking other
-safe actions.
+safe actions. New outcome-delivery parents remain active through integration
+and whole-plan QA. Their children stay `plan_integrated` until the single final
+plan PR is confirmed merged; no child PR is required. Historical planning Done
+records are not interpreted as delivered outcomes.
 
 Workspace authority combines that delegated-content digest with the exact
 resolved base commit and records them with the immutable Project item ID,
@@ -894,6 +909,46 @@ local batches prevent staging. An unchanged saved proposal resumes partial
 staging without changing its fingerprint or creating duplicate children. This
 uses operator-retained JSON, not another persistent planning store; imported
 plans still require a separate complete-batch approval.
+
+### Explicit outcome-delivery boundary
+
+`plan_delivery.enabled` is false unless explicitly configured. The new path
+requires a `Runner Plan Release` TEXT field and a `complete_verification` catalog
+entry whose exact settings digest participates in the approved manifest. See
+[the outcome-delivery decision](decisions/0005-approved-outcome-delivery.md) and
+[heavy verification](verification.md). Doctor only inspects these prerequisites.
+
+The immutable batch release binds the complete canonical parent revision and
+exact children; the ordinary action assertion binds mutable lifecycle fields.
+Normal parent review never reauthorizes or invalidates unchanged members.
+`PlanContext` is populated only after both boundaries are checked. The whole-plan
+review also receives bounded exact member briefs so it can name an existing
+owner for each failed shared criterion; these are approved context, not a
+growing execution-history dump.
+
+Accepted children integrate into `runner/plan-<parent-identity-digest>` under
+serialized expected-head ownership. The signed `plan_integrating` intent
+precedes Git mutation so a lost response can finish the corresponding Project
+transition without another push or review. `plan_integrated` children satisfy
+within-plan dependencies only; general dependency caches must not convert this
+internal success into external delivery.
+
+Once every member is integrated, the existing review lane checks the combined
+candidate. Typed repair targets reference failed checks and exact members;
+unowned or out-of-scope findings stop for an amendment or input. The signed
+`plan_repairing` intent spends the whole-plan rejection allowance before any
+member is requeued and keeps all member admission paused until that transition
+is complete. Card and plan allowances are not reset by this recovery.
+
+A complete-gate receipt must come from the actual owned launcher, match the
+accepted candidate before and after execution, and be pinned in the protected
+publication acceptance record. The engine refuses host execution for an
+isolated reviewer; no silent containment fallback exists. Final publication
+rechecks authority and proof. Ambiguous PR creation is read back by exact
+repository, branch, base and head, including merged or closed PRs, before any
+repeat mutation. Only confirmed integration into the destination delivers the
+plan. This core path remains rollout-disabled while operator migration,
+amendment/cancellation controls and independent rollout review are completed.
 
 Local coordination separates the worker lifetime from standalone planning.
 `run` alone owns the worker lock and runtime-status file. Standalone `plan`

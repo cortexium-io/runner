@@ -36,6 +36,7 @@ type WorkItem struct {
 	Status                    string   `json:"status"`
 	Role                      string   `json:"role,omitempty"`
 	Approval                  string   `json:"approval,omitempty"`
+	PlanRelease               string   `json:"plan_release,omitempty"`
 	Labels                    []string `json:"labels,omitempty"`
 	Result                    string   `json:"result,omitempty"`
 	Phase                     string   `json:"phase,omitempty"`
@@ -103,6 +104,7 @@ type ProjectInspection struct {
 	WorkflowStatuses     bool   `json:"workflow_statuses"`
 	ResultField          bool   `json:"result_field"`
 	ApprovalField        bool   `json:"approval_field"`
+	PlanReleaseField     bool   `json:"plan_release_field"`
 	PhaseField           bool   `json:"phase_field"`
 	TransitionField      bool   `json:"transition_field"`
 	ActivityField        bool   `json:"activity_field"`
@@ -199,6 +201,8 @@ func (s *Project) Inspect(ctx context.Context) (ProjectInspection, error) {
 	resultOK = resultOK && projectFieldHasDataType(result, "TEXT")
 	approval, approvalOK := schema.field(s.approvalFieldName())
 	approvalOK = approvalOK && projectFieldHasDataType(approval, "TEXT")
+	planRelease, planReleaseOK := schema.field(config.RunnerPlanReleaseFieldName)
+	planReleaseOK = planReleaseOK && projectFieldHasDataType(planRelease, "TEXT")
 	phase, phaseOK := schema.field(s.phaseFieldName())
 	phaseOK = phaseOK && projectFieldHasDataType(phase, "TEXT")
 	transition, transitionOK := schema.field(s.transitionFieldName())
@@ -222,7 +226,7 @@ func (s *Project) Inspect(ctx context.Context) (ProjectInspection, error) {
 		ProjectID: schema.ProjectID, BoardView: hasBoardView(views), BoardLifecycleFields: boardViewHasLifecycleFields(views, []string{phase.ID, transition.ID}, activity.ID, qaFailures.ID), StatusField: statusOK,
 		AssessmentStatus: assessmentOK, BacklogStatus: status.hasOption(s.backlogStatus()), ReadyStatus: status.hasOption(s.readyStatus()), RunningStatus: status.hasOption(s.runningStatus()),
 		QAStatus: status.hasOption(s.qaStatus()), PRReadyStatus: status.hasOption(s.prReadyStatus()), BlockedStatus: status.hasOption(s.blockedStatus()), DoneStatus: status.hasOption(s.doneStatus()), WorkflowStatuses: statusOK && !missingOptions(status, s.requiredStatuses()),
-		ResultField: resultOK, ApprovalField: approvalOK, PhaseField: phaseOK, TransitionField: transitionOK, ActivityField: activityOK, QAFailuresField: qaFailuresOK,
+		ResultField: resultOK, ApprovalField: approvalOK, PlanReleaseField: planReleaseOK, PhaseField: phaseOK, TransitionField: transitionOK, ActivityField: activityOK, QAFailuresField: qaFailuresOK,
 		BranchField: branchOK, PullRequestField: pullRequestOK, QACommitField: qaCommitOK, IntakeRepository: intakeRepositoryOK, IntakeLabel: intakeLabelOK, SingleRunnerMVP: true,
 	}, nil
 }
@@ -538,6 +542,9 @@ func (s *Project) Authorize(ctx context.Context, item WorkItem) (AuthorizedActio
 	if strings.TrimSpace(item.Approval) != "" && item.Approval != current.Approval {
 		return AuthorizedAction{}, errors.New("Project action changed after it was loaded; reload it and try again")
 	}
+	if err := s.refreshDeliveryAuthority(ctx, current); err != nil {
+		return AuthorizedAction{}, err
+	}
 	return action, nil
 }
 
@@ -579,6 +586,9 @@ func (s *Project) RefreshDelegatedContent(ctx context.Context, expected Authoriz
 	}
 	if !sameAuthorizedAction(expected, authorized) {
 		return AuthorizedAction{}, DelegatedContent{}, errors.New("Project action changed before assignment construction; reload the item and try again")
+	}
+	if err := s.refreshDeliveryAuthority(ctx, current); err != nil {
+		return AuthorizedAction{}, DelegatedContent{}, err
 	}
 	return authorized, DelegatedContent{Digest: expectedContent.Digest, BodySnapshot: expectedContent.BodySnapshot}, nil
 }
@@ -622,6 +632,11 @@ func (s *Project) TransitionPRReady(ctx context.Context, action AuthorizedAction
 }
 
 func (s *Project) ResetRejections(ctx context.Context, action AuthorizedAction, feedback, targetPhase string) error {
+	if action.Item.PlanRelease != "" {
+		// A final-plan review owns a separate allowance. Ordinary PR base
+		// reconciliation and rework never grant a new whole-plan budget.
+		return s.transition(ctx, action, action.Item.Status, feedback, targetPhase, strings.TrimSpace(action.Item.PullRequest) != "", nil, nil)
+	}
 	if strings.TrimSpace(action.Item.PullRequest) != "" && strings.TrimSpace(feedback) == "" {
 		feedback = "Human requested pull request revisions."
 	}

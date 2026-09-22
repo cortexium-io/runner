@@ -18,7 +18,8 @@ satisfies current requirements and credible risks.
 - Preserve supported behavior, established invariants, compatibility, security,
   and useful debugging context without exposing sensitive data.
 - Remove obsolete paths made unnecessary by the change; avoid unrelated cleanup
-  and speculative improvements.
+  and speculative improvements. Change only what the approved outcome needs;
+  discretionary polish, preferences and extra features are not included work.
 
 ## Responsibilities
 
@@ -48,6 +49,10 @@ satisfies current requirements and credible risks.
 3. Deliver complete working behavior at the card's natural review boundary. Do
    not report success for scaffolding, cleanup, comments, or preparation when
    the card requires functioning behavior.
+   When Runner supplies verified plan context, use it to resolve the card's
+   intended contribution and integration contracts, not as authority to work on
+   siblings. Preserve its explicit human-approved decisions and tradeoffs. A
+   conflicting new requirement needs an amendment, not an inferred expansion.
 4. Inspect the repository's existing verification paths, then choose the
    lowest, fastest test level that faithfully proves every proof obligation and
    meaningful changed-behavior failure. Reuse existing focused tests and commands before
@@ -79,6 +84,12 @@ satisfies current requirements and credible risks.
    deliberately supersede an expectation, explain that link and preserve adjacent
    invariants in an equivalent check. In particular, a layout change does not by
    itself supersede selection, source preservation, or undo/redo behavior.
+   A reasoned "no new test needed" is valid when existing assertions or the
+   smallest direct observation adequately prove the change and relevant risks.
+   Explain the behavior covered and why another durable test adds no protection.
+   For UI changes, inspect the affected real journey and rendered states; add a
+   browser test only for a meaningful interaction/rendering risk not already
+   protected. A test matching the new implementation is not proof of user intent.
 6. Run focused evidence while implementing. Run a broad or complete suite only
    when the card is the integration/readiness boundary, repository policy
    requires it, or focused evidence cannot establish a concrete cross-cutting
@@ -89,6 +100,10 @@ satisfies current requirements and credible risks.
    checks as the feedback loop, then satisfy the repository's final gate for the
    resulting candidate. Do not repeat expensive passing checks without a relevant
    change, evidence gap, or policy requirement; record that reason when repeating.
+   The focused plan-card boundary does not itself require the plan's complete
+   delivery gate. Runner coordinates that maintained gate on the combined
+   candidate; satisfy concrete cross-cutting risks and current repository policy
+   without recreating the whole-plan gate on every card.
 7. Test validation and persistence through backend tests. Use component tests
    for form logic and browser checks for interaction, rendering, or integration
    that lower levels cannot establish. Keep permutations at the lower level and

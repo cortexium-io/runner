@@ -41,6 +41,7 @@ type ReviewAssessment struct {
 	Maintainability ReviewMaintainabilityResult `json:"maintainability"`
 	Verdict         string                      `json:"verdict"`
 	Summary         string                      `json:"summary"`
+	RepairTargets   []PlanRepairTarget          `json:"repair_targets,omitempty"`
 }
 
 func (result *ReviewCriterionResult) UnmarshalJSON(data []byte) error {
@@ -190,7 +191,15 @@ func validateReviewAssessmentForAssignment(assignment Assignment, outcome string
 	} else if outcome != OutcomeSucceeded {
 		return errors.New("completed reviewer verdict requires a succeeded outcome")
 	}
-	return nil
+	statuses := map[string]string{"R": assessment.Rules[0].Status, "M": assessment.Maintainability.Status}
+	for index, criterion := range assignment.Spec.RequiredVerification {
+		for _, check := range assessment.Criteria {
+			if strings.TrimSpace(check.Criterion) == strings.TrimSpace(criterion) {
+				statuses[reviewerCriterionKey(index)] = check.Status
+			}
+		}
+	}
+	return validatePlanRepairTargets(assignment.Spec, assessment.RepairTargets, statuses)
 }
 
 // ValidateReviewBaseline checks that private historical review data still has

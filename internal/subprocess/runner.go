@@ -108,8 +108,13 @@ func RunPrivilegedGitInput(ctx context.Context, profile PrivilegedGitProfile, ar
 // transport and an explicit GitHub CLI credential helper. Callers must supply a
 // literal URL; inherited remotes and URL rewrite configuration remain absent.
 func RunPrivilegedGitNetwork(ctx context.Context, runner Runner, profile PrivilegedGitProfile, args []string, timeout time.Duration) (Result, error) {
-	if len(args) == 0 || args[0] != "fetch" && args[0] != "push" {
-		return Result{}, errors.New("privileged network Git permits only fetch or push")
+	if len(args) == 0 || args[0] != "fetch" && args[0] != "push" && args[0] != "ls-remote" {
+		return Result{}, errors.New("privileged network Git permits only fetch, push or exact plan-head inspection")
+	}
+	if args[0] == "ls-remote" {
+		if len(args) != 4 || args[1] != "--heads" || !strings.HasPrefix(args[3], "refs/heads/runner/plan-") || strings.ContainsAny(args[3], "*?[]\\ \t\r\n\x00") || strings.Contains(args[3], "..") {
+			return Result{}, errors.New("privileged remote inspection requires one exact plan branch")
+		}
 	}
 	repositoryURL := ""
 	for _, argument := range args[1:] {
@@ -505,6 +510,10 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 	cmd.Stderr = stderrWriter
 
 	configureProcessGroup(cmd)
+	if err := ctx.Err(); err != nil {
+		closePipes()
+		return -1, err
+	}
 	if err = cmd.Start(); err != nil {
 		closePipes()
 		return exitCode(err), err
@@ -540,6 +549,9 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 	}
 	waitResult, teardownErr := teardownProcessGroup(cmd, waitDone, waitResult, haveWaitResult)
 	teardownErr = errors.Join(teardownErr, ownership.cleanup())
+	if ownership != nil && ownership.environmentVariable() == ownershipVariable {
+		teardownErr = errors.Join(teardownErr, checkHeavyClaim("", ownership.marker))
+	}
 	if teardownErr != nil {
 		// A process that survived teardown may still hold either output pipe.
 		// Closing the readers prevents an unbounded wait while returning the

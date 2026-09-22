@@ -29,9 +29,10 @@ type ProjectPlan struct {
 }
 
 type ProjectPlanApproval struct {
-	BatchFingerprint string            `json:"batch_fingerprint"`
-	Destination      string            `json:"destination"`
-	Children         []github.WorkItem `json:"children"`
+	BatchFingerprint string               `json:"batch_fingerprint"`
+	Destination      string               `json:"destination"`
+	Children         []github.WorkItem    `json:"children"`
+	Parent           *github.ApprovalPlan `json:"parent,omitempty"`
 }
 
 const directProjectPlanSourceLane = "local_plan"
@@ -185,7 +186,11 @@ func (s *Engine) planProjectWithRole(ctx context.Context, role, idea string) (Pr
 	}
 	finishRepository(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
 	planningContext := projectPlannerExecutionContext{}
-	for _, id := range s.cfg.PlannerImplementers {
+	profiles := s.cfg.PlannerImplementers
+	if len(profiles) == 0 {
+		profiles = []string{s.cfg.AttemptRole(s.cfg.RoleIDForContract(config.WorkRoleImplementer), 0)}
+	}
+	for _, id := range profiles {
 		profile, _ := s.cfg.RoleProfile(id)
 		planningContext.Profiles = append(planningContext.Profiles, plannerExecutionProfile{ID: id, Description: profile.Description, Model: profile.Model, Reasoning: profile.Reasoning, TaskGranularity: profile.TaskGranularity, TimeoutSeconds: profile.TimeoutSeconds})
 	}
@@ -251,9 +256,9 @@ func projectPlannerPrompt(skills []string, executionContext projectPlannerExecut
 	var b strings.Builder
 	if len(executionContext.Profiles) > 0 {
 		profiles, _ := json.Marshal(executionContext.Profiles)
-		fmt.Fprintf(&b, "Allowed execution profiles (operator configuration data): %s\nChoose an implementation_profile from these IDs when its description fits the card; explain the task-specific choice in profile_reason using contract clarity, applicable repository examples, verification strength, and the consequence of mistakes. Choose the least costly suitable profile according to operator guidance; the list is in operator preference order, not a universal capability ranking. Model and reasoning are bundled: never invent a model, effort, or profile, and do not assume reasoning levels are equivalent across models. Empty strings keep the configured default.\n", profiles)
+		fmt.Fprintf(&b, "Allowed execution profiles (operator configuration data): %s\nEvery generated card must explicitly select an implementation_profile from these IDs and explain the task-specific choice in profile_reason using contract clarity, applicable repository examples, verification strength, and the consequence of mistakes. Choose the least costly suitable profile according to operator guidance; the list is in operator preference order, not a universal capability ranking. Model and reasoning are bundled: never invent a model, effort, or profile, and do not assume reasoning levels are equivalent across models. A single allowed profile must still be selected explicitly with a reason.\n", profiles)
 	} else {
-		b.WriteString("Use empty strings for implementation_profile and profile_reason; Runner uses the configured default.\n")
+		b.WriteString("No implementation profile is available; report the missing configuration instead of inventing a profile.\n")
 	}
 	b.WriteString("Use these skills for this planner assignment: ")
 	b.WriteString(strings.Join(skills, ", "))
@@ -291,6 +296,9 @@ func (s *Engine) ApplyProjectPlan(ctx context.Context, plan ProjectPlan) ([]gith
 	if err != nil {
 		return nil, err
 	}
+	if s.cfg.GitHubProject.PlanDelivery {
+		return s.applyDeliveryProjectPlan(ctx, plan, target)
+	}
 	created, err := s.applyProjectPlanAtStatus(ctx, plan, target)
 	return created, err
 }
@@ -306,6 +314,19 @@ func (s *Engine) PlanStagedProjectPlanApproval(ctx context.Context, batchFingerp
 	}
 	children := make([]github.WorkItem, 0)
 	for _, item := range items {
+		if s.cfg.GitHubProject.PlanDelivery && item.PlanningSourceID != "" && item.PlanningBatchFingerprint == batchFingerprint {
+			parent, err := s.source.PlanApproval(ctx, item.PlanningSourceID)
+			if err != nil {
+				return ProjectPlanApproval{}, err
+			}
+			if parent.Batch == nil {
+				return ProjectPlanApproval{}, errors.New("delivery proposal has no complete batch approval")
+			}
+			for _, child := range parent.Batch.Children {
+				children = append(children, child.Item)
+			}
+			return ProjectPlanApproval{BatchFingerprint: batchFingerprint, Destination: parent.Batch.Destination, Children: children, Parent: &parent}, nil
+		}
 		if item.PlanningSourceID == "" && item.PlanningSourceLane == directProjectPlanSourceLane && item.PlanningBatchFingerprint == batchFingerprint {
 			children = append(children, item)
 		}
@@ -360,6 +381,23 @@ func (s *Engine) ApplyProjectPlanApproval(ctx context.Context, approval ProjectP
 	defer guard.Release()
 	if strings.TrimSpace(approval.BatchFingerprint) == "" || len(approval.Children) == 0 {
 		return nil, errors.New("staged plan approval preview is incomplete; preview the complete batch again")
+	}
+	if approval.Parent != nil {
+		refreshed, err := s.PlanStagedProjectPlanApproval(ctx, approval.BatchFingerprint)
+		if err != nil {
+			return nil, err
+		}
+		if !reflect.DeepEqual(approval, refreshed) {
+			return nil, errors.New("delivery plan changed after preview; review the complete plan again")
+		}
+		if _, err := s.source.ApplyApproval(ctx, *approval.Parent); err != nil {
+			return nil, err
+		}
+		ids := make([]string, len(approval.Children))
+		for i, child := range approval.Children {
+			ids[i] = child.ID
+		}
+		return s.source.LifecycleItemsByID(ctx, ids)
 	}
 	itemIDs := make([]string, len(approval.Children))
 	for index := range approval.Children {
@@ -429,10 +467,7 @@ func (s *Engine) normalizeProjectPlan(plan *ProjectPlan) error {
 	}
 	for _, card := range normalized.WorkItems {
 		if card.ImplementationProfile == "" {
-			if card.ProfileReason != "" {
-				return fmt.Errorf("card %q has a profile reason without a profile", card.Title)
-			}
-			continue
+			return fmt.Errorf("card %q requires an explicit allowed implementation profile and reason", card.Title)
 		}
 		if strings.TrimSpace(card.ProfileReason) == "" {
 			return fmt.Errorf("card %q requires a profile reason", card.Title)
@@ -603,6 +638,9 @@ func (s *Engine) applyPlannerBatch(ctx context.Context, source github.Authorized
 		return nil, err
 	}
 	plannedItems := projectWorkItems(plan)
+	if s.cfg.GitHubProject.PlanDelivery {
+		plannedItems = append([]github.PlannedItem(nil), plan.WorkItems...)
+	}
 	for index := range plannedItems {
 		plannedItems[index].PlanningSourceID = strings.TrimSpace(sourceItem.ID)
 		plannedItems[index].PlanningSourceLane = strings.TrimSpace(sourceLane)

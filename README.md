@@ -99,6 +99,11 @@ go install ./cmd/cortexium-runner
 
 ## Prerequisites
 
+For configured heavyweight checks and candidate-bound receipts, see
+[supported heavyweight verification](docs/verification.md). The launcher shares
+one host/account slot without changing agent parallelism or harness permissions.
+It does not intercept arbitrary test commands.
+
 Runner supports macOS and Linux. The prebuilt Runner binary does not require
 Go; Go is needed only when building from source.
 

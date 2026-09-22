@@ -230,6 +230,10 @@ func (i *Inspector) Inspect(ctx context.Context, request InspectionRequest) Insp
 		} else {
 			githubProject = &inspection
 			sourceReady = inspection.BoardView && inspection.StatusField && inspection.WorkflowStatuses && inspection.ApprovalField && inspection.PhaseField && inspection.TransitionField && inspection.ActivityField && inspection.QAFailuresField && inspection.BranchField && inspection.PullRequestField && inspection.QACommitField && inspection.IntakeRepository && inspection.IntakeLabel
+			if i.cfg.PlanDelivery != nil && i.cfg.PlanDelivery.Enabled && !inspection.PlanReleaseField {
+				sourceReady = false
+				warnings = append(warnings, config.RunnerPlanReleaseFieldName+" TEXT field is required for enabled plan delivery; preview and apply the explicit Project migration before starting new plans. Doctor does not create it.")
+			}
 			status := CapabilityAvailable
 			detail := "GitHub Project is readable and has a Kanban board with the configured Status options"
 			if !sourceReady {
@@ -249,7 +253,9 @@ func (i *Inspector) Inspect(ctx context.Context, request InspectionRequest) Insp
 	if i.cfg.HasProject() {
 		harnessesReady = installedHarnesses > 0 && roleHarnessesReady
 	}
-	ready := coreReady && harnessesReady && projectReady && referencesReady && repositoryReady && sourceReady && len(missing) == 0
+	verificationStates, verificationReady := i.inspectVerification()
+	capabilities = append(capabilities, verificationStates...)
+	ready := coreReady && harnessesReady && projectReady && referencesReady && repositoryReady && sourceReady && verificationReady && len(missing) == 0
 	sort.Slice(capabilities, func(a, b int) bool {
 		if capabilities[a].Type == capabilities[b].Type {
 			return capabilities[a].ID < capabilities[b].ID
@@ -257,6 +263,9 @@ func (i *Inspector) Inspect(ctx context.Context, request InspectionRequest) Insp
 		return capabilities[a].Type < capabilities[b].Type
 	})
 	recommendations := doctorRecommendations(capabilities, harnessReports, missing, sourceReady, projectReady, false)
+	if !verificationReady {
+		recommendations = append(recommendations, "Resolve the blocked verification tool or containment checks without silently widening harness permissions, then run Doctor again.")
+	}
 	for _, missingHarness := range missingRoleHarnesses {
 		recommendations = append(recommendations, fmt.Sprintf("Install and set up %s with skill %q for the %s role, or select another supported harness for that role.", missingHarness.DisplayName, missingHarness.Skill, missingHarness.Role))
 	}

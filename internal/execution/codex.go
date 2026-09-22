@@ -84,6 +84,9 @@ func NewCodexExecutor(cfg config.ExecutionConfig, run subprocess.Runner) CodexEx
 }
 
 func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Output, error) {
+	if err := ValidateAssignmentContext(assignment.Spec); err != nil {
+		return blockedOutputWithFailure(err.Error(), FailureInvalidContract, RetryNone), err
+	}
 	if err := validateExecutionHarness(config.HarnessCodexCLI, e.cfg); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureInvalidConfiguration, RetryNone), err
 	}
@@ -164,6 +167,13 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 }
 
 func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Assignment, onPrepared func(workspace.Metadata) error) (Output, error) {
+	if err := ValidateAssignmentContext(assignment.Spec); err != nil {
+		return blockedOutputWithFailure(err.Error(), FailureInvalidContract, RetryNone), err
+	}
+	if assignment.Spec.ReviewRequired {
+		err := errors.New("review assignments cannot execute through the implementation workspace-write entrypoint")
+		return blockedOutputWithFailure(err.Error(), FailureInvalidContract, RetryNone), err
+	}
 	if err := validateExecutionHarness(config.HarnessCodexCLI, e.cfg); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureInvalidConfiguration, RetryNone), err
 	}

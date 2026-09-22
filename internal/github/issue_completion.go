@@ -41,7 +41,7 @@ func (s *Project) ReconcileCompletedIssues(ctx context.Context, items []WorkItem
 	}
 
 	for _, item := range items {
-		if strings.TrimSpace(item.PullRequest) != "" && s.hasSuccessfulOutcomeIn(item, index) {
+		if (strings.TrimSpace(item.PullRequest) != "" || item.Phase == PlanIntegratedPhase) && s.hasSuccessfulOutcomeIn(item, index) {
 			closeEligible(item)
 		}
 	}
@@ -58,6 +58,13 @@ func (s *Project) planningSourceWorkCompleted(source WorkItem, items []WorkItem)
 }
 
 func (s *Project) planningSourceWorkCompletedIn(source WorkItem, index *workItemIndex) bool {
+	if source.PlanRelease != "" {
+		if source.Status != s.doneStatus() || source.PullRequest == "" || !validGitObjectID(source.QACommit) {
+			return false
+		}
+		_, err := s.ValidatePlanDelivery(source, index.all)
+		return err == nil
+	}
 	if !strings.EqualFold(strings.TrimSpace(source.Status), s.doneStatus()) || strings.TrimSpace(source.Transition) != "" || strings.TrimSpace(source.PullRequest) != "" {
 		return false
 	}

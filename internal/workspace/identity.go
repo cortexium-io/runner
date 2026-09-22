@@ -94,7 +94,10 @@ func (p GitProvider) validateRetainedIdentity(ctx context.Context, request Reque
 	if err != nil {
 		return Identity{}, err
 	}
-	if !state.Exists || mode.Perm() != 0o600 {
+	if !state.Exists {
+		return Identity{}, fmt.Errorf("recovery requires an existing private workspace identity: %w", os.ErrNotExist)
+	}
+	if mode.Perm() != 0o600 {
 		return Identity{}, errors.New("recovery requires an existing private mode-0600 workspace identity")
 	}
 	if err := securefs.ValidateOwnedRegularFile(state, uint32(os.Geteuid())); err != nil {

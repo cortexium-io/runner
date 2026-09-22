@@ -3,7 +3,9 @@ package config
 import (
 	"errors"
 	"fmt"
+	"path"
 	"strings"
+	"unicode"
 
 	bundledskills "github.com/cortexium-io/runner/skills"
 )
@@ -17,6 +19,8 @@ const GitHubProjectCapabilityID = "github_project"
 const RunnerActivityFieldName = "Runner Activity"
 
 const RunnerTransitionFieldName = "Runner Transition"
+
+const RunnerPlanReleaseFieldName = "Runner Plan Release"
 
 const (
 	RunnerActivityAwaitingHumanReview    = "Awaiting human review"
@@ -79,26 +83,30 @@ type AutonomousIssueIntakeConfig struct {
 // GitHubProjectConfig and the resolved workflow.
 type ProjectConfig struct {
 	GitHubProjectConfig
-	ActivityField        string
-	RunnerID             string
-	ApprovalAuthorityKey []byte
-	AssessmentStatus     string
-	BacklogStatus        string
-	ReadyStatus          string
-	RunningStatus        string
-	QAStatus             string
-	PRReadyStatus        string
-	BlockedStatus        string
-	DoneStatus           string
-	RequiredStatuses     []string
-	AgentStatuses        []string
-	LaneStatuses         map[string]string
-	LaneRoles            map[string]string
-	PlanningDestinations map[string]string
-	InitialLaneID        string
-	InitialRole          string
-	ApprovalLaneID       string
-	ActiveLaneID         string
+	PlanDelivery           bool
+	PlanVerificationID     string
+	PlanVerificationDigest string
+	PlanProfileDigests     map[string]string
+	ActivityField          string
+	RunnerID               string
+	ApprovalAuthorityKey   []byte
+	AssessmentStatus       string
+	BacklogStatus          string
+	ReadyStatus            string
+	RunningStatus          string
+	QAStatus               string
+	PRReadyStatus          string
+	BlockedStatus          string
+	DoneStatus             string
+	RequiredStatuses       []string
+	AgentStatuses          []string
+	LaneStatuses           map[string]string
+	LaneRoles              map[string]string
+	PlanningDestinations   map[string]string
+	InitialLaneID          string
+	InitialRole            string
+	ApprovalLaneID         string
+	ActiveLaneID           string
 }
 
 func (c GitHubProjectConfig) ApprovalFieldName() string {
@@ -178,6 +186,79 @@ func (c Config) Validate() error {
 	if err := validateResourceLimits(c.ResourceLimits); err != nil {
 		return err
 	}
+	if c.PlanDelivery != nil && c.PlanDelivery.Enabled && strings.TrimSpace(c.PlanDelivery.CompleteVerification) == "" {
+		return errors.New("plan_delivery requires a supported complete_verification entrypoint")
+	}
+	for id, entrypoint := range c.Verification {
+		if id == "" || strings.TrimSpace(id) != id || strings.TrimSpace(entrypoint.Command) == "" || strings.ContainsRune(entrypoint.Command, 0) || entrypoint.TimeoutSeconds <= 0 {
+			return errors.New("verification requires named entrypoints with an executable and positive timeout_seconds")
+		}
+		validCommand := func(command string) bool {
+			return strings.TrimSpace(command) == command && command != "" && !strings.ContainsAny(command, "\x00\r\n\t\\") && (!strings.Contains(command, "/") || path.IsAbs(command))
+		}
+		if !validCommand(entrypoint.Command) || len(entrypoint.ToolchainCommands) == 0 {
+			return errors.New("verification requires explicit toolchain_commands and PATH names or absolute executable paths")
+		}
+		tools := map[string]bool{}
+		for _, command := range entrypoint.ToolchainCommands {
+			if !validCommand(command) || tools[command] {
+				return errors.New("verification toolchain_commands must be unique PATH names or absolute executable paths")
+			}
+			tools[command] = true
+		}
+		if err := validateVerificationRuntimePaths(entrypoint.RuntimePaths, c.ProjectDir); err != nil {
+			return fmt.Errorf("verification %q: %w", id, err)
+		}
+		if len(entrypoint.RuntimePaths) != 0 {
+			return errors.New("verification runtime_paths is not supported until bounded runtime artifact observation is available; executable wrappers alone do not bind engine artifacts")
+		}
+		for _, arg := range entrypoint.Args {
+			if strings.ContainsRune(arg, 0) {
+				return errors.New("verification arguments cannot contain NUL")
+			}
+		}
+		if len(entrypoint.InputPaths) == 0 {
+			return errors.New("verification entrypoints require reviewed input_paths")
+		}
+		seen := map[string]bool{}
+		for _, input := range append(append([]string(nil), entrypoint.InputPaths...), entrypoint.DependencyPaths...) {
+			if input == "" || input == "." || path.IsAbs(input) || path.Clean(input) != input || input == ".." || strings.HasPrefix(input, "../") || strings.ContainsAny(input, "\\\x00\r\n") || seen[input] {
+				return fmt.Errorf("verification path %q must be a unique canonical repository-relative file or directory", input)
+			}
+			for _, component := range strings.Split(input, "/") {
+				if strings.EqualFold(component, ".git") {
+					return errors.New("verification inputs cannot select Git administration")
+				}
+			}
+			seen[input] = true
+		}
+		excluded := map[string]bool{}
+		for _, input := range entrypoint.DependencyExcludePaths {
+			if input == "" || path.Clean(input) != input || strings.ContainsAny(input, "\\\x00\r\n") || excluded[input] {
+				return errors.New("dependency exclusions must be unique canonical paths")
+			}
+			for _, component := range strings.Split(input, "/") {
+				if strings.EqualFold(component, ".git") {
+					return errors.New("dependency exclusions cannot select Git administration")
+				}
+			}
+			inside := false
+			for _, root := range entrypoint.DependencyPaths {
+				if strings.HasPrefix(input, root+"/") {
+					inside = true
+				}
+			}
+			if !inside {
+				return errors.New("dependency exclusions must be strictly inside a dependency root")
+			}
+			excluded[input] = true
+		}
+	}
+	if c.PlanDelivery != nil && c.PlanDelivery.Enabled {
+		if _, ok := c.Verification[c.PlanDelivery.CompleteVerification]; !ok {
+			return errors.New("plan_delivery.complete_verification must name an operator-configured verification entrypoint")
+		}
+	}
 	if len(c.Harnesses) == 0 {
 		return errors.New("harnesses must define at least one explicit harness")
 	}
@@ -230,6 +311,44 @@ func (c Config) Validate() error {
 			return fmt.Errorf("doctor_requirements contains duplicate %q", key)
 		}
 		seenRequirements[key] = struct{}{}
+	}
+	return nil
+}
+
+// Runtime artifacts are selected by the operator, not discovered from the
+// executable wrapper. Limit the catalog itself here; the collector separately
+// enforces no-follow traversal and byte/file bounds on the selected content.
+func validateVerificationRuntimePaths(paths []string, projectDir string) error {
+	if len(paths) > 64 {
+		return errors.New("runtime_paths allows at most 64 selected runtime artifacts")
+	}
+	seen := map[string]bool{}
+	for _, selected := range paths {
+		if len(selected) > 4096 || !path.IsAbs(selected) || path.Clean(selected) != selected || strings.TrimSpace(selected) != selected || strings.ContainsAny(selected, "\\*?[]{}") || strings.ContainsFunc(selected, unicode.IsControl) {
+			return errors.New("runtime_paths must contain canonical literal absolute artifact paths without control characters")
+		}
+		parts := strings.Split(strings.TrimPrefix(selected, "/"), "/")
+		if len(parts) < 2 || (len(parts) == 2 && (parts[0] == "Users" || parts[0] == "home" || parts[0] == "Volumes")) {
+			return errors.New("runtime_paths cannot select filesystem, user-home, or volume roots")
+		}
+		switch selected {
+		case "/usr/local", "/opt/homebrew", "/System/Library", "/private/tmp", "/private/var":
+			return errors.New("runtime_paths must select runtime artifacts, not shared installation or temporary roots")
+		}
+		if path.IsAbs(projectDir) && (path.Clean(projectDir) == selected || strings.HasPrefix(path.Clean(projectDir), selected+"/")) {
+			return errors.New("runtime_paths cannot select the project root or an ancestor; use input_paths for repository inputs")
+		}
+		for _, component := range parts {
+			if strings.EqualFold(component, ".git") {
+				return errors.New("runtime_paths cannot select Git administration")
+			}
+		}
+		for prior := range seen {
+			if prior == selected || strings.HasPrefix(prior, selected+"/") || strings.HasPrefix(selected, prior+"/") {
+				return errors.New("runtime_paths cannot contain duplicate or overlapping selections")
+			}
+		}
+		seen[selected] = true
 	}
 	return nil
 }

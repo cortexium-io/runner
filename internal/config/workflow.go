@@ -229,10 +229,16 @@ func (c Config) AgentLaneIDs() []string {
 func (c Config) ResolveProject() ProjectConfig {
 	project := ProjectConfig{
 		GitHubProjectConfig: *c.GitHubProject,
+		PlanDelivery:        c.PlanDelivery != nil && c.PlanDelivery.Enabled,
 		ActivityField:       RunnerActivityFieldName,
 		RunnerID:            strings.TrimSpace(c.RunnerID),
 	}
 	project.TransitionField = project.TransitionFieldName()
+	if project.PlanDelivery {
+		project.PlanVerificationID = c.PlanDelivery.CompleteVerification
+		project.PlanVerificationDigest = c.Verification[c.PlanDelivery.CompleteVerification].Digest()
+		project.PlanProfileDigests = c.planImplementationProfileDigests()
+	}
 	project.MergeMethod = NormalizeMergeMethod(project.MergeMethod)
 	workflow := c.resolvedWorkflow()
 	project.AssessmentStatus = workflow.Lanes[workflow.IntakeLane].Name

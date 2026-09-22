@@ -316,6 +316,20 @@ func writeDoctorReport(output io.Writer, report setup.InspectionReport, probes [
 		}
 		fmt.Fprintln(output)
 	}
+	hasVerification := false
+	for _, capability := range report.Snapshot.Capabilities {
+		if capability.Type != config.CapabilityTypeProfile || !strings.HasPrefix(capability.ID, "verification:") {
+			continue
+		}
+		if !hasVerification {
+			fmt.Fprintln(output, "Supported heavyweight verification")
+			hasVerification = true
+		}
+		writeDoctorCapability(output, report.Snapshot.Capabilities, capability.Type, capability.ID, strings.TrimPrefix(capability.ID, "verification:"))
+	}
+	if hasVerification {
+		fmt.Fprintln(output)
+	}
 	fmt.Fprintln(output, "AI harnesses")
 	for _, harness := range report.Harnesses {
 		marker := "✗"

@@ -16,6 +16,11 @@ import (
 // request without depending on mutable lifecycle fields, presentation text,
 // or provenance URLs used during recovery.
 func PlanningSourceFingerprint(item WorkItem) string {
+	if manifest, present, err := ParsePlanManifest(item.Body); present && err == nil {
+		// The original planning request remains the child provenance. The full
+		// generated delivery contract has its own revision in batch authority.
+		item.Body = manifest.Request
+	}
 	payload := struct {
 		ID                     string `json:"id"`
 		DelegatedContentDigest string `json:"delegated_content_digest"`
@@ -381,7 +386,16 @@ func (s *Project) dependenciesSatisfiedIn(item WorkItem, index *workItemIndex) b
 	for _, dependency := range item.Dependencies {
 		dependency = strings.TrimSpace(dependency)
 		matches := index.byReference[dependency]
-		if dependency == "" || seen[dependency] || len(matches) != 1 || matches[0].ID == item.ID || !s.hasSuccessfulOutcomeIn(matches[0], index) {
+		if dependency == "" || seen[dependency] || len(matches) != 1 || matches[0].ID == item.ID {
+			return false
+		}
+		candidate := matches[0]
+		withinPlan := item.PlanningSourceID != "" && item.PlanningSourceID == candidate.PlanningSourceID && index.byID[item.PlanningSourceID].PlanRelease != ""
+		if withinPlan {
+			if _, err := s.ValidatePlanDelivery(index.byID[item.PlanningSourceID], index.all); err != nil || !s.integratedPlanMember(candidate) {
+				return false
+			}
+		} else if !s.hasSuccessfulOutcomeIn(candidate, index) {
 			return false
 		}
 		seen[dependency] = true
@@ -403,6 +417,21 @@ func (s *Project) hasSuccessfulOutcomeIn(item WorkItem, index *workItemIndex) bo
 		return index.successful[itemID]
 	}
 	index.successEvaluated[itemID] = true
+	if item.PlanRelease != "" {
+		if _, err := s.ValidatePlanDelivery(item, index.all); err != nil || item.Status != s.doneStatus() || item.PullRequest == "" || !validGitObjectID(item.QACommit) {
+			return false
+		}
+		index.successful[itemID] = true
+		return true
+	}
+	if item.PlanningSourceID != "" && index.byID[item.PlanningSourceID].PlanRelease != "" {
+		parent := index.byID[item.PlanningSourceID]
+		if _, err := s.ValidatePlanDelivery(parent, index.all); err != nil || !s.integratedPlanMember(item) || parent.Status != s.doneStatus() || !validGitObjectID(parent.QACommit) || parent.PullRequest == "" {
+			return false
+		}
+		index.successful[itemID] = true
+		return true
+	}
 	if !strings.EqualFold(strings.TrimSpace(item.Status), s.doneStatus()) || strings.TrimSpace(item.Transition) != "" {
 		return false
 	}

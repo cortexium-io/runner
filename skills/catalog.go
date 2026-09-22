@@ -12,7 +12,7 @@ import (
 )
 
 // BundledVersion identifies the skill bundle shipped in this Runner build.
-const BundledVersion = "1.9.3"
+const BundledVersion = "1.10.0"
 
 var bundledSkillIDs = []string{
 	"runner-planner",
@@ -22,10 +22,10 @@ var bundledSkillIDs = []string{
 }
 
 var bundledSkillSHA256 = map[string]string{
-	"runner-implementer":        "95a691b7d5594cfb6e2357488f3638f67ea5f18b72e2b07dc395cdd94ccae3c8",
-	"runner-planner":            "341cb0f0c73e5000c8d8f572c66d667fa3e999c50e02066f2aa528b35a51d11f",
-	"runner-reviewer":           "df1ee2c3a662e0f8eb66ff5406aebf8dca016891ea1af1252eb4395f44f4707f",
-	"runner-interaction-design": "bda3f969e6f44458926d7877b25f91a22c93ad550283004e7acfd3d33a28e9c3",
+	"runner-implementer":        "a2295551cbdc6ab1540cf2543cae1794b4af98029c91bc24ffa94a053ebd5099",
+	"runner-planner":            "85925839bc802b62fef9f8b7a4a96f665b261f766f0b59f4b917fdf4390df53b",
+	"runner-reviewer":           "07b447ef4f8a3af5c2794d71cfec16ddf8f8315594285299ab9c4f971d82be6c",
+	"runner-interaction-design": "1391ca8c754aca160a58f0436de30c914f1b95a45ddd59d8bf481c4193d79816",
 }
 
 // Reference files are a reviewed, finite Markdown allowlist, not a mechanism

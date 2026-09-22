@@ -203,6 +203,9 @@ func TestPrivilegedNetworkGitPinsLiteralURLAndRejectsOtherOperations(t *testing.
 	if _, err := RunPrivilegedGitNetwork(t.Context(), runner, profile, []string{"push", url, "abc:refs/heads/task"}, 5*time.Second); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := RunPrivilegedGitNetwork(t.Context(), runner, profile, []string{"ls-remote", "--heads", url, "refs/heads/runner/plan-abcdef"}, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
 	joined := strings.Join(runner.args, "\n")
 	for _, required := range []string{
 		"protocol.allow=never", "protocol.https.allow=always", "credential.helper=", "credential.https://github.com.helper=!gh auth git-credential",
@@ -213,7 +216,9 @@ func TestPrivilegedNetworkGitPinsLiteralURLAndRejectsOtherOperations(t *testing.
 			t.Fatalf("privileged network Git omitted %q:\n%s", required, joined)
 		}
 	}
-	for _, args := range [][]string{{"merge", url}, {"push", "ssh://github.com/owner/repo.git", "abc:refs/heads/task"}, {"fetch", url, "https://github.com/other/repo.git"}} {
+	for _, args := range [][]string{{"merge", url}, {"push", "ssh://github.com/owner/repo.git", "abc:refs/heads/task"}, {"fetch", url, "https://github.com/other/repo.git"},
+		{"ls-remote", "--heads", url, "refs/heads/runner/plan-*"}, {"ls-remote", "--heads", url, "refs/heads/develop"}, {"ls-remote", "--upload-pack=other", url, "refs/heads/runner/plan-abc"},
+	} {
 		if _, err := RunPrivilegedGitNetwork(t.Context(), runner, profile, args, 5*time.Second); err == nil {
 			t.Fatalf("privileged network Git accepted %#v", args)
 		}

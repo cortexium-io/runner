@@ -315,6 +315,12 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 		Destination:      staged[0].PlanningDestination,
 		Children:         staged,
 	}
+	if staged[0].PlanningSourceID != "" {
+		approval, err = service.PlanStagedProjectPlanApproval(ctx, staged[0].PlanningBatchFingerprint)
+		if err != nil {
+			return err
+		}
+	}
 	if releaseStaged {
 		if !*jsonOutput {
 			writeProgress(stdout, "Revalidating and releasing the complete staged batch…")

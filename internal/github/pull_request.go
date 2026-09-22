@@ -129,9 +129,10 @@ type ActionRefresher interface {
 }
 
 type PullRequestManager struct {
-	run             subprocess.Runner
-	timeout         time.Duration
-	actionRefresher ActionRefresher
+	run              subprocess.Runner
+	timeout          time.Duration
+	actionRefresher  ActionRefresher
+	publicationGuard func(context.Context, AuthorizedAction) error
 }
 
 func NewPullRequestManager(run subprocess.Runner, actionRefresher ActionRefresher) PullRequestManager {
@@ -527,7 +528,23 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	if err := validatePublicationAuthority(action, record); err != nil {
 		return PublishedPullRequest{}, err
 	}
+	if item.PlanRelease != "" {
+		// An ambiguous create may have produced a PR which was already merged
+		// or closed before recovery. Inspect every exact branch match before
+		// any repeat push/create, including terminal states.
+		if existing, found, err := m.recoverPlanPublication(ctx, action, metadata, record, baseBranch, remoteName); err != nil {
+			return PublishedPullRequest{}, err
+		} else if found {
+			return existing, nil
+		}
+	}
 	pushPolicy := workspace.PublicationPushPolicy{MergeMethod: mergeMethod}
+	if item.PlanRelease != "" {
+		if !validGitObjectID(item.QACommit) {
+			return PublishedPullRequest{}, errors.New("plan publication requires its authenticated integrated remote head")
+		}
+		pushPolicy.ExpectedRemoteOID = item.QACommit
+	}
 	if mergeMethod == config.MergeMethodRebase && strings.TrimSpace(item.PullRequest) != "" {
 		if !validGitObjectID(item.QACommit) {
 			return PublishedPullRequest{}, errors.New("rebase-mode pull request publication requires the exact previously accepted remote commit")
@@ -542,6 +559,11 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 		}
 		if authorityErr := validatePublicationAuthority(refreshed, record); authorityErr != nil {
 			return authorityErr
+		}
+		if m.publicationGuard != nil {
+			if err := m.publicationGuard(ctx, refreshed); err != nil {
+				return err
+			}
 		}
 		if remoteErr := m.validateRemoteRepository(ctx, metadata.RepoRoot, remoteName, record.Repository); remoteErr != nil {
 			return remoteErr
@@ -599,8 +621,24 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	if err != nil {
 		return PublishedPullRequest{}, err
 	}
+	if m.publicationGuard != nil {
+		if err := m.publicationGuard(ctx, action); err != nil {
+			return PublishedPullRequest{}, err
+		}
+	}
 	result, err := subprocess.RunGitHub(ctx, m.run, []string{"pr", "create", "--repo", item.Repository, "--base", baseBranch, "--head", branch, "--title", strings.TrimSpace(item.Title), "--body", body}, metadata.WorktreePath, m.timeout)
 	if err != nil {
+		if item.PlanRelease != "" {
+			// A failed response is not evidence that GitHub rejected the
+			// mutation. Read back once; never repeat create on uncertainty.
+			verifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), m.timeout)
+			defer cancel()
+			if existing, found, inspectErr := m.recoverPlanPublication(verifyCtx, action, metadata, record, baseBranch, remoteName); inspectErr == nil && found {
+				return existing, nil
+			} else if inspectErr != nil {
+				err = errors.Join(err, inspectErr)
+			}
+		}
 		return PublishedPullRequest{}, publicationError(PublicationCreatePR, fmt.Errorf("create pull request: %w", commandFailure(err, result)))
 	}
 	url := firstNonEmptyLine(result.Stdout)
@@ -615,6 +653,82 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 		return PublishedPullRequest{}, publicationError(PublicationValidatePR, err)
 	}
 	return PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: branch, CommitSHA: record.CommitOID}, nil
+}
+
+// RecoverPlanPublication reads back a previously created exact PR before the
+// coordinator tries to synchronize the old integration head or current base.
+// The complete-gate guard is mandatory: a PR and model prose are not authority.
+func (m PullRequestManager) RecoverPlanPublication(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName string, guard func(context.Context, AuthorizedAction) error) (PublishedPullRequest, bool, error) {
+	if action.Item.PlanRelease == "" || guard == nil {
+		return PublishedPullRequest{}, false, errors.New("plan publication recovery requires plan authority and protected verification")
+	}
+	if err := validatePublicationAuthority(action, record); err != nil {
+		return PublishedPullRequest{}, false, err
+	}
+	m.publicationGuard = guard
+	return m.recoverPlanPublication(ctx, action, metadata, record, baseBranch, remoteName)
+}
+
+func (m PullRequestManager) recoverPlanPublication(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName string) (PublishedPullRequest, bool, error) {
+	branch := strings.TrimPrefix(record.DestinationRef, "refs/heads/")
+	existing, found, err := m.findPlanPublication(ctx, record.Repository, branch, baseBranch)
+	if err != nil || !found {
+		return PublishedPullRequest{}, found, err
+	}
+	details, err := m.inspect(ctx, record.Repository, existing.URL, false, false)
+	if err != nil {
+		return PublishedPullRequest{}, true, err
+	}
+	if err := ValidateTrackedPullRequest(details, record.Repository, branch, record.CommitOID, baseBranch, ""); err != nil {
+		return PublishedPullRequest{}, true, err
+	}
+	if details.State == "OPEN" {
+		if err := validatePublishedPullRequest(details, record.Repository, branch, record.CommitOID, baseBranch, record.ApprovedBaseOID); err != nil {
+			return PublishedPullRequest{}, true, err
+		}
+	} else if details.State != "MERGED" && details.State != "CLOSED" {
+		return PublishedPullRequest{}, true, errors.New("plan publication has an unknown state")
+	}
+	refreshed, err := m.refreshAuthorizedAction(ctx, action)
+	if err != nil {
+		return PublishedPullRequest{}, true, err
+	}
+	if err := validatePublicationAuthority(refreshed, record); err != nil {
+		return PublishedPullRequest{}, true, err
+	}
+	current, err := workspace.CaptureCheckoutSnapshotStateWithLimits(ctx, m.run, metadata.WorktreePath, 30*time.Second, workspace.DefaultSnapshotLimits())
+	if err != nil {
+		return PublishedPullRequest{}, true, err
+	}
+	retained, accepted, err := workspace.NewGitProvider(m.run).LoadPublicationAcceptance(ctx, metadata, current, workspace.PublicationEvidence{PlanRevision: record.PlanRevision})
+	if err != nil || !accepted || retained != record {
+		return PublishedPullRequest{}, true, errors.Join(errors.New("publication recovery lacks exact protected acceptance"), err)
+	}
+	if m.publicationGuard != nil {
+		if err := m.publicationGuard(ctx, refreshed); err != nil {
+			return PublishedPullRequest{}, true, err
+		}
+	}
+	verifyBranch := workspace.NewGitProvider(m.run).VerifyPlanBranch
+	if details.State == "MERGED" || details.State == "CLOSED" {
+		verifyBranch = workspace.NewGitProvider(m.run).VerifyTerminalPlanBranch
+	}
+	if err := verifyBranch(ctx, metadata.RepoRoot, record.Repository, remoteName, branch, record.CommitOID, func() error {
+		fresh, err := m.refreshAuthorizedAction(ctx, refreshed)
+		if err != nil {
+			return err
+		}
+		if err := validatePublicationAuthority(fresh, record); err != nil {
+			return err
+		}
+		if m.publicationGuard != nil {
+			return m.publicationGuard(ctx, fresh)
+		}
+		return nil
+	}); err != nil {
+		return PublishedPullRequest{}, true, err
+	}
+	return PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: branch, CommitSHA: record.CommitOID}, true, nil
 }
 
 func (m PullRequestManager) configuredFeedbackActor(ctx context.Context) (string, error) {
@@ -633,7 +747,10 @@ func trustedPullRequestActor(actor, configuredActor string) bool {
 	return strings.EqualFold(strings.TrimSpace(actor), strings.TrimSpace(configuredActor))
 }
 
-func (m PullRequestManager) PublishAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod string) (PublishedPullRequest, error) {
+func (m PullRequestManager) PublishAuthorized(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch, remoteName, mergeMethod string, guard ...func(context.Context, AuthorizedAction) error) (PublishedPullRequest, error) {
+	if len(guard) > 0 {
+		m.publicationGuard = guard[0]
+	}
 	for attempt := 1; attempt <= maxPublicationAttempts; attempt++ {
 		published, err := m.publish(ctx, action, metadata, record, baseBranch, remoteName, mergeMethod)
 		if err == nil {
@@ -740,8 +857,16 @@ func ValidateTrackedPullRequest(details PullRequestDetails, repository, branch, 
 }
 
 func (m PullRequestManager) findOpen(ctx context.Context, repository, branch, baseBranch string) (PublishedPullRequest, bool, error) {
+	return m.findPublication(ctx, repository, branch, baseBranch, "open")
+}
+
+func (m PullRequestManager) findPlanPublication(ctx context.Context, repository, branch, baseBranch string) (PublishedPullRequest, bool, error) {
+	return m.findPublication(ctx, repository, branch, baseBranch, "all")
+}
+
+func (m PullRequestManager) findPublication(ctx context.Context, repository, branch, baseBranch, state string) (PublishedPullRequest, bool, error) {
 	result, err := subprocess.RunGitHub(ctx, m.run, []string{
-		"pr", "list", "--repo", repository, "--state", "open", "--head", branch, "--base", baseBranch,
+		"pr", "list", "--repo", repository, "--state", state, "--head", branch, "--base", baseBranch,
 		"--limit", "100", "--json", "url,number,headRefName,baseRefName",
 	}, "", 30*time.Second)
 	if err != nil {

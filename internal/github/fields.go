@@ -220,6 +220,9 @@ type projectItemNode struct {
 	QACommit *struct {
 		Text string `json:"text"`
 	} `json:"qaCommit"`
+	PlanRelease *struct {
+		Text string `json:"text"`
+	} `json:"planRelease"`
 	Content *struct {
 		ID         string `json:"id"`
 		Title      string `json:"title"`
@@ -240,6 +243,7 @@ func (s *Project) lifecycleItemsQuery() string {
 
 func (s *Project) lifecycleItemSelection() string {
 	return `id ` +
+		`planRelease:fieldValueByName(name:` + graphQLString(config.RunnerPlanReleaseFieldName) + `){... on ProjectV2ItemFieldTextValue{text}} ` +
 		`status:fieldValueByName(name:` + graphQLString(s.statusFieldName()) + `){... on ProjectV2ItemFieldSingleSelectValue{name}} ` +
 		`approval:fieldValueByName(name:` + graphQLString(s.approvalFieldName()) + `){... on ProjectV2ItemFieldTextValue{text}} ` +
 		`result:fieldValueByName(name:` + graphQLString(s.resultFieldName()) + `){... on ProjectV2ItemFieldTextValue{text}} ` +
@@ -260,6 +264,9 @@ func decodeProjectItemNode(raw projectItemNode) WorkItem {
 	}
 	if raw.Approval != nil {
 		item.Approval = strings.TrimSpace(raw.Approval.Text)
+	}
+	if raw.PlanRelease != nil {
+		item.PlanRelease = strings.TrimSpace(raw.PlanRelease.Text)
 	}
 	if raw.Result != nil {
 		item.Result = canonicalProjectResult(raw.Result.Text)
