@@ -73,6 +73,9 @@ func testApproval(item github.WorkItem) string {
 	project := completeProjectTestConfig(config.ProjectConfig{GitHubProjectConfig: config.GitHubProjectConfig{Owner: "owner", Number: 4}})
 	metadata := github.DecodePlannedItemMetadata(item.Body)
 	item.ImplementationProfile = metadata.ImplementationProfile
+	if metadata.PlanningBatchFingerprint == "" {
+		item.ImplementationProfile, _ = github.ManualImplementationProfile(item.Body)
+	}
 	if item.Repository == "" {
 		item.Repository = metadata.Repository
 	}

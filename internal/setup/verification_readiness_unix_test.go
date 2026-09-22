@@ -22,7 +22,7 @@ func TestVerificationReadinessRejectsExecutableSpecialFiles(t *testing.T) {
 	}
 	for _, command := range []string{fifo, link} {
 		inspector := NewInspector(config.Config{Verification: map[string]config.VerificationEntrypoint{"complete": {Command: command, ToolchainCommands: []string{command}}}}, nil)
-		states, ready := inspector.inspectVerification()
+		states, ready := inspector.inspectVerification(t.Context())
 		if ready || len(states) != 1 || states[0].Status != CapabilityBlocked {
 			t.Fatalf("special executable reported ready: %+v", states)
 		}

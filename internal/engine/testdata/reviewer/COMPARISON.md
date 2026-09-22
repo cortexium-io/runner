@@ -37,6 +37,16 @@ reported tokens. Existing evidence-audit plus focused verification may mean two
 model stages per assignment; all their usage is aggregated, not a fresh budget.
 Stage counts, observed prompt-guidance hashes and CLI version are retained.
 
+Current accounting uses `inclusive_input_v1`: input already includes cache reads
+and writes; output already includes any reported reasoning subset. Admission,
+summaries and comparison ingestion use the same checked input-plus-output total,
+not input-plus-cache-plus-output. Historical worker results are normalized using
+their recorded harness before aggregation. Missing or mixed counter provenance
+is unresolved, not inferred from current model settings or treated as zero.
+This changes neither provider-reported costs nor billing/quotas. The previous
+four-assignment comparison remains permanently closed; its original artifacts
+and stop decision are retained, not rewritten or resumed after this correction.
+
 `run.jsonl` is created exclusively. Started records are synced before worker
 launch. Existing, interrupted or uncertain experiments cannot restart with a
 fresh budget in that artifact directory; there is no retry option. Missing,

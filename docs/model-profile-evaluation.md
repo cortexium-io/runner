@@ -112,6 +112,34 @@ must be independently reviewed before becoming repository or skill instructions.
 
 ## Test quality and verification cost
 
+### Bounded reviewer-guidance calibration — 2026-09-22
+
+The single authorized comparison of old source `40ee353` and revised source
+`77a82dd` stopped after **4 of 8 review assignments**, covering **2 of 4 cases**.
+Both used Codex CLI 0.155.1, `gpt-6-astra`, medium reasoning. Independent review
+of the actual private assessments found both arms correctly accepted the sound
+record-update case and rejected the tenant-access defect. This was reasoning
+and evidence adjudication, not just matching verdict labels. The repair-regression
+and missing-proof cases were not run. No assignment remained unfinished.
+
+Observed harness time was **179.622s** and wall time **182.58s**. The four reports
+contained **251,118 inclusive input + 3,547 output = 254,665 tokens**. Their
+**140,800 cache-read tokens are an input subset**. The old accounting incorrectly
+added that subset again, producing **395,465** and triggering the 300,000-token
+admission stop after the fourth assignment. Deterministic tests now protect the
+correct total and historical-provider normalization; this correction does not
+retroactively alter the recorded stop decision.
+
+The comparison is permanently closed for this authorization. Raw artifacts and
+independent adjudication are preserved unchanged; there is no resume, rerun or
+automatic budget extension. This partial corpus establishes neither a quality
+nor performance advantage, and reported tokens are not a billing claim. Any
+future experiment needs separate approval. See the
+[comparison protocol](../internal/engine/testdata/reviewer/COMPARISON.md) and
+[accounting definitions](../internal/metrics/USAGE.md).
+
+### Verification methods
+
 Use the existing behavior evaluator's reviewer corpus before interpreting a
 prompt change as a quality improvement. It contains correct record editing
 with an unsubstantiated prior security allegation that must be independently checked,

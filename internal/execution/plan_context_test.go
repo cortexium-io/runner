@@ -17,6 +17,7 @@ func deliveryReviewAssignment() Assignment {
 	a.Spec.PlanContext = &PlanContext{
 		ID: "parent", Revision: "approved-revision", ApprovedBody: "Deliver the combined record editing journey.",
 		Repository: a.Spec.Repository, DestinationBranch: "develop", Branch: "runner/plan-parent", MemberIDs: []string{"child-a", "child-b"},
+		CompleteVerification: "complete",
 	}
 	a.Spec.ReviewScope = ReviewScopePlan
 	a.Spec.PlanMemberBriefs = []PlanMemberBrief{{ID: "child-a", ApprovedBody: "Implement record editing"}, {ID: "child-b", ApprovedBody: "Use record editing"}}
@@ -32,6 +33,7 @@ func TestAssignmentDeliveryContextValidation(t *testing.T) {
 	}{
 		{"whole plan", func(*Spec) {}, true},
 		{"focused member", func(s *Spec) {
+			s.PlanContext.CompleteVerification = ""
 			s.PlanMemberBriefs = nil
 			s.ItemID = "child-a"
 			s.ReviewScope = ReviewScopeCard
@@ -41,6 +43,11 @@ func TestAssignmentDeliveryContextValidation(t *testing.T) {
 		{"wrong repository", func(s *Spec) { s.Repository = "other/repo" }, false},
 		{"missing revision", func(s *Spec) { s.PlanContext.Revision = "" }, false},
 		{"missing shared body", func(s *Spec) { s.PlanContext.ApprovedBody = " " }, false},
+		{"missing complete entrypoint", func(s *Spec) { s.PlanContext.CompleteVerification = "" }, false},
+		{"card cannot promise complete gate", func(s *Spec) {
+			s.PlanMemberBriefs = nil
+			s.ItemID, s.ReviewScope, s.VerificationBoundary = "child-a", ReviewScopeCard, VerificationFocused
+		}, false},
 		{"empty membership", func(s *Spec) { s.PlanContext.MemberIDs = nil }, false},
 		{"duplicate membership", func(s *Spec) { s.PlanContext.MemberIDs = []string{"child-a", "child-a"} }, false},
 		{"parent as member", func(s *Spec) { s.PlanContext.MemberIDs = []string{"parent"} }, false},
@@ -111,6 +118,7 @@ func TestWorkspaceWriteRejectsValidReviewBeforeProbesOrWorkspace(t *testing.T) {
 			t.Run(kind+"/"+string(scope), func(t *testing.T) {
 				a := deliveryReviewAssignment()
 				if scope == ReviewScopeCard {
+					a.Spec.PlanContext.CompleteVerification = ""
 					a.Spec.PlanMemberBriefs = nil
 					a.Spec.ItemID = "child-a"
 					a.Spec.ReviewScope = ReviewScopeCard
@@ -181,7 +189,7 @@ func TestPlanContextIsRenderedOnceAsVariableAssignmentData(t *testing.T) {
 			if err := json.Unmarshal([]byte(line), &decoded); err != nil {
 				t.Fatal(err)
 			}
-			if decoded.Plan.Revision != a.Spec.PlanContext.Revision || decoded.Plan.MemberIDs[1] != "child-b" || decoded.Scope != ReviewScopePlan || decoded.Boundary != VerificationComplete {
+			if decoded.Plan.Revision != a.Spec.PlanContext.Revision || decoded.Plan.MemberIDs[1] != "child-b" || decoded.Plan.CompleteVerification != "complete" || decoded.Scope != ReviewScopePlan || decoded.Boundary != VerificationComplete {
 				t.Fatalf("lost delivery bindings: %#v", decoded)
 			}
 			if strings.Index(prompt, "Title: ") > strings.Index(prompt, line) {

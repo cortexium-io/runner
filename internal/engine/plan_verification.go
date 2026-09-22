@@ -101,7 +101,7 @@ func (s *Engine) validateCompletePlanEvidence(ctx context.Context, action github
 	}
 	applicable, err := execution.AssessVerificationReceipt(receipt, record.VerificationDigest, execution.VerificationTarget{
 		Repository: record.Repository, PlanID: delivery.Parent.ID, CandidateOID: record.CommitOID, Entrypoint: delivery.Manifest.CompleteVerification,
-		SettingsDigest: strings.TrimPrefix(entry.Digest(), "v1:"), Inputs: observed.Inputs, Boundary: execution.VerificationComplete, RequireCurrentCandidate: true,
+		SettingsDigest: strings.TrimPrefix(entry.Digest(), "v1:"), Inputs: observed.Inputs, Boundary: execution.VerificationComplete, RequireCurrentCandidate: entry.RequireCurrentCandidate,
 	})
 	if err != nil {
 		return err

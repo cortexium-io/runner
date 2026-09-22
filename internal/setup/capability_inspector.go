@@ -253,7 +253,7 @@ func (i *Inspector) Inspect(ctx context.Context, request InspectionRequest) Insp
 	if i.cfg.HasProject() {
 		harnessesReady = installedHarnesses > 0 && roleHarnessesReady
 	}
-	verificationStates, verificationReady := i.inspectVerification()
+	verificationStates, verificationReady := i.inspectVerification(ctx)
 	capabilities = append(capabilities, verificationStates...)
 	ready := coreReady && harnessesReady && projectReady && referencesReady && repositoryReady && sourceReady && verificationReady && len(missing) == 0
 	sort.Slice(capabilities, func(a, b int) bool {

@@ -9,13 +9,16 @@ import (
 )
 
 type WorkStatus struct {
-	Items    []github.WorkItem `json:"items"`
-	ByStatus map[string]int    `json:"by_status"`
-	Active   []github.WorkItem `json:"active"`
-	Queued   []github.WorkItem `json:"queued"`
-	Waiting  []WaitingWork     `json:"waiting"`
-	Blocked  []github.WorkItem `json:"blocked"`
-	PRReady  []github.WorkItem `json:"pr_ready"`
+	Items                 []github.WorkItem `json:"items"`
+	ByStatus              map[string]int    `json:"by_status"`
+	Active                []github.WorkItem `json:"active"`
+	Queued                []github.WorkItem `json:"queued"`
+	Waiting               []WaitingWork     `json:"waiting"`
+	Blocked               []github.WorkItem `json:"blocked"`
+	PRReady               []github.WorkItem `json:"pr_ready"`
+	IntegratedUndelivered []github.WorkItem `json:"integrated_undelivered"`
+	PlanningCompleted     []github.WorkItem `json:"planning_completed"`
+	CancelledPlans        []github.WorkItem `json:"cancelled_plans"`
 }
 
 type WaitingWork struct {
@@ -30,6 +33,9 @@ func (s *Engine) WorkStatus(ctx context.Context) (WorkStatus, error) {
 		return WorkStatus{}, err
 	}
 	status := WorkStatus{Items: items, ByStatus: map[string]int{}}
+	progress := s.source.PlanningProgress(items)
+	status.IntegratedUndelivered, status.PlanningCompleted = progress.IntegratedUndelivered, progress.PlanningCompleted
+	status.CancelledPlans = progress.CancelledPlans
 	eligibilityByID := map[string]github.WorkEligibility{}
 	for _, eligibility := range s.source.EvaluateWorkEligibility(items) {
 		eligibilityByID[eligibility.Item.ID] = eligibility
@@ -71,7 +77,7 @@ func (s *Engine) WorkStatus(ctx context.Context) (WorkStatus, error) {
 			}
 		}
 	}
-	for _, list := range [][]github.WorkItem{status.Items, status.Active, status.Queued, status.Blocked, status.PRReady} {
+	for _, list := range [][]github.WorkItem{status.Items, status.Active, status.Queued, status.Blocked, status.PRReady, status.IntegratedUndelivered, status.PlanningCompleted, status.CancelledPlans} {
 		sort.Slice(list, func(i, j int) bool {
 			if strings.EqualFold(list[i].Status, list[j].Status) {
 				return strings.ToLower(list[i].Title) < strings.ToLower(list[j].Title)

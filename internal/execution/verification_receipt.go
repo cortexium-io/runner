@@ -44,11 +44,12 @@ type VerificationInputSelection struct {
 // untrusted report text. Durations are observed milliseconds, not estimates;
 // nil means unavailable, whereas a pointer to zero is an observed zero.
 type VerificationReceipt struct {
-	Version     int       `json:"version"`
-	ExecutionID string    `json:"execution_id"`
-	AttemptID   string    `json:"attempt_id"`
-	StartedAt   time.Time `json:"started_at"`
-	FinishedAt  time.Time `json:"finished_at"`
+	Preparation *VerificationPreparationReceipt `json:"preparation,omitempty"`
+	Version     int                             `json:"version"`
+	ExecutionID string                          `json:"execution_id"`
+	AttemptID   string                          `json:"attempt_id"`
+	StartedAt   time.Time                       `json:"started_at"`
+	FinishedAt  time.Time                       `json:"finished_at"`
 	// StartedAt/FinishedAt include observation, waiting and cleanup. These
 	// nullable endpoints identify the supervised run interval, not an inferred
 	// process spawn timestamp. They are absent when execution was not admitted.
@@ -71,6 +72,20 @@ type VerificationReceipt struct {
 	WaitMilliseconds    *int64               `json:"wait_ms,omitempty"`
 	RunMilliseconds     *int64               `json:"run_ms,omitempty"`
 	CleanupMilliseconds *int64               `json:"cleanup_ms,omitempty"`
+}
+
+// VerificationPreparationReceipt records dependency preparation, never check
+// proof. Its supervised run and cleanup share the enclosing invocation deadline.
+type VerificationPreparationReceipt struct {
+	Command             []string  `json:"command"`
+	StartedAt           time.Time `json:"started_at"`
+	RunFinishedAt       time.Time `json:"run_finished_at"`
+	FinishedAt          time.Time `json:"finished_at"`
+	RunMilliseconds     int64     `json:"run_ms"`
+	CleanupMilliseconds *int64    `json:"cleanup_ms,omitempty"`
+	Outcome             string    `json:"outcome"`
+	ReportDigest        string    `json:"report_digest"`
+	CleanupResolved     bool      `json:"cleanup_resolved"`
 }
 
 // VerificationTarget contains current independently observed bindings. Unknown
@@ -184,6 +199,33 @@ func (r VerificationReceipt) validate() error {
 		_, finishOffset := r.RunFinishedAt.Zone()
 		if r.RunStartedAt.Before(r.StartedAt) || r.RunFinishedAt.Before(*r.RunStartedAt) || r.RunFinishedAt.After(r.FinishedAt) || startOffset != 0 || finishOffset != 0 {
 			return errors.New("verification receipt run interval is outside its observed UTC invocation")
+		}
+	}
+	if r.Outcome == "passed" && (r.RunStartedAt == nil || !r.CleanupResolved) {
+		return errors.New("passing verification requires an observed check with resolved cleanup")
+	}
+	if p := r.Preparation; p != nil {
+		_, startOffset := p.StartedAt.Zone()
+		_, finishOffset := p.FinishedAt.Zone()
+		_, runOffset := p.RunFinishedAt.Zone()
+		if len(p.Command) == 0 || strings.TrimSpace(p.Command[0]) == "" || p.StartedAt.Before(r.StartedAt) || p.RunFinishedAt.Before(p.StartedAt) || p.FinishedAt.Before(p.RunFinishedAt) || p.FinishedAt.After(r.FinishedAt) || startOffset != 0 || finishOffset != 0 || runOffset != 0 || p.RunMilliseconds < 0 || !validVerificationDigest(p.ReportDigest) {
+			return errors.New("verification preparation lacks observed command, interval or report")
+		}
+		for _, arg := range p.Command {
+			if strings.ContainsRune(arg, 0) {
+				return errors.New("verification preparation command is invalid")
+			}
+		}
+		if p.CleanupMilliseconds != nil && *p.CleanupMilliseconds < 0 {
+			return errors.New("verification preparation cleanup timing is invalid")
+		}
+		switch p.Outcome {
+		case "passed", "failed", "timeout", "canceled", "cleanup_unresolved":
+		default:
+			return errors.New("verification preparation outcome is invalid")
+		}
+		if r.RunStartedAt != nil && (r.RunStartedAt.Before(p.FinishedAt) || p.Outcome != "passed" || !p.CleanupResolved) {
+			return errors.New("verification check cannot precede successful resolved preparation")
 		}
 	}
 	for _, arg := range r.Command {

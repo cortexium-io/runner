@@ -187,7 +187,18 @@ func runStatus(ctx context.Context, args []string, stdout io.Writer) error {
 	writeWaitingWorkSection(stdout, work.Waiting)
 	writeWorkSection(stdout, "Blocked work", work.Blocked, true, *configPath, cfg.ResolveProject().ReadyStatus)
 	writeWorkSection(stdout, "PR ready", work.PRReady, false, *configPath, "")
+	writePlanProgress(stdout, work, *configPath)
 	return nil
+}
+
+func writePlanProgress(output io.Writer, work engine.WorkStatus, configPath string) {
+	if len(work.CancelledPlans) > 0 {
+		writeWorkSection(output, "Cancelled plans — retained work, no admission", work.CancelledPlans, false, configPath, "")
+	}
+	writeWorkSection(output, "Integrated into plan — not delivered", work.IntegratedUndelivered, false, configPath, "")
+	if len(work.PlanningCompleted) > 0 {
+		writeWorkSection(output, "Historical planning completed — not a delivery claim", work.PlanningCompleted, false, configPath, "")
+	}
 }
 
 func writeWaitingWorkSection(output io.Writer, items []engine.WaitingWork) {

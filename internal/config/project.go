@@ -199,6 +199,9 @@ func (c Config) Validate() error {
 		if !validCommand(entrypoint.Command) || len(entrypoint.ToolchainCommands) == 0 {
 			return errors.New("verification requires explicit toolchain_commands and PATH names or absolute executable paths")
 		}
+		if entrypoint.Preparation != nil && (!validCommand(entrypoint.Preparation.Command) || len(entrypoint.DependencyPaths) == 0) {
+			return errors.New("verification preparation requires one PATH or absolute executable and explicit dependency_paths")
+		}
 		tools := map[string]bool{}
 		for _, command := range entrypoint.ToolchainCommands {
 			if !validCommand(command) || tools[command] {
@@ -209,10 +212,11 @@ func (c Config) Validate() error {
 		if err := validateVerificationRuntimePaths(entrypoint.RuntimePaths, c.ProjectDir); err != nil {
 			return fmt.Errorf("verification %q: %w", id, err)
 		}
-		if len(entrypoint.RuntimePaths) != 0 {
-			return errors.New("verification runtime_paths is not supported until bounded runtime artifact observation is available; executable wrappers alone do not bind engine artifacts")
+		arguments := append([]string(nil), entrypoint.Args...)
+		if entrypoint.Preparation != nil {
+			arguments = append(arguments, entrypoint.Preparation.Args...)
 		}
-		for _, arg := range entrypoint.Args {
+		for _, arg := range arguments {
 			if strings.ContainsRune(arg, 0) {
 				return errors.New("verification arguments cannot contain NUL")
 			}
@@ -232,7 +236,13 @@ func (c Config) Validate() error {
 			}
 			seen[input] = true
 		}
+		if entrypoint.Preparation != nil {
+			if err := validateVerificationPreparationPaths(entrypoint, c.ProjectDir); err != nil {
+				return fmt.Errorf("verification %q: %w", id, err)
+			}
+		}
 		excluded := map[string]bool{}
+		excludedRoots := map[string]bool{}
 		for _, input := range entrypoint.DependencyExcludePaths {
 			if input == "" || path.Clean(input) != input || strings.ContainsAny(input, "\\\x00\r\n") || excluded[input] {
 				return errors.New("dependency exclusions must be unique canonical paths")
@@ -244,14 +254,21 @@ func (c Config) Validate() error {
 			}
 			inside := false
 			for _, root := range entrypoint.DependencyPaths {
+				if input == root && entrypoint.Preparation != nil {
+					inside = true
+					excludedRoots[root] = true
+				}
 				if strings.HasPrefix(input, root+"/") {
 					inside = true
 				}
 			}
 			if !inside {
-				return errors.New("dependency exclusions must be strictly inside a dependency root")
+				return errors.New("dependency exclusions must be inside a dependency root; excluding a complete cache root requires preparation")
 			}
 			excluded[input] = true
+		}
+		if len(excludedRoots) > 0 && len(excludedRoots) == len(entrypoint.DependencyPaths) {
+			return errors.New("preparation cache exclusions must retain at least one nonexcluded executable dependency root")
 		}
 	}
 	if c.PlanDelivery != nil && c.PlanDelivery.Enabled {
@@ -318,6 +335,41 @@ func (c Config) Validate() error {
 // Runtime artifacts are selected by the operator, not discovered from the
 // executable wrapper. Limit the catalog itself here; the collector separately
 // enforces no-follow traversal and byte/file bounds on the selected content.
+func validateVerificationPreparationPaths(entry VerificationEntrypoint, projectDir string) error {
+	overlaps := func(first, second string) bool {
+		return first == second || strings.HasPrefix(first, second+"/") || strings.HasPrefix(second, first+"/")
+	}
+	for index, dependency := range entry.DependencyPaths {
+		for _, component := range strings.Split(dependency, "/") {
+			switch strings.ToLower(component) {
+			case ".git", ".github", ".codex", ".claude", ".pi", ".runner-state", "agents.md", "claude.md":
+				return errors.New("verification preparation cannot select repository or agent control paths as mutable dependencies")
+			}
+		}
+		for _, other := range entry.DependencyPaths[:index] {
+			if overlaps(dependency, other) {
+				return errors.New("verification preparation dependency roots cannot overlap")
+			}
+		}
+		for _, input := range entry.InputPaths {
+			if overlaps(dependency, input) {
+				return errors.New("verification preparation dependency roots cannot overlap input_paths")
+			}
+		}
+		if path.IsAbs(projectDir) {
+			for _, runtimePath := range entry.RuntimePaths {
+				if overlaps(path.Join(projectDir, dependency), runtimePath) {
+					return errors.New("verification preparation dependency roots cannot overlap runtime_paths")
+				}
+			}
+		}
+	}
+	// This is only the lexical configuration boundary. The launcher must check
+	// the actual candidate directory, resolved runtime selections, tracked files
+	// and no-follow identities before permitting preparation.
+	return nil
+}
+
 func validateVerificationRuntimePaths(paths []string, projectDir string) error {
 	if len(paths) > 64 {
 		return errors.New("runtime_paths allows at most 64 selected runtime artifacts")

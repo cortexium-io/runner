@@ -74,24 +74,43 @@ outcomes. New delivery plans require the `Runner Plan Release` Project TEXT
 field and an explicitly configured maintained complete gate. Doctor diagnoses
 missing prerequisites without creating fields or changing configuration.
 
-The approved end state also needs previewed operator migration, amendment and
-cancellation controls. Those controls must preserve historical authority and
-recoverable work; ordinary Project/body edits are not amendments. The initial
-core milestone is not permission to enable live delivery before these controls
-and the rollout have been independently reviewed.
+Previewed migration creates only the exact release TEXT field and activates the
+existing operator-selected complete gate after quiescence and exact config/Project
+revalidation. Previewed cancellation fences the signed parent while retaining
+members, work, release authority and history. Neither operation drains or starts
+work implicitly, overwrites intervening operator edits, or closes a published PR.
+Selective amendment is still required: ordinary Project/body edits are not
+amendments. The core and operator milestones are not permission to enable live
+delivery before all required controls and the rollout have been independently
+reviewed. Failed complete verification currently blocks safely; protected
+failed-proof classification and bounded owner repair remain required integration
+work, not a completed recovery claim.
 
-The first core path executes complete verification for each newly accepted
-combined candidate and requires already-prepared declared dependencies. The
-next verification bundle must wire applicable historical receipt reuse into
-the production acceptance path and prepare dependencies under the same owned
-claim/deadline before the stable dependency observation. Existing applicability
-helpers alone do not complete those production contracts. The FlowStack trial
-must not proceed by omitting dependency inputs or treating changed inputs as
-the same execution.
+The heavy launcher supports one explicit dependency preparation command under
+the same claim/deadline, before the stable dependency baseline. Source, authority,
+configuration, external runtimes and undeclared worktree paths remain pinned;
+only declared untracked dependency roots may change. Reviewed non-executable
+cache exclusions do not omit installed executable dependency bytes. Preparation
+does not constitute passing check proof.
 
-The reserved `runtime_paths` catalog field is rejected when nonempty until
-bounded runtime-artifact collection is implemented and verified. Binding an
-executable wrapper alone is not proof of the browser engine or runtime it loads.
+The launcher can reuse independently protected historical receipts when freshly
+observed applicability still matches; the original execution remains historical.
+The catalog can additionally require the exact current candidate. Production
+acceptance must supply protected prior proof and verify reuse/recovery sequencing
+before the trial; launcher support alone does not complete that integration. The
+FlowStack trial must not omit dependency inputs or treat changed inputs as the
+same execution.
+
+Literal `runtime_paths` bind complete declared external installations, names,
+modes, content and internal links using bounded streaming. Doctor uses the same
+collector without executing preparation or checks. Binding an executable wrapper
+alone is not proof of the browser engine or runtime modules it loads. The real
+trial catalog's runtime collection cost/readiness must be measured before rollout.
+
+Authenticated parent review names the configured post-review complete gate.
+Product-and-engineering acceptance is not delivery and does not claim that an
+unrun gate passed. Merely pending that gate does not demand duplicate full
+validation during QA; explicit approved pre-review proof obligations still hold.
 
 ## Alternatives rejected
 

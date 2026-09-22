@@ -127,6 +127,7 @@ func validReviewVerdict(event Event) bool {
 type Usage struct {
 	Available               bool                  `json:"available"`
 	Coverage                string                `json:"coverage,omitempty"`
+	TokenAccounting         string                `json:"token_accounting,omitempty"`
 	InputTokens             int64                 `json:"input_tokens,omitempty"`
 	CacheReadInputTokens    int64                 `json:"cache_read_input_tokens,omitempty"`
 	CacheWriteInputTokens   int64                 `json:"cache_write_input_tokens,omitempty"`
@@ -169,6 +170,9 @@ type ModelUsage struct {
 }
 
 func ValidateUsage(usage Usage) error {
+	if err := validateAccounting(usage); err != nil {
+		return err
+	}
 	switch usage.Coverage {
 	case "", UsageUnknown:
 	case UsageComplete, UsagePartial:
@@ -205,6 +209,13 @@ func invalidCost(cost *float64) bool {
 }
 
 func (u Usage) Add(other Usage) Usage {
+	// Validate before arithmetic. Invalid totals stay poisoned through later
+	// additions rather than wrapping back into a plausible positive number.
+	if ValidateUsage(u) != nil || ValidateUsage(other) != nil {
+		return invalidAccounting(u)
+	}
+	u = cloneUsage(u)
+	accounting := combinedAccounting(u, other)
 	// A zero value is an accumulator identity. An explicit unavailable invocation
 	// is not: adding its missing counters makes a reported total partial.
 	left, right := u.CoverageStatus(), other.CoverageStatus()
@@ -225,13 +236,22 @@ func (u Usage) Add(other Usage) Usage {
 		u.Coverage = UsageUnavailable
 	}
 	u.Available = u.Available || other.Available
-	u.InputTokens += other.InputTokens
-	u.CacheReadInputTokens += other.CacheReadInputTokens
-	u.CacheWriteInputTokens += other.CacheWriteInputTokens
-	u.OutputTokens += other.OutputTokens
-	u.ReasoningOutputTokens += other.ReasoningOutputTokens
-	u.APIDurationMilliseconds += other.APIDurationMilliseconds
-	u.Turns += other.Turns
+	for _, pair := range []struct {
+		target   *int64
+		addition int64
+	}{
+		{&u.InputTokens, other.InputTokens}, {&u.CacheReadInputTokens, other.CacheReadInputTokens},
+		{&u.CacheWriteInputTokens, other.CacheWriteInputTokens}, {&u.OutputTokens, other.OutputTokens},
+		{&u.ReasoningOutputTokens, other.ReasoningOutputTokens}, {&u.APIDurationMilliseconds, other.APIDurationMilliseconds},
+		{&u.Turns, other.Turns},
+	} {
+		value, ok := addCounter(*pair.target, pair.addition)
+		if !ok {
+			return invalidAccounting(u)
+		}
+		*pair.target = value
+	}
+	u.TokenAccounting = accounting
 	if other.ReportedCostUSD != nil {
 		value := *other.ReportedCostUSD
 		if u.ReportedCostUSD != nil {
@@ -245,10 +265,19 @@ func (u Usage) Add(other Usage) Usage {
 		}
 		for model, addition := range other.Models {
 			current := u.Models[model]
-			current.InputTokens += addition.InputTokens
-			current.CacheReadInputTokens += addition.CacheReadInputTokens
-			current.CacheWriteInputTokens += addition.CacheWriteInputTokens
-			current.OutputTokens += addition.OutputTokens
+			for _, pair := range []struct {
+				target   *int64
+				addition int64
+			}{
+				{&current.InputTokens, addition.InputTokens}, {&current.CacheReadInputTokens, addition.CacheReadInputTokens},
+				{&current.CacheWriteInputTokens, addition.CacheWriteInputTokens}, {&current.OutputTokens, addition.OutputTokens},
+			} {
+				value, ok := addCounter(*pair.target, pair.addition)
+				if !ok {
+					return invalidAccounting(u)
+				}
+				*pair.target = value
+			}
 			if addition.ReportedCostUSD != nil {
 				value := *addition.ReportedCostUSD
 				if current.ReportedCostUSD != nil {
@@ -258,6 +287,9 @@ func (u Usage) Add(other Usage) Usage {
 			}
 			u.Models[model] = current
 		}
+	}
+	if ValidateUsage(u) != nil {
+		return invalidAccounting(u)
 	}
 	return u
 }
@@ -591,6 +623,7 @@ type Summary struct {
 	HarnessDurationMilliseconds    int64          `json:"harness_duration_milliseconds"`
 	RunnerDurationMilliseconds     int64          `json:"runner_duration_milliseconds"`
 	Usage                          Usage          `json:"usage"`
+	ReportedTokens                 *int64         `json:"reported_tokens"`
 	UsageCoveredAttempts           int            `json:"usage_covered_attempts"`
 	CompleteUsageAttempts          int            `json:"complete_usage_attempts"`
 	PartialUsageAttempts           int            `json:"partial_usage_attempts"`
@@ -616,6 +649,7 @@ type StageSummary struct {
 	Blocked              int    `json:"blocked"`
 	DurationMilliseconds int64  `json:"duration_milliseconds"`
 	Usage                Usage  `json:"usage"`
+	ReportedTokens       *int64 `json:"reported_tokens"`
 	UsageCoveredStages   int    `json:"usage_covered_stages"`
 	CostCoveredStages    int    `json:"cost_covered_stages"`
 }
@@ -627,12 +661,14 @@ func Summarize(attempts []Attempt) Summary {
 		if attempt.IsRunnerObservation() {
 			continue
 		}
+		attempt.Usage, _ = NormalizeUsage(attempt.Usage, attempt.Harness)
 		result.Attempts++
 		if len(attempt.Stages) > 0 {
 			result.StageCoveredAttempts++
 		}
 		failedStage := false
 		for _, stage := range attempt.Stages {
+			stage.Usage, _ = NormalizeUsage(stage.Usage, attempt.Harness)
 			group := stages[stage.Name]
 			group.Name = stage.Name
 			group.Runs++
@@ -711,7 +747,13 @@ func Summarize(attempts []Attempt) Summary {
 		result.Usage = result.Usage.Add(attempt.Usage)
 	}
 	for _, stage := range stages {
+		if total, ok := ReportedTokens(stage.Usage); ok {
+			stage.ReportedTokens = &total
+		}
 		result.Stages = append(result.Stages, stage)
+	}
+	if total, ok := ReportedTokens(result.Usage); ok {
+		result.ReportedTokens = &total
 	}
 	sort.Slice(result.Stages, func(i, j int) bool { return result.Stages[i].Name < result.Stages[j].Name })
 	return result

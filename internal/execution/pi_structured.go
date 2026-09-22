@@ -358,6 +358,14 @@ func usageFromPiEventStream(stdout string) (metrics.Usage, error) {
 		Usage *piUsage `json:"usage"`
 	}
 	var usage metrics.Usage
+	failure := func(err error) (metrics.Usage, error) {
+		if usage.Reported() {
+			usage.Coverage = metrics.UsagePartial
+		} else {
+			usage.Coverage = metrics.UsageUnavailable
+		}
+		return usage, err
+	}
 	scanner := bufio.NewScanner(strings.NewReader(stdout))
 	scanner.Buffer(make([]byte, 64*1024), maxHarnessResultBytes)
 	for scanner.Scan() {
@@ -366,7 +374,7 @@ func usageFromPiEventStream(stdout string) (metrics.Usage, error) {
 			Messages []piMessage `json:"messages"`
 		}
 		if err := json.Unmarshal(bytes.TrimSpace(scanner.Bytes()), &event); err != nil {
-			return metrics.Usage{}, fmt.Errorf("decode Pi usage event: %w", err)
+			return failure(fmt.Errorf("decode Pi usage event: %w", err))
 		}
 		if event.Type != "agent_end" {
 			continue
@@ -384,14 +392,23 @@ func usageFromPiEventStream(stdout string) (metrics.Usage, error) {
 				cost := message.Usage.Cost.Total
 				addition.ReportedCostUSD = &cost
 			}
-			usage = usage.Add(addition)
+			var err error
+			addition, err = metrics.NormalizeUsage(addition, "pi")
+			if err != nil {
+				return failure(fmt.Errorf("normalize Pi usage: %w", err))
+			}
+			total := usage.Add(addition)
+			if err := metrics.ValidateUsage(total); err != nil {
+				return failure(fmt.Errorf("aggregate Pi usage: %w", err))
+			}
+			usage = total
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return metrics.Usage{}, fmt.Errorf("read Pi usage event stream: %w", err)
+		return failure(fmt.Errorf("read Pi usage event stream: %w", err))
 	}
 	if err := metrics.ValidateUsage(usage); err != nil {
-		return metrics.Usage{}, fmt.Errorf("validate Pi usage: %w", err)
+		return usage, fmt.Errorf("validate Pi usage: %w", err)
 	}
 	return usage, nil
 }

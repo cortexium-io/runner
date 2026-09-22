@@ -65,6 +65,22 @@ func runVerification(ctx context.Context, args []string, stdout io.Writer) error
 	if !ok {
 		return errors.New("verification entrypoint is not configured")
 	}
+	operation, err := github.AcquireVerificationOperationLock(runtimeConfig.GitHubProject.GitHubProjectConfig, *entryID)
+	if err != nil {
+		return fmt.Errorf("verification or offline configuration operation is active: %w", err)
+	}
+	defer operation.Release()
+	current, err := config.LoadTrustedConfig(*configPath)
+	if err != nil || !reflect.DeepEqual(cfg, current) {
+		return errors.Join(errors.New("operator configuration changed before verification acquired its operation lock"), err)
+	}
+	ownership := subprocess.NewOwnershipScope(fmt.Sprintf("%s/%d", strings.ToLower(runtimeConfig.GitHubProject.Owner), runtimeConfig.GitHubProject.Number))
+	if err := ownership.CheckAdmission(); err != nil {
+		return err
+	}
+	ctx = subprocess.WithOwnershipScope(ctx, ownership)
+	// Run retains supervision through cleanup; any unresolved heavy claim is
+	// durable in this Project scope even after this process/operation lock exits.
 	root, err := filepath.Abs(*directory)
 	if err != nil {
 		return err
@@ -107,10 +123,14 @@ func runVerification(ctx context.Context, args []string, stdout io.Writer) error
 	}
 	result, runErr := verification.Run(ctx, request)
 	if *jsonOutput {
-		if err := json.NewEncoder(stdout).Encode(result); err != nil {
+		if err := json.NewEncoder(stdout).Encode(struct {
+			verification.Result
+			RequireCurrentCandidate bool `json:"require_current_candidate"`
+		}{result, entry.RequireCurrentCandidate}); err != nil {
 			return err
 		}
 	} else {
+		fmt.Fprintf(stdout, "Verification policy require_current_candidate=%t; historical=%t.\n", entry.RequireCurrentCandidate, result.Historical)
 		if result.Output.Stdout != "" {
 			fmt.Fprint(stdout, terminalSafeText(result.Output.Stdout))
 		}

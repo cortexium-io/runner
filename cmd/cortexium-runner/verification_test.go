@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/github"
 )
 
 func TestVerifyCLIRejectsDifferentRepositoryBeforeLaunchingCheck(t *testing.T) {
@@ -24,6 +25,38 @@ func TestVerifyCLIRejectsDifferentRepositoryBeforeLaunchingCheck(t *testing.T) {
 	err := run(t.Context(), []string{"verify", "--config", path, "--entrypoint", "focused", "--directory", root}, strings.NewReader(""), &out)
 	if err == nil || !strings.Contains(err.Error(), "does not match the configured repository") {
 		t.Fatalf("unrelated candidate was labeled as configured repository: %v", err)
+	}
+}
+
+func TestVerifyCLIRefusesOfflineCatalogOperationBeforeAnyCheck(t *testing.T) {
+	root := t.TempDir() // deliberately not a repository: refusal must precede Git
+	cfg := completeCLITestConfig(root)
+	cfg.Verification = map[string]config.VerificationEntrypoint{"complete": {Command: "/bin/sh", Args: []string{"-c", "exit 0"}, ToolchainCommands: []string{"/bin/sh"}, InputPaths: []string{"src"}, TimeoutSeconds: 10}}
+	path := filepath.Join(t.TempDir(), "runner.json")
+	if err := config.SaveConfig(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := github.AcquireVerificationOperationLock(*cfg.GitHubProject, "complete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guard.Release()
+	// The operator lock is not a worker or global mutation lock: unrelated
+	// reconciliation can still take its own normal short mutation guard.
+	mutation, err := github.AcquirePlanningMutationLock(*cfg.GitHubProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutation.Release()
+	var out bytes.Buffer
+	err = run(t.Context(), []string{"verify", "--config", path, "--entrypoint", "complete", "--directory", root}, strings.NewReader(""), &out)
+	if err == nil || !strings.Contains(err.Error(), "offline configuration operation is active") {
+		t.Fatalf("CLI missed migration exclusion before Git/check: %v", err)
+	}
+	guard.Release()
+	err = run(t.Context(), []string{"verify", "--config", path, "--entrypoint", "complete", "--directory", root}, strings.NewReader(""), &out)
+	if err == nil || !strings.Contains(err.Error(), "repository remote is unavailable") {
+		t.Fatalf("operation did not release its exclusion: %v", err)
 	}
 }
 

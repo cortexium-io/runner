@@ -4,6 +4,7 @@ package securefs
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -212,7 +213,7 @@ func (d *Directory) hashMissingPath(parentFD int, name string, directories []sna
 }
 
 func hashRegularAt(parentFD int, name, budgetPath string, before unix.Stat_t, budget *SnapshotBudget, observe snapshotObserver) ([]byte, error) {
-	fd, err := unix.Openat(parentFD, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, err := unix.Openat(parentFD, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -233,12 +234,68 @@ func hashRegularAt(parentFD int, name, budgetPath string, before unix.Stat_t, bu
 	}
 	callSnapshotObserver(observe, snapshotStageRegularOpened)
 
-	allowance, err := budget.payloadAllowance(budgetPath, opened.Size)
+	content, err := streamRegularContent(context.Background(), file, budgetPath, opened.Size, budget, observe)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyOpenedAndNamedObject(fd, parentFD, name, initial); err != nil {
+		return nil, err
+	}
+	digest := sha256.New()
+	writeSecureSnapshotPart(digest, "type", []byte("regular"))
+	writeSecureSnapshotPart(digest, "mode", uint32Bytes(initial.mode))
+	writeSecureSnapshotPart(digest, "device", uint64Bytes(initial.dev))
+	writeSecureSnapshotPart(digest, "inode", uint64Bytes(initial.ino))
+	writeSecureSnapshotPart(digest, "content", content)
+	return digest.Sum(nil), nil
+}
+
+// HashFileContent streams a regular no-follow child twice under a shared byte
+// budget. Object identity protects the reads but is deliberately absent from
+// the returned content digest, so identical runtime copies remain applicable.
+func (d *Directory) HashFileContent(ctx context.Context, name string, budget *SnapshotBudget) ([]byte, os.FileMode, error) {
+	if budget == nil {
+		return nil, 0, errors.New("content hashing requires explicit snapshot limits")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
+	file, err := d.OpenFile(name)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer file.Close()
+	key := filepath.Join(d.path, name)
+	if err := budget.AddEntry(key); err != nil {
+		return nil, 0, err
+	}
+	digest, err := streamRegularContent(ctx, file.file, key, file.initial.size, budget, nil)
+	if err == nil {
+		err = file.Verify()
+	}
+	return digest, os.FileMode(file.initial.mode & 0o7777), err
+}
+
+type snapshotContextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r snapshotContextReader) Read(buffer []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(buffer)
+}
+
+func streamRegularContent(ctx context.Context, file *os.File, budgetPath string, size int64, budget *SnapshotBudget, observe snapshotObserver) ([]byte, error) {
+	allowance, err := budget.payloadAllowance(budgetPath, size)
 	if err != nil {
 		return nil, err
 	}
 	contentDigest := sha256.New()
-	read, err := io.Copy(contentDigest, io.LimitReader(file, allowance+1))
+	buffer := make([]byte, 64*1024)
+	read, err := io.CopyBuffer(contentDigest, snapshotContextReader{ctx, io.LimitReader(file, allowance+1)}, buffer)
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +310,7 @@ func hashRegularAt(parentFD int, name, budgetPath string, before unix.Stat_t, bu
 		return nil, err
 	}
 	verifiedContent := sha256.New()
-	verifiedRead, err := io.Copy(verifiedContent, io.LimitReader(file, allowance+1))
+	verifiedRead, err := io.CopyBuffer(verifiedContent, snapshotContextReader{ctx, io.LimitReader(file, allowance+1)}, buffer)
 	if err != nil {
 		return nil, err
 	}
@@ -264,18 +321,9 @@ func hashRegularAt(parentFD int, name, budgetPath string, before unix.Stat_t, bu
 		return nil, err
 	}
 	if !bytes.Equal(contentDigest.Sum(nil), verifiedContent.Sum(nil)) {
-		return nil, fmt.Errorf("%w while reading snapshot file %q", ErrChanged, name)
+		return nil, fmt.Errorf("%w while reading snapshot file %q", ErrChanged, budgetPath)
 	}
-	if err := verifyOpenedAndNamedObject(fd, parentFD, name, initial); err != nil {
-		return nil, err
-	}
-	digest := sha256.New()
-	writeSecureSnapshotPart(digest, "type", []byte("regular"))
-	writeSecureSnapshotPart(digest, "mode", uint32Bytes(initial.mode))
-	writeSecureSnapshotPart(digest, "device", uint64Bytes(initial.dev))
-	writeSecureSnapshotPart(digest, "inode", uint64Bytes(initial.ino))
-	writeSecureSnapshotPart(digest, "content", contentDigest.Sum(nil))
-	return digest.Sum(nil), nil
+	return contentDigest.Sum(nil), ctx.Err()
 }
 
 func hashSymlinkAt(parentFD int, name, budgetPath string, before unix.Stat_t, budget *SnapshotBudget, observe snapshotObserver) ([]byte, error) {

@@ -3,6 +3,7 @@
 package securefs
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -63,6 +64,9 @@ func (d *Directory) ReadDirNamesWithBudget(*SnapshotBudget) ([]string, error) {
 }
 func (d *Directory) OpenDir(string) (*Directory, error)   { return nil, errUnsupported }
 func (d *Directory) OpenFile(string) (*PinnedFile, error) { return nil, errUnsupported }
+func (d *Directory) HashFileContent(context.Context, string, *SnapshotBudget) ([]byte, os.FileMode, error) {
+	return nil, 0, errUnsupported
+}
 func (d *Directory) ReadFile(string, int64) ([]byte, os.FileMode, FileState, error) {
 	return nil, 0, FileState{}, errUnsupported
 }
