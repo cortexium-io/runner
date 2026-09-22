@@ -655,6 +655,61 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	return PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: branch, CommitSHA: record.CommitOID}, nil
 }
 
+// RecoverMergedPlanPublication is the terminal-only recovery boundary. The
+// final private acceptance and current plan authority, not a fresh validation
+// run or a surviving branch, prove which completed publication is ours.
+func (m PullRequestManager) RecoverMergedPlanPublication(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch string) (PullRequestDetails, bool, error) {
+	if err := m.verifyTerminalPlanAcceptance(ctx, action, metadata, record, baseBranch); err != nil {
+		return PullRequestDetails{}, false, err
+	}
+	branch := strings.TrimPrefix(record.DestinationRef, "refs/heads/")
+	existing, found, err := m.findPlanPublication(ctx, record.Repository, branch, baseBranch)
+	if err != nil || !found {
+		return PullRequestDetails{}, false, err
+	}
+	details, err := m.inspect(ctx, record.Repository, existing.URL, false, false)
+	if err != nil {
+		return PullRequestDetails{}, false, err
+	}
+	if err := ValidateTrackedPullRequest(details, record.Repository, branch, record.CommitOID, baseBranch, ""); err != nil {
+		return PullRequestDetails{}, false, err
+	}
+	switch details.State {
+	case "OPEN":
+		return PullRequestDetails{}, false, nil
+	case "CLOSED":
+		return PullRequestDetails{}, false, errors.New("final plan pull request was closed without merge; explicit recovery is required")
+	case "MERGED":
+		if !validGitObjectID(details.MergeCommitOID) {
+			return PullRequestDetails{}, false, errors.New("merged plan pull request has no confirmed merge commit")
+		}
+	default:
+		return PullRequestDetails{}, false, errors.New("plan publication has an unknown state")
+	}
+	// Revalidate after the remote read, too. An intervening amendment or
+	// cancellation cannot be overwritten by terminal reconciliation.
+	if err := m.verifyTerminalPlanAcceptance(ctx, action, metadata, record, baseBranch); err != nil {
+		return PullRequestDetails{}, false, err
+	}
+	return details, true, nil
+}
+
+func (m PullRequestManager) verifyTerminalPlanAcceptance(ctx context.Context, action AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord, baseBranch string) error {
+	fresh, err := m.refreshAuthorizedAction(ctx, action)
+	if err != nil {
+		return err
+	}
+	manifest, present, err := ParsePlanManifest(fresh.Item.Body)
+	if err != nil || !present || fresh.Item.PlanRelease == "" || record.PlanRevision == "" ||
+		PlanRevision(fresh.Item.Body) != record.PlanRevision || manifest.DestinationBranch != baseBranch {
+		return errors.Join(errors.New("terminal publication does not match current approved plan revision and destination"), err)
+	}
+	if err := validatePublicationAuthority(fresh, record); err != nil {
+		return err
+	}
+	return workspace.NewGitProvider(m.run).VerifyTerminalPlanAcceptance(metadata, record)
+}
+
 // RecoverPlanPublication reads back a previously created exact PR before the
 // coordinator tries to synchronize the old integration head or current base.
 // The complete-gate guard is mandatory: a PR and model prose are not authority.
@@ -682,11 +737,23 @@ func (m PullRequestManager) recoverPlanPublication(ctx context.Context, action A
 	if err := ValidateTrackedPullRequest(details, record.Repository, branch, record.CommitOID, baseBranch, ""); err != nil {
 		return PublishedPullRequest{}, true, err
 	}
+	if details.State == "MERGED" {
+		if !validGitObjectID(details.MergeCommitOID) {
+			return PublishedPullRequest{}, true, errors.New("merged plan pull request has no confirmed merge commit")
+		}
+		if err := m.verifyTerminalPlanAcceptance(ctx, action, metadata, record, baseBranch); err != nil {
+			return PublishedPullRequest{}, true, err
+		}
+		return PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: branch, CommitSHA: record.CommitOID}, true, nil
+	}
+	if details.State == "CLOSED" {
+		return PublishedPullRequest{}, true, errors.New("final plan pull request was closed without merge; explicit recovery is required")
+	}
 	if details.State == "OPEN" {
 		if err := validatePublishedPullRequest(details, record.Repository, branch, record.CommitOID, baseBranch, record.ApprovedBaseOID); err != nil {
 			return PublishedPullRequest{}, true, err
 		}
-	} else if details.State != "MERGED" && details.State != "CLOSED" {
+	} else {
 		return PublishedPullRequest{}, true, errors.New("plan publication has an unknown state")
 	}
 	refreshed, err := m.refreshAuthorizedAction(ctx, action)
@@ -709,11 +776,7 @@ func (m PullRequestManager) recoverPlanPublication(ctx context.Context, action A
 			return PublishedPullRequest{}, true, err
 		}
 	}
-	verifyBranch := workspace.NewGitProvider(m.run).VerifyPlanBranch
-	if details.State == "MERGED" || details.State == "CLOSED" {
-		verifyBranch = workspace.NewGitProvider(m.run).VerifyTerminalPlanBranch
-	}
-	if err := verifyBranch(ctx, metadata.RepoRoot, record.Repository, remoteName, branch, record.CommitOID, func() error {
+	if err := workspace.NewGitProvider(m.run).VerifyPlanBranch(ctx, metadata.RepoRoot, record.Repository, remoteName, branch, record.CommitOID, func() error {
 		fresh, err := m.refreshAuthorizedAction(ctx, refreshed)
 		if err != nil {
 			return err

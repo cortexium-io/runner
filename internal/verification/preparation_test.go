@@ -55,7 +55,7 @@ func TestPreparationBindsActualDependenciesAndAllowsCheckOutputs(t *testing.T) {
 	// returns the original receipt and performs neither preparation nor check.
 	writeFixture(t, request.Directory, ".runner-npm-cache/log", "new log")
 	writeFixture(t, request.Directory, "dist/output", "unchanged applicability")
-	request.PreviousReceipt, request.PreviousDigest = &result.Receipt, result.Digest
+	request.PreviousReceipt, request.PreviousDigest = result.Receipt, result.Digest
 	reused, err := run(t.Context(), request, ownedTestGrant)
 	if err != nil || !reused.Historical || !reflect.DeepEqual(reused.Receipt, result.Receipt) || reused.PreparationOutput != nil || reused.Output.Stdout != "" {
 		t.Fatalf("historical reuse: %+v %v", reused, err)
@@ -75,7 +75,8 @@ func TestPreparationRefusesUndeclaredChangesAndFailures(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			request := preparationFixture(t, tc.command)
 			result, err := run(t.Context(), request, ownedTestGrant)
-			if err == nil || result.Receipt.Outcome == "passed" || result.Receipt.RunMilliseconds != nil || result.Receipt.Preparation == nil {
+			var failure *CheckFailure
+			if err == nil || errors.As(err, &failure) || result.Receipt != nil || result.Digest != "" || result.CurrentPreparation == nil {
 				t.Fatalf("preparation failure certified: %+v %v", result, err)
 			}
 			if _, err := os.Stat(filepath.Join(request.Directory, "dist")); !os.IsNotExist(err) {
@@ -115,7 +116,7 @@ func TestPreparationReassessesProtectedProofAfterRestoringDependencies(t *testin
 		t.Fatal(err)
 	}
 	writeFixture(t, request.Directory, "dist/output", "must remain")
-	request.PreviousReceipt, request.PreviousDigest = &first.Receipt, first.Digest
+	request.PreviousReceipt, request.PreviousDigest = first.Receipt, first.Digest
 	reused, err := run(t.Context(), request, ownedTestGrant)
 	if err != nil || !reused.Historical || reused.CurrentPreparation == nil || !reflect.DeepEqual(first.Receipt, reused.Receipt) {
 		t.Fatalf("prepared reuse: %+v %v", reused, err)
@@ -134,7 +135,7 @@ func TestPreparationTimeoutSharesDeadlineAndDoesNotLaunchCheck(t *testing.T) {
 		return ObserveCandidate(ctx, request.Directory, base, "approved", request.Entry)
 	}
 	result, err := run(t.Context(), request, ownedTestGrant)
-	if !errors.Is(err, context.DeadlineExceeded) || result.Receipt.Outcome != "timeout" || result.Receipt.RunStartedAt != nil || result.Receipt.Preparation == nil || result.Receipt.Preparation.Outcome != "timeout" || !result.Receipt.CleanupResolved {
+	if !errors.Is(err, context.DeadlineExceeded) || result.Invocation.Outcome != "timeout" || result.Receipt != nil || result.CurrentPreparation == nil || result.CurrentPreparation.Outcome != "timeout" || !result.Invocation.CleanupResolved {
 		t.Fatalf("deadline/cleanup accounting: %+v %v", result, err)
 	}
 }
@@ -155,7 +156,7 @@ func TestReuseHonorsCatalogCurrentCandidatePolicyAndRefusesTampering(t *testing.
 			writeFixture(t, request.Directory, "docs/proof.txt", "renewed receipt only")
 			git(t, request.Directory, "add", "docs/proof.txt")
 			git(t, request.Directory, "commit", "-m", "proof only")
-			request.PreviousReceipt, request.PreviousDigest = &first.Receipt, first.Digest
+			request.PreviousReceipt, request.PreviousDigest = first.Receipt, first.Digest
 			second, err := run(t.Context(), request, ownedTestGrant)
 			if err != nil || second.Historical == currentOnly {
 				t.Fatalf("catalog policy ignored: historical=%v %v", second.Historical, err)

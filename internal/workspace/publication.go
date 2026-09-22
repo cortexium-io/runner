@@ -885,6 +885,69 @@ func (p GitProvider) LoadPublicationAcceptance(ctx context.Context, metadata Met
 	return existing, true, nil
 }
 
+// VerifyTerminalPlanAcceptance authenticates an already-recorded final plan
+// acceptance without asserting anything about the current checkout or tools.
+// It is only evidence for reconciling an exact, confirmed merged PR. It must
+// never authorize an open PR, a push, or another merge.
+func (p GitProvider) VerifyTerminalPlanAcceptance(metadata Metadata, record PublicationRecord) error {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	identity := metadata.Identity
+	// Unlike open publication, terminal readback cannot depend on a retained
+	// worktree, local ref or Git administration. These fields come from the
+	// protected final progress record and must equal the private identity beside
+	// the old checkout, which survives Git pruning.
+	if identity.Version != identityVersion || !filepath.IsAbs(identity.WorktreePath) || filepath.Clean(identity.WorktreePath) != identity.WorktreePath ||
+		metadata.WorktreePath != identity.WorktreePath || metadata.BranchName != identity.Branch || metadata.BaseRef != identity.BaseRef || metadata.BaseRevision != identity.BaseRevision ||
+		identity.ItemID == "" || identity.DelegatedContentDigest == "" || !validObjectID(identity.BaseRevision) {
+		return errors.New("terminal publication metadata does not match the private workspace identity")
+	}
+	root := filepath.Dir(identity.WorktreePath)
+	if err := securefs.ValidatePrivateDir(root); err != nil {
+		return err
+	}
+	identityPath := activeIdentityPath(root, filepath.Base(identity.WorktreePath))
+	if err := securefs.ValidatePrivateDir(filepath.Dir(identityPath)); err != nil {
+		return err
+	}
+	content, mode, state, err := securefs.ReadFile(identityPath, 64*1024)
+	if err != nil {
+		return err
+	}
+	if err := securefs.ValidateOwnedRegularFile(state, uint32(os.Geteuid())); err != nil {
+		return err
+	}
+	if mode.Perm() != 0o600 {
+		return errors.New("terminal recovery requires private mode-0600 workspace identity")
+	}
+	retainedIdentity, err := decodeIdentity(content)
+	if err != nil || retainedIdentity != identity {
+		return errors.Join(errors.New("terminal publication workspace identity changed"), err)
+	}
+	if record.PlanRevision == "" || record.VerificationDigest == "" || record.VerificationReceipt == "" ||
+		!validObjectID(record.CommitOID) || !validObjectID(record.TreeOID) ||
+		record.ItemID != metadata.Identity.ItemID || record.DelegatedContentDigest != metadata.Identity.DelegatedContentDigest ||
+		record.Repository != metadata.Identity.Repository || record.DestinationRef != "refs/heads/"+metadata.BranchName ||
+		record.ApprovedBaseRef != metadata.BaseRef || record.ApprovedBaseOID != metadata.BaseRevision {
+		return errors.New("terminal recovery requires the exact final plan acceptance and workspace identity")
+	}
+	path, err := publicationAcceptancePath(root, record)
+	if err != nil {
+		return err
+	}
+	if err := securefs.ValidatePrivateDir(filepath.Dir(path)); err != nil {
+		return err
+	}
+	retained, err := readPublicationRecord(path)
+	if err != nil {
+		return fmt.Errorf("read protected terminal plan acceptance: %w", err)
+	}
+	if retained != record {
+		return errors.New("terminal plan acceptance differs from its immutable private record")
+	}
+	return nil
+}
+
 // HasPriorPublicationAcceptance authenticates a remote branch head that Runner
 // published for the same item, delegated content, repository, and destination.
 // Unlike LoadPublicationAcceptance, it deliberately does not bind the old
@@ -1070,12 +1133,18 @@ func publicationAcceptancePath(worktreeRoot string, expected PublicationRecord) 
 }
 
 func readPublicationRecord(path string) (PublicationRecord, error) {
-	content, _, state, err := securefs.ReadFile(path, 64*1024)
+	content, mode, state, err := securefs.ReadFile(path, 64*1024)
 	if err != nil {
 		return PublicationRecord{}, err
 	}
 	if !state.Exists {
 		return PublicationRecord{}, os.ErrNotExist
+	}
+	if err := securefs.ValidateOwnedRegularFile(state, uint32(os.Geteuid())); err != nil {
+		return PublicationRecord{}, err
+	}
+	if mode.Perm() != 0o600 {
+		return PublicationRecord{}, errors.New("protected publication record must have mode 0600")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
@@ -1272,7 +1341,7 @@ func (p GitProvider) RefreshBase(ctx context.Context, metadata Metadata, remoteN
 }
 
 func (p GitProvider) RefreshBaseForMergeMethod(ctx context.Context, metadata Metadata, remoteName, baseBranch, mergeMethod string) (BaseRefresh, error) {
-	return p.refreshBase(ctx, metadata, remoteName, baseBranch, mergeMethod, true)
+	return p.refreshBase(ctx, metadata, remoteName, baseBranch, mergeMethod, true, "", nil)
 }
 
 // RefreshLocalBase updates a candidate that has not been published yet. Unlike
@@ -1282,10 +1351,20 @@ func (p GitProvider) RefreshLocalBase(ctx context.Context, metadata Metadata, re
 }
 
 func (p GitProvider) RefreshLocalBaseForMergeMethod(ctx context.Context, metadata Metadata, remoteName, baseBranch, mergeMethod string) (BaseRefresh, error) {
-	return p.refreshBase(ctx, metadata, remoteName, baseBranch, mergeMethod, false)
+	return p.refreshBase(ctx, metadata, remoteName, baseBranch, mergeMethod, false, "", nil)
 }
 
-func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteName, baseBranch, mergeMethod string, fetchBranch bool) (BaseRefresh, error) {
+// RefreshLocalPlanBaseForMergeMethod merges only the coordinator's exact
+// authenticated plan head. The fetch inside refresh must not silently replace
+// an earlier verified head with an intervening remote substitution.
+func (p GitProvider) RefreshLocalPlanBaseForMergeMethod(ctx context.Context, metadata Metadata, remoteName, baseBranch, mergeMethod, expectedHead string, refreshAuthority func() error) (BaseRefresh, error) {
+	if !validObjectID(expectedHead) || !strings.HasPrefix(baseBranch, "runner/plan-") || refreshAuthority == nil {
+		return BaseRefresh{}, errors.New("plan member refresh requires exact plan head and current authority")
+	}
+	return p.refreshBase(ctx, metadata, remoteName, baseBranch, mergeMethod, false, expectedHead, refreshAuthority)
+}
+
+func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteName, baseBranch, mergeMethod string, fetchBranch bool, expectedHead string, refreshAuthority func() error) (BaseRefresh, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
 	mergeMethod = config.NormalizeMergeMethod(mergeMethod)
@@ -1346,7 +1425,20 @@ func (p GitProvider) refreshBase(ctx context.Context, metadata Metadata, remoteN
 	if err != nil || !validObjectID(currentBase) {
 		return BaseRefresh{}, errors.New("resolve refreshed base revision")
 	}
+	if expectedHead != "" {
+		if currentBase != expectedHead {
+			return BaseRefresh{}, errors.New("plan head changed during member refresh; no candidate mutation authorized")
+		}
+		if err := refreshAuthority(); err != nil {
+			return BaseRefresh{}, err
+		}
+	}
 	advanceIdentity := func() error {
+		if refreshAuthority != nil {
+			if err := refreshAuthority(); err != nil {
+				return err
+			}
+		}
 		if currentBase == metadata.BaseRevision {
 			return nil
 		}

@@ -16,8 +16,8 @@ import (
 )
 
 // PlanAmendmentRequest carries the complete desired membership, not a request
-// to invent cards. This initial operator boundary supports the same exact
-// members; additions/removals are refused explicitly, never silently ignored.
+// to invent cards. Existing rows are immutable identities: removal explicitly
+// retires a row and additions select exact unapproved assessment issues.
 type PlanAmendmentRequest struct {
 	ExpectedRevision      string            `json:"expected_revision"`
 	Reason                string            `json:"reason"`
@@ -55,10 +55,26 @@ func (s *Project) PlanDeliveryAmendment(ctx context.Context, selector string, re
 	if d.Parent.Phase != PlanDeliveryPhase && d.Parent.Status != s.qaStatus() && d.Parent.Status != s.blockedStatus() {
 		return PlanAmendmentState{}, errors.New("finish integration/repair recovery before amending this unpublished plan")
 	}
-	return s.buildPlanAmendment(d, request)
+	items, err := s.LifecycleItems(ctx)
+	if err != nil {
+		return PlanAmendmentState{}, err
+	}
+	known := newWorkItemIndex(d.AllChildren()).byID
+	var additions []WorkItem
+	for _, member := range request.Manifest.Members {
+		if _, exists := known[member.ID]; exists {
+			continue
+		}
+		item, err := selectProjectItem(items, member.ID)
+		if err != nil {
+			return PlanAmendmentState{}, err
+		}
+		additions = append(additions, item)
+	}
+	return s.buildPlanAmendment(d, request, additions...)
 }
 
-func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentRequest) (PlanAmendmentState, error) {
+func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentRequest, additions ...WorkItem) (PlanAmendmentState, error) {
 	if request.ExpectedRevision != d.Revision || strings.TrimSpace(request.Reason) == "" || len(request.Reason) > 4000 || !utf8.ValidString(request.Reason) || strings.ContainsRune(request.Reason, 0) {
 		return PlanAmendmentState{}, errors.New("amendment needs the exact current revision and a bounded reason")
 	}
@@ -66,12 +82,22 @@ func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentReques
 	if next.Amendment != old.Amendment+1 || next.Request != old.Request || next.Repository != old.Repository || next.DestinationBranch != old.DestinationBranch {
 		return PlanAmendmentState{}, errors.New("amendment must advance its ordinal by one and preserve the original request, repository and destination; retargeting requires a separate corrective plan")
 	}
-	if len(next.Members) != len(old.Members) {
-		return PlanAmendmentState{}, errors.New("membership additions/removals are not supported by this amendment slice; no cards or integrated code were changed")
+	if len(next.Members) < len(old.Members) {
+		return PlanAmendmentState{}, errors.New("membership is append-only; retire an exact existing row rather than deleting it (integrated code remains)")
 	}
 	for i := range old.Members {
 		if old.Members[i].ID != next.Members[i].ID {
-			return PlanAmendmentState{}, errors.New("membership additions, removals or reordering require a separate explicit membership amendment; this command preserves the exact member set")
+			return PlanAmendmentState{}, errors.New("existing member identities cannot disappear or reorder; append additions and explicitly retire removed scope")
+		}
+		if old.Members[i].Retired && !reflect.DeepEqual(old.Members[i], next.Members[i]) {
+			return PlanAmendmentState{}, errors.New("retired membership is immutable history and cannot be reactivated")
+		}
+		if next.Members[i].Retired {
+			comparison := next.Members[i]
+			comparison.Retired, comparison.RetirementReason = old.Members[i].Retired, old.Members[i].RetirementReason
+			if !reflect.DeepEqual(comparison, old.Members[i]) {
+				return PlanAmendmentState{}, errors.New("retirement must preserve the original member contract and integrated history")
+			}
 		}
 	}
 	body, err := FormatPlanManifest(next)
@@ -79,8 +105,17 @@ func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentReques
 		return PlanAmendmentState{}, err
 	}
 	children := map[string]WorkItem{}
-	for _, child := range d.Children {
+	for _, child := range d.AllChildren() {
 		children[child.ID] = child
+	}
+	for _, child := range additions {
+		if _, exists := children[child.ID]; exists {
+			return PlanAmendmentState{}, errors.New("duplicate amendment member snapshot")
+		}
+		children[child.ID] = child
+	}
+	if len(children) != len(next.Members) {
+		return PlanAmendmentState{}, errors.New("every appended member requires its exact original assessment snapshot")
 	}
 	state := PlanAmendmentState{Request: request, Before: []WorkItem{d.Parent}, After: []WorkItem{d.Parent}}
 	state.After[0].Body = body
@@ -91,9 +126,22 @@ func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentReques
 	sharedChanged := !reflect.DeepEqual(globalOld, globalNext)
 	changed := sharedChanged
 	for i, member := range next.Members {
-		before := children[member.ID]
+		before, exists := children[member.ID]
+		if !exists {
+			return PlanAmendmentState{}, errors.New("appended member snapshot missing")
+		}
 		after := before
+		added := i >= len(old.Members)
+		if added {
+			after, err = s.adoptAmendmentMember(d, before, member, i+1, len(next.Members))
+			if err != nil {
+				return PlanAmendmentState{}, err
+			}
+		}
 		if replacement, ok := request.MemberBodies[member.ID]; ok {
+			if added || member.Retired {
+				return PlanAmendmentState{}, errors.New("adoption and retirement preserve the exact existing body; amend assessment content before previewing adoption")
+			}
 			if len(replacement) > 60000 || strings.TrimSpace(replacement) == "" || !utf8.ValidString(replacement) || strings.ContainsRune(replacement, 0) {
 				return PlanAmendmentState{}, errors.New("member body must be valid bounded UTF-8")
 			}
@@ -112,7 +160,7 @@ func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentReques
 			}
 			after.Body, after.Dependencies, after.ImplementationProfile = replacement, metadata.Dependencies, metadata.ImplementationProfile
 		}
-		localChanged := before.Body != after.Body || !reflect.DeepEqual(old.Members[i], member)
+		localChanged := added || before.Body != after.Body || !reflect.DeepEqual(old.Members[i], member)
 		changed = changed || localChanged
 		seeds[member.ID] = sharedChanged || localChanged
 		state.Before, state.After = append(state.Before, before), append(state.After, after)
@@ -131,7 +179,13 @@ func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentReques
 	if !changed {
 		return PlanAmendmentState{}, errors.New("amendment has no contract change or explicit additional invalidation")
 	}
-	state.Affected = amendmentDependencyClosure(seeds, old.Members, next.Members)
+	closure := amendmentDependencyClosure(seeds, old.Members, next.Members)
+	for _, member := range next.ActiveMembers() {
+		if slices.Contains(closure, member.ID) {
+			state.Affected = append(state.Affected, member.ID)
+		}
+	}
+	sort.Strings(state.Affected)
 	if _, err := s.validatePlanMembers(state.After[0], state.After[1:]); err != nil {
 		return PlanAmendmentState{}, err
 	}
@@ -142,6 +196,8 @@ func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentReques
 		after := &state.After[i]
 		if i == 0 {
 			after.Status, after.Phase, after.Activity = s.backlogStatus(), PlanDeliveryPhase, "Amended — delivery review required"
+		} else if next.Members[i-1].Retired {
+			after.Status, after.Phase, after.Activity = s.backlogStatus(), PlanRetiredPhase, "Retired scope — retained code and history; not delivered"
 		} else if slices.Contains(state.Affected, after.ID) {
 			after.Status, after.Phase, after.QACommit, after.Activity = s.readyStatus(), s.laneIDForStatus(s.readyStatus()), "", "Amended — affected work requires acceptance"
 		}
@@ -149,7 +205,7 @@ func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentReques
 		// allowances that an amendment may reset. Parent QACommit remains the
 		// authenticated integrated remote head even though its acceptance expires.
 	}
-	batch, err := s.validatePlanningBatch(d.Parent.PlanRelease, d.Parent, d.Children, batchReleasedState)
+	batch, err := s.validatePlanningBatch(d.Parent.PlanRelease, d.Parent, d.AllChildren(), batchReleasedState)
 	if err != nil {
 		return PlanAmendmentState{}, err
 	}
@@ -158,9 +214,12 @@ func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentReques
 		return PlanAmendmentState{}, err
 	}
 	for i := range state.After {
-		current, err := s.validateAction(state.Before[i])
-		if err != nil {
-			return PlanAmendmentState{}, err
+		var current AuthorizedAction
+		if i <= len(old.Members) {
+			current, err = s.validateAction(state.Before[i])
+			if err != nil {
+				return PlanAmendmentState{}, err
+			}
 		}
 		after := state.After[i]
 		lane, err := s.stateForStatus(after.Status)
@@ -178,6 +237,32 @@ func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentReques
 		state.After[i] = signed.Item
 	}
 	return state, nil
+}
+
+func (s *Project) adoptAmendmentMember(d PlanDelivery, before WorkItem, member PlanMember, position, total int) (WorkItem, error) {
+	_, metadata, metadataErr := decodePlannedItemMetadata(before.Body)
+	if member.Retired || before.ID == d.Parent.ID || !s.isIntakeIssueURL(before.URL) || before.IssueState != "OPEN" || before.Repository != d.Manifest.Repository || before.DraftContentID != "" ||
+		before.Status != s.assessmentStatus() || (before.Phase != "" && before.Phase != s.laneIDForStatus(s.assessmentStatus())) || before.Approval != "" || before.PlanRelease != "" || before.Transition != "" || before.Branch != "" || before.QACommit != "" || before.PullRequest != "" || before.Activity != "" ||
+		before.PlanningSourceID != "" || before.PlanningBatchFingerprint != "" || before.PlanningMetadataInvalid || metadata || metadataErr != nil || strings.TrimSpace(before.Title) == "" || strings.TrimSpace(before.Body) == "" ||
+		!reflect.DeepEqual(canonicalDelegatedDependencies(before.Dependencies), member.Dependencies) || (before.ImplementationProfile != "" && before.ImplementationProfile != member.ImplementationProfile) {
+		return WorkItem{}, fmt.Errorf("new member %s must be an exact open issue-backed unapproved Assessment card with matching body/dependencies/profile and no retained execution or planning authority", before.ID)
+	}
+	provenance := d.AllChildren()[0]
+	planned := PlannedItem{Repository: before.Repository, DependencyIDsResolved: true, ImplementationProfile: member.ImplementationProfile,
+		PlanningSourceID: d.Parent.ID, PlanningSourceLane: provenance.PlanningSourceLane, PlanningSourceFingerprint: provenance.PlanningSourceFingerprint,
+		PlanningDestination: provenance.PlanningDestination, PlanningBatchFingerprint: provenance.PlanningBatchFingerprint, PlanningBatchSize: total, PlanningItemIndex: position}
+	for _, dep := range member.Dependencies {
+		planned.ResolvedDependencies = append(planned.ResolvedDependencies, PlannedDependency{ItemID: dep, Title: dep})
+	}
+	after := before
+	after.Body = appendPlannedItemMetadata(before.Body, planned)
+	if len(after.Body) > 60000 || !utf8.ValidString(after.Body) || strings.ContainsRune(after.Body, 0) {
+		return WorkItem{}, errors.New("adopted body exceeds the bounded canonical issue contract")
+	}
+	after.PlanningSourceID, after.PlanningSourceLane, after.PlanningSourceFingerprint = planned.PlanningSourceID, planned.PlanningSourceLane, planned.PlanningSourceFingerprint
+	after.PlanningDestination, after.PlanningBatchFingerprint = planned.PlanningDestination, planned.PlanningBatchFingerprint
+	after.PlanningBatchSize, after.PlanningItemIndex, after.ImplementationProfile = total, position, member.ImplementationProfile
+	return after, nil
 }
 
 func amendmentDependencyClosure(seeds map[string]bool, graphs ...[]PlanMember) []string {
@@ -217,7 +302,13 @@ func (s *Project) ValidatePlanAmendmentState(state PlanAmendmentState) error {
 	if err != nil {
 		return err
 	}
-	rebuilt, err := s.buildPlanAmendment(d, state.Request)
+	var additions []WorkItem
+	for _, before := range state.Before[1:] {
+		if before.PlanningSourceID == "" {
+			additions = append(additions, before)
+		}
+	}
+	rebuilt, err := s.buildPlanAmendment(d, state.Request, additions...)
 	if err != nil || !reflect.DeepEqual(rebuilt, state) {
 		return errors.Join(errors.New("protected amendment no longer matches exact authority/settings"), err)
 	}
@@ -254,8 +345,20 @@ func (s *Project) CheckPlanAmendment(ctx context.Context, state PlanAmendmentSta
 	}
 	index := newWorkItemIndex(items)
 	parent := state.Before[0]
-	if len(index.childrenBySource[parent.ID]) != len(state.Before)-1 {
-		return errors.New("amendment membership changed; preserve operator changes and inspect")
+	owned := newWorkItemIndex(state.After).byID
+	seen := map[string]bool{}
+	for _, item := range items {
+		if _, exists := owned[item.ID]; exists {
+			if seen[item.ID] {
+				return errors.New("amendment member identity is duplicated in Project; refuse ambiguous state")
+			}
+			seen[item.ID] = true
+		}
+	}
+	for _, child := range index.childrenBySource[parent.ID] {
+		if _, exists := owned[child.ID]; !exists {
+			return errors.New("amendment membership changed; preserve operator changes and inspect")
+		}
 	}
 	for i, before := range state.Before {
 		actual, ok := index.byID[before.ID]
@@ -274,12 +377,40 @@ func (s *Project) CheckPlanAmendment(ctx context.Context, state PlanAmendmentSta
 	return nil
 }
 
+// CheckCompletedPlanAmendment permits acknowledgement of an exact repeated
+// apply, never another mutation. Current authority/settings and every recorded
+// after-state must still match; later work is not overwritten or reauthorized.
+func (s *Project) CheckCompletedPlanAmendment(ctx context.Context, state PlanAmendmentState) error {
+	if err := s.ValidatePlanAmendmentState(state); err != nil {
+		return err
+	}
+	if err := s.CheckPlanAmendment(ctx, state); err != nil {
+		return err
+	}
+	items, err := s.LifecycleItems(ctx)
+	if err != nil {
+		return err
+	}
+	index := newWorkItemIndex(items)
+	for _, after := range state.After {
+		actual, present := index.byID[after.ID]
+		if !present || actual.Transition != "" || !amendmentItemMatches(actual, after) {
+			return errors.New("completed amendment has advanced or changed; it will not be replayed")
+		}
+	}
+	_, err = s.ValidatePlanDelivery(index.byID[state.After[0].ID], items)
+	return err
+}
+
 func amendmentIntermediate(actual, before, after WorkItem, parent bool) bool {
 	if actual.Transition != "" && actual.Transition != transitionLockValue {
 		return false
 	}
 	if actual.Body == after.Body {
 		actual.Body, actual.Dependencies, actual.ImplementationProfile = before.Body, before.Dependencies, before.ImplementationProfile
+		actual.PlanningSourceID, actual.PlanningSourceLane, actual.PlanningSourceFingerprint = before.PlanningSourceID, before.PlanningSourceLane, before.PlanningSourceFingerprint
+		actual.PlanningDestination, actual.PlanningBatchFingerprint = before.PlanningDestination, before.PlanningBatchFingerprint
+		actual.PlanningBatchSize, actual.PlanningItemIndex = before.PlanningBatchSize, before.PlanningItemIndex
 	} else if actual.Body != before.Body {
 		return false
 	}

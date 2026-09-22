@@ -457,9 +457,16 @@ func (s *Project) planningBatchPayload(source WorkItem, children []WorkItem, sta
 		if strings.TrimSpace(child.ID) == "" || strings.TrimSpace(child.Title) == "" || strings.TrimSpace(child.Body) == "" {
 			return planningBatchAssertionPayload{}, fmt.Errorf("planning batch child %d is incomplete", index+1)
 		}
+		// For revised delivery plans, PlanningBatchSize is ORIGINAL staging
+		// provenance, not current membership. The signed exact manifest union
+		// and ordered child digest own revision-scoped cardinality instead.
+		validSize := child.PlanningBatchSize == len(ordered)
+		if payload.PlanRevision != "" {
+			validSize = child.PlanningBatchSize >= child.PlanningItemIndex && child.PlanningBatchSize <= len(ordered)
+		}
 		if child.PlanningSourceID != expectedSourceID || child.PlanningSourceLane != payload.SourceLane ||
 			child.PlanningSourceFingerprint != payload.SourceFingerprint || child.PlanningDestination != payload.Destination ||
-			child.PlanningBatchFingerprint != payload.BatchFingerprint || child.PlanningBatchSize != len(ordered) || child.PlanningItemIndex != index+1 {
+			child.PlanningBatchFingerprint != payload.BatchFingerprint || !validSize || child.PlanningItemIndex != index+1 {
 			return planningBatchAssertionPayload{}, errors.New("planning batch is incomplete, duplicated, reordered, or mixed")
 		}
 		boundChild := planningBatchChildPayload{

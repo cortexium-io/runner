@@ -17,11 +17,12 @@ import (
 )
 
 type amendmentWorkspace struct {
-	Identity           workspace.Identity
-	Candidate          workspace.Snapshot
-	Acceptance         *workspace.PublicationRecord
-	VerificationDigest string
-	CheckpointDigest   string
+	Identity              workspace.Identity
+	Candidate             workspace.Snapshot
+	Acceptance            *workspace.PublicationRecord
+	VerificationDigest    string
+	CheckpointDigest      string
+	OriginalAcceptedDelta string
 }
 
 type planAmendmentRecord struct {
@@ -37,15 +38,55 @@ type DeliveryAmendment struct {
 	PreviousRevision     string                      `json:"previous_revision"`
 	Revision             string                      `json:"revision"`
 	Digest               string                      `json:"preview_digest"`
+	AlreadyApplied       bool                        `json:"already_applied"`
 	Request              github.PlanAmendmentRequest `json:"request"`
 	PreviousManifest     github.PlanManifest         `json:"previous_manifest"`
 	PreviousMemberBodies map[string]string           `json:"previous_member_bodies"`
 	Affected             []string                    `json:"affected_members"`
 	CarriedAcceptance    map[string]string           `json:"carried_original_acceptance"`
+	AddedMembers         []AmendmentAddition         `json:"added_members,omitempty"`
+	RetiredMembers       []AmendmentRetirement       `json:"retired_members,omitempty"`
 	record               planAmendmentRecord
 }
 
+type AmendmentAddition struct {
+	ID                    string   `json:"id"`
+	Title                 string   `json:"title"`
+	Body                  string   `json:"body"`
+	Repository            string   `json:"repository"`
+	ImplementationProfile string   `json:"implementation_profile"`
+	Dependencies          []string `json:"dependencies"`
+}
+
+type AmendmentRetirement struct {
+	ID                    string `json:"id"`
+	Reason                string `json:"reason"`
+	Branch                string `json:"branch,omitempty"`
+	AcceptedCommit        string `json:"accepted_commit,omitempty"`
+	AcceptedBase          string `json:"accepted_base,omitempty"`
+	OriginalAcceptedDelta string `json:"original_accepted_delta,omitempty"`
+}
+
 func (s *Engine) PlanDeliveryAmendment(ctx context.Context, selector string, request github.PlanAmendmentRequest) (DeliveryAmendment, error) {
+	parent, err := s.source.InspectRecoveryItem(ctx, selector)
+	if err != nil {
+		return DeliveryAmendment{}, err
+	}
+	history, err := s.readReviewFeedbackRecord(parent)
+	if err != nil {
+		return DeliveryAmendment{}, err
+	}
+	if history != nil && history.PlanVerification.classificationPending() {
+		return DeliveryAmendment{}, errors.New("a spent failed-verification classification has no durable result; resolve it explicitly before amendment (no allowance reset)")
+	}
+	if history != nil && history.PlanAmendment != nil && history.PlanAmendment.Completed && reflect.DeepEqual(history.PlanAmendment.State.Request, request) {
+		if err := s.source.CheckCompletedPlanAmendment(ctx, history.PlanAmendment.State); err != nil {
+			return DeliveryAmendment{}, err
+		}
+		preview := deliveryAmendmentPreview(*history.PlanAmendment)
+		preview.AlreadyApplied = true
+		return preview, nil
+	}
 	state, err := s.source.PlanDeliveryAmendment(ctx, selector, request)
 	if err != nil {
 		return DeliveryAmendment{}, err
@@ -75,16 +116,40 @@ func (s *Engine) PlanDeliveryAmendment(ctx context.Context, selector string, req
 		if checkpoint != nil && checkpoint.Incomplete {
 			return DeliveryAmendment{}, fmt.Errorf("item %s has an unfinished spent implementation allowance; resolve that attempt explicitly before amending (no allowance reset)", item.ID)
 		}
+		if i > 0 && item.PlanningSourceID == "" {
+			if err := s.checkAdoptionEvidenceAbsent(item.ID); err != nil {
+				return DeliveryAmendment{}, err
+			}
+		}
 		retained, err := s.inspectAmendmentWorkspace(ctx, state, i)
 		if err != nil {
 			return DeliveryAmendment{}, fmt.Errorf("inspect amendment member %s: %w", item.ID, err)
+		}
+		if i > 0 && item.PlanningSourceID == "" && retained.Identity.ItemID != "" {
+			return DeliveryAmendment{}, fmt.Errorf("new member %s already has a retained workspace; adoption cannot overwrite prior work", item.ID)
 		}
 		record.Workspaces = append(record.Workspaces, retained)
 	}
 	return deliveryAmendmentPreview(record), nil
 }
 
+func (s *Engine) checkAdoptionEvidenceAbsent(itemID string) error {
+	for _, path := range []string{s.implementationCheckpointPath(itemID), s.verificationEvidencePath(itemID), s.reviewFeedbackPath(itemID)} {
+		digest, err := amendmentEvidenceDigest(path)
+		if err != nil {
+			return err
+		}
+		if digest != "" {
+			return fmt.Errorf("new member %s has retained execution evidence; use an explicit recovery instead of adoption", itemID)
+		}
+	}
+	return nil
+}
+
 func deliveryAmendmentPreview(record planAmendmentRecord) DeliveryAmendment {
+	// Completion is an observation, not part of the approved before/after
+	// mutation. An exact repeat keeps its original preview identity.
+	record.Completed = false
 	state := record.State
 	manifest, _, _ := github.ParsePlanManifest(state.Before[0].Body)
 	b, _ := json.Marshal(record)
@@ -92,6 +157,17 @@ func deliveryAmendmentPreview(record planAmendmentRecord) DeliveryAmendment {
 		Digest: fmt.Sprintf("v1:%x", sha256.Sum256(b)), Request: state.Request, PreviousManifest: manifest, Affected: state.Affected,
 		PreviousMemberBodies: map[string]string{}, CarriedAcceptance: map[string]string{}, record: record}
 	for i, item := range state.Before {
+		if i > len(manifest.Members) {
+			after := state.After[i]
+			p.AddedMembers = append(p.AddedMembers, AmendmentAddition{ID: item.ID, Title: item.Title, Body: item.Body, Repository: item.Repository, ImplementationProfile: after.ImplementationProfile, Dependencies: after.Dependencies})
+		}
+		if i > 0 && i <= len(manifest.Members) && state.Request.Manifest.Members[i-1].Retired && !manifest.Members[i-1].Retired {
+			r := AmendmentRetirement{ID: item.ID, Reason: state.Request.Manifest.Members[i-1].RetirementReason, Branch: item.Branch, AcceptedCommit: item.QACommit, OriginalAcceptedDelta: record.Workspaces[i].OriginalAcceptedDelta}
+			if acceptance := record.Workspaces[i].Acceptance; acceptance != nil {
+				r.AcceptedBase = acceptance.ApprovedBaseOID
+			}
+			p.RetiredMembers = append(p.RetiredMembers, r)
+		}
 		if _, changed := state.Request.MemberBodies[item.ID]; changed {
 			p.PreviousMemberBodies[item.ID] = item.Body
 		}
@@ -125,6 +201,11 @@ func (s *Engine) inspectAmendmentWorkspace(ctx context.Context, state github.Pla
 	metadata, err := provider.InspectRetainedReview(ctx, request)
 	// An integrated plan parent need not have entered its own review workspace yet.
 	if errors.Is(err, os.ErrNotExist) && (index == 0 || item.Branch == "") {
+		if index > 0 && item.PlanningSourceID == "" {
+			if err := provider.VerifyWorkspaceAbsent(ctx, request); err != nil {
+				return amendmentWorkspace{}, err
+			}
+		}
 		return amendmentWorkspace{}, nil
 	}
 	if err != nil {
@@ -159,8 +240,14 @@ func (s *Engine) inspectAmendmentWorkspace(ctx context.Context, state github.Pla
 	}
 	if found {
 		retained.Acceptance = &accepted
+		if index > 0 && state.Request.Manifest.Members[index-1].Retired && item.QACommit != "" {
+			retained.OriginalAcceptedDelta, err = provider.PlanAcceptanceDelta(ctx, metadata, checkout, accepted)
+			if err != nil {
+				return amendmentWorkspace{}, err
+			}
+		}
 	}
-	if index > 0 && item.Phase == github.PlanIntegratedPhase && (!found || accepted.CommitOID != item.QACommit) {
+	if index > 0 && (item.Phase == github.PlanIntegratedPhase || (item.Phase == github.PlanRetiredPhase && item.QACommit != "")) && (!found || accepted.CommitOID != item.QACommit) {
 		return amendmentWorkspace{}, errors.New("integrated member is missing its exact original protected acceptance")
 	}
 	return retained, nil
@@ -175,6 +262,9 @@ func (s *Engine) ApplyDeliveryAmendment(ctx context.Context, preview DeliveryAme
 		if fresh.Digest != preview.Digest || !reflect.DeepEqual(fresh.Request, preview.Request) {
 			return errors.New("amendment authority, workspace or proof changed after preview; inspect a fresh preview")
 		}
+		if fresh.AlreadyApplied {
+			return nil
+		}
 		parent := fresh.record.State.Before[0]
 		feedback, err := s.readReviewFeedbackRecord(parent)
 		if err != nil {
@@ -186,6 +276,10 @@ func (s *Engine) ApplyDeliveryAmendment(ctx context.Context, preview DeliveryAme
 		if feedback == nil {
 			feedback = &reviewFeedbackRecord{Version: reviewFeedbackVersion, ItemID: parent.ID, DelegatedContentDigest: github.DelegatedContentFor(parent).Digest, Items: []string{"Approved plan amendment: " + preview.Request.Reason}}
 		}
+		// The full historical bytes were archived above. Parent acceptance is
+		// invalidated by every amendment; never re-label its gate/classification
+		// progress as evidence for the new revision.
+		feedback.PlanVerification = nil
 		feedback.PlanAmendment = &fresh.record
 		// Intent is durable before the first Project write. A crash here cannot
 		// authorize an unrecorded patch, and poll recovery runs before admission.
@@ -244,6 +338,14 @@ func (s *Engine) resumeDeliveryAmendment(ctx context.Context, feedback *reviewFe
 			if !errors.Is(err, os.ErrNotExist) {
 				return errors.Join(errors.New("previously absent amendment workspace appeared"), err)
 			}
+			if i > 0 && before.PlanningSourceID == "" {
+				if err := provider.VerifyWorkspaceAbsent(ctx, request); err != nil {
+					return err
+				}
+				if err := s.checkAdoptionEvidenceAbsent(before.ID); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		if err != nil {
@@ -274,7 +376,7 @@ func (s *Engine) resumeDeliveryAmendment(ctx context.Context, feedback *reviewFe
 			if _, err := provider.CarryPlanAcceptance(ctx, metadata, checkout, *retained.Acceptance, github.PlanRevision(r.State.After[0].Body), r.State.Digest()); err != nil {
 				return err
 			}
-		} else {
+		} else if i == 0 || !r.State.Request.Manifest.Members[i-1].Retired {
 			// An interrupted archival is idempotent only when the exact retained
 			// bytes already exist in the immutable superseded file.
 			for path, expected := range map[string]string{s.verificationEvidencePath(before.ID): retained.VerificationDigest, s.implementationCheckpointPath(before.ID): retained.CheckpointDigest} {
@@ -313,11 +415,14 @@ func resumeAmendedEvidenceArchive(path, expected string) error {
 // Keep its exact completed bytes before subsequent feedback replaces it.
 func (s *Engine) archiveDeliveryAmendmentHistory(itemID string) error {
 	record, err := s.readReviewFeedbackRecord(github.WorkItem{ID: itemID})
-	if err != nil || record == nil || record.PlanAmendment == nil {
+	if err != nil || record == nil || (record.PlanAmendment == nil && record.PlanVerification == nil) {
 		return err
 	}
-	if !record.PlanAmendment.Completed {
+	if record.PlanAmendment != nil && !record.PlanAmendment.Completed {
 		return errors.New("unfinished protected amendment cannot be discarded")
+	}
+	if record.PlanVerification.classificationPending() {
+		return errors.New("spent verification classification without durable result cannot be discarded")
 	}
 	path := s.reviewFeedbackPath(itemID)
 	data, err := readAmendmentEvidence(path)

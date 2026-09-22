@@ -1640,7 +1640,7 @@ Runner never silently combines or deletes it. Replaying a complete unapproved
 batch creates no duplicate cards and does not release it. The destination lane
 determines the role after separate approval.
 
-## Delivery rollout, cancellation and existing-member amendments
+## Delivery rollout, cancellation and contract/membership amendments
 
 Plan delivery is default off. It applies only to explicitly approved new plans;
 standalone Ready cards retain the individual-card path, and historical Done
@@ -1703,12 +1703,13 @@ resolve it before resuming; the command does not claim cancellation succeeded or
 grant another retry. Reapplying a freshly inspected already-cancelled plan makes
 no further Project writes. There is no implicit reopen.
 
-An existing-member amendment changes the approved contract, not merely a card's
+An amendment changes the approved contract, not merely a card's
 displayed text. Prepare JSON with `expected_revision`, a bounded `reason`, the
 complete replacement `manifest`, and `member_bodies` keyed by the exact IDs whose
 local contracts change. Copy the canonical manifest from the parent and increment
 its `amendment` ordinal by one (absent means zero). Keep the original `request`,
-repository, destination and exact ordered member set. Member bodies must retain
+repository and destination. Keep existing member rows in their original order;
+append additions and explicitly retire removed scope as described below. Member bodies must retain
 their canonical planning metadata and provenance; changed dependency/profile
 metadata must match the replacement manifest and current allowed profiles.
 `additional_affected_ids` can explicitly invalidate more members, never reduce
@@ -1721,6 +1722,10 @@ cortexium-runner delivery amend --config /absolute/operator/path/runner.json --i
 
 The preview shows the exact before/after shared and changed local contracts,
 affected IDs, and original acceptance identities retained for unaffected members.
+It also shows the original body and resolved profile of each adopted issue, and
+the retained branch/accepted commit/base and original accepted diff summary for
+each retirement. That historical delta is not a promise that later changes left
+every line intact, and it is not removed by retirement.
 Apply uses the same graceful-quiescence, default-No interactive confirmation and
 fresh preview checks as migration/cancellation. Local changes invalidate their
 dependants over **both** old and new dependency graphs. Shared outcome, criteria,
@@ -1735,7 +1740,12 @@ original report, candidate, original-revision/digest and amendment provenance;
 it is historical proof, not a fresh model execution. Old acceptance and superseded
 checkpoints/proof remain private historical records. Results, feedback and rejection
 counts are preserved. An unfinished implementation's spent correction/specialist
-allowance must be explicitly resolved first; amendment does not reset it.
+allowance or a spent verification classification with no durable result must be
+explicitly resolved first; amendment does not reset either. Prior completed
+parent verification progress is archived unchanged, not re-labelled as evidence
+for the new revision. Repeating the exact completed amendment against unchanged
+after-state is acknowledged without further writes; subsequent work or operator
+changes are never overwritten to replay it.
 
 Before the first Project write, Runner saves the approved before/after intent in
 the existing protected parent evidence. A `plan_amending` fence prevents admission
@@ -1754,14 +1764,28 @@ an edit after the last check can still race a write, and a conflict may only be
 detected after partial mutation. The fence and retained intent are recovery aids,
 not an atomic remote transaction; inspect any conflict before resuming.
 
-This first amendment boundary explicitly refuses added/removed/reordered members,
-cancelled/delivered plans and published final PRs. Membership-changing amendments
-remain required programme work: scope removal alone must never erase integrated
-code, and new members require explicit new-card authority. Retargeting or unsafe
-combinations require a separately approved corrective plan, not implicit work.
+To add a member, append its exact existing issue-backed Project ID, canonical
+dependencies, allowed implementation profile/digest and reason to `members`.
+The issue must be open, unapproved and in Assessment, with no earlier planning,
+execution or workspace authority. Its current body and dependencies are bound to
+the preview; edit Assessment content first rather than using `member_bodies` to
+silently replace it during adoption. Runner appends owned planning provenance,
+but preserves existing members' original batch sizes and bodies. It does not
+create or invent cards. Partly attached additions are recoverable only from the
+exact protected intent; unknown extra members still fail closed.
 
-These controls do not complete the rollout by themselves. Membership-changing
-amendments, production historical-proof reuse and failed-complete-gate owner
+To retire a member, keep its row and contract unchanged, set `retired: true` and
+provide `retirement_reason`. Its code, worktree, accepted evidence, feedback and
+counters remain. It is displayed as retired scope, never Done, and cannot satisfy
+internal or external dependencies—even after the rest of the plan is delivered.
+Amend any surviving dependent's contract explicitly in the same preview. Retired
+rows cannot be deleted, reordered or reactivated; an entirely retired plan must
+be cancelled instead. Cancelled/delivered plans and published final PRs cannot be
+amended. Retargeting or unsafe combinations require a separately approved
+corrective plan, not implicit work.
+
+These controls do not complete the rollout by themselves. Production
+historical-proof reuse and failed-complete-gate owner
 classification remain separate required work before live activation. At this
 stage a failed maintained complete gate blocks safely; it does not yet route a
 repair automatically or authorize a speculative owner/card.

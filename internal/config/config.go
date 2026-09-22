@@ -52,16 +52,17 @@ type PlanDeliveryConfig struct {
 // VerificationEntrypoint is operator-owned argv, not an expression or a model
 // supplied command. Execution/containment is owned by the verification launcher.
 type VerificationEntrypoint struct {
-	Preparation             *VerificationPreparation `json:"preparation,omitempty"`
-	RequireCurrentCandidate bool                     `json:"require_current_candidate,omitempty"`
-	ToolchainCommands       []string                 `json:"toolchain_commands"`
-	RuntimePaths            []string                 `json:"runtime_paths,omitempty"`
-	Command                 string                   `json:"command"`
-	Args                    []string                 `json:"args,omitempty"`
-	TimeoutSeconds          int                      `json:"timeout_seconds"`
-	InputPaths              []string                 `json:"input_paths"`
-	DependencyPaths         []string                 `json:"dependency_paths"`
-	DependencyExcludePaths  []string                 `json:"dependency_exclude_paths,omitempty"`
+	Preparation             *VerificationPreparation           `json:"preparation,omitempty"`
+	CurrentCandidateCheck   *VerificationCurrentCandidateCheck `json:"current_candidate_check,omitempty"`
+	RequireCurrentCandidate bool                               `json:"require_current_candidate,omitempty"`
+	ToolchainCommands       []string                           `json:"toolchain_commands"`
+	RuntimePaths            []string                           `json:"runtime_paths,omitempty"`
+	Command                 string                             `json:"command"`
+	Args                    []string                           `json:"args,omitempty"`
+	TimeoutSeconds          int                                `json:"timeout_seconds"`
+	InputPaths              []string                           `json:"input_paths"`
+	DependencyPaths         []string                           `json:"dependency_paths"`
+	DependencyExcludePaths  []string                           `json:"dependency_exclude_paths,omitempty"`
 }
 
 // VerificationPreparation is one operator-owned dependency preparation command.
@@ -69,6 +70,15 @@ type VerificationEntrypoint struct {
 // and total deadline. Only declared dependency roots may change before the
 // actual dependency snapshot becomes the executable check's baseline.
 type VerificationPreparation struct {
+	Command string   `json:"command"`
+	Args    []string `json:"args,omitempty"`
+}
+
+// VerificationCurrentCandidateCheck is the maintained current-candidate guard,
+// including when the heavy proof is historical. It shares the entrypoint's
+// directory, containment, resource claim and total deadline; it grants no
+// independent execution policy.
+type VerificationCurrentCandidateCheck struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args,omitempty"`
 }

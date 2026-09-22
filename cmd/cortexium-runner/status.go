@@ -196,6 +196,7 @@ func writePlanProgress(output io.Writer, work engine.WorkStatus, configPath stri
 		writeWorkSection(output, "Cancelled plans — retained work, no admission", work.CancelledPlans, false, configPath, "")
 	}
 	writeWorkSection(output, "Integrated into plan — not delivered", work.IntegratedUndelivered, false, configPath, "")
+	writeWorkSection(output, "Retired plan scope — retained work, not delivered", work.RetiredMembers, false, configPath, "")
 	if len(work.PlanningCompleted) > 0 {
 		writeWorkSection(output, "Historical planning completed — not a delivery claim", work.PlanningCompleted, false, configPath, "")
 	}

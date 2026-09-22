@@ -32,7 +32,32 @@ func (s *Engine) refreshBranchForQA(ctx context.Context, action github.Authorize
 	}
 	manager := github.NewPullRequestManager(s.run, s.source)
 	var refreshed github.BranchRefreshResult
-	if published {
+	delivery, isPlan, err := s.source.DeliveryForItem(ctx, action.Item)
+	if err != nil {
+		return refreshed, err
+	}
+	if isPlan && action.Item.ID != delivery.Parent.ID {
+		if published {
+			return refreshed, errors.New("plan member cannot refresh a child pull request")
+		}
+		unlock := s.lockPlan(delivery.Parent.ID)
+		defer unlock()
+		delivery, _, err = s.source.DeliveryForItem(ctx, action.Item)
+		if err != nil {
+			return refreshed, err
+		}
+		guard := func() error { return s.validateMemberPlanHead(ctx, action.Item, delivery) }
+		if err := guard(); err != nil {
+			return refreshed, err
+		}
+		provider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
+		if err := provider.VerifyPlanBranchAdvance(ctx, metadata.RepoRoot, delivery.Manifest.Repository, s.remoteName(), baseBranch, metadata.BaseRevision, delivery.Parent.QACommit, guard); err != nil {
+			return refreshed, err
+		}
+		update, updateErr := provider.RefreshLocalPlanBaseForMergeMethod(ctx, metadata, s.remoteName(), baseBranch, s.cfg.GitHubProject.MergeMethod, delivery.Parent.QACommit, guard)
+		refreshed = github.BranchRefreshResult{Updated: update.Updated, Conflicted: update.Conflicted, PreviousCommitSHA: update.PreviousCommitOID, CommitSHA: update.CommitOID, ConflictFiles: update.ConflictFiles, Summary: update.Summary}
+		err = updateErr
+	} else if published {
 		refreshed, err = manager.RefreshBranchAuthorized(ctx, action, metadata, baseBranch, s.remoteName(), s.cfg.GitHubProject.MergeMethod)
 	} else {
 		refreshed, err = manager.RefreshUnpublishedBranchAuthorized(ctx, action, metadata, baseBranch, s.remoteName(), s.cfg.GitHubProject.MergeMethod)

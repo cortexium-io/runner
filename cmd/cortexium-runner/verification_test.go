@@ -8,8 +8,37 @@ import (
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/github"
+	"github.com/cortexium-io/runner/internal/subprocess"
+	"github.com/cortexium-io/runner/internal/verification"
 )
+
+func TestVerifyCLIReportsGuardFailureSeparatelyFromHistoricalPass(t *testing.T) {
+	result := verification.Result{
+		Receipt: &execution.VerificationReceipt{Outcome: "passed"}, Digest: "historical-digest", Historical: true,
+		Invocation:             verification.InvocationObservation{Outcome: "failed"},
+		Output:                 subprocess.Result{Stdout: "unselected heavy output"},
+		CurrentCandidateCheck:  &execution.VerificationCurrentCandidateCheckReceipt{ExecutionID: "fresh-guard", Outcome: "failed"},
+		CurrentCandidateOutput: &subprocess.Result{Stderr: "selected guard failure"},
+	}
+	var out bytes.Buffer
+	writeVerificationResult(&out, false, result)
+	for _, required := range []string{"Verification invocation failed", "outcome=passed; historical=true", "Current-candidate check: failed", "selected guard failure"} {
+		if !strings.Contains(out.String(), required) {
+			t.Fatalf("missing %q in %s", required, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "unselected heavy output") || strings.Contains(out.String(), "invocation passed") {
+		t.Fatal("CLI conflated historical heavy pass with current guard failure")
+	}
+	result.Receipt, result.Digest = nil, ""
+	out.Reset()
+	writeVerificationResult(&out, false, result)
+	if strings.Contains(out.String(), "Heavy receipt:") {
+		t.Fatal("CLI printed invented heavy receipt")
+	}
+}
 
 func TestVerifyCLIRejectsDifferentRepositoryBeforeLaunchingCheck(t *testing.T) {
 	root := t.TempDir()

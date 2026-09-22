@@ -74,6 +74,60 @@ func (p GitProvider) InspectRetainedReview(ctx context.Context, request Request)
 	return bindGitAdministration(metadataFor(repoRoot, snapshot, identity))
 }
 
+// VerifyWorkspaceAbsent checks every deterministic artifact before treating a
+// new assignment as unexecuted. A missing private identity alone proves no
+// such thing. This observation creates, removes and repairs nothing. Before
+// mutation callers must repeat it under the assignment's operation guard,
+// including on recovery; it is not a reservation against external Git edits.
+func (p GitProvider) VerifyWorkspaceAbsent(ctx context.Context, request Request) error {
+	repoRoot, err := p.repositoryRoot(ctx, request.WorkingDir)
+	if err != nil {
+		return err
+	}
+	root, err := resolveWorktreeRoot(repoRoot, request.WorktreeRoot)
+	if err != nil {
+		return err
+	}
+	if err := securefs.ValidatePrivateDir(root); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	workID, branch, err := resolveWorktreeNames(request.WorkID, request.BranchPrefix, request.BranchName)
+	if err != nil {
+		return err
+	}
+	_, _, identity, err := securefs.ReadFile(activeIdentityPath(root, workID), 64*1024)
+	if err != nil {
+		return err
+	}
+	if identity.Exists {
+		return errors.New("assignment already has a private workspace identity")
+	}
+	path := filepath.Join(root, workID)
+	if _, err := os.Lstat(path); err == nil {
+		return errors.New("assignment already has a workspace path without a private identity; preserve it and use explicit recovery")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if _, registered, err := p.registeredWorktree(ctx, repoRoot, path); err != nil {
+		return err
+	} else if registered {
+		return errors.New("assignment already has a registered worktree without a private identity; preserve it and use explicit recovery")
+	}
+	if _, err := p.git(ctx, repoRoot, "check-ref-format", "--branch", branch); err != nil {
+		return fmt.Errorf("validate absent workspace branch: %w", err)
+	}
+	// Unlike branchExists, a failed query must never count as absence. A
+	// descendant ref also occupies this namespace and prevents safe creation.
+	refs, err := p.git(ctx, repoRoot, "for-each-ref", "--format=%(refname)", "refs/heads/"+branch)
+	if err != nil {
+		return fmt.Errorf("inspect absent workspace branch: %w", err)
+	}
+	if strings.TrimSpace(refs.Stdout) != "" {
+		return errors.New("assignment already has a local branch without a private identity; preserve it and use explicit recovery")
+	}
+	return nil
+}
+
 func (p GitProvider) validateRetainedIdentity(ctx context.Context, request Request, reviewOriginalContent bool) (Identity, error) {
 	repoRoot, err := p.repositoryRoot(ctx, request.WorkingDir)
 	if err != nil {

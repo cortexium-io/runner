@@ -216,7 +216,11 @@ func (r *deliveryMilestoneRunner) Run(ctx context.Context, command string, args 
 			if r.merged {
 				state = "MERGED"
 			}
-			b, _ := json.Marshal(map[string]any{"url": "https://github.com/owner/repo/pull/12", "number": 12, "state": state, "headRepository": map[string]string{"nameWithOwner": "owner/repo"}, "headRefName": r.branch, "headRefOid": r.head, "baseRefName": "main", "baseRefOid": r.base, "mergeStateStatus": "CLEAN", "comments": []any{}, "reviews": []any{}})
+			var mergeCommit any
+			if r.merged {
+				mergeCommit = map[string]string{"oid": r.head}
+			}
+			b, _ := json.Marshal(map[string]any{"url": "https://github.com/owner/repo/pull/12", "number": 12, "state": state, "headRepository": map[string]string{"nameWithOwner": "owner/repo"}, "headRefName": r.branch, "headRefOid": r.head, "baseRefName": "main", "baseRefOid": r.base, "mergeCommit": mergeCommit, "mergeStateStatus": "CLEAN", "comments": []any{}, "reviews": []any{}})
 			return subprocess.Result{Stdout: string(b)}, nil
 		}
 	}

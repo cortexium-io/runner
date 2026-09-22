@@ -15,23 +15,25 @@ import (
 // authenticated initial head. A lost push response is recovered by observing
 // that exact head. A different remote head is never silently adopted.
 func (p GitProvider) EnsurePlanBranch(ctx context.Context, directory, repository, remote, branch, expected string, refreshAuthority func() error) error {
-	return p.preparePlanBranch(ctx, directory, repository, remote, branch, expected, refreshAuthority, true, false)
+	return p.preparePlanBranch(ctx, directory, repository, remote, branch, expected, "", refreshAuthority, true)
 }
 
 // VerifyPlanBranch never recreates a missing branch. Review and publication
 // must still observe the coordinator's authenticated integration head.
 func (p GitProvider) VerifyPlanBranch(ctx context.Context, directory, repository, remote, branch, expected string, refreshAuthority func() error) error {
-	return p.preparePlanBranch(ctx, directory, repository, remote, branch, expected, refreshAuthority, false, false)
+	return p.preparePlanBranch(ctx, directory, repository, remote, branch, expected, "", refreshAuthority, false)
 }
 
-// VerifyTerminalPlanBranch permits deletion only after the caller has verified
-// an exact terminal PR. An extant branch must still be the accepted candidate;
-// it is never recreated, adopted or overwritten during publication recovery.
-func (p GitProvider) VerifyTerminalPlanBranch(ctx context.Context, directory, repository, remote, branch, expected string, refreshAuthority func() error) error {
-	return p.preparePlanBranch(ctx, directory, repository, remote, branch, expected, refreshAuthority, false, true)
+// VerifyPlanBranchAdvance proves an exact authenticated forward integration,
+// not an unrelated replacement, before renewing a member's obsolete review.
+func (p GitProvider) VerifyPlanBranchAdvance(ctx context.Context, directory, repository, remote, branch, previous, expected string, refreshAuthority func() error) error {
+	if !validObjectID(previous) || previous == expected {
+		return errors.New("plan review renewal requires a distinct prior head")
+	}
+	return p.preparePlanBranch(ctx, directory, repository, remote, branch, expected, previous, refreshAuthority, false)
 }
 
-func (p GitProvider) preparePlanBranch(ctx context.Context, directory, repository, remote, branch, expected string, refreshAuthority func() error, create, allowMissing bool) error {
+func (p GitProvider) preparePlanBranch(ctx context.Context, directory, repository, remote, branch, expected, previous string, refreshAuthority func() error, create bool) error {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
 	if !config.ValidRepositoryName(repository) || !validObjectID(expected) || !strings.HasPrefix(branch, "runner/plan-") || remote == "" || refreshAuthority == nil {
@@ -64,9 +66,6 @@ func (p GitProvider) preparePlanBranch(ctx context.Context, directory, repositor
 		return err
 	}
 	if len(value) == 0 {
-		if allowMissing {
-			return nil
-		}
 		if !create {
 			return errors.New("authenticated plan branch is missing; refusing to recreate it during review")
 		}
@@ -87,6 +86,12 @@ func (p GitProvider) preparePlanBranch(ctx context.Context, directory, repositor
 	head, err := p.privilegedScalar(ctx, profile, "rev-parse", "--verify", tracking)
 	if err != nil || head != expected {
 		return errors.New("plan branch changed while being prepared")
+	}
+	if previous != "" {
+		result, err := p.privilegedGit(ctx, profile, "merge-base", "--is-ancestor", previous, expected)
+		if err != nil || result.ExitCode != 0 {
+			return errors.New("authenticated plan head is not a forward integration of the previously reviewed base")
+		}
 	}
 	return refreshAuthority()
 }

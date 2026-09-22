@@ -92,9 +92,12 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 	}
 	defer func() {
+		if result.FailureClass == FailureCleanupUnresolved {
+			return // A surviving owned process may still use these runtime paths.
+		}
 		if stageName != metrics.StageTestSpecialist {
 			_ = workspace.cleanup()
-		} else if result.FailureClass != FailureCleanupUnresolved {
+		} else {
 			resultErr = errors.Join(resultErr, workspace.cleanup())
 		}
 	}()
@@ -104,6 +107,9 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 			return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryManual), fmt.Errorf("prepare reviewer verification copy: %w", err)
 		}
 		defer func() {
+			if result.FailureClass == FailureCleanupUnresolved {
+				return // Live owned work has no final filesystem state to verify yet.
+			}
 			if err := verification.verify(); err != nil {
 				result.FailureClass, result.RetryDisposition = FailureIntegrityViolation, RetryNone
 				result.Message = ""
@@ -121,7 +127,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 			return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 		}
 		defer func() {
-			if stageName != metrics.StageTestSpecialist || result.FailureClass != FailureCleanupUnresolved {
+			if result.FailureClass != FailureCleanupUnresolved {
 				artifacts.close()
 			}
 		}()

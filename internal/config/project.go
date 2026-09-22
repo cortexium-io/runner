@@ -202,6 +202,9 @@ func (c Config) Validate() error {
 		if entrypoint.Preparation != nil && (!validCommand(entrypoint.Preparation.Command) || len(entrypoint.DependencyPaths) == 0) {
 			return errors.New("verification preparation requires one PATH or absolute executable and explicit dependency_paths")
 		}
+		if entrypoint.CurrentCandidateCheck != nil && !validCommand(entrypoint.CurrentCandidateCheck.Command) {
+			return errors.New("verification current_candidate_check requires one PATH or absolute executable")
+		}
 		tools := map[string]bool{}
 		for _, command := range entrypoint.ToolchainCommands {
 			if !validCommand(command) || tools[command] {
@@ -215,6 +218,9 @@ func (c Config) Validate() error {
 		arguments := append([]string(nil), entrypoint.Args...)
 		if entrypoint.Preparation != nil {
 			arguments = append(arguments, entrypoint.Preparation.Args...)
+		}
+		if entrypoint.CurrentCandidateCheck != nil {
+			arguments = append(arguments, entrypoint.CurrentCandidateCheck.Args...)
 		}
 		for _, arg := range arguments {
 			if strings.ContainsRune(arg, 0) {

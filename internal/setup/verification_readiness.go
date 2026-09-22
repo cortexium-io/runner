@@ -30,6 +30,9 @@ func (i *Inspector) inspectVerification(ctx context.Context) ([]CapabilityState,
 		if entry.Preparation != nil {
 			commands = append(commands, entry.Preparation.Command)
 		}
+		if entry.CurrentCandidateCheck != nil {
+			commands = append(commands, entry.CurrentCandidateCheck.Command)
+		}
 		for _, command := range commands {
 			path, err := i.lookPath(command)
 			if err == nil {
