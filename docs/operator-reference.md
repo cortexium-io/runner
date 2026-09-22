@@ -1660,6 +1660,18 @@ catalog ID. It does not create a verification command, grant host access, change
 models/limits, alter cards or reinterpret historical planning completion. A
 same-named conflicting or duplicate field is refused, not repaired implicitly.
 
+The preview reports `preserved_legacy_done_items`: legacy planning records kept
+unchanged because their complete current batch is Done and transition-free.
+This is administrative quiescence, not renewed execution/dependency authority
+or proof of delivery. Stale or missing old approvals and retained historical
+phase/QA snapshots are not rewritten or matched retroactively to a PR head.
+Declared batch size, unique indices, common provenance and any actual parent
+must remain structurally consistent; missing members/parents, malformed metadata
+or nonterminal work block migration. Archived records are not relabeled or
+restored; a partially missing current batch cannot silently qualify. New plan
+manifests/releases still require current authenticated contract and completion.
+Apply revalidates the exact preview, including all retained record contents.
+
 Gracefully stop the existing service and let assignments and their descendants
 finish. Finish standalone planning, review and configured verification operations
 too. Run the same command without `--dry-run` or `--json` in an interactive

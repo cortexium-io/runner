@@ -79,6 +79,12 @@ existing operator-selected complete gate after quiescence and exact config/Proje
 revalidation. Previewed cancellation fences the signed parent while retaining
 members, work, release authority and history. Neither operation drains or starts
 work implicitly, overwrites intervening operator edits, or closes a published PR.
+Migration treats structurally complete legacy Done batches only as inert
+administrative history, even when old action assertions are stale or absent.
+It does not renew their execution/dependency authority, relabel them delivered,
+or rewrite historical QA/PR evidence. Current delivery manifests retain their
+strict authority/completion checks; missing membership or nonterminal work
+still prevents rollout.
 Amendments preview the complete contract and advance an explicit
 ordinal revision. Changed local contracts invalidate the old/new dependency
 closure; shared changes conservatively invalidate all members. Exact original

@@ -24,8 +24,11 @@ type PlanFieldMigration struct {
 	FieldID     string `json:"existing_field_id,omitempty"`
 	CreateField bool   `json:"create_release_text_field"`
 	Snapshot    string `json:"project_snapshot"`
-	fields      []projectFieldNode
-	items       []WorkItem
+	// This is preservation of administrative history, not authenticated
+	// delivery, execution eligibility, or dependency success.
+	PreservedLegacyDoneItems int `json:"preserved_legacy_done_items"`
+	fields                   []projectFieldNode
+	items                    []WorkItem
 }
 
 // ItemIDs identifies the exact snapshot whose standalone review locks must be
@@ -63,7 +66,8 @@ func (s *Project) PlanDeliveryMigration(ctx context.Context) (PlanFieldMigration
 	if err != nil {
 		return PlanFieldMigration{}, err
 	}
-	if err := s.requireCompletedPreRolloutWork(items); err != nil {
+	plan.PreservedLegacyDoneItems, err = s.requireCompletedPreRolloutWork(items)
+	if err != nil {
 		return PlanFieldMigration{}, err
 	}
 	// Bind the entire observed Project schema and work snapshot. No approval
@@ -83,23 +87,105 @@ func (s *Project) PlanDeliveryMigration(ctx context.Context) (PlanFieldMigration
 	return plan, nil
 }
 
-func (s *Project) requireCompletedPreRolloutWork(items []WorkItem) error {
+func (s *Project) requireCompletedPreRolloutWork(items []WorkItem) (int, error) {
 	index := newWorkItemIndex(items)
+	seen, checkedLegacy := map[string]bool{}, map[string]bool{}
+	preserved := 0
 	for _, item := range items {
+		if item.ID == "" || seen[item.ID] {
+			return 0, errors.New("migration requires unique current Project item identities")
+		}
+		seen[item.ID] = true
+		if item.PlanningMetadataInvalid {
+			return 0, fmt.Errorf("item %s has invalid planning metadata; inspect retained membership before migration", item.ID)
+		}
 		if item.Transition != "" || strings.EqualFold(item.Status, s.runningStatus()) {
-			return fmt.Errorf("item %s is active or transition-locked; gracefully drain and recover Runner before delivery migration", item.ID)
+			return 0, fmt.Errorf("item %s is active or transition-locked; gracefully drain and recover Runner before delivery migration", item.ID)
 		}
 		_, manifest, _ := ParsePlanManifest(item.Body)
-		planned := manifest || item.PlanRelease != "" || item.PlanningSourceID != "" || item.PlanningBatchFingerprint != "" || len(index.childrenBySource[item.ID]) > 0
-		if planned {
+		parent := index.byID[item.PlanningSourceID]
+		_, parentManifest, _ := ParsePlanManifest(parent.Body)
+		if manifest || item.PlanRelease != "" || parentManifest || parent.PlanRelease != "" {
+			if manifest || item.PlanRelease != "" {
+				parent = item
+			}
+			if _, err := s.ValidatePlanDelivery(parent, items); err != nil {
+				return 0, fmt.Errorf("delivery plan %s requires current contract authority before migration: %w", parent.ID, err)
+			}
 			if !s.planningSourceWorkCompletedIn(item, index) && !s.hasSuccessfulOutcomeIn(item, index) {
-				return fmt.Errorf("plan or member %s is not completely delivered; finish existing batches before enabling new-plan delivery", item.ID)
+				return 0, fmt.Errorf("plan or member %s is not completely delivered; finish existing batches before enabling new-plan delivery", item.ID)
 			}
 			continue
 		}
-		if s.agentStatus(item.Status) || strings.EqualFold(item.Status, s.prReadyStatus()) {
-			return fmt.Errorf("item %s remains scheduled or awaiting publication; finish existing work before delivery migration", item.ID)
+		if item.PlanningSourceID != "" || item.PlanningBatchFingerprint != "" || historicalPlanningSource(item, index) {
+			// A legacy Done row may predate current terminal authority. Rollout
+			// preserves it without upgrading its proof or authorizing any work.
+			key := "batch:" + item.PlanningBatchFingerprint
+			if item.PlanningSourceID != "" {
+				key = "source:" + item.PlanningSourceID
+			} else if historicalPlanningSource(item, index) {
+				key = "source:" + item.ID
+			}
+			if !checkedLegacy[key] {
+				if err := s.requireLegacyDoneBatch(item, index); err != nil {
+					return 0, fmt.Errorf("historical batch containing %s cannot be preserved during migration: %w", item.ID, err)
+				}
+				checkedLegacy[key] = true
+			}
+			preserved++
+			continue
 		}
+		if s.agentStatus(item.Status) || strings.EqualFold(item.Status, s.prReadyStatus()) {
+			return 0, fmt.Errorf("item %s remains scheduled or awaiting publication; finish existing work before delivery migration", item.ID)
+		}
+	}
+	return preserved, nil
+}
+
+func historicalPlanningSource(item WorkItem, index *workItemIndex) bool {
+	// A retained batch marker is not authority, but must stop a parent whose
+	// entire member set disappeared from masquerading as an ordinary Done card.
+	return len(index.childrenBySource[item.ID]) > 0 || item.PlanningSourceID == "" && item.PlanningBatchFingerprint == "" && strings.HasPrefix(strings.TrimSpace(item.Approval), batchAssertionVersion+":")
+}
+
+// This checks administrative terminal state and complete current topology only.
+// It must never be used by execution, dependencies, issue closure or publication.
+func (s *Project) requireLegacyDoneBatch(item WorkItem, index *workItemIndex) error {
+	children := index.directByFingerprint[item.PlanningBatchFingerprint]
+	sourceID := item.PlanningSourceID
+	if sourceID == "" && historicalPlanningSource(item, index) {
+		sourceID = item.ID
+	}
+	if sourceID != "" {
+		parent, found := index.byID[sourceID]
+		if !found || !strings.EqualFold(strings.TrimSpace(parent.Status), s.doneStatus()) || parent.Transition != "" || parent.PlanningMetadataInvalid {
+			return errors.New("the actual historical planning parent must be present, Done and transition-free")
+		}
+		children = index.childrenBySource[sourceID]
+		for _, child := range children {
+			if child.PlanningSourceFingerprint != PlanningSourceFingerprint(parent) {
+				return errors.New("historical planning parent differs from retained member provenance")
+			}
+		}
+	}
+	if err := ValidatePlanningDependencies(children); err != nil {
+		return err
+	}
+	first := children[0]
+	if len(children) > MaxPlanningBatchChildren || first.PlanningBatchSize != len(children) || first.PlanningSourceLane == "" || first.PlanningSourceFingerprint == "" || first.PlanningDestination == "" {
+		return errors.New("historical batch cardinality or provenance is incomplete")
+	}
+	seen := make([]bool, len(children))
+	for _, child := range children {
+		_, manifest, _ := ParsePlanManifest(child.Body)
+		if manifest || child.PlanRelease != "" || !strings.EqualFold(strings.TrimSpace(child.Status), s.doneStatus()) || child.Transition != "" {
+			return errors.New("every historical member must be legacy Done and transition-free; finish nonterminal work first")
+		}
+		if child.PlanningSourceLane != first.PlanningSourceLane || child.PlanningSourceFingerprint != first.PlanningSourceFingerprint || child.PlanningDestination != first.PlanningDestination || child.PlanningBatchSize != len(children) ||
+			child.PlanningItemIndex < 1 || child.PlanningItemIndex > len(children) || seen[child.PlanningItemIndex-1] {
+			return errors.New("historical batch has missing, altered or duplicate membership")
+		}
+		seen[child.PlanningItemIndex-1] = true
 	}
 	return nil
 }

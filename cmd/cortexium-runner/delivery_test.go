@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/engine"
+	"github.com/cortexium-io/runner/internal/github"
 )
 
 func TestDeliveryMigrationCLIIsExactPreviewOnlyWithoutConfirmation(t *testing.T) {
@@ -49,6 +51,9 @@ func TestDeliveryMigrationCLIIsExactPreviewOnlyWithoutConfirmation(t *testing.T)
 				Applied   bool
 				Operation string
 				Preview   struct {
+					Project struct {
+						Preserved *int `json:"preserved_legacy_done_items"`
+					}
 					Configuration struct {
 						Digest string `json:"config_snapshot"`
 						After  config.PlanDeliveryConfig
@@ -57,6 +62,9 @@ func TestDeliveryMigrationCLIIsExactPreviewOnlyWithoutConfirmation(t *testing.T)
 			}
 			if err := json.Unmarshal(out.Bytes(), &result); err != nil || result.Applied || result.Operation != "migrate" || !result.Preview.Configuration.After.Enabled || result.Preview.Configuration.Digest == "" {
 				t.Fatalf("preview did not bind exact config: %v", err)
+			}
+			if result.Preview.Project.Preserved == nil || *result.Preview.Project.Preserved != 0 {
+				t.Fatal("preview omitted the separate historical-preservation count")
 			}
 			for _, secret := range []string{`"approval"`, `"body"`, `"items"`} {
 				if strings.Contains(out.String(), secret) {
@@ -82,6 +90,16 @@ func TestDeliveryMigrationCLIIsExactPreviewOnlyWithoutConfirmation(t *testing.T)
 	for _, forbidden := range []string{"field-create", "item-edit", "issue edit", "updateProjectV2"} {
 		if strings.Contains(string(calls), forbidden) {
 			t.Fatalf("preview mutated Project: %s", forbidden)
+		}
+	}
+}
+
+func TestDeliveryMigrationPreviewSeparatesHistoryFromAuthority(t *testing.T) {
+	var out bytes.Buffer
+	writeDeliveryMigrationPreview(&out, engine.DeliveryMigration{Project: github.PlanFieldMigration{PreservedLegacyDoneItems: 9}})
+	for _, want := range []string{"Preserve 9 legacy Done planning records unchanged", "not authenticated delivery", "dependency/execution authority", "structurally complete and entirely Done", "new delivery contracts must retain current authority"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("preview omitted %q", want)
 		}
 	}
 }
