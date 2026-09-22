@@ -172,7 +172,10 @@ func readAmendmentEvidence(path string) ([]byte, error) {
 }
 
 func (s *Engine) archiveAmendedVerification(itemID, expectedDigest string) error {
-	path := s.verificationEvidencePath(itemID)
+	return archiveAmendedEvidence(s.verificationEvidencePath(itemID), expectedDigest)
+}
+
+func archiveAmendedEvidence(path, expectedDigest string) error {
 	data, err := readAmendmentEvidence(path)
 	digest := ""
 	if data != nil {

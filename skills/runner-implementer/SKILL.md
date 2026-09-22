@@ -142,6 +142,20 @@ satisfies current requirements and credible risks.
 
 ## Verification scheduling
 
+Only when Runner explicitly supplies the test-specialist capability, a focused
+contribution can be requested with `test_requested`. Identify the approved proof
+obligations, inspected existing checks, reason and exact permitted files; then
+stop workspace execution. This is one sequential handoff within the current
+deadline, not a mandatory phase or another repair allowance. Resume from the
+actual returned contribution and assess its assertions before relying on it.
+
+When Runner assigns that specialist contribution itself, apply this skill to
+the bounded test task, not the entire feature. A justified no-change result is
+valid. Preserve production, requirements and controls; no further handoff or
+repair request is available. Report unrun checks honestly for the original
+implementer. Creating test code is not proof that it passes or that the feature
+meets its acceptance conditions.
+
 An ordinary in-scope test failure is part of implementation: diagnose and repair
 it in this session while runtime remains. Do not hand it back merely because
 verification failed. If a fresh pass is genuinely needed for a concrete,

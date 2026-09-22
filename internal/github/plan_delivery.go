@@ -19,6 +19,7 @@ const (
 	PlanIntegratingPhase = "plan_integrating"
 	PlanRepairingPhase   = "plan_repairing"
 	PlanCancelledPhase   = "plan_cancelled"
+	PlanAmendingPhase    = "plan_amending"
 	PlanProposalPhase    = "plan_proposal"
 	planManifestPrefix   = "# Runner outcome delivery plan\n\nThe following contract is proposed until the exact batch is approved. Its shared scope applies to every member; mutable execution history is not part of this contract.\n\n```json\n"
 )
@@ -50,6 +51,7 @@ func (s *Project) FinishPlanRepair(ctx context.Context, action AuthorizedAction,
 // in the parent's ordinary signed lifecycle fields, not in this manifest.
 type PlanManifest struct {
 	Version              int          `json:"version"`
+	Amendment            int          `json:"amendment,omitempty"`
 	Request              string       `json:"request"`
 	Outcome              string       `json:"outcome"`
 	SuccessCriteria      []string     `json:"success_criteria"`
@@ -118,7 +120,7 @@ func ParsePlanManifest(body string) (PlanManifest, bool, error) {
 }
 
 func validatePlanManifest(manifest PlanManifest) error {
-	if manifest.Version != 1 || strings.TrimSpace(manifest.Request) == "" || strings.TrimSpace(manifest.Outcome) == "" ||
+	if manifest.Version != 1 || manifest.Amendment < 0 || strings.TrimSpace(manifest.Request) == "" || strings.TrimSpace(manifest.Outcome) == "" ||
 		len(manifest.SuccessCriteria) == 0 || !config.ValidRepositoryName(manifest.Repository) ||
 		!validPlanBranch(manifest.DestinationBranch) || strings.TrimSpace(manifest.CompleteVerification) == "" || !validPlanDigest(manifest.VerificationDigest) ||
 		len(manifest.Members) == 0 || len(manifest.Members) > MaxPlanningBatchChildren {
@@ -205,6 +207,9 @@ func (s *Project) ValidatePlanDelivery(parent WorkItem, all []WorkItem) (PlanDel
 // Cancellation inspection may read an intact cancelled contract, but no
 // execution/admission caller may treat it as available delivery authority.
 func (s *Project) validatePlanDeliveryState(parent WorkItem, all []WorkItem, allowCancelled bool) (PlanDelivery, error) {
+	if parent.Phase == PlanAmendingPhase {
+		return PlanDelivery{}, errors.New("plan amendment is fenced; finish the protected operator amendment before admission")
+	}
 	if !s.cfg.PlanDelivery {
 		return PlanDelivery{}, errors.New("plan delivery is not enabled")
 	}

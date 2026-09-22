@@ -395,6 +395,43 @@ harness stages retain each call's usage and timing. It is not another QA stage.
 Operator-supplied retry feedback also clears the checkpoint before changing the
 card, while unchanged Runner-side post-processing failures retain it.
 
+### Sequential test contribution (disabled by default)
+
+An explicitly enabled `test_specialist` policy admits one implementer-requested
+`test_requested` handoff inside the same assignment, deadline and resource claim.
+It is independent of the single corrective pass, not a new role, scheduler or QA
+stage. The capability and exact `allowed_paths` are part of implementation-profile
+approval. Absent or disabled policy grants nothing. Enabling it requires operator
+review of each selected file as a test or fixture; paths are a trust boundary,
+not semantic detection of whether arbitrary code is production. Directory grants,
+known controls, symlinks, deletions and mode changes are refused. New declared
+files are permitted; the total observed delta is limited to 32 files / 256 KiB.
+
+The specialist inherits the selected model/reasoning but uses the existing
+native Codex/Claude sandboxed, isolated implementer profile with no MCP, repository
+references or host fallback. Pi is unsupported: enabled policy is refused during
+configuration validation if any reachable implementer (including planner choices
+and the repair ladder) uses it. Disabled policy and unreachable stored profiles
+remain valid. The specialist receives a bounded source copy
+of the retained candidate, requirements, plan context and existing tests with a
+fresh standalone inventory index—not shared writable Git administration. Ignored
+dependencies/output are not copied; discovered recognized dependency, output or
+credential residue fails closed even if unignored. Linked/special source files
+are refused. This deliberately narrow initial mode does not install dependencies;
+the original implementer runs checks needing them after receiving the contribution.
+
+Runner independently verifies the private delta and revalidates original
+source, Git controls and authority before conditional application. Success may
+mean a justified no-change contribution, never acceptance of the original card.
+Independent QA is unchanged. The existing private checkpoint stores request,
+settings/assignment bindings, observed interval, outcome, usage and bounded delta.
+Consumption is durable before launch. An observed result or completed application
+can resume without repeating the specialist; uncertain invocation, partial
+application or continuation stops for explicit recovery. Historical evidence is
+not charged or labeled as a new execution. The `test_specialist` harness stage
+retains partial/unavailable usage, and all new calls count in the same attempt.
+No model run is needed to validate these deterministic boundaries.
+
 Pi result attribution comes only from its native JSON event stream. Explicit
 `lmstudio/...` stages with tools must produce one session-provenanced
 empty-finalizer start/end pair with an unchanged call ID and invocation-bound
@@ -953,8 +990,13 @@ isolated reviewer; no silent containment fallback exists. Final publication
 rechecks authority and proof. Ambiguous PR creation is read back by exact
 repository, branch, base and head, including merged or closed PRs, before any
 repeat mutation. Only confirmed integration into the destination delivers the
-plan. This core path remains rollout-disabled while operator migration,
-amendment/cancellation controls and independent rollout review are completed.
+plan. Existing-member operator amendments fence the parent and retain exact
+before/after state in its existing protected evidence. The new ordinal manifest
+revision signs the exact renewed child contracts; the old/new dependency closure
+determines invalidation. Unaffected acceptance retains its original execution and
+proof identity. This path remains rollout-disabled while membership-changing
+amendments, remaining verification integration and independent rollout review
+are completed.
 
 Local coordination separates the worker lifetime from standalone planning.
 `run` alone owns the worker lock and runtime-status file. Standalone `plan`

@@ -79,8 +79,17 @@ existing operator-selected complete gate after quiescence and exact config/Proje
 revalidation. Previewed cancellation fences the signed parent while retaining
 members, work, release authority and history. Neither operation drains or starts
 work implicitly, overwrites intervening operator edits, or closes a published PR.
-Selective amendment is still required: ordinary Project/body edits are not
-amendments. The core and operator milestones are not permission to enable live
+Existing-member amendments preview the complete contract and advance an explicit
+ordinal revision. Changed local contracts invalidate the old/new dependency
+closure; shared changes conservatively invalidate all members. Exact original
+acceptance is carried only for unaffected members with historical provenance.
+The parent always needs renewed delivery acceptance. Existing protected parent
+evidence holds the exact approved before/after intent; a `plan_amending` fence
+precedes partial writes and restart finishes only that intent before admission.
+Counts, history and integrated code are retained, not reset or deleted.
+Membership additions/removals remain a subsequent explicit amendment boundary;
+ordinary Project/body edits are never amendments. The core and operator
+milestones are not permission to enable live
 delivery before all required controls and the rollout have been independently
 reviewed. Failed complete verification currently blocks safely; protected
 failed-proof classification and bounded owner repair remain required integration

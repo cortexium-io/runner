@@ -14,7 +14,7 @@ import (
 
 // The caller retains the original admission/resource claim. No retry queue,
 // additional workflow lane, or new implementation authority is involved.
-func (s *Engine) prepareImplementationCorrection(ctx context.Context, action github.AuthorizedAction, contextDigest string, metadata workspace.Metadata, previous execution.Output, deadline time.Time) (github.AuthorizedAction, workspace.Snapshot, error) {
+func (s *Engine) prepareImplementationCorrection(ctx context.Context, action github.AuthorizedAction, contextDigest string, metadata workspace.Metadata, previous execution.Output, deadline time.Time, specialist ...*implementationSpecialistState) (github.AuthorizedAction, workspace.Snapshot, error) {
 	before, err := s.workspaceSnapshotState(ctx, metadata.WorktreePath)
 	if err != nil {
 		return action, workspace.Snapshot{}, err
@@ -32,6 +32,7 @@ func (s *Engine) prepareImplementationCorrection(ctx context.Context, action git
 		return action, workspace.Snapshot{}, err
 	}
 	assignment := s.assignment(current.Item, content, feedback, humanCommentContext(comments))
+	s.bindImplementationTestCapability(&assignment)
 	if err := s.bindDeliveryAssignment(ctx, current.Item, &assignment); err != nil {
 		return action, workspace.Snapshot{}, err
 	}
@@ -50,7 +51,7 @@ func (s *Engine) prepareImplementationCorrection(ctx context.Context, action git
 	}
 	// Commit the spent allowance before any second harness launch. A restart
 	// can replay successful post-processing, but not this model invocation.
-	if err := s.saveImplementationCheckpoint(current.Item, content, contextDigest, metadata, after, workspace.Candidate{}, previous, deadline, true); err != nil {
+	if err := s.saveImplementationCheckpoint(current.Item, content, contextDigest, metadata, after, workspace.Candidate{}, previous, deadline, true, specialist...); err != nil {
 		return action, workspace.Snapshot{}, err
 	}
 	if err := s.updateActivity(ctx, current, "Repairing implementation (1/1)"); err != nil {

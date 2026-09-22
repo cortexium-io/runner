@@ -4,25 +4,39 @@ import "github.com/cortexium-io/runner/internal/metrics"
 
 // Spec is the small, local assignment contract shared by harness adapters.
 type Spec struct {
-	ID                     string                 `json:"id"`
-	ItemID                 string                 `json:"item_id"`
-	Repository             string                 `json:"repository"`
-	Task                   Task                   `json:"task"`
-	ApprovedBodySnapshot   string                 `json:"approved_body_snapshot,omitempty"`
-	DelegatedContentDigest string                 `json:"delegated_content_digest,omitempty"`
-	ContextRefs            []string               `json:"context_refs,omitempty"`
-	RequiredVerification   []string               `json:"required_verification,omitempty"`
-	RecordedVerification   []VerificationEvidence `json:"recorded_verification,omitempty"`
-	ReviewBaseline         *ReviewBaseline        `json:"review_baseline,omitempty"`
-	ReviewCommentContext   []string               `json:"review_comment_context,omitempty"`
-	ReviewBaseOID          string                 `json:"review_base_oid,omitempty"`
-	ReviewCandidateOID     string                 `json:"review_candidate_oid,omitempty"`
-	ReviewRequired         bool                   `json:"review_required,omitempty"`
-	ReviewOnly             bool                   `json:"review_only,omitempty"`
-	PlanContext            *PlanContext           `json:"plan_context,omitempty"`
-	PlanMemberBriefs       []PlanMemberBrief      `json:"plan_member_briefs,omitempty"`
-	ReviewScope            ReviewScope            `json:"review_scope,omitempty"`
-	VerificationBoundary   VerificationBoundary   `json:"verification_boundary,omitempty"`
+	TestSpecialist         *TestSpecialistCapability `json:"test_specialist,omitempty"`
+	ID                     string                    `json:"id"`
+	ItemID                 string                    `json:"item_id"`
+	Repository             string                    `json:"repository"`
+	Task                   Task                      `json:"task"`
+	ApprovedBodySnapshot   string                    `json:"approved_body_snapshot,omitempty"`
+	DelegatedContentDigest string                    `json:"delegated_content_digest,omitempty"`
+	ContextRefs            []string                  `json:"context_refs,omitempty"`
+	RequiredVerification   []string                  `json:"required_verification,omitempty"`
+	RecordedVerification   []VerificationEvidence    `json:"recorded_verification,omitempty"`
+	ReviewBaseline         *ReviewBaseline           `json:"review_baseline,omitempty"`
+	ReviewCommentContext   []string                  `json:"review_comment_context,omitempty"`
+	ReviewBaseOID          string                    `json:"review_base_oid,omitempty"`
+	ReviewCandidateOID     string                    `json:"review_candidate_oid,omitempty"`
+	ReviewRequired         bool                      `json:"review_required,omitempty"`
+	ReviewOnly             bool                      `json:"review_only,omitempty"`
+	PlanContext            *PlanContext              `json:"plan_context,omitempty"`
+	PlanMemberBriefs       []PlanMemberBrief         `json:"plan_member_briefs,omitempty"`
+	ReviewScope            ReviewScope               `json:"review_scope,omitempty"`
+	VerificationBoundary   VerificationBoundary      `json:"verification_boundary,omitempty"`
+}
+
+// TestSpecialistCapability is coordinator-supplied permission, never a grant
+// inferred from the model's request. It is absent after the allowance is spent.
+type TestSpecialistCapability struct {
+	AllowedPaths []string `json:"allowed_paths"`
+}
+
+type TestSpecialistRequest struct {
+	CriterionIndices []int    `json:"criterion_indices"`
+	Reason           string   `json:"reason"`
+	ExistingChecks   []string `json:"existing_checks"`
+	Paths            []string `json:"paths"`
 }
 
 type PlanMemberBrief struct {
@@ -87,10 +101,11 @@ type Assignment struct {
 }
 
 const (
-	OutcomeSucceeded    = "succeeded"
-	OutcomeNeedsInput   = "needs_input"
-	OutcomeBlocked      = "blocked"
-	OutcomeRepairNeeded = "repair_needed"
+	OutcomeSucceeded     = "succeeded"
+	OutcomeNeedsInput    = "needs_input"
+	OutcomeBlocked       = "blocked"
+	OutcomeRepairNeeded  = "repair_needed"
+	OutcomeTestRequested = "test_requested"
 )
 
 // FailureClass is a Runner-owned, privacy-safe reason for an unsuccessful
@@ -132,6 +147,7 @@ const (
 )
 
 type Output struct {
+	TestRequest                 *TestSpecialistRequest
 	Outcome                     string
 	Summary                     string
 	WorkDone                    []string

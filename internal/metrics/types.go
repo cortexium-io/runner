@@ -41,6 +41,7 @@ const (
 	StageWorkspaceVerify      = "workspace_verify"
 	StageCandidateConstruct   = "candidate_construct"
 	StageImplementationRepair = "implementation_repair"
+	StageTestSpecialist       = "test_specialist"
 	StageProjectTransition    = "project_transition"
 	StagePublishPullRequest   = "publish_pull_request"
 	StagePlannerApply         = "planner_apply"
@@ -57,7 +58,7 @@ func validStageName(name string) bool {
 	case StageWorkspacePrepare, StageRepositoryPrepare, StageHarnessRun, StagePlannerOutline,
 		StagePlannerDetails, StageReviewerAudit, StageReviewerVerify, StageResultValidate,
 		StageWorkspaceVerify, StageCandidateConstruct, StageProjectTransition, StagePublishPullRequest,
-		StagePlannerApply, StageHarnessCleanup, StageImplementationRepair:
+		StagePlannerApply, StageHarnessCleanup, StageImplementationRepair, StageTestSpecialist:
 		return true
 	default:
 		return false
@@ -761,7 +762,7 @@ func Summarize(attempts []Attempt) Summary {
 
 func isHarnessStage(name string) bool {
 	switch name {
-	case StageHarnessRun, StagePlannerOutline, StagePlannerDetails, StageReviewerAudit, StageReviewerVerify:
+	case StageHarnessRun, StagePlannerOutline, StagePlannerDetails, StageReviewerAudit, StageReviewerVerify, StageTestSpecialist:
 		return true
 	default:
 		return false

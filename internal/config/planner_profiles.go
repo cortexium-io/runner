@@ -63,7 +63,8 @@ func (c Config) planImplementationProfileDigests() map[string]string {
 			Profiles             []profileBinding      `json:"profiles"`
 			RepositoryReferences []RepositoryReference `json:"repository_references"`
 			ReviewEvidencePaths  []string              `json:"review_evidence_paths"`
-		}{profiles, c.RepositoryReferences, c.ReviewEvidencePaths})
+			TestSpecialist       *TestSpecialistConfig `json:"test_specialist,omitempty"`
+		}{profiles, c.RepositoryReferences, c.ReviewEvidencePaths, cloneTestSpecialist(c.TestSpecialist)})
 		result[selected] = fmt.Sprintf("v1:%x", sha256.Sum256(encoded))
 	}
 	return result

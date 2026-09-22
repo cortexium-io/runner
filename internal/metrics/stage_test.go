@@ -107,6 +107,24 @@ func TestCandidateValidationIsAStableFailureClass(t *testing.T) {
 	}
 }
 
+func TestTestSpecialistIsAnAccountedHarnessStage(t *testing.T) {
+	var events []Event
+	trace := NewAttemptTrace(func(event Event) error { events = append(events, event); return nil }, Event{AttemptID: "specialist-attempt"})
+	ctx := WithAttemptTrace(t.Context(), trace)
+	usage, err := NormalizeUsage(Usage{Available: true, Coverage: UsagePartial, InputTokens: 12, OutputTokens: 3}, "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	finish := StartStage(ctx, StageTestSpecialist)
+	finish(StageOutcomeFailed, "timeout", "manual", usage)
+	if !isHarnessStage(StageTestSpecialist) || !harnessStage(StageTestSpecialist) || len(events) != 2 || events[1].Stage != StageTestSpecialist || events[1].Usage.Coverage != UsagePartial {
+		t.Fatalf("specialist usage was dropped or made complete: %#v", events)
+	}
+	if got, ok := ReportedTokens(events[1].Usage); !ok || got != 15 {
+		t.Fatalf("specialist stage tokens = %d, known %t", got, ok)
+	}
+}
+
 func TestBrowserStartupIsAStableFailureClass(t *testing.T) {
 	if !validFailureClass("browser_startup") {
 		t.Fatal("browser startup failure class is not accepted by metrics")

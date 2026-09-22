@@ -107,6 +107,9 @@ func (e AgentExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 // isolation; Runner owns workspace identity and verifies both the task
 // worktree and active checkout after the harness exits.
 func (e AgentExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Assignment, onPrepared func(workspace.Metadata) error) (Output, error) {
+	if err := validateImplementationTestCapability(e.kind, e.config, assignment.Spec); err != nil {
+		return blockedOutputWithFailure(err.Error(), FailureInvalidContract, RetryNone), err
+	}
 	if err := ValidateAssignmentContext(assignment.Spec); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureInvalidContract, RetryNone), err
 	}
@@ -179,7 +182,7 @@ func (e AgentExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	}
 	harnessStartedAt := time.Now()
 	finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
-	schema := implementationContentSchema(len(assignment.Spec.RequiredVerification))
+	schema := implementationContentSchema(len(assignment.Spec.RequiredVerification), assignment.Spec.TestSpecialist)
 	result, lastMessage, usage, failureEvidence, runErr := e.runHarness(
 		ctx,
 		e.profileProjectArgs(profile, launchWorkspace, schema),
@@ -430,6 +433,9 @@ func buildHarnessPrompt(assignment Assignment, workspaceWrite bool, displayName 
 	b.WriteString(harnessTaskInstructions(workspaceWrite, displayName))
 	appendStructuredResultInstructions(&b, workspaceWrite)
 	b.WriteString(harnessTaskContext(assignment, workspaceWrite))
+	if workspaceWrite {
+		b.WriteString(testSpecialistCapabilityPrompt(assignment.Spec))
+	}
 	return b.String()
 }
 

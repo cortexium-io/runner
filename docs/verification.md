@@ -99,6 +99,29 @@ the same runtime collector with a 30-second readiness bound, without executing
 preparation or checks. Measure collection cost for the real complete gate; small
 focused entrypoints need not declare unrelated browser installations.
 
+External runtime and toolchain observation uses a separate read-only directory
+view, not the protected authority-file reader. On Darwin, root/effective-user
+owned installations may be group-writable by the trusted `admin` group (GID 80),
+including nested package directories and executables. Other group-writable
+objects, other owners and world-writable runtime objects are refused. Existing
+sticky temporary ancestors remain traversable; they are not accepted as selected
+world-writable runtime roots. Linux has no admin-group exception. The view has
+no write operations or conversion to a writable directory; ordinary source,
+dependency, Git, configuration, credential and private-state readers keep their
+strict policy. Ancestor identity/owner/group/mode and selected names, descriptors,
+listings and stable content remain checked. Internal framework links still must
+resolve entirely through the selected closure.
+
+The operator must trust runtime maintainers and inspect relevant ACL grants:
+these POSIX permission checks are not comprehensive ACL enforcement, supplier
+authentication or protection against malicious administrators replacing and
+restoring installed code. Runtime hashes identify observed bytes and stability,
+not an immutable execution mount. The runtime-read policy version participates
+in environment identity. Doctor and execution use the same collector; refused
+runtime observation is a setup/provenance failure, never a failed executable
+check authorizing repair. Measure the full configured closure and Doctor path
+against existing time bounds rather than automatically increasing timeouts.
+
 ## Execution and containment
 
 ```sh

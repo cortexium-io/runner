@@ -251,27 +251,33 @@ type PublicationPushPolicy struct {
 // PublicationRecord is the immutable local authorization created only after
 // Agent QA accepts an unchanged clean candidate.
 type PublicationRecord struct {
-	Version                int    `json:"version"`
-	ItemID                 string `json:"item_id"`
-	DelegatedContentDigest string `json:"delegated_content_digest"`
-	CommitOID              string `json:"commit_oid"`
-	TreeOID                string `json:"tree_oid"`
-	ApprovedBaseRef        string `json:"approved_base_ref"`
-	ApprovedBaseOID        string `json:"approved_base_oid"`
-	Repository             string `json:"repository"`
-	DestinationRef         string `json:"destination_ref"`
-	AcceptanceSnapshot     string `json:"acceptance_snapshot"`
-	AcceptanceReport       string `json:"acceptance_report"`
-	AcceptanceComment      string `json:"acceptance_comment"`
-	PlanRevision           string `json:"plan_revision,omitempty"`
-	VerificationDigest     string `json:"verification_digest,omitempty"`
-	VerificationReceipt    string `json:"verification_receipt,omitempty"`
+	Version                 int    `json:"version"`
+	ItemID                  string `json:"item_id"`
+	DelegatedContentDigest  string `json:"delegated_content_digest"`
+	CommitOID               string `json:"commit_oid"`
+	TreeOID                 string `json:"tree_oid"`
+	ApprovedBaseRef         string `json:"approved_base_ref"`
+	ApprovedBaseOID         string `json:"approved_base_oid"`
+	Repository              string `json:"repository"`
+	DestinationRef          string `json:"destination_ref"`
+	AcceptanceSnapshot      string `json:"acceptance_snapshot"`
+	AcceptanceReport        string `json:"acceptance_report"`
+	AcceptanceComment       string `json:"acceptance_comment"`
+	PlanRevision            string `json:"plan_revision,omitempty"`
+	VerificationDigest      string `json:"verification_digest,omitempty"`
+	VerificationReceipt     string `json:"verification_receipt,omitempty"`
+	CarriedFromRevision     string `json:"carried_from_revision,omitempty"`
+	CarriedAcceptanceDigest string `json:"carried_acceptance_digest,omitempty"`
+	AmendmentDigest         string `json:"amendment_digest,omitempty"`
 }
 
 type PublicationEvidence struct {
-	PlanRevision        string
-	VerificationDigest  string
-	VerificationReceipt string
+	PlanRevision            string
+	VerificationDigest      string
+	VerificationReceipt     string
+	CarriedFromRevision     string
+	CarriedAcceptanceDigest string
+	AmendmentDigest         string
 }
 
 // ConstructCandidate stages worktree bytes without Git clean filters, writes a
@@ -872,6 +878,7 @@ func (p GitProvider) LoadPublicationAcceptance(ctx context.Context, metadata Met
 	record.AcceptanceReport = existing.AcceptanceReport
 	record.AcceptanceComment = existing.AcceptanceComment
 	record.VerificationDigest, record.VerificationReceipt = existing.VerificationDigest, existing.VerificationReceipt
+	record.CarriedFromRevision, record.CarriedAcceptanceDigest, record.AmendmentDigest = existing.CarriedFromRevision, existing.CarriedAcceptanceDigest, existing.AmendmentDigest
 	if existing != record {
 		return PublicationRecord{}, false, errors.New("existing publication acceptance does not match the current approved candidate")
 	}
@@ -996,6 +1003,7 @@ func (p GitProvider) validatedPublicationAcceptance(ctx context.Context, metadat
 		record.PlanRevision = evidence[0].PlanRevision
 		record.VerificationDigest = evidence[0].VerificationDigest
 		record.VerificationReceipt = evidence[0].VerificationReceipt
+		record.CarriedFromRevision, record.CarriedAcceptanceDigest, record.AmendmentDigest = evidence[0].CarriedFromRevision, evidence[0].CarriedAcceptanceDigest, evidence[0].AmendmentDigest
 	}
 	worktreeRoot := filepath.Dir(metadata.Identity.WorktreePath)
 	if err := securefs.ValidatePrivateDir(worktreeRoot); err != nil {
@@ -1031,6 +1039,7 @@ func publicationAcceptancePath(worktreeRoot string, expected PublicationRecord) 
 		identity := expected
 		identity.AcceptanceSnapshot, identity.AcceptanceReport, identity.AcceptanceComment = "", "", ""
 		identity.VerificationDigest, identity.VerificationReceipt = "", ""
+		identity.CarriedFromRevision, identity.CarriedAcceptanceDigest, identity.AmendmentDigest = "", "", ""
 		encoded, err := json.Marshal(identity)
 		if err != nil {
 			return "", err
@@ -1049,6 +1058,7 @@ func publicationAcceptancePath(worktreeRoot string, expected PublicationRecord) 
 	identity.AcceptanceReport = first.AcceptanceReport
 	identity.AcceptanceComment = first.AcceptanceComment
 	identity.VerificationDigest, identity.VerificationReceipt = first.VerificationDigest, first.VerificationReceipt
+	identity.CarriedFromRevision, identity.CarriedAcceptanceDigest, identity.AmendmentDigest = first.CarriedFromRevision, first.CarriedAcceptanceDigest, first.AmendmentDigest
 	if identity != first {
 		return "", fmt.Errorf("publication commit %s is already bound to a different immutable tuple", expected.CommitOID)
 	}

@@ -101,9 +101,34 @@ func TestDeliveryCLIRejectsAmbiguousChangesAndDocumentsBothOperations(t *testing
 	if err := run(t.Context(), []string{"delivery", "--help"}, strings.NewReader(""), &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"migrate", "cancel", "--dry-run", "--json", "quiescence"} {
+	for _, want := range []string{"migrate", "cancel", "amend", "--amendment-file", "--dry-run", "--json", "quiescence"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("help omitted %s", want)
 		}
+	}
+}
+
+func TestDeliveryAmendmentCLIRejectsUnboundedOrAmbiguousRequest(t *testing.T) {
+	cfg := completeCLITestConfig(t.TempDir())
+	path := filepath.Join(t.TempDir(), "runner.json")
+	if err := config.SaveConfig(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, body string }{
+		{"unknown", `{"unexpected_authority":"yes"}`},
+		{"multiple", `{} {}`},
+		{"oversize", `{"reason":"` + strings.Repeat("x", 1024*1024) + `"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := filepath.Join(t.TempDir(), "amend.json")
+			if err := os.WriteFile(request, []byte(tc.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var out bytes.Buffer
+			err := run(t.Context(), []string{"delivery", "amend", "--config", path, "--item", "PVTI_parent", "--amendment-file", request, "--json"}, strings.NewReader("yes\n"), &out)
+			if err == nil || out.Len() != 0 {
+				t.Fatal("invalid amendment request accepted or emitted as an apply")
+			}
+		})
 	}
 }

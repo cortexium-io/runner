@@ -786,7 +786,18 @@ func (s *Project) RecoverInterrupted(ctx context.Context) (int, error) {
 func (s *Project) RecoverInterruptedFrom(ctx context.Context, items []WorkItem) (int, error) {
 	recovered := 0
 	recoveredDirectBatches := map[string]bool{}
+	amending := map[string]bool{}
 	for _, item := range items {
+		if item.Phase == PlanAmendingPhase {
+			amending[item.ID] = true
+		}
+	}
+	for _, item := range items {
+		// Only the protected operator intent can finish these mixed revisions.
+		// Generic recovery must not clear the fence or reauthorize a child.
+		if amending[item.ID] || amending[item.PlanningSourceID] {
+			continue
+		}
 		if strings.TrimSpace(item.Transition) != "" {
 			unlocked := item
 			unlocked.Transition = ""
