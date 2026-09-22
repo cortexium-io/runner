@@ -91,7 +91,13 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 	if err != nil {
 		return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 	}
-	defer workspace.cleanup()
+	defer func() {
+		if stageName != metrics.StageTestSpecialist {
+			_ = workspace.cleanup()
+		} else if result.FailureClass != FailureCleanupUnresolved {
+			resultErr = errors.Join(resultErr, workspace.cleanup())
+		}
+	}()
 	if role == RoleReviewer && stageName == metrics.StageReviewerVerify {
 		verification, err := prepareReviewerVerification(ctx, &workspace, snapshotLimits(cfg.ResourceLimits))
 		if err != nil {
@@ -106,7 +112,7 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		}()
 		prompt += reviewerVerificationInstruction(workspace)
 	}
-	guidance := harnessGuidance(kind, cfg, role == RolePlanner || role == RoleReviewer)
+	guidance := harnessGuidance(kind, cfg, role == RolePlanner || role == RoleReviewer || stageName == metrics.StageTestSpecialist)
 	prompt = guidance + prompt + profileRepositoryInstruction(workspace)
 	switch kind {
 	case config.HarnessCodexCLI:
@@ -114,7 +120,11 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		if err != nil {
 			return failedStructuredHarnessResult(FailureCapabilityUnavailable, RetryNone), err
 		}
-		defer artifacts.close()
+		defer func() {
+			if stageName != metrics.StageTestSpecialist || result.FailureClass != FailureCleanupUnresolved {
+				artifacts.close()
+			}
+		}()
 		harness := cfg.Harness
 		command := strings.TrimSpace(harness.Command)
 		timeout := harnessTimeout(harness)

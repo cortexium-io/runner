@@ -39,7 +39,7 @@ func validHarnessActivity(a *HarnessActivity) bool {
 
 func harnessStage(name string) bool {
 	switch name {
-	case StageHarnessRun, StagePlannerOutline, StagePlannerDetails, StageReviewerAudit, StageReviewerVerify:
+	case StageHarnessRun, StagePlannerOutline, StagePlannerDetails, StageReviewerAudit, StageReviewerVerify, StageTestSpecialist:
 		return true
 	default:
 		return false

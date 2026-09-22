@@ -297,6 +297,9 @@ func (c Config) Validate() error {
 	if err := ValidateReviewEvidencePaths(c.ReviewEvidencePaths); err != nil {
 		return err
 	}
+	if err := validateTestSpecialist(c); err != nil {
+		return err
+	}
 	fields := []string{
 		project.ResultField,
 		project.ApprovalField,

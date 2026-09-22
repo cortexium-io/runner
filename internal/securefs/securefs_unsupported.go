@@ -31,6 +31,7 @@ type PathDiscovery struct{}
 func EnsurePrivateDir(string) error            { return errUnsupported }
 func ValidatePrivateDir(string) error          { return errUnsupported }
 func OpenDir(string) (*Directory, error)       { return nil, errUnsupported }
+func openExternalRuntimeDir(string) (*Directory, error) { return nil, errUnsupported }
 func AbsolutePath(path string) (string, error) { return filepath.Abs(path) }
 func ReadFile(string, int64) ([]byte, os.FileMode, FileState, error) {
 	return nil, 0, FileState{}, errUnsupported

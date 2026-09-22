@@ -1,41 +1,46 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/engine"
 	"github.com/cortexium-io/runner/internal/github"
+	"github.com/cortexium-io/runner/internal/securefs"
 )
 
 func runDelivery(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		fmt.Fprintln(stdout, "Usage: cortexium-runner delivery migrate --config PATH --entrypoint ID [--dry-run|--json]")
 		fmt.Fprintln(stdout, "       cortexium-runner delivery cancel --config PATH --item ID|URL [--dry-run|--json]")
+		fmt.Fprintln(stdout, "       cortexium-runner delivery amend --config PATH --item ID|URL --amendment-file PATH [--dry-run|--json]")
 		fmt.Fprintln(stdout, "Preview exact operator changes; applying requires interactive confirmation and graceful quiescence. Neither command stops or starts Runner.")
 		return nil
 	}
 	mode := args[0]
-	if mode != "migrate" && mode != "cancel" {
-		return errors.New("delivery supports migrate or cancel")
+	if mode != "migrate" && mode != "cancel" && mode != "amend" {
+		return errors.New("delivery supports migrate, cancel or amend")
 	}
 	flags := newFlagSet("delivery "+mode, "cortexium-runner delivery "+mode+" --config PATH [--entrypoint ID|--item ID] [--dry-run|--json]", stdout)
 	path := flags.String("config", "", "existing trusted operator configuration")
 	entry := flags.String("entrypoint", "", "migrate: existing reviewed complete-verification catalog ID")
 	item := flags.String("item", "", "cancel: exact approved unpublished plan parent")
+	amendmentFile := flags.String("amendment-file", "", "amend: exact revision, reason, complete manifest and selected member bodies as JSON")
 	dry := flags.Bool("dry-run", false, "show exact changes without mutation")
 	jsonOutput := flags.Bool("json", false, "preview only as JSON; never applies changes")
 	proceed, err := parseFlags(flags, args[1:], "delivery "+mode)
 	if err != nil || !proceed {
 		return err
 	}
-	if flags.NArg() != 0 || mode == "migrate" && (strings.TrimSpace(*entry) == "" || *item != "") || mode == "cancel" && (strings.TrimSpace(*item) == "" || *entry != "") {
-		return errors.New("delivery migrate requires only --entrypoint; delivery cancel requires only --item; no positional arguments")
+	if flags.NArg() != 0 || mode == "migrate" && (strings.TrimSpace(*entry) == "" || *item != "" || *amendmentFile != "") || mode == "cancel" && (strings.TrimSpace(*item) == "" || *entry != "" || *amendmentFile != "") || mode == "amend" && (strings.TrimSpace(*item) == "" || strings.TrimSpace(*amendmentFile) == "" || *entry != "") {
+		return errors.New("delivery migrate requires only --entrypoint; cancel requires only --item; amend requires --item and --amendment-file; no positional arguments")
 	}
 	*path = resolveRunnerConfigPath(*path, "")
 	cfg, err := config.LoadTrustedConfig(*path)
@@ -58,7 +63,7 @@ func runDelivery(ctx context.Context, args []string, stdin io.Reader, stdout io.
 		if !*jsonOutput {
 			writeDeliveryMigrationPreview(stdout, plan)
 		}
-	} else {
+	} else if mode == "cancel" {
 		plan, err := service.PlanDeliveryCancellation(ctx, *item)
 		if err != nil {
 			return err
@@ -67,6 +72,20 @@ func runDelivery(ctx context.Context, args []string, stdin io.Reader, stdout io.
 		apply = func() error { _, err := service.ApplyDeliveryCancellation(ctx, plan); return err }
 		if !*jsonOutput {
 			writeDeliveryCancellationPreview(stdout, plan)
+		}
+	} else {
+		request, err := readDeliveryAmendmentRequest(*amendmentFile)
+		if err != nil {
+			return err
+		}
+		plan, err := service.PlanDeliveryAmendment(ctx, *item, request)
+		if err != nil {
+			return err
+		}
+		preview = plan
+		apply = func() error { return service.ApplyDeliveryAmendment(ctx, plan) }
+		if !*jsonOutput {
+			writeDeliveryAmendmentPreview(stdout, plan)
 		}
 	}
 	if *jsonOutput {
@@ -96,10 +115,39 @@ func runDelivery(ctx context.Context, args []string, stdin io.Reader, stdout io.
 	}
 	if mode == "migrate" {
 		fmt.Fprintln(stdout, "Plan delivery enabled for new plans. Existing history unchanged. No service started; run normal Doctor, then restore the existing service when ready.")
-	} else {
+	} else if mode == "cancel" {
 		fmt.Fprintln(stdout, "Plan cancelled: new admission fenced; members, branches, proof and rejection counts retained. No PR closed and no service started.")
+	} else {
+		fmt.Fprintln(stdout, "Exact existing-member amendment applied. Affected acceptance and parent review invalidated; unaffected original proof, integrated code, history and counters retained. No model work or service start.")
 	}
 	return nil
+}
+
+func readDeliveryAmendmentRequest(path string) (github.PlanAmendmentRequest, error) {
+	data, _, state, err := securefs.ReadFile(path, 1024*1024)
+	if err != nil {
+		return github.PlanAmendmentRequest{}, fmt.Errorf("read bounded regular amendment JSON file: %w", err)
+	}
+	if !state.Exists {
+		return github.PlanAmendmentRequest{}, fmt.Errorf("amendment request: %w", os.ErrNotExist)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var request github.PlanAmendmentRequest
+	if err := decoder.Decode(&request); err != nil {
+		return request, fmt.Errorf("decode bounded amendment request: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return request, errors.New("amendment request must contain exactly one JSON object")
+	}
+	return request, nil
+}
+
+func writeDeliveryAmendmentPreview(out io.Writer, plan engine.DeliveryAmendment) {
+	encoded, _ := json.MarshalIndent(plan, "", "  ")
+	fmt.Fprintf(out, "Amend the exact approved delivery contract\n%s\n", terminalSafeText(string(encoded)))
+	fmt.Fprintln(out, "Gracefully stop Runner and finish standalone operations before applying. This exact preview binds the before/after contract and retained candidate/proof. Affected members return to Ready without resetting counters; unaffected proof stays historical. The parent needs renewed delivery review. Partial writes remain fenced and resume only from the protected approved intent. No member additions/removals, retargeting, deleted code, model calls or service start.")
 }
 
 func writeDeliveryMigrationPreview(out io.Writer, plan engine.DeliveryMigration) {

@@ -85,6 +85,11 @@ func (s *Engine) withOfflineDeliveryOperator(itemIDs []string, apply func() erro
 		return err
 	}
 	defer mutation.Release()
+	return s.withDeliveryOperationGuards(itemIDs, apply)
+}
+
+func (s *Engine) withDeliveryOperationGuards(itemIDs []string, apply func() error) error {
+	project := s.cfg.GitHubProject.GitHubProjectConfig
 	entries := make([]string, 0, len(s.cfg.Verification))
 	for id := range s.cfg.Verification {
 		entries = append(entries, id)

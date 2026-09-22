@@ -1640,7 +1640,7 @@ Runner never silently combines or deletes it. Replaying a complete unapproved
 batch creates no duplicate cards and does not release it. The destination lane
 determines the role after separate approval.
 
-## Delivery rollout and cancellation
+## Delivery rollout, cancellation and existing-member amendments
 
 Plan delivery is default off. It applies only to explicitly approved new plans;
 standalone Ready cards retain the individual-card path, and historical Done
@@ -1703,7 +1703,64 @@ resolve it before resuming; the command does not claim cancellation succeeded or
 grant another retry. Reapplying a freshly inspected already-cancelled plan makes
 no further Project writes. There is no implicit reopen.
 
-These controls do not complete the rollout by themselves. Selective plan
+An existing-member amendment changes the approved contract, not merely a card's
+displayed text. Prepare JSON with `expected_revision`, a bounded `reason`, the
+complete replacement `manifest`, and `member_bodies` keyed by the exact IDs whose
+local contracts change. Copy the canonical manifest from the parent and increment
+its `amendment` ordinal by one (absent means zero). Keep the original `request`,
+repository, destination and exact ordered member set. Member bodies must retain
+their canonical planning metadata and provenance; changed dependency/profile
+metadata must match the replacement manifest and current allowed profiles.
+`additional_affected_ids` can explicitly invalidate more members, never reduce
+the required affected closure.
+
+```bash
+cortexium-runner delivery amend --config /absolute/operator/path/runner.json --item PVTI_PARENT --amendment-file amendment.json --dry-run
+cortexium-runner delivery amend --config /absolute/operator/path/runner.json --item PVTI_PARENT --amendment-file amendment.json
+```
+
+The preview shows the exact before/after shared and changed local contracts,
+affected IDs, and original acceptance identities retained for unaffected members.
+Apply uses the same graceful-quiescence, default-No interactive confirmation and
+fresh preview checks as migration/cancellation. Local changes invalidate their
+dependants over **both** old and new dependency graphs. Shared outcome, criteria,
+scope, decisions or verification-policy changes conservatively affect every
+member: the current manifest does not attest per-criterion ownership.
+
+Affected members return to Ready for renewed acceptance; the parent returns to
+active delivery and requires renewed combined review. Already integrated code is
+never removed by a scope amendment. Repairs start from the current plan state.
+Unaffected acceptance is carried forward under the new revision with its exact
+original report, candidate, original-revision/digest and amendment provenance;
+it is historical proof, not a fresh model execution. Old acceptance and superseded
+checkpoints/proof remain private historical records. Results, feedback and rejection
+counts are preserved. An unfinished implementation's spent correction/specialist
+allowance must be explicitly resolved first; amendment does not reset it.
+
+Before the first Project write, Runner saves the approved before/after intent in
+the existing protected parent evidence. A `plan_amending` fence prevents admission
+while contract, workspace-binding and proof updates are partial. On restart the
+coordinator completes only that exact recorded transaction before admitting work,
+without repeating model calls or Git integration. Unexpected operator changes,
+missing evidence or a newly published PR stop recovery; inspect them rather than
+editing away the fence or deleting the protected record. Generic transition
+recovery never reauthorizes a partial amendment.
+
+Keep remote operator edits quiescent throughout apply/recovery. Runner checks
+each freshly read item against the recorded before/after states before writing,
+checks transition acquisition, and verifies write readback. GitHub does not offer
+transactional compare-and-swap across these body and Project field writes:
+an edit after the last check can still race a write, and a conflict may only be
+detected after partial mutation. The fence and retained intent are recovery aids,
+not an atomic remote transaction; inspect any conflict before resuming.
+
+This first amendment boundary explicitly refuses added/removed/reordered members,
+cancelled/delivered plans and published final PRs. Membership-changing amendments
+remain required programme work: scope removal alone must never erase integrated
+code, and new members require explicit new-card authority. Retargeting or unsafe
+combinations require a separately approved corrective plan, not implicit work.
+
+These controls do not complete the rollout by themselves. Membership-changing
 amendments, production historical-proof reuse and failed-complete-gate owner
 classification remain separate required work before live activation. At this
 stage a failed maintained complete gate blocks safely; it does not yet route a

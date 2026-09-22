@@ -24,6 +24,7 @@ type RuntimeConfig struct {
 	AdmissionBudget      *AdmissionBudgetConfig
 	ResourceLimits       ResourceLimits
 	PlanDelivery         *PlanDeliveryConfig
+	TestSpecialist       *TestSpecialistConfig
 	Verification         map[string]VerificationEntrypoint
 	GitHubProject        ProjectConfig
 }
@@ -31,6 +32,7 @@ type RuntimeConfig struct {
 // ExecutionConfig is the role-specific harness contract passed to an execution
 // adapter. It replaces the old practice of mutating a file config at runtime.
 type ExecutionConfig struct {
+	TestSpecialist          *TestSpecialistConfig
 	WorkspaceBaseRef        string
 	RoleAccess              string
 	HarnessConfigMode       string
@@ -80,6 +82,7 @@ func (c Config) Resolve() (RuntimeConfig, error) {
 		AdmissionBudget:      admissionBudget,
 		ResourceLimits:       c.ResolveResourceLimits(),
 		PlanDelivery:         c.PlanDelivery,
+		TestSpecialist:       cloneTestSpecialist(c.TestSpecialist),
 		Verification:         c.Verification,
 		GitHubProject:        c.ResolveProject(),
 	}, nil
@@ -297,6 +300,7 @@ func (c RuntimeConfig) Execution(role, harness, workingDir string) ExecutionConf
 	}
 	contract := c.RoleContract(role)
 	if contract == WorkRoleImplementer {
+		execution.TestSpecialist = cloneTestSpecialist(c.TestSpecialist)
 		execution.ReviewEvidencePaths = append([]string(nil), c.ReviewEvidencePaths...)
 	}
 	if len(c.RepositoryReferences) > 0 && (contract == WorkRolePlanner || contract == WorkRoleImplementer || contract == WorkRoleReviewer) {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/github"
+	"github.com/cortexium-io/runner/internal/metrics"
 	"github.com/cortexium-io/runner/internal/securefs"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
@@ -27,24 +28,25 @@ const (
 var errImplementationCheckpointChanged = errors.New("implementation checkpoint changed; inspect retained work before an explicit retry")
 
 type implementationCheckpointRecord struct {
-	Version                int       `json:"version"`
-	ItemID                 string    `json:"item_id"`
-	DelegatedContentDigest string    `json:"delegated_content_digest"`
-	ContextDigest          string    `json:"context_digest"`
-	Repository             string    `json:"repository"`
-	Branch                 string    `json:"branch"`
-	BaseRevision           string    `json:"base_revision"`
-	WorktreePath           string    `json:"worktree_path"`
-	SnapshotFingerprint    string    `json:"snapshot_fingerprint"`
-	CandidateCommitOID     string    `json:"candidate_commit_oid,omitempty"`
-	CandidateTreeOID       string    `json:"candidate_tree_oid,omitempty"`
-	Summary                string    `json:"summary"`
-	WorkDone               []string  `json:"work_done"`
-	Verification           []string  `json:"verification"`
-	ExecutionDeadline      time.Time `json:"execution_deadline,omitzero"`
-	CorrectionUsed         bool      `json:"correction_used,omitempty"`
-	Incomplete             bool      `json:"incomplete,omitempty"`
-	Blocker                string    `json:"blocker,omitempty"`
+	Version                int                            `json:"version"`
+	ItemID                 string                         `json:"item_id"`
+	DelegatedContentDigest string                         `json:"delegated_content_digest"`
+	ContextDigest          string                         `json:"context_digest"`
+	Repository             string                         `json:"repository"`
+	Branch                 string                         `json:"branch"`
+	BaseRevision           string                         `json:"base_revision"`
+	WorktreePath           string                         `json:"worktree_path"`
+	SnapshotFingerprint    string                         `json:"snapshot_fingerprint"`
+	CandidateCommitOID     string                         `json:"candidate_commit_oid,omitempty"`
+	CandidateTreeOID       string                         `json:"candidate_tree_oid,omitempty"`
+	Summary                string                         `json:"summary"`
+	WorkDone               []string                       `json:"work_done"`
+	Verification           []string                       `json:"verification"`
+	ExecutionDeadline      time.Time                      `json:"execution_deadline,omitzero"`
+	CorrectionUsed         bool                           `json:"correction_used,omitempty"`
+	Incomplete             bool                           `json:"incomplete,omitempty"`
+	Blocker                string                         `json:"blocker,omitempty"`
+	Specialist             *implementationSpecialistState `json:"specialist,omitempty"`
 }
 
 type implementationCheckpoint struct {
@@ -52,6 +54,7 @@ type implementationCheckpoint struct {
 	Candidate         workspace.Candidate
 	ExecutionDeadline time.Time
 	CorrectionUsed    bool
+	Specialist        *implementationSpecialistState
 }
 
 func (s *Engine) implementationCheckpointPath(itemID string) string {
@@ -60,15 +63,16 @@ func (s *Engine) implementationCheckpointPath(itemID string) string {
 
 func implementationContextDigest(content github.DelegatedContent, item github.WorkItem, reviewFeedback, comments, criteria []string, delivery ...execution.Spec) string {
 	payload := struct {
-		Version                int                            `json:"version"`
-		DelegatedContentDigest string                         `json:"delegated_content_digest"`
-		PullRequest            string                         `json:"pull_request,omitempty"`
-		ReviewFeedback         []string                       `json:"review_feedback"`
-		HumanComments          []string                       `json:"human_comments"`
-		Criteria               []string                       `json:"criteria"`
-		Plan                   *execution.PlanContext         `json:"plan,omitempty"`
-		ReviewScope            execution.ReviewScope          `json:"review_scope,omitempty"`
-		VerificationBoundary   execution.VerificationBoundary `json:"verification_boundary,omitempty"`
+		Version                int                                 `json:"version"`
+		DelegatedContentDigest string                              `json:"delegated_content_digest"`
+		PullRequest            string                              `json:"pull_request,omitempty"`
+		ReviewFeedback         []string                            `json:"review_feedback"`
+		HumanComments          []string                            `json:"human_comments"`
+		Criteria               []string                            `json:"criteria"`
+		Plan                   *execution.PlanContext              `json:"plan,omitempty"`
+		ReviewScope            execution.ReviewScope               `json:"review_scope,omitempty"`
+		VerificationBoundary   execution.VerificationBoundary      `json:"verification_boundary,omitempty"`
+		TestSpecialist         *execution.TestSpecialistCapability `json:"test_specialist,omitempty"`
 	}{
 		Version: implementationCheckpointVersion, DelegatedContentDigest: strings.TrimSpace(content.Digest),
 		PullRequest: strings.TrimSpace(item.PullRequest), ReviewFeedback: compactNonEmpty(reviewFeedback),
@@ -76,6 +80,7 @@ func implementationContextDigest(content github.DelegatedContent, item github.Wo
 	}
 	if len(delivery) > 0 {
 		payload.Plan, payload.ReviewScope, payload.VerificationBoundary = delivery[0].PlanContext, delivery[0].ReviewScope, delivery[0].VerificationBoundary
+		payload.TestSpecialist = delivery[0].TestSpecialist
 	}
 	encoded, _ := json.Marshal(payload)
 	digest := sha256.Sum256(encoded)
@@ -84,7 +89,7 @@ func implementationContextDigest(content github.DelegatedContent, item github.Wo
 
 // Retain both the original deadline and the spent allowance through successful
 // post-processing: restarting cannot renew either before the QA handoff.
-func (s *Engine) saveImplementationCheckpoint(item github.WorkItem, content github.DelegatedContent, contextDigest string, metadata workspace.Metadata, snapshot workspace.Snapshot, candidate workspace.Candidate, output execution.Output, deadline time.Time, correctionUsed bool) error {
+func (s *Engine) saveImplementationCheckpoint(item github.WorkItem, content github.DelegatedContent, contextDigest string, metadata workspace.Metadata, snapshot workspace.Snapshot, candidate workspace.Candidate, output execution.Output, deadline time.Time, correctionUsed bool, specialist ...*implementationSpecialistState) error {
 	record := implementationCheckpointRecord{
 		Version: implementationCheckpointVersion, ItemID: strings.TrimSpace(item.ID), DelegatedContentDigest: strings.TrimSpace(content.Digest),
 		ContextDigest: strings.TrimSpace(contextDigest), Repository: strings.TrimSpace(metadata.Identity.Repository),
@@ -93,6 +98,9 @@ func (s *Engine) saveImplementationCheckpoint(item github.WorkItem, content gith
 		CandidateCommitOID: strings.TrimSpace(candidate.CommitOID), CandidateTreeOID: strings.TrimSpace(candidate.TreeOID),
 		Summary: strings.TrimSpace(output.Summary), WorkDone: append([]string(nil), output.WorkDone...), Verification: append([]string(nil), output.Verification...),
 		ExecutionDeadline: deadline, CorrectionUsed: correctionUsed, Incomplete: output.Outcome != execution.OutcomeSucceeded,
+	}
+	if len(specialist) > 0 {
+		record.Specialist = specialist[0]
 	}
 	if record.Incomplete && output.Blocker != nil {
 		record.Blocker = *output.Blocker
@@ -136,6 +144,21 @@ func (s *Engine) loadImplementationCheckpoint(item github.WorkItem, content gith
 		WorkDone: append([]string(nil), record.WorkDone...), Verification: append([]string(nil), record.Verification...),
 	}
 	if record.Incomplete {
+		if record.Specialist != nil {
+			if record.ItemID != item.ID || record.DelegatedContentDigest != content.Digest || record.ContextDigest != contextDigest || record.Repository != metadata.Identity.Repository || record.Branch != metadata.BranchName || record.BaseRevision != metadata.BaseRevision || record.WorktreePath != metadata.WorktreePath || record.SnapshotFingerprint != snapshot.Fingerprint {
+				return implementationCheckpoint{}, false, errImplementationCheckpointChanged
+			}
+			if record.Specialist.Phase == specialistFinished {
+				output.Outcome, output.Blocker = execution.OutcomeRepairNeeded, &record.Blocker
+			} else {
+				output = record.Specialist.Previous
+			}
+			// Observed earlier usage stays in the protected historical record;
+			// deterministic recovery has performed no new harness execution.
+			output.Usage = metrics.Usage{}
+			output.HarnessDurationMilliseconds = 0
+			return implementationCheckpoint{Output: output, ExecutionDeadline: record.ExecutionDeadline, CorrectionUsed: record.CorrectionUsed, Specialist: record.Specialist}, true, nil
+		}
 		// A crash may have left arbitrary partial edits from the correction.
 		// This record only stops another call; it never authorizes resumption or
 		// attests that its historical evidence covers the current workspace.
@@ -164,7 +187,7 @@ func (s *Engine) loadImplementationCheckpoint(item github.WorkItem, content gith
 	if record.CandidateCommitOID != "" && (!snapshot.Clean || snapshot.Head != record.CandidateCommitOID || snapshot.Tree != record.CandidateTreeOID) {
 		return implementationCheckpoint{}, false, errors.New("private implementation checkpoint candidate does not match the current clean workspace")
 	}
-	return implementationCheckpoint{Output: output, Candidate: workspace.Candidate{CommitOID: record.CandidateCommitOID, TreeOID: record.CandidateTreeOID}, ExecutionDeadline: record.ExecutionDeadline, CorrectionUsed: record.CorrectionUsed}, true, nil
+	return implementationCheckpoint{Output: output, Candidate: workspace.Candidate{CommitOID: record.CandidateCommitOID, TreeOID: record.CandidateTreeOID}, ExecutionDeadline: record.ExecutionDeadline, CorrectionUsed: record.CorrectionUsed, Specialist: record.Specialist}, true, nil
 }
 
 func (s *Engine) readImplementationCheckpoint(itemID string) (*implementationCheckpointRecord, error) {
@@ -207,14 +230,19 @@ func (s *Engine) readImplementationCheckpoint(itemID string) (*implementationChe
 func validateImplementationCheckpointRecord(record implementationCheckpointRecord) error {
 	if record.Version != implementationCheckpointVersion || record.ItemID == "" || record.DelegatedContentDigest == "" || record.ContextDigest == "" ||
 		record.Repository == "" || record.Branch == "" || record.BaseRevision == "" || record.WorktreePath == "" || record.SnapshotFingerprint == "" ||
-		record.Summary == "" || len(record.WorkDone) == 0 || len(record.Verification) == 0 ||
+		record.Summary == "" || len(record.WorkDone) == 0 || len(record.Verification) == 0 && record.Specialist == nil ||
 		(record.CandidateCommitOID == "") != (record.CandidateTreeOID == "") {
 		return errors.New("private implementation checkpoint has an invalid identity or result")
 	}
 	if record.CorrectionUsed && record.ExecutionDeadline.IsZero() ||
-		record.Incomplete && (!record.CorrectionUsed || record.Blocker == "" || record.CandidateCommitOID != "") ||
+		record.Incomplete && record.Specialist == nil && (!record.CorrectionUsed || record.Blocker == "" || record.CandidateCommitOID != "") ||
 		!record.Incomplete && record.Blocker != "" {
 		return errors.New("private implementation checkpoint has an invalid correction state")
+	}
+	if record.Specialist != nil {
+		if err := validateImplementationSpecialistState(record); err != nil {
+			return err
+		}
 	}
 	for _, objectID := range []string{record.CandidateCommitOID, record.CandidateTreeOID} {
 		if objectID == "" {

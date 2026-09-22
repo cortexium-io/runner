@@ -42,7 +42,7 @@ func ObserveRuntimePaths(ctx context.Context, paths []string) (string, error) {
 		default:
 			return "", errors.New("runtime root must be a regular file or no-follow directory")
 		}
-		digest, err := collectContentWithBudget(ctx, root, selections, nil, budget, whole)
+		digest, err := collectContentWithReader(ctx, root, selections, nil, budget, whole, securefs.OpenRuntimeDir)
 		if err != nil {
 			return "", fmt.Errorf("observe runtime %s: %w", selected, err)
 		}

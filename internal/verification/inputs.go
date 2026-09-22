@@ -125,11 +125,15 @@ func collectContent(ctx context.Context, root string, paths, excluded []string, 
 }
 
 func collectContentWithBudget(ctx context.Context, root string, paths, excluded []string, budget *securefs.SnapshotBudget, wholeRoot bool) (string, error) {
+	return collectContentWithReader(ctx, root, paths, excluded, budget, wholeRoot, securefs.OpenReadOnlyDir)
+}
+
+func collectContentWithReader(ctx context.Context, root string, paths, excluded []string, budget *securefs.SnapshotBudget, wholeRoot bool, openDir func(string) (*securefs.ReadOnlyDirectory, error)) (string, error) {
 	root, err := securefs.AbsolutePath(root)
 	if err != nil {
 		return "", err
 	}
-	directory, err := securefs.OpenDir(root)
+	directory, err := openDir(root)
 	if err != nil {
 		return "", err
 	}
@@ -142,8 +146,8 @@ func collectContentWithBudget(ctx context.Context, root string, paths, excluded 
 		}
 		exclusions[name] = true
 	}
-	var visit func(*securefs.Directory, string, string) error
-	visit = func(parent *securefs.Directory, parentPath, name string) error {
+	var visit func(*securefs.ReadOnlyDirectory, string, string) error
+	visit = func(parent *securefs.ReadOnlyDirectory, parentPath, name string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -261,7 +265,7 @@ func collectContentWithBudget(ctx context.Context, root string, paths, excluded 
 		}
 		parts := strings.Split(selected, "/")
 		parent := directory
-		var opened []*securefs.Directory
+		var opened []*securefs.ReadOnlyDirectory
 		parentPath := ""
 		missing := false
 		for _, component := range parts[:len(parts)-1] {
@@ -353,12 +357,15 @@ func observeEnvironment(ctx context.Context, entry config.VerificationEntrypoint
 		if err != nil {
 			return "", err
 		}
-		parent, err := securefs.OpenDir(filepath.Dir(resolved))
+		parent, err := securefs.OpenRuntimeDir(filepath.Dir(resolved))
 		if err != nil {
 			return "", err
 		}
 		budget, _ := securefs.NewSnapshotBudget(runtimeLimits)
 		content, mode, readErr := parent.HashFileContent(ctx, filepath.Base(resolved), budget)
+		if readErr == nil {
+			readErr = parent.Verify()
+		}
 		_ = parent.Close()
 		if readErr != nil {
 			return "", readErr
@@ -388,6 +395,6 @@ func observeEnvironment(ctx context.Context, entry config.VerificationEntrypoint
 	if err != nil || platform.ExitCode != 0 {
 		return "", errors.New("verification platform identity unavailable")
 	}
-	encoded, _ := json.Marshal([]any{runtime.GOOS, runtime.GOARCH, platform.Stdout, tools, runtimes, env})
+	encoded, _ := json.Marshal([]any{securefs.RuntimeReadPolicyVersion, runtime.GOOS, runtime.GOARCH, platform.Stdout, tools, runtimes, env})
 	return hash(encoded), nil
 }

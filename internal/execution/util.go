@@ -17,7 +17,7 @@ const (
 
 func validateSemanticResultEvidence(outcome string, summary string, workDone []string, blocker *string) error {
 	switch strings.TrimSpace(outcome) {
-	case OutcomeSucceeded, OutcomeNeedsInput, OutcomeBlocked, OutcomeRepairNeeded:
+	case OutcomeSucceeded, OutcomeNeedsInput, OutcomeBlocked, OutcomeRepairNeeded, OutcomeTestRequested:
 	default:
 		return fmt.Errorf("unsupported outcome %q", strings.TrimSpace(outcome))
 	}

@@ -24,20 +24,22 @@ type CodexExecutor struct {
 }
 
 type StructuredExecutionResult struct {
-	Outcome          string            `json:"outcome"`
-	Summary          string            `json:"summary"`
-	WorkDone         []string          `json:"work_done"`
-	Verification     []string          `json:"verification"`
-	Blocker          *string           `json:"blocker"`
-	ReviewAssessment *ReviewAssessment `json:"review_assessment"`
+	TestRequest      *TestSpecialistRequest `json:"test_request,omitempty"`
+	Outcome          string                 `json:"outcome"`
+	Summary          string                 `json:"summary"`
+	WorkDone         []string               `json:"work_done"`
+	Verification     []string               `json:"verification"`
+	Blocker          *string                `json:"blocker"`
+	ReviewAssessment *ReviewAssessment      `json:"review_assessment"`
 }
 
 type executionContent struct {
-	Outcome      string   `json:"outcome"`
-	Summary      string   `json:"summary"`
-	WorkDone     []string `json:"work_done"`
-	Verification []string `json:"verification"`
-	Blockers     []string `json:"blockers"`
+	TestRequest  *TestSpecialistRequest `json:"test_request,omitempty"`
+	Outcome      string                 `json:"outcome"`
+	Summary      string                 `json:"summary"`
+	WorkDone     []string               `json:"work_done"`
+	Verification []string               `json:"verification"`
+	Blockers     []string               `json:"blockers"`
 }
 
 const executionContentSchemaTemplate = `{
@@ -65,9 +67,30 @@ func executionContentSchemaForVerification(approvedChecks int) []byte {
 	return []byte(fmt.Sprintf(executionContentSchemaTemplate, limit))
 }
 
-func implementationContentSchema(approvedChecks int) []byte {
-	return []byte(strings.Replace(string(executionContentSchemaForVerification(approvedChecks)),
+func implementationContentSchema(approvedChecks int, capability ...*TestSpecialistCapability) []byte {
+	base := []byte(strings.Replace(string(executionContentSchemaForVerification(approvedChecks)),
 		`["succeeded", "needs_input", "blocked"]`, `["succeeded", "needs_input", "blocked", "repair_needed"]`, 1))
+	if len(capability) == 0 || capability[0] == nil {
+		return base
+	}
+	var schema map[string]any
+	_ = json.Unmarshal(base, &schema)
+	properties := schema["properties"].(map[string]any)
+	properties["outcome"] = map[string]any{"type": "string", "enum": []string{OutcomeSucceeded, OutcomeNeedsInput, OutcomeBlocked, OutcomeRepairNeeded, OutcomeTestRequested}}
+	properties["test_request"] = map[string]any{"anyOf": []any{
+		map[string]any{"type": "null"},
+		map[string]any{"type": "object", "additionalProperties": false,
+			"required": []string{"criterion_indices", "reason", "existing_checks", "paths"},
+			"properties": map[string]any{
+				"criterion_indices": map[string]any{"type": "array", "minItems": 1, "maxItems": 32, "items": map[string]any{"type": "integer", "minimum": 0, "maximum": max(0, approvedChecks-1)}},
+				"reason":            map[string]any{"type": "string", "minLength": 1, "maxLength": 4096},
+				"existing_checks":   map[string]any{"type": "array", "maxItems": 16, "items": map[string]any{"type": "string", "minLength": 1, "maxLength": 2048}},
+				"paths":             map[string]any{"type": "array", "minItems": 1, "maxItems": 32, "items": map[string]any{"type": "string", "enum": capability[0].AllowedPaths}},
+			}},
+	}}
+	schema["required"] = append(schema["required"].([]any), "test_request")
+	encoded, _ := json.Marshal(schema)
+	return encoded
 }
 
 func NewCodexExecutor(cfg config.ExecutionConfig, run subprocess.Runner) CodexExecutor {
@@ -167,6 +190,9 @@ func (e CodexExecutor) Execute(ctx context.Context, assignment Assignment) (Outp
 }
 
 func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Assignment, onPrepared func(workspace.Metadata) error) (Output, error) {
+	if err := validateImplementationTestCapability(config.HarnessCodexCLI, e.config, assignment.Spec); err != nil {
+		return blockedOutputWithFailure(err.Error(), FailureInvalidContract, RetryNone), err
+	}
 	if err := ValidateAssignmentContext(assignment.Spec); err != nil {
 		return blockedOutputWithFailure(err.Error(), FailureInvalidContract, RetryNone), err
 	}
@@ -209,7 +235,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	}
 	finishStageFromOutput(finishWorkspace, Output{Outcome: OutcomeSucceeded}, nil, metrics.Usage{})
 
-	schema := implementationContentSchema(len(assignment.Spec.RequiredVerification))
+	schema := implementationContentSchema(len(assignment.Spec.RequiredVerification), assignment.Spec.TestSpecialist)
 	artifacts, err := newStructuredResultArtifacts("runner-codex-worktree", schema)
 	if err != nil {
 		return blockedOutput("Create Codex result files failed: " + err.Error()), err
@@ -310,7 +336,7 @@ func assembleRoleExecutionContent(assignment Assignment, value string, implement
 	if assignment.Spec.ReviewRequired {
 		return StructuredExecutionResult{}, errors.New("ordinary execution content is not valid for a reviewer assignment")
 	}
-	canonical, err := CanonicalizeStructuredResult(value, "outcome", "summary", "work_done", "verification", "blockers")
+	canonical, err := canonicalizeImplementationContent(value, "outcome", "summary", "work_done", "verification", "blockers")
 	if err != nil {
 		return StructuredExecutionResult{}, fmt.Errorf("canonicalize execution content: %w", err)
 	}
@@ -352,12 +378,23 @@ func assembleRoleExecutionContent(assignment Assignment, value string, implement
 	if content.Outcome == OutcomeRepairNeeded && (!implementation || len(content.WorkDone) == 0 || len(content.Verification) == 0) {
 		return StructuredExecutionResult{}, errors.New("repair_needed requires an implementer result with retained work, failure evidence and a concrete remaining repair")
 	}
+	if content.Outcome == OutcomeTestRequested {
+		if !implementation || len(content.Blockers) != 0 || len(content.WorkDone) == 0 {
+			return StructuredExecutionResult{}, errors.New("test_requested requires an implementer handoff with retained work and no blocker")
+		}
+		if err := ValidateTestSpecialistRequest(assignment.Spec, content.TestRequest); err != nil {
+			return StructuredExecutionResult{}, err
+		}
+	} else if content.TestRequest != nil {
+		return StructuredExecutionResult{}, errors.New("test_request requires the explicit test_requested outcome")
+	}
 	var blocker *string
 	if len(content.Blockers) == 1 {
 		blocker = stringPtr(content.Blockers[0])
 	}
 	result := StructuredExecutionResult{
-		Outcome: content.Outcome, Summary: content.Summary,
+		TestRequest: content.TestRequest,
+		Outcome:     content.Outcome, Summary: content.Summary,
 		WorkDone: content.WorkDone, Verification: content.Verification, Blocker: blocker,
 	}
 	if err := validateSemanticResultEvidence(result.Outcome, result.Summary, result.WorkDone, result.Blocker); err != nil {
@@ -398,6 +435,9 @@ func parseStructuredExecutionResult(value string) (StructuredExecutionResult, er
 		return StructuredExecutionResult{}, fmt.Errorf("decode structured result trailer: %w", err)
 	}
 	result.Outcome = strings.TrimSpace(result.Outcome)
+	if result.Outcome == OutcomeTestRequested || result.TestRequest != nil {
+		return StructuredExecutionResult{}, errors.New("test specialist requests require the authenticated implementation content entrypoint")
+	}
 	result.Summary = strings.TrimSpace(result.Summary)
 	for i, item := range result.WorkDone {
 		result.WorkDone[i] = strings.TrimSpace(item)
@@ -427,6 +467,7 @@ func parseStructuredExecutionResult(value string) (StructuredExecutionResult, er
 
 func structuredExecutorOutput(result StructuredExecutionResult) Output {
 	output := Output{
+		TestRequest:      result.TestRequest,
 		Outcome:          result.Outcome,
 		Summary:          result.Summary,
 		WorkDone:         append([]string{}, result.WorkDone...),

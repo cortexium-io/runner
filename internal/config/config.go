@@ -29,8 +29,17 @@ type Config struct {
 	AdmissionBudget        *AdmissionBudgetConfig            `json:"admission_budget,omitempty"`
 	ResourceLimits         *ResourceLimitsConfig             `json:"resource_limits,omitempty"`
 	PlanDelivery           *PlanDeliveryConfig               `json:"plan_delivery,omitempty"`
+	TestSpecialist         *TestSpecialistConfig             `json:"test_specialist,omitempty"`
 	Verification           map[string]VerificationEntrypoint `json:"verification,omitempty"`
 	GitHubProject          *GitHubProjectConfig              `json:"github_project"`
+}
+
+// TestSpecialistConfig permits one explicitly requested test-only handoff. It
+// grants neither a new model nor broader execution access and is off by default.
+// AllowedPaths selects exact files, not directories or filename patterns.
+type TestSpecialistConfig struct {
+	Enabled      bool     `json:"enabled"`
+	AllowedPaths []string `json:"allowed_paths"`
 }
 
 // PlanDeliveryConfig is an explicit rollout boundary. Absence preserves the

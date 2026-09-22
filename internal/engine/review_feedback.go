@@ -26,6 +26,7 @@ const (
 var errReviewFeedbackLimit = errors.New("Agent QA feedback exceeds the 1 MiB safety limit; no feedback was truncated or replaced")
 
 type reviewFeedbackRecord struct {
+	PlanAmendment          *planAmendmentRecord      `json:"plan_amendment,omitempty"`
 	PlanRepair             *planRepairRecord         `json:"plan_repair,omitempty"`
 	Baseline               *execution.ReviewBaseline `json:"baseline,omitempty"`
 	Version                int                       `json:"version"`
@@ -36,12 +37,13 @@ type reviewFeedbackRecord struct {
 
 func (record *reviewFeedbackRecord) UnmarshalJSON(data []byte) error {
 	var stored struct {
-		PlanRepair             *planRepairRecord `json:"plan_repair,omitempty"`
-		Baseline               json.RawMessage   `json:"baseline"`
-		Version                int               `json:"version"`
-		ItemID                 string            `json:"item_id"`
-		DelegatedContentDigest string            `json:"delegated_content_digest"`
-		Items                  []string          `json:"items"`
+		PlanAmendment          *planAmendmentRecord `json:"plan_amendment,omitempty"`
+		PlanRepair             *planRepairRecord    `json:"plan_repair,omitempty"`
+		Baseline               json.RawMessage      `json:"baseline"`
+		Version                int                  `json:"version"`
+		ItemID                 string               `json:"item_id"`
+		DelegatedContentDigest string               `json:"delegated_content_digest"`
+		Items                  []string             `json:"items"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -52,8 +54,9 @@ func (record *reviewFeedbackRecord) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*record = reviewFeedbackRecord{
-		PlanRepair: stored.PlanRepair,
-		Version:    stored.Version, ItemID: stored.ItemID,
+		PlanAmendment: stored.PlanAmendment,
+		PlanRepair:    stored.PlanRepair,
+		Version:       stored.Version, ItemID: stored.ItemID,
 		DelegatedContentDigest: stored.DelegatedContentDigest, Items: stored.Items,
 	}
 	if len(stored.Baseline) == 0 || bytes.Equal(bytes.TrimSpace(stored.Baseline), []byte("null")) {
@@ -84,6 +87,9 @@ func (s *Engine) reviewFeedbackPath(itemID string) string {
 }
 
 func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.DelegatedContent, assessment execution.ReviewAssessment, baseline *execution.ReviewBaseline, repair ...planRepairRecord) error {
+	if err := s.archiveDeliveryAmendmentHistory(item.ID); err != nil {
+		return err
+	}
 	items, err := actionableReviewFeedback(assessment)
 	if err != nil {
 		return err
@@ -212,6 +218,9 @@ func (s *Engine) readReviewFeedbackRecord(item github.WorkItem) (*reviewFeedback
 }
 
 func (s *Engine) clearReviewFeedback(itemID string) error {
+	if err := s.archiveDeliveryAmendmentHistory(itemID); err != nil {
+		return err
+	}
 	err := securefs.RemoveFile(s.reviewFeedbackPath(itemID))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil

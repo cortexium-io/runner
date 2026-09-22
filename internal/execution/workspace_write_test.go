@@ -567,9 +567,10 @@ func TestWorkspaceWriteCanonicalizesRepresentationWithoutSecondHarnessCall(t *te
 }
 
 type representationResidueRunner struct {
-	kind        string
-	harnessDirs []string
-	result      string
+	kind            string
+	harnessDirs     []string
+	result          string
+	directWorkspace bool // Specialist source copy is the sandbox's working root.
 }
 
 func (r *representationResidueRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
@@ -581,6 +582,9 @@ func (r *representationResidueRunner) Run(ctx context.Context, command string, a
 	writeDir := dir
 	if r.kind == config.HarnessClaudeCLI {
 		writeDir = argumentValue(args, "--add-dir")
+		if writeDir == "" && r.directWorkspace {
+			writeDir = dir
+		}
 		if writeDir == "" {
 			return subprocess.Result{}, errors.New("Claude invocation omitted assigned worktree")
 		}
