@@ -60,7 +60,7 @@ func (s *Engine) continuePlanVerification(ctx context.Context, action github.Aut
 	if p.Publication == nil {
 		// Recovery may find the immutable record after its write succeeded but
 		// before saving its reference in parent progress.
-		existing, found, loadErr := provider.LoadPublicationAcceptance(ctx, p.Metadata, p.Candidate, workspace.PublicationEvidence{PlanRevision: p.Assignment.Spec.PlanContext.Revision})
+		existing, found, loadErr := provider.LoadPublicationAcceptance(ctx, p.Metadata, p.publicationCandidate(), workspace.PublicationEvidence{PlanRevision: p.Assignment.Spec.PlanContext.Revision})
 		if loadErr != nil {
 			return fail("Final publication acceptance could not be recovered", loadErr)
 		}
@@ -69,7 +69,7 @@ func (s *Engine) continuePlanVerification(ctx context.Context, action github.Aut
 		}
 	}
 	if p.Publication == nil {
-		record, err := provider.RecordPublicationAcceptance(ctx, p.Metadata, p.Candidate, p.Report, p.Comment, workspace.PublicationEvidence{PlanRevision: p.Assignment.Spec.PlanContext.Revision, VerificationReceipt: string(encoded), VerificationDigest: p.EnvelopeDigest})
+		record, err := provider.RecordPublicationAcceptance(ctx, p.Metadata, p.publicationCandidate(), p.Report, p.Comment, workspace.PublicationEvidence{PlanRevision: p.Assignment.Spec.PlanContext.Revision, VerificationReceipt: string(encoded), VerificationDigest: p.EnvelopeDigest})
 		if err != nil {
 			return fail("QA and complete proof could not be bound for publication", err)
 		}
@@ -234,7 +234,7 @@ func (s *Engine) verifyPlanProgressCandidate(ctx context.Context, action github.
 	if err != nil {
 		return err
 	}
-	if !snapshot.Clean || snapshot.Head != p.Candidate.Head || snapshot.Tree != p.Candidate.Tree || snapshot.Fingerprint != p.Candidate.Fingerprint {
+	if !snapshot.Clean || snapshot.Head != p.Candidate.Head || snapshot.Tree != p.Candidate.Tree || snapshot.Fingerprint != p.publicationCandidate().Fingerprint {
 		return errors.New("accepted plan candidate changed")
 	}
 	source, err := s.checkoutSnapshotState(ctx, p.Metadata.RepoRoot)

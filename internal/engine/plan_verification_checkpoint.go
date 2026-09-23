@@ -24,9 +24,12 @@ import (
 // NOT publication authority. Only RecordPublicationAcceptance creates that,
 // after both accepted QA and a passing complete verification envelope.
 type planVerificationProgress struct {
-	Assignment               execution.Assignment            `json:"assignment"`
-	Metadata                 workspace.Metadata              `json:"metadata"`
-	Candidate                workspace.Snapshot              `json:"candidate"`
+	Assignment execution.Assignment `json:"assignment"`
+	Metadata   workspace.Metadata   `json:"metadata"`
+	Candidate  workspace.Snapshot   `json:"candidate"`
+	// Candidate is the original QA snapshot. PreparedCandidate is the full
+	// snapshot reached only through a validated, owned preparation boundary.
+	PreparedCandidate        *workspace.Snapshot             `json:"prepared_candidate,omitempty"`
 	AttemptID                string                          `json:"attempt_id"`
 	SettingsDigest           string                          `json:"settings_digest"`
 	ReviewerRole             string                          `json:"reviewer_role"`
@@ -40,6 +43,13 @@ type planVerificationProgress struct {
 	Classification           *planVerificationClassification `json:"classification,omitempty"`
 	Publication              *workspace.PublicationRecord    `json:"publication,omitempty"`
 	EvidenceCollectionDigest string                          `json:"evidence_collection_digest,omitempty"`
+}
+
+func (p *planVerificationProgress) publicationCandidate() workspace.Snapshot {
+	if p.PreparedCandidate != nil {
+		return *p.PreparedCandidate
+	}
+	return p.Candidate
 }
 
 type planVerificationFailure struct {
@@ -69,6 +79,9 @@ func planProgressDigest(value any) string {
 func (p *planVerificationProgress) validate() error {
 	if p == nil || p.AttemptID == "" || p.SettingsDigest == "" || p.ReviewerRole == "" || p.QAFailures < 0 || !p.Candidate.Clean || !reviewObjectID(p.Candidate.Head) || !reviewObjectID(p.Candidate.Tree) || p.Candidate.Fingerprint == "" || p.Assignment.Spec.PlanContext == nil || p.Assignment.Spec.ReviewScope != execution.ReviewScopePlan || p.Assignment.Spec.ReviewCandidateOID != p.Candidate.Head || p.Assignment.Spec.ReviewBaseOID != p.Metadata.BaseRevision || p.Assignment.Spec.ItemID != p.Metadata.Identity.ItemID {
 		return errors.New("parent verification progress has incomplete candidate or assignment identity")
+	}
+	if prepared := p.PreparedCandidate; prepared != nil && (!prepared.Clean || prepared.Head != p.Candidate.Head || prepared.Tree != p.Candidate.Tree || prepared.Branch != p.Candidate.Branch || prepared.Fingerprint == "") {
+		return errors.New("prepared candidate changed the reviewed source identity")
 	}
 	if p.EvidenceCollectionDigest != "" && (len(p.EvidenceCollectionDigest) != 64 || !reviewObjectID(p.EvidenceCollectionDigest)) {
 		return errors.New("parent review evidence collection digest is invalid")

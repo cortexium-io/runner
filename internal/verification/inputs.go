@@ -89,8 +89,15 @@ func ObserveCandidate(ctx context.Context, directory, baseOID, approvedRequireme
 	if before.Fingerprint != after.Fingerprint {
 		return observation, errors.New("candidate changed while collecting verification inputs")
 	}
+	var preparationIntegrity string
+	if entry.Preparation != nil {
+		preparationIntegrity, err = before.PreparationFingerprint(entry.DependencyPaths)
+		if err != nil {
+			return observation, err
+		}
+	}
 	sort.Strings(allPaths)
-	observation = Observation{CommitOID: before.Head, TreeOID: before.Tree, BaseOID: baseOID, Integrity: before.Fingerprint,
+	observation = Observation{CommitOID: before.Head, TreeOID: before.Tree, BaseOID: baseOID, Integrity: before.Fingerprint, PreparationIntegrity: preparationIntegrity,
 		Inputs: execution.VerificationInputs{
 			Selection:    execution.VerificationInputSelection{Policy: "explicit-content-roots-v1", Paths: allPaths},
 			Requirements: hash([]byte(approvedRequirements)), Executable: executable, Dependencies: dependencies,

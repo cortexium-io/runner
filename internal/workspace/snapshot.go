@@ -35,14 +35,70 @@ func DefaultSnapshotLimits() SnapshotLimits {
 // explain which repository-relative paths changed between two captures.
 // File contents are represented only by hashes and are never retained.
 type Snapshot struct {
-	Fingerprint  string
-	Head         string
-	Tree         string
-	Branch       string
-	Clean        bool
-	indexEntries map[string]string
-	worktree     map[string]string
-	controlState map[string]string
+	Fingerprint    string
+	Head           string
+	Tree           string
+	Branch         string
+	Clean          bool
+	indexEntries   map[string]string
+	worktree       map[string]string
+	controlState   map[string]string
+	protectedPaths []string
+}
+
+// PreparationFingerprint retains every captured Git control and source binding,
+// except package-local control files inside the declared untracked dependency
+// roots. It is a preparation comparison, never a publication snapshot. Capture
+// still discovers and securely reads all controls, including these files.
+func (s Snapshot) PreparationFingerprint(dependencies []string) (string, error) {
+	if !s.Clean || s.indexEntries == nil || s.controlState == nil {
+		return "", errors.New("preparation requires a freshly captured clean snapshot")
+	}
+	covered := func(name string) bool {
+		for _, root := range dependencies {
+			if name == root || strings.HasPrefix(name, root+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	for _, root := range dependencies {
+		if root == "" || root == "." || filepath.IsAbs(root) || filepath.ToSlash(filepath.Clean(root)) != root || root == ".." || strings.HasPrefix(root, "../") || strings.ContainsAny(root, "\\\x00\r\n") {
+			return "", errors.New("invalid preparation dependency root")
+		}
+		for _, component := range strings.Split(root, "/") {
+			if strings.EqualFold(component, ".git") {
+				return "", errors.New("preparation cannot exclude Git administration")
+			}
+		}
+	}
+	for name := range s.indexEntries {
+		if covered(name) {
+			return "", errors.New("preparation cannot exclude tracked content")
+		}
+	}
+	digest := sha256.New()
+	for _, name := range sortedSnapshotKeys(s.worktree) {
+		if !covered(name) {
+			writeSnapshotPart(digest, "worktree-path", []byte(name))
+			writeSnapshotPart(digest, "worktree-content", []byte(s.worktree[name]))
+		}
+	}
+	var protected []string
+	for _, name := range s.protectedPaths {
+		if !covered(name) {
+			protected = append(protected, name)
+		}
+	}
+	for _, category := range sortedSnapshotKeys(s.controlState) {
+		value := s.controlState[category]
+		if category == "protected worktree files" {
+			value = digestString([]byte(strings.Join(protected, "\x00")))
+		}
+		writeSnapshotPart(digest, "control-category", []byte(category))
+		writeSnapshotPart(digest, "control-state", []byte(value))
+	}
+	return "sha256:" + hex.EncodeToString(digest.Sum(nil)), nil
 }
 
 // ChangedPaths returns the sorted repository-relative paths whose index entry
@@ -370,14 +426,15 @@ func captureSnapshotState(ctx context.Context, run subprocess.Runner, worktreePa
 		return Snapshot{}, fmt.Errorf("verify snapshot repository root: %w", err)
 	}
 	return Snapshot{
-		Fingerprint:  "sha256:" + hex.EncodeToString(digest.Sum(nil)),
-		Head:         head,
-		Tree:         tree,
-		Branch:       snapshotBranchName(branchRef),
-		Clean:        results["status"] == "",
-		indexEntries: indexEntries,
-		worktree:     worktree,
-		controlState: controlState,
+		Fingerprint:    "sha256:" + hex.EncodeToString(digest.Sum(nil)),
+		Head:           head,
+		Tree:           tree,
+		Branch:         snapshotBranchName(branchRef),
+		Clean:          results["status"] == "",
+		indexEntries:   indexEntries,
+		worktree:       worktree,
+		controlState:   controlState,
+		protectedPaths: protectedPaths,
 	}, nil
 }
 

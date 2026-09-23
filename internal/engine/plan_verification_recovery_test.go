@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -363,6 +364,190 @@ func TestPlanPendingPublicationReusesOriginalHeavyAndRenewsGuard(t *testing.T) {
 	}
 	if f.runner.reviews != 3 || f.runner.implementations != 2 || f.runner.creates != 1 || result.HarnessDurationMilliseconds != 0 {
 		t.Fatal("successful gate recovery repeated model work or publication")
+	}
+}
+
+func TestPlanPreparationPreservesQAAndRecoversExactPreparedPublication(t *testing.T) {
+	f := newGuardedPlanFixture(t, func(e *config.VerificationEntrypoint) {
+		e.DependencyPaths = []string{"deps"}
+		e.Preparation = &config.VerificationPreparation{Command: "/bin/sh", Args: []string{"-c", "mkdir -p deps/pkg; printf '*.js text\\n' > deps/pkg/.gitattributes; printf 'dist/\\n' > deps/pkg/.gitignore; printf metadata > deps/pkg/.gitmodules"}}
+	})
+	// This common control is present before every implementation/QA snapshot.
+	if err := os.WriteFile(filepath.Join(f.repo, ".git", "info", "exclude"), []byte("deps/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.integrateMembers(t)
+	r := &publicationCrashRunner{deliveryMilestoneRunner: f.runner, afterCreate: true}
+	var err error
+	f.service, err = New(f.cfg, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, err := f.service.source.Authorize(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := f.service.executeQA(t.Context(), action, "prepared-plan")
+	if !r.crashed || r.creates != 1 || r.reviews != 3 {
+		t.Fatalf("prepared plan did not reach publication: %s %s %s", result.Outcome, result.Summary, result.Error)
+	}
+	r.offline = false
+	before := retainedPlanProgress(t, f)
+	if before.PreparedCandidate == nil || before.Candidate.Fingerprint == before.PreparedCandidate.Fingerprint || before.Publication.AcceptanceSnapshot != before.PreparedCandidate.Fingerprint || before.Gate.Invocation.Outcome != "passed" {
+		t.Fatal("preparation did not retain distinct QA and verified publication snapshots")
+	}
+	qa, _ := json.Marshal(before.Candidate)
+	heavy, _ := json.Marshal(before.Gate.Receipt)
+	f.service, err = New(f.cfg, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, err = f.service.source.Authorize(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result = f.service.executeQA(t.Context(), action, "prepared-recovery")
+	if result.Outcome != execution.OutcomeSucceeded || r.creates != 1 || r.reviews != 3 {
+		t.Fatalf("prepared recovery repeated QA/publication or failed: %s %s %s", result.Outcome, result.Summary, result.Error)
+	}
+	after := retainedPlanProgress(t, f)
+	retainedQA, _ := json.Marshal(after.Candidate)
+	retainedHeavy, _ := json.Marshal(after.Gate.Receipt)
+	if string(qa) != string(retainedQA) || string(heavy) != string(retainedHeavy) || !after.Gate.Historical || after.Gate.CurrentPreparation != nil || after.Gate.CurrentCandidateCheck.ExecutionID == before.Gate.CurrentCandidateCheck.ExecutionID {
+		t.Fatal("recovery rewrote original QA/heavy proof or failed to renew only the guard")
+	}
+}
+
+func TestPlanInterruptedPreparationRequiresExactSnapshotRestoration(t *testing.T) {
+	stop := filepath.Join(t.TempDir(), "stop-preparation")
+	if err := os.WriteFile(stop, []byte("fixture setup failure"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := newGuardedPlanFixture(t, func(e *config.VerificationEntrypoint) {
+		e.DependencyPaths = []string{"deps"}
+		e.Preparation = &config.VerificationPreparation{Command: "/bin/sh", Args: []string{"-c", "mkdir -p deps/pkg; printf '*.js text\\n' > deps/pkg/.gitattributes; test ! -f \"$1\"", "prepare", stop}}
+	})
+	if err := os.WriteFile(filepath.Join(f.repo, ".git", "info", "exclude"), []byte("deps/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.integrateMembers(t)
+	action, err := f.service.source.Authorize(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := f.service.executeQA(t.Context(), action, "partial-preparation")
+	p := retainedPlanProgress(t, f)
+	if failed.Outcome != execution.OutcomeBlocked || p.PreparedCandidate != nil || p.Gate.Receipt != nil || p.Publication != nil || p.Failure != nil || p.Gate.CurrentPreparation.Outcome != "failed" {
+		t.Fatalf("failed preparation created acceptance/proof: %s %s", failed.Summary, failed.Error)
+	}
+	if err := os.Remove(stop); err != nil {
+		t.Fatal(err)
+	}
+	f.service, err = New(f.cfg, f.runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := f.service.PlanProjectItemRetry(t.Context(), f.parentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.ApplyProjectItemRetry(t.Context(), preview); err != nil {
+		t.Fatal(err)
+	}
+	action, err = f.service.source.Authorize(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := f.service.executeQA(t.Context(), action, "unrestored-restart")
+	if refused.Outcome != execution.OutcomeBlocked || !strings.Contains(refused.Error, "workspace binding changed") || f.runner.reviews != 3 || f.runner.creates != 0 {
+		t.Fatalf("unexplained mismatch adopted: %s %s", refused.Summary, refused.Error)
+	}
+	// Restore only the declared root, preserving its diagnostic contents.
+	if err := os.Rename(filepath.Join(p.Metadata.WorktreePath, "deps"), filepath.Join(t.TempDir(), "retained-deps")); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := f.service.checkoutSnapshotState(t.Context(), p.Metadata.WorktreePath)
+	if err != nil || restored.Fingerprint != p.Candidate.Fingerprint {
+		t.Fatalf("ordinary full snapshot was not restored: %v", err)
+	}
+	preview, err = f.service.PlanProjectItemRetry(t.Context(), f.parentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.ApplyProjectItemRetry(t.Context(), preview); err != nil {
+		t.Fatal(err)
+	}
+	action, err = f.service.source.Authorize(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := f.service.executeQA(t.Context(), action, "restored-restart")
+	if result.Outcome != execution.OutcomeSucceeded || f.runner.reviews != 3 || f.runner.creates != 1 {
+		t.Fatalf("restored acceptance failed or repeated QA: %s %s", result.Summary, result.Error)
+	}
+	after := retainedPlanProgress(t, f)
+	if after.Candidate.Fingerprint != p.Candidate.Fingerprint || after.AttemptID != p.AttemptID || after.PreparedCandidate == nil {
+		t.Fatal("restored recovery rewrote the original acceptance")
+	}
+}
+
+type postPreparationSnapshotRunner struct {
+	*deliveryMilestoneRunner
+	marker, worktree string
+	mutation         bool
+	observed         bool
+}
+
+func (r *postPreparationSnapshotRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	if command == "git" && dir == r.worktree && !r.observed {
+		if _, err := os.Stat(r.marker); err == nil {
+			r.observed = true
+			if !r.mutation {
+				return subprocess.Result{}, errors.New("fixture post-gate snapshot unavailable")
+			}
+			if err := os.WriteFile(filepath.Join(dir, "member-1.txt"), []byte("changed after command observation"), 0o600); err != nil {
+				return subprocess.Result{}, err
+			}
+		}
+	}
+	return r.deliveryMilestoneRunner.Run(ctx, command, args, dir, timeout)
+}
+
+func TestPlanPostPreparationSnapshotFailureCannotClassifyEarlierCheckFailure(t *testing.T) {
+	for _, mutation := range []bool{false, true} {
+		t.Run(fmt.Sprint(mutation), func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "check-ran")
+			f := newGuardedPlanFixture(t, func(e *config.VerificationEntrypoint) {
+				e.DependencyPaths = []string{"deps"}
+				e.Preparation = &config.VerificationPreparation{Command: "/bin/sh", Args: []string{"-c", "mkdir -p deps/pkg; printf package > deps/pkg/.gitattributes"}}
+				e.Args = []string{"-c", "printf observed > \"$1\"; exit 7", "check", marker}
+			})
+			if err := os.WriteFile(filepath.Join(f.repo, ".git", "info", "exclude"), []byte("deps/\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			f.integrateMembers(t)
+			r := &postPreparationSnapshotRunner{deliveryMilestoneRunner: f.runner, marker: marker, mutation: mutation}
+			var err error
+			f.service, err = New(f.cfg, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			action, err := f.service.source.Authorize(t.Context(), f.parent(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Resolve the same deterministic retained workspace the QA path uses.
+			metadata, err := f.service.workspaceForItem(t.Context(), action.Item, github.DelegatedContentFor(action.Item).Digest, f.repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.worktree = metadata.WorktreePath
+			result := f.service.executeQA(t.Context(), action, "post-gate-refusal")
+			p := retainedPlanProgress(t, f)
+			if !r.observed || result.Outcome != execution.OutcomeBlocked || p.Gate.Receipt == nil || p.Gate.Receipt.Outcome != "failed" || p.Failure != nil || p.Classification != nil || p.Publication != nil || r.reviews != 3 || r.creates != 0 {
+				t.Fatalf("post-gate integrity failure authorized repair: %s %s observed=%t reviews=%d", result.Summary, result.Error, r.observed, r.reviews)
+			}
+		})
 	}
 }
 

@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -84,6 +85,52 @@ func TestCaptureSnapshotDetectsUntrackedContentChangeWithSameStatus(t *testing.T
 	}
 	if before == after {
 		t.Fatal("snapshot ignored changed untracked content with the same porcelain status")
+	}
+}
+
+func TestPreparationFingerprintOnlyProjectsDeclaredUntrackedPackageControls(t *testing.T) {
+	repo := initGitRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, ".git", "info", "exclude"), []byte("deps/\nother/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	capture := func() Snapshot {
+		t.Helper()
+		s, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, repo, 30*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	before := capture()
+	baseline, err := before.PreparationFingerprint([]string{"deps"})
+	if err != nil || baseline != before.Fingerprint {
+		t.Fatalf("empty preparation projection changed full snapshot: %v", err)
+	}
+	for _, root := range []string{"deps", "other"} {
+		if err := os.Mkdir(filepath.Join(repo, root), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, root, ".gitattributes"), []byte("*.js text\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		after := capture()
+		projected, err := after.PreparationFingerprint([]string{"deps"})
+		if err != nil || after.Fingerprint == before.Fingerprint || (projected == baseline) != (root == "deps") {
+			t.Fatalf("wrong boundary for %s: %v", root, err)
+		}
+	}
+	for _, root := range []string{"README.md", ".", ".git", "deps/../other", "deps/.git"} {
+		if _, err := before.PreparationFingerprint([]string{root}); err == nil {
+			t.Fatalf("unsafe preparation projection accepted %q", root)
+		}
+	}
+	var persisted Snapshot
+	data, err := json.Marshal(before)
+	if err != nil || json.Unmarshal(data, &persisted) != nil {
+		t.Fatal("snapshot round trip failed")
+	}
+	if _, err := persisted.PreparationFingerprint([]string{"deps"}); err == nil {
+		t.Fatal("retrospective projection manufactured from persisted summary")
 	}
 }
 

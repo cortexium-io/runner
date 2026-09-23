@@ -66,10 +66,29 @@ func TestPreparationBindsActualDependenciesAndAllowsCheckOutputs(t *testing.T) {
 	}
 }
 
+func TestPreparationAllowsPackageGitControlsButBindsThemDuringChecks(t *testing.T) {
+	request := preparationFixture(t, "mkdir -p deps/lib; printf prepared > deps/prepared; printf '*.js text\\n' > deps/lib/.gitattributes; printf 'build/\\n' > deps/lib/.gitignore; printf '# package metadata\\n' > deps/lib/.gitmodules")
+	result, err := run(t.Context(), request, ownedTestGrant)
+	if err != nil || result.Receipt == nil || result.Invocation.Outcome != "passed" {
+		t.Fatalf("declared package preparation refused: %v; %+v", err, result)
+	}
+	request.Entry.CurrentCandidateCheck = &config.VerificationCurrentCandidateCheck{Command: "/bin/sh", Args: []string{"-c", "printf changed > deps/lib/.gitattributes"}}
+	bindCurrentCandidateObservation(t, &request)
+	// Changing installed metadata during a check is not preparation authority.
+	changed, err := run(t.Context(), request, ownedTestGrant)
+	var failure *CheckFailure
+	if err == nil || errors.As(err, &failure) || changed.CurrentCandidateCheck == nil || changed.CurrentCandidateCheck.Outcome != "failed" || changed.Invocation.Outcome == "passed" {
+		t.Fatalf("check changed dependency metadata without refusal: %v; %+v", err, changed)
+	}
+}
+
 func TestPreparationRefusesUndeclaredChangesAndFailures(t *testing.T) {
 	for _, tc := range []struct{ name, command string }{
 		{"ignored", "mkdir -p local-ignored; printf bad > local-ignored/leak; printf ok > deps/prepared"},
 		{"tracked", "printf bad > src/source.txt; printf ok > deps/prepared"},
+		{"outside control", "mkdir -p local-ignored; printf '*.txt -diff' > local-ignored/.gitattributes; printf ok > deps/prepared"},
+		{"Git config", "git config core.filemode false; printf ok > deps/prepared"},
+		{"nested administration", "mkdir -p deps/pkg/.git; printf ok > deps/prepared"},
 		{"failed", "printf partial > deps/prepared; exit 7"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

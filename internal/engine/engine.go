@@ -1602,7 +1602,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		// publication record, but never use it to bypass that new review.
 		prior, loadErr := s.loadReviewFeedbackRecord(item, delegatedContent)
 		if loadErr != nil || prior == nil || prior.PlanVerification == nil || prior.PlanVerification.Publication == nil ||
-			*prior.PlanVerification.Publication != publicationRecord || prior.PlanVerification.Candidate.Fingerprint != qaSnapshot.Fingerprint ||
+			*prior.PlanVerification.Publication != publicationRecord || prior.PlanVerification.publicationCandidate().Fingerprint != qaSnapshot.Fingerprint ||
 			prior.PlanVerification.classificationPending() {
 			err := errors.Join(errors.New("whole-plan acceptance requires protected parent verification recovery"), loadErr)
 			return s.failExecution(ctx, action, lane, result, retainedAcceptanceResumeFailure, err, integrityViolationOutput(retainedAcceptanceResumeFailure, err))

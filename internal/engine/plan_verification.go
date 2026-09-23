@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/cortexium-io/runner/internal/config"
@@ -44,6 +45,21 @@ func (s *Engine) runPlanVerification(ctx context.Context, action github.Authoriz
 	if err != nil {
 		return verification.Result{}, err
 	}
+	before, err := s.checkoutSnapshotState(ctx, metadata.WorktreePath)
+	if err != nil {
+		return verification.Result{}, err
+	}
+	if !before.Clean || before.Head != accepted.Head || before.Tree != accepted.Tree || before.Fingerprint != progress.publicationCandidate().Fingerprint {
+		return verification.Result{}, errors.New("accepted combined candidate changed before complete verification")
+	}
+	var preparationIntegrity string
+	if entry.Preparation != nil && progress.Publication == nil {
+		preparationIntegrity, err = before.PreparationFingerprint(entry.DependencyPaths)
+		if err != nil {
+			return verification.Result{}, err
+		}
+	}
+	firstObservation := true
 	request := verification.Request{
 		Entrypoint: delivery.Manifest.CompleteVerification, Entry: entry, Directory: metadata.WorktreePath, Repository: delivery.Manifest.Repository,
 		AttemptID: attemptID, PlanID: delivery.Parent.ID, PlanRevision: delivery.Revision, Boundary: execution.VerificationComplete,
@@ -66,14 +82,19 @@ func (s *Engine) runPlanVerification(ctx context.Context, action github.Authoriz
 			if err := s.revalidateDeliveryAssignment(ctx, action.Item, assignment); err != nil {
 				return verification.Observation{}, err
 			}
-			snapshot, err := s.checkoutSnapshotState(ctx, metadata.WorktreePath)
+			observed, err := verification.ObserveCandidate(ctx, metadata.WorktreePath, metadata.BaseRevision, delivery.Parent.Body, entry)
 			if err != nil {
 				return verification.Observation{}, err
 			}
-			if !snapshot.Clean || snapshot.Head != accepted.Head || snapshot.Tree != accepted.Tree || snapshot.Fingerprint != accepted.Fingerprint {
+			unchanged := observed.Integrity == before.Fingerprint
+			if preparationIntegrity != "" && !firstObservation {
+				unchanged = observed.PreparationIntegrity == preparationIntegrity
+			}
+			if observed.CommitOID != accepted.Head || observed.TreeOID != accepted.Tree || !unchanged {
 				return verification.Observation{}, errors.New("accepted combined candidate changed before or during complete verification")
 			}
-			return verification.ObserveCandidate(ctx, metadata.WorktreePath, metadata.BaseRevision, delivery.Parent.Body, entry)
+			firstObservation = false
+			return observed, nil
 		},
 	}
 	if progress.Gate != nil && progress.EnvelopeDigest != "" {
@@ -88,7 +109,22 @@ func (s *Engine) runPlanVerification(ctx context.Context, action github.Authoriz
 			}
 		}
 	}
-	return verification.Run(ctx, request)
+	result, runErr := verification.Run(ctx, request)
+	if result.PreparedIntegrity != "" && preparationIntegrity != "" {
+		// Keep original QA immutable. Only a launcher-validated preparation can
+		// advance the full publication snapshot, never an arbitrary recapture.
+		prepared, err := s.checkoutSnapshotState(ctx, metadata.WorktreePath)
+		if err != nil {
+			// A later integrity failure must discard an earlier CheckFailure's
+			// repair eligibility, not leave it reachable through errors.As.
+			return result, fmt.Errorf("observe prepared candidate after verification (check result: %v): %w", runErr, err)
+		}
+		if !prepared.Clean || prepared.Head != accepted.Head || prepared.Tree != accepted.Tree || prepared.Fingerprint != result.PreparedIntegrity {
+			return result, fmt.Errorf("prepared candidate changed after verification (check result: %v)", runErr)
+		}
+		progress.PreparedCandidate = &prepared
+	}
+	return result, runErr
 }
 
 // A destination refresh can publish accepted R after integrated P. Both heads
@@ -101,7 +137,7 @@ func (s *Engine) verifyProgressPlanHead(ctx context.Context, action github.Autho
 		return err
 	}
 	provider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
-	retained, found, err := provider.LoadPublicationAcceptance(ctx, p.Metadata, p.Candidate, workspace.PublicationEvidence{PlanRevision: p.Assignment.Spec.PlanContext.Revision})
+	retained, found, err := provider.LoadPublicationAcceptance(ctx, p.Metadata, p.publicationCandidate(), workspace.PublicationEvidence{PlanRevision: p.Assignment.Spec.PlanContext.Revision})
 	if err != nil || !found || retained != *p.Publication {
 		return errors.Join(errors.New("remote plan head has no exact retained publication authority"), err)
 	}
@@ -191,7 +227,7 @@ func (s *Engine) validatePlanMergeProof(ctx context.Context, action github.Autho
 	if err != nil {
 		return err
 	}
-	if !snapshot.Clean || snapshot.Head != head || head != action.Item.QACommit || snapshot.Head != p.Candidate.Head || snapshot.Fingerprint != p.Candidate.Fingerprint || metadata.Identity != p.Metadata.Identity || metadata.BaseRevision != p.Metadata.BaseRevision {
+	if !snapshot.Clean || snapshot.Head != head || head != action.Item.QACommit || snapshot.Head != p.Candidate.Head || snapshot.Fingerprint != p.publicationCandidate().Fingerprint || metadata.Identity != p.Metadata.Identity || metadata.BaseRevision != p.Metadata.BaseRevision {
 		return errors.New("final plan merge candidate no longer matches accepted QA")
 	}
 	record, found, err := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).LoadPublicationAcceptance(ctx, metadata, snapshot, workspace.PublicationEvidence{PlanRevision: p.Assignment.Spec.PlanContext.Revision})

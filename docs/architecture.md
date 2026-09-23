@@ -1065,6 +1065,12 @@ proof identity. Fresh whole-plan acceptance after a completed amendment archives
 the exact historical parent feedback before recording progress for the renewed
 contract. Earlier feedback can predate several amendments; it never becomes
 current acceptance or a passing complete gate by being carried forward.
+Owned dependency preparation may update package-local Git controls only within
+the declared untracked roots, after unchanged source, Git administration and
+undeclared paths are proved. Parent progress preserves the original QA snapshot
+and separately records the validated full prepared snapshot for publication and
+restart. No retrospective projection or acceptance rewrite repairs an unexplained
+snapshot mismatch; see [the preparation boundary](verification.md#dependencies-and-external-runtimes).
 Explicit additions adopt exact unapproved Assessment issues;
 retirements keep immutable rows in the same signed manifest, together with their
 code, history, counters and evidence. Active and retired members remain one exact
