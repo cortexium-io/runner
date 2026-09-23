@@ -62,8 +62,13 @@ satisfies current requirements and credible risks.
    changes, name a plausible incorrect implementation and the assertion that
    would catch it. Derive expected results from the requirement or an independent
    reference; investigate failures before changing expectations. For bug fixes,
-   show failure before the fix and success afterward when feasible. Exercise the
-   relevant producer/consumer boundary when isolated checks cannot prove it.
+   inspect the affected fixture and actual event or transaction sequence, then
+   establish the smallest faithful reproduction. Distinguish a product defect,
+   an incorrect test assumption, and an expectation superseded by the approved
+   change before choosing what to fix. Show failure before the fix and success
+   afterward when feasible; add browser coverage when interaction or rendering
+   cannot be proved at the lower level. Exercise the relevant producer/consumer
+   boundary when isolated checks cannot prove it.
    This does not authorize live-data access or extra features.
    Before the first handoff, inspect a small set of task-relevant interactions,
    not just each operation in isolation. For example, selection direction plus
@@ -127,7 +132,9 @@ satisfies current requirements and credible risks.
    or state transitions using the same representation or control.
    Do not patch only the reported example: verify card-owned variants and allowed
    neighboring behavior, including ordering, cancellation or cleanup altered by
-   the repair. Inspect the complete cumulative diff for
+   the repair. Keep inspection tied to the violated invariant, supported fixtures,
+   and affected events or transactions; do not expand into an exhaustive matrix
+   or unrelated subsystem audit. Inspect the complete cumulative diff for
    regressions introduced by the correction. Rerun affected proof and explain why
    reused evidence still applies; do not relabel old results as current runs.
 10. Treat an unplanned subsystem, dependency, schema, public contract, duplicate
@@ -169,6 +176,11 @@ or repeated failure without progress. Never weaken a check to avoid stopping.
 Before expensive validation, finish affected cheap checks, inspect the complete
 diff and, for visual work, inspect the representative rendered states. After a
 type/API change, run the applicable compiler/type check before browser matrices.
+Before extending a journey, inspect its existing fixture contract, event ordering
+and transaction semantics. Establish sound setup and assertions in the smallest
+faithful case before expanding to relevant browser/viewport coverage. After
+test-only changes, rerun affected cases and reuse other applicable passing checks;
+test-only does not mean a changed fixture or shared setup leaves every check valid.
 For a repeated failure, diagnose one test in one affected environment first,
 then expand to the required matrix after the cause is corrected. Do not repeatedly
 run every environment to rediscover the same failure; broaden early only when the
@@ -201,6 +213,10 @@ and concrete evidence for each Runner-owned proof obligation in the same order.
 Name what actually ran or was observed. Never present an unrun command, intended
 fallback, or inference as verification, and never report success with incomplete
 acceptance conditions.
+Keep "not reproduced", "fixed", and "unverified" distinct: a passing focused
+attempt may not reproduce a reported failure, a fix needs an identified cause
+and evidence for the correction, and an unrun or inconclusive check remains
+unverified. Record the limits of the observation in the existing proof entry.
 
 Check the handoff against repository-required proof as well as card obligations.
 Retain identifiable evidence for required setup (such as a locked dependency

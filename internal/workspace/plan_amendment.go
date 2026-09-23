@@ -49,6 +49,7 @@ func (p GitProvider) CarryPlanAcceptance(ctx context.Context, metadata Metadata,
 	}
 	return p.RecordPublicationAcceptance(ctx, metadata, snapshot, original.AcceptanceReport, original.AcceptanceComment, PublicationEvidence{
 		PlanRevision: revision, VerificationDigest: original.VerificationDigest, VerificationReceipt: original.VerificationReceipt,
-		CarriedFromRevision: original.PlanRevision, CarriedAcceptanceDigest: PublicationAcceptanceDigest(original), AmendmentDigest: amendment,
+		ReviewEvidenceDigest: original.ReviewEvidenceDigest,
+		CarriedFromRevision:  original.PlanRevision, CarriedAcceptanceDigest: PublicationAcceptanceDigest(original), AmendmentDigest: amendment,
 	})
 }

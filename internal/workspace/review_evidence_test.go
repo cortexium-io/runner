@@ -32,7 +32,7 @@ func TestReviewEvidenceCopiesOnlySelectedBytesAndSealsThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var manifest reviewEvidenceManifest
+	var manifest ReviewEvidenceManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatal(err)
 	}

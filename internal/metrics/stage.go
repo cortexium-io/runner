@@ -37,6 +37,16 @@ func WithAttemptTrace(ctx context.Context, trace *AttemptTrace) context.Context 
 
 type FinishStage func(outcome, failureClass, retryDisposition string, usage Usage)
 
+// FinishError is for deterministic stages without provider usage. Error text
+// never enters metrics; attribution remains the bounded stage name only.
+func (finish FinishStage) FinishError(err error) {
+	outcome := StageOutcomeSucceeded
+	if err != nil {
+		outcome = StageOutcomeFailed
+	}
+	finish(outcome, "", "", Usage{})
+}
+
 func RecordPromptContext(ctx context.Context, value PromptContext) {
 	trace, _ := ctx.Value(traceContextKey{}).(*AttemptTrace)
 	if trace == nil || !validPromptContext(value) {

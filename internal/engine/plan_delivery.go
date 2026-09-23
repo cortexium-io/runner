@@ -101,6 +101,22 @@ func (s *Engine) resumeAcceptedPlanPublication(ctx context.Context, action githu
 		if metadata.Identity != p.Metadata.Identity || metadata.SourceSnapshot != p.Metadata.SourceSnapshot || snapshot.Fingerprint != p.Candidate.Fingerprint {
 			return fail(errors.New("retained parent candidate or workspace binding changed"))
 		}
+		delivery, _, err := s.planGate(ctx, action)
+		if err != nil {
+			return fail(err)
+		}
+		evidenceDigest, err := s.currentPlanEvidenceDigest(ctx, delivery, metadata, workspace.Candidate{CommitOID: snapshot.Head, TreeOID: snapshot.Tree})
+		if err != nil {
+			return fail(err)
+		}
+		if evidenceDigest != p.EvidenceCollectionDigest {
+			if p.classificationPending() {
+				return fail(errors.New("evidence changed while classifier outcome is uncertain; resolve retained work before fresh review"))
+			}
+			// A newly recovered collection is not what the earlier parent saw.
+			// Keep historical gate receipts, but renew QA before any gate/classifier.
+			return RunResult{}, false
+		}
 		p.Metadata = metadata // current privileged Git bindings, never persisted as authority
 		result.ResumedCheckpoint = true
 		result.WorktreePath, result.Branch = metadata.WorktreePath, metadata.BranchName
@@ -321,7 +337,7 @@ func (s *Engine) fetchItemBase(ctx context.Context, item github.WorkItem, root s
 		return delivery.Parent.Branch, nil
 	}
 	if item.PlanRelease != "" {
-		if err := s.verifyPlanHead(ctx, item, root); err != nil {
+		if _, err := s.planReviewHead(ctx, item, root); err != nil {
 			return "", err
 		}
 	}
@@ -334,6 +350,41 @@ func (s *Engine) fetchItemBase(ctx context.Context, item github.WorkItem, root s
 		return "", fmt.Errorf("fetch assignment base: %w", commandFailure(err, result))
 	}
 	return base, nil
+}
+
+// Interrupted publication may already have pushed the exact accepted,
+// destination-refreshed candidate. Fresh QA must preserve that authenticated
+// head through both base fetch and workspace synchronization, without accepting
+// any other remote replacement or inferring a new acceptance from progress.
+func (s *Engine) planReviewHead(ctx context.Context, item github.WorkItem, root string) (string, error) {
+	if err := s.verifyPlanHead(ctx, item, root); err == nil {
+		return item.QACommit, nil
+	} else {
+		feedback, loadErr := s.loadReviewFeedbackRecord(item, github.DelegatedContentFor(item))
+		if loadErr != nil || feedback == nil || feedback.PlanVerification == nil || feedback.PlanVerification.Publication == nil {
+			return "", errors.Join(err, loadErr)
+		}
+		progress := *feedback.PlanVerification
+		if progress.Metadata.RepoRoot != root || progress.classificationPending() {
+			return "", errors.New("retained publication cannot authorize this plan-head recovery")
+		}
+		metadata, err := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).InspectRetainedReview(ctx, s.workspaceRequestForItem(item, github.DelegatedContentFor(item).Digest, root, false))
+		if err != nil {
+			return "", err
+		}
+		if metadata.Identity != progress.Metadata.Identity || metadata.SourceSnapshot != progress.Metadata.SourceSnapshot || metadata.BaseRevision != progress.Metadata.BaseRevision {
+			return "", errors.New("retained publication workspace binding changed")
+		}
+		progress.Metadata = metadata // Restore current privileged Git bindings, never deserialize them as authority.
+		action, err := s.source.Authorize(ctx, item)
+		if err != nil {
+			return "", err
+		}
+		if err := s.verifyPlanProgressCandidate(ctx, action, &progress); err != nil {
+			return "", err
+		}
+		return progress.Candidate.Head, nil
+	}
 }
 
 func (s *Engine) validateMemberPlanHead(ctx context.Context, item github.WorkItem, expected github.PlanDelivery) error {
@@ -361,7 +412,9 @@ func (s *Engine) verifyPlanHead(ctx context.Context, item github.WorkItem, root 
 	})
 }
 
-func (s *Engine) integratePlanAcceptance(ctx context.Context, action github.AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord) error {
+func (s *Engine) integratePlanAcceptance(ctx context.Context, action github.AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord) (err error) {
+	finish := metrics.StartStage(ctx, metrics.StagePlanIntegration)
+	defer func() { finish.FinishError(err) }()
 	delivery, present, err := s.source.DeliveryForItem(ctx, action.Item)
 	if err != nil || !present {
 		return errors.Join(errors.New("accepted plan member has no current authority"), err)
@@ -380,6 +433,11 @@ func (s *Engine) integratePlanAcceptanceLocked(ctx context.Context, action githu
 	}
 	if record.PlanRevision != delivery.Revision {
 		return errors.New("accepted member belongs to another plan revision")
+	}
+	if record.ReviewEvidenceDigest != "" {
+		if _, _, err := workspace.LoadAcceptedEvidence(ctx, metadata, record, delivery.Parent.ID, s.cfg.ReviewEvidencePaths, s.snapshotLimits()); err != nil {
+			return err
+		}
 	}
 	parent, err := s.source.Authorize(ctx, delivery.Parent)
 	if err != nil {

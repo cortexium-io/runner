@@ -48,8 +48,10 @@ func TestReviewEvidenceGrantsAreReadOnlyAndReviewerOnly(t *testing.T) {
 			t.Fatalf("Claude %s omitted evidence root: %#v", key, filesystem)
 		}
 	}
-	if !strings.Contains(profileRepositoryInstruction(w), "manifest.json") {
-		t.Fatal("evidence mapping unavailable in harness prompt")
+	for _, required := range []string{"manifest.json", "members/*/manifest.json", "provenance.member_id", "within that member's tree only", "recovered_historical_requires_parent_review", "combined candidate", "not mean member evidence is absent"} {
+		if !strings.Contains(profileRepositoryInstruction(w), required) {
+			t.Fatalf("evidence mapping or provenance boundary unavailable in harness prompt: %s", required)
+		}
 	}
 	for _, role := range []RoleContract{RoleImplementer, RolePlanner, RoleSynthesis, RoleProbe} {
 		profile, err := ProfileForRole(role)

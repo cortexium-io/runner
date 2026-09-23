@@ -35,7 +35,8 @@ type projectPlanCard struct {
 }
 
 type projectPlanDetails struct {
-	Cards map[string]projectPlanCard `json:"cards"`
+	OpenDecisions []string                   `json:"open_decisions"`
+	Cards         map[string]projectPlanCard `json:"cards"`
 }
 
 type plannerStageCall func(context.Context, string, []byte) (execution.StructuredHarnessResult, error)
@@ -49,7 +50,8 @@ Inspect the supplied project and repository context, then return the project out
 Choose the smallest complete set of coherent cards. Do not collapse independently verifiable behavior merely to reduce the card count, and do not create artificial microtasks. The schema ceiling is emergency loop protection, never planning guidance.
 Each dependency is the 1-based position of an earlier prerequisite card. Keep independent work independent. Do not return card details yet.
 The next stage has no repository tools: retain the inspected contract facts, their exact sources, supported representative inputs, and authorized verification setup in project_constraints. Distinguish facts from assumptions; resolve inspectable questions here. Keep this handoff concise rather than copying the request.
-Make reasonable reversible choices. Record selected defaults in project_constraints and use open_decisions only when a missing human choice prevents every safe, complete plan. Use [] when there is no open decision.` + "\n\n" + basePrompt
+Preserve exact requested constraints and approved tradeoffs. If requirements conflict, identify both sources and the needed choice in open_decisions; do not silently weaken, reinterpret, or reschedule either requirement.
+Make reasonable reversible choices. Record selected defaults in project_constraints and use open_decisions only when a missing human choice prevents every safe, complete plan. Use [] when there is no open decision. Open decisions stop planning before details and prevent staging or release; cards may be [] in that case.` + "\n\n" + basePrompt
 	outlineResult, err := outlineCall(ctx, outlinePrompt, projectPlanOutlineSchema)
 	mergePlannerStage(&aggregate, outlineResult)
 	if err != nil {
@@ -62,6 +64,13 @@ Make reasonable reversible choices. Record selected defaults in project_constrai
 	if err := normalizeProjectPlanOutline(&outline); err != nil {
 		return invalidPlannerStage(aggregate, "validate project outline stage", err)
 	}
+	if len(outline.OpenDecisions) > 0 {
+		return encodeStagedProjectPlan(aggregate, ProjectPlan{
+			GoalSummary: outline.GoalSummary, ProjectSuccessCriteria: outline.ProjectSuccessCriteria,
+			ProjectConstraints: outline.ProjectConstraints, OpenDecisions: outline.OpenDecisions,
+			WorkItems: []github.PlannedItem{},
+		})
+	}
 
 	encodedOutline, err := json.Marshal(outline)
 	if err != nil {
@@ -72,12 +81,13 @@ Make reasonable reversible choices. Record selected defaults in project_constrai
 		fmt.Fprintf(&keyGuide, "\n- %s: %s", projectPlanCardKey(index), card.Title)
 	}
 	detailsPrompt := fmt.Sprintf(`Shared planning contract — card details:
-Return one details object for each supplied exact Runner-owned key.
+For an executable plan, return one details object for each supplied exact Runner-owned key.
+Preserve exact requested constraints and approved tradeoffs. If details reveal a new conflict that requires a human choice, identify both sources and the needed choice in open_decisions and return cards as null. Do not invent replacement requirements or silently weaken, reinterpret, or reschedule them. Open decisions prevent staging and release. Otherwise return open_decisions as [] and complete every card.
 
 For every card, objective states its complete task boundary; done_when contains observable completion conditions; proof_obligations state what evidence must establish; assumptions records selected task-local defaults or constraints. Proof obligations must not prescribe commands, test frameworks, implementation techniques, or an interface the requested behavior does not need. The implementer will inspect the repository and choose the smallest reliable proof method.
 
 Use the outline's sourced contract facts when defining acceptance and selecting profiles; do not turn an assumption into a verified fact. Runner attaches the original request and shared criteria/constraints to every card, so add only task-local details and relevant references, not another copy of the shared context.
-Do not repeat titles or dependencies and do not inspect the repository again. Include all required arrays, using [] when no assumption applies. Do not add or omit cards.
+Do not repeat titles or dependencies and do not inspect the repository again. For an executable plan, include all required arrays, using [] when no assumption applies, and do not add or omit cards.
 
 %s
 
@@ -92,13 +102,17 @@ Runner-owned keys:%s`, basePrompt, encodedOutline, keyGuide.String())
 		return aggregate, fmt.Errorf("run project card-details stage: %w", err)
 	}
 	var details projectPlanDetails
-	if err := decodePlannerStage(detailsResult.Message, &details, "cards"); err != nil {
+	if err := decodePlannerStage(detailsResult.Message, &details, "open_decisions", "cards"); err != nil {
 		return invalidPlannerStage(aggregate, "decode project card-details stage", err)
 	}
 	plan, err := assembleStagedProjectPlan(outline, details, repository)
 	if err != nil {
 		return invalidPlannerStage(aggregate, "assemble project plan", err)
 	}
+	return encodeStagedProjectPlan(aggregate, plan)
+}
+
+func encodeStagedProjectPlan(aggregate execution.StructuredHarnessResult, plan ProjectPlan) (execution.StructuredHarnessResult, error) {
 	encoded, err := json.Marshal(plan)
 	if err != nil {
 		return invalidPlannerStage(aggregate, "encode assembled project plan", err)
@@ -117,7 +131,7 @@ var projectPlanOutlineSchema = []byte(fmt.Sprintf(`{
     "open_decisions": {"type": "array", "items": {"type": "string", "minLength": 1}},
     "cards": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "maxItems": %d,
       "items": {
         "type": "object",
@@ -161,9 +175,10 @@ func projectPlanDetailsSchema(cardCount int) []byte {
 		properties[key] = card
 	}
 	schema := map[string]any{
-		"type": "object", "required": []string{"cards"},
+		"type": "object", "required": []string{"open_decisions", "cards"},
 		"properties": map[string]any{
-			"cards": map[string]any{"type": "object", "required": required, "properties": properties, "additionalProperties": false},
+			"open_decisions": stringList(false),
+			"cards":          map[string]any{"type": []string{"object", "null"}, "required": required, "properties": properties, "additionalProperties": false},
 		},
 		"additionalProperties": false,
 	}
@@ -203,8 +218,8 @@ func normalizeProjectPlanOutline(outline *projectPlanOutline) error {
 	if len(outline.OpenDecisions) == 1 && isNoOpenDecision(outline.OpenDecisions[0]) {
 		outline.OpenDecisions = []string{}
 	}
-	if outline.GoalSummary == "" || len(outline.ProjectSuccessCriteria) == 0 || len(outline.Cards) == 0 || len(outline.Cards) > github.MaxPlanningBatchChildren {
-		return errors.New("outline requires a goal, success criteria, and a bounded card list")
+	if outline.GoalSummary == "" || len(outline.ProjectSuccessCriteria) == 0 || (len(outline.Cards) == 0 && len(outline.OpenDecisions) == 0) || len(outline.Cards) > github.MaxPlanningBatchChildren {
+		return errors.New("outline requires a goal, success criteria, and cards or open decisions within the emergency safety maximum")
 	}
 	seenTitles := make(map[string]bool, len(outline.Cards))
 	for index := range outline.Cards {
@@ -245,14 +260,22 @@ func isNoOpenDecision(value string) bool {
 }
 
 func assembleStagedProjectPlan(outline projectPlanOutline, details projectPlanDetails, repository string) (ProjectPlan, error) {
-	if details.Cards == nil || len(details.Cards) != len(outline.Cards) {
-		return ProjectPlan{}, errors.New("card details must cover every outline card exactly once")
+	if details.OpenDecisions == nil {
+		return ProjectPlan{}, errors.New("card details must explicitly include open_decisions")
 	}
 	plan := ProjectPlan{
 		GoalSummary: outline.GoalSummary, ProjectSuccessCriteria: outline.ProjectSuccessCriteria,
-		ProjectConstraints: outline.ProjectConstraints, OpenDecisions: outline.OpenDecisions,
-		WorkItems: make([]github.PlannedItem, len(outline.Cards)),
+		ProjectConstraints: outline.ProjectConstraints,
+		OpenDecisions:      compactNonEmpty(append(append([]string{}, outline.OpenDecisions...), details.OpenDecisions...)),
+		WorkItems:          []github.PlannedItem{},
 	}
+	if len(plan.OpenDecisions) > 0 {
+		return normalizeProjectPlan(plan)
+	}
+	if details.Cards == nil || len(details.Cards) != len(outline.Cards) {
+		return ProjectPlan{}, errors.New("card details must cover every outline card exactly once")
+	}
+	plan.WorkItems = make([]github.PlannedItem, len(outline.Cards))
 	for index, outlineCard := range outline.Cards {
 		key := projectPlanCardKey(index)
 		card, exists := details.Cards[key]

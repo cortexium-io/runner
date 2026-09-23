@@ -1052,14 +1052,14 @@ func (s *Engine) prepareWorkspaceForItem(ctx context.Context, item github.WorkIt
 
 func (s *Engine) syncWorkspaceBranch(ctx context.Context, metadata workspace.Metadata, item github.WorkItem) error {
 	if item.PlanRelease != "" {
-		if err := s.verifyPlanHead(ctx, item, metadata.RepoRoot); err != nil {
+		head, err := s.planReviewHead(ctx, item, metadata.RepoRoot)
+		if err != nil {
 			return err
 		}
 		delivery, _, err := s.source.DeliveryForItem(ctx, item)
 		if err != nil {
 			return err
 		}
-		head := delivery.Parent.QACommit
 		if contained, err := s.git(ctx, []string{"merge-base", "--is-ancestor", head, "HEAD"}, metadata.WorktreePath, 30*time.Second); err == nil && contained.ExitCode == 0 {
 			return nil
 		}

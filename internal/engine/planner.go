@@ -1043,8 +1043,8 @@ func normalizeProjectPlan(plan ProjectPlan) (ProjectPlan, error) {
 	plan.ProjectConstraints = compactNonEmpty(plan.ProjectConstraints)
 	plan.OpenDecisions = compactNonEmpty(plan.OpenDecisions)
 	plan.SourceContext = strings.TrimSpace(plan.SourceContext)
-	if plan.GoalSummary == "" || len(plan.ProjectSuccessCriteria) == 0 || len(plan.WorkItems) == 0 {
-		return ProjectPlan{}, errors.New("project plan requires a goal summary, project success criteria, and at least one work item")
+	if plan.GoalSummary == "" || len(plan.ProjectSuccessCriteria) == 0 || (len(plan.WorkItems) == 0 && len(plan.OpenDecisions) == 0) {
+		return ProjectPlan{}, errors.New("project plan requires a goal summary, project success criteria, and at least one work item or open decision")
 	}
 	titles := map[string]int{}
 	for index := range plan.WorkItems {

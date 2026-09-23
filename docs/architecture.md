@@ -136,6 +136,11 @@ appended to a runner-keyed JSONL file in the user configuration directory. The
 event boundary keeps telemetry failure non-fatal to workflow execution and
 preserves unfinished attempts and stages after a process interruption. Stage
 events carry identity, timing, enums, usage, and prompt-context fingerprints.
+Bounded `authority_validation`, `evidence_capture`, `snapshot_validation` and
+`plan_integration` stages expose observed coordination work. Stage intervals may
+nest: `uncovered_duration_milliseconds` is completed-attempt time outside their
+observed union, not a guessed attribution of overhead. Incomplete/missing stages
+leave time uncovered; stage durations must not be summed into attempt duration.
 CLI observers snapshot `run_context` when attached: the Runner version, bundled
 skill version, and SHA-256 digest of the JSON-encoded loaded operator config
 (including CLI overrides). Both service and standalone planning/QA paths retain
@@ -493,8 +498,12 @@ GitHub actor only when trusted human feedback can affect a rework or
 base-refresh transition.
 
 Every harness uses the same two-stage planner contract. The first repository-aware
-stage returns the outcome and ordered card/dependency outline. The second
-tool-free stage returns fixed-key details for those Runner-owned cards. Runner
+stage returns the outcome and ordered card/dependency outline. If it reports
+blocking `open_decisions`, Runner returns that proposal without executable cards
+or a details call. Otherwise the second tool-free stage returns fixed-key details
+for those Runner-owned cards. Details may discover additional conflicts and
+return them through the same canonical `open_decisions`; unresolved decisions
+prevent staging/release, without an extra critic or keyword-based gate. Runner
 fetches the configured destination through its privileged Git boundary and
 materializes one private detached checkout before the first stage. It does not
 pull, reset or change the operator's saved checkout, local branches or index.
@@ -599,7 +608,30 @@ candidate; it does not attest that reported checks executed on that candidate.
 Only reviewers receive the disposable bundle, read-only in Codex and Claude;
 Pi retains its explicit host-access requirement. Artifact paths found in reports
 do not authorize additional reads. No dependency tree, executable setup, persistent
-artifact store, or acceptance transfer is introduced.
+general artifact platform is introduced.
+
+For outcome-delivery members, Runner preserves this exact bounded snapshot in
+the existing private publication state before the paid review. It conveys no
+acceptance until fresh authority/candidate/evidence validation binds its manifest
+digest to the immutable card acceptance. Capture resumes exclusive,
+manifest-last writes; existing payloads cannot be replaced. Whole-plan QA receives
+only current authenticated integrated members' snapshots under member-specific
+namespaces alongside parent evidence, with one aggregate snapshot budget. Files
+with identical names remain separate. Explicit unaffected amendment carry retains
+the original provenance; affected, retired or unrelated acceptance cannot supply
+current authority. Historical execution identities/results remain claims requiring
+applicability review, never new executions.
+
+An older member acceptance without a snapshot requires the normal parent retry's
+evidence-recovery preview. Applying the exact confirmed preview revalidates the
+accepted candidates, workspace identities, selected file hashes and membership
+under existing mutation/ownership guards. Retained files are labelled recovered
+historical evidence requiring fresh parent QA, not bytes attested as seen by the
+original reviewer. Missing evidence or changed previews refuse before another
+model invocation. Child acceptance and rejection counts are not rewritten.
+Protected parent review progress binds its reviewed evidence collection; new or
+changed collections cannot resume an old acceptance into a gate or classifier.
+Already-confirmed exact merges remain terminal reconciliation, not new execution.
 The reviewer distinguishes concrete
 defects from unexplained timing failures. Its focused stage permits one
 unchanged diagnostic confirmation of a known check, counting an existing

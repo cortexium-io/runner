@@ -942,9 +942,16 @@ commit/tree. Reports keep their original bytes: reviewers map references through
 the manifest, inspect provenance and applicability, and cannot follow arbitrary
 external report paths. This is not a claim that historical checks cover the
 current candidate, nor permission to execute bundled tools or bypass validation.
-The bundle is removed with the private review checkout. Existing implementation
-reports remain untouched. Codex and Claude enforce read-only grants; Pi still
-requires explicitly trusted host access.
+The review copy is removed with the private review checkout. For plan members,
+Runner also preserves the exact sealed snapshot in private publication state
+before review; an accepted review binds its digest to the immutable acceptance.
+Whole-plan QA receives these snapshots in separate member namespaces alongside
+parent evidence, under one aggregate size/entry limit. It sees original execution
+identities and results, not freshly executed checks. Applicability to the combined
+candidate remains a review obligation. Explicit amendment carry-forward preserves
+unaffected evidence; changed or retired members cannot supply current authority.
+Existing implementation reports remain untouched. Codex and Claude enforce
+read-only grants; Pi still requires explicitly trusted host access.
 
 If required proof is unavailable and no permitted check can establish it, QA
 reports `blocked` / `review_incomplete` without consuming a rejection or routing
@@ -1510,6 +1517,13 @@ repository-aware outline and tool-free details stages. Your checkout, local
 branches, index and uncommitted work are not moved or rewritten. Fetch or snapshot
 validation failure stops planning; it never falls back to older local code.
 
+An outline with unresolved `open_decisions` stops before the details call.
+Details may identify new conflicts through the same field. Either result retains
+the outcome, constraints and questions with no executable work items, and cannot
+stage or release cards. The planner preserves exact requested constraints and
+approved tradeoffs, including verification timing and environment; incompatible
+requirements need a human choice rather than a silently weakened requirement.
+
 You do not need to stop the background Runner to preview, stage, create, or
 approve a standalone plan. Use the same operator configuration as the service.
 Only another standalone `plan` command holds the planning lock; the worker keeps
@@ -1621,7 +1635,9 @@ Open decisions still
 prevent every card creation. Either answer them in the idea and rerun the same
 planning command, or explicitly review and amend the saved proposal: update
 `source_context` with the answers, update affected cards and proof obligations,
-and remove only resolved `open_decisions`. Then stage it for fresh approval.
+and remove only resolved `open_decisions`. A conflict-only result has no executable
+cards; rerun planning with the answers or supply the complete reviewed card
+contracts before staging. Then stage it for fresh approval.
 Do not overwrite your sole saved proposal with the output of its own replay.
 
 Generated cards contain the original request, project outcome, project-wide
@@ -2464,6 +2480,23 @@ and background recovery. You do not need to stop the service: it continues
 observing other work and cannot mistake these live transitions for abandoned
 ones. The guard is not held while you inspect a preview or answer a prompt.
 
+For an older whole plan whose accepted children predate durable evidence capture,
+the ordinary parent `retry --dry-run` includes an evidence-recovery preview: exact
+members, retained workspaces, acceptance/candidate identities, selected paths,
+file digests and missing inputs. Recovery requires terminal confirmation of that
+preview, defaulting to **No**; `--json` is preview-only when new historical capture
+is required. Apply rechecks the same preview under the existing ownership and
+mutation guards. Missing selected member evidence, changed identities or a changed
+preview refuse recovery before a model call. No new flags or configuration are
+needed.
+
+Recovered snapshots are labeled **historical evidence requiring fresh parent
+review**, never proof of what the earlier child reviewer saw. Recovery does not
+rewrite child acceptance, requeue implementation, reset allowances or replace
+immutable captured files. A saved parent review cannot resume publication using a
+different evidence collection without fresh whole-plan QA. An interrupted capture
+may require a fresh preview; already preserved identical files are not overwritten.
+
 If an interrupted update has left a previously executed, unpublished
 implementation in `Needs assessment` with its Runner approval missing, preview
 and explicitly reauthorize just that card:
@@ -2797,6 +2830,17 @@ worker counts, timeout limits, relevant non-secret environment differences,
 both outcomes, and diagnostic observations. Runner retains these entries bound
 to the candidate; ignored reports and temporary logs are not copied into QA.
 Artifact paths and aggregate pass counts alone do not establish the result.
+
+Bundled skills 1.10.3 narrow regression investigation to supported fixtures and
+the affected event or transaction sequence. Start with the smallest faithful
+reproduction, adding browser coverage when interaction or rendering is part of
+the unresolved claim. Classify a product defect, an incorrect test assumption,
+and an expectation superseded by the approved change separately. Preserve
+applicable historical proof with its original candidate, settings and reuse
+rationale, and establish evidence for the changed behavior. Reports distinguish
+"not reproduced", "fixed", and "unverified": a focused pass alone does not prove
+the cause or correction of an earlier failure, and unrun or inconclusive checks
+remain unverified. These distinctions use existing evidence fields and statuses.
 
 A known unexplained timing failure gets one focused, unchanged confirmation with
 a trace or equivalent diagnostics inside the existing verification call. An
