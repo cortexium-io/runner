@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,8 @@ type planEvidenceRunner struct {
 	planEvidence                               []map[string]observedPlanEvidence
 	gateLog                                    string
 	interruptIntegration, interruptPublication bool
+	interruptBeforeComment                     bool
+	planReviewSummary                          string
 	interrupted, offline                       bool
 }
 
@@ -47,6 +50,11 @@ func (r *planEvidenceRunner) Run(ctx context.Context, command string, args []str
 	if r.offline {
 		return subprocess.Result{}, context.Canceled
 	}
+	if r.interruptBeforeComment && !r.interrupted && command == "gh" && len(args) > 1 && args[0] == "issue" && args[1] == "comment" {
+		r.interrupted, r.offline = true, true
+		return subprocess.Result{}, context.Canceled
+	}
+	planReview := false
 	if command == "codex" {
 		data, err := os.ReadFile(argumentValue(args, "--output-schema"))
 		if err != nil {
@@ -57,6 +65,7 @@ func (r *planEvidenceRunner) Run(ctx context.Context, command string, args []str
 			return subprocess.Result{}, err
 		}
 		if schema.Properties["checks"] != nil || schema.Properties["criteria"] != nil {
+			planReview = strings.Contains(strings.Join(args, " "), `"review_scope":"plan"`)
 			root := ""
 			const marker = "Runner-captured read-only review evidence root: "
 			for _, line := range strings.Split(args[len(args)-1], "\n") {
@@ -65,7 +74,7 @@ func (r *planEvidenceRunner) Run(ctx context.Context, command string, args []str
 				}
 			}
 			if root != "" {
-				if strings.Contains(strings.Join(args, " "), `"review_scope":"plan"`) {
+				if planReview {
 					members, err := filepath.Glob(filepath.Join(root, "members", "*", "manifest.json"))
 					if err != nil {
 						return subprocess.Result{}, err
@@ -111,6 +120,25 @@ func (r *planEvidenceRunner) Run(ctx context.Context, command string, args []str
 		}
 	}
 	result, err := r.deliveryMilestoneRunner.Run(ctx, command, args, dir, timeout)
+	if err == nil && planReview && r.planReviewSummary != "" {
+		path := argumentValue(args, "--output-last-message")
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return result, readErr
+		}
+		var assessment map[string]any
+		if err := json.Unmarshal(data, &assessment); err != nil {
+			return result, err
+		}
+		assessment["summary"] = r.planReviewSummary
+		data, err = json.Marshal(assessment)
+		if err != nil {
+			return result, err
+		}
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			return result, err
+		}
+	}
 	// A lost successful response also prevents failure handlers writing state,
 	// matching a coordinator interruption at the actual irreversible boundary.
 	integration := r.interruptIntegration && command == "git" && containsArgument(args, "push") && r.planPushes == 2
@@ -590,6 +618,15 @@ func TestProductionPlanReviewEvidenceSurvivesInterruptedPublication(t *testing.T
 func TestProductionPlanReviewProgressRechecksMemberEvidence(t *testing.T) {
 	f, r := newProductionEvidenceDelivery(t)
 	f.integrateMembers(t)
+	integrated := f.parent(t)
+	if _, err := f.service.workspaceForItem(t.Context(), integrated, github.DelegatedContentFor(integrated).Digest, f.repo); err != nil {
+		t.Fatal(err)
+	}
+	advanceRemoteBase(t, f.repo, "base-addition.txt", "new destination behavior\n")
+	results, err := f.service.RunCycle(t.Context())
+	if err != nil || len(results) != 1 || results[0].Outcome != "warning" || r.reviews != 2 {
+		t.Fatalf("destination refresh before parent QA: results=%+v err=%v", results, err)
+	}
 	r.interruptPublication = true
 	_, _ = f.service.RunCycle(t.Context())
 	if !r.interrupted || r.reviews != 3 || r.creates != 1 {
@@ -605,6 +642,12 @@ func TestProductionPlanReviewProgressRechecksMemberEvidence(t *testing.T) {
 		t.Fatalf("expected one actual complete gate: %q err=%v", gateRuns, err)
 	}
 	parent := f.parent(t)
+	if progress.Candidate.Head == integrated.QACommit || parent.QACommit != integrated.QACommit || r.planPushes != 4 {
+		t.Fatal("fixture must retain integrated P in Project after publication pushed refreshed R")
+	}
+	if head := strings.TrimSpace(runGitTest(t, "", "--git-dir", f.remote, "rev-parse", "refs/heads/"+parent.Branch)); head != progress.Candidate.Head {
+		t.Fatal("lost publication did not leave the exact refreshed candidate on the remote")
+	}
 	children := planEvidenceChildren(t, f)
 	// Exercise both older progress and a different valid collection digest at
 	// the resume boundary. Reuse this checkpoint, without another delivery.
@@ -634,11 +677,11 @@ func TestProductionPlanReviewProgressRechecksMemberEvidence(t *testing.T) {
 		modelLegacyPlanAcceptance(t, f, child)
 	}
 	restartPlanEvidenceEngine(t, f, r)
-	results, err := f.service.RunCycle(t.Context())
+	results, err = f.service.RunCycle(t.Context())
 	if err != nil || len(results) != 1 || results[0].FailureClass != string(execution.FailureIntegrityViolation) || !strings.Contains(results[0].Error, "no durable evidence") {
 		t.Fatalf("retained parent progress bypassed member evidence preflight: results=%#v err=%v", results, err)
 	}
-	if f.parent(t).Status != "Blocked" || f.parent(t).PullRequest != "" || !reflect.DeepEqual(children, planEvidenceChildren(t, f)) || r.implementations != 2 || r.reviews != 3 || r.creates != 1 || r.planPushes != 3 {
+	if f.parent(t).Status != "Blocked" || f.parent(t).PullRequest != "" || !reflect.DeepEqual(children, planEvidenceChildren(t, f)) || r.implementations != 2 || r.reviews != 3 || r.creates != 1 || r.planPushes != 4 {
 		t.Fatal("missing evidence resumed publication, invoked a model/classifier or requeued integrated work")
 	}
 	if after, err := os.ReadFile(r.gateLog); err != nil || string(after) != string(gateRuns) {
@@ -665,6 +708,33 @@ func TestProductionPlanReviewProgressRechecksMemberEvidence(t *testing.T) {
 	if !reflect.DeepEqual(retainedPlanProgress(t, f), progress) {
 		t.Fatal("retry discarded the old progress instead of requiring its evidence freshness check")
 	}
+	// A historical publication only permits its exact R, never an unrelated
+	// remote head. Reuse this delivery and restore only the disposable Git ref.
+	foreign := strings.TrimSpace(runGitTest(t, progress.Metadata.WorktreePath, "commit-tree", progress.Candidate.Tree, "-p", progress.Candidate.Head, "-m", "Unapproved external plan update"))
+	planRef := "refs/heads/" + parent.Branch
+	runGitTest(t, progress.Metadata.WorktreePath, "push", f.remote, foreign+":"+planRef)
+	restartPlanEvidenceEngine(t, f, r)
+	results, err = f.service.RunCycle(t.Context())
+	if err != nil || len(results) != 1 || results[0].Outcome != execution.OutcomeBlocked || !strings.Contains(results[0].Error, "unexpected remote identity") {
+		t.Fatalf("unexpected remote head was not refused: results=%+v err=%v", results, err)
+	}
+	if r.reviews != 3 || r.implementations != 2 || r.creates != 1 || r.planPushes != 4 || !reflect.DeepEqual(retainedPlanProgress(t, f), progress) {
+		t.Fatal("unexpected head ran work, published, or replaced retained acceptance")
+	}
+	if after, err := os.ReadFile(r.gateLog); err != nil || string(after) != string(gateRuns) {
+		t.Fatalf("unexpected head ran complete verification: %q err=%v", after, err)
+	}
+	if head := strings.TrimSpace(runGitTest(t, "", "--git-dir", f.remote, "rev-parse", planRef)); head != foreign {
+		t.Fatal("unexpected remote head was overwritten")
+	}
+	runGitTest(t, "", "--git-dir", f.remote, "update-ref", planRef, progress.Candidate.Head, foreign)
+	preview, err = f.service.PlanProjectItemRetry(t.Context(), f.parentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.ApplyProjectItemRetry(t.Context(), preview); err != nil {
+		t.Fatal(err)
+	}
 	restartPlanEvidenceEngine(t, f, r)
 	results = runPlanEvidenceCycle(t, f)
 	if len(results) != 1 || results[0].ResumedCheckpoint || r.reviews != 4 || r.implementations != 2 || r.creates != 1 || f.parent(t).Status != "PR Ready" || !reflect.DeepEqual(children, planEvidenceChildren(t, f)) {
@@ -681,5 +751,83 @@ func TestProductionPlanReviewProgressRechecksMemberEvidence(t *testing.T) {
 	}
 	if renewed := retainedPlanProgress(t, f); renewed.AttemptID == progress.AttemptID || renewed.EvidenceCollectionDigest == "" || renewed.EvidenceCollectionDigest == progress.EvidenceCollectionDigest {
 		t.Fatal("fresh QA did not replace the stale evidence collection binding")
+	} else if renewed.Publication == nil || *renewed.Publication != *progress.Publication || renewed.Candidate.Head != progress.Candidate.Head || f.parent(t).QACommit != progress.Candidate.Head {
+		t.Fatal("fresh QA lost the original publication record or changed the accepted refreshed candidate")
+	}
+}
+
+func TestProductionPlanReviewRecoveryBeforePublicationComment(t *testing.T) {
+	f, r := newProductionEvidenceDelivery(t)
+	f.integrateMembers(t)
+	children := planEvidenceChildren(t, f)
+	commentsBefore := append([]github.ItemComment(nil), r.project.issueComments...)
+	postedBefore := len(r.project.postedComments)
+	r.interruptBeforeComment = true
+	_, _ = f.service.RunCycle(t.Context())
+	if !r.interrupted || r.reviews != 3 || r.creates != 0 || len(r.project.postedComments) != postedBefore || !reflect.DeepEqual(r.project.issueComments, commentsBefore) {
+		t.Fatal("fixture did not stop after acceptance and before posting its publication comment")
+	}
+	r.offline = false
+	progress := retainedPlanProgress(t, f)
+	if progress.Publication == nil || progress.EvidenceCollectionDigest == "" {
+		t.Fatal("interrupted publication lacks its immutable acceptance and evidence binding")
+	}
+	publicationComment := qaCommentMarker(f.parentID, progress.Candidate.Head, progress.Publication.AcceptanceComment) + "\n\n" + progress.Publication.AcceptanceComment
+	for _, comment := range commentsBefore {
+		if comment.Body == publicationComment {
+			t.Fatal("original publication comment was already visible to QA")
+		}
+	}
+	// New selected evidence changes only review context, not the accepted Git
+	// candidate. A renewed model response must not replace the immutable comment.
+	if err := writePlanReceipts(progress.Metadata.WorktreePath, f.parentID); err != nil {
+		t.Fatal(err)
+	}
+	r.planReviewSummary = "Fresh QA accepted the additional parent evidence."
+	restartPlanEvidenceEngine(t, f, r)
+	results := runPlanEvidenceCycle(t, f)
+	if len(results) != 1 || results[0].ResumedCheckpoint || r.reviews != 4 || r.implementations != 2 || r.creates != 1 || f.parent(t).Status != "PR Ready" || !reflect.DeepEqual(children, planEvidenceChildren(t, f)) {
+		t.Fatalf("renewed QA could not finish interrupted publication: results=%+v reviews=%d PRs=%d", results, r.reviews, r.creates)
+	}
+	renewed := retainedPlanProgress(t, f)
+	if renewed.AttemptID == progress.AttemptID || renewed.EvidenceCollectionDigest == progress.EvidenceCollectionDigest || renewed.Comment == progress.Comment || renewed.Accepted.ReviewAssessment.Summary != r.planReviewSummary {
+		t.Fatal("fixture did not bind new evidence to a distinct renewed review comment")
+	}
+	if renewed.Publication == nil || *renewed.Publication != *progress.Publication || len(r.project.postedComments) != postedBefore+1 || r.project.postedComments[postedBefore] != publicationComment {
+		t.Fatal("recovery rewrote immutable acceptance or failed to post its exact original comment once")
+	}
+	if !slices.Equal(renewed.Assignment.Spec.ReviewCommentContext, humanCommentContext(commentsBefore)) {
+		t.Fatal("renewed QA was credited with seeing the later publication comment")
+	}
+	if gateRuns, err := os.ReadFile(r.gateLog); err != nil || string(gateRuns) != "gate\n" {
+		t.Fatalf("unchanged executable proof was repeated: %q err=%v", gateRuns, err)
+	}
+	// The original comment may be added after QA; an independent addition or
+	// alteration still invalidates review context, even with its exact marker.
+	action, err := f.service.source.Authorize(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	commentsAfter := append([]github.ItemComment(nil), r.project.issueComments...)
+	for _, change := range []string{"additional operator comment", "altered publication comment"} {
+		t.Run(change, func(t *testing.T) {
+			r.project.issueComments = append([]github.ItemComment(nil), commentsAfter...)
+			defer func() { r.project.issueComments = append([]github.ItemComment(nil), commentsAfter...) }()
+			if change == "additional operator comment" {
+				r.project.issueComments = append(r.project.issueComments, github.ItemComment{Author: "dan", Body: "Please reassess the newly identified edge case."})
+			} else {
+				for i := range r.project.issueComments {
+					if r.project.issueComments[i].Body == publicationComment {
+						r.project.issueComments[i].Body += "\nOperator follow-up: additional proof is required."
+					}
+				}
+			}
+			if _, err := f.service.revalidatePlanProgress(t.Context(), action, renewed); err == nil || !strings.Contains(err.Error(), "parent comment context changed") {
+				t.Fatalf("unexpected comment context was accepted: %v", err)
+			}
+		})
+	}
+	if r.reviews != 4 || r.implementations != 2 || r.creates != 1 || !reflect.DeepEqual(retainedPlanProgress(t, f), renewed) {
+		t.Fatal("comment refusal invoked work or changed retained progress")
 	}
 }

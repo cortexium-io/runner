@@ -234,7 +234,13 @@ func (s *Engine) revalidatePlanProgress(ctx context.Context, action github.Autho
 	// bytes derive from this retained acceptance, if it was added after QA.
 	// A renewed review can already include that historical comment; stripping
 	// it then would manufacture a context change. Other changes require QA.
-	publicationComment := qaCommentMarker(fresh.Item.ID, p.Candidate.Head, p.Comment) + "\n\n" + p.Comment
+	comment := p.Comment
+	if p.Publication != nil {
+		// Publication reuses the immutable record's original text even when
+		// renewed QA reached acceptance with a different explanation.
+		comment = p.Publication.AcceptanceComment
+	}
+	publicationComment := qaCommentMarker(fresh.Item.ID, p.Candidate.Head, comment) + "\n\n" + comment
 	if !slices.Equal(humanCommentContext(comments), p.Assignment.Spec.ReviewCommentContext) {
 		comments = slices.DeleteFunc(comments, func(c github.ItemComment) bool { return strings.TrimSpace(c.Body) == publicationComment })
 		if !slices.Equal(humanCommentContext(comments), p.Assignment.Spec.ReviewCommentContext) {

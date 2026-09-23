@@ -337,7 +337,7 @@ func (s *Engine) fetchItemBase(ctx context.Context, item github.WorkItem, root s
 		return delivery.Parent.Branch, nil
 	}
 	if item.PlanRelease != "" {
-		if err := s.verifyPlanHead(ctx, item, root); err != nil {
+		if _, err := s.planReviewHead(ctx, item, root); err != nil {
 			return "", err
 		}
 	}
@@ -350,6 +350,41 @@ func (s *Engine) fetchItemBase(ctx context.Context, item github.WorkItem, root s
 		return "", fmt.Errorf("fetch assignment base: %w", commandFailure(err, result))
 	}
 	return base, nil
+}
+
+// Interrupted publication may already have pushed the exact accepted,
+// destination-refreshed candidate. Fresh QA must preserve that authenticated
+// head through both base fetch and workspace synchronization, without accepting
+// any other remote replacement or inferring a new acceptance from progress.
+func (s *Engine) planReviewHead(ctx context.Context, item github.WorkItem, root string) (string, error) {
+	if err := s.verifyPlanHead(ctx, item, root); err == nil {
+		return item.QACommit, nil
+	} else {
+		feedback, loadErr := s.loadReviewFeedbackRecord(item, github.DelegatedContentFor(item))
+		if loadErr != nil || feedback == nil || feedback.PlanVerification == nil || feedback.PlanVerification.Publication == nil {
+			return "", errors.Join(err, loadErr)
+		}
+		progress := *feedback.PlanVerification
+		if progress.Metadata.RepoRoot != root || progress.classificationPending() {
+			return "", errors.New("retained publication cannot authorize this plan-head recovery")
+		}
+		metadata, err := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).InspectRetainedReview(ctx, s.workspaceRequestForItem(item, github.DelegatedContentFor(item).Digest, root, false))
+		if err != nil {
+			return "", err
+		}
+		if metadata.Identity != progress.Metadata.Identity || metadata.SourceSnapshot != progress.Metadata.SourceSnapshot || metadata.BaseRevision != progress.Metadata.BaseRevision {
+			return "", errors.New("retained publication workspace binding changed")
+		}
+		progress.Metadata = metadata // Restore current privileged Git bindings, never deserialize them as authority.
+		action, err := s.source.Authorize(ctx, item)
+		if err != nil {
+			return "", err
+		}
+		if err := s.verifyPlanProgressCandidate(ctx, action, &progress); err != nil {
+			return "", err
+		}
+		return progress.Candidate.Head, nil
+	}
 }
 
 func (s *Engine) validateMemberPlanHead(ctx context.Context, item github.WorkItem, expected github.PlanDelivery) error {

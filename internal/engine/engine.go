@@ -1594,6 +1594,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		return s.failExecution(ctx, action, lane, result, retainedAcceptanceResumeFailure, err,
 			integrityViolationOutput(retainedAcceptanceResumeFailure, err))
 	}
+	var retainedPlanPublication *workspace.PublicationRecord
 	if resumedAcceptance && deliveryPresent && item.ID == deliveryContext.Parent.ID {
 		// The earlier recovery boundary can deliberately yield to fresh QA
 		// when its evidence collection changed. Retain the immutable original
@@ -1605,6 +1606,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 			err := errors.Join(errors.New("whole-plan acceptance requires protected parent verification recovery"), loadErr)
 			return s.failExecution(ctx, action, lane, result, retainedAcceptanceResumeFailure, err, integrityViolationOutput(retainedAcceptanceResumeFailure, err))
 		}
+		retainedPlanPublication = &publicationRecord
 		resumedAcceptance = false
 	}
 	if resumedAcceptance {
@@ -1834,6 +1836,9 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 	if deliveryPresent && item.ID == deliveryContext.Parent.ID {
 		progress := &planVerificationProgress{Assignment: assignment, Metadata: preparedWorkspace, Candidate: currentSnapshot, AttemptID: attemptID, ReviewerRole: action.Role, SettingsDigest: s.planReviewSettings(action.Role, preparedWorkspace.WorktreePath), QAFailures: action.Item.QAFailures, Accepted: output, Report: qaReport, Comment: qaComment}
 		progress.EvidenceCollectionDigest = reviewWorkspace.EvidenceCollectionDigest()
+		// This exact immutable record permits our already-pushed refreshed
+		// head during the new complete gate; it does not replace fresh QA.
+		progress.Publication = retainedPlanPublication
 		if reviewRecord != nil && reviewRecord.PlanVerification != nil {
 			// Retain prior observed check bytes; the launcher independently
 			// assesses executable applicability after this new QA acceptance.
