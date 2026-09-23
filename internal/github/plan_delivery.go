@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/metrics"
 )
 
 const (
@@ -30,15 +31,19 @@ const (
 // rejected-candidate record before any owner is requeued. Recovery resumes
 // this exact intent, rather than granting another allowance.
 func (s *Project) BeginPlanRepair(ctx context.Context, action AuthorizedAction, digest, candidate string, failures int) error {
-	delivery, present, err := s.DeliveryForItem(ctx, action.Item)
-	if err != nil || !present || delivery.Parent.ID != action.Item.ID || !validGitObjectID(candidate) || len(digest) != 67 || failures != action.Item.QAFailures+1 {
-		return errors.Join(errors.New("invalid whole-plan repair intent"), err)
+	if !validGitObjectID(candidate) || len(digest) != 67 || failures != action.Item.QAFailures+1 {
+		return errors.New("invalid whole-plan repair intent")
 	}
 	// QACommit is the integrated remote plan head, not the rejected local
 	// candidate after a destination refresh. The digest pins both in the
 	// protected rejection record; spending repair authority must not adopt a
 	// local-only commit as remote integration state.
-	return s.transition(ctx, action, s.backlogStatus(), "Plan repair "+digest, PlanRepairingPhase, false, func(next *WorkItem) { next.QAFailures = failures }, []projectFieldUpdate{numberProjectField(s.qaFailuresFieldName(), failures)})
+	return s.transitionWithDeliveryCheck(ctx, action, s.backlogStatus(), "Plan repair "+digest, PlanRepairingPhase, false, func(next *WorkItem) { next.QAFailures = failures }, []projectFieldUpdate{numberProjectField(s.qaFailuresFieldName(), failures)}, func(delivery PlanDelivery) error {
+		if delivery.Parent.ID == "" || delivery.Parent.ID != action.Item.ID {
+			return errors.New("invalid whole-plan repair intent")
+		}
+		return nil
+	})
 }
 
 func (s *Project) FinishPlanRepair(ctx context.Context, action AuthorizedAction, digest string) error {
@@ -295,7 +300,9 @@ func (s *Project) validatePlanDeliveryState(parent WorkItem, all []WorkItem, all
 // DeliveryForItem revalidates the complete parent/member authority immediately
 // before using shared plan context or mutating a member's repository. It does
 // not turn ordinary or historical planning-complete cards into delivery plans.
-func (s *Project) DeliveryForItem(ctx context.Context, item WorkItem) (PlanDelivery, bool, error) {
+func (s *Project) DeliveryForItem(ctx context.Context, item WorkItem) (result PlanDelivery, present bool, err error) {
+	finish := metrics.StartStage(ctx, metrics.StageAuthorityValidation)
+	defer func() { finish.FinishError(err) }()
 	if item.PlanningSourceID == "" && item.PlanRelease == "" {
 		if _, present, err := ParsePlanManifest(item.Body); present {
 			return PlanDelivery{}, true, errors.Join(errors.New("plan has not been released"), err)
@@ -450,15 +457,17 @@ func (s *Project) TransitionPlanIntegrated(ctx context.Context, action Authorize
 	if !validGitObjectID(candidate) || action.Item.PlanningSourceID == "" {
 		return errors.New("plan integration requires an exact candidate and member identity")
 	}
-	if _, delivery, err := s.DeliveryForItem(ctx, action.Item); err != nil || !delivery {
-		return errors.Join(errors.New("plan integration authority unavailable"), err)
-	}
-	return s.transition(ctx, action, s.backlogStatus(), "Accepted and integrated into the plan branch; not delivered to the destination.", PlanIntegratedPhase, false,
+	return s.transitionWithDeliveryCheck(ctx, action, s.backlogStatus(), "Accepted and integrated into the plan branch; not delivered to the destination.", PlanIntegratedPhase, false,
 		func(next *WorkItem) {
 			next.QACommit = candidate
 			next.Activity = "Integrated — awaiting plan delivery"
 		},
-		[]projectFieldUpdate{textProjectField(s.qaCommitFieldName(), candidate)})
+		[]projectFieldUpdate{textProjectField(s.qaCommitFieldName(), candidate)}, func(delivery PlanDelivery) error {
+			if delivery.Parent.ID == "" {
+				return errors.New("plan integration authority unavailable")
+			}
+			return nil
+		})
 }
 
 func (s *Project) RecordPlanHead(ctx context.Context, action AuthorizedAction, head string) error {
@@ -472,24 +481,21 @@ func (s *Project) RecordPlanHead(ctx context.Context, action AuthorizedAction, h
 const planIntegrationIntent = "Integrating accepted plan member "
 
 func (s *Project) BeginPlanIntegration(ctx context.Context, parent AuthorizedAction, childID, candidate, base string) error {
-	delivery, present, err := s.DeliveryForItem(ctx, parent.Item)
-	if err != nil || !present {
-		return errors.Join(errors.New("plan integration requires current release authority"), err)
-	}
 	if parent.Item.Phase != PlanDeliveryPhase || parent.Item.QACommit != base || !validGitObjectID(candidate) {
 		return errors.New("plan head changed before integration")
 	}
-	found := false
-	for _, child := range delivery.Children {
-		if child.ID == childID {
-			found = true
-		}
-	}
-	if !found {
-		return errors.New("integration target is not an approved plan member")
-	}
-	return s.transition(ctx, parent, s.backlogStatus(), planIntegrationIntent+childID, PlanIntegratingPhase, false,
-		func(next *WorkItem) { next.QACommit = candidate; next.Activity = "Integrating accepted member" }, []projectFieldUpdate{textProjectField(s.qaCommitFieldName(), candidate)})
+	return s.transitionWithDeliveryCheck(ctx, parent, s.backlogStatus(), planIntegrationIntent+childID, PlanIntegratingPhase, false,
+		func(next *WorkItem) { next.QACommit = candidate; next.Activity = "Integrating accepted member" }, []projectFieldUpdate{textProjectField(s.qaCommitFieldName(), candidate)}, func(delivery PlanDelivery) error {
+			if delivery.Parent.ID == "" || delivery.Parent.ID != parent.Item.ID {
+				return errors.New("plan integration requires current release authority")
+			}
+			for _, child := range delivery.Children {
+				if child.ID == childID {
+					return nil
+				}
+			}
+			return errors.New("integration target is not an approved plan member")
+		})
 }
 
 func PlanIntegrationMember(parent WorkItem) string {

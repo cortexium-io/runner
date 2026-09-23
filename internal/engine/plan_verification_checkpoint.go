@@ -24,21 +24,22 @@ import (
 // NOT publication authority. Only RecordPublicationAcceptance creates that,
 // after both accepted QA and a passing complete verification envelope.
 type planVerificationProgress struct {
-	Assignment     execution.Assignment            `json:"assignment"`
-	Metadata       workspace.Metadata              `json:"metadata"`
-	Candidate      workspace.Snapshot              `json:"candidate"`
-	AttemptID      string                          `json:"attempt_id"`
-	SettingsDigest string                          `json:"settings_digest"`
-	ReviewerRole   string                          `json:"reviewer_role"`
-	QAFailures     int                             `json:"qa_failures"`
-	Accepted       execution.Output                `json:"accepted"`
-	Report         string                          `json:"report"`
-	Comment        string                          `json:"comment"`
-	Gate           *verification.Result            `json:"gate,omitempty"`
-	EnvelopeDigest string                          `json:"envelope_digest,omitempty"`
-	Failure        *planVerificationFailure        `json:"failure,omitempty"`
-	Classification *planVerificationClassification `json:"classification,omitempty"`
-	Publication    *workspace.PublicationRecord    `json:"publication,omitempty"`
+	Assignment               execution.Assignment            `json:"assignment"`
+	Metadata                 workspace.Metadata              `json:"metadata"`
+	Candidate                workspace.Snapshot              `json:"candidate"`
+	AttemptID                string                          `json:"attempt_id"`
+	SettingsDigest           string                          `json:"settings_digest"`
+	ReviewerRole             string                          `json:"reviewer_role"`
+	QAFailures               int                             `json:"qa_failures"`
+	Accepted                 execution.Output                `json:"accepted"`
+	Report                   string                          `json:"report"`
+	Comment                  string                          `json:"comment"`
+	Gate                     *verification.Result            `json:"gate,omitempty"`
+	EnvelopeDigest           string                          `json:"envelope_digest,omitempty"`
+	Failure                  *planVerificationFailure        `json:"failure,omitempty"`
+	Classification           *planVerificationClassification `json:"classification,omitempty"`
+	Publication              *workspace.PublicationRecord    `json:"publication,omitempty"`
+	EvidenceCollectionDigest string                          `json:"evidence_collection_digest,omitempty"`
 }
 
 type planVerificationFailure struct {
@@ -68,6 +69,9 @@ func planProgressDigest(value any) string {
 func (p *planVerificationProgress) validate() error {
 	if p == nil || p.AttemptID == "" || p.SettingsDigest == "" || p.ReviewerRole == "" || p.QAFailures < 0 || !p.Candidate.Clean || !reviewObjectID(p.Candidate.Head) || !reviewObjectID(p.Candidate.Tree) || p.Candidate.Fingerprint == "" || p.Assignment.Spec.PlanContext == nil || p.Assignment.Spec.ReviewScope != execution.ReviewScopePlan || p.Assignment.Spec.ReviewCandidateOID != p.Candidate.Head || p.Assignment.Spec.ReviewBaseOID != p.Metadata.BaseRevision || p.Assignment.Spec.ItemID != p.Metadata.Identity.ItemID {
 		return errors.New("parent verification progress has incomplete candidate or assignment identity")
+	}
+	if p.EvidenceCollectionDigest != "" && (len(p.EvidenceCollectionDigest) != 64 || !reviewObjectID(p.EvidenceCollectionDigest)) {
+		return errors.New("parent review evidence collection digest is invalid")
 	}
 	if p.Accepted.Outcome != execution.OutcomeSucceeded || p.Accepted.ReviewAssessment == nil || p.Accepted.ReviewAssessment.Verdict != "accept" {
 		return errors.New("parent verification progress lacks accepted QA")
@@ -227,11 +231,15 @@ func (s *Engine) revalidatePlanProgress(ctx context.Context, action github.Autho
 		return action, err
 	}
 	// Ignore only our exact, authenticated-actor publication comment, whose
-	// bytes derive from this retained acceptance. Other comments require QA.
+	// bytes derive from this retained acceptance, if it was added after QA.
+	// A renewed review can already include that historical comment; stripping
+	// it then would manufacture a context change. Other changes require QA.
 	publicationComment := qaCommentMarker(fresh.Item.ID, p.Candidate.Head, p.Comment) + "\n\n" + p.Comment
-	comments = slices.DeleteFunc(comments, func(c github.ItemComment) bool { return strings.TrimSpace(c.Body) == publicationComment })
 	if !slices.Equal(humanCommentContext(comments), p.Assignment.Spec.ReviewCommentContext) {
-		return action, errors.New("parent comment context changed; QA applicability needs renewed assessment")
+		comments = slices.DeleteFunc(comments, func(c github.ItemComment) bool { return strings.TrimSpace(c.Body) == publicationComment })
+		if !slices.Equal(humanCommentContext(comments), p.Assignment.Spec.ReviewCommentContext) {
+			return action, errors.New("parent comment context changed; QA applicability needs renewed assessment")
+		}
 	}
 	return fresh, nil
 }

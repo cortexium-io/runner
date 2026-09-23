@@ -707,9 +707,20 @@ func (s *Project) UpdateActivity(ctx context.Context, action AuthorizedAction, a
 }
 
 func (s *Project) transition(ctx context.Context, expected AuthorizedAction, targetStatus, detail, phase string, pullRequestFeedback bool, mutate func(*WorkItem), extraUpdates []projectFieldUpdate) error {
-	current, err := s.refreshAuthorizedAction(ctx, expected)
+	return s.transitionWithDeliveryCheck(ctx, expected, targetStatus, detail, phase, pullRequestFeedback, mutate, extraUpdates, nil)
+}
+
+// check may inspect only the freshly validated delivery. It must not perform
+// I/O or retain the observation beyond this transition's pre-write boundary.
+func (s *Project) transitionWithDeliveryCheck(ctx context.Context, expected AuthorizedAction, targetStatus, detail, phase string, pullRequestFeedback bool, mutate func(*WorkItem), extraUpdates []projectFieldUpdate, check func(PlanDelivery) error) error {
+	current, delivery, err := s.refreshAuthorizedActionWithDelivery(ctx, expected)
 	if err != nil {
 		return err
+	}
+	if check != nil {
+		if err := check(delivery); err != nil {
+			return err
+		}
 	}
 	next := current.Item
 	next.Status = strings.TrimSpace(targetStatus)

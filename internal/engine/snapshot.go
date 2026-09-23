@@ -8,14 +8,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cortexium-io/runner/internal/metrics"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
 
-func (s *Engine) workspaceSnapshotState(ctx context.Context, worktreePath string) (workspace.Snapshot, error) {
+func (s *Engine) workspaceSnapshotState(ctx context.Context, worktreePath string) (snapshot workspace.Snapshot, err error) {
+	finish := metrics.StartStage(ctx, metrics.StageSnapshotValidation)
+	defer func() { finish.FinishError(err) }()
 	return workspace.CaptureSnapshotStateWithLimits(ctx, s.run, worktreePath, 30*time.Second, s.snapshotLimits())
 }
 
-func (s *Engine) checkoutSnapshotState(ctx context.Context, worktreePath string) (workspace.Snapshot, error) {
+func (s *Engine) checkoutSnapshotState(ctx context.Context, worktreePath string) (snapshot workspace.Snapshot, err error) {
+	finish := metrics.StartStage(ctx, metrics.StageSnapshotValidation)
+	defer func() { finish.FinishError(err) }()
 	return workspace.CaptureCheckoutSnapshotStateWithLimits(ctx, s.run, worktreePath, 30*time.Second, s.snapshotLimits())
 }
 

@@ -54,7 +54,14 @@ clarity, operability, maintainability, and reliable proof require, and no more.
 2. State the project outcome, observable project-wide success conditions, hard
    constraints, and selected reversible assumptions. Reserve open decisions for
    missing human choices that prevent every safe complete plan; make reasonable
-   reversible choices otherwise.
+   reversible choices otherwise. Preserve exact requested constraints and
+   human-approved tradeoffs, including verification timing and environment.
+   When two requirements conflict, identify both sources and the choice needed
+   in `open_decisions`; do not silently weaken, reinterpret, or reschedule one.
+   An outline with open decisions stops before details. If the details stage
+   discovers a new conflict, return it through the same `open_decisions` field;
+   unresolved decisions prevent staging and release. Do not add an investigation
+   card or another model pass to choose on the human's behalf.
 3. Decompose the outcome at natural behavioral or architectural review
    boundaries. Each card must deliver coherent progress in one uninterrupted
    implementer invocation. Split independently verifiable behavior; combine
@@ -187,6 +194,12 @@ constraints, not evidence that a different model will solve the card.
 - A durable new test is not a default deliverable. Reuse sufficient existing
   assertions; allow a reasoned no-new-test decision when affected checks and
   direct observations faithfully establish the change and credible regressions.
+- For a reported regression, require evidence of the smallest faithful
+  reproduction, grounded in the supported fixture shape and actual event or
+  transaction sequence. Add browser coverage when interaction or rendering is
+  needed to establish the claim. Distinguish a product defect from a test's
+  incorrect assumption or an expectation superseded by the approved change;
+  do not convert every historical failure into new product scope.
 - Broad suites and full-system evidence belong only at the narrowest integration
   boundary that needs them, unless repository policy requires them earlier.
   An integration card should add cross-feature journeys and combined-candidate

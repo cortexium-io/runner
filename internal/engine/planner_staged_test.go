@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/execution"
 	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/metrics"
@@ -17,6 +20,7 @@ func TestPlannerContractHandoffSurvivesDetailsAndCardRendering(t *testing.T) {
 		"Inspected api/contracts.json at commit abc123: attributes may be null; read identity from profile.profile.id.",
 		"Supported source encoding is defined by decodeLiteral in src/literals.ts, not by the historical example.",
 		"Use approved synthetic records; no customer mutations or production deployment.",
+		"Approved tradeoff: the host-only check must run before QA; do not reschedule it to the post-review gate.",
 	}
 	outline := projectPlanOutline{
 		GoalSummary: "Edit supported profiles", ProjectSuccessCriteria: []string{"Open, edit, save and reopen supported profiles without losing unrelated data."},
@@ -41,7 +45,7 @@ func TestPlannerContractHandoffSurvivesDetailsAndCardRendering(t *testing.T) {
 			if strings.Join(received.ProjectConstraints, "\n") != strings.Join(constraints, "\n") {
 				t.Fatalf("contract facts changed in handoff: %#v", received.ProjectConstraints)
 			}
-			return execution.StructuredHarnessResult{Message: `{"cards":{"C1":{"implementation_profile":"bounded","profile_reason":"The producer shape and encoding contract are fixed; existing round-trip checks detect preservation errors.","objective":"Edit supported profiles using the referenced contract.","done_when":["Saving an edit preserves unrelated profile fields."],"proof_obligations":["Round-trip preservation for supported inputs is demonstrated."],"assumptions":[]}}}`}, nil
+			return execution.StructuredHarnessResult{Message: `{"open_decisions":[],"cards":{"C1":{"implementation_profile":"bounded","profile_reason":"The producer shape and encoding contract are fixed; existing round-trip checks detect preservation errors.","objective":"Edit supported profiles using the referenced contract.","done_when":["Saving an edit preserves unrelated profile fields."],"proof_obligations":["Round-trip preservation for supported inputs is demonstrated."],"assumptions":[]}}}`}, nil
 		})
 	if err != nil || outlineCalls != 1 || detailCalls != 1 {
 		t.Fatalf("staged planning: outline=%d details=%d error=%v", outlineCalls, detailCalls, err)
@@ -62,7 +66,7 @@ func TestPlannerContractHandoffSurvivesDetailsAndCardRendering(t *testing.T) {
 func TestStagedProjectPlannerAssemblesFixedKeyPlan(t *testing.T) {
 	responses := []string{
 		`{"goal_summary":"Ship authenticated exports","project_success_criteria":["Retries create one job"],"project_constraints":["Keep tenants isolated"],"open_decisions":[],"cards":[{"title":"Build export endpoint","dependencies":[]},{"title":"Verify concurrency","dependencies":[1]}]}`,
-		`{"cards":{"C1":{"implementation_profile":"mechanical","profile_reason":"Existing endpoint pattern","objective":"Create the authenticated endpoint.","done_when":["Repeated tenant keys return the original job."],"proof_obligations":["Tenant-scoped idempotency is demonstrated."],"assumptions":["Use the existing export store."]},"C2":{"objective":"Exercise concurrent duplicate requests.","done_when":["Only one job is created under contention."],"proof_obligations":["Concurrent duplicate requests are shown to converge on one job."],"assumptions":[]}}}`,
+		`{"open_decisions":[],"cards":{"C1":{"implementation_profile":"mechanical","profile_reason":"Existing endpoint pattern","objective":"Create the authenticated endpoint.","done_when":["Repeated tenant keys return the original job."],"proof_obligations":["Tenant-scoped idempotency is demonstrated."],"assumptions":["Use the existing export store."]},"C2":{"objective":"Exercise concurrent duplicate requests.","done_when":["Only one job is created under contention."],"proof_obligations":["Concurrent duplicate requests are shown to converge on one job."],"assumptions":[]}}}`,
 	}
 	var prompts []string
 	var schemas [][]byte
@@ -115,9 +119,13 @@ func TestStagedProjectPlannerAssemblesFixedKeyPlan(t *testing.T) {
 	if err := json.Unmarshal(schemas[1], &detailSchema); err != nil {
 		t.Fatal(err)
 	}
+	if !reflect.DeepEqual(detailSchema["required"], []any{"open_decisions", "cards"}) {
+		t.Fatalf("details schema must explicitly report decisions: %#v", detailSchema)
+	}
 	cards := detailSchema["properties"].(map[string]any)["cards"].(map[string]any)
 	properties := cards["properties"].(map[string]any)
-	if len(properties) != 2 || properties["C1"] == nil || properties["C2"] == nil || cards["additionalProperties"] != false {
+	if len(properties) != 2 || properties["C1"] == nil || properties["C2"] == nil || cards["additionalProperties"] != false ||
+		!reflect.DeepEqual(cards["required"], []any{"C1", "C2"}) || !reflect.DeepEqual(cards["type"], []any{"object", "null"}) {
 		t.Fatalf("details schema is not fixed to Runner-owned keys: %#v", cards)
 	}
 }
@@ -144,7 +152,7 @@ func TestPlannerStagePrefixesStayStableAcrossRequestsAndOutlines(t *testing.T) {
 				encoded, _ := json.Marshal(outline)
 				return execution.StructuredHarnessResult{Message: string(encoded)}, nil
 			}
-			return execution.StructuredHarnessResult{Message: `{"cards":{"C1":{"objective":"Complete the requested behavior","done_when":["Behavior is correct"],"proof_obligations":["Behavior is demonstrated"],"assumptions":[]}}}`}, nil
+			return execution.StructuredHarnessResult{Message: `{"open_decisions":[],"cards":{"C1":{"objective":"Complete the requested behavior","done_when":["Behavior is correct"],"proof_obligations":["Behavior is demonstrated"],"assumptions":[]}}}`}, nil
 		}
 		prompt := projectPlannerPrompt([]string{"runner-planner"}, projectPlannerExecutionContext{}, "owner/repo", idea)
 		if _, err := runStagedProjectPlanner(t.Context(), prompt, "owner/repo", call, call); err != nil {
@@ -171,6 +179,121 @@ func TestStagedProjectPlannerRejectsInvalidOutlineBeforeDetails(t *testing.T) {
 	}
 }
 
+func TestStagedProjectPlannerReturnsConflictsWithoutExecutableCards(t *testing.T) {
+	decisions := []string{"The approved pre-QA host check conflicts with the required sandbox-only execution. Which constraint should change?"}
+	constraints := []string{"Run the host check before QA.", "All verification must run in the sandbox."}
+	for _, tc := range []struct {
+		name         string
+		outlineCards []projectPlanOutlineCard
+		outlineOpen  []string
+		details      string
+		wantCalls    int
+	}{
+		{"outline without cards", []projectPlanOutlineCard{}, decisions, "", 1},
+		{"outline with tentative cards", []projectPlanOutlineCard{{Title: "Implement", Dependencies: []int{}}}, decisions, "", 1},
+		{"details without cards", []projectPlanOutlineCard{{Title: "Implement", Dependencies: []int{}}}, []string{}, `{"cards":null}`, 2},
+		{"details with tentative cards", []projectPlanOutlineCard{{Title: "Implement", Dependencies: []int{}}}, []string{}, `{"cards":{"C1":{"objective":"Implement","done_when":["Works"],"proof_obligations":["Proof"],"assumptions":[]}}}`, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			outline := projectPlanOutline{
+				GoalSummary: "Deliver the approved change", ProjectSuccessCriteria: []string{"Supported behavior is preserved."},
+				ProjectConstraints: constraints, OpenDecisions: tc.outlineOpen, Cards: tc.outlineCards,
+			}
+			calls := 0
+			call := func(_ context.Context, _ string, _ []byte) (execution.StructuredHarnessResult, error) {
+				calls++
+				result := execution.StructuredHarnessResult{DurationMilliseconds: 25, Usage: metrics.Usage{Available: true, InputTokens: 7, Turns: 1}}
+				if calls == 1 {
+					encoded, err := json.Marshal(outline)
+					result.Message = string(encoded)
+					return result, err
+				}
+				if calls > tc.wantCalls {
+					t.Fatal("open decisions triggered an unnecessary model call")
+				}
+				var details map[string]any
+				if err := json.Unmarshal([]byte(tc.details), &details); err != nil {
+					t.Fatal(err)
+				}
+				details["open_decisions"] = decisions
+				encoded, err := json.Marshal(details)
+				result.Message = string(encoded)
+				return result, err
+			}
+			result, err := runStagedProjectPlanner(t.Context(), "Deliver the approved change.", "owner/repo", call, call)
+			if err != nil || calls != tc.wantCalls {
+				t.Fatalf("conflict result: calls=%d error=%v", calls, err)
+			}
+			if result.FailureClass != execution.FailureNone || result.DurationMilliseconds != int64(25*calls) || result.Usage.InputTokens != int64(7*calls) || result.Usage.Turns != int64(calls) {
+				t.Fatalf("conflict lost actual stage usage or became a harness failure: %#v", result)
+			}
+			plan, err := decodeProjectPlan(result.Message)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(plan.OpenDecisions, decisions) || !reflect.DeepEqual(plan.ProjectConstraints, constraints) ||
+				plan.GoalSummary != outline.GoalSummary || !reflect.DeepEqual(plan.ProjectSuccessCriteria, outline.ProjectSuccessCriteria) ||
+				plan.WorkItems == nil || len(plan.WorkItems) != 0 {
+				t.Fatalf("canonical conflict result changed the request or retained executable cards: %#v", plan)
+			}
+			service, err := New(completeEngineTestConfig(config.Config{
+				ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+			}), &fakeGitHubProjectRunner{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.ApplyProjectPlan(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "cannot stage cards while 1 open decision") {
+				t.Fatalf("conflict bypassed the canonical staging gate: %v", err)
+			}
+		})
+	}
+}
+
+func TestPlannerDetailsConflictUsesNeedsInputWithoutStaging(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
+	item := github.WorkItem{ID: "PVTI_plan", Title: "Preserve approved timing", Body: "Keep the approved host check before QA.", URL: "https://github.com/owner/repo/issues/1", Repository: "owner/repo", Status: "Plan"}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	const decision = "The approved pre-QA host check conflicts with sandbox-only verification. Which requirement should change?"
+	calls := 0
+	service, err := New(completeEngineTestConfig(config.Config{
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), plannerStagesBatchRunner{project: project, plannerCalls: &calls, details: `{"open_decisions":["` + decision + `"],"cards":null}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := service.RunCycle(t.Context())
+	if err != nil || len(results) != 1 || results[0].Outcome != execution.OutcomeNeedsInput || project.status != "Blocked" || calls != 2 {
+		t.Fatalf("details conflict did not use needs_input after two calls: results=%#v status=%q calls=%d error=%v", results, project.status, calls, err)
+	}
+	if project.createdBody != "" || len(project.postedComments) != 1 || !strings.Contains(project.postedComments[0], decision) {
+		t.Fatalf("conflict staged children or lost the human question: created=%q comments=%#v", project.createdBody, project.postedComments)
+	}
+	if _, err := os.Stat(service.plannerCheckpointPath(item.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("conflict created an executable planning checkpoint: %v", err)
+	}
+}
+
+func TestStagedProjectPlannerRequiresDecisionsForEmptyCards(t *testing.T) {
+	outline := projectPlanOutline{GoalSummary: "Deliver", ProjectSuccessCriteria: []string{"Works"}, ProjectConstraints: []string{}, OpenDecisions: []string{}, Cards: []projectPlanOutlineCard{}}
+	if err := normalizeProjectPlanOutline(&outline); err == nil {
+		t.Fatal("empty executable outline accepted")
+	}
+	for _, details := range []projectPlanDetails{
+		{OpenDecisions: []string{}, Cards: nil},
+		{OpenDecisions: nil, Cards: nil},
+	} {
+		if _, err := assembleStagedProjectPlan(outline, details, "owner/repo"); err == nil {
+			t.Fatal("empty executable details or missing decision array accepted")
+		}
+	}
+	for _, decisions := range [][]string{nil, {}, {" "}} {
+		if _, err := normalizeProjectPlan(ProjectPlan{GoalSummary: "Deliver", ProjectSuccessCriteria: []string{"Works"}, OpenDecisions: decisions}); err == nil {
+			t.Fatal("canonical plan without cards or substantive decisions accepted")
+		}
+	}
+}
+
 func TestProjectPlanOutlineTreatsExplicitNoDecisionAsEmpty(t *testing.T) {
 	outline := projectPlanOutline{
 		GoalSummary: "Ship", ProjectSuccessCriteria: []string{"Works"}, ProjectConstraints: []string{},
@@ -187,8 +310,8 @@ func TestProjectPlanOutlineTreatsExplicitNoDecisionAsEmpty(t *testing.T) {
 func TestStagedProjectPlannerRejectsMissingOrUnknownCardKeys(t *testing.T) {
 	outline := `{"goal_summary":"Goal","project_success_criteria":["Works"],"project_constraints":[],"open_decisions":[],"cards":[{"title":"Build","dependencies":[]}]}`
 	for name, details := range map[string]string{
-		"missing": `{"cards":{}}`,
-		"unknown": `{"cards":{"C2":{"objective":"Build it","done_when":["Works"],"proof_obligations":["Behavior is demonstrated"],"assumptions":[]}}}`,
+		"missing": `{"open_decisions":[],"cards":{}}`,
+		"unknown": `{"open_decisions":[],"cards":{"C2":{"objective":"Build it","done_when":["Works"],"proof_obligations":["Behavior is demonstrated"],"assumptions":[]}}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			calls := 0

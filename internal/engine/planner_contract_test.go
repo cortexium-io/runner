@@ -37,7 +37,7 @@ func (r *canonicalizingPlannerRunner) Run(ctx context.Context, command string, a
 		}
 		result, err := stagedPlannerFixtureResponse(args,
 			`{"goal_summary":"Plan the feature","project_success_criteria":["The feature works."],"project_constraints":[],"open_decisions":[],"cards":[{"title":"Implement feature","dependencies":[]}],"type":"object"}`,
-			`{"cards":{"C1":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Build the requested feature.","done_when":["The feature works."],"proof_obligations":["The feature works through its user entrypoint."],"assumptions":[]}}}`,
+			`{"open_decisions":[],"cards":{"C1":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Build the requested feature.","done_when":["The feature works."],"proof_obligations":["The feature works through its user entrypoint."],"assumptions":[]}}}`,
 		)
 		if err != nil {
 			return subprocess.Result{}, err

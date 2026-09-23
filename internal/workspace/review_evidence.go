@@ -18,13 +18,15 @@ import (
 	"github.com/cortexium-io/runner/internal/securefs"
 )
 
-type reviewEvidenceManifest struct {
+type ReviewEvidenceManifest struct {
 	CandidateCommit string               `json:"candidate_commit"`
 	CandidateTree   string               `json:"candidate_tree"`
 	SourceRoot      string               `json:"source_root"`
 	SelectedPaths   []string             `json:"selected_paths"`
 	MissingPaths    []string             `json:"missing_paths"`
 	Files           []reviewEvidenceFile `json:"files"`
+	Directories     []string             `json:"directories,omitempty"`
+	Provenance      *EvidenceProvenance  `json:"provenance,omitempty"`
 }
 
 type reviewEvidenceFile struct {
@@ -37,14 +39,17 @@ type reviewEvidenceFile struct {
 // Its contents are untrusted claims; the manifest attests to captured bytes,
 // not that those bytes prove a successful check on this candidate.
 type reviewEvidence struct {
-	root   *securefs.Directory
-	paths  map[string][]byte
-	limits SnapshotLimits
+	root     *securefs.Directory
+	paths    map[string][]byte
+	limits   SnapshotLimits
+	manifest ReviewEvidenceManifest
+	data     []byte
+	members  []EvidenceSnapshot
 }
 
 // PrepareEvidence never grants read access to the source worktree. Selection
 // comes from operator configuration, not a card, report, or harness result.
-func (w *ReviewWorkspace) PrepareEvidence(ctx context.Context, metadata Metadata, candidate Candidate, paths []string, limits SnapshotLimits) error {
+func (w *ReviewWorkspace) PrepareEvidence(ctx context.Context, metadata Metadata, candidate Candidate, paths []string, limits SnapshotLimits, provenance ...EvidenceProvenance) error {
 	if len(paths) == 0 {
 		return nil
 	}
@@ -61,7 +66,7 @@ func (w *ReviewWorkspace) PrepareEvidence(ctx context.Context, metadata Metadata
 		return err
 	}
 	destination := filepath.Join(w.parent, "evidence")
-	evidence, err := copyReviewEvidence(ctx, metadata.WorktreePath, destination, candidate, paths, limits)
+	evidence, err := copyReviewEvidence(ctx, metadata.WorktreePath, destination, candidate, paths, limits, provenance...)
 	if err != nil {
 		return fmt.Errorf("capture selected review evidence: %w", err)
 	}
@@ -96,7 +101,7 @@ func (e *reviewEvidence) verify(ctx context.Context) error {
 	return e.root.Verify()
 }
 
-func copyReviewEvidence(ctx context.Context, source, destination string, candidate Candidate, paths []string, limits SnapshotLimits) (*reviewEvidence, error) {
+func copyReviewEvidence(ctx context.Context, source, destination string, candidate Candidate, paths []string, limits SnapshotLimits, provenance ...EvidenceProvenance) (*reviewEvidence, error) {
 	if err := config.ValidateReviewEvidencePaths(paths); err != nil {
 		return nil, err
 	}
@@ -112,10 +117,13 @@ func copyReviewEvidence(ctx context.Context, source, destination string, candida
 	if err := os.Mkdir(destination, 0o700); err != nil {
 		return nil, err
 	}
-	manifest := reviewEvidenceManifest{
+	manifest := ReviewEvidenceManifest{
 		CandidateCommit: candidate.CommitOID, CandidateTree: candidate.TreeOID,
 		SourceRoot: source, SelectedPaths: append([]string(nil), paths...),
 		MissingPaths: []string{}, Files: []reviewEvidenceFile{},
+	}
+	if len(provenance) > 0 {
+		manifest.Provenance = &provenance[0]
 	}
 	sourcePins := map[string][]byte{}
 	destinationPaths := map[string][]byte{}
@@ -154,6 +162,7 @@ func copyReviewEvidence(ctx context.Context, source, destination string, candida
 		target := filepath.Join(destination, filepath.FromSlash(targetRelative))
 		switch {
 		case info.IsDir():
+			manifest.Directories = append(manifest.Directories, relative)
 			directory, err := securefs.OpenDir(absolute)
 			if err != nil {
 				return err
@@ -227,6 +236,7 @@ func copyReviewEvidence(ctx context.Context, source, destination string, candida
 		return nil, err
 	}
 	sort.Slice(manifest.Files, func(i, j int) bool { return manifest.Files[i].Path < manifest.Files[j].Path })
+	sort.Strings(manifest.Directories)
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return nil, err
@@ -242,7 +252,7 @@ func copyReviewEvidence(ctx context.Context, source, destination string, candida
 	if err != nil {
 		return nil, err
 	}
-	evidence := &reviewEvidence{root: sealed, paths: destinationPaths, limits: limits}
+	evidence := &reviewEvidence{root: sealed, paths: destinationPaths, limits: limits, manifest: manifest, data: data}
 	sealBudget, err := securefs.NewSnapshotBudget(limits)
 	if err != nil {
 		_ = sealed.Close()

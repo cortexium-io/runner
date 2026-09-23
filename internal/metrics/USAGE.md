@@ -40,3 +40,14 @@ preserve earlier valid partial observations when later events cannot be used.
 Unknown token units block a token-total budget, not an independent attempt,
 harness-time or complete cost budget. Invalid history retains its existing
 fail-closed behavior.
+
+## Observed coordination time
+
+The bounded stages `authority_validation`, `evidence_capture`,
+`snapshot_validation`, and `plan_integration` measure Runner-owned operations.
+They can nest within one another and existing stages. Summary
+`uncovered_duration_milliseconds` counts completed-attempt time outside the
+union of completed observed stage intervals; it does not add overlapping
+durations or infer what an unobserved interval contained. Missing historical
+stages remain uncovered, not reconstructed from today's implementation. Neither
+stage totals nor reported token counts alone establish wasted work or billing.

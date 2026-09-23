@@ -297,6 +297,7 @@ type PublicationRecord struct {
 	PlanRevision            string `json:"plan_revision,omitempty"`
 	VerificationDigest      string `json:"verification_digest,omitempty"`
 	VerificationReceipt     string `json:"verification_receipt,omitempty"`
+	ReviewEvidenceDigest    string `json:"review_evidence_digest,omitempty"`
 	CarriedFromRevision     string `json:"carried_from_revision,omitempty"`
 	CarriedAcceptanceDigest string `json:"carried_acceptance_digest,omitempty"`
 	AmendmentDigest         string `json:"amendment_digest,omitempty"`
@@ -306,6 +307,7 @@ type PublicationEvidence struct {
 	PlanRevision            string
 	VerificationDigest      string
 	VerificationReceipt     string
+	ReviewEvidenceDigest    string
 	CarriedFromRevision     string
 	CarriedAcceptanceDigest string
 	AmendmentDigest         string
@@ -867,6 +869,9 @@ func (p GitProvider) RecordPublicationAcceptance(ctx context.Context, metadata M
 	if err != nil {
 		return PublicationRecord{}, err
 	}
+	if err := verifyPublicationEvidence(ctx, metadata, record, p.limits); err != nil {
+		return PublicationRecord{}, err
+	}
 	var content bytes.Buffer
 	encoder := json.NewEncoder(&content)
 	encoder.SetEscapeHTML(false)
@@ -909,9 +914,13 @@ func (p GitProvider) LoadPublicationAcceptance(ctx context.Context, metadata Met
 	record.AcceptanceReport = existing.AcceptanceReport
 	record.AcceptanceComment = existing.AcceptanceComment
 	record.VerificationDigest, record.VerificationReceipt = existing.VerificationDigest, existing.VerificationReceipt
+	record.ReviewEvidenceDigest = existing.ReviewEvidenceDigest
 	record.CarriedFromRevision, record.CarriedAcceptanceDigest, record.AmendmentDigest = existing.CarriedFromRevision, existing.CarriedAcceptanceDigest, existing.AmendmentDigest
 	if existing != record {
 		return PublicationRecord{}, false, errors.New("existing publication acceptance does not match the current approved candidate")
+	}
+	if err := verifyPublicationEvidence(ctx, metadata, record, p.limits); err != nil {
+		return PublicationRecord{}, false, err
 	}
 	return existing, true, nil
 }
@@ -1097,6 +1106,7 @@ func (p GitProvider) validatedPublicationAcceptance(ctx context.Context, metadat
 		record.PlanRevision = evidence[0].PlanRevision
 		record.VerificationDigest = evidence[0].VerificationDigest
 		record.VerificationReceipt = evidence[0].VerificationReceipt
+		record.ReviewEvidenceDigest = evidence[0].ReviewEvidenceDigest
 		record.CarriedFromRevision, record.CarriedAcceptanceDigest, record.AmendmentDigest = evidence[0].CarriedFromRevision, evidence[0].CarriedAcceptanceDigest, evidence[0].AmendmentDigest
 	}
 	worktreeRoot := filepath.Dir(metadata.Identity.WorktreePath)
@@ -1133,6 +1143,7 @@ func publicationAcceptancePath(worktreeRoot string, expected PublicationRecord) 
 		identity := expected
 		identity.AcceptanceSnapshot, identity.AcceptanceReport, identity.AcceptanceComment = "", "", ""
 		identity.VerificationDigest, identity.VerificationReceipt = "", ""
+		identity.ReviewEvidenceDigest = ""
 		identity.CarriedFromRevision, identity.CarriedAcceptanceDigest, identity.AmendmentDigest = "", "", ""
 		encoded, err := json.Marshal(identity)
 		if err != nil {
@@ -1152,6 +1163,7 @@ func publicationAcceptancePath(worktreeRoot string, expected PublicationRecord) 
 	identity.AcceptanceReport = first.AcceptanceReport
 	identity.AcceptanceComment = first.AcceptanceComment
 	identity.VerificationDigest, identity.VerificationReceipt = first.VerificationDigest, first.VerificationReceipt
+	identity.ReviewEvidenceDigest = first.ReviewEvidenceDigest
 	identity.CarriedFromRevision, identity.CarriedAcceptanceDigest, identity.AmendmentDigest = first.CarriedFromRevision, first.CarriedAcceptanceDigest, first.AmendmentDigest
 	if identity != first {
 		return "", fmt.Errorf("publication commit %s is already bound to a different immutable tuple", expected.CommitOID)
@@ -1188,6 +1200,9 @@ func readPublicationRecord(path string) (PublicationRecord, error) {
 		return PublicationRecord{}, errors.New("publication record contains trailing data")
 	}
 	snapshotHash, snapshotPrefix := strings.CutPrefix(record.AcceptanceSnapshot, "sha256:")
+	if record.ReviewEvidenceDigest != "" && (len(record.ReviewEvidenceDigest) != 64 || !validObjectID(record.ReviewEvidenceDigest)) {
+		return PublicationRecord{}, errors.New("invalid review evidence reference")
+	}
 	if record.Version != publicationRecordVersion || !validObjectID(record.CommitOID) || !validObjectID(record.TreeOID) ||
 		!snapshotPrefix || len(snapshotHash) != 64 || !validObjectID(snapshotHash) ||
 		strings.TrimSpace(record.AcceptanceReport) == "" || strings.TrimSpace(record.AcceptanceComment) == "" || strings.ContainsAny(record.AcceptanceReport+record.AcceptanceComment, "\x00") {

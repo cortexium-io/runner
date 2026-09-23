@@ -387,6 +387,7 @@ func writeMetrics(output io.Writer, view metricsOutput) {
 	fmt.Fprintln(output, "QA verdicts are separate from publication outcomes; missing verdicts are not inferred, and saved-acceptance resumes do not add a new verdict.")
 	fmt.Fprintf(output, "Agent time: %s · Runner/GitHub overhead: %s\n",
 		formatMetricDuration(view.Summary.HarnessDurationMilliseconds), formatMetricDuration(view.Summary.RunnerDurationMilliseconds))
+	fmt.Fprintf(output, "Time outside completed observed stages: %s (unattributed; overlapping stages counted once)\n", formatMetricDuration(view.Summary.UncoveredDurationMilliseconds))
 	if view.Summary.StageCoveredAttempts > 0 {
 		fmt.Fprintf(output, "Stage evidence: %d/%d attempts · successful attempts with failed/blocked stages: %d · recovered publication retries: %d\n",
 			view.Summary.StageCoveredAttempts, view.Summary.Attempts, view.Summary.RecoveredStageFailureAttempts, view.Summary.RecoveredPublicationAttempts)

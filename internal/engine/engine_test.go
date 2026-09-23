@@ -512,7 +512,7 @@ func (r plannerNeedsInputRunner) Run(ctx context.Context, command string, args [
 		}
 		plan, err := stagedPlannerFixtureResponse(args,
 			`{"goal_summary":"Clarify scope","project_success_criteria":["The supported API contract is explicit."],"project_constraints":[],"open_decisions":["Which API version must remain compatible?"],"cards":[{"title":"Implement after clarification","dependencies":[]}]}`,
-			`{"cards":{"C1":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Implement the selected compatibility contract.","done_when":["Compatibility is defined."],"proof_obligations":["The selected compatibility behavior is demonstrated."],"assumptions":[]}}}`,
+			`{"open_decisions":[],"cards":{"C1":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Implement the selected compatibility contract.","done_when":["Compatibility is defined."],"proof_obligations":["The selected compatibility behavior is demonstrated."],"assumptions":[]}}}`,
 		)
 		if err != nil {
 			return subprocess.Result{}, err
@@ -547,7 +547,7 @@ func (r plannerStagesBatchRunner) Run(ctx context.Context, command string, args 
 		}
 		details := r.details
 		if strings.TrimSpace(details) == "" {
-			details = `{"cards":{"C1":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Build the requested slice.","done_when":["It works."],"proof_obligations":["The requested behavior is demonstrated."],"assumptions":[]}}}`
+			details = `{"open_decisions":[],"cards":{"C1":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Build the requested slice.","done_when":["It works."],"proof_obligations":["The requested behavior is demonstrated."],"assumptions":[]}}}`
 		}
 		plan, err := stagedPlannerFixtureResponse(args, outline, details)
 		if err != nil {
@@ -982,23 +982,18 @@ func stagedPlannerFixtureResponse(args []string, outline, details string) (strin
 		return "", fmt.Errorf("read planner schema: %w", err)
 	}
 	var decoded struct {
-		Properties struct {
-			Cards struct {
-				Type string `json:"type"`
-			} `json:"cards"`
-		} `json:"properties"`
+		Properties map[string]json.RawMessage `json:"properties"`
 	}
 	if err := json.Unmarshal(schema, &decoded); err != nil {
 		return "", fmt.Errorf("decode planner schema: %w", err)
 	}
-	switch decoded.Properties.Cards.Type {
-	case "array":
+	if _, outlineStage := decoded.Properties["goal_summary"]; outlineStage {
 		return outline, nil
-	case "object":
-		return details, nil
-	default:
-		return "", fmt.Errorf("unknown planner stage schema: cards type %q", decoded.Properties.Cards.Type)
 	}
+	if _, detailsStage := decoded.Properties["cards"]; detailsStage {
+		return details, nil
+	}
+	return "", errors.New("unknown planner stage schema")
 }
 
 func (r openPullRequestRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
@@ -1483,7 +1478,7 @@ func TestPlannerRetryResumesExactCheckpointAfterPartialChildCreation(t *testing.
 	runner := plannerStagesBatchRunner{
 		project: project, plannerCalls: &plannerCalls,
 		outline: `{"goal_summary":"Deliver both slices","project_success_criteria":["Both slices work."],"project_constraints":[],"open_decisions":[],"cards":[{"title":"Implement first slice","dependencies":[]},{"title":"Implement second slice","dependencies":[1]}]}`,
-		details: `{"cards":{"C1":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Build the first slice.","done_when":["The first slice works."],"proof_obligations":["The first behavior is demonstrated."],"assumptions":[]},"C2":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Build the second slice.","done_when":["The second slice works."],"proof_obligations":["The second behavior is demonstrated."],"assumptions":[]}}}`,
+		details: `{"open_decisions":[],"cards":{"C1":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Build the first slice.","done_when":["The first slice works."],"proof_obligations":["The first behavior is demonstrated."],"assumptions":[]},"C2":{"implementation_profile":"implementer","profile_reason":"Bounded fixture with explicit default profile","objective":"Build the second slice.","done_when":["The second slice works."],"proof_obligations":["The second behavior is demonstrated."],"assumptions":[]}}}`,
 	}
 	service, err := New(completeEngineTestConfig(config.Config{
 		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},

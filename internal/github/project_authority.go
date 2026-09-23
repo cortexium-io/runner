@@ -708,23 +708,49 @@ func sameAuthorizedAction(left, right AuthorizedAction) bool {
 }
 
 func (s *Project) refreshAuthorizedAction(ctx context.Context, expected AuthorizedAction) (AuthorizedAction, error) {
+	action, _, err := s.refreshAuthorizedActionWithDelivery(ctx, expected)
+	return action, err
+}
+
+// The delivery result belongs only to this uninterrupted validation boundary.
+// Callers must refresh again after any model/operator interaction, Git or
+// Project mutation, or publication; it is never retained on Project or action.
+func (s *Project) refreshAuthorizedActionWithDelivery(ctx context.Context, expected AuthorizedAction) (AuthorizedAction, PlanDelivery, error) {
 	expectedItem, err := expected.authorizedItem()
 	if err != nil {
-		return AuthorizedAction{}, err
+		return AuthorizedAction{}, PlanDelivery{}, err
 	}
 	current, err := s.itemByID(ctx, expectedItem.ID)
 	if err != nil {
-		return AuthorizedAction{}, fmt.Errorf("refresh Project state before privileged action: %w", err)
+		return AuthorizedAction{}, PlanDelivery{}, fmt.Errorf("refresh Project state before privileged action: %w", err)
 	}
 	authorized, err := s.validateAction(current)
 	if err != nil {
-		return AuthorizedAction{}, err
+		return AuthorizedAction{}, PlanDelivery{}, err
 	}
 	if !sameAuthorizedAction(expected, authorized) {
-		return AuthorizedAction{}, errors.New("Project action changed after validation; reload the item and try again")
+		return AuthorizedAction{}, PlanDelivery{}, errors.New("Project action changed after validation; reload the item and try again")
 	}
-	if err := s.refreshDeliveryAuthority(ctx, current); err != nil {
-		return AuthorizedAction{}, err
+	if current.PlanRelease == "" && current.PlanningSourceID == "" {
+		return authorized, PlanDelivery{}, nil
 	}
-	return authorized, nil
+	delivery, present, err := s.DeliveryForItem(ctx, current)
+	if err != nil {
+		return AuthorizedAction{}, PlanDelivery{}, err
+	}
+	if present {
+		observed := delivery.Parent
+		if current.ID != observed.ID {
+			observed, err = selectProjectItem(delivery.Children, current.ID)
+			if err != nil {
+				return AuthorizedAction{}, PlanDelivery{}, err
+			}
+		}
+		// A valid newer lifecycle signature still invalidates this action. The
+		// exact-node and complete membership reads must describe the same action.
+		if observed.Approval != current.Approval {
+			return AuthorizedAction{}, PlanDelivery{}, errors.New("Project action changed while validating plan delivery; reload the item and try again")
+		}
+	}
+	return authorized, delivery, nil
 }

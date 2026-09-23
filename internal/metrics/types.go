@@ -45,6 +45,10 @@ const (
 	StageProjectTransition    = "project_transition"
 	StagePublishPullRequest   = "publish_pull_request"
 	StagePlannerApply         = "planner_apply"
+	StageAuthorityValidation  = "authority_validation"
+	StageEvidenceCapture      = "evidence_capture"
+	StageSnapshotValidation   = "snapshot_validation"
+	StagePlanIntegration      = "plan_integration"
 )
 
 const (
@@ -58,7 +62,8 @@ func validStageName(name string) bool {
 	case StageWorkspacePrepare, StageRepositoryPrepare, StageHarnessRun, StagePlannerOutline,
 		StagePlannerDetails, StageReviewerAudit, StageReviewerVerify, StageResultValidate,
 		StageWorkspaceVerify, StageCandidateConstruct, StageProjectTransition, StagePublishPullRequest,
-		StagePlannerApply, StageHarnessCleanup, StageImplementationRepair, StageTestSpecialist:
+		StagePlannerApply, StageHarnessCleanup, StageImplementationRepair, StageTestSpecialist,
+		StageAuthorityValidation, StageEvidenceCapture, StageSnapshotValidation, StagePlanIntegration:
 		return true
 	default:
 		return false
@@ -623,6 +628,7 @@ type Summary struct {
 	ResumedCheckpointAttempts      int            `json:"resumed_checkpoint_attempts"`
 	HarnessDurationMilliseconds    int64          `json:"harness_duration_milliseconds"`
 	RunnerDurationMilliseconds     int64          `json:"runner_duration_milliseconds"`
+	UncoveredDurationMilliseconds  int64          `json:"uncovered_duration_milliseconds"`
 	Usage                          Usage          `json:"usage"`
 	ReportedTokens                 *int64         `json:"reported_tokens"`
 	UsageCoveredAttempts           int            `json:"usage_covered_attempts"`
@@ -729,6 +735,7 @@ func Summarize(attempts []Attempt) Summary {
 			result.BlockedAttempts++
 		}
 		result.HarnessDurationMilliseconds += attempt.HarnessDurationMilliseconds
+		result.UncoveredDurationMilliseconds += uncoveredDuration(attempt)
 		overhead := attempt.DurationMilliseconds - attempt.HarnessDurationMilliseconds
 		if overhead > 0 {
 			result.RunnerDurationMilliseconds += overhead

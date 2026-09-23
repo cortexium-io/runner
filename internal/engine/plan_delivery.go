@@ -101,6 +101,22 @@ func (s *Engine) resumeAcceptedPlanPublication(ctx context.Context, action githu
 		if metadata.Identity != p.Metadata.Identity || metadata.SourceSnapshot != p.Metadata.SourceSnapshot || snapshot.Fingerprint != p.Candidate.Fingerprint {
 			return fail(errors.New("retained parent candidate or workspace binding changed"))
 		}
+		delivery, _, err := s.planGate(ctx, action)
+		if err != nil {
+			return fail(err)
+		}
+		evidenceDigest, err := s.currentPlanEvidenceDigest(ctx, delivery, metadata, workspace.Candidate{CommitOID: snapshot.Head, TreeOID: snapshot.Tree})
+		if err != nil {
+			return fail(err)
+		}
+		if evidenceDigest != p.EvidenceCollectionDigest {
+			if p.classificationPending() {
+				return fail(errors.New("evidence changed while classifier outcome is uncertain; resolve retained work before fresh review"))
+			}
+			// A newly recovered collection is not what the earlier parent saw.
+			// Keep historical gate receipts, but renew QA before any gate/classifier.
+			return RunResult{}, false
+		}
 		p.Metadata = metadata // current privileged Git bindings, never persisted as authority
 		result.ResumedCheckpoint = true
 		result.WorktreePath, result.Branch = metadata.WorktreePath, metadata.BranchName
@@ -361,7 +377,9 @@ func (s *Engine) verifyPlanHead(ctx context.Context, item github.WorkItem, root 
 	})
 }
 
-func (s *Engine) integratePlanAcceptance(ctx context.Context, action github.AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord) error {
+func (s *Engine) integratePlanAcceptance(ctx context.Context, action github.AuthorizedAction, metadata workspace.Metadata, record workspace.PublicationRecord) (err error) {
+	finish := metrics.StartStage(ctx, metrics.StagePlanIntegration)
+	defer func() { finish.FinishError(err) }()
 	delivery, present, err := s.source.DeliveryForItem(ctx, action.Item)
 	if err != nil || !present {
 		return errors.Join(errors.New("accepted plan member has no current authority"), err)
@@ -380,6 +398,11 @@ func (s *Engine) integratePlanAcceptanceLocked(ctx context.Context, action githu
 	}
 	if record.PlanRevision != delivery.Revision {
 		return errors.New("accepted member belongs to another plan revision")
+	}
+	if record.ReviewEvidenceDigest != "" {
+		if _, _, err := workspace.LoadAcceptedEvidence(ctx, metadata, record, delivery.Parent.ID, s.cfg.ReviewEvidencePaths, s.snapshotLimits()); err != nil {
+			return err
+		}
 	}
 	parent, err := s.source.Authorize(ctx, delivery.Parent)
 	if err != nil {

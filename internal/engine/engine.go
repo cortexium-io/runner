@@ -148,26 +148,52 @@ func (s *Engine) ApplyProjectItemApproval(ctx context.Context, plan github.Appro
 	return s.source.ApplyApproval(ctx, plan)
 }
 
-func (s *Engine) PlanProjectItemRetry(ctx context.Context, selector string) (github.RetryPlan, error) {
-	return s.source.PlanRetry(ctx, selector)
+func (s *Engine) PlanProjectItemRetry(ctx context.Context, selector string) (RetryPlan, error) {
+	plan, err := s.source.PlanRetry(ctx, selector)
+	if err != nil {
+		return RetryPlan{}, err
+	}
+	return s.planRetryEvidence(ctx, plan)
 }
 
-func (s *Engine) PlanProjectItemRetryWithFeedback(ctx context.Context, selector, feedback string) (github.RetryPlan, error) {
-	return s.source.PlanRetryWithFeedback(ctx, selector, feedback)
+func (s *Engine) PlanProjectItemRetryWithFeedback(ctx context.Context, selector, feedback string) (RetryPlan, error) {
+	plan, err := s.source.PlanRetryWithFeedback(ctx, selector, feedback)
+	if err != nil {
+		return RetryPlan{}, err
+	}
+	return s.planRetryEvidence(ctx, plan)
 }
 
-func (s *Engine) ApplyProjectItemRetry(ctx context.Context, plan github.RetryPlan) (github.WorkItem, error) {
+func (s *Engine) ApplyProjectItemRetry(ctx context.Context, plan RetryPlan) (github.WorkItem, error) {
 	guard, err := s.acquireLocalGate(ctx, true, github.AcquirePlanningMutationLock)
 	if err != nil {
 		return github.WorkItem{}, err
 	}
 	defer guard.Release()
-	if strings.TrimSpace(plan.FeedbackOverride) != "" {
-		if err := errors.Join(s.clearReviewFeedback(plan.Item.ID), s.clearImplementationCheckpoint(plan.Item.ID)); err != nil {
-			return github.WorkItem{}, fmt.Errorf("replace private retry context: %w", err)
+	var retried github.WorkItem
+	apply := func() error {
+		if err := s.applyRetryEvidence(ctx, plan); err != nil {
+			return err
 		}
+		if strings.TrimSpace(plan.FeedbackOverride) != "" {
+			if err := errors.Join(s.clearReviewFeedback(plan.Item.ID), s.clearImplementationCheckpoint(plan.Item.ID)); err != nil {
+				return fmt.Errorf("replace private retry context: %w", err)
+			}
+		}
+		var err error
+		retried, err = s.source.ApplyRetry(ctx, plan.RetryPlan)
+		return err
 	}
-	return s.source.ApplyRetry(ctx, plan)
+	if plan.EvidenceRecovery != nil {
+		ids := []string{plan.Item.ID}
+		for _, member := range plan.EvidenceRecovery.Members {
+			ids = append(ids, member.ID)
+		}
+		err := s.withDeliveryOperationGuards(ids, apply)
+		return retried, err
+	}
+	err = apply()
+	return retried, err
 }
 
 func (s *Engine) RunCycle(ctx context.Context) ([]RunResult, error) {
@@ -1568,11 +1594,20 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		return s.failExecution(ctx, action, lane, result, retainedAcceptanceResumeFailure, err,
 			integrityViolationOutput(retainedAcceptanceResumeFailure, err))
 	}
-	if resumedAcceptance {
-		if deliveryPresent && item.ID == deliveryContext.Parent.ID {
-			err := errors.New("whole-plan acceptance requires protected parent verification recovery")
+	if resumedAcceptance && deliveryPresent && item.ID == deliveryContext.Parent.ID {
+		// The earlier recovery boundary can deliberately yield to fresh QA
+		// when its evidence collection changed. Retain the immutable original
+		// publication record, but never use it to bypass that new review.
+		prior, loadErr := s.loadReviewFeedbackRecord(item, delegatedContent)
+		if loadErr != nil || prior == nil || prior.PlanVerification == nil || prior.PlanVerification.Publication == nil ||
+			*prior.PlanVerification.Publication != publicationRecord || prior.PlanVerification.Candidate.Fingerprint != qaSnapshot.Fingerprint ||
+			prior.PlanVerification.classificationPending() {
+			err := errors.Join(errors.New("whole-plan acceptance requires protected parent verification recovery"), loadErr)
 			return s.failExecution(ctx, action, lane, result, retainedAcceptanceResumeFailure, err, integrityViolationOutput(retainedAcceptanceResumeFailure, err))
 		}
+		resumedAcceptance = false
+	}
+	if resumedAcceptance {
 		result.ResumedCheckpoint = true
 		lineage := observedLineage(&result)
 		lineage.ReviewedCandidate = metrics.ObjectIdentity{CommitOID: publicationRecord.CommitOID, TreeOID: publicationRecord.TreeOID}
@@ -1589,9 +1624,18 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		defer cancel()
 		_ = reviewWorkspace.Cleanup(cleanupCtx)
 	}()
-	if err := reviewWorkspace.PrepareEvidence(ctx, preparedWorkspace, candidate, s.cfg.ReviewEvidencePaths, s.snapshotLimits()); err != nil {
+	if err := s.preparePlanReviewEvidence(ctx, &reviewWorkspace, preparedWorkspace, candidate, deliveryContext, deliveryPresent); err != nil {
 		return s.failExecution(ctx, action, lane, result, "Selected QA evidence could not be safely captured", err,
 			integrityViolationOutput("Selected QA evidence could not be safely captured", err))
+	}
+	// Capture is durable before the paid review, but grants no acceptance. A
+	// restart during capture cannot repeat completed model work; acceptance
+	// below binds this exact snapshot only after review and revalidation.
+	if deliveryPresent && item.ID != deliveryContext.Parent.ID {
+		publicationEvidence.ReviewEvidenceDigest, err = reviewWorkspace.PreserveEvidence(ctx, preparedWorkspace)
+		if err != nil {
+			return s.failExecution(ctx, action, lane, result, "Review evidence could not be retained safely", err, integrityViolationOutput("Review evidence could not be retained safely", err))
+		}
 	}
 	reviewSnapshot, err := s.checkoutSnapshotState(ctx, reviewWorkspace.Path)
 	if err != nil {
@@ -1789,6 +1833,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 	}
 	if deliveryPresent && item.ID == deliveryContext.Parent.ID {
 		progress := &planVerificationProgress{Assignment: assignment, Metadata: preparedWorkspace, Candidate: currentSnapshot, AttemptID: attemptID, ReviewerRole: action.Role, SettingsDigest: s.planReviewSettings(action.Role, preparedWorkspace.WorktreePath), QAFailures: action.Item.QAFailures, Accepted: output, Report: qaReport, Comment: qaComment}
+		progress.EvidenceCollectionDigest = reviewWorkspace.EvidenceCollectionDigest()
 		if reviewRecord != nil && reviewRecord.PlanVerification != nil {
 			// Retain prior observed check bytes; the launcher independently
 			// assesses executable applicability after this new QA acceptance.

@@ -766,7 +766,7 @@ func runRetry(ctx context.Context, args []string, stdin io.Reader, stdout io.Wri
 	reauthorize := flags.Bool("reauthorize", false, "review and reauthorize retained unpublished implementation in assessment; requires terminal confirmation; --json previews only")
 	qaOnly := flags.Bool("qa-only", false, "with --reauthorize: confirm and run one review of a retained candidate; leave the card paused and never implement, publish, merge, or retry")
 	dryRun := flags.Bool("dry-run", false, "preview the retry destination without changing GitHub")
-	jsonOutput := flags.Bool("json", false, "write the retry plan as JSON")
+	jsonOutput := flags.Bool("json", false, "write the retry plan as JSON; new historical evidence recovery previews only")
 	proceed, err := parseFlags(flags, args, "retry")
 	if err != nil || !proceed {
 		return err
@@ -810,7 +810,7 @@ func runRetry(ctx context.Context, args []string, stdin io.Reader, stdout io.Wri
 	if !*jsonOutput {
 		writeProgress(stdout, "Checking the selected blocked item and its retry destination…")
 	}
-	var plan github.RetryPlan
+	var plan engine.RetryPlan
 	if strings.TrimSpace(*feedback) == "" {
 		plan, err = service.PlanProjectItemRetry(ctx, selected)
 	} else {
@@ -819,19 +819,73 @@ func runRetry(ctx context.Context, args []string, stdin io.Reader, stdout io.Wri
 	if err != nil {
 		return err
 	}
+	return runRetryPlan(ctx, service, plan, *dryRun, *jsonOutput, stdin, stdout)
+}
+
+func runRetryPlan(ctx context.Context, service *engine.Engine, plan engine.RetryPlan, dryRun, jsonOutput bool, stdin io.Reader, stdout io.Writer) error {
+	recoveryRequired := false
+	if plan.EvidenceRecovery != nil {
+		for _, member := range plan.EvidenceRecovery.Members {
+			recoveryRequired = recoveryRequired || member.RecoveryRequired
+		}
+	}
+	if recoveryRequired {
+		if jsonOutput {
+			encoder := json.NewEncoder(stdout)
+			encoder.SetIndent("", "  ")
+			return encoder.Encode(map[string]any{"applied": false, "retry": plan})
+		}
+		fmt.Fprintln(stdout, "Runner historical evidence recovery preview")
+		fmt.Fprintf(stdout, "  Item: %s (%s)\n  Retry destination: %s\n", terminalSafeText(plan.Item.Title), terminalSafeText(plan.Item.ID), terminalSafeText(plan.TargetStatus))
+		fmt.Fprintln(stdout, "  These are historical claims, not proof that the original card QA reviewed these bytes. Fresh whole-plan review is required; child acceptances and counters are unchanged.")
+		if plan.FeedbackOverride != "" {
+			fmt.Fprintf(stdout, "  Replacement feedback: %s\n  Parent QA failures: reset to 0\n", terminalSafeText(plan.FeedbackOverride))
+		}
+		encoded, err := json.MarshalIndent(plan.EvidenceRecovery, "", "  ")
+		if err != nil {
+			return err
+		}
+		for _, line := range strings.Split(string(encoded), "\n") {
+			if _, err := fmt.Fprintln(stdout, terminalSafeText(line)); err != nil {
+				return err
+			}
+		}
+		if dryRun {
+			fmt.Fprintln(stdout, "\nDry run only. Re-run without --dry-run in a terminal to review and confirm a fresh recovery preview.")
+			return nil
+		}
+		for _, member := range plan.EvidenceRecovery.Members {
+			if member.RecoveryRequired && len(member.Evidence.Manifest.MissingPaths) > 0 {
+				return fmt.Errorf("member %s is missing selected evidence; restore it and inspect a fresh recovery preview before retrying", terminalSafeText(member.ID))
+			}
+		}
+		if !isTerminalFile(stdin) || !isTerminalFile(stdout) {
+			return errors.New("historical evidence recovery requires an interactive terminal to confirm the exact preview; --json and --dry-run preview only")
+		}
+		confirmed, err := confirmRetryEvidenceRecovery(newInitPrompter(stdin, stdout))
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			fmt.Fprintln(stdout, "\nNo changes made. Historical evidence was not captured and the item was not retried.")
+			return nil
+		}
+	}
 	var retried *github.WorkItem
-	if !*dryRun {
-		if !*jsonOutput {
+	if !dryRun {
+		if !jsonOutput {
 			writeProgress(stdout, "Returning the item to its recorded Runner lane…")
 		}
+		// Apply the same sealed plan that was displayed and confirmed. The
+		// engine revalidates its sources before preserving evidence or retrying.
 		item, applyErr := service.ApplyProjectItemRetry(ctx, plan)
 		if applyErr != nil {
 			return applyErr
 		}
 		retried = &item
 	}
-	if *jsonOutput {
-		payload := map[string]any{"applied": !*dryRun, "retry": plan}
+	if jsonOutput {
+		payload := map[string]any{"applied": !dryRun, "retry": plan}
 		if retried != nil {
 			payload["item"] = retried
 		}
@@ -843,16 +897,30 @@ func runRetry(ctx context.Context, args []string, stdin io.Reader, stdout io.Wri
 	fmt.Fprintf(stdout, "  Item: %s (%s)\n", terminalSafeText(plan.Item.Title), terminalSafeText(plan.Item.ID))
 	fmt.Fprintf(stdout, "  Current status: %s\n", terminalSafeText(plan.Item.Status))
 	fmt.Fprintf(stdout, "  Retry destination: %s\n", terminalSafeText(plan.TargetStatus))
+	if plan.EvidenceRecovery != nil {
+		fmt.Fprintln(stdout, "  Evidence recovery: historical member claims require fresh whole-plan review; child acceptances and counters are unchanged.")
+		for _, member := range plan.EvidenceRecovery.Members {
+			fmt.Fprintf(stdout, "    %s: %d selected files, %d missing paths; capture required: %t; manifest %s\n", terminalSafeText(member.ID), len(member.Evidence.Manifest.Files), len(member.Evidence.Manifest.MissingPaths), member.RecoveryRequired, member.Evidence.Digest)
+		}
+	}
 	if plan.FeedbackOverride != "" {
 		fmt.Fprintf(stdout, "  Replacement feedback: %s\n", terminalSafeText(plan.FeedbackOverride))
 		fmt.Fprintln(stdout, "  QA failures: reset to 0")
 	}
-	if *dryRun {
+	if dryRun {
 		fmt.Fprintln(stdout, "\nDry run only. Re-run without --dry-run to retry this item.")
 		return nil
 	}
 	fmt.Fprintf(stdout, "\nMoved the item to %s. A running Runner will check it on its next poll.\n", terminalSafeText(retried.Status))
 	return nil
+}
+
+func confirmRetryEvidenceRecovery(prompter *initPrompter) (bool, error) {
+	selected, err := prompter.selectMenu("Capture this exact historical evidence and retry the displayed parent?", []initMenuOption{
+		{Label: "Yes", Value: "yes", Description: "Preserve only the displayed evidence after revalidation, then retry the parent."},
+		{Label: "No", Value: "no", Description: "Leave historical evidence and Project state unchanged."},
+	}, 1)
+	return selected == 0, err
 }
 
 func chooseRetryItem(ctx context.Context, stdin io.Reader, stdout io.Writer, cfg config.Config, service *engine.Engine) (string, error) {

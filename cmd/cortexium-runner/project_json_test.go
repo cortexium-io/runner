@@ -79,7 +79,7 @@ prompt=$(cat)
 case "$prompt" in
   *'Shared planning contract — card details:'*)
     printf '%s\n' 'details' >> "$FAKE_PLANNER_LOG"
-    printf '%s\n' '{"cards":{"C1":{"objective":"Build the slice","implementation_profile":"implementer","profile_reason":"Use the configured profile for this bounded slice","done_when":["It works"],"proof_obligations":["The behavior is demonstrated"],"assumptions":[]}}}' > "$result_path" ;;
+    printf '%s\n' '{"open_decisions":[],"cards":{"C1":{"objective":"Build the slice","implementation_profile":"implementer","profile_reason":"Use the configured profile for this bounded slice","done_when":["It works"],"proof_obligations":["The behavior is demonstrated"],"assumptions":[]}}}' > "$result_path" ;;
   *)
     printf '%s\n' 'outline' >> "$FAKE_PLANNER_LOG"
     printf '%s\n' "$FAKE_PLAN_OUTLINE" > "$result_path" ;;
@@ -133,8 +133,12 @@ esac
 				t.Fatalf("CLI planning released worker ownership: %v", lockErr)
 			}
 			calls, err := os.ReadFile(plannerLog)
-			if err != nil || string(calls) != "outline\ndetails\n" {
-				t.Fatalf("expected exactly one invocation per planner stage, got %q: %v", calls, err)
+			wantCalls := "outline\ndetails\n"
+			if test.openDecision {
+				wantCalls = "outline\n"
+			}
+			if err != nil || string(calls) != wantCalls {
+				t.Fatalf("expected planner invocations %q, got %q: %v", wantCalls, calls, err)
 			}
 			githubCalls, err := os.ReadFile(githubLog)
 			if err != nil {
@@ -185,11 +189,17 @@ esac
 			}
 			if plan.GoalSummary != "Build a slice" || !reflect.DeepEqual(plan.OpenDecisions, decisions) ||
 				!reflect.DeepEqual(plan.ProjectSuccessCriteria, []string{"It works"}) ||
-				!reflect.DeepEqual(plan.ProjectConstraints, []string{"No customer data"}) ||
-				len(plan.WorkItems) != 1 || plan.WorkItems[0].Title != "Build the slice" || plan.WorkItems[0].Summary != "Build the slice" ||
+				!reflect.DeepEqual(plan.ProjectConstraints, []string{"No customer data"}) {
+				t.Fatalf("generated plan fields were lost: %#v", plan)
+			}
+			if test.openDecision {
+				if len(plan.WorkItems) != 0 {
+					t.Fatalf("open decisions produced executable work items: %#v", plan.WorkItems)
+				}
+			} else if len(plan.WorkItems) != 1 || plan.WorkItems[0].Title != "Build the slice" || plan.WorkItems[0].Summary != "Build the slice" ||
 				!reflect.DeepEqual(plan.WorkItems[0].AcceptanceCriteria, []string{"It works"}) ||
 				!reflect.DeepEqual(plan.WorkItems[0].Verification, []string{"The behavior is demonstrated"}) {
-				t.Fatalf("generated plan fields were lost: %#v", plan)
+				t.Fatalf("generated work item fields were lost: %#v", plan.WorkItems)
 			}
 			// Every actual CLI output shape, including a failed staging result,
 			// retains enough information for zero-model replay of the exact plan.
