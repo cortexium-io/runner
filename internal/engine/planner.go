@@ -17,15 +17,17 @@ import (
 	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/metrics"
 	"github.com/cortexium-io/runner/internal/subprocess"
+	"github.com/cortexium-io/runner/internal/workspace"
 )
 
 type ProjectPlan struct {
-	GoalSummary            string               `json:"goal_summary"`
-	ProjectSuccessCriteria []string             `json:"project_success_criteria"`
-	ProjectConstraints     []string             `json:"project_constraints"`
-	OpenDecisions          []string             `json:"open_decisions"`
-	WorkItems              []github.PlannedItem `json:"work_items"`
-	SourceContext          string               `json:"-"`
+	GoalSummary            string                    `json:"goal_summary"`
+	ProjectSuccessCriteria []string                  `json:"project_success_criteria"`
+	ProjectConstraints     []string                  `json:"project_constraints"`
+	OpenDecisions          []string                  `json:"open_decisions"`
+	WorkItems              []github.PlannedItem      `json:"work_items"`
+	SourceContext          string                    `json:"-"`
+	PlanningSource         *workspace.PlanningSource `json:"planning_source,omitempty"`
 }
 
 type ProjectPlanApproval struct {
@@ -171,7 +173,7 @@ func (s *Engine) PlanProject(ctx context.Context, idea string) (ProjectPlan, err
 	return plan, err
 }
 
-func (s *Engine) planProjectWithRole(ctx context.Context, role, idea string) (ProjectPlan, execution.StructuredHarnessResult, error) {
+func (s *Engine) planProjectWithRole(ctx context.Context, role, idea string) (plan ProjectPlan, harnessResult execution.StructuredHarnessResult, resultErr error) {
 	idea = strings.TrimSpace(idea)
 	if idea == "" {
 		return ProjectPlan{}, execution.StructuredHarnessResult{FailureClass: execution.FailureNeedsInput, RetryDisposition: execution.RetryNone}, errors.New("project idea is required")
@@ -184,6 +186,39 @@ func (s *Engine) planProjectWithRole(ctx context.Context, role, idea string) (Pr
 		finishRepository(metrics.StageOutcomeFailed, string(execution.FailureInvalidConfiguration), string(execution.RetryNone), metrics.Usage{})
 		return ProjectPlan{}, execution.StructuredHarnessResult{FailureClass: execution.FailureInvalidConfiguration, RetryDisposition: execution.RetryNone}, err
 	}
+	provider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
+	planningWorkspace, err := provider.PreparePlanningWorkspace(ctx, workingDir, s.remoteName(), s.baseBranch(), s.cfg.GitHubProject.IntakeRepository)
+	if err != nil {
+		failure := execution.FailureInvalidConfiguration
+		var unresolved *subprocess.CleanupError
+		if errors.As(err, &unresolved) || s.processOwnership.Unresolved() {
+			failure = execution.FailureCleanupUnresolved
+			s.processOwnership.RecordCleanupFailure()
+		}
+		if planningWorkspace.Path != "" {
+			err = errors.Join(err, fmt.Errorf("inspect retained planning preparation at %s", planningWorkspace.Path))
+		}
+		finishRepository(metrics.StageOutcomeFailed, string(failure), string(execution.RetryManual), metrics.Usage{})
+		return ProjectPlan{}, execution.StructuredHarnessResult{FailureClass: failure, RetryDisposition: execution.RetryManual}, err
+	}
+	defer func() {
+		if harnessResult.FailureClass == execution.FailureCleanupUnresolved || s.processOwnership.Unresolved() {
+			s.processOwnership.RecordCleanupFailure()
+			harnessResult.FailureClass, harnessResult.RetryDisposition = execution.FailureCleanupUnresolved, execution.RetryManual
+			resultErr = errors.Join(resultErr, fmt.Errorf("planning snapshot retained for unresolved process cleanup: %s", planningWorkspace.Path))
+			return
+		}
+		if cleanupErr := planningWorkspace.Cleanup(context.WithoutCancel(ctx)); cleanupErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("cleanup planning snapshot %s: %w", planningWorkspace.Path, cleanupErr))
+			var unresolved *subprocess.CleanupError
+			if errors.As(cleanupErr, &unresolved) || s.processOwnership.Unresolved() {
+				s.processOwnership.RecordCleanupFailure()
+				harnessResult.FailureClass, harnessResult.RetryDisposition = execution.FailureCleanupUnresolved, execution.RetryManual
+			} else if harnessResult.FailureClass == execution.FailureNone {
+				harnessResult.FailureClass, harnessResult.RetryDisposition = execution.FailureIntegrityViolation, execution.RetryManual
+			}
+		}
+	}()
 	finishRepository(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
 	planningContext := projectPlannerExecutionContext{}
 	profiles := s.cfg.PlannerImplementers
@@ -206,13 +241,18 @@ func (s *Engine) planProjectWithRole(ctx context.Context, role, idea string) (Pr
 		planningContext.ReviewerGranularity = config.EffectiveTaskGranularity(profile.TaskGranularity)
 	}
 	prompt := projectPlannerPrompt(skills, planningContext, s.cfg.GitHubProject.IntakeRepository, idea)
-	harnessResult, err := s.runPlannerHarness(ctx, role, harness, workingDir, prompt)
+	prompt += "\n\n" + planningSourceDescription(planningWorkspace.Source)
+	harnessResult, err = s.runPlannerHarness(ctx, role, harness, planningWorkspace.Path, prompt, planningWorkspace.Verify)
 	if err != nil {
 		return ProjectPlan{}, harnessResult, err
 	}
+	if err := planningWorkspace.Verify(ctx); err != nil {
+		harnessResult.FailureClass, harnessResult.RetryDisposition = execution.FailureIntegrityViolation, execution.RetryManual
+		return ProjectPlan{}, harnessResult, fmt.Errorf("planning source changed during inspection: %w", err)
+	}
 	result := harnessResult.Message
 	finishValidation := metrics.StartStage(ctx, metrics.StageResultValidate)
-	plan, err := decodeProjectPlan(result)
+	plan, err = decodeProjectPlan(result)
 	if err == nil {
 		err = s.normalizeProjectPlan(&plan)
 	}
@@ -227,6 +267,7 @@ func (s *Engine) planProjectWithRole(ctx context.Context, role, idea string) (Pr
 		return ProjectPlan{}, harnessResult, fmt.Errorf("project plan is invalid: %w", err)
 	}
 	plan.SourceContext = idea
+	plan.PlanningSource = &planningWorkspace.Source
 	harnessResult.FailureClass = execution.FailureNone
 	harnessResult.RetryDisposition = ""
 	harnessResult.RetryAfter = ""
@@ -294,6 +335,9 @@ func (s *Engine) ApplyProjectPlan(ctx context.Context, plan ProjectPlan) ([]gith
 	defer guard.Release()
 	target, err := s.prepareDirectProjectPlan(&plan)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.validatePlanningSource(ctx, plan); err != nil {
 		return nil, err
 	}
 	if s.cfg.GitHubProject.PlanDelivery {
@@ -464,6 +508,9 @@ func (s *Engine) normalizeProjectPlan(plan *ProjectPlan) error {
 	}
 	if err := s.normalizePlanRepositories(&normalized); err != nil {
 		return err
+	}
+	if source := normalized.PlanningSource; source != nil && (!strings.EqualFold(source.Repository, s.cfg.GitHubProject.IntakeRepository) || source.DestinationBranch != s.baseBranch()) {
+		return errors.New("planning source does not match the configured repository and destination")
 	}
 	for _, card := range normalized.WorkItems {
 		if card.ImplementationProfile == "" {
@@ -829,7 +876,7 @@ func projectWorkItems(plan ProjectPlan) []github.PlannedItem {
 	for index := range items {
 		items[index].ProjectGoal = strings.TrimSpace(plan.GoalSummary)
 		items[index].ProjectSuccessCriteria = compactNonEmpty(plan.ProjectSuccessCriteria)
-		items[index].ProjectConstraints = compactNonEmpty(plan.ProjectConstraints)
+		items[index].ProjectConstraints = planningConstraints(plan)
 		items[index].ProjectSource = strings.TrimSpace(plan.SourceContext)
 	}
 	return items
@@ -854,12 +901,18 @@ func planningBatchFingerprint(sourceID, sourceLane, destination string, plan Pro
 	return fmt.Sprintf("v1:%x", digest[:]), nil
 }
 
-func (s *Engine) runPlannerHarness(ctx context.Context, role, harness, workingDir, prompt string) (execution.StructuredHarnessResult, error) {
+func (s *Engine) runPlannerHarness(ctx context.Context, role, harness, workingDir, prompt string, verifySource func(context.Context) error) (execution.StructuredHarnessResult, error) {
 	cfg := s.executionConfig(role, harness, workingDir)
 	// Each subprocess receives the configured timeout. Parent cancellation still
 	// stops both calls, while one slow outline does not steal the details budget.
 	return runStagedProjectPlanner(ctx, prompt, s.cfg.GitHubProject.IntakeRepository, func(callCtx context.Context, stagePrompt string, schema []byte) (execution.StructuredHarnessResult, error) {
-		return execution.RunPlannerStageWithUsage(callCtx, harness, cfg, workingDir, stagePrompt, schema, s.run)
+		result, err := execution.RunPlannerStageWithUsage(callCtx, harness, cfg, workingDir, stagePrompt, schema, s.run)
+		if err == nil {
+			if err = verifySource(callCtx); err != nil {
+				result.FailureClass, result.RetryDisposition = execution.FailureIntegrityViolation, execution.RetryManual
+			}
+		}
+		return result, err
 	}, func(callCtx context.Context, stagePrompt string, schema []byte) (execution.StructuredHarnessResult, error) {
 		return execution.RunPlannerSynthesisStageWithUsage(callCtx, harness, cfg, stagePrompt, schema, s.run)
 	})
@@ -977,6 +1030,11 @@ func skipJSONValue(decoder *json.Decoder) error {
 }
 
 func normalizeProjectPlan(plan ProjectPlan) (ProjectPlan, error) {
+	if plan.PlanningSource != nil {
+		if err := plan.PlanningSource.Validate(); err != nil {
+			return ProjectPlan{}, fmt.Errorf("invalid planning source: %w", err)
+		}
+	}
 	if len(plan.WorkItems) > github.MaxPlanningBatchChildren {
 		return ProjectPlan{}, fmt.Errorf("project plan has %d work items; the emergency safety maximum is %d", len(plan.WorkItems), github.MaxPlanningBatchChildren)
 	}

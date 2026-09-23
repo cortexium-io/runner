@@ -140,7 +140,7 @@ func (s *Engine) deliveryManifest(source github.WorkItem, plan ProjectPlan, chil
 	}
 	manifest := github.PlanManifest{
 		Version: 1, Request: source.Body, Outcome: plan.GoalSummary,
-		SuccessCriteria: plan.ProjectSuccessCriteria, Scope: plan.ProjectConstraints, Decisions: plan.OpenDecisions,
+		SuccessCriteria: plan.ProjectSuccessCriteria, Scope: planningConstraints(plan), Decisions: plan.OpenDecisions,
 		Repository: s.cfg.GitHubProject.IntakeRepository, DestinationBranch: s.baseBranch(),
 		CompleteVerification: s.cfg.GitHubProject.PlanVerificationID, VerificationDigest: s.cfg.GitHubProject.PlanVerificationDigest,
 	}

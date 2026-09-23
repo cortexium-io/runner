@@ -49,7 +49,7 @@ func TestPlanJSONHonorsExplicitStaging(t *testing.T) {
 			}
 			t.Setenv("FAKE_PLAN_OUTLINE", fmt.Sprintf(`{"goal_summary":"Build a slice","project_success_criteria":["It works"],"project_constraints":["No customer data"],"open_decisions":%s,"cards":[{"title":"Build the slice","dependencies":[]}]}`, encodedDecisions))
 			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-			writeFakeInitGitCommand(t, bin)
+			repo := writePlanningGitFixture(t, bin)
 			writeFakeGitHubProjectCommand(t, bin)
 			if err := os.Rename(filepath.Join(bin, "gh"), filepath.Join(bin, "gh-fixture")); err != nil {
 				t.Fatal(err)
@@ -91,7 +91,7 @@ esac
 					t.Fatal(err)
 				}
 			}
-			cfg := completeCLITestConfig(t.TempDir())
+			cfg := completeCLITestConfig(repo)
 			configPath := filepath.Join(t.TempDir(), "runner.json")
 			if err := config.SaveConfig(configPath, cfg); err != nil {
 				t.Fatal(err)

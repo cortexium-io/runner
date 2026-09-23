@@ -1026,6 +1026,10 @@ func (s *Engine) executePlanner(ctx context.Context, action github.AuthorizedAct
 		}
 	}
 	if err == nil {
+		if sourceErr := s.validatePlanningSource(ctx, plan); sourceErr != nil {
+			return s.failExecution(ctx, action, lane, result, "Retained planning source requires review before staging", sourceErr,
+				integrityViolationOutput("Retained planning source requires review before staging", sourceErr))
+		}
 		var created []github.WorkItem
 		finishApply := metrics.StartStage(ctx, metrics.StagePlannerApply)
 		created, err = s.applyPlannerBatch(ctx, action, plan, laneID)

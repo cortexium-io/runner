@@ -71,28 +71,56 @@ func (p GitProvider) PrepareReviewWorkspace(ctx context.Context, metadata Metada
 	if err != nil {
 		return ReviewWorkspace{}, err
 	}
-	parent, err := newReviewWorkspaceParent(metadata.WorktreePath, metadata.RepoRoot)
+	cleanupProfile, err := derivePrivilegedGitProfile(metadata.RepoRoot)
+	if err != nil {
+		return ReviewWorkspace{}, err
+	}
+	if cleanupProfile.CommonDirectory != sourceProfile.CommonDirectory || cleanupProfile.ObjectDirectory != sourceProfile.ObjectDirectory {
+		return ReviewWorkspace{}, errors.New("review cleanup repository does not share the prepared candidate object store")
+	}
+	review, err := p.prepareDetachedWorkspace(ctx, sourceProfile, candidate, metadata.RepoRoot)
+	if review.Path != "" {
+		// Publication can remove the implementation checkout before deferred
+		// review cleanup. Keep its evidence sourcePath, but manage removal from
+		// the stable repository checkout and its pinned Git administration.
+		review.sourceProfile = cleanupProfile
+	}
+	return review, err
+}
+
+// prepareDetachedWorkspace is shared by review and planning; callers supply
+// already-validated source administration and exact object identities.
+func (p GitProvider) prepareDetachedWorkspace(ctx context.Context, sourceProfile subprocess.PrivilegedGitProfile, candidate Candidate, protectedRoots ...string) (ReviewWorkspace, error) {
+	if err := ctx.Err(); err != nil {
+		return ReviewWorkspace{}, err
+	}
+	parent, err := newReviewWorkspaceParent(append(protectedRoots, sourceProfile.WorkTree)...)
 	if err != nil {
 		return ReviewWorkspace{}, fmt.Errorf("create private review workspace: %w", err)
 	}
 	path := filepath.Join(parent, "candidate")
-	result, err := p.privilegedGit(ctx, sourceProfile, "worktree", "add", "--detach", "--no-checkout", path, candidate.CommitOID)
-	if err != nil {
-		_ = os.RemoveAll(parent)
-		return ReviewWorkspace{}, fmt.Errorf("materialize private review workspace: %w", commandError(err, result))
-	}
-	review := ReviewWorkspace{Path: path, parent: parent, provider: p, sourceProfile: sourceProfile, candidate: candidate, sourcePath: metadata.WorktreePath}
+	review := ReviewWorkspace{Path: path, parent: parent, provider: p, sourceProfile: sourceProfile, candidate: candidate, sourcePath: sourceProfile.WorkTree}
 	fail := func(cause error) (ReviewWorkspace, error) {
-		if cleanupErr := review.cleanupLocked(ctx); cleanupErr != nil {
-			cause = errors.Join(cause, cleanupErr)
+		var unresolved *subprocess.CleanupError
+		if errors.As(cause, &unresolved) {
+			return review, cause
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if cleanupErr := review.cleanupLocked(cleanupCtx); cleanupErr != nil {
+			return review, errors.Join(cause, cleanupErr)
 		}
 		return ReviewWorkspace{}, cause
+	}
+	result, err := p.privilegedGit(ctx, sourceProfile, "worktree", "add", "--detach", "--no-checkout", path, candidate.CommitOID)
+	if err != nil {
+		return fail(fmt.Errorf("materialize private review workspace: %w", commandError(err, result)))
 	}
 	reviewProfile, err := derivePrivilegedGitProfile(path)
 	if err != nil {
 		return fail(err)
 	}
-	if reviewProfile.CommonDirectory != metadata.commonDirectory || reviewProfile.ObjectDirectory != metadata.objectDirectory {
+	if reviewProfile.CommonDirectory != sourceProfile.CommonDirectory || reviewProfile.ObjectDirectory != sourceProfile.ObjectDirectory {
 		return fail(errors.New("private review workspace does not share the prepared candidate object store"))
 	}
 	reset, err := p.privilegedGit(ctx, reviewProfile, "reset", "--hard", candidate.CommitOID)
@@ -186,13 +214,16 @@ func (workspace ReviewWorkspace) cleanupLocked(ctx context.Context) error {
 	if strings.TrimSpace(workspace.parent) == "" || strings.TrimSpace(workspace.Path) == "" {
 		return nil
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	var cleanupErr error
 	if workspace.evidence != nil {
 		cleanupErr = workspace.evidence.root.Close()
 	}
 	result, err := workspace.provider.privilegedGit(ctx, workspace.sourceProfile, "worktree", "remove", "--force", workspace.Path)
 	if err != nil {
-		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove private review worktree: %w", commandError(err, result)))
+		return errors.Join(cleanupErr, fmt.Errorf("remove private review worktree: %w", commandError(err, result)))
 	}
 	if err := os.RemoveAll(workspace.parent); err != nil {
 		cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove private review workspace: %w", err))

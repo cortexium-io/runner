@@ -1406,11 +1406,7 @@ func TestRetryPhaseRoutesPublicationBlockersBackThroughAgentQA(t *testing.T) {
 }
 
 func TestPlannerOpenDecisionsMoveWorkToNeedsInputWithoutCreatingCards(t *testing.T) {
-	repo := t.TempDir()
-	if output, err := exec.Command("git", "init", repo).CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, output)
-	}
-	runGitTest(t, repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+	repo, _ := createPublicationRepository(t)
 	item := github.WorkItem{
 		ID: "PVTI_plan", Title: "Plan API compatibility", Body: "Decide and split the work.",
 		URL: "https://github.com/owner/repo/issues/1", Repository: "owner/repo", Status: "Plan",
@@ -1442,11 +1438,7 @@ func TestPlannerOpenDecisionsMoveWorkToNeedsInputWithoutCreatingCards(t *testing
 }
 
 func TestPlannerCycleStagesBatchAndWaitsForExplicitOperatorApproval(t *testing.T) {
-	repo := t.TempDir()
-	if output, err := exec.Command("git", "init", repo).CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, output)
-	}
-	runGitTest(t, repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+	repo, _ := createPublicationRepository(t)
 	approved := github.WorkItem{ID: "PVTI_plan", Title: "Approved presentation title", Body: "Split this request.", Repository: "owner/repo", Status: "Plan"}
 	item := approved
 	item.Title = "UNAPPROVED_MUTABLE_PLANNER_TITLE"
@@ -1483,11 +1475,7 @@ func TestPlannerCycleStagesBatchAndWaitsForExplicitOperatorApproval(t *testing.T
 }
 
 func TestPlannerRetryResumesExactCheckpointAfterPartialChildCreation(t *testing.T) {
-	repo := t.TempDir()
-	if output, err := exec.Command("git", "init", repo).CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, output)
-	}
-	runGitTest(t, repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+	repo, _ := createPublicationRepository(t)
 	item := github.WorkItem{ID: "PVTI_plan_resume", Title: "Plan two slices", Body: "Split this request safely.", Repository: "owner/repo", Status: "Plan"}
 	item.Approval = testApproval(item)
 	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, failCreateAt: 2}
@@ -1585,11 +1573,7 @@ func TestPlannerProviderFailureSchedulesAutomaticRetryInPlanLane(t *testing.T) {
 }
 
 func TestPlannerSourceStagingFailureIsReportedAndRemainsOperatorRecoverable(t *testing.T) {
-	repo := t.TempDir()
-	if output, err := exec.Command("git", "init", repo).CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, output)
-	}
-	runGitTest(t, repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+	repo, _ := createPublicationRepository(t)
 	item := github.WorkItem{ID: "PVTI_plan", Title: "Plan the slice", Body: "Split this request.", Repository: "owner/repo", Status: "Plan"}
 	item.Approval = testApproval(item)
 	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, failFieldID: "F_result"}
@@ -1635,11 +1619,7 @@ func TestPlannerSourceStagingFailureIsReportedAndRemainsOperatorRecoverable(t *t
 }
 
 func TestInterruptedPlannerSourceRecoveryRejectsChangedChild(t *testing.T) {
-	repo := t.TempDir()
-	if output, err := exec.Command("git", "init", repo).CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, output)
-	}
-	runGitTest(t, repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+	repo, _ := createPublicationRepository(t)
 	item := github.WorkItem{ID: "PVTI_plan", Title: "Plan the slice", Body: "Split this request.", Repository: "owner/repo", Status: "Plan"}
 	item.Approval = testApproval(item)
 	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, failFieldID: "F_result"}
@@ -1671,17 +1651,33 @@ func TestInterruptedPlannerSourceRecoveryRejectsChangedChild(t *testing.T) {
 	}
 }
 
+func TestApplyProjectPlanRejectsMissingPlanningSource(t *testing.T) {
+	project := &fakeGitHubProjectRunner{}
+	service, err := New(completeEngineTestConfig(config.Config{ProjectDir: t.TempDir()}), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := service.ApplyProjectPlan(t.Context(), directProjectPlanFixture())
+	if err == nil || !strings.Contains(err.Error(), "planning source is required before staging") {
+		t.Fatalf("plan without provenance was not rejected: %v", err)
+	}
+	if len(created) != 0 || project.createCount != 0 || len(project.remoteItems) != 0 {
+		t.Fatal("plan without provenance reached Project writes")
+	}
+}
+
 func TestPartialPlannerBatchIsQuarantinedFromExecution(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{failCreateAt: 2}
 	cfg := config.Config{
-		ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: t.TempDir(),
+		ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: repo,
 		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
 	}
-	service, err := New(completeEngineTestConfig(cfg), project)
+	service, err := New(completeEngineTestConfig(cfg), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatalf("configure service: %v", err)
 	}
-	plan := ProjectPlan{GoalSummary: "Two-card plan", ProjectSuccessCriteria: []string{"The complete behavior works."}, SourceContext: "Build the complete behavior.", WorkItems: []github.PlannedItem{
+	plan := ProjectPlan{PlanningSource: planningFixtureSource(t, repo), GoalSummary: "Two-card plan", ProjectSuccessCriteria: []string{"The complete behavior works."}, SourceContext: "Build the complete behavior.", WorkItems: []github.PlannedItem{
 		{Title: "First", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "First slice", AcceptanceCriteria: []string{"First works"}, Verification: []string{"Test first"}, Risks: []string{}, NonGoals: []string{}},
 		{Title: "Second", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Second slice", AcceptanceCriteria: []string{"Second works"}, Verification: []string{"Test second"}, Risks: []string{}, NonGoals: []string{}},
 	}}
@@ -1695,14 +1691,15 @@ func TestPartialPlannerBatchIsQuarantinedFromExecution(t *testing.T) {
 }
 
 func TestDirectProjectPlanStagesOnlyUntilExplicitCompleteBatchApproval(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{}
 	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}), project)
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := directProjectPlanFixture()
+	plan := sourcedDirectProjectPlanFixture(t, repo)
 
 	staged, err := service.ApplyProjectPlan(t.Context(), plan)
 	if err != nil {
@@ -1749,15 +1746,16 @@ func TestDirectProjectPlanStagesOnlyUntilExplicitCompleteBatchApproval(t *testin
 }
 
 func TestDirectProjectPlanFinalizesWhileProjectItemConnectionLags(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{hideCreatedFromList: true}
 	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}), project)
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	staged, err := service.ApplyProjectPlan(t.Context(), directProjectPlanFixture())
+	staged, err := service.ApplyProjectPlan(t.Context(), sourcedDirectProjectPlanFixture(t, repo))
 	if err != nil {
 		t.Fatalf("stage direct plan while Project item connection lags: %v", err)
 	}
@@ -1799,14 +1797,15 @@ func TestDirectProjectPlanApprovalRejectsCopiedCanonicalMetadataWithoutRunnerPro
 }
 
 func TestDirectProjectPlanStagingSurvivesNormalRecoveryCycle(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{}
 	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}), project)
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	staged, err := service.ApplyProjectPlan(t.Context(), directProjectPlanFixture())
+	staged, err := service.ApplyProjectPlan(t.Context(), sourcedDirectProjectPlanFixture(t, repo))
 	if err != nil {
 		t.Fatalf("stage direct plan: %v", err)
 	}
@@ -1823,14 +1822,15 @@ func TestDirectProjectPlanStagingSurvivesNormalRecoveryCycle(t *testing.T) {
 }
 
 func TestDependencyTitleRenamesDoNotChangeIDBasedClaimability(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{}
 	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}), project)
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	staged, err := service.ApplyProjectPlan(t.Context(), directProjectPlanFixture())
+	staged, err := service.ApplyProjectPlan(t.Context(), sourcedDirectProjectPlanFixture(t, repo))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1857,14 +1857,15 @@ func TestDependencyTitleRenamesDoNotChangeIDBasedClaimability(t *testing.T) {
 }
 
 func TestInterruptedDependencyMetadataFinalizationResumesExactBatch(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{failBodyEditAt: 2}
 	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}), project)
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := directProjectPlanFixture()
+	plan := sourcedDirectProjectPlanFixture(t, repo)
 	plan.WorkItems = append(plan.WorkItems, github.PlannedItem{
 		Title: "Third direct child", ImplementationProfile: "implementer", ProfileReason: "Bounded fixture work using the configured default", Summary: "Implement the third child.", AcceptanceCriteria: []string{"Third works."},
 		Verification: []string{"Test third."}, Risks: []string{}, NonGoals: []string{}, Dependencies: []string{"Second direct child"},
@@ -1914,14 +1915,15 @@ func TestInterruptedDependencyMetadataFinalizationResumesExactBatch(t *testing.T
 }
 
 func TestDirectProjectPlanPartialReleaseRemainsUnclaimableWhenCleanupFails(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{}
 	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}), project)
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	staged, err := service.ApplyProjectPlan(t.Context(), directProjectPlanFixture())
+	staged, err := service.ApplyProjectPlan(t.Context(), sourcedDirectProjectPlanFixture(t, repo))
 	if err != nil {
 		t.Fatalf("stage direct plan: %v", err)
 	}
@@ -1968,14 +1970,15 @@ func TestDirectProjectPlanPartialReleaseRemainsUnclaimableWhenCleanupFails(t *te
 }
 
 func TestReleasedDirectProjectPlanRemainsCompleteAsChildrenProgress(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{}
 	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}), project)
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := directProjectPlanFixture()
+	plan := sourcedDirectProjectPlanFixture(t, repo)
 	plan.WorkItems[1].Dependencies = []string{}
 	staged, err := service.ApplyProjectPlan(t.Context(), plan)
 	if err != nil {
@@ -2003,14 +2006,15 @@ func TestReleasedDirectProjectPlanRemainsCompleteAsChildrenProgress(t *testing.T
 }
 
 func TestInterruptedDirectProjectPlanRetryReusesExactChildren(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{failCreateAt: 2}
 	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}), project)
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := directProjectPlanFixture()
+	plan := sourcedDirectProjectPlanFixture(t, repo)
 	partial, err := service.ApplyProjectPlan(t.Context(), plan)
 	if err == nil || len(partial) != 1 {
 		t.Fatalf("expected one safely staged child before interruption: staged=%#v error=%v", partial, err)
@@ -2034,14 +2038,15 @@ func TestInterruptedDirectProjectPlanRetryReusesExactChildren(t *testing.T) {
 }
 
 func TestInterruptedDirectProjectPlanRetryRepairsMissingStagingStatus(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{failStatusAt: 1}
 	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}), project)
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := directProjectPlanFixture()
+	plan := sourcedDirectProjectPlanFixture(t, repo)
 	partial, err := service.ApplyProjectPlan(t.Context(), plan)
 	if err == nil || len(partial) != 0 || project.createCount != 1 {
 		t.Fatalf("expected creation interrupted before the staging status completed: staged=%#v creates=%d error=%v", partial, project.createCount, err)
@@ -2063,14 +2068,15 @@ func TestInterruptedDirectProjectPlanRetryRepairsMissingStagingStatus(t *testing
 }
 
 func TestInterruptedDirectProjectPlanRejectsChangedPlanWithoutWrites(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{failCreateAt: 2}
 	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}), project)
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := directProjectPlanFixture()
+	plan := sourcedDirectProjectPlanFixture(t, repo)
 	if _, err := service.ApplyProjectPlan(t.Context(), plan); err == nil {
 		t.Fatal("expected interrupted first staging attempt")
 	}
@@ -2088,21 +2094,22 @@ func TestInterruptedDirectProjectPlanRejectsChangedPlanWithoutWrites(t *testing.
 func TestDirectProjectPlanDoesNotCombineAnotherUnapprovedRequest(t *testing.T) {
 	for _, missingStatus := range []bool{false, true} {
 		t.Run(fmt.Sprintf("missing status %t", missingStatus), func(t *testing.T) {
+			repo, _ := createPublicationRepository(t)
 			project := &fakeGitHubProjectRunner{failCreateAt: 2}
 			service, err := New(completeEngineTestConfig(config.Config{
-				ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-			}), project)
+				ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+			}), planningGitFixtureRunner{project})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := service.ApplyProjectPlan(t.Context(), directProjectPlanFixture()); err == nil {
+			if _, err := service.ApplyProjectPlan(t.Context(), sourcedDirectProjectPlanFixture(t, repo)); err == nil {
 				t.Fatal("expected interrupted staging")
 			}
 			project.failCreateAt = 0
 			if missingStatus {
 				project.remoteItems[0].Status = ""
 			}
-			other := directProjectPlanFixture()
+			other := sourcedDirectProjectPlanFixture(t, repo)
 			other.SourceContext = "A different planning request"
 			before := append([]string(nil), project.calls...)
 			beforeItems, _ := json.Marshal(project.remoteItems)
@@ -2123,14 +2130,15 @@ func TestDirectProjectPlanDoesNotCombineAnotherUnapprovedRequest(t *testing.T) {
 }
 
 func TestDirectProjectPlanApprovalRejectsChangedChildAfterPreview(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{}
 	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}), project)
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := directProjectPlanFixture()
+	plan := sourcedDirectProjectPlanFixture(t, repo)
 	staged, err := service.ApplyProjectPlan(t.Context(), plan)
 	if err != nil {
 		t.Fatal(err)
@@ -2152,14 +2160,15 @@ func TestDirectProjectPlanApprovalRejectsChangedChildAfterPreview(t *testing.T) 
 }
 
 func TestDirectProjectPlanApprovalRejectsPriorRunnerActionState(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{}
 	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}), project)
+		ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}), planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	staged, err := service.ApplyProjectPlan(t.Context(), directProjectPlanFixture())
+	staged, err := service.ApplyProjectPlan(t.Context(), sourcedDirectProjectPlanFixture(t, repo))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2180,18 +2189,20 @@ func directProjectPlanFixture() ProjectPlan {
 }
 
 func TestProjectPlanCarriesTheProjectContractIntoEveryCreatedCard(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{}
 	cfg := completeEngineTestConfig(config.Config{
-		ProjectDir: t.TempDir(),
+		ProjectDir: repo,
 		GitHubProject: &config.GitHubProjectConfig{
 			Owner: "owner", Number: 4, IntakeRepository: "owner/repo",
 		},
 	})
-	service, err := New(cfg, project)
+	service, err := New(cfg, planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatalf("configure service: %v", err)
 	}
 	plan := ProjectPlan{
+		PlanningSource:         planningFixtureSource(t, repo),
 		GoalSummary:            "Deliver a complete, understandable product.",
 		ProjectSuccessCriteria: []string{"The primary user journey works end to end.", "The result is clear and polished."},
 		ProjectConstraints:     []string{"Keep the implementation in one repository."},
