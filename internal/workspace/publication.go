@@ -71,7 +71,21 @@ func (p GitProvider) PrepareReviewWorkspace(ctx context.Context, metadata Metada
 	if err != nil {
 		return ReviewWorkspace{}, err
 	}
-	return p.prepareDetachedWorkspace(ctx, sourceProfile, candidate, metadata.RepoRoot)
+	cleanupProfile, err := derivePrivilegedGitProfile(metadata.RepoRoot)
+	if err != nil {
+		return ReviewWorkspace{}, err
+	}
+	if cleanupProfile.CommonDirectory != sourceProfile.CommonDirectory || cleanupProfile.ObjectDirectory != sourceProfile.ObjectDirectory {
+		return ReviewWorkspace{}, errors.New("review cleanup repository does not share the prepared candidate object store")
+	}
+	review, err := p.prepareDetachedWorkspace(ctx, sourceProfile, candidate, metadata.RepoRoot)
+	if review.Path != "" {
+		// Publication can remove the implementation checkout before deferred
+		// review cleanup. Keep its evidence sourcePath, but manage removal from
+		// the stable repository checkout and its pinned Git administration.
+		review.sourceProfile = cleanupProfile
+	}
+	return review, err
 }
 
 // prepareDetachedWorkspace is shared by review and planning; callers supply

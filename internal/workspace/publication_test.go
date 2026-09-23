@@ -521,6 +521,61 @@ func TestPrepareReviewWorkspaceMaterializesExactCandidateOutsideImplementationCh
 	}
 }
 
+func TestReviewWorkspaceCleanupAfterImplementationWorkspaceRemoval(t *testing.T) {
+	testRoot := t.TempDir()
+	t.Setenv("HOME", filepath.Join(testRoot, "home"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(testRoot, "cache"))
+	repo := initGitRepo(t)
+	provider := NewGitProvider(subprocess.OSRunner{})
+	request := boundRequest(Request{
+		WorkingDir: repo, WorktreeRoot: filepath.Join(testRoot, "worktrees"), WorkID: "removed_review_source", BranchPrefix: "runner", BaseRef: "HEAD",
+	})
+	prepared, err := provider.Prepare(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := provider.ConstructCandidate(t.Context(), prepared, "Review before source cleanup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "receipt.json"), []byte(`{"passed":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	review, err := provider.PrepareReviewWorkspace(t.Context(), prepared, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := review.PrepareEvidence(t.Context(), prepared, candidate, []string{"receipt.json"}, DefaultSnapshotLimits()); err != nil {
+		t.Fatal(err)
+	}
+	// Successful publication removes the implementation checkout before the
+	// deferred private review cleanup, including its separate evidence snapshot.
+	cleaned, err := provider.Cleanup(t.Context(), cleanupFor(request, prepared.BranchName))
+	if err != nil || !cleaned.WorktreeRemoved {
+		t.Fatalf("remove implementation workspace: removed=%t error=%v", cleaned.WorktreeRemoved, err)
+	}
+	if _, err := os.Stat(prepared.WorktreePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("implementation checkout still exists: %v", err)
+	}
+	if err := review.VerifyEvidence(t.Context()); err != nil {
+		t.Fatalf("private evidence did not survive its source removal: %v", err)
+	}
+	if err := review.Cleanup(t.Context()); err != nil {
+		t.Fatalf("cleanup private review after implementation removal: %v", err)
+	}
+	for _, path := range []string{review.Path, review.EvidencePath, review.parent} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("private review path survived cleanup: %s: %v", path, err)
+		}
+	}
+	if registrations := runGitTest(t, repo, "worktree", "list", "--porcelain"); strings.Contains(registrations, review.Path) || strings.Contains(registrations, prepared.WorktreePath) {
+		t.Fatalf("removed workspace registration survived cleanup: %s", registrations)
+	}
+	if head := strings.TrimSpace(runGitTest(t, repo, "rev-parse", "HEAD")); head != prepared.BaseRevision {
+		t.Fatalf("review cleanup changed the operator checkout: %s", head)
+	}
+}
+
 func TestPrepareReviewWorkspaceIgnoresSymlinkedTempRootInsideNPMGrant(t *testing.T) {
 	testRoot := t.TempDir()
 	repo := initGitRepo(t)
