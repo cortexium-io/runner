@@ -69,6 +69,9 @@ func (i *Inspector) inspectVerification(ctx context.Context) ([]CapabilityState,
 				break
 			}
 		}
+		if i.cfg.PlanDelivery.ReviewerRole != "" {
+			role = i.cfg.PlanDelivery.ReviewerRole
+		}
 		profile, ok := i.cfg.RoleProfile(role)
 		state := CapabilityState{ID: "verification:plan-containment", Type: config.CapabilityTypeProfile, Status: CapabilityAvailable,
 			Detail: stringPtr("complete verification uses the existing approved host-access review profile")}

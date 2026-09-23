@@ -297,6 +297,12 @@ func (c Config) Validate() error {
 	if err := validateWorkflowConfig(c); err != nil {
 		return err
 	}
+	if c.PlanDelivery != nil && c.PlanDelivery.ReviewerRole != "" {
+		role := c.PlanDelivery.ReviewerRole
+		if role != strings.TrimSpace(role) || c.RoleContract(role) != WorkRoleReviewer {
+			return errors.New("plan_delivery.reviewer_role must name a configured reviewer profile")
+		}
+	}
 	if err := validateRepositoryReferences(c); err != nil {
 		return err
 	}

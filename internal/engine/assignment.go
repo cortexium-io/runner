@@ -179,7 +179,7 @@ func (s *Engine) roleHarness(role string) string {
 
 func (s *Engine) executionRole(item github.WorkItem) string {
 	role, _ := s.cfg.SelectedImplementer(item.Role, item.ImplementationProfile, item.QAFailures)
-	return role
+	return s.cfg.ReviewerRole(role, item.PlanRelease != "")
 }
 
 func (s *Engine) roleSkills(role string) []string {

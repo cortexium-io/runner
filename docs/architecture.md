@@ -271,7 +271,9 @@ candidate first, then drains/reloads only the previously running services attach
 to the executable being replaced. Service definitions are not rewritten.
 
 An optional implementer ladder is a validated ordered list of implementer role
-profiles. It never retries within one execution attempt. After a reviewer
+profiles. Unprofiled Ready work starts at the workflow implementer's position;
+an approved explicit profile starts at its own position. Earlier rungs cannot
+downgrade either selection. It never retries within one execution attempt. After a reviewer
 returns a valid `needs_changes` verdict, the existing authenticated `QA
 Failures` Project field advances the next implementation to the corresponding
 profile; the last configured profile is reused until `max_qa_rejections` is
@@ -1009,6 +1011,14 @@ requires a `Runner Plan Release` TEXT field and a `complete_verification` catalo
 entry whose exact settings digest participates in the approved manifest. See
 [the outcome-delivery decision](decisions/0005-approved-outcome-delivery.md) and
 [heavy verification](verification.md). Doctor only inspects these prerequisites.
+
+`plan_delivery.reviewer_role` may select an existing reviewer profile for the
+parent's combined review and bounded failed-gate classification. The card QA
+lane, role contract, authority and limits remain unchanged; this is execution
+profile selection, not an additional review or workflow lane. Omission uses the
+ordinary QA profile. Readiness, attempt metrics and protected parent progress
+use the selected profile, including its original settings through publication
+recovery. A changed profile or settings invalidates retained parent acceptance.
 
 The immutable batch release binds the complete canonical parent revision and
 exact children; the ordinary action assertion binds mutable lifecycle fields.

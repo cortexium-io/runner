@@ -1974,6 +1974,29 @@ passes it through unchanged and does not map `max` to `xhigh`. Claude and Pi
 retain their existing effort contracts; `max` is not an alias for either.
 No role default changes when upgrading.
 
+New interactive setup recommends `gpt-6-sol` when it is present in the installed
+Codex catalog, rather than treating the first catalog entry as the best default.
+If it is absent, native selection is highlighted; Runner does not invent model
+availability. Claude setup recommends the explicit `claude-opus-5-5` ID instead
+of the moving `opus` alias. Pi remains provider-neutral, using its reported
+`provider/model` choices with native selection highlighted. Custom and native
+selection, and all explicit CLI overrides, remain available. Noninteractive
+setup without a model still means native selection.
+
+Setup suggests high effort for GPT-6 Sol/Luna, medium for GPT-6 Astra and Claude
+Opus 5.5, and medium for unknown Pi models. Pi's known provider-qualified model
+IDs receive the same model-specific suggestions. Unknown Codex IDs retain high
+as the setup suggestion. These are recommendations, not capability discovery:
+verify the account, native model catalog and installed harness support the chosen
+pair. Non-reasoning Pi models require an explicit supported `off` choice. Setup
+does not widen access, increase timeouts or silently rewrite saved profiles.
+
+The [model policy](model-profile-evaluation.md#recommended-operating-profiles)
+keeps Sol/high as the general-purpose choice, with explicitly selected Luna/high
+for bounded implementation and Astra/medium for difficult work. Escalation uses
+the existing configured ladder and authenticated QA failures, not an extra model
+call, a new retry allowance or model-authored permission.
+
 When `harness` is `pi`, set
 `roles.<role>.model` to the full `provider/model-id` string that Pi CLI
 recognizes, for example:
@@ -2166,9 +2189,12 @@ This is qualitative evidence for later evaluation, not an automated reuse metric
 `implementer_ladder` is optional. When omitted, Runner always launches the
 `ready_lane` rule's configured implementer role unless an approved card selects
 a planner-enabled profile (above). When present, it lists complete
-implementer role profiles in escalation order. The first entry must be the
-workflow implementer role; later entries must be unique custom roles that
-inherit the implementer contract. The list needs at least two entries and
+implementer role profiles in escalation order. The workflow implementer role
+must occur in the ladder; it need not be first. Every entry must be a unique
+role with the implementer contract. An unprofiled Ready card starts at the
+workflow role's position, never at a cheaper preceding rung. An explicitly
+approved profile starts at its own position. This lets general work default
+to Sol while bounded work can select Luna. The list needs at least two entries and
 cannot exceed the reviewer action's `max_qa_rejections`, because a longer ladder
 would contain unreachable profiles.
 

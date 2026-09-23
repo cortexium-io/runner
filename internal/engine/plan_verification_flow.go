@@ -124,7 +124,7 @@ func (s *Engine) classifyPlanVerificationFailure(ctx context.Context, action git
 		if err := s.verifyPlanProgressCandidate(ctx, action, p); err != nil {
 			return fail("Whole-plan failure authority changed", err)
 		}
-		cfg := s.executionConfig(action.Role, s.roleHarness(action.Role), review.Path)
+		cfg := s.executionConfig(p.ReviewerRole, s.roleHarness(p.ReviewerRole), review.Path)
 		deadline := time.Now().UTC().Add(time.Duration(cfg.Harness.TimeoutSeconds) * time.Second)
 		if limit, ok := ctx.Deadline(); ok && limit.Before(deadline) {
 			deadline = limit.UTC()
@@ -138,7 +138,7 @@ func (s *Engine) classifyPlanVerificationFailure(ctx context.Context, action git
 			return fail("Whole-plan classification allowance could not be durably spent", err)
 		}
 		callCtx, cancel := context.WithDeadline(ctx, deadline)
-		output, callErr := execution.ReviewPlanVerificationFailure(callCtx, s.roleHarness(action.Role), cfg, p.Assignment, string(diagnostic), s.run)
+		output, callErr := execution.ReviewPlanVerificationFailure(callCtx, s.roleHarness(p.ReviewerRole), cfg, p.Assignment, string(diagnostic), s.run)
 		cancel()
 		// Record the actual provider outcome before any Project mutation, even
 		// for cancellation or unavailable/partial usage. On replay it is history,

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -717,6 +718,7 @@ func initRole(role config.RoleConfig, harness, model, reasoning string) config.R
 		value := strings.TrimSpace(model)
 		role.Model = &value
 	}
+	role.Reasoning = config.RecommendedReasoning(role.Harness, model)
 	if strings.TrimSpace(reasoning) != "" {
 		role.Reasoning = strings.TrimSpace(reasoning)
 	}
@@ -1027,9 +1029,13 @@ func promptInitRuntimeChoices(
 		}
 	}
 
+	plannerDefault := config.RecommendedReasoning(*plannerHarness, *plannerModel)
+	implementerDefault := config.RecommendedReasoning(*implementerHarness, *implementerModel)
+	reviewerDefault := config.RecommendedReasoning(*reviewerHarness, *reviewerModel)
 	reasoningMissing := strings.TrimSpace(*plannerReasoning) == "" && strings.TrimSpace(*implementerReasoning) == "" && strings.TrimSpace(*reviewerReasoning) == ""
-	if reasoningMissing {
-		reasoning, err := prompter.choiceAt("Default reasoning effort for all roles", initReasoningOptions(*plannerHarness, *implementerHarness, *reviewerHarness), nil, 2)
+	if reasoningMissing && plannerDefault == implementerDefault && plannerDefault == reviewerDefault {
+		options := initReasoningOptions(*plannerHarness, *implementerHarness, *reviewerHarness)
+		reasoning, err := prompter.reasoningChoice("Default reasoning effort for all roles", options, plannerDefault)
 		if err != nil {
 			return err
 		}
@@ -1040,16 +1046,18 @@ func promptInitRuntimeChoices(
 		name      string
 		reasoning *string
 		harness   *string
+		model     *string
 	}{
-		{name: config.WorkRolePlanner, reasoning: plannerReasoning, harness: plannerHarness},
-		{name: config.WorkRoleImplementer, reasoning: implementerReasoning, harness: implementerHarness},
-		{name: config.WorkRoleReviewer, reasoning: reviewerReasoning, harness: reviewerHarness},
+		{name: config.WorkRolePlanner, reasoning: plannerReasoning, harness: plannerHarness, model: plannerModel},
+		{name: config.WorkRoleImplementer, reasoning: implementerReasoning, harness: implementerHarness, model: implementerModel},
+		{name: config.WorkRoleReviewer, reasoning: reviewerReasoning, harness: reviewerHarness, model: reviewerModel},
 	} {
 		if strings.TrimSpace(*role.reasoning) != "" {
 			continue
 		}
 		roleLabel := strings.ToUpper(role.name[:1]) + role.name[1:]
-		reasoning, err := prompter.choice(roleLabel+" reasoning effort", initReasoningOptions(*role.harness), nil)
+		options := initReasoningOptions(*role.harness)
+		reasoning, err := prompter.reasoningChoice(roleLabel+" reasoning effort", options, config.RecommendedReasoning(*role.harness, *role.model))
 		if err != nil {
 			return err
 		}
@@ -1060,15 +1068,37 @@ func promptInitRuntimeChoices(
 
 func initReasoningOptions(harnesses ...string) []string {
 	options := []string{"low", "medium", "high", "xhigh"}
+	allCodex, allPi := len(harnesses) > 0, len(harnesses) > 0
 	for _, harness := range harnesses {
-		if strings.TrimSpace(harness) != config.HarnessCodexCLI {
-			return options
-		}
+		allCodex = allCodex && strings.TrimSpace(harness) == config.HarnessCodexCLI
+		allPi = allPi && strings.TrimSpace(harness) == config.HarnessPiCLI
 	}
-	if len(harnesses) > 0 {
+	if allCodex {
 		options = append(options, "max")
 	}
+	if allPi {
+		options = append([]string{"off"}, options...)
+	}
 	return options
+}
+
+func (p *initPrompter) reasoningChoice(label string, options []string, recommended string) (string, error) {
+	if p.terminalIn != nil && p.terminalOut != nil {
+		return p.choiceAt(label, options, nil, slices.Index(options, recommended))
+	}
+	for {
+		value, err := p.read(label + " [" + strings.Join(options, "/") + "] (Enter: " + recommended + ")")
+		if err != nil {
+			return "", err
+		}
+		if value == "" {
+			return recommended, nil
+		}
+		if slices.Contains(options, value) {
+			return value, nil
+		}
+		fmt.Fprintf(p.output, "Choose one of: %s.\n", strings.Join(options, ", "))
+	}
 }
 
 func (p *initPrompter) required(label string) (string, error) {

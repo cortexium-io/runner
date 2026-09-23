@@ -25,13 +25,17 @@ type initModelOption struct {
 func (p *initPrompter) model(ctx context.Context, label, harness string) (string, error) {
 	options := initModelOptions(ctx, harness, "")
 	for {
+		recommended := recommendedModelIndex(harness, options)
 		menuOptions := make([]initMenuOption, 0, len(options))
-		for _, option := range options {
+		for index, option := range options {
+			if index == recommended {
+				option.Label += " (recommended)"
+			}
 			menuOptions = append(menuOptions, initMenuOption{
 				Label: option.Label, Description: option.Description, Value: option.Value,
 			})
 		}
-		index, err := p.selectMenu(label, menuOptions, 0)
+		index, err := p.selectMenu(label, menuOptions, recommended)
 		if err != nil {
 			return "", err
 		}
@@ -79,9 +83,31 @@ func initModelOptions(ctx context.Context, harness, search string) []initModelOp
 
 func claudeModelOptions() []initModelOption {
 	return []initModelOption{
-		{Label: "Opus", Description: "Latest Opus available to Claude Code; suited to complex agentic coding", Value: "opus"},
+		{Label: "Opus 5.5", Description: "Explicit model version; start with medium effort; requires compatible Claude Code/account", Value: "claude-opus-5-5"},
 		{Label: "Sonnet", Description: "Latest Sonnet available to Claude Code; balanced speed and capability", Value: "sonnet"},
 	}
+}
+
+// Never use catalog order as a capability ranking, or invent availability.
+// Pi stays provider-neutral. Native and custom selection remain explicit.
+func recommendedModelIndex(harness string, options []initModelOption) int {
+	wanted := ""
+	switch harness {
+	case config.HarnessCodexCLI:
+		wanted = "gpt-6-sol"
+	case config.HarnessClaudeCLI:
+		wanted = "claude-opus-5-5"
+	}
+	native := 0
+	for i, option := range options {
+		if wanted != "" && option.Value == wanted {
+			return i
+		}
+		if option.Native {
+			native = i
+		}
+	}
+	return native
 }
 
 func codexModelOptions() []initModelOption {

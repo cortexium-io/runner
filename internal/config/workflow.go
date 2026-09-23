@@ -613,9 +613,6 @@ func validateImplementerLadder(c Config) error {
 		if role == "" {
 			return fmt.Errorf("implementer_ladder[%d] cannot be blank", index)
 		}
-		if index == 0 && role != primary {
-			return fmt.Errorf("implementer_ladder[0] must be the ready_lane implementer role %q", primary)
-		}
 		if _, exists := seen[role]; exists {
 			return fmt.Errorf("implementer_ladder contains duplicate role %q", role)
 		}
@@ -626,6 +623,9 @@ func validateImplementerLadder(c Config) error {
 		if c.RoleContract(role) != WorkRoleImplementer {
 			return fmt.Errorf("implementer_ladder[%d] role %q must use the implementer contract", index, role)
 		}
+	}
+	if _, ok := seen[primary]; !ok {
+		return fmt.Errorf("implementer_ladder must contain the ready_lane implementer role %q", primary)
 	}
 	maxAttempts := 0
 	for _, lane := range workflow.Lanes {

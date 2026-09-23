@@ -657,7 +657,10 @@ func TestImplementerLadderRejectsAmbiguousOrInvalidProfiles(t *testing.T) {
 		setup  func(*Config)
 	}{
 		{name: "one role", ladder: []string{WorkRoleImplementer}, want: "at least two roles"},
-		{name: "wrong first role", ladder: []string{"implementer_luna", WorkRoleImplementer}, want: "implementer_ladder[0]", setup: addLunaRole},
+		{name: "missing workflow default", ladder: []string{"implementer_luna", "stronger"}, want: "must contain the ready_lane", setup: func(cfg *Config) {
+			addLunaRole(cfg)
+			cfg.Roles["stronger"] = RoleConfig{Extends: WorkRoleImplementer}
+		}},
 		{name: "duplicate", ladder: []string{WorkRoleImplementer, WorkRoleImplementer}, want: "duplicate"},
 		{name: "undefined", ladder: []string{WorkRoleImplementer, "missing"}, want: "undefined role"},
 		{name: "wrong contract", ladder: []string{WorkRoleImplementer, "reviewer_copy"}, want: "implementer contract", setup: func(cfg *Config) {

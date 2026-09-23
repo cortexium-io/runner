@@ -1,8 +1,80 @@
 # Evaluating model profiles
 
 Choose an operator-approved **model and reasoning pair** for the task. Runner
-does not infer prices or capability order from names. These are experimental
-starting points, not new defaults or a claim that any model is always best.
+does not infer prices or capability order from names. Recommendations are
+starting hypotheses, not proof that a model is always best or that a deployment
+has become faster, cheaper or more accurate.
+
+## Recommended operating profiles
+
+For Codex projects, use Sol/high for planning, general implementation and card QA.
+Explicitly select Luna/high for bounded implementation with applicable examples
+and checks that can detect mistakes. Use Astra/medium for difficult diagnosis,
+consequential uncertainty and, initially, whole-plan QA. More reasoning and model
+capability are not interchangeable. Measure total delivery cost, including repair,
+QA, validation and intervention; cheaper first calls can produce expensive outcomes.
+
+Keep the existing three-step implementation ladder:
+
+`Luna/high → Sol/high → Astra/medium`
+
+The general Ready default can remain Sol/high in the middle of that ladder.
+The planner must give a concrete reason for selecting a profile or skipping the
+bounded rung. Size of the diff and generic importance are insufficient reasons.
+Only a valid QA `needs_changes` advances the ladder; retained work and feedback
+follow the next attempt. The in-attempt corrective pass stays on the same profile
+and original deadline. Infrastructure, capacity, permissions and missing proof
+do not authorize capability escalation. The configured rejection/admission
+limits still apply; no extra rung resets them. Planner/reviewer escalation is
+not automatic. A reviewer falsely accepting a defect creates no escalation signal.
+
+This fragment illustrates the explicit additions/overrides to an existing Codex
+configuration; it is not a complete config or a migration command:
+
+```json
+{
+  "roles": {
+    "planner": {"model": "gpt-6-sol", "reasoning": "high"},
+    "implementer": {"model": "gpt-6-sol", "reasoning": "high", "description": "General implementation; explain the hardest invariant and applicable proof."},
+    "implementer_luna": {"extends": "implementer", "model": "gpt-6-luna", "reasoning": "high", "description": "Bounded work with inspected examples and reliable affected checks; not ambiguous behavior merely described as small."},
+    "implementer_astra": {"extends": "implementer", "model": "gpt-6-astra", "reasoning": "medium", "description": "Difficult diagnosis, consequential uncertainty or high-risk interacting requirements; explain why Sol is insufficient."},
+    "reviewer": {"model": "gpt-6-sol", "reasoning": "high"},
+    "plan_reviewer": {"extends": "reviewer", "model": "gpt-6-astra", "reasoning": "medium"}
+  },
+  "planner_implementers": ["implementer_luna", "implementer", "implementer_astra"],
+  "implementer_ladder": ["implementer_luna", "implementer", "implementer_astra"],
+  "plan_delivery": {"enabled": true, "complete_verification": "EXISTING_REVIEWED_ENTRY", "reviewer_role": "plan_reviewer"}
+}
+```
+
+Preserve all other role settings, the reviewed complete gate, permissions, tools,
+timeouts, parallelism, automatic integration and QA limits. The ordinary QA lane
+and authority stay unchanged. `plan_delivery.reviewer_role` selects one existing
+reviewer profile for authenticated parent QA and its failed-gate classification;
+it adds neither a lane nor another review. Omission preserves the ordinary review
+profile. Doctor inspects the selected profile, and retained parent progress binds
+the actual execution profile/settings. Changing them cannot reuse its acceptance.
+
+For new Claude setup, the suggested pair is explicit `claude-opus-5-5`/medium,
+not a moving alias with blanket high effort. Pi stays provider-neutral: select an
+available provider-qualified model, then a supported effort for that model. No
+Claude/Pi substitution is implied for an OpenAI-only project. See the official
+[Codex effort guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents#reasoning-effort-model_reasoning_effort)
+and [Claude model configuration](https://code.claude.com/docs/en/model-config).
+These sources inform starting choices, not a Runner-specific comparison result.
+
+### Existing project activation
+
+Do not rewrite saved projects on upgrade. Preview the exact model/effort/profile
+delta and resolve active approved plans before changing it. A plan binds its
+selected implementation profile and every reachable escalation profile, not just
+their names: replacing a model under the same role name invalidates that approval.
+Integrated-but-undelivered children still belong to a live plan. Finish it with
+its approved settings, or use an explicitly authorized amendment; do not patch
+approval assertions, reset counters or silently reapprove work. Drain before
+replacing the saved configuration, preserve backups/operator edits, run validation
+and normal Doctor, then verify the restarted service and fresh poll. This is not
+permission for a paid evaluation or additional product work.
 
 ## What external benchmarks tell us
 
@@ -198,12 +270,14 @@ little duplication.
 
 ## Opt-in comparison profiles
 
+These are example hypotheses for a separately approved comparison, not an
+authorization for extra model runs or an extension of a closed evaluation budget.
+
 | Profile | Model / reasoning | Task-selection hypothesis |
 | --- | --- | --- |
-| `trial_luna_max` | `gpt-5.6-luna` / `max` | Bounded mechanical changes with applicable examples and reliable checks |
-| `trial_terra_medium` | `gpt-5.6-terra` / `medium` | Comparison baseline for the same mechanical tasks |
-| `trial_sol_medium` | `gpt-5.6-sol` / `medium` | Clear implementation contracts using established patterns |
-| `trial_sol_high` | `gpt-5.6-sol` / `high` | Interacting states and less obvious edge cases; compare with Sol Medium |
+| `trial_luna_high` | `gpt-6-luna` / `high` | Bounded mechanical changes with applicable examples and reliable checks |
+| `trial_sol_medium` | `gpt-6-sol` / `medium` | Clear implementation contracts using established patterns; compare with Sol High |
+| `trial_sol_high` | `gpt-6-sol` / `high` | General implementation baseline; compare total outcome cost, not just first-call cost |
 | `trial_astra_medium` | `gpt-6-astra` / `medium` | Uncertain contracts, security-sensitive behavior, or difficult diagnosis |
 
 A small diff can still have a difficult contract. For example, absence from one
@@ -232,17 +306,14 @@ invalidate their selections.
 ```bash
 trial_config=/absolute/operator/path/runner-trial.json
 
-cortexium-runner role add trial_luna_max --config "$trial_config" \
-  --extends implementer --model gpt-5.6-luna --reasoning max \
+cortexium-runner role add trial_luna_high --config "$trial_config" \
+  --extends implementer --model gpt-6-luna --reasoning high \
   --description 'Experimental: bounded mechanical work with applicable examples and reliable checks.'
-cortexium-runner role add trial_terra_medium --config "$trial_config" \
-  --extends implementer --model gpt-5.6-terra --reasoning medium \
-  --description 'Comparison baseline for the same bounded mechanical tasks as Luna Max.'
 cortexium-runner role add trial_sol_medium --config "$trial_config" \
-  --extends implementer --model gpt-5.6-sol --reasoning medium \
+  --extends implementer --model gpt-6-sol --reasoning medium \
   --description 'Experimental: clear contracts and established implementation patterns.'
 cortexium-runner role add trial_sol_high --config "$trial_config" \
-  --extends implementer --model gpt-5.6-sol --reasoning high \
+  --extends implementer --model gpt-6-sol --reasoning high \
   --description 'Experimental: interacting states and non-obvious edge cases; compare with Sol Medium.'
 cortexium-runner role add trial_astra_medium --config "$trial_config" \
   --extends implementer --model gpt-6-astra --reasoning medium \
@@ -250,7 +321,7 @@ cortexium-runner role add trial_astra_medium --config "$trial_config" \
 
 cortexium-runner role edit implementer --config "$trial_config" --clear-implementer-ladder
 cortexium-runner role edit planner --config "$trial_config" \
-  --implementer-profile trial_luna_max --implementer-profile trial_terra_medium \
+  --implementer-profile trial_luna_high \
   --implementer-profile trial_sol_medium --implementer-profile trial_sol_high \
   --implementer-profile trial_astra_medium
 cortexium-runner role list --config "$trial_config" --json

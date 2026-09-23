@@ -14,7 +14,7 @@ import (
 )
 
 func (s *Engine) planGate(ctx context.Context, action github.AuthorizedAction) (github.PlanDelivery, config.VerificationEntrypoint, error) {
-	return s.planGateForReviewer(ctx, action, action.Role)
+	return s.planGateForReviewer(ctx, action, s.executionRole(action.Item))
 }
 
 // reviewerRole is the protected original QA profile when observing publication

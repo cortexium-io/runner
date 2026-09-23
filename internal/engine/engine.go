@@ -1465,7 +1465,8 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		defer unlock()
 	}
 	laneID, lane := s.laneForItem(item)
-	harness := s.roleHarness(item.Role)
+	executionRole := s.executionRole(item)
+	harness := s.roleHarness(executionRole)
 	result := RunResult{Item: item, Harness: harness}
 	if approved, approvedErr := action.DelegatedContent(); approvedErr == nil {
 		observeApprovedRequest(&result, item, approved)
@@ -1650,6 +1651,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 			integrityViolationOutput("Private Agent QA workspace changed before review", err), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
 	qaItem := item
+	qaItem.Role = executionRole
 	comments, err := s.source.ItemComments(ctx, item)
 	if err != nil {
 		return s.failExecution(ctx, action, lane, result, "Human issue comments could not be loaded for QA", err, transientExecutorOutput("Human issue comments could not be loaded for QA"))
@@ -1682,7 +1684,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		return s.failExecutionToRetryLane(ctx, action, lane, result, "Implementation verification evidence is not valid for QA", err,
 			integrityViolationOutput("Implementation verification evidence is not valid for QA", err), lane.Transitions[config.WorkflowOutcomeRejected])
 	}
-	output, err := s.runReviewer(ctx, item.Role, reviewWorkspace, assignment)
+	output, err := s.runReviewer(ctx, executionRole, reviewWorkspace, assignment)
 	result.HarnessDurationMilliseconds = output.HarnessDurationMilliseconds
 	result.Usage = output.Usage
 	result.WorkDone = append([]string(nil), output.WorkDone...)
@@ -1834,7 +1836,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		return s.failExecution(ctx, action, lane, result, "Plan scope changed during QA", err, integrityViolationOutput("Plan scope changed during QA", err))
 	}
 	if deliveryPresent && item.ID == deliveryContext.Parent.ID {
-		progress := &planVerificationProgress{Assignment: assignment, Metadata: preparedWorkspace, Candidate: currentSnapshot, AttemptID: attemptID, ReviewerRole: action.Role, SettingsDigest: s.planReviewSettings(action.Role, preparedWorkspace.WorktreePath), QAFailures: action.Item.QAFailures, Accepted: output, Report: qaReport, Comment: qaComment}
+		progress := &planVerificationProgress{Assignment: assignment, Metadata: preparedWorkspace, Candidate: currentSnapshot, AttemptID: attemptID, ReviewerRole: executionRole, SettingsDigest: s.planReviewSettings(executionRole, preparedWorkspace.WorktreePath), QAFailures: action.Item.QAFailures, Accepted: output, Report: qaReport, Comment: qaComment}
 		progress.EvidenceCollectionDigest = reviewWorkspace.EvidenceCollectionDigest()
 		// This exact immutable record permits our already-pushed refreshed
 		// head during the new complete gate; it does not replace fresh QA.
