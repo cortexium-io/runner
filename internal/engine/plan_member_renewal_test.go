@@ -84,7 +84,7 @@ func independentPlanMembers(t *testing.T) (*deliveryRunFixture, *overlappingPlan
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := directProjectPlanFixture()
+	plan := sourcedDirectProjectPlanFixture(t, repo)
 	plan.WorkItems[1].Dependencies = []string{}
 	children, err := service.ApplyProjectPlan(t.Context(), plan)
 	if err != nil {

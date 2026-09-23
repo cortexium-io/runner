@@ -19,15 +19,16 @@ import (
 )
 
 func TestDeliveryCLIStagesDurableParentAndReleasesExactManifest(t *testing.T) {
+	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[]}`}
-	cfg := completeEngineTestConfig(config.Config{ProjectDir: t.TempDir(), PlanDelivery: &config.PlanDeliveryConfig{Enabled: true, CompleteVerification: "complete"}, Verification: map[string]config.VerificationEntrypoint{
+	cfg := completeEngineTestConfig(config.Config{ProjectDir: repo, PlanDelivery: &config.PlanDeliveryConfig{Enabled: true, CompleteVerification: "complete"}, Verification: map[string]config.VerificationEntrypoint{
 		"complete": {Command: "go", ToolchainCommands: []string{"go"}, Args: []string{"test", "./..."}, TimeoutSeconds: 60, InputPaths: []string{"src", "go.mod"}},
 	}})
-	service, err := New(cfg, project)
+	service, err := New(cfg, planningGitFixtureRunner{project})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := directProjectPlanFixture()
+	plan := sourcedDirectProjectPlanFixture(t, repo)
 	for i := range plan.WorkItems {
 		plan.WorkItems[i].ImplementationProfile = "implementer"
 		plan.WorkItems[i].ProfileReason = "Bounded deterministic fixture behavior"
@@ -67,8 +68,14 @@ func TestDeliveryCLIStagesDurableParentAndReleasesExactManifest(t *testing.T) {
 	if err != nil || !present {
 		t.Fatalf("missing canonical plan manifest: %v", err)
 	}
-	if manifest.Request != plan.SourceContext || manifest.Outcome != plan.GoalSummary || strings.Join(manifest.SuccessCriteria, "\n") != strings.Join(plan.ProjectSuccessCriteria, "\n") || strings.Join(manifest.Scope, "\n") != strings.Join(plan.ProjectConstraints, "\n") {
+	if manifest.Request != plan.SourceContext || manifest.Outcome != plan.GoalSummary || strings.Join(manifest.SuccessCriteria, "\n") != strings.Join(plan.ProjectSuccessCriteria, "\n") {
 		t.Fatal("shared context was lost instead of retained in the authenticated parent")
+	}
+	if len(manifest.Scope) != len(plan.ProjectConstraints)+1 ||
+		strings.Join(manifest.Scope[:len(plan.ProjectConstraints)], "\n") != strings.Join(plan.ProjectConstraints, "\n") ||
+		!strings.Contains(manifest.Scope[len(plan.ProjectConstraints)], plan.PlanningSource.CommitOID) ||
+		!strings.Contains(manifest.Scope[len(plan.ProjectConstraints)], plan.PlanningSource.TreeOID) {
+		t.Fatal("authenticated parent lost shared constraints or exact planning source")
 	}
 	replayed, err := service.ApplyProjectPlan(t.Context(), plan)
 	if err != nil || len(replayed) != 2 || project.createCount != 3 {
@@ -254,7 +261,7 @@ func TestDeliveryProductionRefusesChangedAuthorityBeforeAdmission(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			children, err := service.ApplyProjectPlan(t.Context(), directProjectPlanFixture())
+			children, err := service.ApplyProjectPlan(t.Context(), sourcedDirectProjectPlanFixture(t, repo))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -344,7 +351,7 @@ func testDeliveryProductionMilestoneWithPublicationLoss(t *testing.T, reject, cr
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := directProjectPlanFixture()
+	plan := sourcedDirectProjectPlanFixture(t, repo)
 	for i := range plan.WorkItems {
 		plan.WorkItems[i].ImplementationProfile = "implementer"
 		plan.WorkItems[i].ProfileReason = "Focused fixture"

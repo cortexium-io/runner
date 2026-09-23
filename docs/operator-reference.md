@@ -726,7 +726,12 @@ the first child. The record is bound to the approved source content, bounded
 issue discussion, role, lane, destination, repository, and deterministic batch
 fingerprint. If GitHub staging fails partway through, retrying the unchanged
 planning card skips the planner and creates only the missing children; already
-staged matching children are reused. A changed planning context discards the
+staged matching children are reused while the recorded planning source still
+matches the destination. If that branch advances, Runner preserves the completed
+checkpoint and blocks, without another paid planner call or rewriting its recorded
+inspection. Ordinary retry refuses that checkpoint again. Revalidating a retained
+plan against a different commit is not supported; explicitly coordinate a new plan
+and any partial batch first. A changed planning context discards the
 stale checkpoint, while malformed retained state blocks for inspection. Runner
 does not archive or delete partial children automatically and clears the
 checkpoint after the exact batch is staged successfully.
@@ -1498,6 +1503,13 @@ Runner does not start or publish work from a partial snapshot.
 This operator utility invokes the planner immediately and is distinct from
 `add plan`, which only creates a `Plan` event for the normal running coordinator.
 
+Both paths inspect a fresh private detached checkout of the configured destination
+branch, not the saved checkout's possibly stale or unfinished contents. Runner
+fetches and pins the commit/tree, then supplies that same source identity to the
+repository-aware outline and tool-free details stages. Your checkout, local
+branches, index and uncommitted work are not moved or rewritten. Fetch or snapshot
+validation failure stops planning; it never falls back to older local code.
+
 You do not need to stop the background Runner to preview, stage, create, or
 approve a standalone plan. Use the same operator configuration as the service.
 Only another standalone `plan` command holds the planning lock; the worker keeps
@@ -1567,7 +1579,8 @@ instead. The result prints a compact receipt and a fingerprint-bound command:
 ```
 
 With `--json`, preview-only planning writes the plan directly, including its
-original `source_context` and `target` (Project owner/number, repository, base
+original `source_context`, `planning_source` (repository, destination branch,
+inspected commit and tree), and `target` (Project owner/number, repository, base
 branch and destination). Retain this JSON privately; it contains the original
 request and may contain sensitive project context. Successful
 `--stage-only` writes `{ "plan": ..., "staged": ... }`; successful `--create`
@@ -1597,7 +1610,14 @@ staged batch separately with its displayed `--approve-staged` command.
 The saved file must be regular JSON no larger than 2 MiB. Runner rejects missing
 or mismatched target/context metadata, unknown plan fields, invalid dependencies,
 foreign repositories, and unavailable execution profiles. JSON from older
-versions without replay metadata is not importable. Open decisions still
+versions without replay/source metadata is not importable. Before staging, Runner
+freshly checks the recorded source against the destination. If it changed, the
+retained proposal cannot stage. Runner does not silently change its provenance or
+rerun a model. Preserve the original proposal rather than rewriting its source
+identity to make an outdated inspection look current. This version has no retained-
+proposal revalidation operation for a new commit; a new planning run needs an
+explicit request, and any existing partial batch must be resolved first.
+Open decisions still
 prevent every card creation. Either answer them in the idea and rerun the same
 planning command, or explicitly review and amend the saved proposal: update
 `source_context` with the answers, update affected cards and proof obligations,

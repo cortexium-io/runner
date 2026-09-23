@@ -27,7 +27,7 @@ type canonicalizingPlannerRunner struct {
 func (r *canonicalizingPlannerRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
 	switch command {
 	case "git":
-		return (subprocess.OSRunner{}).Run(ctx, command, args, dir, timeout)
+		return runEngineTestGit(ctx, args, dir, timeout)
 	case "codex":
 		r.calls++
 		r.allArgs = append(r.allArgs, append([]string(nil), args...))
@@ -61,13 +61,7 @@ func (r *canonicalizingPlannerRunner) RunBoundedHeadTailInput(ctx context.Contex
 }
 
 func TestPlannerCanonicalizesKnownRepresentationResidueLocally(t *testing.T) {
-	repo := t.TempDir()
-	if output, err := osexec.Command("git", "init", repo).CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, output)
-	}
-	if output, err := osexec.Command("git", "-C", repo, "remote", "add", "origin", "https://github.com/owner/repo.git").CombinedOutput(); err != nil {
-		t.Fatalf("add Git remote: %v: %s", err, output)
-	}
+	repo, _ := createPublicationRepository(t)
 	run := &canonicalizingPlannerRunner{}
 	roles := config.RoleTemplate(config.HarnessCodexCLI)
 	implementer := roles[config.WorkRoleImplementer]
@@ -136,6 +130,7 @@ func TestPlannerRejectsAmbiguousCandidate(t *testing.T) {
 		`"failure_reason":"provider capacity"`,
 		`"type":"blocked"`,
 		`"format_hint":"remove"`,
+		`"planning_source":{"repository":"owner/repo","destination_branch":"main","commit_oid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tree_oid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}`,
 	} {
 		t.Run(extra, func(t *testing.T) {
 			_, err := decodeProjectPlan(base + `,` + extra + `}`)

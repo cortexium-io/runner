@@ -495,7 +495,16 @@ base-refresh transition.
 Every harness uses the same two-stage planner contract. The first repository-aware
 stage returns the outcome and ordered card/dependency outline. The second
 tool-free stage returns fixed-key details for those Runner-owned cards. Runner
-assembles the canonical plan, rejecting missing, extra, reordered, or
+fetches the configured destination through its privileged Git boundary and
+materializes one private detached checkout before the first stage. It does not
+pull, reset or change the operator's saved checkout, local branches or index.
+An unavailable destination fails before a model call; there is no stale-checkout
+fallback. Both stages receive the exact repository, destination, commit and tree
+identity. The existing bounded checkout snapshot protects that source between
+stages and before accepting the result. Cleanup preserves the private checkout
+and admission quarantine when owned-process cleanup is unresolved.
+
+Runner assembles the canonical plan, rejecting missing, extra, reordered, or
 semantically incomplete details. Every work item has a local objective,
 acceptance criteria, proof obligations, selected assumptions, dependencies, and
 a natural review boundary sized for one configured implementer invocation.
@@ -943,7 +952,15 @@ all siblings, so interrupted release remains fail-closed even when compensating
 cleanup also fails.
 
 Direct CLI JSON includes the original planning request and configured Project,
-repository, base-branch and destination identity. `plan --plan-file` loads that
+repository, base-branch and destination identity, plus `planning_source` with
+the inspected commit/tree. The same provenance remains in the private checkpoint
+and the ordinary authenticated shared Project context. Before staging a generated
+or retained proposal, Runner freshly checks that its source still matches the
+destination. A changed destination retains the completed proposal and blocks;
+it never relabels the old inspection or automatically runs the planner again.
+Already-staged contracts remain historical planning evidence and still require
+the existing exact-batch approval and current-candidate delivery checks.
+`plan --plan-file` loads that
 untrusted proposal without a harness call; optional `--stage-only` uses the same
 normalization, exact-child matching, provenance checks and short mutation guard
 as fresh staging. Existing receipts are not imported as authority. Open decisions,

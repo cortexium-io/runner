@@ -300,6 +300,9 @@ func runPlan(ctx context.Context, args []string, stdin io.Reader, stdout io.Writ
 	}
 	if !*jsonOutput {
 		fmt.Fprintf(stdout, "%s\n\n", terminalSafeText(plan.GoalSummary))
+		if source := plan.PlanningSource; source != nil {
+			fmt.Fprintf(stdout, "Planning source: %s %s at %s (tree %s).\n\n", terminalSafeText(source.Repository), terminalSafeText(source.DestinationBranch), terminalSafeText(source.CommitOID), terminalSafeText(source.TreeOID))
+		}
 		fmt.Fprintln(stdout, "Project success criteria:")
 		for _, criterion := range plan.ProjectSuccessCriteria {
 			fmt.Fprintf(stdout, "- %s\n", terminalSafeText(criterion))

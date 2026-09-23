@@ -1,12 +1,16 @@
 package engine
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/github"
+	"github.com/cortexium-io/runner/internal/workspace"
 )
 
 func TestPlannerCheckpointRoundTripAndContextInvalidation(t *testing.T) {
@@ -20,6 +24,7 @@ func TestPlannerCheckpointRoundTripAndContextInvalidation(t *testing.T) {
 	item := github.WorkItem{ID: "PVTI_planner_checkpoint", Body: "Plan the exact request.", Repository: "owner/repo"}
 	content := github.DelegatedContentFor(item)
 	plan := directProjectPlanFixture()
+	plan.PlanningSource = &workspace.PlanningSource{Repository: "owner/repo", DestinationBranch: "main", CommitOID: strings.Repeat("a", 40), TreeOID: strings.Repeat("b", 40)}
 	if err := service.normalizeProjectPlan(&plan); err != nil {
 		t.Fatal(err)
 	}
@@ -33,6 +38,33 @@ func TestPlannerCheckpointRoundTripAndContextInvalidation(t *testing.T) {
 	loaded, found, err := service.loadPlannerCheckpoint(item, content, contextDigest)
 	if err != nil || !found || !reflect.DeepEqual(loaded, plan) {
 		t.Fatalf("load exact planner checkpoint: plan=%#v found=%v error=%v", loaded, found, err)
+	}
+	path := service.plannerCheckpointPath(item.ID)
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy plannerCheckpointRecord
+	if err := json.Unmarshal(original, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Plan.PlanningSource = nil
+	missingSource, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, missingSource, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.loadPlannerCheckpoint(item, content, contextDigest); err == nil || !strings.Contains(err.Error(), "no recorded planning source") {
+		t.Fatalf("unprovenanced checkpoint accepted: %v", err)
+	}
+	retained, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(retained, missingSource) {
+		t.Fatalf("unprovenanced retained proposal was destroyed: %v", err)
+	}
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
 	}
 
 	if _, found, err := service.loadPlannerCheckpoint(item, content, "sha256:changed-context"); err != nil || found {

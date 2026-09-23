@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -43,12 +42,7 @@ func TestLocalPlanningSharesCapacityAndFreshBudgetHistory(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("XDG_CACHE_HOME", t.TempDir())
-			repo := t.TempDir()
-			for _, args := range [][]string{{"init", repo}, {"-C", repo, "remote", "add", "origin", "https://github.com/owner/repo.git"}} {
-				if output, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-					t.Fatalf("git: %v: %s", err, output)
-				}
-			}
+			repo, _ := createPublicationRepository(t)
 			cfg := completeEngineTestConfig(config.Config{ProjectDir: repo, MaxParallelism: 2,
 				GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"}})
 			if mode == "full capacity" {

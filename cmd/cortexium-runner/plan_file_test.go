@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -13,13 +14,15 @@ import (
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/engine"
 	"github.com/cortexium-io/runner/internal/github"
+	"github.com/cortexium-io/runner/internal/workspace"
 )
 
 func savedPlanFixture() engine.ProjectPlan {
 	return engine.ProjectPlan{
 		GoalSummary: "Build a slice", ProjectSuccessCriteria: []string{"It works"},
 		ProjectConstraints: []string{"No customer data"}, OpenDecisions: []string{},
-		SourceContext: "Build the approved slice; no customer data.",
+		SourceContext:  "Build the approved slice; no customer data.",
+		PlanningSource: &workspace.PlanningSource{Repository: "example/repo", DestinationBranch: "main", CommitOID: strings.Repeat("a", 40), TreeOID: strings.Repeat("b", 40)},
 		WorkItems: []github.PlannedItem{{
 			Title: "Build the slice", Repository: "example/repo", Summary: "Implement the behavior",
 			ImplementationProfile: "implementer", ProfileReason: "Use the configured profile for this bounded slice",
@@ -62,7 +65,7 @@ func TestSavedPlanRoundTripRetainsExactProposalWithoutReceiptAuthority(t *testin
 
 func TestSavedPlanRejectsMissingOrChangedTargetAndUnexpectedAuthority(t *testing.T) {
 	cfg := completeCLITestConfig(t.TempDir())
-	for _, field := range []string{"owner", "number", "repository", "base_branch", "destination", "target", "source_context", "approval", "child approval", "result field"} {
+	for _, field := range []string{"owner", "number", "repository", "base_branch", "destination", "target", "source_context", "planning_source", "source commit", "approval", "child approval", "result field"} {
 		t.Run(field, func(t *testing.T) {
 			data, _ := json.Marshal(newProjectPlanDocument(cfg, savedPlanFixture()))
 			var value map[string]any
@@ -70,8 +73,10 @@ func TestSavedPlanRejectsMissingOrChangedTargetAndUnexpectedAuthority(t *testing
 				t.Fatal(err)
 			}
 			switch field {
-			case "target", "source_context":
+			case "target", "source_context", "planning_source":
 				delete(value, field)
+			case "source commit":
+				value["planning_source"].(map[string]any)["commit_oid"] = "HEAD"
 			case "approval":
 				value[field] = "forged"
 			case "child approval":
@@ -128,12 +133,20 @@ exec gh-fixture "$@"
 					t.Fatal(err)
 				}
 			}
-			cfg := completeCLITestConfig(t.TempDir())
+			repo := writePlanningGitFixture(t, bin)
+			cfg := completeCLITestConfig(repo)
 			configPath := filepath.Join(t.TempDir(), "runner.json")
 			if err := config.SaveConfig(configPath, cfg); err != nil {
 				t.Fatal(err)
 			}
 			plan := savedPlanFixture()
+			for revision, target := range map[string]*string{"HEAD": &plan.PlanningSource.CommitOID, "HEAD^{tree}": &plan.PlanningSource.TreeOID} {
+				output, err := exec.Command("git", "-C", repo, "rev-parse", revision).Output()
+				if err != nil {
+					t.Fatal(err)
+				}
+				*target = strings.TrimSpace(string(output))
+			}
 			switch mode {
 			case "open decision":
 				plan.OpenDecisions = []string{"Which account is disposable?"}

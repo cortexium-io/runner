@@ -92,6 +92,12 @@ func readProjectPlanFile(path string, cfg config.Config) (engine.ProjectPlan, er
 	if strings.TrimSpace(document.SourceContext) == "" {
 		return engine.ProjectPlan{}, errors.New("saved plan is missing source_context; retain JSON from a planning command that includes the original request")
 	}
+	if document.PlanningSource == nil {
+		return engine.ProjectPlan{}, errors.New("saved plan has no planning_source; preserve the proposal and explicitly inspect its source before staging")
+	}
+	if err := document.PlanningSource.Validate(); err != nil {
+		return engine.ProjectPlan{}, fmt.Errorf("invalid saved planning source: %w", err)
+	}
 	document.ProjectPlan.SourceContext = document.SourceContext
 	return document.ProjectPlan, nil
 }

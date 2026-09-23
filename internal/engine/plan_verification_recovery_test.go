@@ -284,7 +284,7 @@ func newGuardedPlanFixture(t *testing.T, alter ...func(*config.VerificationEntry
 	if err != nil {
 		t.Fatal(err)
 	}
-	children, err := service.ApplyProjectPlan(t.Context(), directProjectPlanFixture())
+	children, err := service.ApplyProjectPlan(t.Context(), sourcedDirectProjectPlanFixture(t, repo))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -145,6 +145,9 @@ func validatePlannerCheckpointRecord(record plannerCheckpointRecord) (ProjectPla
 		return ProjectPlan{}, errors.New("private planner checkpoint has an invalid identity")
 	}
 	plan := record.Plan
+	if plan.PlanningSource == nil {
+		return ProjectPlan{}, errors.New("private planner checkpoint has no recorded planning source; preserve and inspect the retained proposal before recovery")
+	}
 	plan.SourceContext = strings.TrimSpace(record.SourceContext)
 	normalized, err := normalizeProjectPlan(plan)
 	if err != nil {
