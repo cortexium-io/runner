@@ -22,10 +22,10 @@ type initModelOption struct {
 	Search      bool
 }
 
-func (p *initPrompter) model(ctx context.Context, label, harness string) (string, error) {
+func (p *initPrompter) model(ctx context.Context, label, harness, role string) (string, error) {
 	options := initModelOptions(ctx, harness, "")
 	for {
-		recommended := recommendedModelIndex(harness, options)
+		recommended := recommendedModelIndex(harness, role, options)
 		menuOptions := make([]initMenuOption, 0, len(options))
 		for index, option := range options {
 			if index == recommended {
@@ -90,11 +90,14 @@ func claudeModelOptions() []initModelOption {
 
 // Never use catalog order as a capability ranking, or invent availability.
 // Pi stays provider-neutral. Native and custom selection remain explicit.
-func recommendedModelIndex(harness string, options []initModelOption) int {
+func recommendedModelIndex(harness, role string, options []initModelOption) int {
 	wanted := ""
 	switch harness {
 	case config.HarnessCodexCLI:
 		wanted = "gpt-6-sol"
+		if role == config.WorkRolePlanner || role == config.WorkRoleReviewer {
+			wanted = "gpt-6-astra"
+		}
 	case config.HarnessClaudeCLI:
 		wanted = "claude-opus-5-5"
 	}

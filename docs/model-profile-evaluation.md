@@ -7,12 +7,22 @@ has become faster, cheaper or more accurate.
 
 ## Recommended operating profiles
 
-For Codex projects, use Sol/high for planning, general implementation and card QA.
-Explicitly select Luna/high for bounded implementation with applicable examples
-and checks that can detect mistakes. Use Astra/medium for difficult diagnosis,
-consequential uncertainty and, initially, whole-plan QA. More reasoning and model
-capability are not interchangeable. Measure total delivery cost, including repair,
-QA, validation and intervention; cheaper first calls can produce expensive outcomes.
+For demanding Codex projects, start with Astra/medium for planning, independent
+card QA and whole-plan QA. Use Sol/high for well-specified implementation with
+applicable checks. Select Astra upfront for ambiguous diagnosis, consequential
+architecture, difficult UI behavior or high-risk interacting requirements; start
+at medium and explicitly choose high when the reasoning demands justify it.
+Luna/high is an explicit choice for bounded mechanical implementation with
+inspected examples and checks that can detect mistakes, not the general default.
+
+These are risk-based starting choices, not a measured Runner quality improvement.
+The earlier Sol/high planning and card-QA recommendation was a cost-saving
+hypothesis, not demonstrated equivalence to Astra. OpenAI positions Astra as its
+strongest model overall and Sol as a capability/cost tradeoff; more reasoning does
+not establish equivalent capability. See the official
+[GPT-6 Sol and Luna comparison](https://openai.com/index/introducing-gpt-6-sol-and-luna/).
+Measure total delivery cost, including planning, repair, QA, validation and human
+correction; cheaper first calls can produce expensive outcomes.
 
 Keep the existing three-step implementation ladder:
 
@@ -26,7 +36,11 @@ follow the next attempt. The in-attempt corrective pass stays on the same profil
 and original deadline. Infrastructure, capacity, permissions and missing proof
 do not authorize capability escalation. The configured rejection/admission
 limits still apply; no extra rung resets them. Planner/reviewer escalation is
-not automatic. A reviewer falsely accepting a defect creates no escalation signal.
+not automatic. An omitted requirement or a reviewer falsely accepting a defect
+creates no escalation signal. Stronger whole-plan QA alone can find these mistakes
+only after implementation; protect the initial planning and card-review decisions
+as well. Do not require a failed lower-profile attempt before choosing an approved
+Astra profile for difficult work, or silently raise reasoning on existing work.
 
 This fragment illustrates the explicit additions/overrides to an existing Codex
 configuration; it is not a complete config or a migration command:
@@ -34,23 +48,24 @@ configuration; it is not a complete config or a migration command:
 ```json
 {
   "roles": {
-    "planner": {"model": "gpt-6-sol", "reasoning": "high"},
-    "implementer": {"model": "gpt-6-sol", "reasoning": "high", "description": "General implementation; explain the hardest invariant and applicable proof."},
+    "planner": {"model": "gpt-6-astra", "reasoning": "medium"},
+    "implementer": {"model": "gpt-6-sol", "reasoning": "high", "description": "Well-specified implementation with applicable checks; explain the hardest invariant and proof."},
     "implementer_luna": {"extends": "implementer", "model": "gpt-6-luna", "reasoning": "high", "description": "Bounded work with inspected examples and reliable affected checks; not ambiguous behavior merely described as small."},
     "implementer_astra": {"extends": "implementer", "model": "gpt-6-astra", "reasoning": "medium", "description": "Difficult diagnosis, consequential uncertainty or high-risk interacting requirements; explain why Sol is insufficient."},
-    "reviewer": {"model": "gpt-6-sol", "reasoning": "high"},
-    "plan_reviewer": {"extends": "reviewer", "model": "gpt-6-astra", "reasoning": "medium"}
+    "reviewer": {"model": "gpt-6-astra", "reasoning": "medium"}
   },
   "planner_implementers": ["implementer_luna", "implementer", "implementer_astra"],
   "implementer_ladder": ["implementer_luna", "implementer", "implementer_astra"],
-  "plan_delivery": {"enabled": true, "complete_verification": "EXISTING_REVIEWED_ENTRY", "reviewer_role": "plan_reviewer"}
+  "plan_delivery": {"enabled": true, "complete_verification": "EXISTING_REVIEWED_ENTRY"}
 }
 ```
 
 Preserve all other role settings, the reviewed complete gate, permissions, tools,
 timeouts, parallelism, automatic integration and QA limits. The ordinary QA lane
-and authority stay unchanged. `plan_delivery.reviewer_role` selects one existing
-reviewer profile for authenticated parent QA and its failed-gate classification;
+and authority stay unchanged. With the same Astra settings for card and parent
+QA, no additional reviewer profile is needed. `plan_delivery.reviewer_role` can
+select one existing reviewer profile for authenticated parent QA and its
+failed-gate classification;
 it adds neither a lane nor another review. Omission preserves the ordinary review
 profile. Doctor inspects the selected profile, and retained parent progress binds
 the actual execution profile/settings. Changing them cannot reuse its acceptance.

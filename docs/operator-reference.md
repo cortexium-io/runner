@@ -1974,11 +1974,13 @@ passes it through unchanged and does not map `max` to `xhigh`. Claude and Pi
 retain their existing effort contracts; `max` is not an alias for either.
 No role default changes when upgrading.
 
-New interactive setup recommends `gpt-6-sol` when it is present in the installed
-Codex catalog, rather than treating the first catalog entry as the best default.
-If it is absent, native selection is highlighted; Runner does not invent model
-availability. Claude setup recommends the explicit `claude-opus-5-5` ID instead
-of the moving `opus` alias. Pi remains provider-neutral, using its reported
+New interactive Codex setup asks for each role's model, recommending
+`gpt-6-astra` for planning and review and `gpt-6-sol` for implementation when
+present in the installed catalog. It does not treat catalog order as capability
+ranking. If a role's recommended model is absent, native selection is highlighted;
+Runner does not substitute another model or invent availability. Claude setup
+recommends the explicit `claude-opus-5-5` ID instead of the moving `opus` alias.
+Pi remains provider-neutral, using its reported
 `provider/model` choices with native selection highlighted. Custom and native
 selection, and all explicit CLI overrides, remain available. Noninteractive
 setup without a model still means native selection.
@@ -1992,10 +1994,15 @@ pair. Non-reasoning Pi models require an explicit supported `off` choice. Setup
 does not widen access, increase timeouts or silently rewrite saved profiles.
 
 The [model policy](model-profile-evaluation.md#recommended-operating-profiles)
-keeps Sol/high as the general-purpose choice, with explicitly selected Luna/high
-for bounded implementation and Astra/medium for difficult work. Escalation uses
+uses Astra/medium for planning and independent card/whole-plan QA, Sol/high for
+well-specified implementation, and explicitly selected Luna/high for bounded
+mechanical work. Difficult implementation can start with an approved Astra
+profile rather than waiting for a failed attempt. Escalation uses
 the existing configured ladder and authenticated QA failures, not an extra model
-call, a new retry allowance or model-authored permission.
+call, a new retry allowance or model-authored permission. Missed requirements and
+false acceptance provide no escalation signal; extra Sol reasoning is not proof
+of Astra-equivalent judgment. This policy is a starting hypothesis, not a measured
+quality or cost result.
 
 When `harness` is `pi`, set
 `roles.<role>.model` to the full `provider/model-id` string that Pi CLI
