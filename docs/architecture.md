@@ -1061,7 +1061,11 @@ plan. Operator amendments fence the parent and retain exact
 before/after state in its existing protected evidence. The new ordinal manifest
 revision signs the exact renewed child contracts; the old/new dependency closure
 determines invalidation. Unaffected acceptance retains its original execution and
-proof identity. Explicit additions adopt exact unapproved Assessment issues;
+proof identity. Fresh whole-plan acceptance after a completed amendment archives
+the exact historical parent feedback before recording progress for the renewed
+contract. Earlier feedback can predate several amendments; it never becomes
+current acceptance or a passing complete gate by being carried forward.
+Explicit additions adopt exact unapproved Assessment issues;
 retirements keep immutable rows in the same signed manifest, together with their
 code, history, counters and evidence. Active and retired members remain one exact
 release-bound union. Original batch sizes describe staging provenance, not the

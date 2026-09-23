@@ -168,7 +168,25 @@ func (s *Engine) savePlanVerification(item github.WorkItem, content github.Deleg
 		record = &reviewFeedbackRecord{Version: reviewFeedbackVersion, ItemID: item.ID, DelegatedContentDigest: content.Digest, Items: []string{}}
 	}
 	if record.DelegatedContentDigest != content.Digest {
-		return errors.New("parent progress cannot overwrite a different approved contract")
+		// A completed amendment deliberately leaves old feedback bound to its
+		// original contract, possibly across several amendments. The old digest
+		// is historical, not authority for this fresh acceptance. Archive those
+		// bytes; never relabel the old verdict or gate as current proof.
+		amendment := record.PlanAmendment
+		if amendment == nil || !amendment.Completed || record.PlanVerification != nil {
+			return errors.New("parent progress cannot overwrite a different approved contract")
+		}
+		if err := s.source.ValidatePlanAmendmentState(amendment.State); err != nil {
+			return fmt.Errorf("validate completed amendment before parent acceptance: %w", err)
+		}
+		before, after := amendment.State.Before[0], amendment.State.After[0]
+		if before.ID != item.ID || after.ID != item.ID || content.Digest != github.DelegatedContentFor(after).Digest || progress.Assignment.Spec.DelegatedContentDigest != content.Digest || progress.Assignment.Spec.ApprovedBodySnapshot != content.BodySnapshot || progress.Assignment.Spec.PlanContext.Revision != github.PlanRevision(after.Body) {
+			return errors.New("parent acceptance does not match the exact completed amendment")
+		}
+		if err := s.archiveDeliveryAmendmentHistory(item.ID); err != nil {
+			return err
+		}
+		record = &reviewFeedbackRecord{Version: reviewFeedbackVersion, ItemID: item.ID, DelegatedContentDigest: content.Digest, Items: []string{}}
 	}
 	if prior := record.PlanVerification; prior != nil && (prior.AttemptID != progress.AttemptID || prior.Candidate.Head != progress.Candidate.Head || prior.Assignment.Spec.PlanContext.Revision != progress.Assignment.Spec.PlanContext.Revision || prior.Gate != nil && progress.Gate != nil && prior.Gate.Invocation.ExecutionID != progress.Gate.Invocation.ExecutionID) {
 		if prior.classificationPending() {
