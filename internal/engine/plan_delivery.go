@@ -98,7 +98,7 @@ func (s *Engine) resumeAcceptedPlanPublication(ctx context.Context, action githu
 			// QA. Preserve prior progress/receipts for applicability, not acceptance.
 			return RunResult{}, false
 		}
-		if metadata.Identity != p.Metadata.Identity || metadata.SourceSnapshot != p.Metadata.SourceSnapshot || snapshot.Fingerprint != p.Candidate.Fingerprint {
+		if metadata.Identity != p.Metadata.Identity || metadata.SourceSnapshot != p.Metadata.SourceSnapshot || snapshot.Fingerprint != p.publicationCandidate().Fingerprint {
 			return fail(errors.New("retained parent candidate or workspace binding changed"))
 		}
 		delivery, _, err := s.planGate(ctx, action)

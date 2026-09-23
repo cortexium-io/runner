@@ -366,6 +366,130 @@ func TestPlanPendingPublicationReusesOriginalHeavyAndRenewsGuard(t *testing.T) {
 	}
 }
 
+func TestPlanPreparationPreservesQAAndRecoversExactPreparedPublication(t *testing.T) {
+	f := newGuardedPlanFixture(t, func(e *config.VerificationEntrypoint) {
+		e.DependencyPaths = []string{"deps"}
+		e.Preparation = &config.VerificationPreparation{Command: "/bin/sh", Args: []string{"-c", "mkdir -p deps/pkg; printf '*.js text\\n' > deps/pkg/.gitattributes; printf 'dist/\\n' > deps/pkg/.gitignore; printf metadata > deps/pkg/.gitmodules"}}
+	})
+	// This common control is present before every implementation/QA snapshot.
+	if err := os.WriteFile(filepath.Join(f.repo, ".git", "info", "exclude"), []byte("deps/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.integrateMembers(t)
+	r := &publicationCrashRunner{deliveryMilestoneRunner: f.runner, afterCreate: true}
+	var err error
+	f.service, err = New(f.cfg, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, err := f.service.source.Authorize(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := f.service.executeQA(t.Context(), action, "prepared-plan")
+	if !r.crashed || r.creates != 1 || r.reviews != 3 {
+		t.Fatalf("prepared plan did not reach publication: %s %s %s", result.Outcome, result.Summary, result.Error)
+	}
+	r.offline = false
+	before := retainedPlanProgress(t, f)
+	if before.PreparedCandidate == nil || before.Candidate.Fingerprint == before.PreparedCandidate.Fingerprint || before.Publication.AcceptanceSnapshot != before.PreparedCandidate.Fingerprint || before.Gate.Invocation.Outcome != "passed" {
+		t.Fatal("preparation did not retain distinct QA and verified publication snapshots")
+	}
+	qa, _ := json.Marshal(before.Candidate)
+	heavy, _ := json.Marshal(before.Gate.Receipt)
+	f.service, err = New(f.cfg, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action, err = f.service.source.Authorize(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result = f.service.executeQA(t.Context(), action, "prepared-recovery")
+	if result.Outcome != execution.OutcomeSucceeded || r.creates != 1 || r.reviews != 3 {
+		t.Fatalf("prepared recovery repeated QA/publication or failed: %s %s %s", result.Outcome, result.Summary, result.Error)
+	}
+	after := retainedPlanProgress(t, f)
+	retainedQA, _ := json.Marshal(after.Candidate)
+	retainedHeavy, _ := json.Marshal(after.Gate.Receipt)
+	if string(qa) != string(retainedQA) || string(heavy) != string(retainedHeavy) || !after.Gate.Historical || after.Gate.CurrentPreparation != nil || after.Gate.CurrentCandidateCheck.ExecutionID == before.Gate.CurrentCandidateCheck.ExecutionID {
+		t.Fatal("recovery rewrote original QA/heavy proof or failed to renew only the guard")
+	}
+}
+
+func TestPlanInterruptedPreparationRequiresExactSnapshotRestoration(t *testing.T) {
+	stop := filepath.Join(t.TempDir(), "stop-preparation")
+	if err := os.WriteFile(stop, []byte("fixture setup failure"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := newGuardedPlanFixture(t, func(e *config.VerificationEntrypoint) {
+		e.DependencyPaths = []string{"deps"}
+		e.Preparation = &config.VerificationPreparation{Command: "/bin/sh", Args: []string{"-c", "mkdir -p deps/pkg; printf '*.js text\\n' > deps/pkg/.gitattributes; test ! -f \"$1\"", "prepare", stop}}
+	})
+	if err := os.WriteFile(filepath.Join(f.repo, ".git", "info", "exclude"), []byte("deps/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.integrateMembers(t)
+	action, err := f.service.source.Authorize(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := f.service.executeQA(t.Context(), action, "partial-preparation")
+	p := retainedPlanProgress(t, f)
+	if failed.Outcome != execution.OutcomeBlocked || p.PreparedCandidate != nil || p.Gate.Receipt != nil || p.Publication != nil || p.Failure != nil || p.Gate.CurrentPreparation.Outcome != "failed" {
+		t.Fatalf("failed preparation created acceptance/proof: %s %s", failed.Summary, failed.Error)
+	}
+	if err := os.Remove(stop); err != nil {
+		t.Fatal(err)
+	}
+	f.service, err = New(f.cfg, f.runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := f.service.PlanProjectItemRetry(t.Context(), f.parentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.ApplyProjectItemRetry(t.Context(), preview); err != nil {
+		t.Fatal(err)
+	}
+	action, err = f.service.source.Authorize(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := f.service.executeQA(t.Context(), action, "unrestored-restart")
+	if refused.Outcome != execution.OutcomeBlocked || !strings.Contains(refused.Error, "workspace binding changed") || f.runner.reviews != 3 || f.runner.creates != 0 {
+		t.Fatalf("unexplained mismatch adopted: %s %s", refused.Summary, refused.Error)
+	}
+	// Restore only the declared root, preserving its diagnostic contents.
+	if err := os.Rename(filepath.Join(p.Metadata.WorktreePath, "deps"), filepath.Join(t.TempDir(), "retained-deps")); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := f.service.checkoutSnapshotState(t.Context(), p.Metadata.WorktreePath)
+	if err != nil || restored.Fingerprint != p.Candidate.Fingerprint {
+		t.Fatalf("ordinary full snapshot was not restored: %v", err)
+	}
+	preview, err = f.service.PlanProjectItemRetry(t.Context(), f.parentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.ApplyProjectItemRetry(t.Context(), preview); err != nil {
+		t.Fatal(err)
+	}
+	action, err = f.service.source.Authorize(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := f.service.executeQA(t.Context(), action, "restored-restart")
+	if result.Outcome != execution.OutcomeSucceeded || f.runner.reviews != 3 || f.runner.creates != 1 {
+		t.Fatalf("restored acceptance failed or repeated QA: %s %s", result.Summary, result.Error)
+	}
+	after := retainedPlanProgress(t, f)
+	if after.Candidate.Fingerprint != p.Candidate.Fingerprint || after.AttemptID != p.AttemptID || after.PreparedCandidate == nil {
+		t.Fatal("restored recovery rewrote the original acceptance")
+	}
+}
+
 func TestPlanGateRecoveryRefusesChangedCatalogAndProfile(t *testing.T) {
 	for _, change := range []string{"catalog", "profile", "tampered-receipt"} {
 		t.Run(change, func(t *testing.T) {

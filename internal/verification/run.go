@@ -29,7 +29,10 @@ type Observation struct {
 	TreeOID   string
 	BaseOID   string
 	Integrity string
-	Inputs    execution.VerificationInputs
+	// Only the preparation boundary may compare this projection instead of
+	// Integrity. Full Integrity remains pinned during waiting and every check.
+	PreparationIntegrity string
+	Inputs               execution.VerificationInputs
 }
 
 type Request struct {
@@ -66,6 +69,9 @@ type Result struct {
 	// this invocation is reported separately, not spliced into historical proof.
 	CurrentPreparation *execution.VerificationPreparationReceipt `json:"current_preparation,omitempty"`
 	PreparationOutput  *subprocess.Result                        `json:"preparation_output,omitempty"`
+	// Set only after successful supervised preparation and unchanged protected
+	// source/control/input observations. This is not passing check evidence.
+	PreparedIntegrity string `json:"prepared_integrity,omitempty"`
 }
 
 // InvocationObservation describes the present attempt, including refusals that
@@ -316,9 +322,11 @@ func run(ctx context.Context, req Request, acquire func(context.Context) (contex
 		// Only actual declared dependency contents may change during preparation.
 		withoutDependencies := after
 		withoutDependencies.Inputs.Dependencies = current.Inputs.Dependencies
-		if protected != protectedAfter || !reflect.DeepEqual(current, withoutDependencies) {
+		withoutDependencies.Integrity = current.Integrity
+		if current.PreparationIntegrity == "" || protected != protectedAfter || !reflect.DeepEqual(current, withoutDependencies) {
 			return result, errors.New("preparation changed protected source, configuration, runtime or undeclared files")
 		}
+		result.PreparedIntegrity = after.Integrity
 		current, receipt.Inputs = after, after.Inputs
 		if reused, err := tryReuse(current); reused || err != nil {
 			return result, err

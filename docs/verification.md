@@ -86,6 +86,14 @@ check baseline. Tracked content, overlapping roots, Git/control roots, symlink
 escapes and undeclared worktree writes fail closed. Exclusions grant no additional
 write authority. Preparation failure never launches the check.
 
+Package-local `.gitignore`, `.gitattributes` and `.gitmodules` files in those
+untracked roots may also be installed or replaced by preparation. Runner still
+securely discovers and reads them in the full snapshot. Only the successful
+preparation comparison projects them out, retaining all other Git controls,
+tracked state, source and undeclared writes. Waiting and checks compare the full
+snapshot; package metadata changes during a check are not allowed. Installed
+executable dependency contents remain bound by applicability inputs.
+
 This is verification of the supported command, not host-wide filesystem write
 enforcement. Host-access lifecycle scripts retain host access; operators must
 review them and direct caches into declared roots. Sandboxed callers retain their
@@ -295,6 +303,16 @@ Applicable original heavy proof remains historical; pending publication runs a
 fresh configured current-candidate guard. Superseded progress is archived without
 rewriting original receipt bytes, assessment, settings or usage. Missing protected
 progress or changed provenance blocks rather than inferring acceptance from prose.
+
+A validated preparation records a separate full prepared-candidate snapshot in
+that same protected progress; it never overwrites the original QA snapshot.
+Publication and subsequent recovery require the exact prepared snapshot. An
+interruption before this boundary is safely recorded can leave dependency roots
+populated but no authority for the new snapshot. Recovery then fails closed: it
+does not derive a retrospective projection or adopt an unexplained changed
+fingerprint. An operator may restore only the declared dependency roots, but the
+ordinary full snapshot must exactly match retained acceptance before retry.
+Already-created immutable publication records cannot be rebound by preparation.
 
 Only the launcher's eligible observed command failure can spend one existing
 reviewer evidence-audit invocation. The spent intent is durable before launch;
