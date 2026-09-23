@@ -159,6 +159,15 @@ func (c RuntimeConfig) RoleContract(id string) string {
 	return c.RoleContracts[strings.TrimSpace(id)]
 }
 
+// ReviewerRole selects execution settings, not a workflow lane or additional
+// review. The caller must still authenticate the delivery parent before launch.
+func (c RuntimeConfig) ReviewerRole(workflowRole string, deliveryParent bool) string {
+	if deliveryParent && c.RoleContract(workflowRole) == WorkRoleReviewer && c.PlanDelivery != nil && c.PlanDelivery.Enabled && c.PlanDelivery.ReviewerRole != "" {
+		return c.PlanDelivery.ReviewerRole
+	}
+	return workflowRole
+}
+
 func (c RuntimeConfig) RoleIDForContract(contract string) string {
 	preferredLane := ""
 	switch strings.TrimSpace(contract) {
@@ -210,6 +219,9 @@ func (c RuntimeConfig) ExecutionRoleIDs() []string {
 			seen[role] = true
 			result = append(result, role)
 		}
+	}
+	if c.PlanDelivery != nil && c.PlanDelivery.Enabled && c.PlanDelivery.ReviewerRole != "" && !seen[c.PlanDelivery.ReviewerRole] {
+		result = append(result, c.PlanDelivery.ReviewerRole)
 	}
 	sort.Strings(result)
 	return result

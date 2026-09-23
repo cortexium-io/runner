@@ -205,10 +205,10 @@ func (s *Engine) revalidatePlanProgress(ctx context.Context, action github.Autho
 	publication := s.cfg.LaneIDForStatus(fresh.Item.Status) == s.cfg.PublicationLaneID()
 	if publication {
 		qaLane, ok := s.cfg.Lane(s.cfg.LaneIDForStatus(s.cfg.GitHubProject.QAStatus))
-		if !ok || qaLane.Role != p.ReviewerRole || s.cfg.RoleContract(qaLane.Role) != config.WorkRoleReviewer || p.Publication == nil {
+		if !ok || s.cfg.ReviewerRole(qaLane.Role, true) != p.ReviewerRole || s.cfg.RoleContract(qaLane.Role) != config.WorkRoleReviewer || p.Publication == nil {
 			return action, errors.New("publication lost its original approved reviewer profile")
 		}
-	} else if fresh.Role != p.ReviewerRole {
+	} else if s.executionRole(fresh.Item) != p.ReviewerRole {
 		return action, errors.New("parent reviewer profile changed")
 	}
 	if fresh.Item.ID != p.Assignment.Spec.ItemID || content.Digest != p.Assignment.Spec.DelegatedContentDigest || content.BodySnapshot != p.Assignment.Spec.ApprovedBodySnapshot || fresh.Item.Branch != p.Metadata.BranchName || p.SettingsDigest != s.planReviewSettings(p.ReviewerRole, p.Metadata.WorktreePath) {

@@ -74,6 +74,29 @@ func TestDeliveryConfigMigrationExactDeltaBackupAndIdempotence(t *testing.T) {
 	}
 }
 
+func TestDeliveryMigrationPreservesExplicitWholePlanReviewer(t *testing.T) {
+	path, cfg := migrationConfigFixture(t)
+	cfg.Roles["plan_reviewer"] = RoleConfig{Extends: WorkRoleReviewer, Model: modelPointer("gpt-6-astra"), Reasoning: "medium"}
+	cfg.PlanDelivery = &PlanDeliveryConfig{ReviewerRole: "plan_reviewer"}
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := PlanDeliveryConfigMigration(path, "complete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.After.ReviewerRole != "plan_reviewer" {
+		t.Fatal("migration discarded explicit profile")
+	}
+	if err := preview.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadTrustedConfig(path)
+	if err != nil || loaded.PlanDelivery.ReviewerRole != "plan_reviewer" {
+		t.Fatalf("profile not persisted: %v", err)
+	}
+}
+
 func TestDeliveryConfigMigrationPreservesInterveningChanges(t *testing.T) {
 	for _, change := range []string{"config", "catalog", "replacement", "symlink"} {
 		t.Run(change, func(t *testing.T) {

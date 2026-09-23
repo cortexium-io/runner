@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -14,15 +15,16 @@ import (
 // init after capability discovery. Runtime configuration never falls back to
 // this template.
 func RoleTemplate(harness string) map[string]RoleConfig {
+	reasoning := RecommendedReasoning(harness, "")
 	return map[string]RoleConfig{
 		WorkRolePlanner: {
-			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-planner"}, Reasoning: "high", TimeoutSeconds: 1200,
+			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-planner"}, Reasoning: reasoning, TimeoutSeconds: 1200,
 		},
 		WorkRoleImplementer: {
-			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-implementer"}, Reasoning: "high", TaskGranularity: TaskGranularityStandard, TimeoutSeconds: 7200,
+			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-implementer"}, Reasoning: reasoning, TaskGranularity: TaskGranularityStandard, TimeoutSeconds: 7200,
 		},
 		WorkRoleReviewer: {
-			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-reviewer"}, Reasoning: "high", TaskGranularity: TaskGranularityStandard, TimeoutSeconds: 3600,
+			Harness: harness, Access: RoleAccessSandboxed, HarnessConfig: HarnessConfigModeIsolated, Skills: []string{"runner-reviewer"}, Reasoning: reasoning, TaskGranularity: TaskGranularityStandard, TimeoutSeconds: 3600,
 		},
 	}
 }
@@ -175,7 +177,7 @@ func (c Config) ConfiguredRoleHarnesses() []string {
 }
 
 // ExecutionRoleIDs returns every role that Runner may launch. It includes
-// workflow roles and optional implementer-ladder profiles.
+// workflow roles, implementation profiles and the whole-plan reviewer.
 func (c Config) ExecutionRoleIDs() []string {
 	seen := map[string]bool{}
 	result := []string{}
@@ -186,6 +188,9 @@ func (c Config) ExecutionRoleIDs() []string {
 		}
 		seen[id] = true
 		result = append(result, id)
+	}
+	if c.PlanDelivery != nil && c.PlanDelivery.Enabled && c.PlanDelivery.ReviewerRole != "" && !seen[c.PlanDelivery.ReviewerRole] {
+		result = append(result, c.PlanDelivery.ReviewerRole)
 	}
 	sort.Strings(result)
 	return result
@@ -203,9 +208,11 @@ func (c Config) AttemptRole(role string, qaFailures int) string {
 }
 
 func ladderRole(role string, qaFailures int, ladder []string) string {
-	if len(ladder) == 0 {
+	start := slices.Index(ladder, role)
+	if start < 0 {
 		return role
 	}
+	ladder = ladder[start:]
 	if qaFailures < 0 {
 		qaFailures = 0
 	}

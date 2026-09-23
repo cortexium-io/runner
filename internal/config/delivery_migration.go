@@ -50,6 +50,9 @@ func PlanDeliveryConfigMigration(path, entrypoint string) (DeliveryConfigMigrati
 		return DeliveryConfigMigration{}, errors.New("plan delivery is already enabled with another catalog entry; migration cannot amend existing execution authority")
 	}
 	after := PlanDeliveryConfig{Enabled: true, CompleteVerification: entrypoint}
+	if cfg.PlanDelivery != nil {
+		after.ReviewerRole = cfg.PlanDelivery.ReviewerRole
+	}
 	changed := cfg
 	changed.PlanDelivery = &after
 	if err := ValidateConfiguration(changed); err != nil {
@@ -59,7 +62,7 @@ func PlanDeliveryConfigMigration(path, entrypoint string) (DeliveryConfigMigrati
 	if err != nil {
 		return DeliveryConfigMigration{}, err
 	}
-	role := resolved.RoleIDForContract(WorkRoleReviewer)
+	role := resolved.ReviewerRole(resolved.RoleIDForContract(WorkRoleReviewer), true)
 	profile, ok := resolved.RoleProfile(role)
 	if !ok || EffectiveRoleAccess(profile.Access) != RoleAccessHost {
 		return DeliveryConfigMigration{}, errors.New("complete verification does not support the configured review containment; migration will not grant host access")

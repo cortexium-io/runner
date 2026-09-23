@@ -47,6 +47,7 @@ type TestSpecialistConfig struct {
 type PlanDeliveryConfig struct {
 	Enabled              bool   `json:"enabled"`
 	CompleteVerification string `json:"complete_verification"`
+	ReviewerRole         string `json:"reviewer_role,omitempty"`
 }
 
 // VerificationEntrypoint is operator-owned argv, not an expression or a model

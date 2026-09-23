@@ -57,6 +57,12 @@ func TestVerificationReadinessUsesConfiguredWholePlanReviewProfile(t *testing.T)
 	if cfg.Roles[config.WorkRoleReviewer].Access != config.RoleAccessSandboxed {
 		t.Fatal("readiness inspection widened base reviewer permissions")
 	}
+	// The explicit plan profile, not the card lane, owns complete validation.
+	cfg.PlanDelivery.ReviewerRole = "isolated_plan_review"
+	roles["isolated_plan_review"] = config.RoleConfig{Extends: config.WorkRoleReviewer, Access: config.RoleAccessSandboxed}
+	if _, ready := inspector.inspectVerification(t.Context()); ready {
+		t.Fatal("card review host access masked isolated plan containment")
+	}
 }
 
 func TestVerificationReadinessInspectsCurrentGuardWithoutExecuting(t *testing.T) {

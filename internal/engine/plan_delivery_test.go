@@ -129,6 +129,7 @@ type deliveryMilestoneRunner struct {
 	integrationLost                   bool
 	planPushes                        int
 	losePublication, publicationLost  bool
+	reviewModels                      []string
 }
 
 func (r *deliveryMilestoneRunner) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
@@ -158,6 +159,7 @@ func (r *deliveryMilestoneRunner) Run(ctx context.Context, command string, args 
 		}
 		properties, _ := schema["properties"].(map[string]any)
 		if properties["criteria"] != nil || properties["checks"] != nil {
+			r.reviewModels = append(r.reviewModels, argumentValue(args, "--model"))
 			r.reviews++
 			wholePlan := strings.Contains(strings.Join(args, " "), `"review_scope":"plan"`)
 			reject := r.rejectFirst && r.reviews == 1

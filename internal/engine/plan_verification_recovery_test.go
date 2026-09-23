@@ -24,6 +24,7 @@ type failedPlanGateRunner struct {
 	*deliveryMilestoneRunner
 	classifications       int
 	classification        string
+	classificationModel   string
 	crash                 bool
 	crashTransition       bool
 	cleanupUnresolved     bool
@@ -42,6 +43,7 @@ func (r *failedPlanGateRunner) Run(ctx context.Context, command string, args []s
 	if command == "codex" && strings.Contains(prompt, `"review_scope":"plan"`) {
 		if strings.Contains(prompt, "BEGIN OBSERVED FAILED-GATE DIAGNOSTICS") {
 			r.classifications++
+			r.classificationModel = argumentValue(args, "--model")
 			if r.cleanupUnresolved {
 				r.artifacts = filepath.Dir(argumentValue(args, "--output-schema"))
 				// The native reviewer runs in its private neutral directory;
@@ -113,6 +115,14 @@ func retainedPlanProgress(t *testing.T, f *deliveryRunFixture) *planVerification
 
 func TestPlanFailedGateClassifiesOneOwnedRepair(t *testing.T) {
 	f, r := prepareFailedPlanGate(t, "reject")
+	astra := "gpt-6-astra"
+	f.cfg.Roles["plan_reviewer"] = config.RoleConfig{Extends: config.WorkRoleReviewer, Model: &astra, Reasoning: "medium"}
+	f.cfg.PlanDelivery.ReviewerRole = "plan_reviewer"
+	var err error
+	f.service, err = New(f.cfg, r)
+	if err != nil {
+		t.Fatal(err)
+	}
 	action, err := f.service.source.Authorize(t.Context(), f.parent(t))
 	if err != nil {
 		t.Fatal(err)
@@ -122,6 +132,9 @@ func TestPlanFailedGateClassifiesOneOwnedRepair(t *testing.T) {
 		t.Fatalf("result=%s %s %s classifications=%d PRs=%d", result.Outcome, result.Summary, result.Error, r.classifications, r.creates)
 	}
 	p := retainedPlanProgress(t, f)
+	if p.ReviewerRole != "plan_reviewer" || r.classificationModel != astra {
+		t.Fatal("failed-gate classification did not retain the original whole-plan profile")
+	}
 	if p.Accepted.ReviewAssessment.Verdict != "accept" || p.Gate == nil || p.Gate.Receipt.Outcome != "failed" || p.Classification == nil || p.Classification.Result == nil || p.Publication != nil {
 		t.Fatal("accepted QA or actual failed gate/classification history was lost or relabeled")
 	}
