@@ -72,8 +72,8 @@ func TestPreparationAllowsPackageGitControlsButBindsThemDuringChecks(t *testing.
 	if err != nil || result.Receipt == nil || result.Invocation.Outcome != "passed" {
 		t.Fatalf("declared package preparation refused: %v; %+v", err, result)
 	}
-	request.PreviousReceipt, request.PreviousDigest = result.Receipt, result.Digest
 	request.Entry.CurrentCandidateCheck = &config.VerificationCurrentCandidateCheck{Command: "/bin/sh", Args: []string{"-c", "printf changed > deps/lib/.gitattributes"}}
+	bindCurrentCandidateObservation(t, &request)
 	// Changing installed metadata during a check is not preparation authority.
 	changed, err := run(t.Context(), request, ownedTestGrant)
 	var failure *CheckFailure

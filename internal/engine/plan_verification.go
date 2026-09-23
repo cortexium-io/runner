@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/cortexium-io/runner/internal/config"
@@ -114,10 +115,12 @@ func (s *Engine) runPlanVerification(ctx context.Context, action github.Authoriz
 		// advance the full publication snapshot, never an arbitrary recapture.
 		prepared, err := s.checkoutSnapshotState(ctx, metadata.WorktreePath)
 		if err != nil {
-			return result, errors.Join(runErr, err)
+			// A later integrity failure must discard an earlier CheckFailure's
+			// repair eligibility, not leave it reachable through errors.As.
+			return result, fmt.Errorf("observe prepared candidate after verification (check result: %v): %w", runErr, err)
 		}
 		if !prepared.Clean || prepared.Head != accepted.Head || prepared.Tree != accepted.Tree || prepared.Fingerprint != result.PreparedIntegrity {
-			return result, errors.Join(runErr, errors.New("prepared candidate changed after verification"))
+			return result, fmt.Errorf("prepared candidate changed after verification (check result: %v)", runErr)
 		}
 		progress.PreparedCandidate = &prepared
 	}

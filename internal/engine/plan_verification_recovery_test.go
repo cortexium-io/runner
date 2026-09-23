@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -487,6 +488,66 @@ func TestPlanInterruptedPreparationRequiresExactSnapshotRestoration(t *testing.T
 	after := retainedPlanProgress(t, f)
 	if after.Candidate.Fingerprint != p.Candidate.Fingerprint || after.AttemptID != p.AttemptID || after.PreparedCandidate == nil {
 		t.Fatal("restored recovery rewrote the original acceptance")
+	}
+}
+
+type postPreparationSnapshotRunner struct {
+	*deliveryMilestoneRunner
+	marker, worktree string
+	mutation         bool
+	observed         bool
+}
+
+func (r *postPreparationSnapshotRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	if command == "git" && dir == r.worktree && !r.observed {
+		if _, err := os.Stat(r.marker); err == nil {
+			r.observed = true
+			if !r.mutation {
+				return subprocess.Result{}, errors.New("fixture post-gate snapshot unavailable")
+			}
+			if err := os.WriteFile(filepath.Join(dir, "member-1.txt"), []byte("changed after command observation"), 0o600); err != nil {
+				return subprocess.Result{}, err
+			}
+		}
+	}
+	return r.deliveryMilestoneRunner.Run(ctx, command, args, dir, timeout)
+}
+
+func TestPlanPostPreparationSnapshotFailureCannotClassifyEarlierCheckFailure(t *testing.T) {
+	for _, mutation := range []bool{false, true} {
+		t.Run(fmt.Sprint(mutation), func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "check-ran")
+			f := newGuardedPlanFixture(t, func(e *config.VerificationEntrypoint) {
+				e.DependencyPaths = []string{"deps"}
+				e.Preparation = &config.VerificationPreparation{Command: "/bin/sh", Args: []string{"-c", "mkdir -p deps/pkg; printf package > deps/pkg/.gitattributes"}}
+				e.Args = []string{"-c", "printf observed > \"$1\"; exit 7", "check", marker}
+			})
+			if err := os.WriteFile(filepath.Join(f.repo, ".git", "info", "exclude"), []byte("deps/\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			f.integrateMembers(t)
+			r := &postPreparationSnapshotRunner{deliveryMilestoneRunner: f.runner, marker: marker, mutation: mutation}
+			var err error
+			f.service, err = New(f.cfg, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			action, err := f.service.source.Authorize(t.Context(), f.parent(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Resolve the same deterministic retained workspace the QA path uses.
+			metadata, err := f.service.workspaceForItem(t.Context(), action.Item, github.DelegatedContentFor(action.Item).Digest, f.repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.worktree = metadata.WorktreePath
+			result := f.service.executeQA(t.Context(), action, "post-gate-refusal")
+			p := retainedPlanProgress(t, f)
+			if !r.observed || result.Outcome != execution.OutcomeBlocked || p.Gate.Receipt == nil || p.Gate.Receipt.Outcome != "failed" || p.Failure != nil || p.Classification != nil || p.Publication != nil || r.reviews != 3 || r.creates != 0 {
+				t.Fatalf("post-gate integrity failure authorized repair: %s %s observed=%t reviews=%d", result.Summary, result.Error, r.observed, r.reviews)
+			}
+		})
 	}
 }
 
