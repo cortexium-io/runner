@@ -997,8 +997,10 @@ func promptInitRuntimeChoices(
 		strings.TrimSpace(*plannerHarness) == strings.TrimSpace(*implementerHarness) &&
 		strings.TrimSpace(*plannerHarness) == strings.TrimSpace(*reviewerHarness)
 	modelsMissing := strings.TrimSpace(*plannerModel) == "" && strings.TrimSpace(*implementerModel) == "" && strings.TrimSpace(*reviewerModel) == ""
-	if harnessesMatch && modelsMissing {
-		model, err := prompter.model(ctx, "Default model for all roles", strings.TrimSpace(*plannerHarness))
+	// Codex recommendations differ by role: selecting one model for all roles
+	// would silently give planning and review the implementation recommendation.
+	if harnessesMatch && modelsMissing && strings.TrimSpace(*plannerHarness) != config.HarnessCodexCLI {
+		model, err := prompter.model(ctx, "Default model for all roles", strings.TrimSpace(*plannerHarness), "")
 		if err != nil {
 			return err
 		}
@@ -1019,7 +1021,7 @@ func promptInitRuntimeChoices(
 				continue
 			}
 			roleLabel := strings.ToUpper(role.name[:1]) + role.name[1:]
-			model, err := prompter.model(ctx, roleLabel+" model", strings.TrimSpace(*role.harness))
+			model, err := prompter.model(ctx, roleLabel+" model", strings.TrimSpace(*role.harness), role.name)
 			if err != nil {
 				return err
 			}

@@ -14,7 +14,7 @@ import (
 func TestInteractiveClaudeModelMenuPinsRecommendedVersion(t *testing.T) {
 	var output bytes.Buffer
 	prompter := newInitPrompter(strings.NewReader("1\n"), &output)
-	model, err := prompter.model(t.Context(), "Model for all roles", config.HarnessClaudeCLI)
+	model, err := prompter.model(t.Context(), "Model for all roles", config.HarnessClaudeCLI, "")
 	if err != nil {
 		t.Fatalf("choose Claude model: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestInteractiveClaudeModelMenuPinsRecommendedVersion(t *testing.T) {
 func TestInteractiveModelMenuRetainsCustomIDEscapeHatch(t *testing.T) {
 	var output bytes.Buffer
 	prompter := newInitPrompter(strings.NewReader("4\nclaude-opus-4-8\n"), &output)
-	model, err := prompter.model(t.Context(), "Model", config.HarnessClaudeCLI)
+	model, err := prompter.model(t.Context(), "Model", config.HarnessClaudeCLI, "")
 	if err != nil {
 		t.Fatalf("choose custom Claude model: %v", err)
 	}
@@ -82,30 +82,51 @@ printf '%s\n' 'ollama    llama3.1:8b       128K     32K      no        no'
 }
 
 func TestRecommendedModelNeverDependsOnCatalogOrderOrInventsAvailability(t *testing.T) {
-	options := []initModelOption{{Value: "gpt-6-astra"}, {Value: "gpt-6-sol"}, {Value: "gpt-6-luna"}, {Native: true}, {Custom: true}}
-	if got := recommendedModelIndex(config.HarnessCodexCLI, options); got != 1 {
-		t.Fatalf("default index = %d, want available Sol", got)
-	}
-	if got := recommendedModelIndex(config.HarnessPiCLI, options); got != 3 {
-		t.Fatalf("Pi silently selected a provider: %d", got)
-	}
-	options[1].Value = "other-model"
-	if got := recommendedModelIndex(config.HarnessCodexCLI, options); got != 3 {
-		t.Fatalf("missing Sol did not leave native selection: %d", got)
+	for _, tc := range []struct {
+		role string
+		want string
+	}{
+		{config.WorkRolePlanner, "gpt-6-astra"},
+		{config.WorkRoleImplementer, "gpt-6-sol"},
+		{config.WorkRoleReviewer, "gpt-6-astra"},
+	} {
+		t.Run(tc.role, func(t *testing.T) {
+			options := []initModelOption{{Value: "gpt-6-luna"}, {Value: "gpt-6-sol"}, {Value: "gpt-6-astra"}, {Native: true}, {Custom: true}}
+			got := recommendedModelIndex(config.HarnessCodexCLI, tc.role, options)
+			if options[got].Value != tc.want {
+				t.Fatalf("recommended model = %q, want %q", options[got].Value, tc.want)
+			}
+			if got := recommendedModelIndex(config.HarnessPiCLI, tc.role, options); got != 3 {
+				t.Fatalf("Pi silently selected a provider: %d", got)
+			}
+			options[got].Value = "other-model"
+			if got := recommendedModelIndex(config.HarnessCodexCLI, tc.role, options); got != 3 {
+				t.Fatalf("missing recommendation did not leave native selection: %d", got)
+			}
+		})
 	}
 }
 
-func TestInteractiveCodexEnterAcceptsVisibleSolRecommendation(t *testing.T) {
+func TestInteractiveCodexEnterAcceptsVisibleRoleRecommendations(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-astra","visibility":"list"},{"slug":"gpt-6-sol","visibility":"list"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CODEX_HOME", root)
 	var output bytes.Buffer
-	p := newInitPrompter(strings.NewReader("\n"), &output)
-	got, err := p.model(t.Context(), "Model", config.HarnessCodexCLI)
-	if err != nil || got != "gpt-6-sol" || !strings.Contains(output.String(), "gpt-6-sol (recommended)") {
-		t.Fatalf("recommended selection = %q, %v; menu: %s", got, err, output.String())
+	p := newInitPrompter(strings.NewReader("\n\n\n\n\n\n"), &output)
+	ph, ih, rh := config.HarnessCodexCLI, config.HarnessCodexCLI, config.HarnessCodexCLI
+	pm, im, rm, pr, ir, rr := "", "", "", "", "", ""
+	if err := promptInitRuntimeChoices(t.Context(), p, &ph, &ih, &rh, &pm, &im, &rm, &pr, &ir, &rr); err != nil {
+		t.Fatalf("role selections: %v; prompts: %s", err, output.String())
+	}
+	if pm != "gpt-6-astra" || pr != "medium" || im != "gpt-6-sol" || ir != "high" || rm != "gpt-6-astra" || rr != "medium" {
+		t.Fatalf("unexpected recommendations: %s/%s %s/%s %s/%s", pm, pr, im, ir, rm, rr)
+	}
+	for _, label := range []string{"Planner model", "Implementer model", "Reviewer model", "gpt-6-astra (recommended)", "gpt-6-sol (recommended)"} {
+		if !strings.Contains(output.String(), label) {
+			t.Fatalf("missing visible recommendation %q: %s", label, output.String())
+		}
 	}
 }
 
