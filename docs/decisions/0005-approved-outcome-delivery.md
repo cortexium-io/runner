@@ -82,9 +82,16 @@ work implicitly, overwrites intervening operator edits, or closes a published PR
 Migration treats structurally complete legacy Done batches only as inert
 administrative history, even when old action assertions are stale or absent.
 It does not renew their execution/dependency authority, relabel them delivered,
-or rewrite historical QA/PR evidence. Current delivery manifests retain their
-strict authority/completion checks; missing membership or nonterminal work
-still prevents rollout.
+or rewrite historical QA/PR evidence. Completed delivery manifests retain
+authenticated historical authority: the signed terminal parent, original
+immutable release, exact member contracts and signed integrations must remain
+intact. A status-only move from integrated Backlog to Done after issue closure
+does not invalidate that proof. Current model/profile or complete-gate changes
+do not undo delivery, but cannot renew execution authority or pending acceptance.
+Retired rows remain authenticated inert history, never successful dependencies.
+Missing membership, altered evidence or nonterminal work still prevents rollout.
+No historical assertions, counters or acceptance records are rewritten by this
+read-only distinction.
 Amendments preview the complete contract and advance an explicit
 ordinal revision. Changed local contracts invalidate the old/new dependency
 closure; shared changes conservatively invalidate all members. Exact original

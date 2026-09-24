@@ -315,6 +315,9 @@ func (s *Project) signAction(item WorkItem, role, state string) (AuthorizedActio
 }
 
 func (s *Project) signPlanningBatch(source WorkItem, children []WorkItem, state, generation string) (string, error) {
+	if err := s.validatePlanningBatchPolicy(source, children); err != nil {
+		return "", err
+	}
 	key, authorityID, err := s.authority.load()
 	if err != nil {
 		return "", err
@@ -352,6 +355,26 @@ func signPlanningBatchAssertion(payload planningBatchAssertionPayload, key []byt
 }
 
 func (s *Project) validatePlanningBatch(assertion string, source WorkItem, children []WorkItem, state string) (planningBatchAssertionPayload, error) {
+	if err := s.validatePlanningBatchPolicy(source, children); err != nil {
+		return planningBatchAssertionPayload{}, err
+	}
+	return s.validateRecordedPlanningBatch(assertion, source, children, state)
+}
+
+func (s *Project) validatePlanningBatchPolicy(source WorkItem, children []WorkItem) error {
+	if _, present, err := ParsePlanManifest(source.Body); present {
+		if err != nil {
+			return err
+		}
+		_, err = s.validatePlanMembers(source, children)
+		return err
+	}
+	return nil
+}
+
+// validateRecordedPlanningBatch authenticates the original exact release. Only
+// completed-delivery inspection may use it without current execution policy.
+func (s *Project) validateRecordedPlanningBatch(assertion string, source WorkItem, children []WorkItem, state string) (planningBatchAssertionPayload, error) {
 	signed, encoded, signature, err := parsePlanningBatchAssertion(assertion)
 	if err != nil {
 		return planningBatchAssertionPayload{}, err
@@ -444,7 +467,7 @@ func (s *Project) planningBatchPayload(source WorkItem, children []WorkItem, sta
 		if err != nil {
 			return planningBatchAssertionPayload{}, err
 		}
-		if _, err := s.validatePlanMembers(source, children); err != nil {
+		if _, err := s.validatePlanMemberContract(source, children); err != nil {
 			return planningBatchAssertionPayload{}, err
 		}
 		payload.PlanRevision = PlanRevision(source.Body)

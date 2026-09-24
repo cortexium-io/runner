@@ -211,6 +211,24 @@ func PlanBranch(parentID string) string {
 }
 
 func (s *Project) validatePlanMembers(parent WorkItem, children []WorkItem) (PlanManifest, error) {
+	manifest, err := s.validatePlanMemberContract(parent, children)
+	if err != nil {
+		return manifest, err
+	}
+	if !s.cfg.PlanDelivery || manifest.CompleteVerification != s.cfg.PlanVerificationID || manifest.VerificationDigest != s.cfg.PlanVerificationDigest {
+		return manifest, errors.New("plan delivery is disabled or its approved complete-verification settings changed")
+	}
+	for _, member := range manifest.ActiveMembers() {
+		if member.ProfileDigest != s.cfg.PlanProfileDigests[member.ImplementationProfile] {
+			return manifest, errors.New("plan member content, dependency or resolved profile changed after approval")
+		}
+	}
+	return manifest, nil
+}
+
+// validatePlanMemberContract checks the immutable contract, not permission to
+// execute it under today's model and verification policy.
+func (s *Project) validatePlanMemberContract(parent WorkItem, children []WorkItem) (PlanManifest, error) {
 	manifest, present, err := ParsePlanManifest(parent.Body)
 	if err != nil {
 		return manifest, err
@@ -221,9 +239,6 @@ func (s *Project) validatePlanMembers(parent WorkItem, children []WorkItem) (Pla
 	if manifest.Repository != s.cfg.IntakeRepository || manifest.Repository != parent.Repository || manifest.DestinationBranch != s.cfg.BaseBranch {
 		return manifest, errors.New("plan repository or destination changed from the configured delivery target")
 	}
-	if !s.cfg.PlanDelivery || manifest.CompleteVerification != s.cfg.PlanVerificationID || manifest.VerificationDigest != s.cfg.PlanVerificationDigest {
-		return manifest, errors.New("plan delivery is disabled or its approved complete-verification settings changed")
-	}
 	if len(children) != len(manifest.Members) {
 		return manifest, errors.New("plan membership is incomplete or has unauthorized additions")
 	}
@@ -233,7 +248,6 @@ func (s *Project) validatePlanMembers(parent WorkItem, children []WorkItem) (Pla
 		member := manifest.Members[i]
 		if child.ID != member.ID || child.PlanningItemIndex != i+1 || child.PlanningSourceID != parent.ID || child.Repository != manifest.Repository ||
 			child.ImplementationProfile != member.ImplementationProfile ||
-			(!member.Retired && member.ProfileDigest != s.cfg.PlanProfileDigests[member.ImplementationProfile]) ||
 			!reflect.DeepEqual(canonicalDelegatedDependencies(child.Dependencies), member.Dependencies) {
 			return manifest, errors.New("plan member content, dependency or resolved profile changed after approval")
 		}
