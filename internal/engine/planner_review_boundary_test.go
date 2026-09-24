@@ -13,8 +13,14 @@ import (
 )
 
 func TestPlannerRejectsFutureDeliveryProofBeforeStaging(t *testing.T) {
-	for _, field := range []string{"project_success_criteria", "acceptance_criteria", "verification"} {
-		t.Run(field, func(t *testing.T) {
+	for _, tc := range []struct {
+		field, projectSuccess, acceptance, verification string
+	}{
+		{"project_success_criteria", "The pilot is actually merged to develop through normal Runner delivery; umbrella completion is checked against the merged PR and actual gate evidence.", "Behavior works", "Focused behavior is demonstrated"},
+		{"acceptance_criteria", "Pilot behavior works", "Whole-plan QA and complete verification have passed and the final PR is merged to develop.", "Focused behavior is demonstrated"},
+		{"verification", "Pilot behavior works", "Behavior works", "Establish actual automatic merged delivery to develop and the final completion check for the parent from the merged PR and real gate evidence. Internal acceptance or PR Ready does not establish delivery."},
+	} {
+		t.Run(tc.field, func(t *testing.T) {
 			cfg := completeEngineTestConfig(config.Config{ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"}})
 			service, err := New(cfg, &fakeGitHubProjectRunner{})
 			if err != nil {
@@ -23,16 +29,8 @@ func TestPlannerRejectsFutureDeliveryProofBeforeStaging(t *testing.T) {
 			// The admission boundary is enabled independently of gate execution;
 			// this regression must not invoke GitHub, a model, or a complete gate.
 			service.cfg.GitHubProject.PlanDelivery = true
-			plan := ProjectPlan{GoalSummary: "Deliver pilot", SourceContext: "Original approved request", ProjectSuccessCriteria: []string{"Pilot behavior works"}, WorkItems: []github.PlannedItem{{Title: "Pilot", Summary: "Implement the pilot", AcceptanceCriteria: []string{"Behavior works"}, Verification: []string{"Focused behavior is demonstrated"}, Risks: []string{}, NonGoals: []string{}, ImplementationProfile: "implementer", ProfileReason: "Bounded behavior"}}}
-			switch field {
-			case "project_success_criteria":
-				plan.ProjectSuccessCriteria = []string{"The pilot is actually merged to develop through normal Runner delivery; umbrella completion is checked against the merged PR and actual gate evidence."}
-			case "acceptance_criteria":
-				plan.WorkItems[0].AcceptanceCriteria = []string{"Whole-plan QA and complete verification have passed and the final PR is merged to develop."}
-			case "verification":
-				plan.WorkItems[0].Verification = []string{"Establish actual automatic merged delivery to develop and the final completion check for the parent from the merged PR and real gate evidence. Internal acceptance or PR Ready does not establish delivery."}
-			}
-			if _, err := service.ValidateProjectPlan(plan); err == nil || !strings.Contains(err.Error(), field) || !strings.Contains(err.Error(), "review boundary") {
+			plan := ProjectPlan{GoalSummary: "Deliver pilot", SourceContext: "Original approved request", ProjectSuccessCriteria: []string{tc.projectSuccess}, WorkItems: []github.PlannedItem{{Title: "Pilot", Summary: "Implement the pilot", AcceptanceCriteria: []string{tc.acceptance}, Verification: []string{tc.verification}, Risks: []string{}, NonGoals: []string{}, ImplementationProfile: "implementer", ProfileReason: "Bounded behavior"}}}
+			if _, err := service.ValidateProjectPlan(plan); err == nil || !strings.Contains(err.Error(), tc.field) || !strings.Contains(err.Error(), "review boundary") {
 				t.Fatalf("future proof accepted or wrong diagnostic: %v", err)
 			}
 			if _, err := service.prepareDirectProjectPlan(&plan); err == nil || !strings.Contains(err.Error(), "review boundary") {
