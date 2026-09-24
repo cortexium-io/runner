@@ -119,7 +119,7 @@ func TestPlanMembershipRetirementPreservesHistoryButNeverCountsAsSuccess(t *test
 		t.Fatal("retired row reactivated")
 	}
 	completed := state.After[0]
-	completed.Status, completed.Phase, completed.PullRequest, completed.QACommit = p.doneStatus(), "done", "https://github.com/owner/repo/pull/12", strings.Repeat("c", 40)
+	completed.Status, completed.Phase, completed.PullRequest, completed.QACommit = p.doneStatus(), "", "https://github.com/owner/repo/pull/12", strings.Repeat("c", 40)
 	completed = signDeliveryFixture(t, p, completed, "reviewer", "done")
 	all := append([]WorkItem{completed}, state.After[1:]...)
 	external := WorkItem{ID: "external", Dependencies: []string{retired.ID}}
@@ -129,6 +129,20 @@ func TestPlanMembershipRetirementPreservesHistoryButNeverCountsAsSuccess(t *test
 	progress := p.PlanningProgress(all)
 	if len(progress.RetiredMembers) != 1 || len(progress.IntegratedUndelivered) != 0 {
 		t.Fatal("retired history disappeared or became undelivered active work after delivery")
+	}
+	p.cfg.PlanProfileDigests = nil
+	if _, err := p.validateCompletedPlanDelivery(completed, all); err != nil {
+		t.Fatalf("profile retirement undid completed delivery: %v", err)
+	}
+	if _, err := p.requireCompletedPreRolloutWork(all); err != nil {
+		t.Fatalf("intact retirement history prevented rollout: %v", err)
+	}
+	if p.hasSuccessfulOutcome(retired, all) {
+		t.Fatal("retired scope gained dependency authority after policy change")
+	}
+	all[2].Status = p.doneStatus()
+	if _, err := p.validateCompletedPlanDelivery(completed, all); err == nil {
+		t.Fatal("retired member moved to Done retained completion authority")
 	}
 	// Removing a required dependency needs an explicit dependent-contract
 	// amendment. Merely retiring its owner must fail before any state changes.

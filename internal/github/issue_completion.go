@@ -59,10 +59,7 @@ func (s *Project) planningSourceWorkCompleted(source WorkItem, items []WorkItem)
 
 func (s *Project) planningSourceWorkCompletedIn(source WorkItem, index *workItemIndex) bool {
 	if source.PlanRelease != "" {
-		if source.Status != s.doneStatus() || source.PullRequest == "" || !validGitObjectID(source.QACommit) {
-			return false
-		}
-		_, err := s.ValidatePlanDelivery(source, index.all)
+		_, err := s.validateCompletedPlanDelivery(source, index.all)
 		return err == nil
 	}
 	if !strings.EqualFold(strings.TrimSpace(source.Status), s.doneStatus()) || strings.TrimSpace(source.Transition) != "" || strings.TrimSpace(source.PullRequest) != "" {

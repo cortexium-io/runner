@@ -233,7 +233,18 @@ func (r *deliveryMilestoneRunner) Run(ctx context.Context, command string, args 
 			return subprocess.Result{Stdout: string(b)}, nil
 		}
 	}
-	return r.project.Run(ctx, command, args, dir, timeout)
+	result, err := r.project.Run(ctx, command, args, dir, timeout)
+	if err == nil && command == "gh" && len(args) > 2 && args[0] == "issue" && args[1] == "close" {
+		// Model GitHub's issue-closure automation without minting a new Runner
+		// signature. Completion must survive the subsequent Project read.
+		for i := range r.project.remoteItems {
+			item := &r.project.remoteItems[i]
+			if item.URL == args[2] && item.Phase == github.PlanIntegratedPhase {
+				item.Status = "Done"
+			}
+		}
+	}
+	return result, err
 }
 
 func TestDeliveryProductionMilestone(t *testing.T) {
@@ -440,10 +451,29 @@ func testDeliveryProductionMilestoneWithPublicationLoss(t *testing.T, reject, cr
 					if candidate.ID == parentID && candidate.Status != "Done" {
 						t.Fatal("confirmed merge not recorded as delivery")
 					}
+					if candidate.PlanningSourceID == parentID && (candidate.Status != "Done" || candidate.IssueState != "CLOSED") {
+						t.Fatal("post-merge issue closure did not complete every child")
+					}
 				}
 				status, err = service.WorkStatus(t.Context())
 				if err != nil || len(status.IntegratedUndelivered) != 0 || len(status.PlanningCompleted) != 0 {
 					t.Fatalf("status retained undelivered work after confirmed merge: %v", err)
+				}
+				// A restarted coordinator under a new model policy must still
+				// authenticate completed delivery, without any reapproval or retry.
+				implementation := cfg.Roles["implementer"]
+				newModel := "new-completed-plan-test-model"
+				implementation.Model = &newModel
+				cfg.Roles["implementer"] = implementation
+				service, err = New(cfg, runner)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := service.source.PlanDeliveryMigration(t.Context()); err != nil {
+					t.Fatalf("completed plan prevented policy rollout after restart: %v", err)
+				}
+				if _, err := service.RunCycle(t.Context()); err != nil {
+					t.Fatal(err)
 				}
 				if runner.creates != 1 || runner.implementations != wantImpl || runner.reviews != wantReview {
 					t.Fatal("delivery recovery repeated model work or PR creation")

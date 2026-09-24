@@ -109,12 +109,11 @@ func (s *Project) requireCompletedPreRolloutWork(items []WorkItem) (int, error) 
 			if manifest || item.PlanRelease != "" {
 				parent = item
 			}
-			if _, err := s.ValidatePlanDelivery(parent, items); err != nil {
-				return 0, fmt.Errorf("delivery plan %s requires current contract authority before migration: %w", parent.ID, err)
+			if _, err := s.validateCompletedPlanDelivery(parent, items); err != nil {
+				return 0, fmt.Errorf("delivery plan %s requires authenticated completion before migration: %w", parent.ID, err)
 			}
-			if !s.planningSourceWorkCompletedIn(item, index) && !s.hasSuccessfulOutcomeIn(item, index) {
-				return 0, fmt.Errorf("plan or member %s is not completely delivered; finish existing batches before enabling new-plan delivery", item.ID)
-			}
+			// Exact retired rows are authenticated inert history in the completed
+			// parent, not delivered outcomes or dependency authority of their own.
 			continue
 		}
 		if item.PlanningSourceID != "" || item.PlanningBatchFingerprint != "" || historicalPlanningSource(item, index) {

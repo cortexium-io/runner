@@ -775,6 +775,17 @@ and whole-plan QA. Their children stay `plan_integrated` until the single final
 plan PR is confirmed merged; no child PR is required. Historical planning Done
 records are not interpreted as delivered outcomes.
 
+After that confirmed merge, completion/dependency inspection authenticates the
+original release and exact member content independently of today's model and
+complete-gate policy. The parent must retain its signed terminal outcome and
+each active member its signed integration. GitHub issue-closing automation may
+move an integrated child's visible status from Backlog to Done; only that status
+difference is tolerated, only under the authenticated completed parent. Retired
+members stay inert and never satisfy dependencies. Inspection does not re-sign
+cards or alter historical QA. Admission, pending publication and new release
+signing still require current execution policy; historical completion cannot
+authorize them. See the [outcome-delivery decision](decisions/0005-approved-outcome-delivery.md).
+
 Workspace authority combines that delegated-content digest with the exact
 resolved base commit and records them with the immutable Project item ID,
 repository, branch, and normalized worktree path in one private record outside

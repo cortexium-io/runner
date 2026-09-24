@@ -16,14 +16,15 @@ func (s *Project) PlanningProgress(items []WorkItem) PlanningProgress {
 	index := newWorkItemIndex(items)
 	for _, parent := range items {
 		if parent.PlanRelease != "" {
+			if delivery, err := s.validateCompletedPlanDelivery(parent, items); err == nil {
+				result.RetiredMembers = append(result.RetiredMembers, delivery.RetiredChildren...)
+				continue
+			}
 			delivery, err := s.validatePlanDeliveryState(parent, items, true)
 			if err != nil {
 				continue
 			}
 			result.RetiredMembers = append(result.RetiredMembers, delivery.RetiredChildren...)
-			if s.planningSourceWorkCompletedIn(parent, index) {
-				continue
-			}
 			if parent.Phase == PlanCancelledPhase {
 				result.CancelledPlans = append(result.CancelledPlans, parent)
 			}

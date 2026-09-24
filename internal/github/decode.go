@@ -426,7 +426,7 @@ func (s *Project) hasSuccessfulOutcomeIn(item WorkItem, index *workItemIndex) bo
 	}
 	index.successEvaluated[itemID] = true
 	if item.PlanRelease != "" {
-		if _, err := s.ValidatePlanDelivery(item, index.all); err != nil || item.Status != s.doneStatus() || item.PullRequest == "" || !validGitObjectID(item.QACommit) {
+		if _, err := s.validateCompletedPlanDelivery(item, index.all); err != nil {
 			return false
 		}
 		index.successful[itemID] = true
@@ -434,11 +434,17 @@ func (s *Project) hasSuccessfulOutcomeIn(item WorkItem, index *workItemIndex) bo
 	}
 	if item.PlanningSourceID != "" && index.byID[item.PlanningSourceID].PlanRelease != "" {
 		parent := index.byID[item.PlanningSourceID]
-		if _, err := s.ValidatePlanDelivery(parent, index.all); err != nil || !s.integratedPlanMember(item) || parent.Status != s.doneStatus() || !validGitObjectID(parent.QACommit) || parent.PullRequest == "" {
+		delivery, err := s.validateCompletedPlanDelivery(parent, index.all)
+		if err != nil {
 			return false
 		}
-		index.successful[itemID] = true
-		return true
+		for _, child := range delivery.Children {
+			if child.ID == item.ID {
+				index.successful[itemID] = true
+				return true
+			}
+		}
+		return false
 	}
 	if !strings.EqualFold(strings.TrimSpace(item.Status), s.doneStatus()) || strings.TrimSpace(item.Transition) != "" {
 		return false

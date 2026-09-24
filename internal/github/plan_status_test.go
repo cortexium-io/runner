@@ -17,6 +17,9 @@ func TestPlanningProgressDistinguishesIntegratedFromDeliveredWithoutMutation(t *
 	if !reflect.DeepEqual(all, before) {
 		t.Fatal("status changed stored lifecycle")
 	}
+	children[1].Status, children[1].Phase = "Backlog", PlanIntegratedPhase
+	children[1].Branch, children[1].QACommit = "runner/b", strings.Repeat("b", 40)
+	children[1] = signDeliveryFixture(t, p, children[1], "reviewer", "backlog")
 	parent.Status, parent.Phase, parent.PullRequest, parent.QACommit = "Done", "", "https://github.com/owner/repo/pull/10", strings.Repeat("c", 40)
 	parent = signDeliveryFixture(t, p, parent, "reviewer", "done")
 	if got := p.PlanningProgress(append([]WorkItem{parent}, children...)); len(got.IntegratedUndelivered) != 0 || len(got.PlanningCompleted) != 0 {
