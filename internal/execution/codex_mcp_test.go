@@ -161,3 +161,21 @@ func TestRunnerBrowserPromptSupportsDirectAndCodeModeTools(t *testing.T) {
 		t.Fatalf("disabled safe tools added browser instructions: %q", prompt)
 	}
 }
+
+func TestCodexMCPDiscoveryHandlesNormalizedServerNamesWithoutWideningGrants(t *testing.T) {
+	prompt := codexMCPPrompt([]string{"safari-mcp"}, false)
+	for _, expected := range []string{
+		"Runner-granted Codex MCP servers: safari-mcp",
+		"hyphens may appear as underscores",
+		"Confirm that each discovered tool belongs to a granted server",
+		"exact callable name returned by the catalog",
+		"Do not use or search for any unlisted MCP server",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Errorf("MCP discovery guidance omitted %q", expected)
+		}
+	}
+	if strings.Contains(prompt, "contain the exact server name") {
+		t.Error("discovery still requires an unnormalized server name")
+	}
+}

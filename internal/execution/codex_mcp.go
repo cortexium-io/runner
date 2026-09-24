@@ -232,7 +232,7 @@ func codexMCPPromptForConfig(allowed []string, safeTools bool, harnessConfigMode
 		names = append(names, runnerBrowserMCPServer)
 	}
 	sort.Strings(names)
-	message := "\n\nRunner-granted Codex MCP servers: " + strings.Join(names, ", ") + ". Use whichever callable surface this Codex session provides. If a granted MCP tool is not exposed as a direct call and Code Mode is active, inspect ALL_TOOLS for entries whose names contain the exact server name, then call the matching function through the tools object. list_mcp_resources reports resources, not the available MCP tools, and an empty resource list does not mean the granted tools are unavailable."
+	message := "\n\nRunner-granted Codex MCP servers: " + strings.Join(names, ", ") + ". Use whichever callable surface this Codex session provides. If a granted MCP tool is not exposed as a direct call and Code Mode is active, inspect ALL_TOOLS for the granted server. Tool names can normalize punctuation: hyphens may appear as underscores, so a literal server-name search can miss available tools. Confirm that each discovered tool belongs to a granted server, then call it through the tools object using the exact callable name returned by the catalog. Keep the configured server keys unchanged. list_mcp_resources reports resources, not the available MCP tools, and an empty resource list does not mean the granted tools are unavailable."
 	if inheritsHarnessConfiguration(harnessConfigMode) {
 		message += " Runner is also inheriting the operator's ambient Codex MCP configuration; use those servers only when relevant to this assignment.\n"
 	} else {
