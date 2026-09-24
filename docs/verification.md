@@ -137,6 +137,51 @@ against existing time bounds rather than automatically increasing timeouts.
 
 ## Execution and containment
 
+### Automatic individual-card gate
+
+An operator can schedule one fixed entrypoint before independent card review, with its
+result checked again before PR publication:
+
+```json
+{
+  "card_verification": {
+    "entrypoint": "browser-suite",
+    "access": "host"
+  }
+}
+```
+
+Define `browser-suite` in `verification` with its command, inputs, toolchains,
+timeout and `require_current_candidate: true`. This is an explicit host grant
+for the configured command and its trusted repository/dependency scripts. It does
+not change implementer or reviewer permissions. The option is disabled when
+absent and cannot be combined with `plan_delivery`, which has its own gate.
+
+Runner tells the implementer when this gate is scheduled. The implementer still
+completes the source change and other required proof; a pending scheduled run is
+not a passing test. Runner executes the gate after committing the candidate and
+supplies the actual passing receipt to QA. The reviewer evaluates coverage and
+remaining obligations normally. Interactive browser inspection remains available
+through the role's configured browser tool.
+
+The gate runs in a disposable copy of the committed candidate using the same
+shared claim, input observation, timeout and descendant cleanup as `verify`.
+Runner stores its result privately, bound to the approved card, destination,
+candidate and entrypoint settings, and rechecks applicability before publication.
+A publication retry can reuse matching passing evidence without repeating review
+or the heavy command. Reuse is identified as historical execution; changed
+authority, source or settings cannot reuse the old result. Host execution happens
+before QA, so operators must trust the approved repository's test code and scripts
+as well as the fixed entrypoint.
+
+A failure blocks publication and retains diagnostics in the Runner workspace
+root under `.runner-state/card-verification`. Inspect and resolve the failure,
+then use normal retry. This gate does not add a repair loop or consume a QA
+rejection; existing QA retry limits remain unchanged. Unresolved descendant
+cleanup retains the disposable checkout and quarantines owned capacity.
+
+### Standalone invocation
+
 ```sh
 cortexium-runner verify --config /absolute/operator/config.json \
   --entrypoint focused-domain-check --directory /absolute/candidate --json
@@ -152,7 +197,8 @@ The command inherits its caller's permissions. An isolated harness that cannot
 access the account's shared claim or configured tools receives a capability
 failure: Runner does not create a second sandbox-local slot, add host permissions
 or route the command through a privileged broker. Direct coordinator execution
-requires the already-approved host-access profile. Unsupported isolated complete
+requires the already-approved host-access profile, or the explicit command grant
+above for an individual-card gate. Unsupported isolated complete
 verification fails closed rather than silently running on the host.
 
 The entrypoint timeout includes input observation, waiting for the heavy slot,

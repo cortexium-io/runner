@@ -100,6 +100,12 @@ integrity from executable-check applicability and preserve original execution
 identity when reused; they do not grant authority. See
 [supported heavyweight verification](verification.md) for the explicit input/toolchain
 contract and interrupted-claim recovery.
+Optional `card_verification` runs a fixed host-authorized entrypoint before an
+individual card's source review and supplies the native receipt to the reviewer.
+A private record binds that result to the approved candidate and settings;
+publication rechecks its applicability. Source-review acceptance survives a failed
+publication, allowing retry without repeating review or applicable heavy checks.
+Role access and QA rejection accounting are unchanged.
 `harness check` is the explicit paid adapter-conformance boundary. It invokes
 each configured execution-role profile through the production planner,
 implementer, or shared-reviewer path, verifies that read-only roles leave the

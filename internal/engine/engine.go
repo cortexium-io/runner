@@ -1615,7 +1615,13 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		lineage := observedLineage(&result)
 		lineage.ReviewedCandidate = metrics.ObjectIdentity{CommitOID: publicationRecord.CommitOID, TreeOID: publicationRecord.TreeOID}
 		lineage.EvidenceCandidate = lineage.ReviewedCandidate
-		return s.publishAcceptedQA(ctx, action, lane, result, repoRoot, preparedWorkspace, publicationRecord)
+		return s.publishAcceptedQA(ctx, action, lane, result, repoRoot, preparedWorkspace, publicationRecord, attemptID)
+	}
+	_, cleanupCardVerification, cardVerification, verificationErr := s.prepareCardVerification(ctx, action, preparedWorkspace, candidate, attemptID)
+	defer cleanupCardVerification()
+	if verificationErr != nil {
+		return s.failExecution(ctx, action, lane, result, "Configured card verification did not pass", verificationErr,
+			blockedExecutorOutput("Configured card verification did not pass; inspect the retained native verification result before retrying.", verificationErr))
 	}
 	reviewWorkspace, err := gitProvider.PrepareReviewWorkspace(ctx, preparedWorkspace, candidate)
 	if err != nil {
@@ -1671,6 +1677,10 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 	}
 	assignment.Spec.ReviewBaseOID = preparedWorkspace.BaseRevision
 	assignment.Spec.ReviewCandidateOID = candidate.CommitOID
+	if cardVerification.Receipt != nil {
+		evidence := cardVerification.Evidence()
+		assignment.Spec.CardVerification = &evidence
+	}
 	reviewBinding := reviewBaselineBindingDigest(assignment.Spec)
 	baseline := matchingReviewBaseline(reviewRecord, assignment.Spec, preparedWorkspace.BaseRevision, reviewBinding)
 	if baseline != nil {
@@ -1861,7 +1871,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 	}
 	lineage := observedLineage(&result)
 	lineage.EvidenceCandidate = metrics.ObjectIdentity{CommitOID: publicationRecord.CommitOID, TreeOID: publicationRecord.TreeOID}
-	return s.publishAcceptedQA(ctx, action, lane, result, repoRoot, preparedWorkspace, publicationRecord)
+	return s.publishAcceptedQA(ctx, action, lane, result, repoRoot, preparedWorkspace, publicationRecord, attemptID)
 }
 
 func (s *Engine) publishAcceptedQA(
@@ -1872,6 +1882,7 @@ func (s *Engine) publishAcceptedQA(
 	repoRoot string,
 	preparedWorkspace workspace.Metadata,
 	publicationRecord workspace.PublicationRecord,
+	attemptID string,
 ) RunResult {
 	item := action.Item
 	observeWorkspaceLineage(&result, preparedWorkspace)
@@ -1910,6 +1921,22 @@ func (s *Engine) publishAcceptedQA(
 		if err := s.validateCompletePlanEvidence(ctx, action, preparedWorkspace, publicationRecord); err != nil {
 			return s.failExecution(ctx, action, lane, result, "Plan publication requires current trusted complete verification", err, integrityViolationOutput("Plan publication requires current trusted complete verification", err))
 		}
+	}
+	cardProofGuard, cleanupCardVerification, cardVerification, verificationErr := s.prepareCardVerification(ctx, action, preparedWorkspace, workspace.Candidate{CommitOID: publicationRecord.CommitOID, TreeOID: publicationRecord.TreeOID}, attemptID)
+	defer cleanupCardVerification()
+	if verificationErr != nil {
+		return s.failExecution(ctx, action, lane, result, "Configured card verification did not pass", verificationErr,
+			blockedExecutorOutput("Configured card verification did not pass; inspect the retained native verification result before retrying.", verificationErr))
+	}
+	if cardVerification.Receipt != nil {
+		qualifier := "passed"
+		if cardVerification.Historical {
+			qualifier = "reused applicable passing evidence"
+		}
+		verificationSummary := fmt.Sprintf("Runner verification `%s` %s for `%s` (receipt `%s`).", s.cfg.CardVerification.Entrypoint, qualifier, publicationRecord.CommitOID, cardVerification.Digest)
+		qaReport += "\n\n" + verificationSummary
+		qaComment += "\n\n" + verificationSummary
+		result.Verification = append(result.Verification, verificationSummary)
 	}
 	target := lane.Transitions[config.WorkflowOutcomeSuccess]
 	targetLane, _ := s.cfg.Lane(target)
@@ -1998,7 +2025,7 @@ func (s *Engine) publishAcceptedQA(
 	}
 	preparedWorkspace = validatedWorkspace
 	finishPublish := metrics.StartStage(ctx, metrics.StagePublishPullRequest)
-	var proofGuard func(context.Context, github.AuthorizedAction) error
+	proofGuard := cardProofGuard
 	if isPlan {
 		proofGuard = func(ctx context.Context, current github.AuthorizedAction) error {
 			return s.validateCompletePlanEvidence(ctx, current, preparedWorkspace, publicationRecord)

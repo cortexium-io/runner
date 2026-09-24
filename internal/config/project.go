@@ -189,6 +189,21 @@ func (c Config) Validate() error {
 	if c.PlanDelivery != nil && c.PlanDelivery.Enabled && strings.TrimSpace(c.PlanDelivery.CompleteVerification) == "" {
 		return errors.New("plan_delivery requires a supported complete_verification entrypoint")
 	}
+	if gate := c.CardVerification; gate != nil {
+		if gate.Access != RoleAccessHost {
+			return errors.New("card_verification requires explicit access: host for the configured command; agent access is unchanged")
+		}
+		entry, ok := c.Verification[gate.Entrypoint]
+		if !ok {
+			return errors.New("card_verification requires a configured verification entrypoint")
+		}
+		if !entry.RequireCurrentCandidate {
+			return errors.New("card_verification requires require_current_candidate: true")
+		}
+		if c.PlanDelivery != nil && c.PlanDelivery.Enabled {
+			return errors.New("card_verification applies to individual cards; plan_delivery owns its complete verification gate")
+		}
+	}
 	for id, entrypoint := range c.Verification {
 		if id == "" || strings.TrimSpace(id) != id || strings.TrimSpace(entrypoint.Command) == "" || strings.ContainsRune(entrypoint.Command, 0) || entrypoint.TimeoutSeconds <= 0 {
 			return errors.New("verification requires named entrypoints with an executable and positive timeout_seconds")

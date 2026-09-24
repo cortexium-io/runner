@@ -331,12 +331,13 @@ func ensureJSONEOF(decoder *json.Decoder) error {
 func reviewBaselineBindingDigest(spec execution.Spec) string {
 	data, _ := json.Marshal(struct {
 		Repository, Content string
+		CardVerification    *execution.VerificationEnvelope `json:",omitempty"`
 		Proof               []string
 		Plan                *execution.PlanContext         `json:",omitempty"`
 		Scope               execution.ReviewScope          `json:",omitempty"`
 		Boundary            execution.VerificationBoundary `json:",omitempty"`
 		Members             []execution.PlanMemberBrief    `json:",omitempty"`
-	}{spec.Repository, spec.DelegatedContentDigest, spec.RequiredVerification, spec.PlanContext, spec.ReviewScope, spec.VerificationBoundary, spec.PlanMemberBriefs})
+	}{spec.Repository, spec.DelegatedContentDigest, spec.CardVerification, spec.RequiredVerification, spec.PlanContext, spec.ReviewScope, spec.VerificationBoundary, spec.PlanMemberBriefs})
 	return fmt.Sprintf("%x", sha256.Sum256(data))
 }
 

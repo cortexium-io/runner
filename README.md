@@ -103,6 +103,9 @@ For configured heavyweight checks and candidate-bound receipts, see
 [supported heavyweight verification](docs/verification.md). The launcher shares
 one host/account slot without changing agent parallelism or harness permissions.
 It does not intercept arbitrary test commands.
+For browser suites that cannot run inside an agent sandbox, an optional
+[`card_verification` gate](docs/verification.md#automatic-individual-card-gate)
+runs the configured command before QA and supplies its native result to the reviewer.
 
 Runner supports macOS and Linux. The prebuilt Runner binary does not require
 Go; Go is needed only when building from source.

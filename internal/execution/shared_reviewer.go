@@ -233,6 +233,10 @@ Return only criteria, repository_rules, maintainability, and a concise audit sum
 func reviewerComparisonPrompt(assignment Assignment) string {
 	var b strings.Builder
 	b.WriteString(reviewerDeliveryGatePrompt(assignment.Spec))
+	if assignment.Spec.CardVerification != nil {
+		data, _ := json.Marshal(assignment.Spec.CardVerification)
+		fmt.Fprintf(&b, "\nRunner-observed configured card verification (native execution, not a model-reported result):\n%s\nThis passing evidence was checked against the pinned candidate and selected inputs before QA. Assess its coverage against each obligation; it does not establish untested behavior. Do not repeat the same command solely because the role sandbox cannot launch its browser.\n", data)
+	}
 	if assignment.Spec.ReviewBaseOID != "" && assignment.Spec.ReviewCandidateOID != "" {
 		fmt.Fprintf(&b, "\n\nRunner-pinned comparison: base %s; candidate %s. Cumulative diff: git diff %s...%s in the canonical read-only repository. Use this only when the current review scope requires cumulative inspection; follow-up and focused checks keep their narrower scope. Do not guess a base from a local branch name. Already merged dependency work is part of the base; inspect its current source when an integrated proof obligation requires it.\n", assignment.Spec.ReviewBaseOID, assignment.Spec.ReviewCandidateOID, assignment.Spec.ReviewBaseOID, assignment.Spec.ReviewCandidateOID)
 		if len(assignment.Spec.RecordedVerification) > 0 {
