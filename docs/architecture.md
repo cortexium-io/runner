@@ -505,8 +505,14 @@ blocking `open_decisions`, Runner returns that proposal without executable cards
 or a details call. Otherwise the second tool-free stage returns fixed-key details
 for those Runner-owned cards. Details may discover additional conflicts and
 return them through the same canonical `open_decisions`; unresolved decisions
-prevent staging/release, without an extra critic or keyword-based gate. Runner
-fetches the configured destination through its privileged Git boundary and
+prevent staging/release, without an extra critic. With plan delivery enabled,
+both stages receive the configured review/gate/merge order. A shared admission
+lint rejects known English-language future-delivery requirements in candidate
+acceptance/proof fields before new staging or approval; see
+[planning review boundaries](operator-reference.md#planning-review-boundaries)
+for its scope and limitations. This does not reinterpret existing released
+authority or protected recovery intents. Runner fetches the configured
+destination through its privileged Git boundary and
 materializes one private detached checkout before the first stage. It does not
 pull, reset or change the operator's saved checkout, local branches or index.
 An unavailable destination fails before a model call; there is no stale-checkout

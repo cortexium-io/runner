@@ -22,6 +22,7 @@ type canonicalizingPlannerRunner struct {
 	calls   int
 	allArgs [][]string
 	inputs  []string
+	result  func(string) string
 }
 
 func (r *canonicalizingPlannerRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
@@ -41,6 +42,9 @@ func (r *canonicalizingPlannerRunner) Run(ctx context.Context, command string, a
 		)
 		if err != nil {
 			return subprocess.Result{}, err
+		}
+		if r.result != nil {
+			result = r.result(result)
 		}
 		if err := os.WriteFile(outputPath, []byte(result), 0o600); err != nil {
 			return subprocess.Result{}, err
