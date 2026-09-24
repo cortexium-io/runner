@@ -220,7 +220,7 @@ func (s *Engine) planProjectWithRole(ctx context.Context, role, idea string) (pl
 		}
 	}()
 	finishRepository(metrics.StageOutcomeSucceeded, "", "", metrics.Usage{})
-	planningContext := projectPlannerExecutionContext{}
+	planningContext := projectPlannerExecutionContext{PlanDelivery: s.cfg.GitHubProject.PlanDelivery}
 	profiles := s.cfg.PlannerImplementers
 	if len(profiles) == 0 {
 		profiles = []string{s.cfg.AttemptRole(s.cfg.RoleIDForContract(config.WorkRoleImplementer), 0)}
@@ -284,6 +284,7 @@ type plannerExecutionProfile struct {
 }
 
 type projectPlannerExecutionContext struct {
+	PlanDelivery           bool
 	Profiles               []plannerExecutionProfile
 	ImplementerTimeout     time.Duration
 	ImplementerGranularity string
@@ -304,6 +305,9 @@ func projectPlannerPrompt(skills []string, executionContext projectPlannerExecut
 	b.WriteString("Use these skills for this planner assignment: ")
 	b.WriteString(strings.Join(skills, ", "))
 	b.WriteString(".")
+	if executionContext.PlanDelivery {
+		b.WriteString("\nConfigured plan-delivery order: card implementation and focused card QA -> integration into the plan branch -> independent whole-plan QA -> Runner-owned complete verification -> final PR -> confirmed destination merge. Card acceptance/proof must be available before card QA; project_success_criteria must be provable from the combined candidate before whole-plan QA accepts it. Actual delivery, the later gate receipt, the final PR merge and post-delivery umbrella closure are downstream requirements, not acceptance prerequisites. Retain them in project_constraints when requested; never claim pending operations passed or omit them from the requested outcome. Distinguish tests of delivery behavior in fixtures from delivery of this plan itself. Preserve explicit approved pre-QA checks; conflicting timing requires open_decisions, never a silent waiver or rescheduling.")
+	}
 	if executionContext.ImplementerTimeout > 0 {
 		fmt.Fprintf(&b, "\nConfigured implementer timeout: %s.", executionContext.ImplementerTimeout)
 	}
@@ -491,8 +495,9 @@ func (s *Engine) directProjectPlanDestination() (string, error) {
 }
 
 // ValidateProjectPlan applies the same structural, dependency, repository and
-// configured-profile checks to imported proposals as generated ones. This does
-// not grant approval or permit open decisions to pass the staging gate.
+// configured-profile and delivery-review boundary checks to imported proposals
+// as generated ones. This does not grant approval or permit open decisions to
+// pass the staging gate.
 func (s *Engine) ValidateProjectPlan(plan ProjectPlan) (ProjectPlan, error) {
 	err := s.normalizeProjectPlan(&plan)
 	return plan, err
@@ -505,6 +510,11 @@ func (s *Engine) normalizeProjectPlan(plan *ProjectPlan) error {
 	normalized, err := normalizeProjectPlan(*plan)
 	if err != nil {
 		return err
+	}
+	if s.cfg.GitHubProject.PlanDelivery && len(normalized.OpenDecisions) == 0 {
+		if err := github.ValidateDeliveryPlanningProposal(normalized.ProjectSuccessCriteria, normalized.WorkItems); err != nil {
+			return err
+		}
 	}
 	if err := s.normalizePlanRepositories(&normalized); err != nil {
 		return err

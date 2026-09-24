@@ -534,6 +534,9 @@ func (s *Project) StageDeliveryPlanningApproval(ctx context.Context, expected Au
 	if !s.cfg.PlanDelivery {
 		return errors.New("plan delivery is not enabled")
 	}
+	if err := validatePlanningDeliveryReviewBoundary(manifest, children); err != nil {
+		return err
+	}
 	if _, err := s.loadSchema(ctx); err != nil {
 		return err
 	}

@@ -71,7 +71,16 @@ func (s *Project) PlanDeliveryAmendment(ctx context.Context, selector string, re
 		}
 		additions = append(additions, item)
 	}
-	return s.buildPlanAmendment(d, request, additions...)
+	state, err := s.buildPlanAmendment(d, request, additions...)
+	if err != nil {
+		return PlanAmendmentState{}, err
+	}
+	// Admission of a new proposal only. Rebuilding an already protected intent
+	// during recovery must not retroactively apply a newer prose lint.
+	if err := validatePlanningDeliveryReviewBoundary(request.Manifest, state.After[1:]); err != nil {
+		return PlanAmendmentState{}, err
+	}
+	return state, nil
 }
 
 func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentRequest, additions ...WorkItem) (PlanAmendmentState, error) {

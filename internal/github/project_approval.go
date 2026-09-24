@@ -273,6 +273,14 @@ func (s *Project) planBatchApproval(items []WorkItem, selected WorkItem) (Approv
 	if _, err := s.validatePlanningBatch(source.Approval, source, childItems, batchStagedState); err != nil {
 		return ApprovalPlan{}, err
 	}
+	if manifest, present, err := ParsePlanManifest(source.Body); present {
+		if err != nil {
+			return ApprovalPlan{}, err
+		}
+		if err := validatePlanningDeliveryReviewBoundary(manifest, childItems); err != nil {
+			return ApprovalPlan{}, err
+		}
+	}
 	return ApprovalPlan{Item: source, Batch: batch}, nil
 }
 

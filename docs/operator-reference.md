@@ -1524,6 +1524,37 @@ stage or release cards. The planner preserves exact requested constraints and
 approved tradeoffs, including verification timing and environment; incompatible
 requirements need a human choice rather than a silently weakened requirement.
 
+### Planning review boundaries
+
+With plan delivery enabled, card acceptance precedes whole-plan QA, which
+precedes Runner-owned complete verification and the final PR merge. Both planner
+stages receive this order. Candidate acceptance/proof must not demand evidence
+of those later operations having already happened. Keep requested downstream
+delivery/umbrella completion requirements in shared constraints, not as proof
+that must exist before the acceptance which enables them. Explicitly approved
+pre-QA checks still apply; a conflict requires a human decision, not a waiver.
+
+Runner applies a conservative English-language lint to new generated/imported
+proposals, retained proposals before further staging, freshly reloaded staged
+batch approval, and proposed amendment contracts. For example, “This plan's
+final PR has been merged” is refused as candidate proof, while “Tests demonstrate
+that the final PR is merged once” describes legitimate fixture verification.
+The error identifies the field/condition and requests clarification; Runner
+does not rewrite requirements or automatically call a model again. Previously
+released plans and already-protected amendment recovery retain their existing
+authority and history; correcting an active contract still needs an amendment.
+
+This is protection against known wording patterns, not general natural-language
+cycle detection. Unrecognized wording can evade it, and an ambiguous actual-merge
+requirement can be conservatively refused. Human plan review must still check
+whose event is required, in which environment, and when its proof can exist.
+Clarify fixture/candidate evidence versus actual delivery without weakening the
+approved outcome. The lint inspects condition sections, not original-request
+provenance or downstream constraints. It does not add a paid review stage,
+change standalone-card policy, or weaken any QA or complete-gate check.
+
+### Planning commands and approval
+
 You do not need to stop the background Runner to preview, stage, create, or
 approve a standalone plan. Use the same operator configuration as the service.
 Only another standalone `plan` command holds the planning lock; the worker keeps

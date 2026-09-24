@@ -1322,6 +1322,11 @@ func (s *Project) CreateHumanWorkItem(ctx context.Context, title, body, targetSt
 }
 
 func (s *Project) createStaged(ctx context.Context, planned PlannedItem, revalidateSource func() error) (WorkItem, error) {
+	if s.cfg.PlanDelivery {
+		if err := ValidateDeliveryPlanningProposal(planned.ProjectSuccessCriteria, []PlannedItem{planned}); err != nil {
+			return WorkItem{}, err
+		}
+	}
 	title := strings.TrimSpace(planned.Title)
 	if title == "" {
 		return WorkItem{}, errors.New("planned item requires a title")
