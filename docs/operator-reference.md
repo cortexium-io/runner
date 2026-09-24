@@ -3015,6 +3015,12 @@ Missing or disabled grants fail before model work. Doctor automatically treats e
 grant as required, so the same capability does not need a duplicate
 `doctor_requirements` entry.
 
+Configured server keys and callable tool names are not always identical. For
+example, the `safari-mcp` server can expose `mcp__safari_mcp__...` tools in Codex
+Code Mode. Discover the actual names in `ALL_TOOLS`, accounting for normalized
+punctuation, and confirm that the tools belong to the granted server. This does
+not require renaming the MCP configuration or widening its grants.
+
 Role-launched MCP tools are auto-approved because the harness invocation is
 non-interactive. Their stdio server processes are separate trusted principals
 outside the Codex shell sandbox and may read files, use the network, or launch
