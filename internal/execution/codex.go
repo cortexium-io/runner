@@ -258,7 +258,7 @@ func (e CodexExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	recordPromptContext(ctx, harnessGuidance(config.HarnessCodexCLI, e.config, true))
 	harnessStartedAt := time.Now()
 	finishHarness := metrics.StartStage(ctx, metrics.StageHarnessRun)
-	result, usage, runErr := e.runCodex(ctx, args, metadata.WorktreePath, strings.NewReader(e.workspaceWritePrompt(assignment)+profileReferenceInstruction(launchWorkspace)))
+	result, usage, runErr := e.runCodex(ctx, args, metadata.WorktreePath, strings.NewReader(e.workspaceWritePrompt(ctx, assignment)+profileReferenceInstruction(launchWorkspace)))
 	harnessDuration := time.Since(harnessStartedAt).Milliseconds()
 	lastMessage, readErr := artifacts.readResult()
 	if runErr == nil && readErr != nil {
@@ -544,8 +544,8 @@ func (e CodexExecutor) projectPrompt(assignment Assignment, workspace profileWor
 	return harnessGuidance(config.HarnessCodexCLI, e.config, true) + buildCodexPrompt(assignment) + profileRepositoryInstruction(workspace)
 }
 
-func (e CodexExecutor) workspaceWritePrompt(assignment Assignment) string {
-	return harnessGuidance(config.HarnessCodexCLI, e.config, true) + buildWorkspaceWriteCodexPrompt(assignment) + implementationHandoff(e.config)
+func (e CodexExecutor) workspaceWritePrompt(ctx context.Context, assignment Assignment) string {
+	return harnessGuidance(config.HarnessCodexCLI, e.config, true) + buildWorkspaceWriteCodexPrompt(assignment) + implementationHandoff(ctx, e.config)
 }
 
 func (e CodexExecutor) runCodex(ctx context.Context, args []string, workingDir string, input io.Reader) (subprocess.Result, metrics.Usage, error) {

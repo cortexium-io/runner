@@ -170,7 +170,7 @@ func (e AgentExecutor) ExecuteWorkspaceWrite(ctx context.Context, assignment Ass
 	}
 	defer launchWorkspace.cleanup()
 	guidance := harnessGuidance(e.kind, e.config, true)
-	prompt := guidance + buildHarnessPrompt(assignment, true, e.displayName()) + profileReferenceInstruction(launchWorkspace) + implementationHandoff(e.config)
+	prompt := guidance + buildHarnessPrompt(assignment, true, e.displayName()) + profileReferenceInstruction(launchWorkspace) + implementationHandoff(ctx, e.config)
 	recordPromptContext(ctx, guidance)
 	if launchWorkspace.Dir != metadata.WorktreePath {
 		prompt += "\n\nAssigned worktree: " + metadata.WorktreePath

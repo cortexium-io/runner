@@ -103,7 +103,7 @@ func TestPromptContextUsesActualPinnedGuidanceNotTaskData(t *testing.T) {
 		}
 	}
 	executor := CodexExecutor{config: cfg}
-	prompt := executor.workspaceWritePrompt(reviewerAssignment())
+	prompt := executor.workspaceWritePrompt(t.Context(), reviewerAssignment())
 	if strings.Index(prompt, "--- END RUNNER-PINNED SKILL ---") > strings.Index(prompt, "Title:") {
 		t.Fatal("Codex launch placed shared guidance after variable task data")
 	}

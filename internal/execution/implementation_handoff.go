@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -11,10 +12,16 @@ import (
 
 // Appended after stable guidance/task context so invocation timing cannot
 // invalidate the reusable instruction prefix. Paths grant no new host access.
-func implementationHandoff(cfg config.ExecutionConfig) string {
+func implementationHandoff(ctx context.Context, cfg config.ExecutionConfig) string {
 	var b strings.Builder
 	if cfg.Harness.TimeoutSeconds > 0 {
-		fmt.Fprintf(&b, "\n\nImplementation runtime budget: %s from launch. Prompt prepared at %s. Reserve time for the repository-required final gate and structured handoff; use observed gate durations rather than starting a gate that cannot fit. Preserve honest partial evidence and remaining work if completion is no longer feasible; do not report success, waive checks, or leave validation running in the background.\n", time.Duration(cfg.Harness.TimeoutSeconds)*time.Second, time.Now().UTC().Format(time.RFC3339))
+		now := time.Now()
+		deadline := now.Add(time.Duration(cfg.Harness.TimeoutSeconds) * time.Second)
+		if inherited, ok := ctx.Deadline(); ok && inherited.Before(deadline) {
+			deadline = inherited
+		}
+		remaining := max(deadline.Sub(now), 0).Truncate(time.Second)
+		fmt.Fprintf(&b, "\n\nImplementation runtime budget: at most %s remaining at prompt preparation (%s); finish by %s. This is the earlier of the inherited execution deadline and this invocation's configured timeout, not a fresh allowance after setup, repair or a specialist handoff. Reserve time for required verification, any necessary repair and the structured handoff; use observed gate durations rather than starting a gate that cannot fit. Preserve honest partial evidence and remaining work if completion is no longer feasible; do not report success, waive checks, or leave validation running in the background.\n", remaining, now.UTC().Format(time.RFC3339), deadline.UTC().Format(time.RFC3339))
 	}
 	if len(cfg.ReviewEvidencePaths) > 0 {
 		paths, _ := json.Marshal(cfg.ReviewEvidencePaths)

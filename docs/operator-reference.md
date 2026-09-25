@@ -929,11 +929,19 @@ Implementers receive these destinations in their task prompt and are asked to
 retain minimal receipts, candidate manifests, setup outcomes and a concise
 applicability index as work progresses. Prefer a dedicated directory already
 covered by the repository's ignored-artifact convention; do not select the whole
-reports tree. The prompt also states the effective implementation runtime budget
-and asks the implementer to reserve time for required final verification. This
-does not extend the timeout or relax a gate. Configuration does not reconstruct
-old reports: when recovering an existing candidate, explicitly collect its
-retained proof without altering results or claiming unobserved checks succeeded.
+reports tree. At each implementation launch, the prompt states the remaining
+runtime and UTC deadline, capped by both the inherited execution deadline and
+the invocation's configured timeout. Setup, corrective passes and specialist
+handoffs do not renew the original execution budget. The implementer must reserve
+time for required verification, necessary repairs and its structured result;
+insufficient time requires honest partial evidence, not skipped checks or success.
+This is budgeting guidance, not a test-duration predictor or a guarantee that a
+model will finish its handoff in time. It does not extend the timeout or relax a
+gate. Configuration does not reconstruct old reports: when recovering an
+existing candidate, explicitly collect its retained proof without altering
+results or claiming unobserved checks succeeded.
+Assess delivery cost using the existing [evaluation evidence](model-profile-evaluation.md),
+including retained per-check timings; a harness interval alone is not test time.
 
 Before QA, Runner copies the selection into a private read-only evidence bundle
 outside both the candidate and writable verification copy. The manifest lists
