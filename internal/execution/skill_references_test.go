@@ -24,6 +24,10 @@ func TestImplementationAdaptersLaunchWithSkillReferences(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			cfg := testWorkspaceWriteConfig(t)
 			cfg.Harness.Kind, cfg.Harness.Command = kind, kind
+			cfg.Harness.TimeoutSeconds = 7200
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
+			defer cancel()
+			deadline, _ := ctx.Deadline()
 			cfg.Skills = []string{"runner-implementer", "runner-interaction-design"}
 			cfg.ReviewEvidencePaths = []string{"test-results/runner-review-evidence"}
 			if kind == config.HarnessPiCLI {
@@ -33,6 +37,9 @@ func TestImplementationAdaptersLaunchWithSkillReferences(t *testing.T) {
 			run := &implementationReferenceRunner{representationResidueRunner: representationResidueRunner{kind: kind}, inspect: func(prompt string, args []string) {
 				if !strings.Contains(prompt, `test-results/runner-review-evidence`) || !strings.Contains(prompt, "Implementation runtime budget:") {
 					t.Fatal("native implementation launch omitted configured handoff/budget")
+				}
+				if !strings.Contains(prompt, "finish by "+deadline.UTC().Format(time.RFC3339)) || strings.Contains(prompt, "2h0m0s from launch") {
+					t.Fatal("native implementation launch advertised a fresh budget instead of its inherited deadline")
 				}
 				_, suffix, found := strings.Cut(prompt, "Runner-pinned skill reference root: ")
 				if !found {
@@ -45,9 +52,9 @@ func TestImplementationAdaptersLaunchWithSkillReferences(t *testing.T) {
 			var output Output
 			var err error
 			if kind == config.HarnessCodexCLI {
-				output, err = NewCodexExecutor(cfg, run).ExecuteWorkspaceWrite(t.Context(), assignment, nil)
+				output, err = NewCodexExecutor(cfg, run).ExecuteWorkspaceWrite(ctx, assignment, nil)
 			} else {
-				output, err = NewAgentExecutor(kind, cfg, run).ExecuteWorkspaceWrite(t.Context(), assignment, nil)
+				output, err = NewAgentExecutor(kind, cfg, run).ExecuteWorkspaceWrite(ctx, assignment, nil)
 			}
 			if err != nil || output.Outcome != OutcomeSucceeded || root == "" {
 				t.Fatalf("implementation with design references: %#v %v", output, err)

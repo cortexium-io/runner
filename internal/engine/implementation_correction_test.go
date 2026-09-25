@@ -105,6 +105,11 @@ func TestImplementationRepairRetainsWorkEvidenceDeadlineAndUsage(t *testing.T) {
 	if run.deadlines[0].IsZero() || !run.deadlines[0].Equal(run.deadlines[1]) {
 		t.Fatalf("repair renewed the original deadline: %v", run.deadlines)
 	}
+	for _, prompt := range run.prompts {
+		if !strings.Contains(prompt, "finish by "+deadline.UTC().Format(time.RFC3339)) || strings.Contains(prompt, "from launch") {
+			t.Fatal("implementation or repair prompt contradicted the enforced original deadline")
+		}
+	}
 	if !strings.Contains(run.prompts[1], "selection.spec.ts:42") || !strings.Contains(run.prompts[1], "selection-to-edit") || !strings.Contains(run.prompts[1], "Kept compact toolbar") {
 		t.Fatal("repair prompt lost prior work, failure evidence or remaining correction")
 	}
