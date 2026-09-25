@@ -15,6 +15,7 @@ type ReauthorizationPlan struct {
 	TargetLaneID string   `json:"target_lane_id"`
 	TargetStatus string   `json:"target_status"`
 	Role         string   `json:"role"`
+	Result       string   `json:"result"`
 
 	item WorkItem
 	next AuthorizedAction
@@ -43,17 +44,21 @@ func (s *Project) PlanReauthorization(ctx context.Context, selector string) (Rea
 }
 
 func (s *Project) planReauthorization(item WorkItem, items []WorkItem) (ReauthorizationPlan, error) {
-	if item.Approval == "" && item.Branch != "" && item.PullRequest != "" {
-		return ReauthorizationPlan{}, errors.New("retained PR work needs an explicitly scoped review; preview `retry --item ITEM_ID --reauthorize --qa-only --dry-run` while preserving its runtime history")
-	}
 	if !strings.EqualFold(strings.TrimSpace(item.Status), s.assessmentStatus()) || strings.TrimSpace(item.Approval) != "" {
 		return ReauthorizationPlan{}, errors.New("reauthorization requires a card in assessment with missing Runner approval")
 	}
 	lane := s.laneIDForStatus(s.readyStatus())
 	role := s.cfg.LaneRoles[lane]
-	if lane == "" || role == "" || strings.TrimSpace(item.Phase) != lane || strings.TrimSpace(item.Branch) == "" ||
-		strings.TrimSpace(item.PullRequest) != "" || strings.TrimSpace(item.QACommit) != "" {
-		return ReauthorizationPlan{}, errors.New("reauthorization supports only retained, unpublished implementation work in the configured Ready phase")
+	published := strings.TrimSpace(item.PullRequest) != ""
+	if lane == "" || role == "" || strings.TrimSpace(item.Branch) == "" || item.PlanRelease != "" {
+		return ReauthorizationPlan{}, errors.New("reauthorization requires a retained implementation branch and configured Ready lane; plan delivery parents cannot return to implementation")
+	}
+	if published {
+		if item.Phase != "" || !validGitObjectID(item.QACommit) {
+			return ReauthorizationPlan{}, errors.New("published reauthorization requires completed publication with an exact QA commit and no active phase; paused reviewer work requires --qa-only")
+		}
+	} else if strings.TrimSpace(item.Phase) != lane || strings.TrimSpace(item.QACommit) != "" {
+		return ReauthorizationPlan{}, errors.New("unpublished reauthorization requires retained implementation work in the configured Ready phase")
 	}
 	if item.PlanningMetadataInvalid || strings.TrimSpace(item.Transition) != "" || strings.TrimSpace(item.Activity) != "" ||
 		strings.TrimSpace(item.Body) == "" || item.QAFailures < 0 || strings.TrimSpace(item.DraftContentID) != "" {
@@ -62,6 +67,14 @@ func (s *Project) planReauthorization(item WorkItem, items []WorkItem) (Reauthor
 	next := item
 	next.Status = s.readyStatus()
 	next.Result = "Operator reauthorized the retained implementation and requested a retry."
+	if published {
+		feedback, err := pullRequestFeedbackProjectResult(item.Repository, item.PullRequest)
+		if err != nil {
+			return ReauthorizationPlan{}, err
+		}
+		next.Phase = lane
+		next.Result += "\n\n" + feedback
+	}
 	action, err := s.signAction(next, role, lane)
 	if err != nil {
 		return ReauthorizationPlan{}, err
@@ -77,7 +90,7 @@ func (s *Project) planReauthorization(item WorkItem, items []WorkItem) (Reauthor
 	if reason, summary := s.planningBatchEligibilityIn(action.Item, newWorkItemIndex(released)); reason != "" {
 		return ReauthorizationPlan{}, fmt.Errorf("cannot recover this card independently: %s", summary)
 	}
-	return ReauthorizationPlan{Item: item, TargetLaneID: lane, TargetStatus: next.Status, Role: role, item: item, next: action}, nil
+	return ReauthorizationPlan{Item: item, TargetLaneID: lane, TargetStatus: next.Status, Role: role, Result: next.Result, item: item, next: action}, nil
 }
 
 // ApplyReauthorization must follow the operator's exact preview and the
@@ -99,6 +112,7 @@ func (s *Project) ApplyReauthorization(ctx context.Context, plan Reauthorization
 	}
 	if err := s.applyFieldUpdates(ctx, next.ID,
 		textProjectField(s.resultFieldName(), next.Result),
+		textProjectField(s.phaseFieldName(), next.Phase),
 		textProjectField(s.approvalFieldName(), next.Approval),
 		statusProjectField(s.statusFieldName(), next.Status),
 	); err != nil {

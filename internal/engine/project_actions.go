@@ -32,7 +32,9 @@ func (s *Engine) transitionProjectItem(ctx context.Context, action github.Author
 }
 
 func (s *Engine) cleanupAuthorizedItemWorkspace(ctx context.Context, action github.AuthorizedAction) (workspace.CleanupResult, error) {
-	current, content, err := s.source.RefreshDelegatedContent(ctx, action)
+	// Cleanup must not revoke approval when a human has requested rework.
+	// Reject stale actions without mutating the card; normal intake adopts them.
+	current, err := s.source.RefreshAction(ctx, action)
 	if err != nil {
 		return workspace.CleanupResult{}, err
 	}
@@ -60,7 +62,7 @@ func (s *Engine) cleanupAuthorizedItemWorkspace(ctx context.Context, action gith
 	}
 	return workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).Cleanup(ctx, workspace.CleanupRequest{
 		WorkingDir: repoRoot, WorktreeRoot: s.implementationWorkspaceRoot(),
-		WorkID: "assignment_" + safeRefComponent(item.ID), ItemID: item.ID, DelegatedContentDigest: content.Digest,
+		WorkID: "assignment_" + safeRefComponent(item.ID), ItemID: item.ID, DelegatedContentDigest: github.DelegatedContentFor(item).Digest,
 		Repository: repository, BranchName: item.Branch, BaseRef: s.remoteName() + "/" + s.baseBranch(),
 	})
 }

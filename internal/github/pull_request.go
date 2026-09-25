@@ -178,6 +178,12 @@ func (m PullRequestManager) InspectForRecovery(ctx context.Context, repository, 
 	return m.inspect(ctx, repository, pullRequest, false, false)
 }
 
+// InspectRecoveryWithFeedback reads trusted discussion references without granting
+// permission to publish, refresh, comment, or merge.
+func (m PullRequestManager) InspectRecoveryWithFeedback(ctx context.Context, repository, pullRequest string) (PullRequestDetails, error) {
+	return m.inspect(ctx, repository, pullRequest, true, false)
+}
+
 // InspectAuthorizedWithFeedback performs the heavier review/comment lookup for
 // the uncommon paths that actually consume trusted human feedback.
 func (m PullRequestManager) InspectAuthorizedWithFeedback(ctx context.Context, action AuthorizedAction) (PullRequestDetails, error) {

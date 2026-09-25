@@ -2602,8 +2602,9 @@ The second command requires a terminal and defaults to **No**. Inspect the
 exact body, runtime fields, destination, and retained worktree before choosing
 Yes. In this mode `--json` is preview-only, and `--feedback` is not allowed.
 Runner requires unchanged approved content and its existing private worktree
-identity, the configured Ready implementation phase, no PR or QA commit, and
-valid complete-batch sibling authority. It checks these again before writing.
+identity and valid complete-batch sibling authority. Unpublished work needs
+the configured Ready implementation phase and no PR or QA commit. It checks
+these again before writing.
 This cannot individually approve a new staged child or recover changed task
 scope. Ordinary `retry` remains restricted to validly signed blocked work.
 
@@ -2612,6 +2613,24 @@ uncommitted work, private QA feedback, and QA failure count, and replaces the
 assessment error with a fixed operator-retry result. It does not grant QA
 acceptance, approve siblings, or reset the review budget. No config migration,
 skill update, or new state store is required for this recovery path.
+
+The same command also recovers a published card returned to assessment when
+its approval was lost during a human rework handoff. Published recovery requires
+no active phase, an open PR with auto-merge disabled and discussion from the
+configured GitHub actor, and an exact match between the retained branch, recorded
+QA commit, PR repository, head branch and head commit. The PR must target the
+configured base branch. Its original private identity must match the unchanged
+card content; a cleaned checkout is allowed, while a present checkout must be
+clean and at that exact commit. Plan-delivery parents and paused reviewer work
+are excluded.
+
+The preview includes the PR candidate and a trusted discussion reference.
+Confirmation preserves the PR, QA commit, branch, private evidence and failure
+count, and returns only that card to implementation with the discussion reference
+as feedback. Fresh implementation and QA are required before republishing; the
+historical QA commit grants no new acceptance. Runner checks the full preview
+again under the mutation guard. Cleanup itself only refuses stale authority; it
+never withdraws approval because a human moved the card to Ready.
 
 ### One-shot QA of a paused retained candidate
 
