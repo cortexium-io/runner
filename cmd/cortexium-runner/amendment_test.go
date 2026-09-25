@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/config"
+	"github.com/cortexium-io/runner/internal/engine"
 	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
@@ -109,6 +110,25 @@ func TestAmendCLIRequiresExactRequirementsAndInteractiveConfirmation(t *testing.
 	for _, forbidden := range []string{"issue edit", "project item-edit", "updateProjectV2ItemFieldValue"} {
 		if strings.Contains(string(calls), forbidden) {
 			t.Fatalf("preview wrote through %s", forbidden)
+		}
+	}
+}
+
+func TestAmendmentPreviewDistinguishesUnstartedWorkAndHistoricalProof(t *testing.T) {
+	for _, unstarted := range []bool{false, true} {
+		plan := engine.RequirementAmendment{Approval: github.AmendmentPlan{Item: github.WorkItem{ID: "item"}, RetryLane: "ready", Unstarted: unstarted}}
+		if !unstarted {
+			plan.Candidate.Head = "current-candidate"
+			plan.HistoricalCandidate.CommitOID = "prior-candidate"
+		}
+		var output bytes.Buffer
+		writeAmendmentPreview(&output, plan)
+		expected := "Verification candidate to archive (not current proof): prior-candidate"
+		if unstarted {
+			expected = "Unstarted released member: no workspace or prior execution will be created"
+		}
+		if !strings.Contains(output.String(), expected) || !strings.Contains(output.String(), "Retry lane: ready") {
+			t.Fatalf("incomplete preview: %s", output.String())
 		}
 	}
 }

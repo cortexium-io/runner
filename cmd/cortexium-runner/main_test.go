@@ -1566,6 +1566,7 @@ case "$1 $2" in
   "label list") printf '%s\n' '[{"name":"needs-assessment"}]' ;;
   "issue list") printf '%s\n' '[]' ;;
   "pr view") printf '%s\n' "$FAKE_GH_PR_JSON" ;;
+  "pr list") printf '%s\n' '[]' ;;
   "issue view") printf '%s\n' '{"labels":[{"name":"needs-assessment"}]}' ;;
   "issue edit") exit 0 ;;
   "project item-edit") exit 0 ;;

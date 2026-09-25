@@ -75,13 +75,19 @@ func runAmend(ctx context.Context, args []string, stdin io.Reader, stdout io.Wri
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "Amended %s. Candidate preserved; QA failures remain %d. Card is Blocked; review then use ordinary retry.\n", terminalSafeText(item.ID), item.QAFailures)
+	fmt.Fprintf(stdout, "Amended %s. Execution state preserved; QA failures remain %d. Card is Blocked; review then use ordinary retry.\n", terminalSafeText(item.ID), item.QAFailures)
 	return nil
 }
 
 func writeAmendmentPreview(output io.Writer, plan engine.RequirementAmendment) {
 	fmt.Fprintf(output, "Runner requirement amendment\nItem: %s\nRepository: %s\nCandidate: %s\nWorktree: %s\nRetained QA failures: %d\nRetry lane: %s\n",
-		terminalSafeText(plan.Approval.Item.ID), terminalSafeText(plan.Approval.Item.Repository), terminalSafeText(plan.Candidate.Head), terminalSafeText(plan.Workspace.WorktreePath), plan.Approval.Item.QAFailures, terminalSafeText(plan.Approval.Item.Phase))
+		terminalSafeText(plan.Approval.Item.ID), terminalSafeText(plan.Approval.Item.Repository), terminalSafeText(plan.Candidate.Head), terminalSafeText(plan.Workspace.WorktreePath), plan.Approval.Item.QAFailures, terminalSafeText(plan.Approval.RetryLane))
+	if plan.Approval.Unstarted {
+		fmt.Fprintln(output, "Unstarted released member: no workspace or prior execution will be created; recorded phase remains blank.")
+	}
+	if plan.HistoricalCandidate.CommitOID != "" {
+		fmt.Fprintf(output, "Verification candidate to archive (not current proof): %s\n", terminalSafeText(plan.HistoricalCandidate.CommitOID))
+	}
 	fmt.Fprintln(output, "\nPrevious approved body:")
 	for _, line := range strings.Split(plan.Approval.Item.Body, "\n") {
 		fmt.Fprintln(output, terminalSafeText(line))

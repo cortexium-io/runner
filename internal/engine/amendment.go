@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/cortexium-io/runner/internal/config"
@@ -16,12 +17,13 @@ import (
 )
 
 type RequirementAmendment struct {
-	Approval           github.AmendmentPlan `json:"approval"`
-	Workspace          workspace.Identity   `json:"workspace"`
-	Candidate          workspace.Snapshot   `json:"candidate"`
-	OldProof           []string             `json:"old_proof_obligations"`
-	NewProof           []string             `json:"new_proof_obligations"`
-	VerificationDigest string               `json:"historical_verification_digest,omitempty"`
+	Approval            github.AmendmentPlan `json:"approval"`
+	Workspace           workspace.Identity   `json:"workspace"`
+	Candidate           workspace.Snapshot   `json:"candidate"`
+	OldProof            []string             `json:"old_proof_obligations"`
+	NewProof            []string             `json:"new_proof_obligations"`
+	VerificationDigest  string               `json:"historical_verification_digest,omitempty"`
+	HistoricalCandidate workspace.Candidate  `json:"historical_candidate"`
 }
 
 func (s *Engine) PlanRequirementAmendment(ctx context.Context, selector, body string) (RequirementAmendment, error) {
@@ -29,9 +31,43 @@ func (s *Engine) PlanRequirementAmendment(ctx context.Context, selector, body st
 	if err != nil {
 		return RequirementAmendment{}, err
 	}
-	lane, ok := s.cfg.Workflow.Lanes[approval.Item.Phase]
+	lane, ok := s.cfg.Workflow.Lanes[approval.RetryLane]
 	if !ok || (s.cfg.RoleContract(lane.Role) != config.WorkRoleImplementer && s.cfg.RoleContract(lane.Role) != config.WorkRoleReviewer) {
 		return RequirementAmendment{}, errors.New("amendment supports only retained implementation or reviewer work")
+	}
+	if approval.Unstarted && s.cfg.RoleContract(lane.Role) != config.WorkRoleImplementer {
+		return RequirementAmendment{}, errors.New("unstarted amendment requires an implementation member")
+	}
+	if s.cfg.RoleContract(lane.Role) == config.WorkRoleReviewer && strings.TrimSpace(approval.Item.Branch) == "" {
+		return RequirementAmendment{}, errors.New("reviewer amendment requires the recorded Project branch; it cannot repair publication identity")
+	}
+	repo, err := s.repositoryDir(ctx, approval.Item.Repository)
+	if err != nil {
+		return RequirementAmendment{}, err
+	}
+	request := s.workspaceRequestForItem(approval.Item, github.DelegatedContentFor(approval.Item).Digest, repo, false)
+	branch, err := workspace.RequestBranch(request)
+	if err != nil {
+		return RequirementAmendment{}, err
+	}
+	if err := github.NewPullRequestManager(s.run, s.source).RequireUnpublishedBranch(ctx, approval.Item.Repository, branch); err != nil {
+		return RequirementAmendment{}, err
+	}
+	provider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
+	plan := RequirementAmendment{Approval: approval, OldProof: approvedVerificationContract(approval.Item.Body), NewProof: approvedVerificationContract(approval.Body)}
+	if approval.Unstarted {
+		if err := provider.VerifyWorkspaceAbsent(ctx, request); err != nil {
+			return RequirementAmendment{}, err
+		}
+		if err := s.checkAdoptionEvidenceAbsent(approval.Item.ID); err != nil {
+			return RequirementAmendment{}, err
+		}
+		return plan, nil
+	}
+	// Retiring an implementation checkpoint could replenish a spent deadline or
+	// correction allowance. This amendment does not authorize that recovery.
+	if digest, err := amendmentEvidenceDigest(s.implementationCheckpointPath(approval.Item.ID)); err != nil || digest != "" {
+		return RequirementAmendment{}, errors.Join(errors.New("amendment cannot retire an implementation checkpoint; inspect retained execution separately"), err)
 	}
 	identity, err := s.validateReauthorizationWorkspace(ctx, approval.Item)
 	if err != nil {
@@ -45,11 +81,6 @@ func (s *Engine) PlanRequirementAmendment(ctx context.Context, selector, body st
 	if !candidate.Clean || candidate.Branch != identity.Branch || !reviewObjectID(candidate.Head) || !reviewObjectID(candidate.Tree) {
 		return RequirementAmendment{}, errors.New("amendment requires a clean committed candidate on the retained branch")
 	}
-	repo, err := s.repositoryDir(ctx, approval.Item.Repository)
-	if err != nil {
-		return RequirementAmendment{}, err
-	}
-	provider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
 	metadata, err := provider.InspectRetainedReview(ctx, s.workspaceRequestForItem(approval.Item, identity.DelegatedContentDigest, repo, false))
 	if err != nil {
 		return RequirementAmendment{}, err
@@ -67,37 +98,45 @@ func (s *Engine) PlanRequirementAmendment(ctx context.Context, selector, body st
 	if _, accepted, err := provider.LoadPublicationAcceptance(ctx, metadata, acceptanceSnapshot); err != nil || accepted {
 		return RequirementAmendment{}, errors.Join(errors.New("amendment cannot carry retained publication acceptance; reassess the accepted candidate separately"), err)
 	}
-	oldProof := approvedVerificationContract(approval.Item.Body)
-	if _, err := s.loadVerificationEvidence(approval.Item, github.DelegatedContentFor(approval.Item), metadata,
-		workspace.Candidate{CommitOID: candidate.Head, TreeOID: candidate.Tree}, oldProof); err != nil {
+	// Validate the original record's authority, not its applicability to the
+	// correction. Only exact historical bytes are archived; normal execution
+	// still demands verification bound to its current candidate.
+	beforeDigest, err := amendmentEvidenceDigest(s.verificationEvidencePath(approval.Item.ID))
+	if err != nil {
 		return RequirementAmendment{}, err
+	}
+	record, err := s.readVerificationEvidence(approval.Item.ID)
+	if err != nil {
+		return RequirementAmendment{}, err
+	}
+	if record != nil {
+		if err := verificationEvidenceBinding(*record, approval.Item, github.DelegatedContentFor(approval.Item), metadata, plan.OldProof); err != nil {
+			return RequirementAmendment{}, err
+		}
+		plan.HistoricalCandidate = workspace.Candidate{CommitOID: record.CommitOID, TreeOID: record.TreeOID}
+		if err := provider.ValidateAmendmentHistory(ctx, metadata, acceptanceSnapshot, plan.HistoricalCandidate); err != nil {
+			return RequirementAmendment{}, err
+		}
 	}
 	verificationDigest, err := amendmentEvidenceDigest(s.verificationEvidencePath(approval.Item.ID))
-	if err != nil {
-		return RequirementAmendment{}, err
+	if err != nil || verificationDigest != beforeDigest {
+		return RequirementAmendment{}, errors.Join(errors.New("verification changed during amendment preview"), err)
 	}
-	return RequirementAmendment{Approval: approval, Workspace: identity, Candidate: candidate,
-		OldProof: oldProof, NewProof: approvedVerificationContract(approval.Body), VerificationDigest: verificationDigest}, nil
+	plan.Workspace, plan.Candidate, plan.VerificationDigest = identity, candidate, verificationDigest
+	return plan, nil
 }
 
-func (s *Engine) ApplyRequirementAmendment(ctx context.Context, plan RequirementAmendment) (github.WorkItem, error) {
+func (s *Engine) ApplyRequirementAmendment(ctx context.Context, plan RequirementAmendment) (item github.WorkItem, err error) {
 	// This rare authority change is intentionally offline. Normal CLI intake,
 	// planning, and retries remain usable while the coordinator is running.
-	worker, err := github.AcquireProcessLock(s.cfg.GitHubProject.GitHubProjectConfig)
-	if err != nil {
-		return github.WorkItem{}, fmt.Errorf("gracefully stop Runner before amending requirements: %w", err)
-	}
-	defer worker.Release()
-	guard, err := github.AcquirePlanningMutationLock(s.cfg.GitHubProject.GitHubProjectConfig)
-	if err != nil {
-		return github.WorkItem{}, err
-	}
-	defer guard.Release()
-	qa, err := github.AcquireQAReviewLock(s.cfg.GitHubProject.GitHubProjectConfig, plan.Approval.Item.ID)
-	if err != nil {
-		return github.WorkItem{}, err
-	}
-	defer qa.Release()
+	err = s.withOfflineDeliveryOperator([]string{plan.Approval.Item.ID}, func() error {
+		item, err = s.applyRequirementAmendment(ctx, plan)
+		return err
+	})
+	return item, err
+}
+
+func (s *Engine) applyRequirementAmendment(ctx context.Context, plan RequirementAmendment) (github.WorkItem, error) {
 	fresh, err := s.PlanRequirementAmendment(ctx, plan.Approval.Item.ID, plan.Approval.Body)
 	if err != nil {
 		return github.WorkItem{}, err
@@ -106,8 +145,12 @@ func (s *Engine) ApplyRequirementAmendment(ctx context.Context, plan Requirement
 	// fingerprint is public and participates in the exact preview comparison.
 	if !reflect.DeepEqual(plan.Approval, fresh.Approval) || plan.Workspace != fresh.Workspace ||
 		plan.Candidate.Fingerprint != fresh.Candidate.Fingerprint || plan.Candidate.Head != fresh.Candidate.Head ||
-		plan.Candidate.Tree != fresh.Candidate.Tree || plan.VerificationDigest != fresh.VerificationDigest || !reflect.DeepEqual(plan.OldProof, fresh.OldProof) || !reflect.DeepEqual(plan.NewProof, fresh.NewProof) {
+		plan.Candidate.Tree != fresh.Candidate.Tree || plan.VerificationDigest != fresh.VerificationDigest ||
+		!reflect.DeepEqual(plan.HistoricalCandidate, fresh.HistoricalCandidate) || !reflect.DeepEqual(plan.OldProof, fresh.OldProof) || !reflect.DeepEqual(plan.NewProof, fresh.NewProof) {
 		return github.WorkItem{}, errors.New("requirements, card, or candidate changed after amendment preview")
+	}
+	if fresh.Approval.Unstarted {
+		return s.source.ApplyAmendment(ctx, fresh.Approval)
 	}
 	repo, err := s.repositoryDir(ctx, fresh.Approval.Item.Repository)
 	if err != nil {

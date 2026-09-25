@@ -1006,6 +1006,40 @@ func (p GitProvider) HasPriorPublicationAcceptance(_ context.Context, metadata M
 	return priorPublicationAcceptance(metadata, commitOID)
 }
 
+// ValidateAmendmentHistory identifies an unaccepted predecessor for archival
+// only. It does not transfer its verification to the current candidate.
+func (p GitProvider) ValidateAmendmentHistory(ctx context.Context, metadata Metadata, current Snapshot, prior Candidate) error {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	if !validObjectID(prior.CommitOID) || !validObjectID(prior.TreeOID) {
+		return errors.New("historical verification has an invalid candidate identity")
+	}
+	if _, _, err := p.validatedPublicationAcceptance(ctx, metadata, current, "", "", false); err != nil {
+		return err
+	}
+	profile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
+	if err != nil {
+		return err
+	}
+	if err := rejectObjectRedirection(profile); err != nil {
+		return err
+	}
+	if err := p.rejectReplacementObjects(ctx, profile); err != nil {
+		return err
+	}
+	tree, err := p.privilegedScalar(ctx, profile, "rev-parse", "--verify", prior.CommitOID+"^{tree}")
+	if err != nil || tree != prior.TreeOID {
+		return errors.New("historical verification does not identify its literal candidate tree")
+	}
+	if result, err := p.privilegedGit(ctx, profile, "merge-base", "--is-ancestor", prior.CommitOID, current.Head); err != nil || result.ExitCode != 0 {
+		return errors.New("historical verification candidate is not an ancestor of the retained correction")
+	}
+	if accepted, err := priorPublicationAcceptance(metadata, prior.CommitOID); err != nil || accepted {
+		return errors.Join(errors.New("amendment cannot retire prior publication acceptance"), err)
+	}
+	return nil
+}
+
 func priorPublicationAcceptance(metadata Metadata, commitOID string) (bool, error) {
 	commitOID = strings.TrimSpace(commitOID)
 	if !validObjectID(commitOID) {

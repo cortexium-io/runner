@@ -8,18 +8,24 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/cortexium-io/runner/internal/config"
 )
 
 // AmendmentPlan changes the approved requirements, never scheduling metadata or
 // sibling authority. Execution remains paused until a separate ordinary retry.
 type AmendmentPlan struct {
-	Item WorkItem `json:"item"`
-	Body string   `json:"replacement_body"`
+	Item      WorkItem `json:"item"`
+	Body      string   `json:"replacement_body"`
+	RetryLane string   `json:"retry_lane"`
+	Unstarted bool     `json:"unstarted"`
 
 	after          AuthorizedAction
 	source         WorkItem
 	sourceApproval string
 }
+
+const unstartedAmendmentResult = "Operator amended the approved requirements before execution. QA failure count retained; explicit retry required."
 
 func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (AmendmentPlan, error) {
 	body = strings.TrimSpace(body)
@@ -38,10 +44,18 @@ func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (Ame
 	if err != nil {
 		return AmendmentPlan{}, fmt.Errorf("amendment requires intact existing approval: %w", err)
 	}
-	if item.PlanningMetadataInvalid || item.Branch == "" || item.PullRequest != "" || item.QACommit != "" || item.Activity != "" ||
-		(!strings.EqualFold(item.Status, s.blockedStatus()) && !s.agentStatus(item.Status)) || item.Phase == "" ||
-		!s.agentStatus(s.cfg.LaneStatuses[item.Phase]) || strings.EqualFold(item.IssueState, "CLOSED") {
-		return AmendmentPlan{}, errors.New("amendment requires paused, previously executed, unpublished agent work with no active assignment or QA acceptance; retain published work for separate reassessment")
+	unstarted := item.PlanningSourceLane == "local_plan" && item.PlanningSourceID == "" &&
+		item.Branch == "" && item.Phase == "" && item.QAFailures == 0 &&
+		(item.Result == "" || item.Result == unstartedAmendmentResult)
+	retryLane := item.Phase
+	if unstarted {
+		retryLane, _ = s.uniqueAgentLaneForRole(action.Role)
+	}
+	inactive := item.Activity == "" || (unstarted && item.Activity == config.RunnerActivityWaitingForDependencies)
+	if item.PlanningMetadataInvalid || item.PlanRelease != "" || item.PullRequest != "" || item.QACommit != "" || !inactive ||
+		(!strings.EqualFold(item.Status, s.blockedStatus()) && !s.agentStatus(item.Status)) || retryLane == "" ||
+		!s.agentStatus(s.cfg.LaneStatuses[retryLane]) || strings.EqualFold(item.IssueState, "CLOSED") {
+		return AmendmentPlan{}, errors.New("amendment requires paused unpublished work or a released unstarted local-plan member, with intact approval and no active assignment or QA acceptance")
 	}
 	if !s.isIntakeIssueURL(item.URL) {
 		return AmendmentPlan{}, errors.New("amendment requires an issue-backed card in the configured repository")
@@ -75,6 +89,9 @@ func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (Ame
 	next := item
 	next.Body, next.Status = body, s.blockedStatus()
 	next.Result = "Operator amended the approved requirements. Candidate and QA failure count retained; explicit retry required."
+	if unstarted {
+		next.Result = unstartedAmendmentResult
+	}
 	state, err := s.stateForStatus(next.Status)
 	if err != nil {
 		return AmendmentPlan{}, err
@@ -83,7 +100,7 @@ func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (Ame
 	if err != nil {
 		return AmendmentPlan{}, err
 	}
-	plan := AmendmentPlan{Item: item, Body: body, after: after}
+	plan := AmendmentPlan{Item: item, Body: body, RetryLane: retryLane, Unstarted: unstarted, after: after}
 	if item.PlanningSourceID != "" {
 		plan.source = index.byID[item.PlanningSourceID]
 		children := append([]WorkItem(nil), index.childrenBySource[item.PlanningSourceID]...)
