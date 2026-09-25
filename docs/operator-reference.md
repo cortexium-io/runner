@@ -2489,7 +2489,8 @@ approval cannot amend that contract either.
 ### Amending an approved requirement
 
 For an explicitly approved change of requirements on **unpublished retained
-work**, use `amend`. Prepare a complete replacement body that resolves the old
+work**, or an already-released, never-executed local-plan member, use `amend`.
+Prepare a complete replacement body that resolves the old
 requirement everywhere it appears, including acceptance criteria, constraints,
 and proof obligations. Preserve the exact Runner planning metadata and
 dependencies; this command cannot change scheduling, repository, or profiles.
@@ -2505,9 +2506,19 @@ cortexium-runner retry --config /absolute/operator/path/runner.json --item ITEM_
 
 The applying command requires an interactive terminal, previews the complete
 old and new bodies and exact clean candidate, and defaults to **No**. `--json`
-is preview-only. The selected card must have intact existing approval, a
-registered clean committed workspace, an implementation/reviewer retry phase,
-and no PR, QA acceptance, active assignment, or transition. Fresh staged cards
+is preview-only. Retained work must have intact existing approval, a
+registered clean committed workspace and an implementation/reviewer retry phase.
+A blank Project Branch is allowed only when the deterministic branch and exact
+private workspace identity validate; it does not permit guessing another branch.
+Released, unstarted local-plan members instead require proven absence of their
+workspace, branch, identity and execution evidence, zero QA failures, unchanged
+batch metadata, and one unambiguous implementation retry lane. Their phase
+remains blank; the preview explicitly identifies them as unstarted. Signed
+`Waiting for dependencies` activity is allowed only for these unstarted members.
+No card may have a PR (including a closed or merged PR on its branch), QA commit
+or publication acceptance, active assignment, or transition. A retained
+implementation checkpoint is refused: this command cannot replenish its spent
+deadline or correction allowance. Fresh staged cards
 still require complete-batch approval. Changed previews, workspace identities,
 candidates, and incomplete or invalid batches are refused. No model is called.
 
@@ -2517,19 +2528,25 @@ branch, rejection count, dependencies, profiles, and siblings. For a released
 Project-driven plan, its source's exact-child release binding is renewed without
 authorizing or changing another child. Previous QA feedback stays historical;
 the old private verification record is archived beside the active record under
-a content-digest suffix. Old proof and acceptance are never relabelled as
+a content-digest suffix. Verification bound to a predecessor of a clean committed
+correction may be archived only after validating its original item, content,
+workspace, criteria, literal commit/tree and ancestry; its exact bytes and source
+identities remain historical. Normal execution still requires current-candidate
+proof. Old proof and acceptance are never relabelled as
 evidence for the revised requirements. Both subsequent implementation and QA
 receive the same revised body and proof obligations through the existing shared
 assignment contract.
 
-The card is left `Blocked`, in its existing retry phase. After checking the
-result, an ordinary `retry` returns it to that phase without resetting the QA
+The card is left `Blocked`, in its existing retry phase (still blank for an
+unstarted member, with its authenticated role identifying the retry lane).
+After checking the result, an ordinary `retry` returns it to that lane without resetting the QA
 count; restart the original service when ready. Amendment itself does not
 implement, review, publish, or merge. A reviewer-phase candidate therefore can
 receive fresh QA directly, without another implementation pass.
 
 Applying an amendment requires the coordinator to have fully drained and
-stopped, and excludes concurrent operator QA and Project mutations. Normal
+stopped, and excludes concurrent planning, verification, operator QA and Project
+mutations, including unresolved owned descendants. Normal
 intake/planning/retry commands retain their concurrent behavior. Failed writes
 are read back: a confirmed commit is recognized, and known partial writes are
 restored only if no intervening operator edits occurred. On an uncertain outcome

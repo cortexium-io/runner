@@ -84,7 +84,27 @@ func (s *Engine) saveVerificationEntries(item github.WorkItem, content github.De
 }
 
 func (s *Engine) loadVerificationEvidence(item github.WorkItem, content github.DelegatedContent, metadata workspace.Metadata, candidate workspace.Candidate, criteria []string) ([]execution.VerificationEvidence, error) {
-	path := s.verificationEvidencePath(item.ID)
+	record, err := s.readVerificationEvidence(item.ID)
+	if err != nil || record == nil {
+		return nil, err
+	}
+	if err := verificationEvidenceBinding(*record, item, content, metadata, criteria); err != nil {
+		return nil, err
+	}
+	if record.CommitOID != strings.TrimSpace(candidate.CommitOID) || record.TreeOID != strings.TrimSpace(candidate.TreeOID) {
+		return nil, errors.New("private verification evidence does not match the approved candidate")
+	}
+	for index := range record.Entries {
+		if record.Entries[index].SourceCommitOID == "" {
+			record.Entries[index].SourceCommitOID = record.CommitOID
+			record.Entries[index].SourceTreeOID = record.TreeOID
+		}
+	}
+	return append([]execution.VerificationEvidence(nil), record.Entries...), nil
+}
+
+func (s *Engine) readVerificationEvidence(itemID string) (*verificationEvidenceRecord, error) {
+	path := s.verificationEvidencePath(itemID)
 	encoded, mode, state, err := securefs.ReadFile(path, maxVerificationEvidenceBytes)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -114,22 +134,21 @@ func (s *Engine) loadVerificationEvidence(item github.WorkItem, content github.D
 	if err := validateVerificationEvidenceRecord(record); err != nil {
 		return nil, err
 	}
+	return &record, nil
+}
+
+func verificationEvidenceBinding(record verificationEvidenceRecord, item github.WorkItem, content github.DelegatedContent, metadata workspace.Metadata, criteria []string) error {
 	if record.ItemID != strings.TrimSpace(item.ID) || record.DelegatedContentDigest != strings.TrimSpace(content.Digest) ||
 		record.Repository != strings.TrimSpace(metadata.Identity.Repository) || record.Branch != strings.TrimSpace(metadata.BranchName) ||
-		record.CommitOID != strings.TrimSpace(candidate.CommitOID) || record.TreeOID != strings.TrimSpace(candidate.TreeOID) ||
 		len(record.Entries) != len(criteria) {
-		return nil, errors.New("private verification evidence does not match the approved item, content, workspace, candidate, or criteria")
+		return errors.New("private verification evidence does not match the approved item, content, workspace, or criteria")
 	}
 	for index := range criteria {
 		if record.Entries[index].Criterion != strings.TrimSpace(criteria[index]) {
-			return nil, errors.New("private verification evidence does not match the approved item, content, workspace, candidate, or criteria")
-		}
-		if record.Entries[index].SourceCommitOID == "" {
-			record.Entries[index].SourceCommitOID = record.CommitOID
-			record.Entries[index].SourceTreeOID = record.TreeOID
+			return errors.New("private verification evidence does not match the approved criteria")
 		}
 	}
-	return append([]execution.VerificationEvidence(nil), record.Entries...), nil
+	return nil
 }
 
 func verificationEvidenceEntries(criteria, evidence []string) ([]execution.VerificationEvidence, error) {

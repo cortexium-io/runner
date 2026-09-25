@@ -927,11 +927,31 @@ func (m PullRequestManager) findPlanPublication(ctx context.Context, repository,
 	return m.findPublication(ctx, repository, branch, baseBranch, "all")
 }
 
+// RequireUnpublishedBranch refuses closed and merged PRs too, even when the
+// Project PR field is blank. An amendment must not erase publication history.
+func (m PullRequestManager) RequireUnpublishedBranch(ctx context.Context, repository, branch string) error {
+	if strings.TrimSpace(repository) == "" || strings.TrimSpace(branch) == "" {
+		return errors.New("amendment requires an exact repository and branch")
+	}
+	_, found, err := m.findPublication(ctx, repository, branch, "", "all")
+	if err != nil {
+		return err
+	}
+	if found {
+		return errors.New("amendment refuses a branch with an existing or historical pull request")
+	}
+	return nil
+}
+
 func (m PullRequestManager) findPublication(ctx context.Context, repository, branch, baseBranch, state string) (PublishedPullRequest, bool, error) {
-	result, err := subprocess.RunGitHub(ctx, m.run, []string{
-		"pr", "list", "--repo", repository, "--state", state, "--head", branch, "--base", baseBranch,
+	args := []string{
+		"pr", "list", "--repo", repository, "--state", state, "--head", branch,
 		"--limit", "100", "--json", "url,number,headRefName,baseRefName",
-	}, "", 30*time.Second)
+	}
+	if baseBranch != "" {
+		args = append(args, "--base", baseBranch)
+	}
+	result, err := subprocess.RunGitHub(ctx, m.run, args, "", 30*time.Second)
 	if err != nil {
 		return PublishedPullRequest{}, false, fmt.Errorf("find existing pull request: %w", commandFailure(err, result))
 	}
@@ -951,7 +971,7 @@ func (m PullRequestManager) findPublication(ctx context.Context, repository, bra
 		return PublishedPullRequest{}, false, fmt.Errorf("GitHub CLI returned %d open pull requests for the publication branch; expected at most one", len(payload))
 	}
 	match := payload[0]
-	if match.Number <= 0 || match.HeadRefName != branch || match.BaseRefName != baseBranch {
+	if match.Number <= 0 || match.HeadRefName != branch || (baseBranch != "" && match.BaseRefName != baseBranch) {
 		return PublishedPullRequest{}, false, errors.New("GitHub CLI returned a mismatched pull request for the publication branch")
 	}
 	url, err := validatedPullRequestSelector(repository, match.URL)

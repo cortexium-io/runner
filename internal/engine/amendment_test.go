@@ -23,7 +23,7 @@ func amendmentFixture(t *testing.T) (*Engine, *fakeGitHubProjectRunner, *recover
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	service, project, runner, metadata := reauthorizationFixture(t)
+	service, project, runner, metadata := reauthorizationFixtureWithBranch(t, "runner/assignment_pvti_recover")
 	item := &project.remoteItems[0]
 	item.Status, item.Phase, item.Result = "Agent QA", "agent_qa", "Implementation complete"
 	item.Body = strings.Replace(item.Body, "Complete the implementation", "Keep preview wrapping unchanged.\n\n## Proof obligations\n- Preview wrapping is unchanged.", 1)
@@ -131,7 +131,7 @@ func TestAmendmentPreservesCandidateHistoryAndBindsBothRolesToRevisedProof(t *te
 }
 
 func TestAmendmentRejectsUnapprovedOrChangedState(t *testing.T) {
-	for _, mutation := range []string{"body", "candidate", "dirty", "preview", "metadata", "unsigned", "published", "acceptance", "verification", "active", "sibling", "worker"} {
+	for _, mutation := range []string{"body", "candidate", "dirty", "preview", "metadata", "unsigned", "published", "remote_pr", "qa_commit", "acceptance", "verification", "checkpoint", "active", "sibling", "worker", "planning"} {
 		t.Run(mutation, func(t *testing.T) {
 			service, project, runner, metadata, body := amendmentFixture(t)
 			plan, err := service.PlanRequirementAmendment(t.Context(), project.remoteItems[0].ID, body)
@@ -158,6 +158,19 @@ func TestAmendmentRejectsUnapprovedOrChangedState(t *testing.T) {
 			case "published":
 				project.remoteItems[0].PullRequest = "https://github.com/owner/repo/pull/2"
 				project.remoteItems[0].Approval = testApproval(project.remoteItems[0])
+			case "remote_pr":
+				runner.pullRequests = `[{"number":2,"url":"https://github.com/owner/repo/pull/2","headRefName":"runner/assignment_pvti_recover","baseRefName":"another-base"}]`
+			case "qa_commit":
+				project.remoteItems[0].QACommit = plan.Candidate.Head
+				project.remoteItems[0].Approval = testApproval(project.remoteItems[0])
+			case "checkpoint":
+				path := service.implementationCheckpointPath(project.remoteItems[0].ID)
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(`{"incomplete":true}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			case "acceptance":
 				snapshot, err := service.checkoutSnapshotState(t.Context(), metadata.WorktreePath)
 				if err != nil {
@@ -179,6 +192,12 @@ func TestAmendmentRejectsUnapprovedOrChangedState(t *testing.T) {
 				project.remoteItems[1].Approval = ""
 			case "worker":
 				lock, err := github.AcquireProcessLock(service.cfg.GitHubProject.GitHubProjectConfig)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer lock.Release()
+			case "planning":
+				lock, err := github.AcquirePlanningLock(service.cfg.GitHubProject.GitHubProjectConfig)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -363,5 +382,211 @@ func TestAmendmentDoesNotOverwriteAnOperatorEditDuringMutation(t *testing.T) {
 	}
 	if !strings.HasSuffix(project.remoteItems[0].Body, "Concurrent operator edit.") || project.bodyEditWrites != 0 {
 		t.Fatal("operator edit overwritten")
+	}
+}
+
+func TestAmendmentRetainsUnpublishedWorkWithoutProjectBranch(t *testing.T) {
+	for _, state := range []string{"ready", "agent_qa"} {
+		t.Run(state, func(t *testing.T) {
+			service, project, runner, metadata, body := amendmentFixture(t)
+			item := &project.remoteItems[0]
+			item.Status, item.Phase, item.Branch = "Blocked", state, ""
+			item.Approval = testApproval(*item)
+			before := *item
+			preview, err := service.PlanRequirementAmendment(t.Context(), item.ID, body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, err := service.ApplyRequirementAmendment(t.Context(), preview)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.Branch != before.Branch || after.QACommit != before.QACommit || after.Phase != before.Phase || after.QAFailures != before.QAFailures {
+				t.Fatal("amendment changed candidate/review history")
+			}
+			current, err := workspace.CaptureSnapshotStateWithLimits(t.Context(), runner, metadata.WorktreePath, 30*time.Second, service.snapshotLimits())
+			if err != nil || current.Fingerprint != preview.Candidate.Fingerprint {
+				t.Fatalf("candidate changed: %v", err)
+			}
+			if _, err := service.PlanProjectItemRetry(t.Context(), after.ID); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestAmendmentArchivesHistoricalVerificationAfterCommittedCorrection(t *testing.T) {
+	service, project, runner, metadata, body := amendmentFixture(t)
+	item := project.remoteItems[0]
+	prior, err := service.checkoutSnapshotState(t.Context(), metadata.WorktreePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	criteria := approvedVerificationContract(item.Body)
+	if err := service.saveVerificationEvidence(item, github.DelegatedContentFor(item), metadata,
+		workspace.Candidate{CommitOID: prior.Head, TreeOID: prior.Tree}, criteria, []string{"Historical checks"}); err != nil {
+		t.Fatal(err)
+	}
+	path := service.verificationEvidencePath(item.ID)
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadata.WorktreePath, "correction.txt"), []byte("Retained correction\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "correction.txt"}, {"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "Retain correction"}} {
+		if _, err := runEngineTestGit(t.Context(), args, metadata.WorktreePath, 30*time.Second); err != nil {
+			t.Fatal(err)
+		}
+	}
+	preview, err := service.PlanRequirementAmendment(t.Context(), item.ID, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.loadVerificationEvidence(item, github.DelegatedContentFor(item), metadata,
+		workspace.Candidate{CommitOID: preview.Candidate.Head, TreeOID: preview.Candidate.Tree}, criteria); err == nil {
+		t.Fatal("normal execution reused proof from the old candidate")
+	}
+	if _, err := service.ApplyRequirementAmendment(t.Context(), preview); err != nil {
+		t.Fatal(err)
+	}
+	historical, err := os.ReadFile(path + ".superseded-" + preview.VerificationDigest)
+	if err != nil || string(historical) != string(original) {
+		t.Fatalf("old proof was relabelled or lost: %v", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old proof remains active: %v", err)
+	}
+	current, err := workspace.CaptureSnapshotStateWithLimits(t.Context(), runner, metadata.WorktreePath, 30*time.Second, service.snapshotLimits())
+	if err != nil || current.Head != preview.Candidate.Head || current.Tree != preview.Candidate.Tree {
+		t.Fatalf("correction changed: %v", err)
+	}
+}
+
+func TestAmendmentOfReleasedUnstartedLocalMemberCreatesNoWorkspace(t *testing.T) {
+	service, project, runner, body := unstartedAmendmentFixture(t)
+	before, sibling := project.remoteItems[1], project.remoteItems[0]
+	preview, err := service.PlanRequirementAmendment(t.Context(), before.ID, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Workspace.ItemID != "" || preview.Candidate.Head != "" {
+		t.Fatal("invented prior execution")
+	}
+	after, err := service.ApplyRequirementAmendment(t.Context(), preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != "Blocked" || after.Phase != "" || after.Branch != "" || after.QAFailures != before.QAFailures || after.Activity != before.Activity || preview.Approval.RetryLane != "ready" {
+		t.Fatal("invalid unstarted amendment state")
+	}
+	if !reflect.DeepEqual(project.remoteItems[0], sibling) {
+		t.Fatal("sibling changed")
+	}
+	request := service.workspaceRequestForItem(after, github.DelegatedContentFor(after).Digest, service.cfg.ProjectDir, false)
+	if err := workspace.NewGitProvider(runner).VerifyWorkspaceAbsent(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PlanProjectItemRetry(t.Context(), after.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PlanRequirementAmendment(t.Context(), after.ID, strings.Replace(body, "Verified with", "Rechecked with", 1)); err != nil {
+		t.Fatalf("unstarted amendment cannot be amended again: %v", err)
+	}
+}
+
+func unstartedAmendmentFixture(t *testing.T) (*Engine, *fakeGitHubProjectRunner, *recoveryTestRunner, string) {
+	t.Helper()
+	service, project, runner, _, _ := amendmentFixture(t)
+	item := &project.remoteItems[1]
+	item.Status, item.Phase, item.URL = "Ready", "", "https://github.com/owner/repo/issues/2"
+	item.Activity = config.RunnerActivityWaitingForDependencies
+	item.Approval = testApproval(*item)
+	return service, project, runner, strings.Replace(item.Body, "Works", "Verified with the approved local test service", 1)
+}
+
+func TestAmendmentUnstartedRefusalAndRollbackPreserveAllState(t *testing.T) {
+	for _, change := range []string{"workspace", "private_evidence", "active", "qa_count", "partial_write"} {
+		t.Run(change, func(t *testing.T) {
+			service, project, runner, body := unstartedAmendmentFixture(t)
+			item := &project.remoteItems[1]
+			preview, err := service.PlanRequirementAmendment(t.Context(), item.ID, body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch change {
+			case "workspace":
+				request := service.workspaceRequestForItem(*item, github.DelegatedContentFor(*item).Digest, service.cfg.ProjectDir, false)
+				if _, err := workspace.NewGitProvider(runner).Prepare(t.Context(), request); err != nil {
+					t.Fatal(err)
+				}
+			case "private_evidence":
+				path := service.verificationEvidencePath(item.ID)
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("retained history"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "active":
+				item.Activity = "Implementing"
+				item.Approval = testApproval(*item)
+			case "qa_count":
+				item.QAFailures = 1
+				item.Approval = testApproval(*item)
+			case "partial_write":
+				project.failApprovalAt = 1
+			}
+			before := append([]github.WorkItem(nil), project.remoteItems...)
+			if _, err := service.ApplyRequirementAmendment(t.Context(), preview); err == nil {
+				t.Fatal("unsafe or failed amendment accepted")
+			}
+			if !reflect.DeepEqual(before, project.remoteItems) {
+				t.Fatal("refusal/rollback changed card, counter, dependencies or siblings")
+			}
+		})
+	}
+}
+
+func TestAmendmentRefusesUnboundOrAcceptedHistoricalProof(t *testing.T) {
+	for _, change := range []string{"other_item", "wrong_tree", "nonancestor", "accepted"} {
+		t.Run(change, func(t *testing.T) {
+			service, project, runner, metadata, body := amendmentFixture(t)
+			item := project.remoteItems[0]
+			prior, err := service.checkoutSnapshotState(t.Context(), metadata.WorktreePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if change == "accepted" {
+				if _, err := workspace.NewGitProvider(runner).RecordPublicationAcceptance(t.Context(), metadata, prior, "Accepted", "Accepted candidate"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			candidate := workspace.Candidate{CommitOID: prior.Head, TreeOID: prior.Tree}
+			if change == "wrong_tree" {
+				candidate.TreeOID = strings.Repeat("a", 40)
+			}
+			if change == "nonancestor" {
+				result, err := runEngineTestGit(t.Context(), []string{"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit-tree", prior.Tree, "-m", "Unrelated history"}, metadata.WorktreePath, 30*time.Second)
+				if err != nil {
+					t.Fatal(err)
+				}
+				candidate.CommitOID = strings.TrimSpace(result.Stdout)
+			}
+			content := github.DelegatedContentFor(item)
+			if change == "other_item" {
+				content.Digest = "forged-content"
+			}
+			if err := service.saveVerificationEvidence(item, content, metadata, candidate, approvedVerificationContract(item.Body), []string{"Historical checks"}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := runEngineTestGit(t.Context(), []string{"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "Correction"}, metadata.WorktreePath, 30*time.Second); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.PlanRequirementAmendment(t.Context(), item.ID, body); err == nil {
+				t.Fatal("unbound or accepted history admitted")
+			}
+		})
 	}
 }

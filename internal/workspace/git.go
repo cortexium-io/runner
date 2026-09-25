@@ -35,7 +35,7 @@ type Request struct {
 // use. Schedulers can reserve it before Prepare without duplicating workspace
 // naming rules.
 func ResourceIdentity(request Request) (string, error) {
-	_, branchName, err := resolveWorktreeNames(request.WorkID, request.BranchPrefix, request.BranchName)
+	branchName, err := RequestBranch(request)
 	if err != nil {
 		return "", err
 	}
@@ -44,6 +44,13 @@ func ResourceIdentity(request Request) (string, error) {
 		return "", errors.New("workspace repository is required")
 	}
 	return repository + "/" + branchName, nil
+}
+
+// RequestBranch uses the same naming rules as workspace creation, without
+// creating a workspace or treating a blank Project field as lost identity.
+func RequestBranch(request Request) (string, error) {
+	_, branch, err := resolveWorktreeNames(request.WorkID, request.BranchPrefix, request.BranchName)
+	return branch, err
 }
 
 type CleanupRequest struct {

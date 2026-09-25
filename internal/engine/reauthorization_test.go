@@ -17,13 +17,21 @@ import (
 )
 
 type recoveryTestRunner struct {
-	project   *fakeGitHubProjectRunner
-	afterLock func()
+	project      *fakeGitHubProjectRunner
+	afterLock    func()
+	pullRequests string
 }
 
 func (r *recoveryTestRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
 	if command == "git" {
 		return runEngineTestGit(ctx, args, dir, timeout)
+	}
+	if command == "gh" && len(args) >= 2 && args[0] == "pr" && args[1] == "list" {
+		result := r.pullRequests
+		if result == "" {
+			result = "[]"
+		}
+		return subprocess.Result{Stdout: result}, nil
 	}
 	result, err := r.project.Run(ctx, command, args, dir, timeout)
 	if err == nil && argumentValue(args, "--field-id") == "F_transition" && argumentValue(args, "--text") == "v1" && r.afterLock != nil {
@@ -101,12 +109,16 @@ func TestCLIActionMutationExcludesWorkerRecovery(t *testing.T) {
 }
 
 func reauthorizationFixture(t *testing.T) (*Engine, *fakeGitHubProjectRunner, *recoveryTestRunner, workspace.Metadata) {
+	return reauthorizationFixtureWithBranch(t, "runner/retained")
+}
+
+func reauthorizationFixtureWithBranch(t *testing.T, branch string) (*Engine, *fakeGitHubProjectRunner, *recoveryTestRunner, workspace.Metadata) {
 	t.Helper()
 	repo, _ := createPublicationRepository(t)
 	planned := github.PlannedItem{Title: "Retained implementation", Repository: "owner/repo", Summary: "Complete the implementation", AcceptanceCriteria: []string{"Works"},
 		PlanningSourceLane: "local_plan", PlanningSourceFingerprint: "v1:source", PlanningDestination: "Ready", PlanningBatchFingerprint: "v1:batch", PlanningBatchSize: 2, PlanningItemIndex: 1, DependencyIDsResolved: true}
 	item := github.WorkItem{ID: "PVTI_recover", Title: planned.Title, Body: github.FormatPlannedItemBody(planned), Repository: "owner/repo", URL: "https://github.com/owner/repo/issues/1",
-		Status: "Needs assessment", Phase: "ready", Branch: "runner/retained", QAFailures: 2, Result: "Interrupted Project transition has incomplete Runner authority; review it and run approve again."}
+		Status: "Needs assessment", Phase: "ready", Branch: branch, QAFailures: 2, Result: "Interrupted Project transition has incomplete Runner authority; review it and run approve again."}
 	planned.PlanningItemIndex = 2
 	sibling := github.WorkItem{ID: "PVTI_sibling", Title: "Sibling", Body: github.FormatPlannedItemBody(planned), Repository: "owner/repo", Status: "Blocked", Phase: "ready"}
 	sibling.Approval = testApproval(sibling)
