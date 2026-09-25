@@ -84,7 +84,7 @@ func (s *Engine) continuePlanVerification(ctx context.Context, action github.Aut
 	lineage := observedLineage(&result)
 	lineage.ReviewedCandidate = metrics.ObjectIdentity{CommitOID: p.Candidate.Head, TreeOID: p.Candidate.Tree}
 	lineage.EvidenceCandidate = lineage.ReviewedCandidate
-	return s.publishAcceptedQA(ctx, action, lane, result, p.Metadata.RepoRoot, p.Metadata, *p.Publication)
+	return s.publishAcceptedQA(ctx, action, lane, result, p.Metadata.RepoRoot, p.Metadata, *p.Publication, attemptID)
 }
 
 func (s *Engine) classifyPlanVerificationFailure(ctx context.Context, action github.AuthorizedAction, lane config.ResolvedWorkflowLane, result RunResult, p *planVerificationProgress, attemptID string) RunResult {

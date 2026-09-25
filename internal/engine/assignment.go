@@ -47,6 +47,9 @@ func (s *Engine) assignment(item github.WorkItem, content github.DelegatedConten
 	if contract == config.WorkRoleReviewer {
 		instructions += "\n\nReview comparison base: " + s.remoteName() + "/" + s.baseBranch() + ". Use the initial or follow-up comparison scope specified by the shared reviewer contract."
 	}
+	if contract == config.WorkRoleImplementer {
+		instructions += s.cardVerificationInstructions()
+	}
 
 	assignmentID := "assignment_" + safeRefComponent(item.ID)
 	repository := strings.TrimSpace(item.Repository)

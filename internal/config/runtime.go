@@ -26,6 +26,7 @@ type RuntimeConfig struct {
 	PlanDelivery         *PlanDeliveryConfig
 	TestSpecialist       *TestSpecialistConfig
 	Verification         map[string]VerificationEntrypoint
+	CardVerification     *CardVerificationConfig
 	GitHubProject        ProjectConfig
 }
 
@@ -84,6 +85,7 @@ func (c Config) Resolve() (RuntimeConfig, error) {
 		PlanDelivery:         c.PlanDelivery,
 		TestSpecialist:       cloneTestSpecialist(c.TestSpecialist),
 		Verification:         c.Verification,
+		CardVerification:     c.CardVerification,
 		GitHubProject:        c.ResolveProject(),
 	}, nil
 }

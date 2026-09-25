@@ -14,6 +14,7 @@ type Spec struct {
 	ContextRefs            []string                  `json:"context_refs,omitempty"`
 	RequiredVerification   []string                  `json:"required_verification,omitempty"`
 	RecordedVerification   []VerificationEvidence    `json:"recorded_verification,omitempty"`
+	CardVerification       *VerificationEnvelope     `json:"card_verification,omitempty"`
 	ReviewBaseline         *ReviewBaseline           `json:"review_baseline,omitempty"`
 	ReviewCommentContext   []string                  `json:"review_comment_context,omitempty"`
 	ReviewBaseOID          string                    `json:"review_base_oid,omitempty"`

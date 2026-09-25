@@ -31,7 +31,15 @@ type Config struct {
 	PlanDelivery           *PlanDeliveryConfig               `json:"plan_delivery,omitempty"`
 	TestSpecialist         *TestSpecialistConfig             `json:"test_specialist,omitempty"`
 	Verification           map[string]VerificationEntrypoint `json:"verification,omitempty"`
+	CardVerification       *CardVerificationConfig           `json:"card_verification,omitempty"`
 	GitHubProject          *GitHubProjectConfig              `json:"github_project"`
+}
+
+// CardVerificationConfig authorizes one fixed operator command before card QA.
+// Host access belongs to this command, never to an implementation/review role.
+type CardVerificationConfig struct {
+	Entrypoint string `json:"entrypoint"`
+	Access     string `json:"access"`
 }
 
 // TestSpecialistConfig permits one explicitly requested test-only handoff. It
