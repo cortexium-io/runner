@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/cortexium-io/runner/internal/config"
@@ -36,6 +37,9 @@ func (s *Engine) PlanRequirementAmendment(ctx context.Context, selector, body st
 	}
 	if approval.Unstarted && s.cfg.RoleContract(lane.Role) != config.WorkRoleImplementer {
 		return RequirementAmendment{}, errors.New("unstarted amendment requires an implementation member")
+	}
+	if s.cfg.RoleContract(lane.Role) == config.WorkRoleReviewer && strings.TrimSpace(approval.Item.Branch) == "" {
+		return RequirementAmendment{}, errors.New("reviewer amendment requires the recorded Project branch; it cannot repair publication identity")
 	}
 	repo, err := s.repositoryDir(ctx, approval.Item.Repository)
 	if err != nil {

@@ -933,23 +933,50 @@ func (m PullRequestManager) RequireUnpublishedBranch(ctx context.Context, reposi
 	if strings.TrimSpace(repository) == "" || strings.TrimSpace(branch) == "" {
 		return errors.New("amendment requires an exact repository and branch")
 	}
-	_, found, err := m.findPublication(ctx, repository, branch, "", "all")
+	result, err := subprocess.RunGitHub(ctx, m.run, []string{
+		"pr", "list", "--repo", repository, "--state", "all", "--head", branch,
+		"--limit", "100", "--json", "url,number,headRefName,headRepository",
+	}, "", 30*time.Second)
 	if err != nil {
-		return err
+		return fmt.Errorf("inspect amendment publication history: %w", commandFailure(err, result))
 	}
-	if found {
-		return errors.New("amendment refuses a branch with an existing or historical pull request")
+	var payload []struct {
+		URL            string `json:"url"`
+		Number         int    `json:"number"`
+		HeadRefName    string `json:"headRefName"`
+		HeadRepository *struct {
+			NameWithOwner string `json:"nameWithOwner"`
+		} `json:"headRepository"`
+	}
+	if err := json.Unmarshal([]byte(result.Stdout), &payload); err != nil {
+		return fmt.Errorf("decode amendment publication history: %w", err)
+	}
+	for _, pr := range payload {
+		if pr.Number <= 0 || pr.HeadRefName != branch {
+			return errors.New("GitHub CLI returned a mismatched amendment publication")
+		}
+		if _, err := validatedPullRequestSelector(repository, pr.URL); err != nil {
+			return fmt.Errorf("invalid amendment publication URL: %w", err)
+		}
+		if pr.HeadRepository == nil || !config.ValidRepositoryName(pr.HeadRepository.NameWithOwner) {
+			return errors.New("amendment publication has unknown or invalid head repository")
+		}
+		// Branch names are not globally unique: an unrelated fork PR is not
+		// publication of this repository's retained candidate.
+		if strings.EqualFold(pr.HeadRepository.NameWithOwner, repository) {
+			return errors.New("amendment refuses a branch with an existing or historical pull request")
+		}
+	}
+	if len(payload) >= 100 {
+		return errors.New("amendment publication history may be incomplete; cannot prove the owned branch unpublished")
 	}
 	return nil
 }
 
 func (m PullRequestManager) findPublication(ctx context.Context, repository, branch, baseBranch, state string) (PublishedPullRequest, bool, error) {
 	args := []string{
-		"pr", "list", "--repo", repository, "--state", state, "--head", branch,
+		"pr", "list", "--repo", repository, "--state", state, "--head", branch, "--base", baseBranch,
 		"--limit", "100", "--json", "url,number,headRefName,baseRefName",
-	}
-	if baseBranch != "" {
-		args = append(args, "--base", baseBranch)
 	}
 	result, err := subprocess.RunGitHub(ctx, m.run, args, "", 30*time.Second)
 	if err != nil {
@@ -971,7 +998,7 @@ func (m PullRequestManager) findPublication(ctx context.Context, repository, bra
 		return PublishedPullRequest{}, false, fmt.Errorf("GitHub CLI returned %d open pull requests for the publication branch; expected at most one", len(payload))
 	}
 	match := payload[0]
-	if match.Number <= 0 || match.HeadRefName != branch || (baseBranch != "" && match.BaseRefName != baseBranch) {
+	if match.Number <= 0 || match.HeadRefName != branch || match.BaseRefName != baseBranch {
 		return PublishedPullRequest{}, false, errors.New("GitHub CLI returned a mismatched pull request for the publication branch")
 	}
 	url, err := validatedPullRequestSelector(repository, match.URL)

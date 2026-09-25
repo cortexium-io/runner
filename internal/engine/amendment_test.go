@@ -159,7 +159,7 @@ func TestAmendmentRejectsUnapprovedOrChangedState(t *testing.T) {
 				project.remoteItems[0].PullRequest = "https://github.com/owner/repo/pull/2"
 				project.remoteItems[0].Approval = testApproval(project.remoteItems[0])
 			case "remote_pr":
-				runner.pullRequests = `[{"number":2,"url":"https://github.com/owner/repo/pull/2","headRefName":"runner/assignment_pvti_recover","baseRefName":"another-base"}]`
+				runner.pullRequests = `[{"number":2,"url":"https://github.com/owner/repo/pull/2","headRefName":"runner/assignment_pvti_recover","headRepository":{"nameWithOwner":"owner/repo"},"baseRefName":"another-base"}]`
 			case "qa_commit":
 				project.remoteItems[0].QACommit = plan.Candidate.Head
 				project.remoteItems[0].Approval = testApproval(project.remoteItems[0])
@@ -394,6 +394,15 @@ func TestAmendmentRetainsUnpublishedWorkWithoutProjectBranch(t *testing.T) {
 			item.Approval = testApproval(*item)
 			before := *item
 			preview, err := service.PlanRequirementAmendment(t.Context(), item.ID, body)
+			if state == "agent_qa" {
+				if err == nil || !strings.Contains(err.Error(), "reviewer amendment requires the recorded Project branch") {
+					t.Fatalf("blank-branch reviewer amendment must refuse before writes: %v", err)
+				}
+				if !reflect.DeepEqual(*item, before) || project.bodyEditWrites != 0 {
+					t.Fatal("refusal changed the card")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -488,11 +497,22 @@ func TestAmendmentOfReleasedUnstartedLocalMemberCreatesNoWorkspace(t *testing.T)
 	if err := workspace.NewGitProvider(runner).VerifyWorkspaceAbsent(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.PlanProjectItemRetry(t.Context(), after.ID); err != nil {
+	retry, err := service.PlanProjectItemRetry(t.Context(), after.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.PlanRequirementAmendment(t.Context(), after.ID, strings.Replace(body, "Verified with", "Rechecked with", 1)); err != nil {
 		t.Fatalf("unstarted amendment cannot be amended again: %v", err)
+	}
+	resumed, err := service.ApplyProjectItemRetry(t.Context(), retry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Status != "Ready" || resumed.Phase != "ready" || resumed.Branch != "" || resumed.QAFailures != before.QAFailures || resumed.Body != body {
+		t.Fatal("ordinary retry did not preserve the amended unstarted member")
+	}
+	if err := workspace.NewGitProvider(runner).VerifyWorkspaceAbsent(t.Context(), request); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -2508,14 +2508,17 @@ The applying command requires an interactive terminal, previews the complete
 old and new bodies and exact clean candidate, and defaults to **No**. `--json`
 is preview-only. Retained work must have intact existing approval, a
 registered clean committed workspace and an implementation/reviewer retry phase.
-A blank Project Branch is allowed only when the deterministic branch and exact
-private workspace identity validate; it does not permit guessing another branch.
+A blank Project Branch is allowed for implementation work only, when the
+deterministic branch and exact private workspace identity validate; it does not
+permit guessing another branch. Reviewer-phase work requires its recorded
+Project branch so normal QA can validate publication identity.
 Released, unstarted local-plan members instead require proven absence of their
 workspace, branch, identity and execution evidence, zero QA failures, unchanged
 batch metadata, and one unambiguous implementation retry lane. Their phase
 remains blank; the preview explicitly identifies them as unstarted. Signed
 `Waiting for dependencies` activity is allowed only for these unstarted members.
-No card may have a PR (including a closed or merged PR on its branch), QA commit
+No card may have a PR (including a closed or merged PR from its repository and
+branch; a verified foreign fork is not the same publication), QA commit
 or publication acceptance, active assignment, or transition. A retained
 implementation checkpoint is refused: this command cannot replenish its spent
 deadline or correction allowance. Fresh staged cards

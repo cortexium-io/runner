@@ -29,6 +29,7 @@ type pullRequestTestRunner struct {
 	viewBase          string
 	viewBaseOID       string
 	viewOutput        string
+	listOutput        string
 	viewFailures      int
 	configuredActor   string
 	autoMergeErr      error
@@ -86,6 +87,9 @@ func (r *pullRequestTestRunner) Run(ctx context.Context, command string, args []
 		}
 		return subprocess.Result{Stdout: actor + "\n"}, nil
 	case strings.HasPrefix(joined, "pr list "):
+		if r.listOutput != "" {
+			return subprocess.Result{Stdout: r.listOutput}, nil
+		}
 		if r.ambiguousOpen {
 			return subprocess.Result{Stdout: `[{"url":"https://github.com/owner/repo/pull/12","number":12,"headRefName":"cortexium/task","baseRefName":"main"},{"url":"https://github.com/owner/repo/pull/13","number":13,"headRefName":"cortexium/task","baseRefName":"main"}]`}, nil
 		}
@@ -142,6 +146,42 @@ func (r *pullRequestTestRunner) Run(ctx context.Context, command string, args []
 
 func (r *pullRequestTestRunner) RunFailClosed(ctx context.Context, command string, args []string, dir string, timeout time.Duration, _, _ int) (subprocess.Result, error) {
 	return r.Run(ctx, command, args, dir, timeout)
+}
+
+func TestAmendmentUnpublishedBranchBindsHeadRepository(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		heads []string
+		want  string
+	}{
+		{name: "no publication"},
+		{name: "foreign fork", heads: []string{"outsider/repo"}},
+		{name: "owned publication", heads: []string{"owner/repo"}, want: "existing or historical"},
+		{name: "case insensitive owner", heads: []string{"OWNER/Repo"}, want: "existing or historical"},
+		{name: "fork does not hide owned publication", heads: []string{"outsider/repo", "owner/repo"}, want: "existing or historical"},
+		{name: "unknown head", heads: []string{""}, want: "head repository"},
+		{name: "malformed head", heads: []string{"repo"}, want: "head repository"},
+		{name: "bounded list may be incomplete", heads: strings.Split(strings.TrimSuffix(strings.Repeat("outsider/repo,", 100), ","), ","), want: "incomplete"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := make([]map[string]any, 0, len(tc.heads))
+			for i, head := range tc.heads {
+				payload = append(payload, map[string]any{"number": i + 1, "url": fmt.Sprintf("https://github.com/owner/repo/pull/%d", i+1), "headRefName": "runner/task", "headRepository": map[string]string{"nameWithOwner": head}})
+			}
+			encoded, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner := &pullRequestTestRunner{listOutput: string(encoded)}
+			err = NewPullRequestManager(runner, staticActionRefresher{}).RequireUnpublishedBranch(t.Context(), "owner/repo", "runner/task")
+			if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+				t.Fatalf("RequireUnpublishedBranch error = %v, want %q", err, tc.want)
+			}
+			if len(runner.calls) != 1 || !strings.Contains(runner.calls[0], "--state all") || !strings.Contains(runner.calls[0], "headRepository") || strings.Contains(runner.calls[0], "--base") {
+				t.Fatalf("absence query must include exact head identity across all states/bases: %v", runner.calls)
+			}
+		})
+	}
 }
 
 func TestPullRequestRoutineInspectionOmitsHeavyCollections(t *testing.T) {
