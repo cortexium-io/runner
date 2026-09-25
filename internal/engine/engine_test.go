@@ -6293,7 +6293,7 @@ func TestWorkspaceCleanupRefreshesBoundAuthority(t *testing.T) {
 	runGitTest(t, repo, "push", "-u", "origin", "cortexium/task")
 	runGitTest(t, repo, "checkout", "main")
 	item := github.WorkItem{
-		ID: "PVTI_stale_cleanup", Title: "Reject stale cleanup", Body: "Criteria", Repository: "owner/repo", Status: "PR Ready",
+		ID: "PVTI_stale_cleanup", Title: "Reject stale cleanup", Body: "Criteria", Repository: "owner/repo", Status: "PR Ready", URL: "https://github.com/owner/repo/issues/11",
 		PullRequest: "https://github.com/owner/repo/pull/12", Branch: "cortexium/task", QACommit: "qa-head",
 	}
 	item.Approval = testApproval(item)
@@ -6325,6 +6325,22 @@ func TestWorkspaceCleanupRefreshesBoundAuthority(t *testing.T) {
 	}
 	if _, err := service.cleanupAuthorizedItemWorkspace(t.Context(), github.AuthorizedAction{}); err == nil || !strings.Contains(err.Error(), "validated Runner authority") {
 		t.Fatalf("zero-value cleanup authority was accepted: %v", err)
+	}
+	// A human lane change retains the old signature until ordinary intake adopts
+	// it. Cleanup must refuse its stale action without parking or unsigning it.
+	project.loadRemoteItems()
+	changed = item
+	changed.Status = "Ready"
+	project.remoteItems = []github.WorkItem{changed}
+	if _, err := service.cleanupAuthorizedItemWorkspace(t.Context(), action); err == nil {
+		t.Fatal("cleanup accepted a human-reworked card with stale authority")
+	}
+	if !reflect.DeepEqual(project.remoteItems[0], changed) {
+		t.Fatal("cleanup revoked approval or changed the human rework request")
+	}
+	ready, err := service.source.ReadyItems(t.Context(), project.remoteItems, 1)
+	if err != nil || len(ready) != 1 {
+		t.Fatalf("human rework no longer eligible after cleanup refusal: %v", err)
 	}
 	if _, err := os.Lstat(prepared.WorktreePath); err != nil {
 		t.Fatalf("stale cleanup removed worktree %s: %v", prepared.WorktreePath, err)

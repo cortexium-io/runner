@@ -63,5 +63,8 @@ func writeReauthorizationPreview(output io.Writer, plan engine.ProjectItemReauth
 		fmt.Fprintf(output, "    %s\n", terminalSafeText(line))
 	}
 	fmt.Fprintln(output, "  Only this card returns to implementation; no QA acceptance or batch approval is granted.")
-	fmt.Fprintln(output, "  Result becomes: Operator reauthorized the retained implementation and requested a retry.")
+	fmt.Fprintf(output, "  Result becomes: %s\n", terminalSafeText(plan.Approval.Result))
+	if plan.PullRequest != nil {
+		fmt.Fprintf(output, "  Published candidate: %s at %s\n  Trusted PR discussion will guide rework; QA failures remain %d.\n", terminalSafeText(plan.PullRequest.URL), terminalSafeText(plan.PullRequest.HeadRefOID), item.QAFailures)
+	}
 }

@@ -1121,8 +1121,8 @@ held during planning, previews, or human confirmation. Existing whole-batch
 authority and exact-content checks remain responsible for preventing execution
 of partial or unapproved plans.
 
-`retry --reauthorize` is a narrow operator recovery path for an unpublished
-implementation parked in assessment with its approval missing. It requires a
+`retry --reauthorize` is a narrow operator recovery path for retained work
+parked in assessment with its approval missing. Unpublished work requires a
 retained registered worktree and private identity matching the exact delegated
 content, item, repository, branch, path, and configured base ref. It never
 creates an identity as recovery evidence. The operator must confirm the exact
@@ -1133,8 +1133,15 @@ Recovery preserves private feedback, worktree changes, and the QA failure count;
 it replaces the recovery error with a fixed retry classification and returns to
 implementation, never directly to QA, publication, or completion. Missing or
 changed content bindings, unapproved/incomplete batches, non-implementation
-phases, existing PRs, and QA commit snapshots fail closed. This is explicit new
-operator authority for retained work, not automatic reconstruction of a lost
+phases and incomplete publication state fail closed. Published human rework
+also supports an absent, cleaned checkout, provided its retained private identity
+and branch still match the unchanged content and an open same-repository PR at
+the recorded QA commit. It requires the configured base branch, disabled
+auto-merge, and trusted discussion. The preview and apply both revalidate these
+identities. Recovery retains PR/history/counters, records a discussion reference,
+and enters implementation without resetting the QA budget. Cleanup uses
+read-only authority refresh so a concurrent human status change cannot revoke
+approval. This is explicit new operator authority for retained work, not automatic reconstruction of a lost
 signature. It adds no persistent journal or approval store.
 
 `retry --reauthorize --qa-only` is a separate synchronous operator boundary for

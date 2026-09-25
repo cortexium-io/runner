@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -20,9 +21,14 @@ type recoveryTestRunner struct {
 	project      *fakeGitHubProjectRunner
 	afterLock    func()
 	pullRequests string
+	pullRequest  map[string]any
 }
 
 func (r *recoveryTestRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	if command == "gh" && len(args) >= 2 && args[0] == "pr" && args[1] == "view" && r.pullRequest != nil {
+		encoded, err := json.Marshal(r.pullRequest)
+		return subprocess.Result{Stdout: string(encoded)}, err
+	}
 	if command == "git" {
 		return runEngineTestGit(ctx, args, dir, timeout)
 	}

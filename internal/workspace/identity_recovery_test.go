@@ -41,6 +41,14 @@ func TestRecoveryIdentityRefusesUnsafePrivateRecord(t *testing.T) {
 			if _, err := provider.ValidateRetainedIdentity(t.Context(), request); err == nil {
 				t.Fatal("unsafe recovery identity accepted")
 			}
+			_, publishedErr := provider.ValidatePublishedIdentity(t.Context(), request)
+			if change == "missing worktree" {
+				if publishedErr != nil {
+					t.Fatalf("cleaned published identity rejected: %v", publishedErr)
+				}
+			} else if publishedErr == nil {
+				t.Fatal("unsafe published recovery identity accepted")
+			}
 		})
 	}
 }

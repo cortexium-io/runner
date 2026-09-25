@@ -128,7 +128,7 @@ func (p GitProvider) VerifyWorkspaceAbsent(ctx context.Context, request Request)
 	return nil
 }
 
-func (p GitProvider) validateRetainedIdentity(ctx context.Context, request Request, reviewOriginalContent bool) (Identity, error) {
+func (p GitProvider) validateRetainedBinding(ctx context.Context, request Request, reviewOriginalContent bool) (Identity, error) {
 	repoRoot, err := p.repositoryRoot(ctx, request.WorkingDir)
 	if err != nil {
 		return Identity{}, err
@@ -176,16 +176,45 @@ func (p GitProvider) validateRetainedIdentity(ctx context.Context, request Reque
 	if recorded != expected {
 		return Identity{}, workspaceIdentityMismatch(expected, recorded, true, "")
 	}
-	registeredBranch, registered, err := p.registeredWorktree(ctx, repoRoot, path)
+	return recorded, nil
+}
+
+func (p GitProvider) validateRetainedIdentity(ctx context.Context, request Request, reviewOriginalContent bool) (Identity, error) {
+	recorded, err := p.validateRetainedBinding(ctx, request, reviewOriginalContent)
 	if err != nil {
 		return Identity{}, err
 	}
-	if !registered || registeredBranch != branch || !p.branchExists(ctx, repoRoot, branch) {
+	registeredBranch, registered, err := p.registeredWorktree(ctx, request.WorkingDir, recorded.WorktreePath)
+	if err != nil {
+		return Identity{}, err
+	}
+	if !registered || registeredBranch != recorded.Branch || !p.branchExists(ctx, request.WorkingDir, recorded.Branch) {
 		return Identity{}, errors.New("recovery requires the matching retained task branch and registered worktree")
 	}
-	info, err := os.Lstat(path)
+	info, err := os.Lstat(recorded.WorktreePath)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return Identity{}, errors.New("retained worktree is missing or is not a no-follow directory")
+	}
+	return recorded, nil
+}
+
+// ValidatePublishedIdentity permits the checkout to have been cleaned after
+// publication, but requires its original private content binding and branch.
+// A present checkout still has to satisfy the ordinary retained-worktree checks.
+func (p GitProvider) ValidatePublishedIdentity(ctx context.Context, request Request) (Identity, error) {
+	recorded, err := p.validateRetainedBinding(ctx, request, false)
+	if err != nil {
+		return Identity{}, err
+	}
+	if _, err := os.Lstat(recorded.WorktreePath); !errors.Is(err, os.ErrNotExist) {
+		return p.validateRetainedIdentity(ctx, request, false)
+	}
+	_, registered, err := p.registeredWorktree(ctx, request.WorkingDir, recorded.WorktreePath)
+	if err != nil {
+		return Identity{}, err
+	}
+	if registered || !p.branchExists(ctx, request.WorkingDir, recorded.Branch) {
+		return Identity{}, errors.New("published recovery requires the retained branch and a fully removed or intact worktree")
 	}
 	return recorded, nil
 }
