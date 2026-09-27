@@ -6,6 +6,7 @@ import (
 
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/metrics"
+	"github.com/cortexium-io/runner/skills"
 )
 
 func TestPromptStablePrefixSurvivesDifferentCardsAndProofCounts(t *testing.T) {
@@ -55,14 +56,7 @@ func TestReviewerStageGuidanceIsScopedAcrossHarnesses(t *testing.T) {
 			focused := guidance + reviewerResolutionPrompt(assignment, reviewerHarnessDisplayName(kind), checks)
 			t.Logf("assembled audit: %d bytes / %d words; focused: %d bytes / %d words", len(audit), len(strings.Fields(audit)), len(focused), len(strings.Fields(focused)))
 			for _, prompt := range []string{audit, focused} {
-				if strings.Count(prompt, "The implementer owns how proof is produced") != 1 {
-					t.Fatal("shared evidence policy must have one authoritative home")
-				}
-				for _, boundary := range []string{"Never add, edit, delete, stage, commit", "A failed proof key records status", "Do not relabel an old receipt"} {
-					if !strings.Contains(prompt, boundary) {
-						t.Fatalf("review stage lost shared boundary %q", boundary)
-					}
-				}
+				assertPinnedReviewerGuidance(t, prompt)
 			}
 			for _, procedure := range []string{"Verification scheduling", "Unexplained timing failures", "unchanged automatic retry with adequate diagnostics", "deliberately warm up the app"} {
 				if strings.Contains(audit, procedure) || strings.Count(focused, procedure) != 1 {
@@ -77,6 +71,19 @@ func TestReviewerStageGuidanceIsScopedAcrossHarnesses(t *testing.T) {
 				t.Fatal("focused verification must receive only unresolved checks")
 			}
 		})
+	}
+}
+
+func assertPinnedReviewerGuidance(t *testing.T, prompt string) {
+	t.Helper()
+	skill, ok := (skills.EmbeddedCatalog{}).Get("runner-reviewer")
+	if !ok || len(skill.Content) == 0 {
+		t.Fatal("bundled reviewer guidance is missing")
+	}
+	// The catalog pins the reviewed policy bytes; check that every shared
+	// safeguard is injected exactly once without coupling assembly to its prose.
+	if strings.Count(prompt, strings.TrimSpace(string(skill.Content))) != 1 {
+		t.Fatal("complete pinned reviewer guidance must have one authoritative home")
 	}
 }
 

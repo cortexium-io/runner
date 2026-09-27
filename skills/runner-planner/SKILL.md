@@ -1,218 +1,138 @@
 ---
 name: runner-planner
-description: Plan Runner-assigned projects as dependency-aware work items with completion conditions and proof obligations. Use for Runner planning assignments.
+description: Plan Runner-assigned projects as dependency-aware cards with completion conditions and proof obligations.
 ---
 
 # Planner
 
-Create the smallest complete plan that preserves the requested outcome and lets
-independent work proceed independently.
+Create the smallest complete plan for the approved outcome, with independent work
+remaining independent. Use minimum sufficient complexity: current requirements,
+credible failure modes and faithful proof. Do not assume a UI, browser, database,
+network, deployment target or project type.
 
-## Working standard
+## Establish the contract
 
-Apply minimum sufficient complexity: include what correctness, security,
-clarity, operability, maintainability, and reliable proof require, and no more.
+Read repository instructions, relevant manifests/code/tests and approved project
+context. Preserve the original request as provenance. Identify exact accepted
+documents, designs, commits and reference paths; distinguish them from historical
+or rejected ideas. Never substitute a convenient example for a missing accepted
+reference. Include updates to superseded maintained guidance in its owning delivery
+card instead of creating a competing specification or task ledger.
 
-- Plan supported behavior, established invariants, and credible failure modes;
-  do not add speculative features, abstractions, dependencies, or edge cases.
-- Specify included and not-included work. Exclude unrelated changes by default;
-  do not fill cards with discretionary polish or extras.
-- Use direct, junior-readable boundaries and one clear representation for each
-  domain concept.
-- Keep the plan generic to the request and repository. Never assume a browser,
-  UI, network, database, package manager, deployment target, or project type.
+Distinguish immutable reference/contract pins, a card's starting base and its changed
+final candidate. Honor explicit fixed execution-base requirements. Otherwise use
+each card's fresh operator-confirmed base, accounting for accepted predecessor
+merges; do not freeze every card to the initial batch commit or require a changed
+candidate to equal its pre-edit identity. Surface unexplained identity conflicts.
 
-## Responsibilities
+Carry inspected facts needed by the tool-free details stage in the outline's
+constraints: supported producer/consumer contracts and data shapes, sources and
+authorized verification setup. A fixture or similarly named helper is not proof
+of the producer's contract. Resolve inspectable unknowns before handoff and separate
+facts, reversible defaults and missing human choices. A stronger execution profile
+cannot supply a missing contract.
 
-1. Read the repository instructions, manifests, relevant code and tests, and the
-   complete approved project context. Preserve the original request for
-   downstream traceability. Identify exact accepted documents, designs, commits,
-   or reference paths in the affected cards; distinguish them from historical or
-   rejected ideas. Do not substitute an available example for a missing approved
-   reference. Separate the current accepted behavior from the requested change;
-   a historical proposal is not an additional requirement. When the change
-   supersedes maintained guidance, include its update in the owning delivery
-   card, not a second specification or task ledger. Distinguish immutable
-   contract/reference pins, a card's starting
-   base, and its changed final candidate. An explicit fixed execution-base
-   requirement takes precedence. Otherwise, use each card's fresh
-   operator-confirmed starting base and account for accepted in-scope predecessor
-   merges; do not freeze every later card to the batch's initial commit. A
-   pre-edit identity check must not require the changed final candidate to equal
-   its starting base. Stop on unexplained identity conflicts.
-   Carry repository facts needed by the tool-free details stage in the outline's
-   constraints: the applicable contract and its source, supported data shapes,
-   and authorized verification setup. Distinguish inspected facts from selected
-   defaults and unresolved assumptions. A fixture or similarly named helper is
-   not proof of the producer's contract. Resolve inspectable questions before
-   handoff; a stronger implementation profile cannot replace a missing contract.
-   Keep temporary staging/approval status out of executable goals, constraints,
-   assumptions, and acceptance conditions. Describe future work conditionally
-   ("once approved"), not as permanently "planning-only" or "unapproved".
-   Preserve the original request as historical provenance and retain substantive
-   restrictions such as no production deployment or required mutation consent.
-2. State the project outcome, observable project-wide success conditions, hard
-   constraints, and selected reversible assumptions. Reserve open decisions for
-   missing human choices that prevent every safe complete plan; make reasonable
-   reversible choices otherwise. Preserve exact requested constraints and
-   human-approved tradeoffs, including verification timing and environment.
-   When two requirements conflict, identify both sources and the choice needed
-   in `open_decisions`; do not silently weaken, reinterpret, or reschedule one.
-   An outline with open decisions stops before details. If the details stage
-   discovers a new conflict, return it through the same `open_decisions` field;
-   unresolved decisions prevent staging and release. Do not add an investigation
-   card or another model pass to choose on the human's behalf.
-3. Decompose the outcome at natural behavioral or architectural review
-   boundaries. Each card must deliver coherent progress in one uninterrupted
-   implementer invocation. Split independently verifiable behavior; combine
-   fragments whose separation would leave a partial flow, inconsistent
-   contract, duplicate path, or unusable intermediate state. Size by behavior,
-   independent failure modes and proof, not a preferred card count. A single
-   user journey may cross several separately reviewable authority or data
-   boundaries. For visual work, establish the accepted direction in an early
-   useful slice rather than first comparing it at final readiness. Prove the
-   smallest complete journey across the changed boundaries early; do not defer
-   discovery of whether the pieces work together to a final catch-all card.
-4. Give every card one objective, observable completion conditions, proof
-   obligations, selected assumptions, and dependencies. Make clear what behavior
-   changes and which existing invariants it must preserve; connect both to proof
-   where they are at risk. Use the existing card fields, not mandatory new
-   headings or documents. A proof obligation says
-   what evidence must establish, not which command, framework, file, tool, or
-   implementation technique must produce it. The implementer owns that choice
-   after inspecting the affected code. Preserve an established verification
-   environment or host-only handoff as a constraint, not as permission to bypass
-   isolation or an obligation to perform unavailable host operations in a sandbox.
-   Distinguish receipt identity from check reuse: an old receipt cannot certify a
-   new candidate, but applicable underlying checks may support a new bound record
-   with explicit applicability reasoning and proof of the changed behavior.
-   Scope each obligation to the behavior at risk so the implementer can use the
-   lowest, fastest faithful check. A record update needs validation and
-   persistence evidence; form interaction is a separate UI concern. Do not turn
-   coverage of every feature into browser coverage of every permutation.
-5. Use dependencies only for real prerequisite relationships. Keep work
-   independent when separate worktrees can complete it without unfinished
-   output. Do not add dependencies merely because cards may edit the same files;
-   Runner isolates task branches and handles their integration separately.
-   When consumers need a new shared contract, identify its owner and establish
-   that contract before depending on it. Consumers of an already fixed contract
-   can proceed independently.
-   Also assess integration cost: independent-looking cards that redesign the same
-   selection/history representation or shared contract can force repeated conflict
-   repair and full validation. Give that coupled change one coherent owner, or
-   establish the shared contract in a prerequisite before independent consumers.
-   Shared filenames alone are not a dependency; use concrete coupling and known
-   verification cost, not blanket serialization or an oversized catch-all card.
-6. Ground acceptance in supported representative inputs and existing behavior,
-   not only newly constructed happy-path fixtures. When an existing format or
-   service is involved, identify the relevant producer/consumer contract and
-   preservation requirements. Do not invent compatibility with unsupported data
-   or require live customer data. Cover the primary user journey and only the
-   empty states, failures, persistence, recovery, compatibility, security, or
-   domain invariants that materially affect completeness.
-7. When Runner supplies a plan-delivery boundary, whole-plan review and complete
-   validation belong to that boundary; do not create a duplicate readiness card.
-   Represent Runner's maintained complete gate in its explicit configured delivery
-   obligation, not a duplicate project success criterion requiring QA to attest
-   an execution scheduled after acceptance. Keep product and engineering success
-   criteria factual. Preserve explicit approved pre-QA checks; if their timing
-   conflicts with delivery policy, identify the decision instead of silently
-   rescheduling or waiving them.
-   For the individual-card path, include a project-readiness card only when
-   integration or release evidence cannot be established by the delivery cards
-   themselves. Name that additional
-   evidence; merely repeating delivery checks or closing cards is not a separate
-   outcome. Its proof obligations
-   may cover the established complete local suite once and the smallest required
-   real-entrypoint smoke; it must not invent a test framework or interface.
-8. Do not create separate reviewer cards, cleanup filler, ceremonial testing
-   cards, or investigation-only work unless that investigation is the requested
-   outcome or an unavoidable dependency.
-9. Return the complete batch needed for the outcome. The Runner's schema ceiling
-   is emergency loop protection, never sizing guidance or a target.
-10. Before returning, remove any card, condition, or mechanism that can go
-    without weakening the outcome or its reliable proof.
+State the project outcome, observable project-wide success conditions, constraints
+and chosen reversible assumptions. Preserve exact requested limits and approved
+tradeoffs, including verification timing and environment. Use `open_decisions` only
+for human choices that prevent every safe complete plan. On conflict, identify both
+sources and the needed choice; do not silently weaken or reschedule a requirement.
+Open decisions stop outline-to-details progression and prevent staging/release.
+Return newly discovered details-stage conflicts through the same field rather than
+an investigation card or another model pass to choose for the human.
 
-## Task sizing
+Keep temporary approval/staging state out of executable goals and acceptance
+conditions. Describe future execution conditionally, such as “once approved”, not
+permanently “unapproved” or “planning-only”. Preserve substantive restrictions such
+as no deployment or required mutation consent.
 
-Runner may provide operator-selected regular or smaller downstream task sizing
-(represented internally as `standard` or `small`). Apply it without guessing capability from a harness or model name and
-without changing correctness or scope.
+## Coherent cards and dependencies
 
-- `standard` follows the responsibilities above.
-- `small` implementer granularity uses smaller coherent slices with one primary
-  independently verifiable behavior. Separate behavior that has different
-  observable states, can fail independently, or needs different evidence;
-  combine it when separation would make either slice incomplete or duplicate
-  work. Treat the configured timeout only as a safety bound.
-- `small` reviewer granularity makes completion conditions and proof obligations
-  especially literal and observable. It does not add reviewer cards or extra
-  testing.
+Split at natural behavioral or architectural review boundaries. Every card must
+deliver useful, independently verifiable progress in one uninterrupted implementer
+invocation. Combine fragments whose separation leaves partial flows, inconsistent
+contracts, duplicate paths or unusable states. Size by behavior, failure modes and
+proof, not card counts or timeout. Prove the smallest complete journey across changed
+boundaries early. Establish accepted visual direction early when visual work matters.
 
-## Execution profiles
+Give each card one objective, observable completion conditions, proof obligations,
+assumptions and real dependencies using existing fields. State changed behavior and
+required existing invariants, connecting at-risk claims to evidence. Scope accepted
+inputs and preservation requirements to the actual supported contract; do not invent
+legacy compatibility or demand live customer data. Include only failures, empty
+states, recovery, persistence or security conditions that affect completeness.
 
-For every generated card, choose a named profile from Runner's allowed
-implementation profiles and state a short task-specific reason, including when
-the configured default is suitable. Do not leave either field empty.
-Prefer the least costly suitable choice according to that guidance. Use the
-profile's task granularity when defining its card. Model and reasoning travel
-together; do not invent either, infer cross-model reasoning equivalence, or
-change the requirements to suit a cheaper profile. If the allowed profile
-selection is missing, report the missing configuration rather than invent one.
+A proof obligation describes what evidence must establish, not a prescribed command,
+file, framework or technique. The implementer chooses the smallest faithful method
+after inspecting the code. Preserve established setup or host-only handoffs as
+constraints, without authorizing sandbox bypass or unavailable host operations.
+An old receipt cannot certify a changed candidate. Applicable checks may support a
+new bound record with explicit reuse reasoning and affected-change proof.
 
-Base the reason on the hardest card-owned invariant, contract clarity, applicable
-repository examples, verification strength, and the consequence of a mistake.
-Distinguish existing invariant-specific tests from tests the implementer must
-still design: a large suite or a promised new test is not an established safety
-net. For coupled native selection/focus, source preservation and undo/history,
-use the operator's profile for substantial reasoning unless an inspected shared
-contract and applicable tests genuinely remove that uncertainty.
-Explain why an example applies or which prerequisite removes the uncertainty;
-"established patterns" alone is not a reason. A few files or a familiar component
-do not make a task mechanical when state transitions, partial data, authorization,
-or recovery need independent reasoning. Source-preserving edits, repeated-occurrence
-identity, or interacting selection and history can require substantial reasoning
-even behind a small UI change. Prefer a cheaper profile when the contract is
-fixed, the solution is well bounded, and mistakes are reliably detectable; use
-operator guidance for uncertainty or high-consequence work. Do not infer a
-universal capability ladder from model names, effort labels, or aggregate
-benchmarks. Missing tools, slow checks, and provider failures are environment
-constraints, not evidence that a different model will solve the card.
+Use dependencies for prerequisites, not merely shared filenames. Establish a new
+shared contract under one owner before dependent consumers; consumers of a fixed
+contract can work independently. Assess coupling and integration cost: cards that
+redesign the same state/identity/history representation may need one coherent owner
+or a contract prerequisite. Avoid both blanket serialization and oversized catch-all
+cards. Runner isolates task branches and coordinates integration.
 
-## Verification economy
+When Runner supplies a plan-delivery boundary, its maintained whole-plan review and
+complete gate belong there. Do not create a duplicate readiness card or success
+criterion requiring QA to attest a check scheduled after acceptance. Represent that
+gate in its configured delivery obligation. Preserve approved pre-QA checks; surface
+timing conflicts instead of waiving or moving them. On an individual-card path, add
+a readiness card only for concrete integration/release evidence delivery cards cannot
+establish, such as combined journeys or the required real-entrypoint smoke.
 
-- Include required final-gate cost when sizing an uninterrupted assignment. Use
-  observed timings when available; do not assume the whole runtime budget is
-  available for implementation. Avoid fragments whose only independent outcome
-  is another full validation of the same coupled change.
-- Runner supplies the approved shared outcome, criteria, decisions and scope.
-  Plan-delivery children reference their verified parent and revision. Keep
-  shared facts there once; card details should add the local
-  boundary, relevant contract references, and observable proof, not copy the
-  whole request or sibling requirements into every field.
-- Prefer one proof obligation that covers related claims over overlapping proof.
-- A durable new test is not a default deliverable. Reuse sufficient existing
-  assertions; allow a reasoned no-new-test decision when affected checks and
-  direct observations faithfully establish the change and credible regressions.
-- For a reported regression, require evidence of the smallest faithful
-  reproduction, grounded in the supported fixture shape and actual event or
-  transaction sequence. Add browser coverage when interaction or rendering is
-  needed to establish the claim. Distinguish a product defect from a test's
-  incorrect assumption or an expectation superseded by the approved change;
-  do not convert every historical failure into new product scope.
-- Broad suites and full-system evidence belong only at the narrowest integration
-  boundary that needs them, unless repository policy requires them earlier.
-  An integration card should add cross-feature journeys and combined-candidate
-  proof, not repeat unchanged feature matrices already covered by delivery cards.
-- For time-based behavior, require deterministic accelerated evidence when it
-  preserves production semantics: controlled clocks for schedules and ordinary
-  fixed-size simulation steps run without wall-clock pacing or rendering, with
-  controlled randomness where relevant. Require real-time evidence only when
-  actual pacing or scheduler integration is part of the claim.
+Do not add reviewer cards, cleanup filler, ceremonial testing or investigation-only
+work unless investigation is requested or an unavoidable prerequisite. Return the
+complete necessary batch; the schema ceiling is emergency loop protection, not a
+target. Remove cards or mechanisms that add no outcome or protection.
 
-## Result
+## Execution profiles and task sizing
 
-Return the project outcome, project-wide success conditions, constraints,
-selected assumptions, genuinely blocking open decisions, and the complete
-ordered card outline and details requested by the Runner. Keep planning separate
-from approval and execution authority.
+Use Runner's allowed profiles and operator guidance. Select a named implementation
+profile and a task-specific reason for every card, including when the default fits.
+Report missing profile configuration rather than inventing models, effort labels or
+cross-model equivalence. Preserve correctness and scope regardless of profile.
+
+Base selection on the hardest owned invariant, contract clarity, applicable local
+examples, established invariant-specific tests and the consequence of error. A large
+suite, small diff or promised future test does not establish a safety net. Coupled
+state transitions, partial data, identity, authorization or recovery may require
+substantial reasoning despite a small UI. Explain which observed contract/example
+reduces uncertainty; “established patterns” alone is insufficient. Choose the least
+costly suitable allowed profile. Environment/tool failures or slow checks are not
+evidence that a more capable model resolves the constraint.
+
+Honor operator-selected `standard` or `small` sizing without guessing from model
+names. `standard` follows the boundaries above. `small` implementation means smaller
+coherent slices with one primary independently verifiable behavior; combine only
+where separation makes either incomplete. `small` review makes conditions and proof
+especially literal and observable, without extra reviewer cards or testing.
+
+## Verification economy and result
+
+Include required gate cost in an uninterrupted assignment, using observed durations
+when available. Avoid fragments whose only independent outcome is another full
+validation of the same coupled change. Keep shared approved outcome, constraints and
+decisions once in the verified parent/revision; card details add only local contracts,
+boundaries and proof rather than duplicating the request or sibling requirements.
+
+Prefer one obligation covering related claims over overlapping evidence demands.
+New durable tests are not default deliverables when existing assertions/observations
+suffice. For regressions, require a faithful reproduction grounded in supported data
+and actual event/transaction order; distinguish defects from bad test assumptions or
+approved expectation changes. Use browser evidence only when interaction/rendering
+requires it. Validation/persistence can be shown at backend level; form interaction
+is a separate claim. Keep permutations at lower levels.
+
+Place broad evidence at the narrowest integration boundary that needs it, subject
+to repository gates. Combined-candidate proof should add cross-feature journeys,
+not repeat unchanged feature matrices. Require accelerated deterministic time or
+simulation evidence when faithful, and real-time checks only for actual pacing or
+scheduler claims.
+
+Return the complete requested outline/details, outcome, project success conditions,
+constraints, selected assumptions and genuinely blocking `open_decisions`. Keep
+planning distinct from approval and execution authority.

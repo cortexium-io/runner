@@ -2942,6 +2942,14 @@ both outcomes, and diagnostic observations. Runner retains these entries bound
 to the candidate; ignored reports and temporary logs are not copied into QA.
 Artifact paths and aggregate pass counts alone do not establish the result.
 
+Bundled skills 1.10.4 consolidate the planner, implementer and reviewer guidance
+without changing execution, permissions, stage schemas or verification gates.
+The shorter skills retain scoped authority, candidate-bound evidence, economical
+verification and the distinction between missing proof and demonstrated defects.
+Their reviewed bytes are pinned in Runner's catalog; existing installations of
+these exact streamlined skills pass Doctor without reverting to the older text.
+The interaction-design skill and its references are unchanged.
+
 Bundled skills 1.10.3 narrow regression investigation to supported fixtures and
 the affected event or transaction sequence. Start with the smallest faithful
 reproduction, adding browser coverage when interaction or rendering is part of
