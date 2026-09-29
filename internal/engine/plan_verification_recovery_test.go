@@ -756,3 +756,50 @@ func TestPlanClassifierUnresolvedCleanupRetainsOwnerAndAdmission(t *testing.T) {
 		t.Fatalf("restart repeated or hid unresolved work: %s calls=%d usage=%+v", recovered.FailureClass, r.classifications, recovered.Usage)
 	}
 }
+
+func TestLegacyPlanCheckpointPreservesReportAndProtectedGate(t *testing.T) {
+	f, _, p := interruptGuardedPublication(t)
+	assessment := p.Accepted.ReviewAssessment
+	assessment.Requirements, assessment.Brief = execution.ReviewCheckResult{}, execution.ReviewBrief{}
+	p.Report = fmt.Sprintf("**Runner QA classification:** Accepted\n\nRequired criteria: %d passed · 0 failed.\nRepository rules: 1 passed · 0 failed.\nMaintainability: passed.\n\nDetailed feedback is posted on issue-backed cards and retained locally for retries; Project drafts use the retained feedback only.", len(assessment.Criteria))
+	p.Comment = fmt.Sprintf("## Cortexium Runner Agent QA\n\n**Verdict:** Accepted\n\n%s\n\nProof obligations: %d passed · 0 failed.", assessment.Summary, len(assessment.Criteria))
+	gate, _ := json.Marshal(p.Gate)
+	publication, _ := json.Marshal(p.Publication)
+	record, err := f.service.readReviewFeedbackRecord(f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.PlanVerification = p
+	if err := f.service.writeReviewFeedback(*record); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := retainedPlanProgress(t, f)
+	gotGate, _ := json.Marshal(reloaded.Gate)
+	gotPublication, _ := json.Marshal(reloaded.Publication)
+	if reloaded.Report != p.Report || reloaded.Comment != p.Comment || string(gotGate) != string(gate) || string(gotPublication) != string(publication) || !reloaded.Accepted.ReviewAssessment.HasLegacyContract() {
+		t.Fatal("upgrade changed historical report or protected delivery evidence")
+	}
+	if execution.ValidateReviewOutput(reloaded.Assignment, reloaded.Accepted) == nil {
+		t.Fatal("old acceptance was promoted to a fresh completeness review")
+	}
+	reloaded.Comment += " edited"
+	if reloaded.validate() == nil {
+		t.Fatal("legacy compatibility allowed changed report bytes")
+	}
+}
+
+func TestPlanRepairCoverageIncludesRequirementsBeyondChecklist(t *testing.T) {
+	delivery := github.PlanDelivery{Children: []github.WorkItem{{ID: "owner"}}}
+	assessment := execution.ReviewAssessment{Verdict: "needs_changes", Requirements: execution.ReviewCheckResult{Status: "failed"}}
+	if validatePlanRepairCoverage(delivery, assessment) == nil {
+		t.Fatal("unowned requirements defect authorized repair")
+	}
+	assessment.RepairTargets = []execution.PlanRepairTarget{{CheckKey: "C", ItemID: "owner", Finding: "Restore the approved UI", InScope: true}}
+	if err := validatePlanRepairCoverage(delivery, assessment); err != nil {
+		t.Fatalf("in-scope requirements defect could not reach its owning card: %v", err)
+	}
+	assessment.Requirements.Status = "needs_input"
+	if validatePlanRepairCoverage(delivery, assessment) == nil {
+		t.Fatal("human decision authorized code repair")
+	}
+}

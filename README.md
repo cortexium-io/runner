@@ -534,6 +534,26 @@ call containing only those unresolved keys. The reviewer reuses existing focused
 checks and never creates a second test framework, broad benchmark, or unrelated
 diagnostic path.
 
+QA also checks whether the original request and established affected contracts
+are covered by the obligations and candidate. Passing the listed checks cannot
+hide missing required recovery, preservation, or consumer behavior. A material
+conflicting requirement or missing human choice produces `needs_input`: Runner
+pauses for a decision without consuming a QA rejection or starting automatic
+rework. Independent verification and discovered defects are retained. Resolve
+the question through existing issue context or amend and reapprove the card
+when its requirements change, then retry QA.
+
+The QA issue comment identifies the reviewed commit and explains why the change
+exists, consequential assumptions, and remaining verification limits. Accepted
+reviews include the delivered result and each requested outcome with its
+reviewer-reported evidence, preserving distinctions between source inspection,
+reused results, and fresh checks. New PR descriptions identify the accepted
+commit and point to this completion report; cards without a source issue retain
+the report locally. QA acceptance does not establish merge, CI, or deployment
+status. Pending checks stay in their check records; focused verification
+contributes only its remaining caveats. These explanations grant no additional
+authority. Project status reports continue to contain bounded Runner classifications.
+
 After a Project planning card produces an executable result, Runner saves the
 exact normalized plan in a private checkpoint before creating children. If
 GitHub staging fails partway through, an exact retry skips the planner, reuses

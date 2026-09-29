@@ -20,6 +20,16 @@ func ValidateReviewOutput(assignment Assignment, output Output) error {
 	return validateReviewAssessmentForAssignment(assignment, output.Outcome, output.ReviewAssessment)
 }
 
+// ValidateRetainedReviewOutput preserves the original contract of protected
+// pre-upgrade checkpoints. It must not validate a new harness response or grant
+// baseline reuse; callers must still revalidate the saved authority and evidence.
+func ValidateRetainedReviewOutput(assignment Assignment, output Output) error {
+	if err := ValidateAssignmentContext(assignment.Spec); err != nil {
+		return err
+	}
+	return validateReviewAssessment(assignment, output.Outcome, output.ReviewAssessment, true)
+}
+
 // ReviewPlanVerificationFailure uses exactly the existing evidence-audit stage.
 // It cannot resolve missing proof by starting focused checks or another gate.
 // The caller owns the durable spent allowance and the observed failure binding;

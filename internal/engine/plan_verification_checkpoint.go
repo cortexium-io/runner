@@ -89,13 +89,20 @@ func (p *planVerificationProgress) validate() error {
 	if p.Accepted.Outcome != execution.OutcomeSucceeded || p.Accepted.ReviewAssessment == nil || p.Accepted.ReviewAssessment.Verdict != "accept" {
 		return errors.New("parent verification progress lacks accepted QA")
 	}
-	if err := execution.ValidateReviewOutput(p.Assignment, p.Accepted); err != nil {
+	if err := execution.ValidateRetainedReviewOutput(p.Assignment, p.Accepted); err != nil {
 		return err
 	}
 	if err := metrics.ValidateUsage(p.Accepted.Usage); err != nil {
 		return err
 	}
-	if p.Report != formatQAReport(*p.Accepted.ReviewAssessment, p.Accepted.Verification, p.Accepted.Usage) || p.Comment != formatQAComment(*p.Accepted.ReviewAssessment) {
+	comment := formatQAComment(*p.Accepted.ReviewAssessment, p.Candidate.Head)
+	if p.Accepted.ReviewAssessment.HasLegacyContract() {
+		// Old accepted comments only contained the verdict, summary and counts.
+		// Preserve their exact bytes and publication identity across an upgrade.
+		a := *p.Accepted.ReviewAssessment
+		comment = boundedReviewText(fmt.Sprintf("## Cortexium Runner Agent QA\n\n**Verdict:** %s\n\n%s\n\nProof obligations: %d passed · 0 failed.", reviewVerdictLabel(a.Verdict), boundedReviewText(a.Summary, 1_000), len(a.Criteria)), 28_000)
+	}
+	if p.Report != formatQAReport(*p.Accepted.ReviewAssessment, p.Accepted.Verification, p.Accepted.Usage) || p.Comment != comment {
 		return errors.New("parent QA report no longer matches the retained assessment")
 	}
 	if p.Gate != nil && (p.Gate.Receipt != nil || p.Gate.CurrentCandidateCheck != nil) && p.EnvelopeDigest == "" {

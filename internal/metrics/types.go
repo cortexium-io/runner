@@ -121,7 +121,7 @@ func validReviewVerdict(event Event) bool {
 		return false
 	}
 	switch event.ReviewVerdict {
-	case "accept", "needs_changes", "blocked":
+	case "accept", "needs_changes", "blocked", "needs_input":
 		return true
 	default:
 		return false
@@ -522,7 +522,7 @@ func validRetainedAttemptEvidence(event Event) bool {
 
 func validReviewArea(value string) bool {
 	switch value {
-	case "acceptance", "repository_rules", "maintainability":
+	case "acceptance", "requirements", "repository_rules", "maintainability":
 		return true
 	default:
 		return false
@@ -531,7 +531,7 @@ func validReviewArea(value string) bool {
 
 func validReviewStatus(value string) bool {
 	switch value {
-	case "passed", "failed", "blocked":
+	case "passed", "failed", "blocked", "needs_input":
 		return true
 	default:
 		return false
@@ -715,7 +715,7 @@ func Summarize(attempts []Attempt) Summary {
 		case "needs_changes":
 			result.ReviewChangesRequestedAttempts++
 			result.ReviewVerdictCoveredAttempts++
-		case "blocked":
+		case "blocked", "needs_input":
 			result.ReviewBlockedAttempts++
 			result.ReviewVerdictCoveredAttempts++
 		}

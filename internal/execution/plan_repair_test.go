@@ -78,7 +78,7 @@ func TestPlanRepairRoutingSurvivesFocusedResolutionAndBaseline(t *testing.T) {
 	// Build the explicit unresolved check rather than relying on JSON map order.
 	audit.Criteria["P2"] = reviewerContentCheck{Status: "check_required", Summary: "Does the changed source pass?", Evidence: []string{"Not yet executed"}}
 	unresolved := reviewerUnresolvedChecks(a, audit)
-	resolution, err := decodeReviewerResolutionContent(unresolved, `{"checks":{"P2":{"status":"failed","summary":"Changed source fails.","evidence":["Focused fixture demonstrated the failure."]}},"summary":"One defect.","repair_targets":[{"check_key":"P2","item_id":"child-b","finding":"Fix the dependent check","in_scope":true}]}`, a.Spec)
+	resolution, err := decodeReviewerResolutionContent(unresolved, `{"limitations":[],"checks":{"P2":{"status":"failed","summary":"Changed source fails.","evidence":["Focused fixture demonstrated the failure."]}},"summary":"One defect.","repair_targets":[{"check_key":"P2","item_id":"child-b","finding":"Fix the dependent check","in_scope":true}]}`, a.Spec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,32 @@ func TestPlanRepairRoutingSurvivesFocusedResolutionAndBaseline(t *testing.T) {
 	if err := ValidateReviewBaseline(a.Spec, baseline); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := decodeReviewerResolutionContent(unresolved, `{"checks":{"P2":{"status":"passed","summary":"Pass","evidence":["Passed"]}},"summary":"Pass","repair_targets":[{"check_key":"P1","item_id":"child-a","finding":"Hijack audit","in_scope":true}]}`, a.Spec); err == nil {
+	if _, err := decodeReviewerResolutionContent(unresolved, `{"limitations":[],"checks":{"P2":{"status":"passed","summary":"Pass","evidence":["Passed"]}},"summary":"Pass","repair_targets":[{"check_key":"P1","item_id":"child-a","finding":"Hijack audit","in_scope":true}]}`, a.Spec); err == nil {
 		t.Fatal("focused stage changed resolved audit ownership")
+	}
+}
+
+func TestPlanRequirementsRepairUsesOnlyEstablishedDefects(t *testing.T) {
+	a := deliveryReviewAssignment()
+	schema, err := reviewerAuditSchema(len(a.Spec.RequiredVerification), a.Spec)
+	if err != nil || !strings.Contains(string(schema), `"C"`) {
+		t.Fatalf("requirements omitted from repair schema: %s %v", schema, err)
+	}
+	for _, status := range []string{"failed", "passed", "blocked", "needs_input", "check_required"} {
+		t.Run(status, func(t *testing.T) {
+			content := passingAuditContent(t)
+			content.Requirements.Status = status
+			content.RepairTargets = []PlanRepairTarget{{CheckKey: "C", ItemID: "child-a", Finding: "Restore approved behavior outside the proof checklist", InScope: true}}
+			out, err := assembleReviewerContent(a, encodeReviewTestContent(t, content))
+			if status != "failed" {
+				if err == nil {
+					t.Fatal("non-defect authorized a repair")
+				}
+				return
+			}
+			if err != nil || out.ReviewAssessment.Verdict != "needs_changes" || ValidateReviewOutput(a, reviewerExecutorOutput(out)) != nil {
+				t.Fatalf("requirements defect cannot route to its owner: %#v %v", out, err)
+			}
+		})
 	}
 }

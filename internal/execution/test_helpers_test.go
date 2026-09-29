@@ -66,9 +66,11 @@ func passingMockReviewAssessment(packet Spec) *ReviewAssessment {
 		Summary: "The test reviewer evaluated the mandatory repository rules.", Findings: []ReviewRuleFinding{},
 	}}
 	return &ReviewAssessment{
-		Criteria: criteria,
-		Rules:    rules,
-		Maintainability: ReviewMaintainabilityResult{
+		Requirements: ReviewCheckResult{Status: "passed", Summary: "Approved outcome covered.", Evidence: []string{"Compared original request and candidate."}},
+		Brief:        ReviewBrief{Rationale: "Deliver the approved behavior.", Assumptions: []string{}, Limitations: []string{}},
+		Criteria:     criteria,
+		Rules:        rules,
+		Maintainability: ReviewCheckResult{
 			Status:   "passed",
 			Summary:  "The test reviewer found no maintainability blocker.",
 			Evidence: []string{"deterministic test review"},

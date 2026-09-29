@@ -80,7 +80,7 @@ func (r *harnessConformanceTestRunner) runModel(_ context.Context, command strin
 		}
 		response = `{"outcome":"succeeded","summary":"Conformance file written.","work_done":["Created conformance-write.txt."],"verification":["Exact content verified.","git diff --check passed."],"blockers":[]}`
 	case strings.Contains(text, "Shared reviewer evidence-audit stage"):
-		response = `{"criteria":{"P1":{"status":"passed","summary":"The fixture is correct.","evidence":["The expected marker is present."]}},"repository_rules":{"status":"passed","summary":"No rule violation exists.","evidence":["The fixture is unchanged."]},"maintainability":{"status":"passed","summary":"The fixture is minimal.","evidence":["Only two focused fixture files exist."]},"summary":"The known-good fixture passes."}`
+		response = `{"criteria":{"P1":{"status":"passed","summary":"The fixture is correct.","evidence":["The expected marker is present."]}},"repository_rules":{"status":"passed","summary":"No rule violation exists.","evidence":["The fixture is unchanged."]},"maintainability":{"status":"passed","summary":"The fixture is minimal.","evidence":["Only two focused fixture files exist."]},"summary":"The known-good fixture passes.","requirements":{"status":"passed","summary":"The approved fixture contract is covered.","evidence":["The exact marker satisfies the complete request."]},"brief":{"rationale":"Prove the reviewer harness contract.","assumptions":[],"limitations":[]}}`
 	default:
 		return subprocess.Result{}, errors.New("unexpected conformance prompt")
 	}

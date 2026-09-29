@@ -31,6 +31,9 @@ func validatePlanRepairCoverage(delivery github.PlanDelivery, assessment executi
 		return errors.New("whole-plan repair requires a concrete rejection")
 	}
 	failed := map[string]bool{}
+	if assessment.Requirements.Status == "failed" {
+		failed["C"] = true
+	}
 	for index, criterion := range delivery.Manifest.SuccessCriteria {
 		for _, check := range assessment.Criteria {
 			if check.Criterion == criterion && check.Status == "failed" {

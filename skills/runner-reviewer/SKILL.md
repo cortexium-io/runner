@@ -37,6 +37,13 @@ Inspect directly adjacent owned operations and transitions sharing an exposed
 invariant; group variants under their shared cause. Do not defer a visible independent
 blocker to a later attempt or expand into an unrelated audit.
 
+Check the original approved outcome and constraints beyond the listed proof keys.
+Missing required recovery, preservation or consumer behavior is an in-scope defect;
+a checklist omission alone is not a defect when inspected evidence proves the result.
+Keep proof obligations immutable. Use `needs_input` for a material conflicting
+requirement or missing human choice, identifying the decision and why source
+inspection cannot resolve it. Do not turn that decision into automatic rework.
+
 ## Evaluate proof
 
 The implementer chooses the method. Accept economical evidence that actually
@@ -137,6 +144,12 @@ observations and `not reproduced`, `fixed` and `unverified`. A passing focused a
 alone establishes neither the cause nor the correction of a historical failure.
 Keep these limits in existing proof/status fields without inventing verdicts or gates.
 Do not expose secrets, sensitive payloads or raw diagnostic dumps.
+
+The audit returns a decision brief: the approved rationale, consequential assumptions
+and their basis, and enduring verification limits. State when rationale is absent.
+Use explicit empty lists when no assumptions or limits remain. Pending verification
+questions belong in their check records; focused verification adds only its remaining
+caveats, so resolved questions do not survive as current limitations.
 
 Each stage starts with fresh context: inspect source needed for its unresolved
 questions without recreating settled work. Runner binds immutable obligations,

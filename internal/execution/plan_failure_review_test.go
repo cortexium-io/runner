@@ -22,7 +22,7 @@ func TestPlanFailureReviewNeverLaunchesFocusedResolution(t *testing.T) {
 	for _, kind := range []string{config.HarnessCodexCLI, config.HarnessClaudeCLI, config.HarnessPiCLI} {
 		t.Run(kind, func(t *testing.T) {
 			a := deliveryReviewAssignment()
-			content := reviewerContent{Criteria: map[string]reviewerContentCheck{}, RepositoryRules: reviewerContentCheck{Status: "passed", Summary: "Repository inspected", Evidence: []string{"source"}}, Maintainability: ReviewMaintainabilityResult{Status: "passed", Summary: "Localized", Evidence: []string{"diff"}}, Summary: "Failure cannot be attributed without another check", RepairTargets: []PlanRepairTarget{}}
+			content := reviewerContent{Requirements: reviewerContentCheck{Status: "passed", Summary: "Approved behavior is present", Evidence: []string{"source"}}, Brief: ReviewBrief{Rationale: "Complete the approved behavior", Assumptions: []string{}, Limitations: []string{}}, Criteria: map[string]reviewerContentCheck{}, RepositoryRules: reviewerContentCheck{Status: "passed", Summary: "Repository inspected", Evidence: []string{"source"}}, Maintainability: ReviewCheckResult{Status: "passed", Summary: "Localized", Evidence: []string{"diff"}}, Summary: "Failure cannot be attributed without another check", RepairTargets: []PlanRepairTarget{}}
 			for i := range a.Spec.RequiredVerification {
 				key := "P" + strconv.Itoa(i+1)
 				content.Criteria[key] = reviewerContentCheck{Status: "check_required", Summary: "Unknown failure cause", Evidence: []string{"bounded output does not identify cause"}}

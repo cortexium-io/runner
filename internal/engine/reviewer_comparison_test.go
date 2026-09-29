@@ -544,7 +544,7 @@ func TestReviewerComparisonFixturesHaveIdenticalMetadataAndMissingProofOracle(t 
 		}
 	}
 	missing := cases[3]
-	assessment := execution.ReviewAssessment{Verdict: "blocked", Maintainability: execution.ReviewMaintainabilityResult{Status: "passed"}, Rules: []execution.ReviewRuleResult{{Status: "passed"}}, Criteria: []execution.ReviewCriterionResult{
+	assessment := execution.ReviewAssessment{Verdict: "blocked", Maintainability: execution.ReviewCheckResult{Status: "passed"}, Rules: []execution.ReviewRuleResult{{Status: "passed"}}, Criteria: []execution.ReviewCriterionResult{
 		{Criterion: recordUpdateProofs[0], Status: "passed"}, {Criterion: recordUpdateProofs[1], Status: "passed"}, {Criterion: missing.missingProof, Status: "blocked"},
 	}}
 	if got := reviewerEvalJudgment(missing, &assessment); got != "expected_checks_match" {

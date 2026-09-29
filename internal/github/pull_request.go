@@ -623,7 +623,7 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 		return PublishedPullRequest{}, err
 	}
 	item = action.Item
-	body, err := runnerPullRequestBody(item.URL)
+	body, err := runnerPullRequestBody(item.URL, record.CommitOID)
 	if err != nil {
 		return PublishedPullRequest{}, err
 	}

@@ -546,8 +546,23 @@ from the requirement or an independent reference. Passing suites and coverage
 counts do not by themselves prove correctness. The shared reviewer first receives
 fixed Runner-owned proof keys for a
 source-and-evidence audit that permits read-only file/Git/log inspection,
-including shell commands, but cannot run dynamic checks. Runner supplies the
-exact base and candidate commits rather than asking the reviewer to guess the
+including shell commands, but cannot run dynamic checks.
+
+Alongside immutable proof keys, each audit must assess requirements coverage
+against the original approved outcome, constraints and affected contracts.
+The fixed `C` completeness check can detect required behavior absent from the
+proof list without rewriting that list or introducing new scope. Like other
+checks, it resolves from source/evidence or requests one focused dynamic check.
+A `needs_input` check identifies a material human decision, is never sent to
+verification, and takes precedence over automatic rework even when independent
+defects exist. Other `check_required` entries can still complete. The final
+`needs_input` verdict uses the existing manual recovery path, retains the
+question and defects privately, posts the bounded QA issue comment, and preserves
+the QA rejection count and reviewer retry lane. It cannot publish a candidate.
+An evidence-only `blocked` result remains `review_incomplete`; a known defect
+without a missing human decision still requests implementation rework.
+
+Runner supplies the exact base and candidate commits rather than asking the reviewer to guess the
 comparison from local branch names. Already merged dependencies are part of that
 base and their current source remains available for integrated checks. Rejected
 reviews retain an immutable binding to the repository, approved content,
@@ -560,12 +575,14 @@ materially affect the task reopen only the affected proof and review scope. The
 reviewer does not infer trust from a comment prefix, claimed author, or QA-like
 marker, and unchanged comments retain the ordinary follow-up behavior. Missing or
 malformed history and any repository, approved-content, proof, or base mismatch
-renew the cumulative review. All concrete unresolved questions enter a fresh
+renew the cumulative review. Older assessments without requirements coverage or
+the decision brief cannot serve as reusable baselines; their retained actionable
+feedback remains available. All concrete unresolved dynamic questions enter a fresh
 focused-verification invocation, even when
 another key already failed. That invocation receives the pinned comparison,
 repair baseline when present, and original recorded evidence for unresolved
-proofs. An unresolved repository-rule or maintainability check also receives the
-approved scope; this context does not reopen resolved proof keys. The handoff
+proofs. An unresolved requirements, repository-rule or maintainability check
+also receives the approved scope; this context does not reopen resolved proof keys. The handoff
 does not claim that unresolved source inspection already happened. Runner merges
 the observations and derives the verdict and final summary from the merged
 checks, not from superseded stage summaries.
@@ -694,8 +711,14 @@ cards, completed locked state is resumed in place, and partial state is returned
 to assessment. Phase and activity remain bound to authenticated action state;
 the lock is checked independently.
 
-The immutable publication tuple also retains the bounded accepted QA report and
-issue comment. Before starting a reviewer, Runner checks for an existing tuple
+The audit supplies a required decision brief with the approved rationale,
+consequential assumptions and enduring verification limits. Focused verification
+adds only its remaining caveats; resolved questions stay in historical check
+evidence rather than the current brief. The human-facing QA issue comment
+includes this explanation for both acceptance and requested changes. Project
+reports retain only Runner classifications. The immutable publication tuple
+retains the bounded accepted QA report and issue comment, including the brief.
+Before starting a reviewer, Runner checks for an existing tuple
 bound to the exact item, delegated content, repository, branch, base revision,
 candidate commit, tree, and clean workspace snapshot. An exact match resumes
 only the idempotent comment, push, pull-request lookup or creation, and Project
