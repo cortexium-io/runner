@@ -325,7 +325,7 @@ func TestReviewerVerificationRunsGitDependentRepositoryCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := &sharedReviewerHarnessRunner{response: `{"checks":{"P1":{"status":"passed","evidence":["make verify exited 0 using the disposable source index; test-results/verification.log: candidate verified."]}},"summary":"The required repository command passed."}`}
+	run := &sharedReviewerHarnessRunner{response: `{"checks":{"P1":{"status":"passed","evidence":["make verify exited 0 using the disposable source index; test-results/verification.log: candidate verified."]}},"summary":"The required repository command passed.","limitations":[]}`}
 	var verificationDir string
 	run.onRun = func(dir string) error {
 		prompt := run.inputs[len(run.inputs)-1]

@@ -184,7 +184,7 @@ func (s *Engine) classifyPlanVerificationFailure(ctx context.Context, action git
 	if err := s.verifyPlanProgressCandidate(ctx, action, p); err != nil {
 		return fail("Whole-plan classification no longer applies to the current candidate", err)
 	}
-	if p.Classification.Failed || execution.ValidateReviewOutput(p.Assignment, output) != nil || output.ReviewAssessment == nil || output.ReviewAssessment.Verdict != "needs_changes" {
+	if p.Classification.Failed || execution.ValidateRetainedReviewOutput(p.Assignment, output) != nil || output.ReviewAssessment == nil || output.ReviewAssessment.Verdict != "needs_changes" {
 		return fail("Failed complete verification requires input or an amendment", errors.New("classification supplied no valid concrete in-scope rejection; failed proof cannot be accepted"))
 	}
 	for _, criterion := range output.ReviewAssessment.Criteria {

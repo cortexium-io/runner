@@ -2905,12 +2905,52 @@ card-owned behavior and groups concrete variants of directly exposed invariants
 in the same result. If any concrete proof questions remain, Runner starts a
 fresh focused-verification call containing only unresolved proof keys, even
 when another key already failed. It carries the pinned comparison, any repair
-baseline, and the original evidence for those keys. Unresolved repository-rule
-or maintainability checks also receive the approved scope. The stage may inspect
-the necessary source; it does not assume an incomplete audit already happened.
+baseline, and the original evidence for those keys. Unresolved requirements,
+repository-rule or maintainability checks also receive the approved scope. The
+stage may inspect the necessary source; it does not assume an incomplete audit already happened.
 Evidence paths outside its isolated workspace are not automatically copied, and
 missing logs are not themselves candidate defects. Final summaries describe the
 merged check results rather than repeating obsolete stage blockers.
+
+Every review also compares the original approved request and affected contracts
+with the obligations and candidate. This requirements check covers missing
+in-scope behavior; it cannot add new requirements or change approved proof keys.
+A missing checklist entry alone does not require rework when source/evidence
+already proves the behavior.
+
+Checks distinguish `failed` (a demonstrated defect), `check_required` (a dynamic
+evidence question), and `needs_input` (a material human choice or conflicting
+requirements). Focused verification can return `blocked` for inconclusive proof
+or `needs_input` if it discovers a human decision. Human decisions take precedence
+over rework and never consume a QA rejection. The question and independent
+findings are retained for manual QA retry and posted on issue-backed cards.
+Clarify within existing approved scope through the authenticated account's
+issue comments; changed requirements require normal amendment and reapproval.
+The reviewer must not infer new execution authority from that conversation.
+
+QA comments also explain the approved rationale, consequential assumptions and
+remaining verification limits. Pending questions stay in check records; focused
+verification appends only remaining caveats, so a resolved gap is not presented
+as still unverified. The brief is retained with accepted publication evidence
+and does not enter the bounded Project classification report.
+
+Accepted QA comments serve as completion reports: they identify the reviewed
+commit, describe the delivered result, and pair every requested outcome with
+the reviewer's conclusion and supporting evidence. Assumptions and verification
+limits appear before the detailed evidence. Reported historical results keep
+their reuse explanation; these reports do not attest that commands ran again.
+New PR descriptions identify the accepted commit and direct readers to the
+source issue's report. If comment publication failed or the card has no source
+issue, the accepted comment remains in the retained local publication record.
+Resuming an accepted candidate reuses that exact report. Existing PR bodies and
+historical reports are not rewritten. Raw diagnostics remain local, and QA
+acceptance does not establish merge, CI, or deployment status.
+
+Upgrades preserve previously accepted whole-plan checkpoints with their original
+report bytes and protected delivery evidence. Such historical reviews do not gain
+new requirements coverage or decision briefs. They cannot serve as a fresh review
+or reusable rejected baseline; a new review uses the current contract.
+
 The final private evidence also retains each focused check's original audit
 question and context, labelled as historical rather than a current blocker.
 Use these alongside the actual result and candidate identity to investigate
@@ -3257,26 +3297,29 @@ throwaway card through implementation, Agent QA, and PR publication remains the
 final proof of real write permissions and end-to-end harness behavior.
 
 The opt-in launch evaluation accepts any non-empty subset of the advertised
-harnesses and one or two repetitions. Each full run has seven scenarios per
-harness: three planner contracts, one exact-file implementer check, and three
+harnesses and one or two repetitions. Each full run has eleven scenarios per
+harness: three planner contracts, one exact-file implementer check, and seven
 reviewer candidates. The reviewer cases cover correct record editing with
 sufficient backend tests, a tenant-access defect accompanied by passing shallow
 tests, and an access-control repair that discards record ownership. The last
 case supplies the prior rejected assessment so review must detect a regression
-in previously accepted behavior.
+in previously accepted behavior. Four additional cases check missing failure recovery, an
+unchanged consumer broken by a payload change, a missing checklist entry for already-correct behavior,
+and conflicting requirements that need a human decision.
 
 `--smoke` selects one planner, one implementer, and both the correct and
 access-defective reviewer candidates: four scenarios per harness. A scenario
 can invoke multiple model stages; scenario counts are not model-call counts.
 Use the affected harness while iterating. Reserve the full matrix twice from
-one clean candidate (42 scenarios across all three harnesses) for qualification
+one clean candidate (66 scenarios across all three harnesses) for qualification
 that requires cross-harness evidence. All model calls remain paid and opt-in;
 there are no GitHub writes.
 
 Sanitized `EVAL_CASE` records retain expected and observed verdicts and fixed
-`review_judgment` labels. `EVAL_SUMMARY.reviewer_judgments` counts `correct`,
+`review_judgment` labels. `EVAL_SUMMARY.reviewer_judgments` counts `expected_checks_match`,
 `false_acceptance`, `unnecessary_rejection`, `missed_defect` (rejection without
-failing the affected proof), and `incomplete_review`. Execution and admission
+failing the affected proof), and `incomplete_review`. The four completeness cases separately record
+`expected_checks_match` or `unexpected_findings`. Execution and admission
 failures remain separate from judgments. Reviewer judgment failures do not skip
 later candidates; execution or budget failures stop the run. A correct verdict
 and failed-proof match are useful signals, not independent validation of the

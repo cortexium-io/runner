@@ -29,19 +29,29 @@ type ReviewRuleResult struct {
 	Findings          []ReviewRuleFinding `json:"findings"`
 }
 
-type ReviewMaintainabilityResult struct {
+type ReviewCheckResult struct {
 	Status   string   `json:"status"`
 	Summary  string   `json:"summary"`
 	Evidence []string `json:"evidence"`
 }
 
+// ReviewBrief explains the decision using approved context and inspected evidence.
+// Limitations are enduring caveats, not checks awaiting focused verification.
+type ReviewBrief struct {
+	Rationale   string   `json:"rationale"`
+	Assumptions []string `json:"assumptions"`
+	Limitations []string `json:"limitations"`
+}
+
 type ReviewAssessment struct {
-	Criteria        []ReviewCriterionResult     `json:"criteria"`
-	Rules           []ReviewRuleResult          `json:"rules"`
-	Maintainability ReviewMaintainabilityResult `json:"maintainability"`
-	Verdict         string                      `json:"verdict"`
-	Summary         string                      `json:"summary"`
-	RepairTargets   []PlanRepairTarget          `json:"repair_targets,omitempty"`
+	RepairTargets   []PlanRepairTarget      `json:"repair_targets,omitempty"`
+	Requirements    ReviewCheckResult       `json:"requirements,omitzero"`
+	Brief           ReviewBrief             `json:"brief,omitzero"`
+	Criteria        []ReviewCriterionResult `json:"criteria"`
+	Rules           []ReviewRuleResult      `json:"rules"`
+	Maintainability ReviewCheckResult       `json:"maintainability"`
+	Verdict         string                  `json:"verdict"`
+	Summary         string                  `json:"summary"`
 }
 
 func (result *ReviewCriterionResult) UnmarshalJSON(data []byte) error {
@@ -59,14 +69,36 @@ func (result *ReviewRuleResult) UnmarshalJSON(data []byte) error {
 	return decodeRequiredJSONObject(data, (*ruleResult)(result), "rule_source_id", "rule_source_version", "status", "summary", "findings")
 }
 
-func (result *ReviewMaintainabilityResult) UnmarshalJSON(data []byte) error {
-	type maintainabilityResult ReviewMaintainabilityResult
-	return decodeRequiredJSONObject(data, (*maintainabilityResult)(result), "status", "summary", "evidence")
+func (result *ReviewCheckResult) UnmarshalJSON(data []byte) error {
+	type checkResult ReviewCheckResult
+	return decodeRequiredJSONObject(data, (*checkResult)(result), "status", "summary", "evidence")
+}
+
+func (brief *ReviewBrief) UnmarshalJSON(data []byte) error {
+	type reviewBrief ReviewBrief
+	return decodeRequiredJSONObject(data, (*reviewBrief)(brief), "rationale", "assumptions", "limitations")
 }
 
 func (assessment *ReviewAssessment) UnmarshalJSON(data []byte) error {
 	type reviewAssessment ReviewAssessment
-	return decodeRequiredJSONObject(data, (*reviewAssessment)(assessment), "criteria", "rules", "maintainability", "verdict", "summary")
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	required := []string{"criteria", "rules", "maintainability", "verdict", "summary"}
+	// Read historical private records without inventing a completeness check.
+	// Fresh harness output and baseline reuse still require the current contract.
+	if fields["requirements"] != nil || fields["brief"] != nil {
+		required = append(required, "requirements", "brief")
+	}
+	return decodeRequiredJSONObject(data, (*reviewAssessment)(assessment), required...)
+}
+
+// HasLegacyContract identifies assessments recorded before requirements coverage
+// and decision briefs were introduced. It never makes them valid fresh output.
+func (assessment ReviewAssessment) HasLegacyContract() bool {
+	return assessment.Requirements.Status == "" && assessment.Requirements.Summary == "" && assessment.Requirements.Evidence == nil &&
+		assessment.Brief.Rationale == "" && assessment.Brief.Assumptions == nil && assessment.Brief.Limitations == nil
 }
 
 func decodeRequiredJSONObject(data []byte, destination any, requiredFields ...string) error {
@@ -86,6 +118,10 @@ func decodeRequiredJSONObject(data []byte, destination any, requiredFields ...st
 }
 
 func validateReviewAssessmentForAssignment(assignment Assignment, outcome string, assessment *ReviewAssessment) error {
+	return validateReviewAssessment(assignment, outcome, assessment, false)
+}
+
+func validateReviewAssessment(assignment Assignment, outcome string, assessment *ReviewAssessment, retained bool) error {
 	reviewRequired := assignment.Spec.ReviewRequired
 	if !reviewRequired {
 		if assessment != nil {
@@ -99,7 +135,7 @@ func validateReviewAssessmentForAssignment(assignment Assignment, outcome string
 	if strings.TrimSpace(assessment.Summary) == "" {
 		return errors.New("review_assessment.summary is required")
 	}
-	if assessment.Verdict != "accept" && assessment.Verdict != "needs_changes" && assessment.Verdict != "blocked" {
+	if assessment.Verdict != "accept" && assessment.Verdict != "needs_changes" && assessment.Verdict != "blocked" && assessment.Verdict != "needs_input" {
 		return errors.New("review_assessment.verdict is invalid")
 	}
 	if len(assessment.Criteria) != len(assignment.Spec.RequiredVerification) {
@@ -110,8 +146,6 @@ func validateReviewAssessmentForAssignment(assignment Assignment, outcome string
 		expectedCriteria[strings.TrimSpace(criterion)] = struct{}{}
 	}
 	seenCriteria := map[string]struct{}{}
-	hasFailedCheck := false
-	hasBlockedCheck := false
 	for i, criterion := range assessment.Criteria {
 		name := strings.TrimSpace(criterion.Criterion)
 		if _, ok := expectedCriteria[name]; !ok {
@@ -124,8 +158,6 @@ func validateReviewAssessmentForAssignment(assignment Assignment, outcome string
 		if err := validateReviewCheck(criterion.Status, criterion.Summary, criterion.Evidence, fmt.Sprintf("review_assessment.criteria[%d]", i)); err != nil {
 			return err
 		}
-		hasFailedCheck = hasFailedCheck || criterion.Status == "failed"
-		hasBlockedCheck = hasBlockedCheck || criterion.Status == "blocked"
 	}
 
 	if len(assessment.Rules) != 1 {
@@ -135,7 +167,7 @@ func validateReviewAssessmentForAssignment(assignment Assignment, outcome string
 		if strings.TrimSpace(rule.RuleSourceID) != "repository_instructions" || strings.TrimSpace(rule.RuleSourceVersion) != "current" {
 			return fmt.Errorf("review_assessment.rules[%d] does not match approved RuleSet provenance", i)
 		}
-		if rule.Status != "passed" && rule.Status != "failed" && rule.Status != "blocked" {
+		if rule.Status != "passed" && rule.Status != "failed" && rule.Status != "blocked" && rule.Status != "needs_input" {
 			return fmt.Errorf("review_assessment.rules[%d].status is invalid", i)
 		}
 		if strings.TrimSpace(rule.Summary) == "" {
@@ -162,8 +194,6 @@ func validateReviewAssessmentForAssignment(assignment Assignment, outcome string
 		if rule.Status == "failed" && !hasBlockingFinding {
 			return fmt.Errorf("review_assessment.rules[%d] must include a blocking finding when failed", i)
 		}
-		hasFailedCheck = hasFailedCheck || rule.Status == "failed"
-		hasBlockedCheck = hasBlockedCheck || rule.Status == "blocked"
 	}
 	if err := validateReviewCheck(
 		assessment.Maintainability.Status,
@@ -173,25 +203,30 @@ func validateReviewAssessmentForAssignment(assignment Assignment, outcome string
 	); err != nil {
 		return err
 	}
-	hasFailedCheck = hasFailedCheck || assessment.Maintainability.Status == "failed"
-	hasBlockedCheck = hasBlockedCheck || assessment.Maintainability.Status == "blocked"
-	wantVerdict := "accept"
-	if hasFailedCheck {
-		wantVerdict = "needs_changes"
-	} else if hasBlockedCheck {
-		wantVerdict = "blocked"
+	if !retained || !assessment.HasLegacyContract() {
+		if err := validateReviewCheck(assessment.Requirements.Status, assessment.Requirements.Summary, assessment.Requirements.Evidence, "review_assessment.requirements"); err != nil {
+			return err
+		}
+		if err := validateReviewBrief(assessment.Brief); err != nil {
+			return err
+		}
 	}
+	wantVerdict := derivedReviewerVerdict(*assessment)
 	if assessment.Verdict != wantVerdict {
 		return fmt.Errorf("review_assessment verdict must be %s for the reported checks", wantVerdict)
 	}
-	if assessment.Verdict == "blocked" {
+	if assessment.Verdict == "needs_input" {
+		if outcome != OutcomeNeedsInput {
+			return errors.New("needs_input reviewer verdict requires needs_input outcome")
+		}
+	} else if assessment.Verdict == "blocked" {
 		if outcome == OutcomeSucceeded {
 			return errors.New("blocked reviewer verdict requires needs_input or blocked outcome")
 		}
 	} else if outcome != OutcomeSucceeded {
 		return errors.New("completed reviewer verdict requires a succeeded outcome")
 	}
-	statuses := map[string]string{"R": assessment.Rules[0].Status, "M": assessment.Maintainability.Status}
+	statuses := map[string]string{"C": assessment.Requirements.Status, "R": assessment.Rules[0].Status, "M": assessment.Maintainability.Status}
 	for index, criterion := range assignment.Spec.RequiredVerification {
 		for _, check := range assessment.Criteria {
 			if strings.TrimSpace(check.Criterion) == strings.TrimSpace(criterion) {
@@ -225,7 +260,7 @@ func ValidateReviewBaseline(spec Spec, baseline *ReviewBaseline) error {
 }
 
 func validateReviewCheck(status string, summary string, evidence []string, field string) error {
-	if status != "passed" && status != "failed" && status != "blocked" {
+	if status != "passed" && status != "failed" && status != "blocked" && status != "needs_input" {
 		return fmt.Errorf("%s.status is invalid", field)
 	}
 	if strings.TrimSpace(summary) == "" {
@@ -237,6 +272,28 @@ func validateReviewCheck(status string, summary string, evidence []string, field
 	for i, item := range evidence {
 		if strings.TrimSpace(item) == "" {
 			return fmt.Errorf("%s.evidence[%d] is empty", field, i)
+		}
+	}
+	return nil
+}
+
+func validateReviewBrief(brief ReviewBrief) error {
+	if strings.TrimSpace(brief.Rationale) == "" {
+		return errors.New("review brief rationale is required")
+	}
+	if err := validateReviewNotes(brief.Assumptions, "brief.assumptions"); err != nil {
+		return err
+	}
+	return validateReviewNotes(brief.Limitations, "brief.limitations")
+}
+
+func validateReviewNotes(notes []string, field string) error {
+	if notes == nil {
+		return fmt.Errorf("%s must be an explicit array", field)
+	}
+	for _, note := range notes {
+		if strings.TrimSpace(note) == "" {
+			return fmt.Errorf("%s contains an empty entry", field)
 		}
 	}
 	return nil

@@ -1752,6 +1752,17 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		observeCandidateLineage(&result, candidate)
 		observedLineage(&result).ReviewedCandidate = metrics.ObjectIdentity{CommitOID: candidate.CommitOID, TreeOID: candidate.TreeOID}
 	}
+	if err == nil && output.ReviewAssessment != nil && output.ReviewAssessment.Verdict == "needs_input" {
+		// Keep questions and any independently found defects through a manual retry.
+		// A human decision is not a QA rejection and cannot authorize publication.
+		if feedbackErr := s.saveReviewFeedback(item, delegatedContent, *output.ReviewAssessment, nil); feedbackErr != nil {
+			return s.failExecution(ctx, action, lane, result, "Agent QA feedback could not be retained safely", feedbackErr, reviewFeedbackFailureOutput("Agent QA feedback could not be retained safely", feedbackErr, output))
+		}
+		qaComment := formatQAComment(*output.ReviewAssessment, candidate.CommitOID)
+		if _, commentErr := s.source.PostIssueComment(ctx, action, qaCommentMarker(item.ID, candidate.CommitOID, qaComment), qaComment); commentErr != nil {
+			result.Error = appendError(result.Error, commentErr)
+		}
+	}
 	if output.ReviewAssessment != nil && output.ReviewAssessment.Verdict == "needs_changes" {
 		if deliveryPresent && item.ID == deliveryContext.Parent.ID {
 			baseline := &execution.ReviewBaseline{Assessment: *output.ReviewAssessment, CommitOID: candidate.CommitOID, BaseOID: preparedWorkspace.BaseRevision, BindingDigest: reviewBinding, CommentContext: append([]string{}, commentContext...)}
@@ -1774,7 +1785,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 		if outcome == config.WorkflowOutcomeExhausted {
 			targetPhase = lane.Transitions[config.WorkflowOutcomeRejected]
 		}
-		qaComment := formatQAComment(*output.ReviewAssessment)
+		qaComment := formatQAComment(*output.ReviewAssessment, candidate.CommitOID)
 		if _, commentErr := s.source.PostIssueComment(ctx, action, qaCommentMarker(item.ID, candidate.CommitOID, qaComment), qaComment); commentErr != nil {
 			result.Error = appendError(result.Error, commentErr)
 		}
@@ -1831,7 +1842,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 	action = currentAction
 	item = currentAction.Item
 	qaReport := formatQAReport(*output.ReviewAssessment, output.Verification, output.Usage)
-	qaComment := formatQAComment(*output.ReviewAssessment)
+	qaComment := formatQAComment(*output.ReviewAssessment, candidate.CommitOID)
 	if err := s.revalidateDeliveryAssignment(ctx, item, assignment); err != nil {
 		return s.failExecution(ctx, action, lane, result, "Plan scope changed during QA", err, integrityViolationOutput("Plan scope changed during QA", err))
 	}

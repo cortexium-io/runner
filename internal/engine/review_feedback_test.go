@@ -56,7 +56,7 @@ func TestAgentQAFeedbackKeepsEveryActionableFinding(t *testing.T) {
 	}
 	assessment.Criteria = append(assessment.Criteria, execution.ReviewCriterionResult{Criterion: "remaining proof", Status: "blocked", Summary: "Missing retained artifact", Evidence: []string{"Gather the missing proof after the correction."}})
 	assessment.Rules = []execution.ReviewRuleResult{{Status: "failed", Findings: []execution.ReviewRuleFinding{{Severity: "blocking", Summary: "Preserve ownership", Evidence: []string{"Rule finding after all criteria."}}}}}
-	assessment.Maintainability = execution.ReviewMaintainabilityResult{Status: "failed", Summary: "Remove duplicate logic", Evidence: []string{"Maintainability finding after all criteria."}}
+	assessment.Maintainability = execution.ReviewCheckResult{Status: "failed", Summary: "Remove duplicate logic", Evidence: []string{"Maintainability finding after all criteria."}}
 	expected = append(expected, "Gather the missing proof after the correction.", "Rule finding after all criteria.", "Maintainability finding after all criteria.")
 	if err := service.saveReviewFeedback(item, content, assessment, nil); err != nil {
 		t.Fatal(err)
@@ -156,7 +156,7 @@ func TestAgentQAFeedbackIsPrivateBoundedAndInjectedIntoNextImplementation(t *tes
 				Severity: "blocking", Summary: "The console-error rule is violated.", Evidence: []string{"Chrome console recorded the 404."},
 			}},
 		}},
-		Maintainability: execution.ReviewMaintainabilityResult{Status: "passed"},
+		Maintainability: execution.ReviewCheckResult{Status: "passed"},
 	}
 	if err := service.saveReviewFeedback(item, content, assessment, nil); err != nil {
 		t.Fatalf("save feedback: %v", err)
@@ -357,12 +357,14 @@ func rejectedReviewAssessment(spec execution.Spec) execution.ReviewAssessment {
 	criteria[0].Status = "failed"
 	criteria[0].Summary = "The prior review found a defect."
 	return execution.ReviewAssessment{
-		Criteria: criteria,
+		Requirements: execution.ReviewCheckResult{Status: "passed", Summary: "Approved outcome covered.", Evidence: []string{"Compared original request and candidate."}},
+		Brief:        execution.ReviewBrief{Rationale: "Deliver the approved behavior.", Assumptions: []string{}, Limitations: []string{}},
+		Criteria:     criteria,
 		Rules: []execution.ReviewRuleResult{{
 			RuleSourceID: "repository_instructions", RuleSourceVersion: "current", Status: "passed",
 			Summary: "Repository instructions passed.", Findings: []execution.ReviewRuleFinding{},
 		}},
-		Maintainability: execution.ReviewMaintainabilityResult{Status: "passed", Summary: "Maintainability passed.", Evidence: []string{"prior maintainability review"}},
+		Maintainability: execution.ReviewCheckResult{Status: "passed", Summary: "Maintainability passed.", Evidence: []string{"prior maintainability review"}},
 		Verdict:         "needs_changes", Summary: "Fix the prior defect.",
 	}
 }

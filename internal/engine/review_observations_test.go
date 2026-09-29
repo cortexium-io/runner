@@ -24,7 +24,7 @@ func TestReviewObservationsExcludeEvidenceGapsAndPreferences(t *testing.T) {
 			{Severity: "blocking", Summary: "Tenant ownership check omitted."},
 			{Severity: "warning", Summary: "Prefer another variable name."},
 		}}},
-		Maintainability: execution.ReviewMaintainabilityResult{Status: "blocked", Summary: "Unknown"},
+		Maintainability: execution.ReviewCheckResult{Status: "blocked", Summary: "Unknown"},
 	}
 	want := []metrics.ReviewFinding{{Area: "acceptance", Summary: "Writes begin before hydration."},
 		{Area: "repository_rules", Summary: "Tenant ownership check omitted."}}
@@ -57,7 +57,7 @@ func TestReviewDetailObservationsRetainBoundedStructuredReview(t *testing.T) {
 	review := execution.ReviewAssessment{
 		Criteria:        []execution.ReviewCriterionResult{{Criterion: "Exact candidate", Status: "passed", Summary: "Prior check remains applicable because the repair did not touch that path; the focused delta check passed.", Evidence: []string{"reused source audit for unchanged path", "focused delta test"}}},
 		Rules:           []execution.ReviewRuleResult{{RuleSourceID: "AGENTS.md", RuleSourceVersion: "current", Status: "failed", Summary: "One rule failed.", Findings: []execution.ReviewRuleFinding{{Severity: "blocking", Summary: "Unsafe mode.", Evidence: []string{"mode was 0644"}}}}},
-		Maintainability: execution.ReviewMaintainabilityResult{Status: "passed", Summary: "Readable.", Evidence: []string{"small explicit helper"}},
+		Maintainability: execution.ReviewCheckResult{Status: "passed", Summary: "Readable.", Evidence: []string{"small explicit helper"}},
 	}
 	details, incomplete := reviewDetailObservations(review)
 	if incomplete {
@@ -137,5 +137,19 @@ func TestTerminalPullRequestObservationRetainsFinalObservedLineage(t *testing.T)
 	}
 	if summary := metrics.Summarize(history); summary.Attempts != 0 || summary.HarnessInvocations != 0 {
 		t.Fatalf("deterministic observation inflated harness totals: %+v", summary)
+	}
+}
+
+func TestRequirementsDecisionsAreNotRecordedAsDefects(t *testing.T) {
+	for _, status := range []string{"passed", "failed", "blocked", "needs_input"} {
+		review := execution.ReviewAssessment{Requirements: execution.ReviewCheckResult{Status: status, Summary: "Required preservation is missing."}}
+		observations := reviewFindingObservations(review)
+		if status == "failed" {
+			if len(observations) != 1 || observations[0].Area != "requirements" {
+				t.Fatalf("missing completeness defect: %#v", observations)
+			}
+		} else if len(observations) != 0 {
+			t.Fatalf("%s became a confirmed defect: %#v", status, observations)
+		}
 	}
 }

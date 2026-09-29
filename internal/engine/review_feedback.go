@@ -255,14 +255,27 @@ func actionableReviewFeedback(assessment execution.ReviewAssessment) ([]string, 
 			items = append(items, value)
 		}
 	}
+	if check := assessment.Requirements; check.Status != "passed" && check.Status != "" {
+		add("Requirements check ("+check.Status+")", check.Summary, check.Evidence)
+	}
 	for _, criterion := range assessment.Criteria {
 		if criterion.Status == "failed" {
 			add("Failed criterion "+strings.TrimSpace(criterion.Criterion), criterion.Summary, criterion.Evidence)
+		} else if criterion.Status == "needs_input" {
+			add("Human decision for "+strings.TrimSpace(criterion.Criterion), criterion.Summary, criterion.Evidence)
 		} else if criterion.Status == "blocked" {
 			add("Blocked criterion "+strings.TrimSpace(criterion.Criterion), criterion.Summary, criterion.Evidence)
 		}
 	}
 	for _, rule := range assessment.Rules {
+		if rule.Status == "needs_input" {
+			var evidence []string
+			for _, finding := range rule.Findings {
+				evidence = append(evidence, finding.Evidence...)
+			}
+			add("Human decision for repository rule", rule.Summary, evidence)
+			continue
+		}
 		if rule.Status == "blocked" {
 			add("Blocked repository-rule check", rule.Summary, nil)
 		}
@@ -274,6 +287,8 @@ func actionableReviewFeedback(assessment execution.ReviewAssessment) ([]string, 
 	}
 	if assessment.Maintainability.Status == "failed" {
 		add("Failed maintainability check", assessment.Maintainability.Summary, assessment.Maintainability.Evidence)
+	} else if assessment.Maintainability.Status == "needs_input" {
+		add("Human decision for maintainability", assessment.Maintainability.Summary, assessment.Maintainability.Evidence)
 	} else if assessment.Maintainability.Status == "blocked" {
 		add("Blocked maintainability check", assessment.Maintainability.Summary, assessment.Maintainability.Evidence)
 	}

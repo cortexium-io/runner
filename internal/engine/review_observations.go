@@ -12,6 +12,9 @@ import (
 // proof remains an evidence gap, not a confirmed product defect.
 func reviewFindingObservations(review execution.ReviewAssessment) []metrics.ReviewFinding {
 	var findings []metrics.ReviewFinding
+	if review.Requirements.Status == "failed" {
+		findings = append(findings, metrics.ReviewFinding{Area: "requirements", Summary: review.Requirements.Summary})
+	}
 	for _, criterion := range review.Criteria {
 		if criterion.Status == "failed" {
 			findings = append(findings, metrics.ReviewFinding{Area: "acceptance", Summary: criterion.Summary})
@@ -35,7 +38,7 @@ func reviewFindingObservations(review execution.ReviewAssessment) []metrics.Revi
 
 func reviewDetailObservations(assessment execution.ReviewAssessment) ([]metrics.ReviewDetail, bool) {
 	const maximumDetails = 1000
-	result := make([]metrics.ReviewDetail, 0, min(maximumDetails, len(assessment.Criteria)+len(assessment.Rules)+1))
+	result := make([]metrics.ReviewDetail, 0, min(maximumDetails, len(assessment.Criteria)+len(assessment.Rules)+2))
 	remainingEvidence := maximumDetails
 	incomplete := false
 	add := func(area, name, status, summary string, evidence []string) {
@@ -63,6 +66,9 @@ func reviewDetailObservations(assessment execution.ReviewAssessment) ([]metrics.
 			Area: area, Name: boundedName, Status: strings.TrimSpace(status),
 			Summary: boundedSummary, Evidence: boundedEvidence,
 		})
+	}
+	if !assessment.HasLegacyContract() {
+		add("requirements", "requirements", assessment.Requirements.Status, assessment.Requirements.Summary, assessment.Requirements.Evidence)
 	}
 	for _, criterion := range assessment.Criteria {
 		add("acceptance", criterion.Criterion, criterion.Status, criterion.Summary, criterion.Evidence)

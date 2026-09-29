@@ -233,6 +233,10 @@ with an unsubstantiated prior security allegation that must be independently che
 a tenant-access defect with passing shallow tests, and a repair that drops
 ownership data. Expected judgments are specified independently of model output;
 ordinary Go tests validate the candidates against literal reference assertions.
+Four completeness cases additionally exercise missing failure recovery, a broken
+unchanged consumer, correct behavior absent from the checklist, and a material human
+decision. These cases distinguish missed scope, invented defects, and decisions
+that should pause work without consuming a rejection allowance.
 See the [operator reference](operator-reference.md#development) for bounded
 live commands and reporting. Compare the same cases, profiles, and environments.
 Count false acceptance, unnecessary rejection, missed defects, incomplete

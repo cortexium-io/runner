@@ -128,12 +128,14 @@ func prepareReviewerEval(t *testing.T, scenario reviewerEvalScenario) (string, e
 			CommentContext: []string{},
 			Assessment: execution.ReviewAssessment{
 				Verdict: "needs_changes", Summary: "Record updates do not enforce ownership.",
+				Requirements: execution.ReviewCheckResult{Status: "passed", Summary: "No additional scope omissions", Evidence: []string{"The ownership defect is covered by the failed criterion."}},
+				Brief:        execution.ReviewBrief{Rationale: "Allow authenticated tenants to update their own records.", Assumptions: []string{}, Limitations: []string{}},
 				Criteria: []execution.ReviewCriterionResult{
 					{Criterion: recordUpdateProofs[0], Status: "passed", Summary: "Owned edits preserve the tenant.", Evidence: []string{"The current record is copied, its title is changed, and that record is stored."}},
 					{Criterion: recordUpdateProofs[1], Status: "failed", Summary: "Another tenant can update an existing record.", Evidence: []string{"Update checks record existence and title but never compares the record tenant to the authenticated tenant."}},
 				},
 				Rules:           []execution.ReviewRuleResult{{RuleSourceID: "repository_instructions", RuleSourceVersion: "current", Status: "passed", Summary: "No additional repository rule violation.", Findings: []execution.ReviewRuleFinding{}}},
-				Maintainability: execution.ReviewMaintainabilityResult{Status: "passed", Summary: "The function is direct.", Evidence: []string{"One update function with explicit validation and assignment."}},
+				Maintainability: execution.ReviewCheckResult{Status: "passed", Summary: "The function is direct.", Evidence: []string{"One update function with explicit validation and assignment."}},
 			},
 		}
 		if err := execution.ValidateReviewBaseline(assignment.Spec, assignment.Spec.ReviewBaseline); err != nil {
@@ -268,7 +270,7 @@ func TestReviewerEvalJudgmentRequiresCorrectDecisionAndAffectedProof(t *testing.
 		t.Run(tc.name, func(t *testing.T) {
 			scenario := reviewerEvalScenario{wantVerdict: tc.wantVerdict, failedCriterion: tc.failedCriterion}
 			got := reviewerEvalJudgment(scenario, &execution.ReviewAssessment{Verdict: tc.verdict, Criteria: tc.criteria,
-				Rules: []execution.ReviewRuleResult{{Status: "passed"}}, Maintainability: execution.ReviewMaintainabilityResult{Status: "passed"}})
+				Rules: []execution.ReviewRuleResult{{Status: "passed"}}, Maintainability: execution.ReviewCheckResult{Status: "passed"}})
 			if got != tc.wantJudgment {
 				t.Fatalf("judgment = %q, want %q", got, tc.wantJudgment)
 			}
@@ -290,7 +292,7 @@ func TestReviewerEvalExpectedRejectionDoesNotHideUnjustifiedEngineeringFailures(
 		t.Run(test.name, func(t *testing.T) {
 			assessment := execution.ReviewAssessment{Verdict: "needs_changes",
 				Criteria: []execution.ReviewCriterionResult{{Criterion: recordUpdateProofs[0], Status: "passed"}, {Criterion: recordUpdateProofs[1], Status: "failed"}},
-				Rules:    []execution.ReviewRuleResult{{Status: "passed"}}, Maintainability: execution.ReviewMaintainabilityResult{Status: "passed"}}
+				Rules:    []execution.ReviewRuleResult{{Status: "passed"}}, Maintainability: execution.ReviewCheckResult{Status: "passed"}}
 			test.change(&assessment)
 			if got := reviewerEvalJudgment(reviewerEvalScenario{wantVerdict: "needs_changes", failedCriterion: 1}, &assessment); got != "unexpected_findings" {
 				t.Fatalf("expected rejection hid extra findings: %s", got)

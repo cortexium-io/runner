@@ -32,7 +32,7 @@ func reviewerAssignment() Assignment {
 }
 
 func failingReviewerContent() string {
-	return `{"criteria":{"P1":{"status":"failed","summary":"The seeded behavior is wrong.","evidence":["behavior.txt contains broken."]},"P2":{"status":"passed","summary":"The diff is syntactically clean.","evidence":["git diff --check returned no findings."]}},"repository_rules":{"status":"failed","summary":"The exact file-content contract is broken.","evidence":["behavior.txt:1 contains broken."]},"maintainability":{"status":"passed","summary":"The change remains localized.","evidence":["Only the fixture content changed."]},"summary":"The seeded regression requires changes."}`
+	return `{"criteria":{"P1":{"status":"failed","summary":"The seeded behavior is wrong.","evidence":["behavior.txt contains broken."]},"P2":{"status":"passed","summary":"The diff is syntactically clean.","evidence":["git diff --check returned no findings."]}},"repository_rules":{"status":"failed","summary":"The exact file-content contract is broken.","evidence":["behavior.txt:1 contains broken."]},"maintainability":{"status":"passed","summary":"The change remains localized.","evidence":["Only the fixture content changed."]},"summary":"The seeded regression requires changes.","requirements":{"status":"passed","summary":"The approved outcome is covered.","evidence":["Compared the original request, affected contracts and complete candidate."]},"brief":{"rationale":"Deliver the approved behavior.","assumptions":[],"limitations":[]}}`
 }
 
 func TestReviewerAuditSchemaUsesFixedProofKeys(t *testing.T) {
@@ -45,7 +45,7 @@ func TestReviewerAuditSchemaUsesFixedProofKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	properties := decoded["properties"].(map[string]any)
-	for _, required := range []string{"criteria", "repository_rules", "maintainability", "summary"} {
+	for _, required := range []string{"criteria", "requirements", "repository_rules", "maintainability", "brief", "summary"} {
 		if _, exists := properties[required]; !exists {
 			t.Fatalf("reviewer schema omitted %q: %s", required, schema)
 		}
@@ -60,13 +60,13 @@ func TestReviewerAuditSchemaUsesFixedProofKeys(t *testing.T) {
 			t.Fatalf("reviewer schema retained Runner-owned field %q: %s", forbidden, schema)
 		}
 	}
-	if !bytes.Contains(schema, []byte(`"check_required"`)) || !bytes.Contains(schema, []byte(`"blocked"`)) {
+	if !bytes.Contains(schema, []byte(`"check_required"`)) || !bytes.Contains(schema, []byte(`"blocked"`)) || !bytes.Contains(schema, []byte(`"needs_input"`)) {
 		t.Fatalf("evidence-audit schema cannot distinguish dynamic checks from unavailable proof: %s", schema)
 	}
 }
 
 func TestSharedReviewerMissingArtifactsBlocksWithoutAnotherHarnessCall(t *testing.T) {
-	response := `{"criteria":{"P1":{"status":"passed","summary":"Behavior is correct.","evidence":["Source and focused results establish the approved behavior."]},"P2":{"status":"passed","summary":"Diff is clean.","evidence":["No whitespace errors."]}},"repository_rules":{"status":"blocked","summary":"Required retained validation report is unavailable.","evidence":["The receipt is missing from the supplied evidence; this does not demonstrate that validation failed or never ran."]},"maintainability":{"status":"passed","summary":"Focused change.","evidence":["No unrelated edits."]},"summary":"All product checks pass; required historical proof is unavailable."}`
+	response := `{"requirements":{"status":"passed","summary":"Approved behavior is present.","evidence":["Source inspected."]},"brief":{"rationale":"Deliver the approved behavior.","assumptions":[],"limitations":[]},"criteria":{"P1":{"status":"passed","summary":"Behavior is correct.","evidence":["Source and focused results establish the approved behavior."]},"P2":{"status":"passed","summary":"Diff is clean.","evidence":["No whitespace errors."]}},"repository_rules":{"status":"blocked","summary":"Required retained validation report is unavailable.","evidence":["The receipt is missing from the supplied evidence; this does not demonstrate that validation failed or never ran."]},"maintainability":{"status":"passed","summary":"Focused change.","evidence":["No unrelated edits."]},"summary":"All product checks pass; required historical proof is unavailable."}`
 	for _, kind := range []string{config.HarnessCodexCLI, config.HarnessClaudeCLI, config.HarnessPiCLI} {
 		t.Run(kind, func(t *testing.T) {
 			run := &sharedReviewerHarnessRunner{response: response}
@@ -99,12 +99,16 @@ func TestReviewerAuditPromptBindsProofsAndDefersDynamicChecks(t *testing.T) {
 		"source and evidence triage, not test execution", "Do not run tests",
 		"one or more blocking violations",
 		"Read-only shell commands", "git diff " + assignment.Spec.ReviewBaseOID + "..." + assignment.Spec.ReviewCandidateOID,
-		"fresh focused-verification stage containing only the unresolved checks",
+		"starts focused verification only for check_required entries",
+		"needs_input check will not be sent to dynamic verification",
+		"requirements check covers the approved outcome and constraints",
 		"private record matched the approved content, workspace, candidate commit/tree, and proof obligations",
 		"it does not independently attest that reported commands ran, passed",
 		"A pre-commit HEAD mentioned in report prose is not by itself a reason to repeat verification",
 		"Do not assume untested changes were covered",
 		"including why supplied results cannot answer the question",
+		"concrete delivered behavior and any remaining blocker",
+		"reused results with their applicability",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("reviewer prompt omitted %q:\n%s", required, prompt)
@@ -129,7 +133,7 @@ func TestReviewerComparisonDoesNotClaimMissingEvidenceIsBound(t *testing.T) {
 }
 
 func TestReviewerChecksUseEvidenceWhenRedundantSummaryIsOmitted(t *testing.T) {
-	audit := `{"criteria":{"P1":{"status":"passed","evidence":["behavior.txt contains ready."]},"P2":{"status":"passed","summary":"The diff is clean.","evidence":["git diff --check passed."]}},"repository_rules":{"status":"passed","summary":"No rule violation was found.","evidence":["The cumulative diff follows the repository instructions."]},"maintainability":{"status":"passed","summary":"The change is focused.","evidence":["Only the intended fixture changed."]},"summary":"The candidate satisfies the audited obligations."}`
+	audit := `{"criteria":{"P1":{"status":"passed","evidence":["behavior.txt contains ready."]},"P2":{"status":"passed","summary":"The diff is clean.","evidence":["git diff --check passed."]}},"repository_rules":{"status":"passed","summary":"No rule violation was found.","evidence":["The cumulative diff follows the repository instructions."]},"maintainability":{"status":"passed","summary":"The change is focused.","evidence":["Only the intended fixture changed."]},"summary":"The candidate satisfies the audited obligations.","requirements":{"status":"passed","summary":"The approved outcome is covered.","evidence":["Compared the original request, affected contracts and complete candidate."]},"brief":{"rationale":"Deliver the approved behavior.","assumptions":[],"limitations":[]}}`
 	content, err := decodeReviewerAuditContent(reviewerAssignment(), audit)
 	if err != nil {
 		t.Fatalf("decode reviewer audit with omitted redundant summary: %v", err)
@@ -138,7 +142,7 @@ func TestReviewerChecksUseEvidenceWhenRedundantSummaryIsOmitted(t *testing.T) {
 		t.Fatalf("reviewer audit did not reuse concrete evidence as its summary: %#v", content.Criteria["P1"])
 	}
 
-	resolution := `{"checks":{"P2":{"status":"passed","evidence":["git diff --check exited successfully."]}},"summary":"The unresolved check passed."}`
+	resolution := `{"checks":{"P2":{"status":"passed","evidence":["git diff --check exited successfully."]}},"summary":"The unresolved check passed.","limitations":[]}`
 	resolved, err := decodeReviewerResolutionContent([]reviewerUnresolvedCheck{{Key: "P2"}}, resolution)
 	if err != nil {
 		t.Fatalf("decode reviewer resolution with omitted redundant summary: %v", err)
@@ -149,7 +153,7 @@ func TestReviewerChecksUseEvidenceWhenRedundantSummaryIsOmitted(t *testing.T) {
 }
 
 func TestAssembleReviewerContentDerivesBlockedOutcome(t *testing.T) {
-	value := `{"criteria":{"P1":{"status":"blocked","summary":"The file could not be read.","evidence":["The approved read capability returned permission denied."]},"P2":{"status":"passed","summary":"The diff is clean.","evidence":["git diff --check passed."]}},"repository_rules":{"status":"passed","summary":"No repository-rule defect was identified.","evidence":["The available diff showed no rule violation."]},"maintainability":{"status":"blocked","summary":"Maintainability could not be inspected.","evidence":["Source reads remained unavailable."]},"summary":"Required review evidence is unavailable."}`
+	value := `{"criteria":{"P1":{"status":"blocked","summary":"The file could not be read.","evidence":["The approved read capability returned permission denied."]},"P2":{"status":"passed","summary":"The diff is clean.","evidence":["git diff --check passed."]}},"repository_rules":{"status":"passed","summary":"No repository-rule defect was identified.","evidence":["The available diff showed no rule violation."]},"maintainability":{"status":"blocked","summary":"Maintainability could not be inspected.","evidence":["Source reads remained unavailable."]},"summary":"Required review evidence is unavailable.","requirements":{"status":"passed","summary":"The approved outcome is covered.","evidence":["Compared the original request, affected contracts and complete candidate."]},"brief":{"rationale":"Deliver the approved behavior.","assumptions":[],"limitations":[]}}`
 	structured, err := assembleReviewerContent(reviewerAssignment(), value)
 	if err != nil {
 		t.Fatalf("assemble blocked reviewer content: %v", err)
@@ -164,7 +168,7 @@ func TestAssembleReviewerContentDerivesBlockedOutcome(t *testing.T) {
 }
 
 func TestAssembleReviewerContentRetainsBlockedRepositoryRuleEvidence(t *testing.T) {
-	value := `{"criteria":{"P1":{"status":"passed","summary":"The behavior is correct.","evidence":["behavior.txt contains ready."]},"P2":{"status":"passed","summary":"The diff is clean.","evidence":["git diff --check passed."]}},"repository_rules":{"status":"blocked","summary":"A required policy command is unavailable.","evidence":["The repository-required policy checker is not installed."]},"maintainability":{"status":"passed","summary":"The change remains localized.","evidence":["Only the intended fixture changed."]},"summary":"Repository-rule evidence is unavailable."}`
+	value := `{"criteria":{"P1":{"status":"passed","summary":"The behavior is correct.","evidence":["behavior.txt contains ready."]},"P2":{"status":"passed","summary":"The diff is clean.","evidence":["git diff --check passed."]}},"repository_rules":{"status":"blocked","summary":"A required policy command is unavailable.","evidence":["The repository-required policy checker is not installed."]},"maintainability":{"status":"passed","summary":"The change remains localized.","evidence":["Only the intended fixture changed."]},"summary":"Repository-rule evidence is unavailable.","requirements":{"status":"passed","summary":"The approved outcome is covered.","evidence":["Compared the original request, affected contracts and complete candidate."]},"brief":{"rationale":"Deliver the approved behavior.","assumptions":[],"limitations":[]}}`
 	structured, err := assembleReviewerContent(reviewerAssignment(), value)
 	if err != nil {
 		t.Fatalf("assemble repository-rule blocker: %v", err)
@@ -204,7 +208,7 @@ func TestAssembleReviewerContentDerivesRunnerAuthority(t *testing.T) {
 	if rule.RuleSourceID != "repository_instructions" || rule.RuleSourceVersion != "current" || rule.Status != "failed" || len(rule.Findings) != 1 {
 		t.Fatalf("Runner did not derive rule authority and status: %#v", rule)
 	}
-	if len(structured.WorkDone) != 1 || len(structured.Verification) != 4 {
+	if len(structured.WorkDone) != 1 || len(structured.Verification) != 5 {
 		t.Fatalf("Runner did not assemble deterministic completion evidence: %#v", structured)
 	}
 }
@@ -414,8 +418,8 @@ func TestAllReviewersUseFreshFocusedStageOnlyForUnresolvedProofs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	audit := `{"criteria":{"P1":{"status":"passed","summary":"Recorded evidence matches the source.","evidence":["behavior.txt and its durable test agree."]},"P2":{"status":"check_required","summary":"Does git diff --check pass for the exact candidate?","evidence":["No candidate-bound result was recorded for this obligation."]}},"repository_rules":{"status":"passed","summary":"The source audit found no blocking rule violation.","evidence":["The cumulative diff follows the repository instructions."]},"maintainability":{"status":"passed","summary":"The change is focused and readable.","evidence":["The diff changes only the intended fixture."]},"summary":"One proof obligation requires a focused command."}`
-	resolution := `{"checks":{"P2":{"status":"passed","summary":"The exact candidate is clean.","evidence":["git diff --check exited successfully."]}},"summary":"The one unresolved command passed."}`
+	audit := `{"criteria":{"P1":{"status":"passed","summary":"Recorded evidence matches the source.","evidence":["behavior.txt and its durable test agree."]},"P2":{"status":"check_required","summary":"Does git diff --check pass for the exact candidate?","evidence":["No candidate-bound result was recorded for this obligation."]}},"repository_rules":{"status":"passed","summary":"The source audit found no blocking rule violation.","evidence":["The cumulative diff follows the repository instructions."]},"maintainability":{"status":"passed","summary":"The change is focused and readable.","evidence":["The diff changes only the intended fixture."]},"summary":"One proof obligation requires a focused command.","requirements":{"status":"passed","summary":"The approved outcome is covered.","evidence":["Compared the original request, affected contracts and complete candidate."]},"brief":{"rationale":"Deliver the approved behavior.","assumptions":[],"limitations":[]}}`
+	resolution := `{"checks":{"P2":{"status":"passed","summary":"The exact candidate is clean.","evidence":["git diff --check exited successfully."]}},"summary":"The one unresolved command passed.","limitations":[]}`
 	for _, kind := range []string{config.HarnessCodexCLI, config.HarnessClaudeCLI, config.HarnessPiCLI} {
 		t.Run(kind, func(t *testing.T) {
 			run := &sharedReviewerHarnessRunner{responses: []string{audit, resolution}}
@@ -485,7 +489,7 @@ func TestAllReviewersUseFreshFocusedStageOnlyForUnresolvedProofs(t *testing.T) {
 			if strings.Contains(focusedPrompt, assignment.Spec.RecordedVerification[0].Evidence) || strings.Contains(focusedPrompt, "already audited the approved request") {
 				t.Fatal("focused stage replayed resolved evidence or presumed missing source inspection")
 			}
-			if output.Summary != "Review checks: 4 passed, 0 failed, 0 blocked." {
+			if output.Summary != "Review checks: 5 passed, 0 failed, 0 blocked, 0 need human input." {
 				t.Fatalf("resolved review retained an obsolete stage summary: %q", output.Summary)
 			}
 			if got := output.ReviewAssessment.Criteria[1].Evidence; !slices.Equal(got, []string{
@@ -515,8 +519,8 @@ func TestAllReviewersUseFreshFocusedStageOnlyForUnresolvedProofs(t *testing.T) {
 
 func TestReviewerContinuesIndependentFocusedVerificationAfterAuditFailure(t *testing.T) {
 	assignment := reviewerAssignment()
-	audit := `{"criteria":{"P1":{"status":"failed","summary":"The source contains the wrong value.","evidence":["behavior.txt contains broken."]},"P2":{"status":"check_required","summary":"Does git diff --check pass?","evidence":["No candidate-bound command result is recorded."]}},"repository_rules":{"status":"passed","summary":"No separate rule violation was found.","evidence":["The one static pass found no additional violation."]},"maintainability":{"status":"passed","summary":"The change is localized.","evidence":["Only the intended fixture changed."]},"summary":"A concrete source defect requires changes."}`
-	resolution := `{"checks":{"P2":{"status":"passed","summary":"The exact candidate is clean.","evidence":["git diff --check exited successfully."]}},"summary":"The independent unresolved command passed."}`
+	audit := `{"criteria":{"P1":{"status":"failed","summary":"The source contains the wrong value.","evidence":["behavior.txt contains broken."]},"P2":{"status":"check_required","summary":"Does git diff --check pass?","evidence":["No candidate-bound command result is recorded."]}},"repository_rules":{"status":"passed","summary":"No separate rule violation was found.","evidence":["The one static pass found no additional violation."]},"maintainability":{"status":"passed","summary":"The change is localized.","evidence":["Only the intended fixture changed."]},"summary":"A concrete source defect requires changes.","requirements":{"status":"passed","summary":"The approved outcome is covered.","evidence":["Compared the original request, affected contracts and complete candidate."]},"brief":{"rationale":"Deliver the approved behavior.","assumptions":[],"limitations":[]}}`
+	resolution := `{"checks":{"P2":{"status":"passed","summary":"The exact candidate is clean.","evidence":["git diff --check exited successfully."]}},"summary":"The independent unresolved command passed.","limitations":[]}`
 	run := &sharedReviewerHarnessRunner{responses: []string{audit, resolution}}
 	enabled := true
 	cfg := config.ExecutionConfig{Skills: []string{"runner-reviewer"}, SafeTools: true, Harness: config.HarnessConfig{
@@ -594,17 +598,19 @@ func TestReviewerFocusedCrossCuttingCheckReceivesApprovedScopeAndRepairBase(t *t
 
 func TestReviewerMergedSummaryDescribesFinalChecks(t *testing.T) {
 	for _, test := range []struct{ audit, resolved, want string }{
-		{"passed", "passed", "Review checks: 4 passed, 0 failed, 0 blocked."},
-		{"failed", "passed", "Review checks: 3 passed, 1 failed, 0 blocked."},
-		{"passed", "blocked", "Review checks: 3 passed, 0 failed, 1 blocked."},
-		{"failed", "blocked", "Review checks: 2 passed, 1 failed, 1 blocked."},
+		{"passed", "passed", "Review checks: 5 passed, 0 failed, 0 blocked, 0 need human input."},
+		{"failed", "passed", "Review checks: 4 passed, 1 failed, 0 blocked, 0 need human input."},
+		{"passed", "blocked", "Review checks: 4 passed, 0 failed, 1 blocked, 0 need human input."},
+		{"failed", "blocked", "Review checks: 3 passed, 1 failed, 1 blocked, 0 need human input."},
 	} {
 		content := reviewerContent{
+			Requirements:    reviewerContentCheck{Status: "passed", Summary: "Approved outcome covered.", Evidence: []string{"Compared original request and candidate."}},
+			Brief:           ReviewBrief{Rationale: "Deliver the approved behavior.", Assumptions: []string{}, Limitations: []string{}},
 			Criteria:        map[string]reviewerContentCheck{"P1": {Status: test.audit, Summary: "retained finding"}, "P2": {Status: "check_required", Summary: "obsolete gap"}},
-			RepositoryRules: reviewerContentCheck{Status: "passed"}, Maintainability: ReviewMaintainabilityResult{Status: "passed"},
+			RepositoryRules: reviewerContentCheck{Status: "passed"}, Maintainability: ReviewCheckResult{Status: "passed"},
 			Summary: "Initial inspection was blocked.",
 		}
-		merged := mergeReviewerResolution(content, reviewerResolutionContent{Checks: map[string]reviewerContentCheck{"P2": {Status: test.resolved, Summary: "resolved observation"}}, Summary: "Dynamic checks passed."})
+		merged := mergeReviewerResolution(content, reviewerResolutionContent{Limitations: []string{}, Checks: map[string]reviewerContentCheck{"P2": {Status: test.resolved, Summary: "resolved observation"}}, Summary: "Dynamic checks passed."})
 		if merged.Summary != test.want || merged.Criteria["P1"].Summary != "retained finding" || merged.Criteria["P2"].Summary != "resolved observation" {
 			t.Fatalf("incorrect merged review: %#v", merged)
 		}
@@ -612,19 +618,21 @@ func TestReviewerMergedSummaryDescribesFinalChecks(t *testing.T) {
 }
 
 func TestReviewerResolutionRetainsRequestsAcrossCheckAreasAndVerdicts(t *testing.T) {
-	for status, verdict := range map[string]string{"passed": "accept", "failed": "needs_changes", "blocked": "blocked"} {
+	for status, verdict := range map[string]string{"passed": "accept", "failed": "needs_changes", "blocked": "blocked", "needs_input": "needs_input"} {
 		t.Run(status, func(t *testing.T) {
 			assignment := reviewerAssignment()
 			assignment.Spec.RequiredVerification = []string{"approved behavior"}
 			audit := reviewerContent{
+				Requirements: reviewerContentCheck{Status: "passed", Summary: "Approved outcome covered.", Evidence: []string{"Compared original request and candidate."}},
+				Brief:        ReviewBrief{Rationale: "Deliver the approved behavior.", Assumptions: []string{}, Limitations: []string{}},
 				Criteria: map[string]reviewerContentCheck{"P1": {
 					Status: "check_required", Summary: "Criterion question?", Evidence: []string{"Criterion gap."},
 				}},
 				RepositoryRules: reviewerContentCheck{Status: "check_required", Summary: "Rule question?", Evidence: []string{"Rule gap."}},
-				Maintainability: ReviewMaintainabilityResult{Status: "check_required", Summary: "Maintainability question?", Evidence: []string{"Maintainability gap."}},
+				Maintainability: ReviewCheckResult{Status: "check_required", Summary: "Maintainability question?", Evidence: []string{"Maintainability gap."}},
 			}
 			resolved := reviewerContentCheck{Status: status, Summary: "Current observation.", Evidence: []string{"Current evidence."}}
-			merged := mergeReviewerResolution(audit, reviewerResolutionContent{Checks: map[string]reviewerContentCheck{"P1": resolved, "R": resolved, "M": resolved}})
+			merged := mergeReviewerResolution(audit, reviewerResolutionContent{Limitations: []string{}, Checks: map[string]reviewerContentCheck{"P1": resolved, "R": resolved, "M": resolved}})
 			for area, check := range map[string]reviewerContentCheck{
 				"Criterion": merged.Criteria["P1"], "Rule": merged.RepositoryRules,
 				"Maintainability": {Status: merged.Maintainability.Status, Summary: merged.Maintainability.Summary, Evidence: merged.Maintainability.Evidence},
@@ -666,15 +674,17 @@ func TestReviewerTimingConfirmationRetainsEvidenceAndVerdict(t *testing.T) {
 			assignment.Spec.RequiredVerification = []string{"Browse restores sorting after reload"}
 			passed := reviewerContentCheck{Status: "passed", Summary: "Source inspected", Evidence: []string{"The candidate diff follows repository rules."}}
 			audit := reviewerContent{
+				Requirements:    reviewerContentCheck{Status: "passed", Summary: "Approved outcome covered.", Evidence: []string{"Compared original request and candidate."}},
+				Brief:           ReviewBrief{Rationale: "Deliver the approved behavior.", Assumptions: []string{}, Limitations: []string{}},
 				Criteria:        map[string]reviewerContentCheck{"P1": {Status: "check_required", Summary: "Does browsing restore sorting after reload?", Evidence: []string{initial}}},
 				RepositoryRules: passed,
-				Maintainability: ReviewMaintainabilityResult{Status: "passed", Summary: "Focused diff", Evidence: []string{"No unrelated changes."}},
+				Maintainability: ReviewCheckResult{Status: "passed", Summary: "Focused diff", Evidence: []string{"No unrelated changes."}},
 			}
 			unresolved := reviewerUnresolvedChecks(assignment, audit)
 			if len(unresolved) != 1 || !slices.Equal(unresolved[0].Evidence, []string{initial}) {
 				t.Fatalf("timing evidence lost before confirmation: %#v", unresolved)
 			}
-			resolution := reviewerResolutionContent{Checks: map[string]reviewerContentCheck{"P1": {
+			resolution := reviewerResolutionContent{Limitations: []string{}, Checks: map[string]reviewerContentCheck{"P1": {
 				Status: test.status, Summary: test.confirmation, Evidence: []string{initial, test.confirmation},
 			}}, Summary: test.confirmation}
 			encoded, err := json.Marshal(resolution)

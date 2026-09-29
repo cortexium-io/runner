@@ -43,7 +43,7 @@ func TestDeliveryGateContextDoesNotWaiveExplicitPreQAObligation(t *testing.T) {
 	if !strings.Contains(prompt, a.Spec.RequiredVerification[0]) || !strings.Contains(prompt, "explicit approved requirement to perform a check before QA") || !strings.Contains(prompt, "Never mark an unrun check") {
 		t.Fatal("explicit obligation or scheduling distinction omitted")
 	}
-	content, err := decodeReviewerAuditContent(a, `{"criteria":{"P1":{"status":"check_required","summary":"The approved pre-QA migration check lacks proof.","evidence":["No recorded migration check is available."]}},"repository_rules":{"status":"passed","summary":"No source violations","evidence":["Inspected diff"]},"maintainability":{"status":"passed","summary":"Clear change","evidence":["Inspected source"]},"summary":"Focused pre-QA proof needed"}`)
+	content, err := decodeReviewerAuditContent(a, `{"requirements":{"status":"passed","summary":"No additional scope omissions","evidence":["Inspected approved scope"]},"brief":{"rationale":"Complete the approved migration","assumptions":[],"limitations":[]},"criteria":{"P1":{"status":"check_required","summary":"The approved pre-QA migration check lacks proof.","evidence":["No recorded migration check is available."]}},"repository_rules":{"status":"passed","summary":"No source violations","evidence":["Inspected diff"]},"maintainability":{"status":"passed","summary":"Clear change","evidence":["Inspected source"]},"summary":"Focused pre-QA proof needed"}`)
 	if err != nil {
 		t.Fatal(err)
 	}

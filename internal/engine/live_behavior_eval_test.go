@@ -154,7 +154,7 @@ func TestEvalHarnessRoleAccessRequiresExplicitPiHostApproval(t *testing.T) {
 
 // TestLiveRunnerBehaviorEval is the opt-in paid matrix. Full runs cover three
 // planner cases, one implementer, and three independently specified reviewer
-// candidates. Smoke keeps one planner and both a correct and faulty reviewer
+// candidates, plus four requirements/decision cases. Smoke keeps one planner and both a correct and faulty reviewer
 // candidate. Normal go test runs skip all model calls.
 func TestLiveRunnerBehaviorEval(t *testing.T) {
 	requested := strings.TrimSpace(os.Getenv("CORTEXIUM_RUNNER_EVAL_HARNESSES"))
@@ -183,6 +183,10 @@ func TestLiveRunnerBehaviorEval(t *testing.T) {
 	smoke := os.Getenv("CORTEXIUM_RUNNER_EVAL_SMOKE") == "1"
 	scenarios := plannerEvalScenarios(smoke)
 	reviews := reviewerEvalScenarios(t, smoke)
+	completeness := reviewerCompletenessCorpus
+	if smoke {
+		completeness = nil
+	}
 	for _, kind := range harnesses {
 		if !config.ValidHarnessKind(kind) {
 			t.Fatalf("unsupported eval harness %q", kind)
@@ -218,8 +222,19 @@ func TestLiveRunnerBehaviorEval(t *testing.T) {
 				}
 			}
 		}
+		for _, scenario := range completeness {
+			result := coordinator.runCase(ctx, kind, config.WorkRoleReviewer, scenario.name, func(ctx context.Context) evalCaseResult {
+				return runLiveReviewerJudgmentEval(ctx, t, kind, settings, scenario)
+			})
+			if result.Err != nil {
+				t.Errorf("%s requirements case %s failed (class=%s stage=%s)", kind, scenario.name, result.FailureClass, result.FailureStage)
+				if result.FailureStage != "reviewer_verdict" {
+					return
+				}
+			}
+		}
 	}
-	wantAttempts := len(harnesses) * (len(scenarios) + 1 + len(reviews))
+	wantAttempts := len(harnesses) * (len(scenarios) + 1 + len(reviews) + len(completeness))
 	if len(coordinator.attempts) != wantAttempts {
 		t.Fatalf("live matrix executed %d scenarios, want %d", len(coordinator.attempts), wantAttempts)
 	}

@@ -203,10 +203,10 @@ func (c *evalCoordinator) beforeCase() error {
 	if time.Since(c.started) >= c.settings.AggregateTime {
 		return errors.New("aggregate live-evaluation wall-time ceiling reached")
 	}
-	// Full matrix: seven cases for each of three harnesses.
+	// Full matrix: eleven cases for each of three harnesses.
 	maxAttempts := c.settings.MaxAttempts
 	if maxAttempts == 0 {
-		maxAttempts = 21
+		maxAttempts = 33
 	}
 	decision := EvaluateAdmission(c.admissionBudget(maxAttempts), c.attempts, time.Now())
 	if !decision.Allowed {
@@ -326,12 +326,12 @@ func (c *evalCoordinator) emit(prefix string, record any) {
 
 func validEvalReviewRecord(record evalCaseRecord) bool {
 	switch record.ExpectedVerdict {
-	case "", "accept", "needs_changes", "blocked":
+	case "", "accept", "needs_changes", "blocked", "needs_input":
 	default:
 		return false
 	}
 	switch record.ObservedVerdict {
-	case "", "accept", "needs_changes", "blocked":
+	case "", "accept", "needs_changes", "blocked", "needs_input":
 	default:
 		return false
 	}
@@ -477,7 +477,7 @@ func TestEvalRecordsRetainReviewerJudgmentsAndSeparateTestTime(t *testing.T) {
 			return evalCaseResult{Outcome: "succeeded", ExpectedVerdict: "accept", ObservedVerdict: verdict,
 				ReviewJudgment: reviewerEvalJudgment(scenario, &execution.ReviewAssessment{Verdict: verdict,
 					Criteria: []execution.ReviewCriterionResult{{Criterion: recordUpdateProofs[0], Status: "passed"}, {Criterion: recordUpdateProofs[1], Status: "passed"}},
-					Rules:    []execution.ReviewRuleResult{{Status: "passed"}}, Maintainability: execution.ReviewMaintainabilityResult{Status: "passed"}}),
+					Rules:    []execution.ReviewRuleResult{{Status: "passed"}}, Maintainability: execution.ReviewCheckResult{Status: "passed"}}),
 				FixtureTestDurationMS: 12, HarnessDurationMilliseconds: 34}
 		})
 	}

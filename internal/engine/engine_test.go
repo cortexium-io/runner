@@ -966,6 +966,8 @@ func reviewerContentForSchema(args []string, reject bool, evidence string) ([]by
 	}
 	encoded, err := json.Marshal(map[string]any{
 		"criteria":         criteria,
+		"requirements":     map[string]any{"status": "passed", "summary": "Approved outcome covered.", "evidence": []string{"Compared original request and candidate."}},
+		"brief":            execution.ReviewBrief{Rationale: "Deliver the approved behavior.", Assumptions: []string{}, Limitations: []string{}},
 		"repository_rules": map[string]any{"status": "passed", "summary": "Repository instructions passed.", "evidence": []string{"focused diff"}},
 		"maintainability":  map[string]any{"status": "passed", "summary": "Maintainability is acceptable.", "evidence": []string{"focused diff"}},
 		"summary":          summary,

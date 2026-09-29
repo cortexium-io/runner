@@ -503,12 +503,29 @@ func TestGitHubPullRequestManagerPublishesExactAcceptedTupleUnderSanitizedGit(t 
 	}
 	wantBody := "Created by the local Project Runner after agent QA passed.\n\n" +
 		"Source: https://github.com/owner/repo/issues/1\n\n" +
-		"## Agent QA\n\nRunner recorded an accepted QA classification for the exact published commit. Detailed model-authored evidence remains local."
+		"## Agent QA\n\nAccepted for reviewed commit `" + record.CommitOID + "`. QA acceptance does not establish merge, CI, or deployment status.\n\n" +
+		"See the source issue's Agent QA completion report for this commit: delivered result, requested outcomes, reviewer-reported evidence, assumptions, and verification limits. If the comment is unavailable, the accepted report is retained locally.\n\n" +
+		"Raw harness diagnostics remain local."
 	if runner.createdBody != wantBody {
 		t.Fatalf("pull request body = %q, want %q", runner.createdBody, wantBody)
 	}
-	if strings.Contains(runner.createdBody, record.AcceptanceReport) {
+	if strings.Contains(runner.createdBody, record.AcceptanceReport) || strings.Contains(runner.createdBody, record.AcceptanceComment) {
 		t.Fatalf("pull request body exposed persisted QA text: %q", runner.createdBody)
+	}
+}
+
+func TestRunnerPullRequestReportWithoutIssueRetainsLocalCompletionReport(t *testing.T) {
+	for _, source := range []string{"", "https://github.com/orgs/owner/projects/1"} {
+		body, err := runnerPullRequestBody(source, strings.Repeat("b", 40))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(body, "Its completion report is retained locally.") || strings.Contains(body, "See the source issue's") {
+			t.Fatalf("draft report promised an unavailable issue comment: %s", body)
+		}
+	}
+	if _, err := runnerPullRequestBody("", "not a commit\n# accepted"); err == nil {
+		t.Fatal("invalid reviewed identity was accepted in the PR report")
 	}
 }
 
