@@ -14,7 +14,7 @@ func RecommendedReasoning(harness, model string) string {
 	switch model {
 	case "gpt-6-sol", "gpt-6-luna":
 		return "high"
-	case "gpt-6-astra", "claude-opus-5-5":
+	case "gpt-6.1-sol", "gpt-6-astra", "claude-opus-5-5":
 		return "medium"
 	}
 	if harness == HarnessCodexCLI {

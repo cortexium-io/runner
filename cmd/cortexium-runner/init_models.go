@@ -96,7 +96,7 @@ func recommendedModelIndex(harness, role string, options []initModelOption) int 
 	case config.HarnessCodexCLI:
 		wanted = "gpt-6-sol"
 		if role == config.WorkRolePlanner || role == config.WorkRoleReviewer {
-			wanted = "gpt-6-astra"
+			wanted = "gpt-6.1-sol"
 		}
 	case config.HarnessClaudeCLI:
 		wanted = "claude-opus-5-5"
