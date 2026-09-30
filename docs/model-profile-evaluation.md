@@ -103,6 +103,9 @@ ownership loss. Each model starts from identical fixture commits; model order
 rotates by task. Reference assertions stay outside model-editable worktrees and
 scope checks reject changes outside the source/tests. Both harnesses retain their
 native isolated sandbox profiles. No live Project, planning or model QA is run.
+Private mode-`0600` result files retain successful and blocked handoffs and
+diagnostics, while aggregate records stay sanitized; candidate diffs are retained
+for completed implementations. Existing result files are never overwritten.
 
 One shared ceiling admits at most nine assignments, 45 minutes of elapsed
 evaluation time, and 900,000 inclusive reported input/output tokens. Each assignment
@@ -131,6 +134,18 @@ quality. It records scenario/harness time, reported usage, scope violations and
 reference-test results; it does not count all model-internal test commands or
 human supervision. Keep current production defaults unless repeated matched
 delivery evidence justifies a separately approved change.
+
+The September 30 attempt at source `6d92f885af71b24e49a222a432b19fe5ce0dda7b`
+is closed after its first GPT-6 Sol/high assignment returned `agent_blocked`.
+It reported 277.489 seconds of harness execution and 343,096 inclusive tokens
+(338,694 input and 4,402 output); its 307,456 cache-read tokens are an input
+subset, not additional tokens. Dollar cost was not reported. The other eight
+assignments were not admitted, and no retry or budget extension was used.
+The initial helper did not retain the detailed blocked handoff, so its cause
+cannot be established from that sanitized artifact. Subsequent private-evidence
+retention tests do not recover or retroactively validate this observation. This
+partial run supports no model quality/cost ranking; current production defaults
+remain unchanged. Any further live comparison requires new authorization.
 
 ### Existing project activation
 

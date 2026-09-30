@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -142,6 +143,11 @@ func runImplementationProfileFixture(ctx context.Context, t *testing.T, harness 
 		output, err = execution.NewAgentExecutor(harness, cfg, nil).ExecuteWorkspaceWrite(ctx, assignment, capture)
 	}
 	result := evalCaseResult{Outcome: output.Outcome, FailureClass: string(output.FailureClass), RetryDisposition: string(output.RetryDisposition), Usage: output.Usage, HarnessDurationMilliseconds: output.HarnessDurationMilliseconds}
+	resultPath := filepath.Join(filepath.Dir(settings.ArtifactPath), model+"-"+settings.Reasoning+"-"+fixture.name+".result.json")
+	if saveErr := saveImplementationProfileOutput(resultPath, output, err); saveErr != nil {
+		result.Err, result.FailureStage = errors.New("private implementation handoff could not be preserved"), "implementation_execution"
+		return result
+	}
 	if err != nil || output.Outcome != execution.OutcomeSucceeded {
 		result.Err, result.FailureStage = errors.New("implementation assignment did not succeed"), "implementation_execution"
 		return result
@@ -198,4 +204,46 @@ func runImplementationProfileFixture(ctx context.Context, t *testing.T, harness 
 		result.Outcome, result.FailureClass, result.FailureStage = execution.OutcomeBlocked, string(execution.FailureInvalidContract), "fixture_content"
 	}
 	return result
+}
+
+// Keep untrusted handoffs/diagnostics private, including unsuccessful assignments.
+// The aggregate artifact remains sanitized and existing evidence is never replaced.
+func saveImplementationProfileOutput(path string, output execution.Output, executionErr error) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	diagnostic := ""
+	if executionErr != nil {
+		diagnostic = executionErr.Error()
+	}
+	err = json.NewEncoder(file).Encode(struct {
+		Output     execution.Output `json:"output"`
+		Diagnostic string           `json:"diagnostic,omitempty"`
+	}{output, diagnostic})
+	return errors.Join(err, file.Close())
+}
+
+func TestImplementationProfileOutputPreservesBlockedEvidencePrivately(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "result.json")
+	blocker := "Required proof could not be established."
+	output := execution.Output{Outcome: execution.OutcomeBlocked, Blocker: &blocker, WorkDone: []string{"Retained implementation"}}
+	if err := saveImplementationProfileOutput(path, output, errors.New("private diagnostic")); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(content), blocker) || !strings.Contains(string(content), "private diagnostic") {
+		t.Fatal("blocked handoff was discarded")
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatal("handoff is not private")
+	}
+	if err := saveImplementationProfileOutput(path, execution.Output{}, nil); err == nil {
+		t.Fatal("existing handoff was overwritten")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(content) {
+		t.Fatal("retained handoff changed")
+	}
 }
