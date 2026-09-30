@@ -50,9 +50,20 @@ func createPiBrowserExtension() (*piBrowserChannel, error) {
 		_ = os.RemoveAll(runtimeDir)
 		return nil, fmt.Errorf("encode Pi browser environment: %w", err)
 	}
-	source := `import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
+	source := `import { findPackageJSON } from "node:module";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { getPackageDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+
+// Resolve Pi's own dependency, not a package from the assignment or operator catalog.
+let mcpPackage;
+try {
+  mcpPackage = findPackageJSON("@earendil-works/pi-mcp", pathToFileURL(join(getPackageDir(), "package.json")));
+} catch (error) {
+  throw new Error("Runner browser requires the Pi 0.99.1+ Node package with its bundled MCP client.", { cause: error });
+}
+const { McpClient, StdioTransport } = await import(pathToFileURL(join(dirname(mcpPackage), "dist/index.js")).href);
 
 const browserCommand = ` + strconv.Quote(command) + `;
 const browserArgs = ` + string(encodedArgs) + `;
@@ -61,115 +72,64 @@ const browserEnv = ` + string(encodedEnvironment) + `;
 const requestTimeoutMs = 30000;
 
 export default function (pi) {
-  let child;
+  let client;
+  let transport;
   let startup;
-  let nextId = 1;
-  let stderr = "";
-  const pending = new Map();
+  let closing;
+  let closed = false;
 
-  function stop(error) {
-    for (const request of pending.values()) {
-      clearTimeout(request.timer);
-      request.reject(error);
-    }
-    pending.clear();
+  function closeClient() {
+    if (client && !closing) closing = client.close();
+    return closing;
   }
 
-  function send(message) {
-    if (!child?.stdin?.writable) throw new Error("Runner browser process is unavailable.");
-    child.stdin.write(JSON.stringify(message) + "\n");
-  }
-
-  function request(method, params, signal) {
-    const id = nextId++;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        reject(new Error("Runner browser request timed out: " + method));
-      }, requestTimeoutMs);
-      const abort = () => {
-        clearTimeout(timer);
-        pending.delete(id);
-        reject(new Error("Runner browser request was cancelled: " + method));
-      };
-      if (signal?.aborted) return abort();
-      signal?.addEventListener("abort", abort, { once: true });
-      pending.set(id, {
-        timer,
-        resolve(value) {
-          signal?.removeEventListener("abort", abort);
-          resolve(value);
-        },
-        reject(error) {
-          signal?.removeEventListener("abort", abort);
-          reject(error);
-        },
-      });
-      try {
-        send({ jsonrpc: "2.0", id, method, params });
-      } catch (error) {
-        clearTimeout(timer);
-        pending.delete(id);
-        signal?.removeEventListener("abort", abort);
-        reject(error);
-      }
-    });
+  function browserError(error) {
+    const detail = transport?.stderr.trim();
+    return detail ? new Error((error instanceof Error ? error.message : String(error)) + ": " + detail, { cause: error }) : error;
   }
 
   async function ensureStarted() {
+    if (closed) throw new Error("Runner browser session is closed.");
     if (startup) return startup;
-    startup = (async () => {
-      child = spawn(browserCommand, browserArgs, {
-        shell: false,
-        stdio: ["pipe", "pipe", "pipe"],
-		cwd: browserCwd,
-		env: { ...process.env, ...browserEnv },
-      });
-      child.stderr.on("data", (chunk) => {
-        stderr = (stderr + String(chunk)).slice(-4000);
-      });
-      createInterface({ input: child.stdout }).on("line", (line) => {
-        let message;
-        try {
-          message = JSON.parse(line);
-        } catch {
-          stop(new Error("Runner browser returned malformed protocol output."));
-          return;
-        }
-        if (typeof message.id !== "number") return;
-        const active = pending.get(message.id);
-        if (!active) return;
-        clearTimeout(active.timer);
-        pending.delete(message.id);
-        if (message.error) {
-          active.reject(new Error("Runner browser protocol error: " + String(message.error.message || message.error.code)));
-        } else {
-          active.resolve(message.result);
-        }
-      });
-      child.once("error", (error) => stop(error));
-      child.once("exit", (code) => {
-        const detail = stderr.trim();
-        stop(new Error("Runner browser exited" + (code == null ? "" : " with status " + code) + (detail ? ": " + detail : ".")));
-      });
-      await request("initialize", {
-        protocolVersion: "2025-11-25",
-        capabilities: {},
-        clientInfo: { name: "cortexium-runner-pi", version: "1" },
-      });
-      send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
-    })();
+    closing = undefined;
+    client = new McpClient({ name: "cortexium-runner-pi", version: "1", requestTimeoutMs });
+    transport = new StdioTransport({
+      command: browserCommand,
+      args: browserArgs,
+      cwd: browserCwd,
+      env: browserEnv,
+      maxStderrBytes: 4000,
+      closeTimeoutMs: 2000,
+    });
+    startup = client.connect(transport);
     try {
       await startup;
     } catch (error) {
+      await closeClient();
       startup = undefined;
-      throw error;
+      throw browserError(error);
     }
   }
 
   async function call(name, args, signal) {
-    await ensureStarted();
-    const result = await request("tools/call", { name, arguments: args }, signal);
+    signal?.throwIfAborted();
+    // Cancellation also closes an in-flight initialization; callTool handles
+    // cancellation after initialization without discarding a healthy connection.
+    const abortStartup = () => { void closeClient(); };
+    signal?.addEventListener("abort", abortStartup, { once: true });
+    try {
+      await ensureStarted();
+    } finally {
+      signal?.removeEventListener("abort", abortStartup);
+      if (signal?.aborted) await closing;
+    }
+    signal?.throwIfAborted();
+    let result;
+    try {
+      result = await client.callTool(name, args, { signal, timeoutMs: requestTimeoutMs });
+    } catch (error) {
+      throw browserError(error);
+    }
     if (result?.isError) {
       const detail = Array.isArray(result.content)
         ? result.content.filter((item) => item?.type === "text").map((item) => item.text).join("\n")
@@ -224,11 +184,8 @@ export default function (pi) {
   });
 
   pi.on("session_shutdown", async () => {
-    if (!child || child.exitCode !== null) return;
-    const closed = new Promise((resolve) => child.once("close", resolve));
-    child.stdin.end();
-    await Promise.race([closed, new Promise((resolve) => setTimeout(resolve, 2000))]);
-    if (child.exitCode === null) child.kill("SIGTERM");
+    closed = true;
+    await closeClient();
   });
 }
 `

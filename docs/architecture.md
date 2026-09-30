@@ -1251,10 +1251,18 @@ connections. Runner does not maintain a persistent browser service or pool.
 
 Pi implementer and reviewer roles receive the same three browser operations
 through a temporary Runner-generated extension that forwards to the pinned
-browser server. Ambient Pi extensions stay disabled in isolated mode and load
-only after an explicit inherited-configuration opt-in. Navigation through the
+browser server using Pi's own MCP client and stdio transport. It resolves that
+client from Pi's installed Node package, not the assignment or an ambient MCP
+catalog. The connection remains lazy and invocation-scoped; Pi owns initialization,
+request timeouts, cancellation, and process-group shutdown. Runner keeps its three
+explicit tool definitions and loopback URL validation. This requires the Pi
+0.99.1+ Node package, not a standalone binary without the client dependency.
+Ambient Pi extensions, including native MCP and Codemode, stay disabled in
+isolated mode and load only after an explicit inherited-configuration opt-in. Navigation through the
 Runner browser remains loopback-only. This boundary does not change Pi's
-explicit host-access requirement for shell and edit tools.
+explicit host-access requirement for shell and edit tools. Runner does not enable
+Codemode or classifier-model calls by default; their separate usage accounting
+has not been validated for Runner.
 
 A Codex role can additionally add an explicit named MCP allowlist. In isolated
 mode Runner reads the native Codex MCP catalog from a private neutral cwd rather
