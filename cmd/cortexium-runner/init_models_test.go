@@ -86,21 +86,21 @@ func TestRecommendedModelNeverDependsOnCatalogOrderOrInventsAvailability(t *test
 		role string
 		want string
 	}{
-		{config.WorkRolePlanner, "gpt-6-astra"},
+		{config.WorkRolePlanner, "gpt-6.1-sol"},
 		{config.WorkRoleImplementer, "gpt-6-sol"},
-		{config.WorkRoleReviewer, "gpt-6-astra"},
+		{config.WorkRoleReviewer, "gpt-6.1-sol"},
 	} {
 		t.Run(tc.role, func(t *testing.T) {
-			options := []initModelOption{{Value: "gpt-6-luna"}, {Value: "gpt-6-sol"}, {Value: "gpt-6-astra"}, {Native: true}, {Custom: true}}
+			options := []initModelOption{{Value: "gpt-6-luna"}, {Value: "gpt-6-sol"}, {Value: "gpt-6-astra"}, {Value: "gpt-6.1-sol"}, {Native: true}, {Custom: true}}
 			got := recommendedModelIndex(config.HarnessCodexCLI, tc.role, options)
 			if options[got].Value != tc.want {
 				t.Fatalf("recommended model = %q, want %q", options[got].Value, tc.want)
 			}
-			if got := recommendedModelIndex(config.HarnessPiCLI, tc.role, options); got != 3 {
+			if got := recommendedModelIndex(config.HarnessPiCLI, tc.role, options); got != 4 {
 				t.Fatalf("Pi silently selected a provider: %d", got)
 			}
 			options[got].Value = "other-model"
-			if got := recommendedModelIndex(config.HarnessCodexCLI, tc.role, options); got != 3 {
+			if got := recommendedModelIndex(config.HarnessCodexCLI, tc.role, options); got != 4 {
 				t.Fatalf("missing recommendation did not leave native selection: %d", got)
 			}
 		})
@@ -109,7 +109,7 @@ func TestRecommendedModelNeverDependsOnCatalogOrderOrInventsAvailability(t *test
 
 func TestInteractiveCodexEnterAcceptsVisibleRoleRecommendations(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-astra","visibility":"list"},{"slug":"gpt-6-sol","visibility":"list"}]}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-astra","visibility":"list"},{"slug":"gpt-6-sol","visibility":"list"},{"slug":"gpt-6.1-sol","visibility":"list"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CODEX_HOME", root)
@@ -120,10 +120,10 @@ func TestInteractiveCodexEnterAcceptsVisibleRoleRecommendations(t *testing.T) {
 	if err := promptInitRuntimeChoices(t.Context(), p, &ph, &ih, &rh, &pm, &im, &rm, &pr, &ir, &rr); err != nil {
 		t.Fatalf("role selections: %v; prompts: %s", err, output.String())
 	}
-	if pm != "gpt-6-astra" || pr != "medium" || im != "gpt-6-sol" || ir != "high" || rm != "gpt-6-astra" || rr != "medium" {
+	if pm != "gpt-6.1-sol" || pr != "medium" || im != "gpt-6-sol" || ir != "high" || rm != "gpt-6.1-sol" || rr != "medium" {
 		t.Fatalf("unexpected recommendations: %s/%s %s/%s %s/%s", pm, pr, im, ir, rm, rr)
 	}
-	for _, label := range []string{"Planner model", "Implementer model", "Reviewer model", "gpt-6-astra (recommended)", "gpt-6-sol (recommended)"} {
+	for _, label := range []string{"Planner model", "Implementer model", "Reviewer model", "gpt-6.1-sol (recommended)", "gpt-6-sol (recommended)"} {
 		if !strings.Contains(output.String(), label) {
 			t.Fatalf("missing visible recommendation %q: %s", label, output.String())
 		}
