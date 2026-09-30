@@ -84,7 +84,7 @@ func initModelOptions(ctx context.Context, harness, search string) []initModelOp
 func claudeModelOptions() []initModelOption {
 	return []initModelOption{
 		{Label: "Opus 5.5", Description: "Explicit model version; start with medium effort; requires compatible Claude Code/account", Value: "claude-opus-5-5"},
-		{Label: "Sonnet", Description: "Latest Sonnet available to Claude Code; balanced speed and capability", Value: "sonnet"},
+		{Label: "Sonnet 5.5", Description: "Explicit model version; medium effort for bounded work; requires compatible Claude Code/account", Value: "claude-sonnet-5-5"},
 	}
 }
 

@@ -75,12 +75,62 @@ profile. Doctor inspects the selected profile, and retained parent progress bind
 the actual execution profile/settings. Changing them cannot reuse its acceptance.
 
 For new Claude setup, the suggested pair is explicit `claude-opus-5-5`/medium,
-not a moving alias with blanket high effort. Pi stays provider-neutral: select an
+not a moving alias with blanket high effort. The bounded-work alternative is
+explicit `claude-sonnet-5-5`/medium, not the moving `sonnet` alias. Opus 5.5 needs
+Claude Code 2.1.280 or newer, and Sonnet 5.5 needs 2.1.284 or newer, plus
+account/provider access. A menu suggestion is not a paid availability check.
+Pi stays provider-neutral: select an
 available provider-qualified model, then a supported effort for that model. No
 Claude/Pi substitution is implied for an OpenAI-only project. See the official
 [Codex effort guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents#reasoning-effort-model_reasoning_effort)
 and [Claude model configuration](https://code.claude.com/docs/en/model-config).
 These sources inform starting choices, not a Runner-specific comparison result.
+
+Recommendations apply only within the operator-selected, connected harness.
+Installed CLI discovery is not authentication or model-availability proof. Do not
+choose Claude merely because its executable exists, substitute a Claude model in
+a Codex role, or switch providers after a failed connection. Verify authentication
+and account/model compatibility for the selected harness; retain the project's
+explicit harness, permissions and tools. An isolated cross-harness comparison
+cannot establish that its winner is available to every project or machine.
+
+### September 30 implementation comparison
+
+The separately authorized comparison is implementation-only: GPT-6 Sol/high,
+GPT-6.1 Sol/medium and Claude Opus 5.5/medium. It reuses the record-editing fixtures
+for three tasks: implement title editing, repair cross-tenant access, and repair
+ownership loss. Each model starts from identical fixture commits; model order
+rotates by task. Reference assertions stay outside model-editable worktrees and
+scope checks reject changes outside the source/tests. Both harnesses retain their
+native isolated sandbox profiles. No live Project, planning or model QA is run.
+
+One shared ceiling admits at most nine assignments, 45 minutes of elapsed
+evaluation time, and 900,000 inclusive reported input/output tokens. Each assignment
+has a five-minute deadline. Missing/partial usage and execution/admission failures
+stop further admission. There is no assignment retry, budget extension or automatic
+provider fallback; a native in-assignment corrective pass, if used, remains within
+that assignment and its original budget. An in-flight assignment can exceed the
+reported-token threshold; tokens are not a billing cap and absent dollars remain
+unknown. The private artifact is created exclusively, not overwritten or resumed.
+
+After checking both CLI versions, authentication and model compatibility, run
+once from the clean committed candidate, using an absolute new artifact path
+outside the checkout:
+
+```bash
+CORTEXIUM_RUNNER_IMPLEMENTATION_COMPARISON=1 \
+CORTEXIUM_RUNNER_EVAL_CANDIDATE=EXACT_REVIEWED_SHA \
+CORTEXIUM_RUNNER_EVAL_ARTIFACT=/absolute/private/comparison.jsonl \
+  go test ./internal/engine -run '^TestLiveImplementationProfileComparison$' -count=1 -timeout 50m -v
+```
+
+Normal tests skip the live calls and check that the independent assertions expose
+the seeded defects. A single pass over three related backend fixtures is a small
+screening comparison, not evidence for UI, concurrency, architecture or planning/QA
+quality. It records scenario/harness time, reported usage, scope violations and
+reference-test results; it does not count all model-internal test commands or
+human supervision. Keep current production defaults unless repeated matched
+delivery evidence justifies a separately approved change.
 
 ### Existing project activation
 

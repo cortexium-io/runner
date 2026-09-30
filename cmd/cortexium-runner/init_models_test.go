@@ -21,13 +21,31 @@ func TestInteractiveClaudeModelMenuPinsRecommendedVersion(t *testing.T) {
 	if model != "claude-opus-5-5" {
 		t.Fatalf("selected model = %q, want claude-opus-5-5", model)
 	}
-	for _, expected := range []string{"1) Opus 5.5 (recommended)", "2) Sonnet", "3) Use harness-native selection", "4) Enter a custom model ID"} {
+	for _, expected := range []string{"1) Opus 5.5 (recommended)", "2) Sonnet 5.5", "3) Use harness-native selection", "4) Enter a custom model ID"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("Claude model menu missing %q:\n%s", expected, output.String())
 		}
 	}
 	if strings.Contains(output.String(), "Fable") {
 		t.Fatalf("Claude model menu advertised an unsupported alias:\n%s", output.String())
+	}
+}
+
+func TestInteractiveClaudeSonnetSelectionPinsVersionAndSuggestsMedium(t *testing.T) {
+	var output bytes.Buffer
+	prompter := newInitPrompter(strings.NewReader("2\n"), &output)
+	model, err := prompter.model(t.Context(), "Implementer model", config.HarnessClaudeCLI, config.WorkRoleImplementer)
+	if err != nil || model != "claude-sonnet-5-5" {
+		t.Fatalf("Sonnet selection = %q, %v", model, err)
+	}
+	base := config.RoleTemplate(config.HarnessClaudeCLI)[config.WorkRoleImplementer]
+	role := initRole(base, config.HarnessClaudeCLI, model, "")
+	if role.Model == nil || *role.Model != model || role.Reasoning != "medium" || role.Access != base.Access || role.TimeoutSeconds != base.TimeoutSeconds {
+		t.Fatalf("pinned Sonnet role changed defaults: %#v", role)
+	}
+	role = initRole(base, config.HarnessClaudeCLI, model, "high")
+	if role.Reasoning != "high" {
+		t.Fatal("explicit Sonnet effort was overwritten")
 	}
 }
 
@@ -40,6 +58,20 @@ func TestInteractiveModelMenuRetainsCustomIDEscapeHatch(t *testing.T) {
 	}
 	if model != "claude-opus-4-8" {
 		t.Fatalf("custom model = %q", model)
+	}
+}
+
+func TestMixedHarnessRecommendationsDoNotSubstituteProviders(t *testing.T) {
+	var output bytes.Buffer
+	prompter := newInitPrompter(strings.NewReader("\n\n\n"), &output)
+	ph, ih, rh := config.HarnessCodexCLI, config.HarnessClaudeCLI, config.HarnessPiCLI
+	pm, im, rm := "gpt-6.1-sol", "claude-sonnet-5-5", "local/unknown"
+	pr, ir, rr := "", "", ""
+	if err := promptInitRuntimeChoices(t.Context(), prompter, &ph, &ih, &rh, &pm, &im, &rm, &pr, &ir, &rr); err != nil {
+		t.Fatal(err)
+	}
+	if ph != config.HarnessCodexCLI || ih != config.HarnessClaudeCLI || rh != config.HarnessPiCLI || pm != "gpt-6.1-sol" || im != "claude-sonnet-5-5" || rm != "local/unknown" || pr != "medium" || ir != "medium" || rr != "medium" {
+		t.Fatal("recommendations substituted a harness/provider or changed explicit selections")
 	}
 }
 
