@@ -29,6 +29,16 @@ jobs:
         run: go test -race ./...
       - name: Vet
         run: go vet ./...
+      - name: Set up Node for Pi compatibility
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - name: Check Pi extensions without model calls
+        run: |
+          npm install --prefix "$RUNNER_TEMP/runner-pi" --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@0.99.1
+          PATH="$RUNNER_TEMP/runner-pi/node_modules/.bin:$PATH" \
+            CORTEXIUM_RUNNER_TEST_PI_EXTENSION_LOAD=1 \
+            go test -race ./internal/execution -run '^TestInstalledPi' -count=1 -timeout=1m
 
   platform-matrix:
     if: github.event_name == 'workflow_dispatch' && !inputs.compare-cache

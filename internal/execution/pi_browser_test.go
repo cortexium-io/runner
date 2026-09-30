@@ -1,8 +1,11 @@
 package execution
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -29,10 +32,17 @@ func TestPiBrowserExtensionUsesPinnedIsolatedLoopbackServer(t *testing.T) {
 		`--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1`,
 		`--use-mock-keychain`, `--no-usage-statistics`,
 		`url.hostname !== "localhost" && url.hostname !== "127.0.0.1"`,
-		`method: "notifications/initialized"`, `child.stdin.end()`, `child.kill("SIGTERM")`,
+		`findPackageJSON("@earendil-works/pi-mcp"`, `new McpClient(`, `new StdioTransport(`,
+		`const requestTimeoutMs = 30000`, `timeoutMs: requestTimeoutMs`, `closeTimeoutMs: 2000`,
+		`await closeClient()`, `signal?.throwIfAborted()`,
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("Pi browser extension omitted %q:\n%s", required, source)
+		}
+	}
+	for _, forbidden := range []string{`createInterface`, `spawn(`, `registerMcpServer`, `createMcpExtension`, `codemode`, `mcp.json`} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("Pi browser extension unexpectedly contains %q", forbidden)
 		}
 	}
 	for _, tool := range piBrowserToolNames {
@@ -79,17 +89,117 @@ func TestPiBrowserExtensionCanJoinExplicitInheritedConfiguration(t *testing.T) {
 	}
 }
 
-func TestInstalledPiLoadsBrowserExtension(t *testing.T) {
-	if os.Getenv("CORTEXIUM_RUNNER_TEST_PI_EXTENSION_LOAD") != "1" {
-		t.Skip("set CORTEXIUM_RUNNER_TEST_PI_EXTENSION_LOAD=1 for the local Pi extension-load smoke")
+// No model, browser, package download, or operator MCP catalog is used. Pi's
+// installed loader and MCP client talk only to our deterministic stdio fixture.
+func TestInstalledPiBrowserNativeMCP(t *testing.T) {
+	packageDir, path, marker := installedPiBrowserFixture(t, false)
+	check := exec.CommandContext(t.Context(), "node", "testdata/pi-browser-check.mjs", packageDir, path, marker)
+	check.Env = append(os.Environ(), "PI_OFFLINE=1")
+	if output, err := check.CombinedOutput(); err != nil {
+		t.Fatalf("native Pi MCP check: %v\n%s", err, output)
 	}
+}
+
+func TestInstalledPiBrowserStartupCancellation(t *testing.T) {
+	packageDir, path, marker := installedPiBrowserFixture(t, true)
+	check := exec.CommandContext(t.Context(), "node", "testdata/pi-browser-startup-check.mjs", packageDir, path, marker)
+	check.Env = append(os.Environ(), "PI_OFFLINE=1")
+	if output, err := check.CombinedOutput(); err != nil {
+		t.Fatalf("native Pi MCP startup cancellation: %v\n%s", err, output)
+	}
+}
+
+func installedPiBrowserFixture(t *testing.T, holdInitialization bool) (packageDir, path, marker string) {
+	t.Helper()
+	packageDir = installedPiPackageDir(t)
 	channel, err := createPiBrowserExtension()
 	if err != nil {
-		t.Fatalf("create Pi browser extension: %v", err)
+		t.Fatal(err)
 	}
-	defer channel.Close()
-	command := exec.Command("pi", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--no-approve", "--extension", channel.path, "--list-models")
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("installed Pi could not load Runner browser extension: %v\n%s", err, output)
+	t.Cleanup(func() { _ = channel.Close() })
+	source, err := os.ReadFile(channel.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := filepath.Abs("testdata/pi-browser-server.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, args := runnerBrowserCommand()
+	encodedArgs, _ := json.Marshal(args)
+	marker = filepath.Join(t.TempDir(), "server-started")
+	serverArgs := []string{fixture, marker}
+	if holdInitialization {
+		serverArgs = append(serverArgs, "hold-init")
+	}
+	fixtureArgs, _ := json.Marshal(serverArgs)
+	// Only replace the server executable and shorten its request deadline. All
+	// registration, restrictions, forwarding, cancellation, and shutdown are real.
+	source = []byte(strings.NewReplacer(
+		"const browserCommand = "+strconv.Quote(command), "const browserCommand = "+strconv.Quote(node),
+		"const browserArgs = "+string(encodedArgs), "const browserArgs = "+string(fixtureArgs),
+		"const requestTimeoutMs = 30000", "const requestTimeoutMs = 2000",
+	).Replace(string(source)))
+	path = filepath.Join(t.TempDir(), "browser-extension.ts")
+	if err := os.WriteFile(path, source, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return packageDir, path, marker
+}
+
+func installedPiPackageDir(t *testing.T) string {
+	t.Helper()
+	if os.Getenv("CORTEXIUM_RUNNER_TEST_PI_EXTENSION_LOAD") != "1" {
+		t.Skip("set CORTEXIUM_RUNNER_TEST_PI_EXTENSION_LOAD=1 for the local native MCP check")
+	}
+	pi, err := exec.LookPath("pi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pi, err = filepath.EvalSymlinks(pi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageDir := filepath.Dir(pi)
+	for {
+		content, _ := os.ReadFile(filepath.Join(packageDir, "package.json"))
+		var pkg struct{ Name string }
+		if json.Unmarshal(content, &pkg) == nil && pkg.Name == "@earendil-works/pi-coding-agent" {
+			return packageDir
+		}
+		parent := filepath.Dir(packageDir)
+		if parent == packageDir {
+			t.Fatal("cannot find installed Pi package")
+		}
+		packageDir = parent
+	}
+}
+
+func TestInstalledPiResultExtensions(t *testing.T) {
+	packageDir := installedPiPackageDir(t)
+	schema := []byte(`{"type":"object","properties":{"outcome":{"type":"string"}},"required":["outcome"],"additionalProperties":false}`)
+	structured, err := createPiStructuredResultExtension(schema, "require")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer structured.Close()
+	native, err := createPiNativeStructuredResultExtension(schema, "medium", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer native.Close()
+	direct, err := createPiDirectNativeStructuredResultExtension(schema, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer direct.Close()
+	check := exec.CommandContext(t.Context(), "node", "testdata/pi-result-check.mjs", packageDir, structured.path, native.path, direct.path)
+	check.Env = append(os.Environ(), "PI_OFFLINE=1", "PI_EXPERIMENTAL=1")
+	if output, err := check.CombinedOutput(); err != nil {
+		t.Fatalf("installed Pi result-extension check: %v\n%s", err, output)
 	}
 }

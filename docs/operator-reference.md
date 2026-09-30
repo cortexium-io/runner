@@ -2449,11 +2449,27 @@ assessment rather than treating an unrun browser check as passed.
 
 Pi implementer and reviewer roles receive that same pinned browser through a
 temporary Runner-generated Pi extension with only navigate, evaluate, and
-screenshot tools. Ambient Pi extensions remain disabled in isolated mode; in
+screenshot tools, using the MCP client bundled with Pi's Node package (Pi 0.99.1+
+and Node 22.19+). Standalone Pi binaries without that dependency cannot use this
+browser integration. The server starts only on the first browser call; Pi's
+client handles protocol initialization, cancellation, timeouts, and shutdown.
+No ambient MCP catalog is imported by Runner's browser extension, and it does
+not activate Codemode or additional model calls. Ambient Pi extensions, including
+native MCP and Codemode, remain disabled in isolated mode; in
 inherited mode they are loaded alongside Runner's explicit extension. Browser
 navigation through Runner's extension remains loopback-only and uses
 an isolated headless profile. Pi itself still requires explicit `host` access
 because it does not provide a native OS sandbox for its shell and edit tools.
+
+To verify the installed Node package and browser adapter without a model call or
+launching a real browser, run from the Runner checkout:
+
+```bash
+CORTEXIUM_RUNNER_TEST_PI_EXTENSION_LOAD=1 go test ./internal/execution -run 'TestInstalledPi' -count=1
+```
+
+This opt-in check loads the actual Pi extension and exercises its bundled MCP
+client against a local stdio fixture. It is not a live model/provider quality check.
 
 Runner treats the card's existing result as historical context on the next
 attempt. Actionable review feedback remains required, but an earlier claim that

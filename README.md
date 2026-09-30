@@ -166,13 +166,16 @@ that you are logged in.
 Pi ([official instructions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md)):
 
 ```bash
-curl -fsSL https://pi.dev/install.sh | sh
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.99.1
 pi
 ```
 
 In Pi, run `/login` and select the provider and account or credential that you
-want Runner to use. Pi 0.84.2 or newer is recommended. Runner enables Pi's
-strict JSON-schema sampling for its standard read, shell, edit, and write tools
+want Runner to use. Use Pi 0.99.1 or newer with Node 22.19 or newer. Runner's
+browser extension uses the MCP client bundled with Pi's Node package; a standalone
+Pi binary without that package does not provide this browser integration.
+Runner enables Pi's strict JSON-schema sampling for its standard read, shell,
+edit, and write tools
 for each launched assignment; no global Pi setting or extension is required.
 For LM Studio Qwen models, Runner sends the configured reasoning effort and
 defaults `preserve_thinking` to `false` to keep earlier reasoning from growing
