@@ -14,6 +14,7 @@ import (
 
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/execution"
+	"github.com/cortexium-io/runner/internal/subprocess"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
 
@@ -85,6 +86,12 @@ func TestLiveImplementationProfileComparison(t *testing.T) {
 		}
 		t.Logf("comparison harness %s: %s", harness, strings.TrimSpace(string(version)))
 	}
+	// Exercise the installed Codex sandbox before admitting any model work.
+	// This exact test selection cannot execute a live model comparison.
+	root := strings.TrimSpace(reviewerFixtureGit(t, ".", "rev-parse", "--show-toplevel"))
+	if err := implementationProfileToolchainPreflight(t.Context(), subprocess.OSRunner{}, root, settings.ArtifactPath); err != nil {
+		t.Fatal(err)
+	}
 	coordinator, err := newEvalCoordinator(settings, os.Stdout)
 	if err != nil {
 		t.Fatal(err)
@@ -120,13 +127,119 @@ func TestLiveImplementationProfileComparison(t *testing.T) {
 	passed = len(coordinator.attempts) == 9 && !t.Failed()
 }
 
+func implementationProfileToolchainPreflight(ctx context.Context, run subprocess.Runner, root, artifactPath string) error {
+	path := filepath.Join(filepath.Dir(artifactPath), "toolchain-preflight.log")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return errors.New("private toolchain preflight evidence could not be preserved")
+	}
+	result, runErr := run.Run(ctx, "env", []string{
+		"CORTEXIUM_RUNNER_IMPLEMENTATION_PREFLIGHT=1", "go", "test", "./internal/execution",
+		"-run", "^TestImplementationProfileToolchainPreflight$", "-count=1", "-timeout=90s", "-v",
+	}, root, 90*time.Second)
+	_, writeErr := file.WriteString(result.Stdout + result.Stderr)
+	if err := errors.Join(writeErr, file.Close()); err != nil {
+		return errors.New("private toolchain preflight evidence could not be preserved")
+	}
+	if runErr != nil || result.ExitCode != 0 || !strings.Contains(result.Stdout, "--- PASS: TestImplementationProfileToolchainPreflight (") {
+		return fmt.Errorf("toolchain preflight did not pass; no model work admitted (private evidence: %s)", path)
+	}
+	return nil
+}
+
+type implementationPreflightRunner func(string, []string, string, time.Duration) (subprocess.Result, error)
+
+func (run implementationPreflightRunner) Run(_ context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	return run(command, args, dir, timeout)
+}
+
+func TestImplementationProfilePreflightRequiresAnExecutedPass(t *testing.T) {
+	const passed = "--- PASS: TestImplementationProfileToolchainPreflight (0.01s)\n"
+	for _, scenario := range []struct {
+		name, output string
+		exitCode     int
+		err          error
+		wantPass     bool
+	}{
+		{name: "executed pass", output: passed, wantPass: true},
+		{name: "skipped", output: "--- SKIP: TestImplementationProfileToolchainPreflight (0.00s)\n"},
+		{name: "missing test", output: "testing: warning: no tests to run\nPASS\n"},
+		{name: "failed process", output: passed, exitCode: 1, err: errors.New("process failed")},
+		{name: "nonzero status", output: passed, exitCode: 1},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			calls := 0
+			run := implementationPreflightRunner(func(command string, args []string, root string, timeout time.Duration) (subprocess.Result, error) {
+				calls++
+				if command != "env" || strings.Join(args, " ") != "CORTEXIUM_RUNNER_IMPLEMENTATION_PREFLIGHT=1 go test ./internal/execution -run ^TestImplementationProfileToolchainPreflight$ -count=1 -timeout=90s -v" || root != "/candidate" || timeout != 90*time.Second {
+					t.Fatal("preflight escaped its exact no-model test selection or deadline")
+				}
+				return subprocess.Result{Stdout: scenario.output, ExitCode: scenario.exitCode}, scenario.err
+			})
+			artifact := filepath.Join(t.TempDir(), "comparison.jsonl")
+			err := implementationProfileToolchainPreflight(t.Context(), run, "/candidate", artifact)
+			if (err == nil) != scenario.wantPass || calls != 1 {
+				t.Fatalf("preflight result = %v, calls = %d", err, calls)
+			}
+			log := filepath.Join(filepath.Dir(artifact), "toolchain-preflight.log")
+			info, statErr := os.Stat(log)
+			if statErr != nil || info.Mode().Perm() != 0o600 {
+				t.Fatal("preflight evidence is not private")
+			}
+			if err := implementationProfileToolchainPreflight(t.Context(), run, "/candidate", artifact); err == nil {
+				t.Fatal("preflight allowed existing evidence to be overwritten")
+			}
+			if calls != 1 {
+				t.Fatal("preflight reran despite an existing evidence record")
+			}
+			content, readErr := os.ReadFile(log)
+			if readErr != nil || string(content) != scenario.output {
+				t.Fatal("preflight changed retained evidence")
+			}
+		})
+	}
+}
+
+// Use the production role resolver rather than the zero-value development-tool
+// profile of a directly constructed ExecutionConfig. Keep fixture identity local.
+func implementationProfileExecutionConfig(harness, repo, worktrees string, settings evalSettings) config.ExecutionConfig {
+	model := settings.modelForHarness(harness)
+	runtime := config.RuntimeConfig{
+		Harnesses: []config.HarnessConfig{{Kind: harness, Command: harness, WorkspaceWriteRoot: worktrees}},
+		Roles: map[string]config.RoleConfig{config.WorkRoleImplementer: {
+			Harness: harness, Model: &model, Reasoning: settings.Reasoning,
+			TimeoutSeconds: int(settings.CaseTimeout.Seconds()), Skills: []string{"runner-implementer"},
+		}},
+		RoleContracts: map[string]string{config.WorkRoleImplementer: config.WorkRoleImplementer},
+	}
+	cfg := runtime.Execution(config.WorkRoleImplementer, harness, repo)
+	cfg.WorkspaceBaseRef = "HEAD"
+	return cfg
+}
+
+func TestImplementationProfileExecutionUsesDefaultDevelopmentTools(t *testing.T) {
+	settings := evalSettings{CodexModel: "explicit-codex", ClaudeModel: "explicit-claude", Reasoning: "high", CaseTimeout: 5 * time.Minute}
+	for _, harness := range []string{config.HarnessCodexCLI, config.HarnessClaudeCLI} {
+		t.Run(harness, func(t *testing.T) {
+			cfg := implementationProfileExecutionConfig(harness, "/fixture", "/worktrees", settings)
+			if !cfg.SafeTools || cfg.RoleAccess != config.RoleAccessSandboxed || cfg.HarnessConfigMode != config.HarnessConfigModeIsolated {
+				t.Fatalf("comparison lost the default bounded development profile: %#v", cfg)
+			}
+			if cfg.Harness.Kind != harness || cfg.Harness.Command != harness || cfg.Harness.Model == nil || *cfg.Harness.Model != settings.modelForHarness(harness) || cfg.Harness.ReasoningEffort != "high" {
+				t.Fatalf("comparison changed the explicit harness/model/effort: %#v", cfg.Harness)
+			}
+			if cfg.WorkspaceBaseRef != "HEAD" || cfg.Harness.WorkingDir != "/fixture" || cfg.Harness.WorkspaceWriteRoot != "/worktrees" || cfg.Harness.TimeoutSeconds != 300 || strings.Join(cfg.Skills, ",") != "runner-implementer" {
+				t.Fatalf("comparison changed its assigned workspace, deadline or skill: %#v", cfg)
+			}
+		})
+	}
+}
+
 func runImplementationProfileFixture(ctx context.Context, t *testing.T, harness string, settings evalSettings, fixture implementationProfileFixture) evalCaseResult {
 	t.Helper()
 	repo := implementationProfileRepository(t, fixture)
 	model := settings.modelForHarness(harness)
-	cfg := config.ExecutionConfig{WorkspaceBaseRef: "HEAD", Skills: []string{"runner-implementer"},
-		Harness: config.HarnessConfig{Kind: harness, Command: harness, Model: &model, ReasoningEffort: settings.Reasoning,
-			WorkingDir: repo, WorkspaceWriteRoot: filepath.Join(t.TempDir(), "worktrees"), TimeoutSeconds: int(settings.CaseTimeout.Seconds())}}
+	cfg := implementationProfileExecutionConfig(harness, repo, filepath.Join(t.TempDir(), "worktrees"), settings)
 	assignment := execution.Assignment{Spec: execution.Spec{
 		ID: "implementation_profile_fixture", ItemID: "implementation_profile_fixture", Repository: "owner/repo", DelegatedContentDigest: "v1:implementation-profile:" + fixture.name,
 		Task: execution.Task{Title: fixture.name, Instructions: fixture.task + " " + strings.Join(recordUpdateProofs, " ") +

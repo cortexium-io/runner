@@ -106,6 +106,24 @@ native isolated sandbox profiles. No live Project, planning or model QA is run.
 Private mode-`0600` result files retain successful and blocked handoffs and
 diagnostics, while aggregate records stay sanitized; candidate diffs are retained
 for completed implementations. Existing result files are never overwritten.
+Fixture execution uses the normal role resolver, including the default bounded
+development-tool profile, rather than a zero-value `ExecutionConfig`.
+
+Before any model assignment is admitted, the comparison runs a no-model Go
+compile/test check through the installed Codex native sandbox and the normal
+implementer filesystem policy. Its tiny standard-library fixture, caches and home
+state are private; networking is disabled and no browser MCP server is started.
+The check must actually pass, not skip; its private log is retained exclusively.
+Run it independently without authorizing the comparison:
+
+```bash
+CORTEXIUM_RUNNER_IMPLEMENTATION_PREFLIGHT=1 \
+  go test ./internal/execution -run '^TestImplementationProfileToolchainPreflight$' -count=1 -v
+```
+
+This checks Codex's local Go toolchain boundary, not Claude's Bash/MCP boundary,
+authentication or model/account availability. Those remain separate prerequisites
+for the explicitly selected harness; passing preflight authorizes no model calls.
 
 One shared ceiling admits at most nine assignments, 45 minutes of elapsed
 evaluation time, and 900,000 inclusive reported input/output tokens. Each assignment
@@ -146,6 +164,17 @@ cannot be established from that sanitized artifact. Subsequent private-evidence
 retention tests do not recover or retroactively validate this observation. This
 partial run supports no model quality/cost ranking; current production defaults
 remain unchanged. Any further live comparison requires new authorization.
+
+A separately authorized single diagnostic at source
+`252225bcd43efcee02f2d073c341f5fc5dbff830` returned `needs_input` after 202.506
+seconds of harness execution and 215,925 inclusive tokens. Its retained handoff
+reported that Go tests could not start because the sandbox lacked tool-directory
+reads. The evaluation helper had omitted `SafeTools`, leaving it false instead of
+the normal implementer default. A no-model native sandbox reproduction failed
+with `go: no such tool vet` and passed when the installed Go runtime was readable.
+This establishes the diagnostic's setup defect, not a recovered explanation of
+the older handoff or a model-quality result. The diagnostic is closed without
+retry or further model calls; neither live configuration nor workers changed.
 
 ### Existing project activation
 
