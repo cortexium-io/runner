@@ -12,10 +12,12 @@ func TestReasoningRecommendationsFollowSelectedModelAndHarness(t *testing.T) {
 		{HarnessCodexCLI, "gpt-6-astra", "medium"},
 		{HarnessCodexCLI, "gpt-6.1-sol", "medium"},
 		{HarnessClaudeCLI, "claude-opus-5-5", "medium"},
+		{HarnessClaudeCLI, "claude-sonnet-5-5", "medium"},
 		{HarnessPiCLI, "openai/gpt-6-sol", "high"},
 		{HarnessPiCLI, "openai-codex/gpt-6.1-sol", "medium"},
 		{HarnessPiCLI, "openai-codex/gpt-6-luna", "high"},
 		{HarnessPiCLI, "anthropic/claude-opus-5-5", "medium"},
+		{HarnessPiCLI, "anthropic/claude-sonnet-5-5", "medium"},
 		{HarnessPiCLI, "local/unknown", "medium"},
 	} {
 		t.Run(tc.harness+"/"+tc.model, func(t *testing.T) {

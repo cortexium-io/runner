@@ -3343,7 +3343,7 @@ sanitized artifact.
 ```bash
 candidate=$(git rev-parse HEAD)
 sh scripts/test-agent-behavior.sh --candidate "$candidate" --repeat 1 --smoke \
-	--codex-model gpt-5.6-luna --claude-model sonnet --reasoning medium \
+	--codex-model gpt-5.6-luna --claude-model claude-sonnet-5-5 --reasoning medium \
 	--pi-model lmstudio/qwen/qwen3.8-27b --allow-pi-host --max-tokens 1000000 \
   codex,claude,pi
 

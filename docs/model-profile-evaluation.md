@@ -75,12 +75,106 @@ profile. Doctor inspects the selected profile, and retained parent progress bind
 the actual execution profile/settings. Changing them cannot reuse its acceptance.
 
 For new Claude setup, the suggested pair is explicit `claude-opus-5-5`/medium,
-not a moving alias with blanket high effort. Pi stays provider-neutral: select an
+not a moving alias with blanket high effort. The bounded-work alternative is
+explicit `claude-sonnet-5-5`/medium, not the moving `sonnet` alias. Opus 5.5 needs
+Claude Code 2.1.280 or newer, and Sonnet 5.5 needs 2.1.284 or newer, plus
+account/provider access. A menu suggestion is not a paid availability check.
+Pi stays provider-neutral: select an
 available provider-qualified model, then a supported effort for that model. No
 Claude/Pi substitution is implied for an OpenAI-only project. See the official
 [Codex effort guidance](https://learn.chatgpt.com/docs/agent-configuration/subagents#reasoning-effort-model_reasoning_effort)
 and [Claude model configuration](https://code.claude.com/docs/en/model-config).
 These sources inform starting choices, not a Runner-specific comparison result.
+
+Recommendations apply only within the operator-selected, connected harness.
+Installed CLI discovery is not authentication or model-availability proof. Do not
+choose Claude merely because its executable exists, substitute a Claude model in
+a Codex role, or switch providers after a failed connection. Verify authentication
+and account/model compatibility for the selected harness; retain the project's
+explicit harness, permissions and tools. An isolated cross-harness comparison
+cannot establish that its winner is available to every project or machine.
+
+### September 30 implementation comparison
+
+The separately authorized comparison is implementation-only: GPT-6 Sol/high,
+GPT-6.1 Sol/medium and Claude Opus 5.5/medium. It reuses the record-editing fixtures
+for three tasks: implement title editing, repair cross-tenant access, and repair
+ownership loss. Each model starts from identical fixture commits; model order
+rotates by task. Reference assertions stay outside model-editable worktrees and
+scope checks reject changes outside the source/tests. Both harnesses retain their
+native isolated sandbox profiles. No live Project, planning or model QA is run.
+Private mode-`0600` result files retain successful and blocked handoffs and
+diagnostics, while aggregate records stay sanitized; candidate diffs are retained
+for completed implementations. Existing result files are never overwritten.
+Fixture execution uses the normal role resolver, including the default bounded
+development-tool profile, rather than a zero-value `ExecutionConfig`.
+
+Before any model assignment is admitted, the comparison runs a no-model Go
+compile/test check through the installed Codex native sandbox and the normal
+implementer filesystem policy. Its tiny standard-library fixture, caches and home
+state are private; networking is disabled and no browser MCP server is started.
+The check must actually pass, not skip; its private log is retained exclusively.
+Run it independently without authorizing the comparison:
+
+```bash
+CORTEXIUM_RUNNER_IMPLEMENTATION_PREFLIGHT=1 \
+  go test ./internal/execution -run '^TestImplementationProfileToolchainPreflight$' -count=1 -v
+```
+
+This checks Codex's local Go toolchain boundary, not Claude's Bash/MCP boundary,
+authentication or model/account availability. Those remain separate prerequisites
+for the explicitly selected harness; passing preflight authorizes no model calls.
+
+One shared ceiling admits at most nine assignments, 45 minutes of elapsed
+evaluation time, and 900,000 inclusive reported input/output tokens. Each assignment
+has a five-minute deadline. Missing/partial usage and execution/admission failures
+stop further admission. There is no assignment retry, budget extension or automatic
+provider fallback; a native in-assignment corrective pass, if used, remains within
+that assignment and its original budget. An in-flight assignment can exceed the
+reported-token threshold; tokens are not a billing cap and absent dollars remain
+unknown. The private artifact is created exclusively, not overwritten or resumed.
+
+After checking both CLI versions, authentication and model compatibility, run
+once from the clean committed candidate, using an absolute new artifact path
+outside the checkout:
+
+```bash
+CORTEXIUM_RUNNER_IMPLEMENTATION_COMPARISON=1 \
+CORTEXIUM_RUNNER_EVAL_CANDIDATE=EXACT_REVIEWED_SHA \
+CORTEXIUM_RUNNER_EVAL_ARTIFACT=/absolute/private/comparison.jsonl \
+  go test ./internal/engine -run '^TestLiveImplementationProfileComparison$' -count=1 -timeout 50m -v
+```
+
+Normal tests skip the live calls and check that the independent assertions expose
+the seeded defects. A single pass over three related backend fixtures is a small
+screening comparison, not evidence for UI, concurrency, architecture or planning/QA
+quality. It records scenario/harness time, reported usage, scope violations and
+reference-test results; it does not count all model-internal test commands or
+human supervision. Keep current production defaults unless repeated matched
+delivery evidence justifies a separately approved change.
+
+The September 30 attempt at source `6d92f885af71b24e49a222a432b19fe5ce0dda7b`
+is closed after its first GPT-6 Sol/high assignment returned `agent_blocked`.
+It reported 277.489 seconds of harness execution and 343,096 inclusive tokens
+(338,694 input and 4,402 output); its 307,456 cache-read tokens are an input
+subset, not additional tokens. Dollar cost was not reported. The other eight
+assignments were not admitted, and no retry or budget extension was used.
+The initial helper did not retain the detailed blocked handoff, so its cause
+cannot be established from that sanitized artifact. Subsequent private-evidence
+retention tests do not recover or retroactively validate this observation. This
+partial run supports no model quality/cost ranking; current production defaults
+remain unchanged. Any further live comparison requires new authorization.
+
+A separately authorized single diagnostic at source
+`252225bcd43efcee02f2d073c341f5fc5dbff830` returned `needs_input` after 202.506
+seconds of harness execution and 215,925 inclusive tokens. Its retained handoff
+reported that Go tests could not start because the sandbox lacked tool-directory
+reads. The evaluation helper had omitted `SafeTools`, leaving it false instead of
+the normal implementer default. A no-model native sandbox reproduction failed
+with `go: no such tool vet` and passed when the installed Go runtime was readable.
+This establishes the diagnostic's setup defect, not a recovered explanation of
+the older handoff or a model-quality result. The diagnostic is closed without
+retry or further model calls; neither live configuration nor workers changed.
 
 ### Existing project activation
 

@@ -50,9 +50,14 @@ config is `.cortexium/runner.json`; Runner ensures it is ignored, adding its
 exact path to `.gitignore` when needed without staging or committing the
 change. An external path is also supported.
 Use the arrow keys and Enter for finite choices.
-The Claude menu uses Claude Code's official rolling aliases, Opus and Sonnet;
-it also offers the current harness-native selection and a custom-ID
-escape hatch for pinned versions. Claude Code has no supported catalog-listing
+The Claude menu offers pinned `claude-opus-5-5` (recommended) and
+`claude-sonnet-5-5`, both with medium as the initial effort suggestion. Explicit
+effort overrides are preserved. It also offers current harness-native selection
+and a custom-ID escape hatch, including rolling aliases if deliberately chosen.
+Opus 5.5 requires Claude Code 2.1.280 or newer; Sonnet 5.5 requires 2.1.284 or
+newer, along with account/provider access. See the official
+[model configuration guidance](https://code.claude.com/docs/en/model-config).
+Claude Code has no supported catalog-listing
 command equivalent to Codex's local catalog, so Runner does not depend on its
 private cache. Use `--dry-run` to preview the resulting local and GitHub
 changes.
@@ -70,8 +75,8 @@ cortexium-runner init \
   --repository YOUR_GITHUB_OWNER/YOUR_REPOSITORY \
   --project-dir . \
   --harness claude \
-  --model opus \
-  --reasoning xhigh \
+  --model claude-opus-5-5 \
+  --reasoning medium \
   --max-parallelism 1 \
   --base-update-review required \
   --auto-merge=false \
@@ -80,7 +85,7 @@ cortexium-runner init \
 
 The model and reasoning flags are expanded into explicit role definitions.
 Add a role-specific flag such as
-`--reviewer-model claude-opus-4-8` when one role should differ, or use
+`--implementer-model claude-sonnet-5-5` for explicitly bounded implementation, or use
 `cortexium-runner role edit ROLE` after initialization.
 
 The safest default is `access: sandboxed` with `harness_config: isolated`.
