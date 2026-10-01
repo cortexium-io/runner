@@ -41,11 +41,8 @@ func (s *Project) PlanRetry(ctx context.Context, selector string) (RetryPlan, er
 
 func (s *Project) PlanRetryWithFeedback(ctx context.Context, selector, feedback string) (RetryPlan, error) {
 	feedback = strings.TrimSpace(feedback)
-	if feedback == "" {
-		return RetryPlan{}, errors.New("retry feedback override must not be empty")
-	}
-	if _, err := runnerProjectResult(feedback); err != nil {
-		return RetryPlan{}, fmt.Errorf("validate retry feedback override: %w", err)
+	if err := ValidateRetryFeedback(feedback); err != nil {
+		return RetryPlan{}, err
 	}
 	plan, err := s.PlanRetry(ctx, selector)
 	if err != nil {
@@ -53,6 +50,22 @@ func (s *Project) PlanRetryWithFeedback(ctx context.Context, selector, feedback 
 	}
 	plan.FeedbackOverride = feedback
 	return plan, nil
+}
+
+// ValidateRetryFeedback checks replacement context before either Project writes
+// or deletion of the private feedback and implementation checkpoint.
+func ValidateRetryFeedback(feedback string) error {
+	feedback = strings.TrimSpace(feedback)
+	if feedback == "" {
+		return errors.New("retry feedback override must not be empty")
+	}
+	if len(feedback) > maxProjectTextFieldBytes {
+		return fmt.Errorf("retry feedback override exceeds the %d-byte limit after trimming surrounding whitespace; put longer context in a file in the assigned workspace and use a short --feedback reference to its path; feedback does not amend approved requirements (use amend)", maxProjectTextFieldBytes)
+	}
+	if _, err := runnerProjectResult(feedback); err != nil {
+		return fmt.Errorf("validate retry feedback override: %w", err)
+	}
+	return nil
 }
 
 func (s *Project) retryPlanForAction(action AuthorizedAction) (RetryPlan, error) {
@@ -88,6 +101,12 @@ func (s *Project) uniqueAgentLaneForRole(role string) (string, string) {
 }
 
 func (s *Project) ApplyRetry(ctx context.Context, plan RetryPlan) (WorkItem, error) {
+	plan.FeedbackOverride = strings.TrimSpace(plan.FeedbackOverride)
+	if plan.FeedbackOverride != "" {
+		if err := ValidateRetryFeedback(plan.FeedbackOverride); err != nil {
+			return WorkItem{}, err
+		}
+	}
 	if strings.TrimSpace(plan.Item.ID) == "" || strings.TrimSpace(plan.TargetLaneID) == "" || strings.TrimSpace(plan.TargetStatus) == "" {
 		return WorkItem{}, errors.New("retry plan is incomplete")
 	}

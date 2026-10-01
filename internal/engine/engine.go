@@ -165,6 +165,11 @@ func (s *Engine) PlanProjectItemRetryWithFeedback(ctx context.Context, selector,
 }
 
 func (s *Engine) ApplyProjectItemRetry(ctx context.Context, plan RetryPlan) (github.WorkItem, error) {
+	if strings.TrimSpace(plan.FeedbackOverride) != "" {
+		if err := github.ValidateRetryFeedback(plan.FeedbackOverride); err != nil {
+			return github.WorkItem{}, err
+		}
+	}
 	guard, err := s.acquireLocalGate(ctx, true, github.AcquirePlanningMutationLock)
 	if err != nil {
 		return github.WorkItem{}, err
