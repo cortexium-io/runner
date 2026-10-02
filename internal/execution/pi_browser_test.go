@@ -32,22 +32,18 @@ func TestPiBrowserExtensionUsesPinnedIsolatedLoopbackServer(t *testing.T) {
 		`--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1`,
 		`--use-mock-keychain`, `--no-usage-statistics`,
 		`url.hostname !== "localhost" && url.hostname !== "127.0.0.1"`,
-		`findPackageJSON("@earendil-works/pi-mcp"`, `new McpClient(`, `new StdioTransport(`,
-		`const requestTimeoutMs = 30000`, `timeoutMs: requestTimeoutMs`, `closeTimeoutMs: 2000`,
-		`await closeClient()`, `signal?.throwIfAborted()`,
+		`findPackageJSON("@earendil-works/pi-mcp"`, `createMcpExtension({`, `new StdioTransport(`,
+		`const requestTimeoutMs = 30000`, `timeout: requestTimeoutMs / 1000`, `closeTimeoutMs: 2000`,
+		`getMcpServers: () => []`, `registerCommand: () => {}`, `sections: {}`,
+		`transport.close()`, `autoEnableCodemode: false`,
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("Pi browser extension omitted %q:\n%s", required, source)
 		}
 	}
-	for _, forbidden := range []string{`createInterface`, `spawn(`, `registerMcpServer`, `createMcpExtension`, `codemode`, `mcp.json`} {
+	for _, forbidden := range []string{`createInterface`, `spawn(`, `registerMcpServer`, `McpClient`, `mcp.json`} {
 		if strings.Contains(source, forbidden) {
 			t.Fatalf("Pi browser extension unexpectedly contains %q", forbidden)
-		}
-	}
-	for _, tool := range piBrowserToolNames {
-		if strings.Count(source, `name: "`+tool+`"`) != 1 {
-			t.Fatalf("Pi browser extension must register %q exactly once", tool)
 		}
 	}
 	if err := channel.Verify(); err != nil {
@@ -106,6 +102,23 @@ func TestInstalledPiBrowserStartupCancellation(t *testing.T) {
 	check.Env = append(os.Environ(), "PI_OFFLINE=1")
 	if output, err := check.CombinedOutput(); err != nil {
 		t.Fatalf("native Pi MCP startup cancellation: %v\n%s", err, output)
+	}
+}
+
+func TestLivePiBrowser(t *testing.T) {
+	if os.Getenv("CORTEXIUM_RUNNER_TEST_PI_LIVE_BROWSER") != "1" {
+		t.Skip("set CORTEXIUM_RUNNER_TEST_PI_LIVE_BROWSER=1 to launch the pinned server and headless Chrome")
+	}
+	packageDir := installedPiPackageDir(t)
+	channel, err := createPiBrowserExtension()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer channel.Close()
+	check := exec.CommandContext(t.Context(), "node", "testdata/pi-browser-live-check.mjs", packageDir, channel.path)
+	check.Env = append(os.Environ(), "PI_OFFLINE=1")
+	if output, err := check.CombinedOutput(); err != nil {
+		t.Fatalf("live Pi browser check: %v\n%s", err, output)
 	}
 }
 

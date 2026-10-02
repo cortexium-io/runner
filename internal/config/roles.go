@@ -322,6 +322,9 @@ func validateRoleConfigs(c Config, roles map[string]RoleConfig) error {
 			}
 			return fmt.Errorf("roles.%s.reasoning must be low, medium, high, or xhigh", id)
 		}
+		if profile.Codemode != nil && profile.Harness != HarnessPiCLI {
+			return fmt.Errorf("roles.%s.codemode requires the pi harness", id)
+		}
 		if profile.PreserveReasoning != nil && profile.Harness != HarnessPiCLI {
 			return fmt.Errorf("roles.%s.preserve_reasoning requires the pi harness", id)
 		}
@@ -410,6 +413,10 @@ func mergeRoleProfile(parent, child RoleConfig) RoleConfig {
 		value := *child.PreserveReasoning
 		result.PreserveReasoning = &value
 	}
+	if child.Codemode != nil {
+		value := *child.Codemode
+		result.Codemode = &value
+	}
 	if child.TaskGranularity != "" {
 		result.TaskGranularity = child.TaskGranularity
 	}
@@ -435,6 +442,10 @@ func cloneRoles(input map[string]RoleConfig) map[string]RoleConfig {
 		if role.PreserveReasoning != nil {
 			value := *role.PreserveReasoning
 			role.PreserveReasoning = &value
+		}
+		if role.Codemode != nil {
+			value := *role.Codemode
+			role.Codemode = &value
 		}
 		result[id] = role
 	}

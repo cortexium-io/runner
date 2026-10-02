@@ -310,6 +310,21 @@ func (e AgentExecutor) runHarnessWithPiTransport(ctx context.Context, args []str
 			return subprocess.Result{}, "", metrics.Usage{}, HarnessFailureEvidence{}, addErr
 		}
 	}
+	if e.kind == config.HarnessPiCLI && e.config.Codemode && piInvocationAllowsCodemode(args, e.config.HarnessConfigMode) {
+		artifacts, codemodeErr := createPiCodemodeExtension()
+		if codemodeErr != nil {
+			cleanupArtifacts()
+			return subprocess.Result{}, "", metrics.Usage{}, HarnessFailureEvidence{}, codemodeErr
+		}
+		cleanups = append(cleanups, func() { _ = artifacts.Close() })
+		artifactVerifiers = append(artifactVerifiers, func() error { return artifacts.VerifyImmutable(piCodemodeExtensionName) })
+		var addErr error
+		args, addErr = addPiCodemodeExtension(args, artifacts.Path(piCodemodeExtensionName), e.config.HarnessConfigMode)
+		if addErr != nil {
+			cleanupArtifacts()
+			return subprocess.Result{}, "", metrics.Usage{}, HarnessFailureEvidence{}, addErr
+		}
+	}
 	defer cleanupArtifacts()
 	command := strings.TrimSpace(e.cfg.Command)
 	var result subprocess.Result

@@ -50,21 +50,15 @@ func createPiBrowserExtension() (*piBrowserChannel, error) {
 		_ = os.RemoveAll(runtimeDir)
 		return nil, fmt.Errorf("encode Pi browser environment: %w", err)
 	}
-	source := `import { findPackageJSON } from "node:module";
+	source := `import { randomBytes } from "node:crypto";
+import { findPackageJSON } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { getPackageDir } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { createMcpExtension, getPackageDir } from "@earendil-works/pi-coding-agent";
 
-// Resolve Pi's own dependency, not a package from the assignment or operator catalog.
-let mcpPackage;
-try {
-  mcpPackage = findPackageJSON("@earendil-works/pi-mcp", pathToFileURL(join(getPackageDir(), "package.json")));
-} catch (error) {
-  throw new Error("Runner browser requires the Pi 0.99.1+ Node package with its bundled MCP client.", { cause: error });
-}
-const { McpClient, StdioTransport } = await import(pathToFileURL(join(dirname(mcpPackage), "dist/index.js")).href);
-
+// Resolve Pi's transport from its installation, never from the assignment.
+const mcpPackage = findPackageJSON("@earendil-works/pi-mcp", pathToFileURL(join(getPackageDir(), "package.json")));
+const { StdioTransport } = await import(pathToFileURL(join(dirname(mcpPackage), "dist/index.js")).href);
 const browserCommand = ` + strconv.Quote(command) + `;
 const browserArgs = ` + string(encodedArgs) + `;
 const browserCwd = ` + strconv.Quote(runtimeDir) + `;
@@ -72,120 +66,65 @@ const browserEnv = ` + string(encodedEnvironment) + `;
 const requestTimeoutMs = 30000;
 
 export default function (pi) {
-  let client;
-  let transport;
-  let startup;
-  let closing;
+  const serverName = "runner_browser_" + randomBytes(8).toString("hex");
+  const names = new Map(["navigate", "evaluate", "screenshot"].map(tool =>
+    ["mcp__" + serverName + "__" + tool, "runner_browser_" + tool]));
+  const transports = new Set();
   let closed = false;
-
-  function closeClient() {
-    if (client && !closing) closing = client.close();
-    return closing;
-  }
-
-  function browserError(error) {
-    const detail = transport?.stderr.trim();
-    return detail ? new Error((error instanceof Error ? error.message : String(error)) + ": " + detail, { cause: error }) : error;
-  }
-
-  async function ensureStarted() {
-    if (closed) throw new Error("Runner browser session is closed.");
-    if (startup) return startup;
-    closing = undefined;
-    client = new McpClient({ name: "cortexium-runner-pi", version: "1", requestTimeoutMs });
-    transport = new StdioTransport({
-      command: browserCommand,
-      args: browserArgs,
-      cwd: browserCwd,
-      env: browserEnv,
-      maxStderrBytes: 4000,
-      closeTimeoutMs: 2000,
-    });
-    startup = client.connect(transport);
-    try {
-      await startup;
-    } catch (error) {
-      await closeClient();
-      startup = undefined;
-      throw browserError(error);
-    }
-  }
-
-  async function call(name, args, signal) {
-    signal?.throwIfAborted();
-    // Cancellation also closes an in-flight initialization; callTool handles
-    // cancellation after initialization without discarding a healthy connection.
-    const abortStartup = () => { void closeClient(); };
-    signal?.addEventListener("abort", abortStartup, { once: true });
-    try {
-      await ensureStarted();
-    } finally {
-      signal?.removeEventListener("abort", abortStartup);
-      if (signal?.aborted) await closing;
-    }
-    signal?.throwIfAborted();
-    let result;
-    try {
-      result = await client.callTool(name, args, { signal, timeoutMs: requestTimeoutMs });
-    } catch (error) {
-      throw browserError(error);
-    }
-    if (result?.isError) {
-      const detail = Array.isArray(result.content)
-        ? result.content.filter((item) => item?.type === "text").map((item) => item.text).join("\n")
-        : "";
-      throw new Error(detail || "Runner browser tool failed: " + name);
-    }
-    return {
-      content: Array.isArray(result?.content)
-        ? result.content
-        : [{ type: "text", text: "Runner browser completed " + name + "." }],
-      details: { server: "runner_browser", tool: name },
-    };
-  }
-
-  pi.registerTool({
-    name: "runner_browser_navigate",
-    label: "Runner browser: navigate",
-    description: "Navigate the isolated Runner browser to a loopback HTTP page.",
-    parameters: Type.Object({ url: Type.String() }, { additionalProperties: false }),
-    async execute(_toolCallId, params, signal) {
-      let url;
-      try {
-        url = new URL(params.url);
-      } catch {
-        throw new Error("Runner browser URL is invalid.");
-      }
-      if (url.protocol !== "http:" || (url.hostname !== "localhost" && url.hostname !== "127.0.0.1")) {
-        throw new Error("Runner browser navigation is restricted to http://localhost and http://127.0.0.1.");
-      }
-      return call("navigate", { url: url.href }, signal);
+  // A private factory must not replace Pi's /mcp manager or consume its catalog.
+  // Operator-managed servers remain owned by the built-in extension in inherit mode.
+  const browserAPI = {
+    ...pi,
+    getMcpServers: () => [],
+    registerCommand: () => {},
+    on(event, handler) {
+      if (event === "before_agent_start") {
+        pi.on(event, (input, ctx) => handler({ ...input,
+          systemPromptOptions: { ...input.systemPromptOptions, sections: {} } }, ctx));
+      } else pi.on(event, handler);
     },
-  });
-
-  pi.registerTool({
-    name: "runner_browser_evaluate",
-    label: "Runner browser: evaluate",
-    description: "Evaluate JavaScript in the current isolated Runner browser page.",
-    parameters: Type.Object({ script: Type.String() }, { additionalProperties: false }),
-    async execute(_toolCallId, params, signal) {
-      return call("evaluate", { script: params.script }, signal);
+    registerTool(definition) {
+      const name = names.get(definition.name);
+      if (!name) return;
+      pi.registerTool({ ...definition, name,
+        async execute(...args) {
+          const result = await definition.execute(...args);
+          return { ...result, details: { ...result.details, server: "runner_browser" } };
+        },
+      });
     },
-  });
-
-  pi.registerTool({
-    name: "runner_browser_screenshot",
-    label: "Runner browser: screenshot",
-    description: "Capture the current isolated Runner browser page.",
-    parameters: Type.Object({}, { additionalProperties: false }),
-    async execute(_toolCallId, _params, signal) {
-      return call("screenshot", {}, signal);
+  };
+  createMcpExtension({
+    loadConfig: () => ({ servers: [{ name: serverName, scope: "extension", source: browserCwd,
+      config: { command: browserCommand, args: browserArgs, cwd: browserCwd, env: browserEnv,
+        timeout: requestTimeoutMs / 1000, exposure: "hidden",
+        toolExposure: { navigate: "direct", evaluate: "direct", screenshot: "direct" } },
+    }], errors: [], autoEnableCodemode: false }),
+    startupWaitMs: ` + strconv.Itoa(runnerBrowserStartupTimeoutSeconds*1000) + `,
+    logPath: join(browserCwd, "mcp.log"),
+    createTransport() {
+      if (closed) throw new Error("Runner browser session is closed.");
+      const transport = new StdioTransport({ command: browserCommand, args: browserArgs,
+        cwd: browserCwd, env: browserEnv, maxStderrBytes: 4000, closeTimeoutMs: 2000 });
+      transports.add(transport);
+      return transport;
     },
-  });
+  })(browserAPI);
 
+  pi.on("tool_call", event => {
+    if (event.toolName !== "runner_browser_navigate") return;
+    let url;
+    try { url = new URL(event.input.url); }
+    catch { return { block: true, reason: "Runner browser URL is invalid." }; }
+    if (url.protocol !== "http:" || (url.hostname !== "localhost" && url.hostname !== "127.0.0.1")) {
+      return { block: true, reason: "Runner browser navigation is restricted to http://localhost and http://127.0.0.1." };
+    }
+  });
+  // Pi 1.0's MCP manager owns initialized clients only. Close transports too,
+  // so shutdown while initialize/tools/list is pending cannot leave a child alive.
   pi.on("session_shutdown", async () => {
     closed = true;
-    await closeClient();
+    await Promise.all([...transports].map(transport => transport.close()));
   });
 }
 `
