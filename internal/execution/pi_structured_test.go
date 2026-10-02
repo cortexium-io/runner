@@ -148,6 +148,21 @@ func TestPiNativeStructuredFilterAddsOnlyFinalAssistantEvents(t *testing.T) {
 	if keepPiNativeStructuredEventLine(messageUpdate) {
 		t.Fatal("native Pi structured filter retained streaming deltas")
 	}
+	for _, line := range []string{
+		`{"type":"message_end","message":{"role":"system","content":"","sections":{"preamble":"native Pi guidance"}}}`,
+		`{"type":"message_end","message":{"role":"user","content":"assignment"}}`,
+		`{"type":"message_end","message":{"role":"toolResult","content":[{"type":"text","text":"tool result"}]}}`,
+	} {
+		if keepPiNativeStructuredEventLine([]byte(line)) || keepPiTextEventLine([]byte(line)) {
+			t.Fatalf("Pi result filter retained non-assistant content: %s", line)
+		}
+	}
+	// Malformed assistant content must reach the decoder and be rejected, rather
+	// than disappearing before the final-response contract is checked.
+	malformed := []byte(`{"type":"message_end","message":{"role":"assistant","content":"invalid assistant shape"}}`)
+	if !keepPiNativeStructuredEventLine(malformed) || !keepPiTextEventLine(malformed) {
+		t.Fatal("Pi result filter hid malformed assistant content")
+	}
 }
 
 func TestUsageFromPiEventStreamReadsFinalAssistantCounters(t *testing.T) {

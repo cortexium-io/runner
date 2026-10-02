@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -101,6 +102,8 @@ func TestLiveLocalHarnessBenchmark(t *testing.T) {
 				t.Logf("LOCAL_HARNESS_BENCHMARK %s", encoded)
 				if err != nil {
 					t.Errorf("%s %s failed: %v", harness, benchmarkCase.name, err)
+				} else if outcome != OutcomeSucceeded {
+					t.Errorf("%s %s did not succeed: %s", harness, benchmarkCase.name, outcome)
 				}
 			})
 		}
@@ -210,9 +213,17 @@ func runLocalBenchmarkStructuredRead(t *testing.T, harness string, cfg config.Ex
 	if harness == config.HarnessPiCLI {
 		cfg.RoleAccess = ""
 	}
-	schema := []byte(`{"type":"object","required":["summary"],"properties":{"summary":{"type":"string","const":"local-benchmark-ok"}},"additionalProperties":false}`)
+	// Keep the answer out of the prompt and schema, so this grades a real read
+	// rather than letting constrained sampling supply the expected constant.
+	want := rand.Text()
+	if err := os.WriteFile(filepath.Join(cfg.Harness.WorkingDir, "README.md"), []byte(want+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGitCommand(t, cfg.Harness.WorkingDir, "add", "README.md")
+	runGitCommand(t, cfg.Harness.WorkingDir, "commit", "-m", "Seed opaque read challenge")
+	schema := []byte(`{"type":"object","required":["summary"],"properties":{"summary":{"type":"string"}},"additionalProperties":false}`)
 	result, err := RunPlannerWithUsage(t.Context(), harness, cfg, cfg.Harness.WorkingDir,
-		"Read README.md, make no changes, and return the required structured summary.", schema, nil)
+		"Read README.md, make no changes, and return its entire trimmed contents as the structured summary.", schema, nil)
 	if err != nil {
 		return OutcomeBlocked, result.Usage, result.DurationMilliseconds, err
 	}
@@ -226,7 +237,7 @@ func runLocalBenchmarkStructuredRead(t *testing.T, harness string, cfg config.Ex
 	if err := json.Unmarshal([]byte(canonical), &decoded); err != nil {
 		return OutcomeBlocked, result.Usage, result.DurationMilliseconds, err
 	}
-	if decoded.Summary != "local-benchmark-ok" {
+	if decoded.Summary != want {
 		return OutcomeBlocked, result.Usage, result.DurationMilliseconds, fmt.Errorf("unexpected summary %q", decoded.Summary)
 	}
 	return OutcomeSucceeded, result.Usage, result.DurationMilliseconds, nil
@@ -246,6 +257,9 @@ func runLocalBenchmarkExactWrite(t *testing.T, harness string, cfg config.Execut
 	if string(content) != "local-benchmark-ok\n" {
 		return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, fmt.Errorf("unexpected answer.txt content %q", content)
 	}
+	if err := localBenchmarkChangedPaths(metadata.WorktreePath, "answer.txt"); err != nil {
+		return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, err
+	}
 	return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, nil
 }
 
@@ -262,6 +276,22 @@ func runLocalBenchmarkBugFix(t *testing.T, harness string, cfg config.ExecutionC
 	if testOutput, testErr := command.CombinedOutput(); testErr != nil {
 		return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, fmt.Errorf("focused test failed: %v: %s", testErr, testOutput)
 	}
+	// Grade bounds and interior values independently without changing the
+	// model-visible test or accepting a fix tailored to its two examples.
+	command = exec.Command("node", "--input-type=module", "-e", `
+import assert from "node:assert/strict";
+import { clamp } from "./clamp.mjs";
+for (const [value, min, max, expected] of [
+  [-5, 0, 10, 0], [5, 0, 10, 5], [15, 0, 10, 10],
+  [0, 0, 10, 0], [10, 0, 10, 10], [4, 3, 3, 3],
+  [-8, -5, -1, -5], [-3, -5, -1, -3], [2, -5, -1, -1],
+  [0.5, 0.25, 0.75, 0.5]
+]) assert.equal(clamp(value, min, max), expected);
+`)
+	command.Dir = metadata.WorktreePath
+	if testOutput, testErr := command.CombinedOutput(); testErr != nil {
+		return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, fmt.Errorf("independent bounds check failed: %v: %s", testErr, testOutput)
+	}
 	wantTest, err := os.ReadFile(filepath.Join(cfg.Harness.WorkingDir, "test", "clamp.test.mjs"))
 	if err != nil {
 		return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, err
@@ -273,7 +303,30 @@ func runLocalBenchmarkBugFix(t *testing.T, harness string, cfg config.ExecutionC
 	if string(gotTest) != string(wantTest) {
 		return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, fmt.Errorf("harness changed the seeded test")
 	}
+	if err := localBenchmarkChangedPaths(metadata.WorktreePath, "clamp.mjs"); err != nil {
+		return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, err
+	}
 	return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, nil
+}
+
+func localBenchmarkChangedPaths(repo, expected string) error {
+	check := exec.Command("git", "diff", "--check")
+	check.Dir = repo
+	if output, err := check.CombinedOutput(); err != nil {
+		return fmt.Errorf("independent diff check failed: %v: %s", err, output)
+	}
+	command := exec.Command("git", "status", "--porcelain", "--untracked-files=all")
+	command.Dir = repo
+	output, err := command.Output()
+	if err != nil {
+		return err
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(string(output), "\n"), "\n") {
+		if len(line) < 4 || line[3:] != expected {
+			return fmt.Errorf("unexpected workspace change %q", line)
+		}
+	}
+	return nil
 }
 
 func runLocalBenchmarkReview(t *testing.T, harness string, cfg config.ExecutionConfig) (string, metrics.Usage, int64, error) {

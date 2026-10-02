@@ -50,20 +50,22 @@ func keepPiNativeStructuredEventLine(line []byte) bool {
 		return true
 	}
 	var event struct {
-		Type string `json:"type"`
+		Type    string `json:"type"`
+		Message struct {
+			Role string `json:"role"`
+		} `json:"message"`
 	}
-	return json.Unmarshal(bytes.TrimSpace(line), &event) == nil && event.Type == "message_end"
+	// Pi 0.99 also emits system messages whose content is a string. Only
+	// assistant messages participate in Runner's final-response contract.
+	// Retain malformed events so the decoder still rejects them.
+	if json.Unmarshal(bytes.TrimSpace(line), &event) != nil {
+		return true
+	}
+	return event.Type == "message_end" && event.Message.Role == "assistant"
 }
 
 func keepPiTextEventLine(line []byte) bool {
-	var event struct {
-		Type string `json:"type"`
-	}
-	if err := json.Unmarshal(bytes.TrimSpace(line), &event); err != nil || !isPiJSONEventType(event.Type) {
-		return true
-	}
-	return event.Type == "session" || event.Type == "agent_start" || event.Type == "agent_end" ||
-		event.Type == "message_end" || event.Type == "tool_execution_start" || event.Type == "tool_execution_end"
+	return keepPiNativeStructuredEventLine(line)
 }
 
 func extractPiTextResult(stdout string) (string, error) {
