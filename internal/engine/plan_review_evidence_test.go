@@ -256,7 +256,7 @@ func planMemberEvidenceAcceptance(t *testing.T, f *deliveryRunFixture, child git
 	t.Helper()
 	provider := workspace.NewGitProvider(f.service.run)
 	metadata, err := provider.InspectRetainedReview(t.Context(), workspace.Request{
-		WorkingDir: f.repo, WorktreeRoot: f.cfg.Harnesses[0].WorkspaceWriteRoot, WorkID: "assignment_" + safeRefComponent(child.ID),
+		WorkingDir: f.repo, WorktreeRoot: f.cfg.Harnesses[0].WorkspaceWriteRoot, WorkID: f.service.assignmentWorkID(child),
 		ItemID: child.ID, Repository: child.Repository, DelegatedContentDigest: github.DelegatedContentFor(child).Digest,
 		BranchName: child.Branch, BaseRef: "origin/" + f.parent(t).Branch,
 	})

@@ -12,7 +12,7 @@ import (
 	"github.com/cortexium-io/runner/internal/workspace"
 )
 
-func (s *Engine) terminalWorkspaceCleanupPending(itemID string) bool {
+func (s *Engine) terminalWorkspaceCleanupPending(item github.WorkItem) bool {
 	root := strings.TrimSpace(s.implementationWorkspaceRoot())
 	if root == "" {
 		return false
@@ -22,7 +22,7 @@ func (s *Engine) terminalWorkspaceCleanupPending(itemID string) bool {
 	}
 	// Successful cleanup removes the deterministic worktree path while
 	// intentionally retaining its branch and private identity record.
-	_, err := os.Lstat(filepath.Join(root, "assignment_"+safeRefComponent(itemID)))
+	_, err := os.Lstat(filepath.Join(root, s.assignmentWorkID(item)))
 	return err == nil || !errors.Is(err, os.ErrNotExist)
 }
 
@@ -62,7 +62,7 @@ func (s *Engine) cleanupAuthorizedItemWorkspace(ctx context.Context, action gith
 	}
 	return workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).Cleanup(ctx, workspace.CleanupRequest{
 		WorkingDir: repoRoot, WorktreeRoot: s.implementationWorkspaceRoot(),
-		WorkID: "assignment_" + safeRefComponent(item.ID), ItemID: item.ID, DelegatedContentDigest: github.DelegatedContentFor(item).Digest,
+		WorkID: s.assignmentWorkID(item), ItemID: item.ID, DelegatedContentDigest: github.DelegatedContentFor(item).Digest,
 		Repository: repository, BranchName: item.Branch, BaseRef: s.remoteName() + "/" + s.baseBranch(),
 	})
 }
