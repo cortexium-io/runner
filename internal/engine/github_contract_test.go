@@ -1276,21 +1276,29 @@ func TestGitHubProjectApprovalRejectsChangedDisplayedAssertion(t *testing.T) {
 	}
 }
 
-func TestGitHubProjectApprovalRejectsHiddenPriorActionState(t *testing.T) {
-	item := github.WorkItem{ID: "PVTI_prior", Title: "Approve me", Body: "Criteria", Status: "Needs assessment", PullRequest: "https://github.com/owner/repo/pull/1"}
-	run := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
-	source := newTestGitHubProjectSource(config.GitHubProjectConfig{Owner: "owner", Number: 4}, run)
-	if _, err := source.PlanApproval(t.Context(), item.ID); err == nil || !strings.Contains(err.Error(), "clear Runner Phase") {
-		t.Fatalf("approval accepted hidden prior action state without safe recovery guidance: %v", err)
-	}
-}
-
-func TestGitHubProjectApprovalDefersInterruptedTransitionToRecovery(t *testing.T) {
-	item := github.WorkItem{ID: "PVTI_transition", Title: "Recover me", Body: "Criteria", Status: "Needs assessment", Transition: "v1"}
-	run := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
-	source := newTestGitHubProjectSource(config.GitHubProjectConfig{Owner: "owner", Number: 4}, run)
-	if _, err := source.PlanApproval(t.Context(), item.ID); err == nil || !strings.Contains(err.Error(), "run Runner once to recover") {
-		t.Fatalf("interrupted transition lacked recovery guidance: %v", err)
+func TestGitHubProjectApprovalRequiresPriorActionRecovery(t *testing.T) {
+	for _, tc := range []struct {
+		name, wantError string
+		item            github.WorkItem
+	}{
+		{
+			name:      "hidden prior action",
+			item:      github.WorkItem{ID: "PVTI_prior", Title: "Approve me", Body: "Criteria", Status: "Needs assessment", PullRequest: "https://github.com/owner/repo/pull/1"},
+			wantError: "clear Runner Phase",
+		},
+		{
+			name:      "interrupted transition",
+			item:      github.WorkItem{ID: "PVTI_transition", Title: "Recover me", Body: "Criteria", Status: "Needs assessment", Transition: "v1"},
+			wantError: "run Runner once to recover",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			run := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(tc.item) + `]}`}
+			source := newTestGitHubProjectSource(config.GitHubProjectConfig{Owner: "owner", Number: 4}, run)
+			if _, err := source.PlanApproval(t.Context(), tc.item.ID); err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("unsafe prior state lacked recovery guidance %q: %v", tc.wantError, err)
+			}
+		})
 	}
 }
 
@@ -2426,16 +2434,26 @@ func withoutNormalizedValue(values []string, remove string) []string {
 	return result
 }
 
-func TestDecodeProjectPlanRejectsUnknownDependencies(t *testing.T) {
-	_, err := decodeProjectPlan(`{"goal_summary":"Goal","project_success_criteria":["The project works."],"project_constraints":[],"open_decisions":[],"work_items":[{"title":"Build","repository":"owner/repo","summary":"Build it","acceptance_criteria":["Works"],"verification":["Run the focused test."],"risks":[],"non_goals":[],"dependencies":["Missing"]}]}`)
-	if err == nil || !strings.Contains(err.Error(), "unknown dependency") {
-		t.Fatalf("expected unknown dependency rejection, got %v", err)
-	}
-}
-
-func TestDecodeProjectPlanRejectsCyclicDependencies(t *testing.T) {
-	_, err := decodeProjectPlan(`{"goal_summary":"Goal","project_success_criteria":["The project works."],"project_constraints":[],"open_decisions":[],"work_items":[{"title":"Build","repository":"owner/repo","summary":"Build it","acceptance_criteria":["Works"],"verification":["Run the build test."],"risks":[],"non_goals":[],"dependencies":["Verify"]},{"title":"Verify","repository":"owner/repo","summary":"Verify it","acceptance_criteria":["Approved"],"verification":["Run the acceptance test."],"risks":[],"non_goals":[],"dependencies":["Build"]}]}`)
-	if err == nil || !strings.Contains(err.Error(), "cyclic dependency") {
-		t.Fatalf("expected cyclic dependency rejection, got %v", err)
+func TestDecodeProjectPlanRejectsInvalidDependencies(t *testing.T) {
+	for _, tc := range []struct {
+		name, plan, wantError string
+	}{
+		{
+			name:      "unknown dependency",
+			plan:      `{"goal_summary":"Goal","project_success_criteria":["The project works."],"project_constraints":[],"open_decisions":[],"work_items":[{"title":"Build","repository":"owner/repo","summary":"Build it","acceptance_criteria":["Works"],"verification":["Run the focused test."],"risks":[],"non_goals":[],"dependencies":["Missing"]}]}`,
+			wantError: "unknown dependency",
+		},
+		{
+			name:      "cyclic dependency",
+			plan:      `{"goal_summary":"Goal","project_success_criteria":["The project works."],"project_constraints":[],"open_decisions":[],"work_items":[{"title":"Build","repository":"owner/repo","summary":"Build it","acceptance_criteria":["Works"],"verification":["Run the build test."],"risks":[],"non_goals":[],"dependencies":["Verify"]},{"title":"Verify","repository":"owner/repo","summary":"Verify it","acceptance_criteria":["Approved"],"verification":["Run the acceptance test."],"risks":[],"non_goals":[],"dependencies":["Build"]}]}`,
+			wantError: "cyclic dependency",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := decodeProjectPlan(tc.plan)
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("expected %s rejection, got %v", tc.wantError, err)
+			}
+		})
 	}
 }

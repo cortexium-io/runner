@@ -311,53 +311,38 @@ func TestExtractPiStructuredResultReturnsRejectedArgumentsForOneRepair(t *testin
 	}
 }
 
-func TestExtractPiNativeStructuredResultRequiresFinalizerThenOneJSONResponse(t *testing.T) {
+func TestExtractPiNativeStructuredResultAcceptsFinalizedResponses(t *testing.T) {
 	const provenance = "test-provenance"
 	value := `{"answer":"planned"}`
-	stdout := strings.Join([]string{
-		`{"type":"session","version":3}`,
-		`{"type":"tool_execution_start","toolCallId":"read-1","toolName":"read","args":{"path":"README.md"}}`,
-		`{"type":"tool_execution_end","toolCallId":"read-1","toolName":"read","result":{},"isError":false}`,
-		`{"type":"tool_execution_start","toolCallId":"finish-1","toolName":"` + piNativeStructuredFinalizeTool + `","args":{}}`,
-		`{"type":"tool_execution_end","toolCallId":"finish-1","toolName":"` + piNativeStructuredFinalizeTool + `","result":{"details":{"provenance":"` + provenance + `"}},"isError":false}`,
-		`{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":` + strconv.Quote(value) + `}],"stopReason":"stop"}}`,
-		`{"type":"agent_end","messages":[]}`,
-	}, "\n")
-	result, err := extractPiNativeStructuredResult(stdout, provenance)
-	if err != nil || result != value {
-		t.Fatalf("native result=%q error=%v", result, err)
-	}
-}
-
-func TestExtractPiNativeStructuredResultAllowsThinkingBesideOneJSONResponse(t *testing.T) {
-	const provenance = "test-provenance"
-	value := `{"answer":"planned"}`
-	stdout := strings.Join([]string{
-		`{"type":"session","version":3}`,
-		`{"type":"tool_execution_start","toolCallId":"finish-1","toolName":"` + piNativeStructuredFinalizeTool + `","args":{}}`,
-		`{"type":"tool_execution_end","toolCallId":"finish-1","toolName":"` + piNativeStructuredFinalizeTool + `","result":{"details":{"provenance":"` + provenance + `"}},"isError":false}`,
-		`{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Checking the result."},{"type":"text","text":` + strconv.Quote(value) + `}],"stopReason":"stop"}}`,
-		`{"type":"agent_end","messages":[]}`,
-	}, "\n")
-	result, err := extractPiNativeStructuredResult(stdout, provenance)
-	if err != nil || result != value {
-		t.Fatalf("native result with thinking=%q error=%v", result, err)
-	}
-}
-
-func TestExtractPiNativeStructuredResultAllowsLMStudioThinkingOnlyJSONResponse(t *testing.T) {
-	const provenance = "test-provenance"
-	value := `{"answer":"planned"}`
-	stdout := strings.Join([]string{
-		`{"type":"session","version":3}`,
-		`{"type":"tool_execution_start","toolCallId":"finish-1","toolName":"` + piNativeStructuredFinalizeTool + `","args":{}}`,
-		`{"type":"tool_execution_end","toolCallId":"finish-1","toolName":"` + piNativeStructuredFinalizeTool + `","result":{"details":{"provenance":"` + provenance + `"}},"isError":false}`,
-		`{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":` + strconv.Quote(value) + `,"thinkingSignature":"reasoning_content"}],"stopReason":"stop"}}`,
-		`{"type":"agent_end","messages":[]}`,
-	}, "\n")
-	result, err := extractPiNativeStructuredResult(stdout, provenance)
-	if err != nil || result != value {
-		t.Fatalf("native LM Studio result=%q error=%v", result, err)
+	for _, test := range []struct {
+		name, content  string
+		beforeFinalize []string
+	}{
+		{
+			name:    "text after tool work",
+			content: `[{"type":"text","text":` + strconv.Quote(value) + `}]`,
+			beforeFinalize: []string{
+				`{"type":"tool_execution_start","toolCallId":"read-1","toolName":"read","args":{"path":"README.md"}}`,
+				`{"type":"tool_execution_end","toolCallId":"read-1","toolName":"read","result":{},"isError":false}`,
+			},
+		},
+		{name: "thinking beside text", content: `[{"type":"thinking","thinking":"Checking the result."},{"type":"text","text":` + strconv.Quote(value) + `}]`},
+		{name: "LM Studio reasoning content", content: `[{"type":"thinking","thinking":` + strconv.Quote(value) + `,"thinkingSignature":"reasoning_content"}]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			events := []string{`{"type":"session","version":3}`}
+			events = append(events, test.beforeFinalize...)
+			events = append(events,
+				`{"type":"tool_execution_start","toolCallId":"finish-1","toolName":"`+piNativeStructuredFinalizeTool+`","args":{}}`,
+				`{"type":"tool_execution_end","toolCallId":"finish-1","toolName":"`+piNativeStructuredFinalizeTool+`","result":{"details":{"provenance":"`+provenance+`"}},"isError":false}`,
+				`{"type":"message_end","message":{"role":"assistant","content":`+test.content+`,"stopReason":"stop"}}`,
+				`{"type":"agent_end","messages":[]}`,
+			)
+			result, err := extractPiNativeStructuredResult(strings.Join(events, "\n"), provenance)
+			if err != nil || result != value {
+				t.Fatalf("native result=%q error=%v", result, err)
+			}
+		})
 	}
 }
 

@@ -5,28 +5,33 @@ import (
 	"testing"
 )
 
-func TestResourceLimitsOmittedResolveToSnapshotDefaults(t *testing.T) {
-	cfg := explicitTestConfig()
-	runtime, err := cfg.Resolve()
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := DefaultResourceLimits()
-	if runtime.ResourceLimits != want || runtime.Execution(WorkRoleImplementer, HarnessCodexCLI, "/tmp/worktree").ResourceLimits != want {
-		t.Fatalf("omitted resource limits resolved to %#v, want %#v", runtime.ResourceLimits, want)
-	}
-}
-
-func TestResourceLimitsValidOverridesResolve(t *testing.T) {
-	cfg := explicitTestConfig()
-	entries, fileBytes, totalBytes := 20, int64(30), int64(40)
-	cfg.ResourceLimits = &ResourceLimitsConfig{SnapshotMaxEntries: &entries, SnapshotMaxFileBytes: &fileBytes, SnapshotMaxTotalBytes: &totalBytes}
-	runtime, err := cfg.Resolve()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtime.ResourceLimits != (ResourceLimits{SnapshotMaxEntries: 20, SnapshotMaxFileBytes: 30, SnapshotMaxTotalBytes: 40}) {
-		t.Fatalf("override did not resolve: %#v", runtime.ResourceLimits)
+func TestResourceLimitsResolveAndPropagateToExecution(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		limits *ResourceLimitsConfig
+		want   ResourceLimits
+	}{
+		{name: "omitted defaults", want: DefaultResourceLimits()},
+		{
+			name:   "explicit overrides",
+			limits: &ResourceLimitsConfig{SnapshotMaxEntries: intPointer(20), SnapshotMaxFileBytes: int64Pointer(30), SnapshotMaxTotalBytes: int64Pointer(40)},
+			want:   ResourceLimits{SnapshotMaxEntries: 20, SnapshotMaxFileBytes: 30, SnapshotMaxTotalBytes: 40},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := explicitTestConfig()
+			cfg.ResourceLimits = tc.limits
+			runtime, err := cfg.Resolve()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if runtime.ResourceLimits != tc.want {
+				t.Fatalf("resolved resource limits = %#v, want %#v", runtime.ResourceLimits, tc.want)
+			}
+			if got := runtime.Execution(WorkRoleImplementer, HarnessCodexCLI, "/tmp/worktree").ResourceLimits; got != tc.want {
+				t.Fatalf("execution resource limits = %#v, want %#v", got, tc.want)
+			}
+		})
 	}
 }
 

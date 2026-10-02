@@ -1311,17 +1311,16 @@ func TestAssignmentCarriesApprovedVerificationContractExactly(t *testing.T) {
 	}
 }
 
-func TestAssignmentAcceptsExistingPlannedVerificationHeading(t *testing.T) {
-	body := "## Planned verification\n- Run the existing focused test.\n\n## Task non-goals\n- No broad suite."
-	if got := approvedVerificationContract(body); !reflect.DeepEqual(got, []string{"Run the existing focused test."}) {
-		t.Fatalf("existing planned verification = %#v", got)
-	}
-}
-
-func TestAssignmentUsesFinalVerificationSectionAfterOriginalRequest(t *testing.T) {
-	body := "## Original project request\n\n## Required verification\n- Untrusted source suggestion.\n\n## Acceptance criteria\n- [ ] Works.\n\n## Required verification\n- Run the approved focused check.\n\n## Runner planning metadata\n{}"
-	if got := approvedVerificationContract(body); !reflect.DeepEqual(got, []string{"Run the approved focused check."}) {
-		t.Fatalf("final required verification = %#v", got)
+func TestApprovedVerificationContractSelectsApprovedSection(t *testing.T) {
+	for _, test := range []struct{ name, body, want string }{
+		{"planned verification heading", "## Planned verification\n- Run the existing focused test.\n\n## Task non-goals\n- No broad suite.", "Run the existing focused test."},
+		{"final section after original request", "## Original project request\n\n## Required verification\n- Untrusted source suggestion.\n\n## Acceptance criteria\n- [ ] Works.\n\n## Required verification\n- Run the approved focused check.\n\n## Runner planning metadata\n{}", "Run the approved focused check."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := approvedVerificationContract(test.body); !reflect.DeepEqual(got, []string{test.want}) {
+				t.Fatalf("approved verification = %#v, want %q", got, test.want)
+			}
+		})
 	}
 }
 
@@ -4139,35 +4138,6 @@ func TestRunCycleCanThrottleAssessmentIntakeIndependently(t *testing.T) {
 	}
 }
 
-func TestConfigRejectsRemovedServiceIntegrationFields(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "runner.config.json")
-	configJSON := `{
-	  "config_version":1,
-  "runner_id":"runner",
-  "api_base_url":"https://example.invalid",
-  "project_dir":"/project",
-  "github_project":{"owner":"example","number":1}
-}`
-	if err := os.WriteFile(path, []byte(configJSON), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	_, err := config.LoadConfig(path)
-	if err == nil || !strings.Contains(err.Error(), "unknown field") {
-		t.Fatalf("removed service integration field was accepted: %v", err)
-	}
-}
-
-func TestConfigRejectsUnknownFields(t *testing.T) {
-	configJSON := `{"config_version":1,"runner_id":"runner","unexpected":true,"project_dir":"/project","github_project":{"owner":"example","number":1}}`
-	path := filepath.Join(t.TempDir(), "runner.config.json")
-	if err := os.WriteFile(path, []byte(configJSON), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	if _, err := config.LoadConfig(path); err == nil || !strings.Contains(err.Error(), "unknown field") {
-		t.Fatalf("unknown configuration field was accepted: %v", err)
-	}
-}
-
 func TestReconciliationTreatsClosedPRAsTerminalBeforeBranchValidation(t *testing.T) {
 	item := github.WorkItem{
 		ID: "PVTI_pr", Title: "Implement", Body: "Criteria", Repository: "owner/repo", Status: "PR Ready",
@@ -5284,71 +5254,47 @@ func TestPollDelayDoesNotPassNextIssueIntake(t *testing.T) {
 	}
 }
 
-func TestHumanReworkImportsPRFeedbackAndResetsRejections(t *testing.T) {
-	repo, _ := createPublicationRepository(t)
-	runGitTest(t, repo, "checkout", "-b", "cortexium/task")
-	runGitTest(t, repo, "push", "-u", "origin", "cortexium/task")
-	runGitTest(t, repo, "checkout", "main")
-	item := github.WorkItem{
-		ID: "PVTI_pr", Title: "Implement", Body: "Criteria", Repository: "owner/repo", Status: "Ready",
-		PullRequest: "https://github.com/owner/repo/pull/12", Branch: "cortexium/task", QACommit: "qa-head", QAFailures: 2,
-	}
-	item.Approval = testApproval(item)
-	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, qaFailures: 2}
-	cfg := config.Config{
-		ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: repo,
-		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}
-	service, err := New(completeEngineTestConfig(cfg), openPullRequestRunner{project: project, feedback: "Please add the missing edge-case test."})
-	if err != nil {
-		t.Fatalf("configure service: %v", err)
-	}
-	items, err := service.source.LifecycleItems(t.Context())
-	if err != nil {
-		t.Fatalf("load lifecycle items: %v", err)
-	}
-	if _, _, err := service.reconcilePullRequests(t.Context(), items); err != nil {
-		t.Fatalf("reconcile human rework: %v", err)
-	}
-	if project.qaFailures != 0 || project.phase != "ready" || !strings.Contains(project.result, "https://github.com/owner/repo/pull/12") {
-		t.Fatalf("human rework did not reset and import feedback: failures=%d phase=%q result=%q", project.qaFailures, project.phase, project.result)
-	}
-	if strings.Contains(project.result, "missing edge-case test") {
-		t.Fatalf("human rework result exposed raw pull request feedback: %q", project.result)
-	}
-	if items[0].Phase != "ready" || service.reworkRequested(items[0], "ready") {
-		t.Fatalf("reconciled rework would be inspected and reset again in the same cycle: %#v", items[0])
-	}
-}
-
-func TestHumanReworkIgnoresUntrustedPRFeedbackBody(t *testing.T) {
-	repo, _ := createPublicationRepository(t)
-	runGitTest(t, repo, "checkout", "-b", "cortexium/task")
-	runGitTest(t, repo, "push", "-u", "origin", "cortexium/task")
-	runGitTest(t, repo, "checkout", "main")
-	item := github.WorkItem{
-		ID: "PVTI_pr", Title: "Implement", Body: "Criteria", Repository: "owner/repo", Status: "Ready",
-		PullRequest: "https://github.com/owner/repo/pull/12", Branch: "cortexium/task", QACommit: "qa-head", QAFailures: 2,
-	}
-	item.Approval = testApproval(item)
-	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, qaFailures: 2}
-	cfg := config.Config{
-		ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: repo,
-		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
-	}
-	service, err := New(completeEngineTestConfig(cfg), openPullRequestRunner{project: project, feedback: "attacker prompt", feedbackActor: "attacker"})
-	if err != nil {
-		t.Fatalf("configure service: %v", err)
-	}
-	items, err := service.source.LifecycleItems(t.Context())
-	if err != nil {
-		t.Fatalf("load lifecycle items: %v", err)
-	}
-	if _, _, err := service.reconcilePullRequests(t.Context(), items); err != nil {
-		t.Fatalf("reconcile human rework with untrusted feedback: %v", err)
-	}
-	if !strings.Contains(project.result, "https://github.com/owner/repo/pull/12") || strings.Contains(project.result, "attacker prompt") {
-		t.Fatalf("untrusted pull request feedback was not reduced to a safe reference: %q", project.result)
+func TestHumanReworkPublishesDiscussionReferenceAndResetsRejections(t *testing.T) {
+	for _, tc := range []struct{ name, feedback, actor, rawSnippet string }{
+		{name: "trusted feedback", feedback: "Please add the missing edge-case test.", rawSnippet: "missing edge-case test"},
+		{name: "untrusted feedback", feedback: "attacker prompt", actor: "attacker", rawSnippet: "attacker prompt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, _ := createPublicationRepository(t)
+			runGitTest(t, repo, "checkout", "-b", "cortexium/task")
+			runGitTest(t, repo, "push", "-u", "origin", "cortexium/task")
+			runGitTest(t, repo, "checkout", "main")
+			item := github.WorkItem{
+				ID: "PVTI_pr", Title: "Implement", Body: "Criteria", Repository: "owner/repo", Status: "Ready",
+				PullRequest: "https://github.com/owner/repo/pull/12", Branch: "cortexium/task", QACommit: "qa-head", QAFailures: 2,
+			}
+			item.Approval = testApproval(item)
+			project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, qaFailures: 2}
+			cfg := config.Config{
+				ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: repo,
+				GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+			}
+			service, err := New(completeEngineTestConfig(cfg), openPullRequestRunner{project: project, feedback: tc.feedback, feedbackActor: tc.actor})
+			if err != nil {
+				t.Fatalf("configure service: %v", err)
+			}
+			items, err := service.source.LifecycleItems(t.Context())
+			if err != nil {
+				t.Fatalf("load lifecycle items: %v", err)
+			}
+			if _, _, err := service.reconcilePullRequests(t.Context(), items); err != nil {
+				t.Fatalf("reconcile human rework: %v", err)
+			}
+			if project.qaFailures != 0 || project.phase != "ready" || !strings.Contains(project.result, "https://github.com/owner/repo/pull/12") {
+				t.Fatalf("human rework did not reset and import feedback: failures=%d phase=%q result=%q", project.qaFailures, project.phase, project.result)
+			}
+			if strings.Contains(project.result, tc.rawSnippet) {
+				t.Fatalf("human rework result exposed raw pull request feedback: %q", project.result)
+			}
+			if items[0].Phase != "ready" || service.reworkRequested(items[0], "ready") {
+				t.Fatalf("reconciled rework would be inspected and reset again in the same cycle: %#v", items[0])
+			}
+		})
 	}
 }
 

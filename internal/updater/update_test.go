@@ -65,11 +65,14 @@ func TestReplacementCancellationRestoresServicesWithoutSwitchingBinary(t *testin
 }
 
 func TestRunReplacesExecutableWithVerifiedRelease(t *testing.T) {
-	testRunReplacesExecutable(t, "v0.2.0", "v0.3.0")
-}
-
-func TestRunAllowsExplicitDowngrade(t *testing.T) {
-	testRunReplacesExecutable(t, "v0.3.0", "v0.2.0")
+	for _, test := range []struct{ name, current, target string }{
+		{"upgrade", "v0.2.0", "v0.3.0"},
+		{"explicit downgrade", "v0.3.0", "v0.2.0"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			testRunReplacesExecutable(t, test.current, test.target)
+		})
+	}
 }
 
 func testRunReplacesExecutable(t *testing.T, currentVersion, targetVersion string) {

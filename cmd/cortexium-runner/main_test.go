@@ -455,13 +455,6 @@ func TestInitInteractivelyCollectsMissingRequiredChoices(t *testing.T) {
 	}
 }
 
-func TestInitNonInteractiveRequiresExplicitConfig(t *testing.T) {
-	err := run(t.Context(), []string{"init", "--non-interactive"}, strings.NewReader(""), io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "non-interactive init requires an explicit --config path") {
-		t.Fatalf("missing non-interactive config error = %v", err)
-	}
-}
-
 func TestInitRoleAccessDefaultsSafeAndRequiresExplicitPiHost(t *testing.T) {
 	if access, err := resolveInitRoleAccess(nil, config.WorkRoleReviewer, config.HarnessCodexCLI, ""); err != nil || access != config.RoleAccessSandboxed {
 		t.Fatalf("Codex reviewer safe default = %q, %v", access, err)
@@ -775,17 +768,22 @@ func TestInitInteractiveDoesNotOfferBootstrapWhenRemoteBaseExists(t *testing.T) 
 	}
 }
 
-func TestInitInteractiveAndNonInteractiveAreMutuallyExclusive(t *testing.T) {
-	err := run(t.Context(), []string{"init", "--config", filepath.Join(t.TempDir(), "runner.json"), "--interactive", "--non-interactive"}, strings.NewReader(""), io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "cannot be used together") {
-		t.Fatalf("interactive mode conflict error = %v", err)
-	}
-}
-
-func TestInitNonInteractiveCreationRequiresExplicitVisibility(t *testing.T) {
-	err := run(t.Context(), []string{"init", "--config", filepath.Join(t.TempDir(), "runner.json"), "--create-project", "Test", "--non-interactive"}, strings.NewReader(""), io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "--project-visibility must be explicitly set") {
-		t.Fatalf("missing Project visibility error = %v", err)
+func TestInitRejectsInvalidNonInteractiveOptions(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "runner.json")
+	for _, test := range []struct {
+		name, wantError string
+		args            []string
+	}{
+		{"missing config", "non-interactive init requires an explicit --config path", []string{"init", "--non-interactive"}},
+		{"interactive conflict", "cannot be used together", []string{"init", "--config", configPath, "--interactive", "--non-interactive"}},
+		{"missing visibility", "--project-visibility must be explicitly set", []string{"init", "--config", configPath, "--create-project", "Test", "--non-interactive"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := run(t.Context(), test.args, strings.NewReader(""), io.Discard)
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("invalid init options error = %v, want %q", err, test.wantError)
+			}
+		})
 	}
 }
 
@@ -1699,10 +1697,20 @@ func TestDoctorFixAutoDetectsProjectLocalDefaultConfig(t *testing.T) {
 	}
 }
 
-func TestDoctorRejectsLiveProbeInOfflineMode(t *testing.T) {
-	err := run(t.Context(), []string{"doctor", "--offline", "--probe-harnesses"}, strings.NewReader(""), io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
-		t.Fatalf("offline live probe error = %v", err)
+func TestDoctorRejectsIncompatibleOptions(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{"offline live probe", []string{"doctor", "--offline", "--probe-harnesses"}},
+		{"JSON fix", []string{"doctor", "--fix", "--json"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := run(t.Context(), test.args, strings.NewReader(""), io.Discard)
+			if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+				t.Fatalf("incompatible doctor options error = %v", err)
+			}
+		})
 	}
 }
 
@@ -1775,13 +1783,6 @@ func TestDoctorFixReplacesOnlyDifferingBundledRoleSkills(t *testing.T) {
 	content, readErr = os.ReadFile(plannerPath)
 	if readErr != nil || string(content) != string(want.Content) {
 		t.Fatalf("doctor fix did not restore the bundled planner: error=%v", readErr)
-	}
-}
-
-func TestDoctorFixRejectsJSONOutput(t *testing.T) {
-	err := run(t.Context(), []string{"doctor", "--fix", "--json"}, strings.NewReader(""), io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
-		t.Fatalf("doctor fix JSON error = %v", err)
 	}
 }
 

@@ -166,18 +166,25 @@ func TestStoreRetainsIncompleteReviewClassification(t *testing.T) {
 	}
 }
 
-func TestStoreRetainsManualRecoveryClassifications(t *testing.T) {
-	for _, class := range []string{"needs_input", "agent_blocked", "integrity_unverified"} {
-		t.Run(class, func(t *testing.T) {
+func TestStoreRetainsRecoveryClassifications(t *testing.T) {
+	for _, test := range []struct{ class, retry string }{
+		{"needs_input", "manual"},
+		{"agent_blocked", "manual"},
+		{"integrity_unverified", "manual"},
+		{"candidate_validation", "manual"},
+		{"browser_startup", "manual"},
+		{"transient_external", "automatic"},
+	} {
+		t.Run(test.class+"/"+test.retry, func(t *testing.T) {
 			store := NewStore(privateMetricsPath(t))
-			event := Event{Kind: EventCompleted, AttemptID: "paused", Outcome: "blocked", FailureClass: class, RetryDisposition: "manual"}
+			event := Event{Kind: EventCompleted, AttemptID: "paused", Outcome: "blocked", FailureClass: test.class, RetryDisposition: test.retry}
 			if err := store.Append(event); err != nil {
 				t.Fatal(err)
 			}
 			history, err := store.Read()
 			if err != nil || history.MalformedRecords != 0 || len(history.Attempts) != 1 || !history.Attempts[0].Completed ||
-				history.Attempts[0].FailureClass != class || history.Attempts[0].RetryDisposition != "manual" {
-				t.Fatalf("manual recovery was lost from durable metrics: %#v %v", history, err)
+				history.Attempts[0].FailureClass != test.class || history.Attempts[0].RetryDisposition != test.retry {
+				t.Fatalf("recovery classification was lost from durable metrics: %#v %v", history, err)
 			}
 		})
 	}

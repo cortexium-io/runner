@@ -101,12 +101,6 @@ func TestAttemptTraceSanitizesRecoveryEnumsAndRejectsFreeFormStageNames(t *testi
 	}
 }
 
-func TestCandidateValidationIsAStableFailureClass(t *testing.T) {
-	if !validFailureClass("candidate_validation") {
-		t.Fatal("candidate validation failure class is not accepted by metrics")
-	}
-}
-
 func TestTestSpecialistIsAnAccountedHarnessStage(t *testing.T) {
 	var events []Event
 	trace := NewAttemptTrace(func(event Event) error { events = append(events, event); return nil }, Event{AttemptID: "specialist-attempt"})
@@ -122,17 +116,5 @@ func TestTestSpecialistIsAnAccountedHarnessStage(t *testing.T) {
 	}
 	if got, ok := ReportedTokens(events[1].Usage); !ok || got != 15 {
 		t.Fatalf("specialist stage tokens = %d, known %t", got, ok)
-	}
-}
-
-func TestBrowserStartupIsAStableFailureClass(t *testing.T) {
-	if !validFailureClass("browser_startup") {
-		t.Fatal("browser startup failure class is not accepted by metrics")
-	}
-}
-
-func TestAutomaticRetryIsAStableDisposition(t *testing.T) {
-	if !validRetryDisposition("automatic") {
-		t.Fatal("automatic retry disposition is not accepted by metrics")
 	}
 }

@@ -274,10 +274,20 @@ func TestApplyPlanTaskGranularityOverridesBothDownstreamRoles(t *testing.T) {
 	}
 }
 
-func TestPlanRejectsSmallTasksWhenApprovingStagedBatch(t *testing.T) {
-	err := runPlan(t.Context(), []string{"--approve-staged", "v1:batch", "--small-tasks"}, strings.NewReader(""), io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
-		t.Fatalf("small tasks was accepted while approving staged batch: %v", err)
+func TestPlanRejectsIncompatibleOptions(t *testing.T) {
+	for _, test := range []struct {
+		name, wantError string
+		args            []string
+	}{
+		{"staged approval with sizing", "cannot be combined", []string{"--approve-staged", "v1:batch", "--small-tasks"}},
+		{"create with stage only", "either --create", []string{"--create", "--stage-only"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := runPlan(t.Context(), test.args, strings.NewReader(""), io.Discard)
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("incompatible planning options error = %v, want %q", err, test.wantError)
+			}
+		})
 	}
 }
 
@@ -301,13 +311,6 @@ func TestPlanApplyModeApprovesByDefaultWhenCreating(t *testing.T) {
 				t.Fatalf("planApplyMode() = (%t, %t), want (%t, %t)", gotStage, gotRelease, test.wantStage, test.wantRelease)
 			}
 		})
-	}
-}
-
-func TestPlanRejectsCreateWithStageOnly(t *testing.T) {
-	err := runPlan(t.Context(), []string{"--create", "--stage-only"}, strings.NewReader(""), io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "either --create") {
-		t.Fatalf("create and stage-only were accepted together: %v", err)
 	}
 }
 
