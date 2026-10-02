@@ -3583,6 +3583,138 @@ func TestBlockedItemRetryCanReplaceStaleFeedbackAndResetQAFailures(t *testing.T)
 	}
 }
 
+func TestOversizedRetryFeedbackPreservesCardAndPrivateContext(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		feedback string
+	}{
+		{name: "trailing instruction", feedback: strings.Repeat("x", 1001) + " REQUIRED: preserve operator-owned files."},
+		{name: "unicode one byte over", feedback: strings.Repeat("界", 333) + "é"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			current := github.WorkItem{
+				ID: "PVTI_1", Title: "Implement the slice", Body: "Acceptance criteria", URL: "https://github.com/owner/repo/issues/1",
+				Repository: "owner/repo", Status: "Blocked", Phase: "ready", Result: "Previous feedback.", QAFailures: 3,
+			}
+			project := &fakeGitHubProjectRunner{
+				status: current.Status, phase: current.Phase, result: current.Result, qaFailures: current.QAFailures,
+				approval: testApproval(current), approvalSet: true,
+			}
+			service, err := New(completeEngineTestConfig(config.Config{
+				ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+			}), project)
+			if err != nil {
+				t.Fatal(err)
+			}
+			paths := []string{service.reviewFeedbackPath(current.ID), service.implementationCheckpointPath(current.ID)}
+			const retained = "retained private context\n"
+			for _, path := range paths {
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(retained), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			plan, err := service.PlanProjectItemRetryWithFeedback(t.Context(), current.ID, "Accepted short correction.")
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := service.source.LifecycleItems(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := len(project.calls)
+			if _, err := service.PlanProjectItemRetryWithFeedback(t.Context(), current.ID, test.feedback); err == nil {
+				t.Fatal("planning accepted oversized feedback")
+			}
+			plan.FeedbackOverride = test.feedback
+			if _, err := service.ApplyProjectItemRetry(t.Context(), plan); err == nil {
+				t.Fatal("engine applied oversized prepared feedback")
+			}
+			if _, err := service.source.ApplyRetry(t.Context(), plan.RetryPlan); err == nil {
+				t.Fatal("Project applied oversized prepared feedback")
+			}
+			if len(project.calls) != calls {
+				t.Fatal("rejected feedback performed Project operations")
+			}
+			after, err := service.source.LifecycleItems(t.Context())
+			if err != nil || !reflect.DeepEqual(before, after) {
+				t.Fatalf("rejection changed persisted card: before=%#v after=%#v error=%v", before, after, err)
+			}
+			for _, path := range paths {
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != retained {
+					t.Fatalf("rejection changed prior private context at %s: %v", path, err)
+				}
+			}
+		})
+	}
+}
+
+func TestRetryFeedbackReachesNextAssignmentAfterRestart(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		feedback string
+	}{
+		{name: "short", feedback: "Keep task-owned edits and preserve operator-owned files."},
+		{name: "unicode exact byte boundary", feedback: "\u2003" + strings.Repeat("界", 332) + "🧭" + "\u2003\n"},
+		{name: "ascii exact byte boundary", feedback: "\n " + strings.Repeat("a", 999) + "Z\t"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo, _ := createPublicationRepository(t)
+			item := github.WorkItem{
+				ID: "PVTI_1", Title: "Implement the slice", Body: "Acceptance criteria", URL: "https://github.com/owner/repo/issues/1",
+				Repository: "owner/repo", Status: "Blocked", Phase: "ready", Result: "Previous feedback.", QAFailures: 3,
+			}
+			item.Approval = testApproval(item)
+			project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`, qaFailures: item.QAFailures}
+			runner := &successfulImplementationRunner{project: project}
+			cfg := completeEngineTestConfig(config.Config{
+				ProjectDir: repo, GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+			})
+			service, err := New(cfg, runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := service.PlanProjectItemRetryWithFeedback(t.Context(), item.ID, test.feedback)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := strings.TrimSpace(test.feedback)
+			retried, err := service.ApplyProjectItemRetry(t.Context(), plan)
+			if err != nil || retried.Result != expected || project.result != expected || retried.QAFailures != 0 {
+				t.Fatalf("accepted feedback did not persist intact: item=%#v error=%v", retried, err)
+			}
+			// A new engine must recover context from authenticated persisted Project
+			// state, not the in-memory retry plan or the operator's GitHub credentials.
+			restarted, err := New(cfg, runner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			items, err := restarted.source.LifecycleItems(t.Context())
+			if err != nil || len(items) != 1 || items[0].Result != expected {
+				t.Fatalf("restart truncated feedback: items=%#v error=%v", items, err)
+			}
+			if _, err := restarted.source.Authorize(t.Context(), items[0]); err != nil {
+				t.Fatalf("retry failed to bind accepted feedback to authority: %v", err)
+			}
+			project.remoteItems[0].Result = "Changed " + expected
+			if _, err := restarted.source.Authorize(t.Context(), items[0]); err == nil {
+				t.Fatal("modified feedback retained execution authority")
+			}
+			project.remoteItems[0].Result = expected
+			results, err := restarted.RunCycle(t.Context())
+			if err != nil || len(results) != 1 || results[0].Outcome != execution.OutcomeSucceeded || runner.calls != 1 {
+				t.Fatalf("retry did not reach implementation: results=%#v calls=%d error=%v", results, runner.calls, err)
+			}
+			if !strings.Contains(runner.args[len(runner.args)-1], expected) {
+				t.Fatal("implementer input omitted or truncated accepted feedback")
+			}
+		})
+	}
+}
+
 func TestCandidateValidationBoundsCorrectionAndPlainRetryRerunsImplementation(t *testing.T) {
 	repo, _ := createPublicationRepository(t)
 	item := github.WorkItem{

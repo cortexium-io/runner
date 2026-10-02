@@ -694,6 +694,14 @@ cortexium-runner harness check --config "$RUNNER_CONFIG"
 cortexium-runner harness check --browser --config "$RUNNER_CONFIG"
 ```
 
+Retry feedback is limited to **1,000 UTF-8 bytes** after trimming surrounding
+whitespace. Oversized input is rejected without changing the card or prior
+feedback, not silently truncated. For longer context, place a disposable snapshot
+file in an already ignored location in the assigned workspace, verify it with
+`git check-ignore`, and use a short `--feedback` reference to its path. Keep the
+snapshot out of the commit. This context cannot expand the approved scope; see the
+[operator reference](docs/operator-reference.md) for the file workaround.
+
 Every command supports `--help`. `doctor --probe-harnesses` and `harness check`
 make live model calls; ordinary `doctor` does not.
 

@@ -1351,6 +1351,25 @@ func TestRetryPreviewsAndReturnsBlockedItemToRecordedLane(t *testing.T) {
 	if !strings.Contains(output.String(), "Replacement feedback: "+correction) || !strings.Contains(output.String(), "QA failures: reset to 0") {
 		t.Fatalf("corrected retry preview omitted its state changes: %s", output.String())
 	}
+
+	before, err := os.ReadFile(callLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, feedback := range []string{
+		strings.Repeat("x", 1001) + " REQUIRED: preserve operator-owned files.",
+		strings.Repeat("界", 333) + "é",
+	} {
+		output.Reset()
+		err := run(t.Context(), []string{"retry", "--config", configPath, "--item", item.ID, "--feedback", feedback}, strings.NewReader(""), &output)
+		if err == nil || !strings.Contains(err.Error(), "1000-byte limit") || !strings.Contains(err.Error(), "file in the assigned workspace") {
+			t.Fatalf("oversized CLI feedback lacked rejection and workaround: %v", err)
+		}
+		after, err := os.ReadFile(callLog)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("oversized CLI feedback reached GitHub: error=%v", err)
+		}
+	}
 }
 
 func signCLITestActionAssertion(project config.ProjectConfig, item github.WorkItem, role, state string, key []byte) string {

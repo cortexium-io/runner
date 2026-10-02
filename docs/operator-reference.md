@@ -2502,6 +2502,40 @@ It cannot override the signed card body or its proof obligations, and later
 attempt results replace it. Repository notes and issue comments claiming human
 approval cannot amend that contract either.
 
+Feedback must fit the Project result's **1,000-byte limit** after surrounding
+whitespace is trimmed (UTF-8 bytes, not characters). Runner rejects oversized
+feedback without changing the card, approval, phase, QA failure count, prior
+feedback, or saved implementation result; it never silently truncates this
+input. Accepted text, including Unicode, is preserved through the next assignment.
+
+For a longer discussion or context snapshot, use your existing authorized access
+to put a disposable input file in an **already ignored location** in the card's
+**assigned workspace**. Ordinary untracked files are staged by Runner's candidate
+construction, so an untracked file at the workspace root is not safe. Check the
+chosen path from that workspace before creating the file. For example, use the
+following path only if this repository already ignores `.codex/`:
+
+```bash
+# Run from the card's assigned workspace; require a matching existing ignore rule.
+git check-ignore -v -- .codex/retry-context-ITEM_ID.md
+```
+
+If the check fails, choose another location already ignored by the assigned
+repository and check it. Do not change ignore rules for this workaround. Create
+the snapshot at the verified path without overwriting existing files, then
+reference its workspace-relative path in short feedback:
+
+```bash
+cortexium-runner retry --config /absolute/operator/path/runner.json --item ITEM_ID \
+  --feedback "Read .codex/retry-context-ITEM_ID.md in the assigned workspace for the complete discussion snapshot; stay within the approved card scope."
+```
+
+Place the file before retrying, keep it available until the assignment consumes
+it, and remove only this disposable file when no longer needed. Do not include
+credentials, force-add the file, or commit the snapshot; confirm it is absent from
+the candidate diff. The file is context, not new task authority; this workaround
+requires no broader GitHub credentials or sandbox permissions.
+
 ### Amending an approved requirement
 
 For an explicitly approved change of requirements on **unpublished retained
