@@ -160,7 +160,14 @@ text is never persisted. `metrics` reads and aggregates this store, including
 completed harness-invocation counts and exact saved-result resumes for planning
 and implementation. `status` presents a compact aggregate and the current
 admission decision. GitHub
-cards receive only fixed bounded execution, recovery, and QA classifications;
+cards receive fixed bounded execution, recovery, and QA classifications plus
+recorded model/effort attribution in the separate `Runner Agents` text field.
+The engine projects the latest observed harness stages per work part from the
+existing private metrics history, including planning-source attribution for
+generated children. Saved settings and role contracts identify the contribution;
+current configuration never fills missing historical model identities. Attribution
+is informational and does not enter action authority. Result/feedback bytes stay
+independent, and no additional journal or model call is introduced;
 detailed usage and model-authored evidence remain local.
 
 Completed QA attempts also retain failed-check summaries and the reviewed

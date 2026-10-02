@@ -315,6 +315,7 @@ type Event struct {
 	ItemID                      string           `json:"item_id,omitempty"`
 	ItemTitle                   string           `json:"item_title"`
 	Role                        string           `json:"role"`
+	RoleContract                string           `json:"role_contract,omitempty"` // Assigned work role at launch; historical absence stays unknown.
 	Harness                     string           `json:"harness"`
 	Model                       string           `json:"model,omitempty"`
 	Reasoning                   string           `json:"reasoning,omitempty"`

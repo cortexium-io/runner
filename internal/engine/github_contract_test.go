@@ -192,6 +192,7 @@ type fakeGitHubProjectRunner struct {
 	phase               string
 	transition          string
 	activity            string
+	agents              string
 	qaFailures          int
 	branch              string
 	pullRequest         string
@@ -771,6 +772,8 @@ func (r *fakeGitHubProjectRunner) applyBatchProjectUpdate(args []string) (subpro
 				r.activity = ""
 			}
 			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.Activity = r.activity })
+		case "F_agents":
+			r.agents = textValue
 		case "F_qa_failures":
 			fmt.Sscanf(numberValue, "%d", &r.qaFailures)
 			r.updateRemoteItemByID(itemID, func(item *github.WorkItem) { item.QAFailures = r.qaFailures })
@@ -875,6 +878,7 @@ func projectFieldsGraphQLJSON() string {
 		`{"__typename":"ProjectV2Field","id":"F_phase","name":"Runner Phase","dataType":"TEXT"},` +
 		`{"__typename":"ProjectV2Field","id":"F_transition","name":"Runner Transition","dataType":"TEXT"},` +
 		`{"__typename":"ProjectV2Field","id":"F_activity","name":"Runner Activity","dataType":"TEXT"},` +
+		`{"__typename":"ProjectV2Field","id":"F_agents","name":"Runner Agents","dataType":"TEXT"},` +
 		`{"__typename":"ProjectV2Field","id":"F_qa_failures","name":"QA Failures","dataType":"NUMBER"},` +
 		`{"__typename":"ProjectV2Field","id":"F_branch","name":"Runner Branch","dataType":"TEXT"},` +
 		`{"__typename":"ProjectV2Field","id":"F_pr","name":"Pull Request","dataType":"TEXT"},` +

@@ -108,6 +108,7 @@ type ProjectInspection struct {
 	PhaseField           bool   `json:"phase_field"`
 	TransitionField      bool   `json:"transition_field"`
 	ActivityField        bool   `json:"activity_field"`
+	AgentsField          bool   `json:"agents_field"`
 	QAFailuresField      bool   `json:"qa_failures_field"`
 	BranchField          bool   `json:"branch_field"`
 	PullRequestField     bool   `json:"pull_request_field"`
@@ -125,9 +126,10 @@ type AssessmentSyncResult struct {
 }
 
 type Project struct {
-	cfg       config.ProjectConfig
-	run       subprocess.Runner
-	authority *operatorAuthority
+	cfg              config.ProjectConfig
+	run              subprocess.Runner
+	authority        *operatorAuthority
+	agentAttribution func(WorkItem) string
 
 	mu     sync.Mutex
 	schema githubProjectSchema
@@ -209,6 +211,8 @@ func (s *Project) Inspect(ctx context.Context) (ProjectInspection, error) {
 	transitionOK = transitionOK && projectFieldHasDataType(transition, "TEXT")
 	activity, activityOK := schema.field(s.activityFieldName())
 	activityOK = activityOK && projectFieldHasDataType(activity, "TEXT")
+	agents, agentsOK := schema.field(config.RunnerAgentsFieldName)
+	agentsOK = agentsOK && projectFieldHasDataType(agents, "TEXT")
 	qaFailures, qaFailuresOK := schema.field(s.qaFailuresFieldName())
 	qaFailuresOK = qaFailuresOK && projectFieldHasDataType(qaFailures, "NUMBER")
 	branch, branchOK := schema.field(s.branchFieldName())
@@ -223,10 +227,11 @@ func (s *Project) Inspect(ctx context.Context) (ProjectInspection, error) {
 		return ProjectInspection{}, err
 	}
 	return ProjectInspection{
-		ProjectID: schema.ProjectID, BoardView: hasBoardView(views), BoardLifecycleFields: boardViewHasLifecycleFields(views, []string{phase.ID, transition.ID}, activity.ID, qaFailures.ID), StatusField: statusOK,
+		ProjectID: schema.ProjectID, BoardView: hasBoardView(views), BoardLifecycleFields: boardViewHasLifecycleFields(views, []string{phase.ID, transition.ID}, activity.ID, qaFailures.ID, agents.ID), StatusField: statusOK,
 		AssessmentStatus: assessmentOK, BacklogStatus: status.hasOption(s.backlogStatus()), ReadyStatus: status.hasOption(s.readyStatus()), RunningStatus: status.hasOption(s.runningStatus()),
 		QAStatus: status.hasOption(s.qaStatus()), PRReadyStatus: status.hasOption(s.prReadyStatus()), BlockedStatus: status.hasOption(s.blockedStatus()), DoneStatus: status.hasOption(s.doneStatus()), WorkflowStatuses: statusOK && !missingOptions(status, s.requiredStatuses()),
 		ResultField: resultOK, ApprovalField: approvalOK, PlanReleaseField: planReleaseOK, PhaseField: phaseOK, TransitionField: transitionOK, ActivityField: activityOK, QAFailuresField: qaFailuresOK,
+		AgentsField: agentsOK,
 		BranchField: branchOK, PullRequestField: pullRequestOK, QACommitField: qaCommitOK, IntakeRepository: intakeRepositoryOK, IntakeLabel: intakeLabelOK, SingleRunnerMVP: true,
 	}, nil
 }
@@ -757,6 +762,7 @@ func (s *Project) transitionWithDeliveryCheck(ctx context.Context, expected Auth
 		return fmt.Errorf("lock item before Project transition; reload it and retry: %w", err)
 	}
 	updates := append([]projectFieldUpdate(nil), extraUpdates...)
+	updates = append(updates, s.agentAttributionUpdates(current.Item)...)
 	if strings.TrimSpace(detail) != "" {
 		updates = append(updates, textProjectField(s.resultFieldName(), next.Result))
 	}

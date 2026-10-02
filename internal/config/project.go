@@ -18,6 +18,8 @@ const GitHubProjectCapabilityID = "github_project"
 
 const RunnerActivityFieldName = "Runner Activity"
 
+const RunnerAgentsFieldName = "Runner Agents"
+
 const RunnerTransitionFieldName = "Runner Transition"
 
 const RunnerPlanReleaseFieldName = "Runner Plan Release"
@@ -313,6 +315,7 @@ func (c Config) Validate() error {
 		return err
 	}
 	fields := []string{
+		RunnerAgentsFieldName,
 		project.ResultField,
 		project.ApprovalField,
 		project.PhaseField,
