@@ -476,6 +476,35 @@ A/B scheduler, causal cost estimator, or numerical code-reuse metric. Run repeat
 matched tasks before changing defaults; four different successful cards cannot
 establish which profile would have been cheapest on the same work.
 
+## Local harness comparison
+
+The opt-in local benchmark compares Pi and Codex against one model
+served by LM Studio. It uses fresh disposable repositories for structured
+reading, tool-free synthesis, exact writing, a focused bug fix, and review of a
+seeded defect. Runs are sequential, with the harness order reversed between
+cases. Result schemas, file contents, unchanged tests, and unrelated edits are
+checked independently of the model's final report.
+
+Configure Pi's `lmstudio` provider for the selected model and load that model in
+LM Studio first. The benchmark supplies an isolated Codex launcher for the same
+local endpoint.
+
+```bash
+umask 077
+CORTEXIUM_RUNNER_LOCAL_BENCHMARK_HARNESSES=pi,codex \
+CORTEXIUM_RUNNER_LOCAL_BENCHMARK_MODEL=qwen/qwen3.8-27b \
+CORTEXIUM_RUNNER_LOCAL_BENCHMARK_REASONING=low \
+CORTEXIUM_RUNNER_LOCAL_BENCHMARK_TIMEOUT_SECONDS=600 \
+go test -json ./internal/execution -run '^TestLiveLocalHarnessBenchmark$' \
+  -count=1 -timeout=60m > /absolute/private/trial/comparison.jsonl
+```
+
+`LOCAL_HARNESS_BENCHMARK` records retain outcome, elapsed time, native harness
+duration, reported usage, and failures. Keep the exact model variant, loaded
+context, server and harness versions, reasoning controls, and cache conditions
+with the trial. A single run per case is a compatibility comparison; repeat
+matched tasks before treating a speed difference as a stable ranking.
+
 ## Skill rollout
 
 After installing a build with the updated bundled skills, stop or pause Runner
