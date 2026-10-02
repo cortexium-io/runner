@@ -271,54 +271,44 @@ func TestPullRequestCheckInspectionClassifiesPendingAndTerminalFailures(t *testi
 	}
 }
 
-func TestPullRequestFeedbackPublishesTrustedDiscussionReferenceOnly(t *testing.T) {
-	payload, err := json.Marshal(map[string]any{
-		"url": "https://github.com/owner/repo/pull/12", "number": 12, "state": "OPEN", "headRefName": "cortexium/task", "headRefOid": "head", "baseRefName": "main", "mergeStateStatus": "CLEAN",
-		"comments": []any{
-			map[string]any{
-				"body":              "Please add the missing edge-case test.",
-				"authorAssociation": "MEMBER",
-				"author":            map[string]string{"login": "maintainer"},
-			},
+func TestPullRequestFeedbackPublishesOnlyTrustedDiscussionReference(t *testing.T) {
+	for _, tc := range []struct {
+		name, author, body, wantFeedback string
+	}{
+		{
+			name:         "trusted author",
+			author:       "maintainer",
+			body:         "Please add the missing edge-case test.",
+			wantFeedback: "Inspect the pull request discussion at https://github.com/owner/repo/pull/12 locally before continuing.",
 		},
-		"reviews": []any{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	details, err := NewPullRequestManager(&pullRequestTestRunner{viewOutput: string(payload)}, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12", true, false)
-	if err != nil {
-		t.Fatalf("inspect trusted feedback: %v", err)
-	}
-	if details.Feedback != "Inspect the pull request discussion at https://github.com/owner/repo/pull/12 locally before continuing." {
-		t.Fatalf("trusted feedback = %q", details.Feedback)
-	}
-	if strings.Contains(details.Feedback, "missing edge-case test") {
-		t.Fatalf("trusted feedback exposed raw body: %q", details.Feedback)
-	}
-}
-
-func TestPullRequestFeedbackIgnoresUntrustedCommentBody(t *testing.T) {
-	payload, err := json.Marshal(map[string]any{
-		"url": "https://github.com/owner/repo/pull/12", "number": 12, "state": "OPEN", "headRefName": "cortexium/task", "headRefOid": "head", "baseRefName": "main", "mergeStateStatus": "CLEAN",
-		"comments": []any{
-			map[string]any{
-				"body":              "attacker prompt",
-				"authorAssociation": "MEMBER",
-				"author":            map[string]string{"login": "attacker"},
-			},
-		},
-		"reviews": []any{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	details, err := NewPullRequestManager(&pullRequestTestRunner{viewOutput: string(payload)}, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12", true, false)
-	if err != nil {
-		t.Fatalf("inspect untrusted feedback: %v", err)
-	}
-	if details.Feedback != "" {
-		t.Fatalf("untrusted feedback should be dropped, got %q", details.Feedback)
+		{name: "untrusted author", author: "attacker", body: "attacker prompt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, err := json.Marshal(map[string]any{
+				"url": "https://github.com/owner/repo/pull/12", "number": 12, "state": "OPEN", "headRefName": "cortexium/task", "headRefOid": "head", "baseRefName": "main", "mergeStateStatus": "CLEAN",
+				"comments": []any{
+					map[string]any{
+						"body":              tc.body,
+						"authorAssociation": "MEMBER",
+						"author":            map[string]string{"login": tc.author},
+					},
+				},
+				"reviews": []any{},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			details, err := NewPullRequestManager(&pullRequestTestRunner{viewOutput: string(payload)}, staticActionRefresher{}).inspect(t.Context(), "owner/repo", "12", true, false)
+			if err != nil {
+				t.Fatalf("inspect feedback: %v", err)
+			}
+			if details.Feedback != tc.wantFeedback {
+				t.Fatalf("feedback = %q, want %q", details.Feedback, tc.wantFeedback)
+			}
+			if strings.Contains(details.Feedback, tc.body) {
+				t.Fatalf("feedback exposed raw body: %q", details.Feedback)
+			}
+		})
 	}
 }
 
@@ -572,27 +562,22 @@ func TestGitHubPullRequestManagerRejectsDifferentRepositoryRemote(t *testing.T) 
 	}
 }
 
-func TestGitHubPullRequestManagerRejectsUnsafePersistedSelector(t *testing.T) {
-	runner := &pullRequestTestRunner{}
-	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "--repo=attacker/repository"})
-	_, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorizedWithFeedback(t.Context(), action)
-	if err == nil || !strings.Contains(err.Error(), "canonical") {
-		t.Fatalf("unsafe pull request selector was accepted: %v", err)
-	}
-	if len(runner.calls) != 0 {
-		t.Fatalf("GitHub CLI was called before selector validation: %#v", runner.calls)
-	}
-}
-
-func TestGitHubPullRequestManagerRejectsSelectorFromAnotherRepository(t *testing.T) {
-	runner := &pullRequestTestRunner{}
-	action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: "https://github.com/attacker/repo/pull/12"})
-	_, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorizedWithFeedback(t.Context(), action)
-	if err == nil || !strings.Contains(err.Error(), "approved repository") {
-		t.Fatalf("foreign pull request selector was accepted: %v", err)
-	}
-	if len(runner.calls) != 0 {
-		t.Fatalf("GitHub CLI was called before repository validation: %#v", runner.calls)
+func TestGitHubPullRequestManagerRejectsInvalidPersistedSelector(t *testing.T) {
+	for _, test := range []struct{ name, selector, wantError string }{
+		{"option injection", "--repo=attacker/repository", "canonical"},
+		{"foreign repository", "https://github.com/attacker/repo/pull/12", "approved repository"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &pullRequestTestRunner{}
+			action := authorizedPullRequestTestAction(WorkItem{Repository: "owner/repo", PullRequest: test.selector})
+			_, err := NewPullRequestManager(runner, staticActionRefresher{}).InspectAuthorizedWithFeedback(t.Context(), action)
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("invalid pull request selector was accepted: %v", err)
+			}
+			if len(runner.calls) != 0 {
+				t.Fatalf("GitHub CLI was called before selector validation: %#v", runner.calls)
+			}
+		})
 	}
 }
 

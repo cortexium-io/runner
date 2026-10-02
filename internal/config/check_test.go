@@ -41,6 +41,24 @@ func TestStaticCheckRejectsUnknownConfigMajor(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsUnknownRootFields(t *testing.T) {
+	for _, test := range []struct{ name, field string }{
+		{"removed service integration", `"api_base_url":"https://example.invalid"`},
+		{"unknown field", `"unexpected":true`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value := `{"config_version":1,"runner_id":"runner","project_dir":"/project","github_project":{"owner":"example","number":1},` + test.field + "}"
+			path := filepath.Join(t.TempDir(), "runner.config.json")
+			if err := os.WriteFile(path, []byte(value), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("unknown configuration field was accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestStaticCheckRejectsExecutionSettingsInHarnessDefinitions(t *testing.T) {
 	data, err := json.Marshal(explicitTestConfig())
 	if err != nil {

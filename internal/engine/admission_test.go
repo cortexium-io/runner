@@ -48,32 +48,27 @@ func TestPartialUsageFailsClosedForReportedBudgets(t *testing.T) {
 	}
 }
 
-func TestEvaluateAdmissionFailsClosedWhenReportedUsageIsMissing(t *testing.T) {
-	now := time.Now().UTC()
-	attempt := metrics.Attempt{Event: metrics.Event{AttemptID: "attempt", StartedAt: now.Add(-time.Minute)}, Completed: true}
-	for _, budget := range []*config.AdmissionBudgetConfig{
-		{WindowSeconds: 3600, MaxReportedTokens: 1000},
-		{WindowSeconds: 3600, MaxReportedCostUSD: floatPtr(1)},
-	} {
-		decision := EvaluateAdmission(budget, []metrics.Attempt{attempt}, now)
-		if decision.Allowed || !strings.Contains(decision.Reason, "cannot verify") {
-			t.Fatalf("missing usage did not fail closed: %#v", decision)
-		}
-	}
-}
-
-func TestEvaluateAdmissionFailsClosedWhenUsageBasedHistoryIsUnfinished(t *testing.T) {
-	now := time.Now().UTC()
+func TestEvaluateAdmissionFailsClosedForUnverifiableUsageHistory(t *testing.T) {
+	now := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
+	completed := metrics.Attempt{Event: metrics.Event{AttemptID: "attempt", StartedAt: now.Add(-time.Minute)}, Completed: true}
 	unfinished := metrics.Attempt{Event: metrics.Event{AttemptID: "unfinished", StartedAt: now.Add(-time.Minute)}}
-	for _, budget := range []*config.AdmissionBudgetConfig{
-		{WindowSeconds: 3600, MaxHarnessSeconds: 60},
-		{WindowSeconds: 3600, MaxReportedTokens: 1000},
-		{WindowSeconds: 3600, MaxReportedCostUSD: floatPtr(1)},
+	for _, tc := range []struct {
+		name, wantReason string
+		attempt          metrics.Attempt
+		budget           *config.AdmissionBudgetConfig
+	}{
+		{name: "missing tokens", attempt: completed, budget: &config.AdmissionBudgetConfig{WindowSeconds: 3600, MaxReportedTokens: 1000}, wantReason: "cannot verify"},
+		{name: "missing cost", attempt: completed, budget: &config.AdmissionBudgetConfig{WindowSeconds: 3600, MaxReportedCostUSD: floatPtr(1)}, wantReason: "cannot verify"},
+		{name: "unfinished duration", attempt: unfinished, budget: &config.AdmissionBudgetConfig{WindowSeconds: 3600, MaxHarnessSeconds: 60}, wantReason: "unfinished"},
+		{name: "unfinished tokens", attempt: unfinished, budget: &config.AdmissionBudgetConfig{WindowSeconds: 3600, MaxReportedTokens: 1000}, wantReason: "unfinished"},
+		{name: "unfinished cost", attempt: unfinished, budget: &config.AdmissionBudgetConfig{WindowSeconds: 3600, MaxReportedCostUSD: floatPtr(1)}, wantReason: "unfinished"},
 	} {
-		decision := EvaluateAdmission(budget, []metrics.Attempt{unfinished}, now)
-		if decision.Allowed || !strings.Contains(decision.Reason, "unfinished") {
-			t.Fatalf("unfinished usage history did not fail closed: budget=%#v decision=%#v", budget, decision)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			decision := EvaluateAdmission(tc.budget, []metrics.Attempt{tc.attempt}, now)
+			if decision.Allowed || !strings.Contains(decision.Reason, tc.wantReason) {
+				t.Fatalf("unverifiable usage history did not fail closed: budget=%#v decision=%#v", tc.budget, decision)
+			}
+		})
 	}
 }
 

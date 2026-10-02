@@ -85,17 +85,16 @@ func TestProvisionalPlanningMetadataIsVisibleButNonExecutable(t *testing.T) {
 	}
 }
 
-func TestPlannedItemMetadataDoesNotAcceptPrePublicMarker(t *testing.T) {
-	body := `<!-- cortexium-runner-metadata {"repository":"owner/repo"} -->`
-	if metadata := DecodePlannedItemMetadata(body); metadata.Repository != "" {
-		t.Fatalf("pre-public metadata marker was accepted: %#v", metadata)
-	}
-}
-
-func TestPlannedItemMetadataDoesNotAcceptUnencodedMetadata(t *testing.T) {
-	body := `<!-- runner-metadata {"repository":"owner/repo"} -->`
-	if metadata := DecodePlannedItemMetadata(body); metadata.Repository != "" {
-		t.Fatalf("unencoded metadata was accepted: %#v", metadata)
+func TestPlannedItemMetadataRejectsUnsignedMarkers(t *testing.T) {
+	for _, test := range []struct{ name, body string }{
+		{"pre-public marker", `<!-- cortexium-runner-metadata {"repository":"owner/repo"} -->`},
+		{"unencoded metadata", `<!-- runner-metadata {"repository":"owner/repo"} -->`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if metadata := DecodePlannedItemMetadata(test.body); metadata.Repository != "" {
+				t.Fatalf("unsigned metadata was accepted: %#v", metadata)
+			}
+		})
 	}
 }
 
