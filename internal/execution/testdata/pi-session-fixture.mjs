@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { findPackageJSON } from "node:module";
 import { join, dirname, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { watch } from "node:fs";
@@ -9,8 +10,8 @@ import { tmpdir } from "node:os";
 // No provider, model download, browser, or operator credentials are involved.
 export async function openSession(packageDir, extensionPaths, tools, factories = [], cwd) {
   const sdk = await import(pathToFileURL(join(packageDir, "dist/index.js")).href);
-  const { createAssistantMessageEventStream } = await import(pathToFileURL(join(packageDir,
-    "node_modules/@earendil-works/pi-ai/dist/utils/event-stream.js")).href);
+  const aiPackage = findPackageJSON("@earendil-works/pi-ai", pathToFileURL(join(packageDir, "package.json")));
+  const { createAssistantMessageEventStream } = await import(pathToFileURL(join(dirname(aiPackage), "dist/index.js")).href);
   const root = await mkdtemp(join(tmpdir(), "runner-pi-session-"));
   const agentDir = join(root, "agent");
   await mkdir(agentDir);
