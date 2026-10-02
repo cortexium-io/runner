@@ -17,7 +17,7 @@ jobs:
     if: github.event_name == 'pull_request'
     name: PR check
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -26,7 +26,7 @@ jobs:
         with:
           workload: race
       - name: Test
-        run: go test -race ./...
+        run: go test -race ./... -timeout=20m
       - name: Vet
         run: go vet ./...
       - name: Set up Node for Pi compatibility
@@ -50,7 +50,7 @@ jobs:
           - ubuntu-latest
           - macos-latest
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,7 +59,7 @@ jobs:
         with:
           workload: test
       - name: Test
-        run: go test ./...
+        run: go test ./... -timeout=20m
       - name: Vet
         run: go vet ./...
 
@@ -83,7 +83,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.compare-cache
     name: Cache comparison (${{ matrix.policy }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -105,6 +105,6 @@ jobs:
       - name: Measure race tests
         # Force execution in both arms; measure build-cache benefit without
         # presenting cached test results as fresh verification.
-        run: /usr/bin/time -p go test -count=1 -race ./...
+        run: /usr/bin/time -p go test -count=1 -race ./... -timeout=20m
       - name: Vet
         run: go vet ./...

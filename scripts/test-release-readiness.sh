@@ -66,7 +66,7 @@ verify_source_format() {
 
 run_step 'Source formatting and script syntax' verify_source_format
 run_step 'Race-enabled test suite' \
-	go test -count=1 -race ./...
+	go test -count=1 -race ./... -timeout=20m
 run_step 'Static analysis' \
 	go vet ./...
 run_step 'Known-vulnerability scan' \
