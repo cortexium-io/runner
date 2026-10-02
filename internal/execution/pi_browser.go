@@ -139,20 +139,18 @@ export default function (pi) {
 }
 
 func piInvocationAllowsBrowser(args []string, ambientToolsAllowed ...bool) bool {
-	if len(ambientToolsAllowed) > 0 && ambientToolsAllowed[0] {
-		return true
+	for _, arg := range args {
+		if arg == "--no-tools" {
+			return false
+		}
 	}
 	for index := 0; index+1 < len(args); index++ {
 		if args[index] != "--tools" {
 			continue
 		}
-		for _, tool := range strings.Split(args[index+1], ",") {
-			if strings.TrimSpace(tool) == "bash" {
-				return true
-			}
-		}
+		return containsCSVValue(args[index+1], "bash")
 	}
-	return false
+	return len(ambientToolsAllowed) > 0 && ambientToolsAllowed[0]
 }
 
 func addPiBrowserExtension(args []string, path string) ([]string, error) {

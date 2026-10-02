@@ -64,8 +64,12 @@ func TestPiBrowserExtensionAddsOnlyExplicitBrowserTools(t *testing.T) {
 	if !piInvocationAllowsBrowser(args) {
 		t.Fatalf("Pi browser-capable invocation was not detected: %#v", args)
 	}
-	if piInvocationAllowsBrowser([]string{"--tools", "read,grep,find,ls"}) {
-		t.Fatal("read-only Pi invocation unexpectedly received browser tools")
+	for _, args := range [][]string{{"--tools", "read,grep,find,ls"}, {"--no-tools"}} {
+		for _, inherited := range []bool{false, true} {
+			if piInvocationAllowsBrowser(args, inherited) {
+				t.Fatalf("read-only or tool-free Pi stage received browser tools: %v, inherited=%t", args, inherited)
+			}
+		}
 	}
 }
 
