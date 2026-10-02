@@ -4165,6 +4165,35 @@ func TestReconciliationTreatsClosedPRAsTerminalBeforeBranchValidation(t *testing
 	}
 }
 
+func TestReconciliationMovesMergedPRToDone(t *testing.T) {
+	item := github.WorkItem{
+		ID: "PVTI_pr", Title: "Implement", Body: "Criteria", Repository: "owner/repo", Status: "PR Ready",
+		PullRequest: "https://github.com/owner/repo/pull/12", Branch: "cortexium/task", QACommit: "qa-head",
+	}
+	item.Approval = testApproval(item)
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
+	cfg := config.Config{
+		ConfigVersion: config.ConfigVersion, RunnerID: "runner", ProjectDir: t.TempDir(),
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
+	}
+	service, err := New(completeEngineTestConfig(cfg), mergedPullRequestRunner{project: project})
+	if err != nil {
+		t.Fatalf("configure service: %v", err)
+	}
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatalf("load lifecycle items: %v", err)
+	}
+	if _, changed, err := service.reconcilePullRequests(t.Context(), items); err != nil {
+		t.Fatalf("reconcile merged PR: %v", err)
+	} else if !changed {
+		t.Fatal("merged PR reconciliation did not report progress")
+	}
+	if project.status != "Done" || !strings.Contains(project.result, "was merged") {
+		t.Fatalf("merged PR did not complete item: status=%q result=%q", project.status, project.result)
+	}
+}
+
 func TestRunCycleReportsMergedPullRequestAsProgress(t *testing.T) {
 	repo, _ := createPublicationRepository(t)
 	project := &fakeGitHubProjectRunner{
@@ -4191,9 +4220,6 @@ func TestRunCycleReportsMergedPullRequestAsProgress(t *testing.T) {
 	}
 	if !madeProgress || project.status != "Done" {
 		t.Fatalf("merged PR cycle progress=%t status=%q, want progress and Done", madeProgress, project.status)
-	}
-	if !strings.Contains(project.result, "was merged") {
-		t.Fatalf("merged PR completion lost its result: %q", project.result)
 	}
 	if len(results) != 0 {
 		t.Fatalf("merged PR transition produced execution results: %#v", results)
