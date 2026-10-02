@@ -166,7 +166,7 @@ that you are logged in.
 Pi ([official instructions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md)):
 
 ```bash
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent@0.99.1
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent@1.0.0
 pi
 ```
 

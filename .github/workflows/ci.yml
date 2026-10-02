@@ -35,7 +35,7 @@ jobs:
           node-version: '24'
       - name: Check Pi extensions without model calls
         run: |
-          npm install --prefix "$RUNNER_TEMP/runner-pi" --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@0.99.1
+          npm install --prefix "$RUNNER_TEMP/runner-pi" --ignore-scripts --no-audit --no-fund @earendil-works/pi-coding-agent@1.0.0
           PATH="$RUNNER_TEMP/runner-pi/node_modules/.bin:$PATH" \
             CORTEXIUM_RUNNER_TEST_PI_EXTENSION_LOAD=1 \
             go test -race ./internal/execution -run '^TestInstalledPi' -count=1 -timeout=1m
