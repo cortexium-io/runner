@@ -349,8 +349,14 @@ cache quota/eviction still apply. No new write permissions, cache cleanup
 service, or additional vendor action is required.
 
 Cache hits never skip required checks. In particular, release readiness retains
-`go test -count=1 -race ./...`: test execution is fresh even when compilation is
-cached. The isolated release publication job still restores no source or Go cache.
+`go test -count=1 -race ./... -timeout=20m`: test execution is fresh even when
+compilation is cached. The isolated release publication job still restores no
+source or Go cache.
+
+Full-suite checks allow 20 minutes per Go package, including the engine's
+Git-backed integration cases. CI jobs allow 25 minutes for setup, testing,
+analysis, and cache publication. This avoids Go's implicit 10-minute package
+timeout on slower macOS runners while keeping every check bounded.
 
 For a bounded comparison, dispatch CI with `compare-cache=true` twice in sequence
 on the same unchanged branch commit. Each run compares the original setup-go
