@@ -46,11 +46,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
+        include:
+          - os: ubuntu-latest
+            package_timeout: 20m
+            job_timeout: 25
+          - os: macos-latest
+            package_timeout: 35m
+            job_timeout: 40
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: ${{ matrix.job_timeout }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -59,7 +63,7 @@ jobs:
         with:
           workload: test
       - name: Test
-        run: go test ./... -timeout=20m
+        run: go test ./... -timeout=${{ matrix.package_timeout }}
       - name: Vet
         run: go vet ./...
 

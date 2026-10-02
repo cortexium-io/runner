@@ -353,10 +353,11 @@ Cache hits never skip required checks. In particular, release readiness retains
 compilation is cached. The isolated release publication job still restores no
 source or Go cache.
 
-Full-suite checks allow 20 minutes per Go package, including the engine's
-Git-backed integration cases. CI jobs allow 25 minutes for setup, testing,
-analysis, and cache publication. This avoids Go's implicit 10-minute package
-timeout on slower macOS runners while keeping every check bounded.
+Full-suite race checks and Linux platform checks allow 20 minutes per Go
+package, with 25-minute CI jobs for setup, testing, analysis, and cache
+publication. The macOS platform check allows 35 minutes per package and a
+40-minute job because the engine's Git-backed integration cases run slower on
+hosted macOS runners. Every check remains bounded.
 
 For a bounded comparison, dispatch CI with `compare-cache=true` twice in sequence
 on the same unchanged branch commit. Each run compares the original setup-go
