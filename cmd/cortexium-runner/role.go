@@ -154,6 +154,7 @@ func runRoleShow(args []string, stdout io.Writer) error {
 		}
 		if view.Resolved.Harness == config.HarnessPiCLI {
 			fmt.Fprintf(stdout, "Preserve reasoning across Pi turns: %t\n", view.Resolved.PreserveReasoning != nil && *view.Resolved.PreserveReasoning)
+			fmt.Fprintf(stdout, "Pi Codemode pilot: %t\n", view.Resolved.Codemode != nil && *view.Resolved.Codemode)
 		}
 		fmt.Fprintf(stdout, "Safe development tools: %t\n", cfg.RoleSafeTools(view.ID))
 		if view.Resolved.Model != nil {
@@ -211,6 +212,9 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	preserveReasoning := flags.Bool("preserve-reasoning", false, "preserve reasoning from earlier Pi assistant turns")
 	noPreserveReasoning := flags.Bool("no-preserve-reasoning", false, "keep only the most recent Pi reasoning (default)")
 	clearPreserveReasoning := flags.Bool("clear-preserve-reasoning", false, "remove the Pi reasoning-preservation override and inherit from the parent")
+	codemode := flags.Bool("codemode", false, "enable the Pi Codemode pilot for batching and filtering tool calls")
+	noCodemode := flags.Bool("no-codemode", false, "disable the Pi Codemode pilot (default)")
+	clearCodemode := flags.Bool("clear-codemode", false, "remove the Pi Codemode override and inherit from the parent")
 	clearImplementerLadder := flags.Bool("clear-implementer-ladder", false, "disable the implementer ladder")
 	safeTools := flags.Bool("safe-tools", false, "enable Runner's bounded package and local-browser tools")
 	noSafeTools := flags.Bool("no-safe-tools", false, "disable Runner's bounded package and local-browser tools")
@@ -271,6 +275,12 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	if *clearPreserveReasoning && (*preserveReasoning || *noPreserveReasoning) {
 		return errors.New("--clear-preserve-reasoning cannot be combined with a reasoning-preservation value")
 	}
+	if *codemode && *noCodemode {
+		return errors.New("--codemode and --no-codemode cannot be used together")
+	}
+	if *clearCodemode && (*codemode || *noCodemode) {
+		return errors.New("--clear-codemode cannot be combined with a Codemode value")
+	}
 	if *clearImplementerLadder && len(nextImplementers) > 0 {
 		return errors.New("--clear-implementer-ladder and --next-implementer cannot be used together")
 	}
@@ -318,6 +328,7 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	}
 	if *clearRuntime {
 		definition.Harness, definition.Access, definition.HarnessConfig, definition.SafeTools, definition.Model, definition.Reasoning, definition.PreserveReasoning, definition.TimeoutSeconds = "", "", "", nil, nil, "", nil, 0
+		definition.Codemode = nil
 	}
 	if visited["harness"] {
 		definition.Harness = strings.TrimSpace(*harness)
@@ -351,6 +362,13 @@ func runRoleChange(action string, args []string, stdout io.Writer) error {
 	}
 	if *clearPreserveReasoning {
 		definition.PreserveReasoning = nil
+	}
+	if *codemode || *noCodemode {
+		value := *codemode
+		definition.Codemode = &value
+	}
+	if *clearCodemode {
+		definition.Codemode = nil
 	}
 	if visited["task-granularity"] {
 		if !config.ValidTaskGranularity(*taskGranularity) {

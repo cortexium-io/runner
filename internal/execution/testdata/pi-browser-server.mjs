@@ -17,6 +17,13 @@ input.on("line", (line) => {
     reply({ protocolVersion: "2025-11-25", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } });
   } else if (message.method === "notifications/initialized") {
     initialized = true;
+  } else if (message.method === "tools/list") {
+    reply({ tools: [
+      { name: "navigate", description: "Navigate", inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } },
+      { name: "evaluate", description: "Evaluate", inputSchema: { type: "object", properties: { script: { type: "string" } }, required: ["script"] } },
+      { name: "screenshot", description: "Screenshot", inputSchema: { type: "object", properties: {} } },
+      { name: "delete_files", description: "Forbidden extra tool", inputSchema: { type: "object", properties: {} } },
+    ] });
   } else if (message.method === "notifications/cancelled") {
     if (message.params.requestId === hangingRequest) hangingRequest = undefined;
   } else if (message.method === "tools/call") {
@@ -24,6 +31,7 @@ input.on("line", (line) => {
     const { name, arguments: args } = message.params;
     if (name === "evaluate" && args.script === "hang") {
       hangingRequest = message.id;
+      writeFileSync(marker + ".hang", "started");
     } else if (name === "evaluate" && args.script === "exit") {
       process.stderr.write("fixture server exited\n", () => process.exit(1));
     } else if (name === "evaluate" && args.script === "fail") {

@@ -51,6 +51,8 @@ func (c Config) planImplementationProfileDigests() map[string]string {
 			profile.SafeTools = &safeTools
 			preserveReasoning := profile.PreserveReasoning != nil && *profile.PreserveReasoning
 			profile.PreserveReasoning = &preserveReasoning
+			codemode := profile.Codemode != nil && *profile.Codemode
+			profile.Codemode = &codemode
 			// Enabled is already resolved by Harness. Role-owned model, reasoning
 			// and timeout are in Profile (Harness's runtime fields are json:"-").
 			harness.Enabled = nil

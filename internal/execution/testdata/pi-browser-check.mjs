@@ -1,61 +1,76 @@
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { mkdtemp, readdir, rmdir, stat } from "node:fs/promises";
+import { writeFile, readFile, access, mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { openSession, waitForMarker } from "./pi-session-fixture.mjs";
 
 const [packageDir, extensionPath, marker] = process.argv.slice(2);
-const { discoverAndLoadExtensions } = await import(pathToFileURL(join(packageDir, "dist/index.js")).href);
-const neutral = await mkdtemp(join(tmpdir(), "runner-pi-browser-check-"));
+const names = ["navigate", "evaluate", "screenshot"].map(name => "runner_browser_" + name);
+// A real built-in manager and two project catalog entries prove coexistence.
+// The private browser must neither replace /mcp nor erase the server prompt.
+const project = await mkdtemp(join(tmpdir(), "runner-pi-inherit-"));
+const ambientMarker = join(project, "ambient");
+await mkdir(join(project, ".pi"));
+const sdk = await import(pathToFileURL(join(packageDir, "dist/index.js")).href);
+const fixture = join(import.meta.dirname, "pi-browser-server.mjs");
+await writeFile(join(project, ".pi", "mcp.json"), JSON.stringify({ autoEnableCodemode: false, mcpServers: {
+  ambient: { command: process.execPath, args: [fixture, ambientMarker], exposure: "direct" },
+  discoverable: { command: process.execPath, args: [fixture, join(project, "discoverable")], exposure: "codemode" },
+} }));
+
+const s = await openSession(packageDir, [extensionPath], names, [], project);
+const call = (name, params, signal) => s.call("runner_browser_" + name, params, signal);
 try {
-  const loaded = await discoverAndLoadExtensions([extensionPath], neutral, neutral);
-  assert.deepEqual(loaded.errors, []);
-  assert.equal(loaded.extensions.length, 1);
-  const extension = loaded.extensions[0];
-  assert.deepEqual([...extension.tools.keys()], ["runner_browser_navigate", "runner_browser_evaluate", "runner_browser_screenshot"]);
-  await assert.rejects(stat(marker), { code: "ENOENT" });
-  const call = (name, params = {}, signal) => extension.tools.get("runner_browser_" + name).definition.execute("check", params, signal);
-  const shutdown = async () => {
-    for (const handler of extension.handlers.get("session_shutdown") ?? []) await handler({}, {});
-  };
-  try {
-    for (const url of ["invalid", "https://localhost", "http://example.com", "file:///tmp/page"]) {
-      await assert.rejects(call("navigate", { url }), /invalid|restricted/);
-    }
-    const aborted = AbortSignal.abort();
-    await assert.rejects(call("screenshot", {}, aborted), { name: "AbortError" });
-    await assert.rejects(stat(marker), { code: "ENOENT" });
-    const result = await call("navigate", { url: "http://127.0.0.1:8123/" });
-    assert.deepEqual(result.details, { server: "runner_browser", tool: "navigate" });
-    const forwarded = JSON.parse(result.content[0].text);
-    assert.deepEqual(forwarded.args, { url: "http://127.0.0.1:8123/" });
-    assert.equal(forwarded.name, "navigate");
-    // Package cache is shared between private invocation runtimes, never with
-    // the assignment or the operator's ambient npm configuration.
-    assert.equal(forwarded.cache, join(dirname(forwarded.cwd), "npm-cache"));
-    await assert.rejects(call("evaluate", { script: "fail" }), /fixture tool error/);
-    const controller = new AbortController();
-    const pending = call("evaluate", { script: "hang" }, controller.signal);
-    const rejection = assert.rejects(pending, /abort|cancel/i);
-    // The screenshot response is a protocol barrier: the server processed the
-    // hanging call first, so this proves cancellation of an in-flight request.
-    const screenshot = await call("screenshot");
-    const state = JSON.parse(screenshot.content[0].text);
-    assert.equal(state.hanging, true);
-    assert.equal(screenshot.content[1].type, "image");
-    controller.abort();
-    await rejection;
-    assert.equal(JSON.parse((await call("screenshot")).content[0].text).hanging, false);
-    await assert.rejects(call("evaluate", { script: "hang" }), /timeout|timed out/i);
-    await assert.rejects(call("evaluate", { script: "exit" }), /fixture server exited/);
-    await shutdown();
-    assert.throws(() => process.kill(state.pid, 0), { code: "ESRCH" });
-    await assert.rejects(call("screenshot"), /session is closed/);
-  } finally {
-    await shutdown();
+  await s.ready();
+  await assert.rejects(access(ambientMarker), { code: "ENOENT" });
+  assert.deepEqual(s.session.getActiveToolNames().sort(), names.sort());
+  const pid = Number(await readFile(marker, "utf8"));
+  for (const url of ["invalid", "https://localhost", "http://example.com", "file:///tmp/page"]) {
+    const result = await call("navigate", { url });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /invalid|restricted/);
   }
-  // Loading and execution must not populate a project MCP catalog or session.
-  assert.deepEqual(await readdir(neutral), []);
-} finally {
-  await rmdir(neutral);
-}
+  const result = await call("navigate", { url: "http://127.0.0.1:8123/" });
+  assert.equal(result.isError, false);
+  assert.deepEqual(result.details, { server: "runner_browser", tool: "navigate" });
+  const forwarded = JSON.parse(result.content[0].text);
+  assert.deepEqual(forwarded.args, { url: "http://127.0.0.1:8123/" });
+  assert.equal(forwarded.cache, join(dirname(forwarded.cwd), "npm-cache"));
+  const failed = await call("evaluate", { script: "fail" });
+  assert.equal(failed.isError, true);
+  assert.match(failed.content[0].text, /fixture tool error/);
+  const controller = new AbortController();
+  const hanging = waitForMarker(marker + ".hang");
+  const pending = call("evaluate", { script: "hang" }, controller.signal);
+  await hanging;
+  controller.abort();
+  const cancelled = await pending;
+  assert.equal(cancelled.isError, true);
+  assert.match(cancelled.content[0].text, /abort|cancel/i);
+  const screenshot = await call("screenshot");
+  assert.equal(JSON.parse(screenshot.content[0].text).hanging, false);
+  assert.equal(screenshot.content[1].type, "image");
+  const timedOut = await call("evaluate", { script: "hang" });
+  assert.equal(timedOut.isError, true);
+  assert.match(timedOut.content[0].text, /timeout|timed out/i);
+  const exited = await call("evaluate", { script: "exit" });
+  assert.equal(exited.isError, true);
+  assert.match(exited.content[0].text, /closed|exit|connection/i);
+  await s.close();
+  assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+} finally { await s.close(); }
+
+// A real built-in manager must coexist with Runner’s private browser.
+const inherited = await openSession(packageDir, [extensionPath], undefined,
+  [{ name: "mcp", factory: sdk.createMcpExtension({ logPath: join(project, "mcp.log") }), builtin: true, replaceable: true }], project);
+try {
+  const sections = await inherited.ready();
+  await access(ambientMarker);
+  assert.ok(inherited.session.getActiveToolNames().includes("mcp__ambient__navigate"));
+  assert.ok(inherited.session.getActiveToolNames().includes("runner_browser_navigate"));
+  assert.match(sections.mcp_servers, /discoverable/);
+  assert.equal(inherited.session.extensionRunner.getRegisteredCommands().filter(command => command.name === "mcp").length, 1);
+  assert.equal((await inherited.call("mcp__ambient__navigate", { url: "http://operator.example" })).isError, false);
+  assert.equal((await inherited.call("runner_browser_navigate", { url: "http://operator.example" })).isError, true);
+} finally { await inherited.close(); await rm(project, { recursive: true, force: true }); }
