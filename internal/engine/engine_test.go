@@ -4237,6 +4237,12 @@ func TestRunCycleReportsMergedPullRequestAsProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("configure service: %v", err)
 	}
+	service.SetMetricsHistoryReader(func() (metrics.ReadResult, error) {
+		return metrics.ReadResult{Attempts: []metrics.Attempt{
+			{Event: metrics.Event{RunnerID: "runner", ProjectOwner: "owner", ProjectNumber: 4, ItemID: "PVTI_1", Role: config.WorkRoleImplementer, Model: "qwen3.8", Reasoning: "medium"}, Stages: []metrics.Stage{{Name: metrics.StageHarnessRun}}},
+			{Event: metrics.Event{RunnerID: "runner", ProjectOwner: "owner", ProjectNumber: 4, ItemID: "PVTI_1", Role: config.WorkRoleReviewer, Model: "gpt-6.1-sol", Reasoning: "high"}, Stages: []metrics.Stage{{Name: metrics.StageReviewerAudit}}},
+		}}, nil
+	})
 
 	results, madeProgress, err := service.runCycle(t.Context(), false)
 	if err != nil {
@@ -4247,6 +4253,9 @@ func TestRunCycleReportsMergedPullRequestAsProgress(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Fatalf("merged PR transition produced execution results: %#v", results)
+	}
+	if project.agents != "Implementation: qwen3.8 (reasoning: medium); QA: gpt-6.1-sol (reasoning: high)" {
+		t.Fatalf("merge lost recorded model attribution: %q", project.agents)
 	}
 }
 

@@ -140,7 +140,8 @@ func (s *Engine) PlanProject(ctx context.Context, idea string) (ProjectPlan, err
 		ProjectOwner: s.cfg.GitHubProject.Owner, ProjectNumber: s.cfg.GitHubProject.Number,
 		Repository: s.cfg.GitHubProject.IntakeRepository,
 		ItemTitle:  "Interactive project planning", Role: role, Harness: harness,
-		Model: model, Reasoning: profile.Reasoning, Iteration: 1, StartedAt: startedAt,
+		RoleContract: s.cfg.RoleContract(role),
+		Model:        model, Reasoning: profile.Reasoning, Iteration: 1, StartedAt: startedAt,
 	}
 	trace := metrics.NewAttemptTrace(s.observeMetrics, event)
 	ctx = metrics.WithAttemptTrace(ctx, trace)

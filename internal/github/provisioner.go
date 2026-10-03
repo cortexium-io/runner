@@ -156,7 +156,7 @@ func (p *ProjectProvisioner) configure(ctx context.Context, number int, request 
 	if approval, exists := schema.field(request.ApprovalField); exists && !projectFieldHasDataType(approval, "TEXT") {
 		return fmt.Errorf("Project field %q exists but is not text", request.ApprovalField)
 	}
-	for _, name := range []string{request.PhaseField, request.TransitionField, request.ActivityField, request.BranchField, request.PullRequestField, request.QACommitField} {
+	for _, name := range []string{request.PhaseField, request.TransitionField, request.ActivityField, config.RunnerAgentsFieldName, request.BranchField, request.PullRequestField, request.QACommitField} {
 		if field, exists := schema.field(name); exists && !projectFieldHasDataType(field, "TEXT") {
 			return fmt.Errorf("Project field %q exists but has an incompatible type", name)
 		}
@@ -201,6 +201,9 @@ func (p *ProjectProvisioner) configure(ctx context.Context, number int, request 
 	if err := p.ensureTextField(ctx, number, request.Owner, request.ActivityField, schema); err != nil {
 		return err
 	}
+	if err := p.ensureTextField(ctx, number, request.Owner, config.RunnerAgentsFieldName, schema); err != nil {
+		return err
+	}
 	if err := p.ensureNumberField(ctx, number, request.Owner, request.QAFailuresField, schema); err != nil {
 		return err
 	}
@@ -220,9 +223,10 @@ func (p *ProjectProvisioner) configure(ctx context.Context, number int, request 
 	phase, phaseOK := schema.field(request.PhaseField)
 	transition, transitionOK := schema.field(request.TransitionField)
 	activity, activityOK := schema.field(request.ActivityField)
+	agents, agentsOK := schema.field(config.RunnerAgentsFieldName)
 	qaFailures, qaFailuresOK := schema.field(request.QAFailuresField)
-	if !phaseOK || !projectFieldHasDataType(phase, "TEXT") || !transitionOK || !projectFieldHasDataType(transition, "TEXT") || !activityOK || !projectFieldHasDataType(activity, "TEXT") || !qaFailuresOK || !projectFieldHasDataType(qaFailures, "NUMBER") {
-		return errors.New("Runner Phase, Runner Transition, Runner Activity, and QA Failures fields are not ready for board configuration")
+	if !phaseOK || !projectFieldHasDataType(phase, "TEXT") || !transitionOK || !projectFieldHasDataType(transition, "TEXT") || !activityOK || !projectFieldHasDataType(activity, "TEXT") || !agentsOK || !projectFieldHasDataType(agents, "TEXT") || !qaFailuresOK || !projectFieldHasDataType(qaFailures, "NUMBER") {
+		return errors.New("Runner Phase, Runner Transition, Runner Activity, Runner Agents, and QA Failures fields are not ready for board configuration")
 	}
 	var board githubProjectView
 	if freshProject {
@@ -233,7 +237,7 @@ func (p *ProjectProvisioner) configure(ctx context.Context, number int, request 
 	if err != nil {
 		return err
 	}
-	if err := p.ensureBoardLifecycleFields(ctx, board, []string{phase.ID, transition.ID}, activity.ID, qaFailures.ID); err != nil {
+	if err := p.ensureBoardLifecycleFields(ctx, board, []string{phase.ID, transition.ID}, activity.ID, qaFailures.ID, agents.ID); err != nil {
 		return err
 	}
 	if request.Repository != "" {
@@ -702,7 +706,7 @@ func validateProvisionRequest(request ProvisionRequest, requireTitle bool) error
 		}
 		seen[key] = true
 	}
-	fields := []string{request.ResultField, request.ApprovalField, request.PhaseField, request.TransitionField, request.ActivityField, request.QAFailuresField, request.BranchField, request.PullRequestField, request.QACommitField}
+	fields := []string{request.ResultField, request.ApprovalField, request.PhaseField, request.TransitionField, request.ActivityField, config.RunnerAgentsFieldName, request.QAFailuresField, request.BranchField, request.PullRequestField, request.QACommitField}
 	seenFields := map[string]bool{}
 	for _, field := range fields {
 		key := normalizeProjectKey(field)

@@ -480,6 +480,12 @@ func TestStoreRejectsCrossItemAttemptAndStageJoins(t *testing.T) {
 	if err := store.Append(foreignStage); err != nil {
 		t.Fatal(err)
 	}
+	foreignContract := base
+	foreignContract.Kind, foreignContract.StageID, foreignContract.Stage = EventStageStarted, "foreign-contract", StageHarnessRun
+	foreignContract.RoleContract = "reviewer"
+	if err := store.Append(foreignContract); err != nil {
+		t.Fatal(err)
+	}
 	validStage := base
 	validStage.Kind, validStage.StageID, validStage.Stage = EventStageStarted, "valid", StageHarnessRun
 	if err := store.Append(validStage); err != nil {
@@ -494,7 +500,7 @@ func TestStoreRejectsCrossItemAttemptAndStageJoins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if history.MalformedRecords != 1 || len(history.Attempts) != 1 || history.Attempts[0].ItemID != "item-a" || len(history.Attempts[0].Stages) != 1 || history.Attempts[0].Stages[0].StageID != "valid" {
+	if history.MalformedRecords != 2 || len(history.Attempts) != 1 || history.Attempts[0].ItemID != "item-a" || len(history.Attempts[0].Stages) != 1 || history.Attempts[0].Stages[0].StageID != "valid" {
 		t.Fatalf("cross-item records mixed into one attempt: %#v", history)
 	}
 }

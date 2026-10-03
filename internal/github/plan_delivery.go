@@ -648,14 +648,17 @@ func (s *Project) completeDeliveryRelease(ctx context.Context, source WorkItem, 
 	if err := s.beginTransition(ctx, source.ID); err != nil {
 		return WorkItem{}, err
 	}
-	if err := s.applyFieldUpdates(ctx, source.ID,
+	updates := []projectFieldUpdate{
 		textProjectField(config.RunnerPlanReleaseFieldName, releaseAssertion),
 		textProjectField(s.branchFieldName(), next.Branch),
 		textProjectField(s.phaseFieldName(), next.Phase),
 		textProjectField(s.activityFieldName(), next.Activity),
 		textProjectField(s.resultFieldName(), next.Result),
 		textProjectField(s.approvalFieldName(), action.assertion),
-		statusProjectField(s.statusFieldName(), next.Status)); err != nil {
+		statusProjectField(s.statusFieldName(), next.Status),
+	}
+	updates = append(updates, s.agentAttributionUpdates(source)...)
+	if err := s.applyFieldUpdates(ctx, source.ID, updates...); err != nil {
 		return WorkItem{}, err
 	}
 	if err := s.finishTransition(ctx, source.ID); err != nil {
