@@ -2055,6 +2055,7 @@ recognizes, for example:
     "harness_config": "isolated",
     "model": "provider/model-id",
     "preserve_reasoning": false,
+    "codemode": false,
     "skills": ["runner-reviewer"]
   }
 }
@@ -2086,8 +2087,20 @@ setting. Other Pi providers retain their existing structured-result transport
 and do not receive this LM Studio chat-template option. Runner therefore does
 not depend on LM Studio's visible preset. Staged planner synthesis already
 has complete Runner-validated context and no tools, so it receives the native
-schema on its initial request and has no finalizer tool to call. Runner disables
-extension discovery for the invocation without
+schema on its initial request and has no finalizer tool to call.
+
+The Pi-only `codemode` setting defaults to `false`, inherits from the parent
+role, and accepts an explicit `false` override. Enable the pilot with `role edit
+ROLE --codemode`; use `--no-codemode` to disable it or `--clear-codemode` to
+restore inheritance. Runner adds Pi's Codemode tool only to stages with repository
+tools, preserves their existing tool allowlist, and instructs the model to batch
+independent calls and filter large outputs inside scripts. The `models` namespace
+is disabled. Runner's result and finalizer tools remain direct model calls and
+cannot be called from scripts. Tool-free formatting and synthesis stages do not
+receive Codemode. In inherited mode, operator tools remain governed by Pi's
+configuration; opting into Runner's pilot also keeps Codemode's model calls off.
+
+In isolated mode, Runner disables extension discovery for the invocation without
 rewriting installed extensions, skills, or provider configuration. Skill and
 project-context discovery are disabled for the launched process; Pi's
 configured provider and authentication remain available.
@@ -2454,17 +2467,21 @@ assessment rather than treating an unrun browser check as passed.
 
 Pi implementer and reviewer roles receive that same pinned browser through a
 temporary Runner-generated Pi extension with only navigate, evaluate, and
-screenshot tools, using the MCP client bundled with Pi's Node package (Pi 0.99.1+
-and Node 22.19+). Standalone Pi binaries without that dependency cannot use this
-browser integration. The server starts only on the first browser call; Pi's
-client handles protocol initialization, cancellation, timeouts, and shutdown.
-No ambient MCP catalog is imported by Runner's browser extension, and it does
-not activate Codemode or additional model calls. Ambient Pi extensions, including
-native MCP and Codemode, remain disabled in isolated mode; in
-inherited mode they are loaded alongside Runner's explicit extension. Browser
-navigation through Runner's extension remains loopback-only and uses
-an isolated headless profile. Pi itself still requires explicit `host` access
-because it does not provide a native OS sandbox for its shell and edit tools.
+screenshot tools. It uses Pi 1.0.0+'s native MCP extension and bundled stdio
+transport (Node 22.19+); standalone Pi binaries without that dependency cannot
+use this integration. Pi starts the server when the session starts and waits for
+its direct tools before the first prompt, up to 60 seconds. Pi handles protocol
+initialization, tool discovery, cancellation, timeouts, and shutdown. Runner
+additionally closes transports during shutdown to cover pending initialization.
+
+Runner's browser factory reads only its private pinned server configuration.
+It does not import an ambient MCP catalog or activate Codemode. Ambient Pi
+extensions remain disabled in isolated mode. In inherited mode, Pi's operator
+MCP manager and catalogs load alongside Runner's private browser without being
+replaced. Navigation through Runner's three stable tools remains loopback-only,
+including calls made inside Codemode, and uses an isolated headless profile.
+Pi itself still requires explicit `host` access because it does not provide a
+native OS sandbox for its shell and edit tools.
 
 To verify the installed Node package and browser adapter without a model call or
 launching a real browser, run from the Runner checkout:
@@ -2475,6 +2492,18 @@ CORTEXIUM_RUNNER_TEST_PI_EXTENSION_LOAD=1 go test ./internal/execution -run 'Tes
 
 This opt-in check loads the actual Pi extension and exercises its bundled MCP
 client against a local stdio fixture. It is not a live model/provider quality check.
+
+To run the existing bounded local benchmark with Runner's Codemode pilot, set
+`CORTEXIUM_RUNNER_LOCAL_BENCHMARK_PI_CODEMODE=1` alongside the benchmark's Pi
+harness, model, case and timeout settings. The result records whether Codemode
+was enabled; `structured_read` additionally requires a script call and a valid
+direct result submission. This is a pilot check, not evidence of a general speed
+improvement.
+
+For a real headless Chrome smoke test, also set
+`CORTEXIUM_RUNNER_TEST_PI_LIVE_BROWSER=1` and select `TestLivePiBrowser`. It
+launches the pinned browser server, checks a local page and reads an actual PNG
+screenshot, without making a model call.
 
 Runner treats the card's existing result as historical context on the next
 attempt. Actionable review feedback remains required, but an earlier claim that

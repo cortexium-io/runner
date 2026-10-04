@@ -106,3 +106,45 @@ func TestInitReasoningOffersMaxOnlyWhenAllSelectedHarnessesAreCodex(t *testing.T
 		t.Fatalf("init changed explicit reasoning defaults: %v", efforts)
 	}
 }
+
+func TestRoleCLIControlsPiCodemodeInheritance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runner.json")
+	cfg := completeCLITestConfig("/project")
+	enabled := true
+	cfg.Harnesses = []config.HarnessConfig{{Kind: config.HarnessPiCLI, Command: "pi", Enabled: &enabled, WorkspaceWriteRoot: "/worktrees"}}
+	cfg.Roles = config.RoleTemplate(config.HarnessPiCLI)
+	if err := config.SaveConfig(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	command := func(args ...string) {
+		t.Helper()
+		if err := run(t.Context(), append(args, "--config", path), strings.NewReader(""), io.Discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command("role", "edit", "reviewer", "--codemode")
+	command("role", "add", "direct_reviewer", "--extends", "reviewer", "--no-codemode")
+	loaded, err := config.LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role, _ := loaded.RoleProfile("direct_reviewer")
+	if role.Codemode == nil || *role.Codemode {
+		t.Fatal("explicit false did not override parent")
+	}
+	command("role", "edit", "direct_reviewer", "--clear-codemode")
+	loaded, err = config.LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role, _ = loaded.RoleProfile("direct_reviewer")
+	if role.Codemode == nil || !*role.Codemode {
+		t.Fatal("clearing override did not restore inheritance")
+	}
+	for _, flags := range [][]string{{"--codemode", "--no-codemode"}, {"--codemode", "--clear-codemode"}} {
+		args := append([]string{"role", "edit", "reviewer", "--config", path}, flags...)
+		if err := run(t.Context(), args, strings.NewReader(""), io.Discard); err == nil {
+			t.Fatalf("conflicting flags accepted: %v", flags)
+		}
+	}
+}
