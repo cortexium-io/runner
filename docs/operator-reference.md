@@ -2866,6 +2866,12 @@ prompt guidance fingerprint. Their temporary location is outside the stable
 prefix. Tool-free planner synthesis and capability probes receive no reference
 grant. No internet retrieval, extra MCP server, or automatic model call is added.
 
+The implementer skill starts with an orient, reproduce, implement, verify and
+finish sequence. Its `references/verification-modes.md` is needed only for UI or
+browser checks, time-based behavior, and host-only/native-release proof. Runner
+supplies outcome, repair and optional test-specialist protocols with the invocation;
+the shared skill does not repeat those protocols.
+
 ### Opt-in interaction design
 
 `runner-interaction-design` complements a role, rather than defining a fourth
