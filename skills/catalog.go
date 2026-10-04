@@ -12,7 +12,7 @@ import (
 )
 
 // BundledVersion identifies the skill bundle shipped in this Runner build.
-const BundledVersion = "1.11.0"
+const BundledVersion = "1.12.0"
 
 var bundledSkillIDs = []string{
 	"runner-planner",
@@ -22,7 +22,7 @@ var bundledSkillIDs = []string{
 }
 
 var bundledSkillSHA256 = map[string]string{
-	"runner-implementer":        "a965d1f8b85daf6a0d0c760c3b9cfdcae40a9c505f27c09c3ad6cc6057c36f90",
+	"runner-implementer":        "69f5efc0b71221b57e93e7deafe20f88b58b1ce190723d7077d747812db0e0f0",
 	"runner-planner":            "b0619db923903088c0fb013aed0d1937f70c201cfed99885f1b3a53de40e5557",
 	"runner-reviewer":           "a6a9c7b4e2ed06684180228eef46f02872e1214a64e2a78ae242e0ae0f94c9df",
 	"runner-interaction-design": "1391ca8c754aca160a58f0436de30c914f1b95a45ddd59d8bf481c4193d79816",
@@ -31,6 +31,9 @@ var bundledSkillSHA256 = map[string]string{
 // Reference files are a reviewed, finite Markdown allowlist, not a mechanism
 // for loading arbitrary files from installed skills or the target repository.
 var bundledReferenceSHA256 = map[string]map[string]string{
+	"runner-implementer": {
+		"references/verification-modes.md": "c88aa11226f7af15943387f38258a4973ef7613958a83e862cf85d12fee7fabe",
+	},
 	"runner-interaction-design": {
 		"references/interaction-models.md":      "181ca6cf0890af5fd3d324efea3b5a814c98f8767c6215d904bce6cce352a9e6",
 		"references/visual-structure.md":        "c7e2d334ab79fef48f9b5dc52e7a7d244a5238eef3623e0c73c4fc2120ef0369",

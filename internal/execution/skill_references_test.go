@@ -46,7 +46,15 @@ func TestImplementationAdaptersLaunchWithSkillReferences(t *testing.T) {
 					t.Fatal("implementation prompt lost references")
 				}
 				root, _, _ = strings.Cut(suffix, "\n")
-				checkSkillReferenceBytes(t, root)
+				checkSkillReferenceBytes(t, root, cfg.Skills)
+				for _, id := range cfg.Skills {
+					skill, _ := (bundledskills.EmbeddedCatalog{}).Get(id)
+					for _, ref := range skill.References {
+						if !strings.Contains(prompt, ref.Path+" sha256:"+ref.SHA256) || strings.Contains(prompt, string(ref.Content)) {
+							t.Fatal("implementation reference missing from manifest or eagerly loaded")
+						}
+					}
+				}
 			}}
 			assignment := testPollResponse(testCodexCLIWorkspaceWriteAssignmentSpec()).Assignments[0]
 			var output Output
@@ -71,6 +79,9 @@ func TestSkillReferenceWorkspaceIsSelectedReadOnlyAndDisposable(t *testing.T) {
 		t.Run(string(role), func(t *testing.T) {
 			profile, _ := ProfileForRole(role)
 			cfg := config.ExecutionConfig{Skills: []string{"runner-interaction-design"}}
+			if role == RoleImplementer {
+				cfg.Skills = []string{"runner-implementer"}
+			}
 			w, err := prepareExecutionWorkspace(t.Context(), subprocess.OSRunner{}, profile, t.TempDir(), cfg)
 			if err != nil {
 				t.Fatal(err)
@@ -82,7 +93,7 @@ func TestSkillReferenceWorkspaceIsSelectedReadOnlyAndDisposable(t *testing.T) {
 				}
 				return
 			}
-			checkSkillReferenceBytes(t, w.SkillReferenceRoot)
+			checkSkillReferenceBytes(t, w.SkillReferenceRoot, cfg.Skills)
 			for _, writable := range append(sandboxAdditionalWritePaths(w), w.Dir, w.ReadRoot) {
 				if writable != "" && pathInsideOrEqual(w.SkillReferenceRoot, writable) {
 					t.Fatalf("references inside writable/root %s", writable)
@@ -130,26 +141,39 @@ func TestSkillReferenceWorkspaceIsSelectedReadOnlyAndDisposable(t *testing.T) {
 	}
 }
 
-func checkSkillReferenceBytes(t *testing.T, root string) {
+func checkSkillReferenceBytes(t *testing.T, root string, ids []string) {
 	t.Helper()
 	if root == "" {
 		t.Fatal("no reference root at launch")
 	}
-	skill, _ := (bundledskills.EmbeddedCatalog{}).Get("runner-interaction-design")
-	for _, file := range skill.References {
-		path := filepath.Join(root, skill.ID, file.Path)
-		got, err := os.ReadFile(path)
-		if err != nil || string(got) != string(file.Content) {
-			t.Fatalf("reference %s: %v", file.Path, err)
+	wantDirs := []string{}
+	for _, id := range ids {
+		skill, ok := (bundledskills.EmbeddedCatalog{}).Get(id)
+		if !ok || len(skill.References) == 0 {
+			t.Fatalf("selected skill %s has no references", id)
 		}
-		info, err := os.Stat(path)
-		if err != nil || info.Mode().Perm()&0222 != 0 {
-			t.Fatalf("reference is writable: %s %v", path, err)
+		wantDirs = append(wantDirs, id)
+		for _, file := range skill.References {
+			path := filepath.Join(root, skill.ID, file.Path)
+			got, err := os.ReadFile(path)
+			if err != nil || string(got) != string(file.Content) {
+				t.Fatalf("reference %s: %v", file.Path, err)
+			}
+			info, err := os.Stat(path)
+			if err != nil || info.Mode().Perm()&0222 != 0 {
+				t.Fatalf("reference is writable: %s %v", path, err)
+			}
 		}
 	}
+	slices.Sort(wantDirs)
 	entries, err := os.ReadDir(root)
-	if err != nil || len(entries) != 1 || entries[0].Name() != skill.ID {
+	if err != nil || len(entries) != len(wantDirs) {
 		t.Fatalf("unselected files exposed: %v %v", entries, err)
+	}
+	for i, entry := range entries {
+		if entry.Name() != wantDirs[i] {
+			t.Fatalf("unselected directory exposed: %s", entry.Name())
+		}
 	}
 }
 
@@ -175,7 +199,7 @@ func (r *skillReferenceFailureRunner) capture(input io.Reader) (subprocess.Resul
 		r.t.Fatal("actual harness launch omitted reference location")
 	}
 	r.root, _, _ = strings.Cut(suffix, "\n")
-	checkSkillReferenceBytes(r.t, r.root)
+	checkSkillReferenceBytes(r.t, r.root, []string{"runner-interaction-design"})
 	return subprocess.Result{}, errors.New("fixture model boundary failure")
 }
 func (r *skillReferenceFailureRunner) RunBoundedInput(_ context.Context, _ string, _ []string, _ string, _ time.Duration, input io.Reader, _ int, _ string) (subprocess.Result, error) {
@@ -269,5 +293,5 @@ test -s observed-reference.md
 	if output, err := exec.CommandContext(ctx, "codex", args...).CombinedOutput(); err != nil {
 		t.Fatalf("native reference containment: %v\n%s", err, output)
 	}
-	checkSkillReferenceBytes(t, w.SkillReferenceRoot)
+	checkSkillReferenceBytes(t, w.SkillReferenceRoot, []string{"runner-interaction-design"})
 }

@@ -2111,6 +2111,11 @@ larger. Configure Pi's `httpIdleTimeoutMs` to a suitable bounded value (for
 example `3600000` for one hour) when using slow local models; Runner's role
 timeout remains the outer process bound.
 
+For smaller local models, prefer narrow assignments with supplied context and
+explicit checks. See [getting useful work from local models](local-models.md)
+for a task brief, benchmark interpretation and the privacy implications of
+cloud-backed coordination and review.
+
 Runner verifies installed copies of its bundled role skills, disables native
 skill discovery for privileged launches, and injects only the pinned embedded
 bundled instructions selected by the role. Custom local skill files are never
@@ -2894,6 +2899,12 @@ are loaded on demand, while a stable path/hash manifest participates in the
 prompt guidance fingerprint. Their temporary location is outside the stable
 prefix. Tool-free planner synthesis and capability probes receive no reference
 grant. No internet retrieval, extra MCP server, or automatic model call is added.
+
+The implementer skill starts with an orient, reproduce, implement, verify and
+finish sequence. Its `references/verification-modes.md` is needed only for UI or
+browser checks, time-based behavior, and host-only/native-release proof. Runner
+supplies outcome, repair and optional test-specialist protocols with the invocation;
+the shared skill does not repeat those protocols.
 
 ### Opt-in interaction design
 

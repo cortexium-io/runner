@@ -478,6 +478,12 @@ establish which profile would have been cheapest on the same work.
 
 ## Local harness comparison
 
+For task selection and prompt preparation, start with
+[getting useful work from smaller local models](local-models.md).
+Keep bounded worker experiments separate from full-card lifecycle comparisons:
+their supplied context, role instructions and verification work can differ.
+Record coordinator effort as well as model execution time.
+
 The opt-in local benchmark compares Pi and Codex against one model
 served by LM Studio. It uses fresh disposable repositories for structured
 reading, tool-free synthesis, exact writing, a focused bug fix, and review of a
