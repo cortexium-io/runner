@@ -35,7 +35,7 @@ type verificationEvidenceRecord struct {
 }
 
 func (s *Engine) verificationEvidencePath(itemID string) string {
-	return filepath.Join(s.implementationWorkspaceRoot(), ".runner-state", "verification", "verification_"+safeRefComponent(itemID)+".json")
+	return s.itemStatePath(itemID, "verification", "verification_", maxVerificationEvidenceBytes)
 }
 
 func (s *Engine) saveVerificationEvidence(item github.WorkItem, content github.DelegatedContent, metadata workspace.Metadata, candidate workspace.Candidate, criteria, evidence []string) error {

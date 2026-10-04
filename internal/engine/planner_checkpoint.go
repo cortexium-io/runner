@@ -34,7 +34,7 @@ type plannerCheckpointRecord struct {
 }
 
 func (s *Engine) plannerCheckpointPath(itemID string) string {
-	return filepath.Join(s.implementationWorkspaceRoot(), ".runner-state", "planning", "planning_"+safeRefComponent(itemID)+".json")
+	return s.itemStatePath(itemID, "planning", "planning_", maxPlannerCheckpointBytes)
 }
 
 func plannerCheckpointContextDigest(item github.WorkItem, content github.DelegatedContent, role, sourceLane, destination, repository, sourceContext string) string {

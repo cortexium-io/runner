@@ -1339,6 +1339,15 @@ inspectable there, collision checks prevent an earlier quarantine from being
 overwritten, and a path not registered to the configured repository is never
 moved or removed.
 
+New assignment names include a digest of the exact case-sensitive Project item
+ID, so IDs differing only by case or slug punctuation cannot share a branch,
+workspace, or private recovery record on a case-insensitive filesystem.
+Already-recorded branches retain their original path binding. Existing private
+checkpoints and evidence are reused only by their exact recorded item/source
+ID; similarly spelled items receive distinct new names. This does not weaken
+content, base, candidate, ownership, or private-file validation, and does not
+automatically restore an earlier quarantine.
+
 On macOS and Linux, the workspace-write root is a private directory owned by
 Runner's effective user with mode `0700`. Runner creates missing components
 with that mode and refuses an existing root that is a symlink, is not a

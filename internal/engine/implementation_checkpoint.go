@@ -58,7 +58,7 @@ type implementationCheckpoint struct {
 }
 
 func (s *Engine) implementationCheckpointPath(itemID string) string {
-	return filepath.Join(s.implementationWorkspaceRoot(), ".runner-state", "implementation", "implementation_"+safeRefComponent(itemID)+".json")
+	return s.itemStatePath(itemID, "implementation", "implementation_", maxImplementationCheckpointBytes)
 }
 
 func implementationContextDigest(content github.DelegatedContent, item github.WorkItem, reviewFeedback, comments, criteria []string, delivery ...execution.Spec) string {
