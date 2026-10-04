@@ -1,9 +1,11 @@
 package execution
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/metrics"
+	"github.com/cortexium-io/runner/internal/subprocess"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
 
@@ -21,6 +24,8 @@ import (
 // Pi and Codex adapters against the same model served by LM Studio. It runs
 // sequentially because local inference commonly has a single execution slot.
 // Normal tests and CI skip it.
+// Set CORTEXIUM_RUNNER_LOCAL_BENCHMARK_PI_CODEMODE=1 for the Pi pilot;
+// structured_read then requires an actual Codemode call and direct finalization.
 //
 // Example:
 //
@@ -86,10 +91,11 @@ func TestLiveLocalHarnessBenchmark(t *testing.T) {
 			t.Run(benchmarkCase.name+"/"+harness, func(t *testing.T) {
 				repo := initGitRepo(t)
 				cfg := localBenchmarkConfig(t, harness, model, reasoning, timeoutSeconds, repo, codexLauncher)
+				cfg.Codemode = harness == config.HarnessPiCLI && os.Getenv("CORTEXIUM_RUNNER_LOCAL_BENCHMARK_PI_CODEMODE") == "1"
 				started := time.Now()
 				outcome, usage, harnessDuration, err := benchmarkCase.run(t, harness, cfg)
 				record := localBenchmarkRecord{
-					Harness: harness, Case: benchmarkCase.name, Outcome: outcome,
+					Harness: harness, Case: benchmarkCase.name, Outcome: outcome, Codemode: cfg.Codemode,
 					DurationMS: time.Since(started).Milliseconds(), HarnessDurationMS: harnessDuration, Usage: usage,
 				}
 				if err != nil {
@@ -152,6 +158,7 @@ type localBenchmarkRecord struct {
 	HarnessDurationMS int64         `json:"harness_duration_ms"`
 	Usage             metrics.Usage `json:"usage"`
 	Error             string        `json:"error,omitempty"`
+	Codemode          bool          `json:"codemode"`
 }
 
 func compactLocalBenchmarkHarnesses(raw string) []string {
@@ -222,8 +229,16 @@ func runLocalBenchmarkStructuredRead(t *testing.T, harness string, cfg config.Ex
 	runGitCommand(t, cfg.Harness.WorkingDir, "add", "README.md")
 	runGitCommand(t, cfg.Harness.WorkingDir, "commit", "-m", "Seed opaque read challenge")
 	schema := []byte(`{"type":"object","required":["summary"],"properties":{"summary":{"type":"string"}},"additionalProperties":false}`)
-	result, err := RunPlannerWithUsage(t.Context(), harness, cfg, cfg.Harness.WorkingDir,
-		"Read README.md, make no changes, and return its entire trimmed contents as the structured summary.", schema, nil)
+	prompt := "Read README.md, make no changes, and return its entire trimmed contents as the structured summary."
+	if cfg.Codemode {
+		prompt += " Use Codemode to read and trim the file, then call the direct Runner finalization tool."
+	}
+	var run subprocess.Runner
+	var observed localCodemodeBenchmarkRunner
+	if cfg.Codemode {
+		run = &observed
+	}
+	result, err := RunPlannerWithUsage(t.Context(), harness, cfg, cfg.Harness.WorkingDir, prompt, schema, run)
 	if err != nil {
 		return OutcomeBlocked, result.Usage, result.DurationMilliseconds, err
 	}
@@ -240,7 +255,40 @@ func runLocalBenchmarkStructuredRead(t *testing.T, harness string, cfg config.Ex
 	if decoded.Summary != want {
 		return OutcomeBlocked, result.Usage, result.DurationMilliseconds, fmt.Errorf("unexpected summary %q", decoded.Summary)
 	}
+	if cfg.Codemode {
+		if observed.calls == 0 {
+			return OutcomeBlocked, result.Usage, result.DurationMilliseconds, fmt.Errorf("Codemode pilot produced no script call")
+		}
+		t.Logf("CODEMODE_PILOT script_calls=%d direct_finalization=accepted", observed.calls)
+	}
+	statusOutput, err := exec.CommandContext(t.Context(), "git", "-C", cfg.Harness.WorkingDir, "status", "--porcelain").Output()
+	if err != nil {
+		return OutcomeBlocked, result.Usage, result.DurationMilliseconds, err
+	}
+	if status := strings.TrimSpace(string(statusOutput)); status != "" {
+		return OutcomeBlocked, result.Usage, result.DurationMilliseconds, fmt.Errorf("read-only benchmark changed files: %s", status)
+	}
 	return OutcomeSucceeded, result.Usage, result.DurationMilliseconds, nil
+}
+
+// Observe calls at the existing line filter without replacing Runner's usage
+// observer or changing which events its result parser receives.
+type localCodemodeBenchmarkRunner struct {
+	subprocess.OSRunner
+	calls int
+}
+
+func (r *localCodemodeBenchmarkRunner) RunLineFilteredInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, maxBytes int, marker string, keep subprocess.LineFilter) (subprocess.Result, error) {
+	return r.OSRunner.RunLineFilteredInput(ctx, command, args, dir, timeout, input, maxBytes, marker, func(line []byte) bool {
+		var event struct {
+			Type     string `json:"type"`
+			ToolName string `json:"toolName"`
+		}
+		if json.Unmarshal(line, &event) == nil && event.Type == "tool_execution_start" && event.ToolName == "codemode" {
+			r.calls++
+		}
+		return keep(line)
+	})
 }
 
 func runLocalBenchmarkExactWrite(t *testing.T, harness string, cfg config.ExecutionConfig) (string, metrics.Usage, int64, error) {

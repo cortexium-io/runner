@@ -41,6 +41,7 @@ type ExecutionConfig struct {
 	MCPServers              []string
 	SafeTools               bool
 	PreserveReasoning       bool
+	Codemode                bool
 	ResourceLimits          ResourceLimits
 	RepositoryReferences    []RepositoryReference
 	ReferenceProtectedRoots []string
@@ -308,6 +309,7 @@ func (c RuntimeConfig) Execution(role, harness, workingDir string) ExecutionConf
 		MCPServers:        append([]string(nil), profile.MCPServers...),
 		SafeTools:         c.roleSafeTools(role),
 		PreserveReasoning: profile.PreserveReasoning != nil && *profile.PreserveReasoning,
+		Codemode:          profile.Codemode != nil && *profile.Codemode,
 		ResourceLimits:    c.ResourceLimits,
 	}
 	contract := c.RoleContract(role)

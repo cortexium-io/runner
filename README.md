@@ -171,7 +171,7 @@ pi
 ```
 
 In Pi, run `/login` and select the provider and account or credential that you
-want Runner to use. Use Pi 0.99.1 or newer with Node 22.19 or newer. Runner's
+want Runner to use. Use Pi 1.0.0 or newer with Node 22.19 or newer. Runner's
 browser extension uses the MCP client bundled with Pi's Node package; a standalone
 Pi binary without that package does not provide this browser integration.
 Runner enables Pi's strict JSON-schema sampling for its standard read, shell,
@@ -185,6 +185,11 @@ later requests. Configure one Pi role with:
 cortexium-runner role edit ROLE --preserve-reasoning
 cortexium-runner role edit ROLE --no-preserve-reasoning
 ```
+
+Pi's Codemode pilot is optional per role. Enable it with `role edit ROLE
+--codemode`, disable it with `--no-codemode`, or inherit the parent setting with
+`--clear-codemode`. It batches and filters calls to the role's existing tools;
+separate classifier/model calls remain disabled. Result submission stays direct.
 
 The final structured formatting turn always disables reasoning and preservation
 for reliable JSON. A matching LM Studio preset is useful for manual sessions,

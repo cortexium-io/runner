@@ -457,9 +457,10 @@ JSON output fail closed. Explicit Claude MCP readiness
 likewise requires the exact configured server entry to report success or
 connection rather than merely appearing in inspection output.
 
-Pi extension discovery is disabled for these invocations; only Runner's pinned
-result extension is loaded explicitly, preventing discovered extensions from
-observing and forging its provenance.
+In isolated mode, Pi extension discovery is disabled; Runner loads its result
+extension and any admitted browser or Codemode extension explicitly. Discovered
+extensions cannot observe or forge result provenance in that mode. Inherited
+mode trusts the operator's selected extensions as part of its execution boundary.
 
 Planner, implementer, and reviewer content share one local representation
 compatibility policy before their role-specific strict decoders. Runner may
@@ -1250,19 +1251,32 @@ invocations (including separate review stages); each initializes its own
 connections. Runner does not maintain a persistent browser service or pool.
 
 Pi implementer and reviewer roles receive the same three browser operations
-through a temporary Runner-generated extension that forwards to the pinned
-browser server using Pi's own MCP client and stdio transport. It resolves that
-client from Pi's installed Node package, not the assignment or an ambient MCP
-catalog. The connection remains lazy and invocation-scoped; Pi owns initialization,
-request timeouts, cancellation, and process-group shutdown. Runner keeps its three
-explicit tool definitions and loopback URL validation. This requires the Pi
-0.99.1+ Node package, not a standalone binary without the client dependency.
-Ambient Pi extensions, including native MCP and Codemode, stay disabled in
-isolated mode and load only after an explicit inherited-configuration opt-in. Navigation through the
-Runner browser remains loopback-only. This boundary does not change Pi's
-explicit host-access requirement for shell and edit tools. Runner does not enable
-Codemode or classifier-model calls by default; their separate usage accounting
-has not been validated for Runner.
+through a temporary Runner-generated extension that delegates initialization,
+discovery, calls, timeouts and cancellation to Pi's native MCP extension. Runner
+supplies one private pinned stdio server and maps only its three allowed tools
+to stable Runner names. The private API does not register Pi's `/mcp` command,
+read its catalogs, or consume registered operator servers. It also isolates its
+prompt sections so the inherited MCP manager retains its server instructions.
+A random private server namespace prevents collisions with operator servers.
+
+Pi starts the connection at session startup and waits up to 60 seconds before
+the first prompt. Runner tracks and closes transports during shutdown because
+Pi 1.0's manager does not yet own clients whose initialization is pending.
+The connection and its log remain invocation-scoped. Runner retains loopback
+URL validation through the tool-call hook, which also applies to nested calls.
+This requires the Pi 1.0.0+ Node package and its bundled transport dependency.
+Ambient Pi extensions remain disabled in isolated mode; explicitly inherited
+configuration keeps the operator manager alongside Runner's private factory.
+
+The Pi-only role setting `codemode` defaults to false and enables a controlled
+pilot. Its explicit extension uses native Codemode with mode `on` and model
+calls disabled. It adds only the Codemode tool to the stage's admitted loadout;
+read-only stages remain read-only. Instructions ask the model to batch independent
+calls and filter or aggregate large output inside the script. Runner's result
+and finalizer tools use `model-only` exposure, preserving their direct tool
+provenance and excluding them from scripts. Tool-free synthesis and formatting
+stages omit Codemode. This does not change Pi's explicit host-access requirement
+for shell and edit tools or introduce separate provider usage accounting.
 
 A Codex role can additionally add an explicit named MCP allowlist. In isolated
 mode Runner reads the native Codex MCP catalog from a private neutral cwd rather

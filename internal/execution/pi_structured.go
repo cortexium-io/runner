@@ -157,6 +157,7 @@ export default function (pi) {
   });
   pi.registerTool({
     name: "` + piStructuredResultTool + `",
+    exposure: "model-only",
     label: "Runner structured result",
     description: "Submit the final structured result for the current Runner assignment. Call this exactly once as the final action.",
     promptSnippet: "Submit the final Runner result through ` + piStructuredResultTool + `",
@@ -232,6 +233,7 @@ function runnerProviderPayload(payload, reasoningEffort, preserveReasoning, disa
 export default function (pi) {
   pi.registerTool({
     name: "` + piNativeStructuredFinalizeTool + `",
+    exposure: "model-only",
     label: "Finalize Runner result",
     description: "After completing the assignment and all required tool work, call this empty tool once to produce the final structured result.",
     promptSnippet: "Finalize the completed assignment through ` + piNativeStructuredFinalizeTool + `",

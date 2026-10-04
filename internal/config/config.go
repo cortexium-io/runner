@@ -108,6 +108,7 @@ type RoleConfig struct {
 	Model             *string  `json:"model,omitempty"`
 	Reasoning         string   `json:"reasoning,omitempty"`
 	PreserveReasoning *bool    `json:"preserve_reasoning,omitempty"`
+	Codemode          *bool    `json:"codemode,omitempty"`
 	TaskGranularity   string   `json:"task_granularity,omitempty"`
 	TimeoutSeconds    int      `json:"timeout_seconds,omitempty"`
 }

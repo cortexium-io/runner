@@ -326,7 +326,7 @@ func (i *Inspector) inspectMCP(ctx context.Context, descriptors []HarnessDescrip
 		state.Detail = stringPtr("MCP server does not report a successful Claude Code connection")
 	case config.HarnessPiCLI:
 		state.Status = CapabilityBlocked
-		state.Detail = stringPtr("Pi named MCP readiness is not supported; Runner's safe browser uses its own invocation-scoped client rather than importing the operator MCP catalog")
+		state.Detail = stringPtr("Pi named MCP readiness is not supported; Runner's safe browser uses a private invocation-scoped MCP extension without importing the operator MCP catalog")
 	}
 	return state
 }
