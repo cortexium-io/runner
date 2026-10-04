@@ -2098,6 +2098,11 @@ larger. Configure Pi's `httpIdleTimeoutMs` to a suitable bounded value (for
 example `3600000` for one hour) when using slow local models; Runner's role
 timeout remains the outer process bound.
 
+For smaller local models, prefer narrow assignments with supplied context and
+explicit checks. See [getting useful work from local models](local-models.md)
+for a task brief, benchmark interpretation and the privacy implications of
+cloud-backed coordination and review.
+
 Runner verifies installed copies of its bundled role skills, disables native
 skill discovery for privileged launches, and injects only the pinned embedded
 bundled instructions selected by the role. Custom local skill files are never

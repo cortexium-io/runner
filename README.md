@@ -190,6 +190,12 @@ The final structured formatting turn always disables reasoning and preservation
 for reliable JSON. A matching LM Studio preset is useful for manual sessions,
 but Runner does not rely on the UI default.
 
+For smaller local models, start with small, precisely specified tasks: provide
+the relevant context, expected output and focused checks, then review the result
+independently. This is our recommended starting point, with limited benchmark
+evidence so far. See [getting useful work from local models](docs/local-models.md)
+for task examples, evaluation guidance and privacy boundaries.
+
 > [!CAUTION]
 > Pi with LM Studio is experimental in this release. A complete local Qwen 3.8
 > project run succeeded, but it also showed very long inference times, excessive
