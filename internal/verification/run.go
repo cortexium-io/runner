@@ -52,6 +52,11 @@ type Request struct {
 	// before waiting, at grant, after preparation and after verification/cleanup.
 	// Direct host execution requires already-approved host access.
 	Observe func(context.Context) (Observation, error)
+	// Coordinators may observe the local preparation boundary before remote
+	// authority checks. A validated local
+	// preparation survives an authority outage, but never grants check/publication
+	// authority. Observe still refreshes authority and inputs before any check.
+	ObservePreparation func(context.Context) (Observation, error)
 }
 
 type Result struct {
@@ -311,7 +316,11 @@ func run(ctx context.Context, req Request, acquire func(context.Context) (contex
 		if runErr != nil {
 			return result, runErr
 		}
-		after, err := req.Observe(ctx)
+		observePreparation := req.Observe
+		if req.ObservePreparation != nil {
+			observePreparation = req.ObservePreparation
+		}
+		after, err := observePreparation(ctx)
 		if err != nil {
 			return result, err
 		}
@@ -327,6 +336,18 @@ func run(ctx context.Context, req Request, acquire func(context.Context) (contex
 			return result, errors.New("preparation changed protected source, configuration, runtime or undeclared files")
 		}
 		result.PreparedIntegrity = after.Integrity
+		if req.ObservePreparation != nil {
+			// Remote revalidation can take time. Keep the locally validated
+			// snapshot for recovery, but do not run a check against inputs that
+			// changed while authority was being refreshed.
+			confirmed, err := req.Observe(ctx)
+			if err != nil {
+				return result, err
+			}
+			if !reflect.DeepEqual(after, confirmed) {
+				return result, errors.New("prepared candidate or inputs changed during authority revalidation")
+			}
+		}
 		current, receipt.Inputs = after, after.Inputs
 		if reused, err := tryReuse(current); reused || err != nil {
 			return result, err

@@ -107,6 +107,8 @@ type ProjectConfig struct {
 	InitialRole            string
 	ApprovalLaneID         string
 	ActiveLaneID           string
+
+	PlanVerificationTimeoutSeconds int
 }
 
 func (c GitHubProjectConfig) ApprovalFieldName() string {

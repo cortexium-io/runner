@@ -48,7 +48,7 @@ func (s *Engine) assignment(item github.WorkItem, content github.DelegatedConten
 		instructions += "\n\nReview comparison base: " + s.remoteName() + "/" + s.baseBranch() + ". Use the initial or follow-up comparison scope specified by the shared reviewer contract."
 	}
 
-	assignmentID := "assignment_" + safeRefComponent(item.ID)
+	assignmentID := s.assignmentWorkID(item)
 	repository := strings.TrimSpace(item.Repository)
 	if repository == "" {
 		repository = strings.TrimSpace(s.cfg.GitHubProject.IntakeRepository)

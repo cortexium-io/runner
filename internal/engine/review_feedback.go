@@ -81,12 +81,7 @@ func (record *reviewFeedbackRecord) UnmarshalJSON(data []byte) error {
 }
 
 func (s *Engine) reviewFeedbackPath(itemID string) string {
-	return filepath.Join(
-		s.implementationWorkspaceRoot(),
-		".runner-state",
-		"qa-feedback",
-		"review_"+safeRefComponent(itemID)+".json",
-	)
+	return s.itemStatePath(itemID, "qa-feedback", "review_", maxReviewFeedbackBytes)
 }
 
 func (s *Engine) saveReviewFeedback(item github.WorkItem, content github.DelegatedContent, assessment execution.ReviewAssessment, baseline *execution.ReviewBaseline, repair ...planRepairRecord) error {

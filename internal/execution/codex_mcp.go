@@ -51,15 +51,18 @@ func runnerBrowserCommand() (string, []string) {
 	}
 }
 
-func runnerBrowserEnvironment(trustedToolDir string) map[string]string {
+func runnerBrowserEnvironment(trustedToolDir, artifactDir string) map[string]string {
 	return map[string]string{
+		"TMPDIR":                  artifactDir,
+		"TMP":                     artifactDir,
+		"TEMP":                    artifactDir,
 		"NPM_CONFIG_CACHE":        filepath.Join(filepath.Dir(trustedToolDir), "npm-cache"),
 		"NPM_CONFIG_USERCONFIG":   filepath.Join(trustedToolDir, "npmrc"),
 		"NPM_CONFIG_GLOBALCONFIG": filepath.Join(trustedToolDir, "global-npmrc"),
 	}
 }
 
-func runnerBrowserMCP(trustedToolDir string) codexMCPServer {
+func runnerBrowserMCP(trustedToolDir, artifactDir string) codexMCPServer {
 	command, args := runnerBrowserCommand()
 	cwd := filepath.Clean(trustedToolDir)
 	startupTimeout := float64(runnerBrowserStartupTimeoutSeconds)
@@ -70,7 +73,7 @@ func runnerBrowserMCP(trustedToolDir string) codexMCPServer {
 		EnabledTools:          []string{"navigate", "evaluate", "screenshot"},
 		StartupTimeoutSeconds: &startupTimeout,
 		Transport: codexMCPTransport{
-			Type: "stdio", Command: command, Args: args, Env: runnerBrowserEnvironment(cwd), CWD: &cwd,
+			Type: "stdio", Command: command, Args: args, Env: runnerBrowserEnvironment(cwd, artifactDir), CWD: &cwd,
 		},
 	}
 }
@@ -87,6 +90,9 @@ func codexMCPProfileArgsForConfig(ctx context.Context, run subprocess.Runner, co
 	}
 	if safeTools && (strings.TrimSpace(workspace.TrustedToolDir) == "" || !filepath.IsAbs(workspace.TrustedToolDir)) {
 		return nil, errors.New("Runner browser requires an absolute private trusted tool directory")
+	}
+	if safeTools && (strings.TrimSpace(workspace.TempDir) == "" || !filepath.IsAbs(workspace.TempDir)) {
+		return nil, errors.New("Runner browser requires an absolute private worker artifact directory")
 	}
 	var configured []codexMCPServer
 	if len(allowed) > 0 {
@@ -146,11 +152,11 @@ func codexMCPProfileArgsForConfig(ctx context.Context, run subprocess.Runner, co
 		encoded.WriteString("mcp_servers.")
 		encoded.WriteString(runnerBrowserMCPServer)
 		encoded.WriteByte('=')
-		writeCodexMCPServer(&encoded, runnerBrowserMCP(workspace.TrustedToolDir))
+		writeCodexMCPServer(&encoded, runnerBrowserMCP(workspace.TrustedToolDir, workspace.TempDir))
 		return []string{"--config", encoded.String()}, nil
 	}
 	if safeTools {
-		selected = append(selected, runnerBrowserMCP(workspace.TrustedToolDir))
+		selected = append(selected, runnerBrowserMCP(workspace.TrustedToolDir, workspace.TempDir))
 	}
 	sort.Slice(selected, func(i, j int) bool { return selected[i].Name < selected[j].Name })
 
@@ -249,6 +255,7 @@ func runnerBrowserPrompt(safeTools bool) string {
 Runner browser verification contract:
 - For rendered-page, interaction, or console verification, start the local application or server and use runner_browser before trying any shell-launched browser.
 - runner_browser exposes navigate, evaluate, and screenshot. Use their direct MCP calls when available. In Code Mode, inspect ALL_TOOLS for runner_browser and invoke the matching functions through the tools object. Do not infer availability from resource discovery.
+- screenshot returns a PNG path in this assignment's private scratch directory. Read or view that file to inspect the result, and copy evidence needed after the assignment into its workspace.
 - Run an already-configured project browser test when the task requires it, but failure of that one integration does not make browser verification unavailable while runner_browser is granted.
 - Do not download a browser, install a browser dependency, or inspect ambient browser caches merely to perform verification.
 - Report browser capability as blocked only after an exposed runner_browser call returns a concrete failure, or after both the direct and Code Mode tool catalogs have been checked and contain no runner_browser entry.

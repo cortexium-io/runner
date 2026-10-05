@@ -14,8 +14,9 @@ func deliveryFixture(t *testing.T) (*Project, WorkItem, []WorkItem) {
 	p := NewProject(config.ProjectConfig{
 		GitHubProjectConfig: config.GitHubProjectConfig{Owner: "owner", Number: 1, IntakeRepository: "owner/repo", BaseBranch: "develop"},
 		PlanDelivery:        true, PlanVerificationID: "complete", PlanVerificationDigest: gate.Digest(),
-		PlanProfileDigests: map[string]string{"implementer": profileDigest},
-		BacklogStatus:      "Backlog", ReadyStatus: "Ready", RunningStatus: "In progress", QAStatus: "Agent QA", DoneStatus: "Done", BlockedStatus: "Blocked",
+		PlanVerificationTimeoutSeconds: gate.TimeoutSeconds,
+		PlanProfileDigests:             map[string]string{"implementer": profileDigest},
+		BacklogStatus:                  "Backlog", ReadyStatus: "Ready", RunningStatus: "In progress", QAStatus: "Agent QA", DoneStatus: "Done", BlockedStatus: "Blocked",
 		InitialRole: "planner", InitialLaneID: "plan", AgentStatuses: []string{"Ready", "Agent QA"},
 		LaneStatuses: map[string]string{"backlog": "Backlog", "ready": "Ready", "agent_qa": "Agent QA", "done": "Done", "blocked": "Blocked"},
 		LaneRoles:    map[string]string{"ready": "implementer", "agent_qa": "reviewer"},

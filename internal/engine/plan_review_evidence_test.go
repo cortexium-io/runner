@@ -131,6 +131,12 @@ func (r *planEvidenceRunner) Run(ctx context.Context, command string, args []str
 			return result, err
 		}
 		assessment["summary"] = r.planReviewSummary
+		if len(r.planReviewSummary) > 4_000 {
+			assessment["brief"].(map[string]any)["rationale"] = r.planReviewSummary
+			for _, criterion := range assessment["criteria"].(map[string]any) {
+				criterion.(map[string]any)["summary"] = r.planReviewSummary
+			}
+		}
 		data, err = json.Marshal(assessment)
 		if err != nil {
 			return result, err
@@ -256,7 +262,7 @@ func planMemberEvidenceAcceptance(t *testing.T, f *deliveryRunFixture, child git
 	t.Helper()
 	provider := workspace.NewGitProvider(f.service.run)
 	metadata, err := provider.InspectRetainedReview(t.Context(), workspace.Request{
-		WorkingDir: f.repo, WorktreeRoot: f.cfg.Harnesses[0].WorkspaceWriteRoot, WorkID: "assignment_" + safeRefComponent(child.ID),
+		WorkingDir: f.repo, WorktreeRoot: f.cfg.Harnesses[0].WorkspaceWriteRoot, WorkID: f.service.assignmentWorkID(child),
 		ItemID: child.ID, Repository: child.Repository, DelegatedContentDigest: github.DelegatedContentFor(child).Digest,
 		BranchName: child.Branch, BaseRef: "origin/" + f.parent(t).Branch,
 	})
@@ -758,6 +764,7 @@ func TestProductionPlanReviewProgressRechecksMemberEvidence(t *testing.T) {
 
 func TestProductionPlanReviewRecoveryBeforePublicationComment(t *testing.T) {
 	f, r := newProductionEvidenceDelivery(t)
+	r.planReviewSummary = strings.Repeat("Accepted complete evidence. ", 220)
 	f.integrateMembers(t)
 	children := planEvidenceChildren(t, f)
 	commentsBefore := append([]github.ItemComment(nil), r.project.issueComments...)
@@ -807,6 +814,22 @@ func TestProductionPlanReviewRecoveryBeforePublicationComment(t *testing.T) {
 	action, err := f.service.source.Authorize(t.Context(), f.parent(t))
 	if err != nil {
 		t.Fatal(err)
+	}
+	observedComments, err := f.service.source.ItemComments(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	matched := false
+	for _, comment := range observedComments {
+		if comment.MatchesBody(publicationComment) {
+			matched = true
+			if len(comment.Body) >= len(publicationComment) {
+				t.Fatal("fixture did not exercise bounded publication context")
+			}
+		}
+	}
+	if !matched {
+		t.Fatal("full publication identity was lost by the bounded comment read")
 	}
 	commentsAfter := append([]github.ItemComment(nil), r.project.issueComments...)
 	for _, change := range []string{"additional operator comment", "altered publication comment"} {

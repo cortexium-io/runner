@@ -119,7 +119,7 @@ func TestLivePiBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer channel.Close()
-	check := exec.CommandContext(t.Context(), "node", "testdata/pi-browser-live-check.mjs", packageDir, channel.path)
+	check := exec.CommandContext(t.Context(), "node", "testdata/pi-browser-live-check.mjs", packageDir, channel.path, channel.artifactDir)
 	check.Env = append(os.Environ(), "PI_OFFLINE=1")
 	if output, err := check.CombinedOutput(); err != nil {
 		t.Fatalf("live Pi browser check: %v\n%s", err, output)

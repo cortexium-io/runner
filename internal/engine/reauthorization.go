@@ -27,6 +27,20 @@ func (s *Engine) PlanProjectItemReauthorization(ctx context.Context, selector st
 	if plan.Item.PullRequest != "" {
 		return s.inspectPublishedReauthorization(ctx, plan)
 	}
+	if plan.Unstarted {
+		if err := s.checkAdoptionEvidenceAbsent(plan.Item.ID); err != nil {
+			return ProjectItemReauthorization{}, err
+		}
+		repo, err := s.repositoryDir(ctx, plan.Item.Repository)
+		if err != nil {
+			return ProjectItemReauthorization{}, err
+		}
+		request := s.workspaceRequestForItem(plan.Item, github.DelegatedContentFor(plan.Item).Digest, repo, false)
+		if err := workspace.NewGitProvider(s.run).VerifyWorkspaceAbsent(ctx, request); err != nil {
+			return ProjectItemReauthorization{}, fmt.Errorf("unstarted plan member has retained work: %w", err)
+		}
+		return ProjectItemReauthorization{Approval: plan}, nil
+	}
 	identity, err := s.validateReauthorizationWorkspace(ctx, plan.Item)
 	if err != nil {
 		return ProjectItemReauthorization{}, err

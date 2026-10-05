@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { relative, isAbsolute } from "node:path";
 import { createServer } from "node:http";
 import { readFile, unlink } from "node:fs/promises";
 import { openSession } from "./pi-session-fixture.mjs";
 
-const [packageDir, extensionPath] = process.argv.slice(2);
+const [packageDir, extensionPath, artifactDir] = process.argv.slice(2);
 const server = createServer((_request, response) => {
   response.setHeader("Content-Type", "text/html");
   response.end("<html><head><title>Runner Pi browser</title></head><body><h1>Local proof</h1></body></html>");
@@ -21,6 +22,8 @@ try {
   const screenshot = await s.call("runner_browser_screenshot", {});
   assert.equal(screenshot.isError, false, JSON.stringify(screenshot));
   const path = screenshot.content.find(block => block.type === "text").text.trim();
+  const artifactRelative = relative(artifactDir, path);
+  assert.ok(!artifactRelative.startsWith("..") && !isAbsolute(artifactRelative), "screenshot escaped worker scratch: " + path);
   const png = await readFile(path);
   assert.equal(png.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
   assert.ok(png.length > 100);

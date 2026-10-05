@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/cortexium-io/runner/internal/config"
@@ -280,7 +279,7 @@ func (s *Engine) revalidatePlanProgress(ctx context.Context, action github.Autho
 	}
 	publicationComment := qaCommentMarker(fresh.Item.ID, p.Candidate.Head, comment) + "\n\n" + comment
 	if !slices.Equal(humanCommentContext(comments), p.Assignment.Spec.ReviewCommentContext) {
-		comments = slices.DeleteFunc(comments, func(c github.ItemComment) bool { return strings.TrimSpace(c.Body) == publicationComment })
+		comments = slices.DeleteFunc(comments, func(c github.ItemComment) bool { return c.MatchesBody(publicationComment) })
 		if !slices.Equal(humanCommentContext(comments), p.Assignment.Spec.ReviewCommentContext) {
 			return action, errors.New("parent comment context changed; QA applicability needs renewed assessment")
 		}

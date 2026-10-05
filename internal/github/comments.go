@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,10 +20,20 @@ const (
 // ItemComment is bounded issue discussion supplied as historical task context.
 // GitHub Project draft items do not support comments and return an empty slice.
 type ItemComment struct {
-	Author    string `json:"author"`
-	Body      string `json:"body"`
-	CreatedAt string `json:"created_at"`
-	URL       string `json:"url"`
+	Author     string `json:"author"`
+	Body       string `json:"body"`
+	CreatedAt  string `json:"created_at"`
+	URL        string `json:"url"`
+	BodyDigest string `json:"body_digest,omitempty"`
+}
+
+// MatchesBody checks the full observed comment, even when its prompt excerpt
+// was bounded. A marker or matching prefix cannot hide an edited suffix.
+func (c ItemComment) MatchesBody(body string) bool {
+	if c.BodyDigest != "" {
+		return c.BodyDigest == fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(strings.TrimSpace(body))))
+	}
+	return strings.TrimSpace(c.Body) == strings.TrimSpace(body)
 }
 
 // ItemComments loads only the newest bounded discussion for one claimed card.
@@ -72,7 +83,8 @@ func (s *Project) ItemComments(ctx context.Context, item WorkItem) ([]ItemCommen
 	nodes := payload.Data.Repository.Issue.Comments.Nodes
 	comments := make([]ItemComment, 0, len(nodes))
 	for _, node := range nodes {
-		body := truncate(strings.TrimSpace(node.Body), maxAssignmentCommentBody)
+		fullBody := strings.TrimSpace(node.Body)
+		body := truncate(fullBody, maxAssignmentCommentBody)
 		if body == "" {
 			continue
 		}
@@ -80,7 +92,7 @@ func (s *Project) ItemComments(ctx context.Context, item WorkItem) ([]ItemCommen
 			continue
 		}
 		author := strings.TrimSpace(node.Author.Login)
-		comments = append(comments, ItemComment{Author: author, Body: body, CreatedAt: strings.TrimSpace(node.CreatedAt), URL: strings.TrimSpace(node.URL)})
+		comments = append(comments, ItemComment{Author: author, Body: body, CreatedAt: strings.TrimSpace(node.CreatedAt), URL: strings.TrimSpace(node.URL), BodyDigest: fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(fullBody)))})
 	}
 	return comments, nil
 }

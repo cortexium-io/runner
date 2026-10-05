@@ -20,7 +20,7 @@ import (
 
 func TestDeliveryCLIStagesDurableParentAndReleasesExactManifest(t *testing.T) {
 	repo, _ := createPublicationRepository(t)
-	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[]}`}
+	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[]}`, hideCreatedFromList: true}
 	cfg := completeEngineTestConfig(config.Config{ProjectDir: repo, PlanDelivery: &config.PlanDeliveryConfig{Enabled: true, CompleteVerification: "complete"}, Verification: map[string]config.VerificationEntrypoint{
 		"complete": {Command: "go", ToolchainCommands: []string{"go"}, Args: []string{"test", "./..."}, TimeoutSeconds: 60, InputPaths: []string{"src", "go.mod"}},
 	}})
@@ -40,6 +40,8 @@ func TestDeliveryCLIStagesDurableParentAndReleasesExactManifest(t *testing.T) {
 	if len(children) != 2 || project.createCount != 3 {
 		t.Fatalf("expected one parent and two members, children=%d created=%d", len(children), project.createCount)
 	}
+	// Discovery may lag, but all create/stage checks must use the known IDs.
+	project.hideCreatedFromList = false
 	parentID := children[0].PlanningSourceID
 	if parentID == "" || children[1].PlanningSourceID != parentID {
 		t.Fatal("CLI children lost durable parent")

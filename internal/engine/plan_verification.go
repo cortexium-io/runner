@@ -32,6 +32,9 @@ func (s *Engine) planGateForReviewer(ctx context.Context, action github.Authoriz
 	if !ok || entry.Digest() != delivery.Manifest.VerificationDigest {
 		return delivery, entry, errors.New("approved complete verification entrypoint changed")
 	}
+	if delivery.Manifest.VerificationTimeoutSeconds != 0 {
+		entry.TimeoutSeconds = delivery.Manifest.VerificationTimeoutSeconds
+	}
 	profile, ok := s.cfg.RoleProfile(reviewerRole)
 	if !ok || s.cfg.RoleContract(reviewerRole) != config.WorkRoleReviewer || config.EffectiveRoleAccess(profile.Access) != config.RoleAccessHost {
 		return delivery, entry, errors.New("complete verification is not supported in this role's containment; host execution is not authorized")
@@ -60,41 +63,48 @@ func (s *Engine) runPlanVerification(ctx context.Context, action github.Authoriz
 		}
 	}
 	firstObservation := true
+	revalidateAuthority := func(ctx context.Context) error {
+		fresh, err := s.revalidatePlanProgress(ctx, action, progress)
+		if err != nil {
+			return err
+		}
+		action = fresh
+		if err := s.verifyProgressPlanHead(ctx, action, progress); err != nil {
+			return err
+		}
+		current, configured, err := s.planGate(ctx, action)
+		if err != nil {
+			return err
+		}
+		if current.Revision != delivery.Revision || configured.Digest() != entry.Digest() {
+			return errors.New("plan or verification settings changed")
+		}
+		return s.revalidateDeliveryAssignment(ctx, action.Item, assignment)
+	}
+	observeCandidate := func(ctx context.Context) (verification.Observation, error) {
+		observed, err := verification.ObserveCandidate(ctx, metadata.WorktreePath, metadata.BaseRevision, delivery.Parent.Body, entry)
+		if err != nil {
+			return verification.Observation{}, err
+		}
+		unchanged := observed.Integrity == before.Fingerprint
+		if preparationIntegrity != "" && !firstObservation {
+			unchanged = observed.PreparationIntegrity == preparationIntegrity
+		}
+		if observed.CommitOID != accepted.Head || observed.TreeOID != accepted.Tree || !unchanged {
+			return verification.Observation{}, errors.New("accepted combined candidate changed before or during complete verification")
+		}
+		firstObservation = false
+		return observed, nil
+	}
 	request := verification.Request{
 		Entrypoint: delivery.Manifest.CompleteVerification, Entry: entry, Directory: metadata.WorktreePath, Repository: delivery.Manifest.Repository,
 		AttemptID: attemptID, PlanID: delivery.Parent.ID, PlanRevision: delivery.Revision, Boundary: execution.VerificationComplete,
+		ObservePreparation: observeCandidate,
 		Observe: func(ctx context.Context) (verification.Observation, error) {
-			fresh, err := s.revalidatePlanProgress(ctx, action, progress)
-			if err != nil {
+			if err := revalidateAuthority(ctx); err != nil {
 				return verification.Observation{}, err
 			}
-			action = fresh
-			if err := s.verifyProgressPlanHead(ctx, action, progress); err != nil {
-				return verification.Observation{}, err
-			}
-			current, configured, err := s.planGate(ctx, action)
-			if err != nil {
-				return verification.Observation{}, err
-			}
-			if current.Revision != delivery.Revision || configured.Digest() != entry.Digest() {
-				return verification.Observation{}, errors.New("plan or verification settings changed")
-			}
-			if err := s.revalidateDeliveryAssignment(ctx, action.Item, assignment); err != nil {
-				return verification.Observation{}, err
-			}
-			observed, err := verification.ObserveCandidate(ctx, metadata.WorktreePath, metadata.BaseRevision, delivery.Parent.Body, entry)
-			if err != nil {
-				return verification.Observation{}, err
-			}
-			unchanged := observed.Integrity == before.Fingerprint
-			if preparationIntegrity != "" && !firstObservation {
-				unchanged = observed.PreparationIntegrity == preparationIntegrity
-			}
-			if observed.CommitOID != accepted.Head || observed.TreeOID != accepted.Tree || !unchanged {
-				return verification.Observation{}, errors.New("accepted combined candidate changed before or during complete verification")
-			}
-			firstObservation = false
-			return observed, nil
+			return observeCandidate(ctx)
 		},
 	}
 	if progress.Gate != nil && progress.EnvelopeDigest != "" {

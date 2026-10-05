@@ -763,7 +763,7 @@ func runRetry(ctx context.Context, args []string, stdin io.Reader, stdout io.Wri
 	configPath := flags.String("config", "", "trusted operator config path; defaults to .cortexium/runner.json")
 	selector := flags.String("item", "", "blocked GitHub Project item id, URL, or exact title; omit in a terminal to choose")
 	feedback := flags.String("feedback", "", "replace stale retry feedback and reset QA failures; max 1000 bytes after trimming surrounding whitespace; for longer context use a file in the assigned workspace and a short path reference; does not amend approved requirements (use amend)")
-	reauthorize := flags.Bool("reauthorize", false, "review and reauthorize retained implementation or published human rework in assessment; requires terminal confirmation; --json previews only")
+	reauthorize := flags.Bool("reauthorize", false, "review and reauthorize retained implementation, published human rework or an approved unstarted delivery member in assessment; requires terminal confirmation; --json previews only")
 	qaOnly := flags.Bool("qa-only", false, "with --reauthorize: confirm and run one review of a retained candidate; leave the card paused and never implement, publish, merge, or retry")
 	dryRun := flags.Bool("dry-run", false, "preview the retry destination without changing GitHub")
 	jsonOutput := flags.Bool("json", false, "write the retry plan as JSON; new historical evidence recovery previews only")

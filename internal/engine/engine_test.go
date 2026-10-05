@@ -6491,7 +6491,7 @@ func TestWorkspaceCleanupFailureIsReportedWithoutFailingReconciliation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(service.implementationWorkspaceRoot(), "assignment_"+safeRefComponent(item.ID))
+	path := filepath.Join(service.implementationWorkspaceRoot(), service.assignmentWorkID(item))
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		t.Fatal(err)
 	}

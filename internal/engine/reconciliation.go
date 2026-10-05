@@ -227,7 +227,7 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		}
 		laneBeforeAuthorization := s.cfg.LaneIDForStatus(item.Status)
 		terminalBeforeAuthorization := terminalPullRequestLane(s.cfg, laneBeforeAuthorization, mergedEvent, hasMergedEvent, closedEvent, hasClosedEvent)
-		if terminalBeforeAuthorization && !s.terminalWorkspaceCleanupPending(item.ID) {
+		if terminalBeforeAuthorization && !s.terminalWorkspaceCleanupPending(item) {
 			continue
 		}
 		observation, observed := observations[item.ID]

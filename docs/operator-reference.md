@@ -1339,6 +1339,15 @@ inspectable there, collision checks prevent an earlier quarantine from being
 overwritten, and a path not registered to the configured repository is never
 moved or removed.
 
+New assignment names include a digest of the exact case-sensitive Project item
+ID, so IDs differing only by case or slug punctuation cannot share a branch,
+workspace, or private recovery record on a case-insensitive filesystem.
+Already-recorded branches retain their original path binding. Existing private
+checkpoints and evidence are reused only by their exact recorded item/source
+ID; similarly spelled items receive distinct new names. This does not weaken
+content, base, candidate, ownership, or private-file validation, and does not
+automatically restore an earlier quarantine.
+
 On macOS and Linux, the workspace-write root is a private directory owned by
 Runner's effective user with mode `0700`. Runner creates missing components
 with that mode and refuses an existing root that is a symlink, is not a
@@ -2389,6 +2398,19 @@ project-specific browser check.
 Codex may expose the injected MCP operations as direct calls or through its
 Code Mode tool catalog; Runner supports both callable surfaces and uses the
 exact `navigate`, `evaluate`, and `screenshot` operation names.
+
+Screenshots return PNG paths under the invocation's private scratch directory,
+which is accessible to that worker. MCP configuration and package resolution stay
+in the separate trusted runtime. Inspect the image, and copy any durable evidence
+into the assigned workspace before the invocation ends; scratch files are cleaned
+up with the invocation.
+
+The default browser remains loopback-only. External competitor research needs an
+explicit operator-granted research capability or a host-side evidence handoff.
+Private Go modules similarly require approved dependency preparation or an exact
+candidate host verification handoff; the public package profile does not supply
+ambient private credentials. Supply dated sources and bound verification results
+to the card instead of asking the worker to bypass its containment.
 
 Each harness invocation starts its own configured MCP connections. The
 Runner-owned stdio browser server uses a fresh isolated profile per invocation;

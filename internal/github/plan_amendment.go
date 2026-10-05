@@ -24,6 +24,7 @@ type PlanAmendmentRequest struct {
 	Manifest              PlanManifest      `json:"manifest"`
 	MemberBodies          map[string]string `json:"member_bodies,omitempty"`
 	AdditionalAffectedIDs []string          `json:"additional_affected_ids,omitempty"`
+	RenewParentReview     bool              `json:"renew_parent_review,omitempty"`
 }
 
 // PlanAmendmentState is private protected recovery data. Do not print it:
@@ -132,8 +133,10 @@ func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentReques
 	globalOld, globalNext := old, next
 	globalOld.Members, globalNext.Members = nil, nil
 	globalOld.Amendment, globalNext.Amendment = 0, 0
+	// A deadline extension changes parent gate applicability, not child work.
+	globalOld.VerificationTimeoutSeconds, globalNext.VerificationTimeoutSeconds = 0, 0
 	sharedChanged := !reflect.DeepEqual(globalOld, globalNext)
-	changed := sharedChanged
+	changed := sharedChanged || request.RenewParentReview || old.VerificationTimeoutSeconds != next.VerificationTimeoutSeconds
 	for i, member := range next.Members {
 		before, exists := children[member.ID]
 		if !exists {
@@ -186,7 +189,7 @@ func (s *Project) buildPlanAmendment(d PlanDelivery, request PlanAmendmentReques
 		seeds[id], changed = true, true
 	}
 	if !changed {
-		return PlanAmendmentState{}, errors.New("amendment has no contract change or explicit additional invalidation")
+		return PlanAmendmentState{}, errors.New("amendment has no contract change or explicit review invalidation")
 	}
 	closure := amendmentDependencyClosure(seeds, old.Members, next.Members)
 	for _, member := range next.ActiveMembers() {

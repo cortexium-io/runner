@@ -237,6 +237,7 @@ func (c Config) ResolveProject() ProjectConfig {
 	if project.PlanDelivery {
 		project.PlanVerificationID = c.PlanDelivery.CompleteVerification
 		project.PlanVerificationDigest = c.Verification[c.PlanDelivery.CompleteVerification].Digest()
+		project.PlanVerificationTimeoutSeconds = c.Verification[c.PlanDelivery.CompleteVerification].TimeoutSeconds
 		project.PlanProfileDigests = c.planImplementationProfileDigests()
 	}
 	project.MergeMethod = NormalizeMergeMethod(project.MergeMethod)
