@@ -126,6 +126,12 @@ rerun `init` when it reports newly required Project fields. For supported local
 launchd workers, the updater drains and reloads the services using this exact
 executable. See [graceful stop and managed upgrades](#graceful-stop-and-managed-upgrades).
 
+Source and locally labelled builds can use the same updater by selecting a
+published release explicitly with `--version`. Their labels cannot establish
+release ordering, so an update without an explicit target is refused. Release
+targets still require the exact `vMAJOR.MINOR.PATCH` format and all normal
+download, checksum, binary validation and worker-drain checks.
+
 To build the current checkout instead, use the Go version declared in
 [`go.mod`](../go.mod):
 
@@ -195,7 +201,7 @@ LaunchDaemons and wrapper-launched jobs are not automatically managed. Other
 supervisors must be configured not to respawn an intentionally stopped worker.
 `stop` does not install or invent a service definition.
 
-For a release build, `update` downloads and validates the new binary before
+`update` downloads and validates the new binary before
 requesting any stop. It automatically drains only supported, currently running
 launchd services using the executable being replaced, atomically replaces the
 binary, then reloads those exact services and checks for a fresh successful poll.
