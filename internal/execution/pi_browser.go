@@ -21,13 +21,14 @@ var piBrowserToolNames = []string{
 }
 
 type piBrowserChannel struct {
-	artifacts *securefs.ArtifactSet
-	path      string
-	runtime   string
+	artifacts   *securefs.ArtifactSet
+	path        string
+	runtime     string
+	artifactDir string
 }
 
 func (c *piBrowserChannel) Close() error {
-	return errors.Join(c.artifacts.Close(), os.RemoveAll(c.runtime))
+	return errors.Join(c.artifacts.Close(), os.RemoveAll(c.runtime), os.RemoveAll(c.artifactDir))
 }
 
 func (c *piBrowserChannel) Verify() error {
@@ -40,12 +41,23 @@ func createPiBrowserExtension() (*piBrowserChannel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create Pi browser runtime: %w", err)
 	}
+	artifactDir, err := newProfileTempDir()
+	if err != nil {
+		_ = os.RemoveAll(runtimeDir)
+		return nil, err
+	}
+	complete := false
+	defer func() {
+		if !complete {
+			_ = os.RemoveAll(artifactDir)
+		}
+	}()
 	encodedArgs, err := json.Marshal(args)
 	if err != nil {
 		_ = os.RemoveAll(runtimeDir)
 		return nil, fmt.Errorf("encode Pi browser command: %w", err)
 	}
-	encodedEnvironment, err := json.Marshal(runnerBrowserEnvironment(runtimeDir))
+	encodedEnvironment, err := json.Marshal(runnerBrowserEnvironment(runtimeDir, artifactDir))
 	if err != nil {
 		_ = os.RemoveAll(runtimeDir)
 		return nil, fmt.Errorf("encode Pi browser environment: %w", err)
@@ -135,7 +147,8 @@ export default function (pi) {
 		_ = os.RemoveAll(runtimeDir)
 		return nil, fmt.Errorf("create Pi browser extension: %w", err)
 	}
-	return &piBrowserChannel{artifacts: artifacts, path: artifacts.Path(piBrowserExtensionName), runtime: runtimeDir}, nil
+	complete = true
+	return &piBrowserChannel{artifacts: artifacts, path: artifacts.Path(piBrowserExtensionName), runtime: runtimeDir, artifactDir: artifactDir}, nil
 }
 
 func piInvocationAllowsBrowser(args []string, ambientToolsAllowed ...bool) bool {

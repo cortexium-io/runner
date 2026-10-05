@@ -29,10 +29,16 @@ func runRetryReauthorization(ctx context.Context, service *engine.Engine, select
 	if !isTerminalFile(stdin) || !isTerminalFile(stdout) {
 		return errors.New("reauthorization requires an interactive terminal to confirm the exact card and retained action state")
 	}
+	prompt := "Reauthorize this exact retained implementation and retry it?"
+	confirmation := "Authorize only this card; preserve its worktree, private feedback, and QA failure count."
+	if plan.Approval.Unstarted {
+		prompt = "Reauthorize this exact approved, unstarted plan member?"
+		confirmation = "Authorize only this approved member; consume its reassessment label without changing sibling acceptance."
+	}
 	selected, err := newInitPrompter(stdin, stdout).selectMenu(
-		"Reauthorize this exact retained implementation and retry it?",
+		prompt,
 		[]initMenuOption{
-			{Label: "Yes", Value: "yes", Description: "Authorize only this card; preserve its worktree, private feedback, and QA failure count."},
+			{Label: "Yes", Value: "yes", Description: confirmation},
 			{Label: "No", Value: "no", Description: "Leave the card unchanged in assessment."},
 		}, 1,
 	)
@@ -53,10 +59,18 @@ func runRetryReauthorization(ctx context.Context, service *engine.Engine, select
 
 func writeReauthorizationPreview(output io.Writer, plan engine.ProjectItemReauthorization) {
 	item := plan.Approval.Item
-	fmt.Fprintln(output, "Runner retained-implementation reauthorization")
+	if plan.Approval.Unstarted {
+		fmt.Fprintln(output, "Runner approved, unstarted plan-member reauthorization")
+		fmt.Fprintf(output, "  Plan revision: %s\n  Private workspace and execution evidence: absent\n  Remove reassessment label: %t\n", terminalSafeText(plan.Approval.PlanRevision), plan.Approval.RemoveIntakeLabel)
+	} else {
+		fmt.Fprintln(output, "Runner retained-implementation reauthorization")
+	}
 	fmt.Fprintf(output, "  Item: %s (%s)\n  Repository: %s\n  Source URL: %s\n", terminalSafeText(item.Title), terminalSafeText(item.ID), terminalSafeText(item.Repository), terminalSafeText(item.URL))
 	fmt.Fprintf(output, "  Destination: %s\n  Role: %s\n  Implementation profile: %s\n", terminalSafeText(plan.Approval.TargetStatus), terminalSafeText(plan.Approval.Role), terminalSafeText(item.ImplementationProfile))
-	fmt.Fprintf(output, "  Dependencies: %s\n  Retained worktree: %s\n", terminalSafeText(strings.Join(item.Dependencies, ", ")), terminalSafeText(plan.Workspace.WorktreePath))
+	fmt.Fprintf(output, "  Dependencies: %s\n", terminalSafeText(strings.Join(item.Dependencies, ", ")))
+	if !plan.Approval.Unstarted {
+		fmt.Fprintf(output, "  Retained worktree: %s\n", terminalSafeText(plan.Workspace.WorktreePath))
+	}
 	writeAuthorizationBoundRuntimePreview(output, item)
 	fmt.Fprintln(output, "  Exact source body:")
 	for _, line := range strings.Split(item.Body, "\n") {

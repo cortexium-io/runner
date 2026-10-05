@@ -954,7 +954,11 @@ func (s *Project) StagePlanningApproval(ctx context.Context, expected Authorized
 	if err != nil {
 		return fmt.Errorf("validate planning source before staging approval: %w", err)
 	}
-	items, err := s.ListItems(ctx)
+	ids := []string{expectedSource.ID}
+	for _, child := range children {
+		ids = append(ids, child.ID)
+	}
+	items, err := s.LifecycleItemsByID(ctx, ids)
 	if err != nil {
 		return fmt.Errorf("revalidate planning source and exact children before staging approval: %w", err)
 	}

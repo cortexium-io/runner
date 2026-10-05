@@ -72,6 +72,20 @@ func TestRunAllowsExplicitDowngrade(t *testing.T) {
 	testRunReplacesExecutable(t, "v0.3.0", "v0.2.0")
 }
 
+func TestRunSourceBuildRequiresExplicitVerifiedRelease(t *testing.T) {
+	for _, current := range []string{"v0.7.0-local.upgrade-repairs", "dev"} {
+		t.Run(current, func(t *testing.T) {
+			if _, err := Run(t.Context(), Options{CurrentVersion: current}); err == nil || !strings.Contains(err.Error(), "--version") {
+				t.Fatalf("automatic source-build update should require a target: %v", err)
+			}
+			if _, err := Run(t.Context(), Options{CurrentVersion: current, TargetVersion: "v0.7.1-local"}); err == nil || !strings.Contains(err.Error(), "unsupported release version") {
+				t.Fatalf("source build accepted an unpublished target format: %v", err)
+			}
+			testRunReplacesExecutable(t, current, "v0.7.1")
+		})
+	}
+}
+
 func testRunReplacesExecutable(t *testing.T, currentVersion, targetVersion string) {
 	t.Helper()
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {

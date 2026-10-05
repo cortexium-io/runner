@@ -70,7 +70,7 @@ func (s *Engine) workspaceRequestForItem(item github.WorkItem, delegatedContentD
 		repository = strings.TrimSpace(s.cfg.GitHubProject.IntakeRepository)
 	}
 	return workspace.Request{
-		WorkingDir: repoRoot, WorktreeRoot: s.implementationWorkspaceRoot(), WorkID: "assignment_" + safeRefComponent(item.ID),
+		WorkingDir: repoRoot, WorktreeRoot: s.implementationWorkspaceRoot(), WorkID: s.assignmentWorkID(item),
 		ItemID: strings.TrimSpace(item.ID), DelegatedContentDigest: strings.TrimSpace(delegatedContentDigest), Repository: repository,
 		BranchPrefix: "runner", BranchName: strings.TrimSpace(item.Branch), BaseRef: s.remoteName() + "/" + s.baseBranch(),
 		QuarantineMismatch: quarantineMismatch,

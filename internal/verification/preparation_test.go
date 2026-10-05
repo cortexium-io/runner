@@ -32,6 +32,69 @@ func preparationFixture(t *testing.T, prep string) Request {
 	return request
 }
 
+func TestPreparationRetainsLocalIntegrityBeforeAuthorityFailure(t *testing.T) {
+	for _, reason := range []string{"GitHub HTTP 502", "approval revoked"} {
+		t.Run(reason, func(t *testing.T) {
+			request := preparationFixture(t, "mkdir -p deps/pkg; printf prepared > deps/prepared; printf '*.js text\\n' > deps/pkg/.gitattributes")
+			request.ObservePreparation = request.Observe
+			calls := 0
+			refusal := errors.New(reason)
+			request.Observe = func(ctx context.Context) (Observation, error) {
+				if _, err := os.Stat(filepath.Join(request.Directory, "deps/prepared")); err == nil {
+					calls++
+					return Observation{}, refusal
+				}
+				return request.ObservePreparation(ctx)
+			}
+			result, err := run(t.Context(), request, ownedTestGrant)
+			var failure *CheckFailure
+			if !errors.Is(err, refusal) || errors.As(err, &failure) || calls != 1 || result.PreparedIntegrity == "" || result.Receipt != nil || result.CurrentCandidateCheck != nil || result.Invocation.Outcome != "failed" || !result.Invocation.CleanupResolved || result.CurrentPreparation == nil || result.CurrentPreparation.Outcome != "passed" {
+				t.Fatalf("lost validated preparation or granted check authority: %+v %v", result, err)
+			}
+			observed, err := request.ObservePreparation(t.Context())
+			if err != nil || observed.Integrity != result.PreparedIntegrity {
+				t.Fatalf("retained preparation is not the actual candidate: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(request.Directory, "dist")); !os.IsNotExist(err) {
+				t.Fatal("check ran without authority")
+			}
+		})
+	}
+}
+
+func TestSplitPreparationStillRefusesProtectedChanges(t *testing.T) {
+	for _, command := range []string{"printf bad > src/source.txt", "mkdir -p local-ignored; printf bad > local-ignored/leak", "git config core.filemode false"} {
+		t.Run(command, func(t *testing.T) {
+			request := preparationFixture(t, command)
+			request.ObservePreparation = request.Observe
+			calls := 0
+			request.Observe = func(ctx context.Context) (Observation, error) { calls++; return request.ObservePreparation(ctx) }
+			result, err := run(t.Context(), request, ownedTestGrant)
+			if err == nil || calls != 2 || result.PreparedIntegrity != "" || result.Receipt != nil {
+				t.Fatalf("protected mutation adopted: %+v %v", result, err)
+			}
+		})
+	}
+}
+
+func TestPreparationAuthorityRefreshCannotSubstituteInputs(t *testing.T) {
+	request := preparationFixture(t, "mkdir -p deps; printf prepared > deps/prepared")
+	request.ObservePreparation = request.Observe
+	request.Observe = func(ctx context.Context) (Observation, error) {
+		if _, err := os.Stat(filepath.Join(request.Directory, "deps/prepared")); err == nil {
+			writeFixture(t, request.Directory, "deps/prepared", "substituted")
+		}
+		return request.ObservePreparation(ctx)
+	}
+	result, err := run(t.Context(), request, ownedTestGrant)
+	if err == nil || result.PreparedIntegrity == "" || result.Receipt != nil || result.CurrentCandidateCheck != nil {
+		t.Fatalf("authority refresh substituted executable inputs: %+v %v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(request.Directory, "dist")); !os.IsNotExist(err) {
+		t.Fatal("check ran against substituted inputs")
+	}
+}
+
 func TestPreparationBindsActualDependenciesAndAllowsCheckOutputs(t *testing.T) {
 	request := preparationFixture(t, "mkdir -p deps .runner-npm-cache; printf prepared > deps/prepared; printf cache > .runner-npm-cache/log")
 	before, err := request.Observe(t.Context())
@@ -150,12 +213,32 @@ func TestPreparationTimeoutSharesDeadlineAndDoesNotLaunchCheck(t *testing.T) {
 	request := preparationFixture(t, "sleep 60")
 	request.Entry.TimeoutSeconds = 1
 	base := strings.TrimSpace(git(t, request.Directory, "rev-parse", "HEAD"))
-	request.Observe = func(ctx context.Context) (Observation, error) {
-		return ObserveCandidate(ctx, request.Directory, base, "approved", request.Entry)
+	// This test exercises supervised command expiry, not the variable cost of
+	// Git/runtime collection. Pin the real, unchanged fixture before starting
+	// its one-second budget. Observation expiry is covered separately below.
+	observed, err := ObserveCandidate(t.Context(), request.Directory, base, "approved", request.Entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Observe = func(context.Context) (Observation, error) {
+		return observed, nil
 	}
 	result, err := run(t.Context(), request, ownedTestGrant)
 	if !errors.Is(err, context.DeadlineExceeded) || result.Invocation.Outcome != "timeout" || result.Receipt != nil || result.CurrentPreparation == nil || result.CurrentPreparation.Outcome != "timeout" || !result.Invocation.CleanupResolved {
 		t.Fatalf("deadline/cleanup accounting: %+v %v", result, err)
+	}
+}
+
+func TestPreparationDeadlineIncludesInitialObservation(t *testing.T) {
+	request := preparationFixture(t, "exit 0")
+	request.Entry.TimeoutSeconds = 1
+	request.Observe = func(ctx context.Context) (Observation, error) {
+		<-ctx.Done()
+		return Observation{}, ctx.Err()
+	}
+	result, err := run(t.Context(), request, ownedTestGrant)
+	if !errors.Is(err, context.DeadlineExceeded) || result.Invocation.Outcome != "timeout" || result.CurrentPreparation != nil || result.Receipt != nil || !result.Invocation.CleanupResolved {
+		t.Fatalf("observation escaped shared deadline or launched preparation: %+v %v", result, err)
 	}
 }
 

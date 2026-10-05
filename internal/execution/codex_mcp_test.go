@@ -78,7 +78,7 @@ func TestCodexMCPProfileArgsDoNotInspectWhenNoServerIsGranted(t *testing.T) {
 
 func TestCodexSafeToolsInjectPinnedLoopbackOnlyBrowserWithoutUserConfig(t *testing.T) {
 	runner := &codexMCPListRunner{}
-	workspace := profileWorkspace{Dir: "/worktree", TrustedToolDir: "/trusted/runtime-test"}
+	workspace := profileWorkspace{Dir: "/worktree", TrustedToolDir: "/trusted/runtime-test", TempDir: "/worker/scratch"}
 	args, err := codexMCPProfileArgsForConfig(t.Context(), runner, "codex", workspace, nil, true, config.HarnessConfigModeIsolated)
 	if err != nil {
 		t.Fatalf("build Runner browser profile: %v", err)
@@ -92,6 +92,7 @@ func TestCodexSafeToolsInjectPinnedLoopbackOnlyBrowserWithoutUserConfig(t *testi
 		"--allowed-url-pattern=http://localhost:*/*", "--allowed-url-pattern=http://127.0.0.1:*/*",
 		"--chrome-arg=--use-mock-keychain", "--no-performance-crux", "--redact-network-headers", "--no-usage-statistics",
 		`cwd="/trusted/runtime-test"`, `"NPM_CONFIG_CACHE"="/trusted/npm-cache"`, `"NPM_CONFIG_USERCONFIG"="/trusted/runtime-test/npmrc"`,
+		`"TMPDIR"="/worker/scratch"`, `"TMP"="/worker/scratch"`, `"TEMP"="/worker/scratch"`,
 		`startup_timeout_sec=60`, `enabled_tools=["navigate","evaluate","screenshot"]`,
 		`enabled=true`, `required=true`,
 	} {
@@ -103,7 +104,7 @@ func TestCodexSafeToolsInjectPinnedLoopbackOnlyBrowserWithoutUserConfig(t *testi
 
 func TestInheritedCodexMCPAddsRunnerBrowserWithoutReplacingAmbientCatalog(t *testing.T) {
 	runner := &codexMCPListRunner{stdout: `[{"name":"operator_browser","enabled":true,"transport":{"type":"stdio","command":"operator-browser"}}]`}
-	workspace := profileWorkspace{Dir: "/neutral", TrustedToolDir: "/trusted"}
+	workspace := profileWorkspace{Dir: "/neutral", TrustedToolDir: "/trusted", TempDir: "/worker/scratch"}
 	args, err := codexMCPProfileArgsForConfig(t.Context(), runner, "codex", workspace, []string{"operator_browser"}, true, config.HarnessConfigModeInherit)
 	if err != nil {
 		t.Fatalf("build inherited Runner browser profile: %v", err)
@@ -122,7 +123,7 @@ func TestIsolatedCodexMCPInspectsCatalogOutsideImplementationWorktree(t *testing
 		stdout:  `[{"name":"operator_browser","enabled":true,"transport":{"type":"stdio","command":"operator-browser"}}]`,
 		wantDir: "/trusted",
 	}
-	workspace := profileWorkspace{Dir: "/worktree", TrustedToolDir: "/trusted"}
+	workspace := profileWorkspace{Dir: "/worktree", TrustedToolDir: "/trusted", TempDir: "/worker/scratch"}
 	args, err := codexMCPProfileArgsForConfig(t.Context(), runner, "codex", workspace, []string{"operator_browser"}, false, config.HarnessConfigModeIsolated)
 	if err != nil {
 		t.Fatalf("build isolated MCP profile: %v", err)

@@ -14,6 +14,55 @@ func TestAmendmentClosureUsesOldAndNewDependencyGraphs(t *testing.T) {
 	}
 }
 
+func TestParentOnlyReviewAndDeadlineRenewalPreservesMembers(t *testing.T) {
+	for _, kind := range []string{"review", "deadline", "none", "shorter", "negative", "overflow"} {
+		t.Run(kind, func(t *testing.T) {
+			p, parent, children := deliveryFixture(t)
+			d, err := p.ValidatePlanDelivery(parent, append([]WorkItem{parent}, children...))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := PlanAmendmentRequest{ExpectedRevision: d.Revision, Reason: "Renew parent verification only", Manifest: d.Manifest}
+			req.Manifest.Amendment++
+			switch kind {
+			case "review":
+				req.RenewParentReview = true
+			case "deadline":
+				req.Manifest.VerificationTimeoutSeconds = 10800
+			case "shorter":
+				req.Manifest.VerificationTimeoutSeconds = 3600
+			case "negative":
+				req.Manifest.VerificationTimeoutSeconds = -1
+			case "overflow":
+				seconds := int64(10_000_000_000)
+				if int64(int(seconds)) != seconds {
+					t.Skip("duration overflow exceeds this platform's integer range")
+				}
+				req.Manifest.VerificationTimeoutSeconds = int(seconds)
+			}
+			state, err := p.buildPlanAmendment(d, req)
+			if kind != "review" && kind != "deadline" {
+				if err == nil {
+					t.Fatal("unapproved or invalid renewal accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(state.Affected) != 0 || !reflect.DeepEqual(state.Before[1:], state.After[1:]) || state.After[0].Phase != PlanDeliveryPhase || state.After[0].Body == state.Before[0].Body {
+				t.Fatal("parent renewal changed member authority/history or retained old parent contract")
+			}
+			if err := p.ValidatePlanAmendmentState(state); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := p.ValidatePlanDelivery(state.After[0], state.After); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestPlanAmendmentExactMembershipAndConservativeSharedScope(t *testing.T) {
 	for _, kind := range []string{"shared criteria", "last member only", "changed ordinal", "add member", "remove member", "retarget", "unexpected body"} {
 		t.Run(kind, func(t *testing.T) {

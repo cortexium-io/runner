@@ -94,6 +94,14 @@ tracked state, source and undeclared writes. Waiting and checks compare the full
 snapshot; package metadata changes during a check are not allowed. Installed
 executable dependency contents remain bound by applicability inputs.
 
+The coordinator validates this local preparation boundary before refreshing
+remote Project authority. A transient provider failure therefore retains the
+validated prepared snapshot, separately from immutable original QA. It creates
+no passing check proof. A retry requires the exact retained snapshot and fresh
+authority; the failed invocation stays historical. Successful authority refresh
+is followed by a local input recheck before any executable check starts. Failed
+or unvalidated preparation is not adopted by retry.
+
 This is verification of the supported command, not host-wide filesystem write
 enforcement. Host-access lifecycle scripts retain host access; operators must
 review them and direct caches into declared roots. Sandboxed callers retain their
@@ -170,6 +178,22 @@ interval. A failed preparation produces no new heavy receipt; its actual phase
 result and current invocation accounting remain separate. A check that never ran
 is absent, not a fabricated failed or successful check. Cleanup retains the existing
 bounded supervisor and unresolved-ownership quarantine even after timeout.
+
+For an unpublished delivery plan, an operator may explicitly renew parent QA
+with `delivery amend` and `"renew_parent_review": true` in the amendment request.
+Advance the manifest's amendment ordinal and supply the exact current revision
+and reason as usual. This invalidates parent acceptance and archives its original
+evidence, without reimplementing unchanged accepted children or resetting counts.
+It is also the recovery path for an older interrupted preparation whose snapshot
+was never validated and retained; an ordinary retry cannot infer that evidence.
+
+An approved manifest may set `verification_timeout_seconds` to extend the catalog
+deadline for this parent only (zero uses the catalog deadline). The existing
+catalog digest still binds all commands, inputs, runtimes and containment. The
+effective extended deadline participates in the gate's settings digest: receipts
+from a different budget are not relabelled or reused. A deadline-only amendment
+renews parent QA and complete verification but carries unchanged child acceptance.
+It does not raise test timeouts/retries, skip checks or create per-phase budgets.
 
 The resource uses a stable private lock and one durable active claim, outside the
 repository. Its location is based on the OS account, not harness-replaced HOME/XDG

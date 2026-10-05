@@ -51,8 +51,9 @@ type Result struct {
 
 func Run(ctx context.Context, options Options) (Result, error) {
 	current := strings.TrimSpace(options.CurrentVersion)
-	if !validVersion(current) {
-		return Result{}, fmt.Errorf("self-update requires a release build; current version is %q", current)
+	target := strings.TrimSpace(options.TargetVersion)
+	if !validVersion(current) && target == "" {
+		return Result{}, fmt.Errorf("current build %q cannot be ordered against releases; select a published release with --version vMAJOR.MINOR.PATCH", current)
 	}
 	releasesURL := strings.TrimRight(strings.TrimSpace(options.ReleasesURL), "/")
 	if releasesURL == "" {
@@ -70,7 +71,6 @@ func Run(ctx context.Context, options Options) (Result, error) {
 		client = &http.Client{Timeout: 60 * time.Second}
 	}
 	client = httpsOnlyClient(client)
-	target := strings.TrimSpace(options.TargetVersion)
 	if target == "" {
 		var err error
 		target, err = resolveLatest(ctx, client, releasesURL)

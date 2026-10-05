@@ -276,6 +276,12 @@ func (s *Engine) ApplyDeliveryAmendment(ctx context.Context, preview DeliveryAme
 		if feedback == nil {
 			feedback = &reviewFeedbackRecord{Version: reviewFeedbackVersion, ItemID: parent.ID, DelegatedContentDigest: github.DelegatedContentFor(parent).Digest, Items: []string{"Approved plan amendment: " + preview.Request.Reason}}
 		}
+		if len(feedback.Items) == 0 {
+			// Accepted parent progress has no actionable rejection items. Its
+			// exact bytes are archived; the new intent needs its own explanation
+			// after invalidating that acceptance, not fabricated QA findings.
+			feedback.Items = []string{"Approved plan amendment: " + preview.Request.Reason}
+		}
 		// The full historical bytes were archived above. Parent acceptance is
 		// invalidated by every amendment; never re-label its gate/classification
 		// progress as evidence for the new revision.

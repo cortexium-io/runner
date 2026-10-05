@@ -67,6 +67,12 @@ func RunProbeWithUsage(ctx context.Context, kind string, cfg config.ExecutionCon
 }
 
 func runStructuredHarness(ctx context.Context, role RoleContract, kind string, cfg config.ExecutionConfig, workingDir, prompt string, schema []byte, piConstrainedSamplingStrict, stageName string, run subprocess.Runner) (result StructuredHarnessResult, resultErr error) {
+	if role == RoleSynthesis {
+		cfg.RoleAccess = config.RoleAccessSandboxed
+		cfg.HarnessConfigMode = config.HarnessConfigModeIsolated
+		cfg.SafeTools = false
+		cfg.MCPServers = nil
+	}
 	if run == nil {
 		run = subprocess.OSRunner{}
 	}
@@ -119,6 +125,11 @@ func runStructuredHarness(ctx context.Context, role RoleContract, kind string, c
 		prompt += reviewerVerificationInstruction(workspace)
 	}
 	guidance := harnessGuidance(kind, cfg, role == RolePlanner || role == RoleReviewer || stageName == metrics.StageTestSpecialist)
+	if role == RoleSynthesis {
+		// This is a fresh, tool-free session: it cannot discover installed skills
+		// or inherit the outline stage's instructions.
+		guidance = trustedSkillInstructions(cfg) + "\n\nPlanner details stage: the repository inspection required by these pinned instructions is complete. Apply the supplied skill contents to the validated outline and assignment below. Do not open installed skill files, references, or reinspect the repository; this stage has no tools.\n\n"
+	}
 	prompt = guidance + prompt + profileRepositoryInstruction(workspace)
 	switch kind {
 	case config.HarnessCodexCLI:

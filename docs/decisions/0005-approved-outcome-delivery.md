@@ -96,6 +96,12 @@ Amendments preview the complete contract and advance an explicit
 ordinal revision. Changed local contracts invalidate the old/new dependency
 closure; shared changes conservatively invalidate all members. Exact original
 acceptance is carried only for unaffected members with historical provenance.
+An explicit parent-review renewal or a parent-only extension of the complete
+verification deadline is not a child contract change. These amendments carry
+unchanged child acceptance but require fresh parent QA and complete proof. The
+catalog commands, inputs and containment remain pinned; the effective deadline
+is signed in the manifest and bound into verification settings, so old-budget
+proof cannot be relabelled. An operator cannot shorten the catalog deadline.
 The parent always needs renewed delivery acceptance. Existing protected parent
 evidence holds the exact approved before/after intent; a `plan_amending` fence
 precedes partial writes and restart finishes only that intent before admission.
@@ -109,6 +115,13 @@ satisfy dependencies, reactivate or become Done. The preview identifies retained
 accepted changes; retiring a row never removes its integrated code. A remaining
 dependent needs an explicit contract amendment, and an entirely retired plan
 must be cancelled instead. Ordinary Project/body edits are never amendments.
+An intake reassessment can revoke a newly adopted member before it starts.
+Explicit `retry --reauthorize` may release that one member again only against
+the exact current signed delivery and every sibling's valid authority. It
+requires no branch, private workspace, execution evidence, QA history or active
+transition, previews the plan revision, and consumes the reassessment label
+under the mutation fence. It does not replay an amendment, modify membership,
+reset history or renew any acceptance. Ordinary reassessment remains revocation.
 The core and operator
 milestones are not permission to enable live
 delivery before all required controls and the rollout have been independently

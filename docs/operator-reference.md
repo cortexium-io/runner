@@ -126,6 +126,12 @@ rerun `init` when it reports newly required Project fields. For supported local
 launchd workers, the updater drains and reloads the services using this exact
 executable. See [graceful stop and managed upgrades](#graceful-stop-and-managed-upgrades).
 
+Source and locally labelled builds can use the same updater by selecting a
+published release explicitly with `--version`. Their labels cannot establish
+release ordering, so an update without an explicit target is refused. Release
+targets still require the exact `vMAJOR.MINOR.PATCH` format and all normal
+download, checksum, binary validation and worker-drain checks.
+
 To build the current checkout instead, use the Go version declared in
 [`go.mod`](../go.mod):
 
@@ -195,7 +201,7 @@ LaunchDaemons and wrapper-launched jobs are not automatically managed. Other
 supervisors must be configured not to respawn an intentionally stopped worker.
 `stop` does not install or invent a service definition.
 
-For a release build, `update` downloads and validates the new binary before
+`update` downloads and validates the new binary before
 requesting any stop. It automatically drains only supported, currently running
 launchd services using the executable being replaced, atomically replaces the
 binary, then reloads those exact services and checks for a fresh successful poll.
@@ -213,6 +219,18 @@ remain active; inspect each service before recovery. A failed reload or readines
 check is reported explicitly, including whether the binary was replaced.
 The update command does not migrate project configuration, install skills, or
 roll back a successfully installed binary because of a readiness failure.
+
+Runner's release version does not invalidate approved plans or retained QA and
+verification by itself. Their settings bindings use explicit persisted contracts.
+Unchanged policies written by v0.6.1 and v0.7.0 remain recognizable, including the
+older representation that omitted disabled codemode. Runner compares that exact
+historical projection of today's settings; it does not rewrite signed manifests,
+acceptance records or receipts. Enabling codemode, changing an approved model or
+reasoning level, changing access/tool grants, removing a profile, or changing
+verification inputs still requires the applicable approval or fresh evidence.
+The release regression fixtures and interrupted-publication test protect this
+upgrade boundary. They do not promise arbitrary downgrades or compatibility with
+future contract changes.
 
 Workers started with an older binary do not understand stop requests. They are
 reported as unsupported and never signaled or killed; the first upgrade still
@@ -1339,6 +1357,15 @@ inspectable there, collision checks prevent an earlier quarantine from being
 overwritten, and a path not registered to the configured repository is never
 moved or removed.
 
+New assignment names include a digest of the exact case-sensitive Project item
+ID, so IDs differing only by case or slug punctuation cannot share a branch,
+workspace, or private recovery record on a case-insensitive filesystem.
+Already-recorded branches retain their original path binding. Existing private
+checkpoints and evidence are reused only by their exact recorded item/source
+ID; similarly spelled items receive distinct new names. This does not weaken
+content, base, candidate, ownership, or private-file validation, and does not
+automatically restore an earlier quarantine.
+
 On macOS and Linux, the workspace-write root is a private directory owned by
 Runner's effective user with mode `0700`. Runner creates missing components
 with that mode and refuses an existing root that is a symlink, is not a
@@ -2389,6 +2416,19 @@ project-specific browser check.
 Codex may expose the injected MCP operations as direct calls or through its
 Code Mode tool catalog; Runner supports both callable surfaces and uses the
 exact `navigate`, `evaluate`, and `screenshot` operation names.
+
+Screenshots return PNG paths under the invocation's private scratch directory,
+which is accessible to that worker. MCP configuration and package resolution stay
+in the separate trusted runtime. Inspect the image, and copy any durable evidence
+into the assigned workspace before the invocation ends; scratch files are cleaned
+up with the invocation.
+
+The default browser remains loopback-only. External competitor research needs an
+explicit operator-granted research capability or a host-side evidence handoff.
+Private Go modules similarly require approved dependency preparation or an exact
+candidate host verification handoff; the public package profile does not supply
+ambient private credentials. Supply dated sources and bound verification results
+to the card instead of asking the worker to bypass its containment.
 
 Each harness invocation starts its own configured MCP connections. The
 Runner-owned stdio browser server uses a fresh isolated profile per invocation;

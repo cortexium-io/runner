@@ -107,6 +107,10 @@ type ProjectConfig struct {
 	InitialRole            string
 	ApprovalLaneID         string
 	ActiveLaneID           string
+
+	PlanVerificationTimeoutSeconds int
+	// Exact v0.6.1 projections of the current policy with codemode off.
+	PlanProfilePreviousDigests map[string]string
 }
 
 func (c GitHubProjectConfig) ApprovalFieldName() string {

@@ -14,16 +14,22 @@ import (
 // This projection contains only Runner settings, never provider credentials or
 // inherited provider configuration. Descriptive prose is not execution policy.
 func (c Config) planImplementationProfileDigests() map[string]string {
+	current, _ := c.planImplementationProfileBindings()
+	return current
+}
+
+func (c Config) planImplementationProfileBindings() (map[string]string, map[string]string) {
 	allowed := append([]string(nil), c.PlannerImplementers...)
 	if len(allowed) == 0 {
 		allowed = []string{c.AttemptRole(c.RoleIDForContract(WorkRoleImplementer), 0)}
 	}
 	type profileBinding struct {
-		ID      string        `json:"id"`
-		Profile RoleConfig    `json:"profile"`
-		Harness HarnessConfig `json:"harness"`
+		ID      string                 `json:"id"`
+		Profile roleSettingsBinding    `json:"profile"`
+		Harness harnessSettingsBinding `json:"harness"`
 	}
 	result := make(map[string]string, len(allowed))
+	previous := make(map[string]string, len(allowed))
 	for _, selected := range allowed {
 		steps := []string{selected}
 		if len(c.ImplementerLadder) > 0 {
@@ -56,20 +62,32 @@ func (c Config) planImplementationProfileDigests() map[string]string {
 			// Enabled is already resolved by Harness. Role-owned model, reasoning
 			// and timeout are in Profile (Harness's runtime fields are json:"-").
 			harness.Enabled = nil
-			profiles = append(profiles, profileBinding{ID: id, Profile: profile, Harness: harness})
+			profiles = append(profiles, profileBinding{ID: id, Profile: bindRole(profile), Harness: bindHarness(harness)})
 		}
 		if len(profiles) != len(steps) {
 			continue
 		}
-		encoded, _ := json.Marshal(struct {
+		binding := struct {
 			Profiles             []profileBinding      `json:"profiles"`
 			RepositoryReferences []RepositoryReference `json:"repository_references"`
 			ReviewEvidencePaths  []string              `json:"review_evidence_paths"`
 			TestSpecialist       *TestSpecialistConfig `json:"test_specialist,omitempty"`
-		}{profiles, c.RepositoryReferences, c.ReviewEvidencePaths, cloneTestSpecialist(c.TestSpecialist)})
+		}{profiles, c.RepositoryReferences, c.ReviewEvidencePaths, cloneTestSpecialist(c.TestSpecialist)}
+		encoded, _ := json.Marshal(binding)
 		result[selected] = fmt.Sprintf("v1:%x", sha256.Sum256(encoded))
+		allOff := true
+		for i := range profiles {
+			if *profiles[i].Profile.Codemode {
+				allOff = false
+				break
+			}
+			profiles[i].Profile.Codemode = nil
+		}
+		if allOff {
+			previous[selected] = "v1:" + settingsDigest(binding)
+		}
 	}
-	return result
+	return result, previous
 }
 
 func validatePlannerImplementers(c Config) error {

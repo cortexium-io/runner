@@ -1711,7 +1711,7 @@ func TestStagedBatchApprovalUsesItsOriginatingPlannerLaneDestination(t *testing.
 		PlanningSourceID: sourceItem.ID, PlanningSourceLane: "review_planner", PlanningSourceFingerprint: github.PlanningSourceFingerprint(sourceItem),
 		PlanningDestination: "Agent QA", PlanningBatchFingerprint: "v1:exact-specialized-batch", PlanningBatchSize: 1, PlanningItemIndex: 1, DependencyIDsResolved: true,
 	}
-	child := github.WorkItem{ID: "PVTI_child", Title: planned.Title, Body: github.FormatPlannedItemBody(planned), Status: "Needs assessment"}
+	child := github.WorkItem{ID: "PVTI_created", Title: planned.Title, Body: github.FormatPlannedItemBody(planned), Status: "Needs assessment"}
 	run := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(sourceItem) + `,` + projectItemJSON(child) + `]}`}
 	projectCfg := completeEngineTestConfig(config.Config{
 		ProjectDir: t.TempDir(), GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo"},
@@ -1723,9 +1723,19 @@ func TestStagedBatchApprovalUsesItsOriginatingPlannerLaneDestination(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	run.hideCreatedFromList = true
+	run.remoteItems[1].Body += "\nUnapproved change."
+	if err := source.StagePlanningApproval(t.Context(), mustAuthorizeTest(t, source, sourceItem), []github.WorkItem{items[1]}, "Stage changed batch."); err == nil || !strings.Contains(err.Error(), "changed before authenticated staging") {
+		t.Fatalf("exact child change was ignored: %v", err)
+	}
+	if run.remoteItems[0].Approval != sourceItem.Approval {
+		t.Fatal("failed staging changed parent authority")
+	}
+	run.remoteItems[1].Body = child.Body
 	if err := source.StagePlanningApproval(t.Context(), mustAuthorizeTest(t, source, sourceItem), []github.WorkItem{items[1]}, "Staged exact specialized batch."); err != nil {
 		t.Fatalf("authenticate staged specialized batch: %v", err)
 	}
+	run.hideCreatedFromList = false
 
 	preview, err := source.PlanApproval(t.Context(), sourceItem.ID)
 	if err != nil {

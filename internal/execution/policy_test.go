@@ -401,7 +401,7 @@ func TestSandboxProfilesGrantOnlyResolvedGitAndDevelopmentToolReads(t *testing.T
 func TestReviewerProfilesDefaultToNativeIsolation(t *testing.T) {
 	t.Setenv("HOME", "/home/operator")
 	profile, _ := ProfileForRole(RoleReviewer)
-	workspace := profileWorkspace{Dir: "/neutral", ReadRoot: "/repo", TrustedToolDir: "/private/trusted-browser"}
+	workspace := profileWorkspace{Dir: "/neutral", ReadRoot: "/repo", TempDir: "/private/worker-scratch", TrustedToolDir: "/private/trusted-browser"}
 	mcpArgs, err := codexMCPProfileArgsForConfig(t.Context(), &codexMCPListRunner{}, "codex", workspace, nil, true, config.HarnessConfigModeIsolated)
 	if err != nil {
 		t.Fatal(err)
@@ -411,7 +411,7 @@ func TestReviewerProfilesDefaultToNativeIsolation(t *testing.T) {
 	joinedCodex := strings.Join(codex, " ")
 	for _, required := range []string{
 		"--strict-config", "--enable", "network_proxy",
-		`permissions.runner_reviewer_browser={description="Runner reviewer with local browser QA",filesystem={":minimal"="read",":workspace_roots"={"."="read"},"/neutral"="write"}`,
+		`permissions.runner_reviewer_browser={description="Runner reviewer with local browser QA",filesystem={":minimal"="read",":workspace_roots"={"."="read"},"/neutral"="write","/private/worker-scratch"="write"}`,
 		`workspace_roots={"/repo"=true}`,
 		`network={enabled=true,mode="limited",allow_local_binding=true,domains={"localhost"="allow","127.0.0.1"="allow"}}`,
 		`default_permissions="runner_reviewer_browser"`,

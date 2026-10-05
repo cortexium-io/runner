@@ -14,8 +14,9 @@ func deliveryFixture(t *testing.T) (*Project, WorkItem, []WorkItem) {
 	p := NewProject(config.ProjectConfig{
 		GitHubProjectConfig: config.GitHubProjectConfig{Owner: "owner", Number: 1, IntakeRepository: "owner/repo", BaseBranch: "develop"},
 		PlanDelivery:        true, PlanVerificationID: "complete", PlanVerificationDigest: gate.Digest(),
-		PlanProfileDigests: map[string]string{"implementer": profileDigest},
-		BacklogStatus:      "Backlog", ReadyStatus: "Ready", RunningStatus: "In progress", QAStatus: "Agent QA", DoneStatus: "Done", BlockedStatus: "Blocked",
+		PlanVerificationTimeoutSeconds: gate.TimeoutSeconds,
+		PlanProfileDigests:             map[string]string{"implementer": profileDigest},
+		BacklogStatus:                  "Backlog", ReadyStatus: "Ready", RunningStatus: "In progress", QAStatus: "Agent QA", DoneStatus: "Done", BlockedStatus: "Blocked",
 		InitialRole: "planner", InitialLaneID: "plan", AgentStatuses: []string{"Ready", "Agent QA"},
 		LaneStatuses: map[string]string{"backlog": "Backlog", "ready": "Ready", "agent_qa": "Agent QA", "done": "Done", "blocked": "Blocked"},
 		LaneRoles:    map[string]string{"ready": "implementer", "agent_qa": "reviewer"},
@@ -56,6 +57,27 @@ func signDeliveryFixture(t *testing.T, p *Project, item WorkItem, role, state st
 		t.Fatal(err)
 	}
 	return action.Item
+}
+
+func TestPlanDeliveryAcceptsOnlyEquivalentPreviousProfileBinding(t *testing.T) {
+	p, parent, children := deliveryFixture(t)
+	// The approved manifest remains untouched. Only the current runtime's exact
+	// equivalent historical projection can recognize its existing authority.
+	approved := p.cfg.PlanProfileDigests["implementer"]
+	p.cfg.PlanProfileDigests["implementer"] = "v1:" + strings.Repeat("b", 64)
+	p.cfg.PlanProfilePreviousDigests = map[string]string{"implementer": approved}
+	if _, err := p.validatePlanMembers(parent, children); err != nil {
+		t.Fatalf("equivalent upgraded runtime rejected the approved manifest: %v", err)
+	}
+	p.cfg.PlanProfilePreviousDigests["implementer"] = "v1:" + strings.Repeat("c", 64)
+	if _, err := p.validatePlanMembers(parent, children); err == nil {
+		t.Fatal("changed historical projection inherited approval")
+	}
+	p.cfg.PlanProfilePreviousDigests["implementer"] = approved
+	delete(p.cfg.PlanProfileDigests, "implementer")
+	if _, err := p.validatePlanMembers(parent, children); err == nil {
+		t.Fatal("removed profile inherited approval from a historical binding")
+	}
 }
 
 func TestPlanReleaseBindsManifestAndMembersIndependentlyOfLifecycle(t *testing.T) {

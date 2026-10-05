@@ -236,7 +236,7 @@ func claudeMCPConfig(safeTools bool, workspace profileWorkspace) string {
 		command, args := runnerBrowserCommand()
 		servers[runnerBrowserMCPServer] = map[string]any{
 			"command": command, "args": args, "cwd": workspace.TrustedToolDir,
-			"env": runnerBrowserEnvironment(workspace.TrustedToolDir),
+			"env": runnerBrowserEnvironment(workspace.TrustedToolDir, workspace.TempDir),
 		}
 	}
 	encoded, _ := json.Marshal(map[string]any{"mcpServers": servers})

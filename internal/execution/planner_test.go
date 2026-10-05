@@ -170,8 +170,28 @@ func TestPiPlannerSynthesisStageUsesDirectNativeJSONWithoutTools(t *testing.T) {
 	if !strings.Contains(joined, "--append-system-prompt "+piDirectNativeStructuredResultSystemPrompt) || !strings.Contains(run.extensionSource, "runnerDirectNativeStructuredResult = true") || !strings.Contains(run.extensionSource, "response_format") || strings.Contains(run.extensionSource, "registerTool") {
 		t.Fatalf("Pi synthesis did not force direct native JSON without a tool:\nargs=%s\nextension=%s", joined, run.extensionSource)
 	}
-	if strings.Contains(run.input, "BEGIN RUNNER-PINNED SKILL") {
-		t.Fatalf("Pi synthesis repeated the planner orientation skill:\n%s", run.input)
+	if !strings.Contains(run.input, "BEGIN RUNNER-PINNED SKILL") || !strings.Contains(run.input, "Create the smallest complete plan") || !strings.Contains(run.input, "Do not open installed skill files") {
+		t.Fatalf("tool-free synthesis lacks self-contained planning instructions:\n%s", run.input)
+	}
+}
+
+func TestCodexPlannerSynthesisIsSelfContainedDespiteParentToolGrants(t *testing.T) {
+	run := &structuredResultCommandRunner{rawResult: []byte(`{"answer":"planned"}`)}
+	cfg := config.ExecutionConfig{
+		Skills: []string{"runner-planner"}, SafeTools: true, MCPServers: []string{"operator"},
+		RoleAccess: config.RoleAccessHost, HarnessConfigMode: config.HarnessConfigModeInherit,
+		Harness: config.HarnessConfig{Kind: config.HarnessCodexCLI, Command: "codex", WorkingDir: t.TempDir(), TimeoutSeconds: 30},
+	}
+	result, err := RunPlannerSynthesisStageWithUsage(t.Context(), config.HarnessCodexCLI, cfg, "Use these skills: runner-planner. Fill the supplied outline.", []byte(`{"type":"object"}`), run)
+	if err != nil || result.Message != `{"answer":"planned"}` {
+		t.Fatalf("synthesis: %+v %v", result, err)
+	}
+	joined := strings.Join(run.args, " ")
+	if !strings.Contains(joined, "mcp_servers={}") || !containsArgPair(run.args, "--disable", "shell_tool") || !containsArgPair(run.args, "--disable", "unified_exec") || strings.Contains(joined, "runner_browser") {
+		t.Fatalf("details stage borrowed parent tools: %s", joined)
+	}
+	if len(run.inputs) != 1 || !strings.Contains(run.inputs[0], "Create the smallest complete plan") || !strings.Contains(run.inputs[0], "Do not open installed skill files") {
+		t.Fatal("details stage cannot apply the required skill without reading it")
 	}
 }
 

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -131,6 +132,12 @@ func (r *planEvidenceRunner) Run(ctx context.Context, command string, args []str
 			return result, err
 		}
 		assessment["summary"] = r.planReviewSummary
+		if len(r.planReviewSummary) > 4_000 {
+			assessment["brief"].(map[string]any)["rationale"] = r.planReviewSummary
+			for _, criterion := range assessment["criteria"].(map[string]any) {
+				criterion.(map[string]any)["summary"] = r.planReviewSummary
+			}
+		}
 		data, err = json.Marshal(assessment)
 		if err != nil {
 			return result, err
@@ -256,7 +263,7 @@ func planMemberEvidenceAcceptance(t *testing.T, f *deliveryRunFixture, child git
 	t.Helper()
 	provider := workspace.NewGitProvider(f.service.run)
 	metadata, err := provider.InspectRetainedReview(t.Context(), workspace.Request{
-		WorkingDir: f.repo, WorktreeRoot: f.cfg.Harnesses[0].WorkspaceWriteRoot, WorkID: "assignment_" + safeRefComponent(child.ID),
+		WorkingDir: f.repo, WorktreeRoot: f.cfg.Harnesses[0].WorkspaceWriteRoot, WorkID: f.service.assignmentWorkID(child),
 		ItemID: child.ID, Repository: child.Repository, DelegatedContentDigest: github.DelegatedContentFor(child).Digest,
 		BranchName: child.Branch, BaseRef: "origin/" + f.parent(t).Branch,
 	})
@@ -593,6 +600,22 @@ func TestProductionPlanReviewEvidenceSurvivesInterruptedPublication(t *testing.T
 				}
 			}
 			r.offline = false
+			historicalSettings := ""
+			if boundary == "final publication" {
+				progress := retainedPlanProgress(t, f)
+				cfg := f.service.executionConfig(progress.ReviewerRole, f.service.roleHarness(progress.ReviewerRole), progress.Metadata.WorktreePath)
+				encoded, err := json.Marshal(cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// The real v0.6.1 struct had no Codemode field. Keep its binding
+				// and every acceptance/receipt byte through the production restart.
+				progress.SettingsDigest = planProgressDigest(json.RawMessage(bytes.Replace(encoded, []byte(`"Codemode":false,`), nil, 1)))
+				historicalSettings = progress.SettingsDigest
+				if err := f.service.savePlanVerification(f.parent(t), github.DelegatedContentFor(f.parent(t)), progress); err != nil {
+					t.Fatal(err)
+				}
+			}
 			restartPlanEvidenceEngine(t, f, r)
 			for cycle := 0; cycle < 8 && f.parent(t).Status != "PR Ready"; cycle++ {
 				runPlanEvidenceCycle(t, f)
@@ -600,6 +623,12 @@ func TestProductionPlanReviewEvidenceSurvivesInterruptedPublication(t *testing.T
 			assertWholePlanEvidence(t, f, r, workspace.EvidenceAccepted)
 			if f.parent(t).Status != "PR Ready" || r.implementations != 2 || r.reviews != 3 || r.creates != 1 || r.planPushes != 3 {
 				t.Fatalf("recovery repeated work: parent=%s implementation=%d review=%d PR=%d pushes=%d", f.parent(t).Status, r.implementations, r.reviews, r.creates, r.planPushes)
+			}
+			if historicalSettings != "" && retainedPlanProgress(t, f).SettingsDigest != historicalSettings {
+				t.Fatal("upgrade relabeled the original review settings binding")
+			}
+			if runs, err := os.ReadFile(r.gateLog); err != nil || string(runs) != "gate\n" {
+				t.Fatalf("upgrade repeated completed verification: %q err=%v", runs, err)
 			}
 			after := preservedPlanEvidence(t, f)
 			if len(after) != 6 { // Exactly one manifest and two original receipts per child.
@@ -758,6 +787,7 @@ func TestProductionPlanReviewProgressRechecksMemberEvidence(t *testing.T) {
 
 func TestProductionPlanReviewRecoveryBeforePublicationComment(t *testing.T) {
 	f, r := newProductionEvidenceDelivery(t)
+	r.planReviewSummary = strings.Repeat("Accepted complete evidence. ", 220)
 	f.integrateMembers(t)
 	children := planEvidenceChildren(t, f)
 	commentsBefore := append([]github.ItemComment(nil), r.project.issueComments...)
@@ -807,6 +837,22 @@ func TestProductionPlanReviewRecoveryBeforePublicationComment(t *testing.T) {
 	action, err := f.service.source.Authorize(t.Context(), f.parent(t))
 	if err != nil {
 		t.Fatal(err)
+	}
+	observedComments, err := f.service.source.ItemComments(t.Context(), f.parent(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	matched := false
+	for _, comment := range observedComments {
+		if comment.MatchesBody(publicationComment) {
+			matched = true
+			if len(comment.Body) >= len(publicationComment) {
+				t.Fatal("fixture did not exercise bounded publication context")
+			}
+		}
+	}
+	if !matched {
+		t.Fatal("full publication identity was lost by the bounded comment read")
 	}
 	commentsAfter := append([]github.ItemComment(nil), r.project.issueComments...)
 	for _, change := range []string{"additional operator comment", "altered publication comment"} {

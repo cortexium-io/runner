@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/cortexium-io/runner/internal/config"
@@ -69,6 +70,9 @@ type PlanManifest struct {
 	CompleteVerification string       `json:"complete_verification"`
 	VerificationDigest   string       `json:"verification_digest"`
 	Members              []PlanMember `json:"members"`
+	// An explicitly approved parent-only deadline extension. Zero uses the
+	// catalog deadline; commands, inputs and containment stay catalog-bound.
+	VerificationTimeoutSeconds int `json:"verification_timeout_seconds,omitempty"`
 }
 
 type PlanMember struct {
@@ -146,6 +150,9 @@ func ParsePlanManifest(body string) (PlanManifest, bool, error) {
 }
 
 func validatePlanManifest(manifest PlanManifest) error {
+	if manifest.VerificationTimeoutSeconds < 0 || int64(manifest.VerificationTimeoutSeconds) > int64(time.Duration(1<<63-1)/time.Second) {
+		return errors.New("plan verification deadline must be a nonnegative representable duration")
+	}
 	if manifest.Version != 1 || manifest.Amendment < 0 || strings.TrimSpace(manifest.Request) == "" || strings.TrimSpace(manifest.Outcome) == "" ||
 		len(manifest.SuccessCriteria) == 0 || !config.ValidRepositoryName(manifest.Repository) ||
 		!validPlanBranch(manifest.DestinationBranch) || strings.TrimSpace(manifest.CompleteVerification) == "" || !validPlanDigest(manifest.VerificationDigest) ||
@@ -218,8 +225,13 @@ func (s *Project) validatePlanMembers(parent WorkItem, children []WorkItem) (Pla
 	if !s.cfg.PlanDelivery || manifest.CompleteVerification != s.cfg.PlanVerificationID || manifest.VerificationDigest != s.cfg.PlanVerificationDigest {
 		return manifest, errors.New("plan delivery is disabled or its approved complete-verification settings changed")
 	}
+	if manifest.VerificationTimeoutSeconds != 0 && (s.cfg.PlanVerificationTimeoutSeconds <= 0 || manifest.VerificationTimeoutSeconds < s.cfg.PlanVerificationTimeoutSeconds) {
+		return manifest, errors.New("plan verification deadline may only extend the current approved catalog deadline")
+	}
 	for _, member := range manifest.ActiveMembers() {
-		if member.ProfileDigest != s.cfg.PlanProfileDigests[member.ImplementationProfile] {
+		current := s.cfg.PlanProfileDigests[member.ImplementationProfile]
+		previous := s.cfg.PlanProfilePreviousDigests[member.ImplementationProfile]
+		if current == "" || member.ProfileDigest != current && (previous == "" || member.ProfileDigest != previous) {
 			return manifest, errors.New("plan member content, dependency or resolved profile changed after approval")
 		}
 	}
@@ -425,7 +437,7 @@ func (s *Project) EnsureDeliveryPlanningParent(ctx context.Context, title, reque
 	if err != nil {
 		return WorkItem{}, false, err
 	}
-	item, err = s.InspectRecoveryItem(ctx, item.ID)
+	item, err = s.itemByID(ctx, item.ID)
 	if err != nil {
 		return WorkItem{}, false, err
 	}
@@ -449,7 +461,7 @@ func (s *Project) EnsureDeliveryPlanningParent(ctx context.Context, title, reque
 		textProjectField(s.approvalFieldName(), action.assertion), statusProjectField(s.statusFieldName(), item.Status)); err != nil {
 		return item, false, fmt.Errorf("durable proposal %s was created but not fully authenticated; inspect it before retrying: %w", item.ID, err)
 	}
-	current, err := s.InspectRecoveryItem(ctx, item.ID)
+	current, err := s.itemByID(ctx, item.ID)
 	if err != nil {
 		return item, false, err
 	}
@@ -554,7 +566,7 @@ func (s *Project) StageDeliveryPlanningApproval(ctx context.Context, expected Au
 	if source.Body != manifest.Request {
 		return errors.New("delivery manifest request differs from the authorized planning request")
 	}
-	current, err := s.InspectRecoveryItem(ctx, source.ID)
+	current, err := s.itemByID(ctx, source.ID)
 	if err != nil {
 		return err
 	}

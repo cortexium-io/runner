@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -238,6 +239,14 @@ func TestWorktreeProfileUsesPrivateRuntimeOutsideTheCheckout(t *testing.T) {
 	for _, writable := range sandboxAdditionalWritePaths(workspace) {
 		if pathInsideOrEqual(workspace.TrustedToolDir, writable) || pathInsideOrEqual(writable, workspace.TrustedToolDir) {
 			t.Fatalf("trusted tool directory leaked into sandbox write grants: trusted=%q grants=%#v", workspace.TrustedToolDir, sandboxAdditionalWritePaths(workspace))
+		}
+	}
+	// MCP runs outside the worker sandbox. Its file-path results still need to
+	// land in the actual worker grant, without granting its trusted config cwd.
+	environment := runnerBrowserEnvironment(workspace.TrustedToolDir, workspace.TempDir)
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		if environment[key] != workspace.TempDir || !slices.Contains(sandboxAdditionalWritePaths(workspace), environment[key]) {
+			t.Fatalf("browser artifact path %s is outside the worker grant: %#v", key, environment)
 		}
 	}
 }
