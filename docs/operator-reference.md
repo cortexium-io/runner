@@ -214,6 +214,18 @@ check is reported explicitly, including whether the binary was replaced.
 The update command does not migrate project configuration, install skills, or
 roll back a successfully installed binary because of a readiness failure.
 
+Runner's release version does not invalidate approved plans or retained QA and
+verification by itself. Their settings bindings use explicit persisted contracts.
+Unchanged policies written by v0.6.1 and v0.7.0 remain recognizable, including the
+older representation that omitted disabled codemode. Runner compares that exact
+historical projection of today's settings; it does not rewrite signed manifests,
+acceptance records or receipts. Enabling codemode, changing an approved model or
+reasoning level, changing access/tool grants, removing a profile, or changing
+verification inputs still requires the applicable approval or fresh evidence.
+The release regression fixtures and interrupted-publication test protect this
+upgrade boundary. They do not promise arbitrary downgrades or compatibility with
+future contract changes.
+
 Workers started with an older binary do not understand stop requests. They are
 reported as unsupported and never signaled or killed; the first upgrade still
 requires an idle maintenance boundary. The bootstrap installer and manual

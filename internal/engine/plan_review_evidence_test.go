@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -599,6 +600,22 @@ func TestProductionPlanReviewEvidenceSurvivesInterruptedPublication(t *testing.T
 				}
 			}
 			r.offline = false
+			historicalSettings := ""
+			if boundary == "final publication" {
+				progress := retainedPlanProgress(t, f)
+				cfg := f.service.executionConfig(progress.ReviewerRole, f.service.roleHarness(progress.ReviewerRole), progress.Metadata.WorktreePath)
+				encoded, err := json.Marshal(cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				// The real v0.6.1 struct had no Codemode field. Keep its binding
+				// and every acceptance/receipt byte through the production restart.
+				progress.SettingsDigest = planProgressDigest(json.RawMessage(bytes.Replace(encoded, []byte(`"Codemode":false,`), nil, 1)))
+				historicalSettings = progress.SettingsDigest
+				if err := f.service.savePlanVerification(f.parent(t), github.DelegatedContentFor(f.parent(t)), progress); err != nil {
+					t.Fatal(err)
+				}
+			}
 			restartPlanEvidenceEngine(t, f, r)
 			for cycle := 0; cycle < 8 && f.parent(t).Status != "PR Ready"; cycle++ {
 				runPlanEvidenceCycle(t, f)
@@ -606,6 +623,12 @@ func TestProductionPlanReviewEvidenceSurvivesInterruptedPublication(t *testing.T
 			assertWholePlanEvidence(t, f, r, workspace.EvidenceAccepted)
 			if f.parent(t).Status != "PR Ready" || r.implementations != 2 || r.reviews != 3 || r.creates != 1 || r.planPushes != 3 {
 				t.Fatalf("recovery repeated work: parent=%s implementation=%d review=%d PR=%d pushes=%d", f.parent(t).Status, r.implementations, r.reviews, r.creates, r.planPushes)
+			}
+			if historicalSettings != "" && retainedPlanProgress(t, f).SettingsDigest != historicalSettings {
+				t.Fatal("upgrade relabeled the original review settings binding")
+			}
+			if runs, err := os.ReadFile(r.gateLog); err != nil || string(runs) != "gate\n" {
+				t.Fatalf("upgrade repeated completed verification: %q err=%v", runs, err)
 			}
 			after := preservedPlanEvidence(t, f)
 			if len(after) != 6 { // Exactly one manifest and two original receipts per child.

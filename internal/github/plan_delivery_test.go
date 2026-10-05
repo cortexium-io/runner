@@ -59,6 +59,27 @@ func signDeliveryFixture(t *testing.T, p *Project, item WorkItem, role, state st
 	return action.Item
 }
 
+func TestPlanDeliveryAcceptsOnlyEquivalentPreviousProfileBinding(t *testing.T) {
+	p, parent, children := deliveryFixture(t)
+	// The approved manifest remains untouched. Only the current runtime's exact
+	// equivalent historical projection can recognize its existing authority.
+	approved := p.cfg.PlanProfileDigests["implementer"]
+	p.cfg.PlanProfileDigests["implementer"] = "v1:" + strings.Repeat("b", 64)
+	p.cfg.PlanProfilePreviousDigests = map[string]string{"implementer": approved}
+	if _, err := p.validatePlanMembers(parent, children); err != nil {
+		t.Fatalf("equivalent upgraded runtime rejected the approved manifest: %v", err)
+	}
+	p.cfg.PlanProfilePreviousDigests["implementer"] = "v1:" + strings.Repeat("c", 64)
+	if _, err := p.validatePlanMembers(parent, children); err == nil {
+		t.Fatal("changed historical projection inherited approval")
+	}
+	p.cfg.PlanProfilePreviousDigests["implementer"] = approved
+	delete(p.cfg.PlanProfileDigests, "implementer")
+	if _, err := p.validatePlanMembers(parent, children); err == nil {
+		t.Fatal("removed profile inherited approval from a historical binding")
+	}
+}
+
 func TestPlanReleaseBindsManifestAndMembersIndependentlyOfLifecycle(t *testing.T) {
 	p, parent, children := deliveryFixture(t)
 	all := append([]WorkItem{parent}, children...)

@@ -199,7 +199,7 @@ func (s *Engine) implementationTestHandoff(ctx context.Context, action github.Au
 			return assignment, nil, observed, errors.New("candidate changed before specialist preparation")
 		}
 		state = &implementationSpecialistState{
-			Phase: specialistStarted, HandoffID: metrics.NewStageID(), SettingsDigest: specialistDigest(cfg), AssignmentDigest: specialistDigest(assignment.Spec),
+			Phase: specialistStarted, HandoffID: metrics.NewStageID(), SettingsDigest: cfg.EvidenceSettingsDigest(), AssignmentDigest: specialistDigest(assignment.Spec),
 			CorrectionContext: correctionContext,
 			RequestDigest:     specialistDigest(previous.TestRequest), SourceFingerprint: snapshot.Fingerprint, WorkspacePath: private.Path,
 			StartedAt: time.Now().UTC(), Previous: previous, AllowedPaths: slices.Clone(previous.TestRequest.Paths),
@@ -242,7 +242,7 @@ func (s *Engine) implementationTestHandoff(ctx context.Context, action github.Au
 			return assignment, state, observed, errors.New("specialist recovery assignment already contains invocation context")
 		}
 		assignment.Spec.Task.Instructions += state.CorrectionContext
-		if state.SettingsDigest != specialistDigest(cfg) || state.AssignmentDigest != specialistDigest(assignment.Spec) || state.RequestDigest != specialistDigest(previous.TestRequest) {
+		if !cfg.MatchesEvidenceSettings(state.SettingsDigest) || state.AssignmentDigest != specialistDigest(assignment.Spec) || state.RequestDigest != specialistDigest(previous.TestRequest) {
 			return assignment, state, observed, errors.New("retained specialist settings or exact assignment changed")
 		}
 	}

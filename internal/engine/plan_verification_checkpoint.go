@@ -172,7 +172,7 @@ func (p *planVerificationProgress) failureDiagnostics() ([]byte, error) {
 }
 
 func (s *Engine) planReviewSettings(role, directory string) string {
-	return planProgressDigest(s.executionConfig(role, s.roleHarness(role), directory))
+	return s.executionConfig(role, s.roleHarness(role), directory).EvidenceSettingsDigest()
 }
 
 func (s *Engine) savePlanVerification(item github.WorkItem, content github.DelegatedContent, progress *planVerificationProgress) error {
@@ -248,7 +248,7 @@ func (s *Engine) revalidatePlanProgress(ctx context.Context, action github.Autho
 	} else if s.executionRole(fresh.Item) != p.ReviewerRole {
 		return action, errors.New("parent reviewer profile changed")
 	}
-	if fresh.Item.ID != p.Assignment.Spec.ItemID || content.Digest != p.Assignment.Spec.DelegatedContentDigest || content.BodySnapshot != p.Assignment.Spec.ApprovedBodySnapshot || fresh.Item.Branch != p.Metadata.BranchName || p.SettingsDigest != s.planReviewSettings(p.ReviewerRole, p.Metadata.WorktreePath) {
+	if fresh.Item.ID != p.Assignment.Spec.ItemID || content.Digest != p.Assignment.Spec.DelegatedContentDigest || content.BodySnapshot != p.Assignment.Spec.ApprovedBodySnapshot || fresh.Item.Branch != p.Metadata.BranchName || !s.executionConfig(p.ReviewerRole, s.roleHarness(p.ReviewerRole), p.Metadata.WorktreePath).MatchesEvidenceSettings(p.SettingsDigest) {
 		return action, errors.New("parent acceptance authority, destination or reviewer settings changed")
 	}
 	if _, _, err := s.planGateForReviewer(ctx, fresh, p.ReviewerRole); err != nil {

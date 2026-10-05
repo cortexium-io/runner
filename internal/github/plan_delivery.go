@@ -229,7 +229,9 @@ func (s *Project) validatePlanMembers(parent WorkItem, children []WorkItem) (Pla
 		return manifest, errors.New("plan verification deadline may only extend the current approved catalog deadline")
 	}
 	for _, member := range manifest.ActiveMembers() {
-		if member.ProfileDigest != s.cfg.PlanProfileDigests[member.ImplementationProfile] {
+		current := s.cfg.PlanProfileDigests[member.ImplementationProfile]
+		previous := s.cfg.PlanProfilePreviousDigests[member.ImplementationProfile]
+		if current == "" || member.ProfileDigest != current && (previous == "" || member.ProfileDigest != previous) {
 			return manifest, errors.New("plan member content, dependency or resolved profile changed after approval")
 		}
 	}
