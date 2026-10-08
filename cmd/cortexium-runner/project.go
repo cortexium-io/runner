@@ -626,6 +626,10 @@ func runApprove(ctx context.Context, args []string, stdin io.Reader, stdout io.W
 	if plan.Batch != nil {
 		writeBatchApprovalPreview(stdout, *plan.Batch)
 		if *dryRun {
+			if plan.Batch.Released {
+				fmt.Fprintln(stdout, "\nDry run only. Re-run without --dry-run to finish source completion.")
+				return nil
+			}
 			fmt.Fprintln(stdout, "\nDry run only. Re-run without --dry-run to approve and release this complete batch.")
 			return nil
 		}
@@ -637,6 +641,10 @@ func runApprove(ctx context.Context, args []string, stdin io.Reader, stdout io.W
 			return err
 		}
 		if !accepted {
+			if plan.Batch.Released {
+				fmt.Fprintln(stdout, "\nSource completion left pending.")
+				return nil
+			}
 			fmt.Fprintln(stdout, "\nNo cards approved. The complete batch remains unapproved in staging.")
 			return nil
 		}
@@ -645,7 +653,11 @@ func runApprove(ctx context.Context, args []string, stdin io.Reader, stdout io.W
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "\nApproved %d staged children and moved the planning source %s to %s.\n", len(plan.Batch.Children), terminalSafeApprovalText(approved.ID), terminalSafeApprovalText(approved.Status))
+		if plan.Batch.Released {
+			fmt.Fprintf(stdout, "\nCompleted the authenticated release for planning source %s.\n", terminalSafeApprovalText(approved.ID))
+		} else {
+			fmt.Fprintf(stdout, "\nApproved %d staged children and moved the planning source %s to %s.\n", len(plan.Batch.Children), terminalSafeApprovalText(approved.ID), terminalSafeApprovalText(approved.Status))
+		}
 		return nil
 	}
 	label := strings.TrimSpace(cfg.GitHubProject.IntakeLabel)
@@ -695,7 +707,10 @@ func writeItemApprovalPreview(output io.Writer, plan github.ApprovalPlan, intake
 func writeBatchApprovalPreview(output io.Writer, batch github.BatchApprovalPlan) {
 	fmt.Fprintln(output, "Runner complete planning batch approval")
 	fmt.Fprintf(output, "  Planning source: %s (%s)\n", terminalSafeApprovalText(batch.Source.Title), terminalSafeApprovalText(batch.Source.ID))
-	fmt.Fprintf(output, "  Authenticated staging provenance: %s\n", terminalSafeApprovalText(batch.Source.Approval))
+	if batch.Released {
+		fmt.Fprintln(output, "  Release is already authenticated; resume source completion without changing child actions.")
+	}
+	fmt.Fprintf(output, "  Authenticated batch provenance: %s\n", terminalSafeApprovalText(batch.Source.Approval))
 	fmt.Fprintf(output, "  Destination: %s\n", terminalSafeApprovalText(batch.Destination))
 	fmt.Fprintf(output, "  Exact staged children: %d\n", len(batch.Children))
 	for index, child := range batch.Children {
@@ -705,8 +720,10 @@ func writeBatchApprovalPreview(output io.Writer, batch github.BatchApprovalPlan)
 		}
 		writeAuthorizationBoundRuntimePreview(output, child.Item)
 		fmt.Fprintf(output, "     Destination: %s\n", terminalSafeApprovalText(batch.Destination))
-		fmt.Fprintf(output, "     Role: %s\n", terminalSafeApprovalText(child.Role))
-		fmt.Fprintf(output, "     Authenticated assertion: %s\n", terminalSafeApprovalText(child.Assertion))
+		if !batch.Released {
+			fmt.Fprintf(output, "     Role: %s\n", terminalSafeApprovalText(child.Role))
+			fmt.Fprintf(output, "     Authenticated assertion: %s\n", terminalSafeApprovalText(child.Assertion))
+		}
 		fmt.Fprintln(output, "     Exact source body:")
 		for _, line := range strings.Split(strings.TrimSpace(child.Item.Body), "\n") {
 			fmt.Fprintf(output, "       %s\n", terminalSafeApprovalText(line))
@@ -715,6 +732,20 @@ func writeBatchApprovalPreview(output io.Writer, batch github.BatchApprovalPlan)
 }
 
 func confirmBatchApproval(prompter *initPrompter, batch github.BatchApprovalPlan) (bool, error) {
+	if batch.Released {
+		if prompter == nil {
+			return false, errors.New("planning release completion confirmation is unavailable")
+		}
+		options := []initMenuOption{
+			{Label: "Yes", Value: "yes", Description: "Finish recording the authenticated release."},
+			{Label: "No", Value: "no", Description: "Leave source completion pending."},
+		}
+		selected, err := prompter.selectMenu("Finish recording the already authenticated complete batch release?", options, 1)
+		if err != nil {
+			return false, err
+		}
+		return options[selected].Value == "yes", nil
+	}
 	return confirmStagedBatchApproval(prompter, len(batch.Children), batch.Destination, "complete planning batch approval confirmation is unavailable")
 }
 

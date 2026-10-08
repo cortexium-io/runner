@@ -1024,7 +1024,19 @@ it before release. The
 planning source receives an authenticated complete-batch release commit only
 after every child is released. Polling and claiming validate that commit and
 all siblings, so interrupted release remains fail-closed even when compensating
-cleanup also fails.
+cleanup also fails. If source completion is interrupted, `approve --item`
+revalidates the existing signed marker and exact retained batch even when an
+older release cleared the source phase. Unstarted children with exact partial
+action assertions can be parked and approved together again; changed content,
+foreign authority, or prior runtime state is rejected. Worker recovery can also
+restore that authenticated staged checkpoint without authorizing execution.
+Source completion commits release authority before clearing phase/activity and
+publishing success. An ambiguous completion failure retains the children: a
+fresh approval preview either resumes staging or finishes an already authenticated
+release without rewriting child actions. Completion is confirmed through the
+source node before the CLI reports success. The local mutation guard excludes
+worker reconciliation and claiming throughout CLI release while allowing board
+observation to continue.
 
 Direct CLI JSON includes the original planning request and configured Project,
 repository, base-branch and destination identity, plus `planning_source` with
