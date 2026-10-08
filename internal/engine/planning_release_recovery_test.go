@@ -156,31 +156,20 @@ func TestPlanningReleaseRecoversLegacyMissingPhase(t *testing.T) {
 }
 
 func TestPlanningReleaseRecoveryRejectsChangedRetainedBatch(t *testing.T) {
-	for _, change := range []string{"source", "body", "missing", "approval", "runtime"} {
-		t.Run(change, func(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*fakeGitHubProjectRunner)
+	}{
+		{name: "source", change: func(p *fakeGitHubProjectRunner) { p.remoteItems[0].Body += "changed" }},
+		{name: "body", change: func(p *fakeGitHubProjectRunner) { p.remoteItems[1].Body += "changed" }},
+		{name: "missing", change: func(p *fakeGitHubProjectRunner) { p.remoteItems = p.remoteItems[:2] }},
+		{name: "approval", change: func(p *fakeGitHubProjectRunner) { p.remoteItems[1].Approval = "forged" }},
+		{name: "runtime", change: func(p *fakeGitHubProjectRunner) { p.remoteItems[1].Branch = "runner/already-started" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			service, project, source, _ := stagedPlannerBatchFixture(t, 2)
-			for i := range project.remoteItems {
-				item := &project.remoteItems[i]
-				if item.ID == source.ID {
-					item.Phase = ""
-					if change == "source" {
-						item.Body += "changed"
-					}
-				}
-				if item.PlanningItemIndex == 1 {
-					switch change {
-					case "body":
-						item.Body += "changed"
-					case "approval":
-						item.Approval = "forged"
-					case "runtime":
-						item.Branch = "runner/already-started"
-					}
-				}
-			}
-			if change == "missing" {
-				project.remoteItems = project.remoteItems[:2]
-			}
+			project.remoteItems[0].Phase = ""
+			test.change(project)
 			project.calls = nil
 			if _, err := service.PlanProjectItemApproval(t.Context(), source.ID); err == nil {
 				t.Fatal("changed batch accepted")
