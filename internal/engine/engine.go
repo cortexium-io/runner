@@ -256,23 +256,22 @@ func (s *Engine) runCycle(ctx context.Context, syncIntake bool) ([]RunResult, bo
 
 func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterrupted bool, inFlight map[string][]string) (pollPreparation, error) {
 	prepared := pollPreparation{results: []RunResult{}}
-	var recoveryGuard *github.ProcessLock
-	if recoverInterrupted {
-		var err error
-		recoveryGuard, err = s.acquireLocalGate(ctx, false, github.AcquirePlanningMutationLock)
-		if errors.Is(err, github.ErrProjectLockBusy) {
-			recoverInterrupted = false
-		} else if err != nil {
-			return prepared, err
-		}
-		defer recoveryGuard.Release()
+	// Keep observations available during a CLI mutation, but exclude all worker
+	// writes (including reconciliation and claiming) until its batch is durable.
+	mutationGuard, gateErr := s.acquireLocalGate(ctx, false, github.AcquirePlanningMutationLock)
+	if gateErr != nil && !errors.Is(gateErr, github.ErrProjectLockBusy) {
+		return prepared, gateErr
 	}
+	defer mutationGuard.Release()
 	items, err := s.source.LifecycleItems(ctx)
 	if err != nil {
 		return pollPreparation{}, fmt.Errorf("load GitHub Project items: %w", err)
 	}
 	prepared.items = items
 	prepared.pendingObservation = s.hasPendingObservation(items)
+	if errors.Is(gateErr, github.ErrProjectLockBusy) {
+		return prepared, nil
+	}
 	if recoverInterrupted {
 		amended, amendErr := s.recoverDeliveryAmendments(ctx, items)
 		if amendErr != nil {
@@ -299,9 +298,6 @@ func (s *Engine) preparePoll(ctx context.Context, claimLimit int, recoverInterru
 			prepared.items = items
 			prepared.pendingObservation = s.hasPendingObservation(items)
 		}
-	}
-	if err := recoveryGuard.Release(); err != nil {
-		return prepared, err
 	}
 	// ReadyItems is also the established manual-intake authorization boundary.
 	// Evaluate it before pull-request reconciliation so an ordinary card moved

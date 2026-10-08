@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/cortexium-io/runner/internal/config"
 )
 
 type ApprovalPlan struct {
@@ -24,6 +26,7 @@ type ApprovalPlan struct {
 type BatchApprovalPlan struct {
 	Source      WorkItem            `json:"source"`
 	Destination string              `json:"destination"`
+	Released    bool                `json:"released,omitempty"`
 	Children    []BatchApprovalItem `json:"children"`
 }
 
@@ -194,6 +197,16 @@ func stagedBatchSourceID(selected WorkItem, items []WorkItem) string {
 	return ""
 }
 
+// Dependency backpressure can be written by an older worker before release.
+// It is presentation state, and can be cleared only after staged batch authority
+// has been validated and every other prior-action field remains empty.
+func hasStagedPlanningRuntimeState(item WorkItem) bool {
+	if item.Activity == config.RunnerActivityWaitingForDependencies {
+		item.Activity = ""
+	}
+	return HasRuntimeActionState(item)
+}
+
 func (s *Project) planBatchApproval(items []WorkItem, selected WorkItem) (ApprovalPlan, error) {
 	sourceID := stagedBatchSourceID(selected, items)
 	if sourceID == "" {
@@ -203,7 +216,7 @@ func (s *Project) planBatchApproval(items []WorkItem, selected WorkItem) (Approv
 	if err != nil {
 		return ApprovalPlan{}, fmt.Errorf("find staged planning source: %w", err)
 	}
-	if !strings.EqualFold(strings.TrimSpace(source.Status), s.assessmentStatus()) {
+	if !strings.EqualFold(strings.TrimSpace(source.Status), s.assessmentStatus()) && !strings.EqualFold(strings.TrimSpace(source.Status), s.doneStatus()) {
 		return ApprovalPlan{}, fmt.Errorf("planning source %s is not awaiting complete-batch approval", source.ID)
 	}
 	children := make([]WorkItem, 0)
@@ -227,7 +240,7 @@ func (s *Project) planBatchApproval(items []WorkItem, selected WorkItem) (Approv
 	if sourceLane == "" || targetStatus == "" || s.cfg.PlanningDestinations[sourceLane] != targetStatus {
 		return ApprovalPlan{}, errors.New("staged planning batch destination is missing or no longer authorized by its originating planner lane")
 	}
-	if phase := strings.TrimSpace(source.Phase); phase != PlanningApprovalPhase {
+	if phase := strings.TrimSpace(source.Phase); phase != PlanningApprovalPhase && phase != "" {
 		return ApprovalPlan{}, fmt.Errorf("planning source %s has no authenticated staged-batch phase", source.ID)
 	}
 	state, err := s.stateForStatus(targetStatus)
@@ -238,20 +251,44 @@ func (s *Project) planBatchApproval(items []WorkItem, selected WorkItem) (Approv
 	if role == "" || !s.agentStatus(targetStatus) {
 		return ApprovalPlan{}, fmt.Errorf("planning batch destination %q is not an executable role lane", targetStatus)
 	}
-	batch := &BatchApprovalPlan{Source: source, Destination: targetStatus}
-	if err := ValidatePlanningDependencies(children); err != nil {
+	// The signed marker, rather than the presentation phase, is the recovery
+	// checkpoint. Older releases could clear the phase before committing.
+	batchState := batchStagedState
+	if signed, _, _, parseErr := parsePlanningBatchAssertion(source.Approval); parseErr == nil && signed.State == batchReleasedState {
+		batchState = batchReleasedState
+	}
+	if _, err := s.validatePlanningBatch(source.Approval, source, children, batchState); err != nil {
 		return ApprovalPlan{}, err
 	}
+	if strings.TrimSpace(source.Transition) != "" {
+		return ApprovalPlan{}, errors.New("planning source has an interrupted Runner transition")
+	}
+	batch := &BatchApprovalPlan{Source: source, Destination: targetStatus, Released: batchState == batchReleasedState}
+	if batch.Released && !strings.EqualFold(strings.TrimSpace(source.Status), s.doneStatus()) {
+		return ApprovalPlan{}, errors.New("authenticated released planning source is not Done")
+	}
+	itemIndex := newWorkItemIndex(items)
 	for index, child := range children {
 		if child.PlanningBatchFingerprint != fingerprint || child.PlanningBatchSize != len(children) || child.PlanningItemIndex != index+1 ||
 			child.PlanningSourceLane != sourceLane || child.PlanningDestination != targetStatus ||
 			child.PlanningSourceFingerprint != PlanningSourceFingerprint(source) {
 			return ApprovalPlan{}, errors.New("staged planning batch is incomplete, duplicated, reordered, or mixed with changed content")
 		}
-		if !strings.EqualFold(strings.TrimSpace(child.Status), s.assessmentStatus()) || strings.TrimSpace(child.Approval) != "" {
+		if batch.Released {
+			if strings.EqualFold(strings.TrimSpace(child.Status), s.doneStatus()) {
+				if !s.hasSuccessfulOutcomeIn(child, itemIndex) {
+					return ApprovalPlan{}, fmt.Errorf("released planning child %s has no authenticated successful outcome", child.ID)
+				}
+			} else if reason, summary := s.planningBatchEligibilityIn(child, itemIndex); reason != "" {
+				return ApprovalPlan{}, errors.New(summary)
+			}
+			batch.Children = append(batch.Children, BatchApprovalItem{Item: child})
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(child.Status), s.assessmentStatus()) && !strings.EqualFold(strings.TrimSpace(child.Status), targetStatus) {
 			return ApprovalPlan{}, fmt.Errorf("staged planning child %s moved to unexpected status %q", child.ID, child.Status)
 		}
-		if HasRuntimeActionState(child) {
+		if hasStagedPlanningRuntimeState(child) {
 			return ApprovalPlan{}, fmt.Errorf("staged planning child %s contains prior Runner action state", child.ID)
 		}
 		if strings.TrimSpace(child.ID) == "" || strings.TrimSpace(child.Title) == "" || strings.TrimSpace(child.Body) == "" {
@@ -264,13 +301,16 @@ func (s *Project) planBatchApproval(items []WorkItem, selected WorkItem) (Approv
 		if signErr != nil {
 			return ApprovalPlan{}, signErr
 		}
+		if child.Approval != "" && child.Approval != action.assertion {
+			return ApprovalPlan{}, fmt.Errorf("staged planning child %s has unexpected partial approval", child.ID)
+		}
 		batch.Children = append(batch.Children, BatchApprovalItem{Item: child, Role: role, Assertion: action.assertion, action: action})
 	}
 	childItems := make([]WorkItem, len(batch.Children))
 	for index := range batch.Children {
 		childItems[index] = batch.Children[index].Item
 	}
-	if _, err := s.validatePlanningBatch(source.Approval, source, childItems, batchStagedState); err != nil {
+	if _, err := s.validatePlanningBatch(source.Approval, source, childItems, batchState); err != nil {
 		return ApprovalPlan{}, err
 	}
 	if manifest, present, err := ParsePlanManifest(source.Body); present {
@@ -281,6 +321,7 @@ func (s *Project) planBatchApproval(items []WorkItem, selected WorkItem) (Approv
 			return ApprovalPlan{}, err
 		}
 	}
+
 	return ApprovalPlan{Item: source, Batch: batch}, nil
 }
 
@@ -307,6 +348,13 @@ func (s *Project) applyBatchApproval(ctx context.Context, plan ApprovalPlan) (Wo
 		return WorkItem{}, errors.New("planning source or staged child content changed after the approval preview; review the complete batch and preview approval again")
 	}
 	batch := refreshedPlan.Batch
+	detail := fmt.Sprintf("Approved and released the complete normalized planning batch of %d work items.", len(batch.Children))
+	if batch.Released {
+		if err := s.completeStagedPlanningSource(ctx, batch.Source, detail, batch.Source.Approval); err != nil {
+			return WorkItem{}, fmt.Errorf("finish authenticated planning batch release: %w", err)
+		}
+		return s.completedPlanningSource(ctx, batch.Source.ID, detail, batch.Source.Approval)
+	}
 	childItems := make([]WorkItem, len(batch.Children))
 	for index := range batch.Children {
 		childItems[index] = batch.Children[index].Item
@@ -324,10 +372,16 @@ func (s *Project) applyBatchApproval(ctx context.Context, plan ApprovalPlan) (Wo
 				return WorkItem{}, fmt.Errorf("clear partial child approval before authorizing the complete batch: %w", err)
 			}
 		}
+		if child.Item.Activity == config.RunnerActivityWaitingForDependencies {
+			if err := s.clearField(ctx, child.Item.ID, s.activityFieldName()); err != nil {
+				return WorkItem{}, fmt.Errorf("clear staged child dependency activity: %w", err)
+			}
+		}
 	}
 	for index := range childItems {
 		childItems[index].Status = s.assessmentStatus()
 		childItems[index].Approval = ""
+		childItems[index].Activity = ""
 	}
 	childItems, err = s.ensureIssueBacked(ctx, childItems)
 	if err != nil {
@@ -377,7 +431,6 @@ func (s *Project) applyBatchApproval(ctx context.Context, plan ApprovalPlan) (Wo
 			return WorkItem{}, errors.Join(fmt.Errorf("release planning child %d of %d: %w", index+1, len(batch.Children), err), cleanupErr)
 		}
 	}
-	detail := fmt.Sprintf("Approved and released the complete normalized planning batch of %d work items.", len(batch.Children))
 	if _, delivery, parseErr := ParsePlanManifest(batch.Source.Body); delivery {
 		if parseErr != nil {
 			return WorkItem{}, parseErr
@@ -388,23 +441,35 @@ func (s *Project) applyBatchApproval(ctx context.Context, plan ApprovalPlan) (Wo
 		}
 		return next, nil
 	}
+
 	if err := s.completeStagedPlanningSource(ctx, batch.Source, detail, releaseAssertion); err != nil {
-		cleanupErr := s.parkBatchInAssessment(ctx, batch.Children)
-		return WorkItem{}, errors.Join(fmt.Errorf("complete planning batch release: %w", err), cleanupErr)
+		// The final authority write may have succeeded despite a transport error.
+		// Keep the exact children intact: staged authority blocks execution, while
+		// released authority permits only the fully authenticated batch. A fresh
+		// approve preview distinguishes the two and resumes safely.
+		return WorkItem{}, fmt.Errorf("complete planning batch release; preview approve again to resume the exact retained batch: %w", err)
 	}
-	publishedDetail, err := runnerProjectResult(detail)
+	return s.completedPlanningSource(ctx, batch.Source.ID, detail, releaseAssertion)
+}
+
+// Confirm the final source through its node, avoiding a stale Project connection.
+func (s *Project) completedPlanningSource(ctx context.Context, sourceID, detail, assertion string) (WorkItem, error) {
+	source, err := s.itemByID(ctx, sourceID)
+	if err != nil {
+		return WorkItem{}, fmt.Errorf("verify completed planning release; preview approve again: %w", err)
+	}
+	published, err := runnerProjectResult(detail)
 	if err != nil {
 		return WorkItem{}, err
 	}
-	batch.Source.Status = s.doneStatus()
-	batch.Source.Phase = ""
-	batch.Source.Result = canonicalProjectResult(publishedDetail)
-	batch.Source.Approval = releaseAssertion
-	return batch.Source, nil
+	if source.Status != s.doneStatus() || source.Approval != assertion || source.Phase != "" || source.Activity != "" || source.Result != canonicalProjectResult(published) {
+		return WorkItem{}, errors.New("planning release completion is not yet confirmed; preview approve again")
+	}
+	return source, nil
 }
 
 func sameBatchApprovalPreview(left, right BatchApprovalPlan) bool {
-	if left.Destination != right.Destination || !reflect.DeepEqual(left.Source, right.Source) || len(left.Children) != len(right.Children) {
+	if left.Released != right.Released || left.Destination != right.Destination || !reflect.DeepEqual(left.Source, right.Source) || len(left.Children) != len(right.Children) {
 		return false
 	}
 	for index := range left.Children {
@@ -420,8 +485,13 @@ func (s *Project) completeStagedPlanningSource(ctx context.Context, source WorkI
 	if err != nil {
 		return err
 	}
-	if err := s.setResult(ctx, source.ID, publishedDetail); err != nil {
-		return err
+	if source.Approval != releaseAssertion {
+		if err := s.setStatus(ctx, source.ID, s.doneStatus()); err != nil {
+			return err
+		}
+		if err := s.setApproval(ctx, source.ID, releaseAssertion); err != nil {
+			return fmt.Errorf("commit authenticated complete-batch release: %w", err)
+		}
 	}
 	if err := s.clearField(ctx, source.ID, s.phaseFieldName()); err != nil {
 		return err
@@ -431,11 +501,9 @@ func (s *Project) completeStagedPlanningSource(ctx context.Context, source WorkI
 			return err
 		}
 	}
-	if err := s.setStatus(ctx, source.ID, s.doneStatus()); err != nil {
+	// Publish success only after the complete batch has durable release authority.
+	if err := s.setResult(ctx, source.ID, publishedDetail); err != nil {
 		return err
-	}
-	if err := s.setApproval(ctx, source.ID, releaseAssertion); err != nil {
-		return fmt.Errorf("commit authenticated complete-batch release: %w", err)
 	}
 	return nil
 }

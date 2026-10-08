@@ -316,6 +316,7 @@ func (s *Project) ReadyItems(ctx context.Context, items []WorkItem, limit int) (
 		limit = 1
 	}
 	ready := make([]AuthorizedAction, 0, limit)
+	index := newWorkItemIndex(items)
 	for _, eligibility := range s.EvaluateWorkEligibility(items) {
 		item := eligibility.Item
 		if !eligibility.Eligible {
@@ -326,6 +327,13 @@ func (s *Project) ReadyItems(ctx context.Context, items []WorkItem, limit int) (
 					return nil, err
 				}
 			case WorkEligibilityActionAuthorityInvalid:
+				// Partial child writes belong to their authenticated staged batch.
+				// Leave them intact until complete-batch recovery can park them.
+				if source := index.byID[item.PlanningSourceID]; source.ID != "" {
+					if _, err := s.validatePlanningBatch(source.Approval, source, index.childrenBySource[source.ID], batchStagedState); err == nil {
+						continue
+					}
+				}
 				detail := "Runner approval is missing, invalid, or no longer matches the work item; maintainer reassessment is required before running approve again."
 				if err := s.reclassifyForApproval(ctx, item, detail); err != nil {
 					return nil, err
@@ -368,6 +376,9 @@ func (s *Project) ReconcileDependencyActivities(ctx context.Context, items []Wor
 		}
 		action, err := s.validateAction(item)
 		if err != nil {
+			continue
+		}
+		if reason, _ := s.planningBatchEligibilityIn(item, index); reason != "" {
 			continue
 		}
 		desired := ""
@@ -887,7 +898,7 @@ func (s *Project) recoverStagedPlanningApproval(ctx context.Context, source Work
 		if strings.TrimSpace(item.PlanningSourceID) != strings.TrimSpace(source.ID) {
 			continue
 		}
-		if !strings.EqualFold(strings.TrimSpace(item.Status), s.assessmentStatus()) || HasRuntimeActionState(item) {
+		if (!strings.EqualFold(strings.TrimSpace(item.Status), s.assessmentStatus()) && !strings.EqualFold(strings.TrimSpace(item.Status), item.PlanningDestination)) || hasStagedPlanningRuntimeState(item) {
 			return false, fmt.Errorf("planning child %s changed or contains partial authority", item.ID)
 		}
 		children = append(children, item)
@@ -897,27 +908,56 @@ func (s *Project) recoverStagedPlanningApproval(ctx context.Context, source Work
 		return false, err
 	}
 	status := strings.TrimSpace(source.Status)
-	if !strings.EqualFold(status, s.runningStatus()) && !strings.EqualFold(status, s.assessmentStatus()) {
+	if !strings.EqualFold(status, s.runningStatus()) && !strings.EqualFold(status, s.assessmentStatus()) && !strings.EqualFold(status, s.doneStatus()) {
 		return false, fmt.Errorf("authenticated planning source moved to unexpected status %q", source.Status)
 	}
 	phase := strings.TrimSpace(source.Phase)
 	if phase != "" && phase != provenance.SourceLane && phase != PlanningApprovalPhase {
 		return false, fmt.Errorf("authenticated planning source moved to unexpected phase %q", source.Phase)
 	}
-	for index := range children {
-		if strings.TrimSpace(children[index].Approval) == "" {
+	// Validate every partial action before repairing any child. The source's
+	// staged marker binds the exact batch and keeps all children non-executable.
+	for _, child := range children {
+		if child.Approval == "" {
 			continue
 		}
-		if err := s.validateStagedChild(children[index]); err != nil {
-			return false, fmt.Errorf("planning child %s has unexpected partial authority", children[index].ID)
+		if strings.EqualFold(child.Status, s.assessmentStatus()) && s.validateStagedChild(child) == nil {
+			continue
 		}
-		if err := s.clearApproval(ctx, children[index].ID); err != nil {
-			return false, fmt.Errorf("clear recovered planning child creation provenance: %w", err)
+		next := child
+		next.Status, next.Approval = provenance.Destination, ""
+		state, err := s.stateForStatus(provenance.Destination)
+		if err != nil {
+			return false, err
 		}
-		children[index].Approval = ""
+		action, err := s.signAction(next, s.cfg.LaneRoles[state], state)
+		if err != nil || child.Approval != action.assertion {
+			return false, fmt.Errorf("planning child %s has unexpected partial authority", child.ID)
+		}
+	}
+	changed := false
+	for _, child := range children {
+		if !strings.EqualFold(child.Status, s.assessmentStatus()) {
+			if err := s.setStatus(ctx, child.ID, s.assessmentStatus()); err != nil {
+				return false, fmt.Errorf("park recovered planning child: %w", err)
+			}
+			changed = true
+		}
+		if child.Approval != "" {
+			if err := s.clearApproval(ctx, child.ID); err != nil {
+				return false, fmt.Errorf("clear recovered planning child authority: %w", err)
+			}
+			changed = true
+		}
+		if child.Activity == config.RunnerActivityWaitingForDependencies {
+			if err := s.clearField(ctx, child.ID, s.activityFieldName()); err != nil {
+				return false, fmt.Errorf("clear recovered planning dependency activity: %w", err)
+			}
+			changed = true
+		}
 	}
 	if strings.EqualFold(status, s.assessmentStatus()) && phase == PlanningApprovalPhase {
-		return false, nil
+		return changed, nil
 	}
 	if !strings.EqualFold(status, s.assessmentStatus()) {
 		if err := s.setStatus(ctx, source.ID, s.assessmentStatus()); err != nil {
