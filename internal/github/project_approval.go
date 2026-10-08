@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/cortexium-io/runner/internal/config"
 )
 
 type ApprovalPlan struct {
@@ -195,6 +197,16 @@ func stagedBatchSourceID(selected WorkItem, items []WorkItem) string {
 	return ""
 }
 
+// Dependency backpressure can be written by an older worker before release.
+// It is presentation state, and can be cleared only after staged batch authority
+// has been validated and every other prior-action field remains empty.
+func hasStagedPlanningRuntimeState(item WorkItem) bool {
+	if item.Activity == config.RunnerActivityWaitingForDependencies {
+		item.Activity = ""
+	}
+	return HasRuntimeActionState(item)
+}
+
 func (s *Project) planBatchApproval(items []WorkItem, selected WorkItem) (ApprovalPlan, error) {
 	sourceID := stagedBatchSourceID(selected, items)
 	if sourceID == "" {
@@ -276,7 +288,7 @@ func (s *Project) planBatchApproval(items []WorkItem, selected WorkItem) (Approv
 		if !strings.EqualFold(strings.TrimSpace(child.Status), s.assessmentStatus()) && !strings.EqualFold(strings.TrimSpace(child.Status), targetStatus) {
 			return ApprovalPlan{}, fmt.Errorf("staged planning child %s moved to unexpected status %q", child.ID, child.Status)
 		}
-		if HasRuntimeActionState(child) {
+		if hasStagedPlanningRuntimeState(child) {
 			return ApprovalPlan{}, fmt.Errorf("staged planning child %s contains prior Runner action state", child.ID)
 		}
 		if strings.TrimSpace(child.ID) == "" || strings.TrimSpace(child.Title) == "" || strings.TrimSpace(child.Body) == "" {
@@ -360,10 +372,16 @@ func (s *Project) applyBatchApproval(ctx context.Context, plan ApprovalPlan) (Wo
 				return WorkItem{}, fmt.Errorf("clear partial child approval before authorizing the complete batch: %w", err)
 			}
 		}
+		if child.Item.Activity == config.RunnerActivityWaitingForDependencies {
+			if err := s.clearField(ctx, child.Item.ID, s.activityFieldName()); err != nil {
+				return WorkItem{}, fmt.Errorf("clear staged child dependency activity: %w", err)
+			}
+		}
 	}
 	for index := range childItems {
 		childItems[index].Status = s.assessmentStatus()
 		childItems[index].Approval = ""
+		childItems[index].Activity = ""
 	}
 	childItems, err = s.ensureIssueBacked(ctx, childItems)
 	if err != nil {

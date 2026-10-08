@@ -898,7 +898,7 @@ func (s *Project) recoverStagedPlanningApproval(ctx context.Context, source Work
 		if strings.TrimSpace(item.PlanningSourceID) != strings.TrimSpace(source.ID) {
 			continue
 		}
-		if (!strings.EqualFold(strings.TrimSpace(item.Status), s.assessmentStatus()) && !strings.EqualFold(strings.TrimSpace(item.Status), item.PlanningDestination)) || HasRuntimeActionState(item) {
+		if (!strings.EqualFold(strings.TrimSpace(item.Status), s.assessmentStatus()) && !strings.EqualFold(strings.TrimSpace(item.Status), item.PlanningDestination)) || hasStagedPlanningRuntimeState(item) {
 			return false, fmt.Errorf("planning child %s changed or contains partial authority", item.ID)
 		}
 		children = append(children, item)
@@ -946,6 +946,12 @@ func (s *Project) recoverStagedPlanningApproval(ctx context.Context, source Work
 		if child.Approval != "" {
 			if err := s.clearApproval(ctx, child.ID); err != nil {
 				return false, fmt.Errorf("clear recovered planning child authority: %w", err)
+			}
+			changed = true
+		}
+		if child.Activity == config.RunnerActivityWaitingForDependencies {
+			if err := s.clearField(ctx, child.ID, s.activityFieldName()); err != nil {
+				return false, fmt.Errorf("clear recovered planning dependency activity: %w", err)
 			}
 			changed = true
 		}

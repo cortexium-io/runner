@@ -1028,7 +1028,9 @@ cleanup also fails. If source completion is interrupted, `approve --item`
 revalidates the existing signed marker and exact retained batch even when an
 older release cleared the source phase. Unstarted children with exact partial
 action assertions can be parked and approved together again; changed content,
-foreign authority, or prior runtime state is rejected. Worker recovery can also
+foreign authority, or prior runtime state is rejected. The stale `Waiting for
+dependencies` activity written by older workers can be cleared from an otherwise
+unstarted, authenticated staged child. Worker recovery can also
 restore that authenticated staged checkpoint without authorizing execution.
 Source completion commits release authority before clearing phase/activity and
 publishing success. An ambiguous completion failure retains the children: a

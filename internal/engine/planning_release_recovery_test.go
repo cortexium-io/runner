@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
@@ -164,6 +165,7 @@ func TestPlanningReleaseRecoveryRejectsChangedRetainedBatch(t *testing.T) {
 		{name: "body", change: func(p *fakeGitHubProjectRunner) { p.remoteItems[1].Body += "changed" }},
 		{name: "missing", change: func(p *fakeGitHubProjectRunner) { p.remoteItems = p.remoteItems[:2] }},
 		{name: "approval", change: func(p *fakeGitHubProjectRunner) { p.remoteItems[1].Approval = "forged" }},
+		{name: "activity", change: func(p *fakeGitHubProjectRunner) { p.remoteItems[1].Activity = "Implementing" }},
 		{name: "runtime", change: func(p *fakeGitHubProjectRunner) { p.remoteItems[1].Branch = "runner/already-started" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -318,5 +320,44 @@ func TestPlanningReleasePartialSnapshotRemainsRecoverableWithoutRecoveryPoll(t *
 	}
 	if _, err := service.PlanProjectItemApproval(t.Context(), source.ID); err != nil {
 		t.Fatalf("partial snapshot lost recoverability: %v", err)
+	}
+}
+
+func TestPlanningReleaseRecoversRetainedDependencyActivity(t *testing.T) {
+	service, project, source, _ := stagedPlannerBatchFixture(t, 2)
+	project.remoteItems[0].Phase = ""
+	project.remoteItems[1].Activity = config.RunnerActivityWaitingForDependencies
+	before := project.remoteItems[1]
+	plan, err := service.PlanProjectItemApproval(t.Context(), source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ApplyProjectItemApproval(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	child := project.remoteItems[1]
+	if child.Activity != "" || child.Status != "Ready" || child.Body != before.Body || child.ID != before.ID {
+		t.Fatal("stale dependency activity did not recover without changing reviewed work")
+	}
+	ready, err := service.source.Poll(t.Context(), 10)
+	if err != nil || len(ready) != 2 {
+		t.Fatalf("retained batch was not executable: %v %v", ready, err)
+	}
+}
+
+func TestPlanningReleaseWorkerRestoresRetainedDependencyActivity(t *testing.T) {
+	service, project, source, _ := stagedPlannerBatchFixture(t, 2)
+	project.remoteItems[0].Phase = ""
+	project.remoteItems[1].Activity = config.RunnerActivityWaitingForDependencies
+	before := project.remoteItems[1]
+	if _, err := service.source.RecoverInterrupted(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	child := project.remoteItems[1]
+	if child.Activity != "" || child.Status != "Needs assessment" || child.Approval != "" || child.Body != before.Body {
+		t.Fatal("worker recovery did not restore exact unapproved staging")
+	}
+	if _, err := service.PlanProjectItemApproval(t.Context(), source.ID); err != nil {
+		t.Fatal(err)
 	}
 }
