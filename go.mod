@@ -1,6 +1,6 @@
 module github.com/cortexium-io/runner
 
-go 1.26.6
+go 1.26.9
 
 require golang.org/x/term v0.45.0
 
