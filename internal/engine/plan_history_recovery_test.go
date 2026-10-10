@@ -33,7 +33,9 @@ func (r *planHistoryRunner) RunBoundedHeadTailInput(ctx context.Context, command
 func (r *planHistoryRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
 	result, err := r.planEvidenceRunner.Run(ctx, command, args, dir, timeout)
 	if err == nil && command == "git" && r.creates > 0 && containsArgument(args, "push") && strings.Contains(strings.Join(args, " "), ":refs/heads/"+r.branch) {
-		r.head = runnerGitRevision(ctx, dir, timeout, "refs/heads/"+r.branch)
+		// A repaired member pushes its own accepted commit to the plan branch;
+		// the parent's local branch can still point at its rejected candidate.
+		r.head, _, _ = strings.Cut(args[len(args)-1], ":")
 		if r.retirementFeedbackPath != "" {
 			// Simulate an interrupted protected archive write after replacement
 			// push. The signed transition can succeed, but retirement must fail
@@ -321,5 +323,114 @@ func TestPlanHistoryTerminalMergePrecedesFreshPublicationAndWorkspace(t *testing
 	}
 	if after, err := os.ReadFile(r.gateLog); err != nil || string(after) != string(gateRuns) {
 		t.Fatal("confirmed terminal delivery ran another complete gate")
+	}
+}
+
+func TestPlanHistoryRetirementReturnsStaleReviewToFreshQA(t *testing.T) {
+	for _, change := range []string{"reviewer settings", "human comments"} {
+		t.Run(change, func(t *testing.T) {
+			f, r := acceptedNonlinearPlan(t)
+			children := planEvidenceChildren(t, f)
+			preview, err := f.service.PlanProjectItemRetry(t.Context(), f.parentID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.service.ApplyProjectItemRetry(t.Context(), preview); err != nil {
+				t.Fatal(err)
+			}
+			r.retirementFeedbackPath = f.service.reviewFeedbackPath(f.parentID)
+			results, err := f.service.RunCycle(t.Context())
+			if err != nil || len(results) != 1 || !strings.Contains(results[0].Error, "history recovery retirement is pending") || f.parent(t).Status != "PR Ready" {
+				t.Fatalf("interrupted retirement fixture: %+v err=%v", results, err)
+			}
+			before, err := f.service.readReviewFeedbackRecord(f.parent(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch change {
+			case "reviewer settings":
+				profile := f.cfg.Roles["reviewer"]
+				safeTools := false
+				profile.SafeTools = &safeTools
+				f.cfg.Roles["reviewer"] = profile
+			case "human comments":
+				r.project.issueComments = append(r.project.issueComments, github.ItemComment{Author: "dan", Body: "Please reassess the newly identified edge case."})
+			}
+			// A currently armed PR must be cancelled even while its interrupted
+			// recovery marker is still present. Reconciliation launches no model.
+			proof := &planMergeProofRunner{deliveryMilestoneRunner: r.deliveryMilestoneRunner, enabled: true}
+			f.service, err = New(f.cfg, proof)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := f.service.reconcilePullRequests(t.Context(), []github.WorkItem{f.parent(t)}); err == nil || proof.enabled || proof.cancellations != 1 || f.parent(t).Status != "PR Ready" || retainedPlanProgress(t, f).HistoryRecovery == nil {
+				t.Fatal("unresolved protected archive did not preserve intent, cancel merge and remain a hard error")
+			}
+			if err := os.Remove(r.retirementArchive); err != nil {
+				t.Fatal(err)
+			}
+			warnings, changed, err := f.service.reconcilePullRequests(t.Context(), []github.WorkItem{f.parent(t)})
+			if err != nil || !changed || f.parent(t).Status != "Agent QA" || proof.enabled || proof.cancellations != 1 || proof.mergeRequests != 0 || r.reviews != 4 {
+				t.Fatalf("stale proof did not cancel merge and return to QA: err=%v status=%s enabled=%t cancellations=%d warnings=%s", err, f.parent(t).Status, proof.enabled, proof.cancellations, planProofWarnings(warnings))
+			}
+			after := retainedPlanProgress(t, f)
+			if after.HistoryRecovery != nil || !reflect.DeepEqual(after.Gate, before.PlanVerification.Gate) || f.parent(t).QAFailures != 3 || !reflect.DeepEqual(children, planEvidenceChildren(t, f)) {
+				t.Fatal("retirement changed retained proof, QA counters or children")
+			}
+			assertArchivedPlanProgress(t, f, before)
+			action, err := f.service.source.Authorize(t.Context(), f.parent(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			result := f.service.executeQA(t.Context(), action, "renewed-parent-context")
+			if result.Outcome != execution.OutcomeSucceeded || result.Error != "" || r.reviews != 5 || f.parent(t).Status != "PR Ready" || f.parent(t).QAFailures != 3 {
+				t.Fatalf("changed context did not receive fresh QA: %+v reviews=%d status=%s", result, r.reviews, f.parent(t).Status)
+			}
+		})
+	}
+}
+
+func TestPlanHistoryFreshRejectionAllowsApprovedOwnerRepair(t *testing.T) {
+	f, r := acceptedNonlinearPlan(t)
+	if err := f.cfg.Workflow.SetMaxQARejections(f.service.cfg.LaneIDForStatus(f.service.cfg.GitHubProject.QAStatus), 8); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	f.service, err = New(f.cfg, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := f.service.PlanProjectItemRetry(t.Context(), f.parentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.ApplyProjectItemRetry(t.Context(), preview); err != nil {
+		t.Fatal(err)
+	}
+	before := retainedPlanProgress(t, f)
+	children := planEvidenceChildren(t, f)
+	r.rejectCombined = true
+	results, err := f.service.RunCycle(t.Context())
+	if err != nil || len(results) != 1 || results[0].Outcome != config.WorkflowOutcomeRejected || results[0].Error != "" {
+		t.Fatalf("fresh QA did not authorize bounded owner repair: %+v err=%v", results, err)
+	}
+	rejected := retainedPlanProgress(t, f)
+	if rejected.Publication != nil || rejected.HistoryRecovery != nil || !reflect.DeepEqual(rejected.Gate, before.Gate) || f.parent(t).QAFailures != 4 {
+		t.Fatal("approved repair retained old publication intent or changed historical proof and counters")
+	}
+	for _, child := range planEvidenceChildren(t, f) {
+		if child.ID == "PVTI_created_2" && child.Status != "Ready" || child.ID == "PVTI_created_3" && !reflect.DeepEqual(child, children[1]) {
+			t.Fatal("rejection did not requeue only the approved owner")
+		}
+	}
+	for cycle := 0; cycle < 6 && f.parent(t).Status != "PR Ready"; cycle++ {
+		runPlanEvidenceCycle(t, f)
+	}
+	after := retainedPlanProgress(t, f)
+	if f.parent(t).Status != "PR Ready" || after.HistoryRecovery != nil || after.Publication == nil || after.Publication.CommitOID == before.Publication.CommitOID || r.reviews != 6 || r.implementations != 3 || r.creates != 1 || f.parent(t).QAFailures != 4 {
+		t.Fatalf("repair did not complete fresh whole-plan publication: status=%s reviews=%d implementations=%d PRs=%d", f.parent(t).Status, r.reviews, r.implementations, r.creates)
+	}
+	if remoteHead := strings.TrimSpace(runGitTest(t, f.repo, "--git-dir", f.remote, "rev-parse", "refs/heads/"+f.parent(t).Branch)); remoteHead != after.Publication.CommitOID || remoteHead != f.parent(t).QACommit {
+		t.Fatal("repaired publication did not record the exact remotely pushed head")
 	}
 }

@@ -384,6 +384,11 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 				// before any workspace preparation or destination-base refresh.
 				published := github.PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: details.HeadRefName, CommitSHA: details.HeadRefOID}
 				if err := s.retirePlanHistoryRecovery(ctx, action, published); err != nil {
+					// Protected cleanup remains a hard error, but cannot leave an
+					// armed PR ahead of the normal current-proof validation below.
+					if _, cancelErr := cancelAutoMerge(action, details, laneID); cancelErr != nil {
+						err = errors.Join(err, cancelErr)
+					}
 					return warnings, changed, fmt.Errorf("retire published plan history recovery before reconciliation: %w", err)
 				}
 			}

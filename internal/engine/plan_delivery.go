@@ -169,6 +169,12 @@ func (s *Engine) resumeAcceptedPlanPublication(ctx context.Context, action githu
 			}
 		}
 		p.Metadata = metadata // current privileged Git bindings, never persisted as authority
+		if _, err := s.revalidatePlanProgress(ctx, action, p); err != nil {
+			if errors.Is(err, errPlanReviewContextChanged) && !p.classificationPending() {
+				return RunResult{}, false
+			}
+			return fail(err)
+		}
 		result.ResumedCheckpoint = true
 		result.WorktreePath, result.Branch = metadata.WorktreePath, metadata.BranchName
 		return s.continuePlanVerification(ctx, action, lane, result, p, attemptID), true

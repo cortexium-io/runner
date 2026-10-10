@@ -45,6 +45,8 @@ type planVerificationProgress struct {
 	EvidenceCollectionDigest string                          `json:"evidence_collection_digest,omitempty"`
 }
 
+var errPlanReviewContextChanged = errors.New("parent review context requires renewed QA")
+
 func (p *planVerificationProgress) publicationCandidate() workspace.Snapshot {
 	if p.PreparedCandidate != nil {
 		return *p.PreparedCandidate
@@ -250,6 +252,9 @@ func (s *Engine) revalidatePlanProgress(ctx context.Context, action github.Autho
 	if err != nil {
 		return action, err
 	}
+	if fresh.Item.ID != p.Assignment.Spec.ItemID || content.Digest != p.Assignment.Spec.DelegatedContentDigest || content.BodySnapshot != p.Assignment.Spec.ApprovedBodySnapshot || fresh.Item.Branch != p.Metadata.BranchName {
+		return action, errors.New("parent acceptance authority or destination changed")
+	}
 	publication := s.cfg.LaneIDForStatus(fresh.Item.Status) == s.cfg.PublicationLaneID()
 	if publication {
 		qaLane, ok := s.cfg.Lane(s.cfg.LaneIDForStatus(s.cfg.GitHubProject.QAStatus))
@@ -257,10 +262,7 @@ func (s *Engine) revalidatePlanProgress(ctx context.Context, action github.Autho
 			return action, errors.New("publication lost its original approved reviewer profile")
 		}
 	} else if s.executionRole(fresh.Item) != p.ReviewerRole {
-		return action, errors.New("parent reviewer profile changed")
-	}
-	if fresh.Item.ID != p.Assignment.Spec.ItemID || content.Digest != p.Assignment.Spec.DelegatedContentDigest || content.BodySnapshot != p.Assignment.Spec.ApprovedBodySnapshot || fresh.Item.Branch != p.Metadata.BranchName || !s.executionConfig(p.ReviewerRole, s.roleHarness(p.ReviewerRole), p.Metadata.WorktreePath).MatchesEvidenceSettings(p.SettingsDigest) {
-		return action, errors.New("parent acceptance authority, destination or reviewer settings changed")
+		return action, fmt.Errorf("%w: parent reviewer profile changed", errPlanReviewContextChanged)
 	}
 	if _, _, err := s.planGateForReviewer(ctx, fresh, p.ReviewerRole); err != nil {
 		return action, err
@@ -273,6 +275,9 @@ func (s *Engine) revalidatePlanProgress(ctx context.Context, action github.Autho
 	}
 	if err := s.revalidateDeliveryAssignment(ctx, reviewItem, p.Assignment); err != nil {
 		return action, err
+	}
+	if !s.executionConfig(p.ReviewerRole, s.roleHarness(p.ReviewerRole), p.Metadata.WorktreePath).MatchesEvidenceSettings(p.SettingsDigest) {
+		return action, fmt.Errorf("%w: parent reviewer settings changed", errPlanReviewContextChanged)
 	}
 	comments, err := s.source.ItemComments(ctx, fresh.Item)
 	if err != nil {
@@ -292,7 +297,7 @@ func (s *Engine) revalidatePlanProgress(ctx context.Context, action github.Autho
 	if !slices.Equal(humanCommentContext(comments), p.Assignment.Spec.ReviewCommentContext) {
 		comments = slices.DeleteFunc(comments, func(c github.ItemComment) bool { return c.MatchesBody(publicationComment) })
 		if !slices.Equal(humanCommentContext(comments), p.Assignment.Spec.ReviewCommentContext) {
-			return action, errors.New("parent comment context changed; QA applicability needs renewed assessment")
+			return action, fmt.Errorf("%w: parent comment context changed", errPlanReviewContextChanged)
 		}
 	}
 	return fresh, nil

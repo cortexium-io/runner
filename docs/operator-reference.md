@@ -2706,6 +2706,11 @@ acceptances or QA counters. Publication may replace only the same tracked OPEN
 PR's authenticated old head, with an exact Git lease, after fresh parent review
 and applicable complete verification. Changed remote heads, bases or approval
 refuse this recovery; terminal merged PRs retain their normal reconciliation.
+If fresh parent QA rejects the normalized candidate, its authorized owning cards
+follow the ordinary repair path and the obsolete history recovery is archived.
+Changed reviewer settings or human comments after publication require renewed QA;
+Runner cancels armed automatic merge without discarding historical proof or QA
+counters.
 
 CLI `retry` and `approve` writes share the short mutation guard used by planning
 and background recovery. You do not need to stop the service: it continues

@@ -956,6 +956,12 @@ base, approved revision, repository and destination. Fresh complete-proof
 applicability and the exact old-head lease remain mandatory. After exact remote
 readback and the signed replacement transition, the active recovery intent is
 archived and retired; immutable prior acceptance remains historical proof.
+Retirement authenticates the immutable publication and current signed head
+independently of reviewer settings and human comment context. If that context
+changed, ordinary reconciliation cancels armed automatic merge and admits fresh
+parent QA. An authenticated owning-card repair also archives and clears the old
+publication and history intent before admitting owners; historical gate receipts
+remain available for applicability checks against the repaired candidate.
 
 Recognized transient network and GitHub 5xx failures during this deterministic
 publication are retried in-process up to three total attempts. Each retry

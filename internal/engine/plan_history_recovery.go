@@ -161,7 +161,7 @@ func (s *Engine) preserveNormalizedPlanHistory(ctx context.Context, metadata wor
 		return false, err
 	}
 	p.Metadata = metadata
-	if _, err := s.revalidatePlanProgress(ctx, action, p); err != nil {
+	if _, err := s.revalidatePlanProgress(ctx, action, p); err != nil && !errors.Is(err, errPlanReviewContextChanged) {
 		return false, err
 	}
 	return true, nil
@@ -175,6 +175,13 @@ func (s *Engine) retirePlanHistoryRecovery(ctx context.Context, action github.Au
 	if action.Item.PlanRelease == "" {
 		return nil
 	}
+	// Cleanup needs the current signed publication identity, not continued
+	// applicability of the old reviewer settings or comment context.
+	fresh, err := s.source.Authorize(ctx, github.WorkItem{ID: action.Item.ID})
+	if err != nil {
+		return err
+	}
+	action = fresh
 	content, err := action.DelegatedContent()
 	if err != nil {
 		return err
@@ -185,13 +192,13 @@ func (s *Engine) retirePlanHistoryRecovery(ctx context.Context, action github.Au
 	}
 	p := feedback.PlanVerification
 	publication := p.Publication
-	if publication == nil || publication.CommitOID == p.HistoryRecovery.CommitOID || action.Item.QACommit != publication.CommitOID || published.CommitSHA != publication.CommitOID || published.Branch != p.Metadata.BranchName || action.Item.Branch != published.Branch || published.URL == "" || action.Item.PullRequest != published.URL {
+	if publication == nil || publication.CommitOID == p.HistoryRecovery.CommitOID || publication.ItemID != action.Item.ID || publication.DelegatedContentDigest != content.Digest || publication.PlanRevision != github.PlanRevision(action.Item.Body) || publication.Repository != action.Item.Repository || action.Item.QACommit != publication.CommitOID || published.CommitSHA != publication.CommitOID || published.Branch != p.Metadata.BranchName || action.Item.Branch != published.Branch || published.URL == "" || action.Item.PullRequest != published.URL {
 		return errors.New("history recovery cannot retire before the exact new signed publication")
 	}
 	// The caller has already validated this exact remote publication. Retiring
 	// its old lease anchor grants no new publication authority, so do not add
 	// another remote read between the signed transition and protected cleanup.
-	if _, err := s.revalidatePlanProgress(ctx, action, p); err != nil {
+	if err := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).VerifyTerminalPlanAcceptance(p.Metadata, *publication); err != nil {
 		return err
 	}
 	if err := s.archivePlanVerification(action.Item.ID, feedback); err != nil {
