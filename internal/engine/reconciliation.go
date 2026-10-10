@@ -369,12 +369,23 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		}
 		headMatchesQA := strings.TrimSpace(item.QACommit) != "" && strings.EqualFold(strings.TrimSpace(item.QACommit), strings.TrimSpace(details.HeadRefOID))
 		if awaitingHuman && headMatchesQA && item.PlanRelease != "" {
-			// A crash after the signed replacement transition can leave its old
-			// lease marker active. Retire it from this already validated exact PR
-			// before any workspace preparation or destination-base refresh.
-			published := github.PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: details.HeadRefName, CommitSHA: details.HeadRefOID}
-			if err := s.retirePlanHistoryRecovery(ctx, action, published); err != nil {
-				return warnings, changed, fmt.Errorf("retire published plan history recovery before reconciliation: %w", err)
+			feedback, err := s.loadReviewFeedbackRecord(item, delegatedContent)
+			if err != nil {
+				// Ordinary stale proof follows the existing admitted QA recovery,
+				// including cancellation of any armed automatic merge.
+				if err := returnPlanToQA(action, laneID, err); err != nil {
+					return warnings, changed, err
+				}
+				continue
+			}
+			if feedback != nil && feedback.PlanVerification != nil && feedback.PlanVerification.HistoryRecovery != nil {
+				// A crash after the signed replacement transition can leave its old
+				// lease marker active. Retire it from this already validated exact PR
+				// before any workspace preparation or destination-base refresh.
+				published := github.PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: details.HeadRefName, CommitSHA: details.HeadRefOID}
+				if err := s.retirePlanHistoryRecovery(ctx, action, published); err != nil {
+					return warnings, changed, fmt.Errorf("retire published plan history recovery before reconciliation: %w", err)
+				}
 			}
 		}
 		if awaitingHuman && (strings.TrimSpace(details.HeadRefOID) == "" || !headMatchesQA) {

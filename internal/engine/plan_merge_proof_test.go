@@ -80,16 +80,16 @@ func publishedGuardedPlan(t *testing.T) (*deliveryRunFixture, *planMergeProofRun
 }
 
 func TestPlanMergeRequiresApplicableProtectedProof(t *testing.T) {
-	for _, change := range []string{"unchanged", "missing-progress", "tampered-receipt", "changed-runtime", "changed-reviewer", "changed-guard", "enabled-stale"} {
+	for _, change := range []string{"unchanged", "missing-progress", "tampered-receipt", "enabled-missing-progress", "enabled-tampered-receipt", "changed-runtime", "changed-reviewer", "changed-guard", "enabled-stale"} {
 		t.Run(change, func(t *testing.T) {
 			f, r, before := publishedGuardedPlan(t)
 			switch change {
-			case "missing-progress", "tampered-receipt":
+			case "missing-progress", "tampered-receipt", "enabled-missing-progress", "enabled-tampered-receipt":
 				record, err := f.service.readReviewFeedbackRecord(f.parent(t))
 				if err != nil {
 					t.Fatal(err)
 				}
-				if change == "missing-progress" {
+				if change == "missing-progress" || change == "enabled-missing-progress" {
 					record.PlanVerification = nil
 				} else {
 					record.PlanVerification.Gate.Receipt.ReportDigest = strings.Repeat("a", 64)
@@ -97,6 +97,7 @@ func TestPlanMergeRequiresApplicableProtectedProof(t *testing.T) {
 				if err := f.service.writeReviewFeedback(*record); err != nil {
 					t.Fatal(err)
 				}
+				r.enabled = change == "enabled-missing-progress" || change == "enabled-tampered-receipt"
 			case "changed-runtime", "enabled-stale":
 				if err := os.WriteFile(f.cfg.Verification["complete"].RuntimePaths[0], []byte("different executable runtime"), 0o600); err != nil {
 					t.Fatal(err)
@@ -140,7 +141,7 @@ func TestPlanMergeRequiresApplicableProtectedProof(t *testing.T) {
 				if change != "changed-guard" && (reconcileErr != nil || f.parent(t).Status != "Agent QA") {
 					t.Fatalf("proof did not return to QA: %v status=%s warnings=%s", reconcileErr, f.parent(t).Status, planProofWarnings(warnings))
 				}
-				if change == "enabled-stale" && (r.cancellations != 1 || r.enabled) {
+				if (change == "enabled-stale" || change == "enabled-missing-progress" || change == "enabled-tampered-receipt") && (r.cancellations != 1 || r.enabled) {
 					t.Fatal("stale proof left automatic merge armed")
 				}
 			}
