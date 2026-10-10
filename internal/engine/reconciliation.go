@@ -368,6 +368,31 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			return warnings, changed, errors.New(detail)
 		}
 		headMatchesQA := strings.TrimSpace(item.QACommit) != "" && strings.EqualFold(strings.TrimSpace(item.QACommit), strings.TrimSpace(details.HeadRefOID))
+		if awaitingHuman && headMatchesQA && item.PlanRelease != "" {
+			feedback, err := s.loadReviewFeedbackRecord(item, delegatedContent)
+			if err != nil {
+				// Ordinary stale proof follows the existing admitted QA recovery,
+				// including cancellation of any armed automatic merge.
+				if err := returnPlanToQA(action, laneID, err); err != nil {
+					return warnings, changed, err
+				}
+				continue
+			}
+			if feedback != nil && feedback.PlanVerification != nil && feedback.PlanVerification.HistoryRecovery != nil {
+				// A crash after the signed replacement transition can leave its old
+				// lease marker active. Retire it from this already validated exact PR
+				// before any workspace preparation or destination-base refresh.
+				published := github.PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: details.HeadRefName, CommitSHA: details.HeadRefOID}
+				if err := s.retirePlanHistoryRecovery(ctx, action, published); err != nil {
+					// Protected cleanup remains a hard error, but cannot leave an
+					// armed PR ahead of the normal current-proof validation below.
+					if _, cancelErr := cancelAutoMerge(action, details, laneID); cancelErr != nil {
+						err = errors.Join(err, cancelErr)
+					}
+					return warnings, changed, fmt.Errorf("retire published plan history recovery before reconciliation: %w", err)
+				}
+			}
+		}
 		if awaitingHuman && (strings.TrimSpace(details.HeadRefOID) == "" || !headMatchesQA) {
 			if blocked, err := cancelAutoMerge(action, details, laneID); err != nil {
 				return warnings, changed, err
@@ -1061,6 +1086,11 @@ func (s *Engine) syncWorkspaceBranch(ctx context.Context, metadata workspace.Met
 			return err
 		}
 		if contained, err := s.git(ctx, []string{"merge-base", "--is-ancestor", head, "HEAD"}, metadata.WorktreePath, 30*time.Second); err == nil && contained.ExitCode == 0 {
+			return nil
+		}
+		if preserved, err := s.preserveNormalizedPlanHistory(ctx, metadata, item, head); err != nil {
+			return err
+		} else if preserved {
 			return nil
 		}
 		return workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).MergePlanHead(ctx, metadata, head, func() error {

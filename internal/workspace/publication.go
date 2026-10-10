@@ -320,8 +320,8 @@ func (p GitProvider) ConstructCandidate(ctx context.Context, metadata Metadata, 
 }
 
 // ConstructCandidateForMergeMethod constructs a QA candidate compatible with
-// the configured GitHub merge method. A divergent rebase-mode candidate is
-// recorded directly on the authenticated base so its history remains linear.
+// the configured GitHub merge method. A divergent or non-linear rebase-mode
+// candidate is recorded directly on the authenticated base.
 func (p GitProvider) ConstructCandidateForMergeMethod(ctx context.Context, metadata Metadata, message, mergeMethod string) (Candidate, error) {
 	privilegedGitMu.Lock()
 	defer privilegedGitMu.Unlock()
@@ -431,13 +431,20 @@ func (p GitProvider) ConstructCandidateForMergeMethod(ctx context.Context, metad
 		return Candidate{}, fmt.Errorf("verify candidate base ancestry: %w", commandError(ancestorErr, ancestorResult))
 	}
 	needsBaseParent := !baseIntegrated
-	if treeOID != headTree || headOID == metadata.BaseRevision || mergeHead != "" || needsBaseParent {
+	needsLinearParent := mergeMethod == config.MergeMethodRebase && (needsBaseParent || mergeHead != "")
+	if mergeMethod == config.MergeMethodRebase && !needsLinearParent {
+		needsLinearParent, err = p.candidateHasMergeHistory(ctx, profile, metadata.BaseRevision, headOID)
+		if err != nil {
+			return Candidate{}, err
+		}
+	}
+	if treeOID != headTree || headOID == metadata.BaseRevision || mergeHead != "" || needsBaseParent || needsLinearParent {
 		message = strings.TrimSpace(message)
 		if message == "" {
 			message = "Implement approved Runner work item"
 		}
 		commitArgs := []string{"commit-tree", treeOID}
-		if mergeMethod == config.MergeMethodRebase && needsBaseParent {
+		if needsLinearParent {
 			commitArgs = append(commitArgs, "-p", metadata.BaseRevision)
 		} else {
 			commitArgs = append(commitArgs, "-p", headOID)
@@ -494,6 +501,109 @@ func (p GitProvider) ConstructCandidateForMergeMethod(ctx context.Context, metad
 		return Candidate{}, errors.New("committed candidate HEAD, tree, or branch changed during construction")
 	}
 	return Candidate{CommitOID: headOID, TreeOID: treeOID}, nil
+}
+
+// CandidateNeedsRebaseNormalization inspects an exact clean committed candidate
+// without changing its index, objects, refs, or publication authority. The base
+// is the active private identity's authenticated revision; callers must refresh
+// that identity before inspecting a newer publication base.
+func (p GitProvider) CandidateNeedsRebaseNormalization(ctx context.Context, metadata Metadata, candidate Candidate) (bool, error) {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	if !validObjectID(candidate.CommitOID) || !validObjectID(candidate.TreeOID) || !validObjectID(metadata.BaseRevision) {
+		return false, errors.New("rebase normalization inspection requires valid candidate and base object IDs")
+	}
+	if err := validateCandidateMetadata(metadata); err != nil {
+		return false, err
+	}
+	if err := validateRecordedIdentity(metadata); err != nil {
+		return false, err
+	}
+	profile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
+	if err != nil {
+		return false, err
+	}
+	validate := func() error {
+		verifiedProfile, err := derivePrivilegedGitProfile(metadata.WorktreePath)
+		if err != nil {
+			return err
+		}
+		if verifiedProfile != profile {
+			return errors.New("candidate Git administration changed during rebase normalization inspection")
+		}
+		if err := rejectObjectRedirection(profile); err != nil {
+			return err
+		}
+		if err := p.rejectReplacementObjects(ctx, profile); err != nil {
+			return err
+		}
+		head, err := p.privilegedScalar(ctx, profile, "rev-parse", "--verify", "HEAD")
+		if err != nil {
+			return err
+		}
+		tree, err := p.privilegedScalar(ctx, profile, "rev-parse", "--verify", "HEAD^{tree}")
+		if err != nil {
+			return err
+		}
+		branch, err := p.privilegedScalar(ctx, profile, "symbolic-ref", "--quiet", "HEAD")
+		if err != nil {
+			return err
+		}
+		if head != candidate.CommitOID || tree != candidate.TreeOID || branch != "refs/heads/"+metadata.BranchName {
+			return errors.New("rebase normalization candidate HEAD, tree, or branch changed")
+		}
+		status, err := p.privilegedGit(ctx, profile, "status", "--porcelain", "--untracked-files=all")
+		if err != nil {
+			return commandError(err, status)
+		}
+		if status.Stdout != "" {
+			return errors.New("rebase normalization inspection requires a clean committed candidate")
+		}
+		merge, mergeErr := p.privilegedGit(ctx, profile, "rev-parse", "--verify", "MERGE_HEAD")
+		if mergeErr == nil {
+			return errors.New("rebase normalization inspection requires a committed candidate without pending merge state")
+		}
+		if merge.ExitCode != 1 && merge.ExitCode != 128 {
+			return commandError(mergeErr, merge)
+		}
+		return p.verifyCandidateWorktree(ctx, profile)
+	}
+	if err := validate(); err != nil {
+		return false, err
+	}
+	ancestor, ancestorErr := p.privilegedGit(ctx, profile, "merge-base", "--is-ancestor", metadata.BaseRevision, candidate.CommitOID)
+	needsNormalization := ancestor.ExitCode == 1
+	if ancestorErr != nil && ancestor.ExitCode != 1 {
+		return false, fmt.Errorf("verify candidate base ancestry: %w", commandError(ancestorErr, ancestor))
+	}
+	if !needsNormalization {
+		needsNormalization, err = p.candidateHasMergeHistory(ctx, profile, metadata.BaseRevision, candidate.CommitOID)
+		if err != nil {
+			return false, err
+		}
+	}
+	if err := validateRecordedIdentity(metadata); err != nil {
+		return false, err
+	}
+	if err := validate(); err != nil {
+		return false, err
+	}
+	return needsNormalization, nil
+}
+
+func (p GitProvider) candidateHasMergeHistory(ctx context.Context, profile subprocess.PrivilegedGitProfile, baseOID, headOID string) (bool, error) {
+	merges, err := p.privilegedGit(ctx, profile, "rev-list", "--merges", "--max-count=1", baseOID+".."+headOID)
+	if err != nil {
+		return false, fmt.Errorf("inspect candidate merge history: %w", commandError(err, merges))
+	}
+	oid := strings.TrimSuffix(merges.Stdout, "\n")
+	if oid == "" {
+		return false, nil
+	}
+	if !validObjectID(oid) {
+		return false, errors.New("candidate merge history returned an invalid object ID")
+	}
+	return true, nil
 }
 
 func candidateDiffCheckCorrection(output string) string {
@@ -663,7 +773,7 @@ func (p GitProvider) rejectReplacementObjects(ctx context.Context, profile subpr
 }
 
 func (p GitProvider) stageCandidatePath(ctx context.Context, profile subprocess.PrivilegedGitProfile, path string) error {
-	mode, objectID, exists, err := p.candidatePathEntry(ctx, profile, path)
+	mode, objectID, exists, err := p.candidatePathEntry(ctx, profile, path, true)
 	if err != nil {
 		return err
 	}
@@ -712,7 +822,7 @@ func (p GitProvider) updateCandidateIndex(ctx context.Context, profile subproces
 	}
 }
 
-func (p GitProvider) candidatePathEntry(ctx context.Context, profile subprocess.PrivilegedGitProfile, path string) (string, string, bool, error) {
+func (p GitProvider) candidatePathEntry(ctx context.Context, profile subprocess.PrivilegedGitProfile, path string, writeObject bool) (string, string, bool, error) {
 	absolute := filepath.Join(profile.WorkTree, filepath.FromSlash(path))
 	if !pathInsideOrEqualLexical(absolute, profile.WorkTree) {
 		return "", "", false, fmt.Errorf("candidate path escapes worktree: %q", path)
@@ -733,12 +843,12 @@ func (p GitProvider) candidatePathEntry(ctx context.Context, profile subprocess.
 		if readErr != nil {
 			return "", "", false, fmt.Errorf("read candidate symlink %q: %w", path, readErr)
 		}
-		objectID, err = p.hashTemporaryBlob(ctx, profile, []byte(target))
+		objectID, err = p.hashTemporaryBlob(ctx, profile, []byte(target), writeObject)
 	case info.Mode().IsRegular():
 		if info.Mode().Perm()&0o111 != 0 {
 			mode = "100755"
 		}
-		objectID, err = p.privilegedScalar(ctx, profile, "hash-object", "-w", "--no-filters", "--", path)
+		objectID, err = p.hashCandidateBlob(ctx, profile, path, writeObject)
 	case info.IsDir():
 		gitlink, gitlinkErr := p.candidatePathIsGitlink(ctx, profile, path)
 		if gitlinkErr != nil {
@@ -757,7 +867,7 @@ func (p GitProvider) candidatePathEntry(ctx context.Context, profile subprocess.
 		return "", "", false, fmt.Errorf("candidate path %q has unsupported file type %s", path, info.Mode().Type())
 	}
 	if err != nil {
-		return "", "", false, fmt.Errorf("write candidate blob for %q: %w", path, err)
+		return "", "", false, fmt.Errorf("hash candidate blob for %q: %w", path, err)
 	}
 	if !validObjectID(objectID) {
 		return "", "", false, fmt.Errorf("Git returned invalid object ID for candidate path %q", path)
@@ -788,7 +898,7 @@ func (p GitProvider) verifyCandidateWorktree(ctx context.Context, profile subpro
 		return fmt.Errorf("parse committed candidate index: %w", err)
 	}
 	for _, path := range sortedSnapshotKeys(index) {
-		mode, objectID, exists, entryErr := p.candidatePathEntry(ctx, profile, path)
+		mode, objectID, exists, entryErr := p.candidatePathEntry(ctx, profile, path, false)
 		if entryErr != nil {
 			return entryErr
 		}
@@ -810,7 +920,7 @@ func (p GitProvider) verifyCandidateWorktree(ctx context.Context, profile subpro
 	return nil
 }
 
-func (p GitProvider) hashTemporaryBlob(ctx context.Context, profile subprocess.PrivilegedGitProfile, content []byte) (string, error) {
+func (p GitProvider) hashTemporaryBlob(ctx context.Context, profile subprocess.PrivilegedGitProfile, content []byte, writeObject bool) (string, error) {
 	temporary, err := os.CreateTemp("", "runner-git-blob-*")
 	if err != nil {
 		return "", err
@@ -828,7 +938,15 @@ func (p GitProvider) hashTemporaryBlob(ctx context.Context, profile subprocess.P
 	if err := temporary.Close(); err != nil {
 		return "", err
 	}
-	return p.privilegedScalar(ctx, profile, "hash-object", "-w", "--no-filters", "--", name)
+	return p.hashCandidateBlob(ctx, profile, name, writeObject)
+}
+
+func (p GitProvider) hashCandidateBlob(ctx context.Context, profile subprocess.PrivilegedGitProfile, path string, writeObject bool) (string, error) {
+	args := []string{"hash-object", "--no-filters"}
+	if writeObject {
+		args = append(args, "-w")
+	}
+	return p.privilegedScalar(ctx, profile, append(args, "--", path)...)
 }
 
 func (p GitProvider) privilegedGit(ctx context.Context, profile subprocess.PrivilegedGitProfile, args ...string) (subprocess.Result, error) {

@@ -129,10 +129,12 @@ type ActionRefresher interface {
 }
 
 type PullRequestManager struct {
-	run              subprocess.Runner
-	timeout          time.Duration
-	actionRefresher  ActionRefresher
-	publicationGuard func(context.Context, AuthorizedAction) error
+	run                    subprocess.Runner
+	timeout                time.Duration
+	actionRefresher        ActionRefresher
+	publicationGuard       func(context.Context, AuthorizedAction) error
+	planHistoryReplacement *workspace.PublicationRecord
+	planHistoryMergeMethod string
 }
 
 func NewPullRequestManager(run subprocess.Runner, actionRefresher ActionRefresher) PullRequestManager {
@@ -530,6 +532,9 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 	if !config.ValidMergeMethod(mergeMethod) {
 		return PublishedPullRequest{}, errors.New("publication requires merge, rebase, or squash merge method")
 	}
+	if m.planHistoryReplacement != nil && (mergeMethod != config.MergeMethodRebase || m.planHistoryMergeMethod != mergeMethod) {
+		return PublishedPullRequest{}, errors.New("plan history replacement must match the configured rebase publication policy")
+	}
 	branch := strings.TrimPrefix(record.DestinationRef, "refs/heads/")
 	if err := validatePublicationAuthority(action, record); err != nil {
 		return PublishedPullRequest{}, err
@@ -565,6 +570,17 @@ func (m PullRequestManager) publish(ctx context.Context, action AuthorizedAction
 		}
 		if authorityErr := validatePublicationAuthority(refreshed, record); authorityErr != nil {
 			return authorityErr
+		}
+		if refreshed.Item.PlanRelease != "" && refreshed.Item.PullRequest != "" && refreshed.Item.QACommit != record.CommitOID {
+			// Existing plan PRs can lag a freshly reviewed base refresh. The
+			// signed prior head is the exact lease, never an arbitrary PR head.
+			details, err := m.inspect(ctx, record.Repository, refreshed.Item.PullRequest, false, false)
+			if err != nil {
+				return err
+			}
+			if err := validatePublishedPullRequest(details, record.Repository, branch, refreshed.Item.QACommit, baseBranch, record.ApprovedBaseOID); err != nil {
+				return err
+			}
 		}
 		if m.publicationGuard != nil {
 			if err := m.publicationGuard(ctx, refreshed); err != nil {
@@ -740,6 +756,23 @@ func (m PullRequestManager) recoverPlanPublication(ctx context.Context, action A
 	if err != nil {
 		return PublishedPullRequest{}, true, err
 	}
+	if details.State == "OPEN" && details.HeadRefOID != record.CommitOID && m.planHistoryReplacement != nil {
+		details, err = m.replacePlanPublicationHistory(ctx, action, metadata, record, details, baseBranch, remoteName)
+		if err != nil {
+			return PublishedPullRequest{}, true, err
+		}
+	}
+	if details.State == "OPEN" && details.HeadRefOID != record.CommitOID && m.planHistoryReplacement == nil &&
+		m.publicationGuard != nil && action.Item.PullRequest == details.URL && action.Item.QACommit == details.HeadRefOID {
+		if err := validatePublishedPullRequest(details, record.Repository, branch, action.Item.QACommit, baseBranch, record.ApprovedBaseOID); err != nil {
+			return PublishedPullRequest{}, true, err
+		}
+		// The current signed QA head is the exact predecessor, not successful
+		// new publication. No prior acceptance authorizes the new candidate.
+		// The ordinary push path revalidates fresh acceptance and complete
+		// proof, rereads this exact OPEN PR, and uses the signed old-head lease.
+		return PublishedPullRequest{}, false, nil
+	}
 	if err := ValidateTrackedPullRequest(details, record.Repository, branch, record.CommitOID, baseBranch, ""); err != nil {
 		return PublishedPullRequest{}, true, err
 	}
@@ -897,6 +930,10 @@ func validatePublishedPullRequest(details PullRequestDetails, repository, branch
 		return fmt.Errorf("pull request is %s", strings.ToLower(details.State))
 	}
 	if err := ValidateTrackedPullRequest(details, repository, branch, headCommit, baseBranch, baseRevision); err != nil {
+		if baseRevision != "" && validGitObjectID(strings.TrimSpace(details.BaseRefOID)) &&
+			ValidateTrackedPullRequest(details, repository, branch, headCommit, baseBranch, "") == nil {
+			return fmt.Errorf("%w: pull request does not match the approved base: %w", ErrPublicationBaseChanged, err)
+		}
 		return fmt.Errorf("pull request does not match the accepted publication tuple: %w", err)
 	}
 	return nil

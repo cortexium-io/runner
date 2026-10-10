@@ -97,8 +97,10 @@ func (s *Engine) revalidateEvidenceDelivery(ctx context.Context, expected github
 // private seal prevents altered caller-provided recovery fields being applied.
 type RetryPlan struct {
 	github.RetryPlan
-	EvidenceRecovery *EvidenceRecovery `json:"evidence_recovery,omitempty"`
+	EvidenceRecovery *EvidenceRecovery            `json:"evidence_recovery,omitempty"`
+	HistoryRecovery  *workspace.PublicationRecord `json:"history_recovery,omitempty"`
 	recoverySeal     [32]byte
+	historySeal      [32]byte
 }
 
 type EvidenceRecovery struct {
@@ -231,8 +233,14 @@ func (s *Engine) currentPlanEvidenceDigest(ctx context.Context, delivery github.
 
 func (s *Engine) planRetryEvidence(ctx context.Context, plan github.RetryPlan) (RetryPlan, error) {
 	recovery, err := s.inspectRetryEvidence(ctx, plan, nil)
+	if err != nil {
+		return RetryPlan{}, err
+	}
+	history, delivery, err := s.inspectRetryHistory(ctx, plan)
 	result := RetryPlan{RetryPlan: plan, EvidenceRecovery: recovery}
+	result.HistoryRecovery = history
 	result.recoverySeal = qaPreviewDigest(recovery)
+	result.historySeal = historyRecoveryDigest(history, delivery)
 	return result, err
 }
 
@@ -240,9 +248,20 @@ func (s *Engine) applyRetryEvidence(ctx context.Context, plan RetryPlan) error {
 	if qaPreviewDigest(plan.EvidenceRecovery) != plan.recoverySeal {
 		return errors.New("retry evidence preview was modified")
 	}
-	if plan.EvidenceRecovery == nil {
-		return nil
+	history, delivery, err := s.inspectRetryHistory(ctx, plan.RetryPlan)
+	if err != nil {
+		return err
 	}
-	_, err := s.inspectRetryEvidence(ctx, plan.RetryPlan, plan.EvidenceRecovery)
-	return err
+	if qaPreviewDigest(history) != qaPreviewDigest(plan.HistoryRecovery) || historyRecoveryDigest(history, delivery) != plan.historySeal {
+		return errors.New("retry history recovery or plan authority changed after preview; inspect a fresh preview")
+	}
+	if plan.EvidenceRecovery != nil {
+		if _, err := s.inspectRetryEvidence(ctx, plan.RetryPlan, plan.EvidenceRecovery); err != nil {
+			return err
+		}
+	}
+	if plan.HistoryRecovery != nil {
+		return s.retainRetryHistory(plan.Item, *plan.HistoryRecovery)
+	}
+	return nil
 }

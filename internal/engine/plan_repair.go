@@ -145,6 +145,21 @@ func (s *Engine) resumePlanRepair(ctx context.Context, delivery github.PlanDeliv
 			return errors.New("plan repair owner changed state; refusing partial admission")
 		}
 	}
+	if p := feedback.PlanVerification; p != nil && (p.Publication != nil || p.HistoryRecovery != nil) {
+		if p.classificationPending() || p.Assignment.Spec.PlanContext.Revision != r.Revision {
+			return errors.New("plan repair cannot supersede uncertain or unrelated publication progress")
+		}
+		// The signed repair intent supersedes acceptance of the rejected plan.
+		// Archive before admitting owners, then keep gate receipts as historical
+		// evidence without carrying the old publication head or tree-only lease.
+		if err := s.archivePlanVerification(parent.ID, feedback); err != nil {
+			return err
+		}
+		p.Publication, p.HistoryRecovery = nil, nil
+		if err := s.savePlanVerification(parent, content, p); err != nil {
+			return err
+		}
+	}
 	for _, child := range delivery.Children {
 		findings := ownerFindings[child.ID]
 		if findings == nil || child.Result == marker {

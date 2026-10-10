@@ -189,10 +189,20 @@ func (s *Engine) ApplyProjectItemRetry(ctx context.Context, plan RetryPlan) (git
 		retried, err = s.source.ApplyRetry(ctx, plan.RetryPlan)
 		return err
 	}
-	if plan.EvidenceRecovery != nil {
+	if plan.EvidenceRecovery != nil || plan.HistoryRecovery != nil {
 		ids := []string{plan.Item.ID}
-		for _, member := range plan.EvidenceRecovery.Members {
-			ids = append(ids, member.ID)
+		if plan.EvidenceRecovery != nil {
+			for _, member := range plan.EvidenceRecovery.Members {
+				ids = append(ids, member.ID)
+			}
+		} else {
+			delivery, present, err := s.source.DeliveryForItem(ctx, plan.Item)
+			if err != nil || !present || delivery.Parent.ID != plan.Item.ID {
+				return retried, errors.Join(errors.New("history retry lost current parent authority"), err)
+			}
+			for _, member := range delivery.Children {
+				ids = append(ids, member.ID)
+			}
 		}
 		err := s.withDeliveryOperationGuards(ids, apply)
 		return retried, err
@@ -1857,6 +1867,7 @@ func (s *Engine) executeQA(ctx context.Context, action github.AuthorizedAction, 
 			// Retain prior observed check bytes; the launcher independently
 			// assesses executable applicability after this new QA acceptance.
 			prior := reviewRecord.PlanVerification
+			progress.HistoryRecovery = prior.HistoryRecovery
 			if prior.Assignment.Spec.PlanContext.Revision == assignment.Spec.PlanContext.Revision {
 				progress.Gate, progress.EnvelopeDigest = prior.Gate, prior.EnvelopeDigest
 			}
@@ -1940,6 +1951,16 @@ func (s *Engine) publishAcceptedQA(
 		return result
 	}
 	pullRequests := github.NewPullRequestManager(s.run, s.source)
+	if isPlan {
+		feedback, err := s.loadReviewFeedbackRecord(item, github.DelegatedContentFor(item))
+		if err != nil || feedback == nil || feedback.PlanVerification == nil {
+			err = errors.Join(errors.New("plan publication is missing protected current progress"), err)
+			return s.failExecution(ctx, action, lane, result, "Plan publication lost protected history recovery", err, integrityViolationOutput("Plan publication lost protected history recovery", err))
+		}
+		if prior := feedback.PlanVerification.HistoryRecovery; prior != nil {
+			pullRequests = pullRequests.WithPlanHistoryReplacement(*prior, s.cfg.GitHubProject.MergeMethod)
+		}
+	}
 	refreshAfterBaseMove := func(cause error) (RunResult, bool) {
 		if !errors.Is(cause, workspace.ErrIdentityMismatch) && !errors.Is(cause, github.ErrPublicationBaseChanged) {
 			return RunResult{}, false
@@ -2061,6 +2082,10 @@ func (s *Engine) finishAcceptedQAPublication(ctx context.Context, action github.
 	}
 	action = currentAction
 	item = action.Item
+	if err := s.retirePlanHistoryRecovery(ctx, action, published); err != nil {
+		result.Error = appendError(result.Error, fmt.Errorf("published history recovery retirement is pending: %w", err))
+		return result
+	}
 	if s.cfg.GitHubProject.AutoMerge {
 		result.Summary = "Agent QA passed; pull request is queued for automatic integration: " + published.URL
 	} else {
