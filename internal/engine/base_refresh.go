@@ -68,7 +68,10 @@ func (s *Engine) refreshBranchForQA(ctx context.Context, action github.Authorize
 	if refreshed.PreviousCommitSHA != before.Head {
 		return refreshed, errors.New("candidate changed before Runner's base refresh; retained evidence was not rebound")
 	}
-	metadata, err = s.workspaceForItem(ctx, action.Item, content.Digest, metadata.RepoRoot)
+	// Refresh already advanced this owned candidate and its private identity.
+	// Synchronizing the old published/integrated head here would reintroduce
+	// merge history and change the exact refreshed commit before validation.
+	metadata, err = s.validateWorkspaceForItem(ctx, action.Item, content.Digest, metadata.RepoRoot)
 	if err != nil {
 		return refreshed, err
 	}
@@ -76,7 +79,7 @@ func (s *Engine) refreshBranchForQA(ctx context.Context, action github.Authorize
 	if err != nil {
 		return refreshed, err
 	}
-	if !after.Clean || after.Head != refreshed.CommitSHA || after.Branch != before.Branch {
+	if !after.Clean || after.Head != refreshed.CommitSHA || after.Branch != before.Branch || metadata.BranchName != before.Branch {
 		return refreshed, errors.New("refreshed candidate changed before retaining historical evidence")
 	}
 	candidate, err := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).ConstructCandidateForMergeMethod(ctx, metadata, action.Item.Title, s.cfg.GitHubProject.MergeMethod)

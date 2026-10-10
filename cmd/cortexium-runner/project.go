@@ -854,6 +854,12 @@ func runRetry(ctx context.Context, args []string, stdin io.Reader, stdout io.Wri
 }
 
 func runRetryPlan(ctx context.Context, service *engine.Engine, plan engine.RetryPlan, dryRun, jsonOutput bool, stdin io.Reader, stdout io.Writer) error {
+	if plan.HistoryRecovery != nil && !jsonOutput {
+		prior := plan.HistoryRecovery
+		fmt.Fprintln(stdout, "Runner rebase history recovery")
+		fmt.Fprintf(stdout, "  Accepted head: %s\n  Preserved source tree: %s\n  Approved base: %s\n", terminalSafeText(prior.CommitOID), terminalSafeText(prior.TreeOID), terminalSafeText(prior.ApprovedBaseOID))
+		fmt.Fprintln(stdout, "  Fresh parent review and applicable complete verification are required before replacing the exact tracked PR head. Prior proof stays historical; child acceptances and QA counters are unchanged.")
+	}
 	recoveryRequired := false
 	if plan.EvidenceRecovery != nil {
 		for _, member := range plan.EvidenceRecovery.Members {

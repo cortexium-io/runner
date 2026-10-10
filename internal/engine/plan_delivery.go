@@ -44,11 +44,41 @@ func (s *Engine) resumeAcceptedPlanPublication(ctx context.Context, action githu
 		// Confirmed delivery precedes every live checkout, dependency, runtime,
 		// catalog and gate operation. The terminal helper rereads the exact
 		// immutable private acceptance and current signed publication authority.
-		if p.Publication != nil {
+		if p.Publication != nil || p.HistoryRecovery != nil {
 			manager := github.NewPullRequestManager(s.run, s.source)
-			merged, found, err := manager.RecoverMergedPlanPublication(ctx, action, p.Metadata, *p.Publication, s.baseBranch())
-			if err != nil {
-				return fail(err)
+			publication := p.Publication
+			if publication == nil {
+				publication = p.HistoryRecovery
+			}
+			if p.HistoryRecovery != nil {
+				manager = manager.WithPlanHistoryReplacement(*p.HistoryRecovery, s.cfg.GitHubProject.MergeMethod)
+			}
+			var observedOpen *github.PullRequestDetails
+			if action.Item.PullRequest != "" {
+				// An OPEN PR supplies no terminal authority. A controlled refresh
+				// may already have advanced the private workspace identity; the
+				// live candidate/base checks below decide whether fresh QA is due.
+				details, err := manager.InspectAuthorized(ctx, action)
+				if err != nil {
+					return fail(err)
+				}
+				if p.HistoryRecovery != nil && details.HeadRefOID == p.HistoryRecovery.CommitOID {
+					publication = p.HistoryRecovery
+				}
+				if details.State == "OPEN" {
+					if err := github.ValidateTrackedPullRequest(details, publication.Repository, p.Metadata.BranchName, publication.CommitOID, s.baseBranch(), ""); err != nil {
+						return fail(err)
+					}
+					observedOpen = &details
+				}
+			}
+			var merged github.PullRequestDetails
+			var found bool
+			if observedOpen == nil {
+				merged, found, err = manager.RecoverMergedPlanPublication(ctx, action, p.Metadata, *publication, s.baseBranch())
+				if err != nil {
+					return fail(err)
+				}
 			}
 			if found {
 				result.ResumedCheckpoint = true
@@ -56,12 +86,12 @@ func (s *Engine) resumeAcceptedPlanPublication(ctx context.Context, action githu
 				if targetLane.OnEnter != config.WorkflowActionPublishPR {
 					return fail(errors.New("confirmed publication lost its configured transition"))
 				}
-				if err := s.transitionPRReady(ctx, action, targetLane.Name, p.Publication.AcceptanceReport, p.Metadata.BranchName, merged.URL, p.Publication.CommitOID); err != nil {
+				if err := s.transitionPRReady(ctx, action, targetLane.Name, publication.AcceptanceReport, p.Metadata.BranchName, merged.URL, publication.CommitOID); err != nil {
 					return fail(err)
 				}
 				result.Outcome = execution.OutcomeSucceeded
 				lineage := observedLineage(&result)
-				lineage.PublishedCandidate = metrics.ObjectIdentity{CommitOID: p.Publication.CommitOID, TreeOID: p.Publication.TreeOID}
+				lineage.PublishedCandidate = metrics.ObjectIdentity{CommitOID: publication.CommitOID, TreeOID: publication.TreeOID}
 				lineage.PullRequestURL, lineage.PullRequestNumber = merged.URL, merged.Number
 				fresh, err := s.source.Authorize(ctx, github.WorkItem{ID: action.Item.ID})
 				if err != nil {
@@ -80,6 +110,13 @@ func (s *Engine) resumeAcceptedPlanPublication(ctx context.Context, action githu
 					result.Summary = "Recovered the exact confirmed merged plan; delivery completed without repeating QA or verification."
 				}
 				return result, true
+			}
+			if observedOpen != nil && p.HistoryRecovery != nil && p.Publication != nil && publication.CommitOID == p.Publication.CommitOID && action.Item.QACommit == p.Publication.CommitOID && p.Publication.CommitOID != p.HistoryRecovery.CommitOID {
+				published := github.PublishedPullRequest{URL: observedOpen.URL, Number: observedOpen.Number, Branch: observedOpen.HeadRefName, CommitSHA: observedOpen.HeadRefOID}
+				if err := s.retirePlanHistoryRecovery(ctx, action, published); err != nil {
+					return fail(err)
+				}
+				p.HistoryRecovery = nil
 			}
 		}
 		metadata, err := provider.InspectRetainedReview(ctx, s.workspaceRequestForItem(action.Item, content.Digest, repoRoot, false))
@@ -116,6 +153,20 @@ func (s *Engine) resumeAcceptedPlanPublication(ctx context.Context, action githu
 			// A newly recovered collection is not what the earlier parent saw.
 			// Keep historical gate receipts, but renew QA before any gate/classifier.
 			return RunResult{}, false
+		}
+		if config.NormalizeMergeMethod(s.cfg.GitHubProject.MergeMethod) == config.MergeMethodRebase {
+			prior, _, err := s.inspectRetryHistory(ctx, github.RetryPlan{Item: action.Item})
+			if err != nil {
+				return fail(err)
+			}
+			if prior != nil {
+				if p.HistoryRecovery == nil || *p.HistoryRecovery != *prior {
+					return fail(errors.New("accepted plan requires an ordinary retry preview before history normalization"))
+				}
+				// Retry authorized this exact tree-only recovery. Normal candidate
+				// construction owns the rewrite before frozen fresh parent QA.
+				return RunResult{}, false
+			}
 		}
 		p.Metadata = metadata // current privileged Git bindings, never persisted as authority
 		result.ResumedCheckpoint = true

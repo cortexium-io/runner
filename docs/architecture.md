@@ -943,6 +943,20 @@ boundary that may replace the remote branch, and does so with that authenticated
 remote commit as its exact force-with-lease value. A successful Project
 transition records the replacement QA commit and removes the stale-field
 condition.
+
+Rebase candidate construction also normalizes merge commits anywhere above the
+authenticated base into an exact-tree commit with that base as its sole parent.
+Already linear candidates are unchanged. Ordinary blocked-parent retry can
+derive a sealed recovery from the exact protected whole-plan acceptance and
+current delivery authority. It preserves prior proof as history, all member
+acceptances and rejection counts, and requires fresh parent review before
+publication. The existing OPEN PR may be replaced only when its tracked head
+equals the protected predecessor and the replacement has the same source tree,
+base, approved revision, repository and destination. Fresh complete-proof
+applicability and the exact old-head lease remain mandatory. After exact remote
+readback and the signed replacement transition, the active recovery intent is
+archived and retired; immutable prior acceptance remains historical proof.
+
 Recognized transient network and GitHub 5xx failures during this deterministic
 publication are retried in-process up to three total attempts. Each retry
 revalidates the immutable tuple and current Project authority, reuses an already

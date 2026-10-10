@@ -41,6 +41,7 @@ type planVerificationProgress struct {
 	Failure                  *planVerificationFailure        `json:"failure,omitempty"`
 	Classification           *planVerificationClassification `json:"classification,omitempty"`
 	Publication              *workspace.PublicationRecord    `json:"publication,omitempty"`
+	HistoryRecovery          *workspace.PublicationRecord    `json:"history_recovery,omitempty"`
 	EvidenceCollectionDigest string                          `json:"evidence_collection_digest,omitempty"`
 }
 
@@ -87,6 +88,9 @@ func (p *planVerificationProgress) validate() error {
 	}
 	if p.Accepted.Outcome != execution.OutcomeSucceeded || p.Accepted.ReviewAssessment == nil || p.Accepted.ReviewAssessment.Verdict != "accept" {
 		return errors.New("parent verification progress lacks accepted QA")
+	}
+	if prior := p.HistoryRecovery; prior != nil && (prior.ItemID != p.Assignment.Spec.ItemID || prior.DelegatedContentDigest != p.Assignment.Spec.DelegatedContentDigest || prior.PlanRevision != p.Assignment.Spec.PlanContext.Revision || prior.Repository != p.Metadata.Identity.Repository || prior.DestinationRef != "refs/heads/"+p.Metadata.BranchName || prior.ApprovedBaseOID != p.Metadata.BaseRevision || prior.ApprovedBaseRef != p.Metadata.BaseRef || prior.TreeOID != p.Candidate.Tree || prior.VerificationDigest == "" || prior.VerificationReceipt == "") {
+		return errors.New("parent history recovery changed the approved source, base or publication identity")
 	}
 	if err := execution.ValidateRetainedReviewOutput(p.Assignment, p.Accepted); err != nil {
 		return err
@@ -211,20 +215,27 @@ func (s *Engine) savePlanVerification(item github.WorkItem, content github.Deleg
 		if prior.classificationPending() {
 			return errors.New("uncertain parent classification cannot be superseded")
 		}
-		data, err := json.Marshal(record)
-		if err != nil {
+		if err := s.archivePlanVerification(item.ID, record); err != nil {
 			return err
-		}
-		archive := s.reviewFeedbackPath(item.ID) + ".verification-" + planProgressDigest(record)
-		if err := securefs.WriteFileExclusive(archive, data, 0o600); err != nil {
-			stored, readErr := readAmendmentEvidence(archive)
-			if readErr != nil || string(stored) != string(data) {
-				return errors.Join(err, readErr)
-			}
 		}
 	}
 	record.PlanVerification = progress
 	return s.writeReviewFeedback(*record)
+}
+
+func (s *Engine) archivePlanVerification(itemID string, record *reviewFeedbackRecord) error {
+	data, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	archive := s.reviewFeedbackPath(itemID) + ".verification-" + planProgressDigest(record)
+	if err := securefs.WriteFileExclusive(archive, data, 0o600); err != nil {
+		stored, readErr := readAmendmentEvidence(archive)
+		if readErr != nil || string(stored) != string(data) {
+			return errors.Join(err, readErr)
+		}
+	}
+	return nil
 }
 
 func (s *Engine) revalidatePlanProgress(ctx context.Context, action github.AuthorizedAction, p *planVerificationProgress) (github.AuthorizedAction, error) {

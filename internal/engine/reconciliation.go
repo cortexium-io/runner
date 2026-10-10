@@ -368,6 +368,15 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			return warnings, changed, errors.New(detail)
 		}
 		headMatchesQA := strings.TrimSpace(item.QACommit) != "" && strings.EqualFold(strings.TrimSpace(item.QACommit), strings.TrimSpace(details.HeadRefOID))
+		if awaitingHuman && headMatchesQA && item.PlanRelease != "" {
+			// A crash after the signed replacement transition can leave its old
+			// lease marker active. Retire it from this already validated exact PR
+			// before any workspace preparation or destination-base refresh.
+			published := github.PublishedPullRequest{URL: details.URL, Number: details.Number, Branch: details.HeadRefName, CommitSHA: details.HeadRefOID}
+			if err := s.retirePlanHistoryRecovery(ctx, action, published); err != nil {
+				return warnings, changed, fmt.Errorf("retire published plan history recovery before reconciliation: %w", err)
+			}
+		}
 		if awaitingHuman && (strings.TrimSpace(details.HeadRefOID) == "" || !headMatchesQA) {
 			if blocked, err := cancelAutoMerge(action, details, laneID); err != nil {
 				return warnings, changed, err
@@ -1061,6 +1070,11 @@ func (s *Engine) syncWorkspaceBranch(ctx context.Context, metadata workspace.Met
 			return err
 		}
 		if contained, err := s.git(ctx, []string{"merge-base", "--is-ancestor", head, "HEAD"}, metadata.WorktreePath, 30*time.Second); err == nil && contained.ExitCode == 0 {
+			return nil
+		}
+		if preserved, err := s.preserveNormalizedPlanHistory(ctx, metadata, item, head); err != nil {
+			return err
+		} else if preserved {
 			return nil
 		}
 		return workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits()).MergePlanHead(ctx, metadata, head, func() error {

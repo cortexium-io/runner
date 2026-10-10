@@ -2697,6 +2697,16 @@ CLI retries are human authorization events. A running Runner checks newly
 available work on its next poll without waiting for unrelated harness actions
 to finish.
 
+For a blocked, accepted whole-plan PR whose history contains merges under a
+`rebase` policy, ordinary no-feedback `retry --dry-run` derives an authenticated
+history recovery. Its preview identifies the accepted head, preserved source
+tree and approved base. Applying that exact preview retains prior proof as
+history and requeues fresh parent QA without changing the approved plan, child
+acceptances or QA counters. Publication may replace only the same tracked OPEN
+PR's authenticated old head, with an exact Git lease, after fresh parent review
+and applicable complete verification. Changed remote heads, bases or approval
+refuse this recovery; terminal merged PRs retain their normal reconciliation.
+
 CLI `retry` and `approve` writes share the short mutation guard used by planning
 and background recovery. You do not need to stop the service: it continues
 observing other work and cannot mistake these live transitions for abandoned
