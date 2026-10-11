@@ -648,6 +648,17 @@ print prompts, model responses, tool commands, subprocess arguments, or
 worktree paths.
 Use `doctor` for installation and configuration readiness.
 
+Board cards show `Runner Agents`: the latest recorded configured model and
+reasoning level for planning, implementation, QA, and any test specialist work.
+This field updates with normal card transitions, including retries and merge
+completion; it preserves full retry feedback in the separate result field.
+It describes the requested profile, not a provider attestation of hidden
+reasoning. An unspecified model is shown as `not recorded`; an unspecified
+effort is shown as `harness default`. Old attempts without observed harness
+stages are not inferred from today's configuration. Run `doctor --fix` after
+updating an existing installation to provision and show the field. Existing
+cards populate on their next Runner update; complete attempt history stays local.
+
 `metrics` reports the recorded duration, outcome, role, harness, model,
 reasoning level, QA iteration, recovery classification, harness-reported token
 counters, and harness-reported monetary cost for each attempt. Its summary also

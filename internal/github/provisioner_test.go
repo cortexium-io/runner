@@ -52,7 +52,7 @@ func (r *projectProvisionRunner) Run(_ context.Context, command string, args []s
 		additionalFields := ""
 		for _, field := range []struct{ name, id, dataType string }{
 			{"Runner Result", "F_result", "TEXT"}, {"Runner Approval", "F_approval", "TEXT"},
-			{"Runner Phase", "F_phase", "TEXT"}, {"Runner Transition", "F_transition", "TEXT"}, {"Runner Activity", "F_activity", "TEXT"}, {"QA Failures", "F_qa", "NUMBER"},
+			{"Runner Phase", "F_phase", "TEXT"}, {"Runner Transition", "F_transition", "TEXT"}, {"Runner Activity", "F_activity", "TEXT"}, {"Runner Agents", "F_agents", "TEXT"}, {"QA Failures", "F_qa", "NUMBER"},
 			{"Runner Branch", "F_branch", "TEXT"}, {"Pull Request", "F_pr", "TEXT"}, {"QA Commit", "F_qa_commit", "TEXT"},
 		} {
 			if dataType, exists := r.createdFields[field.name]; exists {
@@ -74,7 +74,7 @@ func (r *projectProvisionRunner) Run(_ context.Context, command string, args []s
 		if r.createdBoard {
 			viewID = "PVTV_runner"
 		}
-		for _, required := range []string{"view_id=" + viewID, "visible_field_ids[]=F_title", "visible_field_ids[]=F_activity", "visible_field_ids[]=F_qa"} {
+		for _, required := range []string{"view_id=" + viewID, "visible_field_ids[]=F_title", "visible_field_ids[]=F_activity", "visible_field_ids[]=F_qa", "visible_field_ids[]=F_agents"} {
 			if !strings.Contains(joined, required) {
 				return subprocess.Result{}, errors.New("board-visible field update omitted " + required)
 			}
@@ -176,7 +176,7 @@ func provisionViewConfiguration(runnerFields, phaseVisible bool) string {
 		nodes += `,{"id":"F_phase"}`
 	}
 	if runnerFields {
-		nodes += `,{"id":"F_activity"},{"id":"F_qa"}`
+		nodes += `,{"id":"F_activity"},{"id":"F_qa"},{"id":"F_agents"}`
 	}
 	return `"configuration":{"visibleFields":{"nodes":[` + nodes + `],"pageInfo":{"hasNextPage":false,"endCursor":""}}}`
 }
@@ -192,7 +192,7 @@ func provisionArgValue(args []string, name string) string {
 
 func provisionLifecycleFields() map[string]string {
 	return map[string]string{
-		"Runner Result": "TEXT", "Runner Approval": "TEXT", "Runner Phase": "TEXT", "Runner Transition": "TEXT", "Runner Activity": "TEXT",
+		"Runner Result": "TEXT", "Runner Approval": "TEXT", "Runner Phase": "TEXT", "Runner Transition": "TEXT", "Runner Activity": "TEXT", "Runner Agents": "TEXT",
 		"QA Failures": "NUMBER", "Runner Branch": "TEXT", "Pull Request": "TEXT", "QA Commit": "TEXT",
 	}
 }
@@ -215,6 +215,7 @@ func TestGitHubProjectProvisionerCreatesSelfSufficientProject(t *testing.T) {
 		"deleteProjectV2View",
 		"visibleFieldIds",
 		"visible_field_ids[]=F_activity",
+		"visible_field_ids[]=F_agents",
 		"visible_field_ids[]=F_qa",
 		`name:"Needs assessment"`,
 		`name:"Backlog"`,
@@ -228,6 +229,7 @@ func TestGitHubProjectProvisionerCreatesSelfSufficientProject(t *testing.T) {
 		"--name Runner Phase --data-type TEXT",
 		"--name Runner Transition --data-type TEXT",
 		"--name Runner Activity --data-type TEXT",
+		"--name Runner Agents --data-type TEXT",
 		"--name QA Failures --data-type NUMBER",
 		"--name Runner Branch --data-type TEXT",
 		"--name Pull Request --data-type TEXT",
@@ -275,7 +277,7 @@ func TestGitHubProjectProvisionerLeavesConfiguredBoardFieldsUnchanged(t *testing
 func TestGitHubProjectProvisionerRejectsWrongLifecycleFieldType(t *testing.T) {
 	for _, test := range []struct {
 		field, dataType string
-	}{{"Runner Activity", "NUMBER"}, {"QA Failures", "TEXT"}} {
+	}{{"Runner Activity", "NUMBER"}, {"Runner Agents", "NUMBER"}, {"QA Failures", "TEXT"}} {
 		t.Run(test.field, func(t *testing.T) {
 			fields := provisionLifecycleFields()
 			fields[test.field] = test.dataType

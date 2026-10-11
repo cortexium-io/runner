@@ -65,6 +65,9 @@ func (s *Store) Append(event Event) error {
 	if !validEventKind(event.Kind) {
 		return fmt.Errorf("unsupported metrics event kind %q", event.Kind)
 	}
+	if !validRoleContract(event.RoleContract) {
+		return errors.New("metrics role contract must be a fixed work role")
+	}
 	if !validActivityEvent(event) {
 		return fmt.Errorf("metrics harness activity must be bounded metadata on a completed harness stage")
 	}
@@ -170,6 +173,10 @@ func (s *Store) Read() (ReadResult, error) {
 			continue
 		}
 		if !validActivityEvent(event) {
+			result.MalformedRecords++
+			continue
+		}
+		if !validRoleContract(event.RoleContract) {
 			result.MalformedRecords++
 			continue
 		}
@@ -294,7 +301,7 @@ func (s *Store) Read() (ReadResult, error) {
 type attemptIdentity struct {
 	RunnerID, RunVersion, SkillsVersion, ConfigDigest string
 	ProjectOwner, Repository, ItemID, ItemTitle       string
-	Role, Harness, Model, Reasoning                   string
+	Role, RoleContract, Harness, Model, Reasoning     string
 	ProjectNumber, Iteration                          int
 	HasRunContext                                     bool
 }
@@ -303,7 +310,7 @@ func identityForEvent(event Event) attemptIdentity {
 	identity := attemptIdentity{
 		RunnerID: event.RunnerID, ProjectOwner: event.ProjectOwner, ProjectNumber: event.ProjectNumber,
 		Repository: event.Repository, ItemID: event.ItemID, ItemTitle: event.ItemTitle,
-		Role: event.Role, Harness: event.Harness, Model: event.Model, Reasoning: event.Reasoning, Iteration: event.Iteration,
+		Role: event.Role, RoleContract: event.RoleContract, Harness: event.Harness, Model: event.Model, Reasoning: event.Reasoning, Iteration: event.Iteration,
 	}
 	if event.RunContext != nil {
 		identity.HasRunContext = true
@@ -317,6 +324,15 @@ func identityForEvent(event Event) attemptIdentity {
 func validEventKind(kind string) bool {
 	switch kind {
 	case EventStarted, EventCompleted, EventStageStarted, EventStageCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
+func validRoleContract(contract string) bool {
+	switch contract {
+	case "", "planner", "implementer", "reviewer":
 		return true
 	default:
 		return false

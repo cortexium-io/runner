@@ -130,9 +130,11 @@ func New(cfg config.Config, run subprocess.Runner) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Engine{cfg: resolved, source: source, run: run,
+	engine := &Engine{cfg: resolved, source: source, run: run,
 		processOwnership: subprocess.NewOwnershipScope(fmt.Sprintf("%s/%d", strings.ToLower(resolved.GitHubProject.Owner), resolved.GitHubProject.Number)),
-	}, nil
+	}
+	source.SetAgentAttributionReader(engine.cardAgentAttribution)
+	return engine, nil
 }
 
 func (s *Engine) PlanProjectItemApproval(ctx context.Context, selector string) (github.ApprovalPlan, error) {
@@ -795,8 +797,9 @@ func (s *Engine) newItemAttempt(item github.WorkItem) metrics.Event {
 		AttemptID: metrics.NewAttemptID(), RunnerID: s.cfg.RunnerID,
 		ProjectOwner: s.cfg.GitHubProject.Owner, ProjectNumber: s.cfg.GitHubProject.Number,
 		ItemID: item.ID, ItemTitle: item.Title, Role: executionRole, Harness: harness,
-		Repository: repository,
-		Model:      model, Reasoning: profile.Reasoning, Iteration: item.QAFailures + 1, StartedAt: time.Now().UTC(),
+		RoleContract: s.cfg.RoleContract(executionRole),
+		Repository:   repository,
+		Model:        model, Reasoning: profile.Reasoning, Iteration: item.QAFailures + 1, StartedAt: time.Now().UTC(),
 	}
 }
 

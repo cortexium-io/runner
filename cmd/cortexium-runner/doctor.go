@@ -476,9 +476,9 @@ func writeDoctorReport(output io.Writer, report setup.InspectionReport, probes [
 			writeStateLine(output, toneFailure, "  ✗ Kanban board view is missing")
 		}
 		if report.GitHubProject.BoardLifecycleFields {
-			writeStateLine(output, toneSuccess, "  ✓ Runner Activity and QA Failures are visible on board cards")
+			writeStateLine(output, toneSuccess, "  ✓ Runner Activity, Runner Agents, and QA Failures are visible on board cards")
 		} else {
-			writeStateLine(output, toneWarning, "  ! Runner Activity or QA Failures is hidden, or an internal Runner field is visible; rerun init to restore the overview")
+			writeStateLine(output, toneWarning, "  ! Runner Activity, Runner Agents, or QA Failures is hidden, or an internal Runner field is visible; run doctor --fix to restore the overview")
 		}
 		if report.GitHubProject.IntakeRepository && report.GitHubProject.IntakeLabel {
 			writeStateLine(output, toneSuccess, "  ✓ Public issue intake repository and assessment label are ready")
@@ -487,6 +487,11 @@ func writeDoctorReport(output io.Writer, report setup.InspectionReport, probes [
 			writeStateLine(output, toneSuccess, "  ✓ Runner Approval field is ready")
 		} else {
 			writeStateLine(output, toneFailure, "  ✗ Runner Approval field is missing")
+		}
+		if report.GitHubProject.AgentsField {
+			writeStateLine(output, toneSuccess, "  ✓ Runner Agents model and reasoning attribution field is ready")
+		} else {
+			writeStateLine(output, toneWarning, "  ! Runner Agents field is missing or has the wrong type; run doctor --fix to enable card attribution")
 		}
 		if report.GitHubProject.PhaseField && report.GitHubProject.TransitionField && report.GitHubProject.ActivityField && report.GitHubProject.QAFailuresField && report.GitHubProject.BranchField && report.GitHubProject.PullRequestField && report.GitHubProject.QACommitField {
 			writeStateLine(output, toneSuccess, "  ✓ PR lifecycle, branch, and QA retry fields are ready")

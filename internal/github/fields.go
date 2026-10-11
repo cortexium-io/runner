@@ -583,6 +583,9 @@ func (s *Project) setResult(ctx context.Context, itemID, summary string) error {
 	if summary == "" {
 		return nil
 	}
+	if updates := s.agentAttributionUpdates(WorkItem{ID: itemID}); len(updates) > 0 {
+		return s.applyFieldUpdates(ctx, itemID, append(updates, textProjectField(s.resultFieldName(), summary))...)
+	}
 	schema := s.currentSchema()
 	field, ok := schema.field(s.resultFieldName())
 	if !ok || field.Type != "ProjectV2Field" {
