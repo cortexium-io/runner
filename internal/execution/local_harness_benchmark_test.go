@@ -305,7 +305,7 @@ func runLocalBenchmarkExactWrite(t *testing.T, harness string, cfg config.Execut
 	if string(content) != "local-benchmark-ok\n" {
 		return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, fmt.Errorf("unexpected answer.txt content %q", content)
 	}
-	if err := localBenchmarkChangedPaths(metadata.WorktreePath, "answer.txt"); err != nil {
+	if err := localBenchmarkChangedPaths(metadata.WorktreePath, metadata.BaseRevision, "answer.txt"); err != nil {
 		return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, err
 	}
 	return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, nil
@@ -351,28 +351,80 @@ for (const [value, min, max, expected] of [
 	if string(gotTest) != string(wantTest) {
 		return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, fmt.Errorf("harness changed the seeded test")
 	}
-	if err := localBenchmarkChangedPaths(metadata.WorktreePath, "clamp.mjs"); err != nil {
+	if err := localBenchmarkChangedPaths(metadata.WorktreePath, metadata.BaseRevision, "clamp.mjs"); err != nil {
 		return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, err
 	}
 	return output.Outcome, output.Usage, output.HarnessDurationMilliseconds, nil
 }
 
-func localBenchmarkChangedPaths(repo, expected string) error {
-	check := exec.Command("git", "diff", "--check")
+func TestLocalBenchmarkChangedPaths(t *testing.T) {
+	cases := []struct {
+		name      string
+		expected  string
+		changes   map[string]string
+		commit    bool
+		wantError bool
+	}{
+		{name: "modified required file", expected: "README.md", changes: map[string]string{"README.md": "updated\n"}},
+		{name: "committed required file", expected: "README.md", changes: map[string]string{"README.md": "updated\n"}, commit: true},
+		{name: "untracked required file", expected: "answer.txt", changes: map[string]string{"answer.txt": "answer\n"}},
+		{name: "missing required change", expected: "README.md", wantError: true},
+		{name: "untracked unrelated file", expected: "README.md", changes: map[string]string{"README.md": "updated\n", "other.txt": "unrelated\n"}, wantError: true},
+		{name: "committed unrelated file", expected: "README.md", changes: map[string]string{"README.md": "updated\n", "other.txt": "unrelated\n"}, commit: true, wantError: true},
+		{name: "committed whitespace error", expected: "README.md", changes: map[string]string{"README.md": "updated \n"}, commit: true, wantError: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := initGitRepo(t)
+			base := strings.TrimSpace(runGitCommandOutput(t, repo, "rev-parse", "HEAD"))
+			for path, content := range tc.changes {
+				if err := os.WriteFile(filepath.Join(repo, path), []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.commit {
+				runGitCommand(t, repo, "add", ".")
+				runGitCommand(t, repo, "commit", "-m", "Commit benchmark candidate")
+			}
+			if err := localBenchmarkChangedPaths(repo, base, tc.expected); (err != nil) != tc.wantError {
+				t.Fatalf("changed paths from %s: %v, want error %t", base, err, tc.wantError)
+			}
+		})
+	}
+}
+
+func localBenchmarkChangedPaths(repo, base, expected string) error {
+	check := exec.Command("git", "diff", "--check", base, "--")
 	check.Dir = repo
 	if output, err := check.CombinedOutput(); err != nil {
 		return fmt.Errorf("independent diff check failed: %v: %s", err, output)
 	}
-	command := exec.Command("git", "status", "--porcelain", "--untracked-files=all")
+	// Include committed changes as well as the index and working tree. A clean
+	// status alone cannot prove that the model changed only the required file.
+	command := exec.Command("git", "diff", "--name-only", "--no-renames", "-z", base, "--")
 	command.Dir = repo
 	output, err := command.Output()
 	if err != nil {
 		return err
 	}
-	for _, line := range strings.Split(strings.TrimSuffix(string(output), "\n"), "\n") {
-		if len(line) < 4 || line[3:] != expected {
-			return fmt.Errorf("unexpected workspace change %q", line)
+	untracked := exec.Command("git", "ls-files", "--others", "--exclude-standard", "-z")
+	untracked.Dir = repo
+	untrackedOutput, err := untracked.Output()
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, path := range strings.Split(string(output)+string(untrackedOutput), "\x00") {
+		if path == "" {
+			continue
 		}
+		if path != expected {
+			return fmt.Errorf("unexpected workspace change %q", path)
+		}
+		found = true
+	}
+	if !found {
+		return fmt.Errorf("required workspace change %q is missing", expected)
 	}
 	return nil
 }
