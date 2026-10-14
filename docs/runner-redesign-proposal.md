@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Accepted target and build plan. Date: 2026-10-14. Implementation has not started under this plan.
+Status: Phase 1 implemented and qualified on 2026-10-14 in `codex/runner-local-core`. Phase 2 has not started.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -16,9 +16,9 @@ implementation or a board's field schema.
 The direction is recorded in [ADR 0005](decisions/0005-local-runner-core.md).
 This is the designated replacement specification and build sequence, under
 [AGENTS.md](../AGENTS.md). The [architecture](architecture.md) and existing
-operator guides describe the current runtime. The commands and configuration
-below are build contracts, not available features. Implementation requires a
-separate instruction to begin.
+operator guides describe the Project-backed runtime. `cmd/runner-next` now
+implements the first-slice commands and configuration below. Other release
+capabilities remain build contracts and require a separate implementation instruction.
 
 Start with [release scope](#first-release-scope), [core contracts](#core-contracts),
 and the [first implementation slice](#first-implementation-slice).
@@ -579,7 +579,8 @@ There is no Project, workflow-lane or credential field.
 Validate unknown keys, missing role/profile references, unsupported harness or
 model/reasoning combinations, nonpositive timeouts, unresolvable base refs and
 unsafe/overlapping paths. State must be outside the repository and workspaces;
-resolve symlinks and preserve the current configuration provenance protections.
+use canonical paths without symlink components and preserve configuration
+provenance protections.
 Profiles do not grant access: the native sandbox and role permission ceilings
 remain Runner-owned. The two profiles may use the same model; review still uses
 a separate invocation and context.
@@ -807,8 +808,9 @@ slice, not a separate research project.
 
 #### Command and task contract
 
-The new entry point uses the explicit `--config PATH` selection. Commands below
-are the first-slice surface; the current binary does not implement them.
+The new `runner-next` entry point uses the explicit `--config PATH` selection.
+Commands below are implemented there; the shipped `cortexium-runner` binary
+continues to use its existing commands.
 
 | Command | Required behavior |
 | --- | --- |
@@ -947,6 +949,143 @@ hidden retries, generic infrastructure, duplicated tests and unrelated changes.
 Update this slice with evidence and actual remaining limits. Before starting
 phase 2, write its bounded brief here using the contracts and suites that now
 exist; do not create a second test framework or parallel work plan.
+
+#### Using the implemented local slice
+
+Build the internal milestone with `go build -o /tmp/runner-next ./cmd/runner-next`.
+Create a configuration using the [first-slice example](#first-slice-configuration-contract),
+select installed Codex model/reasoning values, and use three separate canonical
+absolute paths. There is no tool installation or credential setup inside Runner.
+
+Preview setup before applying it. Replace the check placeholder with the
+repository's existing validation command, and name quality documents that exist
+at the committed base. Repeat `--check` and `--quality-source` as needed:
+
+```sh
+/tmp/runner-next --config /absolute/runner.json init \
+  --check 'REPOSITORY_CHECK_COMMAND' --quality-source AGENTS.md
+/tmp/runner-next --config /absolute/runner.json init \
+  --check 'REPOSITORY_CHECK_COMMAND' --quality-source AGENTS.md --apply
+/tmp/runner-next --config /absolute/runner.json task add --file /absolute/task.md
+/tmp/runner-next --config /absolute/runner.json task show TASK_ID
+/tmp/runner-next --config /absolute/runner.json task approve TASK_ID \
+  --version 1 --preview DISPLAYED_APPROVAL_PREVIEW
+/tmp/runner-next --config /absolute/runner.json run
+```
+
+Use `status`, `task show TASK_ID --json` and `config explain` from another
+terminal. `drain` records the admission stop and waits for the owning coordinator
+to settle; the next explicit `run` recovers reservations and clears drain.
+Profile/timeout edits use the same configuration file: drain, inspect `init`, then
+`init --apply`. Already recorded attempts retain their actual settings.
+Changing repository identity, roots or the quality agreement requires fresh
+setup in this slice. Editing a task file has no effect until `task replace`.
+
+The runtime consists of [core values](../internal/runner/core/types.go),
+[strict configuration](../internal/runner/config/config.go),
+[SQLite transactions](../internal/runner/store/store.go),
+[application commands and coordinator](../internal/runner/engine/),
+[Codex/process execution](../internal/runner/execution/),
+[Git and disposable-copy operations](../internal/runner/workspace/) and
+[CLI/setup presentation](../internal/runner/cli/). The coordinator consumes one
+execution interface. Git protection reuses the existing workspace and subprocess
+primitives; the replacement imports no old engine, execution or GitHub package.
+The schema contains only settings/history, task versions and attempt reservations.
+
+#### Phase 1 evidence
+
+Implementation commit: `d6d0ddb`. Verification date: 2026-10-14. The accepted
+planning documents were carried into the dedicated worktree with this change;
+unrelated edits in the original checkout were preserved.
+
+| Proof | Owning evidence and observed result |
+| --- | --- |
+| S1 | [CLI journey](../internal/runner/cli/cli_test.go) exercises setup preview/apply, a committed-base baseline despite an uncommitted checkout edit, add/show/approve/run, active status, drain, retained acceptance and read-only reopen. Real SQLite and Git; one small controlled harness. |
+| S2 | [Store transactions](../internal/runner/store/store_test.go) reject competing connections and roll back the losing claim. [Core/engine tests](../internal/runner/engine/engine_test.go) reject changed base/version/quality previews and preserve exact repeated approval. |
+| S3 | The engine suite holds execution on a signal while status, unrelated draft creation and stop remain responsive. A second coordinator is rejected; cancellation and drain settle without sleep-based synchronization. |
+| S4 | The engine suite reopens saved implementation results before and after candidate construction, and saved audit results before acceptance; exactly two attempts remain. Reserved work requires explicit recovery; surviving/unknown process groups keep ownership. [Process tests](../internal/runner/execution/process_test.go) prove a failed durable launch callback cannot execute the command and cancellation targets the owned group. |
+| S5 | Engine tests reject modified candidate bytes and discard stopped/replaced authority while retaining late evidence. Existing workspace identity/candidate tests continue to cover the reused Git boundary. |
+| S6 | Core/engine suites distinguish complete evidence, a focused gap, confirmed defect, missing decision and malformed output. Focused verification receives only unresolved proof and cannot alter source. [Copy tests](../internal/runner/workspace/workspace_test.go) permit generated output and reject source changes/external links; existing verification-index protection is reused. |
+| S7 | [Config tests](../internal/runner/config/config_test.go) parse this document's actual example and reject unsupported controls, unknown keys and unsafe paths. Store tests preserve missing/corrupt authority. CLI inspection leaves database bytes unchanged. Engine recovery requires explicit new-call authorization, preserves its parent attempt and cannot queue a duplicate invocation from a recovery request or repair a rejected candidate. |
+| Repository gates | `go test -race ./...` and `go vet ./...` passed with Go 1.27.1. |
+| Packaging | `modernc.org/sqlite v1.60.1` passed real transaction/reopen tests and `CGO_ENABLED=0` builds of `cmd/runner-next` for macOS/Linux, amd64/arm64. |
+
+The final disposable live journey used Codex CLI 0.162.1 with the operator-selected
+`gpt-6.1-sol` / `high` for both roles. Task `ec4bb865e3139495377522319a0ea3f8`
+approved base `708b8476c93b031179d41c318848d40f6eb9321f` and produced candidate
+`88454b6a033e204fcff76d0490c62b6fb7eef823`, tree
+`d3c4dc1515aa5f63b2416a7fbe413652832f76ed`.
+
+- Implementation attempt `4bc502da92124193345c1cc5f124c153` changed one Python
+  function and extended its existing unittest suite with three distinct cases.
+  All four tests passed. No dependencies or test framework were added.
+- Runner drained during implementation, retained the completed candidate, exited,
+  and admitted audit only after an explicit restart.
+- Audit attempt `8880a42b0e52d465e13381b11a0cadb7` independently inspected the exact
+  candidate, test adequacy/scope and the retained implementation event log's
+  actual test result. Both proofs passed without another test run or focused call.
+- The task reached **Awaiting delivery**. Subsequent drain/restart preserved the
+  exact task and two attempts. The final platform binary also passed fresh native
+  baseline setup and this restart check. The original checkout remained clean.
+
+An earlier qualification task retained three attempts: one launcher-startup
+failure before a model session, followed by explicit recovery and two successful
+calls. That exposed and fixed the installed Codex package's sandbox read paths;
+it was not an automatic retry or a code rejection. Across both tasks there were
+five harness launches and four completed model calls. No fetch, push, merge,
+board call or `gh` dependency was involved.
+
+Local disposable evidence is retained at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-s1-live-7cz16ttl`:
+`final-status.json`, private `state/attempts/` prompts/events/results and the
+candidate worktrees. These are temporary qualification artifacts, not a portable
+backup or a release retention guarantee.
+
+Current limits are deliberate: one invocation, local Ready only, zero automatic
+allowances, no delivery, no quality exceptions, and no board/plugin scaffolding.
+Native tools have no network access; unavailable dependencies or toolchain access
+remain explicit blockers. Baselines use bounded committed-base archives and
+reject link/special-file entries. Verification copies have source inventory but
+no Git history/remotes; `.runner-output/` is available for generated reports and
+caches. Completed candidates/evidence and disposable diagnostic copies are
+retained; automated cleanup/backup/restore remain release work. Native execution
+was qualified on macOS arm64; the other three targets were compile-qualified.
+
+### Phase 2 entry brief — not started
+
+The next bounded implementation should first make the existing **Ready** journey
+honor configurable capacity and persisted recovery policy. Its outcome is two
+independent Ready tasks progressing under configured limits, with every repeated
+call explainable from a durable allowance and actual profile. Keep Plan,
+dependency release, quality-agreement revisions, delivery and views outside this
+first phase 2 bundle; write their next bounded briefs here before implementing
+them. Phase 2 is complete only when the full phase-table scope is established.
+
+Extend the current core/config/store/engine and owning tests:
+
+1. Replace the single-slot index with explicit task/workspace claims and global
+   admission accounting. Keep one coordinator. Prove capacity changes and
+   cancellation with signal-controlled adapters and real competing transactions.
+2. Add typed transient, proof-gap, defect and decision outcomes. Persist retry
+   and repair consumption before each launch; preserve it across crash, stop,
+   replacement and policy edits according to the existing contracts. A transport
+   error cannot become a code defect or trigger escalation.
+3. Enable configured model/reasoning profiles, a successor implementation ladder
+   and the optional invocation ceiling. Only an authorized repair following a
+   confirmed defect advances the ladder. A proof gap remains reviewer work.
+4. Preview effective policy changes and their effect on queued versus active
+   attempts. Pin active profiles. Show remaining allowances, next eligible
+   action and the specific limiting resource in the existing status/show views.
+5. Extend S2–S7 at their owning boundaries. Include paired behavioral cases for
+   weakened assertions versus legitimate test consolidation, fabricated evidence
+   versus valid supplied evidence, and useful findings versus speculative review.
+   Use a small selected live evaluation only after deterministic proofs pass.
+
+The schema change may use a small explicit migration or require fresh state; do
+not add historical workflow conversion. Keep the zero-allowance behavior as a
+regression case. Do not add a second scheduler, test framework, generic plugin
+registry or remote integration. This brief records the next boundary and does
+not authorize starting it.
 
 ### Simple upgrade or deliberate break
 
@@ -1168,10 +1307,10 @@ adding arbitrary waits or broad mock-only coverage.
 
 ### Requirement coverage map
 
-Phase 0 is documented. All runtime evidence below is still pending; describing
-a scenario is not proof that it passes. As a slice lands, record its verified
-commit and focused evidence in the owning brief and link it from this table.
-Each later brief must cover its assigned rows or explicitly revise the scope.
+Phase 0 is documented. Phase 1 is implemented at commit `d6d0ddb`; its S1–S7
+proof and live qualification are recorded in [phase 1 evidence](#phase-1-evidence).
+Evidence for later phases remains pending. Each later brief must cover its
+assigned rows or explicitly revise the scope.
 
 | Requirement | Owning phase | Acceptance evidence |
 | --- | --- | --- |

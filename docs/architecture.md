@@ -3,8 +3,9 @@
 This page describes the current Project-backed runtime. The accepted replacement
 is defined by [ADR 0005](decisions/0005-local-runner-core.md) and the
 [core redesign plan](runner-redesign-proposal.md). Its local state and commands
-are not yet implemented. Update this page as replacement behavior lands; do not
-use current Project coupling to override the replacement contracts.
+are implemented for phase 1 in `cmd/runner-next`; see the plan's
+[local slice guide and evidence](runner-redesign-proposal.md#using-the-implemented-local-slice).
+The remainder of this page documents `cortexium-runner`, not the new core.
 
 This repository is the sole architecture authority for Runner; parent and
 sibling Cortexium documents do not apply unless linked here. Runner's accepted

@@ -1,6 +1,6 @@
 # ADR 0005: Local Runner core
 
-- Status: Accepted design; implementation not started by this decision.
+- Status: Accepted; phase 1 implemented and qualified. Later phases remain pending.
 - Date: 2026-10-14
 
 ## Context
