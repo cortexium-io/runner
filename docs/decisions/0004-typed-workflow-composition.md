@@ -2,6 +2,11 @@
 
 Date: 2026-09-03
 
+For the replacement core, [ADR 0005](0005-local-runner-core.md) supersedes the
+Project lane and v5 configuration representation. Three role contracts, typed
+actions and mandatory safety rules remain. The first replacement release uses
+one built-in process; user-authored workflow composition is deferred.
+
 ## Context
 
 Runner's v4 workflow mixed state, role assignment, transition routing, and

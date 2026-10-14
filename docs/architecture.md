@@ -1,5 +1,11 @@
 # Architecture
 
+This page describes the current Project-backed runtime. The accepted replacement
+is defined by [ADR 0005](decisions/0005-local-runner-core.md) and the
+[core redesign plan](runner-redesign-proposal.md). Its local state and commands
+are not yet implemented. Update this page as replacement behavior lands; do not
+use current Project coupling to override the replacement contracts.
+
 This repository is the sole architecture authority for Runner; parent and
 sibling Cortexium documents do not apply unless linked here. Runner's accepted
 target direction is recorded in

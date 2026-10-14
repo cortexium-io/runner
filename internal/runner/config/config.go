@@ -1,0 +1,160 @@
+package config
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/cortexium-io/runner/internal/runner/core"
+	"github.com/cortexium-io/runner/internal/securefs"
+)
+
+type Repository struct {
+	Path          string `json:"path"`
+	BaseRef       string `json:"base_ref"`
+	BaseFreshness string `json:"base_freshness"`
+}
+type Policy struct {
+	MaxParallelism       int      `json:"max_parallelism"`
+	MaxRepairs           int      `json:"max_repairs"`
+	MaxTransientRetries  int      `json:"max_transient_retries"`
+	MaxBaseRefreshes     int      `json:"max_base_refreshes"`
+	ImplementationLadder []string `json:"implementation_ladder"`
+}
+type Config struct {
+	Format      string                  `json:"format"`
+	Repository  Repository              `json:"repository"`
+	StateDir    string                  `json:"state_dir"`
+	WorktreeDir string                  `json:"worktree_dir"`
+	Profiles    map[string]core.Profile `json:"profiles"`
+	Roles       map[string]string       `json:"roles"`
+	Policy      Policy                  `json:"policy"`
+	Delivery    struct {
+		Mode string `json:"mode"`
+	} `json:"delivery"`
+}
+
+func Load(path string) (Config, error) {
+	var c Config
+	b, _, state, err := securefs.ReadFile(path, 1024*1024)
+	if err != nil {
+		return c, err
+	}
+	if err = securefs.ValidateOwnedRegularFile(state, uint32(os.Geteuid())); err != nil {
+		return c, fmt.Errorf("config provenance: %w", err)
+	}
+	if err = Decode(b, &c); err != nil {
+		return c, err
+	}
+	return c, c.Validate()
+}
+
+func Decode(b []byte, v any) error {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.DisallowUnknownFields()
+	if err := d.Decode(v); err != nil {
+		return err
+	}
+	if err := d.Decode(new(any)); err != io.EOF {
+		return errors.New("expected exactly one JSON value")
+	}
+	return nil
+}
+
+func (c Config) Validate() error {
+	if c.Format != "runner-local-v1" {
+		return errors.New("configuration format must be runner-local-v1")
+	}
+	if c.Repository.BaseFreshness != "recorded" || !strings.HasPrefix(c.Repository.BaseRef, "refs/heads/") || c.Delivery.Mode != "local" {
+		return errors.New("slice 1 requires a local refs/heads base, recorded freshness and local delivery")
+	}
+	if c.Policy.MaxParallelism != 1 || c.Policy.MaxRepairs != 0 || c.Policy.MaxTransientRetries != 0 || c.Policy.MaxBaseRefreshes != 0 || len(c.Policy.ImplementationLadder) != 0 {
+		return errors.New("slice 1 supports parallelism 1 and zero automatic repair, retry, refresh or escalation")
+	}
+	if len(c.Roles) != 2 || c.Roles["implementer"] == "" || c.Roles["reviewer"] == "" {
+		return errors.New("exactly implementer and reviewer roles are required")
+	}
+	for role, name := range c.Roles {
+		if _, ok := c.Profiles[name]; !ok {
+			return fmt.Errorf("%s references missing profile %s", role, name)
+		}
+	}
+	for name, p := range c.Profiles {
+		d, err := time.ParseDuration(p.Timeout)
+		if p.Harness != "codex" || strings.TrimSpace(p.Model) == "" || strings.TrimSpace(p.Reasoning) == "" || err != nil || d <= 0 {
+			return fmt.Errorf("profile %s needs codex, explicit model/reasoning and positive timeout", name)
+		}
+	}
+	roots := []string{c.Repository.Path, c.StateDir, c.WorktreeDir}
+	for i, p := range roots {
+		if !filepath.IsAbs(p) || filepath.Clean(p) != p {
+			return errors.New("repository, state and worktree paths must be clean absolute paths")
+		}
+		if err := NoSymlinks(p); err != nil {
+			return err
+		}
+		for _, q := range roots[:i] {
+			if Within(p, q) || Within(q, p) {
+				return errors.New("repository, state and worktree paths must not overlap")
+			}
+		}
+	}
+	return nil
+}
+
+func NoSymlinks(path string) error {
+	for p := path; p != filepath.Dir(p); p = filepath.Dir(p) {
+		info, err := os.Lstat(p)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path contains a symlink: %s", p)
+		}
+	}
+	return nil
+}
+func Within(path, root string) bool {
+	r, e := filepath.Rel(root, path)
+	return e == nil && (r == "." || (!strings.HasPrefix(r, ".."+string(filepath.Separator)) && r != ".."))
+}
+func (c Config) Revision() string { return core.Digest(c) }
+func (c Config) Role(role string) (string, core.Profile) {
+	if role == "audit" || role == "verify" {
+		role = "reviewer"
+	}
+	n := c.Roles[role]
+	return n, c.Profiles[n]
+}
+
+type Quality struct {
+	Definition string            `json:"definition"`
+	Documents  map[string]string `json:"source_documents,omitempty"`
+	Sources    map[string]string `json:"sources"`
+	Commands   []string          `json:"commands"`
+	Base       string            `json:"baseline_base"`
+	Evidence   []string          `json:"baseline_evidence"`
+}
+
+func (q Quality) Revision() string {
+	return core.Digest(struct {
+		Definition string
+		Sources    map[string]string
+		Commands   []string
+	}{q.Definition, q.Sources, q.Commands})
+}
+
+type Settings struct {
+	Config       Config  `json:"config"`
+	RepositoryID string  `json:"repository_id"`
+	Quality      Quality `json:"quality"`
+}

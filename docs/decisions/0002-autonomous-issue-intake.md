@@ -2,6 +2,11 @@
 
 Date: 2026-09-02
 
+For the replacement core, [ADR 0005](0005-local-runner-core.md) makes this an
+optional intake capability after the first release. Its explicit trust and
+successful-outcome requirements remain applicable when that capability returns;
+GitHub issues and Projects are not prerequisites for local work.
+
 ## Context
 
 Runner already synchronizes labeled GitHub issues into `Needs assessment`, but

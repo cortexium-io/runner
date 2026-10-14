@@ -674,6 +674,10 @@ worktree paths.
   workflow, retry, metrics, and role behavior.
 - [Architecture](docs/architecture.md): execution, authority, and security
   boundaries.
+- [Runner core redesign plan](docs/runner-redesign-proposal.md): accepted target,
+  implementation sequence and first local slice.
+- [Local core decision](docs/decisions/0005-local-runner-core.md): local authority,
+  optional integrations, test ownership and the breaking-release approach.
 - [Claude Code quickstart](docs/claude-code-quickstart.md): Claude-only setup.
 - [Maintainer setup](docs/open-source-maintainer-setup.md): testing and releases.
 - [Contributing](CONTRIBUTING.md) and [security policy](SECURITY.md).

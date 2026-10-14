@@ -15,6 +15,15 @@ Use these sources in descending order of authority:
 4. `docs/architecture.md` and the implemented contracts and tests.
 5. The remaining Runner documentation.
 
+The accepted replacement direction is [ADR 0005](docs/decisions/0005-local-runner-core.md).
+Its build specification and designated implementation sequence are in the
+[core redesign plan](docs/runner-redesign-proposal.md). Start replacement work
+from its first implementation slice, not from a separate task ledger.
+`docs/architecture.md` and the existing operator guides describe the current
+Project-backed runtime until the replacement lands. Existing code is evidence
+for required guarantees, not authority to restore superseded Project coupling.
+The documentation decision does not itself authorize implementation.
+
 When implementation and documentation disagree, identify and resolve the drift
 inside this repository. Do not preserve obsolete behavior for compatibility;
 Runner is pre-stable and replacement work should remove superseded paths and
@@ -39,8 +48,22 @@ Humans can enter work in two direct ways:
 
 ## Engineering standard
 
-Use minimum sufficient complexity. Prefer a small explicit coordinator and
-existing authenticated Project state over additional schedulers, queues, state
-journals, compatibility layers, or abstractions without a demonstrated need.
-Protect behavior with focused tests and review the complete diff before
-finishing.
+Use minimum sufficient complexity. The replacement has one explicit coordinator
+and one private transactional local store. External boards are optional views;
+intake and code delivery have separate, narrow adapter contracts. Do not add
+another scheduler, distributed queue, full event-sourcing system, compatibility
+layer or public plugin framework without a demonstrated need.
+
+Before implementation, define the supported behavior, representative expected
+results, verification boundary and existing coverage to extend. Repository
+policy owns the quality requirements; the task author or planner defines the
+verification brief; the implementer writes the change; the independent reviewer
+checks adequacy and unnecessary complexity. Extend or consolidate the owning
+suite when sensible. A test needs a credible defect it detects, not merely a
+coverage target. Existing sufficient evidence can mean no new test.
+
+Follow the redesign plan's testing policy for replacement work. Do not copy the
+old test suite or change shipped role prompts merely to make the documentation
+look consistent; qualify the replacement instructions with their owning slice.
+Review the complete diff before finishing. Implementation gates remain
+`go test -race ./...` and `go vet ./...`, with platform/release checks at release.

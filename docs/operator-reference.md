@@ -1,5 +1,9 @@
 # Operator reference
 
+This guide describes the current Project-backed runtime. The
+[core redesign plan](runner-redesign-proposal.md) specifies its accepted
+replacement; the new configuration and commands are not available yet.
+
 `cortexium-runner` is a local CLI that develops maintainer-approved
 GitHub Project work through planning, implementation, agent QA, and a pull
 request that awaits a human decision by default. It has no hosted control-plane,

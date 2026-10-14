@@ -3,6 +3,10 @@
 - Status: Accepted
 - Date: 2026-09-02
 
+For the replacement core, [ADR 0005](0005-local-runner-core.md) supersedes
+Project-based identity, authority and lane entry. The event/action, dependency,
+admission and serialized-integration guarantees below remain in force.
+
 ## Context
 
 At the time of this decision, Runner described and executed work in polling
