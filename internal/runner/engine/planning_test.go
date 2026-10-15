@@ -223,6 +223,14 @@ func TestReadyPreparationPreservesApprovalAndConsumesAllowance(t *testing.T) {
 	if _, err = e.Approve(t.Context(), task.ID, 1, v.Preview); err != nil {
 		t.Fatal(err)
 	}
+	settings, _, err := e.Store.Settings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := e.PreviewPolicy(t.Context(), settings.Config)
+	if err != nil || !strings.Contains(strings.Join(preview.Warnings, "\n"), "needs at least 3 further invocations") {
+		t.Fatal("missing-brief journey budget was not explained", preview.Warnings, err)
+	}
 	task = current(t, e, task.ID)
 	regular := e.Executor
 	const proof = "Read greeting.txt at the existing file boundary; expect hello. No new suite is needed."

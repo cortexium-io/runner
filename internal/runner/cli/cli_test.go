@@ -18,7 +18,11 @@ import (
 	"github.com/cortexium-io/runner/internal/runner/execution"
 )
 
-type commandHarness struct{ auditStarted, auditRelease chan struct{} }
+type commandHarness struct {
+	auditStarted, auditRelease                      chan struct{}
+	interruptFirstAudit, planQuestion, dependencies bool
+	auditCalls, planCalls                           int
+}
 
 const commandBrief = "## Outcome\nGreeting\n## Scope\ngreeting.txt\n## Acceptance\nhello\n## Verification\nRead greeting.txt; expect hello. No new suite needed for this file boundary.\n"
 
@@ -44,18 +48,32 @@ func (h *commandHarness) Check(_ context.Context, dir string, c config.QualityCh
 }
 func (h *commandHarness) Execute(ctx context.Context, r execution.Request, _ func(core.Process) error) execution.Completion {
 	if r.Attempt.Role == "plan" {
-		return execution.Completion{Stopped: true, Result: &core.Result{Outcome: "succeeded", Summary: "Proposed greeting", Planning: &core.PlanningResult{Cards: []core.PlannedCard{{Key: "greeting", Body: commandBrief}}}}}
+		h.planCalls++
+		if h.planQuestion && h.planCalls == 1 {
+			return execution.Completion{Stopped: true, Result: &core.Result{Outcome: "needs_input", Summary: "Greeting choice", Planning: &core.PlanningResult{Questions: []string{"Which greeting should be used?"}}}}
+		}
+		cards := []core.PlannedCard{{Key: "greeting", Body: commandBrief}}
+		if h.dependencies {
+			cards = append(cards, core.PlannedCard{Key: "followup", Body: commandBrief, Dependencies: []string{"greeting"}})
+		}
+		return execution.Completion{Stopped: true, Result: &core.Result{Outcome: "succeeded", Summary: "Proposed greeting", Planning: &core.PlanningResult{Cards: cards}}}
 	}
 	if r.Attempt.Role == "implementer" {
 		if e := os.WriteFile(filepath.Join(r.Dir, "greeting.txt"), []byte("hello\n"), 0600); e != nil {
 			return execution.Completion{Stopped: true, Error: e.Error()}
 		}
 	} else {
-		close(h.auditStarted)
+		h.auditCalls++
+		if h.auditCalls == 1 {
+			close(h.auditStarted)
+		}
 		select {
 		case <-h.auditRelease:
 		case <-ctx.Done():
 			return execution.Completion{Stopped: true, Error: ctx.Err().Error()}
+		}
+		if h.interruptFirstAudit && h.auditCalls == 1 {
+			return execution.Completion{Stopped: true, Error: "controlled review interruption"}
 		}
 	}
 	checks := []core.Check{}
@@ -75,47 +93,12 @@ func (s drainSignal) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	repo := filepath.Join(root, "repo")
-	if err = os.Mkdir(repo, 0700); err != nil {
-		t.Fatal(err)
-	}
-	git := func(args ...string) {
-		t.Helper()
-		c := exec.Command("git", args...)
-		c.Dir = repo
-		if b, e := c.CombinedOutput(); e != nil {
-			t.Fatalf("git: %s %v", b, e)
-		}
-	}
-	git("init", "-b", "main")
-	git("config", "user.name", "Test")
-	git("config", "user.email", "test@example.invalid")
-	if err = os.WriteFile(filepath.Join(repo, "greeting.txt"), []byte("before\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(filepath.Join(repo, "legacy.txt"), []byte("known failure\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	git("add", ".")
-	git("commit", "-m", "baseline")
-	// The baseline must read the committed version, not this user's local edit.
-	if err = os.WriteFile(filepath.Join(repo, "greeting.txt"), []byte("local unrelated edit\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	p := core.Profile{Harness: "codex", Model: "controlled", Reasoning: "high", Timeout: "1m"}
-	cfg := config.Config{Format: "runner-local-v1", Repository: config.Repository{Path: repo, BaseRef: "refs/heads/main", BaseFreshness: "recorded"}, StateDir: filepath.Join(root, "state"), WorktreeDir: filepath.Join(root, "worktrees"), Profiles: map[string]core.Profile{"build": p, "review": p}, Roles: map[string]string{"implementer": "build", "reviewer": "review"}, Policy: config.Policy{MaxParallelism: 1}}
-	cfg.Delivery.Mode = "local"
-	b, _ := json.Marshal(cfg)
-	cfgPath := filepath.Join(root, "config.json")
-	if err = os.WriteFile(cfgPath, b, 0600); err != nil {
-		t.Fatal(err)
-	}
-	h := &commandHarness{auditStarted: make(chan struct{}), auditRelease: make(chan struct{})}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	root, cfgPath, cfg := commandFixture(t)
+	repo := cfg.Repository.Path
+	var b []byte
+	var err error
+	h := &commandHarness{auditStarted: make(chan struct{}), auditRelease: make(chan struct{}), interruptFirstAudit: true, planQuestion: true, dependencies: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	run := func(args ...string) string {
 		t.Helper()
@@ -159,18 +142,12 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 		t.Fatal("status did not observe active audit")
 	}
 
-	// Preview and apply live policy without changing the already running audit.
-	cfg.Policy.MaxParallelism = 2
-	cfg.Roles["planner"] = "build"
-	profile := cfg.Profiles["review"]
-	profile.Reasoning = "medium"
-	cfg.Profiles["review"] = profile
-	b, _ = json.Marshal(cfg)
-	if err = os.WriteFile(cfgPath, b, 0600); err != nil {
-		t.Fatal(err)
-	}
+	// The editor previews and saves while the audit keeps its admitted profile.
+	edits := []string{"config", "edit", "--set", "parallelism=2", "--set", "planner=build", "--set", "profile.review=controlled medium 1m", "--set", "profile.careful=controlled high 2m", "--set", "repairs=1", "--set", "escalation=careful"}
+	preview := previewValue(t, run(edits...), "Save preview")
+	run(append(edits, "--save", "--preview", preview)...)
 	var change engine.PolicyChange
-	if err = json.Unmarshal([]byte(run("config", "explain")), &change); err != nil {
+	if err = json.Unmarshal([]byte(run("config", "explain", "--json")), &change); err != nil {
 		t.Fatal(err)
 	}
 	if len(change.Active) != 1 || change.Active[0].Profile.Reasoning != "high" {
@@ -211,6 +188,48 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("drain did not return")
 	}
+	// An interrupted audit must retain the candidate and repeat only audit.
+	view = engine.View{}
+	if err = json.Unmarshal([]byte(run("task", "show", id, "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Task.Attention == nil || view.Recovery == nil || view.Recovery.Role != "audit" || view.Task.Candidate == nil {
+		t.Fatal("review recovery missing", view)
+	}
+	candidate := *view.Task.Candidate
+	attempt := view.Task.Attention.Attempt
+	if err = (CLI{Out: io.Discard, Harness: h}).Run(ctx, []string{"--config", cfgPath, "task", "resume", id, "--attempt", attempt}); err == nil {
+		t.Fatal("review repeated without explicit permission")
+	}
+	run("task", "resume", id, "--attempt", attempt, "--allow-new-invocation")
+	go func() { done <- (CLI{Out: io.Discard, Harness: h}).Run(ctx, []string{"--config", cfgPath, "run"}) }()
+	waitView := func(taskID string, ready func(engine.View) bool) engine.View {
+		t.Helper()
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			var next engine.View
+			if err := json.Unmarshal([]byte(run("task", "show", taskID, "--json")), &next); err != nil {
+				t.Fatal(err)
+			}
+			if ready(next) {
+				return next
+			}
+			select {
+			case <-ticker.C:
+			case <-ctx.Done():
+				t.Fatal("operator journey did not progress", next)
+			}
+		}
+	}
+	view = waitView(id, func(v engine.View) bool { return v.Task.Stage == core.AwaitingDelivery })
+	run("drain")
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+	if *view.Task.Candidate != candidate || len(view.Attempts) != 3 || view.Attempts[2].Role != "audit" || view.Attempts[2].Profile.Reasoning != "high" {
+		t.Fatal("recovery lost candidate or pinned reviewer", view)
+	}
 	dbPath := filepath.Join(cfg.StateDir, "runner.db")
 	before, err := os.ReadFile(dbPath)
 	if err != nil {
@@ -225,7 +244,7 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("inspection wrote authority")
 	}
-	if view.Task.Stage != core.AwaitingDelivery || view.Task.Candidate == nil || len(view.Attempts) != 2 {
+	if view.Task.Stage != core.AwaitingDelivery || view.Task.Candidate == nil || len(view.Attempts) != 3 {
 		t.Fatalf("unexpected retained journey: %+v", view)
 	}
 	if b, err = os.ReadFile(filepath.Join(repo, "greeting.txt")); err != nil || string(b) != "local unrelated edit\n" {
@@ -242,22 +261,25 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	}
 	run("task", "approve", id, "--version", "1", "--preview", view.Preview)
 	go func() { done <- (CLI{Out: io.Discard, Harness: h}).Run(ctx, []string{"--config", cfgPath, "run"}) }()
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		view = engine.View{}
-		if err = json.Unmarshal([]byte(run("task", "show", id, "--json")), &view); err != nil {
-			t.Fatal(err)
-		}
-		if view.Task.Stage == core.AwaitingApproval {
-			break
-		}
-		select {
-		case <-ticker.C:
-		case <-ctx.Done():
-			t.Fatal("proposal not ready")
-		}
+	view = waitView(id, func(v engine.View) bool { return v.Task.Attention != nil })
+	run("drain")
+	if err = <-done; err != nil {
+		t.Fatal(err)
 	}
+	if view.Task.Attention.Kind != core.Decision || !strings.Contains(run("task", "show", id), "Which greeting") {
+		t.Fatal("question not visible")
+	}
+	if err = os.WriteFile(taskFile, []byte("Use hello as the greeting; then add the followup."), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run("task", "replace", id, "--version", "1", "--file", taskFile)
+	view = engine.View{}
+	if err = json.Unmarshal([]byte(run("task", "show", id, "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	run("task", "approve", id, "--version", "2", "--preview", view.Preview)
+	go func() { done <- (CLI{Out: io.Discard, Harness: h}).Run(ctx, []string{"--config", cfgPath, "run"}) }()
+	view = waitView(id, func(v engine.View) bool { return v.Task.Stage == core.AwaitingApproval })
 	run("drain")
 	if err = <-done; err != nil {
 		t.Fatal(err)
@@ -274,13 +296,33 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("proposal inspection wrote authority")
 	}
-	run("task", "release", id, "--version", "1", "--preview", view.ReleasePreview)
+	run("task", "release", id, "--version", "2", "--preview", view.ReleasePreview)
 	view = engine.View{}
 	if err = json.Unmarshal([]byte(run("task", "show", id, "--json")), &view); err != nil {
 		t.Fatal(err)
 	}
-	if view.Task.Release == nil || len(view.Task.Release.Children) != 1 {
+	if view.Task.Release == nil || len(view.Task.Release.Children) != 2 {
 		t.Fatal("release missing")
+	}
+	var dependent engine.View
+	if err = json.Unmarshal([]byte(run("task", "show", view.Task.Release.Children[1], "--json")), &dependent); err != nil {
+		t.Fatal(err)
+	}
+	if dependent.Group != "Waiting" || dependent.Eligibility.WaitKind != "dependency" {
+		t.Fatal("dependency not explained", dependent)
+	}
+	human := run("status")
+	var structured engine.Status
+	if err = json.Unmarshal([]byte(run("status", "--json")), &structured); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range structured.Tasks {
+		if !strings.Contains(human, row.Summary) || !strings.Contains(human, row.NextAction) {
+			t.Fatal("human/JSON advice differs")
+		}
+	}
+	if strings.Index(human, "Needs you") > strings.Index(human, "Waiting") || strings.Index(human, "Waiting") > strings.Index(human, "Retained") {
+		t.Fatal("status is not attention first", human)
 	}
 	run("task", "stop", id)
 	// Quality changes apply only to new work until explicit task adoption.
@@ -334,4 +376,48 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	if view.Task.Current().Number != 2 || view.Task.Stage != core.Draft || view.Task.Approval != nil || view.Task.Candidate != nil {
 		t.Fatal("adoption retained old acceptance")
 	}
+}
+
+func commandFixture(t *testing.T) (string, string, config.Config) {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(root, "repo")
+	if err = os.Mkdir(repo, 0700); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = repo
+		if b, e := c.CombinedOutput(); e != nil {
+			t.Fatalf("git: %s %v", b, e)
+		}
+	}
+	git("init", "-b", "main")
+	git("config", "user.name", "Test")
+	git("config", "user.email", "test@example.invalid")
+	if err = os.WriteFile(filepath.Join(repo, "greeting.txt"), []byte("before\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(repo, "legacy.txt"), []byte("known failure\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-m", "baseline")
+	// The baseline must read the committed version, not this user's local edit.
+	if err = os.WriteFile(filepath.Join(repo, "greeting.txt"), []byte("local unrelated edit\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := core.Profile{Harness: "codex", Model: "controlled", Reasoning: "high", Timeout: "1m"}
+	cfg := config.Config{Format: "runner-local-v1", Repository: config.Repository{Path: repo, BaseRef: "refs/heads/main", BaseFreshness: "recorded"}, StateDir: filepath.Join(root, "state"), WorktreeDir: filepath.Join(root, "worktrees"), Profiles: map[string]core.Profile{"build": p, "review": p}, Roles: map[string]string{"implementer": "build", "reviewer": "review"}, Policy: config.Policy{MaxParallelism: 1}}
+	cfg.Delivery.Mode = "local"
+	b, _ := json.Marshal(cfg)
+	cfgPath := filepath.Join(root, "config.json")
+	if err = os.WriteFile(cfgPath, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return root, cfgPath, cfg
 }

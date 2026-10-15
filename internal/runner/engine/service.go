@@ -68,6 +68,11 @@ func (e *Engine) Add(ctx context.Context, body string) (core.Task, error) {
 }
 
 type View struct {
+	Group                  string         `json:"group"`
+	Summary                string         `json:"summary"`
+	FocusAttempt           *core.Attempt  `json:"focus_attempt,omitempty"`
+	ElapsedSeconds         *int64         `json:"elapsed_seconds,omitempty"`
+	Recovery               *Recovery      `json:"recovery,omitempty"`
 	Task                   core.Task      `json:"task"`
 	Attempts               []core.Attempt `json:"attempts"`
 	ObservedBase           string         `json:"observed_base,omitempty"`
@@ -80,38 +85,6 @@ type View struct {
 	Eligibility            Eligibility    `json:"eligibility"`
 }
 
-func NextAction(t core.Task) string {
-	if t.Attention != nil {
-		switch t.Attention.Kind {
-		case "interrupted":
-			return "inspect task; task resume --attempt ID (add --allow-new-invocation only to authorize repetition)"
-		case "saved_result":
-			return "inspect task; task resume --attempt ID to reuse the saved result"
-		case "ownership":
-			return "resolve the displayed process ownership before resuming"
-		default:
-			return "inspect evidence; supply an explicit replacement task if requirements or implementation must change"
-		}
-	}
-	if t.Release != nil && t.Stage != core.Stopped {
-		return "plan released; inspect children for review and confirmed integration"
-	}
-	switch t.Stage {
-	case core.AwaitingApproval:
-		return "inspect the complete proposal, then task release --version N --preview RELEASE_DIGEST"
-	case core.Draft:
-		return "inspect approval preview, then task approve --version N --preview DIGEST"
-	case core.AwaitingDelivery:
-		return "inspect retained candidate; delivery is not configured"
-	case core.Stopped:
-		if t.Release != nil {
-			return "released plan stopped; add a new planning request to authorize another batch"
-		}
-		return "retained artifacts are available; replace the task to authorize new work"
-	default:
-		return "run (or wait for the running coordinator)"
-	}
-}
 func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	t, err := e.Store.Task(ctx, id)
 	if err != nil {
@@ -134,14 +107,7 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 		return View{}, err
 	}
 	admission := eligible(settings.Config, t, all, drained, e.now(), tasks...)
-	view := View{CurrentQuality: settings.Quality.Revision(), Task: t, Attempts: attempts, NextAction: NextAction(t), Eligibility: admission}
-	if t.NextRole != "" && t.Attention == nil {
-		if admission.WaitingFor != "" {
-			view.NextAction = admission.WaitingFor
-		} else {
-			view.NextAction = "eligible: " + admission.Role + " with " + admission.ProfileName + "; run or wait for coordinator"
-		}
-	}
+	view := View{CurrentQuality: settings.Quality.Revision(), Task: t, Attempts: attempts, Eligibility: admission}
 	for _, a := range attempts {
 		if a.Occupying && !a.Authorized(t) {
 			view.CancellationPending = true
@@ -167,10 +133,13 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	if t.PlanRequest && t.Proposal != nil && t.Stage == core.AwaitingApproval && t.Attention == nil {
 		if t.Approval != nil && t.Approval.Base == base {
 			view.ReleasePreview = core.ReleasePreview(t, repo, e.policy(), e.Settings.Quality.Revision(), base)
-		} else {
-			view.NextAction = "approved base changed; replace the request and replan before release"
 		}
 	}
+	running, err := e.observeCoordinator()
+	if err != nil {
+		return view, err
+	}
+	describeView(&view, running, e.now())
 	return view, nil
 }
 func (e *Engine) Approve(ctx context.Context, id string, version int, preview string) (core.Task, error) {

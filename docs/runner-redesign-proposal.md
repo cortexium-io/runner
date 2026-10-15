@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phase 1 qualified on 2026-10-14. The phase 2 Ready-policy, Plan/preparation and quality-agreement bundles are implemented in `codex/runner-local-core`; qualification is recorded below. The remaining operator interface and acceptance journey are still pending in phase 2.
+Status: Phases 1 and 2 are implemented in `codex/runner-local-core`, including the local operator interface and local acceptance journey. Qualification is recorded below. Stop before phase 3 delivery; connected delivery and release qualification remain pending.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -17,7 +17,7 @@ The direction is recorded in [ADR 0005](decisions/0005-local-runner-core.md).
 This is the designated replacement specification and build sequence, under
 [AGENTS.md](../AGENTS.md). The [architecture](architecture.md) and existing
 operator guides describe the Project-backed runtime. `cmd/runner-next` now
-implements the first-slice commands plus the three phase 2 bundles below. Other release
+implements the first-slice commands plus the four phase 2 bundles below. Other release
 capabilities remain build contracts and require a separate implementation instruction.
 
 Start with [release scope](#first-release-scope), [core contracts](#core-contracts),
@@ -983,7 +983,8 @@ can happen while the coordinator runs. Already admitted attempts retain their
 actual settings; queued actions use the applied policy. Pending transient retries
 and explicit interrupted resumes retain their original profile, including after
 that named profile is edited or removed. This bundle does not offer a retry-profile
-override or interactive policy editor. `init` now handles initial setup only.
+override. The [operator bundle](#using-the-operator-interface) adds interactive and
+named-setting editing over the same preview/apply boundary. `init` handles initial setup only.
 Changing repository identity or roots requires fresh setup. Use the
 [quality workflow](#using-quality-agreements) to revise the default agreement and
 explicitly adopt it on existing work. Editing a task file has no effect until
@@ -1349,10 +1350,9 @@ RUNNER_LOCAL_LIVE_MODEL=gpt-6.1-sol RUNNER_LOCAL_LIVE_REASONING=high \
   -count=1 -v -timeout=8m
 ```
 
-This bundle stopped before quality-agreement changes, now covered by the third
-brief below. Attention-first status presentation, the interactive policy editor
-and the operator acceptance journey remain open. Delivery, confirmed integration
-and external views retain their later phase boundaries.
+This bundle stopped before quality-agreement and operator-interface changes, now
+covered by the third and fourth briefs below. Delivery, confirmed integration and
+external views retain their later phase boundaries.
 
 ### Third phase 2 bundle — quality revisions and baseline exceptions
 
@@ -1557,10 +1557,200 @@ RUNNER_LOCAL_LIVE_MODEL=gpt-6.1-sol RUNNER_LOCAL_LIVE_REASONING=high \
   -count=1 -v -timeout=8m
 ```
 
-Stop this bundle before delivery. Attention-first presentation, the interactive
-policy editor and the complete operator acceptance journey remain phase 2 work.
-Delivery/integration, external views, cleanup/backup and platform/release
-qualification retain their later boundaries.
+This bundle stopped before operator-interface work, now covered by the fourth
+brief below. Delivery/integration, external views, cleanup/backup and
+platform/release qualification retain their later boundaries.
+
+### Fourth phase 2 bundle — operator status and configuration
+
+Authorized on 2026-10-15. Complete the local operator interface on the existing
+commands and coordinator. Stop at Awaiting delivery; do not add delivery, a web
+UI, another scheduler or a new store format.
+
+The supported behavior and expected results are:
+
+1. Human `status` leads with **Needs you**, then **Working**, **Waiting** and
+   **Retained**. Show each task once, with its outcome, lifecycle stage, specific
+   cause and next action. Draft/proposal approval, decisions, exhausted limits and
+   interrupted/uncertain execution need attention. Ordinary dependencies, capacity
+   and retry deadlines are waits. Awaiting delivery is a retained reviewed
+   candidate, never completed work. An absent coordinator does not imply that a
+   surviving reservation is safe to replay.
+2. Keep status compact. Show the relevant actual attempt's role, model, reasoning,
+   elapsed time and retained evidence, plus remaining allowances. `task show`
+   provides full content/history, exact approval/release commands, candidate and
+   recovery details. Recovery names the role that repeats, what remains and whether
+   another invocation needs authorization. A planning question is answered by
+   replacing and approving the clarified request; there is no second conversation
+   store. Human and JSON output use the same derived facts and dispatch eligibility.
+3. `status --watch DURATION` refreshes read-only observations until interrupted;
+   `--json` emits one complete JSON object per line. No inspection creates state,
+   reconciles processes, starts work or modifies counters. Refresh current applied
+   settings and coordinator state on every observation. Use a minimum one-second
+   interval, no terminal dependency or screen-control framework.
+4. `config explain` becomes a readable resolved-policy preview; `--json` retains
+   machine access. Show role profiles, escalation order, limits, active pinned
+   attempts, affected queued work and warnings. Include concrete next actions when
+   budgets cannot admit the selected work. No prompt/model changes are required.
+5. `config edit` offers a small line-oriented editor over named settings. Repeated
+   `--set KEY=VALUE` provides the same noninteractive changes: parallelism, repairs,
+   transient retries, invocation ceiling, roles, named model/reasoning/timeout
+   profiles and escalation order. Repository paths, quality and delivery authority
+   are outside this editor. Validate the complete proposal and installed harness
+   capabilities, show its effects, then ask to save. Noninteractive saves require
+   `--save --preview DIGEST`; preview alone writes nothing. Cancellation/EOF,
+   invalid input and stale previews leave file and store untouched. Reuse secure
+   conditional file replacement to reject concurrent edits and preserve provenance.
+6. Saving edits only the explicit configuration file. Applying remains the existing
+   separate `config apply --preview DIGEST` transaction. This avoids pretending
+   that the file and database share one transaction. Explain pending file changes,
+   preserve active/retry profiles and all consumption counters, and never start
+   the coordinator as a side effect. Keep the existing manual file-edit route.
+7. Add a replacement-specific operator skill/reference over these commands, with
+   exact setup, approval, quality and recovery boundaries. Do not change or install
+   the legacy bundled execution skills. Qualify the local operator journey through
+   configuration, Plan/Ready, a decision, a dependency wait, interrupted review,
+   live parallelism changes, drain/restart and retained candidate inspection.
+   Delivered-result inspection remains phase 3/4 evidence.
+
+Verification brief before coding: extend the existing CLI journey and owning
+engine policy tests, reusing real SQLite/Git and controlled harness calls. Add
+small table cases only for wrong grouping/recovery advice and editor validation
+or lost-update risks. Prove preview/cancel/watch are read-only, JSON and human
+views identify the same action, a live policy edit preserves active profiles,
+and recovery repeats only the interrupted review. Exercise actual terminal input
+and the built binary on disposable state; inspect its output as an operator.
+Reuse existing role/live containment evidence since no harness instructions change.
+Run `go test -race ./...`, `go vet ./...`, and build `cmd/runner-next`. Record the
+walkthrough, remaining release boundaries and any usability limitations here.
+
+#### Using the operator interface
+
+Use the existing format-4 state; this bundle needs no migration or reset.
+`runner-next help` lists the local commands without requiring setup. All commands
+below use the same `--config /absolute/runner.json` prefix. The repository-local
+[operator skill](runner-operator/SKILL.md) explains the authorization boundaries;
+it is not installed automatically and is separate from the legacy bundled skills.
+
+`status` groups tasks by what needs attention, rather than printing every attempt.
+It shows actual attempt settings, elapsed time, evidence, remaining allowances
+and the same next action available in JSON. **Retained** includes stopped work and
+reviewed candidates awaiting delivery; neither means integrated success.
+`task show ID` retains the complete request, proposal/questions, history, proof
+and candidate identities. Copy its exact approval or release command only after
+reviewing the content. Recovery explains the affected role, retained work and
+what repeats; a saved result does not authorize another model call.
+
+```sh
+/tmp/runner-next --config /absolute/runner.json status
+/tmp/runner-next --config /absolute/runner.json status --watch 2s
+/tmp/runner-next --config /absolute/runner.json status --watch 2s --json
+/tmp/runner-next --config /absolute/runner.json task show TASK_ID
+```
+
+Watch appends complete timestamped observations; JSON watch emits one object per
+line. Ctrl-C stops inspection without stopping work. Missing or unreadable
+authority is reported as an error, never initialized by inspection. An unreadable
+coordinator lock is unknown ownership, not an absent coordinator. Observations
+may span concurrent progress; every mutation still revalidates its own authority.
+
+For routine settings, run `config edit`. It shows the current file proposal and
+available setting names. Enter a setting, its value, and repeat; `done` previews
+the complete proposal. Confirming saves the file only. `cancel`, EOF, Ctrl-C, a
+negative save response or invalid input leaves the proposal unapplied. Input
+errors discard that edit session; the original file stays available.
+
+| Setting | Value |
+| --- | --- |
+| `parallelism` | Integer 1–16. Lowering it does not cancel active work. |
+| `repairs`, `transient-retries` | Nonnegative integer; consumed allowances are retained. |
+| `invocations` | Positive per-task ceiling or `unlimited`. |
+| `implementer`, `reviewer`, `planner` | Existing profile name; `planner=none` removes optional planning configuration. |
+| `profile.NAME` | `MODEL REASONING TIMEOUT`, e.g. `gpt-6.1-sol high 30m`; `remove` deletes an unreferenced profile. |
+| `escalation` | Comma-separated successor profiles, or `none`. The starting implementer is not repeated. |
+
+The editor starts from a valid configuration file; correct malformed manual edits
+before opening it. The whole proposal must validate, including the installed Codex catalogue.
+Profiles and their references can change together. Repository identity, roots,
+quality agreements and delivery authority are not editor settings. Initial setup
+still consumes the strict configuration example above; this editor handles
+execution-policy changes to an initialized local setup.
+
+The noninteractive equivalent previews first, then saves the exact proposal:
+
+```sh
+/tmp/runner-next --config /absolute/runner.json config edit \
+  --set parallelism=2 --set repairs=1 \
+  --set 'profile.careful=gpt-6.1-sol high 30m' --set escalation=careful
+/tmp/runner-next --config /absolute/runner.json config edit \
+  --set parallelism=2 --set repairs=1 \
+  --set 'profile.careful=gpt-6.1-sol high 30m' --set escalation=careful \
+  --save --preview DISPLAYED_SAVE_PREVIEW
+/tmp/runner-next --config /absolute/runner.json config explain
+/tmp/runner-next --config /absolute/runner.json config apply --preview DISPLAYED_APPLY_PREVIEW
+```
+
+Saving uses conditional replacement: concurrent file edits are never overwritten.
+The separate `config apply` transaction changes running policy. `config explain`
+shows resolved profiles, escalation order, allowances, pinned attempts and queued
+effects; `--json` supplies the structured form. It warns when a missing-brief Ready
+journey needs three calls but its budget cannot admit them. Existing manual file
+editing remains supported. No setting change starts the coordinator, resets
+consumption or changes active/retry profiles.
+
+#### Fourth phase 2 qualification
+
+The complete local operator journey is owned by the extended existing
+[CLI journey](../internal/runner/cli/cli_test.go), using real Git and SQLite with
+one small controlled harness. It now covers:
+
+- Committed-base setup, Ready approval and actual active-review status.
+- Editor preview/save/apply during review, including an escalation profile and
+  a parallelism change while the active reviewer retains its original reasoning.
+- Drain, interrupted review, a rejected unauthorized repeat, explicit resume and
+  restart. Exactly one implementation and two audit attempts retain the same
+  candidate; the repeated audit keeps its original profile.
+- A Plan question, clarified replacement and approval, complete proposal release
+  and an exact-version dependency wait. Human and JSON status give the same
+  causes/actions in attention-first order.
+- Retained candidate/evidence inspection, plan stop, quality adoption and read-only
+  reopen. No board, publication, merge or false completion is involved.
+
+The small [editor/watch suite](../internal/runner/cli/operator_test.go) proves
+preview, cancellation, EOF and idle-prompt interruption write nothing; invalid
+settings, stale save previews and concurrent file changes cannot replace the
+configuration; saving does not apply. Watch observes a policy change on its next
+snapshot without writing the store. [Operator advice cases](../internal/runner/engine/operator_test.go)
+cover actionable limits versus ordinary waits, active/absent ownership and saved
+versus interrupted recovery. Existing process tests now also distinguish an
+absent, held, released and unreadable coordinator lock. No new test framework,
+store schema or execution role was added.
+
+On 2026-10-15, the built binary was exercised in a real macOS arm64 terminal on a
+disposable repository: native baseline setup, interactive profile/escalation and
+parallelism editing, separate policy application, task intake, human/JSON status,
+watch and Ctrl-C at both watch and an idle edit prompt. The walkthrough removed
+an unnecessary second preview digest from editing; apply guidance now belongs to
+`config explain`. Final inspection left configuration and database hashes unchanged.
+The actual installed Codex catalogue accepted `gpt-6.1-sol / high` and rejected an
+unsupported model without changing the file. No model calls
+were needed because role prompts and harness execution contracts were unchanged.
+Existing live role evidence remains applicable to those contracts.
+
+Local walkthrough files and observations are retained at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-operator-live-lbedxh4q`.
+These temporary artifacts are not a portable backup. This is an exercised local
+journey, not a study of independent users or evidence of delivered-result usability.
+The editor is deliberately line-oriented, without completion or a full-screen UI.
+
+`go test -race ./...`, `go vet ./...` and the `cmd/runner-next` build passed with
+Go 1.27.1 on macOS arm64. The complete diff was reviewed for accidental changes,
+misleading recovery advice and unnecessary complexity. The replacement still
+imports no legacy engine, execution or GitHub package.
+
+This completes the phase 2 local interface boundary. Stop before phase 3: code-host delivery,
+confirmed integration and delivered-result inspection remain unimplemented;
+release/platform, backup/restore and installation qualification remain phase 4.
 
 ### Simple upgrade or deliberate break
 
@@ -1786,8 +1976,9 @@ Phase 0 is documented. Phase 1 is implemented at commit `d6d0ddb`; its S1–S7
 proof and live qualification are recorded in [phase 1 evidence](#phase-1-evidence).
 The phase 2 evidence is recorded in the [Ready-policy qualification](#first-phase-2-qualification),
 [Plan/preparation qualification](#second-phase-2-qualification) and
-[quality-agreement qualification](#third-phase-2-qualification). Remaining
-phase 2 and later evidence is pending; each later brief must cover its assigned
+[quality-agreement qualification](#third-phase-2-qualification), plus the
+[operator qualification](#fourth-phase-2-qualification). Later evidence is
+pending; each later brief must cover its assigned
 rows or explicitly revise the scope.
 
 | Requirement | Owning phase | Acceptance evidence |
@@ -1801,7 +1992,7 @@ rows or explicitly revise the scope.
 | Independent, sufficient, economical verification | 1; extend in 2 | S6 plus live candidate review. The first phase 2 paired behavioral cases cover fabricated proof, weakened checks, legitimate consolidation and speculative review; no infrastructure error becomes a code rejection. |
 | Provider-neutral architecture and optional views | 1/3/5 | S1 runs without `gh`/Projects. Phase 3 delivery requires no board. Phase 5 disconnect/reconnect and reordered updates converge safely; Trello needs no core scheduling/approval change and exposes no private evidence. |
 | Current-base delivery and confirmed completion | 3 | Base movement before merge, conflicts, CI failure, interrupted creation, human/automatic merge and closed-unmerged PRs produce correct bounded outcomes. Missing proof or remote observations never produce success. |
-| Comprehensible progress and recovery | 1/2/4 | S1/S7 and the operator journey below: user understands the actual profile, wait, retained work and exact next action; settings are editable without nested workflow JSON. |
+| Comprehensible progress and recovery | 1/2/4 | Fourth phase 2 qualification covers attention-first status, actual profiles, waits, retained work, exact recovery guidance, watch and named-setting editing. Its local journey stops at a retained candidate. Delivered-result and release/operator evidence remain phases 3/4. |
 | Packaging, restore and breaking cutover | 1/4 | Phase 1 qualifies the driver and new entry point's target builds. Phase 4 proves platform/runtime checks, consistent backup/restore, no old/new ownership overlap and explicit resubmission. No historical-state converter is required. |
 | Honest operational learning | 1/2/4 | Phase 1 records all actual calls and results; phase 2 adds the measures below; phase 4 reports observed journeys and unresolved limits. Guidance drafts require human review. No inferred cost or unsupported performance claim. |
 

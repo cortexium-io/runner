@@ -17,6 +17,7 @@ type Eligibility struct {
 	ProfileName          string       `json:"profile_name,omitempty"`
 	Profile              core.Profile `json:"profile"`
 	Reason               string       `json:"reason,omitempty"`
+	WaitKind             string       `json:"wait_kind,omitempty"`
 	WaitingFor           string       `json:"waiting_for,omitempty"`
 	RetryAt              *time.Time   `json:"retry_at,omitempty"`
 	RepairsRemaining     int          `json:"repairs_remaining"`
@@ -68,6 +69,7 @@ func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained boo
 		}
 		occupied++
 		if a.TaskID == t.ID || a.WorkspaceClaim == workspaceClaim(c, t) {
+			v.WaitKind = "ownership"
 			v.WaitingFor = "owned task/workspace: attempt " + a.ID
 		}
 	}
@@ -76,28 +78,40 @@ func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained boo
 	}
 	switch {
 	case t.Attention != nil:
+		v.WaitKind = "attention"
 		v.WaitingFor = string(t.Attention.Kind) + ": " + t.Attention.Detail
 	case t.Approval == nil || t.Stage == core.Stopped:
+		v.WaitKind = "approval"
 		v.WaitingFor = "task approval"
 	case t.NextRole == "":
+		v.WaitKind = "idle"
 		v.WaitingFor = "no pending invocation"
 	case core.PrerequisiteWait(t, tasks) != "":
+		v.WaitKind = "dependency"
 		v.WaitingFor = core.PrerequisiteWait(t, tasks)
 	case core.PlanningRole(t.NextRole) && v.ProfileName == "":
+		v.WaitKind = "configuration"
 		v.WaitingFor = "configure and apply a planner profile"
 	case t.Usage.Repairs > p.MaxRepairs && (t.Pending == nil || t.Pending.Kind != "resume"):
+		v.WaitKind = "repair_limit"
 		v.WaitingFor = "repair limit below consumed allowance; explicitly apply more allowance before automatic work"
 	case t.Pending != nil && t.Pending.Kind == "repair" && t.Usage.Repairs >= p.MaxRepairs:
+		v.WaitKind = "repair_limit"
 		v.WaitingFor = "repair limit; inspect findings and explicitly apply more allowance or replace the task"
 	case t.Pending != nil && t.Pending.Kind == "retry" && t.Pending.Retry > p.MaxTransientRetries:
+		v.WaitKind = "retry_limit"
 		v.WaitingFor = "transient retry limit; inspect failure and explicitly apply more allowance"
 	case v.InvocationsRemaining != nil && *v.InvocationsRemaining == 0:
+		v.WaitKind = "invocation_limit"
 		v.WaitingFor = "task invocation ceiling; explicitly apply more allowance"
 	case drained:
+		v.WaitKind = "drained"
 		v.WaitingFor = "coordinator drained"
 	case occupied >= p.MaxParallelism:
+		v.WaitKind = "capacity"
 		v.WaitingFor = fmt.Sprintf("global capacity: %d/%d occupied", occupied, p.MaxParallelism)
 	case v.RetryAt != nil && now.Before(*v.RetryAt):
+		v.WaitKind = "backoff"
 		v.WaitingFor = "retry backoff until " + v.RetryAt.UTC().Format(time.RFC3339)
 	}
 	return v
@@ -157,7 +171,26 @@ func (e *Engine) PreviewPolicy(ctx context.Context, proposed config.Config) (Pol
 	}
 	now := e.now()
 	for _, t := range tasks {
-		result.Tasks = append(result.Tasks, PolicyEffect{t.ID, t.Usage, eligible(current.Config, t, attempts, drained, now, tasks...), eligible(proposed, t, attempts, drained, now, tasks...)})
+		after := eligible(proposed, t, attempts, drained, now, tasks...)
+		result.Tasks = append(result.Tasks, PolicyEffect{t.ID, t.Usage, eligible(current.Config, t, attempts, drained, now, tasks...), after})
+		minimum := 0
+		switch t.NextRole {
+		case "plan", "audit", "verify":
+			minimum = 1
+		case "implementer":
+			minimum = 2
+		case "prepare":
+			minimum = 3
+		}
+		for _, a := range attempts {
+			if a.TaskID == t.ID && (a.Occupying || a.State == "completed") && a.Authorized(t) {
+				minimum = max(0, minimum-1)
+				break
+			}
+		}
+		if after.InvocationsRemaining != nil && *after.InvocationsRemaining < minimum {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Task %s needs at least %d further invocations for its pending journey, but only %d remain; use config edit to inspect the invocation ceiling.", t.ID, minimum, *after.InvocationsRemaining))
+		}
 	}
 	if len(proposed.Policy.ImplementationLadder) > proposed.Policy.MaxRepairs {
 		result.Warnings = append(result.Warnings, "Some escalation steps are unreachable within the repair limit.")

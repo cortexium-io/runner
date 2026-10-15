@@ -10,9 +10,11 @@ and planner preparation for Ready tasks missing verification briefs. See the
 [Plan guide and qualification](docs/runner-redesign-proposal.md#using-plan-and-ready-preparation).
 It also supports [quality-agreement revisions and scoped baseline exceptions](docs/runner-redesign-proposal.md#using-quality-agreements),
 with explicit task adoption and Runner-owned candidate checks.
-This milestone requires fresh private state (store format 4) and still stops at
-**Awaiting delivery**. The remaining operator interface, delivery and external views
-remain pending. The documentation below describes the existing
+The [operator guide](docs/runner-redesign-proposal.md#using-the-operator-interface)
+covers attention-first status, read-only watch and the configuration editor.
+This milestone uses store format 4 (earlier formats require fresh state) and stops
+at **Awaiting delivery**. Delivery, release qualification and external views remain
+pending. The documentation below describes the existing
 `cortexium-runner` release.
 
 `cortexium-runner` moves trusted or maintainer-approved GitHub Project work through

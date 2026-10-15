@@ -13,6 +13,34 @@ import (
 
 type notifyWriter struct{ ready chan struct{} }
 
+func TestCoordinatorObservationDoesNotCreateOrConcealOwnership(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "owner.lock")
+	if running, err := ObserveCoordinator(path); err != nil || running {
+		t.Fatal("missing owner", running, err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatal("observation created lock")
+	}
+	owner, err := Lock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if running, err := ObserveCoordinator(path); err != nil || !running {
+		t.Fatal("active owner hidden", running, err)
+	}
+	owner.Close()
+	if running, err := ObserveCoordinator(path); err != nil || running {
+		t.Fatal("released owner", running, err)
+	}
+	link := path + "-link"
+	if err := os.Symlink(path, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ObserveCoordinator(link); err == nil || !Running(link) {
+		t.Fatal("unreadable ownership reported absent", err)
+	}
+}
+
 func (w notifyWriter) Write(b []byte) (int, error) {
 	select {
 	case w.ready <- struct{}{}:

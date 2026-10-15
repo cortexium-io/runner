@@ -25,6 +25,7 @@ type Harness interface {
 	execution.CheckRunner
 }
 type CLI struct {
+	In      io.Reader
 	Out     io.Writer
 	Harness Harness
 }
@@ -46,6 +47,13 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	if c.Harness == nil {
 		c.Harness = execution.Codex{}
 	}
+	if c.In == nil {
+		c.In = os.Stdin
+	}
+	if len(args) == 1 && (args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
+		c.help()
+		return nil
+	}
 	global := c.flags("runner-next")
 	path := global.String("config", "", "explicit Runner local configuration path")
 	if err := global.Parse(args); err != nil {
@@ -62,13 +70,13 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	if args[0] == "init" {
 		return c.init(ctx, cfg, args[1:])
 	}
-	readonly := (args[0] == "quality" && len(args) > 1 && (args[1] == "preview" || args[1] == "show")) || args[0] == "status" || (args[0] == "config" && len(args) > 1 && args[1] == "explain") || (args[0] == "task" && len(args) > 1 && args[1] == "show")
+	readonly := (args[0] == "quality" && len(args) > 1 && (args[1] == "preview" || args[1] == "show")) || args[0] == "status" || (args[0] == "config" && len(args) > 1 && args[1] != "apply") || (args[0] == "task" && len(args) > 1 && args[1] == "show")
 	db, err := store.Open(ctx, cfg.StateDir, readonly)
 	if err != nil {
 		return fmt.Errorf("cannot open local authority (inspection never creates it): %w", err)
 	}
 	defer db.Close()
-	settings, drained, err := db.Settings(ctx)
+	settings, _, err := db.Settings(ctx)
 	if err != nil {
 		return err
 	}
@@ -80,41 +88,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	case "quality":
 		return c.quality(ctx, &app, args[1:])
 	case "config":
-		if len(args) < 2 {
-			return errors.New("usage: config explain|apply --preview DIGEST")
-		}
-		change, err := app.PreviewPolicy(ctx, cfg)
-		if err != nil {
-			return err
-		}
-		switch args[1] {
-		case "explain":
-			if len(args) != 2 {
-				return errors.New("config explain takes no arguments")
-			}
-			return c.json(change)
-		case "apply":
-			f := c.flags("config apply")
-			preview := f.String("preview", "", "displayed policy preview digest")
-			if err = f.Parse(args[2:]); err != nil {
-				return err
-			}
-			if f.NArg() != 0 || *preview == "" || *preview != change.Preview {
-				return errors.New("policy preview is missing or stale; run config explain")
-			}
-			if err = c.Harness.CheckCapabilities(ctx, cfg); err != nil {
-				return err
-			}
-			next := settings
-			next.Config = cfg
-			if err = db.ApplySettings(ctx, change.AppliedRevision, next); err != nil {
-				return err
-			}
-			fmt.Fprintln(c.Out, "Policy applied. Active attempts and pending retry profiles stay pinned; consumed allowances are retained. New admissions use this policy.")
-			return nil
-		default:
-			return errors.New("usage: config explain|apply --preview DIGEST")
-		}
+		return c.configure(ctx, &app, *path, cfg, args[1:])
 	case "run":
 		if len(args) != 1 {
 			return errors.New("run takes no arguments")
@@ -143,39 +117,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 		}
 		return nil
 	case "status":
-		f := c.flags("status")
-		asJSON := f.Bool("json", false, "structured status")
-		if err = f.Parse(args[1:]); err != nil {
-			return err
-		}
-		if f.NArg() != 0 {
-			return errors.New("unexpected status argument")
-		}
-		tasks, err := db.Tasks(ctx)
-		if err != nil {
-			return err
-		}
-		views := []engine.View{}
-		for _, t := range tasks {
-			v, err := app.Show(ctx, t.ID)
-			if err != nil {
-				return err
-			}
-			views = append(views, v)
-		}
-		if *asJSON {
-			return c.json(struct {
-				Running   bool          `json:"coordinator_running"`
-				Drained   bool          `json:"drained"`
-				Unapplied bool          `json:"unapplied_config"`
-				Tasks     []engine.View `json:"tasks"`
-			}{app.Running(), drained, cfg.Revision() != settings.Config.Revision(), views})
-		}
-		fmt.Fprintf(c.Out, "Coordinator running: %t; drained: %t; unapplied config: %t\n", app.Running(), drained, cfg.Revision() != settings.Config.Revision())
-		for _, v := range views {
-			c.printView(v, false)
-		}
-		return nil
+		return c.status(ctx, &app, *path, args[1:])
 	case "task":
 		return c.task(ctx, &app, args[1:])
 	default:
@@ -307,16 +249,20 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 }
 func (c CLI) printView(v engine.View, full bool) {
 	t := v.Task
-	fmt.Fprintf(c.Out, "%s v%d — %s\n", t.ID, t.Current().Number, t.Stage)
+	fmt.Fprintf(c.Out, "%s v%d — %s\n%s\n%s\nNext: %s\n", t.ID, t.Current().Number, t.Stage, engine.TaskTitle(t), v.Summary, v.NextAction)
+	if v.Recovery != nil {
+		fmt.Fprintf(c.Out, "Recovery role: %s\nPreserved: %s\nRepeats: %s\n", v.Recovery.Role, v.Recovery.Preserved, v.Recovery.Repeats)
+	}
+	if !full {
+		return
+	}
 	if t.PlanRequest {
 		fmt.Fprintln(c.Out, "Plan request — initial approval permits planning only; task release authorizes its proposed children.")
 	} else if t.Current().NeedsVerification() && t.Prepared == nil {
 		fmt.Fprintln(c.Out, "Ready task — approval permits planner verification preparation before implementation.")
 	}
-	if full {
-		fmt.Fprintf(c.Out, "%s\nContent digest: %s\nQuality revision: %s\nObserved base: %s\nApproval preview: %s\n", t.Current().Body, t.Current().Digest, t.Current().Quality, v.ObservedBase, v.Preview)
-	}
-	if full && v.QualityAdoptionPreview != "" {
+	fmt.Fprintf(c.Out, "%s\nContent digest: %s\nQuality revision: %s\nObserved base: %s\nApproval preview: %s\n", t.Current().Body, t.Current().Digest, t.Current().Quality, v.ObservedBase, v.Preview)
+	if v.QualityAdoptionPreview != "" {
 		fmt.Fprintf(c.Out, "Current default quality: %s\nQuality adoption preview: %s\nAdoption creates an unapproved version and revokes old actions.\n", v.CurrentQuality, v.QualityAdoptionPreview)
 	}
 	if t.Proposal != nil {
@@ -324,16 +270,14 @@ func (c CLI) printView(v engine.View, full bool) {
 		if v.ReleasePreview != "" {
 			fmt.Fprintf(c.Out, "Release preview: %s\n", v.ReleasePreview)
 		}
-		if full {
-			for _, card := range t.Proposal.Cards {
-				fmt.Fprintf(c.Out, "\nCard %s; prerequisites: %v\n%s\n", card.Key, card.Dependencies, card.Body)
-			}
-			for _, question := range t.Proposal.Questions {
-				fmt.Fprintln(c.Out, "Question:", question)
-			}
+		for _, card := range t.Proposal.Cards {
+			fmt.Fprintf(c.Out, "\nCard %s; prerequisites: %v\n%s\n", card.Key, card.Dependencies, card.Body)
+		}
+		for _, question := range t.Proposal.Questions {
+			fmt.Fprintln(c.Out, "Question:", question)
 		}
 	}
-	if t.Prepared != nil && full {
+	if t.Prepared != nil {
 		fmt.Fprintf(c.Out, "Prepared verification (attempt %s):\n%s\n", t.Prepared.Attempt, t.Prepared.Requirement)
 	}
 	if t.Release != nil {
@@ -366,10 +310,9 @@ func (c CLI) printView(v engine.View, full bool) {
 		fmt.Fprintf(c.Out, "; invocations=%d", *v.Eligibility.InvocationsRemaining)
 	}
 	fmt.Fprintln(c.Out)
-	if v.Task.NextRole != "" {
+	if v.Task.NextRole != "" && (v.FocusAttempt == nil || !v.FocusAttempt.Occupying) {
 		fmt.Fprintf(c.Out, "Next role: %s; profile %s = %s / %s; reason: %s\n", v.Eligibility.Role, v.Eligibility.ProfileName, v.Eligibility.Profile.Model, v.Eligibility.Profile.Reasoning, v.Eligibility.Reason)
 	}
-	fmt.Fprintln(c.Out, "Next:", v.NextAction)
 }
 
 func elapsed(a core.Attempt) time.Duration {

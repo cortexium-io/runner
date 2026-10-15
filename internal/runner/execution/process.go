@@ -29,15 +29,27 @@ func Lock(path string) (*os.File, error) {
 	return f, nil
 }
 func Running(path string) bool {
+	running, err := ObserveCoordinator(path)
+	return running || err != nil
+}
+
+// An unreadable lock is unknown ownership, not evidence that the owner is absent.
+func ObserveCoordinator(path string) (bool, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW, 0)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
 	if err != nil {
-		return false
+		return false, err
 	}
 	defer f.Close()
-	if unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB) != nil {
-		return true
+	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
+			return true, nil
+		}
+		return false, err
 	}
-	return false
+	return false, nil
 }
 func Gone(p core.Process) bool { return p.PID > 1 && errors.Is(unix.Kill(-p.PID, 0), unix.ESRCH) }
 func signalOwned(p core.Process, signal unix.Signal) error {

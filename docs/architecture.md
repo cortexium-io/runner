@@ -3,7 +3,7 @@
 This page describes the current Project-backed runtime. The accepted replacement
 is defined by [ADR 0005](decisions/0005-local-runner-core.md) and the
 [core redesign plan](runner-redesign-proposal.md). Its local state and commands
-are implemented through the phase 2 quality-agreement bundle in `cmd/runner-next`; see the plan's
+are implemented through the phase 2 operator-interface bundle in `cmd/runner-next`; see the plan's
 [local slice guide and evidence](runner-redesign-proposal.md#using-the-implemented-local-slice).
 The remainder of this page documents `cortexium-runner`, not the new core.
 
