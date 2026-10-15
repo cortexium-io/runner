@@ -74,6 +74,7 @@ func (c CLI) configure(ctx context.Context, e *engine.Engine, path string, cfg c
 func (c CLI) printPolicy(p engine.PolicyChange) {
 	cfg := p.Proposed
 	fmt.Fprintln(c.Out, "Resolved execution policy")
+	fmt.Fprintf(c.Out, "Delivery: %s; destination: %s; base: %s (fixed at initialization)\n", cfg.Delivery.Mode, cfg.Delivery.Repository, cfg.Repository.BaseRef)
 	for _, role := range []string{"planner", "implementer", "reviewer"} {
 		name, profile := cfg.Role(role)
 		if name == "" {
@@ -102,6 +103,9 @@ func (c CLI) printPolicy(p engine.PolicyChange) {
 	fmt.Fprintln(c.Out, "The last profile remains selected within the repair allowance. Transient retries do not escalate.")
 	for _, a := range p.Active {
 		fmt.Fprintf(c.Out, "Pinned attempt %s (%s): %s / %s; %s; unaffected by this edit\n", a.ID, a.Role, a.Profile.Model, a.Profile.Reasoning, a.Profile.Timeout)
+	}
+	for _, publication := range p.Publications {
+		fmt.Fprintf(c.Out, "Active publication %s: shares capacity; destination %s; unaffected by this edit\n", publication.Intent.ID, publication.Intent.Repository)
 	}
 	for _, effect := range p.Tasks {
 		fmt.Fprintf(c.Out, "Task %s: consumed %d invocations / %d repairs; remaining %d repairs / %d retries", effect.TaskID, effect.Usage.Invocations, effect.Usage.Repairs, effect.After.RepairsRemaining, effect.After.RetriesRemaining)

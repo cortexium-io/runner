@@ -603,6 +603,19 @@ func (p GitProvider) rejectReplacementObjects(ctx context.Context, profile subpr
 	return nil
 }
 
+// PublicationProfile reuses the config-free object boundary for a caller that
+// owns its own durable publication authority (for example the local Runner core).
+func (p GitProvider) PublicationProfile(ctx context.Context, path string) (subprocess.PrivilegedGitProfile, error) {
+	profile, err := derivePrivilegedGitProfile(path)
+	if err != nil {
+		return profile, err
+	}
+	if err = rejectObjectRedirection(profile); err != nil {
+		return profile, err
+	}
+	return profile, p.rejectReplacementObjects(ctx, profile)
+}
+
 func (p GitProvider) stageCandidatePath(ctx context.Context, profile subprocess.PrivilegedGitProfile, path string) error {
 	mode, objectID, exists, err := p.candidatePathEntry(ctx, profile, path)
 	if err != nil {

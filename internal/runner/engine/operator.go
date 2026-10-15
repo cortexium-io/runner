@@ -66,6 +66,11 @@ func (e *Engine) Status(ctx context.Context, file config.Config) (Status, error)
 				out.Occupied++
 			}
 		}
+		for _, p := range v.Publications {
+			if p.Occupying {
+				out.Occupied++
+			}
+		}
 		out.Tasks = append(out.Tasks, v)
 	}
 	rank := func(group string) int {
@@ -106,6 +111,20 @@ func describeView(v *View, running bool, now time.Time) {
 	show := "task show " + t.ID
 	replace := fmt.Sprintf("task replace %s --version %d --file CLARIFIED_TASK.md; inspect and approve the new version", t.ID, t.Current().Number)
 	v.Group = "Needs you"
+	for i := len(v.Publications) - 1; i >= 0; i-- {
+		p := v.Publications[i]
+		if p.Occupying {
+			v.Group, v.Summary = "Working", "publishing reviewed candidate; "+p.Intent.Repository
+			v.NextAction = "wait for remote reconciliation; " + show + " retains operation identity and evidence"
+			if v.CancellationPending {
+				v.Summary = "publication cancellation pending; an already-sent remote effect may still settle"
+			}
+			if !running {
+				v.Group, v.NextAction = "Needs you", "run to inspect the interrupted publication; uncertain PR creation cannot repeat"
+			}
+			return
+		}
+	}
 	if t.Attention != nil {
 		v.Summary = string(t.Attention.Kind) + ": " + t.Attention.Detail
 		v.NextAction = "inspect evidence with " + show + "; " + replace
@@ -153,6 +172,9 @@ func describeView(v *View, running bool, now time.Time) {
 	case core.Draft:
 		v.Summary = "request needs approval"
 		v.NextAction = fmt.Sprintf("inspect %s; task approve %s --version %d --preview %s", show, t.ID, t.Current().Number, v.Preview)
+		if v.DeliveryDestination != "" {
+			v.Summary += "; acceptance will publish a draft to " + v.DeliveryDestination
+		}
 		return
 	case core.AwaitingApproval:
 		v.Summary = "proposal needs approval"
@@ -164,8 +186,37 @@ func describeView(v *View, running bool, now time.Time) {
 		}
 		return
 	case core.AwaitingDelivery:
-		v.Group, v.Summary = "Retained", "reviewed candidate; delivery is not implemented"
+		v.Group, v.Summary = "Retained", "reviewed candidate; local delivery mode"
 		v.NextAction = "inspect candidate and evidence with " + show + "; integration is still pending"
+		if v.DeliveryDestination != "" {
+			v.Group, v.Summary = "Waiting", "reviewed candidate awaiting draft publication"
+			v.NextAction = "run to publish the exact accepted candidate as a draft"
+			for i := len(v.Publications) - 1; i >= 0; i-- {
+				p := v.Publications[i]
+				if !p.Intent.Authorized(t) {
+					continue
+				}
+				v.Summary = "publication " + p.State + "; " + p.Detail
+				v.NextAction = "task delivery " + t.ID + " --reconcile; then run if the coordinator is absent"
+				if p.State == "attention" {
+					v.Group = "Needs you"
+				}
+				if p.State == "published" {
+					v.Group = "Retained"
+					v.NextAction = "inspect the draft and evidence with " + show + "; latest-base verification and integration remain pending"
+				}
+				if p.State == "queued" {
+					v.NextAction = "wait for publication admission; run if the coordinator is absent"
+				}
+				if p.Observation != nil && p.Observation.URL != "" {
+					v.Summary += "; " + p.Observation.URL
+				}
+				break
+			}
+			if v.Group == "Waiting" && !running {
+				v.Group, v.NextAction = "Needs you", "run to reconcile and admit draft publication"
+			}
+		}
 		return
 	case core.Stopped, core.Completed:
 		v.Group, v.Summary, v.NextAction = "Retained", string(t.Stage), "inspect retained work with "+show

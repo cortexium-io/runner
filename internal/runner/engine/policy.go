@@ -128,12 +128,13 @@ func retryDelay(number int) time.Duration {
 }
 
 type PolicyChange struct {
-	Preview         string         `json:"apply_preview"`
-	AppliedRevision string         `json:"applied_revision"`
-	Proposed        config.Config  `json:"proposed"`
-	Active          []core.Attempt `json:"active_pinned_attempts"`
-	Tasks           []PolicyEffect `json:"task_effects"`
-	Warnings        []string       `json:"warnings"`
+	Publications    []core.Publication `json:"active_publications"`
+	Preview         string             `json:"apply_preview"`
+	AppliedRevision string             `json:"applied_revision"`
+	Proposed        config.Config      `json:"proposed"`
+	Active          []core.Attempt     `json:"active_pinned_attempts"`
+	Tasks           []PolicyEffect     `json:"task_effects"`
+	Warnings        []string           `json:"warnings"`
 }
 type PolicyEffect struct {
 	TaskID string      `json:"task_id"`
@@ -159,11 +160,20 @@ func (e *Engine) PreviewPolicy(ctx context.Context, proposed config.Config) (Pol
 	if err != nil {
 		return PolicyChange{}, err
 	}
+	publications, err := e.Store.Publications(ctx, "")
+	if err != nil {
+		return PolicyChange{}, err
+	}
 	tasks, err := e.Store.Tasks(ctx)
 	if err != nil {
 		return PolicyChange{}, err
 	}
 	result := PolicyChange{Preview: core.Digest([]string{current.Config.Revision(), proposed.Revision()}), AppliedRevision: current.Config.Revision(), Proposed: proposed, Active: []core.Attempt{}, Tasks: []PolicyEffect{}, Warnings: []string{}}
+	for _, p := range publications {
+		if p.Occupying {
+			result.Publications = append(result.Publications, p)
+		}
+	}
 	for _, a := range attempts {
 		if a.Occupying {
 			result.Active = append(result.Active, a)
@@ -171,8 +181,9 @@ func (e *Engine) PreviewPolicy(ctx context.Context, proposed config.Config) (Pol
 	}
 	now := e.now()
 	for _, t := range tasks {
-		after := eligible(proposed, t, attempts, drained, now, tasks...)
-		result.Tasks = append(result.Tasks, PolicyEffect{t.ID, t.Usage, eligible(current.Config, t, attempts, drained, now, tasks...), after})
+		after := publicationWait(eligible(proposed, t, attempts, drained, now, tasks...), proposed, t, attempts, publications)
+		before := publicationWait(eligible(current.Config, t, attempts, drained, now, tasks...), current.Config, t, attempts, publications)
+		result.Tasks = append(result.Tasks, PolicyEffect{t.ID, t.Usage, before, after})
 		minimum := 0
 		switch t.NextRole {
 		case "plan", "audit", "verify":

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -37,7 +38,8 @@ type Config struct {
 	Roles       map[string]string       `json:"roles"`
 	Policy      Policy                  `json:"policy"`
 	Delivery    struct {
-		Mode string `json:"mode"`
+		Mode       string `json:"mode"`
+		Repository string `json:"repository,omitempty"`
 	} `json:"delivery"`
 }
 
@@ -72,8 +74,14 @@ func (c Config) Validate() error {
 	if c.Format != "runner-local-v1" {
 		return errors.New("configuration format must be runner-local-v1")
 	}
-	if c.Repository.BaseFreshness != "recorded" || !strings.HasPrefix(c.Repository.BaseRef, "refs/heads/") || c.Delivery.Mode != "local" {
-		return errors.New("this Ready bundle requires a local refs/heads base, recorded freshness and local delivery")
+	if c.Repository.BaseFreshness != "recorded" || !strings.HasPrefix(c.Repository.BaseRef, "refs/heads/") {
+		return errors.New("this bundle requires a local refs/heads base and explicit recorded freshness")
+	}
+	if c.Delivery.Mode != "local" && c.Delivery.Mode != "github-draft" {
+		return errors.New("delivery mode must be local or github-draft; integration is not implemented")
+	}
+	if c.Delivery.Mode == "local" && c.Delivery.Repository != "" || c.Delivery.Mode == "github-draft" && !ValidRepository(c.Delivery.Repository) {
+		return errors.New("github-draft requires an explicit OWNER/REPO destination; local delivery has no remote destination")
 	}
 	if c.Policy.MaxParallelism < 1 || c.Policy.MaxParallelism > 16 || c.Policy.MaxRepairs < 0 || c.Policy.MaxTransientRetries < 0 || c.Policy.MaxBaseRefreshes != 0 {
 		return errors.New("parallelism must be 1–16; repair/retry limits must be nonnegative; base refresh is not supported")
@@ -120,6 +128,12 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+var repositoryName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+
+func ValidRepository(s string) bool {
+	return repositoryName.MatchString(s) && !strings.HasSuffix(s, ".git")
 }
 
 func NoSymlinks(path string) error {

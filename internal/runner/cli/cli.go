@@ -15,6 +15,7 @@ import (
 	"github.com/cortexium-io/runner/internal/runner/core"
 	"github.com/cortexium-io/runner/internal/runner/engine"
 	"github.com/cortexium-io/runner/internal/runner/execution"
+	"github.com/cortexium-io/runner/internal/runner/github"
 	"github.com/cortexium-io/runner/internal/runner/store"
 	"github.com/cortexium-io/runner/internal/securefs"
 )
@@ -84,6 +85,9 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 		return errors.New("configuration has unapplied changes; use config explain, then config apply --preview DIGEST")
 	}
 	app := engine.Engine{Store: db, Settings: settings, Executor: c.Harness, Checker: c.Harness}
+	if cfg.Delivery.Mode == "github-draft" {
+		app.Delivery = github.Host{}
+	}
 	switch args[0] {
 	case "quality":
 		return c.quality(ctx, &app, args[1:])
@@ -126,7 +130,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 }
 func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: task add|show|approve|release|replace|adopt-quality|stop|resume")
+		return errors.New("usage: task add|show|approve|release|replace|adopt-quality|stop|resume|delivery")
 	}
 	command := args[0]
 	args = args[1:]
@@ -145,6 +149,7 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	var attempt *string
 	var allow *bool
 	var plan *bool
+	var reconcile *bool
 	switch command {
 	case "add":
 		plan = f.Bool("plan", false, "capture a planning request; approval authorizes planning only")
@@ -160,6 +165,8 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	case "resume":
 		attempt = f.String("attempt", "", "interrupted attempt ID")
 		allow = f.Bool("allow-new-invocation", false, "explicitly authorize one repeated invocation")
+	case "delivery":
+		reconcile = f.Bool("reconcile", false, "inspect remote identity and continue safely; uncertain PR creation never repeats")
 	case "stop":
 	default:
 		return fmt.Errorf("unknown task command %q", command)
@@ -199,6 +206,13 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 		}
 	}
 	switch command {
+	case "delivery":
+		if !*reconcile {
+			return errors.New("use task show for read-only inspection, or task delivery ID --reconcile for remote reconciliation")
+		}
+		if err := e.ReconcileDelivery(ctx, id); err != nil {
+			return err
+		}
 	case "approve":
 		if *version < 1 || *preview == "" {
 			return errors.New("--version and --preview are required")
@@ -250,6 +264,9 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 func (c CLI) printView(v engine.View, full bool) {
 	t := v.Task
 	fmt.Fprintf(c.Out, "%s v%d — %s\n%s\n%s\nNext: %s\n", t.ID, t.Current().Number, t.Stage, engine.TaskTitle(t), v.Summary, v.NextAction)
+	if v.DeliveryDestination != "" {
+		fmt.Fprintln(c.Out, "Configured draft destination:", v.DeliveryDestination, "(no integration authority)")
+	}
 	if v.Recovery != nil {
 		fmt.Fprintf(c.Out, "Recovery role: %s\nPreserved: %s\nRepeats: %s\n", v.Recovery.Role, v.Recovery.Preserved, v.Recovery.Repeats)
 	}
@@ -291,6 +308,15 @@ func (c CLI) printView(v engine.View, full bool) {
 	}
 	if t.Candidate != nil {
 		fmt.Fprintf(c.Out, "Candidate: %s\nWorkspace: %s\n", t.Candidate.Commit, t.Candidate.Workspace)
+	}
+	for _, p := range v.Publications {
+		fmt.Fprintf(c.Out, "Publication %s (v%d): %s; %s\nDestination: %s -> %s; branch %s\n", p.Intent.ID, p.Intent.Version, p.State, p.Detail, p.Intent.Repository, p.Intent.BaseBranch, p.Intent.Branch)
+		if p.ObservedAt != nil {
+			fmt.Fprintf(c.Out, "Last remote observation: %s\n", p.ObservedAt.Format(time.RFC3339))
+		}
+		if p.Observation != nil && p.Observation.URL != "" {
+			fmt.Fprintln(c.Out, "Draft handoff:", p.Observation.URL)
+		}
 	}
 	if t.Attention != nil {
 		fmt.Fprintf(c.Out, "Attention (%s): %s; attempt %s\n", t.Attention.Kind, t.Attention.Detail, t.Attention.Attempt)

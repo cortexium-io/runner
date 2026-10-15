@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 are implemented in `codex/runner-local-core`, including the local operator interface and local acceptance journey. Qualification is recorded below. Stop before phase 3 delivery; connected delivery and release qualification remain pending.
+Status: Phases 1 and 2 and the first phase 3 draft-publication bundle are implemented in `codex/runner-local-core`. Qualification is recorded below. Stop at durable draft publication: current-base verification, CI/integration and release qualification remain pending. Current store format is 5; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -17,7 +17,8 @@ The direction is recorded in [ADR 0005](decisions/0005-local-runner-core.md).
 This is the designated replacement specification and build sequence, under
 [AGENTS.md](../AGENTS.md). The [architecture](architecture.md) and existing
 operator guides describe the Project-backed runtime. `cmd/runner-next` now
-implements the first-slice commands plus the four phase 2 bundles below. Other release
+implements the first-slice commands, four phase 2 bundles and the first phase 3
+draft-publication bundle below. Other release
 capabilities remain build contracts and require a separate implementation instruction.
 
 Start with [release scope](#first-release-scope), [core contracts](#core-contracts),
@@ -1748,9 +1749,171 @@ Go 1.27.1 on macOS arm64. The complete diff was reviewed for accidental changes,
 misleading recovery advice and unnecessary complexity. The replacement still
 imports no legacy engine, execution or GitHub package.
 
-This completes the phase 2 local interface boundary. Stop before phase 3: code-host delivery,
-confirmed integration and delivered-result inspection remain unimplemented;
+This completed the phase 2 local interface boundary. At that boundary, code-host delivery,
+confirmed integration and delivered-result inspection remained unimplemented;
 release/platform, backup/restore and installation qualification remain phase 4.
+
+### Phase 3, first bundle: durable draft publication
+
+**Implementation brief (2026-10-15).** Publish the exact independently accepted
+candidate as one GitHub draft PR, with private durable intent and recoverable
+remote identity. This bundle stops before integration. A draft is an inspectable
+handoff artifact, not current-base delivery proof or task completion.
+
+Supported behavior and boundary:
+
+- Opt in at initialization with `delivery: {"mode":"github-draft",
+  "repository":"OWNER/REPO"}`. Local mode remains available. The destination and
+  base are immutable setup authority, displayed before initialization and task
+  approval; changing them needs fresh state. No Projects configuration is involved.
+- This intermediate mode requires explicit `base_freshness: "recorded"` and
+  `max_base_refreshes: 0`. It never fetches or claims freshness. The next integration
+  bundle owns default refresh, bounded refresh/review, CI, merge policy and
+  confirmed completion. It must replace this intermediate mode when ready.
+- The existing coordinator admits a deterministic publication worker after local
+  acceptance, under shared parallelism and task ownership. Publication does not
+  consume model, repair or escalation allowance. Slow hosting must not block
+  local reconciliation. Drain admits nothing new; stop/replacement revokes future
+  writes, while already-sent effects and their identities remain inspectable.
+- Before remote writes, retain task/version/generation, approved base, candidate,
+  quality/review binding, destination and a stable unique branch/operation identity.
+  Revalidate local authority and candidate immediately before each write. Push an
+  exact commit with an absent-ref lease; never overwrite a conflicting branch.
+- Observe before writing. Recover only the exact destination/head/base and Runner
+  marker. Persist PR-create intent before sending it. After interruption or any
+  uncertain create outcome, observations may recover an existing PR; absence
+  cannot authorize another create. Duplicate/mismatched identities stop safely.
+- No automatic transport retry loop. One bounded reconciliation reports its
+  result; `task delivery ID --reconcile` explicitly requests another safe inspection
+  or continuation. Known branch publication is reusable; an uncertain PR create
+  is inspection-only thereafter. No new model call is implied.
+- Human and JSON inspection show publication state, remote link, last observation
+  and specific recovery advice. Inspection itself is offline/read-only. Observed
+  closed, merged, missing or externally changed PRs never complete tasks or release
+  dependencies. Runner never marks ready, merges, deletes, closes or enables
+  auto-merge in this bundle.
+- A consumer-defined delivery interface and one built-in GitHub adapter separate
+  provider transport from coordinator rules. Reuse config-free Git/subprocess
+  protections, not legacy Project workflow. Credentials come from the operator's
+  GitHub CLI configuration, outside harness environments. No plugin loader.
+- Store format 5 adds private publication records and durable reservations. Older
+  formats are rejected untouched; no in-flight migration or compatibility layer.
+
+Verification brief, established before implementation:
+
+| Credible failure | Required evidence and owning boundary |
+| --- | --- |
+| Publication runs without exact acceptance or after revocation | Extend engine journey coverage: stored review/candidate bindings, stop/replacement, no model calls and no false completion. |
+| Restart duplicates a PR or overwrites someone else's branch | Engine recovery cases cover lost create response and absent observation; adapter/Git cases assert exact identity, draft flag and absent-ref lease. |
+| Slow remote work blocks local work or exceeds capacity | Existing coordinator/store suites extend shared reservations, drain and concurrent progress using explicit channels. |
+| Provider output is missing, malformed or names another object | Small adapter fixtures at the real gh request boundary; no full GitHub simulator. |
+| Operator cannot understand the handoff/recovery boundary | Built CLI walkthrough of configuration, retained candidate, delivery status and reconciliation; extend existing presentation tests where necessary. |
+
+Reuse existing candidate integrity, sandbox, native model, quality and dependency
+coverage. No new model behavior or role prompts are planned, so another live model
+run is unnecessary unless implementation changes those contracts. Run targeted
+checks, `go test -race ./...`, `go vet ./...`, build `cmd/runner-next`, and review the
+complete diff. Verify native Git/gh transport locally without publishing into an
+unapproved repository; report any live GitHub write verification limitation.
+GitHub's [PR API](https://docs.github.com/en/rest/pulls/pulls) and
+[gh API input contract](https://cli.github.com/manual/gh_api) are transport references,
+not workflow authority.
+
+#### Using draft publication
+
+Initialize fresh private state and workspace roots with the existing local config,
+changing only delivery to:
+
+```json
+"delivery": {"mode": "github-draft", "repository": "OWNER/REPO"}
+```
+
+Keep `repository.base_ref` as the intended local `refs/heads/BRANCH`, explicitly
+select `base_freshness: "recorded"`, and leave `max_base_refreshes: 0`.
+`init` and `config explain` display the destination and boundary. This intermediate
+mode authorizes draft publication after task acceptance, not integration. Changing
+an initialized destination or base is rejected by execution-policy apply. Local
+mode still runs without GitHub. Store formats 1–4 are rejected untouched: preserve
+old state/workspaces and initialize fresh roots; no old approvals are imported.
+
+Use an operator-owned `gh auth login --hostname github.com` configuration with
+repository contents and pull-request write access. The adapter uses github.com
+only, with HTTPS and that same credential configuration for both Git and API
+operations. Ambient token, host, proxy and debug overrides are not the credential
+contract. Repository remotes, Git hooks and executable Git configuration cannot
+redirect publication. A missing login or unavailable host leaves local acceptance
+retained and reports the operation needing attention.
+
+After normal Ready approval or Plan release and local acceptance, `run` queues
+publication automatically. It pushes the exact accepted commit to the recorded
+unique `runner-next/OPERATION_ID` branch and opens one draft PR. The PR includes a
+readable task title, task/version identity, candidate/base/quality identities and
+an explicit pending-integration statement. Private evidence files stay local.
+
+- `status` and `task show ID` show the current publication and its last successful
+  remote observation. `--json` includes all retained publication records. These
+  commands never contact GitHub; a retained link is not a live health check.
+- `task delivery ID --reconcile` queues one remote inspection and safe continuation.
+  If the coordinator is absent or drained, use `run`. This consumes no model call
+  or repair allowance. Missing remote observations are never success.
+- Once PR creation has been requested, reconciliation can recover that exact PR
+  but cannot send another creation request. If GitHub cannot reveal its outcome,
+  inspect the displayed branch/operation identity manually. This conservative
+  boundary can leave an uncreated PR requiring operator resolution; there is no
+  force-create switch in this bundle.
+- Stop or replacement prevents subsequent authorized writes. Already-sent effects
+  can settle after revocation, and their records remain in `task show`. Runner does
+  not close PRs, remove branches or undo another actor's remote changes.
+
+The coordinator shares `max_parallelism` between model attempts and publication
+workers, including reservations recovered after restart. Drain waits for admitted
+workers. Publication is independent of model invocation/repair counters and does
+not add a second scheduler or an integration lane. Tasks and parents cannot reach
+Completed in this bundle, even if a human merges the remote draft externally.
+
+#### Draft-publication qualification
+
+The engine suite extends the existing real-store/real-workspace journey rather
+than introducing a workflow simulator. It proves durable intent before POST,
+recovery after a lost response, inspection-only restart after uncertain creation,
+retained identity when a previously known PR disappears, unchanged model counters,
+revocation and changed-candidate rejection, honest dependency waits and no completion
+from an observed merge. A channel-controlled slow host demonstrates that local
+execution continues within shared capacity and drain settles admitted work.
+
+The small GitHub adapter suite checks literal request fields, draft-only creation,
+exact head/base/repository/marker identity and unavailable, malformed or duplicate
+observations. A native Git test pushes to a disposable bare repository through a
+controlled transport substitution; the production Git argument/environment boundary
+is retained. It proves exact-object publication, the absent-ref lease, unchanged
+conflicting remote branches and rejection of object redirection. Existing privileged
+Git, candidate integrity, sandbox and quality suites remain the owners of their
+broader guarantees. The subprocess suite checks the restricted gh environment.
+
+On 2026-10-15, a read-only call through the production GitHub adapter and native
+`gh` successfully observed the actual repository and absence of a random branch.
+No remote writes occurred. The built `runner-next` binary was also exercised against
+a disposable accepted task and controlled remote observation: status, JSON, task
+inspection, policy explanation, reconciliation and stop. Inspection left the
+SQLite file hash unchanged; reconciliation preserved create intent; stop retained
+the remote link. Its logs are at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-draft-publication-walkthrough-2859547228`.
+The controlled URL in those logs is fixture evidence, not a real PR. Temporary
+walkthrough harness files were removed from the repository.
+
+`go test -race ./...`, `go vet ./...` and the `cmd/runner-next` build passed
+with Go 1.27.1 on macOS arm64. The final transport-boundary cleanup and operator
+advice were checked with targeted race tests; vet and build passed again.
+The complete diff was reviewed for authority gaps, accidental changes and
+unnecessary complexity. The replacement still imports no legacy engine,
+execution or GitHub package. This bundle adds no dependency, model role or board
+connection. Stop here; the next bundle must establish current-base integration
+proof and its bounded recovery before any merge or task-completion behavior.
+
+Real GitHub branch/PR writes have not been exercised in this bundle. Model roles,
+prompts and native harness permissions are unchanged, so existing live Codex
+qualification remains applicable and no new model call was required. Platform,
+release, backup/restore and the full merge journey remain later work.
 
 ### Simple upgrade or deliberate break
 
@@ -1984,7 +2147,7 @@ rows or explicitly revise the scope.
 | Requirement | Owning phase | Acceptance evidence |
 | --- | --- | --- |
 | Local Ready authorization and preserved scope | 1 | S1/S2/S5: exact approval, stale preview rejection, idempotent approval, revocation and retained artifacts. |
-| Durable admission, candidate binding and no blind replay | 1; extend in 3 | S2/S4/S5: real-store interruption and saved-result tests; later ambiguous remote publication with no duplicate PR. |
+| Durable admission, candidate binding and no blind replay | 1; extend in 3 | S2/S4/S5: real-store interruption and saved-result tests; the first phase 3 bundle adds durable draft intent, shared reservations and ambiguous publication recovery without repeated PR creation. |
 | Readiness and repository quality | 1/2 | Third phase 2 qualification proves explicit agreement changes, immutable task pins and adoption, scoped observed exceptions, unavailable checks, source-bound candidate checks and unchanged task-proof requirements. The live reviewer pair accepts a legitimate exception and rejects a task defect. |
 | Plan and dependency success | 2/3 | Second phase 2 bundle proves atomic release, missing/cyclic dependency rejection, stale plan rejection, parent revocation and exact-version waits. Awaiting delivery cannot satisfy dependencies. Confirmed child integration, parent completion and closed-unmerged handling remain phase 3. |
 | Continuous reconciliation and resource safety | 1; extend in 2/3 | S2/S3: exclusive ownership and responsive reconciliation; the first phase 2 bundle proves shared capacity and task/workspace claims across CLI/service; future browser/shared-data capabilities must add their resource claims; phase 3 proves serialized integration. |

@@ -18,7 +18,8 @@ Use these sources in descending order of authority:
 The accepted replacement direction is [ADR 0005](docs/decisions/0005-local-runner-core.md).
 Its build specification and designated implementation sequence are in the
 [core redesign plan](docs/runner-redesign-proposal.md). Phases 1 and 2, including
-the local operator interface, are implemented in `cmd/runner-next`;
+the local operator interface, and the first phase 3 draft-publication bundle are
+implemented in `cmd/runner-next`;
 their qualification and the remaining delivery/release boundaries are recorded
 in that plan. Continue from that evidence only when the next implementation is
 authorized, not from a separate task ledger.

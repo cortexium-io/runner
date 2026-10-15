@@ -12,9 +12,12 @@ It also supports [quality-agreement revisions and scoped baseline exceptions](do
 with explicit task adoption and Runner-owned candidate checks.
 The [operator guide](docs/runner-redesign-proposal.md#using-the-operator-interface)
 covers attention-first status, read-only watch and the configuration editor.
-This milestone uses store format 4 (earlier formats require fresh state) and stops
-at **Awaiting delivery**. Delivery, release qualification and external views remain
-pending. The documentation below describes the existing
+The first phase 3 bundle adds [durable GitHub draft publication](docs/runner-redesign-proposal.md#using-draft-publication),
+independent of Projects, with exact candidate binding and interrupted-write recovery.
+This build uses store format 5 (earlier formats require fresh state) and stops
+at **Awaiting delivery**, optionally with a draft PR. Current-base verification,
+CI/integration, release qualification and external views remain pending.
+The documentation below describes the existing
 `cortexium-runner` release.
 
 `cortexium-runner` moves trusted or maintainer-approved GitHub Project work through

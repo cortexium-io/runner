@@ -23,6 +23,7 @@ type Engine struct {
 	Settings config.Settings
 	Executor Executor
 	Checker  execution.CheckRunner
+	Delivery DeliveryHost
 	clock    func() time.Time
 }
 
@@ -68,21 +69,23 @@ func (e *Engine) Add(ctx context.Context, body string) (core.Task, error) {
 }
 
 type View struct {
-	Group                  string         `json:"group"`
-	Summary                string         `json:"summary"`
-	FocusAttempt           *core.Attempt  `json:"focus_attempt,omitempty"`
-	ElapsedSeconds         *int64         `json:"elapsed_seconds,omitempty"`
-	Recovery               *Recovery      `json:"recovery,omitempty"`
-	Task                   core.Task      `json:"task"`
-	Attempts               []core.Attempt `json:"attempts"`
-	ObservedBase           string         `json:"observed_base,omitempty"`
-	Preview                string         `json:"approval_preview,omitempty"`
-	QualityAdoptionPreview string         `json:"quality_adoption_preview,omitempty"`
-	CurrentQuality         string         `json:"current_quality_revision"`
-	ReleasePreview         string         `json:"release_preview,omitempty"`
-	NextAction             string         `json:"next_action"`
-	CancellationPending    bool           `json:"cancellation_pending"`
-	Eligibility            Eligibility    `json:"eligibility"`
+	DeliveryDestination    string             `json:"delivery_destination,omitempty"`
+	Publications           []core.Publication `json:"publications"`
+	Group                  string             `json:"group"`
+	Summary                string             `json:"summary"`
+	FocusAttempt           *core.Attempt      `json:"focus_attempt,omitempty"`
+	ElapsedSeconds         *int64             `json:"elapsed_seconds,omitempty"`
+	Recovery               *Recovery          `json:"recovery,omitempty"`
+	Task                   core.Task          `json:"task"`
+	Attempts               []core.Attempt     `json:"attempts"`
+	ObservedBase           string             `json:"observed_base,omitempty"`
+	Preview                string             `json:"approval_preview,omitempty"`
+	QualityAdoptionPreview string             `json:"quality_adoption_preview,omitempty"`
+	CurrentQuality         string             `json:"current_quality_revision"`
+	ReleasePreview         string             `json:"release_preview,omitempty"`
+	NextAction             string             `json:"next_action"`
+	CancellationPending    bool               `json:"cancellation_pending"`
+	Eligibility            Eligibility        `json:"eligibility"`
 }
 
 func (e *Engine) Show(ctx context.Context, id string) (View, error) {
@@ -108,6 +111,20 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	}
 	admission := eligible(settings.Config, t, all, drained, e.now(), tasks...)
 	view := View{CurrentQuality: settings.Quality.Revision(), Task: t, Attempts: attempts, Eligibility: admission}
+	view.DeliveryDestination = settings.Config.Delivery.Repository
+	publications, err := e.Store.Publications(ctx, "")
+	if err != nil {
+		return view, err
+	}
+	for _, p := range publications {
+		if p.Intent.TaskID == id {
+			view.Publications = append(view.Publications, p)
+			if p.Occupying && !p.Intent.Authorized(t) {
+				view.CancellationPending = true
+			}
+		}
+	}
+	view.Eligibility = publicationWait(view.Eligibility, settings.Config, t, all, publications)
 	for _, a := range attempts {
 		if a.Occupying && !a.Authorized(t) {
 			view.CancellationPending = true

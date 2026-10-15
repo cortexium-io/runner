@@ -126,6 +126,22 @@ func RunPrivilegedGitNetwork(ctx context.Context, runner Runner, profile Privile
 	return runPrivilegedGit(ctx, runner, profile, args, timeout, repositoryURL, nil)
 }
 
+// RunGitHubAPI uses the same operator-owned gh credentials as privileged Git.
+// It ignores ambient token/host/debug overrides and bounds both output streams.
+func RunGitHubAPI(ctx context.Context, args []string, input io.Reader) (Result, error) {
+	environment := []string{"LANG=C", "LC_ALL=C", "GH_PROMPT_DISABLED=1", "GH_TELEMETRY=false"}
+	for _, key := range []string{"PATH", "SYSTEMROOT", "WINDIR"} {
+		if value := os.Getenv(key); value != "" {
+			environment = append(environment, key+"="+value)
+		}
+	}
+	if dir := githubCLIConfigDirectory(os.Environ()); dir != "" {
+		environment = append(environment, "GH_CONFIG_DIR="+dir)
+	}
+	args = append([]string{"api", "--hostname", "github.com", "--header", "Accept: application/vnd.github+json", "--header", "X-GitHub-Api-Version: 2026-03-10"}, args...)
+	return runOSCommandFailClosed(ctx, "gh", args, "", time.Minute, environment, input, GitHubStdoutLimit, DiagnosticStderrLimit)
+}
+
 func runPrivilegedGit(ctx context.Context, runner Runner, profile PrivilegedGitProfile, args []string, timeout time.Duration, repositoryURL string, input io.Reader) (Result, error) {
 	if runner == nil {
 		runner = OSRunner{}

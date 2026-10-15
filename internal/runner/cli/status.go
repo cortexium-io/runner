@@ -105,6 +105,7 @@ task approve|release ID --version N --preview DIGEST
 task replace ID --version N --file TASK.md
 task adopt-quality ID --version N --preview DIGEST
 task resume ID --attempt ID [--allow-new-invocation]
+task delivery ID --reconcile          Inspect and safely continue draft publication.
 task stop ID                         Revoke authority; retain work and evidence.
 status [--json] [--watch 2s]          Read-only attention, work, waits and retained results.
 config edit [--set KEY=VALUE]         Interactive editor or preview named changes.
@@ -116,5 +117,5 @@ run                                  Reconcile and admit authorized work.
 drain                                Stop admission and wait for active work to settle.
 
 Use COMMAND --help for flags. Inspection never starts work. This build stops at
-Awaiting delivery; a reviewed candidate is not a merged implementation.`)
+Awaiting delivery, optionally with a GitHub draft PR; integration is not implemented.`)
 }

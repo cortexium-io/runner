@@ -47,13 +47,20 @@ func (e *Engine) Run(ctx context.Context) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	current := map[string]*active{}
+	publications := map[string]*activePublication{}
 	defer func() {
+		for _, call := range publications {
+			call.cancel()
+		}
 		for _, call := range current {
 			call.cancel()
 		}
 		for _, call := range current {
 			f := <-call.done
 			_ = e.saveCompletion(context.Background(), f)
+		}
+		for _, call := range publications {
+			<-call.done
 		}
 	}()
 	// A cancelled owner stops admission, cancels its own execution, and waits for
@@ -72,6 +79,24 @@ func (e *Engine) Run(ctx context.Context) error {
 			return readErr
 		}
 		e.Settings = settings
+		for id, call := range publications {
+			t, readErr := e.Store.Task(workCtx, call.intent.TaskID)
+			if readErr != nil {
+				return readErr
+			}
+			if stopping || !call.intent.Authorized(t) {
+				call.cancel()
+			}
+			select {
+			case deliveryErr := <-call.done:
+				call.cancel()
+				delete(publications, id)
+				if deliveryErr != nil {
+					return deliveryErr
+				}
+			default:
+			}
+		}
 		if err = e.recoverExcept(workCtx, current); err != nil {
 			return err
 		}
@@ -96,6 +121,9 @@ func (e *Engine) Run(ctx context.Context) error {
 		if err = e.finishSaved(workCtx); err != nil {
 			return err
 		}
+		if err = e.preparePublications(workCtx, publications); err != nil {
+			return err
+		}
 		_, drained, err := e.Store.Settings(workCtx)
 		if err != nil {
 			return err
@@ -110,7 +138,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				occupied = true
 			}
 		}
-		if len(current) == 0 && drained {
+		if len(current) == 0 && len(publications) == 0 && drained {
 			if !occupied {
 				return nil
 			}
@@ -119,6 +147,20 @@ func (e *Engine) Run(ctx context.Context) error {
 			}
 		}
 		if !drained && !stopping {
+			for {
+				p, ok, claimErr := e.claimPublication(workCtx)
+				if claimErr != nil {
+					return claimErr
+				}
+				if !ok {
+					break
+				}
+				callCtx, cancel := context.WithCancel(context.Background())
+				call := &activePublication{intent: p.Intent, cancel: cancel, done: make(chan error, 1)}
+				publications[p.Intent.ID] = call
+				worker := *e
+				go func() { call.done <- worker.publish(callCtx, p) }()
+			}
 			for {
 				a, ok, claimErr := e.claim(workCtx)
 				if claimErr != nil {
@@ -224,8 +266,12 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 	if err != nil {
 		return core.Attempt{}, false, err
 	}
+	publications, err := e.Store.Publications(ctx, "")
+	if err != nil {
+		return core.Attempt{}, false, err
+	}
 	for _, t := range tasks {
-		v := eligible(settings.Config, t, attempts, drained, e.now(), tasks...)
+		v := publicationWait(eligible(settings.Config, t, attempts, drained, e.now(), tasks...), settings.Config, t, attempts, publications)
 		if v.WaitingFor != "" {
 			continue
 		}

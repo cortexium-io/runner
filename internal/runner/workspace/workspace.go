@@ -1,5 +1,5 @@
 // Package workspace adapts the existing config-free Git and filesystem boundary
-// to local task identities. It performs no remote Git operation.
+// to local task identities, including exact-object draft publication.
 package workspace
 
 import (

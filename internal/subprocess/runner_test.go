@@ -251,6 +251,31 @@ func TestGitHubCLIConfigDirectoryUsesDocumentedAbsolutePrecedence(t *testing.T) 
 	}
 }
 
+func TestGitHubAPIScrubsAmbientCredentialsAndHost(t *testing.T) {
+	dir := t.TempDir()
+	program := `#!/bin/sh
+printf '%s\n' "$GH_HOST|$GH_TOKEN|$GITHUB_TOKEN|$GH_DEBUG|$GH_CONFIG_DIR|$GH_PROMPT_DISABLED"
+printf '%s\n' "$@"
+cat
+`
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(program), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GH_HOST", "attacker.invalid")
+	t.Setenv("GH_TOKEN", "test-sentinel")
+	t.Setenv("GITHUB_TOKEN", "test-sentinel")
+	t.Setenv("GH_DEBUG", "api")
+	t.Setenv("GH_CONFIG_DIR", dir)
+	r, err := RunGitHubAPI(t.Context(), []string{"graphql", "--method", "POST", "--input", "-"}, strings.NewReader(`{"query":"literal"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(r.Stdout, "||||"+dir+"|1\napi\n--hostname\ngithub.com\n") || !strings.HasSuffix(r.Stdout, `{"query":"literal"}`) {
+		t.Fatalf("unsafe API environment or input: %q", r.Stdout)
+	}
+}
+
 func TestPrivilegedGitEnvironmentSurvivesRunnerDelegation(t *testing.T) {
 	repo := t.TempDir()
 	if output, err := exec.Command("git", "-C", repo, "init").CombinedOutput(); err != nil {

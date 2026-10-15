@@ -47,7 +47,7 @@ func git(t *testing.T, dir string, args ...string) string {
 	}
 	return strings.TrimSpace(string(b))
 }
-func fixture(t *testing.T) *Engine {
+func fixture(t *testing.T, configure ...func(*config.Config)) *Engine {
 	t.Helper()
 	root, e := filepath.EvalSymlinks(t.TempDir())
 	if e != nil {
@@ -68,6 +68,9 @@ func fixture(t *testing.T) *Engine {
 	p := core.Profile{Harness: "codex", Model: "test-model", Reasoning: "high", Timeout: "1m"}
 	cfg := config.Config{Format: "runner-local-v1", Repository: config.Repository{Path: repo, BaseRef: "refs/heads/main", BaseFreshness: "recorded"}, StateDir: filepath.Join(root, "state"), WorktreeDir: filepath.Join(root, "worktrees"), Profiles: map[string]core.Profile{"build": p, "review": p}, Roles: map[string]string{"implementer": "build", "reviewer": "review"}, Policy: config.Policy{MaxParallelism: 1}}
 	cfg.Delivery.Mode = "local"
+	for _, change := range configure {
+		change(&cfg)
+	}
 	id, base, e := workspace.Observe(context.Background(), cfg)
 	if e != nil {
 		t.Fatal(e)

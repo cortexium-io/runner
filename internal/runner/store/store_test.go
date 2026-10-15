@@ -15,12 +15,17 @@ import (
 // Independent connections start together. One transaction must roll back its
 // task state and counters when another wins the last slot or shared resource.
 func TestCompetingClaims(t *testing.T) {
-	for _, which := range []string{"capacity", "task", "workspace"} {
+	for _, which := range []string{"capacity", "task", "workspace", "publication"} {
 		t.Run(which, func(t *testing.T) {
 			ctx := t.Context()
 			settings := config.Settings{Config: config.Config{Policy: config.Policy{MaxParallelism: 2}}}
-			if which == "capacity" {
+			if which == "capacity" || which == "publication" {
 				settings.Config.Policy.MaxParallelism = 1
+			}
+			if which == "publication" {
+				settings.Config.Delivery.Mode = "github-draft"
+				settings.Config.Delivery.Repository = "owner/repo"
+				settings.Config.Repository.BaseRef = "refs/heads/main"
 			}
 			dir := filepath.Join(t.TempDir(), "state")
 			s, err := Create(ctx, dir, settings)
@@ -34,6 +39,10 @@ func TestCompetingClaims(t *testing.T) {
 			}
 			defer other.Close()
 			tasks := []core.Task{{ID: "one", Revision: 1, Generation: 1, Stage: core.Ready, Versions: []core.Version{{Number: 1}}, Approval: &core.Approval{Generation: 1, Base: "base"}}, {ID: "two", Revision: 1, Generation: 1, Stage: core.Ready, Versions: []core.Version{{Number: 1}}, Approval: &core.Approval{Generation: 1, Base: "base"}}}
+			if which == "publication" {
+				tasks[0].Stage = core.AwaitingDelivery
+				tasks[0].Candidate = &core.Candidate{Commit: "accepted"}
+			}
 			for _, task := range tasks {
 				if err = s.Add(ctx, task); err != nil {
 					t.Fatal(err)
@@ -49,6 +58,11 @@ func TestCompetingClaims(t *testing.T) {
 			results := make(chan error, 2)
 			for i, db := range []*Store{s, other} {
 				task := tasks[i]
+				if which == "publication" && i == 0 {
+					p := core.Publication{State: "running", Occupying: true, Intent: core.PublicationIntent{ID: core.NewID(), TaskID: task.ID, Version: 1, Generation: 1, ApprovedBase: "base", Candidate: *task.Candidate, ReviewDigest: core.Digest(task.Review), Repository: "owner/repo", BaseBranch: "main"}}
+					go func() { <-start; results <- db.SavePublication(ctx, p, true) }()
+					continue
+				}
 				task.Stage = core.Implementing
 				task.Usage.Invocations = 1
 				resource := task.ID
@@ -78,7 +92,11 @@ func TestCompetingClaims(t *testing.T) {
 			}
 			defer s.Close()
 			attempts, err := s.Attempts(ctx, "")
-			if err != nil || len(attempts) != 1 {
+			if err != nil {
+				t.Fatal(err)
+			}
+			publications, err := s.Publications(ctx, "")
+			if err != nil || len(attempts)+len(publications) != 1 {
 				t.Fatalf("reservation lost: %+v %v", attempts, err)
 			}
 			persisted, err := s.Tasks(ctx)
@@ -92,7 +110,7 @@ func TestCompetingClaims(t *testing.T) {
 					t.Fatal("partial claim leaked", task)
 				}
 			}
-			if count != 1 {
+			if count+len(publications) != 1 {
 				t.Fatal("allowance transaction leaked", count)
 			}
 		})
@@ -128,7 +146,7 @@ func TestCorruptStoreIsNotReplacedByOpen(t *testing.T) {
 }
 
 func TestPreviousStoreRequiresFreshStateWithoutModification(t *testing.T) {
-	for _, format := range []int{1, 2, 3} {
+	for _, format := range []int{1, 2, 3, 4} {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			dir := t.TempDir()
 			if err := os.Chmod(dir, 0700); err != nil {
