@@ -201,13 +201,26 @@ func describeView(v *View, running bool, now time.Time) {
 		}
 		if t.BaseProof != nil && t.BaseProof.Matches(t) {
 			v.Group, v.Summary = "Retained", "candidate verified against base "+t.BaseProof.Base+" at "+t.BaseProof.ObservedAt.Format(time.RFC3339)
-			for _, p := range v.Publications {
-				if p.Intent.Version == t.Current().Number && p.Intent.Generation == t.Generation && p.Intent.Candidate != *t.Candidate {
-					v.Summary += "; remote draft still refers to an earlier candidate"
-					break
+			v.NextAction = "task verify-base " + t.ID + " to inspect again; CI and integration remain pending"
+			if v.DeliveryDestination != "" {
+				p := latestPublication(v.Publications, t)
+				switch {
+				case p != nil && p.State == "published" && p.Intent.Candidate == *t.Candidate:
+					v.Summary += "; draft confirmed at this candidate"
+					if p.Observation != nil {
+						v.Summary += "; " + p.Observation.URL
+					}
+				case p != nil && p.State == "attention":
+					v.Group, v.Summary = "Needs you", "draft synchronization needs attention: "+p.Detail
+					v.NextAction = "task delivery " + t.ID + " --reconcile; then run if absent or drained; settle this operation before another base refresh"
+				default:
+					v.Group, v.Summary = "Waiting", "verified candidate awaiting draft confirmation; inspect the last remote observation"
+					v.NextAction = "wait for synchronization admission; run if the coordinator is absent or drained"
+					if !running {
+						v.Group = "Needs you"
+					}
 				}
 			}
-			v.NextAction = "task verify-base " + t.ID + " to inspect again; remote synchronization, CI and integration remain pending"
 			return
 		}
 		v.Group, v.Summary = "Retained", "reviewed candidate; local delivery mode"

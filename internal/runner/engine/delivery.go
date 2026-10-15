@@ -48,6 +48,16 @@ type activePublication struct {
 	done   chan error
 }
 
+func latestPublication(all []core.Publication, t core.Task) *core.Publication {
+	for i := len(all) - 1; i >= 0; i-- {
+		p := &all[i]
+		if p.Intent.TaskID == t.ID && p.Intent.Version == t.Current().Number && p.Intent.Generation == t.Generation {
+			return p
+		}
+	}
+	return nil
+}
+
 func (e *Engine) savePublication(ctx context.Context, p *core.Publication) error {
 	p.UpdatedAt = e.now()
 	if err := e.Store.SavePublication(ctx, *p, false); err != nil {
@@ -73,13 +83,13 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 		if !p.Intent.Authorized(t) && (p.State == "queued" || p.Occupying) {
 			p.State, p.Detail, p.Occupying = "revoked", "Authority revoked; any already-sent remote effect is retained and is not undone.", false
 		} else if p.Occupying {
-			// A lost push is safe to inspect and resume under the absent-ref lease.
+			// A lost push is safe to inspect and resume under its exact remote lease.
 			// CreateRequested permanently prevents replay of an uncertain PR POST.
 			p.State, p.Occupying = "queued", false
 		} else {
 			continue
 		}
-		if err = e.savePublication(ctx, &p); err != nil {
+		if err = e.savePublication(ctx, &p); err != nil && !errors.Is(err, store.ErrConflict) {
 			return err
 		}
 	}
@@ -94,13 +104,25 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 		if t.Stage != core.AwaitingDelivery || t.Candidate == nil || t.Approval == nil || t.Attention != nil {
 			continue
 		}
-		found := false
-		for _, p := range all {
-			if p.Intent.TaskID == t.ID && p.Intent.Version == t.Current().Number && p.Intent.Generation == t.Generation {
-				found = true
+		previous := latestPublication(all, t)
+		if previous != nil {
+			if previous.State != "published" || previous.Occupying || previous.Intent.Candidate == *t.Candidate || t.BaseProof == nil || !t.BaseProof.Matches(t) || t.NextRole != "" {
+				continue
 			}
+			o := previous.Observation
+			if o == nil || o.Number == 0 || o.State != "OPEN" || !o.Draft || o.BranchCommit != previous.Intent.Candidate.Commit {
+				continue
+			}
+			intent := previous.Intent
+			intent.ID, intent.Candidate, intent.ReviewDigest = core.NewID(), *t.Candidate, core.Digest(t.Review)
+			intent.Sync = &core.DraftSync{PreviousID: previous.Intent.ID, PublicationID: previous.Intent.PublicationID(), PreviousCommit: previous.Intent.Candidate.Commit, Number: o.Number, URL: o.URL, Base: t.BaseProof.Base, ObservedAt: t.BaseProof.ObservedAt}
+			p := core.Publication{State: "queued", Intent: intent, Observation: o, ObservedAt: previous.ObservedAt}
+			if err = e.savePublication(ctx, &p); err != nil && !errors.Is(err, store.ErrConflict) {
+				return err
+			}
+			continue
 		}
-		if found {
+		if t.NextRole != "" {
 			continue
 		}
 		if err = core.ValidateResult(core.Result{Outcome: "succeeded", Summary: "accepted review", Checks: t.Review}, t.Proofs()); err != nil {
@@ -215,11 +237,54 @@ func publicationOutcome(p *core.Publication) (bool, error) {
 	return true, nil
 }
 
+func synchronizationOutcome(p *core.Publication) (bool, error) {
+	u, o := p.Intent.Sync, p.Observation
+	if o == nil || o.Number != u.Number || o.URL != u.URL {
+		return false, errors.New("known draft is missing or changed; synchronization cannot create another PR")
+	}
+	if o.State != "OPEN" || !o.Draft {
+		return false, errors.New("known PR is no longer an open draft; CI and integration remain pending")
+	}
+	if o.BranchCommit == p.Intent.Candidate.Commit {
+		p.State, p.Detail = "published", "Draft synchronized to the verified candidate; CI and integration remain pending."
+		return true, nil
+	}
+	if o.BranchCommit != u.PreviousCommit {
+		return false, errors.New("draft branch is missing or differs from the expected previous commit; no overwrite or recreation permitted")
+	}
+	return false, nil
+}
+
+func (e *Engine) synchronizeDraft(ctx context.Context, p *core.Publication, authorize func() error) error {
+	if err := e.observePublication(ctx, p); err != nil {
+		return err
+	}
+	if done, err := synchronizationOutcome(p); done || err != nil {
+		return err
+	}
+	if err := authorize(); err != nil {
+		return err
+	}
+	pushErr := e.Delivery.Push(ctx, p.Intent, authorize)
+	// A failed response can follow a successful push. Inspect once; a future
+	// reconciliation may repeat only the same expected-old lease, never PR creation.
+	if err := e.observePublication(ctx, p); err != nil {
+		return errors.Join(pushErr, err)
+	}
+	if done, err := synchronizationOutcome(p); done || err != nil {
+		return err
+	}
+	return errors.Join(pushErr, errors.New("draft update is not confirmed; reconcile the retained operation"))
+}
+
 func (e *Engine) publishSteps(ctx context.Context, p *core.Publication) error {
 	if e.Delivery == nil {
 		return errors.New("code delivery adapter is unavailable")
 	}
 	authorize := func() error { return e.publicationAuthority(ctx, p.Intent) }
+	if p.Intent.Sync != nil {
+		return e.synchronizeDraft(ctx, p, authorize)
+	}
 	if err := e.observePublication(ctx, p); err != nil {
 		return err
 	}
@@ -274,16 +339,13 @@ func (e *Engine) ReconcileDelivery(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	for i := len(all) - 1; i >= 0; i-- {
-		p := all[i]
-		if !p.Intent.Authorized(t) {
-			continue
-		}
+	p := latestPublication(all, t)
+	if p != nil && p.Intent.Authorized(t) {
 		if p.Occupying || p.State == "queued" {
 			return nil
 		}
 		p.State, p.Detail = "queued", "Operator requested remote inspection and safe continuation; uncertain PR creation cannot repeat."
-		return e.savePublication(ctx, &p)
+		return e.savePublication(ctx, p)
 	}
 	return errors.New("no current authorized publication; run reconciliation after local review is accepted")
 }

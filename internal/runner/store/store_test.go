@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/runner/config"
 	"github.com/cortexium-io/runner/internal/runner/core"
@@ -184,7 +185,7 @@ func TestCorruptStoreIsNotReplacedByOpen(t *testing.T) {
 }
 
 func TestPreviousStoreRequiresFreshStateWithoutModification(t *testing.T) {
-	for _, format := range []int{1, 2, 3, 4, 5} {
+	for _, format := range []int{1, 2, 3, 4, 5, 6} {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			dir := t.TempDir()
 			if err := os.Chmod(dir, 0700); err != nil {
@@ -218,6 +219,78 @@ func TestPreviousStoreRequiresFreshStateWithoutModification(t *testing.T) {
 				t.Fatal("old state modified")
 			}
 
+		})
+	}
+}
+
+// Queueing a new update (or reconciling a confirmed one) and queueing refresh
+// must be mutually exclusive, even across independent operator/coordinator reads.
+func TestDraftSynchronizationAndRefreshQueueAtomically(t *testing.T) {
+	for _, reconcile := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reconcile=%t", reconcile), func(t *testing.T) {
+			ctx := t.Context()
+			settings := config.Settings{Config: config.Config{Repository: config.Repository{BaseRef: "refs/heads/main"}}}
+			settings.Config.Delivery.Mode, settings.Config.Delivery.Repository = "github-draft", "owner/repo"
+			dir := filepath.Join(t.TempDir(), "state")
+			s, err := Create(ctx, dir, settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			other, err := Open(ctx, dir, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer other.Close()
+			task := core.Task{ID: "task", Revision: 1, Generation: 1, Stage: core.AwaitingDelivery, Versions: []core.Version{{Number: 1}}, Approval: &core.Approval{Generation: 1, Base: "base"}, Candidate: &core.Candidate{Commit: "original"}}
+			if err = s.Add(ctx, task); err != nil {
+				t.Fatal(err)
+			}
+			p := core.Publication{State: "published", Intent: core.PublicationIntent{ID: "original", TaskID: task.ID, Version: 1, Generation: 1, ApprovedBase: "base", Candidate: *task.Candidate, ReviewDigest: core.Digest(task.Review), Repository: "owner/repo", BaseBranch: "main", Branch: "runner-next/original"}, Observation: &core.RemotePublication{Number: 7, URL: "https://github.com/owner/repo/pull/7", BranchCommit: "original", State: "OPEN", Draft: true}}
+			if err = s.SavePublication(ctx, p, false); err != nil {
+				t.Fatal(err)
+			}
+			p.Revision = 1
+			if !reconcile {
+				task.Candidate = &core.Candidate{Commit: "refreshed"}
+				task.BaseProof = &core.BaseProof{Base: "base", Candidate: *task.Candidate, ReviewDigest: core.Digest(task.Review), ObservedAt: time.Now().UTC()}
+				if err = s.Commit(ctx, task.Revision, task, nil, false); err != nil {
+					t.Fatal(err)
+				}
+				task.Revision++
+				p.Revision, p.Intent.ID, p.Intent.Candidate = 0, "sync", *task.Candidate
+				p.Intent.Sync = &core.DraftSync{PreviousID: "original", PublicationID: "original", PreviousCommit: "original", Number: 7, URL: p.Observation.URL, Base: "base", ObservedAt: task.BaseProof.ObservedAt}
+			}
+			p.State = "queued"
+			task.NextRole, task.BaseProof = "refresh", nil
+			start, results := make(chan struct{}), make(chan error, 2)
+			go func() { <-start; results <- s.SavePublication(ctx, p, false) }()
+			go func() { <-start; results <- other.Commit(ctx, task.Revision, task, nil, false) }()
+			close(start)
+			won := 0
+			for range 2 {
+				err = <-results
+				if err == nil {
+					won++
+				} else if !errors.Is(err, ErrConflict) && !errors.Is(err, ErrPublicationPending) {
+					t.Fatal(err)
+				}
+			}
+			if won != 1 {
+				t.Fatal("refresh and synchronization both queued", won)
+			}
+			stored, err := s.Task(ctx, task.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ps, err := s.Publications(ctx, task.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			queued := ps[len(ps)-1].State == "queued"
+			if queued == (stored.NextRole == "refresh") {
+				t.Fatal("partial state leaked", stored, ps)
+			}
 		})
 	}
 }

@@ -272,3 +272,222 @@ func TestSlowPublicationSharesCapacityWithoutBlockingLocalWork(t *testing.T) {
 		t.Fatalf("reservation not recovered: %+v", got)
 	}
 }
+
+// Keep one confirmed original draft, then use the real refresh/review machinery.
+func confirmedDraft(t *testing.T) (*Engine, core.Task, core.Publication) {
+	t.Helper()
+	e, task := deliveryFixture(t)
+	applyPolicy(t, e, func(c *config.Config) { c.Policy.MaxBaseRefreshes = 2 })
+	e.Bases = baseAdapter(func(context.Context, string, string, string) (string, error) {
+		return git(t, e.Settings.Config.Repository.Path, "rev-parse", "HEAD"), nil
+	})
+	p := deliveryClaim(t, e)
+	p.State, p.Occupying, p.CreateRequested = "published", false, true
+	p.Observation = &core.RemotePublication{Number: 7, URL: "https://github.com/owner/repo/pull/7", BranchCommit: task.Candidate.Commit, State: "OPEN", Draft: true}
+	if err := e.savePublication(t.Context(), &p); err != nil {
+		t.Fatal(err)
+	}
+	return e, task, p
+}
+
+func refreshDraft(t *testing.T, e *Engine, id, body string) core.Task {
+	t.Helper()
+	moveBase(t, e, "base.txt", body)
+	if err := e.VerifyBase(t.Context(), id); err != nil {
+		t.Fatal(err)
+	}
+	// Refresh, independent audit, then observe the base again.
+	before, err := e.Store.Publications(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for step := range 3 {
+		complete(t, e, claim(t, e))
+		finish(t, e)
+		if step < 2 {
+			if err := e.preparePublications(t.Context(), nil); err != nil {
+				t.Fatal(err)
+			}
+			after, err := e.Store.Publications(t.Context(), id)
+			if err != nil || len(after) != len(before) {
+				t.Fatal("unverified candidate queued for synchronization", after, err)
+			}
+		}
+	}
+	task := current(t, e, id)
+	if task.BaseProof == nil || !task.BaseProof.Matches(task) {
+		t.Fatal("refresh did not retain exact proof")
+	}
+	return task
+}
+
+func TestDraftSynchronizationRetainsChainAndRecoversUncertainPush(t *testing.T) {
+	e, task, first := confirmedDraft(t)
+	remote := *first.Observation
+	pushes := 0
+	lostObservation := false
+	e.Delivery = deliveryAdapter{
+		observe: func(context.Context, core.PublicationIntent) (core.RemotePublication, error) {
+			if lostObservation {
+				return core.RemotePublication{}, errors.New("observation unavailable after push")
+			}
+			return remote, nil
+		},
+		push: func(_ context.Context, p core.PublicationIntent, authorize func() error) error {
+			if err := authorize(); err != nil {
+				return err
+			}
+			if p.Sync == nil || p.Sync.PreviousCommit != remote.BranchCommit || p.PublicationID() != first.Intent.ID || p.Branch != first.Intent.Branch {
+				t.Fatal("synchronization lost its exact lease or stable identity")
+			}
+			pushes++
+			remote.BranchCommit = p.Candidate.Commit
+			lostObservation = pushes == 1
+			return errors.New("lost push response")
+		},
+		create: func(context.Context, core.PublicationIntent, func() error) error {
+			t.Fatal("synchronization created a PR")
+			return nil
+		},
+	}
+	previous := first.Intent.ID
+	for cycle := 1; cycle <= 2; cycle++ {
+		task = refreshDraft(t, e, task.ID, string(rune('0'+cycle)))
+		before := task.Usage
+		p := deliveryClaim(t, e)
+		if p.Intent.Sync == nil || p.Intent.Sync.PreviousID != previous || p.Intent.Sync.Base != task.Base() || !p.Intent.Sync.ObservedAt.Equal(task.BaseProof.ObservedAt) {
+			t.Fatal("update did not bind exact base proof and predecessor", p)
+		}
+		if cycle == 2 {
+			// A crash after admission resumes the same immutable update.
+			reopen(t, e)
+			p = deliveryClaim(t, e)
+		}
+		if err := e.publish(t.Context(), p); err != nil {
+			t.Fatal(err)
+		}
+		if cycle == 1 {
+			ps, _ := e.Store.Publications(t.Context(), task.ID)
+			if ps[1].State != "attention" || ps[1].Observation.URL != remote.URL {
+				t.Fatal("uncertain update lost identity or silently retried")
+			}
+			if err := e.VerifyBase(t.Context(), task.ID); err == nil || !strings.Contains(err.Error(), "--reconcile") {
+				t.Fatal("uncertain update allowed a new refresh", err)
+			}
+			reopen(t, e)
+			lostObservation = false
+			if err := e.ReconcileDelivery(t.Context(), task.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := e.publish(t.Context(), deliveryClaim(t, e)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		ps, err := e.Store.Publications(t.Context(), task.ID)
+		if err != nil || len(ps) != cycle+1 || ps[cycle].State != "published" || ps[cycle].Occupying || core.Digest(ps[0].Intent) != core.Digest(first.Intent) || pushes != cycle {
+			t.Fatal("synchronization failed or repeated writes", ps, pushes, err)
+		}
+		changed := ps[cycle]
+		changed.Intent.Sync.PreviousCommit = "external"
+		if e.Store.SavePublication(t.Context(), changed, false) == nil {
+			t.Fatal("immutable synchronization intent changed")
+		}
+		task = current(t, e, task.ID)
+		if task.Usage != before || task.Stage != core.AwaitingDelivery || remote.BranchCommit != task.Candidate.Commit {
+			t.Fatal("synchronization changed counters or completed the task")
+		}
+		view, err := e.Show(t.Context(), task.ID)
+		if err != nil || view.Group != "Retained" || !strings.Contains(view.Summary, "draft confirmed at this candidate") {
+			t.Fatal("current draft described as stale", view.Summary, err)
+		}
+		previous = p.Intent.ID
+	}
+}
+
+func TestDraftSynchronizationRejectsUnsafeRemoteOrLocalState(t *testing.T) {
+	for _, scenario := range []string{"missing PR", "other PR", "missing branch", "external commit", "ready", "closed", "merged", "revoked", "changed candidate", "previous commit retry"} {
+		t.Run(scenario, func(t *testing.T) {
+			e, task, first := confirmedDraft(t)
+			task = refreshDraft(t, e, task.ID, "new base")
+			p := deliveryClaim(t, e)
+			remote := *first.Observation
+			switch scenario {
+			case "missing PR":
+				remote.Number = 0
+			case "other PR":
+				remote.Number++
+			case "missing branch":
+				remote.BranchCommit = ""
+			case "external commit":
+				remote.BranchCommit = "external"
+			case "ready":
+				remote.Draft = false
+			case "closed":
+				remote.State = "CLOSED"
+			case "merged":
+				remote.State = "MERGED"
+			}
+			writes := 0
+			e.Delivery = deliveryAdapter{
+				observe: func(context.Context, core.PublicationIntent) (core.RemotePublication, error) {
+					if scenario == "revoked" {
+						if err := e.Stop(t.Context(), task.ID); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if scenario == "changed candidate" {
+						if err := os.WriteFile(filepath.Join(task.Candidate.Workspace, "greeting.txt"), []byte("tampered"), 0600); err != nil {
+							t.Fatal(err)
+						}
+					}
+					return remote, nil
+				},
+				push: func(_ context.Context, intent core.PublicationIntent, authorize func() error) error {
+					if err := authorize(); err != nil {
+						return err
+					}
+					writes++
+					if writes == 2 {
+						remote.BranchCommit = intent.Candidate.Commit
+					}
+					return errors.New("transport interrupted")
+				},
+				create: func(context.Context, core.PublicationIntent, func() error) error {
+					t.Fatal("unexpected PR creation")
+					return nil
+				},
+			}
+			if err := e.publish(t.Context(), p); err != nil {
+				t.Fatal(err)
+			}
+			ps, err := e.Store.Publications(t.Context(), task.ID)
+			if err != nil || len(ps) != 2 || ps[1].State == "published" || ps[1].Occupying || current(t, e, task.ID).Stage == core.Completed {
+				t.Fatal("unsafe update", ps, err)
+			}
+			if scenario == "previous commit retry" {
+				view, err := e.Show(t.Context(), task.ID)
+				if err != nil || view.Group != "Needs you" || !strings.Contains(view.NextAction, "--reconcile") {
+					t.Fatal("missing recovery advice", view, err)
+				}
+				if err := e.preparePublications(t.Context(), nil); err != nil {
+					t.Fatal(err)
+				}
+				if _, ok, err := e.claimPublication(t.Context()); err != nil || ok {
+					t.Fatal("failed update retried automatically", err)
+				}
+				if err := e.ReconcileDelivery(t.Context(), task.ID); err != nil {
+					t.Fatal(err)
+				}
+				if err := e.publish(t.Context(), deliveryClaim(t, e)); err != nil {
+					t.Fatal(err)
+				}
+				ps, _ = e.Store.Publications(t.Context(), task.ID)
+				if writes != 2 || ps[1].State != "published" || core.Digest(ps[1].Intent) != core.Digest(p.Intent) {
+					t.Fatal("retry changed immutable update", ps, writes)
+				}
+			} else if writes != 0 {
+				t.Fatal("unsafe remote write", writes)
+			}
+		})
+	}
+}

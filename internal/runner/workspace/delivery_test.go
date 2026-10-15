@@ -17,6 +17,7 @@ import (
 type localTransport struct {
 	remote string
 	calls  int
+	lease  string
 	t      *testing.T
 }
 
@@ -38,13 +39,13 @@ func (r *localTransport) Run(ctx context.Context, command string, args []string,
 		if !strings.Contains(joined, "+refs/heads/main:refs/runner-next/fetch/") || !strings.Contains(joined, "--no-write-fetch-head") {
 			r.t.Fatal("fetch destination escaped private ref")
 		}
-	} else if !strings.Contains(joined, "--force-with-lease=refs/heads/runner-next/") {
-		r.t.Fatal("push did not use absent-ref lease")
+	} else if !strings.Contains(joined, "--force-with-lease=refs/heads/runner-next/"+r.lease+" ") {
+		r.t.Fatal("push did not use the explicit expected-commit lease")
 	}
 	return (subprocess.OSRunner{}).Run(ctx, command, args, dir, timeout)
 }
 
-func TestDraftPushUsesExactObjectsAndNeverReplacesRemoteBranch(t *testing.T) {
+func TestDraftPushUsesExactObjectsAndOnlyReplacesExpectedRemoteCommit(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -74,11 +75,11 @@ func TestDraftPushUsesExactObjectsAndNeverReplacesRemoteBranch(t *testing.T) {
 	git("init", "--bare", remote)
 	id := core.NewID()
 	p := core.PublicationIntent{ID: id, Repository: "owner/repo", Branch: "runner-next/" + id, Candidate: core.Candidate{Workspace: repo, Commit: git("rev-parse", "HEAD"), Tree: git("rev-parse", "HEAD^{tree}")}}
-	r := &localTransport{remote: remote, t: t}
-	if err = pushDraft(t.Context(), p.Candidate, p.Branch, "https://github.com/owner/repo.git", func() error { return errors.New("revoked") }, r); err == nil || r.calls != 0 {
+	r := &localTransport{remote: remote, t: t, lease: id + ":"}
+	if err = pushDraft(t.Context(), p.Candidate, p.Branch, "https://github.com/owner/repo.git", "", func() error { return errors.New("revoked") }, r); err == nil || r.calls != 0 {
 		t.Fatal("revoked push dispatched")
 	}
-	if err = pushDraft(t.Context(), p.Candidate, p.Branch, "https://github.com/owner/repo.git", func() error { return nil }, r); err != nil {
+	if err = pushDraft(t.Context(), p.Candidate, p.Branch, "https://github.com/owner/repo.git", "", func() error { return nil }, r); err != nil {
 		t.Fatal(err)
 	}
 	if got := git("--git-dir="+remote, "rev-parse", "refs/heads/"+p.Branch); got != p.Candidate.Commit {
@@ -92,6 +93,18 @@ func TestDraftPushUsesExactObjectsAndNeverReplacesRemoteBranch(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(repo, ".git", "FETCH_HEAD")); !os.IsNotExist(err) {
 		t.Fatal("fetch wrote shared FETCH_HEAD", err)
 	}
+	// A refresh may replace only the exact last confirmed commit.
+	previous := p.Candidate.Commit
+	git("commit", "--allow-empty", "-m", "refreshed candidate")
+	p.Candidate.Commit = git("rev-parse", "HEAD")
+	r.lease = id + ":" + previous
+	if err = pushDraft(t.Context(), p.Candidate, p.Branch, "https://github.com/owner/repo.git", previous, func() error { return nil }, r); err != nil {
+		t.Fatal("exact leased update failed", err)
+	}
+	if got := git("--git-dir="+remote, "rev-parse", "refs/heads/"+p.Branch); got != p.Candidate.Commit {
+		t.Fatal("refreshed commit not published")
+	}
+	previous = p.Candidate.Commit
 	// Another actor changes the remote branch; the exact absent lease refuses
 	// even a fast-forward update that an ordinary non-force push would allow.
 	git("commit", "--allow-empty", "-m", "external")
@@ -99,17 +112,32 @@ func TestDraftPushUsesExactObjectsAndNeverReplacesRemoteBranch(t *testing.T) {
 	git("push", remote, external+":refs/heads/"+p.Branch)
 	git("commit", "--allow-empty", "-m", "later candidate")
 	p.Candidate.Commit = git("rev-parse", "HEAD")
-	if err = pushDraft(t.Context(), p.Candidate, p.Branch, "https://github.com/owner/repo.git", func() error { return nil }, r); err == nil {
+	r.lease = id + ":"
+	if err = pushDraft(t.Context(), p.Candidate, p.Branch, "https://github.com/owner/repo.git", "", func() error { return nil }, r); err == nil {
 		t.Fatal("existing branch overwritten")
 	}
 	if got := git("--git-dir="+remote, "rev-parse", "refs/heads/"+p.Branch); got != external {
 		t.Fatal("remote changed")
 	}
+	r.lease = id + ":" + previous
+	if err = pushDraft(t.Context(), p.Candidate, p.Branch, "https://github.com/owner/repo.git", previous, func() error { return nil }, r); err == nil {
+		t.Fatal("external commit overwritten by synchronization")
+	}
+	if got := git("--git-dir="+remote, "rev-parse", "refs/heads/"+p.Branch); got != external {
+		t.Fatal("synchronization changed the external commit")
+	}
+	git("--git-dir="+remote, "update-ref", "-d", "refs/heads/"+p.Branch)
+	if err = pushDraft(t.Context(), p.Candidate, p.Branch, "https://github.com/owner/repo.git", previous, func() error { return nil }, r); err == nil {
+		t.Fatal("deleted branch recreated by synchronization")
+	}
+	if got := git("--git-dir="+remote, "for-each-ref", "--format=%(objectname)", "refs/heads/"+p.Branch); got != "" {
+		t.Fatal("deleted branch was recreated")
+	}
 	before := r.calls
 	if err = os.WriteFile(filepath.Join(repo, ".git", "objects", "info", "alternates"), []byte(remote+"/objects\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = pushDraft(t.Context(), p.Candidate, p.Branch, "https://github.com/owner/repo.git", func() error { return nil }, r); err == nil || r.calls != before {
+	if err = pushDraft(t.Context(), p.Candidate, p.Branch, "https://github.com/owner/repo.git", "", func() error { return nil }, r); err == nil || r.calls != before {
 		t.Fatal("object redirection reached transport")
 	}
 }

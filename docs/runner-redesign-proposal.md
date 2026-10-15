@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first two phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, then current-base verification and bounded refresh. Qualification is recorded below. Refreshed candidates remain local; remote draft synchronization, CI/integration and release qualification remain pending. Current store format is 6; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first three phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, then remote draft synchronization. Qualification is recorded below. CI/integration and release qualification remain pending. Current store format is 7; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -1833,10 +1833,11 @@ Keep `repository.base_ref` as the intended local `refs/heads/BRANCH`, explicitly
 select `base_freshness: "recorded"`, and set `max_base_refreshes: 2` for bounded
 post-publication verification. The first bundle itself supported only 0.
 `init` and `config explain` display the destination and boundary. This intermediate
-mode authorizes draft publication and current-base verification after task acceptance,
-not integration. Refreshed candidates remain local in the second bundle. Changing
+mode authorizes draft publication, current-base verification and synchronization
+after task acceptance, not integration. The third bundle advances the same draft
+only from its exact confirmed previous commit. Changing
 an initialized destination or base is rejected by execution-policy apply. Local
-mode still runs without GitHub. Store formats 1–5 are rejected untouched: preserve
+mode still runs without GitHub. Store formats 1–6 are rejected untouched: preserve
 old state/workspaces and initialize fresh roots; no old approvals are imported.
 
 Use an operator-owned `gh auth login --hostname github.com` configuration with
@@ -1850,8 +1851,10 @@ retained and reports the operation needing attention.
 After normal Ready approval or Plan release and local acceptance, `run` queues
 publication automatically. It pushes the exact accepted commit to the recorded
 unique `runner-next/OPERATION_ID` branch and opens one draft PR. The PR includes a
-readable task title, task/version identity, candidate/base/quality identities and
-an explicit pending-integration statement. Private evidence files stay local.
+readable task title, task/version identity, initial candidate/base/quality identities
+and an explicit pending-integration statement. The description labels this initial
+snapshot as historical when the branch later advances; human edits are preserved.
+Private evidence files stay local.
 
 - `status` and `task show ID` show the current publication and its last successful
   remote observation. `--json` includes all retained publication records. These
@@ -2019,6 +2022,130 @@ bounded conflict repair, confirmed task/parent completion and platform/release
 qualification remain pending. There is no automatic polling after proof is retained;
 `task verify-base ID` explicitly requests another observation. Formats 1–5 require
 fresh private state; earlier evidence/workspaces are preserved, not migrated.
+
+### Phase 3, third bundle: remote draft synchronization
+
+**Implementation and verification brief (2026-10-15, before code).** Advance an
+existing Runner draft to the exact refreshed, independently accepted candidate.
+Keep the same repository, base branch, head branch, PR number/URL and original
+Runner marker. Stop before CI assessment, marking ready, merge and completion.
+
+- Reuse publication workers, shared admission and task ownership. Record each
+  update as an immutable publication intent linked to its confirmed predecessor;
+  retain the original creation record and the last observation for each operation.
+  No new scheduler, table, model role, external configuration or plugin framework.
+- Queue synchronization after the exact candidate has retained current-base proof.
+  Pin its candidate, quality/review binding, observed base/time, expected previous
+  commit and known PR identity before any write. Revalidate task authority and
+  candidate integrity immediately before dispatch. A timestamped base observation
+  remains historical evidence; integration must check the latest base again.
+- Observe the exact open draft and marker before pushing. Update only the exact
+  expected remote commit using an explicit Git lease. Missing branches/PRs,
+  changed identities, external commits, closed/merged PRs and ready PRs require
+  attention. Never recreate a branch, open another PR or overwrite an external
+  change to recover a synchronization operation.
+- Observe after the write, including a failed/lost response. The target commit on
+  the exact draft confirms success; the previous commit permits another leased
+  attempt only through explicit reconciliation or restart of an interrupted
+  reservation. Other observations stop safely. There is no automatic retry/poll
+  loop. `task delivery ID --reconcile` remains the recovery command.
+- Settle an outstanding publication before requesting another base refresh. Check
+  this dependency in the store transaction as well as operator guidance, so a
+  racing refresh cannot discard an uncertain branch update. Stop/replacement
+  still revoke authority and retain already-sent effects and links.
+- Synchronize the branch; preserve the PR title/body and human edits. Initial PR
+  descriptions explicitly label their candidate/base details as the initial
+  snapshot, which can become historical when Runner advances the branch. The local
+  task view retains exact proof and synchronization history. No metadata PATCH or
+  bot comment is needed for this bundle.
+- Human/JSON status distinguish a current confirmed draft, an earlier draft and
+  synchronization needing attention. Synchronization consumes no model, repair,
+  escalation or base-refresh allowance and cannot complete a task or dependency.
+- Store format 7 permits the immutable predecessor chain. Earlier formats are
+  rejected untouched; initialize fresh state rather than migrate live authority.
+
+Extend the owning engine delivery journey with real store/workspaces for a clean
+refresh and two successive synchronizations, uncertain writes and restart, exact
+identity conflicts, revocation, changed candidates and unchanged counters. Extend
+the existing native Git transport fixture to prove expected-old leases refuse both
+external changes and deleted branches. Extend the GitHub adapter fixtures for
+previous/target head observations and known PR identity; reuse existing publication,
+refresh, shared admission and sandbox coverage. Test the store race between queuing
+synchronization and requesting refresh. Keep helpers small and specific.
+
+Run targeted checks, `go test -race ./...`, `go vet ./...`, build `runner-next`,
+review the complete diff, and exercise the built CLI's synchronization/recovery
+presentation. Use a disposable bare Git remote for write verification and a live
+read-only GitHub observation where useful. No live remote write destination is
+authorized by this repository implementation request. Model contracts are unchanged;
+reuse the previous bundle's live Codex qualification unless implementation changes
+those contracts. Record evidence and any remaining verification limits here.
+
+#### Using synchronized drafts
+
+After a changed base passes pinned checks, independent review and base
+re-observation, `run` automatically queues the refreshed candidate for the same
+draft. `task show ID` displays each retained operation, its previous/target commits,
+known PR and timestamped base proof. `status --json` exposes those same records;
+inspection does not contact GitHub. Earlier records describe historical candidates,
+while the summary identifies the latest confirmation or required action.
+
+If synchronization needs attention, inspect the reason, then use
+`task delivery ID --reconcile` and `run` if the coordinator is absent or drained.
+The target commit confirms a successful earlier push without another write. The
+expected previous commit permits the same leased update. A missing or changed
+remote identity requires attention and cannot be force-created or overwritten.
+Settle the operation before requesting another `task verify-base ID`. Stop and
+replacement retain prior operations and remote effects. No new configuration,
+model invocation or allowance is required for synchronization.
+
+#### Draft-synchronization qualification
+
+The existing engine delivery suite now proves two successive real Git refreshes
+and synchronizations with one retained branch, PR and original marker. It checks
+exact base/review binding before queueing, unchanged counters, restart of an
+interrupted reservation, lost push/observation responses, explicit leased retry,
+remote identity/state conflicts, stop and candidate tampering. Controlled model
+and host adapters isolate these coordinator obligations. Existing refresh, review,
+quality, shared-capacity and sandbox suites remain responsible for their broader
+contracts; no second workflow simulator or generic test framework was added.
+
+The native Git transport fixture proves an exact expected-old update succeeds,
+external commits survive rejected updates, and deleted branches are not recreated.
+GitHub fixtures accept previous/target heads only on the known draft and original
+marker, reject inconsistent branch observations and cannot create a PR from a sync
+intent. Independent store connections race refresh against both new synchronization
+and explicit reconciliation; exactly one operation may queue. Immutable update
+intents and old-format rejection are covered in the owning suites.
+
+On 2026-10-15, the built CLI exercised human/JSON status, full task history,
+configuration explanation, attention recovery and stop against a disposable task.
+Inspection preserved the database hash; reconciliation confirmed the same draft;
+stop retained its link. The fixture used real Git/store state and controlled
+acceptance/remote observations. Its evidence is retained at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-draft-sync-qualification-636930304`.
+The URL in that fixture is controlled evidence, not a real PR. A separate read-only
+call through the production GitHub adapter and native `gh` successfully observed
+`cortexium-io/runner` and absence of a random branch. Temporary qualification
+harnesses were removed. No GitHub branch or PR write was made.
+
+`go test -race ./...`, `go vet ./...` and the `cmd/runner-next` build passed
+on macOS arm64 with Go 1.27.1 and Git 2.54.0. The complete diff was reviewed for
+authority, uncertain-write recovery, accidental changes and unnecessary complexity;
+`git diff --check` passed. The replacement still imports no legacy engine,
+execution or GitHub package. There are no new dependencies, model roles or
+configuration fields. Gate logs are retained with the CLI qualification evidence.
+
+Git leases atomically protect the expected branch commit; they cannot atomically
+lock GitHub PR metadata. Runner observes the draft before and after its one push.
+If another actor closes or marks it ready during that window, reconciliation
+requires attention and retains any already-sent effect; Runner never marks ready,
+merges or completes the task. Current-base proof remains a timestamped observation.
+CI assessment and serialized integration with another current-base check are the
+next delivery boundary. Platform/release and live GitHub write qualification remain
+pending. Model contracts are unchanged, so the preceding bundle's live Codex
+qualification remains applicable without another invocation. Store format 7
+requires fresh state; earlier state and workspaces are preserved untouched.
 
 ### Simple upgrade or deliberate break
 

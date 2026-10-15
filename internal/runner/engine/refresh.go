@@ -8,6 +8,7 @@ import (
 
 	"github.com/cortexium-io/runner/internal/runner/core"
 	"github.com/cortexium-io/runner/internal/runner/execution"
+	"github.com/cortexium-io/runner/internal/runner/store"
 	"github.com/cortexium-io/runner/internal/runner/workspace"
 )
 
@@ -39,6 +40,9 @@ func (e *Engine) VerifyBase(ctx context.Context, id string) error {
 		}
 	}
 	return e.mutate(ctx, id, func(t *core.Task) (*core.Attempt, error) {
+		if p := latestPublication(publications, *t); p != nil && (p.Occupying || p.State != "published") {
+			return nil, errors.New("settle publication with task delivery " + id + " --reconcile before requesting another base refresh")
+		}
 		if t.Stage != core.AwaitingDelivery || t.Approval == nil || t.Candidate == nil || core.ReviewOutcome(t.Review) != core.Accepted {
 			return nil, errors.New("base verification requires an independently accepted candidate")
 		}
@@ -96,7 +100,7 @@ func (e *Engine) prepareBaseChecks(ctx context.Context) error {
 				current.NextRole = "refresh"
 			}
 			return nil, nil
-		}); err != nil {
+		}); err != nil && !errors.Is(err, store.ErrPublicationPending) {
 			return err
 		}
 	}

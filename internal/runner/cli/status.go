@@ -110,7 +110,7 @@ task approve|release ID --version N --preview DIGEST
 task replace ID --version N --file TASK.md
 task adopt-quality ID --version N --preview DIGEST
 task resume ID --attempt ID [--allow-new-invocation]
-task delivery ID --reconcile          Inspect and safely continue draft publication.
+task delivery ID --reconcile          Inspect and safely continue draft publication/synchronization.
 task verify-base ID                  Inspect current base; resume a bounded clean refresh.
 task stop ID                         Revoke authority; retain work and evidence.
 status [--json] [--watch 2s]          Read-only attention, work, waits and retained results.

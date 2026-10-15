@@ -9,6 +9,8 @@ import (
 	"github.com/cortexium-io/runner/internal/runner/core"
 )
 
+var ErrPublicationPending = errors.New("settle publication with task delivery ID --reconcile before requesting another base refresh")
+
 func (s *Store) Publications(ctx context.Context, task string) ([]core.Publication, error) {
 	q := "SELECT data FROM publications"
 	var args []any
@@ -56,11 +58,43 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 		if old.Revision != p.Revision {
 			return ErrConflict
 		}
-		if old.Intent != p.Intent || old.CreateRequested && !p.CreateRequested {
+		if core.Digest(old.Intent) != core.Digest(p.Intent) || old.CreateRequested && !p.CreateRequested {
 			return errors.New("publication intent cannot change or regain create authority")
 		}
 	}
-	if p.Revision == 0 || claim {
+	if p.Revision == 0 {
+		var active int
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM attempts WHERE occupying=1 AND task_id=?", p.Intent.TaskID).Scan(&active); err != nil {
+			return err
+		}
+		if active != 0 {
+			return ErrConflict
+		}
+		var existing int
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM publications WHERE task_id=? AND version=? AND generation=? AND previous_id=?", p.Intent.TaskID, p.Intent.Version, p.Intent.Generation, p.Intent.PreviousID()).Scan(&existing); err != nil {
+			return err
+		}
+		if existing != 0 {
+			return ErrConflict
+		}
+		if u := p.Intent.Sync; u != nil {
+			var raw []byte
+			if err = tx.QueryRowContext(ctx, "SELECT data FROM publications WHERE id=?", u.PreviousID).Scan(&raw); err != nil {
+				return err
+			}
+			var previous core.Publication
+			if err = json.Unmarshal(raw, &previous); err != nil {
+				return err
+			}
+			i, o := previous.Intent, previous.Observation
+			if previous.State != "published" || previous.Occupying || o == nil || o.Number <= 0 || o.State != "OPEN" || !o.Draft || o.BranchCommit != i.Candidate.Commit ||
+				i.TaskID != p.Intent.TaskID || i.Version != p.Intent.Version || i.Generation != p.Intent.Generation || i.Repository != p.Intent.Repository || i.BaseBranch != p.Intent.BaseBranch || i.Branch != p.Intent.Branch ||
+				u.PublicationID != i.PublicationID() || u.PreviousCommit != i.Candidate.Commit || u.Number != o.Number || u.URL != o.URL || u.Base == "" || u.ObservedAt.IsZero() || u.PreviousCommit == p.Intent.Candidate.Commit {
+				return errors.New("draft synchronization requires an exact confirmed predecessor")
+			}
+		}
+	}
+	if p.Revision == 0 || claim || p.State == "queued" {
 		var raw []byte
 		if err = tx.QueryRowContext(ctx, "SELECT data FROM tasks WHERE id=?", p.Intent.TaskID).Scan(&raw); err != nil {
 			return err
@@ -70,6 +104,9 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 			return err
 		}
 		if !p.Intent.Authorized(t) {
+			return ErrConflict
+		}
+		if p.Revision == 0 && p.Intent.Sync != nil && !p.Intent.Sync.ObservedAt.Equal(t.BaseProof.ObservedAt) {
 			return ErrConflict
 		}
 		var drained bool
@@ -106,7 +143,7 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 		return err
 	}
 	if expected == 0 {
-		_, err = tx.ExecContext(ctx, "INSERT INTO publications(id,task_id,version,generation,revision,occupying,data) VALUES(?,?,?,?,?,?,?)", p.Intent.ID, p.Intent.TaskID, p.Intent.Version, p.Intent.Generation, p.Revision, p.Occupying, b)
+		_, err = tx.ExecContext(ctx, "INSERT INTO publications(id,task_id,version,generation,revision,occupying,data,previous_id) VALUES(?,?,?,?,?,?,?,?)", p.Intent.ID, p.Intent.TaskID, p.Intent.Version, p.Intent.Generation, p.Revision, p.Occupying, b, p.Intent.PreviousID())
 	} else {
 		_, err = tx.ExecContext(ctx, "UPDATE publications SET revision=?,occupying=?,data=? WHERE id=?", p.Revision, p.Occupying, b, p.Intent.ID)
 	}

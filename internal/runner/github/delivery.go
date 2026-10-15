@@ -44,7 +44,9 @@ func (h Host) api(ctx context.Context, endpoint string, input any, output any) e
 
 const observeQuery = `query($owner:String!,$repo:String!,$branch:String!,$ref:String!){repository(owner:$owner,name:$repo){nameWithOwner ref(qualifiedName:$ref){target{oid}} pullRequests(headRefName:$branch,first:2,states:[OPEN,CLOSED,MERGED]){nodes{number url state isDraft headRefName headRefOid baseRefName body headRepository{nameWithOwner}} pageInfo{hasNextPage}}}}`
 
-func marker(p core.PublicationIntent) string { return "<!-- runner-publication:" + p.ID + " -->" }
+func marker(p core.PublicationIntent) string {
+	return "<!-- runner-publication:" + p.PublicationID() + " -->"
+}
 
 func (h Host) Observe(ctx context.Context, p core.PublicationIntent) (core.RemotePublication, error) {
 	owner, repo, ok := strings.Cut(p.Repository, "/")
@@ -99,8 +101,11 @@ func (h Host) Observe(ctx context.Context, p core.PublicationIntent) (core.Remot
 	}
 	pr := r.PullRequests.Nodes[0]
 	expectedURL := "https://github.com/" + r.NameWithOwner + "/pull/" + strconv.Itoa(pr.Number)
-	if pr.Number <= 0 || pr.URL != expectedURL || pr.HeadRepository == nil || !strings.EqualFold(pr.HeadRepository.NameWithOwner, p.Repository) || pr.HeadRefName != p.Branch || pr.HeadRefOid != p.Candidate.Commit || pr.BaseRefName != p.BaseBranch || !strings.Contains(pr.Body, marker(p)) {
+	if pr.Number <= 0 || pr.URL != expectedURL || pr.HeadRepository == nil || !strings.EqualFold(pr.HeadRepository.NameWithOwner, p.Repository) || pr.HeadRefName != p.Branch || (pr.HeadRefOid != p.Candidate.Commit && (p.Sync == nil || pr.HeadRefOid != p.Sync.PreviousCommit)) || pr.BaseRefName != p.BaseBranch || !strings.Contains(pr.Body, marker(p)) {
 		return o, errors.New("remote PR identity, candidate, base or Runner marker differs from the stored intent")
+	}
+	if p.Sync != nil && (pr.Number != p.Sync.Number || pr.URL != p.Sync.URL || pr.HeadRefOid != o.BranchCommit) {
+		return o, errors.New("synchronization PR or branch identity differs from the known draft")
 	}
 	if pr.State != "OPEN" && pr.State != "CLOSED" && pr.State != "MERGED" {
 		return o, errors.New("GitHub returned an unknown PR state")
@@ -110,11 +115,21 @@ func (h Host) Observe(ctx context.Context, p core.PublicationIntent) (core.Remot
 }
 
 func (h Host) Push(ctx context.Context, p core.PublicationIntent, authorize func() error) error {
-	return workspace.PushDraft(ctx, p.Candidate, p.Branch, "https://github.com/"+p.Repository+".git", authorize)
+	expected := ""
+	if p.Sync != nil {
+		expected = p.Sync.PreviousCommit
+		if expected == "" {
+			return errors.New("draft synchronization requires an expected remote commit")
+		}
+	}
+	return workspace.PushDraft(ctx, p.Candidate, p.Branch, "https://github.com/"+p.Repository+".git", expected, authorize)
 }
 
 func (h Host) CreateDraft(ctx context.Context, p core.PublicationIntent, authorize func() error) error {
-	body := fmt.Sprintf("%s\n\nRunner task `%s`, version %d.\n\nLocally reviewed candidate: `%s`\nRecorded base: `%s`\nQuality revision: `%s`\n\n**Draft handoff only. Latest-base verification, CI assessment and integration are pending. Do not merge from this bundle's local acceptance.**\n", marker(p), p.TaskID, p.Version, p.Candidate.Commit, p.ApprovedBase, p.Quality)
+	if p.Sync != nil {
+		return errors.New("draft synchronization cannot create a PR")
+	}
+	body := fmt.Sprintf("%s\n\nRunner task `%s`, version %d.\n\nInitial locally reviewed candidate: `%s`\nInitial recorded base: `%s`\nQuality revision: `%s`\n\nThese details describe the initial snapshot. Runner may later advance this branch after current-base checks and independent review; exact synchronization evidence stays in the local task history.\n\n**Draft handoff only. CI assessment and integration are pending. Do not merge from this bundle's local acceptance.**\n", marker(p), p.TaskID, p.Version, p.Candidate.Commit, p.ApprovedBase, p.Quality)
 	if authorize == nil {
 		return errors.New("draft creation requires current authority")
 	}

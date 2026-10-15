@@ -325,9 +325,12 @@ func (c CLI) printView(v engine.View, full bool) {
 	}
 	for _, p := range v.Publications {
 		if t.Candidate != nil && *t.Candidate != p.Intent.Candidate {
-			fmt.Fprintln(c.Out, "Retained publication refers to an earlier candidate; remote synchronization is pending.")
+			fmt.Fprintln(c.Out, "Historical candidate retained in this operation:", p.Intent.Candidate.Commit)
 		}
 		fmt.Fprintf(c.Out, "Publication %s (v%d): %s; %s\nDestination: %s -> %s; branch %s\n", p.Intent.ID, p.Intent.Version, p.State, p.Detail, p.Intent.Repository, p.Intent.BaseBranch, p.Intent.Branch)
+		if u := p.Intent.Sync; u != nil {
+			fmt.Fprintf(c.Out, "Synchronization: %s -> %s; predecessor %s; existing PR %d\nVerified base: %s; observed %s\n", u.PreviousCommit, p.Intent.Candidate.Commit, u.PreviousID, u.Number, u.Base, u.ObservedAt.Format(time.RFC3339))
+		}
 		if p.ObservedAt != nil {
 			fmt.Fprintf(c.Out, "Last remote observation: %s\n", p.ObservedAt.Format(time.RFC3339))
 		}

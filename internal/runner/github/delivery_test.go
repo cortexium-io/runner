@@ -23,6 +23,7 @@ func TestObserveRequiresCompleteExactRemoteIdentity(t *testing.T) {
 		{"exact", func(map[string]any, map[string]any) {}, true},
 		{"other head", func(_ map[string]any, p map[string]any) { p["headRefOid"] = "other" }, false},
 		{"other base", func(_ map[string]any, p map[string]any) { p["baseRefName"] = "elsewhere" }, false},
+		{"foreign URL", func(_ map[string]any, p map[string]any) { p["url"] = "https://example.invalid/pull/7" }, false},
 		{"fork", func(_ map[string]any, p map[string]any) {
 			p["headRepository"] = map[string]string{"nameWithOwner": "other/repo"}
 		}, false},
@@ -63,6 +64,44 @@ func TestObserveRequiresCompleteExactRemoteIdentity(t *testing.T) {
 			}
 		})
 	}
+	// Synchronization observes the original marker and known PR at either end
+	// of the leased update, never an arbitrary PR reusing the branch.
+	p.ID, p.Candidate.Commit = "update", "refreshed"
+	p.Sync = &core.DraftSync{PublicationID: "operation", PreviousCommit: "accepted", Number: 7, URL: "https://github.com/owner/repo/pull/7"}
+	for _, scenario := range []string{"previous", "target", "external", "inconsistent ref", "other PR", "wrong marker"} {
+		t.Run("sync "+scenario, func(t *testing.T) {
+			candidate := map[string]any{}
+			for k, v := range pr {
+				candidate[k] = v
+			}
+			head := "accepted"
+			switch scenario {
+			case "target":
+				head = "refreshed"
+				candidate["headRefOid"] = head
+			case "external":
+				head = "external"
+				candidate["headRefOid"] = head
+			case "inconsistent ref":
+				head = "refreshed"
+			case "other PR":
+				candidate["number"] = 8
+				candidate["url"] = "https://github.com/owner/repo/pull/8"
+			case "wrong marker":
+				candidate["body"] = "<!-- runner-publication:update -->"
+			}
+			repo := map[string]any{"nameWithOwner": "owner/repo", "ref": map[string]any{"target": map[string]string{"oid": head}}, "pullRequests": map[string]any{"nodes": []any{candidate}}}
+			h := Host{request: func(context.Context, []string, io.Reader) (subprocess.Result, error) {
+				b, _ := json.Marshal(map[string]any{"data": map[string]any{"repository": repo}})
+				return subprocess.Result{Stdout: string(b)}, nil
+			}}
+			_, err := h.Observe(t.Context(), p)
+			valid := scenario == "previous" || scenario == "target"
+			if (err == nil) != valid {
+				t.Fatalf("valid=%t: %v", valid, err)
+			}
+		})
+	}
 	for _, raw := range []string{`{}`, `{"errors":[{"message":"denied"}]}`, `not JSON`} {
 		h := Host{request: func(context.Context, []string, io.Reader) (subprocess.Result, error) {
 			return subprocess.Result{Stdout: raw}, nil
@@ -96,5 +135,9 @@ func TestCreateUsesOneDraftRequestAfterAuthorityRefresh(t *testing.T) {
 	}
 	if h.CreateDraft(t.Context(), p, func() error { allowed = true; return nil }) == nil || calls != 1 {
 		t.Fatal("failed create retried")
+	}
+	p.Sync = &core.DraftSync{PublicationID: "original"}
+	if h.CreateDraft(t.Context(), p, func() error { return nil }) == nil || calls != 1 {
+		t.Fatal("synchronization created a new PR")
 	}
 }
