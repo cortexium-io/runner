@@ -115,13 +115,16 @@ func describeView(v *View, running bool, now time.Time) {
 		p := v.Publications[i]
 		if p.Occupying {
 			if p.IntegrationRequest != nil {
-				v.Group, v.Summary = "Working", "inspecting human integration"
+				v.Group, v.Summary = "Working", "inspecting integration"
+				if p.IntegrationRequest.Merge && p.MergeDispatch == nil {
+					v.Summary = "admitting explicit merge"
+				}
 				v.NextAction = "wait for the merge observation; " + show + " retains evidence"
 				if v.CancellationPending {
-					v.Summary = "integration read cancellation pending; result remains historical"
+					v.Summary = "integration cancellation pending; any already-sent merge cannot be recalled"
 				}
 				if !running {
-					v.Group, v.NextAction = "Needs you", "run to repeat the interrupted integration read safely"
+					v.Group, v.NextAction = "Needs you", "run to recover integration; a dispatched merge is never repeated"
 				}
 				return
 			}
@@ -398,7 +401,7 @@ func describeCI(v *View, p core.Publication, running bool) {
 	v.Summary += "; " + p.CI.Detail
 }
 
-// Integration observations are bounded reads. Pending human work never polls.
+// Integration and explicit merge are bounded operations; neither polls.
 func describeIntegration(v *View, p core.Publication, running bool) bool {
 	if !p.CanInspectIntegration(v.Task) {
 		return false
@@ -407,8 +410,11 @@ func describeIntegration(v *View, p core.Publication, running bool) bool {
 	v.NextAction = "task integrate " + v.Task.ID + "; run if absent or drained"
 	if p.IntegrationRequest != nil {
 		v.Summary = "integration inspection queued"
+		if p.IntegrationRequest.Merge && p.MergeDispatch == nil {
+			v.Summary = "explicit merge queued; live admission required"
+		}
 		if p.Occupying {
-			v.Summary = "integration inspection running"
+			v.Summary += "; running"
 		}
 		if running {
 			v.Group = "Waiting"
@@ -416,6 +422,15 @@ func describeIntegration(v *View, p core.Publication, running bool) bool {
 		v.NextAction = "wait for admission and inspection; run if absent or drained"
 	} else if r := p.Integration; r != nil && r.Request.Matches(v.Task, p) {
 		v.Summary = "integration " + r.State + "; " + r.Detail
+		if r.State == "open" && p.MergeDispatch == nil {
+			v.NextAction = "follow host reviews and mark ready; task merge " + v.Task.ID + " authorizes one guarded merge, or merge manually then task integrate " + v.Task.ID
+		}
+		if r.Request.Merge && r.State == "blocked" && p.MergeDispatch == nil {
+			v.NextAction = "resolve admission details; task merge " + v.Task.ID + " retries admission; run if absent or drained"
+		}
+		if r.State == "stale" {
+			v.NextAction = "return PR to draft; task verify-base " + v.Task.ID + "; then run"
+		}
 	}
 	if p.Observation != nil {
 		v.Summary += "; " + p.Observation.URL

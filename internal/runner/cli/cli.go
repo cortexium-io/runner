@@ -91,6 +91,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 		app.Bases = github.Host{}
 		app.Checks = github.Host{}
 		app.Integrations = github.Host{}
+		app.Merges = github.Host{}
 	}
 	switch args[0] {
 	case "quality":
@@ -134,7 +135,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 }
 func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: task add|show|approve|release|replace|adopt-quality|stop|resume|delivery|verify-base|assess-ci|integrate")
+		return errors.New("usage: task add|show|approve|release|replace|adopt-quality|stop|resume|delivery|verify-base|assess-ci|integrate|merge")
 	}
 	command := args[0]
 	args = args[1:]
@@ -171,7 +172,7 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 		allow = f.Bool("allow-new-invocation", false, "explicitly authorize one repeated invocation")
 	case "delivery":
 		reconcile = f.Bool("reconcile", false, "inspect remote identity and continue safely; uncertain PR creation never repeats")
-	case "stop", "verify-base", "assess-ci", "integrate":
+	case "stop", "verify-base", "assess-ci", "integrate", "merge":
 	default:
 		return fmt.Errorf("unknown task command %q", command)
 	}
@@ -210,6 +211,10 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 		}
 	}
 	switch command {
+	case "merge":
+		if err := e.RequestMerge(ctx, id); err != nil {
+			return err
+		}
 	case "integrate":
 		if err := e.InspectIntegration(ctx, id); err != nil {
 			return err
@@ -361,9 +366,19 @@ func (c CLI) printView(v engine.View, full bool) {
 		}
 
 		if p.IntegrationRequest != nil {
-			fmt.Fprintln(c.Out, "Integration inspection queued or running; no remote merge will be requested.")
+			if p.IntegrationRequest.Merge && p.MergeDispatch == nil {
+				fmt.Fprintln(c.Out, "Explicit merge queued or running; live admission required before one conditional write.")
+			} else {
+				fmt.Fprintln(c.Out, "Integration inspection queued or running; no remote merge will be requested.")
+			}
+		}
+		if p.MergeDispatch != nil {
+			fmt.Fprintf(c.Out, "Merge dispatch consumed at %s under protection %s; recovery inspects only and never repeats the write.\n", p.MergeDispatch.RequestedAt.Format(time.RFC3339), p.MergeDispatch.Admission.ProtectionRuleID)
 		}
 		if r := p.Integration; r != nil {
+			if r.Admission != nil {
+				fmt.Fprintf(c.Out, "Merge admission: %s (protection %s)\n", r.Admission.Detail, r.Admission.ProtectionRuleID)
+			}
 			fmt.Fprintf(c.Out, "Integration %s at %s: %s\n", r.State, r.ObservedAt.Format(time.RFC3339), r.Detail)
 		}
 		if p.CIRequest != nil {

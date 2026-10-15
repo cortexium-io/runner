@@ -88,7 +88,7 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 		} else if p.CIRequest != nil && (!p.CanAssessCI(t) || core.Digest(p.CIRequest) != core.Digest(t.BaseProof)) {
 			p.CIRequest, p.Occupying = nil, false
 		} else if p.Occupying && p.State == "published" {
-			// An interrupted CI/integration read is safe to repeat under the same proof.
+			// Recover under the same proof; a recorded merge dispatch only permits inspection.
 			p.Occupying = false
 		} else if p.Occupying {
 			// A lost push is safe to inspect and resume under its exact remote lease.
@@ -122,7 +122,7 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 			}
 			if previous.State == "published" && !previous.Occupying && previous.IntegrationRequest == nil && previous.CanInspectIntegration(t) {
 				request := core.IntegrationRequest{Proof: *t.BaseProof, CIDigest: core.Digest(previous.CI)}
-				if previous.Integration == nil || core.Digest(previous.Integration.Request) != core.Digest(request) {
+				if previous.Integration == nil || !previous.Integration.Request.Matches(t, *previous) {
 					previous.IntegrationRequest = &request
 					if err = e.savePublication(ctx, previous); err != nil && !errors.Is(err, store.ErrConflict) {
 						return err

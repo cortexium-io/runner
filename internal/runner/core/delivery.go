@@ -66,6 +66,7 @@ type RemotePublication struct {
 }
 
 type Publication struct {
+	MergeDispatch      *MergeDispatch         `json:"merge_dispatch,omitempty"`
 	IntegrationRequest *IntegrationRequest    `json:"integration_request,omitempty"`
 	Integration        *IntegrationAssessment `json:"integration,omitempty"`
 	CIRequest          *BaseProof             `json:"ci_request,omitempty"`

@@ -78,7 +78,7 @@ func (c Config) Validate() error {
 		return errors.New("this bundle requires a local refs/heads base and explicit recorded freshness")
 	}
 	if c.Delivery.Mode != "local" && c.Delivery.Mode != "github-draft" {
-		return errors.New("delivery mode must be local or github-draft; integration is not implemented")
+		return errors.New("delivery mode must be local or github-draft")
 	}
 	if c.Delivery.Mode == "local" && c.Delivery.Repository != "" || c.Delivery.Mode == "github-draft" && !ValidRepository(c.Delivery.Repository) {
 		return errors.New("github-draft requires an explicit OWNER/REPO destination; local delivery has no remote destination")

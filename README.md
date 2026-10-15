@@ -29,9 +29,12 @@ candidate and partial repair work. Unsupported conflicts require inspection.
 The seventh adds [confirmed human integration](docs/runner-redesign-proposal.md#using-confirmed-human-integration):
 Runner verifies ordinary merge commits against the exact reviewed candidate,
 verified base and freshly read pinned CI, then completes tasks and releases dependents.
-This build uses store format 11 (earlier formats require fresh state). Local delivery
-still stops at **Awaiting delivery**. Runner-owned merge writes and host-policy
-admission, release qualification and external views remain pending.
+The eighth adds [explicit Runner-owned merge](docs/runner-redesign-proposal.md#using-explicit-runner-owned-merge):
+`task merge` admits one protected ordinary merge of a ready PR and recovers an
+uncertain write through inspection only. Human merge remains the default.
+This build uses store format 12 (earlier formats require fresh state). Local delivery
+still stops at **Awaiting delivery**. Automatic merge policy, merge queues,
+squash/rebase, ruleset-only guards, release qualification and external views remain pending.
 The documentation below describes the existing
 `cortexium-runner` release.
 

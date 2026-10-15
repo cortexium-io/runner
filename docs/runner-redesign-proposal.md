@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first seven phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, then confirmation of human integration. Qualification is recorded below. Runner-owned merge admission/writes and release qualification remain pending. Current store format is 11; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first eight phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, and explicit guarded merge. Qualification is recorded below. Automatic merge policy, queues, squash/rebase, ruleset-only guards and release qualification remain pending. Current store format is 12; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -2726,12 +2726,161 @@ drivers are not shipped. Role prompts did not change, so this bundle required no
 new paid model evaluation. Live remote merge execution and host protection
 admission were not exercised or claimed.
 
-Stop here. The next merge bundle must define Runner-owned admission against live
-host review/protection/merge-queue requirements, the precise merge strategy,
-current-base revalidation immediately before a conditional write, and recovery
-from an ambiguous write. Squash/rebase support, automatic polling and release
-qualification each require their own explicit boundary; none is implied by this
+The seventh bundle stopped here. The eighth bundle below defines explicit
+Runner-owned admission, ordinary merge execution and ambiguous-write recovery.
+Squash/rebase support, automatic polling and release qualification each require
+their own explicit boundary; none is implied by this
 receipt path.
+
+### Phase 3, eighth bundle: explicit Runner-owned merge
+
+**Implementation and verification brief (2026-10-15, before code).** Add one
+operator-authorized ordinary merge of an already-ready PR. Human merge remains
+the default; `task integrate` remains read-only. `task merge ID` pins one request
+to the accepted candidate, current-base proof and passed CI. This is explicit
+per-task authority, not an automatic merge policy or a new configuration system.
+
+- Reuse integration requests, the repository/base reservation and coordinator.
+  Admission shares capacity, drain and task ownership. Recheck current approval,
+  dependencies and parent authority immediately before dispatch. Stop/replacement
+  revokes unsent work; an already-sent remote effect cannot be recalled.
+- Support only a known, open, ready PR with exact publication identity and head.
+  Require GitHub's clean, mergeable state, satisfied review decision, ordinary
+  merge enabled, no auto-merge request, no merge queue and no viewer bypass.
+  Require a matching classic branch protection rule with strict required checks
+  (at least one), admin enforcement, no deletion/force-push allowances and no PR
+  bypass allowances. Ruleset-only protection is outside this first contract;
+  additional host rules remain enforced by GitHub's normal merge operation.
+- Read the selected pinned CI again, fetch the configured base and require exact
+  equality with the accepted base proof. Re-read host admission after the fetch,
+  then check local authority immediately before one `mergePullRequest` mutation
+  with `expectedHeadOid` and `mergeMethod: MERGE`. Never enable auto-merge, enqueue,
+  bypass protections, push directly to the base, or update repository rules.
+- GitHub's merge API has an expected-head condition but no expected-base condition.
+  The execution contract therefore depends on enforced strict up-to-date checks
+  to reject competing base advancement, with host protections remaining enabled
+  through the operation. It is not a base compare-and-swap API. Keep the exact
+  actual-parent/tree/ancestry receipt check: a different actual base cannot
+  silently complete a task even after a successful host response. Concurrent
+  administrative weakening of protections or PR retargeting is outside Runner's
+  authority; host policy and destination must remain stable during dispatch.
+- Durably mark dispatch before sending. One publication may send at most one merge
+  mutation; timeout, malformed response, process loss or rejection consumes that
+  permission. Inspect once after dispatch and on restart; never replay the write.
+  An open or unavailable result is explicit unresolved attention with `task
+  integrate` as recovery. A blocked pre-dispatch request may be explicitly retried
+  after resolution. Neither outcome polls or consumes a model/repair budget.
+- Confirm completion only through the existing exact merge receipt transaction.
+  A success response alone cannot complete work. Preserve the admission and write
+  marker in show/JSON and distinguish queued merge, blocked admission, uncertain
+  dispatch and confirmed completion. Format 12 requires fresh private state.
+
+Extend the existing integration Git/SQLite fixture with sequential admission,
+base/CI changes, one conditional dispatch, failed/lost response, restart before
+and after dispatch, and stop before the write. Reuse existing integration tests
+for reservations, concurrent local work, completion races and dependencies. Extend
+the GitHub protocol suite for complete live policy decoding, denied/unknown or
+missing fields, exact conditional mutation and authorization at dispatch. Keep
+all remote writes controlled; qualify the new production query/schema read-only
+against GitHub and exercise the built CLI. No role prompt or model behavior changes.
+Run race tests (15-minute package budget, as qualified above), vet and build;
+review the complete diff and record evidence here. Stop after explicit guarded
+merge and receipt recovery. Ready writes, automatic policy/polling, queue support,
+squash/rebase, ruleset-only guards, cleanup and release remain separate bundles.
+
+### Using explicit Runner-owned merge
+
+Complete current-base verification, draft synchronization and pinned CI as before.
+A human marks the PR ready and obtains any host reviews. Inspect `task show ID`,
+then explicitly authorize one merge:
+
+```sh
+runner-next --config /absolute/path/runner.json task merge TASK_ID
+runner-next --config /absolute/path/runner.json run # if absent or drained
+runner-next --config /absolute/path/runner.json task show TASK_ID
+```
+
+The command queues admission; it does not promise that GitHub will accept a merge.
+Runner uses the same coordinator, capacity, drain and repository/base ownership
+as integration inspection. Human merging remains available, and `task integrate`
+still only observes. There is no new configuration key, model profile or retry
+budget. The delivery mode retains its `github-draft` name because publication
+still creates drafts; this command separately authorizes integration.
+
+The first execution contract is intentionally narrow: an ordinary merge commit
+on a ready PR, a classic branch protection rule with strict required status checks
+and admin enforcement, no force-push/deletion/bypass allowances, no viewer bypass,
+and no active auto-merge or merge queue. The repository and classic protection rule must allow merge commits.
+GitHub must report a clean, mergeable PR with satisfied review requirements.
+Additional host rules still apply at the normal merge mutation. Runner does not
+change repository protections or ready state. A ruleset-only repository remains
+eligible for human integration, but not this Runner-owned write path.
+
+The [GitHub merge input](https://docs.github.com/en/graphql/reference/pulls#mergepullrequestinput)
+can require the exact head but has no expected-base argument. Runner fetches and
+compares the base, re-reads host policy and pinned CI, and sends the expected head.
+The documented [strict up-to-date protection](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches#require-status-checks-before-merging)
+provides the host guard against competing base advancement. This depends on the
+protections remaining enabled; Runner cannot prevent an administrator changing
+them or retargeting the PR during a request. The merge API cannot atomically pin
+the base branch either; destination and policy must remain stable during dispatch.
+Admission reads the rule attached to the actual base ref
+through the [branch protection schema](https://docs.github.com/en/graphql/reference/branches#branchprotectionrule),
+not a locally inferred branch-name pattern. The actual merge still needs the
+existing exact-parent, exact-tree and fetched-ancestry receipt. Neither an old
+policy snapshot nor a successful mutation response completes a task by itself.
+
+| Result | Next action |
+| --- | --- |
+| Queued or active merge | Let the coordinator finish admission; unrelated eligible work can continue within capacity. |
+| Blocked before dispatch | Resolve the displayed host review, protection, draft or CI issue, then explicitly request `task merge ID` again. There is no automatic retry. |
+| Base moved before dispatch | Return the PR to draft; use `task verify-base ID` and complete refresh/checks/review/synchronization/CI before another merge request. |
+| Dispatch consumed, outcome uncertain | Use `task integrate ID` to inspect again. A timeout, rejection, lost response or crash never grants another write for the same publication. If it remains open, a human may resolve host requirements and merge through GitHub, then request inspection. |
+| Confirmed exact merge | Task completes with a receipt and releases dependencies. Repeating integration or stopping completed work is harmless. |
+
+`task show` and JSON retain the immutable dispatch time, exact evidence request,
+PR/protection identifiers and admission detail even after later inspections.
+Stop/replacement revokes work that has not been sent; a dispatched mutation may
+still take effect remotely. Its result cannot complete a revoked task. Startup
+may repeat admission that was never dispatched; once the dispatch record exists,
+startup only inspects. No claim is made that transport dispatch happens exactly
+once: the deliberately conservative guarantee is **at most one send**, including
+when a crash occurs between recording intent and sending it.
+
+Store format 12 deliberately requires fresh private state. Preserve older stores
+with their matching binary; no in-flight authority is imported. This bundle does
+not ready PRs, poll, enable auto-merge, enqueue, squash/rebase, delete branches,
+close issues, update boards or qualify a release.
+
+### Explicit merge qualification
+
+Implemented on 2026-10-15. The existing integration fixture and protocol seams
+were extended; no second scheduler, test framework, dependency or role prompt was
+introduced.
+
+| Evidence | Result |
+| --- | --- |
+| Real Git/SQLite merge journey | Blocked review/draft, head/base drift, fetched-base drift, changed CI or protection after fetching, lost response, restart before/after the durable dispatch record, and stop at transport all preserve authority. An uncertain write cannot be reauthorized or reset; a later exact receipt completes without another write or model invocation. |
+| Existing integration coverage | The full suite retains repository/base serialization, shared capacity/drain, unrelated work during slow reads, stale completion rejection and dependency/parent completion checks. Merge uses that same reservation and receipt transaction. |
+| GitHub protocol | Complete host admission, absent/unknown fields, queues, auto-merge, bypass, loose/absent checks, linear history and wrong identities cannot dispatch. The mutation uses the recorded PR ID, exact expected head and ordinary merge method; revoked authorization, mismatched admission and incomplete responses fail without internal retry. |
+| Built binary | Nine CLI commands exercised explicit request/JSON, blocked status, pre-dispatch retry, uncertain outcome, refused second write, read-only recovery and confirmed completion. The coordinator steps used controlled host observations and real Git/store; no live merge was performed. |
+| Read-only GitHub | The final production query ran against historical `cortexium-io/runner#105` and decoded merge availability, queue, bypass and selected CI identity. This PR did not expose a classic protection rule, so positive protected admission and writes were qualified by protocol fixtures, not a live protected merge. |
+| Required gates | `go test -race -timeout 15m ./...` passed (replacement engine about 642 seconds), as did `go vet ./...` and `go build -o /tmp/runner-next-merge ./cmd/runner-next`, on Go 1.27.1/macOS arm64 and Git 2.54.0. |
+
+The fifteen-minute package budget carries forward the previous bundle's measured
+suite requirement; no assertion or operation deadline was weakened. After final
+review tightened mutation/admission binding and rejected linear-history rules,
+the affected adapter tests passed again under race detection. Final CLI/config/
+store/core race checks, vet, build and the final read-only query also passed.
+The complete diff was reviewed and `git diff --check` passed. Qualification logs
+remain locally at `/tmp/runner-merge-*.log`; temporary qualification drivers were
+removed. No paid model evaluation was needed because model behavior is unchanged.
+
+Stop here. Runner-owned execution supports the explicit protected ordinary-merge
+contract above. Live protected merge execution, ready-state writes, automatic
+merge policy, merge queues, ruleset-only guards, squash/rebase receipts, polling,
+post-completion cleanup and platform/release qualification remain unimplemented
+or unqualified as described; none is implied by these checks.
 
 ### Simple upgrade or deliberate break
 
@@ -2968,7 +3117,7 @@ rows or explicitly revise the scope.
 | Durable admission, candidate binding and no blind replay | 1; extend in 3 | S2/S4/S5: real-store interruption and saved-result tests; the first phase 3 bundle adds durable draft intent, shared reservations and ambiguous publication recovery without repeated PR creation. |
 | Readiness and repository quality | 1/2 | Third phase 2 qualification proves explicit agreement changes, immutable task pins and adoption, scoped observed exceptions, unavailable checks, source-bound candidate checks and unchanged task-proof requirements. The live reviewer pair accepts a legitimate exception and rejects a task defect. |
 | Plan and dependency success | 2/3 | Second phase 2 bundle proves atomic release, missing/cyclic dependency rejection, stale plan rejection, parent revocation and exact-version waits. Awaiting delivery cannot satisfy dependencies. Phase 3 bundle 7 proves exact child integration, dependency release, original-release parent completion and closed-unmerged handling. |
-| Continuous reconciliation and resource safety | 1; extend in 2/3 | S2/S3: exclusive ownership and responsive reconciliation; the first phase 2 bundle proves shared capacity and task/workspace claims across CLI/service; future browser/shared-data capabilities must add their resource claims; phase 3 bundle 7 proves serialized human-integration inspection without blocking unrelated work; Runner-owned merge writes remain pending. |
+| Continuous reconciliation and resource safety | 1; extend in 2/3 | S2/S3: exclusive ownership and responsive reconciliation; the first phase 2 bundle proves shared capacity and task/workspace claims across CLI/service; future browser/shared-data capabilities must add their resource claims; phase 3 bundle 7 proves serialized integration inspection without blocking unrelated work; bundle 8 reuses that reservation for one explicit guarded merge and inspection-only recovery. |
 | Bounded recovery and understandable configuration | 1; extend in 2/3 | S7 validates the limited policy. The first phase 2 bundle proves Ready repair allowance, persistent backoff, rejection-only escalation, invocation budgets and live policy changes without counter resets. Phase 3 proves bounded refresh/review cycles. |
 | Independent, sufficient, economical verification | 1; extend in 2 | S6 plus live candidate review. The first phase 2 paired behavioral cases cover fabricated proof, weakened checks, legitimate consolidation and speculative review; no infrastructure error becomes a code rejection. |
 | Provider-neutral architecture and optional views | 1/3/5 | S1 runs without `gh`/Projects. Phase 3 delivery requires no board. Phase 5 disconnect/reconnect and reordered updates converge safely; Trello needs no core scheduling/approval change and exposes no private evidence. |

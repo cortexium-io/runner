@@ -63,8 +63,16 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 		if old.Revision != p.Revision {
 			return ErrConflict
 		}
-		if core.Digest(old.Intent) != core.Digest(p.Intent) || old.CreateRequested && !p.CreateRequested {
-			return errors.New("publication intent cannot change or regain create authority")
+		if core.Digest(old.Intent) != core.Digest(p.Intent) || old.CreateRequested && !p.CreateRequested || old.MergeDispatch != nil && core.Digest(old.MergeDispatch) != core.Digest(p.MergeDispatch) {
+			return errors.New("publication intent cannot change or regain write authority")
+		}
+	}
+	if p.MergeDispatch != nil && old.MergeDispatch == nil && (!old.Occupying || !p.Occupying || old.IntegrationRequest == nil || !old.IntegrationRequest.Merge || core.Digest(p.IntegrationRequest) != core.Digest(old.IntegrationRequest)) {
+		return errors.New("merge dispatch requires a reserved explicit request")
+	}
+	if d := p.MergeDispatch; d != nil && old.MergeDispatch == nil {
+		if core.Digest(d.Request) != core.Digest(p.IntegrationRequest) || !d.Admission.Eligible || d.Admission.PullRequestID == "" || d.Admission.ProtectionRuleID == "" || d.RequestedAt.IsZero() {
+			return errors.New("merge dispatch lacks exact evidence and admission")
 		}
 	}
 	if p.Revision == 0 {
@@ -120,6 +128,19 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 
 		if p.IntegrationRequest != nil && (p.CIRequest != nil || !p.IntegrationRequest.Matches(t, old)) {
 			return ErrConflict
+		}
+
+		if p.IntegrationRequest != nil && p.IntegrationRequest.Merge {
+			tasks, err := transactionTasks(ctx, tx)
+			if err != nil {
+				return err
+			}
+			if core.PrerequisiteWait(t, tasks) != "" {
+				return ErrConflict
+			}
+			if old.MergeDispatch != nil && (old.IntegrationRequest == nil || core.Digest(old.IntegrationRequest) != core.Digest(p.IntegrationRequest)) {
+				return errors.New("merge was already dispatched; use task integrate to inspect only")
+			}
 		}
 
 		var drained bool

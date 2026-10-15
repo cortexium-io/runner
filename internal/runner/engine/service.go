@@ -27,6 +27,7 @@ type Engine struct {
 	Bases        BaseHost
 	Checks       ChecksHost
 	Integrations IntegrationHost
+	Merges       MergeHost
 	clock        func() time.Time
 }
 

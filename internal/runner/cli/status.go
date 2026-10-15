@@ -113,7 +113,8 @@ task resume ID --attempt ID [--allow-new-invocation]
 task delivery ID --reconcile          Inspect and safely continue draft publication/synchronization.
 task verify-base ID                  Inspect current base; refresh or queue bounded conflict repair.
 task assess-ci ID                    Observe pinned hosted checks for the confirmed draft.
-task integrate ID                    Inspect the known PR for a confirmed human merge.
+task integrate ID                    Inspect the known PR for a confirmed merge (read-only).
+task merge ID                        Authorize one guarded ordinary merge of a ready PR.
 task stop ID                         Revoke authority; retain work and evidence.
 status [--json] [--watch 2s]          Read-only attention, work, waits and retained results.
 config edit [--set KEY=VALUE]         Interactive editor or preview named changes.
@@ -126,6 +127,7 @@ drain                                Stop admission and wait for active work to 
 
 Use COMMAND --help for flags. Status and show never start work. Local delivery
 retains an accepted candidate at Awaiting delivery. task integrate ID inspects
-an ordinary human merge of the exact verified candidate; Runner never requests
-a merge. Confirmed integration completes the task and releases dependent work.`)
+an ordinary merge of the exact verified candidate. task merge ID explicitly
+authorizes one guarded merge of a ready PR; recovery never repeats that write.
+Confirmed integration completes the task and releases dependent work.`)
 }

@@ -2,8 +2,9 @@ package core
 
 import "time"
 
-// IntegrationRequest pins the evidence for a read, never authority to merge.
+// IntegrationRequest pins exact evidence. Merge is explicit one-shot operator authority.
 type IntegrationRequest struct {
+	Merge    bool      `json:"merge,omitempty"`
 	Proof    BaseProof `json:"base_proof"`
 	CIDigest string    `json:"ci_digest"`
 }
@@ -16,9 +17,31 @@ type IntegrationObservation struct {
 	Checks      []RemoteCheck     `json:"checks"`
 }
 
+// MergeAdmission records the host gate; it cannot grant local task authority.
+type MergeAdmission struct {
+	Eligible         bool   `json:"eligible"`
+	Detail           string `json:"detail"`
+	PullRequestID    string `json:"pull_request_id"`
+	ProtectionRuleID string `json:"protection_rule_id"`
+}
+
+// MergeDispatch is immutable evidence that a mutation may have reached the host.
+// Its presence permanently consumes write authority for this publication.
+type MergeDispatch struct {
+	Request     IntegrationRequest `json:"request"`
+	Admission   MergeAdmission     `json:"admission"`
+	RequestedAt time.Time          `json:"requested_at"`
+}
+
+type MergeObservation struct {
+	IntegrationObservation
+	Admission MergeAdmission `json:"admission"`
+}
+
 type IntegrationAssessment struct {
+	Admission   *MergeAdmission         `json:"admission,omitempty"`
 	Request     IntegrationRequest      `json:"request"`
-	State       string                  `json:"state"` // open, closed, unavailable, stale, confirmed
+	State       string                  `json:"state"` // open, closed, unavailable, stale, blocked, uncertain, confirmed
 	Detail      string                  `json:"detail"`
 	ObservedAt  time.Time               `json:"observed_at"`
 	BaseTip     string                  `json:"base_tip,omitempty"`

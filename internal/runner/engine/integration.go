@@ -15,6 +15,14 @@ type IntegrationHost interface {
 }
 
 func (e *Engine) InspectIntegration(ctx context.Context, id string) error {
+	return e.requestIntegration(ctx, id, false)
+}
+
+func (e *Engine) RequestMerge(ctx context.Context, id string) error {
+	return e.requestIntegration(ctx, id, true)
+}
+
+func (e *Engine) requestIntegration(ctx context.Context, id string, merge bool) error {
 	if err := e.validate(ctx); err != nil {
 		return err
 	}
@@ -36,18 +44,30 @@ func (e *Engine) InspectIntegration(ctx context.Context, id string) error {
 	if p.Occupying {
 		return errors.New("publication still owns its reservation")
 	}
-	if p.IntegrationRequest != nil {
+	if merge && p.MergeDispatch != nil {
+		return errors.New("merge was already dispatched; task integrate inspects the outcome without repeating the write")
+	}
+	if p.IntegrationRequest != nil && (!merge || p.IntegrationRequest.Merge) {
 		return nil
 	}
 	p.State = "published"
-	p.IntegrationRequest = &core.IntegrationRequest{Proof: *t.BaseProof, CIDigest: core.Digest(p.CI)}
+	p.IntegrationRequest = &core.IntegrationRequest{Merge: merge, Proof: *t.BaseProof, CIDigest: core.Digest(p.CI)}
 	return e.savePublication(ctx, p)
 }
 
 func (e *Engine) inspectIntegration(ctx context.Context, p core.Publication) error {
 	r := core.IntegrationAssessment{Request: *p.IntegrationRequest, State: "unavailable"}
-	if err := e.readIntegration(ctx, p, &r); err != nil {
-		r.State, r.Detail = "unavailable", err.Error()
+	var readErr error
+	if r.Request.Merge && p.MergeDispatch == nil {
+		readErr = e.mergeIntegration(ctx, &p, &r)
+	} else {
+		readErr = e.readIntegration(ctx, p, &r)
+	}
+	if readErr != nil {
+		r.State, r.Detail = "unavailable", readErr.Error()
+	}
+	if p.MergeDispatch != nil && r.State != "confirmed" {
+		r.State, r.Detail = "uncertain", "Merge dispatch consumed; no write will repeat. "+r.Detail+" Use task integrate to inspect again."
 	}
 	r.ObservedAt = e.now()
 	t, err := e.Store.Task(context.Background(), p.Intent.TaskID)
