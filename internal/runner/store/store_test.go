@@ -128,7 +128,7 @@ func TestCorruptStoreIsNotReplacedByOpen(t *testing.T) {
 }
 
 func TestPreviousStoreRequiresFreshStateWithoutModification(t *testing.T) {
-	for _, format := range []int{1, 2} {
+	for _, format := range []int{1, 2, 3} {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			dir := t.TempDir()
 			if err := os.Chmod(dir, 0700); err != nil {

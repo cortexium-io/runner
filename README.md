@@ -8,8 +8,10 @@ Phase 2 now adds configurable capacity, bounded retry/repair, escalation, live
 policy preview/apply, Plan proposals with atomic release and dependency waits,
 and planner preparation for Ready tasks missing verification briefs. See the
 [Plan guide and qualification](docs/runner-redesign-proposal.md#using-plan-and-ready-preparation).
-This milestone requires fresh private state (store format 3) and still stops at
-**Awaiting delivery**. Quality-agreement revisions, delivery and external views
+It also supports [quality-agreement revisions and scoped baseline exceptions](docs/runner-redesign-proposal.md#using-quality-agreements),
+with explicit task adoption and Runner-owned candidate checks.
+This milestone requires fresh private state (store format 4) and still stops at
+**Awaiting delivery**. The remaining operator interface, delivery and external views
 remain pending. The documentation below describes the existing
 `cortexium-runner` release.
 

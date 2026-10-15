@@ -455,7 +455,7 @@ func (g Git) CheckQuality(ctx context.Context, base string) error {
 		}
 		sum := sha256.Sum256([]byte(r.Stdout))
 		if hex.EncodeToString(sum[:]) != expected {
-			return fmt.Errorf("quality source %s changed; quality agreement changes require a fresh setup in slice 1", name)
+			return fmt.Errorf("quality source %s changed; apply a quality revision and explicitly adopt it, or use the pinned base", name)
 		}
 	}
 	return nil
@@ -518,4 +518,22 @@ func verifyCopyGit(dir string, before CopyState) error {
 		return errors.New("verification changed source inventory")
 	}
 	return nil
+}
+
+func ResolveQuality(ctx context.Context, c config.Config, base string, spec config.QualitySpec) (config.Quality, error) {
+	q := config.Quality{Definition: spec.Definition, Checks: spec.Checks, Base: base, Sources: map[string]string{}, Documents: map[string]string{}}
+	p, err := profile(ctx, c.Repository.Path)
+	if err != nil {
+		return q, err
+	}
+	for _, name := range spec.Sources {
+		r, err := subprocess.RunPrivilegedGit(ctx, nil, p, []string{"show", base + ":" + name}, 30*time.Second)
+		if err != nil {
+			return q, err
+		}
+		digest := sha256.Sum256([]byte(r.Stdout))
+		q.Sources[name] = hex.EncodeToString(digest[:])
+		q.Documents[name] = r.Stdout
+	}
+	return q, nil
 }

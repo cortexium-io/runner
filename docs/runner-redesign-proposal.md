@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phase 1 qualified on 2026-10-14. The phase 2 Ready-policy and Plan/preparation bundles are implemented and qualified in `codex/runner-local-core`; evidence is recorded below. Quality-agreement changes and the remaining operator interface are still pending in phase 2.
+Status: Phase 1 qualified on 2026-10-14. The phase 2 Ready-policy, Plan/preparation and quality-agreement bundles are implemented in `codex/runner-local-core`; qualification is recorded below. The remaining operator interface and acceptance journey are still pending in phase 2.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -17,7 +17,7 @@ The direction is recorded in [ADR 0005](decisions/0005-local-runner-core.md).
 This is the designated replacement specification and build sequence, under
 [AGENTS.md](../AGENTS.md). The [architecture](architecture.md) and existing
 operator guides describe the Project-backed runtime. `cmd/runner-next` now
-implements the first-slice commands plus the two qualified phase 2 bundles below. Other release
+implements the first-slice commands plus the three phase 2 bundles below. Other release
 capabilities remain build contracts and require a separate implementation instruction.
 
 Start with [release scope](#first-release-scope), [core contracts](#core-contracts),
@@ -896,7 +896,7 @@ signals. Do not simulate GitHub payloads or reproduce the engine in a fake.
 | Case | Expected result and proof boundary |
 | --- | --- |
 | S1 Setup and happy journey | Through real commands, create/approve one task, implement, independently review and reach Awaiting delivery. Verify durable candidate/evidence after reopen, untouched original checkout, and no fetch/push/merge/board calls. Use controlled harness output here; qualify the real adapter separately. |
-| S2 Stale approval and competing claims | Change version, base observation or quality revision after preview: approval fails without a launch. Exact repeat returns the same approval. Competing store connections cannot reserve two owners. Exercise real transactions, not only mocked return values. |
+| S2 Stale approval and competing claims | Change version or base observation after preview: approval fails without a launch. Exact repeat returns the same approval. A default quality change preserves existing task pins; explicit adoption invalidates the old version. Competing store connections cannot reserve two owners. Exercise real transactions, not only mocked return values. |
 | S3 Responsive coordinator | Hold an implementation on a signal while status, stop/drain and unrelated deterministic reconciliation remain responsive. A second coordinator is rejected. No arbitrary sleeps or global harness lock around the loop. |
 | S4 Interruption and saved results | Fault at each recovery-table boundary; reopen state. Valid implementation/review results avoid another call. Unknown or surviving execution blocks conflicting claims. Counters/history are not discarded. |
 | S5 Authority and candidate integrity | Revoke or replace while a call is active; late output cannot advance. Change candidate bytes, base binding or repository/workspace identity; saved acceptance cannot be reused. Use real Git/filesystem fixtures for the integrity claims. |
@@ -984,8 +984,10 @@ actual settings; queued actions use the applied policy. Pending transient retrie
 and explicit interrupted resumes retain their original profile, including after
 that named profile is edited or removed. This bundle does not offer a retry-profile
 override or interactive policy editor. `init` now handles initial setup only.
-Changing repository identity, roots or the quality agreement requires fresh
-setup in this slice. Editing a task file has no effect until `task replace`.
+Changing repository identity or roots requires fresh setup. Use the
+[quality workflow](#using-quality-agreements) to revise the default agreement and
+explicitly adopt it on existing work. Editing a task file has no effect until
+`task replace`; replacement preserves that task's pinned quality revision.
 
 The runtime consists of [core values](../internal/runner/core/types.go),
 [strict configuration](../internal/runner/config/config.go),
@@ -994,9 +996,10 @@ The runtime consists of [core values](../internal/runner/core/types.go),
 [Codex/process execution](../internal/runner/execution/),
 [Git and disposable-copy operations](../internal/runner/workspace/) and
 [CLI/setup presentation](../internal/runner/cli/). The coordinator consumes one
-execution interface. Git protection reuses the existing workspace and subprocess
+model execution interface and a small native-check interface. Git protection reuses the existing workspace and subprocess
 primitives; the replacement imports no old engine, execution or GitHub package.
-The schema contains only settings/history, task versions and attempt reservations.
+The schema contains settings/history, task versions, attempt reservations and
+immutable quality agreements/baseline reports.
 
 #### Phase 1 evidence
 
@@ -1007,7 +1010,7 @@ unrelated edits in the original checkout were preserved.
 | Proof | Owning evidence and observed result |
 | --- | --- |
 | S1 | [CLI journey](../internal/runner/cli/cli_test.go) exercises setup preview/apply, a committed-base baseline despite an uncommitted checkout edit, add/show/approve/run, active status, drain, retained acceptance and read-only reopen. Real SQLite and Git; one small controlled harness. |
-| S2 | [Store transactions](../internal/runner/store/store_test.go) reject competing connections and roll back the losing claim. [Core/engine tests](../internal/runner/engine/engine_test.go) reject changed base/version/quality previews and preserve exact repeated approval. |
+| S2 | [Store transactions](../internal/runner/store/store_test.go) reject competing connections and roll back the losing claim. [Core/engine tests](../internal/runner/engine/engine_test.go) reject changed base/version previews and preserve exact repeated approval. The third phase 2 bundle replaces the original global quality invalidation with explicit adoption and immutable task pins. |
 | S3 | The engine suite holds execution on a signal while status, unrelated draft creation and stop remain responsive. A second coordinator is rejected; cancellation and drain settle without sleep-based synchronization. |
 | S4 | The engine suite reopens saved implementation results before and after candidate construction, and saved audit results before acceptance; exactly two attempts remain. Reserved work requires explicit recovery; surviving/unknown process groups keep ownership. [Process tests](../internal/runner/execution/process_test.go) prove a failed durable launch callback cannot execute the command and cancellation targets the owned group. |
 | S5 | Engine tests reject modified candidate bytes and discard stopped/replaced authority while retaining late evidence. Existing workspace identity/candidate tests continue to cover the reused Git boundary. |
@@ -1346,11 +1349,218 @@ RUNNER_LOCAL_LIVE_MODEL=gpt-6.1-sol RUNNER_LOCAL_LIVE_REASONING=high \
   -count=1 -v -timeout=8m
 ```
 
-Stop this bundle here. Before continuing phase 2, define the next bounded brief
-for quality-agreement revisions, scoped baseline exceptions and their effect on
-existing approvals/proof. Attention-first status presentation, the interactive
-policy editor and the operator acceptance journey also remain open. Delivery, confirmed integration and external
-views retain their later phase boundaries.
+This bundle stopped before quality-agreement changes, now covered by the third
+brief below. Attention-first status presentation, the interactive policy editor
+and the operator acceptance journey remain open. Delivery, confirmed integration
+and external views retain their later phase boundaries.
+
+### Third phase 2 bundle — quality revisions and baseline exceptions
+
+Authorized on 2026-10-15. Keep one coordinator and private store. Add an explicit
+quality workflow and task adoption; stop before delivery, the interactive policy
+editor and broader operator presentation work.
+
+The supported journey and authority are:
+
+1. `quality preview --file QUALITY.json` resolves a definition, repository-relative
+   policy sources and named checks against the observed committed base. Each check
+   specifies a shell command, relative working directory, executable prerequisites
+   and timeout. Checks use a fixed isolated environment: PATH plus private HOME/
+   TMPDIR and a fixed locale, no inherited credentials or arbitrary environment
+   configuration. The preview shows the exact commands and environment contract.
+2. `quality check --file QUALITY.json --preview DIGEST` explicitly authorizes those
+   checks in disposable base copies. Record pass, observed failure, or unavailable
+   separately, with exit code, exact output digest and private evidence. Capture
+   source identity and reject commands that alter source or Git controls. A failed
+   baseline is retained as evidence, never silently applied. Initial `init --apply`
+   may establish repository state without an agreement; approval/execution waits
+   for an applied agreement. Existing concise `init --check` setup uses this same
+   check machinery and applies only a completely passing baseline.
+3. `quality preview --report ID [--exceptions EXCEPTIONS.json]` displays the proposed
+   resolved agreement, blockers and apply digest. An exception names one failed
+   check, a nonempty rationale and exact existing source/test paths identifying the
+   affected behavior. Runner pins those files and that failure's exit/output digest
+   from the baseline. No globs, entire-command ignore switch, unavailable checks,
+   missing tools, timeouts or unresolved process ownership can be excepted.
+4. `quality apply --report ID [--exceptions EXCEPTIONS.json] --preview DIGEST` saves
+   the immutable agreement and makes it the default for new work. Reject changed
+   reports/specifications, moved bases and stale previews; recheck the previous
+   default transactionally. Do not reset counters, cancel work, or change existing
+   task approvals merely because the default changes. Read-only `quality show`
+   exposes the active agreement; `--revision DIGEST` inspects retained history.
+5. Every task, attempt, planning release, candidate check and reviewer uses its
+   pinned agreement from history, including after restart. Source-policy edits
+   cannot weaken it. `task adopt-quality ID --version N --preview DIGEST` explicitly
+   selects the current default shown by `task show`, creates an unapproved version
+   with the same body/dependencies, and revokes old actions. Clear prepared proof,
+   proposals and candidate acceptance; retain old versions, attempts and evidence.
+   Repeating the exact adoption is harmless. Released plans remain immutable;
+   stop and create a new plan to change their batch. Individual children may adopt,
+   with the ordinary dependency-version rules still applying.
+6. Runner executes pinned quality checks on a disposable implementation copy before
+   allowing candidate review. This work runs in the existing worker/reservation,
+   with durable process identity and normal cancellation, without a model call or
+   extra scheduler. Save results on the attempt and supply them to review. Passing
+   checks pass normally; an exception permits only the same failure with all its
+   scoped files unchanged. New/changed failures and missing proof block progress.
+   Exceptions cannot waive task acceptance or permit weakened assertions. Saved
+   complete results can advance after restart without rerunning checks; interrupted
+   work uses the existing explicit recovery rule. No check is silently replayed.
+
+Use store format 4 and fresh private roots; no conversion of old approvals or
+in-flight state. Add only immutable agreement/report tables and check evidence on
+attempts. Keep execution-policy changes separate from agreement changes. Reuse
+native containment, disposable-copy integrity, admission and cancellation helpers.
+
+Verification brief before coding: extend the existing real-store suites for
+competing agreement applies, immutable history and stale default rejection; core/
+config tests for exception bounds and unavailable-versus-failed results; engine
+tests for pinned old/new tasks, explicit adoption and late results, saved checked
+results after reopen, matching exceptions versus changed failures or scoped files,
+and unchanged task-proof requirements. Extend the CLI journey for preview/check/
+apply/show and read-only inspection. Qualify the actual native command boundary
+with a disposable failed baseline, matching/changed failures and unavailable
+prerequisites. If role instructions change, run a small selected live reviewer
+pair with `gpt-6.1-sol / high`. Run `go test -race ./...`, `go vet ./...` and build
+`cmd/runner-next`; platform/release qualification remains at release.
+
+#### Using quality agreements
+
+Use fresh private state/workspace roots for format 4. Older formats are rejected
+without conversion or mutation. `init --apply` without `--check` creates a drained
+setup; submitting work waits for an applied quality agreement. The concise
+`init --check` route remains available for entirely passing baselines, with checks
+named `check-1`, `check-2`, etc. It uses a 20-minute timeout and `sh` prerequisite.
+Use a specification for descriptive names, tool prerequisites and per-check limits:
+
+```json
+{
+  "definition": "Satisfy the approved outcome; preserve existing behavior and reuse the owning test suite.",
+  "sources": ["AGENTS.md"],
+  "checks": [
+    {
+      "id": "unit",
+      "command": "python3 -B -m unittest",
+      "directory": ".",
+      "prerequisites": ["python3"],
+      "timeout": "2m"
+    }
+  ]
+}
+```
+
+Replace this example with the target repository's established checks and policy
+files. Source documents come from the committed base, excluding checkout edits.
+Runner records PATH at preview and uses it for baseline and candidate commands.
+Each command gets a fresh source copy, private HOME/TMPDIR, C locale and no
+inherited credentials or network access. Keep generated output under
+`.runner-output/`; modifying source or Git controls makes the result unavailable.
+Declare required executable names explicitly. A check must use exit 0 for success,
+1–124 for observed failures and 125–127 for prerequisites it cannot satisfy;
+signals, timeouts, output overflow and unresolved process ownership are unavailable.
+Runner cannot infer an undeclared prerequisite failure from arbitrary error text.
+
+```sh
+/tmp/runner-next --config /absolute/runner.json quality preview --file /absolute/quality.json
+/tmp/runner-next --config /absolute/runner.json quality check \
+  --file /absolute/quality.json --preview DISPLAYED_BASELINE_PREVIEW
+/tmp/runner-next --config /absolute/runner.json quality preview --report REPORT_ID
+/tmp/runner-next --config /absolute/runner.json quality apply \
+  --report REPORT_ID --preview DISPLAYED_AGREEMENT_PREVIEW
+/tmp/runner-next --config /absolute/runner.json quality show
+```
+
+`quality check` returns an immutable report, including logs, even when checks fail;
+it does not apply the agreement. To accept a known baseline defect, create an
+exception request such as this, after inspecting its actual failure and scope:
+
+```json
+[
+  {
+    "check_id": "unit",
+    "rationale": "The existing legacy parser defect is outside this work; retain its failing assertion.",
+    "scope": ["legacy/parser.py", "tests/test_legacy_parser.py"]
+  }
+]
+```
+
+Pass `--exceptions /absolute/exceptions.json` to both the report preview and apply.
+The preview shows the exact scoped hashes and observed exit/output digest. A later
+candidate must pass the check or reproduce that exact failure with every scoped
+file unchanged. Output matching is byte-exact: timestamps, timing differences and
+changed diagnostics invalidate the exception. Choose focused, stable checks rather
+than normalizing away new failures or weakening assertions. Scope and rationale
+remain an owner decision; the reviewer still checks task acceptance independently.
+
+Applying changes only the default for new tasks. Existing Ready tasks, Plan
+proposals, released children, retries and saved results retain their agreement.
+`quality show --revision DIGEST` inspects that history. The revision covers the
+whole resolved agreement, including baseline evidence, so recollecting a baseline
+can produce a new revision even with unchanged specification text.
+
+To move an existing task to the new default, inspect `task show TASK_ID`, then run
+`task adopt-quality TASK_ID --version N --preview DISPLAYED_ADOPTION_PREVIEW`.
+This creates the next unapproved version and cancels old authority, retaining its
+attempts and logs. Inspect and approve the new version separately. Prepared briefs,
+proposals and candidates must be recreated. Released plans cannot adopt; their
+children can adopt individually, but dependents still require their exact approved
+prerequisite version. Replacing task text alone preserves its quality revision.
+
+Quality checks run after implementation inside its existing reservation, without
+another model call. Complete saved observations survive restart without rerunning
+commands. A failed/unavailable check blocks review with retained evidence and no
+automatic repair or escalation. Correct requirements or explicitly adopt a corrected
+agreement and approve the resulting version. Interrupted checks use the existing
+explicit recovery command; Runner never silently repeats them.
+
+#### Third phase 2 qualification
+
+Verified on 2026-10-15 with Go 1.27.1 on macOS arm64. `go test -race ./...`,
+`go vet ./...` and the `cmd/runner-next` build passed. The complete diff was reviewed
+for authority gaps, accidental changes and unnecessary complexity. The dependency
+graph still contains no old engine, execution or GitHub package.
+
+The implementation uses two private immutable tables, one native-check interface
+and the existing worker, process and disposable-copy boundaries. There is no second
+scheduler, test framework or delivery adapter. Platform/release checks remain a
+later gate.
+
+| Guarantee | Owning evidence |
+| --- | --- |
+| Immutable default changes and history | [Store quality tests](../internal/runner/store/quality_test.go) use competing SQLite connections: one apply wins, both retained revisions remain readable and execution policy is preserved. Engine rejects stale default previews and moved bases. |
+| Explicit adoption and retained authority | [Engine quality tests](../internal/runner/engine/quality_test.go) cover new-task defaults, stale/repeated adoption and superseded late results. Existing approval/reopen and Plan-release tests now prove that the previous agreement survives a default change. |
+| Exact exceptions and unchanged task obligations | [Config tests](../internal/runner/config/quality_test.go) reject invalid scopes and unavailable evidence. The engine's candidate table covers matching and changed output, changed scope, unavailable checks and missing task proof. Only the matching complete case reaches Awaiting delivery. |
+| Evidence tied to actual source | The same engine table rejects changes to the canonical workspace while checks run and commands that edit their disposable copy. Saved complete checks advance after reopen with a check runner that fails if called again. Existing process/recovery suites own cancellation and retained reservations. |
+| Operator commands and fresh state | The existing [CLI journey](../internal/runner/cli/cli_test.go) covers preview/check/apply/history/adoption and proves inspection does not alter database bytes. Store tests reject formats 1–3 without mutation. |
+
+On 2026-10-15, the native Codex 0.162.1 command qualification passed on macOS arm64:
+three actual sandbox commands produced the known failure, matching failure and
+changed failure; a missing declared tool produced unavailable without launching a
+command. The commands verified that an ambient secret variable was absent.
+This used zero model calls. Private evidence remains at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-quality-checks-825654352`.
+
+Exactly two live reviewer calls used `gpt-6.1-sol / high`, with no retries. The
+correct candidate with a scoped existing failure was accepted; a candidate with a
+task defect was rejected despite the same exception. Both retained their source
+unchanged. This qualifies the selected exception instructions, not general model
+reliability. Prompts, events and results remain at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-ready-eval-2780415215`.
+These temporary local artifacts are not a portable backup. Reproduce deliberately:
+
+```sh
+RUNNER_LOCAL_LIVE_CHECKS=1 go test ./internal/runner/execution \
+  -run '^TestLiveQualityCheckBoundary$' -count=1 -v -timeout=3m
+RUNNER_LOCAL_LIVE_MODEL=gpt-6.1-sol RUNNER_LOCAL_LIVE_REASONING=high \
+  go test ./internal/runner/execution \
+  -run '^TestLiveReadyReviewBehavior/(known_baseline_exception|exception_cannot_waive_task_defect)$' \
+  -count=1 -v -timeout=8m
+```
+
+Stop this bundle before delivery. Attention-first presentation, the interactive
+policy editor and the complete operator acceptance journey remain phase 2 work.
+Delivery/integration, external views, cleanup/backup and platform/release
+qualification retain their later boundaries.
 
 ### Simple upgrade or deliberate break
 
@@ -1574,8 +1784,9 @@ adding arbitrary waits or broad mock-only coverage.
 
 Phase 0 is documented. Phase 1 is implemented at commit `d6d0ddb`; its S1–S7
 proof and live qualification are recorded in [phase 1 evidence](#phase-1-evidence).
-The phase 2 evidence is recorded in the [Ready-policy qualification](#first-phase-2-qualification)
-and [Plan/preparation qualification](#second-phase-2-qualification). Remaining
+The phase 2 evidence is recorded in the [Ready-policy qualification](#first-phase-2-qualification),
+[Plan/preparation qualification](#second-phase-2-qualification) and
+[quality-agreement qualification](#third-phase-2-qualification). Remaining
 phase 2 and later evidence is pending; each later brief must cover its assigned
 rows or explicitly revise the scope.
 
@@ -1583,7 +1794,7 @@ rows or explicitly revise the scope.
 | --- | --- | --- |
 | Local Ready authorization and preserved scope | 1 | S1/S2/S5: exact approval, stale preview rejection, idempotent approval, revocation and retained artifacts. |
 | Durable admission, candidate binding and no blind replay | 1; extend in 3 | S2/S4/S5: real-store interruption and saved-result tests; later ambiguous remote publication with no duplicate PR. |
-| Readiness and repository quality | 1; extend in 2 | S1/S7: authorized passing baseline and concrete missing prerequisites. Phase 2 proves scoped baseline exceptions, policy revision changes and rejection of newly weakened proof. |
+| Readiness and repository quality | 1/2 | Third phase 2 qualification proves explicit agreement changes, immutable task pins and adoption, scoped observed exceptions, unavailable checks, source-bound candidate checks and unchanged task-proof requirements. The live reviewer pair accepts a legitimate exception and rejects a task defect. |
 | Plan and dependency success | 2/3 | Second phase 2 bundle proves atomic release, missing/cyclic dependency rejection, stale plan rejection, parent revocation and exact-version waits. Awaiting delivery cannot satisfy dependencies. Confirmed child integration, parent completion and closed-unmerged handling remain phase 3. |
 | Continuous reconciliation and resource safety | 1; extend in 2/3 | S2/S3: exclusive ownership and responsive reconciliation; the first phase 2 bundle proves shared capacity and task/workspace claims across CLI/service; future browser/shared-data capabilities must add their resource claims; phase 3 proves serialized integration. |
 | Bounded recovery and understandable configuration | 1; extend in 2/3 | S7 validates the limited policy. The first phase 2 bundle proves Ready repair allowance, persistent backoff, rejection-only escalation, invocation budgets and live policy changes without counter resets. Phase 3 proves bounded refresh/review cycles. |

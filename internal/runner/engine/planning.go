@@ -13,6 +13,9 @@ func (e *Engine) AddPlan(ctx context.Context, body string) (core.Task, error) {
 	if err := e.validate(ctx); err != nil {
 		return core.Task{}, err
 	}
+	if err := e.currentQuality(ctx); err != nil {
+		return core.Task{}, err
+	}
 	v, err := core.NewPlanVersion(1, body, e.Settings.RepositoryID, e.policy(), e.Settings.Quality.Revision())
 	if err != nil {
 		return core.Task{}, err
@@ -29,6 +32,11 @@ func (e *Engine) Release(ctx context.Context, id string, version int, preview st
 		return core.Task{}, err
 	}
 	task := view.Task
+	pinned, err := e.taskEngine(ctx, task)
+	if err != nil {
+		return task, err
+	}
+	e = pinned
 	if task.Current().Number != version {
 		return task, store.ErrConflict
 	}

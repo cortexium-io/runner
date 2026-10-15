@@ -2,19 +2,18 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
 	"github.com/cortexium-io/runner/internal/runner/config"
+	"github.com/cortexium-io/runner/internal/runner/engine"
 	"github.com/cortexium-io/runner/internal/runner/execution"
 	"github.com/cortexium-io/runner/internal/runner/store"
 	"github.com/cortexium-io/runner/internal/runner/workspace"
 	"github.com/cortexium-io/runner/internal/securefs"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
 )
 
 type repeated []string
@@ -29,10 +28,10 @@ func (v *repeated) Set(s string) error {
 }
 func (c CLI) init(ctx context.Context, cfg config.Config, args []string) error {
 	f := c.flags("init")
-	apply := f.Bool("apply", false, "apply the displayed setup and run its baseline checks")
+	apply := f.Bool("apply", false, "initialize local authority; run any displayed baseline checks")
 	var commands, sources repeated
-	f.Var(&commands, "check", "authorized baseline command; repeat for each check")
-	f.Var(&sources, "quality-source", "repository-relative quality document; repeat as needed")
+	f.Var(&commands, "check", "authorized root check; repeat as needed")
+	f.Var(&sources, "quality-source", "repository-relative policy source")
 	definition := f.String("definition", "Approved outcome satisfied, scoped changes reviewed, and all required checks pass.", "quality definition")
 	if err := f.Parse(args); err != nil {
 		return err
@@ -40,24 +39,19 @@ func (c CLI) init(ctx context.Context, cfg config.Config, args []string) error {
 	if f.NArg() != 0 {
 		return errors.New("unexpected init argument")
 	}
-	if strings.TrimSpace(*definition) == "" {
-		return errors.New("quality definition must not be empty")
-	}
 	id, base, err := workspace.Observe(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(c.Out, "Repository: %s\nObserved base: %s\nState: %s\nWorkspaces: %s\nUncommitted checkout changes are excluded from the baseline and approved base.\n", cfg.Repository.Path, base, cfg.StateDir, cfg.WorktreeDir)
+	fmt.Fprintf(c.Out, "Repository: %s\nObserved base: %s\nState: %s\nWorkspaces: %s\nUncommitted checkout changes are excluded.\n", cfg.Repository.Path, base, cfg.StateDir, cfg.WorktreeDir)
 	for _, role := range []string{"planner", "implementer", "reviewer"} {
 		name, p := cfg.Role(role)
-		if name == "" {
-			continue
+		if name != "" {
+			fmt.Fprintf(c.Out, "%s: %s = %s / %s, timeout %s\n", role, name, p.Model, p.Reasoning, p.Timeout)
 		}
-		fmt.Fprintf(c.Out, "%s: %s = %s / %s, timeout %s\n", role, name, p.Model, p.Reasoning, p.Timeout)
 	}
-	_, statErr := os.Lstat(filepath.Join(cfg.StateDir, "runner.db"))
-	if statErr == nil {
-		db, err := store.Open(ctx, cfg.StateDir, !*apply)
+	if _, err = os.Lstat(filepath.Join(cfg.StateDir, "runner.db")); err == nil {
+		db, err := store.Open(ctx, cfg.StateDir, true)
 		if err != nil {
 			return err
 		}
@@ -66,37 +60,37 @@ func (c CLI) init(ctx context.Context, cfg config.Config, args []string) error {
 		if err != nil {
 			return err
 		}
-		if id != old.RepositoryID || cfg.Repository != old.Config.Repository || cfg.StateDir != old.Config.StateDir || cfg.WorktreeDir != old.Config.WorktreeDir {
+		if !config.SameRepository(old, config.Settings{Config: cfg, RepositoryID: id}) {
 			return errors.New("incompatible setup: use a distinct state directory")
 		}
-		if len(commands) != 0 || len(sources) != 0 || *definition != f.Lookup("definition").DefValue {
-			return errors.New("quality agreement revisions are not supported yet")
+		if len(commands) > 0 || len(sources) > 0 || *definition != f.Lookup("definition").DefValue {
+			return errors.New("setup exists; use quality preview/check/apply for agreement changes")
 		}
 		if cfg.Revision() != old.Config.Revision() {
-			return errors.New("setup already exists; use config explain, then config apply --preview DIGEST for policy changes")
+			return errors.New("setup exists; use config explain/apply for execution policy changes")
 		}
 		fmt.Fprintln(c.Out, "Setup already applied; quality revision:", old.Quality.Revision())
 		return nil
+	} else if !os.IsNotExist(err) {
+		return err
 	}
-
-	if !os.IsNotExist(statErr) {
-		return statErr
+	spec := config.QualitySpec{Definition: *definition, Sources: sources}
+	for i, command := range commands {
+		spec.Checks = append(spec.Checks, config.QualityCheck{ID: fmt.Sprintf("check-%d", i+1), Command: command, Directory: ".", Prerequisites: []string{"sh"}, Timeout: "20m"})
 	}
-	if len(commands) == 0 {
-		return errors.New("first setup requires at least one explicit --check baseline command")
-	}
-	fmt.Fprintln(c.Out, "Quality:", *definition)
-	for _, command := range commands {
-		fmt.Fprintln(c.Out, "Baseline check:", command)
-	}
-	for _, source := range sources {
-		if filepath.IsAbs(source) || source == ".." || strings.HasPrefix(filepath.Clean(source), "../") {
-			return errors.New("quality sources must be repository-relative")
+	if len(commands) > 0 {
+		if err = spec.Validate(); err != nil {
+			return err
 		}
-		fmt.Fprintln(c.Out, "Quality source:", source)
+	} else if len(sources) > 0 || *definition != f.Lookup("definition").DefValue {
+		return errors.New("quality sources/definition require a check")
+	}
+	fmt.Fprintln(c.Out, "Check environment:", config.CheckEnvironment)
+	for _, check := range spec.Checks {
+		fmt.Fprintf(c.Out, "%s: %s; cwd=%s; timeout=%s\n", check.ID, check.Command, check.Directory, check.Timeout)
 	}
 	if !*apply {
-		fmt.Fprintln(c.Out, "Preview only. Repeat with --apply to run these checks in a disposable base copy and initialize local authority.")
+		fmt.Fprintln(c.Out, "Preview only. Repeat with --apply. Without checks, setup leaves quality unconfigured.")
 		return nil
 	}
 	if err = c.Harness.CheckCapabilities(ctx, cfg); err != nil {
@@ -113,63 +107,32 @@ func (c CLI) init(ctx context.Context, cfg config.Config, args []string) error {
 		return err
 	}
 	defer lock.Close()
-	if _, err = os.Lstat(filepath.Join(cfg.StateDir, "runner.db")); !os.IsNotExist(err) {
-		return errors.New("state appeared during setup; inspect and retry")
-	}
-	copy, err := workspace.BaselineCopy(ctx, cfg, base)
+	db, err := store.Create(ctx, cfg.StateDir, config.Settings{Config: cfg, RepositoryID: id})
 	if err != nil {
 		return err
 	}
-	before, err := workspace.PrepareCopy(ctx, copy)
+	defer db.Close()
+	if len(commands) == 0 {
+		fmt.Fprintln(c.Out, "Initialized and drained. Use quality preview/check/apply before submitting work.")
+		return nil
+	}
+	e := engine.Engine{Store: db, Settings: config.Settings{Config: cfg, RepositoryID: id}, Executor: c.Harness, Checker: c.Harness}
+	p, err := e.PreviewQuality(ctx, spec)
 	if err != nil {
 		return err
 	}
-	quality := config.Quality{Definition: *definition, Sources: map[string]string{}, Documents: map[string]string{}, Commands: commands, Base: base}
-	for _, source := range sources {
-		b, _, _, err := securefs.ReadFile(filepath.Join(copy, source), 1<<20)
-		if err != nil {
-			return err
-		}
-		quality.Sources[source] = stringDigest(b)
-		quality.Documents[source] = string(b)
-	}
-	for i, command := range commands {
-		logPath := filepath.Join(cfg.StateDir, fmt.Sprintf("baseline-%s-%d.log", time.Now().UTC().Format("20060102T150405.000000000"), i))
-		log, err := os.OpenFile(logPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-		if err != nil {
-			return err
-		}
-		checkCtx, cancel := context.WithTimeout(ctx, 20*time.Minute)
-		err = c.Harness.Baseline(checkCtx, copy, command, log)
-		cancel()
-		closeErr := log.Close()
-		if err != nil {
-			return fmt.Errorf("baseline failed; retained copy %s, evidence %s: %w", copy, logPath, err)
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-		quality.Evidence = append(quality.Evidence, logPath)
-	}
-	if err = workspace.VerifyCopy(copy, before); err != nil {
-		return err
-	}
-	afterID, afterBase, err := workspace.Observe(ctx, cfg)
+	report, err := e.RunBaseline(ctx, spec, p.Preview)
 	if err != nil {
 		return err
 	}
-	if afterID != id || afterBase != base {
-		return errors.New("repository/base changed during setup; inspect and repeat")
-	}
-	db, err := store.Create(ctx, cfg.StateDir, config.Settings{Config: cfg, RepositoryID: id, Quality: quality})
+	fmt.Fprintln(c.Out, "Baseline report:", report.ID)
+	p, err = e.PreviewAgreement(ctx, report.ID, nil)
 	if err != nil {
 		return err
 	}
-	if err = db.Close(); err != nil {
-		return err
+	if err = e.ApplyAgreement(ctx, report.ID, nil, p.Preview); err != nil {
+		return fmt.Errorf("setup retained without an applied agreement; inspect quality report %s: %w", report.ID, err)
 	}
-	fmt.Fprintf(c.Out, "Initialized and drained. Baseline passed; quality revision %s. Baseline copy: %s\n", quality.Revision(), copy)
+	fmt.Fprintln(c.Out, "Initialized and drained. Baseline passed; quality revision:", p.Quality.Revision())
 	return nil
 }
-
-func stringDigest(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }

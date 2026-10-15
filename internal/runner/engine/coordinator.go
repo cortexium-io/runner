@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -231,10 +232,11 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 		if err = e.validate(ctx); err != nil {
 			return core.Attempt{}, false, err
 		}
-		if t.Current().Quality != settings.Quality.Revision() {
-			return core.Attempt{}, false, errors.New("approved quality revision changed")
+		pinned, err := e.taskEngine(ctx, t)
+		if err != nil {
+			return core.Attempt{}, false, err
 		}
-		if err = e.git().CheckQuality(ctx, t.Approval.Base); err != nil {
+		if err = pinned.git().CheckQuality(ctx, t.Approval.Base); err != nil {
 			return core.Attempt{}, false, err
 		}
 		a := core.Attempt{
@@ -302,6 +304,11 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 	if !a.Authorized(t) {
 		return fail(errors.New("authority revoked before preparation"))
 	}
+	pinned, err := e.taskEngine(ctx, t)
+	if err != nil {
+		return fail(err)
+	}
+	e = pinned
 	original, err := workspace.Snapshot(ctx, e.Settings.Config.Repository.Path)
 	if err != nil {
 		return fail(err)
@@ -368,6 +375,12 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 		}
 		for _, old := range prior {
 			if old.Role == "implementer" && old.State == "applied" && old.Authorized(t) && old.Candidate != nil && t.Candidate != nil && *old.Candidate == *t.Candidate {
+				r.QualityEvidence = old.Checks
+				for _, check := range old.Checks {
+					if check.Evidence != "" {
+						r.ReadRoots = append(r.ReadRoots, check.Evidence)
+					}
+				}
 				events := filepath.Join(old.EvidenceDir, "events.jsonl")
 				_, _, state, err := securefs.ReadFile(events, 32<<20)
 				if os.IsNotExist(err) {
@@ -382,6 +395,14 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 			}
 		}
 	}
+	for _, check := range e.Settings.Quality.Baseline {
+		if check.Evidence != "" {
+			if _, _, _, err := securefs.ReadFile(check.Evidence, 8<<20); err != nil {
+				return fail(fmt.Errorf("pinned baseline evidence unavailable: %w", err))
+			}
+			r.ReadRoots = append(r.ReadRoots, check.Evidence)
+		}
+	}
 	a.ExecutionDir = r.Dir
 	a.ReadRoots = append([]string(nil), r.ReadRoots...)
 	r.Attempt = a
@@ -393,9 +414,10 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 	}); err != nil {
 		return fail(err)
 	}
+	launchState := "running"
 	started := func(p core.Process) error {
 		a.Process = &p
-		a.State = "running"
+		a.State = launchState
 		return e.mutate(context.Background(), a.TaskID, func(t *core.Task) (*core.Attempt, error) {
 			if !a.Authorized(*t) {
 				return nil, errors.New("authority revoked before launch")
@@ -425,9 +447,47 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 				completion.Kind = "missing_proof"
 			}
 		}
-		if completion.Result != nil && a.Role == "implementer" {
-			a.SourceDigest, a.SourceHead, err = e.git().Binding(context.Background(), t)
-			if err != nil {
+		if completion.Result != nil && a.Role == "implementer" && completion.Error == "" {
+			files, checkErr := workspace.Manifest(r.Dir)
+			if checkErr == nil {
+				a.SourceDigest = core.Digest(files)
+				snapshot, snapshotErr := workspace.Snapshot(ctx, r.Dir)
+				if snapshotErr != nil {
+					checkErr = snapshotErr
+				} else {
+					a.SourceHead = snapshot.Head
+				}
+			}
+			if checkErr == nil {
+				launchState = "checking"
+				a.CheckFiles = map[string]string{}
+				for _, ex := range e.Settings.Quality.Exceptions {
+					for name := range ex.Files {
+						a.CheckFiles[name] = files[name]
+					}
+				}
+				a.Checks, checkErr = e.runChecks(ctx, r.Dir, files, e.Settings.Quality, filepath.Join(a.EvidenceDir, "quality"), started)
+				for _, check := range a.Checks {
+					if !check.Stopped {
+						completion.Stopped = false
+					}
+				}
+				if checkErr == nil {
+					checkErr = e.Settings.Quality.ValidateResults(a.Checks, files)
+				}
+			}
+			if checkErr != nil {
+				completion.Error = checkErr.Error()
+				completion.Kind = core.ProofGap
+			}
+		}
+		if completion.Result != nil && a.Role == "implementer" && completion.Stopped {
+			digest, head, bindingErr := e.git().Binding(context.Background(), t)
+			if bindingErr != nil || digest != a.SourceDigest || head != a.SourceHead {
+				err = errors.New("implementation source or HEAD changed during quality checks")
+				if bindingErr != nil {
+					err = bindingErr
+				}
 				completion.Result = nil
 				completion.Error = err.Error()
 				completion.Kind = "integrity"
@@ -517,6 +577,11 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 	if err := e.validate(ctx); err != nil {
 		return err
 	}
+	pinned, err := e.taskEngine(ctx, *t)
+	if err != nil {
+		return err
+	}
+	e = pinned
 	if a.Quality != e.Settings.Quality.Revision() {
 		return errors.New("saved quality binding changed")
 	}
@@ -534,6 +599,9 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 		outcome = "gap"
 	}
 	if a.Role == "implementer" {
+		if err := e.Settings.Quality.ValidateResults(a.Checks, a.CheckFiles); err != nil {
+			return err
+		}
 		d, head, err := e.git().Binding(ctx, *t)
 		if err != nil {
 			return err

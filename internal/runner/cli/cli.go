@@ -22,7 +22,7 @@ import (
 type Harness interface {
 	engine.Executor
 	CheckCapabilities(context.Context, config.Config) error
-	Baseline(context.Context, string, string, *os.File) error
+	execution.CheckRunner
 }
 type CLI struct {
 	Out     io.Writer
@@ -53,7 +53,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	}
 	args = global.Args()
 	if *path == "" || len(args) == 0 {
-		return errors.New("usage: runner-next --config PATH init|config explain|config apply|task|run|drain|status")
+		return errors.New("usage: runner-next --config PATH init|quality|config explain|config apply|task|run|drain|status")
 	}
 	cfg, err := config.Load(*path)
 	if err != nil {
@@ -62,7 +62,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	if args[0] == "init" {
 		return c.init(ctx, cfg, args[1:])
 	}
-	readonly := args[0] == "status" || (args[0] == "config" && len(args) > 1 && args[1] == "explain") || (args[0] == "task" && len(args) > 1 && args[1] == "show")
+	readonly := (args[0] == "quality" && len(args) > 1 && (args[1] == "preview" || args[1] == "show")) || args[0] == "status" || (args[0] == "config" && len(args) > 1 && args[1] == "explain") || (args[0] == "task" && len(args) > 1 && args[1] == "show")
 	db, err := store.Open(ctx, cfg.StateDir, readonly)
 	if err != nil {
 		return fmt.Errorf("cannot open local authority (inspection never creates it): %w", err)
@@ -75,8 +75,10 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	if !readonly && args[0] != "config" && args[0] != "drain" && !(args[0] == "task" && len(args) > 1 && args[1] == "stop") && settings.Config.Revision() != cfg.Revision() {
 		return errors.New("configuration has unapplied changes; use config explain, then config apply --preview DIGEST")
 	}
-	app := engine.Engine{Store: db, Settings: settings, Executor: c.Harness}
+	app := engine.Engine{Store: db, Settings: settings, Executor: c.Harness, Checker: c.Harness}
 	switch args[0] {
+	case "quality":
+		return c.quality(ctx, &app, args[1:])
 	case "config":
 		if len(args) < 2 {
 			return errors.New("usage: config explain|apply --preview DIGEST")
@@ -182,7 +184,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 }
 func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: task add|show|approve|release|replace|stop|resume")
+		return errors.New("usage: task add|show|approve|release|replace|adopt-quality|stop|resume")
 	}
 	command := args[0]
 	args = args[1:]
@@ -208,7 +210,7 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	case "replace":
 		file = f.String("file", "", "task Markdown")
 		version = f.Int("version", 0, "expected current version")
-	case "approve", "release":
+	case "approve", "release", "adopt-quality":
 		version = f.Int("version", 0, "displayed version")
 		preview = f.String("preview", "", "displayed approval-preview digest")
 	case "show":
@@ -269,6 +271,13 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 		if _, err := e.Release(ctx, id, *version, *preview); err != nil {
 			return err
 		}
+	case "adopt-quality":
+		if *version < 1 || *preview == "" {
+			return errors.New("--version and --preview are required")
+		}
+		if _, err := e.AdoptQuality(ctx, id, *version, *preview); err != nil {
+			return err
+		}
 	case "stop":
 		if err := e.Stop(ctx, id); err != nil {
 			return err
@@ -307,6 +316,9 @@ func (c CLI) printView(v engine.View, full bool) {
 	if full {
 		fmt.Fprintf(c.Out, "%s\nContent digest: %s\nQuality revision: %s\nObserved base: %s\nApproval preview: %s\n", t.Current().Body, t.Current().Digest, t.Current().Quality, v.ObservedBase, v.Preview)
 	}
+	if full && v.QualityAdoptionPreview != "" {
+		fmt.Fprintf(c.Out, "Current default quality: %s\nQuality adoption preview: %s\nAdoption creates an unapproved version and revokes old actions.\n", v.CurrentQuality, v.QualityAdoptionPreview)
+	}
 	if t.Proposal != nil {
 		fmt.Fprintf(c.Out, "Proposal: %d cards; %d open questions\n", len(t.Proposal.Cards), len(t.Proposal.Questions))
 		if v.ReleasePreview != "" {
@@ -341,6 +353,9 @@ func (c CLI) printView(v engine.View, full bool) {
 	}
 	for _, a := range v.Attempts {
 		fmt.Fprintf(c.Out, "Attempt %s: %s / %s; %s / %s; occupying=%t\nEvidence: %s\n", a.ID, a.Role, a.State, a.Profile.Model, a.Profile.Reasoning, a.Occupying, a.EvidenceDir)
+		for _, check := range a.Checks {
+			fmt.Fprintf(c.Out, "Quality check %s: %s; evidence %s; %s\n", check.CheckID, check.Status, check.Evidence, check.Detail)
+		}
 		fmt.Fprintf(c.Out, "Invocation %d; repair %d; transient retry %d; policy %s; elapsed %s\n", a.Invocation, a.Repair, a.Retry, a.PolicyRevision, elapsed(a))
 	}
 	if v.CancellationPending {

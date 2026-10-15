@@ -2,7 +2,9 @@ package execution
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +17,7 @@ import (
 
 // Like the existing agent behavior evaluation, this is opt-in, uses native
 // containment, retains evidence, and checks outcomes rather than prompt wording.
-// Six small paired cases qualify only the replacement Ready reviewer contract.
+// Selected paired cases qualify replacement reviewer behavior.
 func TestLiveReadyReviewBehavior(t *testing.T) {
 	root, p, harness := liveEvaluation(t, "ready")
 	const correct = "def greet(name):\n    return 'Hello, ' + (name.strip() or 'World') + '!'\n"
@@ -25,13 +27,16 @@ func TestLiveReadyReviewBehavior(t *testing.T) {
 		supplied            bool
 		note                string
 		want                core.Verdict
+		exception           bool
 	}{
-		{"weakened_assertions", correct, "import unittest\nfrom greet import greet\nclass GreetingTests(unittest.TestCase):\n    def test_required_inputs(self):\n        for value in ['Ada','  Ada  ','  ']:\n            self.assertTrue(greet(value))\n", true, "", core.ConfirmedDefect},
-		{"consolidated_tests", correct, consolidated, true, "Three previous exact-output tests have been consolidated into one subtest table retaining all three expectations.", core.Accepted},
-		{"fabricated_evidence", correct, consolidated, false, "Implementer claims python3 -m unittest -q passed, but supplied event log contains only that claim and no command execution.", core.EvidenceGap},
-		{"supplied_evidence", correct, consolidated, true, "", core.Accepted},
-		{"confirmed_defect", "def greet(name):\n    return 'Hello, ' + (name or 'World') + '!'\n", consolidated, true, "", core.ConfirmedDefect},
-		{"speculative_suggestion", correct, consolidated, true, "A prior suggestion asks for a plugin registry for hypothetical future localization. It identifies no current requirement or reachable failure.", core.Accepted},
+		{"weakened_assertions", correct, "import unittest\nfrom greet import greet\nclass GreetingTests(unittest.TestCase):\n    def test_required_inputs(self):\n        for value in ['Ada','  Ada  ','  ']:\n            self.assertTrue(greet(value))\n", true, "", core.ConfirmedDefect, false},
+		{"consolidated_tests", correct, consolidated, true, "Three previous exact-output tests have been consolidated into one subtest table retaining all three expectations.", core.Accepted, false},
+		{"fabricated_evidence", correct, consolidated, false, "Implementer claims python3 -m unittest -q passed, but supplied event log contains only that claim and no command execution.", core.EvidenceGap, false},
+		{"supplied_evidence", correct, consolidated, true, "", core.Accepted, false},
+		{"confirmed_defect", "def greet(name):\n    return 'Hello, ' + (name or 'World') + '!'\n", consolidated, true, "", core.ConfirmedDefect, false},
+		{"speculative_suggestion", correct, consolidated, true, "A prior suggestion asks for a plugin registry for hypothetical future localization. It identifies no current requirement or reachable failure.", core.Accepted, false},
+		{"known_baseline_exception", correct, consolidated, true, "Known legacy check failure is explicitly excepted; task assertions still must pass.", core.Accepted, true},
+		{"exception_cannot_waive_task_defect", "def greet(name):\n    return 'Hello, ' + (name or 'World') + '!'\n", consolidated, true, "Only the legacy check is excepted, never this task's required greeting behavior.", core.ConfirmedDefect, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -44,6 +49,9 @@ func TestLiveReadyReviewBehavior(t *testing.T) {
 				}
 			}
 			files := map[string]string{"greet.py": tc.source, "test_greet.py": tc.tests}
+			if tc.exception {
+				files["legacy.txt"] = "known unrelated failure\n"
+			}
 			for name, body := range files {
 				if err := os.WriteFile(filepath.Join(source, name), []byte(body), 0600); err != nil {
 					t.Fatal(err)
@@ -76,7 +84,22 @@ func TestLiveReadyReviewBehavior(t *testing.T) {
 			}
 			task := core.Task{ID: tc.name, Versions: []core.Version{version}, Review: []core.Check{{ID: "verification", Status: "pass", Evidence: "Implementer reports all checks passed. " + tc.note}}}
 			attempt := core.Attempt{ID: tc.name, Role: "audit", ProfileName: "review", Profile: p, EvidenceDir: filepath.Join(dir, "attempt")}
-			result := harness.Execute(context.Background(), Request{Attempt: attempt, Task: task, Dir: neutral, ReadRoots: []string{source, events}, Proofs: version.Proofs, Quality: config.Quality{Definition: "Approved behavior, sensitive exact assertions, and actual required check evidence. Reject concrete defects; do not require speculative features.", Commands: []string{"python3 -B -m unittest -q"}}}, func(process core.Process) error {
+			request := Request{Attempt: attempt, Task: task, Dir: neutral, ReadRoots: []string{source, events}, Proofs: version.Proofs, Quality: config.Quality{Definition: "Approved behavior, sensitive exact assertions, and actual required check evidence. Reject concrete defects; do not require speculative features.", Checks: []config.QualityCheck{{ID: "unit", Command: "python3 -B -m unittest -q", Directory: ".", Prerequisites: []string{"python3"}, Timeout: "1m"}}}}
+			if tc.exception {
+				log := filepath.Join(dir, "legacy-check.log")
+				output := []byte("known unrelated failure\n")
+				if err := os.WriteFile(log, output, 0600); err != nil {
+					t.Fatal(err)
+				}
+				digest := sha256.Sum256(output)
+				observation := core.CheckObservation{CheckID: "legacy", Status: "failed", ExitCode: 1, OutputDigest: fmt.Sprintf("%x", digest), Evidence: log, Stopped: true}
+				request.Quality.Checks = append(request.Quality.Checks, config.QualityCheck{ID: "legacy", Command: "cat legacy.txt; exit 1", Directory: ".", Prerequisites: []string{"sh", "cat"}, Timeout: "1m"})
+				request.Quality.Baseline = []core.CheckObservation{observation}
+				request.Quality.Exceptions = []config.BaselineException{{CheckID: "legacy", Rationale: "Unrelated pre-existing failure; scoped file unchanged", Files: map[string]string{"legacy.txt": fmt.Sprintf("600:%x", digest)}, ExitCode: 1, OutputDigest: observation.OutputDigest}}
+				request.QualityEvidence = []core.CheckObservation{observation}
+				request.ReadRoots = append(request.ReadRoots, log)
+			}
+			result := harness.Execute(context.Background(), request, func(process core.Process) error {
 				data, _ := json.Marshal(process)
 				return os.WriteFile(filepath.Join(dir, "process.json"), data, 0600)
 			})
@@ -143,7 +166,7 @@ func TestLivePlanningBehavior(t *testing.T) {
 			}
 			task := core.Task{ID: role, PlanRequest: role == "plan", Versions: []core.Version{version}}
 			attempt := core.Attempt{ID: role, Role: role, ProfileName: "planner", Profile: profile, EvidenceDir: filepath.Join(dir, "attempt")}
-			result := harness.Execute(t.Context(), Request{Attempt: attempt, Task: task, Dir: neutral, ReadRoots: []string{source}, Quality: config.Quality{Definition: "Approved behavior and exact expected outputs. Reuse or extend the owning unittest suite for a concrete defect; no duplicate framework or unnecessary tests. Required checks must be recorded honestly.", Commands: []string{"python3 -B -m unittest -q"}}}, func(process core.Process) error {
+			result := harness.Execute(t.Context(), Request{Attempt: attempt, Task: task, Dir: neutral, ReadRoots: []string{source}, Quality: config.Quality{Definition: "Approved behavior and exact expected outputs. Reuse or extend the owning unittest suite for a concrete defect; no duplicate framework or unnecessary tests. Required checks must be recorded honestly.", Checks: []config.QualityCheck{{ID: "unit", Command: "python3 -B -m unittest -q", Directory: ".", Prerequisites: []string{"python3"}, Timeout: "1m"}}}}, func(process core.Process) error {
 				data, _ := json.Marshal(process)
 				return os.WriteFile(filepath.Join(dir, "process.json"), data, 0600)
 			})

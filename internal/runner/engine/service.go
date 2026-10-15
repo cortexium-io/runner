@@ -22,6 +22,7 @@ type Engine struct {
 	Store    *store.Store
 	Settings config.Settings
 	Executor Executor
+	Checker  execution.CheckRunner
 	clock    func() time.Time
 }
 
@@ -39,8 +40,8 @@ func (e *Engine) validate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !config.SameAuthority(current, e.Settings) {
-		return errors.New("repository or quality authority changed")
+	if !config.SameRepository(current, e.Settings) {
+		return errors.New("repository authority changed")
 	}
 	id, _, err := workspace.Observe(ctx, e.Settings.Config)
 	if err != nil {
@@ -55,6 +56,9 @@ func (e *Engine) Add(ctx context.Context, body string) (core.Task, error) {
 	if err := e.validate(ctx); err != nil {
 		return core.Task{}, err
 	}
+	if err := e.currentQuality(ctx); err != nil {
+		return core.Task{}, err
+	}
 	v, err := core.NewVersion(1, body, e.Settings.RepositoryID, e.policy(), e.Settings.Quality.Revision())
 	if err != nil {
 		return core.Task{}, err
@@ -64,14 +68,16 @@ func (e *Engine) Add(ctx context.Context, body string) (core.Task, error) {
 }
 
 type View struct {
-	Task                core.Task      `json:"task"`
-	Attempts            []core.Attempt `json:"attempts"`
-	ObservedBase        string         `json:"observed_base,omitempty"`
-	Preview             string         `json:"approval_preview,omitempty"`
-	ReleasePreview      string         `json:"release_preview,omitempty"`
-	NextAction          string         `json:"next_action"`
-	CancellationPending bool           `json:"cancellation_pending"`
-	Eligibility         Eligibility    `json:"eligibility"`
+	Task                   core.Task      `json:"task"`
+	Attempts               []core.Attempt `json:"attempts"`
+	ObservedBase           string         `json:"observed_base,omitempty"`
+	Preview                string         `json:"approval_preview,omitempty"`
+	QualityAdoptionPreview string         `json:"quality_adoption_preview,omitempty"`
+	CurrentQuality         string         `json:"current_quality_revision"`
+	ReleasePreview         string         `json:"release_preview,omitempty"`
+	NextAction             string         `json:"next_action"`
+	CancellationPending    bool           `json:"cancellation_pending"`
+	Eligibility            Eligibility    `json:"eligibility"`
 }
 
 func NextAction(t core.Task) string {
@@ -128,7 +134,7 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 		return View{}, err
 	}
 	admission := eligible(settings.Config, t, all, drained, e.now(), tasks...)
-	view := View{Task: t, Attempts: attempts, NextAction: NextAction(t), Eligibility: admission}
+	view := View{CurrentQuality: settings.Quality.Revision(), Task: t, Attempts: attempts, NextAction: NextAction(t), Eligibility: admission}
 	if t.NextRole != "" && t.Attention == nil {
 		if admission.WaitingFor != "" {
 			view.NextAction = admission.WaitingFor
@@ -148,6 +154,14 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	if repo != e.Settings.RepositoryID {
 		return view, errors.New("repository identity changed")
 	}
+	if t.Current().Quality != settings.Quality.Revision() && settings.Quality.Revision() != "" && t.Release == nil {
+		view.QualityAdoptionPreview = adoptionPreview(t, settings.Quality.Revision())
+	}
+	pinned, err := e.taskEngine(ctx, t)
+	if err != nil {
+		return view, err
+	}
+	e = pinned
 	view.ObservedBase = base
 	view.Preview = core.Preview(t, repo, e.policy(), e.Settings.Quality.Revision(), base)
 	if t.PlanRequest && t.Proposal != nil && t.Stage == core.AwaitingApproval && t.Attention == nil {
@@ -168,12 +182,17 @@ func (e *Engine) Approve(ctx context.Context, id string, version int, preview st
 		return core.Task{}, err
 	}
 	t := v.Task
-	if t.Current().Number != version || t.Current().Quality != e.Settings.Quality.Revision() {
-		return t, errors.New("task version or quality revision changed; inspect again")
+	if t.Current().Number != version {
+		return t, errors.New("task version changed; inspect again")
 	}
 	if t.Approval != nil && t.Approval.Preview == preview && t.Approval.Generation == t.Generation && t.Stage != core.Stopped {
 		return t, nil
 	}
+	pinned, err := e.taskEngine(ctx, t)
+	if err != nil {
+		return t, err
+	}
+	e = pinned
 	if err := e.git().CheckQuality(ctx, v.ObservedBase); err != nil {
 		return t, err
 	}
@@ -215,15 +234,25 @@ func (e *Engine) Replace(ctx context.Context, id string, version int, body strin
 	if t.Release != nil {
 		return t, errors.New("released plans are immutable; stop the plan to revoke children and add a new request")
 	}
-	var v core.Version
-	if t.PlanRequest {
-		v, err = core.NewPlanVersion(version+1, body, e.Settings.RepositoryID, e.policy(), e.Settings.Quality.Revision())
-	} else {
-		v, err = core.NewVersion(version+1, body, e.Settings.RepositoryID, e.policy(), e.Settings.Quality.Revision(), t.Current().Dependencies...)
-	}
+	pinned, err := e.taskEngine(ctx, t)
 	if err != nil {
 		return t, err
 	}
+	e = pinned
+	v, err := e.newVersion(t, version+1, body)
+	if err != nil {
+		return t, err
+	}
+	replaceVersion(&t, v)
+	return t, e.Store.Commit(ctx, t.Revision, t, nil, false)
+}
+func (e *Engine) newVersion(t core.Task, number int, body string) (core.Version, error) {
+	if t.PlanRequest {
+		return core.NewPlanVersion(number, body, e.Settings.RepositoryID, e.policy(), e.Settings.Quality.Revision())
+	}
+	return core.NewVersion(number, body, e.Settings.RepositoryID, e.policy(), e.Settings.Quality.Revision(), t.Current().Dependencies...)
+}
+func replaceVersion(t *core.Task, v core.Version) {
 	t.Versions = append(t.Versions, v)
 	t.Generation++
 	t.Approval = nil
@@ -236,7 +265,7 @@ func (e *Engine) Replace(ctx context.Context, id string, version int, body strin
 	t.Candidate = nil
 	t.Review = nil
 	t.Attention = nil
-	return t, e.Store.Commit(ctx, t.Revision, t, nil, false)
+	t.AdoptionPreview = ""
 }
 func (e *Engine) Stop(ctx context.Context, id string) error {
 	t, err := e.Store.Task(ctx, id)
@@ -265,6 +294,11 @@ func (e *Engine) Resume(ctx context.Context, id, attempt string, allowNew bool) 
 	if err != nil {
 		return "", err
 	}
+	pinned, err := e.taskEngine(ctx, t)
+	if err != nil {
+		return "", err
+	}
+	e = pinned
 	attempts, err := e.Store.Attempts(ctx, id)
 	if err != nil {
 		return "", err

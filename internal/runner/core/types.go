@@ -98,24 +98,25 @@ type Attention struct {
 }
 
 type Task struct {
-	PlanRequest bool                  `json:"plan_request,omitempty"`
-	Proposal    *PlanningResult       `json:"proposal,omitempty"`
-	Release     *PlanRelease          `json:"release,omitempty"`
-	ParentID    string                `json:"parent_id,omitempty"`
-	PlanKey     string                `json:"plan_key,omitempty"`
-	Prepared    *PreparedVerification `json:"prepared_verification,omitempty"`
-	ID          string                `json:"id"`
-	Revision    int                   `json:"revision"`
-	Generation  int                   `json:"generation"`
-	Stage       Stage                 `json:"stage"`
-	Versions    []Version             `json:"versions"`
-	Approval    *Approval             `json:"approval,omitempty"`
-	Candidate   *Candidate            `json:"candidate,omitempty"`
-	Attention   *Attention            `json:"attention,omitempty"`
-	NextRole    string                `json:"next_role,omitempty"`
-	Review      []Check               `json:"review,omitempty"`
-	Usage       Usage                 `json:"usage"`
-	Pending     *Continuation         `json:"pending,omitempty"`
+	AdoptionPreview string                `json:"adoption_preview,omitempty"`
+	PlanRequest     bool                  `json:"plan_request,omitempty"`
+	Proposal        *PlanningResult       `json:"proposal,omitempty"`
+	Release         *PlanRelease          `json:"release,omitempty"`
+	ParentID        string                `json:"parent_id,omitempty"`
+	PlanKey         string                `json:"plan_key,omitempty"`
+	Prepared        *PreparedVerification `json:"prepared_verification,omitempty"`
+	ID              string                `json:"id"`
+	Revision        int                   `json:"revision"`
+	Generation      int                   `json:"generation"`
+	Stage           Stage                 `json:"stage"`
+	Versions        []Version             `json:"versions"`
+	Approval        *Approval             `json:"approval,omitempty"`
+	Candidate       *Candidate            `json:"candidate,omitempty"`
+	Attention       *Attention            `json:"attention,omitempty"`
+	NextRole        string                `json:"next_role,omitempty"`
+	Review          []Check               `json:"review,omitempty"`
+	Usage           Usage                 `json:"usage"`
+	Pending         *Continuation         `json:"pending,omitempty"`
 }
 
 func (t Task) Current() Version { return t.Versions[len(t.Versions)-1] }
@@ -125,40 +126,53 @@ type Process struct {
 	Identity string `json:"identity"`
 }
 
+type CheckObservation struct {
+	Directory    string `json:"directory,omitempty"`
+	CheckID      string `json:"check_id"`
+	Status       string `json:"status"`
+	ExitCode     int    `json:"exit_code"`
+	OutputDigest string `json:"output_digest"`
+	Evidence     string `json:"evidence"`
+	Detail       string `json:"detail,omitempty"`
+	Stopped      bool   `json:"stopped"`
+}
+
 type Attempt struct {
-	ID             string      `json:"id"`
-	TaskID         string      `json:"task_id"`
-	Version        int         `json:"version"`
-	Generation     int         `json:"generation"`
-	Role           string      `json:"role"`
-	ProfileName    string      `json:"profile_name"`
-	Profile        Profile     `json:"profile"`
-	PolicyRevision string      `json:"policy_revision"`
-	Quality        string      `json:"quality_revision"`
-	Base           string      `json:"base"`
-	State          string      `json:"state"`
-	Occupying      bool        `json:"occupying"`
-	StartedAt      time.Time   `json:"started_at"`
-	FinishedAt     *time.Time  `json:"finished_at,omitempty"`
-	Process        *Process    `json:"process,omitempty"`
-	Result         *Result     `json:"result,omitempty"`
-	SourceDigest   string      `json:"source_digest,omitempty"`
-	Constructing   bool        `json:"constructing,omitempty"`
-	SourceHead     string      `json:"source_head,omitempty"`
-	Candidate      *Candidate  `json:"candidate,omitempty"`
-	Error          string      `json:"error,omitempty"`
-	ResumedFrom    string      `json:"resumed_from,omitempty"`
-	Resume         string      `json:"resume,omitempty"`
-	ExecutionDir   string      `json:"execution_dir,omitempty"`
-	ReadRoots      []string    `json:"read_roots,omitempty"`
-	EvidenceDir    string      `json:"evidence_dir"`
-	WorkspaceClaim string      `json:"workspace_claim"`
-	Invocation     int         `json:"invocation"`
-	Repair         int         `json:"repair"`
-	Retry          int         `json:"retry"`
-	Failure        FailureKind `json:"failure,omitempty"`
-	Reason         string      `json:"reason"`
-	Kind           string      `json:"kind"`
+	Checks         []CheckObservation `json:"quality_checks,omitempty"`
+	CheckFiles     map[string]string  `json:"quality_check_files,omitempty"`
+	ID             string             `json:"id"`
+	TaskID         string             `json:"task_id"`
+	Version        int                `json:"version"`
+	Generation     int                `json:"generation"`
+	Role           string             `json:"role"`
+	ProfileName    string             `json:"profile_name"`
+	Profile        Profile            `json:"profile"`
+	PolicyRevision string             `json:"policy_revision"`
+	Quality        string             `json:"quality_revision"`
+	Base           string             `json:"base"`
+	State          string             `json:"state"`
+	Occupying      bool               `json:"occupying"`
+	StartedAt      time.Time          `json:"started_at"`
+	FinishedAt     *time.Time         `json:"finished_at,omitempty"`
+	Process        *Process           `json:"process,omitempty"`
+	Result         *Result            `json:"result,omitempty"`
+	SourceDigest   string             `json:"source_digest,omitempty"`
+	Constructing   bool               `json:"constructing,omitempty"`
+	SourceHead     string             `json:"source_head,omitempty"`
+	Candidate      *Candidate         `json:"candidate,omitempty"`
+	Error          string             `json:"error,omitempty"`
+	ResumedFrom    string             `json:"resumed_from,omitempty"`
+	Resume         string             `json:"resume,omitempty"`
+	ExecutionDir   string             `json:"execution_dir,omitempty"`
+	ReadRoots      []string           `json:"read_roots,omitempty"`
+	EvidenceDir    string             `json:"evidence_dir"`
+	WorkspaceClaim string             `json:"workspace_claim"`
+	Invocation     int                `json:"invocation"`
+	Repair         int                `json:"repair"`
+	Retry          int                `json:"retry"`
+	Failure        FailureKind        `json:"failure,omitempty"`
+	Reason         string             `json:"reason"`
+	Kind           string             `json:"kind"`
 }
 
 func (a Attempt) Authorized(t Task) bool {

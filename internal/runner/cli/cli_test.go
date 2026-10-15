@@ -23,16 +23,24 @@ type commandHarness struct{ auditStarted, auditRelease chan struct{} }
 const commandBrief = "## Outcome\nGreeting\n## Scope\ngreeting.txt\n## Acceptance\nhello\n## Verification\nRead greeting.txt; expect hello. No new suite needed for this file boundary.\n"
 
 func (h *commandHarness) CheckCapabilities(context.Context, config.Config) error { return nil }
-func (h *commandHarness) Baseline(_ context.Context, dir, _ string, log *os.File) error {
-	b, e := os.ReadFile(filepath.Join(dir, "greeting.txt"))
-	if e != nil {
-		return e
+func (h *commandHarness) Check(_ context.Context, dir string, c config.QualityCheck, evidence string, _ func(core.Process) error) core.CheckObservation {
+	r := core.CheckObservation{CheckID: c.ID, Status: "passed", Stopped: true, OutputDigest: "passed", Evidence: evidence}
+	if c.ID == "legacy" {
+		r.Status = "failed"
+		r.ExitCode = 1
+		r.OutputDigest = "known legacy failure"
 	}
-	if string(b) != "before\n" {
-		return os.ErrInvalid
+	b, err := os.ReadFile(filepath.Join(dir, "greeting.txt"))
+	if err != nil || (string(b) != "before\n" && string(b) != "hello\n") {
+		r.Status = "unavailable"
+		r.Detail = "unexpected source"
+		return r
 	}
-	_, e = log.WriteString("approved baseline passed in committed-base copy\n")
-	return e
+	if err = os.WriteFile(evidence, []byte("approved check passed\n"), 0600); err != nil {
+		r.Status = "unavailable"
+		r.Detail = err.Error()
+	}
+	return r
 }
 func (h *commandHarness) Execute(ctx context.Context, r execution.Request, _ func(core.Process) error) execution.Completion {
 	if r.Attempt.Role == "plan" {
@@ -89,6 +97,9 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	if err = os.WriteFile(filepath.Join(repo, "greeting.txt"), []byte("before\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err = os.WriteFile(filepath.Join(repo, "legacy.txt"), []byte("known failure\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	git("add", ".")
 	git("commit", "-m", "baseline")
 	// The baseline must read the committed version, not this user's local edit.
@@ -131,6 +142,7 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := strings.Fields(run("task", "add", "--file", taskFile))[0]
+	readyID := id
 	var view engine.View
 	if err = json.Unmarshal([]byte(run("task", "show", id, "--json")), &view); err != nil {
 		t.Fatal(err)
@@ -271,4 +283,55 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 		t.Fatal("release missing")
 	}
 	run("task", "stop", id)
+	// Quality changes apply only to new work until explicit task adoption.
+	spec := config.QualitySpec{Definition: "Updated agreement with an identified legacy exception", Checks: []config.QualityCheck{{ID: "legacy", Command: "false", Directory: ".", Prerequisites: []string{"sh"}, Timeout: "1m"}}}
+	qualityFile := filepath.Join(root, "quality.json")
+	b, _ = json.Marshal(spec)
+	if err = os.WriteFile(qualityFile, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var qp engine.QualityPreview
+	if err = json.Unmarshal([]byte(run("quality", "preview", "--file", qualityFile)), &qp); err != nil {
+		t.Fatal(err)
+	}
+	var report config.QualityReport
+	if err = json.Unmarshal([]byte(run("quality", "check", "--file", qualityFile, "--preview", qp.Preview)), &report); err != nil {
+		t.Fatal(err)
+	}
+	exceptionFile := filepath.Join(root, "exceptions.json")
+	b, _ = json.Marshal([]config.ExceptionRequest{{CheckID: "legacy", Rationale: "Existing unrelated failure", Scope: []string{"legacy.txt"}}})
+	if err = os.WriteFile(exceptionFile, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	before, err = os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldQuality := view.Task.Current().Quality
+	run("quality", "show", "--revision", oldQuality)
+	qp = engine.QualityPreview{}
+	if err = json.Unmarshal([]byte(run("quality", "preview", "--report", report.ID, "--exceptions", exceptionFile)), &qp); err != nil {
+		t.Fatal(err)
+	}
+	after, err = os.ReadFile(dbPath)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("quality preview wrote authority")
+	}
+	run("quality", "apply", "--report", report.ID, "--exceptions", exceptionFile, "--preview", qp.Preview)
+	run("quality", "show")
+	view = engine.View{}
+	if err = json.Unmarshal([]byte(run("task", "show", readyID, "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Task.Current().Quality != oldQuality || view.QualityAdoptionPreview == "" {
+		t.Fatal("default silently changed approved work")
+	}
+	run("task", "adopt-quality", readyID, "--version", "1", "--preview", view.QualityAdoptionPreview)
+	view = engine.View{}
+	if err = json.Unmarshal([]byte(run("task", "show", readyID, "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Task.Current().Number != 2 || view.Task.Stage != core.Draft || view.Task.Approval != nil || view.Task.Candidate != nil {
+		t.Fatal("adoption retained old acceptance")
+	}
 }

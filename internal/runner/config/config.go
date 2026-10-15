@@ -153,23 +153,6 @@ func (c Config) Role(role string) (string, core.Profile) {
 	return n, c.Profiles[n]
 }
 
-type Quality struct {
-	Definition string            `json:"definition"`
-	Documents  map[string]string `json:"source_documents,omitempty"`
-	Sources    map[string]string `json:"sources"`
-	Commands   []string          `json:"commands"`
-	Base       string            `json:"baseline_base"`
-	Evidence   []string          `json:"baseline_evidence"`
-}
-
-func (q Quality) Revision() string {
-	return core.Digest(struct {
-		Definition string
-		Sources    map[string]string
-		Commands   []string
-	}{q.Definition, q.Sources, q.Commands})
-}
-
 type Settings struct {
 	Config       Config  `json:"config"`
 	RepositoryID string  `json:"repository_id"`
@@ -179,7 +162,11 @@ type Settings struct {
 // SameAuthority permits live execution-policy edits, never a change to the
 // repository, state, quality agreement, or role permission boundaries.
 func SameAuthority(a, b Settings) bool {
-	return a.RepositoryID == b.RepositoryID && core.Digest(a.Quality) == core.Digest(b.Quality) &&
+	return core.Digest(a.Quality) == core.Digest(b.Quality) && SameRepository(a, b)
+}
+
+func SameRepository(a, b Settings) bool {
+	return a.RepositoryID == b.RepositoryID &&
 		a.Config.Format == b.Config.Format && a.Config.Repository == b.Config.Repository &&
 		a.Config.StateDir == b.Config.StateDir && a.Config.WorktreeDir == b.Config.WorktreeDir && a.Config.Delivery == b.Config.Delivery
 }

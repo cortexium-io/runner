@@ -65,6 +65,11 @@ func TestPlanReleaseRecoveryAndDependencyWait(t *testing.T) {
 	if _, err = e.Release(t.Context(), plan.ID, 1, "stale"); err == nil {
 		t.Fatal("stale release accepted")
 	}
+	next := e.Settings.Quality
+	next.Definition = "New default after planning"
+	if err = e.Store.ApplyQuality(t.Context(), e.Settings.Quality.Revision(), next); err != nil {
+		t.Fatal(err)
+	}
 	plan, err = e.Release(t.Context(), plan.ID, 1, v.ReleasePreview)
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +82,9 @@ func TestPlanReleaseRecoveryAndDependencyWait(t *testing.T) {
 		t.Fatal("release repeated or partial")
 	}
 	root, dependent := plan.Release.Children[0], plan.Release.Children[1]
+	if current(t, e, root).Current().Quality != plan.Current().Quality {
+		t.Fatal("release changed pinned quality")
+	}
 	child := current(t, e, dependent)
 	if !reflect.DeepEqual(child.Current().Dependencies, []core.Dependency{{TaskID: root, Version: 1}}) {
 		t.Fatal("dependency not pinned", child)

@@ -24,6 +24,12 @@ type adapter func(context.Context, execution.Request, func(core.Process) error) 
 func (f adapter) Execute(c context.Context, r execution.Request, s func(core.Process) error) execution.Completion {
 	return f(c, r, s)
 }
+
+type checkAdapter func(context.Context, string, config.QualityCheck, string, func(core.Process) error) core.CheckObservation
+
+func (f checkAdapter) Check(ctx context.Context, dir string, c config.QualityCheck, evidence string, started func(core.Process) error) core.CheckObservation {
+	return f(ctx, dir, c, evidence, started)
+}
 func pass(r execution.Request) execution.Completion {
 	checks := []core.Check{}
 	for _, p := range r.Proofs {
@@ -66,12 +72,14 @@ func fixture(t *testing.T) *Engine {
 	if e != nil {
 		t.Fatal(e)
 	}
-	settings := config.Settings{Config: cfg, RepositoryID: id, Quality: config.Quality{Definition: "Approved greeting", Commands: []string{"test -f greeting.txt"}, Base: base}}
+	settings := config.Settings{Config: cfg, RepositoryID: id, Quality: config.Quality{Definition: "Approved greeting", Checks: []config.QualityCheck{{ID: "greeting", Command: "test -f greeting.txt", Directory: ".", Prerequisites: []string{"sh"}, Timeout: "1m"}}, Base: base}}
 	db, e := store.Create(context.Background(), cfg.StateDir, settings)
 	if e != nil {
 		t.Fatal(e)
 	}
-	app := &Engine{Store: db, Settings: settings, Executor: adapter(func(ctx context.Context, r execution.Request, _ func(core.Process) error) execution.Completion {
+	app := &Engine{Store: db, Settings: settings, Checker: checkAdapter(func(_ context.Context, _ string, c config.QualityCheck, _ string, _ func(core.Process) error) core.CheckObservation {
+		return core.CheckObservation{CheckID: c.ID, Status: "passed", Stopped: true, OutputDigest: "passed"}
+	}), Executor: adapter(func(ctx context.Context, r execution.Request, _ func(core.Process) error) execution.Completion {
 		if r.Attempt.Role == "implementer" {
 			if e := os.WriteFile(filepath.Join(r.Dir, "greeting.txt"), []byte("hello\n"), 0600); e != nil {
 				return execution.Completion{Stopped: true, Error: e.Error()}
@@ -511,22 +519,37 @@ func TestFocusedVerificationRunsOnlyGapAndCannotWeakenSource(t *testing.T) {
 		})
 	}
 }
-func TestQualityChangeAfterPreviewCannotBeApproved(t *testing.T) {
+func TestQualityChangeKeepsExistingApprovalPinned(t *testing.T) {
 	e := fixture(t)
-	ctx := context.Background()
-	task, err := e.Add(ctx, brief)
+	task, err := e.Add(t.Context(), brief)
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := e.Show(ctx, task.ID)
+	view, err := e.Show(t.Context(), task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.Settings.Quality.Definition = "new requirement"
-	if _, err = e.Approve(ctx, task.ID, 1, view.Preview); err == nil {
-		t.Fatal("old quality preview approved")
+	old := e.Settings.Quality.Revision()
+	next := e.Settings.Quality
+	next.Definition = "new requirement"
+	if err = e.Store.ApplyQuality(t.Context(), old, next); err != nil {
+		t.Fatal(err)
 	}
-	if task = current(t, e, task.ID); task.Approval != nil {
-		t.Fatal("stale quality obtained authority")
+	if _, err = e.Approve(t.Context(), task.ID, 1, view.Preview); err != nil {
+		t.Fatal(err)
+	}
+	if current(t, e, task.ID).Current().Quality != old {
+		t.Fatal("default changed existing task authority")
+	}
+	complete(t, e, claim(t, e))
+	reopen(t, e)
+	finish(t, e)
+	if current(t, e, task.ID).Stage != core.Reviewing {
+		t.Fatal("pinned old task could not progress")
+	}
+	complete(t, e, claim(t, e))
+	finish(t, e)
+	if current(t, e, task.ID).Stage != core.AwaitingDelivery {
+		t.Fatal("review lost pinned agreement after restart")
 	}
 }
