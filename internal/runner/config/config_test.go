@@ -32,7 +32,7 @@ func TestPublishedConfigAndUnsupportedControls(t *testing.T) {
 	if e := c.Validate(); e != nil {
 		t.Fatal(e)
 	}
-	for _, mutate := range []func(*Config){func(c *Config) { c.Policy.MaxParallelism = 2 }, func(c *Config) { c.Policy.MaxRepairs = 1 }, func(c *Config) { c.Policy.MaxTransientRetries = 1 }, func(c *Config) { c.Policy.MaxBaseRefreshes = 1 }, func(c *Config) { c.Policy.ImplementationLadder = []string{"larger"} }, func(c *Config) { c.Repository.BaseFreshness = "remote" }, func(c *Config) { c.Delivery.Mode = "github" }, func(c *Config) { c.StateDir = c.Repository.Path }, func(c *Config) {
+	for _, mutate := range []func(*Config){func(c *Config) { c.Policy.MaxParallelism = 17 }, func(c *Config) { c.Policy.MaxRepairs = -1 }, func(c *Config) { c.Policy.MaxTransientRetries = -1 }, func(c *Config) { c.Policy.MaxBaseRefreshes = 1 }, func(c *Config) { c.Policy.ImplementationLadder = []string{"larger"} }, func(c *Config) { c.Repository.BaseFreshness = "remote" }, func(c *Config) { c.Delivery.Mode = "github" }, func(c *Config) { c.StateDir = c.Repository.Path }, func(c *Config) {
 		p := c.Profiles[c.Roles["implementer"]]
 		p.Timeout = "bad"
 		c.Profiles[c.Roles["implementer"]] = p
@@ -70,5 +70,37 @@ func TestSymlinkPathsRejectedBeforeExecution(t *testing.T) {
 	}
 	if NoSymlinks(filepath.Join(link, "state")) == nil {
 		t.Fatal("symlink ancestor accepted")
+	}
+}
+
+func TestReadyPolicyLimitsAndEscalation(t *testing.T) {
+	raw := example(t)
+	for _, tc := range []struct {
+		name   string
+		change func(*Config)
+		valid  bool
+	}{
+		{"maximum parallelism", func(c *Config) {
+			c.Policy.MaxParallelism = 16
+			c.Policy.MaxRepairs = 2
+			c.Policy.MaxTransientRetries = 3
+		}, true},
+		{"successor", func(c *Config) { c.Policy.ImplementationLadder = []string{"review"} }, true},
+		{"starting profile repeated", func(c *Config) { c.Policy.ImplementationLadder = []string{"build"} }, false},
+		{"successor repeated", func(c *Config) { c.Policy.ImplementationLadder = []string{"review", "review"} }, false},
+		{"positive ceiling", func(c *Config) { n := 3; c.Policy.MaxInvocationsPerTask = &n }, true},
+		{"zero ceiling", func(c *Config) { n := 0; c.Policy.MaxInvocationsPerTask = &n }, false},
+		{"negative ceiling", func(c *Config) { n := -1; c.Policy.MaxInvocationsPerTask = &n }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var c Config
+			if err := Decode(raw, &c); err != nil {
+				t.Fatal(err)
+			}
+			tc.change(&c)
+			if err := c.Validate(); (err == nil) != tc.valid {
+				t.Fatal("unexpected validation", err)
+			}
+		})
 	}
 }

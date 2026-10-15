@@ -1,6 +1,6 @@
 # ADR 0005: Local Runner core
 
-- Status: Accepted; phase 1 implemented and qualified. Later phases remain pending.
+- Status: Accepted; phase 1 and the first phase 2 Ready-policy bundle implemented. Remaining phase 2 work and later phases are pending.
 - Date: 2026-10-14
 
 ## Context

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cortexium-io/runner/internal/runner/config"
+	"github.com/cortexium-io/runner/internal/runner/core"
 	"github.com/cortexium-io/runner/internal/runner/engine"
 	"github.com/cortexium-io/runner/internal/runner/execution"
 	"github.com/cortexium-io/runner/internal/runner/store"
@@ -52,7 +53,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	}
 	args = global.Args()
 	if *path == "" || len(args) == 0 {
-		return errors.New("usage: runner-next --config PATH init|config explain|task|run|drain|status")
+		return errors.New("usage: runner-next --config PATH init|config explain|config apply|task|run|drain|status")
 	}
 	cfg, err := config.Load(*path)
 	if err != nil {
@@ -61,7 +62,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	if args[0] == "init" {
 		return c.init(ctx, cfg, args[1:])
 	}
-	readonly := args[0] == "status" || args[0] == "config" || (args[0] == "task" && len(args) > 1 && args[1] == "show")
+	readonly := args[0] == "status" || (args[0] == "config" && len(args) > 1 && args[1] == "explain") || (args[0] == "task" && len(args) > 1 && args[1] == "show")
 	db, err := store.Open(ctx, cfg.StateDir, readonly)
 	if err != nil {
 		return fmt.Errorf("cannot open local authority (inspection never creates it): %w", err)
@@ -71,22 +72,47 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if !readonly && args[0] != "drain" && !(args[0] == "task" && len(args) > 1 && args[1] == "stop") && settings.Config.Revision() != cfg.Revision() {
-		return errors.New("configuration has unapplied changes; drain, then init --apply")
+	if !readonly && args[0] != "config" && args[0] != "drain" && !(args[0] == "task" && len(args) > 1 && args[1] == "stop") && settings.Config.Revision() != cfg.Revision() {
+		return errors.New("configuration has unapplied changes; use config explain, then config apply --preview DIGEST")
 	}
 	app := engine.Engine{Store: db, Settings: settings, Executor: c.Harness}
 	switch args[0] {
 	case "config":
-		if len(args) != 2 || args[1] != "explain" {
-			return errors.New("usage: config explain")
+		if len(args) < 2 {
+			return errors.New("usage: config explain|apply --preview DIGEST")
 		}
-		return c.json(struct {
-			Applied   config.Settings `json:"applied"`
-			Proposed  config.Config   `json:"selected_config"`
-			Unapplied bool            `json:"unapplied_changes"`
-			Drained   bool            `json:"drained"`
-			Note      string          `json:"policy"`
-		}{settings, cfg, cfg.Revision() != settings.Config.Revision(), drained, "One invocation at a time; zero automatic retries, repairs, escalation or base refreshes. Local base is observed and pinned at approval. Delivery is local only."})
+		change, err := app.PreviewPolicy(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		switch args[1] {
+		case "explain":
+			if len(args) != 2 {
+				return errors.New("config explain takes no arguments")
+			}
+			return c.json(change)
+		case "apply":
+			f := c.flags("config apply")
+			preview := f.String("preview", "", "displayed policy preview digest")
+			if err = f.Parse(args[2:]); err != nil {
+				return err
+			}
+			if f.NArg() != 0 || *preview == "" || *preview != change.Preview {
+				return errors.New("policy preview is missing or stale; run config explain")
+			}
+			if err = c.Harness.CheckCapabilities(ctx, cfg); err != nil {
+				return err
+			}
+			next := settings
+			next.Config = cfg
+			if err = db.ApplySettings(ctx, change.AppliedRevision, next); err != nil {
+				return err
+			}
+			fmt.Fprintln(c.Out, "Policy applied. Active attempts and pending retry profiles stay pinned; consumed allowances are retained. New admissions use this policy.")
+			return nil
+		default:
+			return errors.New("usage: config explain|apply --preview DIGEST")
+		}
 	case "run":
 		if len(args) != 1 {
 			return errors.New("run takes no arguments")
@@ -273,9 +299,26 @@ func (c CLI) printView(v engine.View, full bool) {
 	}
 	for _, a := range v.Attempts {
 		fmt.Fprintf(c.Out, "Attempt %s: %s / %s; %s / %s; occupying=%t\nEvidence: %s\n", a.ID, a.Role, a.State, a.Profile.Model, a.Profile.Reasoning, a.Occupying, a.EvidenceDir)
+		fmt.Fprintf(c.Out, "Invocation %d; repair %d; transient retry %d; policy %s; elapsed %s\n", a.Invocation, a.Repair, a.Retry, a.PolicyRevision, elapsed(a))
 	}
 	if v.CancellationPending {
 		fmt.Fprintln(c.Out, "Cancellation pending: revoked execution still owns its reservation.")
 	}
+	fmt.Fprintf(c.Out, "Allowances remaining: repairs=%d; transient retries=%d", v.Eligibility.RepairsRemaining, v.Eligibility.RetriesRemaining)
+	if v.Eligibility.InvocationsRemaining != nil {
+		fmt.Fprintf(c.Out, "; invocations=%d", *v.Eligibility.InvocationsRemaining)
+	}
+	fmt.Fprintln(c.Out)
+	if v.Task.NextRole != "" {
+		fmt.Fprintf(c.Out, "Next role: %s; profile %s = %s / %s; reason: %s\n", v.Eligibility.Role, v.Eligibility.ProfileName, v.Eligibility.Profile.Model, v.Eligibility.Profile.Reasoning, v.Eligibility.Reason)
+	}
 	fmt.Fprintln(c.Out, "Next:", v.NextAction)
+}
+
+func elapsed(a core.Attempt) time.Duration {
+	end := time.Now()
+	if a.FinishedAt != nil {
+		end = *a.FinishedAt
+	}
+	return max(time.Duration(0), end.Sub(a.StartedAt).Round(time.Second))
 }

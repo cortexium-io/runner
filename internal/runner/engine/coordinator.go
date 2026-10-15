@@ -25,6 +25,10 @@ type active struct {
 }
 
 func (e *Engine) Run(ctx context.Context) error {
+	// The coordinator refreshes its own policy snapshot. Workers receive copies,
+	// so live edits cannot race or alter an admitted invocation's settings.
+	owner := *e
+	e = &owner
 	lock, err := execution.Lock(filepath.Join(e.Settings.Config.StateDir, "coordinator.lock"))
 	if err != nil {
 		return err
@@ -41,11 +45,13 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	var current *active
+	current := map[string]*active{}
 	defer func() {
-		if current != nil {
-			current.cancel()
-			f := <-current.done
+		for _, call := range current {
+			call.cancel()
+		}
+		for _, call := range current {
+			f := <-call.done
 			_ = e.saveCompletion(context.Background(), f)
 		}
 	}()
@@ -60,23 +66,26 @@ func (e *Engine) Run(ctx context.Context) error {
 			}
 		}
 		workCtx := context.Background()
-		if current == nil {
-			if err = e.recover(workCtx); err != nil {
-				return err
-			}
+		settings, _, readErr := e.Store.Settings(workCtx)
+		if readErr != nil {
+			return readErr
 		}
-		if current != nil {
-			t, err := e.Store.Task(workCtx, current.attempt.TaskID)
-			if err != nil {
-				return err
+		e.Settings = settings
+		if err = e.recoverExcept(workCtx, current); err != nil {
+			return err
+		}
+		for id, call := range current {
+			t, readErr := e.Store.Task(workCtx, call.attempt.TaskID)
+			if readErr != nil {
+				return readErr
 			}
-			if stopping || !current.attempt.Authorized(t) {
-				current.cancel()
+			if stopping || !call.attempt.Authorized(t) {
+				call.cancel()
 			}
 			select {
-			case f := <-current.done:
-				current.cancel()
-				current = nil
+			case f := <-call.done:
+				call.cancel()
+				delete(current, id)
 				if err = e.saveCompletion(workCtx, f); err != nil {
 					return err
 				}
@@ -100,7 +109,7 @@ func (e *Engine) Run(ctx context.Context) error {
 				occupied = true
 			}
 		}
-		if current == nil && drained {
+		if len(current) == 0 && drained {
 			if !occupied {
 				return nil
 			}
@@ -108,16 +117,20 @@ func (e *Engine) Run(ctx context.Context) error {
 				return errors.New("stopped coordinator with unresolved process ownership; reservation retained")
 			}
 		}
-		if current == nil && !drained && !occupied {
-			a, ok, err := e.claim(workCtx)
-			if err != nil {
-				return err
-			}
-			if ok {
+		if !drained && !stopping {
+			for {
+				a, ok, claimErr := e.claim(workCtx)
+				if claimErr != nil {
+					return claimErr
+				}
+				if !ok {
+					break
+				}
 				callCtx, cancel := context.WithCancel(context.Background())
-				current = &active{attempt: a, cancel: cancel, done: make(chan finished, 1)}
-				done := current.done
-				go func() { done <- e.execute(callCtx, a) }()
+				call := &active{attempt: a, cancel: cancel, done: make(chan finished, 1)}
+				current[a.ID] = call
+				worker := *e
+				go func() { call.done <- worker.execute(callCtx, a) }()
 			}
 		}
 		if stopping {
@@ -151,13 +164,14 @@ func (e *Engine) mutate(ctx context.Context, id string, change func(*core.Task) 
 	}
 	return store.ErrConflict
 }
-func (e *Engine) recover(ctx context.Context) error {
+func (e *Engine) recover(ctx context.Context) error { return e.recoverExcept(ctx, nil) }
+func (e *Engine) recoverExcept(ctx context.Context, owned map[string]*active) error {
 	attempts, err := e.Store.Attempts(ctx, "")
 	if err != nil {
 		return err
 	}
 	for _, a := range attempts {
-		if !a.Occupying {
+		if !a.Occupying || owned[a.ID] != nil {
 			continue
 		}
 		if a.Process != nil && !execution.Gone(*a.Process) {
@@ -180,8 +194,9 @@ func (e *Engine) recover(ctx context.Context) error {
 		}
 		a.Occupying = false
 		a.State = "interrupted"
+		a.Failure = core.Interrupted
 		a.Error = "Coordinator stopped before a durable completed result; explicit recovery is required."
-		now := time.Now().UTC()
+		now := e.now()
 		a.FinishedAt = &now
 		if err = e.mutate(ctx, a.TaskID, func(t *core.Task) (*core.Attempt, error) {
 			if a.Authorized(*t) {
@@ -195,41 +210,56 @@ func (e *Engine) recover(ctx context.Context) error {
 	return nil
 }
 func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
+	settings, drained, err := e.Store.Settings(ctx)
+	if err != nil {
+		return core.Attempt{}, false, err
+	}
+	e.Settings = settings
 	tasks, err := e.Store.Tasks(ctx)
 	if err != nil {
 		return core.Attempt{}, false, err
 	}
+	attempts, err := e.Store.Attempts(ctx, "")
+	if err != nil {
+		return core.Attempt{}, false, err
+	}
 	for _, t := range tasks {
-		if t.Approval == nil || t.NextRole == "" || t.Attention != nil || t.Stage == core.Stopped {
+		v := eligible(settings.Config, t, attempts, drained, e.now())
+		if v.WaitingFor != "" {
 			continue
 		}
-		if err := e.validate(ctx); err != nil {
+		if err = e.validate(ctx); err != nil {
 			return core.Attempt{}, false, err
 		}
-		if t.Current().Quality != e.Settings.Quality.Revision() {
+		if t.Current().Quality != settings.Quality.Revision() {
 			return core.Attempt{}, false, errors.New("approved quality revision changed")
 		}
-		if err := e.git().CheckQuality(ctx, t.Approval.Base); err != nil {
+		if err = e.git().CheckQuality(ctx, t.Approval.Base); err != nil {
 			return core.Attempt{}, false, err
 		}
-		name, p := e.Settings.Config.Role(t.NextRole)
-		a := core.Attempt{ID: core.NewID(), TaskID: t.ID, Version: t.Current().Number, Generation: t.Generation, Role: t.NextRole, ProfileName: name, Profile: p, PolicyRevision: e.Settings.Config.Revision(), Quality: t.Current().Quality, Base: t.Approval.Base, State: "reserved", Occupying: true, StartedAt: time.Now().UTC(), Candidate: t.Candidate}
-		prior, err := e.Store.Attempts(ctx, t.ID)
-		if err != nil {
-			return a, false, err
+		a := core.Attempt{
+			ID: core.NewID(), TaskID: t.ID, Version: t.Current().Number, Generation: t.Generation,
+			Role: t.NextRole, ProfileName: v.ProfileName, Profile: v.Profile, PolicyRevision: settings.Config.Revision(),
+			Quality: t.Current().Quality, Base: t.Approval.Base, Candidate: t.Candidate,
+			State: "reserved", Occupying: true, StartedAt: e.now(), WorkspaceClaim: workspaceClaim(settings.Config, t),
+			Kind: "stage", Reason: v.Reason, Repair: t.Usage.Repairs,
 		}
-		children := map[string]bool{}
-		for _, old := range prior {
-			children[old.ResumedFrom] = true
-		}
-		for _, old := range prior {
-			if old.Resume == "new" && old.Authorized(t) && old.Role == a.Role && !children[old.ID] {
-				a.ResumedFrom = old.ID
-				a.ProfileName = old.ProfileName
-				a.Profile = old.Profile
+		if q := t.Pending; q != nil {
+			a.Kind = q.Kind
+			a.ResumedFrom = q.FromAttempt
+			if q.Kind == "repair" {
+				t.Usage.Repairs++
+				t.Usage.Escalations++
+				a.Repair = t.Usage.Repairs
+			} else {
+				a.Retry = q.Retry
+				a.Repair = q.Repair
 			}
 		}
-		a.EvidenceDir = filepath.Join(e.Settings.Config.StateDir, "attempts", a.ID)
+		t.Usage.Invocations++
+		a.Invocation = t.Usage.Invocations
+		a.EvidenceDir = filepath.Join(settings.Config.StateDir, "attempts", a.ID)
+		t.Pending = nil
 		t.NextRole = ""
 		if a.Role == "implementer" {
 			t.Stage = core.Implementing
@@ -274,6 +304,11 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 	r := execution.Request{Attempt: a, Task: t, Quality: e.Settings.Quality, Proofs: required(t, a.Role)}
 	var copyManifest workspace.CopyState
 	if a.Role == "implementer" {
+		if a.Kind == "repair" {
+			if err := e.git().ValidateCandidate(ctx, t); err != nil {
+				return finished{a, execution.Completion{Stopped: true, Kind: core.Integrity, Error: err.Error()}}
+			}
+		}
 		m, err := e.git().Prepare(ctx, t)
 		if err != nil {
 			return fail(err)
@@ -313,7 +348,7 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 			return fail(err)
 		}
 		for _, old := range prior {
-			if old.Role == "implementer" && old.State == "applied" && old.Authorized(t) {
+			if old.Role == "implementer" && old.State == "applied" && old.Authorized(t) && old.Candidate != nil && t.Candidate != nil && *old.Candidate == *t.Candidate {
 				events := filepath.Join(old.EvidenceDir, "events.jsonl")
 				_, _, state, err := securefs.ReadFile(events, 32<<20)
 				if os.IsNotExist(err) {
@@ -388,10 +423,10 @@ func (e *Engine) saveCompletion(ctx context.Context, f finished) error {
 	a.Result = f.completion.Result
 	a.Error = f.completion.Error
 	if f.completion.Stopped {
-		now := time.Now().UTC()
+		now := e.now()
 		a.FinishedAt = &now
 	}
-	kind := "interrupted"
+	kind := core.Interrupted
 	a.State = "interrupted"
 	if !f.completion.Stopped {
 		kind = "ownership"
@@ -402,13 +437,24 @@ func (e *Engine) saveCompletion(ctx context.Context, f finished) error {
 	} else if a.Result != nil {
 		a.State = "completed"
 	}
+	a.Failure = kind
+	if a.State == "completed" {
+		a.Failure = ""
+	}
 	return e.mutate(ctx, a.TaskID, func(t *core.Task) (*core.Attempt, error) {
 		if a.Authorized(*t) && a.State != "completed" {
-			t.Attention = &core.Attention{Kind: kind, Detail: a.Error, Attempt: a.ID}
+			if kind == core.Transient && f.completion.Stopped {
+				t.Pending = &core.Continuation{Kind: "retry", FromAttempt: a.ID, Reason: a.Error, ProfileName: a.ProfileName, Profile: a.Profile, Retry: a.Retry + 1, Repair: a.Repair, NotBefore: a.FinishedAt.Add(retryDelay(a.Retry + 1))}
+				t.NextRole = a.Role
+				t.Attention = nil
+			} else {
+				t.Attention = &core.Attention{Kind: kind, Detail: a.Error, Attempt: a.ID}
+			}
 		}
 		return &a, nil
 	})
 }
+
 func (e *Engine) finishSaved(ctx context.Context) error {
 	attempts, err := e.Store.Attempts(ctx, "")
 	if err != nil {
@@ -485,7 +531,7 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 		}
 		if outcome != "accepted" {
 			a.State = "applied"
-			t.Attention = &core.Attention{Kind: outcome, Detail: a.Result.Summary, Attempt: a.ID}
+			t.Attention = &core.Attention{Kind: core.FailureKind(outcome), Detail: a.Result.Summary, Attempt: a.ID}
 			return nil
 		}
 		if !a.Constructing {
@@ -540,8 +586,12 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 			} else {
 				t.Attention = &core.Attention{Kind: "missing_proof", Detail: a.Result.Summary, Attempt: a.ID}
 			}
+		case "defect":
+			t.NextRole = "implementer"
+			t.Pending = &core.Continuation{Kind: "repair", FromAttempt: a.ID, Reason: a.Result.Summary}
+			t.Attention = nil
 		default:
-			t.Attention = &core.Attention{Kind: outcome, Detail: a.Result.Summary, Attempt: a.ID}
+			t.Attention = &core.Attention{Kind: core.FailureKind(outcome), Detail: a.Result.Summary, Attempt: a.ID}
 		}
 	}
 	a.State = "applied"

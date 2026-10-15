@@ -4,7 +4,10 @@ The first local-core milestone is available in `cmd/runner-next`: explicit task
 approval, private SQLite state, isolated Codex implementation, independent review
 and a retained candidate without GitHub Projects. See the [local slice guide and
 qualification](docs/runner-redesign-proposal.md#using-the-implemented-local-slice).
-It stops at **Awaiting delivery**; phase 2 has not started. The documentation
+The first phase 2 bundle adds configurable capacity, bounded retry/repair,
+escalation and live policy preview/apply. It requires fresh private state (store
+format 2) and still stops at **Awaiting delivery**; Plan, dependencies and the
+remaining phase 2 work are pending. The documentation
 below describes the existing `cortexium-runner` release.
 
 `cortexium-runner` moves trusted or maintainer-approved GitHub Project work through

@@ -26,11 +26,12 @@ type Store struct {
 }
 
 const schema = `
-CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=1), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=2), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE settings_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE tasks (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, data BLOB NOT NULL);
-CREATE TABLE attempts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), occupying INTEGER NOT NULL, resumed_from TEXT UNIQUE, data BLOB NOT NULL);
-CREATE UNIQUE INDEX one_execution_slot ON attempts(occupying) WHERE occupying=1;
+CREATE TABLE attempts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), occupying INTEGER NOT NULL, workspace_claim TEXT NOT NULL, resumed_from TEXT UNIQUE, data BLOB NOT NULL);
+CREATE UNIQUE INDEX task_owner ON attempts(task_id) WHERE occupying=1;
+CREATE UNIQUE INDEX workspace_owner ON attempts(workspace_claim) WHERE occupying=1;
 `
 
 func Create(ctx context.Context, dir string, settings config.Settings) (*Store, error) {
@@ -57,7 +58,7 @@ func Create(ctx context.Context, dir string, settings config.Settings) (*Store, 
 	defer tx.Rollback()
 	if _, err = tx.ExecContext(ctx, schema); err == nil {
 		b, _ := json.Marshal(settings)
-		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,1,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
+		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,2,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
 	}
 	if err == nil {
 		err = tx.Commit()
@@ -91,9 +92,9 @@ func Open(ctx context.Context, dir string, readonly bool) (*Store, error) {
 		s.Close()
 		return nil, fmt.Errorf("missing, corrupt or incompatible authoritative store: %w", err)
 	}
-	if format != 1 {
+	if format != 2 {
 		s.Close()
-		return nil, fmt.Errorf("incompatible authoritative store format %d", format)
+		return nil, fmt.Errorf("incompatible authoritative store format %d; preserve it and initialize a fresh state directory", format)
 	}
 	return s, nil
 }
@@ -143,20 +144,21 @@ func (s *Store) ApplySettings(ctx context.Context, previous string, next config.
 	}
 	defer tx.Rollback()
 	var b []byte
-	var drained bool
-	var active int
-	if err = tx.QueryRowContext(ctx, "SELECT settings,drained FROM metadata WHERE id=1").Scan(&b, &drained); err != nil {
+	if err = next.Config.Validate(); err != nil {
+		return err
+	}
+	if err = tx.QueryRowContext(ctx, "SELECT settings FROM metadata WHERE id=1").Scan(&b); err != nil {
 		return err
 	}
 	var old config.Settings
 	if err = json.Unmarshal(b, &old); err != nil {
 		return err
 	}
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM attempts WHERE occupying=1").Scan(&active); err != nil {
-		return err
-	}
-	if !drained || active != 0 || old.Config.Revision() != previous {
+	if old.Config.Revision() != previous {
 		return ErrConflict
+	}
+	if !config.SameAuthority(old, next) {
+		return errors.New("only execution policy and profiles can change live; repository and quality authority must remain unchanged")
 	}
 	b, _ = json.Marshal(next)
 	if _, err = tx.ExecContext(ctx, "UPDATE metadata SET settings=? WHERE id=1", b); err != nil {
@@ -233,7 +235,8 @@ func (s *Store) Attempts(ctx context.Context, task string) ([]core.Attempt, erro
 }
 
 // Commit atomically replaces one expected task revision and, optionally, its attempt.
-// A partial unique index enforces the phase-one global execution slot across connections.
+// Immediate transactions serialize capacity/policy checks; unique indexes protect
+// task and workspace ownership even across replacement versions.
 func (s *Store) Commit(ctx context.Context, expected int, t core.Task, a *core.Attempt, claim bool) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -241,11 +244,50 @@ func (s *Store) Commit(ctx context.Context, expected int, t core.Task, a *core.A
 	}
 	defer tx.Rollback()
 	if claim {
+		if a == nil || !a.Occupying || a.TaskID != t.ID || a.WorkspaceClaim == "" || !a.Authorized(t) {
+			return errors.New("invalid execution claim")
+		}
+		var raw []byte
 		var drained bool
-		if err = tx.QueryRowContext(ctx, "SELECT drained FROM metadata WHERE id=1").Scan(&drained); err != nil {
+		if err = tx.QueryRowContext(ctx, "SELECT settings,drained FROM metadata WHERE id=1").Scan(&raw, &drained); err != nil {
 			return err
 		}
-		if drained {
+		var settings config.Settings
+		if err = json.Unmarshal(raw, &settings); err != nil {
+			return err
+		}
+		var active int
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM attempts WHERE occupying=1").Scan(&active); err != nil {
+			return err
+		}
+		if drained || settings.Config.Revision() != a.PolicyRevision || active >= settings.Config.Policy.MaxParallelism {
+			return ErrConflict
+		}
+		var owned int
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM attempts WHERE occupying=1 AND (task_id=? OR workspace_claim=?)", t.ID, a.WorkspaceClaim).Scan(&owned); err != nil {
+			return err
+		}
+		if owned != 0 {
+			return ErrConflict
+		}
+		if err = tx.QueryRowContext(ctx, "SELECT data FROM tasks WHERE id=?", t.ID).Scan(&raw); err != nil {
+			return err
+		}
+		var previous core.Task
+		if err = json.Unmarshal(raw, &previous); err != nil {
+			return err
+		}
+		p := settings.Config.Policy
+		if previous.Usage.Repairs > p.MaxRepairs && (previous.Pending == nil || previous.Pending.Kind != "resume") {
+			return ErrConflict
+		}
+		if previous.Pending != nil && previous.Pending.Kind == "retry" && a.Retry > p.MaxTransientRetries {
+			return ErrConflict
+		}
+		if t.Usage.Invocations != previous.Usage.Invocations+1 || a.Invocation != t.Usage.Invocations ||
+			(p.MaxInvocationsPerTask != nil && t.Usage.Invocations > *p.MaxInvocationsPerTask) ||
+			t.Usage.Repairs < previous.Usage.Repairs || t.Usage.Repairs > previous.Usage.Repairs+1 ||
+			(t.Usage.Repairs > previous.Usage.Repairs && t.Usage.Repairs > p.MaxRepairs) {
 			return ErrConflict
 		}
 	}
@@ -274,7 +316,7 @@ func (s *Store) Commit(ctx context.Context, expected int, t core.Task, a *core.A
 		if a.ResumedFrom != "" {
 			resumed = a.ResumedFrom
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO attempts(id,task_id,occupying,resumed_from,data) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET occupying=excluded.occupying,data=excluded.data`, a.ID, a.TaskID, a.Occupying, resumed, b)
+		_, err = tx.ExecContext(ctx, `INSERT INTO attempts(id,task_id,occupying,workspace_claim,resumed_from,data) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET occupying=excluded.occupying,data=excluded.data`, a.ID, a.TaskID, a.Occupying, a.WorkspaceClaim, resumed, b)
 		if err != nil {
 			return fmt.Errorf("attempt reservation/commit: %w", err)
 		}

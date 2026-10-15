@@ -141,6 +141,33 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	if !strings.Contains(run("status", "--json"), `"stage": "Reviewing"`) {
 		t.Fatal("status did not observe active audit")
 	}
+
+	// Preview and apply live policy without changing the already running audit.
+	cfg.Policy.MaxParallelism = 2
+	profile := cfg.Profiles["review"]
+	profile.Reasoning = "medium"
+	cfg.Profiles["review"] = profile
+	b, _ = json.Marshal(cfg)
+	if err = os.WriteFile(cfgPath, b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var change engine.PolicyChange
+	if err = json.Unmarshal([]byte(run("config", "explain")), &change); err != nil {
+		t.Fatal(err)
+	}
+	if len(change.Active) != 1 || change.Active[0].Profile.Reasoning != "high" {
+		t.Fatal("preview lost active profile")
+	}
+	if err = (CLI{Out: io.Discard, Harness: h}).Run(ctx, []string{"--config", cfgPath, "config", "apply", "--preview", "stale"}); err == nil {
+		t.Fatal("stale policy preview accepted")
+	}
+	run("config", "apply", "--preview", change.Preview)
+	if err = json.Unmarshal([]byte(run("task", "show", id, "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Attempts[len(view.Attempts)-1].Profile.Reasoning != "high" {
+		t.Fatal("active attempt changed with policy")
+	}
 	signal := make(drainSignal, 1)
 	drained := make(chan error, 1)
 	go func() { drained <- (CLI{Out: signal, Harness: h}).Run(ctx, []string{"--config", cfgPath, "drain"}) }()

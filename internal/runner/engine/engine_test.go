@@ -409,13 +409,19 @@ func TestReviewClassifiesMissingProofDefectAndDecisionWithoutRepair(t *testing.T
 				}
 				return
 			}
-			if task.Attention == nil {
-				t.Fatal("missing attention")
-			}
 			if status == "defect" {
+				if task.Pending == nil || task.Pending.Kind != "repair" {
+					t.Fatal("defect lost its repair reason")
+				}
+				if _, ok, err := e.claim(context.Background()); err != nil || ok {
+					t.Fatal("zero repair allowance admitted work", err)
+				}
+
 				if _, err := e.Resume(context.Background(), task.ID, a.ID, true); err == nil {
 					t.Fatal("rejected candidate secretly repaired")
 				}
+			} else if task.Attention == nil {
+				t.Fatal("missing attention")
 			}
 		})
 	}

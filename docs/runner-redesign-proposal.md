@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phase 1 implemented and qualified on 2026-10-14 in `codex/runner-local-core`. Phase 2 has not started.
+Status: Phase 1 qualified on 2026-10-14. The first phase 2 Ready-policy bundle is implemented in `codex/runner-local-core`; qualification is recorded below. The rest of phase 2 remains pending.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -976,8 +976,14 @@ at the committed base. Repeat `--check` and `--quality-source` as needed:
 Use `status`, `task show TASK_ID --json` and `config explain` from another
 terminal. `drain` records the admission stop and waits for the owning coordinator
 to settle; the next explicit `run` recovers reservations and clears drain.
-Profile/timeout edits use the same configuration file: drain, inspect `init`, then
-`init --apply`. Already recorded attempts retain their actual settings.
+For profile, timeout and recovery-limit edits, edit the same configuration file,
+run `config explain`, inspect the task effects and active pinned attempts, then
+run `config apply --preview DISPLAYED_APPLY_PREVIEW`. Application is atomic and
+can happen while the coordinator runs. Already admitted attempts retain their
+actual settings; queued actions use the applied policy. Pending transient retries
+and explicit interrupted resumes retain their original profile, including after
+that named profile is edited or removed. This bundle does not offer a retry-profile
+override or interactive policy editor. `init` now handles initial setup only.
 Changing repository identity, roots or the quality agreement requires fresh
 setup in this slice. Editing a task file has no effect until `task replace`.
 
@@ -1041,7 +1047,7 @@ Local disposable evidence is retained at
 candidate worktrees. These are temporary qualification artifacts, not a portable
 backup or a release retention guarantee.
 
-Current limits are deliberate: one invocation, local Ready only, zero automatic
+At the phase 1 checkpoint, the deliberate limits were one invocation, local Ready only, zero automatic
 allowances, no delivery, no quality exceptions, and no board/plugin scaffolding.
 Native tools have no network access; unavailable dependencies or toolchain access
 remain explicit blockers. Baselines use bounded committed-base archives and
@@ -1051,11 +1057,11 @@ caches. Completed candidates/evidence and disposable diagnostic copies are
 retained; automated cleanup/backup/restore remain release work. Native execution
 was qualified on macOS arm64; the other three targets were compile-qualified.
 
-### Phase 2 entry brief — not started
+### First phase 2 bundle — Ready admission and recovery
 
-The next bounded implementation should first make the existing **Ready** journey
-honor configurable capacity and persisted recovery policy. Its outcome is two
-independent Ready tasks progressing under configured limits, with every repeated
+The authorized first phase 2 bundle makes the existing **Ready** journey
+honor configurable capacity and persisted recovery policy. Its required outcome
+is two independent Ready tasks progressing under configured limits, with every repeated
 call explainable from a durable allowance and actual profile. Keep Plan,
 dependency release, quality-agreement revisions, delivery and views outside this
 first phase 2 bundle; write their next bounded briefs here before implementing
@@ -1081,11 +1087,140 @@ Extend the current core/config/store/engine and owning tests:
    versus valid supplied evidence, and useful findings versus speculative review.
    Use a small selected live evaluation only after deterministic proofs pass.
 
-The schema change may use a small explicit migration or require fresh state; do
-not add historical workflow conversion. Keep the zero-allowance behavior as a
-regression case. Do not add a second scheduler, test framework, generic plugin
-registry or remote integration. This brief records the next boundary and does
-not authorize starting it.
+This bundle uses **store format 2 and fresh state**. The configuration marker stays
+`runner-local-v1`; its supported policy values are expanded below. Format-1 stores
+are rejected with recovery guidance and left untouched. Drain and stop the previous
+coordinator, preserve its state and evidence, then initialize a new private state
+and worktree directory and resubmit work for approval. There is no historical
+workflow conversion, second scheduler, new test framework, plugin registry or
+remote integration. Zero repair/retry allowances remain supported and tested.
+
+#### Using the Ready policy
+
+Keep the same explicit implementer/reviewer profiles and local recorded-base
+configuration. `max_parallelism` accepts 1–16, repair/retry limits are nonnegative,
+and `max_invocations_per_task` is absent or a positive integer. Base refresh stays
+zero. The ladder lists distinct named successor profiles after the starting
+implementer; the starting name cannot recur. An empty ladder disables escalation.
+For example, after defining a complete `careful` profile:
+
+```json
+{
+  "max_parallelism": 2,
+  "max_repairs": 2,
+  "max_transient_retries": 3,
+  "max_base_refreshes": 0,
+  "implementation_ladder": ["careful"],
+  "max_invocations_per_task": 8
+}
+```
+
+Use that object for `policy`, then preview/apply the complete configuration. Profile
+selection never expands role permissions. The preview shows consumed allowances,
+before/after eligibility, active pinned settings, and warnings for unreachable
+ladder steps or a ceiling below initial implementation plus audit. The preview
+digest binds the old and proposed policy revisions; task effects are observations
+at preview time, not a lock on tasks while the user reads them.
+
+Each attempt reserves an invocation, its task/workspace ownership and any new
+repair/retry allowance in the same SQLite transaction. Independent tasks share
+capacity. Lowering parallelism prevents new admission while occupancy meets or
+exceeds the new limit; it does not cancel active work. Unknown surviving processes
+retain both their resource and capacity claims. Deterministic candidate/result
+reconciliation continues while unrelated harness invocations are active.
+
+A confirmed independent review defect schedules repair; the next admitted repair
+consumes one pass and advances the configured ladder, retaining the last profile
+when it is exhausted. Its findings and working branch are retained. A transient
+retry repeats the stage and reserved repair pass without another repair or ladder
+advance. Retry deadlines are durable: 30 seconds, two minutes, then five minutes.
+Success ends the stage's transient episode. A missing decision outranks a defect;
+a proof gap stays in review and can never become repair or acceptance because a
+budget is exhausted.
+
+The native adapter recognizes terminal Codex `turn.failed` messages with the
+anchored HTTP status form for 429, 500, 502, 503 or 504. Codex's
+[exec event definitions](https://github.com/openai/codex/blob/main/codex-rs/exec/src/exec_events.rs)
+expose an error message rather than a structured provider code. Other failures,
+timeouts, missing prerequisites and malformed proof stop for inspection; arbitrary
+stderr, tool output and model text never trigger retries or escalation. This bundle
+has no browser capability. Native transport attempts remain visible in retained
+`events.jsonl`; the ceiling counts harness invocations, not HTTP requests.
+
+Restart, stop and policy edits retain consumption. Raising a limit is an explicit
+operator policy change; lowering it below consumption blocks the next automatic
+action. `task resume --attempt ID --allow-new-invocation` explicitly repeats one
+interrupted invocation with its recorded profile and repair pass. It neither resets
+counters nor bypasses the invocation ceiling. Lowering the repair limit below
+already consumed passes blocks subsequent automatic invocations, including a
+pending retry; explicit interrupted resume can repeat its already reserved pass.
+A reserved but interrupted attempt continues to count; this bundle conservatively performs no reservation refunds.
+Replacing requirements creates an unapproved version with new per-version
+allowances; prior attempts retain their original numbers and evidence. Saved valid
+results still resume deterministically without a model call.
+
+`status` and `task show` use the dispatch eligibility calculation. They show actual
+profiles, elapsed time, reserved invocation/repair/retry numbers, remaining
+allowances, retry deadlines and the specific ownership, capacity, budget or
+operator action preventing admission. Candidate acceptance still ends at
+**Awaiting delivery**.
+
+#### First phase 2 qualification
+
+Verification date: 2026-10-15. The existing owning suites were extended:
+
+| Boundary | Evidence and credible failure detected |
+| --- | --- |
+| S2 store | Real independent connections compete for the final capacity slot, task and workspace; failed transactions leave no task/counter change. Reopen preserves the winner. Previous-format and corrupt stores are not modified. |
+| S3 coordinator | Signal-controlled invocations exercise capacity 1 → 2 → 1, pinned active settings, cancellation of one task, continued reconciliation of another, new reviewer settings and graceful drain. |
+| S4/S5 recovery | Real Git/SQLite journeys exercise reserved repairs, restart, manual repetition, durable 30s/2m/5m backoff, changing transient messages, budget exhaustion, policy edits and new-version authority. No hidden extra repair or ladder advance. |
+| S6 review | Existing proof-gap, decision, malformed-result and candidate-integrity cases remain. Zero repair is still enforced. Replacement role instructions distinguish sensitive assertions, equivalent consolidation, supplied evidence and concrete findings. |
+| S7 configuration/CLI | Strict limits/ladder validation, live policy preview/apply with a stale-preview rejection, actual pinned profile reporting and read-only inspection. |
+
+Required gates: `go test -race ./...` and `go vet ./...` passed. The selected native
+review evaluation used **Codex 0.162.1, gpt-6.1-sol / high** on macOS arm64:
+
+| Live pair | Observed outcomes |
+| --- | --- |
+| Weakened assertions / equivalent subtest consolidation | Defect / accepted |
+| Unsupported claim of a passing check / actual supplied command evidence | Proof gap / accepted |
+| Demonstrated whitespace-normalization defect / speculative feature suggestion | Defect / accepted |
+
+All six native audit calls completed once, in 154 seconds overall; no evaluation
+retry was needed and the source fixtures remained unchanged. These small cases
+qualify the selected Ready reviewer behavior, not general model reliability or
+other platforms. Private prompts, events, results, process identities and outcome
+summaries are retained locally under
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-ready-eval-358039781`.
+Reproduce deliberately with:
+
+```sh
+RUNNER_LOCAL_LIVE_MODEL=gpt-6.1-sol RUNNER_LOCAL_LIVE_REASONING=high \
+  go test ./internal/runner/execution -run '^TestLiveReadyReviewBehavior$' \
+  -count=1 -v -timeout=22m
+```
+
+It is opt-in in the owning execution suite, with no new evaluator service or
+legacy Project test fixtures. The required gates skip these paid calls unless
+explicit model/reasoning inputs are provided.
+
+#### Next phase 2 boundary — not implemented
+
+The next brief should establish Plan intake and exact atomic release before any
+code delivery: one explicitly authorized planning operation proposes complete
+versioned cards, proof briefs and dependency edges for human approval. It uses the
+same coordinator, claims and invocation accounting. Extend the current schema
+only for the planning proposal and dependency relationships; reject cycles,
+missing targets and stale releases transactionally. Ready verification-brief
+preparation must use the same planner contract and remain visible as preparation.
+Dependencies on unintegrated work remain waiting honestly at Awaiting delivery;
+phase 3 will establish confirmed merge and the complete dependency journey.
+
+Before that implementation, settle its detailed command examples and scenarios
+here against the implemented contracts. Quality-agreement revisions/baseline
+exceptions, attention-first operator presentation and an interactive policy editor
+remain later phase 2 work. Neither this outline nor completion of the Ready-policy
+bundle authorizes those features, delivery or external views.
 
 ### Simple upgrade or deliberate break
 
@@ -1309,8 +1444,7 @@ adding arbitrary waits or broad mock-only coverage.
 
 Phase 0 is documented. Phase 1 is implemented at commit `d6d0ddb`; its S1–S7
 proof and live qualification are recorded in [phase 1 evidence](#phase-1-evidence).
-Evidence for later phases remains pending. Each later brief must cover its
-assigned rows or explicitly revise the scope.
+The first phase 2 Ready-policy evidence is recorded in [its qualification](#first-phase-2-qualification). Remaining phase 2 and later evidence is pending; each later brief must cover its assigned rows or explicitly revise the scope.
 
 | Requirement | Owning phase | Acceptance evidence |
 | --- | --- | --- |
@@ -1318,9 +1452,9 @@ assigned rows or explicitly revise the scope.
 | Durable admission, candidate binding and no blind replay | 1; extend in 3 | S2/S4/S5: real-store interruption and saved-result tests; later ambiguous remote publication with no duplicate PR. |
 | Readiness and repository quality | 1; extend in 2 | S1/S7: authorized passing baseline and concrete missing prerequisites. Phase 2 proves scoped baseline exceptions, policy revision changes and rejection of newly weakened proof. |
 | Plan and dependency success | 2 | Atomic complete release, missing/cyclic dependency rejection, stale plan rejection and completion only after required children succeed. Closed-unmerged is exercised in phase 3. |
-| Continuous reconciliation and resource safety | 1; extend in 2/3 | S2/S3: exclusive ownership and responsive reconciliation; phase 2 proves capacities across CLI/service and allocated ports/data; phase 3 proves serialized integration. |
-| Bounded recovery and understandable configuration | 1; extend in 2/3 | S7 validates the limited policy. Phase 2 proves shared repair allowance, persistent backoff, rejection-only escalation, invocation budgets and live policy changes without counter resets. Phase 3 proves bounded refresh/review cycles. |
-| Independent, sufficient, economical verification | 1; extend in 2 | S6 plus live candidate review. Phase 2 paired behavioral cases cover fabricated proof, weakened checks, legitimate consolidation and false-positive review; no infrastructure error becomes a code rejection. |
+| Continuous reconciliation and resource safety | 1; extend in 2/3 | S2/S3: exclusive ownership and responsive reconciliation; the first phase 2 bundle proves shared capacity and task/workspace claims across CLI/service; future browser/shared-data capabilities must add their resource claims; phase 3 proves serialized integration. |
+| Bounded recovery and understandable configuration | 1; extend in 2/3 | S7 validates the limited policy. The first phase 2 bundle proves Ready repair allowance, persistent backoff, rejection-only escalation, invocation budgets and live policy changes without counter resets. Phase 3 proves bounded refresh/review cycles. |
+| Independent, sufficient, economical verification | 1; extend in 2 | S6 plus live candidate review. The first phase 2 paired behavioral cases cover fabricated proof, weakened checks, legitimate consolidation and speculative review; no infrastructure error becomes a code rejection. |
 | Provider-neutral architecture and optional views | 1/3/5 | S1 runs without `gh`/Projects. Phase 3 delivery requires no board. Phase 5 disconnect/reconnect and reordered updates converge safely; Trello needs no core scheduling/approval change and exposes no private evidence. |
 | Current-base delivery and confirmed completion | 3 | Base movement before merge, conflicts, CI failure, interrupted creation, human/automatic merge and closed-unmerged PRs produce correct bounded outcomes. Missing proof or remote observations never produce success. |
 | Comprehensible progress and recovery | 1/2/4 | S1/S7 and the operator journey below: user understands the actual profile, wait, retained work and exact next action; settings are editable without nested workflow JSON. |

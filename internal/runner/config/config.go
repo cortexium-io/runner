@@ -21,11 +21,12 @@ type Repository struct {
 	BaseFreshness string `json:"base_freshness"`
 }
 type Policy struct {
-	MaxParallelism       int      `json:"max_parallelism"`
-	MaxRepairs           int      `json:"max_repairs"`
-	MaxTransientRetries  int      `json:"max_transient_retries"`
-	MaxBaseRefreshes     int      `json:"max_base_refreshes"`
-	ImplementationLadder []string `json:"implementation_ladder"`
+	MaxParallelism        int      `json:"max_parallelism"`
+	MaxRepairs            int      `json:"max_repairs"`
+	MaxTransientRetries   int      `json:"max_transient_retries"`
+	MaxBaseRefreshes      int      `json:"max_base_refreshes"`
+	MaxInvocationsPerTask *int     `json:"max_invocations_per_task,omitempty"`
+	ImplementationLadder  []string `json:"implementation_ladder"`
 }
 type Config struct {
 	Format      string                  `json:"format"`
@@ -72,10 +73,20 @@ func (c Config) Validate() error {
 		return errors.New("configuration format must be runner-local-v1")
 	}
 	if c.Repository.BaseFreshness != "recorded" || !strings.HasPrefix(c.Repository.BaseRef, "refs/heads/") || c.Delivery.Mode != "local" {
-		return errors.New("slice 1 requires a local refs/heads base, recorded freshness and local delivery")
+		return errors.New("this Ready bundle requires a local refs/heads base, recorded freshness and local delivery")
 	}
-	if c.Policy.MaxParallelism != 1 || c.Policy.MaxRepairs != 0 || c.Policy.MaxTransientRetries != 0 || c.Policy.MaxBaseRefreshes != 0 || len(c.Policy.ImplementationLadder) != 0 {
-		return errors.New("slice 1 supports parallelism 1 and zero automatic repair, retry, refresh or escalation")
+	if c.Policy.MaxParallelism < 1 || c.Policy.MaxParallelism > 16 || c.Policy.MaxRepairs < 0 || c.Policy.MaxTransientRetries < 0 || c.Policy.MaxBaseRefreshes != 0 {
+		return errors.New("parallelism must be 1–16; repair/retry limits must be nonnegative; base refresh is not supported")
+	}
+	if c.Policy.MaxInvocationsPerTask != nil && *c.Policy.MaxInvocationsPerTask < 1 {
+		return errors.New("max_invocations_per_task must be absent or positive")
+	}
+	seen := map[string]bool{c.Roles["implementer"]: true}
+	for _, name := range c.Policy.ImplementationLadder {
+		if _, ok := c.Profiles[name]; !ok || seen[name] {
+			return fmt.Errorf("implementation ladder profile %q is missing or repeated", name)
+		}
+		seen[name] = true
 	}
 	if len(c.Roles) != 2 || c.Roles["implementer"] == "" || c.Roles["reviewer"] == "" {
 		return errors.New("exactly implementer and reviewer roles are required")
@@ -157,4 +168,21 @@ type Settings struct {
 	Config       Config  `json:"config"`
 	RepositoryID string  `json:"repository_id"`
 	Quality      Quality `json:"quality"`
+}
+
+// SameAuthority permits live execution-policy edits, never a change to the
+// repository, state, quality agreement, or role permission boundaries.
+func SameAuthority(a, b Settings) bool {
+	return a.RepositoryID == b.RepositoryID && core.Digest(a.Quality) == core.Digest(b.Quality) &&
+		a.Config.Format == b.Config.Format && a.Config.Repository == b.Config.Repository &&
+		a.Config.StateDir == b.Config.StateDir && a.Config.WorktreeDir == b.Config.WorktreeDir && a.Config.Delivery == b.Config.Delivery
+}
+
+func (c Config) Implementer(escalations int) (string, core.Profile) {
+	names := append([]string{c.Roles["implementer"]}, c.Policy.ImplementationLadder...)
+	if escalations >= len(names) {
+		escalations = len(names) - 1
+	}
+	name := names[escalations]
+	return name, c.Profiles[name]
 }

@@ -56,23 +56,56 @@ type Candidate struct {
 	Workspace   string `json:"workspace"`
 }
 
+// FailureKind separates recovery policy from model result text.
+type FailureKind string
+
+const (
+	Transient   FailureKind = "transient"
+	ProofGap    FailureKind = "missing_proof"
+	Defect      FailureKind = "defect"
+	Decision    FailureKind = "needs_input"
+	Integrity   FailureKind = "integrity"
+	Interrupted FailureKind = "interrupted"
+)
+
+type Usage struct {
+	Invocations int `json:"invocations"`
+	Repairs     int `json:"repairs"`
+	Escalations int `json:"escalations"`
+}
+
+// Continuation records why another invocation is eligible. Retry/resume profiles
+// stay pinned; a repair selects its profile only when admitted under current policy.
+type Continuation struct {
+	Kind        string    `json:"kind"`
+	FromAttempt string    `json:"from_attempt"`
+	Reason      string    `json:"reason"`
+	ProfileName string    `json:"profile_name,omitempty"`
+	Profile     Profile   `json:"profile,omitempty"`
+	Retry       int       `json:"retry"`
+	Repair      int       `json:"repair"`
+	NotBefore   time.Time `json:"not_before,omitempty"`
+}
+
 type Attention struct {
-	Kind    string `json:"kind"`
-	Detail  string `json:"detail"`
-	Attempt string `json:"attempt,omitempty"`
+	Kind    FailureKind `json:"kind"`
+	Detail  string      `json:"detail"`
+	Attempt string      `json:"attempt,omitempty"`
 }
 
 type Task struct {
-	ID         string     `json:"id"`
-	Revision   int        `json:"revision"`
-	Generation int        `json:"generation"`
-	Stage      Stage      `json:"stage"`
-	Versions   []Version  `json:"versions"`
-	Approval   *Approval  `json:"approval,omitempty"`
-	Candidate  *Candidate `json:"candidate,omitempty"`
-	Attention  *Attention `json:"attention,omitempty"`
-	NextRole   string     `json:"next_role,omitempty"`
-	Review     []Check    `json:"review,omitempty"`
+	ID         string        `json:"id"`
+	Revision   int           `json:"revision"`
+	Generation int           `json:"generation"`
+	Stage      Stage         `json:"stage"`
+	Versions   []Version     `json:"versions"`
+	Approval   *Approval     `json:"approval,omitempty"`
+	Candidate  *Candidate    `json:"candidate,omitempty"`
+	Attention  *Attention    `json:"attention,omitempty"`
+	NextRole   string        `json:"next_role,omitempty"`
+	Review     []Check       `json:"review,omitempty"`
+	Usage      Usage         `json:"usage"`
+	Pending    *Continuation `json:"pending,omitempty"`
 }
 
 func (t Task) Current() Version { return t.Versions[len(t.Versions)-1] }
@@ -83,32 +116,39 @@ type Process struct {
 }
 
 type Attempt struct {
-	ID             string     `json:"id"`
-	TaskID         string     `json:"task_id"`
-	Version        int        `json:"version"`
-	Generation     int        `json:"generation"`
-	Role           string     `json:"role"`
-	ProfileName    string     `json:"profile_name"`
-	Profile        Profile    `json:"profile"`
-	PolicyRevision string     `json:"policy_revision"`
-	Quality        string     `json:"quality_revision"`
-	Base           string     `json:"base"`
-	State          string     `json:"state"`
-	Occupying      bool       `json:"occupying"`
-	StartedAt      time.Time  `json:"started_at"`
-	FinishedAt     *time.Time `json:"finished_at,omitempty"`
-	Process        *Process   `json:"process,omitempty"`
-	Result         *Result    `json:"result,omitempty"`
-	SourceDigest   string     `json:"source_digest,omitempty"`
-	Constructing   bool       `json:"constructing,omitempty"`
-	SourceHead     string     `json:"source_head,omitempty"`
-	Candidate      *Candidate `json:"candidate,omitempty"`
-	Error          string     `json:"error,omitempty"`
-	ResumedFrom    string     `json:"resumed_from,omitempty"`
-	Resume         string     `json:"resume,omitempty"`
-	ExecutionDir   string     `json:"execution_dir,omitempty"`
-	ReadRoots      []string   `json:"read_roots,omitempty"`
-	EvidenceDir    string     `json:"evidence_dir"`
+	ID             string      `json:"id"`
+	TaskID         string      `json:"task_id"`
+	Version        int         `json:"version"`
+	Generation     int         `json:"generation"`
+	Role           string      `json:"role"`
+	ProfileName    string      `json:"profile_name"`
+	Profile        Profile     `json:"profile"`
+	PolicyRevision string      `json:"policy_revision"`
+	Quality        string      `json:"quality_revision"`
+	Base           string      `json:"base"`
+	State          string      `json:"state"`
+	Occupying      bool        `json:"occupying"`
+	StartedAt      time.Time   `json:"started_at"`
+	FinishedAt     *time.Time  `json:"finished_at,omitempty"`
+	Process        *Process    `json:"process,omitempty"`
+	Result         *Result     `json:"result,omitempty"`
+	SourceDigest   string      `json:"source_digest,omitempty"`
+	Constructing   bool        `json:"constructing,omitempty"`
+	SourceHead     string      `json:"source_head,omitempty"`
+	Candidate      *Candidate  `json:"candidate,omitempty"`
+	Error          string      `json:"error,omitempty"`
+	ResumedFrom    string      `json:"resumed_from,omitempty"`
+	Resume         string      `json:"resume,omitempty"`
+	ExecutionDir   string      `json:"execution_dir,omitempty"`
+	ReadRoots      []string    `json:"read_roots,omitempty"`
+	EvidenceDir    string      `json:"evidence_dir"`
+	WorkspaceClaim string      `json:"workspace_claim"`
+	Invocation     int         `json:"invocation"`
+	Repair         int         `json:"repair"`
+	Retry          int         `json:"retry"`
+	Failure        FailureKind `json:"failure,omitempty"`
+	Reason         string      `json:"reason"`
+	Kind           string      `json:"kind"`
 }
 
 func (a Attempt) Authorized(t Task) bool {
@@ -159,8 +199,17 @@ func ValidateResult(r Result, proofs []Proof) error {
 	return nil
 }
 
-func ReviewOutcome(checks []Check) string {
-	result := "accepted"
+type Verdict string
+
+const (
+	Accepted        Verdict = "accepted"
+	EvidenceGap     Verdict = "gap"
+	ConfirmedDefect Verdict = "defect"
+	MissingDecision Verdict = "needs_input"
+)
+
+func ReviewOutcome(checks []Check) Verdict {
+	result := Accepted
 	for _, c := range checks {
 		switch c.Status {
 		case "needs_input":
@@ -183,7 +232,7 @@ func NewVersion(number int, body, repository, basePolicy, quality string) (Versi
 		if strings.HasPrefix(line, "## ") {
 			section = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "## ")))
 			if section == "dependencies" {
-				return Version{}, errors.New("dependencies are not supported in slice 1")
+				return Version{}, errors.New("dependencies are not supported in this Ready bundle")
 			}
 			continue
 		}

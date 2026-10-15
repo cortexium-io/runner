@@ -59,42 +59,23 @@ func (c CLI) init(ctx context.Context, cfg config.Config, args []string) error {
 			return err
 		}
 		defer db.Close()
-		old, drained, err := db.Settings(ctx)
+		old, _, err := db.Settings(ctx)
 		if err != nil {
 			return err
 		}
 		if id != old.RepositoryID || cfg.Repository != old.Config.Repository || cfg.StateDir != old.Config.StateDir || cfg.WorktreeDir != old.Config.WorktreeDir {
-			return errors.New("incompatible setup: use a distinct state directory; automatic migration is not supported")
+			return errors.New("incompatible setup: use a distinct state directory")
 		}
 		if len(commands) != 0 || len(sources) != 0 || *definition != f.Lookup("definition").DefValue {
-			return errors.New("quality agreement changes are not supported in slice 1")
+			return errors.New("quality agreement revisions are outside this Ready bundle")
 		}
-		fmt.Fprintln(c.Out, "Retaining quality revision:", old.Quality.Revision())
-		if !*apply {
-			fmt.Fprintln(c.Out, "Preview only. Repeat with --apply to apply compatible configuration while drained.")
-			return nil
-		}
-		if !drained {
-			return errors.New("drain before reconfiguring")
-		}
-		lock, err := execution.Lock(filepath.Join(cfg.StateDir, "coordinator.lock"))
-		if err != nil {
-			return err
-		}
-		defer lock.Close()
-		if err = c.Harness.CheckCapabilities(ctx, cfg); err != nil {
-			return err
-		}
-		next := old
-		next.Config = cfg
 		if cfg.Revision() != old.Config.Revision() {
-			if err = db.ApplySettings(ctx, old.Config.Revision(), next); err != nil {
-				return err
-			}
+			return errors.New("setup already exists; use config explain, then config apply --preview DIGEST for policy changes")
 		}
-		fmt.Fprintln(c.Out, "Configuration applied; existing attempts and quality agreement retained.")
+		fmt.Fprintln(c.Out, "Setup already applied; quality revision:", old.Quality.Revision())
 		return nil
 	}
+
 	if !os.IsNotExist(statErr) {
 		return statErr
 	}

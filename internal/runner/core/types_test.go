@@ -33,9 +33,14 @@ func TestProofCompletenessAndClassification(t *testing.T) {
 	}
 	for _, status := range []string{"pass", "gap", "defect", "needs_input"} {
 		checks := []Check{{Status: "gap"}, {Status: status}}
-		expected := map[string]string{"pass": "gap", "gap": "gap", "defect": "defect", "needs_input": "needs_input"}[status]
+		expected := map[string]Verdict{"pass": "gap", "gap": "gap", "defect": "defect", "needs_input": "needs_input"}[status]
 		if got := ReviewOutcome(checks); got != expected {
 			t.Fatalf("%s: %s", status, got)
+		}
+	}
+	for _, checks := range [][]Check{{{Status: "defect"}, {Status: "needs_input"}}, {{Status: "needs_input"}, {Status: "defect"}}} {
+		if ReviewOutcome(checks) != MissingDecision {
+			t.Fatal("decision did not take priority over repair")
 		}
 	}
 	for _, checks := range [][]Check{good.Checks[:1], {good.Checks[0], good.Checks[0]}, {{ID: "change", Status: "pass", Evidence: ""}, good.Checks[1]}, {{ID: "change", Status: "accepted", Evidence: "claim"}, good.Checks[1]}} {

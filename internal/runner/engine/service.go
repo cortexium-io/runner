@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/runner/config"
 	"github.com/cortexium-io/runner/internal/runner/core"
@@ -21,6 +22,14 @@ type Engine struct {
 	Store    *store.Store
 	Settings config.Settings
 	Executor Executor
+	clock    func() time.Time
+}
+
+func (e *Engine) now() time.Time {
+	if e.clock != nil {
+		return e.clock().UTC()
+	}
+	return time.Now().UTC()
 }
 
 func (e *Engine) git() workspace.Git { return workspace.Git{Settings: e.Settings} }
@@ -30,8 +39,8 @@ func (e *Engine) validate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if current.Config.Revision() != e.Settings.Config.Revision() {
-		return errors.New("configuration revision changed; drain and restart")
+	if !config.SameAuthority(current, e.Settings) {
+		return errors.New("repository or quality authority changed")
 	}
 	id, _, err := workspace.Observe(ctx, e.Settings.Config)
 	if err != nil {
@@ -61,6 +70,7 @@ type View struct {
 	Preview             string         `json:"approval_preview,omitempty"`
 	NextAction          string         `json:"next_action"`
 	CancellationPending bool           `json:"cancellation_pending"`
+	Eligibility         Eligibility    `json:"eligibility"`
 }
 
 func NextAction(t core.Task) string {
@@ -96,7 +106,23 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	view := View{Task: t, Attempts: attempts, NextAction: NextAction(t)}
+	settings, drained, err := e.Store.Settings(ctx)
+	if err != nil {
+		return View{}, err
+	}
+	all, err := e.Store.Attempts(ctx, "")
+	if err != nil {
+		return View{}, err
+	}
+	admission := eligible(settings.Config, t, all, drained, e.now())
+	view := View{Task: t, Attempts: attempts, NextAction: NextAction(t), Eligibility: admission}
+	if t.NextRole != "" && t.Attention == nil {
+		if admission.WaitingFor != "" {
+			view.NextAction = admission.WaitingFor
+		} else {
+			view.NextAction = "eligible: " + admission.Role + " with " + admission.ProfileName + "; run or wait for coordinator"
+		}
+	}
 	for _, a := range attempts {
 		if a.Occupying && !a.Authorized(t) {
 			view.CancellationPending = true
@@ -160,6 +186,8 @@ func (e *Engine) Replace(ctx context.Context, id string, version int, body strin
 	t.Generation++
 	t.Approval = nil
 	t.Stage = core.Draft
+	t.Usage = core.Usage{}
+	t.Pending = nil
 	t.NextRole = ""
 	t.Candidate = nil
 	t.Review = nil
@@ -177,6 +205,7 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 	t.Generation++
 	t.Approval = nil
 	t.Stage = core.Stopped
+	t.Pending = nil
 	t.NextRole = ""
 	t.Attention = nil
 	return e.Store.Commit(ctx, t.Revision, t, nil, false)
@@ -221,15 +250,13 @@ func (e *Engine) Resume(ctx context.Context, id, attempt string, allowNew bool) 
 		if !allowNew {
 			return "", fmt.Errorf("%s attempt %s was interrupted; artifacts remain in %s; --allow-new-invocation authorizes repeating that role with the pinned profile", a.Role, a.ID, a.EvidenceDir)
 		}
-		if a.Profile != e.Settings.Config.Profiles[a.ProfileName] {
-			return "", errors.New("attempt profile changed; replace the task explicitly")
-		}
 		if a.Role != "implementer" {
 			if err = e.git().ValidateCandidate(ctx, t); err != nil {
 				return "", err
 			}
 		}
 		a.Resume = "new"
+		t.Pending = &core.Continuation{Kind: "resume", FromAttempt: a.ID, Reason: "operator-authorized repetition of interrupted " + a.Role, ProfileName: a.ProfileName, Profile: a.Profile, Retry: a.Retry, Repair: a.Repair}
 		t.Attention = nil
 		t.NextRole = a.Role
 		if err = e.Store.Commit(ctx, t.Revision, t, &a, false); err != nil {
