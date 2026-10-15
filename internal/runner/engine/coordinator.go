@@ -274,6 +274,7 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 		return core.Attempt{}, false, err
 	}
 	for _, t := range tasks {
+		t = ciRepairTask(t, publications)
 		v := publicationWait(eligible(settings.Config, t, attempts, drained, e.now(), tasks...), settings.Config, t, attempts, publications)
 		if v.WaitingFor != "" {
 			continue
@@ -291,22 +292,28 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 		a := core.Attempt{
 			ID: core.NewID(), TaskID: t.ID, Version: t.Current().Number, Generation: t.Generation,
 			Role: t.NextRole, ProfileName: v.ProfileName, Profile: v.Profile, PolicyRevision: settings.Config.Revision(),
-			Quality: t.Current().Quality, Base: t.Base(), Candidate: t.Candidate,
-			State: "reserved", Occupying: true, StartedAt: e.now(), WorkspaceClaim: workspaceClaim(settings.Config, t),
+			Quality: t.Current().Quality, Base: t.Base(), Candidate: t.Candidate, CIRepair: t.CIRepair,
+			State: "reserved", Occupying: true, StartedAt: e.now(),
 			Kind: "stage", Reason: v.Reason, Repair: t.Usage.Repairs,
 		}
 		if q := t.Pending; q != nil {
 			a.Kind = q.Kind
 			a.ResumedFrom = q.FromAttempt
-			if q.Kind == "repair" {
+			if q.Kind == "repair" || q.Kind == "ci_repair" {
 				t.Usage.Repairs++
-				t.Usage.Escalations++
+				if q.Kind == "repair" {
+					t.Usage.Escalations++
+				} else {
+					t.WorkspaceRepair = t.Usage.Repairs
+					t.BaseProof, t.Review = nil, nil
+				}
 				a.Repair = t.Usage.Repairs
 			} else {
 				a.Retry = q.Retry
 				a.Repair = q.Repair
 			}
 		}
+		a.WorkspaceClaim = workspaceClaim(settings.Config, t)
 		if a.Role != "refresh" {
 			t.Usage.Invocations++
 		}
@@ -386,6 +393,11 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 			return fail(err)
 		}
 	} else if a.Role == "implementer" {
+		if t.CIRepair != nil && t.Candidate != nil && *t.Candidate == t.CIRepair.Assessment.Proof.Candidate {
+			if err := e.git().PrepareCIRepair(ctx, t); err != nil {
+				return finished{a, execution.Completion{Stopped: true, Kind: core.Integrity, Error: err.Error()}}
+			}
+		}
 		if a.Kind == "repair" {
 			if err := e.git().ValidateCandidate(ctx, t); err != nil {
 				return finished{a, execution.Completion{Stopped: true, Kind: core.Integrity, Error: err.Error()}}
@@ -696,6 +708,11 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 		}
 		a.Candidate = &candidate
 		t.Candidate = &candidate
+		if a.CIRepair != nil && candidate.Tree == a.CIRepair.Assessment.Proof.Candidate.Tree {
+			a.State = "applied"
+			t.Attention = &core.Attention{Kind: core.ProofGap, Detail: "CI repair left source unchanged; inspect the failure and clarify missing diagnostic evidence before replacing the task", Attempt: a.ID}
+			return nil
+		}
 		t.Review = checks
 		t.Stage = core.Reviewing
 		t.NextRole = "audit"
@@ -728,7 +745,7 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 		case "accepted":
 			t.Stage = core.AwaitingDelivery
 			t.NextRole = ""
-			if t.WorkingBase != nil {
+			if t.WorkingBase != nil || t.CIRepair != nil {
 				t.NextRole = "refresh"
 			}
 			t.Attention = nil

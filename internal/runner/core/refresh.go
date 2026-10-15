@@ -34,6 +34,9 @@ func (t Task) WorkspaceKey() string {
 	if t.WorkingBase != nil {
 		key += fmt.Sprintf("-r%d", t.WorkingBase.Cycle)
 	}
+	if t.WorkspaceRepair > 0 {
+		key += fmt.Sprintf("-c%d", t.WorkspaceRepair)
+	}
 	return key
 }
 

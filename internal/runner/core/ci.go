@@ -39,6 +39,31 @@ type CIAssessment struct {
 	Results     []CIResult     `json:"results"`
 }
 
+// CIRepair retains the exact failure that admitted a repair. Provider text is
+// diagnostic data, never task or quality authority.
+type CIRepair struct {
+	PublicationID         string       `json:"publication_id"`
+	Assessment            CIAssessment `json:"assessment"`
+	SourceWorkspaceRepair int          `json:"source_workspace_repair"`
+}
+
+func (p Publication) CanRepairCI(t Task) bool {
+	if !p.CurrentCI(t) || p.CI.State != "failed" || len(p.CI.Results) == 0 {
+		return false
+	}
+	failed := false
+	for _, r := range p.CI.Results {
+		if r.State == "passed" {
+			continue
+		}
+		if r.State != "failed" || !((r.Kind == "check" && r.Status == "COMPLETED" && r.Conclusion == "FAILURE") || (r.Kind == "status" && r.Status == "FAILURE")) {
+			return false
+		}
+		failed = true
+	}
+	return failed
+}
+
 func (p Publication) CanAssessCI(t Task) bool {
 	return p.State == "published" && p.Intent.Authorized(t) && t.BaseProof != nil && t.BaseProof.Matches(t) &&
 		p.Observation != nil && p.Observation.Number > 0 && p.Observation.State == "OPEN" && p.Observation.Draft && p.Observation.BranchCommit == p.Intent.Candidate.Commit

@@ -12,12 +12,256 @@ import (
 	"github.com/cortexium-io/runner/internal/runner/config"
 	"github.com/cortexium-io/runner/internal/runner/core"
 	"github.com/cortexium-io/runner/internal/runner/execution"
+	"github.com/cortexium-io/runner/internal/runner/store"
 )
 
 type checksAdapter func(context.Context, core.PublicationIntent) (core.CIObservation, error)
 
 func (f checksAdapter) ObserveCI(c context.Context, p core.PublicationIntent) (core.CIObservation, error) {
 	return f(c, p)
+}
+
+func TestCIRepairPreservesDraftAndReusesBoundedRecovery(t *testing.T) {
+	req := core.CIRequirement{Kind: "check", Name: "test", AppID: 15368}
+	e, task, first := confirmedDraft(t, req)
+	now := time.Now().UTC()
+	e.clock = func() time.Time { return now }
+	if err := e.VerifyBase(t.Context(), task.ID); err != nil {
+		t.Fatal(err)
+	}
+	complete(t, e, claim(t, e))
+	finish(t, e)
+	task = current(t, e, task.ID)
+	source := task
+	remote := *first.Observation
+	conclusion := "FAILURE"
+	e.Checks = checksAdapter(func(_ context.Context, p core.PublicationIntent) (core.CIObservation, error) {
+		return core.CIObservation{Remote: remote, Base: task.Base(), Commit: p.Candidate.Commit, Source: "head", Checks: []core.RemoteCheck{{CIRequirement: req, Status: "COMPLETED", Conclusion: conclusion}}}, nil
+	})
+	assess := func() {
+		t.Helper()
+		if err := e.publish(t.Context(), deliveryClaim(t, e)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assess()
+	waiting(t, e, task.ID, "repair limit")
+	view, err := e.Show(t.Context(), task.ID)
+	if err != nil || !strings.Contains(view.Summary, "bounded repair") || current(t, e, task.ID).CIRepair != nil {
+		t.Fatal("inspection changed authority or lost repair advice", view, err)
+	}
+	applyPolicy(t, e, func(c *config.Config) {
+		c.Policy.MaxRepairs = 2
+		c.Policy.MaxTransientRetries = 1
+		c.Profiles["careful"] = core.Profile{Harness: "codex", Model: "stronger", Reasoning: "high", Timeout: "1m"}
+		c.Policy.ImplementationLadder = []string{"careful"}
+	})
+	// Reassessment changes only publication state. Its race must still defeat a
+	// previously derived repair in the store's admission transaction.
+	projected := ciRepairTask(task, []core.Publication{publication(t, e)})
+	projected.Usage.Repairs++
+	projected.Usage.Invocations++
+	projected.WorkspaceRepair = 1
+	projected.BaseProof, projected.Review, projected.Pending = nil, nil, nil
+	projected.Stage, projected.NextRole = core.Implementing, ""
+	settings, _, _ := e.Store.Settings(t.Context())
+	stale := core.Attempt{ID: core.NewID(), TaskID: task.ID, Version: task.Current().Number, Generation: task.Generation, Role: "implementer", Kind: "ci_repair", Base: task.Base(), Occupying: true, WorkspaceClaim: workspaceClaim(settings.Config, projected), PolicyRevision: settings.Config.Revision(), Invocation: projected.Usage.Invocations, CIRepair: projected.CIRepair}
+	if err = e.AssessCI(t.Context(), task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = e.Store.Commit(t.Context(), task.Revision, projected, &stale, true); !errors.Is(err, store.ErrConflict) {
+		t.Fatal("reassessment lost race", err)
+	}
+	assess()
+	repair := claim(t, e)
+	if repair.Kind != "ci_repair" || repair.Repair != 1 || repair.ProfileName != "build" || repair.CIRepair == nil || repair.WorkspaceClaim == source.Candidate.Workspace {
+		t.Fatal("wrong CI reservation", repair)
+	}
+	if got := current(t, e, task.ID); got.BaseProof != nil || len(got.Review) != 0 || got.Usage.Escalations != 0 {
+		t.Fatal("CI retained acceptance or escalated", got)
+	}
+	firstCall := true
+	e.Executor = adapter(func(_ context.Context, r execution.Request, _ func(core.Process) error) execution.Completion {
+		if r.Attempt.CIRepair == nil {
+			t.Fatal("repair context lost")
+		}
+		if r.Attempt.Role == "implementer" {
+			body, err := os.ReadFile(filepath.Join(r.Dir, "greeting.txt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if firstCall {
+				firstCall = false
+				if string(body) != "hello\n" {
+					t.Fatal("repair did not start at failed candidate")
+				}
+				if err = os.WriteFile(filepath.Join(r.Dir, "greeting.txt"), []byte("hello"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				return execution.Completion{Stopped: true, Kind: core.Transient, Error: "provider unavailable after partial edit"}
+			}
+			if string(body) != "hello" {
+				t.Fatal("retry erased partial repair")
+			}
+		}
+		return pass(r)
+	})
+	if err = e.saveCompletion(t.Context(), e.execute(t.Context(), repair)); err != nil {
+		t.Fatal(err)
+	}
+	reopen(t, e)
+	now = now.Add(time.Minute)
+	retry := claim(t, e)
+	if retry.Repair != 1 || retry.Retry != 1 || retry.ProfileName != repair.ProfileName || retry.CIRepair == nil {
+		t.Fatal("retry gained allowance or lost context", retry)
+	}
+	complete(t, e, retry)
+	finish(t, e)
+	if err = e.git().ValidateCandidate(t.Context(), source); err != nil {
+		t.Fatal("published candidate was modified", err)
+	}
+	if p := publication(t, e); p.Intent.Candidate != *source.Candidate || p.CurrentCI(current(t, e, task.ID)) {
+		t.Fatal("repair reused current CI")
+	}
+	audit := claim(t, e)
+	if audit.Role != "audit" {
+		t.Fatal("repair bypassed review")
+	}
+	complete(t, e, audit)
+	finish(t, e)
+	refresh := claim(t, e)
+	if refresh.Role != "refresh" {
+		t.Fatal("repair bypassed current base")
+	}
+	complete(t, e, refresh)
+	finish(t, e)
+	task = current(t, e, task.ID)
+	if task.BaseProof == nil || !task.BaseProof.Matches(task) || task.Usage.Repairs != 1 || task.Usage.Escalations != 0 || task.Usage.BaseRefreshes != source.Usage.BaseRefreshes {
+		t.Fatal("repair changed budgets or lost proof", task)
+	}
+	e.Delivery = deliveryAdapter{
+		observe: func(context.Context, core.PublicationIntent) (core.RemotePublication, error) { return remote, nil },
+		push: func(_ context.Context, p core.PublicationIntent, authorize func() error) error {
+			if p.Sync == nil || p.Sync.PreviousCommit != source.Candidate.Commit || p.Sync.Number != remote.Number || p.Branch != first.Intent.Branch {
+				t.Fatal("repair lost same-draft lease")
+			}
+			if err := authorize(); err != nil {
+				return err
+			}
+			remote.BranchCommit = p.Candidate.Commit
+			return nil
+		},
+		create: func(context.Context, core.PublicationIntent, func() error) error {
+			t.Fatal("repair created another PR")
+			return nil
+		},
+	}
+	if err = e.publish(t.Context(), deliveryClaim(t, e)); err != nil {
+		t.Fatal(err)
+	}
+	conclusion = "SUCCESS"
+	assess()
+	all, err := e.Store.Publications(t.Context(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := latestPublication(all, task); got == nil || got.CI.State != "passed" || !got.CurrentCI(task) {
+		t.Fatal("new candidate CI not current", got)
+	}
+	if _, ok, err := e.claim(t.Context()); ok || err != nil {
+		t.Fatal("success admitted another repair", err)
+	}
+	conclusion = "FAILURE"
+	if err = e.AssessCI(t.Context(), task.ID); err != nil {
+		t.Fatal(err)
+	}
+	assess()
+	applyPolicy(t, e, func(c *config.Config) { c.Policy.MaxRepairs = 1 })
+	waiting(t, e, task.ID, "repair limit")
+	applyPolicy(t, e, func(c *config.Config) {
+		c.Policy.MaxRepairs = 2
+		n := task.Usage.Invocations
+		c.Policy.MaxInvocationsPerTask = &n
+	})
+	waiting(t, e, task.ID, "invocation ceiling")
+	applyPolicy(t, e, func(c *config.Config) { c.Policy.MaxInvocationsPerTask = nil })
+	second := claim(t, e)
+	if second.Repair != 2 || second.ProfileName != "build" {
+		t.Fatal("second failure reset allowance or escalated", second)
+	}
+	reopen(t, e)
+	if err = e.recover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.Resume(t.Context(), task.ID, second.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	resumed := claim(t, e)
+	if resumed.Repair != 2 || resumed.CIRepair == nil || resumed.ResumedFrom != second.ID {
+		t.Fatal("manual resume reset pass", resumed)
+	}
+	if err = e.Stop(t.Context(), task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = e.recover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := current(t, e, task.ID); got.Stage != core.Stopped || got.Usage.Repairs != 2 || got.Usage.Escalations != 0 {
+		t.Fatal("stop lost budgets", got)
+	}
+}
+
+func TestCIRepairCannotPublishUnchangedOrTamperedSource(t *testing.T) {
+	for _, scenario := range []string{"unchanged", "mode only", "tampered"} {
+		t.Run(scenario, func(t *testing.T) {
+			req := core.CIRequirement{Kind: "check", Name: "test", AppID: 15368}
+			e, task, p := confirmedDraft(t, req)
+			if err := e.VerifyBase(t.Context(), task.ID); err != nil {
+				t.Fatal(err)
+			}
+			complete(t, e, claim(t, e))
+			finish(t, e)
+			task = current(t, e, task.ID)
+			e.Checks = checksAdapter(func(context.Context, core.PublicationIntent) (core.CIObservation, error) {
+				return core.CIObservation{Remote: *p.Observation, Base: task.Base(), Commit: task.Candidate.Commit, Source: "head", Checks: []core.RemoteCheck{{CIRequirement: req, Status: "COMPLETED", Conclusion: "FAILURE"}}}, nil
+			})
+			if err := e.publish(t.Context(), deliveryClaim(t, e)); err != nil {
+				t.Fatal(err)
+			}
+			applyPolicy(t, e, func(c *config.Config) { c.Policy.MaxRepairs = 1 })
+			calls := 0
+			e.Executor = adapter(func(_ context.Context, r execution.Request, _ func(core.Process) error) execution.Completion {
+				calls++
+				if scenario == "mode only" {
+					if err := os.Chmod(filepath.Join(r.Dir, "greeting.txt"), 0640); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return pass(r)
+			})
+			if scenario == "tampered" {
+				if err := os.WriteFile(filepath.Join(task.Candidate.Workspace, "greeting.txt"), []byte("changed externally"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			a := claim(t, e)
+			f := e.execute(t.Context(), a)
+			if err := e.saveCompletion(t.Context(), f); err != nil {
+				t.Fatal(err)
+			}
+			finish(t, e)
+			got := current(t, e, task.ID)
+			if got.Attention == nil || got.NextRole != "" || got.Usage.Repairs != 1 || got.BaseProof != nil {
+				t.Fatal("invalid repair continued", got)
+			}
+			if scenario == "tampered" && (calls != 0 || got.Attention.Kind != core.Integrity) {
+				t.Fatal("tampered source reached implementer")
+			}
+			if scenario != "tampered" && (calls != 1 || got.Attention.Kind != core.ProofGap || !strings.Contains(got.Attention.Detail, "unchanged")) {
+				t.Fatal("no-op repair not explained", got)
+			}
+		})
+	}
 }
 
 func TestCIAssessmentPinsEvidenceAndRequiresExplicitReassessment(t *testing.T) {

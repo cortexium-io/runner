@@ -13,6 +13,17 @@ type ChecksHost interface {
 	ObserveCI(context.Context, core.PublicationIntent) (core.CIObservation, error)
 }
 
+// Project eligibility without mutating authority. The store checks the source
+// assessment again when reserving a repair, alongside policy and ownership.
+func ciRepairTask(t core.Task, publications []core.Publication) core.Task {
+	if p := latestPublication(publications, t); p != nil && p.CanRepairCI(t) {
+		t.CIRepair = &core.CIRepair{PublicationID: p.Intent.ID, Assessment: *p.CI, SourceWorkspaceRepair: t.WorkspaceRepair}
+		t.NextRole = "implementer"
+		t.Pending = &core.Continuation{Kind: "ci_repair", Reason: "Required CI failed; diagnose and repair within the approved scope without model escalation"}
+	}
+	return t
+}
+
 func (e *Engine) AssessCI(ctx context.Context, id string) error {
 	if err := e.validate(ctx); err != nil {
 		return err
@@ -96,7 +107,7 @@ func (e *Engine) readCI(ctx context.Context, p core.Publication, result *core.CI
 		"passed":      "Pinned CI checks passed at this observation; host protections and merge remain unverified.",
 		"pending":     "Required CI is still running; reassess after it settles.",
 		"missing":     "A required CI result is missing, including jobs from the wrong producer; inspect workflow triggers and reassess.",
-		"failed":      "Required CI failed; inspect the listed results. This bundle does not rerun CI or start code repair.",
+		"failed":      "Required CI failed; complete explicit failures are eligible for bounded repair. Inspect other outcomes before reassessment.",
 		"unavailable": "Required CI contains unknown or duplicate results; inspect the provider before reassessment.",
 	}[result.State]
 	return nil

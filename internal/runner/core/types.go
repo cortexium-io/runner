@@ -99,6 +99,8 @@ type Attention struct {
 }
 
 type Task struct {
+	CIRepair        *CIRepair             `json:"ci_repair,omitempty"`
+	WorkspaceRepair int                   `json:"workspace_repair,omitempty"`
 	WorkingBase     *BaseBinding          `json:"working_base,omitempty"`
 	RefreshTarget   *BaseBinding          `json:"refresh_target,omitempty"`
 	BaseProof       *BaseProof            `json:"base_proof,omitempty"`
@@ -142,6 +144,7 @@ type CheckObservation struct {
 }
 
 type Attempt struct {
+	CIRepair       *CIRepair          `json:"ci_repair,omitempty"`
 	Refreshed      *BaseBinding       `json:"refreshed,omitempty"`
 	ObservedBase   string             `json:"observed_base,omitempty"`
 	BaseObservedAt time.Time          `json:"base_observed_at,omitempty"`

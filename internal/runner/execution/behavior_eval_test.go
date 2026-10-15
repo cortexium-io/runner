@@ -197,6 +197,103 @@ func TestLivePlanningBehavior(t *testing.T) {
 	}
 }
 
+// Qualify the CI context at the existing native execution boundary: repair a
+// reproducible defect, but do not invent one from a failed job name alone.
+func TestLiveCIRepairBehavior(t *testing.T) {
+	root, profile, harness := liveEvaluation(t, "ci-repair")
+	const tests = "import unittest\nfrom greet import greet\nclass GreetingTests(unittest.TestCase):\n    def test_required_inputs(self):\n        for value, expected in [('Ada', 'Hello, Ada!'), ('  Ada  ', 'Hello, Ada!'), ('  ', 'Hello, World!')]:\n            with self.subTest(value=value):\n                self.assertEqual(greet(value), expected)\n"
+	for _, name := range []string{"reproducible", "insufficient", "review"} {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(root, name)
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			source := "def greet(name):\n    return 'Hello, ' + (name.strip() or 'World') + '!'\n"
+			if name == "reproducible" {
+				source = "def greet(name):\n    return 'Hello, ' + (name or 'World') + '!'\n"
+			}
+			for path, body := range map[string]string{"greet.py": source, "test_greet.py": tests} {
+				if err := os.WriteFile(filepath.Join(dir, path), []byte(body), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			body := "## Outcome\nNormalize names in greet.\n## Scope\ngreet.py and existing test_greet.py only. No new files, dependencies or framework.\n## Acceptance\ngreet('Ada') and greet('  Ada  ') return 'Hello, Ada!'; greet('  ') returns 'Hello, World!'.\n## Verification\nUse existing exact-output unittest cases in test_greet.py. Run python3 -B -m unittest -q. Preserve all expectations; no duplicate test suite.\n"
+			version, err := core.NewVersion(1, body, "fixture", "recorded", "quality")
+			if err != nil {
+				t.Fatal(err)
+			}
+			job := "python-unit"
+			if name == "insufficient" {
+				job = "windows-only-integration"
+			}
+			failure := &core.CIRepair{PublicationID: "fixture", Assessment: core.CIAssessment{State: "failed", Detail: "Required hosted job failed; no remote logs available. Diagnose locally; missing evidence must remain explicit.", Results: []core.CIResult{{RemoteCheck: core.RemoteCheck{CIRequirement: core.CIRequirement{Kind: "check", Name: job, AppID: 15368}, Status: "COMPLETED", Conclusion: "FAILURE"}, State: "failed"}}}}
+			a := core.Attempt{ID: name, Role: "implementer", Kind: "ci_repair", Repair: 1, ProfileName: "build", Profile: profile, CIRepair: failure, EvidenceDir: filepath.Join(root, name+"-evidence")}
+			r := Request{Attempt: a, Task: core.Task{ID: name, Versions: []core.Version{version}, CIRepair: failure}, Dir: dir, Proofs: version.Proofs, Quality: config.Quality{Definition: "Approved behavior, exact assertions and honest actual test evidence; do not infer a code defect from unavailable hosted logs.", Checks: []config.QualityCheck{{ID: "unit", Command: "python3 -B -m unittest -q", Directory: ".", Prerequisites: []string{"python3"}, Timeout: "1m"}}}}
+			if name == "review" {
+				command := exec.CommandContext(t.Context(), "python3", "-B", "-m", "unittest", "-q")
+				command.Dir = dir
+				output, err := command.CombinedOutput()
+				if err != nil {
+					t.Fatal("review fixture check failed", err)
+				}
+				events := filepath.Join(root, "review-check-events.jsonl")
+				data, _ := json.Marshal(map[string]any{"type": "item.completed", "item": map[string]any{"type": "command_execution", "command": "python3 -B -m unittest -q", "status": "completed", "exit_code": 0, "aggregated_output": string(output)}})
+				if err = os.WriteFile(events, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+				r.Attempt.Role = "audit"
+				r.ReadRoots = []string{dir, events}
+				r.Dir = filepath.Join(root, "review-neutral")
+				if err = os.MkdirAll(r.Dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			result := harness.Execute(t.Context(), r, func(p core.Process) error {
+				data, _ := json.Marshal(p)
+				return os.WriteFile(filepath.Join(root, name+"-process.json"), data, 0600)
+			})
+			data, _ := json.MarshalIndent(result, "", "  ")
+			if err = os.WriteFile(filepath.Join(root, name+"-result.json"), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if !result.Stopped || result.Error != "" || result.Result == nil {
+				t.Fatalf("native repair failed: %+v", result)
+			}
+			verdict := core.ReviewOutcome(result.Result.Checks)
+			if name != "insufficient" {
+				if result.Result.Outcome != "succeeded" || verdict != core.Accepted {
+					t.Fatal("reproducible repair not completed", result.Result)
+				}
+			} else {
+				if result.Result.Outcome == "succeeded" && verdict == core.Accepted {
+					t.Fatal("unexplained CI treated as fixed")
+				}
+				actual, err := os.ReadFile(filepath.Join(dir, "greet.py"))
+				if err != nil || string(actual) != source {
+					t.Fatal("speculative edit", err)
+				}
+			}
+			if name == "review" {
+				actual, err := os.ReadFile(filepath.Join(dir, "greet.py"))
+				if err != nil || string(actual) != source {
+					t.Fatal("review changed source", err)
+				}
+			}
+			actual, err := os.ReadFile(filepath.Join(dir, "test_greet.py"))
+			if err != nil || string(actual) != tests {
+				t.Fatal("sufficient owning tests were changed", err)
+			}
+			command := exec.CommandContext(t.Context(), "python3", "-B", "-m", "unittest", "-q")
+			command.Dir = dir
+			output, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("owning tests failed: %s %v", output, err)
+			}
+			t.Logf("%s: %s; evidence=%s", name, result.Result.Summary, root)
+		})
+	}
+}
+
 // Live calls require explicit operator-selected profile inputs; evidence survives the test.
 func liveEvaluation(t *testing.T, name string) (string, core.Profile, Codex) {
 	t.Helper()

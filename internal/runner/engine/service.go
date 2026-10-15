@@ -111,8 +111,7 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	admission := eligible(settings.Config, t, all, drained, e.now(), tasks...)
-	view := View{CurrentQuality: settings.Quality.Revision(), Task: t, Attempts: attempts, Eligibility: admission}
+	view := View{CurrentQuality: settings.Quality.Revision(), Task: t, Attempts: attempts}
 	view.DeliveryDestination = settings.Config.Delivery.Repository
 	publications, err := e.Store.Publications(ctx, "")
 	if err != nil {
@@ -126,7 +125,8 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 			}
 		}
 	}
-	view.Eligibility = publicationWait(view.Eligibility, settings.Config, t, all, publications)
+	admission := eligible(settings.Config, ciRepairTask(t, publications), all, drained, e.now(), tasks...)
+	view.Eligibility = publicationWait(admission, settings.Config, t, all, publications)
 	for _, a := range attempts {
 		if a.Occupying && !a.Authorized(t) {
 			view.CancellationPending = true
@@ -247,6 +247,7 @@ func replaceVersion(t *core.Task, v core.Version) {
 	t.Stage = core.Draft
 	t.Usage = core.Usage{}
 	t.WorkingBase, t.RefreshTarget, t.BaseProof = nil, nil, nil
+	t.CIRepair, t.WorkspaceRepair = nil, 0
 	t.Pending = nil
 	t.Prepared = nil
 	t.Proposal = nil

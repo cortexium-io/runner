@@ -330,6 +330,9 @@ func (c CLI) printView(v engine.View, full bool) {
 	if t.Candidate != nil {
 		fmt.Fprintf(c.Out, "Candidate: %s\nWorkspace: %s\n", t.Candidate.Commit, t.Candidate.Workspace)
 	}
+	if t.CIRepair != nil {
+		fmt.Fprintf(c.Out, "CI repair source: publication %s; failed candidate %s; observed %s\n", t.CIRepair.PublicationID, t.CIRepair.Assessment.Proof.Candidate.Commit, t.CIRepair.Assessment.ObservedAt.Format(time.RFC3339))
+	}
 	for _, p := range v.Publications {
 		if t.Candidate != nil && *t.Candidate != p.Intent.Candidate {
 			fmt.Fprintln(c.Out, "Historical candidate retained in this operation:", p.Intent.Candidate.Commit)
@@ -385,7 +388,7 @@ func (c CLI) printView(v engine.View, full bool) {
 		fmt.Fprintf(c.Out, "; invocations=%d", *v.Eligibility.InvocationsRemaining)
 	}
 	fmt.Fprintln(c.Out)
-	if v.Task.NextRole != "" && (v.FocusAttempt == nil || !v.FocusAttempt.Occupying) {
+	if v.Eligibility.Role != "" && (v.FocusAttempt == nil || !v.FocusAttempt.Occupying) {
 		if v.Eligibility.Role == "refresh" {
 			fmt.Fprintln(c.Out, "Next action: refresh;", v.Eligibility.Reason)
 		} else {

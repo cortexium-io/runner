@@ -20,7 +20,10 @@ The third adds [remote draft synchronization](docs/runner-redesign-proposal.md#p
 verified candidates advance the same draft under an exact remote commit lease.
 The fourth adds [CI assessment](docs/runner-redesign-proposal.md#phase-3-fourth-bundle-ci-assessment)
 against required checks pinned in the quality agreement, with explicit reassessment.
-This build uses store format 8 (earlier formats require fresh state) and stops
+The fifth adds [bounded CI repair](docs/runner-redesign-proposal.md#phase-3-fifth-bundle-bounded-ci-repair):
+eligible failures use the existing repair allowance, preserve the published candidate,
+and return through checks, review and base verification before updating the same draft.
+This build uses store format 9 (earlier formats require fresh state) and stops
 at **Awaiting delivery**. Merge/integration, release qualification and external
 views remain pending.
 The documentation below describes the existing

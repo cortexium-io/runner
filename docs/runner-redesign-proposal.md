@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first four phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, then CI assessment. Qualification is recorded below. Merge/integration and release qualification remain pending. Current store format is 8; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first five phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, then bounded CI repair. Qualification is recorded below. Merge/integration and release qualification remain pending. Current store format is 9; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -1837,7 +1837,7 @@ mode authorizes draft publication, current-base verification and synchronization
 after task acceptance, not integration. The third bundle advances the same draft
 only from its exact confirmed previous commit. Changing
 an initialized destination or base is rejected by execution-policy apply. Local
-mode still runs without GitHub. Store formats 1–7 are rejected untouched: preserve
+mode still runs without GitHub. Store formats 1–8 are rejected untouched: preserve
 old state/workspaces and initialize fresh roots; no old approvals are imported.
 
 Use an operator-owned `gh auth login --hostname github.com` configuration with
@@ -2239,12 +2239,13 @@ selected commit/source and observation time. The JSON forms include the complete
 bounded observation. Inspection makes no network call and does not start work.
 
 Use `task assess-ci ID` after pending/missing jobs settle, a provider outage clears
-or a failure is resolved; then `run` if absent or drained. This requests one read,
+or a failure is resolved, before any repair admission; then `run` if absent or drained. This requests one read,
 not a CI rerun or code repair. A refreshed candidate needs publication confirmation
 and its own assessment. A new base observation invalidates the previous assessment;
 old publication records remain inspectable. A passed result is timestamped evidence
 for the pinned list, not permission to merge or a claim that live branch protection
 has been evaluated. The human status never reports completion or releases dependencies.
+The fifth bundle below adds automatic bounded repair for eligible failures.
 
 #### CI-assessment qualification
 
@@ -2294,6 +2295,140 @@ polling, CI reruns and bounded CI repair are not implemented. More than 100 cont
 on either observed commit require attention rather than partial assessment. Store
 format 8 requires fresh private state; prior state/workspaces are preserved.
 Platform/release qualification and a live complete merge journey remain pending.
+
+### Phase 3, fifth bundle: bounded CI repair
+
+**Implementation and verification brief (2026-10-15, before code).** Extend the
+existing repair journey to current, complete failed CI evidence. Stop before merge,
+marking ready, task completion, workflow reruns, automatic polling or conflict repair.
+
+- Derive one implementer repair from the latest confirmed publication only when
+  its assessment still matches the accepted candidate, quality, review and base
+  proof. Every required result must be terminal and understood: passed, or explicit
+  check/status `FAILURE`. Pending/missing/unknown/duplicate results, cancellation,
+  timeouts, startup errors, action-required results and stale evidence cannot
+  automatically diagnose a code defect. They retain inspection/reassessment advice.
+- Reuse `max_repairs`, invocation limits, capacity, drain and task ownership. Reserve
+  one repair and invocation atomically before dispatch; recheck the exact assessment
+  in that transaction so concurrent reassessment, refresh or stop wins safely.
+  Zero/exhausted allowance waits visibly; policy edits retain consumed counters.
+  CI repair keeps the currently selected implementer escalation level. Only a
+  subsequent independent reviewer defect advances the configured ladder.
+- Derive eligibility without changing authoritative state during inspection or
+  while blocked on a limit. Keep `task assess-ci` available until repair is admitted.
+  After admission, ordinary retry/resume reuses the reserved pass and pinned profile;
+  interruption cannot obtain a fresh repair. No new command, queue, table or scheduler.
+- Bind the failed assessment and publication identity to the task/attempt. Preserve
+  the published candidate in its existing workspace and seed a separate repair
+  workspace from its exact commit. Never reset partial repair work on retry/resume.
+  Clear current acceptance/base proof when admitting repair. Preserve approval,
+  quality requirements, original scope and consumed base-refresh allowance.
+- Supply bounded CI results as untrusted diagnostic context to implementation and
+  review, not as revised requirements or permission to fetch links. The implementer
+  must reproduce/diagnose locally, reuse sufficient tests, and report missing evidence
+  or a decision when the failure cannot be explained. This bundle does not download
+  arbitrary hosted logs or grant network access. Unchanged source is not a repair.
+- A changed candidate must pass pinned local checks and independent audit/focused
+  verification, then current-base verification and existing leased synchronization
+  to the same draft. Only that confirmed candidate receives a new CI assessment.
+  A subsequent eligible failure consumes another remaining repair; success remains
+  Awaiting delivery and never satisfies dependencies. Old observations stay historical.
+- Keep human/JSON status explicit about CI repair, its cause, actual profile and
+  remaining allowances. Store format 9 rejects older state untouched; preserve
+  earlier state/workspaces and initialize fresh private state.
+
+Extend the existing CI policy table for repair admission, the real-store/Git CI
+journey for limits, assessment races, retained workspace, retry/restart, fresh review,
+base verification and same-draft synchronization, and existing operator coverage.
+Reuse the established capacity, review-repair/escalation, stop and quality suites;
+do not copy them. Qualify the changed role context with a small opt-in live Codex
+pair: a reproducible defect repaired using the owning tests, and insufficient CI
+evidence reported honestly without speculative edits. Use the already selected
+`gpt-6.1-sol` / `high`. Exercise the built CLI; run `go test -race ./...`,
+`go vet ./...` and the build; review the complete diff and record evidence here.
+No remote writes or new GitHub API behavior are required for this bundle.
+
+#### Using bounded CI repair
+
+Keep using the existing execution policy: `repairs` bounds all additional
+implementation passes together; `invocations` and `parallelism` still apply.
+No CI-specific budget or model profile is needed. With a configured allowance,
+`run` derives a repair from current complete explicit failure evidence. It keeps
+the current implementer escalation level; a later independent review rejection
+uses the existing escalation rule. A failure does not prove that code is at fault:
+the implementer must diagnose locally and report a gap/decision when it cannot.
+
+`status` and `task show ID` explain the CI cause and limiting allowance. The detailed
+view shows the prospective profile before admission, the actual attempt afterward,
+and the source publication/candidate. Inspection and blocked eligibility consume
+nothing. To reassess a potentially transient job failure before repair starts,
+use `task assess-ci ID`; the reservation checks that this newer request wins over
+an older repair observation. Drain before editing allowances when you want admission
+to remain paused. Raising a limit never erases consumed work.
+
+Admitted repairs use a separate workspace seeded from the failed commit. A retry
+or explicit interrupted-attempt resume keeps partial edits and the same reserved
+pass. The old draft stays at its confirmed commit until the new candidate passes
+native checks, independent review and base verification. Synchronization updates
+that same draft under the existing exact commit lease, then assesses CI once.
+Further eligible failures spend remaining repair allowance. Unchanged source,
+missing diagnostics, integrity failures and exhausted limits remain explicit
+attention. Success still stops at **Awaiting delivery**.
+
+#### CI-repair qualification
+
+The core assessment suite now checks repair admission for explicit failures versus
+mixed pending/missing/unknown results, infrastructure outcomes, changed proof,
+queued reassessment and stop. The existing real Git/SQLite CI journey now covers
+zero/exhausted allowance, invocation ceilings, same-transaction reassessment races,
+unchanged escalation level, partial edits across transient retry/restart, manual
+resume, stop, retained original workspace, fresh review and base proof, leased
+same-draft synchronization and reassessment of the new candidate. Focused cases
+check that unchanged source (including permission-only changes outside Git's tree)
+or externally changed source cannot progress to publication. A no-op is an explicit
+proof gap, not a saved-result retry that would repeatedly fail.
+Existing capacity, reviewer-defect escalation, quality/adoption and refresh suites
+retain their responsibilities; no separate test framework or copied legacy suite.
+
+On 2026-10-15, the opt-in native Codex pair passed using `gpt-6.1-sol` with `high`
+reasoning. The reproducible case fixed whitespace normalization in `greet.py`,
+kept the sufficient owning unittest suite unchanged, and passed its exact-output
+checks. The insufficient-diagnostics case kept source/tests unchanged and reported
+that the Windows-only hosted failure could not be diagnosed from available evidence.
+Prompts, native invocation logs, results and fixture source are retained at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-ci-repair-eval-1232309559`.
+This qualifies the added diagnostic context on two bounded cases, not general
+model reliability or a complete live hosted repair/review journey. Previous review
+qualifications still apply; sandbox and provider interfaces are unchanged.
+Final review made the stage boundary explicit in the added CI context: local
+reproduction belongs to implementation, while audit only inspects supplied proof.
+A third live case accepted a repaired candidate with actual local check evidence,
+kept source/tests unchanged and used only file inspection commands; it did not
+treat the historical failed CI as a defect in the new candidate. That evidence is
+retained at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-ci-repair-eval-3549975306`.
+
+The built CLI walkthrough covered limited/eligible repair, prospective profile,
+JSON status, policy explanation, explicit reassessment before admission, reservation,
+stop and historical evidence. Read-only commands preserved the database hash.
+It used disposable real Git/store state with controlled provider/acceptance results;
+logs are retained at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-ci-repair-cli-777190604`.
+The temporary qualification test was removed. No GitHub writes occurred.
+
+`go test -race ./...`, `go vet ./...` and the `runner-next` build passed on
+Go 1.27.1, macOS arm64, Git 2.54.0. After final review, the clarified review prompt
+passed the execution race suite and live audit above; the final no-op boundary
+passed its real-store/Git cases under race detection. Vet and the build were rerun
+after those changes. Gate logs are retained with the CLI evidence. The complete
+diff was reviewed, `git diff --check` passed, and the replacement still imports no
+legacy engine, execution or GitHub packages. No release packaging changed.
+
+Merge, marking ready, workflow reruns, automatic CI polling, conflict repair and
+confirmed task/dependency completion remain unimplemented. Integration still needs
+current host protections/reviews, check applicability and current base/candidate/CI
+verification. Store format 9 requires fresh private state; prior state and retained
+workspaces are left untouched. Platform/release qualification remains pending.
 
 ### Simple upgrade or deliberate break
 

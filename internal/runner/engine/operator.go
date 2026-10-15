@@ -164,6 +164,9 @@ func describeView(v *View, running bool, now time.Time) {
 	}
 	if a != nil && a.Occupying {
 		v.Group, v.Summary = "Working", a.Role+" / "+a.State
+		if a.Role == "implementer" && a.CIRepair != nil {
+			v.Summary = "CI repair / " + a.State
+		}
 		v.NextAction = "wait for the recorded attempt; " + show + " for evidence"
 		if v.CancellationPending {
 			v.Summary = "cancellation pending; old execution still owns its reservation"
@@ -312,6 +315,20 @@ func TaskTitle(t core.Task) string {
 // CI is an observation of the pinned agreement, never permission to merge.
 func describeCI(v *View, p core.Publication, running bool) {
 	id := v.Task.ID
+	if p.CanRepairCI(v.Task) {
+		v.Group, v.Summary = "Waiting", "required CI failed; bounded repair eligible without model escalation"
+		v.NextAction = "wait for repair admission; run if absent or drained; task assess-ci " + id + " can reassess before admission"
+		if v.Eligibility.WaitingFor != "" {
+			v.Summary += "; " + v.Eligibility.WaitingFor
+		}
+		if !running || v.Eligibility.WaitKind == "drained" || v.Eligibility.WaitKind == "repair_limit" || v.Eligibility.WaitKind == "invocation_limit" {
+			v.Group = "Needs you"
+		}
+		if v.Eligibility.WaitKind == "repair_limit" || v.Eligibility.WaitKind == "invocation_limit" {
+			v.NextAction = "inspect failure and allowances with task show " + id + "; config edit then config explain/apply for more allowance, or task assess-ci " + id + " to reassess"
+		}
+		return
+	}
 	if p.CIRequest != nil {
 		v.Group, v.Summary = "Waiting", "CI assessment queued for the confirmed draft"
 		v.NextAction = "wait for admission; run if the coordinator is absent or drained"

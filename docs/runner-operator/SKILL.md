@@ -5,8 +5,8 @@ description: Operate the replacement runner-next local core through its explicit
 
 # Runner local operator
 
-This reference applies only to `cmd/runner-next`, through the fourth phase 3
-CI assessment bundle. It is not an execution role or a skill for
+This reference applies only to `cmd/runner-next`, through the fifth phase 3
+bounded CI repair bundle. It is not an execution role or a skill for
 the legacy Project-backed runtime. Use the built binary and the operator's explicit
 configuration path. Run `runner-next help`
 for commands, then prefix each command below with `runner-next --config PATH`.
@@ -73,12 +73,25 @@ Use these commands for authorized changes:
   until explicit adoption creates a new unapproved version. Local exceptions do not
   exempt CI. Once the exact draft and current-base proof are confirmed, `run`
   assesses once. `task assess-ci ID` queues another read; use `run` if absent/drained.
-  There is no automatic polling, CI rerun or model repair in this bundle. `task show`
+  There is no automatic polling or CI rerun. `task show`
   retains required results, links, selected head/test-merge commit and timestamp.
   Pending or missing checks need reassessment after they settle; failures and unknown
   results need inspection. Stale base evidence needs `task verify-base ID` first.
   Passed means the pinned checks were observed satisfied, not that host protections
   or merge conditions have been verified. No counters are spent by this read.
+- Bounded CI repair: a complete current assessment with explicit required-check
+  failures admits one implementer pass under the existing `repairs` and invocation
+  limits. Pending/missing evidence, cancellations, timeouts and infrastructure or
+  unknown outcomes need inspection; they do not automatically start code repair.
+  CI repair keeps the current model escalation level. Zero/exhausted allowance
+  remains visible; use `config edit`, `config explain` and `config apply` to change it.
+  `task assess-ci ID` remains available until repair admission. After admission,
+  use ordinary stage-specific recovery; retries/resumes retain the same repair pass.
+  The failed assessment and published candidate are retained. Repair uses a separate
+  workspace, then pinned checks, independent review, current-base verification,
+  same-draft synchronization and fresh CI. Insufficient diagnostics require an honest
+  gap/decision, never speculative edits or weaker tests. No arbitrary log downloads,
+  workflow reruns or additional network permissions are introduced.
 - Recovery: follow the displayed attempt and role. `task resume ID --attempt ID`
   can queue reuse of a saved result without a model call. An interrupted role
   repeats only with explicitly authorized `--allow-new-invocation`; report the

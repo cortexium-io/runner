@@ -99,7 +99,7 @@ func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained boo
 	case t.Usage.Repairs > p.MaxRepairs && (t.Pending == nil || t.Pending.Kind != "resume"):
 		v.WaitKind = "repair_limit"
 		v.WaitingFor = "repair limit below consumed allowance; explicitly apply more allowance before automatic work"
-	case t.Pending != nil && t.Pending.Kind == "repair" && t.Usage.Repairs >= p.MaxRepairs:
+	case t.Pending != nil && (t.Pending.Kind == "repair" || t.Pending.Kind == "ci_repair") && t.Usage.Repairs >= p.MaxRepairs:
 		v.WaitKind = "repair_limit"
 		v.WaitingFor = "repair limit; inspect findings and explicitly apply more allowance or replace the task"
 	case t.Pending != nil && t.Pending.Kind == "retry" && t.Pending.Retry > p.MaxTransientRetries:
@@ -185,6 +185,7 @@ func (e *Engine) PreviewPolicy(ctx context.Context, proposed config.Config) (Pol
 	}
 	now := e.now()
 	for _, t := range tasks {
+		t = ciRepairTask(t, publications)
 		after := publicationWait(eligible(proposed, t, attempts, drained, now, tasks...), proposed, t, attempts, publications)
 		before := publicationWait(eligible(current.Config, t, attempts, drained, now, tasks...), current.Config, t, attempts, publications)
 		result.Tasks = append(result.Tasks, PolicyEffect{t.ID, t.Usage, before, after})
