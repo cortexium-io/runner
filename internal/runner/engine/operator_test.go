@@ -56,6 +56,12 @@ func TestOperatorAdviceDistinguishesAttentionWorkAndWaits(t *testing.T) {
 			v.Publications = []core.Publication{{Occupying: true, Intent: core.PublicationIntent{Repository: "owner/repo"}}}
 		}, true},
 		{"interrupted publication", "Needs you", "uncertain PR creation cannot repeat", func(v *View) { v.Publications = []core.Publication{{Occupying: true}} }, false},
+		{"assessing CI", "Working", "wait for the CI observation", func(v *View) {
+			v.Publications = []core.Publication{{Occupying: true, State: "published", CIRequest: &core.BaseProof{}}}
+		}, true},
+		{"interrupted CI", "Needs you", "repeat the interrupted CI read safely", func(v *View) {
+			v.Publications = []core.Publication{{Occupying: true, State: "published", CIRequest: &core.BaseProof{}}}
+		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			v := View{Task: core.Task{ID: "task", Stage: core.Reviewing, Versions: []core.Version{{Number: 1, Body: "## Outcome\nGreeting\n"}}}, Preview: "approval", Attempts: []core.Attempt{{ID: "attempt", Version: 1, Role: "audit", State: "running", StartedAt: now.Add(-5 * time.Second), Profile: core.Profile{Model: "actual", Reasoning: "high"}}}}

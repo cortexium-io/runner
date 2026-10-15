@@ -82,6 +82,12 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 		}
 		if !p.Intent.Authorized(t) && (p.State == "queued" || p.Occupying) {
 			p.State, p.Detail, p.Occupying = "revoked", "Authority revoked; any already-sent remote effect is retained and is not undone.", false
+			p.CIRequest = nil
+		} else if p.CIRequest != nil && (!p.CanAssessCI(t) || core.Digest(p.CIRequest) != core.Digest(t.BaseProof)) {
+			p.CIRequest, p.Occupying = nil, false
+		} else if p.Occupying && p.State == "published" {
+			// An interrupted CI read is safe to repeat under the same proof.
+			p.Occupying = false
 		} else if p.Occupying {
 			// A lost push is safe to inspect and resume under its exact remote lease.
 			// CreateRequested permanently prevents replay of an uncertain PR POST.
@@ -106,6 +112,12 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 		}
 		previous := latestPublication(all, t)
 		if previous != nil {
+			if !previous.Occupying && previous.CIRequest == nil && previous.CanAssessCI(t) && (previous.CI == nil || core.Digest(previous.CI.Proof) != core.Digest(t.BaseProof)) {
+				previous.CIRequest = t.BaseProof
+				if err = e.savePublication(ctx, previous); err != nil && !errors.Is(err, store.ErrConflict) {
+					return err
+				}
+			}
 			if previous.State != "published" || previous.Occupying || previous.Intent.Candidate == *t.Candidate || t.BaseProof == nil || !t.BaseProof.Matches(t) || t.NextRole != "" {
 				continue
 			}
@@ -152,10 +164,13 @@ func (e *Engine) claimPublication(ctx context.Context) (core.Publication, bool, 
 		return core.Publication{}, false, err
 	}
 	for _, p := range all {
-		if p.State != "queued" || p.Occupying {
+		if (p.State != "queued" && !(p.State == "published" && p.CIRequest != nil)) || p.Occupying {
 			continue
 		}
-		p.State, p.Occupying, p.UpdatedAt = "running", true, e.now()
+		if p.State == "queued" {
+			p.State = "running"
+		}
+		p.Occupying, p.UpdatedAt = true, e.now()
 		if err = e.Store.SavePublication(ctx, p, true); errors.Is(err, store.ErrConflict) {
 			continue
 		}
@@ -187,6 +202,9 @@ func (e *Engine) publicationAuthority(ctx context.Context, p core.PublicationInt
 }
 
 func (e *Engine) publish(ctx context.Context, p core.Publication) error {
+	if p.State == "published" && p.CIRequest != nil {
+		return e.assessCI(ctx, p)
+	}
 	err := e.publishSteps(ctx, &p)
 	p.Occupying = false
 	if err != nil {
@@ -344,6 +362,7 @@ func (e *Engine) ReconcileDelivery(ctx context.Context, id string) error {
 		if p.Occupying || p.State == "queued" {
 			return nil
 		}
+		p.CIRequest = nil
 		p.State, p.Detail = "queued", "Operator requested remote inspection and safe continuation; uncertain PR creation cannot repeat."
 		return e.savePublication(ctx, p)
 	}

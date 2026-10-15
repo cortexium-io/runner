@@ -50,3 +50,32 @@ func TestBaselineExceptionIsExactAndCannotCoverUnavailableProof(t *testing.T) {
 		}
 	}
 }
+
+func TestRequiredCIIsExplicitAndPartOfTheQualityRevision(t *testing.T) {
+	spec := QualitySpec{Definition: "done", Checks: []QualityCheck{{ID: "test", Command: "true", Directory: ".", Prerequisites: []string{"sh"}, Timeout: "1m"}}}
+	req := core.CIRequirement{Kind: "check", Name: "test", AppID: 15368}
+	for _, tc := range []struct {
+		name     string
+		required []core.CIRequirement
+		valid    bool
+	}{
+		{"unconfigured", nil, true}, {"check", []core.CIRequirement{req}, true}, {"status", []core.CIRequirement{{Kind: "status", Name: "legacy"}}, true},
+		{"missing producer", []core.CIRequirement{{Kind: "check", Name: "test"}}, false},
+		{"status producer", []core.CIRequirement{{Kind: "status", Name: "test", AppID: 1}}, false},
+		{"duplicate", []core.CIRequirement{req, req}, false}, {"unknown kind", []core.CIRequirement{{Kind: "workflow", Name: "test"}}, false},
+		{"control character", []core.CIRequirement{{Kind: "status", Name: "test\n"}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec.RequiredCI = tc.required
+			if (spec.Validate() == nil) != tc.valid {
+				t.Fatal("wrong requirement validation", tc)
+			}
+		})
+	}
+	old := Quality{Definition: "done"}
+	next := old
+	next.RequiredCI = []core.CIRequirement{req}
+	if old.Revision() == next.Revision() {
+		t.Fatal("CI requirements omitted from pinned revision")
+	}
+}

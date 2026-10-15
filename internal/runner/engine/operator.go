@@ -114,6 +114,17 @@ func describeView(v *View, running bool, now time.Time) {
 	for i := len(v.Publications) - 1; i >= 0; i-- {
 		p := v.Publications[i]
 		if p.Occupying {
+			if p.State == "published" && p.CIRequest != nil {
+				v.Group, v.Summary = "Working", "assessing CI for the confirmed draft"
+				v.NextAction = "wait for the CI observation; " + show + " retains results"
+				if v.CancellationPending {
+					v.Summary = "CI read cancellation pending; any result remains historical"
+				}
+				if !running {
+					v.Group, v.NextAction = "Needs you", "run to repeat the interrupted CI read safely"
+				}
+				return
+			}
 			v.Group, v.Summary = "Working", "publishing reviewed candidate; "+p.Intent.Repository
 			v.NextAction = "wait for remote reconciliation; " + show + " retains operation identity and evidence"
 			if v.CancellationPending {
@@ -210,6 +221,7 @@ func describeView(v *View, running bool, now time.Time) {
 					if p.Observation != nil {
 						v.Summary += "; " + p.Observation.URL
 					}
+					describeCI(v, *p, running)
 				case p != nil && p.State == "attention":
 					v.Group, v.Summary = "Needs you", "draft synchronization needs attention: "+p.Detail
 					v.NextAction = "task delivery " + t.ID + " --reconcile; then run if absent or drained; settle this operation before another base refresh"
@@ -295,4 +307,39 @@ func TaskTitle(t core.Task) string {
 		}
 	}
 	return "Untitled request"
+}
+
+// CI is an observation of the pinned agreement, never permission to merge.
+func describeCI(v *View, p core.Publication, running bool) {
+	id := v.Task.ID
+	if p.CIRequest != nil {
+		v.Group, v.Summary = "Waiting", "CI assessment queued for the confirmed draft"
+		v.NextAction = "wait for admission; run if the coordinator is absent or drained"
+		if !running {
+			v.Group = "Needs you"
+		}
+		return
+	}
+	if !p.CurrentCI(v.Task) {
+		return
+	}
+	v.Summary += "; CI " + p.CI.State + " at " + p.CI.ObservedAt.Format(time.RFC3339)
+	v.NextAction = "task assess-ci " + id + " to observe again; merge remains unimplemented"
+	switch p.CI.State {
+	case "passed":
+		v.Group = "Retained"
+	case "pending":
+		v.Group = "Waiting"
+		v.NextAction = "wait for hosted jobs, then task assess-ci " + id + "; run if absent or drained"
+	case "stale":
+		v.Group = "Needs you"
+		v.NextAction = "task verify-base " + id + "; then run before reassessing CI"
+	case "unconfigured":
+		v.Group = "Needs you"
+		v.NextAction = "configure required_ci through quality preview/check/apply, then inspect task show " + id + " for explicit agreement adoption"
+	default:
+		v.Group = "Needs you"
+		v.NextAction = "inspect CI details with task show " + id + "; task assess-ci " + id + " after resolution; run if absent or drained"
+	}
+	v.Summary += "; " + p.CI.Detail
 }

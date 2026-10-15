@@ -30,9 +30,17 @@ func (d deliveryAdapter) CreateDraft(c context.Context, p core.PublicationIntent
 	return d.create(c, p, a)
 }
 
-func deliveryFixture(t *testing.T) (*Engine, core.Task) {
+func deliveryFixture(t *testing.T, required ...core.CIRequirement) (*Engine, core.Task) {
 	t.Helper()
 	e := fixture(t, func(c *config.Config) { c.Delivery.Mode = "github-draft"; c.Delivery.Repository = "owner/repo" })
+	if len(required) > 0 {
+		q := e.Settings.Quality
+		q.RequiredCI = required
+		if err := e.Store.ApplyQuality(t.Context(), e.Settings.Quality.Revision(), q); err != nil {
+			t.Fatal(err)
+		}
+		e.Settings.Quality = q
+	}
 	task := approved(t, e)
 	complete(t, e, claim(t, e))
 	finish(t, e)
@@ -274,9 +282,9 @@ func TestSlowPublicationSharesCapacityWithoutBlockingLocalWork(t *testing.T) {
 }
 
 // Keep one confirmed original draft, then use the real refresh/review machinery.
-func confirmedDraft(t *testing.T) (*Engine, core.Task, core.Publication) {
+func confirmedDraft(t *testing.T, required ...core.CIRequirement) (*Engine, core.Task, core.Publication) {
 	t.Helper()
-	e, task := deliveryFixture(t)
+	e, task := deliveryFixture(t, required...)
 	applyPolicy(t, e, func(c *config.Config) { c.Policy.MaxBaseRefreshes = 2 })
 	e.Bases = baseAdapter(func(context.Context, string, string, string) (string, error) {
 		return git(t, e.Settings.Config.Repository.Path, "rev-parse", "HEAD"), nil

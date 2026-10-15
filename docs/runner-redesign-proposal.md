@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first three phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, then remote draft synchronization. Qualification is recorded below. CI/integration and release qualification remain pending. Current store format is 7; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first four phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, then CI assessment. Qualification is recorded below. Merge/integration and release qualification remain pending. Current store format is 8; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -1837,7 +1837,7 @@ mode authorizes draft publication, current-base verification and synchronization
 after task acceptance, not integration. The third bundle advances the same draft
 only from its exact confirmed previous commit. Changing
 an initialized destination or base is rejected by execution-policy apply. Local
-mode still runs without GitHub. Store formats 1–6 are rejected untouched: preserve
+mode still runs without GitHub. Store formats 1–7 are rejected untouched: preserve
 old state/workspaces and initialize fresh roots; no old approvals are imported.
 
 Use an operator-owned `gh auth login --hostname github.com` configuration with
@@ -2146,6 +2146,154 @@ next delivery boundary. Platform/release and live GitHub write qualification rem
 pending. Model contracts are unchanged, so the preceding bundle's live Codex
 qualification remains applicable without another invocation. Store format 7
 requires fresh state; earlier state and workspaces are preserved untouched.
+
+### Phase 3, fourth bundle: CI assessment
+
+**Implementation and verification brief (2026-10-15, before code).** Assess the
+owner's required hosted checks for an exactly confirmed draft and current-base
+proof. Preserve the existing publication, refresh and review contracts. Stop before
+marking ready, merge, task completion, automated CI reruns or CI repair.
+
+- Extend the existing quality agreement with optional `required_ci` entries:
+  exact `kind` (`check` or legacy `status`), `name`, and positive `app_id` for check
+  runs (zero/omitted for status contexts). Names and producer identity are explicit;
+  agents and observed green jobs cannot invent or weaken requirements. The existing
+  preview/check/apply and task adoption flows own changes. Local baseline exceptions
+  do not excuse hosted CI failures. An absent list is unconfigured, never passed.
+- Add one narrow read-only checks capability. Keep provider JSON in the GitHub
+  adapter and assessment policy in core. Reuse publication reservations and global
+  capacity; no new scheduler, table, model role, queue or plugin framework.
+- Automatically request one assessment once a current confirmed draft has exact
+  base proof. `task assess-ci ID` explicitly requests another observation after
+  pending/missing/failing checks or an outage. Inspection commands remain local and
+  read-only. No polling loop, CI rerun, provider mutation or model invocation.
+- Retain the latest assessment per publication, bound to its immutable candidate,
+  quality/review identity and exact base proof, with observation time, selected
+  commit/source, required-check results and actionable reason. Reassessment clears
+  current success while queued or running. Interrupted reads may repeat safely;
+  stop/replacement and refresh invalidate current applicability, preserving history.
+- Observe the known repository, branch, PR number/URL, marker, open draft state and
+  exact head. Require the remote base to equal retained base proof. Assess the test
+  merge commit when it has checks, otherwise the candidate head; test merge parents
+  must be exactly the observed base and candidate. Unknown, incomplete, truncated,
+  inconsistent or ambiguous observations cannot pass. Bound one observation to
+  100 contexts per commit; larger responses require attention, not partial success.
+- Evaluate every pinned requirement. Missing jobs remain missing; recognized active
+  states remain pending; failures/cancellation/timeouts/action-required/stale outcomes
+  fail. Successful, skipped and neutral completed check runs satisfy this hosted
+  check contract, with the exact conclusion visible. Legacy statuses require success.
+  Unknown outcomes and duplicate matching jobs are unavailable. Unrelated checks
+  neither satisfy a required job nor cause an automatic code rejection.
+- Human/JSON status distinguish unconfigured, missing, pending, failed, unavailable,
+  stale and passed observations. Passing means the pinned CI agreement was observed
+  satisfied, not that every live GitHub protection, required review, workflow trigger,
+  merge queue or merge condition has been verified. Future integration must recheck
+  current remote policy, base, candidate and CI; this evidence grants no merge authority.
+- Failed CI requests operator inspection and explicit reassessment; bounded code
+  repair is a later delivery bundle and cannot silently consume repair/escalation
+  allowance here. Neither CI success nor a remotely merged PR completes dependencies.
+- Store format 8 rejects prior formats untouched. Preserve earlier state/workspaces;
+  initialize fresh state instead of migrating live authority.
+
+Extend existing quality agreement tests for validation/pinning/adoption. Use a small
+pure assessment table for missing/pending/failed/unknown/duplicate/wrong-producer
+results. Extend GitHub fixtures for complete head/test-merge observations and exact
+identity, truncation and base changes. Extend the real-store engine delivery journey
+for automatic assessment, explicit retry, interrupted read recovery, invalidation,
+unchanged counters and shared capacity. Keep helpers small and reuse existing
+publication, refresh and operator coverage. Exercise the built CLI and a production
+read-only GitHub query; no remote writes or new model qualification are needed.
+Run `go test -race ./...`, `go vet ./...`, build `runner-next`, review the complete
+diff and record qualification/limits here before stopping.
+
+Provider semantics were checked against GitHub's [required-check guidance](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks)
+and [GraphQL reference](https://docs.github.com/en/graphql/reference/commits).
+The adapter follows head/test-merge selection; Runner's pinned agreement remains
+separate from the live branch-protection decision reserved for integration.
+
+#### Using CI assessment
+
+Add hosted requirements to the same `QUALITY.json` used by `quality preview`,
+`quality check` and `quality apply`, preferably before authorizing a Ready task.
+For example, this fragment selects a named check from one specific app and a legacy
+status context (replace both names and the app ID with the repository's requirements):
+
+```json
+"required_ci": [
+  {"kind": "check", "name": "test", "app_id": 15368},
+  {"kind": "status", "name": "external-validation"}
+]
+```
+
+Keep the existing definition, sources and local checks in the full specification.
+The existing quality preview displays the exact requirements; baseline execution
+still runs local checks only. Hosted CI is assessed on the published candidate.
+`quality show` exposes the applied/pinned list. A changed list creates a new quality
+revision; existing work adopts only through the displayed task adoption command,
+which creates an unapproved version. An empty list never silently passes CI.
+
+After publication/synchronization and exact base proof, `run` admits one CI read.
+`status` identifies waiting jobs, required attention or retained passing evidence;
+`task show ID` lists the required results, exact conclusions, safe detail links,
+selected commit/source and observation time. The JSON forms include the complete
+bounded observation. Inspection makes no network call and does not start work.
+
+Use `task assess-ci ID` after pending/missing jobs settle, a provider outage clears
+or a failure is resolved; then `run` if absent or drained. This requests one read,
+not a CI rerun or code repair. A refreshed candidate needs publication confirmation
+and its own assessment. A new base observation invalidates the previous assessment;
+old publication records remain inspectable. A passed result is timestamped evidence
+for the pinned list, not permission to merge or a claim that live branch protection
+has been evaluated. The human status never reports completion or releases dependencies.
+
+#### CI-assessment qualification
+
+The pure core table covers missing jobs, unrelated green results, wrong producers,
+duplicate matching jobs, active states, terminal conclusions and legacy statuses.
+Quality tests cover explicit validation, revision changes and adoption. The existing
+real-store/Git delivery fixtures prove automatic first assessment, explicit repeated
+reads, interrupted reservation recovery, stale requests after refresh, task pinning
+across default-quality changes, remote identity/base changes and candidate tampering.
+A channel-controlled read demonstrates shared capacity, concurrent unrelated local
+work and historical-only results after stop. No copied legacy suite, polling test
+framework or new dependency was introduced.
+
+GitHub fixtures cover complete head/test-merge selection, exact parents and check
+commit provenance, required producer identity, absent checks, unknown context types,
+truncation and omitted fields, partial API errors, unsafe detail links and changed
+PR identity/state. Existing publication fixtures remain the owner of shared marker,
+repository, base branch and duplicate-PR validation. Native workspace, sandbox,
+quality and refresh suites retain their existing responsibilities.
+
+On 2026-10-15, the built CLI exercised pending/passed status, JSON, required-check
+details, quality inspection, explicit reassessment and stop against a disposable
+confirmed draft. Read-only inspection preserved the database hash; queued reads
+removed current success; stop retained the draft link and historical evidence.
+The fixture used real Git/store state and controlled acceptance/provider results.
+Evidence is retained at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-ci-qualification-2699375809`.
+A production read-only query decoded four hosted checks on historical Runner PR
+105's exact head. Full assessment correctly refused that merged, non-Runner-marked
+PR. This qualifies the live query/decoder, not a live end-to-end accepted draft.
+No GitHub writes occurred, and temporary qualification harnesses were removed.
+Model invocation contracts and sandbox permissions are unchanged; preceding live
+Codex qualification remains applicable without another invocation.
+
+`go test -race ./...`, `go vet ./...` and the `runner-next` build passed on
+Go 1.27.1, macOS arm64, Git 2.54.0. The final historical-result and interrupted-read
+wording changes passed the focused operator race test and rebuilt CLI walkthrough;
+the stopped-task inspection again preserved the database hash. Gate logs are kept
+with the qualification evidence above. The complete diff was reviewed and
+`git diff --check` passed. The replacement still imports no legacy engine,
+execution or GitHub packages; model prompts and release packaging are unchanged.
+
+Stop before merge. Integration must still verify current host protections and
+required reviews, check applicability (including workflow events/merge queues),
+current base/candidate/CI, and the authorized merge outcome. Automatic observation
+polling, CI reruns and bounded CI repair are not implemented. More than 100 contexts
+on either observed commit require attention rather than partial assessment. Store
+format 8 requires fresh private state; prior state/workspaces are preserved.
+Platform/release qualification and a live complete merge journey remain pending.
 
 ### Simple upgrade or deliberate break
 

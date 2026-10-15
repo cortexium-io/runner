@@ -25,6 +25,7 @@ type Engine struct {
 	Checker  execution.CheckRunner
 	Delivery DeliveryHost
 	Bases    BaseHost
+	Checks   ChecksHost
 	clock    func() time.Time
 }
 

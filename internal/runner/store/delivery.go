@@ -94,7 +94,7 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 			}
 		}
 	}
-	if p.Revision == 0 || claim || p.State == "queued" {
+	if p.Revision == 0 || claim || p.State == "queued" || p.CIRequest != nil {
 		var raw []byte
 		if err = tx.QueryRowContext(ctx, "SELECT data FROM tasks WHERE id=?", p.Intent.TaskID).Scan(&raw); err != nil {
 			return err
@@ -109,6 +109,10 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 		if p.Revision == 0 && p.Intent.Sync != nil && !p.Intent.Sync.ObservedAt.Equal(t.BaseProof.ObservedAt) {
 			return ErrConflict
 		}
+		if p.CIRequest != nil && (!p.CanAssessCI(t) || core.Digest(p.CIRequest) != core.Digest(t.BaseProof)) {
+			return ErrConflict
+		}
+
 		var drained bool
 		if err = tx.QueryRowContext(ctx, "SELECT settings,drained FROM metadata WHERE id=1").Scan(&raw, &drained); err != nil {
 			return err
@@ -121,7 +125,7 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 			return ErrConflict
 		}
 		if claim {
-			if !p.Occupying || p.State != "running" {
+			if !p.Occupying || (p.State != "running" && !(p.State == "published" && p.CIRequest != nil)) {
 				return errors.New("invalid publication reservation")
 			}
 			var active, owned int

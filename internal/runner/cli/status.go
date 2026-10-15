@@ -112,6 +112,7 @@ task adopt-quality ID --version N --preview DIGEST
 task resume ID --attempt ID [--allow-new-invocation]
 task delivery ID --reconcile          Inspect and safely continue draft publication/synchronization.
 task verify-base ID                  Inspect current base; resume a bounded clean refresh.
+task assess-ci ID                    Observe pinned hosted checks for the confirmed draft.
 task stop ID                         Revoke authority; retain work and evidence.
 status [--json] [--watch 2s]          Read-only attention, work, waits and retained results.
 config edit [--set KEY=VALUE]         Interactive editor or preview named changes.

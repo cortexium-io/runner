@@ -20,6 +20,7 @@ func TestAgreementAdoptionRevokesOldWorkAndKeepsHistoricalEvidence(t *testing.T)
 	old := task.Current().Quality
 	next := e.Settings.Quality
 	next.Definition = "New explicit requirement"
+	next.RequiredCI = []core.CIRequirement{{Kind: "check", Name: "test", AppID: 15368}}
 	if err := e.Store.ApplyQuality(t.Context(), old, next); err != nil {
 		t.Fatal(err)
 	}

@@ -42,41 +42,63 @@ func (h Host) api(ctx context.Context, endpoint string, input any, output any) e
 	return nil
 }
 
-const observeQuery = `query($owner:String!,$repo:String!,$branch:String!,$ref:String!){repository(owner:$owner,name:$repo){nameWithOwner ref(qualifiedName:$ref){target{oid}} pullRequests(headRefName:$branch,first:2,states:[OPEN,CLOSED,MERGED]){nodes{number url state isDraft headRefName headRefOid baseRefName body headRepository{nameWithOwner}} pageInfo{hasNextPage}}}}`
+const publicationFields = `number url state isDraft headRefName headRefOid baseRefName body headRepository{nameWithOwner}`
+const observeQuery = `query($owner:String!,$repo:String!,$branch:String!,$ref:String!){repository(owner:$owner,name:$repo){nameWithOwner ref(qualifiedName:$ref){target{oid}} pullRequests(headRefName:$branch,first:2,states:[OPEN,CLOSED,MERGED]){nodes{` + publicationFields + `} pageInfo{hasNextPage}}}}`
+
+type remotePR struct {
+	Number                                                 int
+	URL, State, HeadRefName, HeadRefOid, BaseRefName, Body string
+	IsDraft                                                bool
+	HeadRepository                                         *struct{ NameWithOwner string }
+	BaseRefOid                                             string
+	PotentialMergeCommit                                   json.RawMessage
+}
+type remoteRepository struct {
+	NameWithOwner string
+	Ref           json.RawMessage
+	PullRequests  *struct {
+		Nodes    []remotePR
+		PageInfo struct{ HasNextPage bool }
+	}
+	Candidate *checkCommit
+}
 
 func marker(p core.PublicationIntent) string {
 	return "<!-- runner-publication:" + p.PublicationID() + " -->"
 }
 
-func (h Host) Observe(ctx context.Context, p core.PublicationIntent) (core.RemotePublication, error) {
+func (h Host) readRemote(ctx context.Context, p core.PublicationIntent, checks bool) (*remoteRepository, error) {
 	owner, repo, ok := strings.Cut(p.Repository, "/")
 	if !ok {
-		return core.RemotePublication{}, errors.New("invalid repository")
+		return nil, errors.New("invalid repository")
 	}
 	var response struct {
 		Errors []json.RawMessage
-		Data   struct {
-			Repository *struct {
-				NameWithOwner string
-				Ref           json.RawMessage
-				PullRequests  *struct {
-					Nodes []struct {
-						Number                                                 int
-						URL, State, HeadRefName, HeadRefOid, BaseRefName, Body string
-						IsDraft                                                bool
-						HeadRepository                                         *struct{ NameWithOwner string }
-					}
-					PageInfo struct{ HasNextPage bool }
-				}
-			}
-		}
+		Data   struct{ Repository *remoteRepository }
 	}
-	input := map[string]any{"query": observeQuery, "variables": map[string]string{"owner": owner, "repo": repo, "branch": p.Branch, "ref": "refs/heads/" + p.Branch}}
-	if err := h.api(ctx, "graphql", input, &response); err != nil {
+	query := observeQuery
+	variables := map[string]string{"owner": owner, "repo": repo, "branch": p.Branch, "ref": "refs/heads/" + p.Branch}
+	if checks {
+		query = ciQuery
+		variables["commit"] = p.Candidate.Commit
+	}
+	if err := h.api(ctx, "graphql", map[string]any{"query": query, "variables": variables}, &response); err != nil {
+		return nil, err
+	}
+	if len(response.Errors) != 0 {
+		return nil, errors.New("GitHub returned incomplete observation with GraphQL errors")
+	}
+	return response.Data.Repository, nil
+}
+func (h Host) Observe(ctx context.Context, p core.PublicationIntent) (core.RemotePublication, error) {
+	r, err := h.readRemote(ctx, p, false)
+	if err != nil {
 		return core.RemotePublication{}, err
 	}
-	r := response.Data.Repository
-	if len(response.Errors) != 0 || r == nil || !strings.EqualFold(r.NameWithOwner, p.Repository) {
+	return validateRemote(p, r)
+}
+func validateRemote(p core.PublicationIntent, r *remoteRepository) (core.RemotePublication, error) {
+	if r == nil || !strings.EqualFold(r.NameWithOwner, p.Repository) {
 		return core.RemotePublication{}, errors.New("GitHub repository observation is unavailable or differs from the authorized destination")
 	}
 	o := core.RemotePublication{}

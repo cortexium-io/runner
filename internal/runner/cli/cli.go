@@ -88,6 +88,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	if cfg.Delivery.Mode == "github-draft" {
 		app.Delivery = github.Host{}
 		app.Bases = github.Host{}
+		app.Checks = github.Host{}
 	}
 	switch args[0] {
 	case "quality":
@@ -131,7 +132,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 }
 func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: task add|show|approve|release|replace|adopt-quality|stop|resume|delivery")
+		return errors.New("usage: task add|show|approve|release|replace|adopt-quality|stop|resume|delivery|verify-base|assess-ci")
 	}
 	command := args[0]
 	args = args[1:]
@@ -168,7 +169,7 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 		allow = f.Bool("allow-new-invocation", false, "explicitly authorize one repeated invocation")
 	case "delivery":
 		reconcile = f.Bool("reconcile", false, "inspect remote identity and continue safely; uncertain PR creation never repeats")
-	case "stop", "verify-base":
+	case "stop", "verify-base", "assess-ci":
 	default:
 		return fmt.Errorf("unknown task command %q", command)
 	}
@@ -207,6 +208,12 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 		}
 	}
 	switch command {
+	case "assess-ci":
+		if err := e.AssessCI(ctx, id); err != nil {
+			return err
+		}
+		fmt.Fprintln(c.Out, "CI assessment requested; run if the coordinator is absent or drained.")
+		return nil
 	case "verify-base":
 		if err := e.VerifyBase(ctx, id); err != nil {
 			return err
@@ -330,6 +337,22 @@ func (c CLI) printView(v engine.View, full bool) {
 		fmt.Fprintf(c.Out, "Publication %s (v%d): %s; %s\nDestination: %s -> %s; branch %s\n", p.Intent.ID, p.Intent.Version, p.State, p.Detail, p.Intent.Repository, p.Intent.BaseBranch, p.Intent.Branch)
 		if u := p.Intent.Sync; u != nil {
 			fmt.Fprintf(c.Out, "Synchronization: %s -> %s; predecessor %s; existing PR %d\nVerified base: %s; observed %s\n", u.PreviousCommit, p.Intent.Candidate.Commit, u.PreviousID, u.Number, u.Base, u.ObservedAt.Format(time.RFC3339))
+		}
+
+		if p.CIRequest != nil {
+			fmt.Fprintln(c.Out, "CI assessment queued or running; previous results are historical.")
+		}
+		if a := p.CI; a != nil {
+			if !p.CurrentCI(t) {
+				fmt.Fprintln(c.Out, "Historical CI assessment; not current evidence.")
+			}
+			fmt.Fprintf(c.Out, "CI %s at %s; verified base %s\n%s\n", a.State, a.ObservedAt.Format(time.RFC3339), a.Proof.Base, a.Detail)
+			if a.Observation != nil {
+				fmt.Fprintf(c.Out, "CI commit: %s (%s)\n", a.Observation.Commit, a.Observation.Source)
+			}
+			for _, r := range a.Results {
+				fmt.Fprintf(c.Out, "Required CI %s %q app=%d: %s (status=%q conclusion=%q) %s\n", r.Kind, r.Name, r.AppID, r.State, r.Status, r.Conclusion, r.URL)
+			}
 		}
 		if p.ObservedAt != nil {
 			fmt.Fprintf(c.Out, "Last remote observation: %s\n", p.ObservedAt.Format(time.RFC3339))

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/cortexium-io/runner/internal/runner/core"
 )
@@ -23,9 +24,10 @@ type QualityCheck struct {
 	Timeout       string   `json:"timeout"`
 }
 type QualitySpec struct {
-	Definition string         `json:"definition"`
-	Sources    []string       `json:"sources"`
-	Checks     []QualityCheck `json:"checks"`
+	RequiredCI []core.CIRequirement `json:"required_ci,omitempty"`
+	Definition string               `json:"definition"`
+	Sources    []string             `json:"sources"`
+	Checks     []QualityCheck       `json:"checks"`
 }
 type ExceptionRequest struct {
 	CheckID   string   `json:"check_id"`
@@ -40,6 +42,7 @@ type BaselineException struct {
 	OutputDigest string            `json:"output_digest"`
 }
 type Quality struct {
+	RequiredCI []core.CIRequirement    `json:"required_ci,omitempty"`
 	Path       string                  `json:"executable_path"`
 	Definition string                  `json:"definition"`
 	Documents  map[string]string       `json:"source_documents,omitempty"`
@@ -93,6 +96,18 @@ func (s QualitySpec) Validate() error {
 		}
 		seen[p] = true
 	}
+	ciSeen := map[core.CIRequirement]bool{}
+	if len(s.RequiredCI) > 100 {
+		return errors.New("required_ci supports at most 100 checks")
+	}
+	for _, r := range s.RequiredCI {
+		if r.Name == "" || len(r.Name) > 200 || strings.TrimSpace(r.Name) != r.Name || strings.ContainsFunc(r.Name, unicode.IsControl) || ciSeen[r] ||
+			(r.Kind != "check" && r.Kind != "status") || (r.Kind == "check" && r.AppID <= 0) || (r.Kind == "status" && r.AppID != 0) {
+			return errors.New("required_ci needs unique exact names, kind check with a positive app_id, or kind status without app_id")
+		}
+		ciSeen[r] = true
+	}
+
 	return nil
 }
 

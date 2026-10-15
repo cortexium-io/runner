@@ -18,9 +18,11 @@ The second bundle adds [current-base verification and bounded refresh](docs/runn
 with separate retained candidates and fresh checks/review after base movement.
 The third adds [remote draft synchronization](docs/runner-redesign-proposal.md#phase-3-third-bundle-remote-draft-synchronization):
 verified candidates advance the same draft under an exact remote commit lease.
-This build uses store format 7 (earlier formats require fresh state) and stops
-at **Awaiting delivery**. CI/integration, release qualification and external views
-remain pending.
+The fourth adds [CI assessment](docs/runner-redesign-proposal.md#phase-3-fourth-bundle-ci-assessment)
+against required checks pinned in the quality agreement, with explicit reassessment.
+This build uses store format 8 (earlier formats require fresh state) and stops
+at **Awaiting delivery**. Merge/integration, release qualification and external
+views remain pending.
 The documentation below describes the existing
 `cortexium-runner` release.
 

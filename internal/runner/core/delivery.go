@@ -66,6 +66,8 @@ type RemotePublication struct {
 }
 
 type Publication struct {
+	CIRequest       *BaseProof         `json:"ci_request,omitempty"`
+	CI              *CIAssessment      `json:"ci,omitempty"`
 	Intent          PublicationIntent  `json:"intent"`
 	Revision        int                `json:"revision"`
 	State           string             `json:"state"` // queued, running, published, attention, revoked
