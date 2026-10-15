@@ -292,20 +292,27 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 		a := core.Attempt{
 			ID: core.NewID(), TaskID: t.ID, Version: t.Current().Number, Generation: t.Generation,
 			Role: t.NextRole, ProfileName: v.ProfileName, Profile: v.Profile, PolicyRevision: settings.Config.Revision(),
-			Quality: t.Current().Quality, Base: t.Base(), Candidate: t.Candidate, CIRepair: t.CIRepair,
+			Quality: t.Current().Quality, Base: t.Base(), Candidate: t.Candidate, CIRepair: t.CIRepair, ConflictRepair: t.ConflictRepair,
 			State: "reserved", Occupying: true, StartedAt: e.now(),
 			Kind: "stage", Reason: v.Reason, Repair: t.Usage.Repairs,
 		}
 		if q := t.Pending; q != nil {
 			a.Kind = q.Kind
 			a.ResumedFrom = q.FromAttempt
-			if q.Kind == "repair" || q.Kind == "ci_repair" {
+			if q.Kind == "repair" || q.Kind == "ci_repair" || q.Kind == "conflict_repair" {
 				t.Usage.Repairs++
 				if q.Kind == "repair" {
 					t.Usage.Escalations++
 				} else {
 					t.WorkspaceRepair = t.Usage.Repairs
 					t.BaseProof, t.Review = nil, nil
+				}
+				if q.Kind == "conflict_repair" {
+					t.WorkingBase = &t.ConflictRepair.Target
+					t.RefreshTarget, t.CIRepair, a.CIRepair = nil, nil, nil
+					a.Base = t.Base()
+				} else if q.Kind == "ci_repair" {
+					t.ConflictRepair, a.ConflictRepair = nil, nil
 				}
 				a.Repair = t.Usage.Repairs
 			} else {
@@ -393,6 +400,11 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 			return fail(err)
 		}
 	} else if a.Role == "implementer" {
+		if t.ConflictRepair != nil && t.Candidate != nil && *t.Candidate == t.ConflictRepair.Candidate {
+			if err := e.git().PrepareConflictRepair(ctx, t); err != nil {
+				return finished{a, execution.Completion{Stopped: true, Kind: core.Integrity, Error: err.Error()}}
+			}
+		}
 		if t.CIRepair != nil && t.Candidate != nil && *t.Candidate == t.CIRepair.Assessment.Proof.Candidate {
 			if err := e.git().PrepareCIRepair(ctx, t); err != nil {
 				return finished{a, execution.Completion{Stopped: true, Kind: core.Integrity, Error: err.Error()}}
@@ -526,7 +538,11 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 					a.SourceHead = snapshot.Head
 				}
 			}
-			if checkErr == nil {
+			conflictDecision := a.ConflictRepair != nil && (completion.Result.Outcome != "succeeded" || core.ReviewOutcome(completion.Result.Checks) != core.Accepted)
+			if checkErr == nil && a.ConflictRepair != nil && !conflictDecision {
+				checkErr = workspace.CheckConflictResolution(r.Dir, *a.ConflictRepair)
+			}
+			if checkErr == nil && !conflictDecision {
 				launchState = "checking"
 				a.CheckFiles = map[string]string{}
 				for _, ex := range e.Settings.Quality.Exceptions {
@@ -670,6 +686,16 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 		outcome = "gap"
 	}
 	if a.Role == "implementer" {
+		if a.ConflictRepair != nil && outcome != "accepted" {
+			a.State = "applied"
+			t.Attention = &core.Attention{Kind: core.FailureKind(outcome), Detail: a.Result.Summary, Attempt: a.ID}
+			return nil
+		}
+		if a.ConflictRepair != nil {
+			if err := workspace.CheckConflictResolution(a.WorkspaceClaim, *a.ConflictRepair); err != nil {
+				return err
+			}
+		}
 		if err := e.Settings.Quality.ValidateResults(a.Checks, a.CheckFiles); err != nil {
 			return err
 		}

@@ -99,7 +99,7 @@ func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained boo
 	case t.Usage.Repairs > p.MaxRepairs && (t.Pending == nil || t.Pending.Kind != "resume"):
 		v.WaitKind = "repair_limit"
 		v.WaitingFor = "repair limit below consumed allowance; explicitly apply more allowance before automatic work"
-	case t.Pending != nil && (t.Pending.Kind == "repair" || t.Pending.Kind == "ci_repair") && t.Usage.Repairs >= p.MaxRepairs:
+	case t.Pending != nil && (t.Pending.Kind == "repair" || t.Pending.Kind == "ci_repair" || t.Pending.Kind == "conflict_repair") && t.Usage.Repairs >= p.MaxRepairs:
 		v.WaitKind = "repair_limit"
 		v.WaitingFor = "repair limit; inspect findings and explicitly apply more allowance or replace the task"
 	case t.Pending != nil && t.Pending.Kind == "retry" && t.Pending.Retry > p.MaxTransientRetries:

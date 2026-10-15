@@ -23,7 +23,10 @@ against required checks pinned in the quality agreement, with explicit reassessm
 The fifth adds [bounded CI repair](docs/runner-redesign-proposal.md#phase-3-fifth-bundle-bounded-ci-repair):
 eligible failures use the existing repair allowance, preserve the published candidate,
 and return through checks, review and base verification before updating the same draft.
-This build uses store format 9 (earlier formats require fresh state) and stops
+The sixth adds [bounded text conflict repair](docs/runner-redesign-proposal.md#using-bounded-conflict-repair):
+text conflicts use the same repair allowance and preserve both the original
+candidate and partial repair work. Unsupported conflicts require inspection.
+This build uses store format 10 (earlier formats require fresh state) and stops
 at **Awaiting delivery**. Merge/integration, release qualification and external
 views remain pending.
 The documentation below describes the existing

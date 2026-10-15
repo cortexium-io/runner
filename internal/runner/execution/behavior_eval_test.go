@@ -328,3 +328,100 @@ func liveEvaluation(t *testing.T, name string) (string, core.Profile, Codex) {
 	}
 	return root, p, harness
 }
+
+func TestLiveConflictRepairBehavior(t *testing.T) {
+	root, profile, harness := liveEvaluation(t, "conflict-repair")
+	const tests = "import unittest\nfrom greet import greet\nclass GreetingTests(unittest.TestCase):\n    def test_required_inputs(self):\n        for value, expected in [('Ada', 'Welcome, Ada!'), ('  Ada  ', 'Welcome, Ada!'), ('  ', 'Welcome, World!')]:\n            with self.subTest(value=value):\n                self.assertEqual(greet(value), expected)\n"
+	const source = "def greet(name):\n<<<<<<< target-base\n    return 'Welcome, ' + (name or 'World') + '!'\n=======\n    return 'Hello, ' + (name.strip() or 'World') + '!'\n>>>>>>> prior-candidate\n"
+	for _, name := range []string{"resolvable", "decision"} {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(root, name)
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			files := map[string]string{"greet.py": source}
+			acceptance := "Preserve the base's Welcome greeting and the task's whitespace normalization. greet('Ada') and greet('  Ada  ') return 'Welcome, Ada!'; blank returns 'Welcome, World!'."
+			verification := "Reuse existing exact-output test_greet.py; run python3 -B -m unittest -q. The suite already covers every required input; no new tests needed."
+			if name == "resolvable" {
+				files["test_greet.py"] = tests
+			} else {
+				acceptance = "Normalize whitespace and preserve the chosen greeting. The base switched Hello to Welcome, but which product greeting is intended has not been decided. Neither side has authority to settle that choice."
+				verification = "Inspect the conflicting source. No test specifies the intended greeting. Report the missing product choice before editing or inventing tests."
+			}
+			for path, body := range files {
+				if err := os.WriteFile(filepath.Join(dir, path), []byte(body), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			version, err := core.NewVersion(1, "## Outcome\nNormalize greet names while integrating the current base.\n## Scope\ngreet.py and existing tests only. No new files or dependencies.\n## Acceptance\n"+acceptance+"\n## Verification\n"+verification+"\n", "fixture", "recorded", "quality")
+			if err != nil {
+				t.Fatal(err)
+			}
+			conflict := &core.ConflictRepair{Candidate: core.Candidate{Commit: "prior-candidate"}, Target: core.BaseBinding{Commit: "target-base", Cycle: 1}, Paths: []string{"greet.py"}}
+			request := Request{Attempt: core.Attempt{ID: name, Role: "implementer", Kind: "conflict_repair", Repair: 1, Base: "target-base", ProfileName: "build", Profile: profile, ConflictRepair: conflict, EvidenceDir: filepath.Join(root, name+"-evidence")}, Task: core.Task{ID: name, Versions: []core.Version{version}, ConflictRepair: conflict}, Dir: dir, Proofs: version.Proofs, Quality: config.Quality{Definition: "Preserve both-side required behavior, sufficient owning tests and honest evidence. Missing product choices require needs_input."}}
+			result := harness.Execute(t.Context(), request, func(p core.Process) error {
+				data, _ := json.Marshal(p)
+				return os.WriteFile(filepath.Join(root, name+"-process.json"), data, 0600)
+			})
+			data, _ := json.MarshalIndent(result, "", "  ")
+			if err = os.WriteFile(filepath.Join(root, name+"-result.json"), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if !result.Stopped || result.Error != "" || result.Result == nil {
+				t.Fatalf("native call failed: %+v", result)
+			}
+			if name == "decision" {
+				if result.Result.Outcome != "needs_input" {
+					t.Fatal("missing choice invented", result.Result)
+				}
+				actual, err := os.ReadFile(filepath.Join(dir, "greet.py"))
+				if err != nil || string(actual) != source {
+					t.Fatal("speculative resolution", err)
+				}
+			} else {
+				if result.Result.Outcome != "succeeded" || core.ReviewOutcome(result.Result.Checks) != core.Accepted {
+					t.Fatal("conflict not resolved", result.Result)
+				}
+				actual, err := os.ReadFile(filepath.Join(dir, "test_greet.py"))
+				if err != nil || string(actual) != tests {
+					t.Fatal("sufficient owning tests changed", err)
+				}
+				cmd := exec.CommandContext(t.Context(), "python3", "-B", "-m", "unittest", "-q")
+				cmd.Dir = dir
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatal("both-side behavior failed", string(output), err)
+				}
+				// Independently audit the resolution using the real implementation log.
+				request.ReadRoots = []string{dir, filepath.Join(request.Attempt.EvidenceDir, "events.jsonl")}
+				request.Task.Review = result.Result.Checks
+				request.Attempt.Role, request.Attempt.ID = "audit", "resolution-audit"
+				request.Attempt.EvidenceDir = filepath.Join(root, "review-evidence")
+				request.Dir = filepath.Join(root, "review-neutral")
+				if err = os.MkdirAll(request.Dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+				before, err := os.ReadFile(filepath.Join(dir, "greet.py"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				review := harness.Execute(t.Context(), request, func(p core.Process) error {
+					data, _ := json.Marshal(p)
+					return os.WriteFile(filepath.Join(root, "review-process.json"), data, 0600)
+				})
+				data, _ = json.MarshalIndent(review, "", "  ")
+				if err = os.WriteFile(filepath.Join(root, "review-result.json"), data, 0600); err != nil {
+					t.Fatal(err)
+				}
+				if !review.Stopped || review.Error != "" || review.Result == nil || review.Result.Outcome != "succeeded" || core.ReviewOutcome(review.Result.Checks) != core.Accepted {
+					t.Fatalf("resolution audit: %+v", review)
+				}
+				after, err := os.ReadFile(filepath.Join(dir, "greet.py"))
+				if err != nil || string(before) != string(after) {
+					t.Fatal("audit edited resolution", err)
+				}
+			}
+			t.Logf("%s: %s; evidence=%s", name, result.Result.Summary, root)
+		})
+	}
+}

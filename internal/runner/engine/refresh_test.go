@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/runner/config"
 	"github.com/cortexium-io/runner/internal/runner/core"
+	"github.com/cortexium-io/runner/internal/runner/execution"
 	"github.com/cortexium-io/runner/internal/runner/workspace"
 )
 
@@ -127,7 +129,7 @@ func TestCurrentBaseRefreshRechecksAcceptanceAndBoundsMovement(t *testing.T) {
 }
 
 func TestRefreshRecoveryRetainsCycleAndRejectsUnsafeResults(t *testing.T) {
-	for _, scenario := range []string{"failed check", "interrupted", "conflict", "revoked", "changed candidate"} {
+	for _, scenario := range []string{"failed check", "interrupted", "unsupported conflict", "revoked", "changed candidate"} {
 		t.Run(scenario, func(t *testing.T) {
 			e := fixture(t, func(c *config.Config) { c.Policy.MaxBaseRefreshes = 1 })
 			task := approved(t, e)
@@ -135,8 +137,8 @@ func TestRefreshRecoveryRetainsCycleAndRejectsUnsafeResults(t *testing.T) {
 			finish(t, e)
 			complete(t, e, claim(t, e))
 			finish(t, e)
-			if scenario == "conflict" {
-				moveBase(t, e, "greeting.txt", "incompatible\n")
+			if scenario == "unsupported conflict" {
+				moveBase(t, e, "greeting.txt", "binary\x00content\n")
 			} else {
 				moveBase(t, e, "base.txt", "new base\n")
 			}
@@ -150,7 +152,7 @@ func TestRefreshRecoveryRetainsCycleAndRejectsUnsafeResults(t *testing.T) {
 				})
 			}
 			f := e.execute(t.Context(), claim(t, e))
-			if scenario == "failed check" || scenario == "conflict" || scenario == "interrupted" {
+			if scenario == "failed check" || scenario == "unsupported conflict" || scenario == "interrupted" {
 				if scenario == "interrupted" && f.completion.Error != "" {
 					t.Fatal("refresh failed before simulated result loss", f.completion.Error)
 				}
@@ -172,7 +174,14 @@ func TestRefreshRecoveryRetainsCycleAndRejectsUnsafeResults(t *testing.T) {
 				if retained.Usage.BaseRefreshes != 1 || retained.RefreshTarget == nil || retained.BaseProof != nil {
 					t.Fatal("cycle reservation lost", retained)
 				}
-				if scenario == "conflict" {
+				if scenario == "unsupported conflict" {
+					if retained.Attention == nil || retained.Attention.Kind != core.UnsupportedConflict || retained.ConflictRepair != nil || retained.Usage.Repairs != 0 {
+						t.Fatal("unsupported conflict became a repair", retained)
+					}
+					view, err := e.Show(t.Context(), task.ID)
+					if err != nil || strings.Contains(view.NextAction, "verify-base") || !strings.Contains(view.NextAction, "replace") {
+						t.Fatal("unsupported conflict advised replay", view, err)
+					}
 					return
 				}
 				e.Checker = passing
@@ -204,6 +213,231 @@ func TestRefreshRecoveryRetainsCycleAndRejectsUnsafeResults(t *testing.T) {
 			retained := current(t, e, task.ID)
 			if retained.BaseProof != nil || retained.WorkingBase != nil || retained.NextRole == "audit" {
 				t.Fatal("revoked or changed result applied", retained)
+			}
+		})
+	}
+}
+
+func TestConflictRepairRetainsSourceAndReusesBoundedJourney(t *testing.T) {
+	e, source, published := confirmedDraft(t)
+	now := time.Now().UTC()
+	e.clock = func() time.Time { return now }
+	moveBase(t, e, "base.txt", "keep new base behavior\n")
+	target := moveBase(t, e, "greeting.txt", "incompatible\n")
+	if err := e.VerifyBase(t.Context(), source.ID); err != nil {
+		t.Fatal(err)
+	}
+	complete(t, e, claim(t, e))
+	reopen(t, e)
+	finish(t, e)
+	task := current(t, e, source.ID)
+	if task.ConflictRepair == nil || task.ConflictRepair.Target.Commit != target || task.Usage.BaseRefreshes != 1 || task.Usage.Repairs != 0 || task.WorkingBase != nil || *task.Candidate != *source.Candidate {
+		t.Fatal("conflict lost exact source/target or spent repair before admission", task)
+	}
+	waiting(t, e, task.ID, "repair limit")
+	v, err := e.Show(t.Context(), task.ID)
+	if err != nil || !strings.Contains(v.Summary, "bounded repair") {
+		t.Fatal("conflict status missing", v, err)
+	}
+	applyPolicy(t, e, func(c *config.Config) {
+		c.Policy.MaxRepairs, c.Policy.MaxTransientRetries = 1, 1
+		c.Profiles["careful"] = core.Profile{Harness: "codex", Model: "stronger", Reasoning: "high", Timeout: "1m"}
+		c.Policy.ImplementationLadder = []string{"careful"}
+		n := task.Usage.Invocations
+		c.Policy.MaxInvocationsPerTask = &n
+	})
+	waiting(t, e, task.ID, "invocation ceiling")
+	applyPolicy(t, e, func(c *config.Config) { c.Policy.MaxInvocationsPerTask = nil })
+	repair := claim(t, e)
+	if repair.Kind != "conflict_repair" || repair.Base != target || repair.Repair != 1 || repair.ProfileName != "build" || repair.WorkspaceClaim == source.Candidate.Workspace {
+		t.Fatal("wrong repair reservation", repair)
+	}
+	if got := current(t, e, task.ID); got.RefreshTarget != nil || got.BaseProof != nil || len(got.Review) != 0 || got.Usage.Escalations != 0 {
+		t.Fatal("stale acceptance or escalation", got)
+	}
+	firstCall := true
+	e.Executor = adapter(func(_ context.Context, r execution.Request, _ func(core.Process) error) execution.Completion {
+		if r.Attempt.ConflictRepair == nil {
+			t.Fatal("conflict context lost")
+		}
+		if r.Attempt.Role == "implementer" {
+			b, err := os.ReadFile(filepath.Join(r.Dir, "greeting.txt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if firstCall {
+				firstCall = false
+				if !strings.Contains(string(b), "<<<<<<<") || !strings.Contains(string(b), "incompatible") || !strings.Contains(string(b), "hello") {
+					t.Fatal("conflict sides missing", string(b))
+				}
+				if err = os.WriteFile(filepath.Join(r.Dir, "greeting.txt"), []byte("partial resolution\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				return execution.Completion{Stopped: true, Kind: core.Transient, Error: "provider unavailable after partial edit"}
+			}
+			if string(b) != "partial resolution\n" {
+				t.Fatal("retry reset partial work", string(b))
+			}
+			if err = os.WriteFile(filepath.Join(r.Dir, "greeting.txt"), []byte("hello\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return pass(r)
+	})
+	if err = e.saveCompletion(t.Context(), e.execute(t.Context(), repair)); err != nil {
+		t.Fatal(err)
+	}
+	reopen(t, e)
+	now = now.Add(time.Minute)
+	retry := claim(t, e)
+	if retry.Repair != 1 || retry.Retry != 1 || retry.ProfileName != repair.ProfileName {
+		t.Fatal("retry changed pass/profile", retry)
+	}
+	complete(t, e, retry)
+	// Crash after native construction but before the final task/result commit.
+	attempts, _ := e.Store.Attempts(t.Context(), task.ID)
+	saved := attempts[len(attempts)-1]
+	task = current(t, e, task.ID)
+	if err = e.advance(t.Context(), &task, &saved); err != nil {
+		t.Fatal(err)
+	}
+	reopen(t, e)
+	finish(t, e)
+	task = current(t, e, task.ID)
+	if task.NextRole != "audit" || task.Attention != nil {
+		t.Fatal("constructed conflict not recovered", task)
+	}
+	if err = e.git().ValidateCandidate(t.Context(), source); err != nil {
+		t.Fatal("original changed", err)
+	}
+	if parents := git(t, task.Candidate.Workspace, "show", "-s", "--format=%P", "HEAD"); parents != source.Candidate.Commit+" "+target {
+		t.Fatal("resolution lost ancestry", parents)
+	}
+	b, err := os.ReadFile(filepath.Join(task.Candidate.Workspace, "base.txt"))
+	if err != nil || string(b) != "keep new base behavior\n" {
+		t.Fatal("resolution dropped clean base change", err)
+	}
+	complete(t, e, claim(t, e))
+	finish(t, e)
+	if current(t, e, task.ID).NextRole != "refresh" {
+		t.Fatal("repair bypassed current-base check")
+	}
+	complete(t, e, claim(t, e))
+	finish(t, e)
+	task = current(t, e, task.ID)
+	if task.BaseProof == nil || !task.BaseProof.Matches(task) || task.Usage.Repairs != 1 || task.Usage.Escalations != 0 || task.Usage.BaseRefreshes != 1 {
+		t.Fatal("repair lost proof or bounds", task)
+	}
+	remote := *published.Observation
+	e.Delivery = deliveryAdapter{
+		observe: func(context.Context, core.PublicationIntent) (core.RemotePublication, error) { return remote, nil },
+		push: func(_ context.Context, p core.PublicationIntent, authorize func() error) error {
+			if p.Sync == nil || p.Sync.PreviousCommit != source.Candidate.Commit || p.Sync.Number != remote.Number || p.Branch != published.Intent.Branch {
+				t.Fatal("repair lost same draft lease")
+			}
+			if err := authorize(); err != nil {
+				return err
+			}
+			remote.BranchCommit = p.Candidate.Commit
+			return nil
+		},
+		create: func(context.Context, core.PublicationIntent, func() error) error {
+			t.Fatal("repair created another draft")
+			return nil
+		},
+	}
+	if err = e.publish(t.Context(), deliveryClaim(t, e)); err != nil {
+		t.Fatal(err)
+	}
+	if err = e.publish(t.Context(), deliveryClaim(t, e)); err != nil {
+		t.Fatal(err)
+	} // fresh CI observation (unconfigured fixture)
+	if current(t, e, task.ID).Stage != core.AwaitingDelivery {
+		t.Fatal("repair completed task before merge")
+	}
+	moveBase(t, e, "greeting.txt", "another base change\n")
+	if err = e.VerifyBase(t.Context(), task.ID); err != nil {
+		t.Fatal(err)
+	}
+	complete(t, e, claim(t, e))
+	finish(t, e)
+	waiting(t, e, task.ID, "repair limit")
+	if got := current(t, e, task.ID); got.Usage.BaseRefreshes != 2 || got.Usage.Repairs != 1 {
+		t.Fatal("second conflict reset allowances", got)
+	}
+	if err = e.Stop(t.Context(), task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := e.claim(t.Context()); ok || err != nil {
+		t.Fatal("stopped conflict admitted repair", err)
+	}
+}
+
+func TestConflictRepairRejectsUnresolvedWorkAndPreservesDecisions(t *testing.T) {
+	for _, scenario := range []string{"markers", "decision", "partial initialization", "revoked result"} {
+		t.Run(scenario, func(t *testing.T) {
+			e, source, _ := confirmedDraft(t)
+			applyPolicy(t, e, func(c *config.Config) { c.Policy.MaxRepairs = 1 })
+			moveBase(t, e, "greeting.txt", "incompatible\n")
+			if err := e.VerifyBase(t.Context(), source.ID); err != nil {
+				t.Fatal(err)
+			}
+			complete(t, e, claim(t, e))
+			finish(t, e)
+			repair := claim(t, e)
+			task := current(t, e, source.ID)
+			calls, checks := 0, 0
+			e.Checker = checkAdapter(func(context.Context, string, config.QualityCheck, string, func(core.Process) error) core.CheckObservation {
+				checks++
+				t.Fatal("unresolved input reached local checks")
+				return core.CheckObservation{}
+			})
+			e.Executor = adapter(func(_ context.Context, r execution.Request, _ func(core.Process) error) execution.Completion {
+				calls++
+				result := pass(r)
+				if scenario == "decision" || scenario == "revoked result" {
+					result.Result.Outcome, result.Result.Summary = "needs_input", "Which greeting does the new base require?"
+				}
+				return result
+			})
+			if scenario == "partial initialization" {
+				m, err := e.git().Prepare(t.Context(), task)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = os.WriteFile(filepath.Join(m.WorktreePath, "greeting.txt"), []byte("unknown partial input\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f := e.execute(t.Context(), repair)
+			if scenario == "revoked result" {
+				if err := e.Stop(t.Context(), task.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := e.saveCompletion(t.Context(), f); err != nil {
+				t.Fatal(err)
+			}
+			reopen(t, e)
+			finish(t, e)
+			task = current(t, e, task.ID)
+			if task.NextRole != "" || task.BaseProof != nil || *task.Candidate != *source.Candidate || task.Usage.Repairs != 1 || checks != 0 {
+				t.Fatal("unsafe resolution progressed", task)
+			}
+			if scenario == "decision" && (task.Attention == nil || task.Attention.Kind != core.Decision || !strings.Contains(task.Attention.Detail, "Which greeting")) {
+				t.Fatal("decision was hidden by failing checks", task)
+			}
+			if scenario == "partial initialization" && (calls != 0 || task.Attention == nil || task.Attention.Kind != core.Integrity) {
+				t.Fatal("partial seed launched or reset", task)
+			}
+			if scenario == "markers" && (task.Attention == nil || !strings.Contains(task.Attention.Detail, "unresolved conflict")) {
+				t.Fatal("markers were accepted", task)
+			}
+			if scenario == "revoked result" && task.Stage != core.Stopped {
+				t.Fatal("revoked result applied")
+			}
+			if err := e.git().ValidateCandidate(t.Context(), source); err != nil {
+				t.Fatal("retained source changed", err)
 			}
 		})
 	}

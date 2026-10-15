@@ -64,12 +64,13 @@ type Candidate struct {
 type FailureKind string
 
 const (
-	Transient   FailureKind = "transient"
-	ProofGap    FailureKind = "missing_proof"
-	Defect      FailureKind = "defect"
-	Decision    FailureKind = "needs_input"
-	Integrity   FailureKind = "integrity"
-	Interrupted FailureKind = "interrupted"
+	Transient           FailureKind = "transient"
+	ProofGap            FailureKind = "missing_proof"
+	Defect              FailureKind = "defect"
+	Decision            FailureKind = "needs_input"
+	Integrity           FailureKind = "integrity"
+	Interrupted         FailureKind = "interrupted"
+	UnsupportedConflict FailureKind = "unsupported_conflict"
 )
 
 type Usage struct {
@@ -99,6 +100,7 @@ type Attention struct {
 }
 
 type Task struct {
+	ConflictRepair  *ConflictRepair       `json:"conflict_repair,omitempty"`
 	CIRepair        *CIRepair             `json:"ci_repair,omitempty"`
 	WorkspaceRepair int                   `json:"workspace_repair,omitempty"`
 	WorkingBase     *BaseBinding          `json:"working_base,omitempty"`
@@ -144,6 +146,7 @@ type CheckObservation struct {
 }
 
 type Attempt struct {
+	ConflictRepair *ConflictRepair    `json:"conflict_repair,omitempty"`
 	CIRepair       *CIRepair          `json:"ci_repair,omitempty"`
 	Refreshed      *BaseBinding       `json:"refreshed,omitempty"`
 	ObservedBase   string             `json:"observed_base,omitempty"`

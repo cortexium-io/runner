@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/cortexium-io/runner/internal/runner/config"
@@ -329,6 +330,10 @@ func (c CLI) printView(v engine.View, full bool) {
 	}
 	if t.Candidate != nil {
 		fmt.Fprintf(c.Out, "Candidate: %s\nWorkspace: %s\n", t.Candidate.Commit, t.Candidate.Workspace)
+	}
+	if t.ConflictRepair != nil {
+		r := t.ConflictRepair
+		fmt.Fprintf(c.Out, "Conflict repair source: %s; target %s (refresh %d); paths %s\n", r.Candidate.Commit, r.Target.Commit, r.Target.Cycle, strings.Join(r.Paths, ", "))
 	}
 	if t.CIRepair != nil {
 		fmt.Fprintf(c.Out, "CI repair source: publication %s; failed candidate %s; observed %s\n", t.CIRepair.PublicationID, t.CIRepair.Assessment.Proof.Candidate.Commit, t.CIRepair.Assessment.ObservedAt.Format(time.RFC3339))

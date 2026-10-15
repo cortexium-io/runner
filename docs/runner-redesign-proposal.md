@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first five phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, then bounded CI repair. Qualification is recorded below. Merge/integration and release qualification remain pending. Current store format is 9; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first six phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, then bounded text conflict repair. Qualification is recorded below. Merge/integration and release qualification remain pending. Current store format is 10; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -2424,11 +2424,158 @@ after those changes. Gate logs are retained with the CLI evidence. The complete
 diff was reviewed, `git diff --check` passed, and the replacement still imports no
 legacy engine, execution or GitHub packages. No release packaging changed.
 
-Merge, marking ready, workflow reruns, automatic CI polling, conflict repair and
-confirmed task/dependency completion remain unimplemented. Integration still needs
-current host protections/reviews, check applicability and current base/candidate/CI
+At the fifth bundle boundary, merge, marking ready, workflow reruns, automatic
+CI polling, conflict repair and confirmed task/dependency completion remain
+unimplemented. Integration still needs current host protections/reviews, check
+applicability and current base/candidate/CI
 verification. Store format 9 requires fresh private state; prior state and retained
 workspaces are left untouched. Platform/release qualification remains pending.
+
+### Phase 3, sixth bundle: bounded conflict repair
+
+**Implementation and verification brief (2026-10-15, before code).** Extend
+current-base refresh with bounded repair of ordinary text content conflicts.
+Stop before merge, marking ready, task/dependency completion or new host operations.
+
+- Keep the accepted source candidate untouched. For supported conflicts, record the
+  exact source workspace, reserved target base/cycle, conflict tree and paths from
+  Git's machine-readable
+  merge result. Exit status and conflict types decide eligibility; a tree or missing
+  markers alone do not prove a clean merge. Binary, rename/delete, mode, submodule
+  and unknown conflict types require attention. A missing product decision must
+  remain a question, even when the conflict is mechanically a text conflict.
+- Queue an ordinary implementer continuation only for supported content conflicts.
+  Admission atomically consumes one shared `repairs` pass and one invocation,
+  checks current authority/policy/ownership, and switches to the already reserved
+  base. No additional refresh cycle and no model escalation. Zero/exhausted limits
+  wait visibly; policy changes retain counters. No new budget, command or scheduler.
+- Seed a separate workspace from the recorded conflict tree, retaining the source
+  commit as HEAD until Runner constructs the resolved candidate. Do not commit
+  conflict markers as a baseline. Completed seeding is recognized before any model
+  runs; retries/resumes preserve partial edits and their reserved pass/profile.
+  Interrupted or altered partial initialization fails closed for inspection instead
+  of resetting unknown content. Stop/replacement revokes admission and saved results.
+- Give implementation and review the exact source/target and conflicting paths as
+  diagnostic data, without permission to fetch, change Git administration, broaden
+  scope or weaken tests. Preserve required behavior from both sides. Unresolved
+  markers cannot pass to checks/candidate construction. Existing sufficient tests
+  remain sufficient; new tests need a concrete behavior/regression requirement.
+- Invalidate acceptance and base proof on admission. Require pinned local checks,
+  independent review, another current-base observation, and existing leased sync
+  to the same draft before fresh CI assessment. Further base movement uses the
+  remaining refresh allowance; further defects use the remaining repair allowance.
+  Keep CI/conflict evidence historical when later repair types replace its context.
+- Status/show explain conflict cause, target, paths, profile, limits and retained
+  work. Unsupported conflicts advise inspection and revised work instead of a
+  blind refresh loop. Store format 10 rejects older private state untouched.
+
+Extend the owning real Git/SQLite refresh suite for retained source, exact target,
+zero/exhausted allowances, non-escalation, partial edits across retry/restart,
+revocation, unresolved markers, fresh review/base proof and same-draft sync.
+Extend the same Git journey for actual text and unsupported conflicts and
+interrupted initialization, and the workspace suite for conflict-record parsing;
+reuse existing shared admission, repair/escalation, quality, CI, publication-lease
+and stop suites. Qualify changed role context using
+a small native Codex pair: a resolvable conflict with sufficient owning tests,
+and a missing product choice reported honestly. Use `gpt-6.1-sol` / `high`.
+Exercise the built CLI, run `go test -race ./...`, `go vet ./...` and the build,
+then review the complete diff. Record actual evidence here before committing.
+
+Git parsing follows the documented exit status and NUL-delimited conflict records
+in the [official merge-tree contract](https://git-scm.com/docs/git-merge-tree).
+Only known ordinary content conflicts enter automatic repair in this bundle;
+additional conflict classes need their own safe resolution contract and evidence.
+
+#### Using bounded conflict repair
+
+Keep the existing configuration: `base-refreshes` bounds changes of target base;
+`repairs` bounds all additional implementation passes, including review, CI and
+conflict repairs together. `invocations`, `parallelism`, drain and ownership still
+apply. No conflict-specific profile or allowance is needed. A conflict keeps the
+current implementer escalation level. Only an independent reviewer defect moves
+up the implementation ladder.
+
+After publication, current-base verification runs as before. `task verify-base ID`
+also requests it explicitly for an accepted candidate. A supported text conflict
+records its source candidate, target base and conflicting paths, then waits for
+repair admission. `status` and `task show ID` explain the cause, actual/prospective
+profile and limiting allowance. Use `config edit`, `config explain` and
+`config apply` to change limits; consumed work is never reset. Inspection does not
+launch a repair or spend allowance.
+
+An admitted repair gets a separate workspace containing both sides of the text
+conflict. The published source stays untouched. Retries and explicit interrupted
+resumes preserve partial work and the reserved pass/profile. If initialization
+itself was interrupted, unknown contents remain for inspection; Runner does not
+reset them or silently repeat a model call. A missing product choice remains
+`needs_input`, without executing project checks against unresolved source. Revise
+and approve the task when resolving a product question or an unsupported conflict.
+
+Resolution must remove markers and preserve required behavior from both sides.
+Pinned checks and fresh independent review precede current-base verification and
+leased synchronization to the same draft; CI is assessed again for that candidate.
+Further base movement consumes another refresh cycle. Exhausted limits, failed
+checks or missing proof remain visible; no conflict is accepted just because a
+model says it is resolved. Successful delivery remains **Awaiting delivery**.
+
+Automatic repair supports ordinary regular-file text content conflicts. Binary,
+symlink, rename/delete, mode, submodule and unknown conflict classes require
+inspection and revised work. This boundary avoids silently selecting one side of
+a conflict without an established resolution contract. Store format 10 requires
+fresh private state; older databases and workspaces are preserved unchanged.
+
+#### Conflict-repair qualification
+
+The owning real Git/SQLite refresh suite covers exact source/target retention,
+zero/exhausted repair allowance, invocation limits, unchanged escalation level,
+partial edits across transient retry and restart, and lost-result recovery after
+constructing a candidate with both parents. It checks fresh review/current-base
+proof, preservation of clean base changes, same-draft synchronization and fresh
+CI assessment, another conflicting base within the remaining allowance, and stop.
+Separate cases reject unresolved markers and partial initialization, retain an
+honest product question without running project checks, and reject revoked results.
+The earlier unsupported-conflict case now uses an actual binary conflict and
+checks that status advises inspection/replacement, never automatic replay.
+The workspace parser suite checks NUL-delimited filenames and rejects malformed,
+unknown or incomplete conflict records. Existing shared policy, reviewer-defect
+escalation, quality, explicit resume and publication-lease suites remain authoritative.
+
+On 2026-10-15, native Codex qualification passed with `gpt-6.1-sol` / `high`.
+The implementer combined the base's `Welcome` greeting with the candidate's
+whitespace normalization, reused the sufficient exact-output unittest suite
+unchanged, and passed its checks. An independent evidence audit accepted the
+resolution using actual implementation events and file inspection only. In the
+paired missing-choice case, the implementer left source unchanged and asked which
+greeting was intended. Three native calls, results, source and event logs are
+retained at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-conflict-repair-eval-2531439474`.
+The source-only evaluation has no Git checkout: attempted read-only Git diff
+commands failed and were not used as acceptance evidence. These bounded cases
+qualify the changed role context, not general model reliability or a complete
+live GitHub conflict/CI journey.
+
+The built CLI walkthrough exercised limited/eligible conflict repair, human and
+JSON inspection, policy edit/save/explain/apply, actual selected profile,
+reservation and stop. Eleven commands completed; read-only commands preserved
+the database hash. It used disposable real Git/store fixtures with controlled
+provider/acceptance results; logs are retained at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-conflict-cli-3694101951`.
+The temporary qualification test was removed. No GitHub writes occurred.
+
+`go test -race ./...`, `go vet ./...` and the `runner-next` build passed on
+Go 1.27.1, macOS arm64 and Git 2.54.0. Final review tightened conflict-record
+termination and replaced text-matched recovery advice with an explicit unsupported
+conflict category. The affected parser/real-store/Git cases then passed under race
+detection; vet and the build passed again. The CLI help was inspected after its
+wording update. Gate logs are retained alongside the CLI evidence. The complete
+diff was reviewed and `git diff --check` passed. The replacement still imports no
+legacy engine, execution or GitHub packages; no dependencies or release packaging
+changed.
+
+Merge, marking ready, workflow reruns, automatic CI polling and confirmed
+task/dependency completion remain unimplemented. Integration still needs current
+host protections/reviews, check applicability and current base/candidate/CI proof.
+Platform/release qualification remains pending.
 
 ### Simple upgrade or deliberate break
 

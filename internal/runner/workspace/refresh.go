@@ -58,14 +58,20 @@ func (g Git) Refresh(ctx context.Context, t core.Task, target core.BaseBinding) 
 		return candidate, err
 	}
 	// merge-tree's exit status, not its output tree, decides whether a merge is clean.
-	merged, err := subprocess.RunPrivilegedGit(ctx, nil, p, []string{"merge-tree", "--write-tree", "--no-messages", target.Commit, t.Candidate.Commit}, time.Minute)
+	merged, err := subprocess.RunPrivilegedGit(ctx, nil, p, []string{"merge-tree", "--write-tree", "--name-only", "-z", "--messages", target.Commit, t.Candidate.Commit}, time.Minute)
 	if err != nil {
-		if merged.ExitCode == 1 {
-			return candidate, errors.New("base refresh has merge conflicts; original candidate retained; conflict repair is outside this bundle")
+		if merged.ExitCode == 1 && err.Error() == "exit status 1" {
+			conflictErr := parseConflict(merged.Stdout)
+			if conflict, ok := conflictErr.(*MergeConflict); ok {
+				if err := validateTextConflicts(ctx, p, conflict); err != nil {
+					return candidate, err
+				}
+			}
+			return candidate, conflictErr
 		}
 		return candidate, fmt.Errorf("construct clean refresh: %w", err)
 	}
-	tree := strings.TrimSpace(merged.Stdout)
+	tree, _, _ := strings.Cut(merged.Stdout, "\x00")
 	verifiedTree, err := scalar(ctx, p, "rev-parse", "--verify", tree+"^{tree}")
 	if err != nil || verifiedTree != tree {
 		return candidate, errors.New("invalid refreshed tree")

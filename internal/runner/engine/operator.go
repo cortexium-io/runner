@@ -143,6 +143,11 @@ func describeView(v *View, running bool, now time.Time) {
 		if a != nil {
 			v.Recovery.Role = a.Role
 		}
+		if t.Attention.Kind == core.UnsupportedConflict {
+			v.NextAction = "inspect the retained conflict with " + show + "; " + replace
+			v.Recovery.Repeats = "no automatic conflict repair for unsupported or unrecognized conflicts"
+			return
+		}
 		if a != nil && a.Role == "refresh" && t.Attention.Kind != "ownership" && t.Attention.Kind != "saved_result" {
 			v.NextAction = "inspect the base verification failure; config edit --set base-refreshes=N, then save/apply if allowance is exhausted; task verify-base " + t.ID + "; then run"
 			v.Recovery.Repeats = "base inspection and native checks for the retained cycle; no model invocation until a new candidate needs review"
@@ -166,6 +171,9 @@ func describeView(v *View, running bool, now time.Time) {
 		v.Group, v.Summary = "Working", a.Role+" / "+a.State
 		if a.Role == "implementer" && a.CIRepair != nil {
 			v.Summary = "CI repair / " + a.State
+		}
+		if a.Role == "implementer" && a.ConflictRepair != nil {
+			v.Summary = "conflict repair / " + a.State
 		}
 		v.NextAction = "wait for the recorded attempt; " + show + " for evidence"
 		if v.CancellationPending {
@@ -281,6 +289,10 @@ func describeView(v *View, running bool, now time.Time) {
 	}
 	v.Group, v.Summary = "Waiting", v.Eligibility.WaitingFor
 	v.NextAction = "wait; " + show + " for details"
+	if t.Pending != nil && t.Pending.Kind == "conflict_repair" {
+		v.Summary = "text conflicts; bounded repair against reserved base; " + v.Eligibility.WaitingFor
+	}
+
 	switch v.Eligibility.WaitKind {
 	case "configuration", "repair_limit", "retry_limit", "invocation_limit":
 		v.Group = "Needs you"
@@ -292,6 +304,9 @@ func describeView(v *View, running bool, now time.Time) {
 		v.NextAction = "inspect the named prerequisite; only its exact completed version can release this task"
 	case "":
 		v.Summary = "eligible for " + v.Eligibility.Role
+		if t.Pending != nil && t.Pending.Kind == "conflict_repair" {
+			v.Summary = "eligible for bounded conflict repair"
+		}
 		if running {
 			v.NextAction = "wait for coordinator admission"
 		} else {

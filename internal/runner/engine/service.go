@@ -247,7 +247,7 @@ func replaceVersion(t *core.Task, v core.Version) {
 	t.Stage = core.Draft
 	t.Usage = core.Usage{}
 	t.WorkingBase, t.RefreshTarget, t.BaseProof = nil, nil, nil
-	t.CIRepair, t.WorkspaceRepair = nil, 0
+	t.CIRepair, t.ConflictRepair, t.WorkspaceRepair = nil, nil, 0
 	t.Pending = nil
 	t.Prepared = nil
 	t.Proposal = nil

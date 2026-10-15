@@ -108,9 +108,14 @@ func (e *Engine) prepareBaseChecks(ctx context.Context) error {
 }
 
 func (e *Engine) executeRefresh(ctx context.Context, t core.Task, a core.Attempt) finished {
+	a.ConflictRepair = nil
 	stopped := true
 	fail := func(err error) finished {
-		return finished{a, execution.Completion{Stopped: stopped, Error: err.Error(), Kind: core.FailureKind("base_verification")}}
+		kind := core.FailureKind("base_verification")
+		if errors.Is(err, workspace.ErrConflictAttention) {
+			kind = core.UnsupportedConflict
+		}
+		return finished{a, execution.Completion{Stopped: stopped, Error: err.Error(), Kind: kind}}
 	}
 	if err := e.git().ValidateCandidate(ctx, t); err != nil {
 		return fail(err)
@@ -162,7 +167,12 @@ func (e *Engine) executeRefresh(ctx context.Context, t core.Task, a core.Attempt
 		a.ObservedBase = t.RefreshTarget.Commit
 		candidate, err := e.git().Refresh(ctx, t, *t.RefreshTarget)
 		if err != nil {
-			return fail(err)
+			var conflict *workspace.MergeConflict
+			if !errors.As(err, &conflict) {
+				return fail(err)
+			}
+			a.ConflictRepair = &core.ConflictRepair{Candidate: *t.Candidate, SourceBase: t.WorkingBase, SourceWorkspaceRepair: t.WorkspaceRepair, Target: *t.RefreshTarget, Tree: conflict.Tree, Paths: conflict.Paths}
+			return finished{a, execution.Completion{Stopped: true, Result: &core.Result{Outcome: "succeeded", Summary: "Text conflicts retained for bounded repair"}}}
 		}
 		a.Candidate = &candidate
 		files, err := workspace.Manifest(candidate.Workspace)
@@ -200,6 +210,20 @@ func (e *Engine) executeRefresh(ctx context.Context, t core.Task, a core.Attempt
 }
 
 func (e *Engine) advanceRefresh(ctx context.Context, t *core.Task, a *core.Attempt) error {
+	if a.ConflictRepair != nil {
+		r := a.ConflictRepair
+		if !r.Matches(*t) {
+			return errors.New("saved conflict source or target changed")
+		}
+		if err := e.git().ValidateCandidate(ctx, *t); err != nil {
+			return err
+		}
+		t.ConflictRepair, t.BaseProof, t.Attention = r, nil, nil
+		t.Stage, t.NextRole = core.Implementing, "implementer"
+		t.Pending = &core.Continuation{Kind: "conflict_repair", FromAttempt: a.ID, Reason: "Text merge conflicts; bounded repair against the reserved base without model escalation"}
+		a.State = "applied"
+		return nil
+	}
 	if a.Candidate == nil || a.ObservedBase == "" {
 		return errors.New("saved base result is incomplete")
 	}

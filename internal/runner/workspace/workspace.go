@@ -437,7 +437,11 @@ func (g Git) ValidateConstruction(ctx context.Context, t core.Task, a core.Attem
 	if e != nil {
 		return e
 	}
-	if parent != a.SourceHead || message != "Implement Runner task "+t.ID {
+	expectedParents := a.SourceHead
+	if a.ConflictRepair != nil && a.SourceHead == a.ConflictRepair.Candidate.Commit {
+		expectedParents += " " + a.ConflictRepair.Target.Commit
+	}
+	if parent != expectedParents || message != "Implement Runner task "+t.ID {
 		return errors.New("HEAD does not match the saved construction intent")
 	}
 	return nil

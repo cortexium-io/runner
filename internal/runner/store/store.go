@@ -26,7 +26,7 @@ type Store struct {
 }
 
 const schema = `
-CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=9), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=10), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE quality_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE quality_reports (id TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE settings_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
@@ -62,7 +62,7 @@ func Create(ctx context.Context, dir string, settings config.Settings) (*Store, 
 	defer tx.Rollback()
 	if _, err = tx.ExecContext(ctx, schema); err == nil {
 		b, _ := json.Marshal(settings)
-		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,9,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
+		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,10,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
 	}
 	if err == nil && settings.Quality.Revision() != "" {
 		b, _ := json.Marshal(settings.Quality)
@@ -100,7 +100,7 @@ func Open(ctx context.Context, dir string, readonly bool) (*Store, error) {
 		s.Close()
 		return nil, fmt.Errorf("missing, corrupt or incompatible authoritative store: %w", err)
 	}
-	if format != 9 {
+	if format != 10 {
 		s.Close()
 		return nil, fmt.Errorf("incompatible authoritative store format %d; preserve it and initialize a fresh state directory", format)
 	}
@@ -348,6 +348,17 @@ func (s *Store) Commit(ctx context.Context, expected int, t core.Task, a *core.A
 		}
 		if core.PrerequisiteWait(t, prerequisites) != "" {
 			return ErrConflict
+		}
+		if a.Kind == "conflict_repair" {
+			r := previous.ConflictRepair
+			if r == nil || !r.Matches(previous) || previous.Pending == nil || previous.Pending.Kind != "conflict_repair" ||
+				core.Digest(r) != core.Digest(a.ConflictRepair) || core.Digest(r) != core.Digest(t.ConflictRepair) ||
+				t.WorkingBase == nil || *t.WorkingBase != r.Target || t.RefreshTarget != nil || t.CIRepair != nil ||
+				t.WorkspaceRepair != previous.Usage.Repairs+1 || t.Usage.Repairs != previous.Usage.Repairs+1 ||
+				t.Usage.BaseRefreshes != previous.Usage.BaseRefreshes || t.Usage.Escalations != previous.Usage.Escalations ||
+				a.Role != "implementer" || t.BaseProof != nil || len(t.Review) != 0 {
+				return ErrConflict
+			}
 		}
 		if a.Kind == "ci_repair" {
 			if err = tx.QueryRowContext(ctx, "SELECT data FROM publications WHERE task_id=? AND version=? AND generation=? ORDER BY rowid DESC LIMIT 1", t.ID, t.Current().Number, t.Generation).Scan(&raw); err != nil {
