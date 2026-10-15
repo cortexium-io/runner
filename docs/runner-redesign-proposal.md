@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Qualification is recorded below. Ready-state writes, polling, queues, squash/rebase, ruleset-only guards and release qualification remain pending. Current store format is 13; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five remaining release bundles and finish line](#frozen-first-release-checklist) govern further work; all are pending. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 13; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -17,12 +17,14 @@ The direction is recorded in [ADR 0005](decisions/0005-local-runner-core.md).
 This is the designated replacement specification and build sequence, under
 [AGENTS.md](../AGENTS.md). The [architecture](architecture.md) and existing
 operator guides describe the Project-backed runtime. `cmd/runner-next` now
-implements the first-slice commands, four phase 2 bundles and the first phase 3
-draft-publication bundle below. Other release
-capabilities remain build contracts and require a separate implementation instruction.
+implements the local process and nine phase 3 delivery bundles below. Remaining
+release work is bounded by the frozen checklist and requires a separate
+implementation instruction.
 
 Start with [release scope](#first-release-scope), [core contracts](#core-contracts),
-and the [first implementation slice](#first-implementation-slice).
+and the [release checklist](#frozen-first-release-checklist).
+The [first implementation slice](#first-implementation-slice) and subsequent
+bundle briefs retain the construction history.
 The [coverage map](#requirement-coverage-map) connects important requirements to
 their implementation phase and proof. Keep work status and evidence there as
 slices land; do not create another plan or task registry.
@@ -51,7 +53,8 @@ one repository/base per configured Runner instance, exact approval, independent
 review, persisted recovery, configurable models/reasoning/escalation and
 parallelism, an optional per-task harness-invocation ceiling, and readable local
 status. It also includes GitHub PR/check/merge delivery, human merge by default,
-explicit opt-in auto-merge, backup/restore, and a documented breaking cutover.
+explicit opt-in automatic merge policy, backup/restore, and a documented breaking
+cutover.
 The existing [macOS/Linux amd64/arm64 builds](../scripts/build-release.sh)
 remain the packaging target.
 
@@ -761,13 +764,134 @@ and preserve unrelated local changes.
 | 1. Build one complete local journey after 0 | New core identities, private store, commands, coordinator and one harness path. Support local Ready intake, exact authorization, isolated implementation, independent review, retained results and local status. | One reviewed candidate without Projects; small core tests and actual store/workspace boundary tests establish the required safety. A controlled restart preserves authority and work. |
 | 2. Complete the core process after 1 | Add Plan and atomic release, dependencies, bounded repairs/retries, configured escalation and reasoning, capacity, invocation budgets, configuration editing, full quality-agreement changes, attention-first progress and stage-specific recovery. | Both entry paths reach reviewed candidates for eligible work; dependencies wait honestly for integration. Core fixtures prove success/release rules; phase 3 proves the merged dependency journey. Policy previews, restart limits and test reuse hold without a board. |
 | 3. Connect delivery after 2 | GitHub PR/check/merge adapter, serialized current-base integration, bounded refresh and ambiguous-write recovery. | A complete authorized change reaches confirmed merge. Outages, base movement, conflicts, closed PRs and interrupted publication have correct bounded outcomes. |
-| 4. Qualify and release after 3 | Run selected live and operator journeys, backup/restore and package/platform checks. Decide whether a small upgrade utility is justified; otherwise document fresh setup for a breaking release. | Core reliability and usability gates pass. A selected installation can switch safely without dual ownership; difficult historical-state conversion is not a release prerequisite. |
+| 4. Qualify and release after 3 | Run selected live and operator journeys, backup/restore and package/platform checks. Use fresh setup for the breaking cutover; the frozen checklist excludes an importer. | Core reliability and usability gates pass. A selected installation can switch safely without dual ownership; difficult historical-state conversion is not a release prerequisite. |
 | 5. Add optional board views after 4 | GitHub Projects projection, then Trello against the same capability contract. Include synchronization health, stable mapping and bounded publication. | Disconnect/reconnect and reordered updates do not affect work authority. The second provider needs no changes to core scheduling or approval. |
 
 Phases 1 and 2 must produce useful complete journeys, not a collection of
 unconnected packages. Configuration and user-facing progress are core work.
 Do not postpone test design until a final testing phase. Optional integrations
 must wait when core scenarios, test quality or the operator journey remain weak.
+
+### Frozen first-release checklist
+
+**Scope frozen on 2026-10-15, after `aedc8bd`.** The nine phase 3 bundles close
+delivery feature construction for the first release. The five bundles below are the
+remaining sequence; this section is the release checklist, not a second backlog.
+All five are pending. This documentation authorizes no implementation, remote
+mutation, publication or installation change. When a bundle is authorized, refine
+its verification brief here before code and stop at its exit condition.
+
+Keep the implemented Plan/Ready process, quality agreements, independent review,
+bounded recovery, configuration, local status and GitHub delivery. Backup/restore
+and replacing the shipped runtime remain required release work. A concrete defect
+in this supported contract must be fixed and verified in its owning bundle;
+feature requests wait until after release unless the owner explicitly reopens
+scope. A failed acceptance check is not a reason to weaken the check or silently
+drop a promised capability.
+
+The following limits are deliberate and do not block this release:
+
+- One local Runner instance owns one repository/base. Sandboxed Codex is the
+  qualified harness. Local implementation uses the recorded base; connected
+  delivery verifies the current base before integration.
+- Humans mark PRs ready and satisfy host reviews. CI and integration reassessment
+  use the existing explicit commands after the initial automatic observations.
+  Human merge is the default; `task merge` or applied automatic policy uses the
+  existing protected ordinary-merge contract. Automatic policy is not a promise
+  of unattended progress through every external wait.
+- No ready-state writes, remote polling/events, GitHub auto-merge requests, merge
+  queues, ruleset-only Runner-owned admission, squash/rebase receipts or automatic
+  artifact cleanup. Ruleset-only repositories can still use human integration
+  when the ordinary-merge receipt requirements are met.
+- GitHub Projects/Trello views, other harness qualification, autonomous intake,
+  extra repository references, workflow composition, multi-host execution, new
+  budget types, dashboards and externally loaded plugins remain post-release.
+- Fresh setup is the cutover path. No legacy importer, configuration aliases,
+  historical approval transfer or conversion of in-flight authority is required.
+
+#### Remaining bundles
+
+Execute R1–R5 in order. A bundle is done only when its evidence and unresolved
+limits are recorded here; running out of time or adding scaffolding is not an
+exit condition. Splitting an unexpectedly large bundle must preserve its scope
+and acceptance conditions rather than add another feature milestone.
+
+| Bundle | Bounded work | Required evidence and exit condition |
+| --- | --- | --- |
+| **R1 — Qualify frozen delivery** | Close the live-host gap using an explicitly authorized test repository with the supported protection configuration. Exercise human integration and Runner-owned ordinary merge, including the automatic-policy trigger. Fix only defects in the frozen contract. | A real accepted change reaches draft, base verification, pinned CI, ready state and exact confirmed merge. Human/default and automatic paths retain correct authority and dependency completion. Extend the existing delivery/integration/merge and GitHub protocol suites only for discovered gaps; reuse their drift, outage, revocation and ambiguous-write cases. Record repository/PR identities, configuration, commit, commands and receipts. A mocked merge or read-only schema query cannot close this gate. Stop before backup/restore. |
+| **R2 — Consistent backup and safe restore** | Add the smallest explicit backup/restore path for a quiescent single-host installation, matching binary/store format and original paths. Include configuration, private state/evidence and the referenced Git/workspace data needed to recover retained work; document what must be preserved. Online backup, relocation and cross-version migration are excluded. | Real SQLite/filesystem/Git round-trip preserves tasks, quality/approval bindings, counters, saved results and candidates. Reject incomplete/corrupt/incompatible material and competing ownership without overwriting unrelated data. Restore starts drained and cannot replay uncertain external effects or regain write permission lost after the snapshot. Stale snapshots whose later actions/counters cannot be established require explicit recovery, not automatic continuation. Verify interruption, missing artifacts and an external effect after backup. Stop with a documented, tested recovery procedure. |
+| **R3 — Qualify the complete operator journey** | Use the current CLI and one concise setup/operator guide from a fresh installation. Update the replacement operator reference through delivery and restore. Fix observed supported-flow problems; do not add a dashboard or a second configuration workflow. | Follow the guide through Plan and Ready, a question, a dependency wait, interrupted review, configuration preview/save/apply, model/reasoning/escalation and retry/parallelism limits, drain/restart, delivered-result inspection and R2 recovery. Show that users can identify the cause and next action without undocumented help. Reuse valid live role evidence; rerun paired behavioral cases only if role instructions or execution behavior change. Record elapsed time, interventions, repeated verification and all actual calls; unavailable cost/usage stays unknown. Stop with no unresolved blocker to the documented journey. |
+| **R4 — Promote and package the replacement** | Promote the replacement to `cortexium-runner`; retire the legacy entry point, obsolete consumers/tests and the temporary `runner-next` name. Update architecture, README, setup/examples, help, operator/role references and install/release tooling. Reuse useful low-level code and tests by current requirement. | The packaged binary exposes the replacement commands and version, requires no Project, and its docs/installed instructions match its behavior. Extend the existing packaging, installer and release-security checks; replace the legacy Project smoke journey. Build all four no-CGO targets and verify archives/checksums. Update CI/readiness commands to the qualified package timeout. No compatibility runtime, general updater redesign or new plugin layer. Stop at a reviewable release candidate, without publishing or switching a real installation. |
+| **R5 — Final qualification and cutover rehearsal** | Qualify one reviewed candidate and rehearse the documented breaking cutover on a selected test installation. Check backup, old-owner shutdown, fresh setup, explicit resubmission and the prohibition on restarting stale authority after new remote effects. | Complete the gates below on the candidate; reuse R1–R3 evidence only where subsequent changes have not invalidated it. Exercise the packaged entry point on macOS and Linux and record native sandbox/runtime evidence separately from cross-builds. Finish with tested artifacts, evidence, release notes and the exact installation/cutover procedure. Missing infrastructure or unverified safety leaves this gate open. Stop release-ready; publishing and changing the user's running installation require their own explicit instruction. |
+
+R1 is the next implementation bundle once authorized. If a needed test host,
+repository or credential is unavailable, name the specific blocked evidence and
+continue independent preparation; do not substitute a simulated success. Live
+model qualification uses the already selected `gpt-6.1-sol / high` where a model
+call is needed. Use only an identified, authorized test destination for remote
+writes; never enable automatic policy on a production installation or alter
+production protection as a side effect of qualification.
+
+#### Required verification
+
+Each implementation bundle uses the existing owning suites and the repository's
+brief-first testing policy. Add a regression only for a concrete uncovered defect;
+consolidate overlapping coverage while retaining distinct guarantees. Review the
+complete diff for unnecessary architecture and test machinery. Run focused checks
+while editing, then `go test -race -timeout 15m ./...` and `go vet ./...` at the
+bundle boundary. The fifteen-minute package timeout is the measured budget already
+qualified above; it changes neither assertions nor operation deadlines.
+
+R4 updates the existing [release-readiness script](../scripts/test-release-readiness.sh),
+[smoke test](../scripts/release-smoke-test.sh), [build script](../scripts/build-release.sh)
+and [CI workflow](../.github/workflows/ci.yml). They currently build or exercise
+the legacy runtime; a green run today is not replacement release evidence. R5
+runs the updated checks against the exact reviewed candidate:
+
+- Formatting, shell syntax and `git diff --check`; uncached
+  `go test -count=1 -race -timeout 15m ./...`, `go vet ./...`, `go mod verify`,
+  and the readiness script's pinned `govulncheck` invocation.
+- The native macOS/Linux test and packaged-runtime matrix, including the actual
+  containment and interruption guarantees. Cross-compilation alone proves no
+  native runtime behavior. Record OS/architecture, Go/Git/Codex versions and any
+  limitations; missing required platform evidence is a release blocker.
+- Four archives (`darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`) with
+  `CGO_ENABLED=0`, correct version output, exact asset/checksum set and verified
+  installation. Retain existing archive/checksum and
+  [reviewed-source publication safeguards](../.github/workflows/release.yml).
+- Current live delivery/operator evidence, successful restore/cutover rehearsal,
+  and confirmation that normal local operation makes no Project calls.
+
+Run expensive passing checks again only when the candidate or unresolved evidence
+requires it. Record the commit, command, environment, result and retained evidence
+location here; do not create a new test registry. A provider outage is an
+uncompleted live check, not a code failure or a pass. Do not repeat paid calls
+merely to populate a matrix when valid evidence already covers the claim.
+
+#### Release finish line
+
+The first replacement is **release-ready** when every item below is checked with
+evidence. These boxes are currently open; the completed construction bundles do
+not imply that release qualification has passed.
+
+- [ ] R1: real human and Runner-owned protected merges have exact receipts; frozen
+  manual handoffs and unsupported host configurations are documented.
+- [ ] R2: consistent backup/restore and stale-snapshot handling are verified;
+  recovery cannot duplicate ownership, reset known consumption or replay writes.
+- [ ] R3: the full documented operator journey works without undocumented rescue;
+  configuration, test ownership, interruption and recovery are understandable.
+- [ ] R4: one replacement binary, accurate instructions and verified packages
+  remain; obsolete runtime paths and their superseded tests are retired.
+- [ ] R5: the reviewed candidate passes the required gates and cutover rehearsal;
+  artifacts and evidence identify that candidate, with no unresolved defect in
+  a required safety, supported-behavior or operator acceptance condition.
+
+At that point feature construction is finished. Publication/installation is a
+separate authorized action using those verified artifacts, not another feature
+bundle. Deferred features are not release blockers and stay deferred after a
+successful rehearsal. If qualification finds a defect, repair it in the owning
+bundle and rerun the invalidated evidence; do not restart the redesign or expand
+scope. A change to the frozen contract requires an explicit owner decision here.
 
 ### First implementation slice
 
@@ -3030,7 +3154,8 @@ squash/rebase, cleanup and platform/release qualification remain separate work.
 
 ### Simple upgrade or deliberate break
 
-An upgrade utility may translate straightforward configuration and import
+For this frozen first release, use fresh setup; an upgrade utility is deferred.
+A later utility may translate straightforward configuration and import
 requirements as unapproved drafts. It must preview its result, validate the
 new contract, be safe to repeat and leave original files intact. Unsupported
 settings are reported, not guessed. Do not make historical workflow conversion,
@@ -3049,7 +3174,7 @@ Use this release procedure whether or not an upgrade utility exists:
    its artifacts retained. The operator explicitly chooses what remaining scope
    to resubmit to the new version. Do not automatically inherit old approval,
    QA acceptance, counters or integration ownership.
-4. Run fresh setup or the bounded configuration/draft import. Approve resubmitted
+4. Run fresh setup. Approve resubmitted
    work under the new contract. An existing PR or candidate is evidence to
    inspect; adopting it requires fresh identity checks and required review, and
    is not a prerequisite for the first release. Avoid creating a competing PR
@@ -3253,9 +3378,10 @@ proof and live qualification are recorded in [phase 1 evidence](#phase-1-evidenc
 The phase 2 evidence is recorded in the [Ready-policy qualification](#first-phase-2-qualification),
 [Plan/preparation qualification](#second-phase-2-qualification) and
 [quality-agreement qualification](#third-phase-2-qualification), plus the
-[operator qualification](#fourth-phase-2-qualification). Later evidence is
-pending; each later brief must cover its assigned
-rows or explicitly revise the scope.
+[operator qualification](#fourth-phase-2-qualification). Nine phase 3 bundle
+qualifications above cover connected delivery through automatic policy.
+The [release checklist](#frozen-first-release-checklist) owns the remaining live,
+restore, operator and packaging evidence; phase 5 board views stay deferred.
 
 | Requirement | Owning phase | Acceptance evidence |
 | --- | --- | --- |
@@ -3263,14 +3389,14 @@ rows or explicitly revise the scope.
 | Durable admission, candidate binding and no blind replay | 1; extend in 3 | S2/S4/S5: real-store interruption and saved-result tests; the first phase 3 bundle adds durable draft intent, shared reservations and ambiguous publication recovery without repeated PR creation. |
 | Readiness and repository quality | 1/2 | Third phase 2 qualification proves explicit agreement changes, immutable task pins and adoption, scoped observed exceptions, unavailable checks, source-bound candidate checks and unchanged task-proof requirements. The live reviewer pair accepts a legitimate exception and rejects a task defect. |
 | Plan and dependency success | 2/3 | Second phase 2 bundle proves atomic release, missing/cyclic dependency rejection, stale plan rejection, parent revocation and exact-version waits. Awaiting delivery cannot satisfy dependencies. Phase 3 bundle 7 proves exact child integration, dependency release, original-release parent completion and closed-unmerged handling. |
-| Continuous reconciliation and resource safety | 1; extend in 2/3 | S2/S3: exclusive ownership and responsive reconciliation; the first phase 2 bundle proves shared capacity and task/workspace claims across CLI/service; future browser/shared-data capabilities must add their resource claims; phase 3 bundle 7 proves serialized integration inspection without blocking unrelated work; bundle 8 reuses that reservation for one explicit guarded merge and inspection-only recovery. |
-| Bounded recovery and understandable configuration | 1; extend in 2/3 | S7 validates the limited policy. The first phase 2 bundle proves Ready repair allowance, persistent backoff, rejection-only escalation, invocation budgets and live policy changes without counter resets. Phase 3 proves bounded refresh/review cycles. |
+| Continuous reconciliation and resource safety | 1; extend in 2/3 | S2/S3: exclusive ownership and responsive reconciliation; the first phase 2 bundle proves shared capacity and task/workspace claims across CLI/service; future browser/shared-data capabilities must add their resource claims; phase 3 bundle 7 proves serialized integration inspection without blocking unrelated work; bundle 8 reuses that reservation for one explicit guarded merge and inspection-only recovery; bundle 9 adds applied automatic-policy admission and revocation without another scheduler. |
+| Bounded recovery and understandable configuration | 1; extend in 2/3 | S7 validates the limited policy. The first phase 2 bundle proves Ready repair allowance, persistent backoff, rejection-only escalation, invocation budgets and live policy changes without counter resets. Phase 3 proves bounded refresh/review cycles and explicit automatic-merge policy without repeated writes; R2 qualifies restore. |
 | Independent, sufficient, economical verification | 1; extend in 2 | S6 plus live candidate review. The first phase 2 paired behavioral cases cover fabricated proof, weakened checks, legitimate consolidation and speculative review; no infrastructure error becomes a code rejection. |
 | Provider-neutral architecture and optional views | 1/3/5 | S1 runs without `gh`/Projects. Phase 3 delivery requires no board. Phase 5 disconnect/reconnect and reordered updates converge safely; Trello needs no core scheduling/approval change and exposes no private evidence. |
-| Current-base delivery and confirmed completion | 3 | Base movement before merge, conflicts, CI failure, interrupted creation, human/automatic merge and closed-unmerged PRs produce correct bounded outcomes. Missing proof or remote observations never produce success. |
-| Comprehensible progress and recovery | 1/2/4 | Fourth phase 2 qualification covers attention-first status, actual profiles, waits, retained work, exact recovery guidance, watch and named-setting editing. Its local journey stops at a retained candidate. Delivered-result and release/operator evidence remain phases 3/4. |
+| Current-base delivery and confirmed completion | 3/4 | The nine phase 3 qualifications cover base movement, conflicts, CI failure, interrupted publication, exact human/automatic merge receipts and closed-unmerged handling. R1 must close the live protected-merge gap; R5 checks that evidence against the release candidate. |
+| Comprehensible progress and recovery | 1/2/4 | Fourth phase 2 qualification covers attention-first status, actual profiles, waits, retained work, exact recovery guidance, watch and named-setting editing. Its local journey stops at a retained candidate. Phase 3 adds delivery inspection; R3/R5 must qualify the full fresh-installation journey. |
 | Packaging, restore and breaking cutover | 1/4 | Phase 1 qualifies the driver and new entry point's target builds. Phase 4 proves platform/runtime checks, consistent backup/restore, no old/new ownership overlap and explicit resubmission. No historical-state converter is required. |
-| Honest operational learning | 1/2/4 | Phase 1 records all actual calls and results; phase 2 adds the measures below; phase 4 reports observed journeys and unresolved limits. Guidance drafts require human review. No inferred cost or unsupported performance claim. |
+| Honest operational learning | 1/2/4 | Existing attempts retain call/result evidence; R3/R5 record the journey measures below and unresolved limits without adding an analytics service. Guidance drafts require human review. No inferred cost or unsupported performance claim. |
 
 Required repository gates for implementation remain `go test -race ./...` and
 `go vet ./...`, plus the relevant existing platform/release checks before release.
@@ -3298,16 +3424,13 @@ Do not automatically turn repeated model text into execution policy.
 
 ## Build readiness
 
-[ADR 0005](decisions/0005-local-runner-core.md), the first-release scope and the
-first-slice brief settle the product decisions needed to begin. The implementer
-still chooses routine code layout, SQLite driver and local test mechanics within
-these contracts. Driver/platform feasibility is the first bounded implementation
-check; it is not an unrecorded assumption of successful qualification.
-
-The first useful milestone is phase 1's complete Ready journey; phase 2 completes
-the local process and configuration. Release requires phase 3's connected delivery
-and phase 4's reliability and operator evidence. Optional integrations must not
-displace unresolved core reliability, test quality or usability work.
+The local process and nine delivery bundles are implemented and qualified within
+their recorded boundaries. Feature scope is frozen. Continue only through the
+[five release bundles](#frozen-first-release-checklist), starting with R1 when
+implementation is authorized. They close the live delivery, backup/restore,
+operator, runtime promotion and release-evidence gaps. All five release gates
+remain open until their own evidence is recorded; optional integrations cannot
+displace this work.
 
 [factory]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/README.md
 [factory-setup]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/skills/factory-init/SKILL.md

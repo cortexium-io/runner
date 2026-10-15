@@ -1,6 +1,6 @@
 # ADR 0005: Local Runner core
 
-- Status: Accepted; phases 1 and 2 implemented through the local operator interface. Delivery, release qualification and optional integrations remain pending.
+- Status: Accepted; phases 1 and 2 and nine phase 3 delivery bundles implemented. First-release feature scope is frozen; the [release checklist](../runner-redesign-proposal.md#frozen-first-release-checklist) owns the remaining qualification and cutover work. Optional integrations follow release.
 - Date: 2026-10-14
 
 ## Context

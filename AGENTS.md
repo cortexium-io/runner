@@ -23,8 +23,11 @@ current-base verification and bounded refresh, remote draft synchronization, CI
 assessment, bounded CI repair, bounded text conflict repair, confirmed human
 integration, explicit guarded merge and explicit automatic-merge policy) are
 implemented in `cmd/runner-next`; their qualification and remaining delivery/release boundaries are recorded in that
-plan. Continue from that evidence only when the next implementation is
-authorized, not from a separate task ledger.
+plan. Feature scope is frozen after `aedc8bd`. The plan's
+[five release bundles and finish line](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
+are the remaining work source, starting with R1 when authorized. Implement only
+those release obligations or concrete fixes to the frozen contract; additional
+features require explicit owner direction. Do not create a separate task ledger.
 `docs/architecture.md` and the existing operator guides describe the current
 Project-backed runtime until the replacement lands. Existing code is evidence
 for required guarantees, not authority to restore superseded Project coupling.

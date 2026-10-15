@@ -37,8 +37,11 @@ The ninth adds [explicit automatic-merge policy](docs/runner-redesign-proposal.m
 Human mode remains the default; applying policy covers existing and future approved
 work, and disabling it prevents unsent automatic writes.
 This build uses store format 13 (earlier formats require fresh state). Local delivery
-still stops at **Awaiting delivery**. Ready-state writes, polling, merge queues,
-squash/rebase, ruleset-only guards, release qualification and external views remain pending.
+still stops at **Awaiting delivery**. Feature scope is now frozen; the
+[five release bundles and checklist](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
+cover live qualification, backup/restore, the operator journey, packaging and
+cutover. Ready-state writes, polling, merge queues, squash/rebase, ruleset-only
+Runner-owned guards and external views are deferred beyond this release.
 The documentation below describes the existing
 `cortexium-runner` release.
 
