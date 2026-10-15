@@ -132,6 +132,11 @@ func describeView(v *View, running bool, now time.Time) {
 		if a != nil {
 			v.Recovery.Role = a.Role
 		}
+		if a != nil && a.Role == "refresh" && t.Attention.Kind != "ownership" && t.Attention.Kind != "saved_result" {
+			v.NextAction = "inspect the base verification failure; config edit --set base-refreshes=N, then save/apply if allowance is exhausted; task verify-base " + t.ID + "; then run"
+			v.Recovery.Repeats = "base inspection and native checks for the retained cycle; no model invocation until a new candidate needs review"
+			return
+		}
 		switch t.Attention.Kind {
 		case core.Interrupted:
 			v.Recovery.Repeats = "one invocation of the interrupted role, using its pinned profile, only with --allow-new-invocation"
@@ -186,6 +191,25 @@ func describeView(v *View, running bool, now time.Time) {
 		}
 		return
 	case core.AwaitingDelivery:
+		if t.NextRole == "refresh" {
+			v.Group, v.Summary = "Waiting", "current-base verification queued"
+			v.NextAction = "wait for admission; run if the coordinator is absent or drained"
+			if v.Eligibility.WaitingFor != "" {
+				v.Summary += "; " + v.Eligibility.WaitingFor
+			}
+			return
+		}
+		if t.BaseProof != nil && t.BaseProof.Matches(t) {
+			v.Group, v.Summary = "Retained", "candidate verified against base "+t.BaseProof.Base+" at "+t.BaseProof.ObservedAt.Format(time.RFC3339)
+			for _, p := range v.Publications {
+				if p.Intent.Version == t.Current().Number && p.Intent.Generation == t.Generation && p.Intent.Candidate != *t.Candidate {
+					v.Summary += "; remote draft still refers to an earlier candidate"
+					break
+				}
+			}
+			v.NextAction = "task verify-base " + t.ID + " to inspect again; remote synchronization, CI and integration remain pending"
+			return
+		}
 		v.Group, v.Summary = "Retained", "reviewed candidate; local delivery mode"
 		v.NextAction = "inspect candidate and evidence with " + show + "; integration is still pending"
 		if v.DeliveryDestination != "" {

@@ -14,8 +14,10 @@ The [operator guide](docs/runner-redesign-proposal.md#using-the-operator-interfa
 covers attention-first status, read-only watch and the configuration editor.
 The first phase 3 bundle adds [durable GitHub draft publication](docs/runner-redesign-proposal.md#using-draft-publication),
 independent of Projects, with exact candidate binding and interrupted-write recovery.
-This build uses store format 5 (earlier formats require fresh state) and stops
-at **Awaiting delivery**, optionally with a draft PR. Current-base verification,
+The next bundle adds [current-base verification and bounded refresh](docs/runner-redesign-proposal.md#phase-3-second-bundle-current-base-verification-and-bounded-refresh),
+with separate retained candidates and fresh checks/review after base movement.
+This build uses store format 6 (earlier formats require fresh state) and stops
+at **Awaiting delivery**. Refreshed candidates remain local; remote draft updates,
 CI/integration, release qualification and external views remain pending.
 The documentation below describes the existing
 `cortexium-runner` release.

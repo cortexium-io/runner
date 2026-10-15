@@ -15,11 +15,11 @@ import (
 // Independent connections start together. One transaction must roll back its
 // task state and counters when another wins the last slot or shared resource.
 func TestCompetingClaims(t *testing.T) {
-	for _, which := range []string{"capacity", "task", "workspace", "publication"} {
+	for _, which := range []string{"capacity", "task", "workspace", "publication", "refresh"} {
 		t.Run(which, func(t *testing.T) {
 			ctx := t.Context()
 			settings := config.Settings{Config: config.Config{Policy: config.Policy{MaxParallelism: 2}}}
-			if which == "capacity" || which == "publication" {
+			if which == "capacity" || which == "publication" || which == "refresh" {
 				settings.Config.Policy.MaxParallelism = 1
 			}
 			if which == "publication" {
@@ -70,6 +70,10 @@ func TestCompetingClaims(t *testing.T) {
 					resource = "shared"
 				}
 				a := core.Attempt{ID: core.NewID(), TaskID: task.ID, Version: 1, Generation: 1, Base: "base", PolicyRevision: settings.Config.Revision(), WorkspaceClaim: resource, Invocation: 1, Occupying: true, State: "reserved"}
+				if which == "refresh" && i == 0 {
+					a.Role = "refresh"
+					a.Invocation, task.Usage.Invocations = 0, 0
+				}
 				go func() { <-start; results <- db.Commit(ctx, 1, task, &a, true) }()
 			}
 			close(start)
@@ -103,14 +107,25 @@ func TestCompetingClaims(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			count := 0
+			count, deterministic := 0, 0
+			for _, a := range attempts {
+				if a.Role == "refresh" {
+					deterministic++
+				}
+			}
 			for _, task := range persisted {
 				count += task.Usage.Invocations
-				if task.Revision != 1+task.Usage.Invocations {
+				extra := 0
+				for _, a := range attempts {
+					if a.TaskID == task.ID && a.Role == "refresh" {
+						extra++
+					}
+				}
+				if task.Revision != 1+task.Usage.Invocations+extra {
 					t.Fatal("partial claim leaked", task)
 				}
 			}
-			if count+len(publications) != 1 {
+			if count+len(publications)+deterministic != 1 {
 				t.Fatal("allowance transaction leaked", count)
 			}
 		})
@@ -121,6 +136,29 @@ func TestMissingStoreIsNotCreatedByInspection(t *testing.T) {
 	if s, err := Open(t.Context(), filepath.Join(t.TempDir(), "missing"), true); err == nil {
 		s.Close()
 		t.Fatal("missing store opened")
+	}
+}
+
+func TestRefreshReservationChecksAllowanceInTransaction(t *testing.T) {
+	settings := config.Settings{Config: config.Config{Policy: config.Policy{MaxBaseRefreshes: 0}}}
+	s, err := Create(t.Context(), filepath.Join(t.TempDir(), "state"), settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	task := core.Task{ID: "one", Revision: 1, Versions: []core.Version{{Number: 1}}}
+	if err = s.Add(t.Context(), task); err != nil {
+		t.Fatal(err)
+	}
+	task.Usage.BaseRefreshes = 1
+	task.RefreshTarget = &core.BaseBinding{Commit: "new", Cycle: 1}
+	a := core.Attempt{ID: "refresh", TaskID: task.ID, Role: "refresh"}
+	if err = s.Commit(t.Context(), 1, task, &a, false); !errors.Is(err, ErrConflict) {
+		t.Fatal("stale policy admitted a cycle", err)
+	}
+	got, err := s.Task(t.Context(), task.ID)
+	if err != nil || got.RefreshTarget != nil || got.Usage.BaseRefreshes != 0 {
+		t.Fatal("failed reservation leaked", got, err)
 	}
 }
 func TestCorruptStoreIsNotReplacedByOpen(t *testing.T) {
@@ -146,7 +184,7 @@ func TestCorruptStoreIsNotReplacedByOpen(t *testing.T) {
 }
 
 func TestPreviousStoreRequiresFreshStateWithoutModification(t *testing.T) {
-	for _, format := range []int{1, 2, 3, 4} {
+	for _, format := range []int{1, 2, 3, 4, 5} {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			dir := t.TempDir()
 			if err := os.Chmod(dir, 0700); err != nil {

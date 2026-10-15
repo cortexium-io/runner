@@ -83,8 +83,8 @@ func (c Config) Validate() error {
 	if c.Delivery.Mode == "local" && c.Delivery.Repository != "" || c.Delivery.Mode == "github-draft" && !ValidRepository(c.Delivery.Repository) {
 		return errors.New("github-draft requires an explicit OWNER/REPO destination; local delivery has no remote destination")
 	}
-	if c.Policy.MaxParallelism < 1 || c.Policy.MaxParallelism > 16 || c.Policy.MaxRepairs < 0 || c.Policy.MaxTransientRetries < 0 || c.Policy.MaxBaseRefreshes != 0 {
-		return errors.New("parallelism must be 1–16; repair/retry limits must be nonnegative; base refresh is not supported")
+	if c.Policy.MaxParallelism < 1 || c.Policy.MaxParallelism > 16 || c.Policy.MaxRepairs < 0 || c.Policy.MaxTransientRetries < 0 || c.Policy.MaxBaseRefreshes < 0 {
+		return errors.New("parallelism must be 1–16; repair/retry/base-refresh limits must be nonnegative")
 	}
 	if c.Policy.MaxInvocationsPerTask != nil && *c.Policy.MaxInvocationsPerTask < 1 {
 		return errors.New("max_invocations_per_task must be absent or positive")

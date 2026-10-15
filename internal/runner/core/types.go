@@ -73,9 +73,10 @@ const (
 )
 
 type Usage struct {
-	Invocations int `json:"invocations"`
-	Repairs     int `json:"repairs"`
-	Escalations int `json:"escalations"`
+	BaseRefreshes int `json:"base_refreshes"`
+	Invocations   int `json:"invocations"`
+	Repairs       int `json:"repairs"`
+	Escalations   int `json:"escalations"`
 }
 
 // Continuation records why another invocation is eligible. Retry/resume profiles
@@ -98,6 +99,9 @@ type Attention struct {
 }
 
 type Task struct {
+	WorkingBase     *BaseBinding          `json:"working_base,omitempty"`
+	RefreshTarget   *BaseBinding          `json:"refresh_target,omitempty"`
+	BaseProof       *BaseProof            `json:"base_proof,omitempty"`
 	AdoptionPreview string                `json:"adoption_preview,omitempty"`
 	PlanRequest     bool                  `json:"plan_request,omitempty"`
 	Proposal        *PlanningResult       `json:"proposal,omitempty"`
@@ -138,6 +142,9 @@ type CheckObservation struct {
 }
 
 type Attempt struct {
+	Refreshed      *BaseBinding       `json:"refreshed,omitempty"`
+	ObservedBase   string             `json:"observed_base,omitempty"`
+	BaseObservedAt time.Time          `json:"base_observed_at,omitempty"`
 	Checks         []CheckObservation `json:"quality_checks,omitempty"`
 	CheckFiles     map[string]string  `json:"quality_check_files,omitempty"`
 	ID             string             `json:"id"`
@@ -176,7 +183,7 @@ type Attempt struct {
 }
 
 func (a Attempt) Authorized(t Task) bool {
-	return t.Approval != nil && t.Stage != Stopped && t.Current().Number == a.Version && t.Generation == a.Generation && t.Approval.Generation == a.Generation && t.Approval.Base == a.Base
+	return t.Approval != nil && t.Stage != Stopped && t.Current().Number == a.Version && t.Generation == a.Generation && t.Approval.Generation == a.Generation && t.Base() == a.Base
 }
 
 type Check struct {

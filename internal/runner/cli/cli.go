@@ -87,6 +87,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	app := engine.Engine{Store: db, Settings: settings, Executor: c.Harness, Checker: c.Harness}
 	if cfg.Delivery.Mode == "github-draft" {
 		app.Delivery = github.Host{}
+		app.Bases = github.Host{}
 	}
 	switch args[0] {
 	case "quality":
@@ -167,7 +168,7 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 		allow = f.Bool("allow-new-invocation", false, "explicitly authorize one repeated invocation")
 	case "delivery":
 		reconcile = f.Bool("reconcile", false, "inspect remote identity and continue safely; uncertain PR creation never repeats")
-	case "stop":
+	case "stop", "verify-base":
 	default:
 		return fmt.Errorf("unknown task command %q", command)
 	}
@@ -206,6 +207,10 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 		}
 	}
 	switch command {
+	case "verify-base":
+		if err := e.VerifyBase(ctx, id); err != nil {
+			return err
+		}
 	case "delivery":
 		if !*reconcile {
 			return errors.New("use task show for read-only inspection, or task delivery ID --reconcile for remote reconciliation")
@@ -306,10 +311,22 @@ func (c CLI) printView(v engine.View, full bool) {
 	if t.Approval != nil {
 		fmt.Fprintf(c.Out, "Approved base: %s\n", t.Approval.Base)
 	}
+	if t.WorkingBase != nil {
+		fmt.Fprintf(c.Out, "Working base: %s; refresh cycle %d\n", t.WorkingBase.Commit, t.WorkingBase.Cycle)
+	}
+	if t.RefreshTarget != nil {
+		fmt.Fprintf(c.Out, "Reserved refresh: %d -> %s\n", t.RefreshTarget.Cycle, t.RefreshTarget.Commit)
+	}
+	if t.BaseProof != nil {
+		fmt.Fprintf(c.Out, "Base proof: %s; observed %s; matches current acceptance=%t; integration pending\n", t.BaseProof.Base, t.BaseProof.ObservedAt.Format(time.RFC3339), t.BaseProof.Matches(t))
+	}
 	if t.Candidate != nil {
 		fmt.Fprintf(c.Out, "Candidate: %s\nWorkspace: %s\n", t.Candidate.Commit, t.Candidate.Workspace)
 	}
 	for _, p := range v.Publications {
+		if t.Candidate != nil && *t.Candidate != p.Intent.Candidate {
+			fmt.Fprintln(c.Out, "Retained publication refers to an earlier candidate; remote synchronization is pending.")
+		}
 		fmt.Fprintf(c.Out, "Publication %s (v%d): %s; %s\nDestination: %s -> %s; branch %s\n", p.Intent.ID, p.Intent.Version, p.State, p.Detail, p.Intent.Repository, p.Intent.BaseBranch, p.Intent.Branch)
 		if p.ObservedAt != nil {
 			fmt.Fprintf(c.Out, "Last remote observation: %s\n", p.ObservedAt.Format(time.RFC3339))
@@ -322,7 +339,13 @@ func (c CLI) printView(v engine.View, full bool) {
 		fmt.Fprintf(c.Out, "Attention (%s): %s; attempt %s\n", t.Attention.Kind, t.Attention.Detail, t.Attention.Attempt)
 	}
 	for _, a := range v.Attempts {
-		fmt.Fprintf(c.Out, "Attempt %s: %s / %s; %s / %s; occupying=%t\nEvidence: %s\n", a.ID, a.Role, a.State, a.Profile.Model, a.Profile.Reasoning, a.Occupying, a.EvidenceDir)
+		fmt.Fprintf(c.Out, "Attempt %s: %s / %s", a.ID, a.Role, a.State)
+		if a.Role == "refresh" {
+			fmt.Fprint(c.Out, "; deterministic, no model")
+		} else {
+			fmt.Fprintf(c.Out, "; %s / %s", a.Profile.Model, a.Profile.Reasoning)
+		}
+		fmt.Fprintf(c.Out, "; occupying=%t\nEvidence: %s\n", a.Occupying, a.EvidenceDir)
 		for _, check := range a.Checks {
 			fmt.Fprintf(c.Out, "Quality check %s: %s; evidence %s; %s\n", check.CheckID, check.Status, check.Evidence, check.Detail)
 		}
@@ -331,13 +354,17 @@ func (c CLI) printView(v engine.View, full bool) {
 	if v.CancellationPending {
 		fmt.Fprintln(c.Out, "Cancellation pending: revoked execution still owns its reservation.")
 	}
-	fmt.Fprintf(c.Out, "Allowances remaining: repairs=%d; transient retries=%d", v.Eligibility.RepairsRemaining, v.Eligibility.RetriesRemaining)
+	fmt.Fprintf(c.Out, "Allowances remaining: repairs=%d; transient retries=%d; base refreshes=%d (consumed %d)", v.Eligibility.RepairsRemaining, v.Eligibility.RetriesRemaining, v.Eligibility.RefreshesRemaining, t.Usage.BaseRefreshes)
 	if v.Eligibility.InvocationsRemaining != nil {
 		fmt.Fprintf(c.Out, "; invocations=%d", *v.Eligibility.InvocationsRemaining)
 	}
 	fmt.Fprintln(c.Out)
 	if v.Task.NextRole != "" && (v.FocusAttempt == nil || !v.FocusAttempt.Occupying) {
-		fmt.Fprintf(c.Out, "Next role: %s; profile %s = %s / %s; reason: %s\n", v.Eligibility.Role, v.Eligibility.ProfileName, v.Eligibility.Profile.Model, v.Eligibility.Profile.Reasoning, v.Eligibility.Reason)
+		if v.Eligibility.Role == "refresh" {
+			fmt.Fprintln(c.Out, "Next action: refresh;", v.Eligibility.Reason)
+		} else {
+			fmt.Fprintf(c.Out, "Next role: %s; profile %s = %s / %s; reason: %s\n", v.Eligibility.Role, v.Eligibility.ProfileName, v.Eligibility.Profile.Model, v.Eligibility.Profile.Reasoning, v.Eligibility.Reason)
+		}
 	}
 }
 

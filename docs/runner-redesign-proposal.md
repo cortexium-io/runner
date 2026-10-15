@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first phase 3 draft-publication bundle are implemented in `codex/runner-local-core`. Qualification is recorded below. Stop at durable draft publication: current-base verification, CI/integration and release qualification remain pending. Current store format is 5; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first two phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, then current-base verification and bounded refresh. Qualification is recorded below. Refreshed candidates remain local; remote draft synchronization, CI/integration and release qualification remain pending. Current store format is 6; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -570,7 +570,7 @@ There is no Project, workflow-lane or credential field.
     "max_parallelism": 1,
     "max_repairs": 0,
     "max_transient_retries": 0,
-    "max_base_refreshes": 0,
+    "max_base_refreshes": 2,
     "implementation_ladder": []
   },
   "delivery": {"mode": "local"}
@@ -586,9 +586,8 @@ Profiles do not grant access: the native sandbox and role permission ceilings
 remain Runner-owned. The two profiles may use the same model; review still uses
 a separate invocation and context.
 
-Phase 1 accepts only the displayed policy values, local delivery and recorded
-base mode. Its zero automatic allowances make unsupported repair/retry behavior
-explicit. At approval, pin an available local base commit; that milestone never
+Phase 1 accepted local delivery and recorded base mode, with all automatic
+allowances set to zero. The example now includes the phase 3 refresh allowance. At approval, pin an available local base commit; that milestone never
 fetches, pushes or merges. A later base movement does not alter that candidate's
 recorded starting base or turn local review into current-base delivery proof.
 
@@ -597,8 +596,10 @@ Phase 2 enables the documented limits, a planner profile and
 lists successor profile names after the configured starting implementer; empty
 disables escalation. Exhausting the list keeps the last profile while repairs
 remain. The same profile cannot recur in the ladder. Phase 3 adds GitHub delivery
-configuration and requires refresh before implementation by default; `recorded`
-remains explicit opt-in. All code delivery must verify the latest base.
+configuration and, when its full delivery journey lands, requires refresh before
+implementation by default; `recorded` remains explicit opt-in. The first two
+phase 3 bundles retain explicit recorded starting-base mode and verify after
+draft publication. All integration must verify the latest base.
 
 Setup previews a complete resolved policy, then atomically applies it with a
 revision. Phase 1 requires a drained coordinator before replacement of that
@@ -1127,7 +1128,7 @@ ladder steps or a ceiling below initial implementation plus audit. The preview
 digest binds the old and proposed policy revisions; task effects are observations
 at preview time, not a lock on tasks while the user reads them.
 
-Each attempt reserves an invocation, its task/workspace ownership and any new
+Each model attempt reserves an invocation, its task/workspace ownership and any new
 repair/retry allowance in the same SQLite transaction. Independent tasks share
 capacity. Lowering parallelism prevents new admission while occupancy meets or
 exceeds the new limit; it does not cancel active work. Unknown surviving processes
@@ -1755,7 +1756,7 @@ release/platform, backup/restore and installation qualification remain phase 4.
 
 ### Phase 3, first bundle: durable draft publication
 
-**Implementation brief (2026-10-15).** Publish the exact independently accepted
+**Historical implementation brief (2026-10-15).** Publish the exact independently accepted
 candidate as one GitHub draft PR, with private durable intent and recoverable
 remote identity. This bundle stops before integration. A draft is an inspectable
 handoff artifact, not current-base delivery proof or task completion.
@@ -1829,11 +1830,13 @@ changing only delivery to:
 ```
 
 Keep `repository.base_ref` as the intended local `refs/heads/BRANCH`, explicitly
-select `base_freshness: "recorded"`, and leave `max_base_refreshes: 0`.
+select `base_freshness: "recorded"`, and set `max_base_refreshes: 2` for bounded
+post-publication verification. The first bundle itself supported only 0.
 `init` and `config explain` display the destination and boundary. This intermediate
-mode authorizes draft publication after task acceptance, not integration. Changing
+mode authorizes draft publication and current-base verification after task acceptance,
+not integration. Refreshed candidates remain local in the second bundle. Changing
 an initialized destination or base is rejected by execution-policy apply. Local
-mode still runs without GitHub. Store formats 1–4 are rejected untouched: preserve
+mode still runs without GitHub. Store formats 1–5 are rejected untouched: preserve
 old state/workspaces and initialize fresh roots; no old approvals are imported.
 
 Use an operator-owned `gh auth login --hostname github.com` configuration with
@@ -1914,6 +1917,108 @@ Real GitHub branch/PR writes have not been exercised in this bundle. Model roles
 prompts and native harness permissions are unchanged, so existing live Codex
 qualification remains applicable and no new model call was required. Platform,
 release, backup/restore and the full merge journey remain later work.
+
+### Phase 3, second bundle: current-base verification and bounded refresh
+
+**Implementation and verification brief (2026-10-15, before code).** After draft
+publication, verify the accepted candidate against the configured delivery base.
+Keep the original approval and publication immutable. A clean refresh produces a
+new retained workspace/candidate, reruns the pinned native checks and independent
+review, and observes the base again after review. A proof names the exact base,
+candidate, quality agreement, review and observation time; it is not a promise
+that the base cannot move later.
+
+- Reuse the coordinator's durable attempt/reservation and process ownership for
+  a deterministic `refresh` action. Fetch/check work shares capacity with model
+  and publication work, without consuming model invocations or escalating models.
+  Review uses the existing audit/verification roles and invocation allowance.
+- GitHub draft mode fetches the explicit destination/base through protected Git
+  transport. Local mode can explicitly verify its local base without GitHub.
+  `task verify-base ID` queues inspection/recovery; status/show remain offline.
+  GitHub verification starts automatically after the first confirmed draft.
+- Each changed base reserves one refresh before workspace construction. Persist
+  its target and count so restart/retry cannot reset the allowance or charge the
+  same interrupted cycle twice. `max_base_refreshes` becomes nonnegative, with 2
+  in the example policy; 0 permits inspection but no changed-base rebuild.
+  Exhaustion requires an explicit policy allowance change and verification request.
+- Changed source/base invalidates acceptance. Use a separate workspace per cycle,
+  preserving earlier candidates, attempts and draft identity. Reuse sufficient
+  evidence only for the exact unchanged candidate/base. Pinned quality-source drift,
+  merge conflicts and failed native checks stop with actionable attention; this
+  bundle does not invent a conflict-resolution model workflow. Ordinary review
+  defects retain the existing bounded repair policy.
+- A refreshed accepted candidate is retained locally. The original remote draft
+  remains explicitly labelled as an earlier candidate. No second PR or branch
+  overwrite is authorized. Remote draft synchronization, CI, serialized merge,
+  conflict repair, default pre-implementation fetching and task/parent completion
+  belong to subsequent delivery work. Recorded starting-base mode remains explicit.
+- Store format 6 rejects earlier formats untouched; no compatibility layer.
+
+Extend the existing real-store/real-Git engine journey for unchanged base, clean
+movement, movement during review, restart/retry and exhausted allowance; prove
+stale acceptance cannot qualify, counters persist, stopped authority cannot advance,
+and existing publication identity survives. Extend native workspace tests for
+protected literal fetch. The engine journey uses native Git for clean/conflicting
+merges and immutable earlier workspaces, avoiding a duplicate workspace fixture.
+Extend the owning configuration/operator suites for the one new limit and command.
+Reuse shared reservation, sandbox and review suites rather than duplicate them.
+Run targeted tests, `go test -race ./...`, `go vet ./...`, build `runner-next`, and
+review the complete diff. The clean merge uses the documented
+[Git merge-tree contract](https://git-scm.com/docs/git-merge-tree), accepting only
+a successful exit status before constructing a candidate. Exercise the built CLI and a live refreshed-candidate
+audit with the authorized `gpt-6.1-sol` / `high` profile. Remote writes are outside
+this bundle; report any transport or platform qualification limits accurately.
+
+#### Current-base verification qualification
+
+Implemented in the same `codex/runner-local-core` worktree. The coordinator uses
+the existing attempt reservation for deterministic fetch/check work; no scheduler,
+table, dependency, model role or public plugin framework was added. Approval stays
+at its original base. Each changed-base cycle has a distinct retained workspace;
+its target and consumed allowance are committed before construction. The store
+checks the current allowance in that transaction, including a concurrent policy
+change. Repeated inspection of an unchanged base spends neither a refresh nor a
+model invocation. A changed candidate clears review and needs the existing audit.
+
+The real-store/real-Git engine journey covers unchanged-base evidence reuse, two
+successive base movements (including one after review starts), exhaustion and
+explicit additional allowance, failed native checks, interruption before result
+persistence, merge conflicts, stopped authority and candidate tampering. It checks
+that the original workspace and draft identity survive, each reserved cycle is
+charged once, and no refresh can complete a task. Existing shared-capacity tests
+now also race a deterministic refresh claim against a model claim. The native Git
+transport test verifies the literal fetch destination, private ref and unchanged
+checkout/FETCH_HEAD; the configuration and operator suites cover the new allowance
+and recovery advice. Existing quality, sandbox, review and publication suites
+remain responsible for their broader contracts.
+
+On 2026-10-15, a refreshed fixture candidate passed native sandboxed checks and a
+real independent Codex audit using `gpt-6.1-sol` / `high`; initial fixture acceptance
+was controlled, so this is qualification of the new refresh/review path, not a new
+full implementation journey. The built CLI exercised human/JSON inspection,
+configuration explanation, `task verify-base`, coordinator admission and drain.
+Inspection preserved the database hash, and re-observation preserved all consumed
+allowances. Evidence and the disposable repository/state are retained at
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-current-base-qualification-2503460638`.
+A read-only production Git fetch of `cortexium-io/runner`'s `main` into that
+disposable repository also passed. No GitHub write occurred. Temporary qualification
+harnesses were removed.
+
+`go test -race ./...`, `go vet ./...` and the `runner-next` build passed on macOS
+arm64, Go 1.27.1 and Git 2.54.0. Final presentation and crash-recovery assertions
+received focused race checks; vet/build passed again. The complete diff was reviewed for authority,
+retained-work recovery, stale evidence, unnecessary complexity and accidental
+changes. Replacement packages still import no legacy engine, execution or GitHub
+package.
+
+Stop at this boundary. Base proof is an exact, timestamped observation. The next
+delivery bundle must synchronize the refreshed candidate to the existing draft
+with an exact remote lease, then establish CI and serialized integration authority
+with another current-base check before merge. Default pre-implementation fetching,
+bounded conflict repair, confirmed task/parent completion and platform/release
+qualification remain pending. There is no automatic polling after proof is retained;
+`task verify-base ID` explicitly requests another observation. Formats 1–5 require
+fresh private state; earlier evidence/workspaces are preserved, not migrated.
 
 ### Simple upgrade or deliberate break
 

@@ -26,7 +26,7 @@ type Store struct {
 }
 
 const schema = `
-CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=5), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=6), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE quality_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE quality_reports (id TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE settings_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
@@ -62,7 +62,7 @@ func Create(ctx context.Context, dir string, settings config.Settings) (*Store, 
 	defer tx.Rollback()
 	if _, err = tx.ExecContext(ctx, schema); err == nil {
 		b, _ := json.Marshal(settings)
-		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,5,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
+		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,6,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
 	}
 	if err == nil && settings.Quality.Revision() != "" {
 		b, _ := json.Marshal(settings.Quality)
@@ -100,7 +100,7 @@ func Open(ctx context.Context, dir string, readonly bool) (*Store, error) {
 		s.Close()
 		return nil, fmt.Errorf("missing, corrupt or incompatible authoritative store: %w", err)
 	}
-	if format != 5 {
+	if format != 6 {
 		s.Close()
 		return nil, fmt.Errorf("incompatible authoritative store format %d; preserve it and initialize a fresh state directory", format)
 	}
@@ -251,6 +251,30 @@ func (s *Store) Commit(ctx context.Context, expected int, t core.Task, a *core.A
 		return err
 	}
 	defer tx.Rollback()
+	if a != nil && a.Role == "refresh" && t.RefreshTarget != nil {
+		var raw, settingsRaw []byte
+		if err = tx.QueryRowContext(ctx, "SELECT data FROM tasks WHERE id=?", t.ID).Scan(&raw); err != nil {
+			return err
+		}
+		var previous core.Task
+		if err = json.Unmarshal(raw, &previous); err != nil {
+			return err
+		}
+		if previous.RefreshTarget == nil {
+			if err = tx.QueryRowContext(ctx, "SELECT settings FROM metadata WHERE id=1").Scan(&settingsRaw); err != nil {
+				return err
+			}
+			var settings config.Settings
+			if err = json.Unmarshal(settingsRaw, &settings); err != nil {
+				return err
+			}
+			if t.Usage.BaseRefreshes != previous.Usage.BaseRefreshes+1 || t.RefreshTarget.Cycle != t.Usage.BaseRefreshes || t.Usage.BaseRefreshes > settings.Config.Policy.MaxBaseRefreshes {
+				return ErrConflict
+			}
+		} else if *previous.RefreshTarget != *t.RefreshTarget || previous.Usage.BaseRefreshes != t.Usage.BaseRefreshes {
+			return ErrConflict
+		}
+	}
 	if claim {
 		if a == nil || !a.Occupying || a.TaskID != t.ID || a.WorkspaceClaim == "" || !a.Authorized(t) {
 			return errors.New("invalid execution claim")
@@ -316,8 +340,12 @@ func (s *Store) Commit(ctx context.Context, expected int, t core.Task, a *core.A
 		if previous.Pending != nil && previous.Pending.Kind == "retry" && a.Retry > p.MaxTransientRetries {
 			return ErrConflict
 		}
-		if t.Usage.Invocations != previous.Usage.Invocations+1 || a.Invocation != t.Usage.Invocations ||
-			(p.MaxInvocationsPerTask != nil && t.Usage.Invocations > *p.MaxInvocationsPerTask) ||
+		increment := 1
+		if a.Role == "refresh" {
+			increment = 0
+		}
+		if t.Usage.Invocations != previous.Usage.Invocations+increment || a.Invocation != t.Usage.Invocations ||
+			(a.Role != "refresh" && p.MaxInvocationsPerTask != nil && t.Usage.Invocations > *p.MaxInvocationsPerTask) ||
 			t.Usage.Repairs < previous.Usage.Repairs || t.Usage.Repairs > previous.Usage.Repairs+1 ||
 			(t.Usage.Repairs > previous.Usage.Repairs && t.Usage.Repairs > p.MaxRepairs) {
 			return ErrConflict

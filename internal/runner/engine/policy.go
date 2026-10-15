@@ -20,18 +20,19 @@ type Eligibility struct {
 	WaitKind             string       `json:"wait_kind,omitempty"`
 	WaitingFor           string       `json:"waiting_for,omitempty"`
 	RetryAt              *time.Time   `json:"retry_at,omitempty"`
+	RefreshesRemaining   int          `json:"base_refreshes_remaining"`
 	RepairsRemaining     int          `json:"repairs_remaining"`
 	RetriesRemaining     int          `json:"transient_retries_remaining"`
 	InvocationsRemaining *int         `json:"invocations_remaining,omitempty"`
 }
 
 func workspaceClaim(c config.Config, t core.Task) string {
-	return filepath.Join(c.WorktreeDir, fmt.Sprintf("%s-v%d", t.ID, t.Current().Number))
+	return filepath.Join(c.WorktreeDir, t.WorkspaceKey())
 }
 
 func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained bool, now time.Time, tasks ...core.Task) Eligibility {
 	p := c.Policy
-	v := Eligibility{Role: t.NextRole, RepairsRemaining: max(0, p.MaxRepairs-t.Usage.Repairs), RetriesRemaining: p.MaxTransientRetries}
+	v := Eligibility{RefreshesRemaining: max(0, p.MaxBaseRefreshes-t.Usage.BaseRefreshes), Role: t.NextRole, RepairsRemaining: max(0, p.MaxRepairs-t.Usage.Repairs), RetriesRemaining: p.MaxTransientRetries}
 	if p.MaxInvocationsPerTask != nil {
 		left := max(0, *p.MaxInvocationsPerTask-t.Usage.Invocations)
 		v.InvocationsRemaining = &left
@@ -41,6 +42,9 @@ func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained boo
 		v.ProfileName, v.Profile = c.Implementer(t.Usage.Escalations)
 	}
 	v.Reason = "initial implementation or independent review"
+	if t.NextRole == "refresh" {
+		v.Reason = "deterministic base inspection and pinned checks; independent review follows a changed candidate"
+	}
 	if core.PlanningRole(t.NextRole) {
 		v.Reason = "authorized planning or missing verification preparation"
 	}
@@ -101,7 +105,7 @@ func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained boo
 	case t.Pending != nil && t.Pending.Kind == "retry" && t.Pending.Retry > p.MaxTransientRetries:
 		v.WaitKind = "retry_limit"
 		v.WaitingFor = "transient retry limit; inspect failure and explicitly apply more allowance"
-	case v.InvocationsRemaining != nil && *v.InvocationsRemaining == 0:
+	case t.NextRole != "refresh" && v.InvocationsRemaining != nil && *v.InvocationsRemaining == 0:
 		v.WaitKind = "invocation_limit"
 		v.WaitingFor = "task invocation ceiling; explicitly apply more allowance"
 	case drained:

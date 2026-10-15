@@ -46,6 +46,11 @@ func TestOperatorAdviceDistinguishesAttentionWorkAndWaits(t *testing.T) {
 			v.Eligibility.WaitingFor = "retry backoff until deadline"
 		}, true},
 		{"reviewed", "Retained", "integration is still pending", func(v *View) { v.Task.Stage = core.AwaitingDelivery }, true},
+		{"refresh queued", "Waiting", "wait for admission", func(v *View) { v.Task.Stage = core.AwaitingDelivery; v.Task.NextRole = "refresh" }, true},
+		{"interrupted refresh", "Needs you", "task verify-base task", func(v *View) {
+			v.Task.Attention = &core.Attention{Kind: core.Interrupted, Attempt: "attempt"}
+			v.Attempts[0].Role = "refresh"
+		}, true},
 		{"draft destination", "Needs you", "task approve", func(v *View) { v.Task.Stage = core.Draft; v.DeliveryDestination = "owner/repo" }, true},
 		{"publishing", "Working", "wait for remote reconciliation", func(v *View) {
 			v.Publications = []core.Publication{{Occupying: true, Intent: core.PublicationIntent{Repository: "owner/repo"}}}

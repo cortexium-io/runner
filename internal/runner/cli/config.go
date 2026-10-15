@@ -92,7 +92,7 @@ func (c CLI) printPolicy(p engine.PolicyChange) {
 		p := cfg.Profiles[name]
 		fmt.Fprintf(c.Out, "profile.%s = %s %s %s\n", name, p.Model, p.Reasoning, p.Timeout)
 	}
-	fmt.Fprintf(c.Out, "Parallelism: %d; repairs: %d; transient retries: %d; invocation ceiling: ", cfg.Policy.MaxParallelism, cfg.Policy.MaxRepairs, cfg.Policy.MaxTransientRetries)
+	fmt.Fprintf(c.Out, "Parallelism: %d; repairs: %d; transient retries: %d; base refreshes: %d; invocation ceiling: ", cfg.Policy.MaxParallelism, cfg.Policy.MaxRepairs, cfg.Policy.MaxTransientRetries, cfg.Policy.MaxBaseRefreshes)
 	if cfg.Policy.MaxInvocationsPerTask == nil {
 		fmt.Fprintln(c.Out, "unlimited")
 	} else {
@@ -102,7 +102,11 @@ func (c CLI) printPolicy(p engine.PolicyChange) {
 	fmt.Fprintln(c.Out, "Implementation escalation on confirmed rejection:", strings.Join(ladder, " -> "))
 	fmt.Fprintln(c.Out, "The last profile remains selected within the repair allowance. Transient retries do not escalate.")
 	for _, a := range p.Active {
-		fmt.Fprintf(c.Out, "Pinned attempt %s (%s): %s / %s; %s; unaffected by this edit\n", a.ID, a.Role, a.Profile.Model, a.Profile.Reasoning, a.Profile.Timeout)
+		if a.Role == "refresh" {
+			fmt.Fprintf(c.Out, "Active base inspection %s: no model; reserved cycle retained\n", a.ID)
+		} else {
+			fmt.Fprintf(c.Out, "Pinned attempt %s (%s): %s / %s; %s; unaffected by this edit\n", a.ID, a.Role, a.Profile.Model, a.Profile.Reasoning, a.Profile.Timeout)
+		}
 	}
 	for _, publication := range p.Publications {
 		fmt.Fprintf(c.Out, "Active publication %s: shares capacity; destination %s; unaffected by this edit\n", publication.Intent.ID, publication.Intent.Repository)
@@ -112,8 +116,10 @@ func (c CLI) printPolicy(p engine.PolicyChange) {
 		if effect.After.InvocationsRemaining != nil {
 			fmt.Fprintf(c.Out, " / %d invocations", *effect.After.InvocationsRemaining)
 		}
-		fmt.Fprintln(c.Out)
-		if effect.After.Role != "" {
+		fmt.Fprintf(c.Out, "; base refreshes: %d consumed / %d remaining\n", effect.Usage.BaseRefreshes, effect.After.RefreshesRemaining)
+		if effect.After.Role == "refresh" {
+			fmt.Fprintln(c.Out, "  Next refresh:", effect.After.Reason)
+		} else if effect.After.Role != "" {
 			fmt.Fprintf(c.Out, "  Next %s: %s / %s; %s\n", effect.After.Role, effect.After.Profile.Model, effect.After.Profile.Reasoning, effect.After.Reason)
 		}
 		if effect.After.WaitingFor != "" {
@@ -126,7 +132,7 @@ func (c CLI) printPolicy(p engine.PolicyChange) {
 	fmt.Fprintln(c.Out, "Active attempts and pending retries retain their profiles. Counters carry forward; lowering limits never cancels active work.")
 }
 
-const editSettings = `Settings: parallelism, repairs, transient-retries, invocations (positive number or unlimited),
+const editSettings = `Settings: parallelism, repairs, transient-retries, base-refreshes, invocations (positive number or unlimited),
 implementer, reviewer, planner (profile name; planner also accepts none),
 escalation (comma-separated successor profiles or none),
 profile.NAME (MODEL REASONING TIMEOUT, or remove).
@@ -136,7 +142,7 @@ Only execution policy changes here; repository, quality and delivery stay explic
 func setSetting(cfg *config.Config, key, value string) error {
 	key, value = strings.TrimSpace(key), strings.TrimSpace(value)
 	switch key {
-	case "parallelism", "repairs", "transient-retries", "invocations":
+	case "parallelism", "repairs", "transient-retries", "base-refreshes", "invocations":
 		if key == "invocations" && value == "unlimited" {
 			cfg.Policy.MaxInvocationsPerTask = nil
 			return nil
@@ -152,6 +158,8 @@ func setSetting(cfg *config.Config, key, value string) error {
 			cfg.Policy.MaxRepairs = n
 		case "transient-retries":
 			cfg.Policy.MaxTransientRetries = n
+		case "base-refreshes":
+			cfg.Policy.MaxBaseRefreshes = n
 		case "invocations":
 			cfg.Policy.MaxInvocationsPerTask = &n
 		}

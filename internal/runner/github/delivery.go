@@ -123,3 +123,8 @@ func (h Host) CreateDraft(ctx context.Context, p core.PublicationIntent, authori
 	}
 	return h.api(ctx, "repos/"+p.Repository+"/pulls", map[string]any{"title": p.Title, "body": body, "head": p.Branch, "base": p.BaseBranch, "draft": true, "maintainer_can_modify": false}, nil)
 }
+
+// CurrentBase fetches objects using the same protected destination as publication.
+func (Host) CurrentBase(ctx context.Context, path, repository, branch string) (string, error) {
+	return workspace.FetchBase(ctx, path, repository, branch)
+}

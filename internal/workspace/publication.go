@@ -616,6 +616,16 @@ func (p GitProvider) PublicationProfile(ctx context.Context, path string) (subpr
 	return profile, p.rejectReplacementObjects(ctx, profile)
 }
 
+// RefreshProfile also refuses executable merge configuration before a consumer
+// constructs a new candidate with the protected Git object boundary.
+func (p GitProvider) RefreshProfile(ctx context.Context, path string) (subprocess.PrivilegedGitProfile, error) {
+	profile, err := p.PublicationProfile(ctx, path)
+	if err == nil {
+		err = p.rejectExecutableMergeConfig(ctx, profile)
+	}
+	return profile, err
+}
+
 func (p GitProvider) stageCandidatePath(ctx context.Context, profile subprocess.PrivilegedGitProfile, path string) error {
 	mode, objectID, exists, err := p.candidatePathEntry(ctx, profile, path)
 	if err != nil {

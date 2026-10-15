@@ -121,6 +121,9 @@ func (e *Engine) Run(ctx context.Context) error {
 		if err = e.finishSaved(workCtx); err != nil {
 			return err
 		}
+		if err = e.prepareBaseChecks(workCtx); err != nil {
+			return err
+		}
 		if err = e.preparePublications(workCtx, publications); err != nil {
 			return err
 		}
@@ -282,13 +285,13 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 		if err != nil {
 			return core.Attempt{}, false, err
 		}
-		if err = pinned.git().CheckQuality(ctx, t.Approval.Base); err != nil {
+		if err = pinned.git().CheckQuality(ctx, t.Base()); err != nil {
 			return core.Attempt{}, false, err
 		}
 		a := core.Attempt{
 			ID: core.NewID(), TaskID: t.ID, Version: t.Current().Number, Generation: t.Generation,
 			Role: t.NextRole, ProfileName: v.ProfileName, Profile: v.Profile, PolicyRevision: settings.Config.Revision(),
-			Quality: t.Current().Quality, Base: t.Approval.Base, Candidate: t.Candidate,
+			Quality: t.Current().Quality, Base: t.Base(), Candidate: t.Candidate,
 			State: "reserved", Occupying: true, StartedAt: e.now(), WorkspaceClaim: workspaceClaim(settings.Config, t),
 			Kind: "stage", Reason: v.Reason, Repair: t.Usage.Repairs,
 		}
@@ -304,12 +307,16 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 				a.Repair = q.Repair
 			}
 		}
-		t.Usage.Invocations++
+		if a.Role != "refresh" {
+			t.Usage.Invocations++
+		}
 		a.Invocation = t.Usage.Invocations
 		a.EvidenceDir = filepath.Join(settings.Config.StateDir, "attempts", a.ID)
 		t.Pending = nil
 		t.NextRole = ""
-		if core.PlanningRole(a.Role) {
+		if a.Role == "refresh" {
+			t.Stage = core.AwaitingDelivery
+		} else if core.PlanningRole(a.Role) {
 			t.Stage = core.Planning
 		} else if a.Role == "implementer" {
 			t.Stage = core.Implementing
@@ -355,6 +362,9 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 		return fail(err)
 	}
 	e = pinned
+	if a.Role == "refresh" {
+		return e.executeRefresh(ctx, t, a)
+	}
 	original, err := workspace.Snapshot(ctx, e.Settings.Config.Repository.Path)
 	if err != nil {
 		return fail(err)
@@ -420,7 +430,7 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 			return fail(err)
 		}
 		for _, old := range prior {
-			if old.Role == "implementer" && old.State == "applied" && old.Authorized(t) && old.Candidate != nil && t.Candidate != nil && *old.Candidate == *t.Candidate {
+			if (old.Role == "implementer" || old.Role == "refresh") && old.State == "applied" && old.Version == t.Current().Number && old.Generation == t.Generation && old.Candidate != nil && t.Candidate != nil && *old.Candidate == *t.Candidate {
 				r.QualityEvidence = old.Checks
 				for _, check := range old.Checks {
 					if check.Evidence != "" {
@@ -631,6 +641,9 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 	if a.Quality != e.Settings.Quality.Revision() {
 		return errors.New("saved quality binding changed")
 	}
+	if a.Role == "refresh" {
+		return e.advanceRefresh(ctx, t, a)
+	}
 	if core.PlanningRole(a.Role) {
 		return advancePlanning(t, a)
 	}
@@ -715,6 +728,9 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 		case "accepted":
 			t.Stage = core.AwaitingDelivery
 			t.NextRole = ""
+			if t.WorkingBase != nil {
+				t.NextRole = "refresh"
+			}
 			t.Attention = nil
 		case "gap":
 			if a.Role == "audit" && a.Result.Outcome == "succeeded" {

@@ -30,8 +30,16 @@ func (r *localTransport) Run(ctx context.Context, command string, args []string,
 			replaced = true
 		}
 	}
-	if !replaced || !strings.Contains(strings.Join(args, " "), "--force-with-lease=refs/heads/runner-next/") {
-		r.t.Fatal("push did not use exact URL and absent-ref lease")
+	joined := strings.Join(args, " ")
+	if !replaced {
+		r.t.Fatal("transport did not use the exact destination")
+	}
+	if strings.Contains(joined, " fetch ") {
+		if !strings.Contains(joined, "+refs/heads/main:refs/runner-next/fetch/") || !strings.Contains(joined, "--no-write-fetch-head") {
+			r.t.Fatal("fetch destination escaped private ref")
+		}
+	} else if !strings.Contains(joined, "--force-with-lease=refs/heads/runner-next/") {
+		r.t.Fatal("push did not use absent-ref lease")
 	}
 	return (subprocess.OSRunner{}).Run(ctx, command, args, dir, timeout)
 }
@@ -75,6 +83,14 @@ func TestDraftPushUsesExactObjectsAndNeverReplacesRemoteBranch(t *testing.T) {
 	}
 	if got := git("--git-dir="+remote, "rev-parse", "refs/heads/"+p.Branch); got != p.Candidate.Commit {
 		t.Fatal("wrong published commit")
+	}
+	git("push", remote, "HEAD:refs/heads/main")
+	base, err := fetchBase(t.Context(), repo, "owner/repo", "main", r)
+	if err != nil || base != p.Candidate.Commit || git("rev-parse", "HEAD") != p.Candidate.Commit {
+		t.Fatal("fetch changed checkout or returned wrong base", base, err)
+	}
+	if _, err = os.Stat(filepath.Join(repo, ".git", "FETCH_HEAD")); !os.IsNotExist(err) {
+		t.Fatal("fetch wrote shared FETCH_HEAD", err)
 	}
 	// Another actor changes the remote branch; the exact absent lease refuses
 	// even a fast-forward update that an ordinary non-force push would allow.

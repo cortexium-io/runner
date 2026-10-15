@@ -32,7 +32,7 @@ func TestPublishedConfigAndUnsupportedControls(t *testing.T) {
 	if e := c.Validate(); e != nil {
 		t.Fatal(e)
 	}
-	for _, mutate := range []func(*Config){func(c *Config) { c.Policy.MaxParallelism = 17 }, func(c *Config) { c.Policy.MaxRepairs = -1 }, func(c *Config) { c.Policy.MaxTransientRetries = -1 }, func(c *Config) { c.Policy.MaxBaseRefreshes = 1 }, func(c *Config) { c.Policy.ImplementationLadder = []string{"larger"} }, func(c *Config) { c.Repository.BaseFreshness = "remote" }, func(c *Config) { c.Delivery.Mode = "github" }, func(c *Config) { c.StateDir = c.Repository.Path }, func(c *Config) {
+	for _, mutate := range []func(*Config){func(c *Config) { c.Policy.MaxParallelism = 17 }, func(c *Config) { c.Policy.MaxRepairs = -1 }, func(c *Config) { c.Policy.MaxTransientRetries = -1 }, func(c *Config) { c.Policy.MaxBaseRefreshes = -1 }, func(c *Config) { c.Policy.ImplementationLadder = []string{"larger"} }, func(c *Config) { c.Repository.BaseFreshness = "remote" }, func(c *Config) { c.Delivery.Mode = "github" }, func(c *Config) { c.StateDir = c.Repository.Path }, func(c *Config) {
 		p := c.Profiles[c.Roles["implementer"]]
 		p.Timeout = "bad"
 		c.Profiles[c.Roles["implementer"]] = p
@@ -85,6 +85,7 @@ func TestReadyPolicyLimitsAndEscalation(t *testing.T) {
 			c.Policy.MaxRepairs = 2
 			c.Policy.MaxTransientRetries = 3
 		}, true},
+		{"base refresh allowance", func(c *Config) { c.Policy.MaxBaseRefreshes = 2 }, true},
 		{"successor", func(c *Config) { c.Policy.ImplementationLadder = []string{"review"} }, true},
 		{"starting profile repeated", func(c *Config) { c.Policy.ImplementationLadder = []string{"build"} }, false},
 		{"successor repeated", func(c *Config) { c.Policy.ImplementationLadder = []string{"review", "review"} }, false},

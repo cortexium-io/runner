@@ -80,13 +80,18 @@ func (c CLI) printStatus(s engine.Status) {
 			}
 			fmt.Fprintf(c.Out, "  %s v%d — %s — %s\n    %s\n", v.Task.ID, v.Task.Current().Number, v.Task.Stage, engine.TaskTitle(v.Task), v.Summary)
 			if a := v.FocusAttempt; a != nil {
-				fmt.Fprintf(c.Out, "    Attempt %s: %s / %s; %s / %s", a.ID, a.Role, a.State, a.Profile.Model, a.Profile.Reasoning)
+				fmt.Fprintf(c.Out, "    Attempt %s: %s / %s", a.ID, a.Role, a.State)
+				if a.Role == "refresh" {
+					fmt.Fprint(c.Out, "; deterministic, no model")
+				} else {
+					fmt.Fprintf(c.Out, "; %s / %s", a.Profile.Model, a.Profile.Reasoning)
+				}
 				if v.ElapsedSeconds != nil {
 					fmt.Fprintf(c.Out, "; elapsed %s", time.Duration(*v.ElapsedSeconds)*time.Second)
 				}
 				fmt.Fprintf(c.Out, "\n    Evidence: %s\n", a.EvidenceDir)
 			}
-			fmt.Fprintf(c.Out, "    Remaining: %d repairs, %d transient retries", v.Eligibility.RepairsRemaining, v.Eligibility.RetriesRemaining)
+			fmt.Fprintf(c.Out, "    Remaining: %d repairs, %d transient retries, %d base refreshes", v.Eligibility.RepairsRemaining, v.Eligibility.RetriesRemaining, v.Eligibility.RefreshesRemaining)
 			if v.Eligibility.InvocationsRemaining != nil {
 				fmt.Fprintf(c.Out, ", %d invocations", *v.Eligibility.InvocationsRemaining)
 			}
@@ -106,6 +111,7 @@ task replace ID --version N --file TASK.md
 task adopt-quality ID --version N --preview DIGEST
 task resume ID --attempt ID [--allow-new-invocation]
 task delivery ID --reconcile          Inspect and safely continue draft publication.
+task verify-base ID                  Inspect current base; resume a bounded clean refresh.
 task stop ID                         Revoke authority; retain work and evidence.
 status [--json] [--watch 2s]          Read-only attention, work, waits and retained results.
 config edit [--set KEY=VALUE]         Interactive editor or preview named changes.

@@ -24,6 +24,7 @@ type Engine struct {
 	Executor Executor
 	Checker  execution.CheckRunner
 	Delivery DeliveryHost
+	Bases    BaseHost
 	clock    func() time.Time
 }
 
@@ -244,6 +245,7 @@ func replaceVersion(t *core.Task, v core.Version) {
 	t.Approval = nil
 	t.Stage = core.Draft
 	t.Usage = core.Usage{}
+	t.WorkingBase, t.RefreshTarget, t.BaseProof = nil, nil, nil
 	t.Pending = nil
 	t.Prepared = nil
 	t.Proposal = nil

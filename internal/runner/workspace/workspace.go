@@ -97,7 +97,7 @@ func (g Git) validate(ctx context.Context) error {
 	return nil
 }
 func (g Git) request(t core.Task) legacy.Request {
-	key := fmt.Sprintf("%s-v%d", t.ID, t.Current().Number)
+	key := t.WorkspaceKey()
 	return legacy.Request{WorkingDir: g.Settings.Config.Repository.Path, WorktreeRoot: g.Settings.Config.WorktreeDir, WorkID: key, ItemID: t.ID, DelegatedContentDigest: t.Current().Digest, Repository: g.Settings.RepositoryID, BranchName: "runner-next/" + key, BaseRef: "refs/runner-next/" + key}
 }
 func (g Git) Prepare(ctx context.Context, t core.Task) (legacy.Metadata, error) {
@@ -113,16 +113,16 @@ func (g Git) Prepare(ctx context.Context, t core.Task) (legacy.Metadata, error) 
 		return legacy.Metadata{}, e
 	}
 	existing, readErr := scalar(ctx, p, "rev-parse", "--verify", r.BaseRef)
-	if readErr == nil && existing != t.Approval.Base {
+	if readErr == nil && existing != t.Base() {
 		return legacy.Metadata{}, errors.New("pinned base ref changed")
 	}
 	if readErr != nil {
-		if _, e = scalar(ctx, p, "update-ref", r.BaseRef, t.Approval.Base, strings.Repeat("0", len(t.Approval.Base))); e != nil {
+		if _, e = scalar(ctx, p, "update-ref", r.BaseRef, t.Base(), strings.Repeat("0", len(t.Base()))); e != nil {
 			return legacy.Metadata{}, e
 		}
 	}
 	m, e := legacy.NewGitProvider(nil).Prepare(ctx, r)
-	if e == nil && m.BaseRevision != t.Approval.Base {
+	if e == nil && m.BaseRevision != t.Base() {
 		return m, errors.New("workspace base differs from approval")
 	}
 	return m, e
@@ -137,7 +137,7 @@ func (g Git) Inspect(ctx context.Context, t core.Task) (legacy.Metadata, error) 
 	if e != nil {
 		return legacy.Metadata{}, e
 	}
-	if t.Approval == nil || identity.BaseRevision != t.Approval.Base {
+	if t.Approval == nil || identity.BaseRevision != t.Base() {
 		return legacy.Metadata{}, errors.New("workspace approval binding changed")
 	}
 	p, e := profile(ctx, r.WorkingDir)
@@ -145,7 +145,7 @@ func (g Git) Inspect(ctx context.Context, t core.Task) (legacy.Metadata, error) 
 		return legacy.Metadata{}, e
 	}
 	base, e := scalar(ctx, p, "rev-parse", "--verify", r.BaseRef)
-	if e != nil || base != t.Approval.Base {
+	if e != nil || base != t.Base() {
 		return legacy.Metadata{}, errors.New("pinned base ref changed")
 	}
 	return provider.InspectRetainedReview(ctx, r)
