@@ -341,6 +341,16 @@ func TestCIAssessmentPinsEvidenceAndRequiresExplicitReassessment(t *testing.T) {
 		if err = e.preparePublications(t.Context(), nil); err != nil {
 			t.Fatal(err)
 		}
+		if state == "passed" {
+			// Passing CI queues one integration read, never another CI poll.
+			p, ok, err := e.claimPublication(t.Context())
+			if err != nil || !ok || p.IntegrationRequest == nil {
+				t.Fatal("integration not queued", err)
+			}
+			if err = e.publish(t.Context(), p); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if _, ok, err := e.claimPublication(t.Context()); ok || err != nil {
 			t.Fatal("CI polled without explicit request", err)
 		}

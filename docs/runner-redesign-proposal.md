@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first six phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, then bounded text conflict repair. Qualification is recorded below. Merge/integration and release qualification remain pending. Current store format is 10; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first seven phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, then confirmation of human integration. Qualification is recorded below. Runner-owned merge admission/writes and release qualification remain pending. Current store format is 11; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -2572,10 +2572,166 @@ diff was reviewed and `git diff --check` passed. The replacement still imports n
 legacy engine, execution or GitHub packages; no dependencies or release packaging
 changed.
 
-Merge, marking ready, workflow reruns, automatic CI polling and confirmed
-task/dependency completion remain unimplemented. Integration still needs current
-host protections/reviews, check applicability and current base/candidate/CI proof.
+At this sixth bundle's boundary, merge, marking ready, workflow reruns, automatic
+CI polling and confirmed task/dependency completion remained unimplemented. The
+seventh bundle below adds confirmed human integration; Runner-owned merge writes
+still need current host protections/reviews and current base/candidate/CI proof.
 Platform/release qualification remains pending.
+
+### Phase 3, seventh bundle: confirmed human integration
+
+**Implementation and verification brief (2026-10-15, before code).** Complete the
+first human-merge observation journey. Runner still publishes drafts; a human
+uses GitHub's review/protection workflow and performs the merge. This bundle
+records an already-observed integration, not permission to merge or an attestation
+that a human did not bypass host rules. Runner-owned ready/merge/auto-merge writes,
+pre-merge host-policy admission, queues, squash/rebase receipts, polling and
+pre-implementation fetching remain outside this boundary.
+
+- Add `task integrate ID` to request one read-only inspection of the known PR.
+  Require current approval, independently accepted exact candidate, current-base
+  proof and passed pinned CI. Inspect once automatically after a new passed CI
+  assessment; open/closed/unavailable observations do not spin or invoke a model.
+  The operator explicitly requests another observation after human action.
+- Reuse publication reservations and the coordinator. Serialize integration
+  inspection per repository/base in the store, sharing capacity, drain and task
+  ownership with other work. Bind requests to exact proof/CI, and recheck them on
+  admission and completion. Restart may repeat this read; it cannot replay writes.
+- Read the PR by its known number and verify URL, repository, head/base names,
+  candidate head and original publication marker. Deleted source branches must
+  not prevent confirmation. Changed identities, closed-unmerged PRs, missing
+  fields, unknown states and unavailable reads never establish success.
+- For a merged PR, require its ordinary two-parent merge commit: first parent is
+  the verified base, second is the accepted candidate, and its tree is exactly
+  the reviewed candidate tree. Fetch the configured base through the existing
+  protected adapter and confirm this merge is in its ancestry using real Git
+  objects. Base movement between proof and actual merge therefore cannot silently
+  qualify. Squash/rebase and unsupported topology remain explicit attention.
+- Re-read the exact previously selected CI commit and its complete required
+  results. Preserve producer and test-merge parent bindings; changed, missing or
+  failed checks cannot become success from an older green snapshot. This receipt
+  establishes Runner's pinned proof, not historical compliance with host policy.
+- Commit the integration receipt, task completion and released reservation in one
+  transaction, checking stop/replacement, current approval, dependency and parent
+  authority again. A lost completion response is idempotent. Preserve evidence;
+  completed tasks are immutable and stop is harmless. Only confirmed exact-version
+  completion releases dependencies. Finish a released parent only after every
+  original child has a valid integration receipt; stopped/replaced/unmerged work
+  cannot finish it. Stopping a plan preserves already completed child receipts.
+- Status/show distinguish queued inspection, human merge wait, closed-unmerged,
+  unavailable/stale proof and confirmed completion, including merge SHA/link/time.
+  Local delivery remains Awaiting delivery. No board, new model prompt, new budget
+  or separate scheduler. Store format 11 requires fresh private state.
+
+Extend the owning delivery/CI adapter suites for exact PR observations, deleted
+head refs, incomplete data and CI binding; extend real Git/SQLite delivery and
+planning journeys for merged ancestry/tree/base proof, atomic completion,
+stop/replacement races, serialized admission, restart, dependency/parent outcomes
+and ordinary work continuing during a slow integration read. Reuse existing CI
+classification, refresh/repair, capacity and publication tests. Test expectations
+come from the receipt contract above, not mocked success or test count.
+Run the built CLI through inspection/recovery/completion with controlled host data;
+qualify new GraphQL fields with a read-only real-host query where available.
+No live writes or new paid model evaluation are needed because role behavior is
+unchanged. Run `go test -race ./...`, `go vet ./...` and the build, review the full
+diff and record actual evidence here. Stop at confirmed human integration.
+
+### Using confirmed human integration
+
+Keep the PR as a draft through current-base verification, synchronization and CI
+assessment. Configure `required_ci` in the quality agreement before approving the
+task. A new passing CI assessment queues one integration inspection. An open PR
+then waits for the human; neither `status` nor the coordinator polls GitHub.
+
+Use GitHub's normal review and protection workflow to mark the PR ready and merge
+it with **Create a merge commit**. Runner does not perform those writes. The
+verified base must still be the first parent of the merge, the accepted candidate
+must be its second parent, and the merge tree must equal the reviewed tree. If the
+base moves while the PR is open, return it to draft as needed and use
+`task verify-base ID`; Runner's existing refresh, checks, review, synchronization
+and CI path must finish before human integration. A green CI observation is not
+permission to bypass host requirements.
+
+After the human merge, request confirmation:
+
+```sh
+runner-next --config /absolute/path/runner.json task integrate TASK_ID
+runner-next --config /absolute/path/runner.json run # if absent or drained
+runner-next --config /absolute/path/runner.json task show TASK_ID
+runner-next --config /absolute/path/runner.json status
+```
+
+`task integrate` queues a read; it never requests a merge. It requires the known
+PR, current accepted candidate/base proof and passing pinned CI snapshot. The
+worker re-reads the selected CI commit, imports the configured base and verifies
+the actual merge objects. A deleted source branch is supported. Later base commits
+are allowed when the verified merge remains in that base's ancestry. GitHub's
+[PR schema](https://docs.github.com/en/graphql/reference/pulls#pullrequest)
+retains head name/OID after ref deletion and exposes the actual merge commit and
+time; Runner does not use the disappearing potential-merge field as a receipt.
+
+`task show` retains the last assessment and, on success, the immutable merge
+receipt with PR, commit, observed base and observation time. Completion releases
+exact-version dependents. A released plan completes only when all its original
+children are integrated. A replaced child cannot complete the original plan.
+Stopping an unfinished plan revokes its unfinished children and preserves completed
+receipts. Completed tasks accept repeated inspection/stop harmlessly; create a new
+request for further changes.
+
+| Observation | Result and next action |
+| --- | --- |
+| Open draft or ready PR | Human merge pending; follow host requirements, then `task integrate ID` again. |
+| Open PR base moved | `task verify-base ID` through fresh review/synchronization/CI before merging. |
+| Closed without merge | No completion or dependency release. Inspect the host and revise or stop the task. |
+| Host unavailable, changed identity, missing or failing CI | Retained evidence and explicit diagnostic; resolve and request inspection again. No automatic repair or polling. |
+| Squash/rebase, changed merge tree/base or merge absent from fetched base | Cannot confirm this integration. This bundle cannot translate those outcomes into a receipt. |
+| Confirmed ordinary merge | Task completes atomically with receipt and reservation release; original dependent work becomes eligible. |
+
+One integration read per repository/base may run at a time, within existing
+`parallelism` and drain controls. Other eligible implementation/review work can
+continue. An interrupted read may repeat after restart; no write is replayed.
+Local delivery mode still retains candidates at Awaiting delivery. There is no
+new model profile, escalation policy, repair budget or integration configuration.
+Store format 11 requires fresh state; preserve older state for inspection with
+its matching binary. This bundle adds no compatibility conversion.
+
+### Human integration qualification
+
+Implemented on 2026-10-15. Verification extends the existing delivery, CI,
+planning and adapter fixtures rather than introducing another harness framework.
+
+| Evidence | Result |
+| --- | --- |
+| Real Git and SQLite receipt journey | Open/ready/closed/outage, wrong PR, fresh CI failure, changed tree/base, squash and non-ancestor merge cannot complete. A correct merge followed by later base history completes; restart, repeated receipt, stop and replacement preserve authority. |
+| Coordinator and store ownership | A second integration for the same repository/base waits even with spare global capacity. Unrelated implementation starts during a blocked host read. Drain prevents admission; stop keeps late evidence historical and releases the claim. |
+| Planning journey | Real implementation, audit, refresh, draft synchronization, CI and merge receipts release the second child and finish the parent. Additional cases cover stopping after the first merge and a replaced child that cannot complete the original release. |
+| Built binary journey | Nine CLI commands exercised request, JSON inspection, human wait, interrupted-read advice, completed receipt/status and idempotent confirmation/stop. Core execution used controlled host observations and real Git/store; no live merge was performed. |
+| Read-only GitHub qualification | The production GraphQL query decoded historical Runner PR 105's merge fields; its missing Runner publication marker was correctly rejected. That PR's source ref still exists; deleted-ref behavior is covered by the protocol fixture and documented schema. No remote write was made. |
+| Required gates | `go test -race -timeout 15m ./...`, `go vet ./...` and the `runner-next` build passed on Go 1.27.1, macOS arm64, Git 2.54.0. |
+
+The initial `go test -race ./...` reached Go's ten-minute package timeout during
+an existing conflict-repair case, without an assertion failure or race report.
+The complete rerun passed with a fifteen-minute package budget (the replacement
+engine took about 650 seconds); assertions and individual operation deadlines
+were unchanged. Final review also revoked old execution-attempt authority once a
+task is Completed, preventing recovery from reactivating integrated work. The
+affected integration/parent journeys passed again under race detection, as did
+final CLI/store checks; vet and the build passed after the last code change.
+The complete diff was reviewed and `git diff --check` passed. No dependencies,
+role prompts or release packaging changed.
+
+The CLI transcript and qualification logs were retained in the local temporary
+verification directory (`/tmp/runner-integration-*.log`). The temporary qualification
+drivers are not shipped. Role prompts did not change, so this bundle required no
+new paid model evaluation. Live remote merge execution and host protection
+admission were not exercised or claimed.
+
+Stop here. The next merge bundle must define Runner-owned admission against live
+host review/protection/merge-queue requirements, the precise merge strategy,
+current-base revalidation immediately before a conditional write, and recovery
+from an ambiguous write. Squash/rebase support, automatic polling and release
+qualification each require their own explicit boundary; none is implied by this
+receipt path.
 
 ### Simple upgrade or deliberate break
 
@@ -2811,8 +2967,8 @@ rows or explicitly revise the scope.
 | Local Ready authorization and preserved scope | 1 | S1/S2/S5: exact approval, stale preview rejection, idempotent approval, revocation and retained artifacts. |
 | Durable admission, candidate binding and no blind replay | 1; extend in 3 | S2/S4/S5: real-store interruption and saved-result tests; the first phase 3 bundle adds durable draft intent, shared reservations and ambiguous publication recovery without repeated PR creation. |
 | Readiness and repository quality | 1/2 | Third phase 2 qualification proves explicit agreement changes, immutable task pins and adoption, scoped observed exceptions, unavailable checks, source-bound candidate checks and unchanged task-proof requirements. The live reviewer pair accepts a legitimate exception and rejects a task defect. |
-| Plan and dependency success | 2/3 | Second phase 2 bundle proves atomic release, missing/cyclic dependency rejection, stale plan rejection, parent revocation and exact-version waits. Awaiting delivery cannot satisfy dependencies. Confirmed child integration, parent completion and closed-unmerged handling remain phase 3. |
-| Continuous reconciliation and resource safety | 1; extend in 2/3 | S2/S3: exclusive ownership and responsive reconciliation; the first phase 2 bundle proves shared capacity and task/workspace claims across CLI/service; future browser/shared-data capabilities must add their resource claims; phase 3 proves serialized integration. |
+| Plan and dependency success | 2/3 | Second phase 2 bundle proves atomic release, missing/cyclic dependency rejection, stale plan rejection, parent revocation and exact-version waits. Awaiting delivery cannot satisfy dependencies. Phase 3 bundle 7 proves exact child integration, dependency release, original-release parent completion and closed-unmerged handling. |
+| Continuous reconciliation and resource safety | 1; extend in 2/3 | S2/S3: exclusive ownership and responsive reconciliation; the first phase 2 bundle proves shared capacity and task/workspace claims across CLI/service; future browser/shared-data capabilities must add their resource claims; phase 3 bundle 7 proves serialized human-integration inspection without blocking unrelated work; Runner-owned merge writes remain pending. |
 | Bounded recovery and understandable configuration | 1; extend in 2/3 | S7 validates the limited policy. The first phase 2 bundle proves Ready repair allowance, persistent backoff, rejection-only escalation, invocation budgets and live policy changes without counter resets. Phase 3 proves bounded refresh/review cycles. |
 | Independent, sufficient, economical verification | 1; extend in 2 | S6 plus live candidate review. The first phase 2 paired behavioral cases cover fabricated proof, weakened checks, legitimate consolidation and speculative review; no infrastructure error becomes a code rejection. |
 | Provider-neutral architecture and optional views | 1/3/5 | S1 runs without `gh`/Projects. Phase 3 delivery requires no board. Phase 5 disconnect/reconnect and reordered updates converge safely; Trello needs no core scheduling/approval change and exposes no private evidence. |

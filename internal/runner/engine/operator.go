@@ -114,6 +114,17 @@ func describeView(v *View, running bool, now time.Time) {
 	for i := len(v.Publications) - 1; i >= 0; i-- {
 		p := v.Publications[i]
 		if p.Occupying {
+			if p.IntegrationRequest != nil {
+				v.Group, v.Summary = "Working", "inspecting human integration"
+				v.NextAction = "wait for the merge observation; " + show + " retains evidence"
+				if v.CancellationPending {
+					v.Summary = "integration read cancellation pending; result remains historical"
+				}
+				if !running {
+					v.Group, v.NextAction = "Needs you", "run to repeat the interrupted integration read safely"
+				}
+				return
+			}
 			if p.State == "published" && p.CIRequest != nil {
 				v.Group, v.Summary = "Working", "assessing CI for the confirmed draft"
 				v.NextAction = "wait for the CI observation; " + show + " retains results"
@@ -232,7 +243,11 @@ func describeView(v *View, running bool, now time.Time) {
 					if p.Observation != nil {
 						v.Summary += "; " + p.Observation.URL
 					}
-					describeCI(v, *p, running)
+					if !describeIntegration(v, *p, running) {
+						describeCI(v, *p, running)
+					}
+				case p != nil && p.State == "attention" && p.CanInspectIntegration(t):
+					describeIntegration(v, *p, running)
 				case p != nil && p.State == "attention":
 					v.Group, v.Summary = "Needs you", "draft synchronization needs attention: "+p.Detail
 					v.NextAction = "task delivery " + t.ID + " --reconcile; then run if absent or drained; settle this operation before another base refresh"
@@ -280,6 +295,13 @@ func describeView(v *View, running bool, now time.Time) {
 		return
 	case core.Stopped, core.Completed:
 		v.Group, v.Summary, v.NextAction = "Retained", string(t.Stage), "inspect retained work with "+show
+		if t.Stage == core.Completed {
+			if t.Integration != nil {
+				v.Summary = "completed; confirmed merge " + t.Integration.Assessment.Observation.MergeCommit
+			} else if t.Release != nil {
+				v.Summary = "completed; all original released children integrated"
+			}
+		}
 		return
 	}
 	if t.Release != nil {
@@ -356,7 +378,7 @@ func describeCI(v *View, p core.Publication, running bool) {
 		return
 	}
 	v.Summary += "; CI " + p.CI.State + " at " + p.CI.ObservedAt.Format(time.RFC3339)
-	v.NextAction = "task assess-ci " + id + " to observe again; merge remains unimplemented"
+	v.NextAction = "task assess-ci " + id + " to observe again; human integration requires task integrate"
 	switch p.CI.State {
 	case "passed":
 		v.Group = "Retained"
@@ -374,4 +396,29 @@ func describeCI(v *View, p core.Publication, running bool) {
 		v.NextAction = "inspect CI details with task show " + id + "; task assess-ci " + id + " after resolution; run if absent or drained"
 	}
 	v.Summary += "; " + p.CI.Detail
+}
+
+// Integration observations are bounded reads. Pending human work never polls.
+func describeIntegration(v *View, p core.Publication, running bool) bool {
+	if !p.CanInspectIntegration(v.Task) {
+		return false
+	}
+	v.Group, v.Summary = "Needs you", "CI passed; human integration awaits inspection"
+	v.NextAction = "task integrate " + v.Task.ID + "; run if absent or drained"
+	if p.IntegrationRequest != nil {
+		v.Summary = "integration inspection queued"
+		if p.Occupying {
+			v.Summary = "integration inspection running"
+		}
+		if running {
+			v.Group = "Waiting"
+		}
+		v.NextAction = "wait for admission and inspection; run if absent or drained"
+	} else if r := p.Integration; r != nil && r.Request.Matches(v.Task, p) {
+		v.Summary = "integration " + r.State + "; " + r.Detail
+	}
+	if p.Observation != nil {
+		v.Summary += "; " + p.Observation.URL
+	}
+	return true
 }

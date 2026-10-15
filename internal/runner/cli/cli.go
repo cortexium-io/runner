@@ -90,6 +90,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 		app.Delivery = github.Host{}
 		app.Bases = github.Host{}
 		app.Checks = github.Host{}
+		app.Integrations = github.Host{}
 	}
 	switch args[0] {
 	case "quality":
@@ -133,7 +134,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 }
 func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: task add|show|approve|release|replace|adopt-quality|stop|resume|delivery|verify-base|assess-ci")
+		return errors.New("usage: task add|show|approve|release|replace|adopt-quality|stop|resume|delivery|verify-base|assess-ci|integrate")
 	}
 	command := args[0]
 	args = args[1:]
@@ -170,7 +171,7 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 		allow = f.Bool("allow-new-invocation", false, "explicitly authorize one repeated invocation")
 	case "delivery":
 		reconcile = f.Bool("reconcile", false, "inspect remote identity and continue safely; uncertain PR creation never repeats")
-	case "stop", "verify-base", "assess-ci":
+	case "stop", "verify-base", "assess-ci", "integrate":
 	default:
 		return fmt.Errorf("unknown task command %q", command)
 	}
@@ -209,6 +210,10 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 		}
 	}
 	switch command {
+	case "integrate":
+		if err := e.InspectIntegration(ctx, id); err != nil {
+			return err
+		}
 	case "assess-ci":
 		if err := e.AssessCI(ctx, id); err != nil {
 			return err
@@ -278,7 +283,7 @@ func (c CLI) printView(v engine.View, full bool) {
 	t := v.Task
 	fmt.Fprintf(c.Out, "%s v%d — %s\n%s\n%s\nNext: %s\n", t.ID, t.Current().Number, t.Stage, engine.TaskTitle(t), v.Summary, v.NextAction)
 	if v.DeliveryDestination != "" {
-		fmt.Fprintln(c.Out, "Configured draft destination:", v.DeliveryDestination, "(no integration authority)")
+		fmt.Fprintln(c.Out, "Configured delivery destination:", v.DeliveryDestination, "(Runner does not request merges)")
 	}
 	if v.Recovery != nil {
 		fmt.Fprintf(c.Out, "Recovery role: %s\nPreserved: %s\nRepeats: %s\n", v.Recovery.Role, v.Recovery.Preserved, v.Recovery.Repeats)
@@ -326,7 +331,15 @@ func (c CLI) printView(v engine.View, full bool) {
 		fmt.Fprintf(c.Out, "Reserved refresh: %d -> %s\n", t.RefreshTarget.Cycle, t.RefreshTarget.Commit)
 	}
 	if t.BaseProof != nil {
-		fmt.Fprintf(c.Out, "Base proof: %s; observed %s; matches current acceptance=%t; integration pending\n", t.BaseProof.Base, t.BaseProof.ObservedAt.Format(time.RFC3339), t.BaseProof.Matches(t))
+		if t.Integration != nil {
+			fmt.Fprintf(c.Out, "Retained base proof: %s; observed %s; confirmed in integration receipt\n", t.BaseProof.Base, t.BaseProof.ObservedAt.Format(time.RFC3339))
+		} else {
+			fmt.Fprintf(c.Out, "Base proof: %s; observed %s; matches current acceptance=%t\n", t.BaseProof.Base, t.BaseProof.ObservedAt.Format(time.RFC3339), t.BaseProof.Matches(t))
+		}
+	}
+	if t.Integration != nil {
+		r := t.Integration.Assessment
+		fmt.Fprintf(c.Out, "Confirmed integration: %s; merge %s; base observed %s at %s\n", r.Observation.Remote.URL, r.Observation.MergeCommit, r.BaseTip, r.ObservedAt.Format(time.RFC3339))
 	}
 	if t.Candidate != nil {
 		fmt.Fprintf(c.Out, "Candidate: %s\nWorkspace: %s\n", t.Candidate.Commit, t.Candidate.Workspace)
@@ -342,11 +355,17 @@ func (c CLI) printView(v engine.View, full bool) {
 		if t.Candidate != nil && *t.Candidate != p.Intent.Candidate {
 			fmt.Fprintln(c.Out, "Historical candidate retained in this operation:", p.Intent.Candidate.Commit)
 		}
-		fmt.Fprintf(c.Out, "Publication %s (v%d): %s; %s\nDestination: %s -> %s; branch %s\n", p.Intent.ID, p.Intent.Version, p.State, p.Detail, p.Intent.Repository, p.Intent.BaseBranch, p.Intent.Branch)
+		fmt.Fprintf(c.Out, "Publication history %s (v%d): %s; %s\nDestination: %s -> %s; branch %s\n", p.Intent.ID, p.Intent.Version, p.State, p.Detail, p.Intent.Repository, p.Intent.BaseBranch, p.Intent.Branch)
 		if u := p.Intent.Sync; u != nil {
 			fmt.Fprintf(c.Out, "Synchronization: %s -> %s; predecessor %s; existing PR %d\nVerified base: %s; observed %s\n", u.PreviousCommit, p.Intent.Candidate.Commit, u.PreviousID, u.Number, u.Base, u.ObservedAt.Format(time.RFC3339))
 		}
 
+		if p.IntegrationRequest != nil {
+			fmt.Fprintln(c.Out, "Integration inspection queued or running; no remote merge will be requested.")
+		}
+		if r := p.Integration; r != nil {
+			fmt.Fprintf(c.Out, "Integration %s at %s: %s\n", r.State, r.ObservedAt.Format(time.RFC3339), r.Detail)
+		}
 		if p.CIRequest != nil {
 			fmt.Fprintln(c.Out, "CI assessment queued or running; previous results are historical.")
 		}
@@ -366,7 +385,7 @@ func (c CLI) printView(v engine.View, full bool) {
 			fmt.Fprintf(c.Out, "Last remote observation: %s\n", p.ObservedAt.Format(time.RFC3339))
 		}
 		if p.Observation != nil && p.Observation.URL != "" {
-			fmt.Fprintln(c.Out, "Draft handoff:", p.Observation.URL)
+			fmt.Fprintln(c.Out, "Pull request:", p.Observation.URL)
 		}
 	}
 	if t.Attention != nil {

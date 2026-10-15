@@ -48,7 +48,7 @@ type CIRepair struct {
 }
 
 func (p Publication) CanRepairCI(t Task) bool {
-	if !p.CurrentCI(t) || p.CI.State != "failed" || len(p.CI.Results) == 0 {
+	if p.IntegrationRequest != nil || !p.CurrentCI(t) || p.CI.State != "failed" || len(p.CI.Results) == 0 {
 		return false
 	}
 	failed := false

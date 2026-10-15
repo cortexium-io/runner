@@ -113,6 +113,7 @@ task resume ID --attempt ID [--allow-new-invocation]
 task delivery ID --reconcile          Inspect and safely continue draft publication/synchronization.
 task verify-base ID                  Inspect current base; refresh or queue bounded conflict repair.
 task assess-ci ID                    Observe pinned hosted checks for the confirmed draft.
+task integrate ID                    Inspect the known PR for a confirmed human merge.
 task stop ID                         Revoke authority; retain work and evidence.
 status [--json] [--watch 2s]          Read-only attention, work, waits and retained results.
 config edit [--set KEY=VALUE]         Interactive editor or preview named changes.
@@ -123,6 +124,8 @@ quality preview|check|apply|show       Inspect, check and apply repository agree
 run                                  Reconcile and admit authorized work.
 drain                                Stop admission and wait for active work to settle.
 
-Use COMMAND --help for flags. Inspection never starts work. This build stops at
-Awaiting delivery, optionally with a GitHub draft PR; integration is not implemented.`)
+Use COMMAND --help for flags. Status and show never start work. Local delivery
+retains an accepted candidate at Awaiting delivery. task integrate ID inspects
+an ordinary human merge of the exact verified candidate; Runner never requests
+a merge. Confirmed integration completes the task and releases dependent work.`)
 }

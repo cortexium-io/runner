@@ -210,6 +210,9 @@ func (e *Engine) AdoptQuality(ctx context.Context, id string, version int, previ
 	if t.Current().Number == version+1 && t.AdoptionPreview == preview && preview != "" {
 		return t, nil
 	}
+	if t.Stage == core.Completed {
+		return t, errors.New("completed tasks are immutable; add a new request")
+	}
 	if t.Release != nil {
 		return t, errors.New("released plans are immutable; stop and create a new plan")
 	}

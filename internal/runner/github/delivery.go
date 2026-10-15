@@ -151,7 +151,7 @@ func (h Host) CreateDraft(ctx context.Context, p core.PublicationIntent, authori
 	if p.Sync != nil {
 		return errors.New("draft synchronization cannot create a PR")
 	}
-	body := fmt.Sprintf("%s\n\nRunner task `%s`, version %d.\n\nInitial locally reviewed candidate: `%s`\nInitial recorded base: `%s`\nQuality revision: `%s`\n\nThese details describe the initial snapshot. Runner may later advance this branch after current-base checks and independent review; exact synchronization evidence stays in the local task history.\n\n**Draft handoff only. CI assessment and integration are pending. Do not merge from this bundle's local acceptance.**\n", marker(p), p.TaskID, p.Version, p.Candidate.Commit, p.ApprovedBase, p.Quality)
+	body := fmt.Sprintf("%s\n\nRunner task `%s`, version %d.\n\nInitial locally reviewed candidate: `%s`\nInitial recorded base: `%s`\nQuality revision: `%s`\n\nThese details describe the initial snapshot. Runner may later advance this branch after current-base checks and independent review; exact synchronization evidence stays in the local task history.\n\n**Initial draft handoff. Local acceptance alone is not merge permission. Follow GitHub review and protection requirements. Runner can later confirm an ordinary human merge only when it contains the exact reviewed candidate against the verified base and pinned CI still passes.**\n", marker(p), p.TaskID, p.Version, p.Candidate.Commit, p.ApprovedBase, p.Quality)
 	if authorize == nil {
 		return errors.New("draft creation requires current authority")
 	}

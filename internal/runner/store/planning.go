@@ -81,7 +81,7 @@ func (s *Store) StopPlan(ctx context.Context, expected int, parent core.Task) er
 		if err = json.Unmarshal(raw, &child); err != nil {
 			return err
 		}
-		if child.Stage == core.Stopped {
+		if child.Stage == core.Stopped || child.Stage == core.Completed {
 			continue
 		}
 		child.Generation++

@@ -66,15 +66,17 @@ type RemotePublication struct {
 }
 
 type Publication struct {
-	CIRequest       *BaseProof         `json:"ci_request,omitempty"`
-	CI              *CIAssessment      `json:"ci,omitempty"`
-	Intent          PublicationIntent  `json:"intent"`
-	Revision        int                `json:"revision"`
-	State           string             `json:"state"` // queued, running, published, attention, revoked
-	Occupying       bool               `json:"occupying"`
-	CreateRequested bool               `json:"create_requested"`
-	Observation     *RemotePublication `json:"observation,omitempty"`
-	ObservedAt      *time.Time         `json:"observed_at,omitempty"`
-	UpdatedAt       time.Time          `json:"updated_at"`
-	Detail          string             `json:"detail,omitempty"`
+	IntegrationRequest *IntegrationRequest    `json:"integration_request,omitempty"`
+	Integration        *IntegrationAssessment `json:"integration,omitempty"`
+	CIRequest          *BaseProof             `json:"ci_request,omitempty"`
+	CI                 *CIAssessment          `json:"ci,omitempty"`
+	Intent             PublicationIntent      `json:"intent"`
+	Revision           int                    `json:"revision"`
+	State              string                 `json:"state"` // queued, running, published, attention, revoked
+	Occupying          bool                   `json:"occupying"`
+	CreateRequested    bool                   `json:"create_requested"`
+	Observation        *RemotePublication     `json:"observation,omitempty"`
+	ObservedAt         *time.Time             `json:"observed_at,omitempty"`
+	UpdatedAt          time.Time              `json:"updated_at"`
+	Detail             string                 `json:"detail,omitempty"`
 }

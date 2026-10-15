@@ -26,9 +26,12 @@ and return through checks, review and base verification before updating the same
 The sixth adds [bounded text conflict repair](docs/runner-redesign-proposal.md#using-bounded-conflict-repair):
 text conflicts use the same repair allowance and preserve both the original
 candidate and partial repair work. Unsupported conflicts require inspection.
-This build uses store format 10 (earlier formats require fresh state) and stops
-at **Awaiting delivery**. Merge/integration, release qualification and external
-views remain pending.
+The seventh adds [confirmed human integration](docs/runner-redesign-proposal.md#using-confirmed-human-integration):
+Runner verifies ordinary merge commits against the exact reviewed candidate,
+verified base and freshly read pinned CI, then completes tasks and releases dependents.
+This build uses store format 11 (earlier formats require fresh state). Local delivery
+still stops at **Awaiting delivery**. Runner-owned merge writes and host-policy
+admission, release qualification and external views remain pending.
 The documentation below describes the existing
 `cortexium-runner` release.
 

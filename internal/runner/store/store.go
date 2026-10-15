@@ -26,7 +26,7 @@ type Store struct {
 }
 
 const schema = `
-CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=10), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=11), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE quality_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE quality_reports (id TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE settings_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
@@ -34,8 +34,9 @@ CREATE TABLE tasks (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, data BLOB NO
 CREATE TABLE attempts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), occupying INTEGER NOT NULL, workspace_claim TEXT NOT NULL, resumed_from TEXT UNIQUE, data BLOB NOT NULL);
 CREATE UNIQUE INDEX task_owner ON attempts(task_id) WHERE occupying=1;
 CREATE UNIQUE INDEX workspace_owner ON attempts(workspace_claim) WHERE occupying=1;
-CREATE TABLE publications (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), version INTEGER NOT NULL, generation INTEGER NOT NULL, revision INTEGER NOT NULL, occupying INTEGER NOT NULL, data BLOB NOT NULL, previous_id TEXT NOT NULL, UNIQUE(task_id,version,generation,previous_id));
+CREATE TABLE publications (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), version INTEGER NOT NULL, generation INTEGER NOT NULL, revision INTEGER NOT NULL, occupying INTEGER NOT NULL, data BLOB NOT NULL, integration_key TEXT NOT NULL DEFAULT '', previous_id TEXT NOT NULL, UNIQUE(task_id,version,generation,previous_id));
 CREATE UNIQUE INDEX publication_owner ON publications(task_id) WHERE occupying=1;
+CREATE UNIQUE INDEX integration_owner ON publications(integration_key) WHERE occupying=1 AND integration_key!='';
 `
 
 func Create(ctx context.Context, dir string, settings config.Settings) (*Store, error) {
@@ -62,7 +63,7 @@ func Create(ctx context.Context, dir string, settings config.Settings) (*Store, 
 	defer tx.Rollback()
 	if _, err = tx.ExecContext(ctx, schema); err == nil {
 		b, _ := json.Marshal(settings)
-		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,10,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
+		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,11,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
 	}
 	if err == nil && settings.Quality.Revision() != "" {
 		b, _ := json.Marshal(settings.Quality)
@@ -100,7 +101,7 @@ func Open(ctx context.Context, dir string, readonly bool) (*Store, error) {
 		s.Close()
 		return nil, fmt.Errorf("missing, corrupt or incompatible authoritative store: %w", err)
 	}
-	if format != 10 {
+	if format != 11 {
 		s.Close()
 		return nil, fmt.Errorf("incompatible authoritative store format %d; preserve it and initialize a fresh state directory", format)
 	}

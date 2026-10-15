@@ -13,20 +13,11 @@ import (
 
 func TestCIObservesExactCompleteHeadOrTestMerge(t *testing.T) {
 	p := core.PublicationIntent{ID: "publication", Repository: "owner/repo", Branch: "runner-next/publication", BaseBranch: "main", Candidate: core.Candidate{Commit: "head"}}
-	commit := func(oid string, hasChecks bool) map[string]any {
-		c := map[string]any{"oid": oid, "statusCheckRollup": nil}
-		if hasChecks {
-			c["statusCheckRollup"] = map[string]any{"commit": map[string]string{"oid": oid}, "contexts": map[string]any{"totalCount": 2, "pageInfo": map[string]bool{"hasNextPage": false}, "nodes": []any{
-				map[string]any{"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS", "detailsUrl": "https://github.com/owner/repo/actions/runs/1", "checkSuite": map[string]any{"app": map[string]int{"databaseId": 15368}, "commit": map[string]string{"oid": oid}}},
-				map[string]any{"__typename": "StatusContext", "context": "legacy", "state": "PENDING", "targetUrl": "javascript:bad", "commit": map[string]string{"oid": oid}},
-			}}}
-		}
-		return c
-	}
+
 	for _, scenario := range []string{"head", "merge", "no merge checks", "no checks", "wrong head", "wrong base branch", "missing marker", "closed", "ready", "wrong merge parents", "partial", "omitted rollup", "missing merge observation", "unknown type", "wrong check commit", "API errors"} {
 		t.Run(scenario, func(t *testing.T) {
-			head := commit("head", scenario != "no checks")
-			merge := commit("merge", scenario == "merge")
+			head := ciCommitFixture("head", scenario != "no checks")
+			merge := ciCommitFixture("merge", scenario == "merge")
 			merge["parents"] = map[string]any{"totalCount": 2, "nodes": []any{map[string]string{"oid": "base"}, map[string]string{"oid": "head"}}}
 			pr := map[string]any{"number": 7, "url": "https://github.com/owner/repo/pull/7", "state": "OPEN", "isDraft": true, "headRefName": p.Branch, "headRefOid": "head", "baseRefName": "main", "baseRefOid": "base", "body": marker(p), "headRepository": map[string]string{"nameWithOwner": "owner/repo"}, "potentialMergeCommit": nil}
 			repo := map[string]any{"nameWithOwner": "owner/repo", "ref": map[string]any{"target": map[string]string{"oid": "head"}}, "candidate": head, "pullRequests": map[string]any{"nodes": []any{pr}}}
@@ -104,4 +95,15 @@ func TestCIObservesExactCompleteHeadOrTestMerge(t *testing.T) {
 			}
 		})
 	}
+}
+
+func ciCommitFixture(oid string, hasChecks bool) map[string]any {
+	c := map[string]any{"oid": oid, "statusCheckRollup": nil}
+	if hasChecks {
+		c["statusCheckRollup"] = map[string]any{"commit": map[string]string{"oid": oid}, "contexts": map[string]any{"totalCount": 2, "pageInfo": map[string]bool{"hasNextPage": false}, "nodes": []any{
+			map[string]any{"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS", "detailsUrl": "https://github.com/owner/repo/actions/runs/1", "checkSuite": map[string]any{"app": map[string]int{"databaseId": 15368}, "commit": map[string]string{"oid": oid}}},
+			map[string]any{"__typename": "StatusContext", "context": "legacy", "state": "PENDING", "targetUrl": "javascript:bad", "commit": map[string]string{"oid": oid}},
+		}}}
+	}
+	return c
 }

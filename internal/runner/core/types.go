@@ -100,6 +100,7 @@ type Attention struct {
 }
 
 type Task struct {
+	Integration     *IntegrationReceipt   `json:"integration,omitempty"`
 	ConflictRepair  *ConflictRepair       `json:"conflict_repair,omitempty"`
 	CIRepair        *CIRepair             `json:"ci_repair,omitempty"`
 	WorkspaceRepair int                   `json:"workspace_repair,omitempty"`
@@ -189,7 +190,7 @@ type Attempt struct {
 }
 
 func (a Attempt) Authorized(t Task) bool {
-	return t.Approval != nil && t.Stage != Stopped && t.Current().Number == a.Version && t.Generation == a.Generation && t.Approval.Generation == a.Generation && t.Base() == a.Base
+	return t.Approval != nil && t.Stage != Stopped && t.Stage != Completed && t.Current().Number == a.Version && t.Generation == a.Generation && t.Approval.Generation == a.Generation && t.Base() == a.Base
 }
 
 type Check struct {

@@ -19,14 +19,15 @@ type Executor interface {
 	Execute(context.Context, execution.Request, func(core.Process) error) execution.Completion
 }
 type Engine struct {
-	Store    *store.Store
-	Settings config.Settings
-	Executor Executor
-	Checker  execution.CheckRunner
-	Delivery DeliveryHost
-	Bases    BaseHost
-	Checks   ChecksHost
-	clock    func() time.Time
+	Store        *store.Store
+	Settings     config.Settings
+	Executor     Executor
+	Checker      execution.CheckRunner
+	Delivery     DeliveryHost
+	Bases        BaseHost
+	Checks       ChecksHost
+	Integrations IntegrationHost
+	clock        func() time.Time
 }
 
 func (e *Engine) now() time.Time {
@@ -139,7 +140,7 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	if repo != e.Settings.RepositoryID {
 		return view, errors.New("repository identity changed")
 	}
-	if t.Current().Quality != settings.Quality.Revision() && settings.Quality.Revision() != "" && t.Release == nil {
+	if t.Stage != core.Completed && t.Current().Quality != settings.Quality.Revision() && settings.Quality.Revision() != "" && t.Release == nil {
 		view.QualityAdoptionPreview = adoptionPreview(t, settings.Quality.Revision())
 	}
 	pinned, err := e.taskEngine(ctx, t)
@@ -216,6 +217,9 @@ func (e *Engine) Replace(ctx context.Context, id string, version int, body strin
 	if err != nil {
 		return t, err
 	}
+	if t.Stage == core.Completed {
+		return t, errors.New("completed tasks are immutable; add a new request")
+	}
 	if t.Current().Number != version {
 		return t, store.ErrConflict
 	}
@@ -262,7 +266,7 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if t.Stage == core.Stopped {
+	if t.Stage == core.Stopped || t.Stage == core.Completed {
 		return nil
 	}
 	t.Generation++

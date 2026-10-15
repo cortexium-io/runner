@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/cortexium-io/runner/internal/runner/config"
 	"github.com/cortexium-io/runner/internal/runner/core"
@@ -46,12 +47,16 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 		return err
 	}
 	defer tx.Rollback()
+	var old core.Publication
+	key := ""
+	if p.Occupying && p.IntegrationRequest != nil {
+		key = strings.ToLower(p.Intent.Repository) + "/" + p.Intent.BaseBranch
+	}
 	if p.Revision > 0 {
 		var b []byte
 		if err = tx.QueryRowContext(ctx, "SELECT data FROM publications WHERE id=?", p.Intent.ID).Scan(&b); err != nil {
 			return err
 		}
-		var old core.Publication
 		if err = json.Unmarshal(b, &old); err != nil {
 			return err
 		}
@@ -94,7 +99,7 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 			}
 		}
 	}
-	if p.Revision == 0 || claim || p.State == "queued" || p.CIRequest != nil {
+	if p.Revision == 0 || claim || p.State == "queued" || p.CIRequest != nil || p.IntegrationRequest != nil {
 		var raw []byte
 		if err = tx.QueryRowContext(ctx, "SELECT data FROM tasks WHERE id=?", p.Intent.TaskID).Scan(&raw); err != nil {
 			return err
@@ -113,6 +118,10 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 			return ErrConflict
 		}
 
+		if p.IntegrationRequest != nil && (p.CIRequest != nil || !p.IntegrationRequest.Matches(t, old)) {
+			return ErrConflict
+		}
+
 		var drained bool
 		if err = tx.QueryRowContext(ctx, "SELECT settings,drained FROM metadata WHERE id=1").Scan(&raw, &drained); err != nil {
 			return err
@@ -125,7 +134,7 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 			return ErrConflict
 		}
 		if claim {
-			if !p.Occupying || (p.State != "running" && !(p.State == "published" && p.CIRequest != nil)) {
+			if !p.Occupying || (p.State != "running" && !(p.State == "published" && (p.CIRequest != nil || p.IntegrationRequest != nil))) {
 				return errors.New("invalid publication reservation")
 			}
 			var active, owned int
@@ -135,10 +144,22 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 			if err = tx.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM attempts WHERE occupying=1 AND task_id=?)+(SELECT count(*) FROM publications WHERE occupying=1 AND task_id=?)", t.ID, t.ID).Scan(&owned); err != nil {
 				return err
 			}
+			if key != "" {
+				var integrating int
+				if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM publications WHERE occupying=1 AND integration_key=?", key).Scan(&integrating); err != nil {
+					return err
+				}
+				if integrating != 0 {
+					return ErrConflict
+				}
+			}
 			if drained || active >= settings.Config.Policy.MaxParallelism || owned != 0 {
 				return ErrConflict
 			}
 		}
+	}
+	if err = completeIntegration(ctx, tx, &p, old); err != nil {
+		return err
 	}
 	expected := p.Revision
 	p.Revision++
@@ -149,7 +170,7 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 	if expected == 0 {
 		_, err = tx.ExecContext(ctx, "INSERT INTO publications(id,task_id,version,generation,revision,occupying,data,previous_id) VALUES(?,?,?,?,?,?,?,?)", p.Intent.ID, p.Intent.TaskID, p.Intent.Version, p.Intent.Generation, p.Revision, p.Occupying, b, p.Intent.PreviousID())
 	} else {
-		_, err = tx.ExecContext(ctx, "UPDATE publications SET revision=?,occupying=?,data=? WHERE id=?", p.Revision, p.Occupying, b, p.Intent.ID)
+		_, err = tx.ExecContext(ctx, "UPDATE publications SET revision=?,occupying=?,data=?,integration_key=? WHERE id=?", p.Revision, p.Occupying, b, key, p.Intent.ID)
 	}
 	if err != nil {
 		return err

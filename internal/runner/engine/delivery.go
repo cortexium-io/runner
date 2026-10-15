@@ -82,11 +82,13 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 		}
 		if !p.Intent.Authorized(t) && (p.State == "queued" || p.Occupying) {
 			p.State, p.Detail, p.Occupying = "revoked", "Authority revoked; any already-sent remote effect is retained and is not undone.", false
-			p.CIRequest = nil
+			p.CIRequest, p.IntegrationRequest = nil, nil
+		} else if p.IntegrationRequest != nil && !p.IntegrationRequest.Matches(t, p) {
+			p.IntegrationRequest, p.Occupying = nil, false
 		} else if p.CIRequest != nil && (!p.CanAssessCI(t) || core.Digest(p.CIRequest) != core.Digest(t.BaseProof)) {
 			p.CIRequest, p.Occupying = nil, false
 		} else if p.Occupying && p.State == "published" {
-			// An interrupted CI read is safe to repeat under the same proof.
+			// An interrupted CI/integration read is safe to repeat under the same proof.
 			p.Occupying = false
 		} else if p.Occupying {
 			// A lost push is safe to inspect and resume under its exact remote lease.
@@ -116,6 +118,15 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 				previous.CIRequest = t.BaseProof
 				if err = e.savePublication(ctx, previous); err != nil && !errors.Is(err, store.ErrConflict) {
 					return err
+				}
+			}
+			if previous.State == "published" && !previous.Occupying && previous.IntegrationRequest == nil && previous.CanInspectIntegration(t) {
+				request := core.IntegrationRequest{Proof: *t.BaseProof, CIDigest: core.Digest(previous.CI)}
+				if previous.Integration == nil || core.Digest(previous.Integration.Request) != core.Digest(request) {
+					previous.IntegrationRequest = &request
+					if err = e.savePublication(ctx, previous); err != nil && !errors.Is(err, store.ErrConflict) {
+						return err
+					}
 				}
 			}
 			if previous.State != "published" || previous.Occupying || previous.Intent.Candidate == *t.Candidate || t.BaseProof == nil || !t.BaseProof.Matches(t) || t.NextRole != "" {
@@ -164,7 +175,7 @@ func (e *Engine) claimPublication(ctx context.Context) (core.Publication, bool, 
 		return core.Publication{}, false, err
 	}
 	for _, p := range all {
-		if (p.State != "queued" && !(p.State == "published" && p.CIRequest != nil)) || p.Occupying {
+		if (p.State != "queued" && !(p.State == "published" && (p.CIRequest != nil || p.IntegrationRequest != nil))) || p.Occupying {
 			continue
 		}
 		if p.State == "queued" {
@@ -202,6 +213,9 @@ func (e *Engine) publicationAuthority(ctx context.Context, p core.PublicationInt
 }
 
 func (e *Engine) publish(ctx context.Context, p core.Publication) error {
+	if p.IntegrationRequest != nil {
+		return e.inspectIntegration(ctx, p)
+	}
 	if p.State == "published" && p.CIRequest != nil {
 		return e.assessCI(ctx, p)
 	}
@@ -243,10 +257,10 @@ func publicationOutcome(p *core.Publication) (bool, error) {
 		return false, nil
 	}
 	if o.State != "OPEN" {
-		return false, fmt.Errorf("remote PR is %s; this bundle cannot confirm integration or complete the task", o.State)
+		return false, fmt.Errorf("remote PR is %s; use task integrate after current-base verification and passing pinned CI", o.State)
 	}
 	if !o.Draft {
-		return false, errors.New("remote PR was marked ready externally; integration verification remains unimplemented")
+		return false, errors.New("remote PR was marked ready externally; use task integrate after current-base verification and passing pinned CI")
 	}
 	if o.BranchCommit != p.Intent.Candidate.Commit {
 		return false, errors.New("published PR branch is missing; no automatic recreation")
@@ -362,7 +376,7 @@ func (e *Engine) ReconcileDelivery(ctx context.Context, id string) error {
 		if p.Occupying || p.State == "queued" {
 			return nil
 		}
-		p.CIRequest = nil
+		p.CIRequest, p.IntegrationRequest = nil, nil
 		p.State, p.Detail = "queued", "Operator requested remote inspection and safe continuation; uncertain PR creation cannot repeat."
 		return e.savePublication(ctx, p)
 	}

@@ -46,7 +46,7 @@ func (c CLI) init(ctx context.Context, cfg config.Config, args []string) error {
 	fmt.Fprintf(c.Out, "Repository: %s\nObserved base: %s\nState: %s\nWorkspaces: %s\nUncommitted checkout changes are excluded.\n", cfg.Repository.Path, base, cfg.StateDir, cfg.WorktreeDir)
 	fmt.Fprintf(c.Out, "Delivery: %s; destination: %s; base: %s\n", cfg.Delivery.Mode, cfg.Delivery.Repository, cfg.Repository.BaseRef)
 	if cfg.Delivery.Mode == "github-draft" {
-		fmt.Fprintln(c.Out, "Accepted tasks authorize pushing the exact candidate and opening one draft PR. Recorded base only; no integration or completion. Credentials: operator gh auth login for github.com.")
+		fmt.Fprintln(c.Out, "Accepted tasks authorize pushing the exact candidate and opening one draft PR. Completion requires current-base proof, passing pinned CI and confirmation of an ordinary human merge; Runner does not request merges. Credentials: operator gh auth login for github.com.")
 	}
 	for _, role := range []string{"planner", "implementer", "reviewer"} {
 		name, p := cfg.Role(role)

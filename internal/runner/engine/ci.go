@@ -43,7 +43,7 @@ func (e *Engine) AssessCI(ctx context.Context, id string) error {
 	if p.CIRequest != nil {
 		return nil
 	}
-	if p.Occupying {
+	if p.Occupying || p.IntegrationRequest != nil {
 		return errors.New("publication still owns its reservation")
 	}
 	p.CIRequest = t.BaseProof

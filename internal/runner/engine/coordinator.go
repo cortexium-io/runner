@@ -121,6 +121,9 @@ func (e *Engine) Run(ctx context.Context) error {
 		if err = e.finishSaved(workCtx); err != nil {
 			return err
 		}
+		if err = e.Store.CompletePlans(workCtx); err != nil {
+			return err
+		}
 		if err = e.prepareBaseChecks(workCtx); err != nil {
 			return err
 		}
