@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phase 1 qualified on 2026-10-14. The first phase 2 Ready-policy bundle is implemented in `codex/runner-local-core`; qualification is recorded below. The rest of phase 2 remains pending.
+Status: Phase 1 qualified on 2026-10-14. The phase 2 Ready-policy and Plan/preparation bundles are implemented and qualified in `codex/runner-local-core`; evidence is recorded below. Quality-agreement changes and the remaining operator interface are still pending in phase 2.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -17,7 +17,7 @@ The direction is recorded in [ADR 0005](decisions/0005-local-runner-core.md).
 This is the designated replacement specification and build sequence, under
 [AGENTS.md](../AGENTS.md). The [architecture](architecture.md) and existing
 operator guides describe the Project-backed runtime. `cmd/runner-next` now
-implements the first-slice commands and configuration below. Other release
+implements the first-slice commands plus the two qualified phase 2 bundles below. Other release
 capabilities remain build contracts and require a separate implementation instruction.
 
 Start with [release scope](#first-release-scope), [core contracts](#core-contracts),
@@ -1204,23 +1204,153 @@ It is opt-in in the owning execution suite, with no new evaluator service or
 legacy Project test fixtures. The required gates skip these paid calls unless
 explicit model/reasoning inputs are provided.
 
-#### Next phase 2 boundary — not implemented
+### Second phase 2 bundle — Plan and verification preparation
 
-The next brief should establish Plan intake and exact atomic release before any
-code delivery: one explicitly authorized planning operation proposes complete
-versioned cards, proof briefs and dependency edges for human approval. It uses the
-same coordinator, claims and invocation accounting. Extend the current schema
-only for the planning proposal and dependency relationships; reject cycles,
-missing targets and stale releases transactionally. Ready verification-brief
-preparation must use the same planner contract and remain visible as preparation.
-Dependencies on unintegrated work remain waiting honestly at Awaiting delivery;
-phase 3 will establish confirmed merge and the complete dependency journey.
+Authorized continuation: 2026-10-15. Build one complete Plan-to-approved-children
+journey and the missing-verification path for Ready. Continue using the same
+coordinator, transactional store, profiles, invocation ceiling and recovery rules.
+Quality-agreement changes, delivery, external views and the interactive policy
+editor remain outside this bundle.
 
-Before that implementation, settle its detailed command examples and scenarios
-here against the implemented contracts. Quality-agreement revisions/baseline
-exceptions, attention-first operator presentation and an interactive policy editor
-remain later phase 2 work. Neither this outline nor completion of the Ready-policy
-bundle authorizes those features, delivery or external views.
+Commands and authority:
+
+1. Configure an explicit optional `roles.planner` profile through the existing
+   policy preview/apply commands. Complete Ready tasks still need only the
+   implementer/reviewer roles.
+2. `task add --plan --file REQUEST.md` creates a draft planning request. A nonempty
+   request can describe an outcome without already defining executable cards.
+   `task approve ID --version N --preview DIGEST` authorizes planning only.
+3. The planner reads a disposable copy of the approved base and the pinned quality
+   agreement. It proposes cards with local keys, complete Outcome/Scope/Acceptance/
+   Verification sections, and explicit dependency keys within that proposal.
+   There is no target card count. Questions remain visible and prevent release.
+4. `task show ID` displays the complete proposal and a separate release preview.
+   `task release ID --version N --preview RELEASE_DIGEST` approves the exact full
+   proposal. All children, their pinned dependency versions, approvals and the
+   parent's release receipt are committed together. Repeated release returns the
+   same children; stale versions, moved bases, missing targets, cycles, incomplete
+   briefs or open decisions cannot release any subset.
+5. Independent children can start; dependents require confirmed completion of the
+   exact prerequisite version. Awaiting delivery, stopped and replaced prerequisites
+   never satisfy an edge. This bundle provides no command to claim integration.
+   A released request stays incomplete while its children await delivery/integration.
+6. `task stop PLAN_ID` atomically revokes the released children and requests ordinary
+   coordinator cancellation. A released proposal is otherwise immutable: create a
+   new planning request to change the batch. Individual child replacements retain
+   their prerequisite bindings; a changed prerequisite requires a new plan.
+
+Ready preparation uses the same configured planner. A Ready brief still requires
+Outcome, Scope and Acceptance; a missing Verification section schedules a visible
+`prepare` attempt after approval. Its output can add only a verification brief,
+not rewrite requirements or decompose the task. Store that supplement separately
+from the immutable approved version, bind it to its preparation attempt and use it
+for implementation/review. It requires no second approval. Questions stop work.
+Preparation consumes the Ready task's invocation allowance; a ceiling of one can
+permit preparation while leaving implementation visibly waiting for allowance.
+
+Plan proposals, release receipts and dependency bindings extend the existing task
+records; no planning service or second scheduler is needed. Store format 3 prevents
+an older coordinator from ignoring the new authority/dependency fields. Preserve
+and drain old state, then use fresh state/worktree roots. No historical conversion.
+
+Verification brief before coding: extend core tests for malformed/incomplete plans,
+cycles, missing targets and exact-version dependency success; store tests for real
+competing releases, rollback and atomic revocation; engine tests for saved planner
+results after restart, stale/revoked approval, shared admission, dependent waits,
+Ready preparation with unchanged scope and bounded calls. Exercise the new CLI
+commands and read-only proposal display. Use the existing opt-in native evaluation
+pattern for one concrete plan and one Ready preparation with `gpt-6.1-sol / high`
+after deterministic tests pass. Run `go test -race ./...` and `go vet ./...`.
+
+#### Using Plan and Ready preparation
+
+Use fresh state and worktree roots with this version. Formats 1 and 2 are rejected
+unchanged; drain and preserve an older coordinator's state before resubmitting
+work. The configuration marker remains `runner-local-v1`. Add `"planner": "build"`
+to `roles` to reuse an explicitly selected profile, or define a separate complete
+profile and name it there. Apply the change with `config explain` and
+`config apply --preview DIGEST`. Setup also displays the configured planner.
+
+```sh
+/tmp/runner-next --config /absolute/runner.json task add --plan --file /absolute/request.md
+/tmp/runner-next --config /absolute/runner.json task show PLAN_ID
+/tmp/runner-next --config /absolute/runner.json task approve PLAN_ID \
+  --version 1 --preview DISPLAYED_APPROVAL_PREVIEW
+/tmp/runner-next --config /absolute/runner.json run
+```
+
+From another terminal, inspect `task show PLAN_ID`. When it reaches **Awaiting
+approval**, read the full proposal, scope, verification briefs and prerequisites.
+The approval above authorizes only planning. Release is the separate authorization
+to execute the exact proposed batch:
+
+```sh
+/tmp/runner-next --config /absolute/runner.json task release PLAN_ID \
+  --version 1 --preview DISPLAYED_RELEASE_PREVIEW
+```
+
+The running coordinator can then admit independent children under the same global
+capacity. Each child displays its parent and pinned prerequisites. Repeating the
+same release returns the same children. The parent stays **Ready** with its release
+receipt; it is not complete. Children needing integration wait visibly because
+this milestone stops at **Awaiting delivery** and has no completion command.
+
+Questions require an explicit replacement request and fresh approval. A moved base
+requires replanning before release. Released proposals cannot be replaced; use
+`task stop PLAN_ID` to revoke the entire batch, then add a new request. Stop retains
+evidence and process claims until cancellation settles. Editing one child's body
+does not remove its prerequisite bindings or restore a stopped parent's authority.
+
+For a Ready task, `task add --file TASK.md` still requires Outcome, Scope and
+Acceptance. Supply Verification directly to avoid a planning call. If it is absent
+or empty, approval authorizes one `prepare` action before implementation. Its
+verification supplement is displayed separately with its attempt ID; the approved
+body/version/preview remain unchanged. Preparation cannot create child tasks and
+needs no second approval. A straightforward prepared Ready journey uses three
+calls: prepare, implement and audit. The ordinary invocation ceiling, transient
+retry rules, pinned profiles and explicit interrupted recovery all apply.
+
+#### Second phase 2 qualification
+
+Verified on 2026-10-15 with Go 1.27.1 on macOS arm64. `go test -race ./...` and
+`go vet ./...` passed. The complete diff was reviewed for authority gaps,
+accidental legacy coupling and unnecessary test infrastructure. No provider or
+platform dependency was added; release/platform qualification remains a later gate.
+
+| Guarantee | Owning evidence |
+| --- | --- |
+| Complete, reviewable proposal and exact release | Core validates complete briefs and dependency graphs. Engine reopens saved planning output without another call; rejects stale previews, changed bases, questions, invalid graphs and superseded results; exact repeated release preserves child identities. The existing CLI journey covers the new commands and read-only, human-readable proposal inspection. |
+| Atomic batch authority | Real SQLite connections compete to release one parent; one wins. A later child-insert failure rolls back earlier children and the receipt. Parent stop revokes all child approvals together while retaining an active claim and late evidence. |
+| Dependency safety | Core requires the exact prerequisite version in Completed state. Engine keeps reviewed children at Awaiting delivery and their dependents waiting; replacement invalidates the old edge. Store admission rechecks a prerequisite changed after scheduling and rolls back counters. Confirmed integration and parent completion remain phase 3 work. |
+| Ready verification ownership | Engine proves an absent planner cannot approve incomplete work; preparation preserves the approved body, digest and approval, saves provenance, and supplies the brief to both implementation and audit. A one-call ceiling permits preparation but blocks implementation until explicitly raised. |
+| Recovery reuse | The existing interruption test now covers both implementation and planning. Saved Plan/preparation results resume deterministically after reopen. The existing coordinator/capacity suites continue to own shared scheduling and cancellation behavior. |
+| Fresh-state boundary | Both prior store formats are rejected without modifying their bytes. |
+
+Exactly two opt-in live calls used native Codex CLI 0.162.1 with
+`gpt-6.1-sol / high`: one Plan and one Ready preparation. Both succeeded without
+retry. The planner chose one cohesive card for greeting normalization, its example
+and existing test coverage. Preparation returned only the missing brief and no
+cards/questions. Both inspected the existing `greet.py`/`test_greet.py`; saved events
+show only listing/reading commands, no repository tests/programs or source changes.
+The briefs identify the public function boundary, concrete expected strings and
+which existing assertions to reuse or extend. These two small outcomes qualify the
+selected role instructions, not general model reliability.
+
+Private prompts, schemas, events, results and process identities remain under
+`/private/var/folders/q8/ctsgn2bx3t11cyfdts0q_8h80000gn/T/runner-planning-eval-3235820790`.
+Reproduce deliberately with:
+
+```sh
+RUNNER_LOCAL_LIVE_MODEL=gpt-6.1-sol RUNNER_LOCAL_LIVE_REASONING=high \
+  go test ./internal/runner/execution -run '^TestLivePlanningBehavior$' \
+  -count=1 -v -timeout=8m
+```
+
+Stop this bundle here. Before continuing phase 2, define the next bounded brief
+for quality-agreement revisions, scoped baseline exceptions and their effect on
+existing approvals/proof. Attention-first status presentation, the interactive
+policy editor and the operator acceptance journey also remain open. Delivery, confirmed integration and external
+views retain their later phase boundaries.
 
 ### Simple upgrade or deliberate break
 
@@ -1444,14 +1574,17 @@ adding arbitrary waits or broad mock-only coverage.
 
 Phase 0 is documented. Phase 1 is implemented at commit `d6d0ddb`; its S1–S7
 proof and live qualification are recorded in [phase 1 evidence](#phase-1-evidence).
-The first phase 2 Ready-policy evidence is recorded in [its qualification](#first-phase-2-qualification). Remaining phase 2 and later evidence is pending; each later brief must cover its assigned rows or explicitly revise the scope.
+The phase 2 evidence is recorded in the [Ready-policy qualification](#first-phase-2-qualification)
+and [Plan/preparation qualification](#second-phase-2-qualification). Remaining
+phase 2 and later evidence is pending; each later brief must cover its assigned
+rows or explicitly revise the scope.
 
 | Requirement | Owning phase | Acceptance evidence |
 | --- | --- | --- |
 | Local Ready authorization and preserved scope | 1 | S1/S2/S5: exact approval, stale preview rejection, idempotent approval, revocation and retained artifacts. |
 | Durable admission, candidate binding and no blind replay | 1; extend in 3 | S2/S4/S5: real-store interruption and saved-result tests; later ambiguous remote publication with no duplicate PR. |
 | Readiness and repository quality | 1; extend in 2 | S1/S7: authorized passing baseline and concrete missing prerequisites. Phase 2 proves scoped baseline exceptions, policy revision changes and rejection of newly weakened proof. |
-| Plan and dependency success | 2 | Atomic complete release, missing/cyclic dependency rejection, stale plan rejection and completion only after required children succeed. Closed-unmerged is exercised in phase 3. |
+| Plan and dependency success | 2/3 | Second phase 2 bundle proves atomic release, missing/cyclic dependency rejection, stale plan rejection, parent revocation and exact-version waits. Awaiting delivery cannot satisfy dependencies. Confirmed child integration, parent completion and closed-unmerged handling remain phase 3. |
 | Continuous reconciliation and resource safety | 1; extend in 2/3 | S2/S3: exclusive ownership and responsive reconciliation; the first phase 2 bundle proves shared capacity and task/workspace claims across CLI/service; future browser/shared-data capabilities must add their resource claims; phase 3 proves serialized integration. |
 | Bounded recovery and understandable configuration | 1; extend in 2/3 | S7 validates the limited policy. The first phase 2 bundle proves Ready repair allowance, persistent backoff, rejection-only escalation, invocation budgets and live policy changes without counter resets. Phase 3 proves bounded refresh/review cycles. |
 | Independent, sufficient, economical verification | 1; extend in 2 | S6 plus live candidate review. The first phase 2 paired behavioral cases cover fabricated proof, weakened checks, legitimate consolidation and speculative review; no infrastructure error becomes a code rejection. |

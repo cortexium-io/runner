@@ -88,10 +88,13 @@ func (c Config) Validate() error {
 		}
 		seen[name] = true
 	}
-	if len(c.Roles) != 2 || c.Roles["implementer"] == "" || c.Roles["reviewer"] == "" {
-		return errors.New("exactly implementer and reviewer roles are required")
+	if c.Roles["implementer"] == "" || c.Roles["reviewer"] == "" {
+		return errors.New("implementer and reviewer roles are required")
 	}
 	for role, name := range c.Roles {
+		if role != "implementer" && role != "reviewer" && role != "planner" {
+			return fmt.Errorf("unsupported role %q", role)
+		}
 		if _, ok := c.Profiles[name]; !ok {
 			return fmt.Errorf("%s references missing profile %s", role, name)
 		}
@@ -142,6 +145,9 @@ func (c Config) Revision() string { return core.Digest(c) }
 func (c Config) Role(role string) (string, core.Profile) {
 	if role == "audit" || role == "verify" {
 		role = "reviewer"
+	}
+	if core.PlanningRole(role) {
+		role = "planner"
 	}
 	n := c.Roles[role]
 	return n, c.Profiles[n]

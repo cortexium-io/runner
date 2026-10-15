@@ -68,6 +68,7 @@ type View struct {
 	Attempts            []core.Attempt `json:"attempts"`
 	ObservedBase        string         `json:"observed_base,omitempty"`
 	Preview             string         `json:"approval_preview,omitempty"`
+	ReleasePreview      string         `json:"release_preview,omitempty"`
 	NextAction          string         `json:"next_action"`
 	CancellationPending bool           `json:"cancellation_pending"`
 	Eligibility         Eligibility    `json:"eligibility"`
@@ -86,12 +87,20 @@ func NextAction(t core.Task) string {
 			return "inspect evidence; supply an explicit replacement task if requirements or implementation must change"
 		}
 	}
+	if t.Release != nil && t.Stage != core.Stopped {
+		return "plan released; inspect children for review and confirmed integration"
+	}
 	switch t.Stage {
+	case core.AwaitingApproval:
+		return "inspect the complete proposal, then task release --version N --preview RELEASE_DIGEST"
 	case core.Draft:
 		return "inspect approval preview, then task approve --version N --preview DIGEST"
 	case core.AwaitingDelivery:
 		return "inspect retained candidate; delivery is not configured"
 	case core.Stopped:
+		if t.Release != nil {
+			return "released plan stopped; add a new planning request to authorize another batch"
+		}
 		return "retained artifacts are available; replace the task to authorize new work"
 	default:
 		return "run (or wait for the running coordinator)"
@@ -114,7 +123,11 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	admission := eligible(settings.Config, t, all, drained, e.now())
+	tasks, err := e.Store.Tasks(ctx)
+	if err != nil {
+		return View{}, err
+	}
+	admission := eligible(settings.Config, t, all, drained, e.now(), tasks...)
 	view := View{Task: t, Attempts: attempts, NextAction: NextAction(t), Eligibility: admission}
 	if t.NextRole != "" && t.Attention == nil {
 		if admission.WaitingFor != "" {
@@ -137,6 +150,13 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	}
 	view.ObservedBase = base
 	view.Preview = core.Preview(t, repo, e.policy(), e.Settings.Quality.Revision(), base)
+	if t.PlanRequest && t.Proposal != nil && t.Stage == core.AwaitingApproval && t.Attention == nil {
+		if t.Approval != nil && t.Approval.Base == base {
+			view.ReleasePreview = core.ReleasePreview(t, repo, e.policy(), e.Settings.Quality.Revision(), base)
+		} else {
+			view.NextAction = "approved base changed; replace the request and replan before release"
+		}
+	}
 	return view, nil
 }
 func (e *Engine) Approve(ctx context.Context, id string, version int, preview string) (core.Task, error) {
@@ -164,6 +184,20 @@ func (e *Engine) Approve(ctx context.Context, id string, version int, preview st
 	t.Approval = &core.Approval{Preview: preview, Base: v.ObservedBase, Generation: t.Generation}
 	t.Stage = core.Ready
 	t.NextRole = "implementer"
+	if t.PlanRequest || t.Current().NeedsVerification() {
+		current, _, err := e.Store.Settings(ctx)
+		if err != nil {
+			return t, err
+		}
+		if current.Config.Roles["planner"] == "" {
+			return t, errors.New("configure and apply an explicit planner profile before authorizing planning or verification preparation")
+		}
+		t.Stage = core.Planning
+		t.NextRole = "prepare"
+		if t.PlanRequest {
+			t.NextRole = "plan"
+		}
+	}
 	t.Attention = nil
 	return t, e.Store.Commit(ctx, t.Revision, t, nil, false)
 }
@@ -178,7 +212,15 @@ func (e *Engine) Replace(ctx context.Context, id string, version int, body strin
 	if t.Current().Number != version {
 		return t, store.ErrConflict
 	}
-	v, err := core.NewVersion(version+1, body, e.Settings.RepositoryID, e.policy(), e.Settings.Quality.Revision())
+	if t.Release != nil {
+		return t, errors.New("released plans are immutable; stop the plan to revoke children and add a new request")
+	}
+	var v core.Version
+	if t.PlanRequest {
+		v, err = core.NewPlanVersion(version+1, body, e.Settings.RepositoryID, e.policy(), e.Settings.Quality.Revision())
+	} else {
+		v, err = core.NewVersion(version+1, body, e.Settings.RepositoryID, e.policy(), e.Settings.Quality.Revision(), t.Current().Dependencies...)
+	}
 	if err != nil {
 		return t, err
 	}
@@ -188,6 +230,8 @@ func (e *Engine) Replace(ctx context.Context, id string, version int, body strin
 	t.Stage = core.Draft
 	t.Usage = core.Usage{}
 	t.Pending = nil
+	t.Prepared = nil
+	t.Proposal = nil
 	t.NextRole = ""
 	t.Candidate = nil
 	t.Review = nil
@@ -208,6 +252,9 @@ func (e *Engine) Stop(ctx context.Context, id string) error {
 	t.Pending = nil
 	t.NextRole = ""
 	t.Attention = nil
+	if t.Release != nil {
+		return e.Store.StopPlan(ctx, t.Revision, t)
+	}
 	return e.Store.Commit(ctx, t.Revision, t, nil, false)
 }
 func (e *Engine) Resume(ctx context.Context, id, attempt string, allowNew bool) (string, error) {
@@ -250,7 +297,7 @@ func (e *Engine) Resume(ctx context.Context, id, attempt string, allowNew bool) 
 		if !allowNew {
 			return "", fmt.Errorf("%s attempt %s was interrupted; artifacts remain in %s; --allow-new-invocation authorizes repeating that role with the pinned profile", a.Role, a.ID, a.EvidenceDir)
 		}
-		if a.Role != "implementer" {
+		if a.Role == "audit" || a.Role == "verify" {
 			if err = e.git().ValidateCandidate(ctx, t); err != nil {
 				return "", err
 			}

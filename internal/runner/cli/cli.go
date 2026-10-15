@@ -182,7 +182,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 }
 func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: task add|show|approve|replace|stop|resume")
+		return errors.New("usage: task add|show|approve|release|replace|stop|resume")
 	}
 	command := args[0]
 	args = args[1:]
@@ -200,13 +200,15 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	var asJSON *bool
 	var attempt *string
 	var allow *bool
+	var plan *bool
 	switch command {
 	case "add":
+		plan = f.Bool("plan", false, "capture a planning request; approval authorizes planning only")
 		file = f.String("file", "", "task Markdown")
 	case "replace":
 		file = f.String("file", "", "task Markdown")
 		version = f.Int("version", 0, "expected current version")
-	case "approve":
+	case "approve", "release":
 		version = f.Int("version", 0, "displayed version")
 		preview = f.String("preview", "", "displayed approval-preview digest")
 	case "show":
@@ -233,7 +235,12 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 			return err
 		}
 		if command == "add" {
-			t, err := e.Add(ctx, string(b))
+			var t core.Task
+			if *plan {
+				t, err = e.AddPlan(ctx, string(b))
+			} else {
+				t, err = e.Add(ctx, string(b))
+			}
 			if err != nil {
 				return err
 			}
@@ -253,6 +260,13 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 			return errors.New("--version and --preview are required")
 		}
 		if _, err := e.Approve(ctx, id, *version, *preview); err != nil {
+			return err
+		}
+	case "release":
+		if *version < 1 || *preview == "" {
+			return errors.New("--version and --preview are required")
+		}
+		if _, err := e.Release(ctx, id, *version, *preview); err != nil {
 			return err
 		}
 	case "stop":
@@ -285,8 +299,36 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 func (c CLI) printView(v engine.View, full bool) {
 	t := v.Task
 	fmt.Fprintf(c.Out, "%s v%d — %s\n", t.ID, t.Current().Number, t.Stage)
+	if t.PlanRequest {
+		fmt.Fprintln(c.Out, "Plan request — initial approval permits planning only; task release authorizes its proposed children.")
+	} else if t.Current().NeedsVerification() && t.Prepared == nil {
+		fmt.Fprintln(c.Out, "Ready task — approval permits planner verification preparation before implementation.")
+	}
 	if full {
 		fmt.Fprintf(c.Out, "%s\nContent digest: %s\nQuality revision: %s\nObserved base: %s\nApproval preview: %s\n", t.Current().Body, t.Current().Digest, t.Current().Quality, v.ObservedBase, v.Preview)
+	}
+	if t.Proposal != nil {
+		fmt.Fprintf(c.Out, "Proposal: %d cards; %d open questions\n", len(t.Proposal.Cards), len(t.Proposal.Questions))
+		if v.ReleasePreview != "" {
+			fmt.Fprintf(c.Out, "Release preview: %s\n", v.ReleasePreview)
+		}
+		if full {
+			for _, card := range t.Proposal.Cards {
+				fmt.Fprintf(c.Out, "\nCard %s; prerequisites: %v\n%s\n", card.Key, card.Dependencies, card.Body)
+			}
+			for _, question := range t.Proposal.Questions {
+				fmt.Fprintln(c.Out, "Question:", question)
+			}
+		}
+	}
+	if t.Prepared != nil && full {
+		fmt.Fprintf(c.Out, "Prepared verification (attempt %s):\n%s\n", t.Prepared.Attempt, t.Prepared.Requirement)
+	}
+	if t.Release != nil {
+		fmt.Fprintf(c.Out, "Released children: %v\n", t.Release.Children)
+	}
+	if t.ParentID != "" {
+		fmt.Fprintf(c.Out, "Parent plan: %s; card: %s; dependencies: %v\n", t.ParentID, t.PlanKey, t.Current().Dependencies)
 	}
 	if t.Approval != nil {
 		fmt.Fprintf(c.Out, "Approved base: %s\n", t.Approval.Base)

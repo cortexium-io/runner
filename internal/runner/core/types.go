@@ -16,6 +16,9 @@ type Stage string
 
 const (
 	Draft            Stage = "Draft"
+	Planning         Stage = "Planning"
+	AwaitingApproval Stage = "Awaiting approval"
+	Completed        Stage = "Completed"
 	Ready            Stage = "Ready"
 	Implementing     Stage = "Implementing"
 	Reviewing        Stage = "Reviewing"
@@ -36,11 +39,12 @@ type Proof struct {
 }
 
 type Version struct {
-	Number  int     `json:"number"`
-	Body    string  `json:"body"`
-	Digest  string  `json:"digest"`
-	Quality string  `json:"quality_revision"`
-	Proofs  []Proof `json:"proofs"`
+	Number       int          `json:"number"`
+	Body         string       `json:"body"`
+	Digest       string       `json:"digest"`
+	Quality      string       `json:"quality_revision"`
+	Proofs       []Proof      `json:"proofs"`
+	Dependencies []Dependency `json:"dependencies,omitempty"`
 }
 
 type Approval struct {
@@ -94,18 +98,24 @@ type Attention struct {
 }
 
 type Task struct {
-	ID         string        `json:"id"`
-	Revision   int           `json:"revision"`
-	Generation int           `json:"generation"`
-	Stage      Stage         `json:"stage"`
-	Versions   []Version     `json:"versions"`
-	Approval   *Approval     `json:"approval,omitempty"`
-	Candidate  *Candidate    `json:"candidate,omitempty"`
-	Attention  *Attention    `json:"attention,omitempty"`
-	NextRole   string        `json:"next_role,omitempty"`
-	Review     []Check       `json:"review,omitempty"`
-	Usage      Usage         `json:"usage"`
-	Pending    *Continuation `json:"pending,omitempty"`
+	PlanRequest bool                  `json:"plan_request,omitempty"`
+	Proposal    *PlanningResult       `json:"proposal,omitempty"`
+	Release     *PlanRelease          `json:"release,omitempty"`
+	ParentID    string                `json:"parent_id,omitempty"`
+	PlanKey     string                `json:"plan_key,omitempty"`
+	Prepared    *PreparedVerification `json:"prepared_verification,omitempty"`
+	ID          string                `json:"id"`
+	Revision    int                   `json:"revision"`
+	Generation  int                   `json:"generation"`
+	Stage       Stage                 `json:"stage"`
+	Versions    []Version             `json:"versions"`
+	Approval    *Approval             `json:"approval,omitempty"`
+	Candidate   *Candidate            `json:"candidate,omitempty"`
+	Attention   *Attention            `json:"attention,omitempty"`
+	NextRole    string                `json:"next_role,omitempty"`
+	Review      []Check               `json:"review,omitempty"`
+	Usage       Usage                 `json:"usage"`
+	Pending     *Continuation         `json:"pending,omitempty"`
 }
 
 func (t Task) Current() Version { return t.Versions[len(t.Versions)-1] }
@@ -162,13 +172,17 @@ type Check struct {
 }
 
 type Result struct {
-	Outcome string  `json:"outcome"`
-	Summary string  `json:"summary"`
-	Checks  []Check `json:"checks"`
+	Outcome  string          `json:"outcome"`
+	Summary  string          `json:"summary"`
+	Checks   []Check         `json:"checks,omitempty"`
+	Planning *PlanningResult `json:"planning,omitempty"`
 }
 
 // ValidateResult enforces completeness; a model verdict cannot waive a proof.
 func ValidateResult(r Result, proofs []Proof) error {
+	if r.Planning != nil {
+		return errors.New("planning output is not execution or review evidence")
+	}
 	if r.Outcome != "succeeded" && r.Outcome != "blocked" && r.Outcome != "needs_input" {
 		return errors.New("invalid result outcome")
 	}
@@ -225,14 +239,14 @@ func ReviewOutcome(checks []Check) Verdict {
 	return result
 }
 
-func NewVersion(number int, body, repository, basePolicy, quality string) (Version, error) {
+func NewVersion(number int, body, repository, basePolicy, quality string, dependencies ...Dependency) (Version, error) {
 	sections := map[string]string{}
 	var section string
 	for _, line := range strings.Split(body, "\n") {
 		if strings.HasPrefix(line, "## ") {
 			section = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(line, "## ")))
 			if section == "dependencies" {
-				return Version{}, errors.New("dependencies are not supported in this Ready bundle")
+				return Version{}, errors.New("use the proposal dependency keys; inline dependencies are not supported")
 			}
 			continue
 		}
@@ -240,16 +254,21 @@ func NewVersion(number int, body, repository, basePolicy, quality string) (Versi
 			sections[section] += line + "\n"
 		}
 	}
-	for _, name := range []string{"outcome", "scope", "acceptance", "verification"} {
+	for _, name := range []string{"outcome", "scope", "acceptance"} {
 		if strings.TrimSpace(sections[name]) == "" {
 			return Version{}, fmt.Errorf("task requires a nonempty ## %s section", name)
 		}
 	}
 	proofs := []Proof{{ID: "change", Requirement: "The complete approved outcome, scope and acceptance criteria are satisfied; the code and tests are correct and proportionate."}}
 	verification := strings.TrimSpace(sections["verification"])
-	proofs = append(proofs, Proof{ID: "verification", Requirement: verification})
-	v := Version{Number: number, Body: body, Quality: quality, Proofs: proofs}
-	v.Digest = Digest(struct{ Body, Repository, BasePolicy, Quality string }{body, repository, basePolicy, quality})
+	if verification != "" {
+		proofs = append(proofs, Proof{ID: "verification", Requirement: verification})
+	}
+	v := Version{Number: number, Body: body, Quality: quality, Proofs: proofs, Dependencies: dependencies}
+	v.Digest = Digest(struct {
+		Body, Repository, BasePolicy, Quality string
+		Dependencies                          []Dependency
+	}{body, repository, basePolicy, quality, dependencies})
 	return v, nil
 }
 

@@ -20,6 +20,8 @@ import (
 
 type commandHarness struct{ auditStarted, auditRelease chan struct{} }
 
+const commandBrief = "## Outcome\nGreeting\n## Scope\ngreeting.txt\n## Acceptance\nhello\n## Verification\nRead greeting.txt; expect hello. No new suite needed for this file boundary.\n"
+
 func (h *commandHarness) CheckCapabilities(context.Context, config.Config) error { return nil }
 func (h *commandHarness) Baseline(_ context.Context, dir, _ string, log *os.File) error {
 	b, e := os.ReadFile(filepath.Join(dir, "greeting.txt"))
@@ -33,6 +35,9 @@ func (h *commandHarness) Baseline(_ context.Context, dir, _ string, log *os.File
 	return e
 }
 func (h *commandHarness) Execute(ctx context.Context, r execution.Request, _ func(core.Process) error) execution.Completion {
+	if r.Attempt.Role == "plan" {
+		return execution.Completion{Stopped: true, Result: &core.Result{Outcome: "succeeded", Summary: "Proposed greeting", Planning: &core.PlanningResult{Cards: []core.PlannedCard{{Key: "greeting", Body: commandBrief}}}}}
+	}
 	if r.Attempt.Role == "implementer" {
 		if e := os.WriteFile(filepath.Join(r.Dir, "greeting.txt"), []byte("hello\n"), 0600); e != nil {
 			return execution.Completion{Stopped: true, Error: e.Error()}
@@ -122,7 +127,7 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	}
 	run("init", "--check", "test -f greeting.txt", "--apply")
 	taskFile := filepath.Join(root, "task.md")
-	if err = os.WriteFile(taskFile, []byte("## Outcome\nGreeting\n## Scope\ngreeting.txt\n## Acceptance\nhello\n## Verification\nRead greeting.txt; expect hello. No new suite needed for this file boundary.\n"), 0600); err != nil {
+	if err = os.WriteFile(taskFile, []byte(commandBrief), 0600); err != nil {
 		t.Fatal(err)
 	}
 	id := strings.Fields(run("task", "add", "--file", taskFile))[0]
@@ -144,6 +149,7 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 
 	// Preview and apply live policy without changing the already running audit.
 	cfg.Policy.MaxParallelism = 2
+	cfg.Roles["planner"] = "build"
 	profile := cfg.Profiles["review"]
 	profile.Reasoning = "medium"
 	cfg.Profiles["review"] = profile
@@ -213,4 +219,56 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	if b, err = os.ReadFile(filepath.Join(repo, "greeting.txt")); err != nil || string(b) != "local unrelated edit\n" {
 		t.Fatal("original checkout modified")
 	}
+
+	// The Plan command has its own approval boundary before any child is created.
+	if err = os.WriteFile(taskFile, []byte("Change the greeting to hello."), 0600); err != nil {
+		t.Fatal(err)
+	}
+	id = strings.Fields(run("task", "add", "--plan", "--file", taskFile))[0]
+	if err = json.Unmarshal([]byte(run("task", "show", id, "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	run("task", "approve", id, "--version", "1", "--preview", view.Preview)
+	go func() { done <- (CLI{Out: io.Discard, Harness: h}).Run(ctx, []string{"--config", cfgPath, "run"}) }()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		view = engine.View{}
+		if err = json.Unmarshal([]byte(run("task", "show", id, "--json")), &view); err != nil {
+			t.Fatal(err)
+		}
+		if view.Task.Stage == core.AwaitingApproval {
+			break
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatal("proposal not ready")
+		}
+	}
+	run("drain")
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+	before, err = os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown := run("task", "show", id)
+	if !strings.Contains(shown, commandBrief) || !strings.Contains(shown, "Card greeting") || !strings.Contains(shown, view.ReleasePreview) {
+		t.Fatal("proposal not reviewable", shown)
+	}
+	after, err = os.ReadFile(dbPath)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("proposal inspection wrote authority")
+	}
+	run("task", "release", id, "--version", "1", "--preview", view.ReleasePreview)
+	view = engine.View{}
+	if err = json.Unmarshal([]byte(run("task", "show", id, "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Task.Release == nil || len(view.Task.Release.Children) != 1 {
+		t.Fatal("release missing")
+	}
+	run("task", "stop", id)
 }

@@ -17,8 +17,9 @@ Use these sources in descending order of authority:
 
 The accepted replacement direction is [ADR 0005](docs/decisions/0005-local-runner-core.md).
 Its build specification and designated implementation sequence are in the
-[core redesign plan](docs/runner-redesign-proposal.md). Phase 1 and the first phase 2 Ready-policy bundle are implemented in
-`cmd/runner-next`; their qualification and the remaining boundaries are recorded
+[core redesign plan](docs/runner-redesign-proposal.md). Phase 1 and the phase 2
+Ready-policy and Plan/preparation bundles are implemented in `cmd/runner-next`;
+their qualification and the remaining boundaries are recorded
 in that plan. Continue from that evidence only when the next implementation is
 authorized, not from a separate task ledger.
 `docs/architecture.md` and the existing operator guides describe the current

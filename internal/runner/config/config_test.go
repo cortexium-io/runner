@@ -89,6 +89,8 @@ func TestReadyPolicyLimitsAndEscalation(t *testing.T) {
 		{"starting profile repeated", func(c *Config) { c.Policy.ImplementationLadder = []string{"build"} }, false},
 		{"successor repeated", func(c *Config) { c.Policy.ImplementationLadder = []string{"review", "review"} }, false},
 		{"positive ceiling", func(c *Config) { n := 3; c.Policy.MaxInvocationsPerTask = &n }, true},
+		{"optional planner", func(c *Config) { c.Roles["planner"] = "build" }, true},
+		{"unknown planner profile", func(c *Config) { c.Roles["planner"] = "missing" }, false},
 		{"zero ceiling", func(c *Config) { n := 0; c.Policy.MaxInvocationsPerTask = &n }, false},
 		{"negative ceiling", func(c *Config) { n := -1; c.Policy.MaxInvocationsPerTask = &n }, false},
 	} {

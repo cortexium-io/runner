@@ -24,6 +24,16 @@ func TestVersionAndPreviewBindDifferentInputs(t *testing.T) {
 	if _, err = NewVersion(2, body+"## Dependencies\nother", "repo", "policy", "quality"); err == nil {
 		t.Fatal("unsupported dependencies accepted")
 	}
+	bound, err := NewVersion(1, body, "repo", "policy", "quality", Dependency{TaskID: "prior", Version: 1})
+	if err != nil || bound.Digest == v.Digest {
+		t.Fatal("dependency omitted from version approval", err)
+	}
+	task.Proposal = &PlanningResult{Cards: []PlannedCard{{Key: "one", Body: body}}}
+	release := ReleasePreview(task, "repo", "policy", "quality", "base")
+	task.Proposal.Cards[0].Body += "Changed acceptance\n"
+	if ReleasePreview(task, "repo", "policy", "quality", "base") == release {
+		t.Fatal("changed proposal retained release approval")
+	}
 }
 func TestProofCompletenessAndClassification(t *testing.T) {
 	proofs := []Proof{{ID: "change"}, {ID: "verification"}}

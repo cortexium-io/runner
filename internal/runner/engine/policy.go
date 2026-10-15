@@ -28,7 +28,7 @@ func workspaceClaim(c config.Config, t core.Task) string {
 	return filepath.Join(c.WorktreeDir, fmt.Sprintf("%s-v%d", t.ID, t.Current().Number))
 }
 
-func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained bool, now time.Time) Eligibility {
+func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained bool, now time.Time, tasks ...core.Task) Eligibility {
 	p := c.Policy
 	v := Eligibility{Role: t.NextRole, RepairsRemaining: max(0, p.MaxRepairs-t.Usage.Repairs), RetriesRemaining: p.MaxTransientRetries}
 	if p.MaxInvocationsPerTask != nil {
@@ -40,6 +40,9 @@ func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained boo
 		v.ProfileName, v.Profile = c.Implementer(t.Usage.Escalations)
 	}
 	v.Reason = "initial implementation or independent review"
+	if core.PlanningRole(t.NextRole) {
+		v.Reason = "authorized planning or missing verification preparation"
+	}
 	if q := t.Pending; q != nil {
 		v.Reason = q.Reason
 		switch q.Kind {
@@ -78,6 +81,10 @@ func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained boo
 		v.WaitingFor = "task approval"
 	case t.NextRole == "":
 		v.WaitingFor = "no pending invocation"
+	case core.PrerequisiteWait(t, tasks) != "":
+		v.WaitingFor = core.PrerequisiteWait(t, tasks)
+	case core.PlanningRole(t.NextRole) && v.ProfileName == "":
+		v.WaitingFor = "configure and apply a planner profile"
 	case t.Usage.Repairs > p.MaxRepairs && (t.Pending == nil || t.Pending.Kind != "resume"):
 		v.WaitingFor = "repair limit below consumed allowance; explicitly apply more allowance before automatic work"
 	case t.Pending != nil && t.Pending.Kind == "repair" && t.Usage.Repairs >= p.MaxRepairs:
@@ -150,7 +157,7 @@ func (e *Engine) PreviewPolicy(ctx context.Context, proposed config.Config) (Pol
 	}
 	now := e.now()
 	for _, t := range tasks {
-		result.Tasks = append(result.Tasks, PolicyEffect{t.ID, t.Usage, eligible(current.Config, t, attempts, drained, now), eligible(proposed, t, attempts, drained, now)})
+		result.Tasks = append(result.Tasks, PolicyEffect{t.ID, t.Usage, eligible(current.Config, t, attempts, drained, now, tasks...), eligible(proposed, t, attempts, drained, now, tasks...)})
 	}
 	if len(proposed.Policy.ImplementationLadder) > proposed.Policy.MaxRepairs {
 		result.Warnings = append(result.Warnings, "Some escalation steps are unreachable within the repair limit.")

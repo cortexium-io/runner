@@ -293,32 +293,42 @@ func TestChangedCandidateBlocksSavedAcceptanceAndHiddenRepair(t *testing.T) {
 	}
 }
 func TestReservedAttemptRequiresExplicitSingleRecovery(t *testing.T) {
-	e := fixture(t)
-	task := approved(t, e)
-	a := claim(t, e)
-	reopen(t, e)
-	if err := e.recover(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok, err := e.claim(context.Background()); err != nil || ok {
-		t.Fatalf("automatic replay: %t %v", ok, err)
-	}
-	if _, err := e.Resume(context.Background(), task.ID, a.ID, false); err == nil {
-		t.Fatal("new invocation did not require authorization")
-	}
-	if _, err := e.Resume(context.Background(), task.ID, a.ID, true); err != nil {
-		t.Fatal(err)
-	}
-	child := claim(t, e)
-	if child.ResumedFrom != a.ID {
-		t.Fatal("recovery parent missing")
-	}
-	if _, err := e.Resume(context.Background(), task.ID, a.ID, true); err != nil {
-		t.Fatal(err)
-	}
-	as, _ := e.Store.Attempts(context.Background(), task.ID)
-	if len(as) != 2 {
-		t.Fatal("duplicate recovery")
+	for _, planning := range []bool{false, true} {
+		t.Run(map[bool]string{false: "implementation", true: "planning"}[planning], func(t *testing.T) {
+			e := fixture(t)
+			var task core.Task
+			if planning {
+				task = approvedPlan(t, e, proposal())
+			} else {
+				task = approved(t, e)
+			}
+			a := claim(t, e)
+			reopen(t, e)
+			if err := e.recover(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok, err := e.claim(context.Background()); err != nil || ok {
+				t.Fatalf("automatic replay: %t %v", ok, err)
+			}
+			if _, err := e.Resume(context.Background(), task.ID, a.ID, false); err == nil {
+				t.Fatal("new invocation did not require authorization")
+			}
+			if _, err := e.Resume(context.Background(), task.ID, a.ID, true); err != nil {
+				t.Fatal(err)
+			}
+			child := claim(t, e)
+			if child.ResumedFrom != a.ID {
+				t.Fatal("recovery parent missing")
+			}
+			if _, err := e.Resume(context.Background(), task.ID, a.ID, true); err != nil {
+				t.Fatal(err)
+			}
+			as, _ := e.Store.Attempts(context.Background(), task.ID)
+			if len(as) != 2 {
+				t.Fatal("duplicate recovery")
+			}
+
+		})
 	}
 }
 func TestCoordinatorResponsiveAndExclusiveWhileExecutionIsHeld(t *testing.T) {

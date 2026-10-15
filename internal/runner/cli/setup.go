@@ -48,8 +48,11 @@ func (c CLI) init(ctx context.Context, cfg config.Config, args []string) error {
 		return err
 	}
 	fmt.Fprintf(c.Out, "Repository: %s\nObserved base: %s\nState: %s\nWorkspaces: %s\nUncommitted checkout changes are excluded from the baseline and approved base.\n", cfg.Repository.Path, base, cfg.StateDir, cfg.WorktreeDir)
-	for _, role := range []string{"implementer", "reviewer"} {
+	for _, role := range []string{"planner", "implementer", "reviewer"} {
 		name, p := cfg.Role(role)
+		if name == "" {
+			continue
+		}
 		fmt.Fprintf(c.Out, "%s: %s = %s / %s, timeout %s\n", role, name, p.Model, p.Reasoning, p.Timeout)
 	}
 	_, statErr := os.Lstat(filepath.Join(cfg.StateDir, "runner.db"))
@@ -67,7 +70,7 @@ func (c CLI) init(ctx context.Context, cfg config.Config, args []string) error {
 			return errors.New("incompatible setup: use a distinct state directory")
 		}
 		if len(commands) != 0 || len(sources) != 0 || *definition != f.Lookup("definition").DefValue {
-			return errors.New("quality agreement revisions are outside this Ready bundle")
+			return errors.New("quality agreement revisions are not supported yet")
 		}
 		if cfg.Revision() != old.Config.Revision() {
 			return errors.New("setup already exists; use config explain, then config apply --preview DIGEST for policy changes")

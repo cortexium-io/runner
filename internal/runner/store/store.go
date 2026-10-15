@@ -26,7 +26,7 @@ type Store struct {
 }
 
 const schema = `
-CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=2), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=3), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE settings_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE tasks (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, data BLOB NOT NULL);
 CREATE TABLE attempts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), occupying INTEGER NOT NULL, workspace_claim TEXT NOT NULL, resumed_from TEXT UNIQUE, data BLOB NOT NULL);
@@ -58,7 +58,7 @@ func Create(ctx context.Context, dir string, settings config.Settings) (*Store, 
 	defer tx.Rollback()
 	if _, err = tx.ExecContext(ctx, schema); err == nil {
 		b, _ := json.Marshal(settings)
-		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,2,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
+		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,3,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
 	}
 	if err == nil {
 		err = tx.Commit()
@@ -92,7 +92,7 @@ func Open(ctx context.Context, dir string, readonly bool) (*Store, error) {
 		s.Close()
 		return nil, fmt.Errorf("missing, corrupt or incompatible authoritative store: %w", err)
 	}
-	if format != 2 {
+	if format != 3 {
 		s.Close()
 		return nil, fmt.Errorf("incompatible authoritative store format %d; preserve it and initialize a fresh state directory", format)
 	}
@@ -277,6 +277,30 @@ func (s *Store) Commit(ctx context.Context, expected int, t core.Task, a *core.A
 		if err = json.Unmarshal(raw, &previous); err != nil {
 			return err
 		}
+		var prerequisites []core.Task
+		ids := []string{}
+		if t.ParentID != "" {
+			ids = append(ids, t.ParentID)
+		}
+		for _, dep := range t.Current().Dependencies {
+			ids = append(ids, dep.TaskID)
+		}
+		for _, id := range ids {
+			if err = tx.QueryRowContext(ctx, "SELECT data FROM tasks WHERE id=?", id).Scan(&raw); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return ErrConflict
+				}
+				return err
+			}
+			var dependency core.Task
+			if err = json.Unmarshal(raw, &dependency); err != nil {
+				return err
+			}
+			prerequisites = append(prerequisites, dependency)
+		}
+		if core.PrerequisiteWait(t, prerequisites) != "" {
+			return ErrConflict
+		}
 		p := settings.Config.Policy
 		if previous.Usage.Repairs > p.MaxRepairs && (previous.Pending == nil || previous.Pending.Kind != "resume") {
 			return ErrConflict
@@ -291,22 +315,10 @@ func (s *Store) Commit(ctx context.Context, expected int, t core.Task, a *core.A
 			return ErrConflict
 		}
 	}
-	t.Revision = expected + 1
-	b, err := json.Marshal(t)
-	if err != nil {
+	if err = writeTask(ctx, tx, expected, t); err != nil {
 		return err
 	}
-	r, err := tx.ExecContext(ctx, "UPDATE tasks SET revision=?,data=? WHERE id=? AND revision=?", t.Revision, b, t.ID, expected)
-	if err != nil {
-		return err
-	}
-	n, err := r.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n != 1 {
-		return ErrConflict
-	}
+	var b []byte
 	if a != nil {
 		b, err = json.Marshal(a)
 		if err != nil {

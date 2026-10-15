@@ -224,7 +224,7 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 		return core.Attempt{}, false, err
 	}
 	for _, t := range tasks {
-		v := eligible(settings.Config, t, attempts, drained, e.now())
+		v := eligible(settings.Config, t, attempts, drained, e.now(), tasks...)
 		if v.WaitingFor != "" {
 			continue
 		}
@@ -261,7 +261,9 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 		a.EvidenceDir = filepath.Join(settings.Config.StateDir, "attempts", a.ID)
 		t.Pending = nil
 		t.NextRole = ""
-		if a.Role == "implementer" {
+		if core.PlanningRole(a.Role) {
+			t.Stage = core.Planning
+		} else if a.Role == "implementer" {
 			t.Stage = core.Implementing
 		} else {
 			t.Stage = core.Reviewing
@@ -275,11 +277,14 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 	return core.Attempt{}, false, nil
 }
 func required(t core.Task, role string) []core.Proof {
+	if core.PlanningRole(role) {
+		return nil
+	}
 	if role != "verify" {
-		return t.Current().Proofs
+		return t.Proofs()
 	}
 	proofs := []core.Proof{}
-	for _, p := range t.Current().Proofs {
+	for _, p := range t.Proofs() {
 		for _, c := range t.Review {
 			if c.ID == p.ID && c.Status == "gap" {
 				proofs = append(proofs, p)
@@ -303,7 +308,21 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 	}
 	r := execution.Request{Attempt: a, Task: t, Quality: e.Settings.Quality, Proofs: required(t, a.Role)}
 	var copyManifest workspace.CopyState
-	if a.Role == "implementer" {
+	if core.PlanningRole(a.Role) {
+		source, err := workspace.BaselineCopy(ctx, e.Settings.Config, a.Base)
+		if err != nil {
+			return fail(err)
+		}
+		r.ReadRoots = []string{source}
+		r.Dir, err = os.MkdirTemp("", "runner-plan-")
+		if err != nil {
+			return fail(err)
+		}
+		r.Dir, err = filepath.EvalSymlinks(r.Dir)
+		if err != nil {
+			return fail(err)
+		}
+	} else if a.Role == "implementer" {
 		if a.Kind == "repair" {
 			if err := e.git().ValidateCandidate(ctx, t); err != nil {
 				return finished{a, execution.Completion{Stopped: true, Kind: core.Integrity, Error: err.Error()}}
@@ -400,7 +419,7 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 			}
 		}
 		if completion.Result != nil {
-			if err = core.ValidateResult(*completion.Result, r.Proofs); err != nil {
+			if err = core.ValidateRoleResult(a.Role, *completion.Result, r.Proofs); err != nil {
 				completion.Result = nil
 				completion.Error = "invalid result: " + err.Error()
 				completion.Kind = "missing_proof"
@@ -500,6 +519,9 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 	}
 	if a.Quality != e.Settings.Quality.Revision() {
 		return errors.New("saved quality binding changed")
+	}
+	if core.PlanningRole(a.Role) {
+		return advancePlanning(t, a)
 	}
 	if err := core.ValidateResult(*a.Result, required(*t, a.Role)); err != nil {
 		return err

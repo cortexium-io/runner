@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -127,35 +128,40 @@ func TestCorruptStoreIsNotReplacedByOpen(t *testing.T) {
 }
 
 func TestPreviousStoreRequiresFreshStateWithoutModification(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "runner.db")
-	if err := os.WriteFile(path, nil, 0600); err != nil {
-		t.Fatal(err)
-	}
-	old, err := connect(t.Context(), dir, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = old.db.ExecContext(t.Context(), "CREATE TABLE metadata (id INTEGER, format INTEGER); INSERT INTO metadata VALUES(1,1)"); err != nil {
-		t.Fatal(err)
-	}
-	old.Close()
-	before, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, readonly := range []bool{true, false} {
-		s, err := Open(t.Context(), dir, readonly)
-		if err == nil {
-			s.Close()
-			t.Fatal("old state silently converted")
-		}
-	}
-	after, err := os.ReadFile(path)
-	if err != nil || string(before) != string(after) {
-		t.Fatal("old state modified")
+	for _, format := range []int{1, 2} {
+		t.Run(fmt.Sprint(format), func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.Chmod(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "runner.db")
+			if err := os.WriteFile(path, nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+			old, err := connect(t.Context(), dir, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = old.db.ExecContext(t.Context(), fmt.Sprintf("CREATE TABLE metadata (id INTEGER, format INTEGER); INSERT INTO metadata VALUES(1,%d)", format)); err != nil {
+				t.Fatal(err)
+			}
+			old.Close()
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, readonly := range []bool{true, false} {
+				s, err := Open(t.Context(), dir, readonly)
+				if err == nil {
+					s.Close()
+					t.Fatal("old state silently converted")
+				}
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || string(before) != string(after) {
+				t.Fatal("old state modified")
+			}
+
+		})
 	}
 }
