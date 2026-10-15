@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/cortexium-io/runner/internal/runner/config"
@@ -68,7 +69,7 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 		}
 	}
 	if p.MergeDispatch != nil && old.MergeDispatch == nil && (!old.Occupying || !p.Occupying || old.IntegrationRequest == nil || !old.IntegrationRequest.Merge || core.Digest(p.IntegrationRequest) != core.Digest(old.IntegrationRequest)) {
-		return errors.New("merge dispatch requires a reserved explicit request")
+		return errors.New("merge dispatch requires a reserved authorized request")
 	}
 	if d := p.MergeDispatch; d != nil && old.MergeDispatch == nil {
 		if core.Digest(d.Request) != core.Digest(p.IntegrationRequest) || !d.Admission.Eligible || d.Admission.PullRequestID == "" || d.Admission.ProtectionRuleID == "" || d.RequestedAt.IsZero() {
@@ -153,6 +154,14 @@ func (s *Store) SavePublication(ctx context.Context, p core.Publication, claim b
 		}
 		if settings.Config.Delivery.Mode != "github-draft" || settings.Config.Delivery.Repository != p.Intent.Repository || settings.Config.Repository.BaseRef != "refs/heads/"+p.Intent.BaseBranch {
 			return ErrConflict
+		}
+		if r := p.IntegrationRequest; r != nil && r.AutomaticPolicy != "" && old.MergeDispatch == nil {
+			if settings.Config.MergePolicy() != "automatic" {
+				return fmt.Errorf("automatic merge policy is disabled: %w", ErrConflict)
+			}
+			if core.Digest(r) != core.Digest(old.IntegrationRequest) && (r.AutomaticPolicy != settings.Config.Revision() || !old.AutomaticMergeReady(t)) {
+				return ErrConflict
+			}
 		}
 		if claim {
 			if !p.Occupying || (p.State != "running" && !(p.State == "published" && (p.CIRequest != nil || p.IntegrationRequest != nil))) {

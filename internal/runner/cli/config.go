@@ -67,13 +67,15 @@ func (c CLI) configure(ctx context.Context, e *engine.Engine, path string, cfg c
 	if err = e.Store.ApplySettings(ctx, change.AppliedRevision, next); err != nil {
 		return err
 	}
-	fmt.Fprintln(c.Out, "Policy applied. Active attempts and pending retry profiles stay pinned; consumed allowances are retained. New admissions use this policy.")
+	fmt.Fprintln(c.Out, "Policy applied. Active attempts and pending retry profiles stay pinned; consumed allowances are retained. New admissions use this policy; unsent automatic merges require automatic policy to remain enabled.")
 	return nil
 }
 
 func (c CLI) printPolicy(p engine.PolicyChange) {
 	cfg := p.Proposed
-	fmt.Fprintln(c.Out, "Resolved execution policy")
+	fmt.Fprintln(c.Out, "Resolved execution and merge policy")
+	fmt.Fprintf(c.Out, "Merge policy: %s -> %s; applies to existing and future approved work.\n", p.MergePolicyBefore, cfg.MergePolicy())
+	fmt.Fprintln(c.Out, "Automatic policy derives one guarded merge from a ready PR observation; blocked results wait for another observation. No polling or ready-state writes.")
 	fmt.Fprintf(c.Out, "Delivery: %s; destination: %s; base: %s (fixed at initialization)\n", cfg.Delivery.Mode, cfg.Delivery.Repository, cfg.Repository.BaseRef)
 	for _, role := range []string{"planner", "implementer", "reviewer"} {
 		name, profile := cfg.Role(role)
@@ -109,7 +111,7 @@ func (c CLI) printPolicy(p engine.PolicyChange) {
 		}
 	}
 	for _, publication := range p.Publications {
-		fmt.Fprintf(c.Out, "Active publication %s: shares capacity; destination %s; unaffected by this edit\n", publication.Intent.ID, publication.Intent.Repository)
+		fmt.Fprintf(c.Out, "Active publication %s: shares capacity; destination %s; unsent automatic merge rechecks the applied policy\n", publication.Intent.ID, publication.Intent.Repository)
 	}
 	for _, effect := range p.Tasks {
 		fmt.Fprintf(c.Out, "Task %s: consumed %d invocations / %d repairs; remaining %d repairs / %d retries", effect.TaskID, effect.Usage.Invocations, effect.Usage.Repairs, effect.After.RepairsRemaining, effect.After.RetriesRemaining)
@@ -132,16 +134,18 @@ func (c CLI) printPolicy(p engine.PolicyChange) {
 	fmt.Fprintln(c.Out, "Active attempts and pending retries retain their profiles. Counters carry forward; lowering limits never cancels active work.")
 }
 
-const editSettings = `Settings: parallelism, repairs, transient-retries, base-refreshes, invocations (positive number or unlimited),
+const editSettings = `Settings: merge-policy (human or automatic), parallelism, repairs, transient-retries, base-refreshes, invocations (positive number or unlimited),
 implementer, reviewer, planner (profile name; planner also accepts none),
 escalation (comma-separated successor profiles or none),
 profile.NAME (MODEL REASONING TIMEOUT, or remove).
 Example: profile.careful = gpt-6.1-sol high 20m
-Only execution policy changes here; repository, quality and delivery stay explicit.`
+Execution and merge policy change here; repository, quality and delivery destination stay fixed.`
 
 func setSetting(cfg *config.Config, key, value string) error {
 	key, value = strings.TrimSpace(key), strings.TrimSpace(value)
 	switch key {
+	case "merge-policy":
+		cfg.Policy.Merge = value
 	case "parallelism", "repairs", "transient-retries", "base-refreshes", "invocations":
 		if key == "invocations" && value == "unlimited" {
 			cfg.Policy.MaxInvocationsPerTask = nil

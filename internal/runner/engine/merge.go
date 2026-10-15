@@ -30,6 +30,15 @@ func (e *Engine) mergeAuthority(ctx context.Context, p core.Publication) error {
 			if wait := core.PrerequisiteWait(t, tasks); wait != "" {
 				return errors.New(wait)
 			}
+			if p.IntegrationRequest.AutomaticPolicy != "" {
+				settings, _, err := e.Store.Settings(ctx)
+				if err != nil {
+					return err
+				}
+				if settings.Config.MergePolicy() != "automatic" {
+					return errors.New("automatic merge policy is disabled; request a new inspection after enabling it, or use task merge explicitly")
+				}
+			}
 			return ctx.Err()
 		}
 	}
@@ -91,9 +100,11 @@ func (e *Engine) mergeIntegration(ctx context.Context, p *core.Publication, r *c
 	// Persist before sending. Any subsequent restart is observation-only, even
 	// when the process died before reaching the transport or the host rejected it.
 	r.State, r.Detail, r.ObservedAt = "uncertain", "Conditional merge dispatch reserved; outcome requires inspection.", e.now()
+	previous := p.Integration
 	p.MergeDispatch = &core.MergeDispatch{Request: r.Request, Admission: *r.Admission, RequestedAt: r.ObservedAt}
 	p.Integration = r
 	if err = e.savePublication(ctx, p); err != nil {
+		p.MergeDispatch, p.Integration = nil, previous
 		return err
 	}
 	writeErr := e.Merges.Merge(ctx, *p, *r.Admission, authorize)

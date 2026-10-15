@@ -32,8 +32,12 @@ verified base and freshly read pinned CI, then completes tasks and releases depe
 The eighth adds [explicit Runner-owned merge](docs/runner-redesign-proposal.md#using-explicit-runner-owned-merge):
 `task merge` admits one protected ordinary merge of a ready PR and recovers an
 uncertain write through inspection only. Human merge remains the default.
-This build uses store format 12 (earlier formats require fresh state). Local delivery
-still stops at **Awaiting delivery**. Automatic merge policy, merge queues,
+The ninth adds [explicit automatic-merge policy](docs/runner-redesign-proposal.md#using-automatic-merge-policy):
+`merge-policy=automatic` permits one guarded merge after a ready PR observation.
+Human mode remains the default; applying policy covers existing and future approved
+work, and disabling it prevents unsent automatic writes.
+This build uses store format 13 (earlier formats require fresh state). Local delivery
+still stops at **Awaiting delivery**. Ready-state writes, polling, merge queues,
 squash/rebase, ruleset-only guards, release qualification and external views remain pending.
 The documentation below describes the existing
 `cortexium-runner` release.

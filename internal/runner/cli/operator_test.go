@@ -37,6 +37,11 @@ func previewValue(t *testing.T, output, label string) string {
 
 func TestConfigurationEditorPreviewCancellationConflictAndApply(t *testing.T) {
 	_, path, cfg := commandFixture(t)
+	cfg.Delivery.Mode, cfg.Delivery.Repository = "github-draft", "owner/repo"
+	raw, _ := json.Marshal(cfg)
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
 	h := &commandHarness{}
 	run := func(input io.Reader, args ...string) (string, error) {
 		t.Helper()
@@ -58,12 +63,15 @@ func TestConfigurationEditorPreviewCancellationConflictAndApply(t *testing.T) {
 			t.Fatal("preview/cancellation changed file or authority")
 		}
 	}
-	changes := []string{"config", "edit", "--set", "parallelism=2", "--set", "profile.careful=controlled high 2m", "--set", "repairs=1", "--set", "base-refreshes=2", "--set", "escalation=careful", "--set", "planner=build", "--set", "invocations=5"}
+	changes := []string{"config", "edit", "--set", "parallelism=2", "--set", "profile.careful=controlled high 2m", "--set", "repairs=1", "--set", "base-refreshes=2", "--set", "escalation=careful", "--set", "planner=build", "--set", "invocations=5", "--set", "merge-policy=automatic"}
 	out, err := run(nil, changes...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	preview := previewValue(t, out, "Save preview")
+	if !strings.Contains(out, "human -> automatic") || !strings.Contains(out, "existing approved work and future approved work") {
+		t.Fatal("missing automatic authority scope", out)
+	}
 	unchanged()
 	for _, input := range []string{"parallelism\n3\ncancel\n", "parallelism\n3\ndone\nn\n", "parallelism\n3\n"} {
 		if _, err := run(strings.NewReader(input), "config", "edit"); err != nil {
@@ -86,7 +94,7 @@ func TestConfigurationEditorPreviewCancellationConflictAndApply(t *testing.T) {
 		t.Fatal("idle prompt did not cancel", err)
 	}
 	unchanged()
-	for _, bad := range []string{"parallelism=0", "repairs=-1", "base-refreshes=-1", "invocations=0", "profile.build=remove", "profile.new=controlled high bad", "escalation=missing", "repository.path=/tmp/elsewhere", "delivery=github"} {
+	for _, bad := range []string{"merge-policy=unknown", "parallelism=0", "repairs=-1", "base-refreshes=-1", "invocations=0", "profile.build=remove", "profile.new=controlled high bad", "escalation=missing", "repository.path=/tmp/elsewhere", "delivery=github"} {
 		if _, err := run(nil, "config", "edit", "--set", bad, "--save", "--preview", "stale"); err == nil {
 			t.Fatal("invalid setting accepted", bad)
 		}
@@ -143,7 +151,7 @@ func TestConfigurationEditorPreviewCancellationConflictAndApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	var status engine.Status
-	if err = json.Unmarshal([]byte(out), &status); err != nil || status.Parallelism != 2 || !status.Unapplied {
+	if err = json.Unmarshal([]byte(out), &status); err != nil || status.Parallelism != 2 || status.MergePolicy != "automatic" || !status.Unapplied {
 		t.Fatal("save changed running policy", status, err)
 	}
 }

@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first eight phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, and explicit guarded merge. Qualification is recorded below. Automatic merge policy, queues, squash/rebase, ruleset-only guards and release qualification remain pending. Current store format is 12; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Qualification is recorded below. Ready-state writes, polling, queues, squash/rebase, ruleset-only guards and release qualification remain pending. Current store format is 13; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -533,6 +533,8 @@ their own explicit authorization. Escalation alone must not widen filesystem,
 network or tool access. Switching reviewer profiles does not carry acceptance
 across a changed candidate or base. Keep a compact history of applied policy
 revisions so recovery and metrics can explain which settings governed each action.
+The phase 3 [merge policy](#using-automatic-merge-policy) is live permission:
+disabling it prevents unsent automatic merges, including active admission.
 
 ### First slice configuration contract
 
@@ -1633,6 +1635,8 @@ Use the existing format-4 state; this bundle needs no migration or reset.
 below use the same `--config /absolute/runner.json` prefix. The repository-local
 [operator skill](runner-operator/SKILL.md) explains the authorization boundaries;
 it is not installed automatically and is separate from the legacy bundled skills.
+That reference is qualified through the fifth phase 3 bundle; use the later
+[current merge guide](#using-automatic-merge-policy) for integration authority.
 
 `status` groups tasks by what needs attention, rather than printing every attempt.
 It shows actual attempt settings, elapsed time, evidence, remaining allowances
@@ -1664,6 +1668,7 @@ errors discard that edit session; the original file stays available.
 
 | Setting | Value |
 | --- | --- |
+| `merge-policy` | `human` (default) or `automatic` for GitHub delivery; [applying it authorizes existing and future approved work](#using-automatic-merge-policy). |
 | `parallelism` | Integer 1–16. Lowering it does not cancel active work. |
 | `repairs`, `transient-retries` | Nonnegative integer; consumed allowances are retained. |
 | `invocations` | Positive per-task ceiling or `unlimited`. |
@@ -1674,9 +1679,9 @@ errors discard that edit session; the original file stays available.
 The editor starts from a valid configuration file; correct malformed manual edits
 before opening it. The whole proposal must validate, including the installed Codex catalogue.
 Profiles and their references can change together. Repository identity, roots,
-quality agreements and delivery authority are not editor settings. Initial setup
+quality agreements and delivery destination are not editor settings. Initial setup
 still consumes the strict configuration example above; this editor handles
-execution-policy changes to an initialized local setup.
+execution and merge policy changes to an initialized local setup.
 
 The noninteractive equivalent previews first, then saves the exact proposal:
 
@@ -2661,7 +2666,9 @@ runner-next --config /absolute/path/runner.json task show TASK_ID
 runner-next --config /absolute/path/runner.json status
 ```
 
-`task integrate` queues a read; it never requests a merge. It requires the known
+`task integrate` queues a read. With the default human policy it cannot lead to a
+Runner-owned write; with [automatic policy](#using-automatic-merge-policy), a ready
+result may trigger guarded merge admission. It requires the known
 PR, current accepted candidate/base proof and passing pinned CI snapshot. The
 worker re-reads the selected CI commit, imports the configured base and verifies
 the actual merge objects. A deleted source branch is supported. Later base commits
@@ -2802,9 +2809,11 @@ runner-next --config /absolute/path/runner.json task show TASK_ID
 
 The command queues admission; it does not promise that GitHub will accept a merge.
 Runner uses the same coordinator, capacity, drain and repository/base ownership
-as integration inspection. Human merging remains available, and `task integrate`
-still only observes. There is no new configuration key, model profile or retry
-budget. The delivery mode retains its `github-draft` name because publication
+as integration inspection. Human merging remains available. Under the default
+human policy, `task integrate` only observes; the later
+[automatic policy](#using-automatic-merge-policy) can act on its ready result.
+Explicit merging needs no model profile or retry budget.
+The delivery mode retains its `github-draft` name because publication
 still creates drafts; this command separately authorizes integration.
 
 The first execution contract is intentionally narrow: an ordinary merge commit
@@ -2876,11 +2885,148 @@ The complete diff was reviewed and `git diff --check` passed. Qualification logs
 remain locally at `/tmp/runner-merge-*.log`; temporary qualification drivers were
 removed. No paid model evaluation was needed because model behavior is unchanged.
 
-Stop here. Runner-owned execution supports the explicit protected ordinary-merge
-contract above. Live protected merge execution, ready-state writes, automatic
-merge policy, merge queues, ruleset-only guards, squash/rebase receipts, polling,
-post-completion cleanup and platform/release qualification remain unimplemented
-or unqualified as described; none is implied by these checks.
+The eighth bundle stopped at explicit protected ordinary merges. The ninth
+bundle below adds automatic local policy; live protected merge execution,
+ready-state writes, queues, ruleset-only guards, squash/rebase, polling, cleanup
+and platform/release qualification remain outside that qualification.
+
+### Phase 3, ninth bundle: explicit automatic-merge policy
+
+**Implementation and verification brief (2026-10-15, before code).** Add one
+live repository policy, `policy.merge: "human" | "automatic"`; omission means
+human. Expose it as `config edit --set merge-policy=automatic` through the existing
+preview/save/explain/apply flow. Applying automatic explicitly authorizes guarded
+merge admission for existing approved work and future work in this configured
+repository/base. Preview must explain that effect; saving a file alone grants
+nothing. This policy does not approve tasks or change their proof requirements.
+
+- Derive one automatic merge request from a current successful integration
+  observation of the exact open **ready** PR, with current accepted candidate,
+  base proof and passed pinned CI, and no consumed merge dispatch. Existing CI
+  success still schedules one observation. After a human marks ready or resolves
+  a host requirement, `task integrate ID` requests another observation; enabled
+  policy may then derive a merge. Status/show never trigger work.
+- Record the applied policy revision on automatic requests and immutable dispatch
+  evidence. Reuse the existing coordinator, repository/base reservation, global
+  capacity, drain, protected-host admission, conditional ordinary merge and exact
+  receipt. Explicit `task merge` remains available under either policy. Never
+  override an explicit request or replay a consumed write.
+- Recheck the authoritative policy when queuing, claiming, recording dispatch and
+  immediately before sending. Switching to human cancels queued automatic requests
+  and prevents an admitted but unsent automatic write. A sent or ambiguously sent
+  write still needs inspection and may complete through its exact receipt, even
+  after disabling the policy. Graceful drain preserves its existing admission
+  semantics; task/parent stop and replacement retain their existing revocation.
+- No recurring retries or polling: an automatic admission result cannot trigger
+  itself. A blocked/unavailable/stale attempt requires a fresh explicit observation
+  or newly passed CI evidence. Unrelated policy edits, restart and off/on toggles
+  cannot erase a recorded attempt or reset consumed dispatch. An unsent request
+  interrupted while policy remains enabled may resume its admission.
+- Keep human mode as the default and local delivery unchanged; reject automatic
+  policy in local delivery mode. Explain resolved policy and queued/manual/automatic/
+  disabled/consumed states in config, status, show and JSON. Store format 13
+  deliberately requires fresh state; no migration of in-flight merge authority.
+
+Extend the existing merge journey for default behavior, explicit policy enable,
+ready/draft observations, bounded automatic admission, restart, disable between
+queue/claim/dispatch, and receipt recovery after disable. Reuse receipt, host
+protection, serialization, dependencies and explicit merge coverage. Extend owning
+config/editor tests for validation, preview/save/apply and read-only inspection.
+Exercise the built CLI with real Git/SQLite and controlled host observations.
+No new host API or role prompt: existing adapter qualification remains applicable;
+no live remote write or paid model evaluation is needed. Run the full race suite
+with the established 15-minute package budget, vet, build and complete diff review.
+Stop after this explicit local policy. Ready writes, remote polling/events,
+GitHub auto-merge/queues, ruleset-only guards, squash/rebase and release work remain
+separate boundaries. Do not enable automatic merging in this development repo.
+
+### Using automatic-merge policy
+
+Human merge remains the default when `policy.merge` is omitted or `"human"`.
+`task merge ID` still explicitly authorizes one protected ordinary merge in either
+mode. To allow Runner to derive that request, use the existing configuration flow:
+
+```sh
+runner-next --config /absolute/path/runner.json config edit --set merge-policy=automatic
+runner-next --config /absolute/path/runner.json config edit --set merge-policy=automatic --save --preview SAVE_DIGEST
+runner-next --config /absolute/path/runner.json config explain
+runner-next --config /absolute/path/runner.json config apply --preview APPLY_DIGEST
+runner-next --config /absolute/path/runner.json status
+```
+
+Use the digests displayed by the preceding commands. Saving edits only the file;
+applying grants automatic merge authority for **existing and future approved
+work** in the configured repository/base. The initialization preview also shows
+the resolved policy if it is supplied in a new configuration. Automatic policy
+requires `github-draft` delivery and does not grant task approval, ready PRs or
+relax proof or host protection requirements. `status` and `task show` display the
+applied mode, even when a saved file is different, and never start work.
+
+The coordinator derives one request from a current observation of a ready PR.
+Passing CI still triggers one integration observation; a draft waits. After
+marking the PR ready or resolving a host requirement, request a new observation:
+
+```sh
+runner-next --config /absolute/path/runner.json task integrate TASK_ID
+runner-next --config /absolute/path/runner.json run # if absent or drained
+runner-next --config /absolute/path/runner.json task show TASK_ID
+```
+
+**With automatic policy enabled, that ready observation can lead to a merge.**
+Runner reuses the [protected ordinary-merge contract](#using-explicit-runner-owned-merge),
+including fresh base/CI/host checks, serialized repository/base admission and the
+exact merge receipt. The host's normal merge protection remains authoritative.
+Automatic policy does not create a GitHub auto-merge request or merge queue entry.
+There is no background polling or extra model, repair or retry allowance.
+
+| State | Behavior and next action |
+| --- | --- |
+| Ready observation awaiting admission | Run the coordinator if absent or drained. Current policy and all merge requirements will be checked again. |
+| Closed without merge | Inspect the closed PR and revise or stop the task. It cannot complete or start automatic merge. |
+| Draft, blocked, stale or unavailable | Resolve the reported cause. Return a stale PR to draft and refresh its base/CI first. Use `task integrate ID` for a new observation; restart or a policy toggle does not retry a recorded merge assessment. |
+| Queued automatic request | The request retains its originating policy revision. Current enabled policy is still required at claim, durable dispatch and immediately before sending. Unrelated configuration changes preserve that origin. |
+| Automatic policy disabled | Use the same edit/save/explain/apply flow with `merge-policy=human`. The coordinator cancels queued unsent automatic requests and refuses unsent active automatic writes. Explicit `task merge` authority remains valid. |
+| Dispatch consumed | The same publication can never send another merge write. Use `task integrate ID` to inspect; disabling policy cannot undo an already-sent effect or prevent an exact receipt from completing authorized work. |
+
+An explicit `task merge` can replace queued automatic authority before it is
+claimed. It cannot authorize another write after dispatch. A stopped or replaced
+task retains the existing revocation rules. Drain stops new admission and allows
+active work to settle; use human policy to disable unsent automatic writes.
+
+This build uses store format 13. Preserve an older store with its matching binary
+and initialize fresh private state; no in-flight merge authority is imported.
+The development repository's own configuration has not been switched to automatic.
+Ready-state writes, polling/events, host auto-merge/queues, ruleset-only admission,
+squash/rebase, cleanup and release qualification remain separate work.
+
+### Automatic-merge policy qualification
+
+Implemented on 2026-10-15. The brief above preceded code. Automatic merging uses
+the existing publication record, coordinator, transaction and merge adapter; no
+new scheduler, adapter API, dependency or role prompt was introduced.
+
+| Evidence | Result |
+| --- | --- |
+| Configuration/editor | Omitted policy resolves to human. Unknown modes and automatic/local combinations fail. The existing preview/cancel/conflict/save/apply journey now checks merge authority scope and preserves the distinction between saved configuration and applied policy. |
+| Real Git/SQLite merge journey | Existing approved work becomes eligible only after applying automatic policy and observing a ready PR. Draft/closed observations cannot authorize merging. A blocked assessment survives restart and off/on toggles without retry; a fresh explicit observation permits another bounded admission. Exact completion retains model/repair consumption. |
+| Live permission and recovery | Queue claims and dispatch persistence reject disabled policy. Active admission and the final transport callback refuse an unsent automatic write after disablement. Interrupted unsent admission resumes only under enabled policy. Already-recorded dispatch can confirm a receipt under human mode without replaying the write. An explicit request can replace queued automatic authority. |
+| Shared guarantees | Existing merge/integration coverage owns protected host admission, fresh base/CI, capacity/drain, repository/base serialization, task/parent revocation and exact receipt/dependency completion. No duplicate adapter or reservation test framework was added. |
+| Built binary | 21 commands exercised initialization display, preview/save/apply, human/JSON status, queued automatic authority, disable/cancel, off/on without retry, explicit observation and confirmed completion. Execution used real Git/SQLite and controlled host observations, with one simulated merge. Native Codex capability validation used the user-selected `gpt-6.1-sol / high`; no model was invoked. |
+
+The full `go test -race -timeout 15m ./...` passed (replacement engine about
+643 seconds), as did `go vet ./...` and
+`go build -o /tmp/runner-next-auto ./cmd/runner-next`, on Go 1.27.1/macOS arm64
+and Git 2.54.0. The fifteen-minute package budget is unchanged from the previous
+bundles. Final review corrected waiting-work grouping and closed-PR advice, verified
+by the affected merge journeys and CLI race suite; final vet and build also passed. The complete
+diff was reviewed and `git diff --check` passed. Qualification logs remain locally
+at `/tmp/runner-auto-*.log`; the temporary CLI driver is not shipped.
+
+No live remote merge was performed, and automatic policy was not enabled for the
+development repository. The previous bundle's host contract and live-execution
+limitation still apply. Stop at explicit automatic local policy: ready-state
+writes, remote polling/events, GitHub auto-merge/queues, ruleset-only guards,
+squash/rebase, cleanup and platform/release qualification remain separate work.
 
 ### Simple upgrade or deliberate break
 

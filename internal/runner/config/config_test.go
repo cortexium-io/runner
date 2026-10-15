@@ -29,6 +29,9 @@ func TestPublishedConfigAndUnsupportedControls(t *testing.T) {
 	if e := Decode(raw, &c); e != nil {
 		t.Fatal(e)
 	}
+	if c.MergePolicy() != "human" {
+		t.Fatal("default merge policy must be human")
+	}
 	if e := c.Validate(); e != nil {
 		t.Fatal(e)
 	}
@@ -91,6 +94,14 @@ func TestReadyPolicyLimitsAndEscalation(t *testing.T) {
 		{"successor repeated", func(c *Config) { c.Policy.ImplementationLadder = []string{"review", "review"} }, false},
 		{"positive ceiling", func(c *Config) { n := 3; c.Policy.MaxInvocationsPerTask = &n }, true},
 		{"optional planner", func(c *Config) { c.Roles["planner"] = "build" }, true},
+		{"human merge", func(c *Config) { c.Policy.Merge = "human" }, true},
+		{"automatic merge", func(c *Config) {
+			c.Policy.Merge = "automatic"
+			c.Delivery.Mode = "github-draft"
+			c.Delivery.Repository = "owner/repo"
+		}, true},
+		{"automatic local merge", func(c *Config) { c.Policy.Merge = "automatic" }, false},
+		{"unknown merge policy", func(c *Config) { c.Policy.Merge = "auto" }, false},
 		{"draft publication", func(c *Config) { c.Delivery.Mode = "github-draft"; c.Delivery.Repository = "owner/repo" }, true},
 		{"missing destination", func(c *Config) { c.Delivery.Mode = "github-draft" }, false},
 		{"destination injection", func(c *Config) { c.Delivery.Mode = "github-draft"; c.Delivery.Repository = "owner/repo?token=x" }, false},

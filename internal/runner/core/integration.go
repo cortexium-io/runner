@@ -2,11 +2,13 @@ package core
 
 import "time"
 
-// IntegrationRequest pins exact evidence. Merge is explicit one-shot operator authority.
+// IntegrationRequest pins exact evidence. Merge is authorized by an operator
+// request or the explicitly applied automatic policy.
 type IntegrationRequest struct {
-	Merge    bool      `json:"merge,omitempty"`
-	Proof    BaseProof `json:"base_proof"`
-	CIDigest string    `json:"ci_digest"`
+	AutomaticPolicy string    `json:"automatic_policy,omitempty"` // origin revision, empty for explicit commands
+	Merge           bool      `json:"merge,omitempty"`
+	Proof           BaseProof `json:"base_proof"`
+	CIDigest        string    `json:"ci_digest"`
 }
 
 type IntegrationObservation struct {
@@ -62,5 +64,17 @@ func (p Publication) CanInspectIntegration(t Task) bool {
 }
 
 func (r IntegrationRequest) Matches(t Task, p Publication) bool {
-	return p.CanInspectIntegration(t) && Digest(r.Proof) == Digest(t.BaseProof) && r.CIDigest == Digest(p.CI)
+	return (r.AutomaticPolicy == "" || r.Merge) && p.CanInspectIntegration(t) && Digest(r.Proof) == Digest(t.BaseProof) && r.CIDigest == Digest(p.CI)
+}
+
+// AutomaticMergeReady consumes an observation, never another merge assessment.
+// New CI evidence or an explicit inspection supplies the next bounded trigger.
+func (p Publication) AutomaticMergeReady(t Task) bool {
+	r := p.Integration
+	if p.State != "published" || p.Occupying || p.IntegrationRequest != nil || p.MergeDispatch != nil || r == nil || r.Request.Merge || r.State != "open" || !r.Request.Matches(t, p) || r.Observation == nil {
+		return false
+	}
+	o := r.Observation
+	return !o.Remote.Draft && o.Remote.State == "OPEN" && o.Base == r.Request.Proof.Base &&
+		o.Remote.Number == p.Observation.Number && o.Remote.URL == p.Observation.URL && o.Remote.BranchCommit == p.Intent.Candidate.Commit
 }

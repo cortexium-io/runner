@@ -22,6 +22,7 @@ type Repository struct {
 	BaseFreshness string `json:"base_freshness"`
 }
 type Policy struct {
+	Merge                 string   `json:"merge,omitempty"`
 	MaxParallelism        int      `json:"max_parallelism"`
 	MaxRepairs            int      `json:"max_repairs"`
 	MaxTransientRetries   int      `json:"max_transient_retries"`
@@ -82,6 +83,12 @@ func (c Config) Validate() error {
 	}
 	if c.Delivery.Mode == "local" && c.Delivery.Repository != "" || c.Delivery.Mode == "github-draft" && !ValidRepository(c.Delivery.Repository) {
 		return errors.New("github-draft requires an explicit OWNER/REPO destination; local delivery has no remote destination")
+	}
+	if c.MergePolicy() != "human" && c.MergePolicy() != "automatic" {
+		return errors.New("merge policy must be human or automatic")
+	}
+	if c.MergePolicy() == "automatic" && c.Delivery.Mode != "github-draft" {
+		return errors.New("automatic merge requires github-draft delivery")
 	}
 	if c.Policy.MaxParallelism < 1 || c.Policy.MaxParallelism > 16 || c.Policy.MaxRepairs < 0 || c.Policy.MaxTransientRetries < 0 || c.Policy.MaxBaseRefreshes < 0 {
 		return errors.New("parallelism must be 1–16; repair/retry/base-refresh limits must be nonnegative")
@@ -155,6 +162,15 @@ func Within(path, root string) bool {
 	r, e := filepath.Rel(root, path)
 	return e == nil && (r == "." || (!strings.HasPrefix(r, ".."+string(filepath.Separator)) && r != ".."))
 }
+
+// MergePolicy resolves the safe default without silently rewriting file contents.
+func (c Config) MergePolicy() string {
+	if c.Policy.Merge == "" {
+		return "human"
+	}
+	return c.Policy.Merge
+}
+
 func (c Config) Revision() string { return core.Digest(c) }
 func (c Config) Role(role string) (string, core.Profile) {
 	if role == "audit" || role == "verify" {

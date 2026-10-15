@@ -59,6 +59,7 @@ func (c CLI) printStatus(s engine.Status) {
 		owner = "running"
 	}
 	fmt.Fprintf(c.Out, "%s — coordinator %s; drained=%t; reservations=%d/%d\n", s.ObservedAt.Format(time.RFC3339), owner, s.Drained, s.Occupied, s.Parallelism)
+	fmt.Fprintln(c.Out, "Merge policy:", s.MergePolicy)
 	if s.Unapplied {
 		fmt.Fprintln(c.Out, "Configuration has unapplied edits: config explain, then config apply --preview DIGEST.")
 	}
@@ -113,7 +114,7 @@ task resume ID --attempt ID [--allow-new-invocation]
 task delivery ID --reconcile          Inspect and safely continue draft publication/synchronization.
 task verify-base ID                  Inspect current base; refresh or queue bounded conflict repair.
 task assess-ci ID                    Observe pinned hosted checks for the confirmed draft.
-task integrate ID                    Inspect the known PR for a confirmed merge (read-only).
+task integrate ID                    Observe the known PR; automatic policy may act on a ready result.
 task merge ID                        Authorize one guarded ordinary merge of a ready PR.
 task stop ID                         Revoke authority; retain work and evidence.
 status [--json] [--watch 2s]          Read-only attention, work, waits and retained results.
@@ -129,5 +130,6 @@ Use COMMAND --help for flags. Status and show never start work. Local delivery
 retains an accepted candidate at Awaiting delivery. task integrate ID inspects
 an ordinary merge of the exact verified candidate. task merge ID explicitly
 authorizes one guarded merge of a ready PR; recovery never repeats that write.
-Confirmed integration completes the task and releases dependent work.`)
+Applied merge-policy=automatic may derive a merge from a ready PR observation.
+Status/show never start work. Confirmed integration releases dependent work.`)
 }

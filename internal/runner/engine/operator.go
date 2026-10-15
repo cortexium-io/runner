@@ -20,6 +20,7 @@ type Recovery struct {
 }
 
 type Status struct {
+	MergePolicy       string    `json:"merge_policy"`
 	ObservedAt        time.Time `json:"observed_at"`
 	Running           bool      `json:"coordinator_running"`
 	Drained           bool      `json:"drained"`
@@ -51,7 +52,7 @@ func (e *Engine) Status(ctx context.Context, file config.Config) (Status, error)
 	if err != nil {
 		return Status{}, err
 	}
-	out := Status{ObservedAt: e.now(), Running: running, Drained: drained, Unapplied: file.Revision() != s.Config.Revision(), QualityConfigured: s.Quality.Revision() != "", Parallelism: s.Config.Policy.MaxParallelism, Tasks: []View{}}
+	out := Status{MergePolicy: s.Config.MergePolicy(), ObservedAt: e.now(), Running: running, Drained: drained, Unapplied: file.Revision() != s.Config.Revision(), QualityConfigured: s.Quality.Revision() != "", Parallelism: s.Config.Policy.MaxParallelism, Tasks: []View{}}
 	tasks, err := e.Store.Tasks(ctx)
 	if err != nil {
 		return out, err
@@ -118,6 +119,12 @@ func describeView(v *View, running bool, now time.Time) {
 				v.Group, v.Summary = "Working", "inspecting integration"
 				if p.IntegrationRequest.Merge && p.MergeDispatch == nil {
 					v.Summary = "admitting explicit merge"
+					if p.IntegrationRequest.AutomaticPolicy != "" {
+						v.Summary = "admitting automatic merge"
+					}
+					if p.IntegrationRequest.AutomaticPolicy != "" && v.MergePolicy != "automatic" {
+						v.Summary = "automatic merge disabled; unsent write will be refused"
+					}
 				}
 				v.NextAction = "wait for the merge observation; " + show + " retains evidence"
 				if v.CancellationPending {
@@ -401,17 +408,23 @@ func describeCI(v *View, p core.Publication, running bool) {
 	v.Summary += "; " + p.CI.Detail
 }
 
-// Integration and explicit merge are bounded operations; neither polls.
+// Integration and authorized merge are bounded operations; neither polls.
 func describeIntegration(v *View, p core.Publication, running bool) bool {
 	if !p.CanInspectIntegration(v.Task) {
 		return false
 	}
-	v.Group, v.Summary = "Needs you", "CI passed; human integration awaits inspection"
+	v.Group, v.Summary = "Needs you", "CI passed; integration awaits inspection"
 	v.NextAction = "task integrate " + v.Task.ID + "; run if absent or drained"
 	if p.IntegrationRequest != nil {
 		v.Summary = "integration inspection queued"
 		if p.IntegrationRequest.Merge && p.MergeDispatch == nil {
 			v.Summary = "explicit merge queued; live admission required"
+			if p.IntegrationRequest.AutomaticPolicy != "" {
+				v.Summary = "automatic merge queued; live policy and host admission required"
+			}
+			if p.IntegrationRequest.AutomaticPolicy != "" && v.MergePolicy != "automatic" {
+				v.Summary = "automatic merge disabled; queued request will be cancelled"
+			}
 		}
 		if p.Occupying {
 			v.Summary += "; running"
@@ -427,6 +440,19 @@ func describeIntegration(v *View, p core.Publication, running bool) bool {
 		}
 		if r.Request.Merge && r.State == "blocked" && p.MergeDispatch == nil {
 			v.NextAction = "resolve admission details; task merge " + v.Task.ID + " retries admission; run if absent or drained"
+		}
+		if v.MergePolicy == "automatic" && p.MergeDispatch == nil {
+			v.NextAction = "resolve host requirements and mark ready, then task integrate " + v.Task.ID + "; a ready observation can trigger automatic merge; run if absent or drained"
+			if p.AutomaticMergeReady(v.Task) {
+				v.Summary = "automatic merge awaits admission after ready PR observation"
+				if running {
+					v.Group = "Waiting"
+				}
+				v.NextAction = "run if absent or drained; live policy, host, base and CI will be rechecked"
+			}
+		}
+		if r.State == "closed" {
+			v.NextAction = "inspect the closed PR on GitHub; revise or stop task " + v.Task.ID
 		}
 		if r.State == "stale" {
 			v.NextAction = "return PR to draft; task verify-base " + v.Task.ID + "; then run"

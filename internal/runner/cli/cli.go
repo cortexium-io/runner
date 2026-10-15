@@ -288,7 +288,7 @@ func (c CLI) printView(v engine.View, full bool) {
 	t := v.Task
 	fmt.Fprintf(c.Out, "%s v%d — %s\n%s\n%s\nNext: %s\n", t.ID, t.Current().Number, t.Stage, engine.TaskTitle(t), v.Summary, v.NextAction)
 	if v.DeliveryDestination != "" {
-		fmt.Fprintln(c.Out, "Configured delivery destination:", v.DeliveryDestination, "(Runner does not request merges)")
+		fmt.Fprintln(c.Out, "Configured delivery destination:", v.DeliveryDestination, "; merge policy:", v.MergePolicy)
 	}
 	if v.Recovery != nil {
 		fmt.Fprintf(c.Out, "Recovery role: %s\nPreserved: %s\nRepeats: %s\n", v.Recovery.Role, v.Recovery.Preserved, v.Recovery.Repeats)
@@ -367,12 +367,19 @@ func (c CLI) printView(v engine.View, full bool) {
 
 		if p.IntegrationRequest != nil {
 			if p.IntegrationRequest.Merge && p.MergeDispatch == nil {
-				fmt.Fprintln(c.Out, "Explicit merge queued or running; live admission required before one conditional write.")
+				if p.IntegrationRequest.AutomaticPolicy != "" {
+					fmt.Fprintln(c.Out, "Automatic merge queued or running under policy revision", p.IntegrationRequest.AutomaticPolicy, "; live policy and host admission required.")
+				} else {
+					fmt.Fprintln(c.Out, "Explicit merge queued or running; live admission required before one conditional write.")
+				}
 			} else {
-				fmt.Fprintln(c.Out, "Integration inspection queued or running; no remote merge will be requested.")
+				fmt.Fprintln(c.Out, "Integration observation queued or running; enabled automatic policy may act on a ready result. Consumed dispatches cannot repeat.")
 			}
 		}
 		if p.MergeDispatch != nil {
+			if p.MergeDispatch.Request.AutomaticPolicy != "" {
+				fmt.Fprintln(c.Out, "Automatic merge policy origin:", p.MergeDispatch.Request.AutomaticPolicy)
+			}
 			fmt.Fprintf(c.Out, "Merge dispatch consumed at %s under protection %s; recovery inspects only and never repeats the write.\n", p.MergeDispatch.RequestedAt.Format(time.RFC3339), p.MergeDispatch.Admission.ProtectionRuleID)
 		}
 		if r := p.Integration; r != nil {

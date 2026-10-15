@@ -73,6 +73,7 @@ func (e *Engine) Add(ctx context.Context, body string) (core.Task, error) {
 }
 
 type View struct {
+	MergePolicy            string             `json:"merge_policy"`
 	DeliveryDestination    string             `json:"delivery_destination,omitempty"`
 	Publications           []core.Publication `json:"publications"`
 	Group                  string             `json:"group"`
@@ -113,7 +114,7 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	view := View{CurrentQuality: settings.Quality.Revision(), Task: t, Attempts: attempts}
+	view := View{MergePolicy: settings.Config.MergePolicy(), CurrentQuality: settings.Quality.Revision(), Task: t, Attempts: attempts}
 	view.DeliveryDestination = settings.Config.Delivery.Repository
 	publications, err := e.Store.Publications(ctx, "")
 	if err != nil {

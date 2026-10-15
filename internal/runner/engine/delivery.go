@@ -68,6 +68,10 @@ func (e *Engine) savePublication(ctx context.Context, p *core.Publication) error
 }
 
 func (e *Engine) preparePublications(ctx context.Context, active map[string]*activePublication) error {
+	settings, _, err := e.Store.Settings(ctx)
+	if err != nil {
+		return err
+	}
 	all, err := e.Store.Publications(ctx, "")
 	if err != nil {
 		return err
@@ -84,6 +88,9 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 			p.State, p.Detail, p.Occupying = "revoked", "Authority revoked; any already-sent remote effect is retained and is not undone.", false
 			p.CIRequest, p.IntegrationRequest = nil, nil
 		} else if p.IntegrationRequest != nil && !p.IntegrationRequest.Matches(t, p) {
+			p.IntegrationRequest, p.Occupying = nil, false
+		} else if r := p.IntegrationRequest; r != nil && r.AutomaticPolicy != "" && p.MergeDispatch == nil && settings.Config.MergePolicy() != "automatic" {
+			p.Integration = &core.IntegrationAssessment{Request: *r, State: "blocked", Detail: "Automatic merge disabled; request a new inspection after enabling policy, or use task merge for explicit authority.", ObservedAt: e.now()}
 			p.IntegrationRequest, p.Occupying = nil, false
 		} else if p.CIRequest != nil && (!p.CanAssessCI(t) || core.Digest(p.CIRequest) != core.Digest(t.BaseProof)) {
 			p.CIRequest, p.Occupying = nil, false
@@ -127,6 +134,12 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 					if err = e.savePublication(ctx, previous); err != nil && !errors.Is(err, store.ErrConflict) {
 						return err
 					}
+				}
+			}
+			if settings.Config.MergePolicy() == "automatic" && previous.AutomaticMergeReady(t) {
+				previous.IntegrationRequest = &core.IntegrationRequest{Merge: true, AutomaticPolicy: settings.Config.Revision(), Proof: *t.BaseProof, CIDigest: core.Digest(previous.CI)}
+				if err = e.savePublication(ctx, previous); err != nil && !errors.Is(err, store.ErrConflict) {
+					return err
 				}
 			}
 			if previous.State != "published" || previous.Occupying || previous.Intent.Candidate == *t.Candidate || t.BaseProof == nil || !t.BaseProof.Matches(t) || t.NextRole != "" {

@@ -132,13 +132,14 @@ func retryDelay(number int) time.Duration {
 }
 
 type PolicyChange struct {
-	Publications    []core.Publication `json:"active_publications"`
-	Preview         string             `json:"apply_preview"`
-	AppliedRevision string             `json:"applied_revision"`
-	Proposed        config.Config      `json:"proposed"`
-	Active          []core.Attempt     `json:"active_pinned_attempts"`
-	Tasks           []PolicyEffect     `json:"task_effects"`
-	Warnings        []string           `json:"warnings"`
+	MergePolicyBefore string             `json:"merge_policy_before"`
+	Publications      []core.Publication `json:"active_publications"`
+	Preview           string             `json:"apply_preview"`
+	AppliedRevision   string             `json:"applied_revision"`
+	Proposed          config.Config      `json:"proposed"`
+	Active            []core.Attempt     `json:"active_pinned_attempts"`
+	Tasks             []PolicyEffect     `json:"task_effects"`
+	Warnings          []string           `json:"warnings"`
 }
 type PolicyEffect struct {
 	TaskID string      `json:"task_id"`
@@ -158,7 +159,7 @@ func (e *Engine) PreviewPolicy(ctx context.Context, proposed config.Config) (Pol
 		return PolicyChange{}, err
 	}
 	if !config.SameAuthority(current, next) {
-		return PolicyChange{}, fmt.Errorf("only execution policy and profiles can change; repository and quality authority must remain unchanged")
+		return PolicyChange{}, fmt.Errorf("only execution/merge policy and profiles can change; repository and quality authority must remain unchanged")
 	}
 	attempts, err := e.Store.Attempts(ctx, "")
 	if err != nil {
@@ -172,7 +173,14 @@ func (e *Engine) PreviewPolicy(ctx context.Context, proposed config.Config) (Pol
 	if err != nil {
 		return PolicyChange{}, err
 	}
-	result := PolicyChange{Preview: core.Digest([]string{current.Config.Revision(), proposed.Revision()}), AppliedRevision: current.Config.Revision(), Proposed: proposed, Active: []core.Attempt{}, Tasks: []PolicyEffect{}, Warnings: []string{}}
+	result := PolicyChange{MergePolicyBefore: current.Config.MergePolicy(), Preview: core.Digest([]string{current.Config.Revision(), proposed.Revision()}), AppliedRevision: current.Config.Revision(), Proposed: proposed, Active: []core.Attempt{}, Tasks: []PolicyEffect{}, Warnings: []string{}}
+	if current.Config.MergePolicy() != proposed.MergePolicy() {
+		if proposed.MergePolicy() == "automatic" {
+			result.Warnings = append(result.Warnings, "Applying automatic merge authorizes existing approved work and future approved work in this repository/base. A ready PR observation may trigger one guarded merge; task approval and every proof remain required.")
+		} else {
+			result.Warnings = append(result.Warnings, "Applying human merge prevents unsent automatic writes. Explicit task merge requests remain authorized; already-dispatched merges can still complete through inspection.")
+		}
+	}
 	for _, p := range publications {
 		if p.Occupying {
 			result.Publications = append(result.Publications, p)

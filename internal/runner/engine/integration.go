@@ -47,7 +47,7 @@ func (e *Engine) requestIntegration(ctx context.Context, id string, merge bool) 
 	if merge && p.MergeDispatch != nil {
 		return errors.New("merge was already dispatched; task integrate inspects the outcome without repeating the write")
 	}
-	if p.IntegrationRequest != nil && (!merge || p.IntegrationRequest.Merge) {
+	if p.IntegrationRequest != nil && (!merge || p.IntegrationRequest.Merge && p.IntegrationRequest.AutomaticPolicy == "") {
 		return nil
 	}
 	p.State = "published"
@@ -98,7 +98,7 @@ func (e *Engine) readIntegration(ctx context.Context, p core.Publication, r *cor
 	}
 	switch o.Remote.State {
 	case "OPEN":
-		r.State, r.Detail = "open", "Human merge pending. Follow GitHub's review/protection workflow, then request task integrate again; this observation is not merge permission."
+		r.State, r.Detail = "open", "PR remains open. Follow GitHub's review/protection workflow; applied automatic policy may admit a ready PR, otherwise use task merge or merge on GitHub and inspect again."
 		if o.Base != r.Request.Proof.Base {
 			r.State, r.Detail = "stale", "Open PR base moved; return the PR to draft if needed, then task verify-base before refreshing CI and integration proof."
 		}

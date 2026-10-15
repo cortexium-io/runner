@@ -18,11 +18,11 @@ Use these sources in descending order of authority:
 The accepted replacement direction is [ADR 0005](docs/decisions/0005-local-runner-core.md).
 Its build specification and designated implementation sequence are in the
 [core redesign plan](docs/runner-redesign-proposal.md). Phases 1 and 2, including
-the local operator interface, and the first eight phase 3 bundles (draft publication,
+the local operator interface, and the first nine phase 3 bundles (draft publication,
 current-base verification and bounded refresh, remote draft synchronization, CI
 assessment, bounded CI repair, bounded text conflict repair, confirmed human
-integration and explicit guarded merge) are implemented in
-`cmd/runner-next`; their qualification and remaining delivery/release boundaries are recorded in that
+integration, explicit guarded merge and explicit automatic-merge policy) are
+implemented in `cmd/runner-next`; their qualification and remaining delivery/release boundaries are recorded in that
 plan. Continue from that evidence only when the next implementation is
 authorized, not from a separate task ledger.
 `docs/architecture.md` and the existing operator guides describe the current
