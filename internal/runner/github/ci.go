@@ -12,7 +12,7 @@ import (
 )
 
 const checkCommitFields = `fragment CheckCommit on Commit {oid parents(first:2){totalCount nodes{oid}} statusCheckRollup{commit{oid} contexts(first:100){totalCount pageInfo{hasNextPage} nodes{__typename ... on CheckRun {name status conclusion detailsUrl checkSuite{app{databaseId} commit{oid}}} ... on StatusContext {context state targetUrl commit{oid}}}}}}`
-const ciQuery = `query($owner:String!,$repo:String!,$branch:String!,$ref:String!,$commit:GitObjectID!){repository(owner:$owner,name:$repo){nameWithOwner ref(qualifiedName:$ref){target{oid}} candidate:object(oid:$commit){...CheckCommit} pullRequests(headRefName:$branch,first:2,states:[OPEN,CLOSED,MERGED]){nodes{` + publicationFields + ` baseRefOid potentialMergeCommit{...CheckCommit}} pageInfo{hasNextPage}}}} ` + checkCommitFields
+const ciQuery = `query($owner:String!,$repo:String!,$branch:String!,$ref:String!,$commit:GitObjectID!){repository(owner:$owner,name:$repo){nameWithOwner ref(qualifiedName:$ref){target{oid}} candidate:object(oid:$commit){...CheckCommit} pullRequests(headRefName:$branch,first:2,states:[OPEN,CLOSED,MERGED]){nodes{` + publicationFields + currentBaseFields + ` potentialMergeCommit{...CheckCommit}} pageInfo{hasNextPage}}}} ` + checkCommitFields
 
 type checkCommit struct {
 	OID     string
@@ -37,21 +37,21 @@ func (h Host) ObserveCI(ctx context.Context, p core.PublicationIntent) (core.CIO
 		return observation, errors.New("CI requires the exact open draft and candidate head")
 	}
 	pr := r.PullRequests.Nodes[0]
-	if pr.HeadRefOid != p.Candidate.Commit || pr.BaseRefOid == "" || r.Candidate == nil || r.Candidate.OID != p.Candidate.Commit || len(pr.PotentialMergeCommit) == 0 {
+	if pr.HeadRefOid != p.Candidate.Commit || pr.currentBase() == "" || r.Candidate == nil || r.Candidate.OID != p.Candidate.Commit || len(pr.PotentialMergeCommit) == 0 {
 		return observation, errors.New("CI commit/base observation is incomplete")
 	}
 	head, err := r.Candidate.checks()
 	if err != nil {
 		return observation, err
 	}
-	observation = core.CIObservation{Remote: remote, Base: pr.BaseRefOid, Commit: p.Candidate.Commit, Source: "head", Checks: head}
+	observation = core.CIObservation{Remote: remote, Base: pr.currentBase(), Commit: p.Candidate.Commit, Source: "head", Checks: head}
 	if string(pr.PotentialMergeCommit) != "null" {
 		var merge checkCommit
 		if err = json.Unmarshal(pr.PotentialMergeCommit, &merge); err != nil {
 			return observation, errors.New("invalid test merge commit observation")
 		}
 		if merge.OID == "" || merge.Parents == nil || merge.Parents.TotalCount != 2 || len(merge.Parents.Nodes) != 2 ||
-			!((merge.Parents.Nodes[0].OID == pr.BaseRefOid && merge.Parents.Nodes[1].OID == p.Candidate.Commit) || (merge.Parents.Nodes[1].OID == pr.BaseRefOid && merge.Parents.Nodes[0].OID == p.Candidate.Commit)) {
+			!((merge.Parents.Nodes[0].OID == pr.currentBase() && merge.Parents.Nodes[1].OID == p.Candidate.Commit) || (merge.Parents.Nodes[1].OID == pr.currentBase() && merge.Parents.Nodes[0].OID == p.Candidate.Commit)) {
 			return observation, errors.New("test merge commit does not bind the observed base and candidate")
 		}
 		checks, err := merge.checks()

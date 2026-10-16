@@ -11,7 +11,7 @@ import (
 // Use the protection attached to the actual base ref, never a guessed pattern.
 const mergePolicyFields = ` id mergeable mergeStateStatus reviewDecision viewerCanMergeAsAdmin isMergeQueueEnabled isInMergeQueue autoMergeRequest{enabledAt} baseRef{branchProtectionRule{id isAdminEnforced requiresStatusChecks requiresStrictStatusChecks requiredStatusCheckContexts requiresApprovingReviews requiresLinearHistory allowsForcePushes allowsDeletions bypassForcePushAllowances(first:1){totalCount} bypassPullRequestAllowances(first:1){totalCount}}}`
 
-const mergeQuery = `query($owner:String!,$repo:String!,$number:Int!,$commit:GitObjectID!){repository(owner:$owner,name:$repo){nameWithOwner mergeCommitAllowed pullRequest(number:$number){` + publicationFields + mergePolicyFields + ` baseRefOid mergedAt mergeCommit{oid}} selected:object(oid:$commit){...CheckCommit}}} ` + checkCommitFields
+const mergeQuery = `query($owner:String!,$repo:String!,$number:Int!,$commit:GitObjectID!){repository(owner:$owner,name:$repo){nameWithOwner mergeCommitAllowed pullRequest(number:$number){` + publicationFields + mergePolicyFields + currentBaseFields + ` mergedAt mergeCommit{oid}} selected:object(oid:$commit){...CheckCommit}}} ` + checkCommitFields
 
 type allowanceCount struct{ TotalCount *int }
 type mergePolicy struct {

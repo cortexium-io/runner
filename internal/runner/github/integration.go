@@ -11,7 +11,7 @@ import (
 	"github.com/cortexium-io/runner/internal/runner/core"
 )
 
-const integrationQuery = `query($owner:String!,$repo:String!,$number:Int!,$commit:GitObjectID!){repository(owner:$owner,name:$repo){nameWithOwner pullRequest(number:$number){` + publicationFields + ` baseRefOid mergedAt mergeCommit{oid}} selected:object(oid:$commit){...CheckCommit}}} ` + checkCommitFields
+const integrationQuery = `query($owner:String!,$repo:String!,$number:Int!,$commit:GitObjectID!){repository(owner:$owner,name:$repo){nameWithOwner pullRequest(number:$number){` + publicationFields + currentBaseFields + ` mergedAt mergeCommit{oid}} selected:object(oid:$commit){...CheckCommit}}} ` + checkCommitFields
 
 func (h Host) ObserveIntegration(ctx context.Context, p core.Publication) (core.IntegrationObservation, error) {
 	o, err := h.observeIntegration(ctx, p, false)
@@ -70,7 +70,7 @@ func (h Host) observeIntegration(ctx context.Context, p core.Publication, merge 
 		return result, errors.New("integration PR identity, candidate, base or marker changed")
 	}
 	o.Remote = core.RemotePublication{Number: pr.Number, URL: pr.URL, State: pr.State, Draft: pr.IsDraft, BranchCommit: pr.HeadRefOid}
-	o.Base = pr.BaseRefOid
+	o.Base = pr.currentBase()
 	if pr.State == "OPEN" || pr.State == "CLOSED" {
 		if o.Base == "" {
 			return result, errors.New("integration base observation missing")

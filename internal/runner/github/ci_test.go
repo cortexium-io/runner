@@ -14,16 +14,20 @@ import (
 func TestCIObservesExactCompleteHeadOrTestMerge(t *testing.T) {
 	p := core.PublicationIntent{ID: "publication", Repository: "owner/repo", Branch: "runner-next/publication", BaseBranch: "main", Candidate: core.Candidate{Commit: "head"}}
 
-	for _, scenario := range []string{"head", "merge", "no merge checks", "no checks", "wrong head", "wrong base branch", "missing marker", "closed", "ready", "wrong merge parents", "partial", "omitted rollup", "missing merge observation", "unknown type", "wrong check commit", "API errors"} {
+	for _, scenario := range []string{"head", "merge", "no merge checks", "no checks", "wrong head", "wrong base branch", "missing marker", "closed", "ready", "wrong merge parents", "partial", "omitted rollup", "missing merge observation", "missing live base", "missing live target", "unknown type", "wrong check commit", "API errors"} {
 		t.Run(scenario, func(t *testing.T) {
 			head := ciCommitFixture("head", scenario != "no checks")
 			merge := ciCommitFixture("merge", scenario == "merge")
 			merge["parents"] = map[string]any{"totalCount": 2, "nodes": []any{map[string]string{"oid": "base"}, map[string]string{"oid": "head"}}}
-			pr := map[string]any{"number": 7, "url": "https://github.com/owner/repo/pull/7", "state": "OPEN", "isDraft": true, "headRefName": p.Branch, "headRefOid": "head", "baseRefName": "main", "baseRefOid": "base", "body": marker(p), "headRepository": map[string]string{"nameWithOwner": "owner/repo"}, "potentialMergeCommit": nil}
+			pr := map[string]any{"number": 7, "url": "https://github.com/owner/repo/pull/7", "state": "OPEN", "isDraft": true, "headRefName": p.Branch, "headRefOid": "head", "baseRefName": "main", "baseRefOid": "old-base", "currentBase": map[string]any{"target": map[string]string{"oid": "base"}}, "body": marker(p), "headRepository": map[string]string{"nameWithOwner": "owner/repo"}, "potentialMergeCommit": nil}
 			repo := map[string]any{"nameWithOwner": "owner/repo", "ref": map[string]any{"target": map[string]string{"oid": "head"}}, "candidate": head, "pullRequests": map[string]any{"nodes": []any{pr}}}
 			switch scenario {
 			case "merge", "no merge checks":
 				pr["potentialMergeCommit"] = merge
+			case "missing live base":
+				pr["currentBase"] = nil
+			case "missing live target":
+				pr["currentBase"] = map[string]any{"target": nil}
 			case "wrong head":
 				pr["headRefOid"] = "other"
 			case "wrong base branch":
@@ -59,7 +63,7 @@ func TestCIObservesExactCompleteHeadOrTestMerge(t *testing.T) {
 				if err := json.NewDecoder(input).Decode(&payload); err != nil {
 					t.Fatal(err)
 				}
-				if args[0] != "graphql" || payload.Variables["commit"] != "head" || !strings.Contains(payload.Query, "contexts(first:100)") || strings.Contains(payload.Query, "mutation") {
+				if args[0] != "graphql" || payload.Variables["commit"] != "head" || !strings.Contains(payload.Query, "contexts(first:100)") || !strings.Contains(payload.Query, "currentBase:baseRef{target{oid}}") || strings.Contains(payload.Query, "mutation") {
 					t.Fatal("CI read scope changed")
 				}
 				response := map[string]any{"data": map[string]any{"repository": repo}}

@@ -16,13 +16,13 @@ func mergeFixture() (core.Publication, map[string]any, map[string]any, map[strin
 	intent := core.PublicationIntent{ID: "publication", Repository: "owner/repo", Branch: "runner-next/publication", BaseBranch: "main", Candidate: core.Candidate{Commit: "head"}}
 	p := core.Publication{Intent: intent, Observation: &core.RemotePublication{Number: 7, URL: "https://github.com/owner/repo/pull/7"}, CI: &core.CIAssessment{Proof: core.BaseProof{Base: "base"}, Observation: &core.CIObservation{Commit: "head", Source: "head"}}}
 	rule := map[string]any{"id": "rule", "isAdminEnforced": true, "requiresStatusChecks": true, "requiresStrictStatusChecks": true, "requiredStatusCheckContexts": []string{"test"}, "requiresApprovingReviews": true, "requiresLinearHistory": false, "allowsForcePushes": false, "allowsDeletions": false, "bypassForcePushAllowances": map[string]int{"totalCount": 0}, "bypassPullRequestAllowances": map[string]int{"totalCount": 0}}
-	pr := map[string]any{"id": "PR7", "number": 7, "url": p.Observation.URL, "state": "OPEN", "isDraft": false, "headRefName": intent.Branch, "headRefOid": "head", "baseRefName": "main", "baseRefOid": "base", "body": marker(intent), "headRepository": map[string]string{"nameWithOwner": "owner/repo"}, "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN", "reviewDecision": "APPROVED", "viewerCanMergeAsAdmin": false, "isMergeQueueEnabled": false, "isInMergeQueue": false, "autoMergeRequest": nil, "baseRef": map[string]any{"branchProtectionRule": rule}}
+	pr := map[string]any{"id": "PR7", "number": 7, "url": p.Observation.URL, "state": "OPEN", "isDraft": false, "headRefName": intent.Branch, "headRefOid": "head", "baseRefName": "main", "baseRefOid": "old-base", "currentBase": map[string]any{"target": map[string]string{"oid": "base"}}, "body": marker(intent), "headRepository": map[string]string{"nameWithOwner": "owner/repo"}, "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN", "reviewDecision": "APPROVED", "viewerCanMergeAsAdmin": false, "isMergeQueueEnabled": false, "isInMergeQueue": false, "autoMergeRequest": nil, "baseRef": map[string]any{"branchProtectionRule": rule}}
 	repo := map[string]any{"nameWithOwner": "owner/repo", "mergeCommitAllowed": true, "pullRequest": pr, "selected": ciCommitFixture("head", true)}
 	return p, repo, pr, rule
 }
 
 func TestMergeAdmissionRequiresCompleteProtectedHostState(t *testing.T) {
-	for _, scenario := range []string{"admitted", "no reviews required", "draft", "missing draft", "queue", "in queue", "auto merge", "bypass", "merge disabled", "review required", "changes requested", "unknown review", "blocked", "unknown mergeability", "missing queue", "missing auto merge", "missing review", "missing base", "no protection", "loose checks", "no checks", "empty checks", "admin bypass", "linear history", "force push", "deletions", "force allowance", "PR allowance", "missing allowance", "missing enforcement", "identity drift", "CI omitted", "GraphQL error"} {
+	for _, scenario := range []string{"admitted", "no reviews required", "draft", "missing draft", "queue", "in queue", "auto merge", "bypass", "merge disabled", "review required", "changes requested", "unknown review", "blocked", "unknown mergeability", "missing queue", "missing auto merge", "missing review", "missing base", "missing live base", "missing live target", "no protection", "loose checks", "no checks", "empty checks", "admin bypass", "linear history", "force push", "deletions", "force allowance", "PR allowance", "missing allowance", "missing enforcement", "identity drift", "CI omitted", "GraphQL error"} {
 		t.Run(scenario, func(t *testing.T) {
 			p, repo, pr, rule := mergeFixture()
 			switch scenario {
@@ -58,6 +58,10 @@ func TestMergeAdmissionRequiresCompleteProtectedHostState(t *testing.T) {
 				delete(pr, "autoMergeRequest")
 			case "missing review":
 				delete(pr, "reviewDecision")
+			case "missing live base":
+				pr["currentBase"] = nil
+			case "missing live target":
+				pr["currentBase"] = map[string]any{"target": nil}
 			case "missing base":
 				pr["baseRef"] = nil
 			case "no protection":
@@ -97,7 +101,7 @@ func TestMergeAdmissionRequiresCompleteProtectedHostState(t *testing.T) {
 				if err := json.NewDecoder(input).Decode(&payload); err != nil {
 					t.Fatal(err)
 				}
-				if args[0] != "graphql" || payload.Query != mergeQuery || payload.Variables["number"] != float64(7) || payload.Variables["commit"] != "head" || strings.Contains(payload.Query, "mutation") {
+				if args[0] != "graphql" || payload.Query != mergeQuery || !strings.Contains(payload.Query, "currentBase:baseRef{target{oid}}") || payload.Variables["number"] != float64(7) || payload.Variables["commit"] != "head" || strings.Contains(payload.Query, "mutation") {
 					t.Fatal("wrong admission query", payload)
 				}
 				response := map[string]any{"data": map[string]any{"repository": repo}}

@@ -43,6 +43,10 @@ func (h Host) api(ctx context.Context, endpoint string, input any, output any) e
 }
 
 const publicationFields = `number url state isDraft headRefName headRefOid baseRefName body headRepository{nameWithOwner}`
+
+// baseRefOid can retain the PR's earlier base after the branch advances.
+// Read the live ref target separately from the merge protection fields.
+const currentBaseFields = ` currentBase:baseRef{target{oid}}`
 const observeQuery = `query($owner:String!,$repo:String!,$branch:String!,$ref:String!){repository(owner:$owner,name:$repo){nameWithOwner ref(qualifiedName:$ref){target{oid}} pullRequests(headRefName:$branch,first:2,states:[OPEN,CLOSED,MERGED]){nodes{` + publicationFields + `} pageInfo{hasNextPage}}}}`
 
 type remotePR struct {
@@ -50,9 +54,17 @@ type remotePR struct {
 	URL, State, HeadRefName, HeadRefOid, BaseRefName, Body string
 	IsDraft                                                bool
 	HeadRepository                                         *struct{ NameWithOwner string }
-	BaseRefOid                                             string
+	CurrentBase                                            *struct{ Target struct{ OID string } }
 	PotentialMergeCommit                                   json.RawMessage
 }
+
+func (p remotePR) currentBase() string {
+	if p.CurrentBase == nil {
+		return ""
+	}
+	return p.CurrentBase.Target.OID
+}
+
 type remoteRepository struct {
 	NameWithOwner string
 	Ref           json.RawMessage

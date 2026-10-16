@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five remaining release bundles and finish line](#frozen-first-release-checklist) govern further work; all are pending. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 13; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five remaining release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 qualification is in progress and R2–R5 are pending. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 13; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -777,8 +777,8 @@ must wait when core scenarios, test quality or the operator journey remain weak.
 **Scope frozen on 2026-10-15, after `aedc8bd`.** The nine phase 3 bundles close
 delivery feature construction for the first release. The five bundles below are the
 remaining sequence; this section is the release checklist, not a second backlog.
-All five are pending. This documentation authorizes no implementation, remote
-mutation, publication or installation change. When a bundle is authorized, refine
+R1 was authorized on 2026-10-16; R2–R5 remain pending. The checklist alone
+authorizes no implementation, remote mutation, publication or installation change. When a bundle is authorized, refine
 its verification brief here before code and stop at its exit condition.
 
 Keep the implemented Plan/Ready process, quality agreements, independent review,
@@ -831,6 +831,59 @@ model qualification uses the already selected `gpt-6.1-sol / high` where a model
 call is needed. Use only an identified, authorized test destination for remote
 writes; never enable automatic policy on a production installation or alter
 production protection as a side effect of qualification.
+
+#### R1 implementation and verification brief
+
+**2026-10-16, before qualification or code changes.** Qualify the frozen delivery
+path against the owner-authorized private repository
+`cortexium-io/runner-delivery-qualification`. The authorization covers creating
+that fixture, strict classic protection, real Actions checks and two synthetic
+PRs with ordinary merges. Existing production repositories and their policy stay
+outside this exercise. Use `gpt-6.1-sol / high` for the native Codex calls.
+
+- Build the actual `runner-next` entry point. Use fresh private state and a tiny
+  repository with `alpha.txt`, `beta.txt` and one existing shell check. Baseline
+  checks accept the documented before/ready states; each task's separate proof
+  requires its own file to contain exactly `ready`. No new test framework.
+- Through normal commands, configure local and pinned hosted quality checks,
+  approve a Plan proposing exactly two bounded tasks, then inspect and release
+  its exact proposal. Alpha precedes beta. Confirm beta cannot start before alpha
+  is integrated, and the parent cannot complete after only one child.
+- Keep merge policy human for alpha. Run real implementation/review, draft
+  publication, current-base verification and passing pinned CI. Mark ready and
+  perform a normal operator merge through GitHub, then request integration.
+  Validate the exact merge parents/tree/ancestry, receipt and dependency release.
+- Explicitly apply automatic policy for beta. Exercise current-base refresh as
+  required after alpha's merge. Observe the draft waiting; mark it ready through
+  GitHub, request the explicit CI/integration observations needed, and let Runner
+  perform the protected merge. Require live eligible host admission, the durable
+  automatic-policy dispatch marker, exact receipt and parent completion. A
+  command's success or remotely merged status alone is insufficient.
+- Use enforced classic protection with strict required Actions checks and no
+  force-push, deletion, bypass or merge-queue allowances. Pin the observed check
+  name and producing app. Never weaken protection merely to obtain admission.
+  Preserve repository/PR links and private configuration, native-call evidence,
+  status/receipt snapshots and version information for reproduction.
+
+Fix only demonstrated defects in this supported path. Extend the owning suites
+(`internal/runner/engine/{delivery,integration,merge,planning}_test.go`, the
+GitHub protocol tests, or the relevant workspace/execution suite) for a concrete
+regression; reuse the established negative, restart and one-write evidence.
+Do not implement ready-state writes, polling, new host support, backup/restore
+or another qualification framework. Record blocked infrastructure honestly.
+Run the required race/vet/build gates and review the complete diff; rerun the
+live evidence affected by any fix. R1 closes only after both real merge routes,
+exact dependency/parent completion and required checks pass. Stop before R2.
+
+**R1 discovered-defect brief, before the adapter fix.** The real host retained
+alpha's original `baseRefOid` after its base branch advanced; `baseRef.target.oid`
+and the generated test-merge parents identified the new base. CI, open integration
+and merge admission must read the actual base ref target, never use the retained
+PR base OID as current state. Missing live base data must refuse open-PR progress;
+merged receipts still require fetched Git ancestry and exact parents/tree. Extend
+the existing GitHub CI/integration/merge protocol tables with stale PR OIDs and
+missing live targets, then repeat alpha's CI and both live integration routes.
+No store format, authority, scheduler or retry change is needed.
 
 #### Required verification
 
