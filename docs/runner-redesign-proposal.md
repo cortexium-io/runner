@@ -1229,7 +1229,8 @@ blocker; no package promotion, legacy retirement, installation change or R4 work
 
 #### R3 qualification
 
-**Completed 2026-10-16, `codex/runner-local-core`, based on `59515c5`.** The
+**Completed 2026-10-16, `codex/runner-local-core`, based on `59515c5`.**
+The guide, owning test changes and qualification are committed in `ef94956`. The
 [replacement operator guide](runner-next-guide.md) is the single current setup
 and command reference through delivery and restore. README points there directly;
 the repository-local operator reference now links to it and preserves the
