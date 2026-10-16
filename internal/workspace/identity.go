@@ -173,33 +173,6 @@ func writeIdentity(path string, identity Identity) error {
 	return securefs.WriteFileExclusive(path, content, 0o600)
 }
 
-func replaceIdentity(path string, expected, replacement Identity) error {
-	content, _, state, err := securefs.ReadFile(path, 64*1024)
-	if err != nil {
-		return err
-	}
-	if !state.Exists {
-		return workspaceIdentityMismatch(expected, Identity{}, false, "")
-	}
-	recorded, err := decodeIdentity(content)
-	if err != nil {
-		return err
-	}
-	if recorded != expected {
-		return workspaceIdentityMismatch(expected, recorded, true, "")
-	}
-	replacementContent, err := encodeIdentity(replacement)
-	if err != nil {
-		return err
-	}
-	directory, err := securefs.OpenDir(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.ReplaceFile(filepath.Base(path), replacementContent, 0o600, state)
-}
-
 func encodeIdentity(identity Identity) ([]byte, error) {
 	var content bytes.Buffer
 	encoder := json.NewEncoder(&content)

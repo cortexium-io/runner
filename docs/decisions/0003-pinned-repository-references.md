@@ -1,5 +1,10 @@
 # Decision: Pinned repository references
 
+Historical decision: [ADR 0005](0005-local-runner-core.md) defines which guarantees
+remain in the local replacement. Project-specific mechanisms and deferred
+features below do not describe the current release surface.
+
+
 Date: 2026-09-02
 
 ## Context

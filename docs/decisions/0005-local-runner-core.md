@@ -65,10 +65,11 @@ does not create a parallel backlog or authorize coding.
   the v5 schema and advanced user-authored composition are not required in the
   first release. A later composition feature must use the same coordinator.
 
-The existing architecture, operator documentation and bundled skills continue to
-describe the current runtime. Replacement assignments use the plan's role and
-testing contracts; their bundled instructions must be qualified as the relevant
-slice lands. Do not change the current runtime's behavior as a documentation side effect.
+The promoted `cortexium-runner`, architecture and operator guide now describe
+the local runtime. Qualified role instructions live in the execution adapter.
+R4 retires the old Project entry point and bundled skill catalog; historical
+decisions and qualification records remain reference evidence. The release
+checklist still requires R5 final qualification before cutover.
 
 ## Consequences
 

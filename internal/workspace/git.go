@@ -14,10 +14,6 @@ import (
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
-type Provider interface {
-	Prepare(context.Context, Request) (Metadata, error)
-}
-
 type Request struct {
 	WorkingDir             string
 	WorktreeRoot           string
@@ -29,37 +25,6 @@ type Request struct {
 	BranchName             string
 	BaseRef                string
 	QuarantineMismatch     bool
-}
-
-// ResourceIdentity returns the repository/branch identity that a Request will
-// use. Schedulers can reserve it before Prepare without duplicating workspace
-// naming rules.
-func ResourceIdentity(request Request) (string, error) {
-	_, branchName, err := resolveWorktreeNames(request.WorkID, request.BranchPrefix, request.BranchName)
-	if err != nil {
-		return "", err
-	}
-	repository := strings.ToLower(strings.TrimSpace(request.Repository))
-	if repository == "" {
-		return "", errors.New("workspace repository is required")
-	}
-	return repository + "/" + branchName, nil
-}
-
-type CleanupRequest struct {
-	WorkingDir             string
-	WorktreeRoot           string
-	WorkID                 string
-	ItemID                 string
-	DelegatedContentDigest string
-	Repository             string
-	BranchName             string
-	BaseRef                string
-}
-
-type CleanupResult struct {
-	WorktreePath    string
-	WorktreeRemoved bool
 }
 
 type GitProvider struct {
@@ -263,95 +228,6 @@ func lockRepositoryWorkspace(repoRoot string) func() {
 	mutex := value.(*sync.Mutex)
 	mutex.Lock()
 	return mutex.Unlock
-}
-
-// Cleanup removes one task-owned worktree while retaining the local branch.
-// The deterministic path and registered branch
-// must both match the request before anything is removed.
-func (p GitProvider) Cleanup(ctx context.Context, request CleanupRequest) (CleanupResult, error) {
-	repoRoot, err := p.repositoryRoot(ctx, request.WorkingDir)
-	if err != nil {
-		return CleanupResult{}, err
-	}
-	unlock := lockRepositoryWorkspace(repoRoot)
-	defer unlock()
-	worktreeRoot, err := resolveWorktreeRoot(repoRoot, request.WorktreeRoot)
-	if err != nil {
-		return CleanupResult{}, err
-	}
-	if err := securefs.ValidatePrivateDir(worktreeRoot); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return CleanupResult{}, fmt.Errorf("validate private workspace-write root before cleanup: %w", err)
-	}
-	workID := safeRefComponent(request.WorkID)
-	if workID == "" {
-		return CleanupResult{}, errors.New("workspace work id is required")
-	}
-	branchName := strings.TrimSpace(request.BranchName)
-	if branchName == "" {
-		return CleanupResult{}, errors.New("workspace branch name is required for cleanup")
-	}
-	worktreePath := filepath.Join(worktreeRoot, workID)
-	result := CleanupResult{WorktreePath: worktreePath}
-	registeredBranch, registered, err := p.registeredWorktree(ctx, repoRoot, worktreePath)
-	if err != nil {
-		return result, err
-	}
-	_, statErr := os.Lstat(worktreePath)
-	worktreeExists := statErr == nil
-	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-		return result, fmt.Errorf("inspect task worktree before cleanup: %w", statErr)
-	}
-	recorded, hasIdentity, err := readIdentity(activeIdentityPath(worktreeRoot, workID))
-	if err != nil {
-		return result, fmt.Errorf("read workspace identity before cleanup: %w", err)
-	}
-	branchExists := p.branchExists(ctx, repoRoot, branchName)
-	if !worktreeExists && !registered && !hasIdentity {
-		if branchExists {
-			return result, fmt.Errorf("%w: retained branch %q has no private identity record", ErrIdentityMismatch, branchName)
-		}
-		return result, nil
-	}
-	if worktreeExists && !registered {
-		return result, errors.New("task workspace path exists but is not a registered worktree")
-	}
-	if registered && registeredBranch != branchName {
-		return result, fmt.Errorf("task worktree branch %q does not match expected branch %q", registeredBranch, branchName)
-	}
-	baseRef := strings.TrimSpace(request.BaseRef)
-	if baseRef == "" {
-		return result, errors.New("workspace base ref is required for cleanup")
-	}
-	baseRef, err = p.canonicalBaseRef(ctx, repoRoot, baseRef)
-	if err != nil {
-		return result, err
-	}
-	if !hasIdentity {
-		return result, workspaceIdentityMismatch(Identity{}, recorded, false, "")
-	}
-	// The base ref can advance after a pull request merges. Cleanup owns no
-	// content decision, so validate the task binding against the immutable
-	// revision recorded when the workspace was created instead of the ref's
-	// current head.
-	expected, err := newIdentity(request.ItemID, request.DelegatedContentDigest, baseRef, recorded.BaseRevision, branchName, request.Repository, worktreePath)
-	if err != nil {
-		return result, err
-	}
-	if recorded != expected {
-		return result, workspaceIdentityMismatch(expected, recorded, hasIdentity, "")
-	}
-	if !registered && !branchExists {
-		return result, fmt.Errorf("%w: retained branch %q is missing", ErrIdentityMismatch, branchName)
-	}
-
-	if registered {
-		if _, err := p.git(ctx, repoRoot, "worktree", "remove", "--force", worktreePath); err != nil {
-			return result, fmt.Errorf("remove task worktree: %w", err)
-		}
-		result.WorktreeRemoved = true
-	}
-
-	return result, nil
 }
 
 func (p GitProvider) branchExists(ctx context.Context, repoRoot, branch string) bool {

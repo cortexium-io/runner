@@ -6,13 +6,13 @@ import (
 	"errors"
 
 	"github.com/cortexium-io/runner/internal/runner/core"
-	legacy "github.com/cortexium-io/runner/internal/workspace"
+	gitworkspace "github.com/cortexium-io/runner/internal/workspace"
 )
 
 // ConfirmIntegration checks actual objects imported from the configured base.
 // A provider's merged flag alone cannot establish the accepted integration.
 func (g Git) ConfirmIntegration(ctx context.Context, proof core.BaseProof, merge, tip string) error {
-	p, err := legacy.NewGitProvider(nil).PublicationProfile(ctx, g.Settings.Config.Repository.Path)
+	p, err := gitworkspace.NewGitProvider(nil).PublicationProfile(ctx, g.Settings.Config.Repository.Path)
 	if err != nil {
 		return err
 	}

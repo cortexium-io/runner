@@ -13,7 +13,7 @@ import (
 )
 
 func TestIntegrationReadsKnownPREvenAfterBranchDeletion(t *testing.T) {
-	intent := core.PublicationIntent{ID: "publication", Repository: "owner/repo", Branch: "runner-next/publication", BaseBranch: "main", Candidate: core.Candidate{Commit: "head"}}
+	intent := core.PublicationIntent{ID: "publication", Repository: "owner/repo", Branch: "runner/publication", BaseBranch: "main", Candidate: core.Candidate{Commit: "head"}}
 	p := core.Publication{Intent: intent, Observation: &core.RemotePublication{Number: 7, URL: "https://github.com/owner/repo/pull/7"}, CI: &core.CIAssessment{Proof: core.BaseProof{Base: "base"}, Observation: &core.CIObservation{Commit: "head", Source: "head"}}}
 	for _, scenario := range []string{"merged head", "merged test-merge", "open draft", "open ready", "closed", "missing live base", "missing live target", "merged deleted base", "wrong PR", "changed head", "changed base", "changed repository", "missing marker", "missing merge", "missing time", "unknown state", "selected disappeared", "wrong parents", "partial checks"} {
 		t.Run(scenario, func(t *testing.T) {

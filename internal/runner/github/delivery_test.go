@@ -13,7 +13,7 @@ import (
 )
 
 func TestObserveRequiresCompleteExactRemoteIdentity(t *testing.T) {
-	p := core.PublicationIntent{ID: "operation", Repository: "owner/repo", Branch: "runner-next/operation", BaseBranch: "main", Candidate: core.Candidate{Commit: "accepted"}}
+	p := core.PublicationIntent{ID: "operation", Repository: "owner/repo", Branch: "runner/operation", BaseBranch: "main", Candidate: core.Candidate{Commit: "accepted"}}
 	pr := map[string]any{"number": 7, "url": "https://github.com/owner/repo/pull/7", "state": "OPEN", "isDraft": true, "headRefName": p.Branch, "headRefOid": "accepted", "baseRefName": "main", "body": marker(p), "headRepository": map[string]string{"nameWithOwner": "owner/repo"}}
 	for _, tc := range []struct {
 		name   string
@@ -113,7 +113,7 @@ func TestObserveRequiresCompleteExactRemoteIdentity(t *testing.T) {
 }
 
 func TestCreateUsesOneDraftRequestAfterAuthorityRefresh(t *testing.T) {
-	p := core.PublicationIntent{ID: "operation", Repository: "owner/repo", Branch: "runner-next/operation", BaseBranch: "main", Title: "literal `title`", Candidate: core.Candidate{Commit: "accepted"}}
+	p := core.PublicationIntent{ID: "operation", Repository: "owner/repo", Branch: "runner/operation", BaseBranch: "main", Title: "literal `title`", Candidate: core.Candidate{Commit: "accepted"}}
 	allowed := false
 	calls := 0
 	h := Host{request: func(_ context.Context, args []string, input io.Reader) (subprocess.Result, error) {

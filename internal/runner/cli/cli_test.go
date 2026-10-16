@@ -114,6 +114,16 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 		}
 		return out.String()
 	}
+	// Retired entry-point commands must fail before opening writable authority.
+	for _, command := range []string{"doctor", "update", "approve", "unknown"} {
+		err = (CLI{Out: io.Discard, Harness: h}).Run(ctx, []string{"--config", cfgPath, command})
+		if err == nil || !strings.Contains(err.Error(), "unknown command") {
+			t.Fatalf("%s: %v", command, err)
+		}
+		if _, err = os.Lstat(cfg.StateDir); !os.IsNotExist(err) {
+			t.Fatalf("%s created authority", command)
+		}
+	}
 	if err = (CLI{Out: io.Discard, Harness: h}).Run(ctx, []string{"--config", cfgPath, "status"}); err == nil {
 		t.Fatal("missing authority looked initialized")
 	}

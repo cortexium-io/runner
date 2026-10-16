@@ -12,7 +12,7 @@ import (
 )
 
 func TestCIObservesExactCompleteHeadOrTestMerge(t *testing.T) {
-	p := core.PublicationIntent{ID: "publication", Repository: "owner/repo", Branch: "runner-next/publication", BaseBranch: "main", Candidate: core.Candidate{Commit: "head"}}
+	p := core.PublicationIntent{ID: "publication", Repository: "owner/repo", Branch: "runner/publication", BaseBranch: "main", Candidate: core.Candidate{Commit: "head"}}
 
 	for _, scenario := range []string{"head", "merge", "no merge checks", "no checks", "wrong head", "wrong base branch", "missing marker", "closed", "ready", "wrong merge parents", "partial", "omitted rollup", "missing merge observation", "missing live base", "missing live target", "unknown type", "wrong check commit", "API errors"} {
 		t.Run(scenario, func(t *testing.T) {

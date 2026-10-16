@@ -10,7 +10,7 @@ import (
 	"github.com/cortexium-io/runner/internal/runner/config"
 	"github.com/cortexium-io/runner/internal/runner/core"
 	"github.com/cortexium-io/runner/internal/subprocess"
-	legacy "github.com/cortexium-io/runner/internal/workspace"
+	gitworkspace "github.com/cortexium-io/runner/internal/workspace"
 )
 
 // FetchBase imports only the explicitly configured branch into a unique private
@@ -23,7 +23,7 @@ func fetchBase(ctx context.Context, path, repository, branch string, runner subp
 	if !config.ValidRepository(repository) {
 		return "", errors.New("invalid base repository")
 	}
-	p, err := legacy.NewGitProvider(nil).PublicationProfile(ctx, path)
+	p, err := gitworkspace.NewGitProvider(nil).PublicationProfile(ctx, path)
 	if err != nil {
 		return "", err
 	}
@@ -31,7 +31,7 @@ func fetchBase(ctx context.Context, path, repository, branch string, runner subp
 	if _, err = scalar(ctx, p, "check-ref-format", remoteRef); err != nil {
 		return "", err
 	}
-	ref := "refs/runner-next/fetch/" + core.NewID()
+	ref := "refs/runner/fetch/" + core.NewID()
 	args := []string{"fetch", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--no-auto-maintenance", "https://github.com/" + repository + ".git", "+" + remoteRef + ":" + ref}
 	if _, err = subprocess.RunPrivilegedGitNetwork(ctx, runner, p, args, 2*time.Minute); err != nil {
 		return "", fmt.Errorf("delivery base fetch failed: %w", err)
@@ -52,7 +52,7 @@ func (g Git) Refresh(ctx context.Context, t core.Task, target core.BaseBinding) 
 	if err := g.CheckQuality(ctx, target.Commit); err != nil {
 		return candidate, fmt.Errorf("base quality changed; adopt an explicit quality agreement: %w", err)
 	}
-	provider := legacy.NewGitProvider(nil)
+	provider := gitworkspace.NewGitProvider(nil)
 	p, err := provider.RefreshProfile(ctx, t.Candidate.Workspace)
 	if err != nil {
 		return candidate, err

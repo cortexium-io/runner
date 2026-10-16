@@ -17,23 +17,17 @@ Use these sources in descending order of authority:
 
 The accepted replacement direction is [ADR 0005](docs/decisions/0005-local-runner-core.md).
 Its build specification and designated implementation sequence are in the
-[core redesign plan](docs/runner-redesign-proposal.md). Phases 1 and 2, including
-the local operator interface, and the first nine phase 3 bundles (draft publication,
-current-base verification and bounded refresh, remote draft synchronization, CI
-assessment, bounded CI repair, bounded text conflict repair, confirmed human
-integration, explicit guarded merge and explicit automatic-merge policy) are
-implemented in `cmd/runner-next`; their qualification and remaining delivery/release boundaries are recorded in that
-plan. Feature scope is frozen after `aedc8bd`. The plan's
+[core redesign plan](docs/runner-redesign-proposal.md). The local replacement is
+promoted to `cmd/cortexium-runner`; packages live in
+`internal/runner`. Feature scope is frozen after `aedc8bd`. The plan's
 [five release bundles and finish line](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
-are the remaining work source. R1 live delivery qualification, R2 backup/restore
-and R3 operator qualification are complete; start with R4 when authorized.
-Implement only those release obligations or concrete fixes to the frozen contract; additional features require
-explicit owner direction. Do not create a separate task ledger.
-`docs/architecture.md` and the legacy operator guides describe the current
-Project-backed runtime until the replacement lands. The replacement's current
-operator workflow is in [its guide](docs/runner-next-guide.md). Existing code is
-evidence for required guarantees, not authority to restore superseded Project coupling.
-The documentation decision does not itself authorize implementation.
+are the remaining work source. R1 delivery, R2 backup/restore, R3 operator
+qualification and R4 promotion/packaging are complete with recorded evidence. R5 final qualification and cutover require separate authorization.
+Implement only those release obligations or concrete fixes to the frozen contract;
+additional features require explicit owner direction. Do not create a separate
+task ledger. Architecture and the [operator guide](docs/operator-reference.md)
+describe the local runtime. Historical qualification records may name retired
+commands and suites; do not restore Project coupling from them.
 
 When implementation and documentation disagree, identify and resolve the drift
 inside this repository. Do not preserve obsolete behavior for compatibility;
@@ -77,4 +71,4 @@ Follow the redesign plan's testing policy for replacement work. Do not copy the
 old test suite or change shipped role prompts merely to make the documentation
 look consistent; qualify the replacement instructions with their owning slice.
 Review the complete diff before finishing. Implementation gates remain
-`go test -race ./...` and `go vet ./...`, with platform/release checks at release.
+`go test -race -timeout 15m ./...` and `go vet ./...`, with platform/release checks at release.

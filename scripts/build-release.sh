@@ -50,6 +50,8 @@ for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
     test "$("$binary" --version)" = "cortexium-runner $version"
   fi
   cp LICENSE README.md "$package_dir/"
+  cp docs/operator-reference.md "$package_dir/OPERATOR.md"
+  cp examples/runner.config.json "$package_dir/runner.example.json"
 
   "$build_root/package-release" tar.gz "$package_dir" "$output_dir/$package.tar.gz"
 done

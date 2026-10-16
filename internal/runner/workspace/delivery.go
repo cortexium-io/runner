@@ -8,7 +8,7 @@ import (
 
 	"github.com/cortexium-io/runner/internal/runner/core"
 	"github.com/cortexium-io/runner/internal/subprocess"
-	legacy "github.com/cortexium-io/runner/internal/workspace"
+	gitworkspace "github.com/cortexium-io/runner/internal/workspace"
 )
 
 // PushDraft publishes exact objects with an explicit remote lease. An empty
@@ -21,7 +21,7 @@ func pushDraft(ctx context.Context, candidate core.Candidate, branch, repository
 	if authorize == nil {
 		return errors.New("draft publication requires current authority")
 	}
-	p, err := legacy.NewGitProvider(nil).PublicationProfile(ctx, candidate.Workspace)
+	p, err := gitworkspace.NewGitProvider(nil).PublicationProfile(ctx, candidate.Workspace)
 	if err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func pushDraft(ctx context.Context, candidate core.Candidate, branch, repository
 	if err != nil || tree != candidate.Tree {
 		return errors.New("publication tree changed")
 	}
-	verified, err := legacy.NewGitProvider(nil).PublicationProfile(ctx, candidate.Workspace)
+	verified, err := gitworkspace.NewGitProvider(nil).PublicationProfile(ctx, candidate.Workspace)
 	if err != nil {
 		return err
 	}

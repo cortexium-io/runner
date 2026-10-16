@@ -1,5 +1,5 @@
 name: Bug report
-description: Report reproducible incorrect behavior in the Local GitHub Project Runner.
+description: Report reproducible incorrect behavior in the Cortexium Runner.
 title: "[Bug] "
 labels:
   - needs-assessment
@@ -22,8 +22,9 @@ body:
     attributes:
       label: Work source
       options:
-        - GitHub Project intake or execution
-        - Setup or doctor
+        - Local task planning or execution
+        - Setup, quality or configuration
+        - Delivery or recovery
         - Other
     validations:
       required: true

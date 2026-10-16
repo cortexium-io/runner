@@ -173,7 +173,7 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 			ID: id, TaskID: t.ID, Version: t.Current().Number, Generation: t.Generation,
 			ApprovedBase: t.Approval.Base, Quality: t.Current().Quality, ReviewDigest: core.Digest(t.Review), Candidate: *t.Candidate,
 			Repository: e.Settings.Config.Delivery.Repository, BaseBranch: strings.TrimPrefix(e.Settings.Config.Repository.BaseRef, "refs/heads/"),
-			Branch: "runner-next/" + id, Title: "Runner: " + string(title),
+			Branch: "runner/" + id, Title: "Runner: " + string(title),
 		}}
 		if err = e.savePublication(ctx, &p); err != nil && !errors.Is(err, store.ErrConflict) {
 			return err

@@ -2,8 +2,6 @@ module github.com/cortexium-io/runner
 
 go 1.26.6
 
-require golang.org/x/term v0.45.0
-
 require (
 	golang.org/x/sys v0.48.0
 	modernc.org/sqlite v1.60.1

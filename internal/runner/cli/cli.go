@@ -52,18 +52,23 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	if c.In == nil {
 		c.In = os.Stdin
 	}
-	if len(args) == 1 && (args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
+	if len(args) == 0 || len(args) == 1 && (args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
 		c.help()
 		return nil
 	}
-	global := c.flags("runner-next")
+	global := c.flags("cortexium-runner")
 	path := global.String("config", "", "explicit Runner local configuration path")
 	if err := global.Parse(args); err != nil {
 		return err
 	}
 	args = global.Args()
 	if *path == "" || len(args) == 0 {
-		return errors.New("usage: runner-next --config PATH init|quality|config|task|run|drain|status|backup|restore")
+		return errors.New("usage: cortexium-runner --config PATH init|quality|config|task|run|drain|status|backup|restore")
+	}
+	switch args[0] {
+	case "init", "quality", "config", "task", "run", "drain", "status", "backup", "restore":
+	default:
+		return fmt.Errorf("unknown command %q; run cortexium-runner help for usage", args[0])
 	}
 	if args[0] == "backup" || args[0] == "restore" {
 		return c.maintenance(ctx, *path, args)
@@ -283,7 +288,7 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	}
 	c.printView(view, command == "show")
 	if command != "show" && !e.Running() {
-		fmt.Fprintln(c.Out, "Coordinator is absent. Run `runner-next --config PATH run` to reconcile pending work.")
+		fmt.Fprintln(c.Out, "Coordinator is absent. Run `cortexium-runner --config PATH run` to reconcile pending work.")
 	}
 	return nil
 }

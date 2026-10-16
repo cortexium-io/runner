@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification, R2 backup/restore and R3 operator qualification are complete; R4/R5 remain pending. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 14; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification, R2 backup/restore and R3 operator qualification are complete; R4 promotion/packaging is complete; R5 remains pending. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 15; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -15,12 +15,15 @@ implementation or a board's field schema.
 
 The direction is recorded in [ADR 0005](decisions/0005-local-runner-core.md).
 This is the designated replacement specification and build sequence, under
-[AGENTS.md](../AGENTS.md). The [architecture](architecture.md) and legacy
-operator guides describe the Project-backed runtime. The replacement's current
-workflow is in the [operator guide](runner-next-guide.md). `cmd/runner-next` now
-implements the local process and nine phase 3 delivery bundles below. Remaining
-release work is bounded by the frozen checklist and requires a separate
-implementation instruction.
+[AGENTS.md](../AGENTS.md). The [architecture](architecture.md) and
+[operator guide](operator-reference.md) describe the local runtime now promoted
+to `cmd/cortexium-runner`. Remaining release work is bounded by the frozen
+checklist and requires a separate implementation instruction.
+
+Construction briefs and qualification records below retain their historical
+`runner-next` names, store formats and command lines. Links to retired code are
+pinned to the pre-promotion commit; they are reference evidence, not current
+commands or permission to restore Project coupling.
 
 Start with [release scope](#first-release-scope), [core contracts](#core-contracts),
 and the [release checklist](#frozen-first-release-checklist).
@@ -128,7 +131,7 @@ the revision assessed in those chats.
 | Anthropic reports delivery infrastructure becoming the bottleneck as code production accelerates. [Article][anthropic] | Measure the complete Ready-to-merged path, integration waits and repeated review before changing scheduling. |
 | Anthropic exposes metadata queries without requiring workspaces. [Article][anthropic] | Keep observation cheap; create a workspace only when an action needs files. Retain Git for Runner's workload. |
 | Anthropic describes both excessive defensive agent review and useful simulations and fuzzing. [Article][anthropic] | Require concrete, reachable review findings. Invest in interruption, concurrency and publication tests instead of speculative machinery. |
-| The earlier Runner assessment found competing recovery advice for moving a card to Ready and retrying its recorded stage. [Status rendering](../cmd/cortexium-runner/status.go) | Present the appropriate recovery first, including preserved work and the stage that repeats. |
+| The earlier Runner assessment found competing recovery advice for moving a card to Ready and retrying its recorded stage. [Status rendering](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/cmd/cortexium-runner/status.go) | Present the appropriate recovery first, including preserved work and the stage that repeats. |
 | Runner already has candidate-bound evidence, focused follow-up review and private recurring-failure drafts. [Architecture](architecture.md), [evaluation guidance](model-profile-evaluation.md) | Preserve these contracts. Improve visibility and measure their effects rather than adding another review hierarchy or learning store. |
 
 Keep Runner's continuous reconciliation, interchangeable harness boundary and
@@ -138,12 +141,12 @@ post-merge emphasis reflects its unusual scale and does not justify relaxing
 Runner's integration contract. Worktrees also do not isolate ports, databases
 or test fixtures: declare or allocate those resources when a repository needs them.
 
-## Current constraints to replace
+## Original constraints to replace (historical assessment)
 
-The [engine](../internal/engine/engine.go) owns a concrete `github.Project`;
+The [engine](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/internal/engine/engine.go) owns a concrete `github.Project`;
 work items, authorization and several process locks also belong to the GitHub
 package. Each observation cycle loads Project lifecycle items. The
-[configuration validator](../internal/config/project.go) requires a Project and
+[configuration validator](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/internal/config/project.go) requires a Project and
 its lifecycle fields, while repository and merge settings sit under
 `github_project`. This is deeper than an interchangeable board client.
 
@@ -156,8 +159,8 @@ model calls and remote publication atomic with a database transaction.
 Configuration already supports role profiles, reasoning, an implementer ladder,
 parallelism and budgets. However, QA limits live in workflow actions, the ladder
 advances from Project QA failures, and provider retries use a fixed schedule
-with in-memory state. [Roles](../internal/config/roles.go),
-[workflow](../internal/config/workflow.go), [automatic retries](../internal/engine/automatic_retry.go).
+with in-memory state. [Roles](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/internal/config/roles.go),
+[workflow](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/internal/config/workflow.go), [automatic retries](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/internal/engine/automatic_retry.go).
 The redesign should expose their meaning coherently and preserve limits across
 restarts.
 
@@ -745,7 +748,7 @@ provider should validate the adapter boundary before a public plugin API is froz
 | Authoritative local store | Diagnostic access and preservation of retained artifacts where possible. | New claims, approval changes and privileged publication until state is safely restored. |
 
 Removing Projects alone does not create code-host independence. The current
-implementation [fetches the base before implementation](../internal/engine/engine.go).
+implementation [fetches the base before implementation](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/internal/engine/engine.go).
 The new core must make that dependency explicit and exercise the optional
 recorded-base policy. Missing local objects remain a real blocker. A locally
 reviewed candidate must refresh and regain required evidence before remote
@@ -778,7 +781,7 @@ must wait when core scenarios, test quality or the operator journey remain weak.
 **Scope frozen on 2026-10-15, after `aedc8bd`.** The nine phase 3 bundles close
 delivery feature construction for the first release. The five bundles below are the
 remaining sequence; this section is the release checklist, not a second backlog.
-R1–R3 completed on 2026-10-16; R4/R5 remain pending. The checklist alone
+R1–R3 completed on 2026-10-16; R4 promotion/packaging is complete; R5 remains pending. The checklist alone
 authorizes no implementation, remote mutation, publication or installation change.
 When a bundle is authorized, refine its verification brief here before code and
 stop at its exit condition.
@@ -1231,7 +1234,7 @@ blocker; no package promotion, legacy retirement, installation change or R4 work
 
 **Completed 2026-10-16, `codex/runner-local-core`, based on `59515c5`.**
 The guide, owning test changes and qualification are committed in `ef94956`. The
-[replacement operator guide](runner-next-guide.md) is the single current setup
+[replacement operator guide](operator-reference.md) is the single current setup
 and command reference through delivery and restore. README points there directly;
 the repository-local operator reference now links to it and preserves the
 authorization boundaries. Its obsolete claim that integration was unsupported
@@ -1292,6 +1295,122 @@ No unresolved blocker remains in the documented R3 journey. Stop before R4.
 Runtime promotion, packaging and native Linux/final cutover qualification remain
 R4/R5 obligations. No production installation or remote repository was changed.
 
+#### R4 implementation and verification brief
+
+**Authorized 2026-10-16; define this boundary before promotion or retirement.**
+Make `cmd/cortexium-runner` the single entry point for the qualified local engine.
+Retire `cmd/runner-next`, the Project runtime and its obsolete commands, adapters,
+setup/skill installation, updater integration and tests. Preserve the useful
+Git, process, sandbox-path and private-filesystem primitives with their owning
+coverage. Remove the unused repository-reference helper and old publication journal,
+merge-method/refresh and task-cleanup APIs that pull legacy configuration or
+retired lifecycle behavior into the replacement's dependency graph. Do not
+reorganize the qualified coordinator/store or introduce a compatibility wrapper.
+
+Supported behavior and representative expected results:
+
+- The built and packaged `cortexium-runner` reports its injected version, shows
+  local command help without configuration, and routes explicit configuration to
+  the existing CLI. Legacy commands/configuration fail without creating authority.
+  Remove temporary command/branch/ref names from current runtime surfaces. Use a
+  new store format for this deliberately breaking namespace boundary; preserve
+  experimental stores under their matching binaries, with no in-flight import.
+- README, architecture, the consolidated operator guide, example configuration,
+  role reference and contributor/security instructions describe only the current
+  supported runtime. Preserve accepted decisions and historical qualification as
+  history, identifying superseded paths rather than advertising removed commands.
+  The qualified role prompts stay in the execution adapter; remove obsolete
+  installed skill machinery rather than create another prompt authority.
+- Release archives retain one executable and the license, with the current guide
+  and example available offline. Extend the existing archive/installer tests for
+  that exact content and command contract. Keep HTTPS/checksum/version validation
+  and the reviewed-source, immutable-artifact and isolated-publish gates. No new
+  updater design, service management or automatic installation migration.
+- Replace the Project smoke fixture with a small fresh local CLI/package journey:
+  version/help, strict setup preview, rejection of legacy input, and read-only
+  missing-state inspection. Exercise the real built entry point and verified
+  archive contents; reuse the owning CLI journey for model execution, questions,
+  recovery and delivery rather than building another fake harness framework.
+- CI/readiness run race tests with the qualified 15-minute package timeout and
+  adequate job time. Remove obsolete Doctor/live-probe options; native sandbox,
+  model and GitHub qualification remain explicit R5 evidence, never implied by
+  cross-builds. Update the opt-in behavioral evaluation launcher for the existing
+  replacement evaluations without adding or running paid cases unnecessarily.
+
+Verification: focused entry-point, workspace and packaging/installer/security
+tests; `go test -race -timeout 15m ./...`; `go vet ./...`; module verification;
+format/shell/diff checks; the new native smoke journey; four `CGO_ENABLED=0`
+archives (`darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64`) with an exact
+asset/checksum set and inspected documentation. Installer tests use private
+temporary destinations only, never the user's installation. Record source,
+commands, artifacts and any limits here. Review the entire removal/change diff
+for remaining consumers and lost guarantees. Stop at a reviewable local release
+candidate before R5: no tags, publishing, remote mutation, installation changes
+or claim of final native Linux/cutover qualification.
+
+#### R4 qualification
+
+**Completed 2026-10-16 in `codex/runner-local-core`, based on `5897f4c`.**
+The single entry point is now `cmd/cortexium-runner`. Help/version need no config;
+the existing local CLI owns the workflow. Current branch/ref names use `runner/`
+and `refs/runner/`. Store format 15 rejects earlier authority without importing
+approvals. Existing installations, binaries, state and qualification fixtures
+were not changed.
+
+Retirement review and retained guarantees:
+
+| Retired surface | Current owner or explicit release limit |
+| --- | --- |
+| Project CLI, configuration, setup, coordinator and adapters | `internal/runner/{cli,config,core,store,engine,github}` and their owning suites. Exact approval, reservations, revocation and uncertain remote effects remain covered. |
+| Legacy execution and bundled installed role skills | Qualified `internal/runner/execution` contracts and paired behavior cases. Prompts and sandbox policy are unchanged. Additional harnesses remain deferred. |
+| Workspace publication journal and old refresh/merge-method APIs | Transactional publication bindings and engine delivery/refresh/merge tests, including changed-candidate refusal and lost-response recovery. Ordinary candidate construction and low-level identity/index/object protections remain. |
+| Old task cleanup/resource API, reference helper, metrics/guidance, service/updater and automatic intake paths | No consumer in the frozen local runtime. Task artifacts remain retained; additional references, automatic intake, services and a learning subsystem are outside this release. Disposable review cleanup and process/private-filesystem tests remain. |
+
+The CLI journey now rejects unknown/retired commands before opening writable
+authority. The previous-store test includes format 14. Existing archive and
+installer suites cover offline files, executable permissions and rejection of
+unexpected entries; release-security tests retain reviewed-source and isolated
+publication checks. No new orchestration fixture or test framework was added.
+An initial race run exposed a missed format-14 SQL initialization value; the
+schema/insert were corrected and the store suite passed before restarting the
+full gate. The failed run is retained as evidence, not counted as qualification.
+
+Verification on macOS arm64 with Go 1.27.1, Git 2.54.0 (Apple Git-157) and
+Codex CLI 0.162.1:
+
+- `sh scripts/test-release-readiness.sh` passes: uncached
+  `go test -count=1 -race -timeout 15m ./...` (engine 653.823s, backup 61.519s,
+  CLI 20.277s), `go vet ./...`, pinned `govulncheck@v1.6.0`,
+  `go mod verify`, smoke and four no-CGO builds/checksums. Govulncheck reports
+  zero reachable findings; it also lists advisories in one imported package and
+  twelve required modules whose vulnerable symbols Runner does not appear to call.
+- Focused store, packaging/installer/security and retained workspace suites pass.
+  Final workspace test-helper cleanup and archive test consolidation received
+  focused race runs; expensive engine verification was not repeated for those edits.
+- Four retained `v0.0.0-r4` archives pass checksums, exact five-file content,
+  byte-for-byte guide/example comparison, executable/architecture checks and
+  `CGO_ENABLED=0` metadata inspection. The extracted macOS arm64 executable
+  passes version/help, local setup preview, legacy-input/command refusal and
+  read-only missing-state inspection.
+- Format, shell syntax, relative documentation links and complete diff/dependency
+  review pass. No legacy Project/config/skill package remains in the binary graph.
+  The live-evaluation wrapper's help, syntax and dirty-source refusal were checked
+  without model calls.
+
+Evidence and archives are retained under
+`/Users/dan/.codex/runner-qualification/r4-20261016`: `readiness.log`,
+`readiness-initial-failed.log`, focused logs, `archive-inspection.log`,
+`packaged-smoke.log`, `source.txt`, `source-manifest.json` and
+`release/SHA256SUMS`. `source.txt` records the final local commit.
+The readiness build is disposable; the separately retained build has the R4
+candidate version and inspected offline documents.
+
+No paid model invocation, GitHub mutation, publication, tag, service or operator
+installation change occurred. Installer tests wrote only temporary destinations.
+R1–R3 evidence remains historical support for unchanged role and delivery behavior;
+R5 must assess its applicability to the promoted candidate, run native Linux and
+packaged journey checks, and rehearse cutover. Stop before R5.
+
 #### Required verification
 
 Each implementation bundle uses the existing owning suites and the repository's
@@ -1304,9 +1423,8 @@ qualified above; it changes neither assertions nor operation deadlines.
 
 R4 updates the existing [release-readiness script](../scripts/test-release-readiness.sh),
 [smoke test](../scripts/release-smoke-test.sh), [build script](../scripts/build-release.sh)
-and [CI workflow](../.github/workflows/ci.yml). They currently build or exercise
-the legacy runtime; a green run today is not replacement release evidence. R5
-runs the updated checks against the exact reviewed candidate:
+and [CI workflow](../.github/workflows/ci.yml) to exercise the promoted local
+runtime. R5 runs the updated checks against the exact reviewed candidate:
 
 - Formatting, shell syntax and `git diff --check`; uncached
   `go test -count=1 -race -timeout 15m ./...`, `go vet ./...`, `go mod verify`,
@@ -1331,7 +1449,7 @@ merely to populate a matrix when valid evidence already covers the claim.
 #### Release finish line
 
 The first replacement is **release-ready** when every item below is checked with
-evidence. R1–R3 are closed above; the remaining boxes stay open until their own
+evidence. R1–R4 are closed above; the remaining box stays open until its own
 evidence is recorded. Construction completion does not imply release qualification.
 
 - [x] R1: real human and Runner-owned protected merges have exact receipts; frozen
@@ -1340,7 +1458,7 @@ evidence is recorded. Construction completion does not imply release qualificati
   recovery cannot duplicate ownership, reset known consumption or replay writes.
 - [x] R3: the full documented operator journey works without undocumented rescue;
   configuration, test ownership, interruption and recovery are understandable.
-- [ ] R4: one replacement binary, accurate instructions and verified packages
+- [x] R4: one replacement binary, accurate instructions and verified packages
   remain; obsolete runtime paths and their superseded tests are retired.
 - [ ] R5: the reviewed candidate passes the required gates and cutover rehearsal;
   artifacts and evidence identify that candidate, with no unresolved defect in
@@ -1494,18 +1612,18 @@ signals. Do not simulate GitHub payloads or reproduce the engine in a fake.
 Reuse knowledge from the following inspected tests. These are references, not
 an instruction to port their Project scaffolding:
 
-- [Engine recovery tests](../internal/engine/engine_test.go):
+- [Engine recovery tests](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/internal/engine/engine_test.go):
   `TestImplementationResumesCompletedHarnessAfterPostProcessingFailure` and
   `TestAgentQAResumesExactAcceptanceWithoutAnotherReviewerRun` establish S4's
   no-repeat requirement. Express it against the new store/engine boundary.
-- [Continuous coordinator](../internal/engine/continuous_coordinator_test.go):
+- [Continuous coordinator](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/internal/engine/continuous_coordinator_test.go):
   `TestRunLoopReconcilesIndependentPullRequestWhileHarnessActionIsRunning`
   supplies the signal-based interleaving pattern for S3; substitute a local
   deterministic action, not a fake PR service.
-- [Resource tests](../internal/engine/resources_test.go) establish task/workspace
+- [Resource tests](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/internal/engine/resources_test.go) establish task/workspace
   conflicts. Replace provider identities with core values for S2/S3.
 - [Workspace publication tests](../internal/workspace/publication_test.go) and
-  [reviewer verification tests](../internal/execution/reviewer_verification_test.go)
+  [reviewer verification tests](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/internal/execution/reviewer_verification_test.go)
   establish candidate-bound acceptance and disposable-copy isolation. If the
   owning primitive is reused unchanged, reuse its coverage; extend it only for
   a distinct uncovered case. Otherwise replace the obsolete representation's
@@ -2219,7 +2337,7 @@ Use the existing format-4 state; this bundle needs no migration or reset.
 below use the same `--config /absolute/runner.json` prefix. The repository-local
 [operator skill](runner-operator/SKILL.md) explains the authorization boundaries;
 it is not installed automatically and is separate from the legacy bundled skills.
-The consolidated [operator guide](runner-next-guide.md) now covers the complete
+The consolidated [operator guide](operator-reference.md) now covers the complete
 current journey through integration and restore; the bundle notes below retain
 their historical qualification context.
 
@@ -3675,17 +3793,17 @@ the independent reviewer assesses both the change and its proof. Moving every
 test decision from one agent to another would not itself solve overengineering.
 The decisions need an explicit contract and independent review.
 
-The current [planner skill](../skills/runner-planner/SKILL.md) deliberately leaves
+The current [planner skill](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/skills/runner-planner/SKILL.md) deliberately leaves
 verification technique to the implementer, and the
-[reviewer skill](../skills/runner-reviewer/SKILL.md) repeats that ownership.
-The [implementer skill](../skills/runner-implementer/SKILL.md) already asks for
+[reviewer skill](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/skills/runner-reviewer/SKILL.md) repeats that ownership.
+The [implementer skill](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/skills/runner-implementer/SKILL.md) already asks for
 minimal tests and reuse. The new policy therefore needs more than another
 instruction to “write simple tests”: it must change what the assignment defines
 and what the reviewer checks.
 
 There is also an architecture cost. Some current
-[engine tests](../internal/engine/engine_test.go) intercept GitHub/Git/harness
-commands, while their [support code](../internal/engine/github_contract_test.go)
+[engine tests](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/internal/engine/engine_test.go) intercept GitHub/Git/harness
+commands, while their [support code](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/internal/engine/github_contract_test.go)
 constructs Project fields and approval payloads. These are useful references for
 failure scenarios, but should not be the new engine's default testing boundary.
 Large files alone do not establish redundant coverage. Keep concrete guarantees,
@@ -3843,8 +3961,8 @@ The phase 2 evidence is recorded in the [Ready-policy qualification](#first-phas
 qualifications above cover connected delivery through automatic policy.
 [R1](#r1-qualification--complete) adds real protected human/automatic merges and
 dependency/parent completion. The [release checklist](#frozen-first-release-checklist)
-owns remaining restore, operator, packaging and final candidate evidence; phase 5
-board views stay deferred.
+owns the completed R1–R4 evidence and remaining final candidate/cutover gate;
+phase 5 board views stay deferred.
 
 | Requirement | Owning phase | Acceptance evidence |
 | --- | --- | --- |
@@ -3858,10 +3976,10 @@ board views stay deferred.
 | Provider-neutral architecture and optional views | 1/3/5 | S1 runs without `gh`/Projects. Phase 3 delivery requires no board. Phase 5 disconnect/reconnect and reordered updates converge safely; Trello needs no core scheduling/approval change and exposes no private evidence. |
 | Current-base delivery and confirmed completion | 3/4 | The nine phase 3 qualifications cover base movement, conflicts, CI failure, interrupted publication, exact human/automatic merge receipts and closed-unmerged handling. R1 closes the live protected-merge gap with exact human/automatic receipts and dependency/parent completion; R5 checks that evidence against the release candidate. |
 | Comprehensible progress and recovery | 1/2/4 | Fourth phase 2 qualification covers attention-first status, actual profiles, waits, retained work, exact recovery guidance, watch and named-setting editing. R3 qualifies the consolidated operator guide with fresh native setup/recovery, controlled failure cases and retained live delivery receipts; R5 still owns the packaged journey. |
-| Packaging, restore and breaking cutover | 1/4 | Phase 1 qualifies the driver and new entry point's target builds. Phase 4 proves platform/runtime checks, consistent backup/restore, no old/new ownership overlap and explicit resubmission. No historical-state converter is required. |
+| Packaging, restore and breaking cutover | 1/4 | Phase 1 qualifies the driver and new entry point's target builds. R2 proves consistent backup/restore; R4 proves the sole promoted entry point, strict format boundary, four verified archives and native macOS smoke. R5 retains native platform/runtime, ownership/cutover and explicit resubmission qualification. No historical-state converter is required. |
 | Honest operational learning | 1/2/4 | Existing attempts retain call/result evidence; R3 records calls, elapsed time, interventions, repeated verification and evidence boundaries above. R5 must retain those measures through cutover without adding an analytics service. Guidance drafts require human review. No inferred cost or unsupported performance claim. |
 
-Required repository gates for implementation remain `go test -race ./...` and
+Required repository gates for implementation remain `go test -race -timeout 15m ./...` and
 `go vet ./...`, plus the relevant existing platform/release checks before release.
 Paid behavioral and harness tests are selected deliberately; they are separate
 from deterministic evidence and must record provider failures separately from
@@ -3881,17 +3999,18 @@ or stopped work. Keep missing cost/usage unknown. Compare with the existing
 acceptance requirements fixed when evaluating process changes. Do not claim a
 throughput or cost improvement from shorter prompts or a different task mix.
 
-Recurring failures should feed the existing private guidance drafts. A person
-reviews the actual incidents before changing skills or repository instructions.
+Retain concrete recurring failures in the task evidence. A person reviews the
+actual incidents before changing role or repository instructions. The legacy
+guidance-draft command is retired; no new learning service is part of this release.
 Do not automatically turn repeated model text into execution policy.
 
 ## Build readiness
 
 The local process, nine delivery bundles and R1–R3 qualification are complete
-within their recorded boundaries. Feature scope is frozen. Continue through the
-[release checklist](#frozen-first-release-checklist), starting with R4 when
-authorized. Runtime promotion/packaging and final native-platform/cutover evidence
-remain open; optional integrations cannot displace them.
+within their recorded boundaries. R4 promotes and packages the local runtime;
+its qualification is recorded above. Feature scope remains frozen. Continue with
+R5 only when authorized: final native-platform evidence, the packaged journey and
+cutover rehearsal remain open. Optional integrations cannot displace them.
 
 [factory]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/README.md
 [factory-setup]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/skills/factory-init/SKILL.md

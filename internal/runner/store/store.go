@@ -26,10 +26,10 @@ type Store struct {
 	guard *Guard
 }
 
-const Format = 14
+const Format = 15
 
 const schema = `
-CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=14), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=15), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE quality_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE quality_reports (id TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE settings_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
@@ -79,7 +79,7 @@ func Create(ctx context.Context, dir string, settings config.Settings) (*Store, 
 	defer tx.Rollback()
 	if _, err = tx.ExecContext(ctx, schema); err == nil {
 		b, _ := json.Marshal(settings)
-		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,14,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
+		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,15,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
 	}
 	if err == nil && settings.Quality.Revision() != "" {
 		b, _ := json.Marshal(settings.Quality)

@@ -13,7 +13,7 @@ import (
 )
 
 func mergeFixture() (core.Publication, map[string]any, map[string]any, map[string]any) {
-	intent := core.PublicationIntent{ID: "publication", Repository: "owner/repo", Branch: "runner-next/publication", BaseBranch: "main", Candidate: core.Candidate{Commit: "head"}}
+	intent := core.PublicationIntent{ID: "publication", Repository: "owner/repo", Branch: "runner/publication", BaseBranch: "main", Candidate: core.Candidate{Commit: "head"}}
 	p := core.Publication{Intent: intent, Observation: &core.RemotePublication{Number: 7, URL: "https://github.com/owner/repo/pull/7"}, CI: &core.CIAssessment{Proof: core.BaseProof{Base: "base"}, Observation: &core.CIObservation{Commit: "head", Source: "head"}}}
 	rule := map[string]any{"id": "rule", "isAdminEnforced": true, "requiresStatusChecks": true, "requiresStrictStatusChecks": true, "requiredStatusCheckContexts": []string{"test"}, "requiresApprovingReviews": true, "requiresLinearHistory": false, "allowsForcePushes": false, "allowsDeletions": false, "bypassForcePushAllowances": map[string]int{"totalCount": 0}, "bypassPullRequestAllowances": map[string]int{"totalCount": 0}}
 	pr := map[string]any{"id": "PR7", "number": 7, "url": p.Observation.URL, "state": "OPEN", "isDraft": false, "headRefName": intent.Branch, "headRefOid": "head", "baseRefName": "main", "baseRefOid": "old-base", "currentBase": map[string]any{"target": map[string]string{"oid": "base"}}, "body": marker(intent), "headRepository": map[string]string{"nameWithOwner": "owner/repo"}, "mergeable": "MERGEABLE", "mergeStateStatus": "CLEAN", "reviewDecision": "APPROVED", "viewerCanMergeAsAdmin": false, "isMergeQueueEnabled": false, "isInMergeQueue": false, "autoMergeRequest": nil, "baseRef": map[string]any{"branchProtectionRule": rule}}

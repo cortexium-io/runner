@@ -191,7 +191,7 @@ func TestCorruptStoreIsNotReplacedByOpen(t *testing.T) {
 }
 
 func TestPreviousStoreRequiresFreshStateWithoutModification(t *testing.T) {
-	for _, format := range []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13} {
+	for _, format := range []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14} {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			dir := t.TempDir()
 			if err := os.Chmod(dir, 0700); err != nil {
@@ -260,7 +260,7 @@ func TestDraftSynchronizationAndRefreshQueueAtomically(t *testing.T) {
 			if err = s.Add(ctx, task); err != nil {
 				t.Fatal(err)
 			}
-			p := core.Publication{State: "published", Intent: core.PublicationIntent{ID: "original", TaskID: task.ID, Version: 1, Generation: 1, ApprovedBase: "base", Candidate: *task.Candidate, ReviewDigest: core.Digest(task.Review), Repository: "owner/repo", BaseBranch: "main", Branch: "runner-next/original"}, Observation: &core.RemotePublication{Number: 7, URL: "https://github.com/owner/repo/pull/7", BranchCommit: "original", State: "OPEN", Draft: true}}
+			p := core.Publication{State: "published", Intent: core.PublicationIntent{ID: "original", TaskID: task.ID, Version: 1, Generation: 1, ApprovedBase: "base", Candidate: *task.Candidate, ReviewDigest: core.Digest(task.Review), Repository: "owner/repo", BaseBranch: "main", Branch: "runner/original"}, Observation: &core.RemotePublication{Number: 7, URL: "https://github.com/owner/repo/pull/7", BranchCommit: "original", State: "OPEN", Draft: true}}
 			if err = s.SavePublication(ctx, p, false); err != nil {
 				t.Fatal(err)
 			}

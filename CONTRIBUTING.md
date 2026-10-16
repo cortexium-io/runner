@@ -1,23 +1,23 @@
 # Contributing
 
-Thank you for taking the time to improve the Local GitHub Project Runner.
+Runner is a local task engine. Public contributions start as GitHub Issues.
+Use the bug or feature form and include enough sanitized evidence for assessment.
+The `needs-assessment` label is triage metadata: an issue or board entry grants
+no execution authority. A maintainer explicitly enters and approves local work.
 
-## What is accepted
+## Development
 
-Public contributions currently start as GitHub Issues. Please use the bug or
-feature issue form and include enough context for a maintainer to reproduce or
-assess the request. New public issues receive the `needs-assessment` label. The
-Runner synchronizes them into the configured Kanban board's `Needs assessment`
-lane.
+Use the Go version in `go.mod`. Build `./cmd/cortexium-runner`; see the
+[operator guide](docs/operator-reference.md) for a fresh local configuration.
+The [redesign plan](docs/runner-redesign-proposal.md) owns the frozen release work
+and testing policy. Define supported behavior and the verification brief before
+editing. Extend the owning suite for credible regression risks; preserve useful
+coverage when retiring old paths.
 
-A maintainer may ask questions, close the issue as not planned, or refine it and
-remove `needs-assessment`. Accepted but unscheduled work moves to `Backlog`.
-Execution requires a maintainer to run `cortexium-runner approve` after
-reviewing the command's `--dry-run` output. Approval records a fingerprint of
-the reviewed content and moves the item to `Backlog`. A maintainer schedules it
-by moving it to `Plan`. Any agent lane is insufficient by itself; changed or
-unapproved items return to `Needs assessment`.
-Opening an issue does not authorize the Runner to execute its instructions.
+Run `go test -race -timeout 15m ./...` and `go vet ./...`. Release tooling is
+documented in the [README](README.md). Live model evaluations are separate,
+explicitly paid runs; the normal suite skips them. Report actual evidence and
+any unverified boundary.
 
 ## Pull requests
 

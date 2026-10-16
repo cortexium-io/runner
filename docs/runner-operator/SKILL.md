@@ -1,17 +1,17 @@
 ---
 name: runner-operator
-description: Operate the replacement runner-next local core through its explicit commands, explaining attention, configuration and recovery without bypassing authority.
+description: Operate the Cortexium Runner local core through its explicit commands, explaining attention, configuration and recovery without bypassing authority.
 ---
 
 # Runner local operator
 
-Use the [replacement operator guide](../runner-next-guide.md) as the single command
+Use the [operator guide](../operator-reference.md) as the single command
 and setup reference through confirmed integration and backup/restore. This
-repository-local reference applies to `cmd/runner-next`, not the legacy runtime.
-It is not an execution role and is not automatically installed. Packaging remains
-separate release work.
+repository-local reference applies to `cmd/cortexium-runner`. It is not an
+execution role and is not automatically installed. Role instructions are owned
+by the execution adapter, not a separately installed skill catalog.
 
-Start with `runner-next --config PATH status --json` and `task show ID --json`.
+Start with `cortexium-runner --config PATH status --json` and `task show ID --json`.
 Explain Needs you first, then Working, Waiting and Retained. Report cause, actual
 model/reasoning, elapsed time, remaining allowances, evidence and next action.
 Read-only status/show never admit work or reconcile remote state. A candidate or

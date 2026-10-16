@@ -36,10 +36,10 @@ func (r *localTransport) Run(ctx context.Context, command string, args []string,
 		r.t.Fatal("transport did not use the exact destination")
 	}
 	if strings.Contains(joined, " fetch ") {
-		if !strings.Contains(joined, "+refs/heads/main:refs/runner-next/fetch/") || !strings.Contains(joined, "--no-write-fetch-head") {
+		if !strings.Contains(joined, "+refs/heads/main:refs/runner/fetch/") || !strings.Contains(joined, "--no-write-fetch-head") {
 			r.t.Fatal("fetch destination escaped private ref")
 		}
-	} else if !strings.Contains(joined, "--force-with-lease=refs/heads/runner-next/"+r.lease+" ") {
+	} else if !strings.Contains(joined, "--force-with-lease=refs/heads/runner/"+r.lease+" ") {
 		r.t.Fatal("push did not use the explicit expected-commit lease")
 	}
 	return (subprocess.OSRunner{}).Run(ctx, command, args, dir, timeout)
@@ -74,7 +74,7 @@ func TestDraftPushUsesExactObjectsAndOnlyReplacesExpectedRemoteCommit(t *testing
 	git("commit", "-m", "candidate")
 	git("init", "--bare", remote)
 	id := core.NewID()
-	p := core.PublicationIntent{ID: id, Repository: "owner/repo", Branch: "runner-next/" + id, Candidate: core.Candidate{Workspace: repo, Commit: git("rev-parse", "HEAD"), Tree: git("rev-parse", "HEAD^{tree}")}}
+	p := core.PublicationIntent{ID: id, Repository: "owner/repo", Branch: "runner/" + id, Candidate: core.Candidate{Workspace: repo, Commit: git("rev-parse", "HEAD"), Tree: git("rev-parse", "HEAD^{tree}")}}
 	r := &localTransport{remote: remote, t: t, lease: id + ":"}
 	if err = pushDraft(t.Context(), p.Candidate, p.Branch, "https://github.com/owner/repo.git", "", func() error { return errors.New("revoked") }, r); err == nil || r.calls != 0 {
 		t.Fatal("revoked push dispatched")

@@ -12,7 +12,7 @@ import (
 	"github.com/cortexium-io/runner/internal/runner/core"
 	"github.com/cortexium-io/runner/internal/securefs"
 	"github.com/cortexium-io/runner/internal/subprocess"
-	legacy "github.com/cortexium-io/runner/internal/workspace"
+	gitworkspace "github.com/cortexium-io/runner/internal/workspace"
 )
 
 var ErrConflictAttention = errors.New("base conflict requires inspection")
@@ -122,7 +122,7 @@ func (g Git) PrepareConflictRepair(ctx context.Context, t core.Task) error {
 	if err != nil {
 		return err
 	}
-	p, err := legacy.NewGitProvider(nil).RefreshProfile(ctx, m.WorktreePath)
+	p, err := gitworkspace.NewGitProvider(nil).RefreshProfile(ctx, m.WorktreePath)
 	if err != nil {
 		return err
 	}

@@ -20,7 +20,7 @@ import (
 	"github.com/cortexium-io/runner/internal/runner/core"
 	"github.com/cortexium-io/runner/internal/securefs"
 	"github.com/cortexium-io/runner/internal/subprocess"
-	legacy "github.com/cortexium-io/runner/internal/workspace"
+	gitworkspace "github.com/cortexium-io/runner/internal/workspace"
 )
 
 type Git struct{ Settings config.Settings }
@@ -96,62 +96,62 @@ func (g Git) validate(ctx context.Context) error {
 	}
 	return nil
 }
-func (g Git) request(t core.Task) legacy.Request {
+func (g Git) request(t core.Task) gitworkspace.Request {
 	key := t.WorkspaceKey()
-	return legacy.Request{WorkingDir: g.Settings.Config.Repository.Path, WorktreeRoot: g.Settings.Config.WorktreeDir, WorkID: key, ItemID: t.ID, DelegatedContentDigest: t.Current().Digest, Repository: g.Settings.RepositoryID, BranchName: "runner-next/" + key, BaseRef: "refs/runner-next/" + key}
+	return gitworkspace.Request{WorkingDir: g.Settings.Config.Repository.Path, WorktreeRoot: g.Settings.Config.WorktreeDir, WorkID: key, ItemID: t.ID, DelegatedContentDigest: t.Current().Digest, Repository: g.Settings.RepositoryID, BranchName: "runner/" + key, BaseRef: "refs/runner/" + key}
 }
-func (g Git) Prepare(ctx context.Context, t core.Task) (legacy.Metadata, error) {
+func (g Git) Prepare(ctx context.Context, t core.Task) (gitworkspace.Metadata, error) {
 	if e := g.validate(ctx); e != nil {
-		return legacy.Metadata{}, e
+		return gitworkspace.Metadata{}, e
 	}
 	if t.Approval == nil {
-		return legacy.Metadata{}, errors.New("workspace requires approval")
+		return gitworkspace.Metadata{}, errors.New("workspace requires approval")
 	}
 	r := g.request(t)
 	p, e := profile(ctx, r.WorkingDir)
 	if e != nil {
-		return legacy.Metadata{}, e
+		return gitworkspace.Metadata{}, e
 	}
 	existing, readErr := scalar(ctx, p, "rev-parse", "--verify", r.BaseRef)
 	if readErr == nil && existing != t.Base() {
-		return legacy.Metadata{}, errors.New("pinned base ref changed")
+		return gitworkspace.Metadata{}, errors.New("pinned base ref changed")
 	}
 	if readErr != nil {
 		if _, e = scalar(ctx, p, "update-ref", r.BaseRef, t.Base(), strings.Repeat("0", len(t.Base()))); e != nil {
-			return legacy.Metadata{}, e
+			return gitworkspace.Metadata{}, e
 		}
 	}
-	m, e := legacy.NewGitProvider(nil).Prepare(ctx, r)
+	m, e := gitworkspace.NewGitProvider(nil).Prepare(ctx, r)
 	if e == nil && m.BaseRevision != t.Base() {
 		return m, errors.New("workspace base differs from approval")
 	}
 	return m, e
 }
-func (g Git) Inspect(ctx context.Context, t core.Task) (legacy.Metadata, error) {
+func (g Git) Inspect(ctx context.Context, t core.Task) (gitworkspace.Metadata, error) {
 	if e := g.validate(ctx); e != nil {
-		return legacy.Metadata{}, e
+		return gitworkspace.Metadata{}, e
 	}
-	provider := legacy.NewGitProvider(nil)
+	provider := gitworkspace.NewGitProvider(nil)
 	r := g.request(t)
 	identity, e := provider.ValidateRetainedIdentity(ctx, r)
 	if e != nil {
-		return legacy.Metadata{}, e
+		return gitworkspace.Metadata{}, e
 	}
 	if t.Approval == nil || identity.BaseRevision != t.Base() {
-		return legacy.Metadata{}, errors.New("workspace approval binding changed")
+		return gitworkspace.Metadata{}, errors.New("workspace approval binding changed")
 	}
 	p, e := profile(ctx, r.WorkingDir)
 	if e != nil {
-		return legacy.Metadata{}, e
+		return gitworkspace.Metadata{}, e
 	}
 	base, e := scalar(ctx, p, "rev-parse", "--verify", r.BaseRef)
 	if e != nil || base != t.Base() {
-		return legacy.Metadata{}, errors.New("pinned base ref changed")
+		return gitworkspace.Metadata{}, errors.New("pinned base ref changed")
 	}
 	return provider.InspectRetainedReview(ctx, r)
 }
-func Snapshot(ctx context.Context, path string) (legacy.Snapshot, error) {
-	return legacy.CaptureCheckoutSnapshotStateWithLimits(ctx, nil, path, 30*time.Second, legacy.DefaultSnapshotLimits())
+func Snapshot(ctx context.Context, path string) (gitworkspace.Snapshot, error) {
+	return gitworkspace.CaptureCheckoutSnapshotStateWithLimits(ctx, nil, path, 30*time.Second, gitworkspace.DefaultSnapshotLimits())
 }
 func (g Git) Binding(ctx context.Context, t core.Task) (digest, head string, err error) {
 	m, e := g.Inspect(ctx, t)
@@ -182,7 +182,7 @@ func (g Git) Construct(ctx context.Context, t core.Task, a core.Attempt) (core.C
 	}
 	// Staging and Runner's idempotent commit may already have happened. Source
 	// bytes plus the private task/base identity remain stable across both steps.
-	candidate, e := legacy.NewGitProvider(nil).ConstructCandidate(ctx, m, "Implement Runner task "+t.ID)
+	candidate, e := gitworkspace.NewGitProvider(nil).ConstructCandidate(ctx, m, "Implement Runner task "+t.ID)
 	if e != nil {
 		return core.Candidate{}, e
 	}
@@ -219,15 +219,15 @@ func (g Git) ValidateCandidate(ctx context.Context, t core.Task) error {
 	}
 	return nil
 }
-func (g Git) Review(ctx context.Context, t core.Task) (legacy.ReviewWorkspace, error) {
+func (g Git) Review(ctx context.Context, t core.Task) (gitworkspace.ReviewWorkspace, error) {
 	if e := g.ValidateCandidate(ctx, t); e != nil {
-		return legacy.ReviewWorkspace{}, e
+		return gitworkspace.ReviewWorkspace{}, e
 	}
 	m, e := g.Inspect(ctx, t)
 	if e != nil {
-		return legacy.ReviewWorkspace{}, e
+		return gitworkspace.ReviewWorkspace{}, e
 	}
-	return legacy.NewGitProvider(nil).PrepareReviewWorkspace(ctx, m, legacy.Candidate{CommitOID: t.Candidate.Commit, TreeOID: t.Candidate.Tree})
+	return gitworkspace.NewGitProvider(nil).PrepareReviewWorkspace(ctx, m, gitworkspace.Candidate{CommitOID: t.Candidate.Commit, TreeOID: t.Candidate.Tree})
 }
 func (g Git) ReadRoots(ctx context.Context, dir string) ([]string, error) {
 	p, e := profile(ctx, dir)
@@ -497,7 +497,7 @@ func PrepareCopy(ctx context.Context, dir string) (CopyState, error) {
 			paths = append(paths, name)
 		}
 	}
-	index, e := legacy.PrepareVerificationIndex(ctx, dir, paths)
+	index, e := gitworkspace.PrepareVerificationIndex(ctx, dir, paths)
 	if e != nil {
 		return CopyState{}, e
 	}
@@ -514,7 +514,7 @@ func verifyCopyGit(dir string, before CopyState) error {
 	if core.Digest(controls) != core.Digest(before.Git) {
 		return errors.New("verification changed Git controls")
 	}
-	index, e := legacy.ReadVerificationIndex(context.Background(), dir)
+	index, e := gitworkspace.ReadVerificationIndex(context.Background(), dir)
 	if e != nil {
 		return e
 	}

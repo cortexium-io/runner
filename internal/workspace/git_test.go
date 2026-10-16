@@ -1,32 +1,16 @@
 package workspace
 
 import (
-	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
-
-type repositoryRootNotifyingRunner struct {
-	delegate subprocess.Runner
-	resolved chan struct{}
-	once     sync.Once
-}
-
-func (r *repositoryRootNotifyingRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
-	result, err := r.delegate.Run(ctx, command, args, dir, timeout)
-	if command == "git" && len(args) == 2 && args[0] == "rev-parse" && args[1] == "--show-toplevel" {
-		r.once.Do(func() { close(r.resolved) })
-	}
-	return result, err
-}
 
 func TestGitWorkspaceProviderCreatesReusableIsolatedWorktree(t *testing.T) {
 	repo := initGitRepo(t)
@@ -67,23 +51,6 @@ func TestGitWorkspaceProviderCreatesReusableIsolatedWorktree(t *testing.T) {
 	}
 	if info, err := os.Stat(activeIdentityPath(root, request.WorkID)); err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("workspace identity record is not private: mode=%v error=%v", info.Mode().Perm(), err)
-	}
-}
-
-func TestResourceIdentityUsesWorkspaceBranchNaming(t *testing.T) {
-	generated, err := ResourceIdentity(Request{WorkID: "assignment_PVTI_123", Repository: "Owner/Repo", BranchPrefix: "runner"})
-	if err != nil {
-		t.Fatalf("derive generated workspace identity: %v", err)
-	}
-	if generated != "owner/repo/runner/assignment_pvti_123" {
-		t.Fatalf("generated workspace identity = %q", generated)
-	}
-	persisted, err := ResourceIdentity(Request{WorkID: "assignment_PVTI_456", Repository: "owner/repo", BranchPrefix: "runner", BranchName: "feature/retained"})
-	if err != nil {
-		t.Fatalf("derive persisted workspace identity: %v", err)
-	}
-	if persisted != "owner/repo/feature/retained" {
-		t.Fatalf("persisted workspace identity = %q", persisted)
 	}
 }
 
@@ -158,53 +125,6 @@ func testPathInsideOrEqual(path, parent string) bool {
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)) && !filepath.IsAbs(relative)
 }
 
-func TestGitWorkspaceProviderSerializesCleanupWithRepositoryLifecycle(t *testing.T) {
-	repo := initGitRepo(t)
-	root := filepath.Join(t.TempDir(), "worktrees")
-	request := boundRequest(Request{WorkingDir: repo, WorktreeRoot: root, WorkID: "work_serialized", BranchPrefix: "agent", BaseRef: "HEAD"})
-	prepared, err := NewGitProvider(subprocess.OSRunner{}).Prepare(t.Context(), request)
-	if err != nil {
-		t.Fatalf("prepare workspace: %v", err)
-	}
-
-	runner := &repositoryRootNotifyingRunner{delegate: subprocess.OSRunner{}, resolved: make(chan struct{})}
-	provider := NewGitProvider(runner)
-	unlock := lockRepositoryWorkspace(repo)
-	locked := true
-	defer func() {
-		if locked {
-			unlock()
-		}
-	}()
-	done := make(chan error, 1)
-	go func() {
-		_, cleanupErr := provider.Cleanup(t.Context(), cleanupFor(request, prepared.BranchName))
-		done <- cleanupErr
-	}()
-
-	select {
-	case <-runner.resolved:
-	case <-time.After(2 * time.Second):
-		t.Fatal("cleanup did not resolve the repository root")
-	}
-	select {
-	case cleanupErr := <-done:
-		t.Fatalf("cleanup completed while the repository lifecycle lock was held: %v", cleanupErr)
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	unlock()
-	locked = false
-	select {
-	case cleanupErr := <-done:
-		if cleanupErr != nil {
-			t.Fatalf("cleanup after releasing repository lifecycle lock: %v", cleanupErr)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("cleanup did not resume after releasing the repository lifecycle lock")
-	}
-}
-
 func initGitRepo(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -256,14 +176,6 @@ func boundRequest(request Request) Request {
 	return request
 }
 
-func cleanupFor(request Request, branch string) CleanupRequest {
-	return CleanupRequest{
-		WorkingDir: request.WorkingDir, WorktreeRoot: request.WorktreeRoot, WorkID: request.WorkID,
-		ItemID: request.ItemID, DelegatedContentDigest: request.DelegatedContentDigest, Repository: request.Repository,
-		BranchName: branch, BaseRef: request.BaseRef,
-	}
-}
-
 func TestGitWorkspaceProviderLeavesDirtyProjectCheckoutUntouched(t *testing.T) {
 	repo := initGitRepo(t)
 	if err := os.WriteFile(filepath.Join(repo, "dirty.txt"), []byte("dirty\n"), 0o644); err != nil {
@@ -302,71 +214,6 @@ func TestGitWorkspaceProviderQuarantinesUnboundPersistedLifecycleBranch(t *testi
 	}
 }
 
-func TestGitWorkspaceProviderCleansWorktreeAndReopensRetainedBranch(t *testing.T) {
-	repo := initGitRepo(t)
-	root := filepath.Join(t.TempDir(), "worktrees")
-	provider := NewGitProvider(subprocess.OSRunner{})
-	request := boundRequest(Request{WorkingDir: repo, WorktreeRoot: root, WorkID: "assignment_item_123", BranchPrefix: "runner", BaseRef: "HEAD"})
-	prepared, err := provider.Prepare(t.Context(), request)
-	if err != nil {
-		t.Fatalf("prepare task worktree: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "generated.tmp"), []byte("ephemeral\n"), 0o644); err != nil {
-		t.Fatalf("write task artifact: %v", err)
-	}
-	cleaned, err := provider.Cleanup(t.Context(), cleanupFor(request, prepared.BranchName))
-	if err != nil {
-		t.Fatalf("cleanup task workspace: %v", err)
-	}
-	if !cleaned.WorktreeRemoved {
-		t.Fatalf("cleanup did not remove task worktree: %#v", cleaned)
-	}
-	if _, err := os.Lstat(prepared.WorktreePath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("task worktree still exists at %s: %v", prepared.WorktreePath, err)
-	}
-	if branch := strings.TrimSpace(runGitTest(t, repo, "show-ref", "--hash", "refs/heads/"+prepared.BranchName)); branch == "" {
-		t.Fatal("cleanup removed the retained task branch")
-	}
-
-	reopenRequest := request
-	reopenRequest.BranchName = prepared.BranchName
-	reopenRequest.BaseRef = "HEAD"
-	reopened, err := provider.Prepare(t.Context(), reopenRequest)
-	if err != nil {
-		t.Fatalf("reopen cleaned task workspace: %v", err)
-	}
-	if reopened.WorktreePath != prepared.WorktreePath || reopened.BranchName != prepared.BranchName {
-		t.Fatalf("reopened task changed identity: before=%#v after=%#v", prepared, reopened)
-	}
-}
-
-func TestGitWorkspaceProviderCleansWorktreeAfterBaseAdvances(t *testing.T) {
-	repo := initGitRepo(t)
-	root := filepath.Join(t.TempDir(), "worktrees")
-	provider := NewGitProvider(subprocess.OSRunner{})
-	request := boundRequest(Request{WorkingDir: repo, WorktreeRoot: root, WorkID: "assignment_merged_item", BranchPrefix: "runner", BaseRef: "HEAD"})
-	prepared, err := provider.Prepare(t.Context(), request)
-	if err != nil {
-		t.Fatalf("prepare task worktree: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, "merged.txt"), []byte("merged\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runGitTest(t, repo, "add", "merged.txt")
-	runGitTest(t, repo, "commit", "-m", "Advance base after merge")
-
-	cleaned, err := provider.Cleanup(t.Context(), cleanupFor(request, prepared.BranchName))
-	if err != nil {
-		t.Fatalf("cleanup task workspace after base advanced: %v", err)
-	}
-	if !cleaned.WorktreeRemoved {
-		t.Fatalf("cleanup did not remove task worktree: %#v", cleaned)
-	}
-	if _, err := os.Lstat(prepared.WorktreePath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("task worktree still exists at %s: %v", prepared.WorktreePath, err)
-	}
-}
-
 func TestGitWorkspaceProviderRefusesIdentityWithoutRetainedBranch(t *testing.T) {
 	repo := initGitRepo(t)
 	root := filepath.Join(t.TempDir(), "worktrees")
@@ -376,9 +223,7 @@ func TestGitWorkspaceProviderRefusesIdentityWithoutRetainedBranch(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provider.Cleanup(t.Context(), cleanupFor(request, prepared.BranchName)); err != nil {
-		t.Fatalf("remove registered worktree: %v", err)
-	}
+	runGitTest(t, repo, "worktree", "remove", prepared.WorktreePath)
 	runGitTest(t, repo, "branch", "-D", prepared.BranchName)
 
 	if _, err := provider.Prepare(t.Context(), request); !errors.Is(err, ErrIdentityMismatch) {
@@ -404,9 +249,7 @@ func TestGitWorkspaceProviderQuarantinesIdentityWithoutRetainedBranchBeforeRecre
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provider.Cleanup(t.Context(), cleanupFor(request, prepared.BranchName)); err != nil {
-		t.Fatalf("remove registered worktree: %v", err)
-	}
+	runGitTest(t, repo, "worktree", "remove", prepared.WorktreePath)
 	runGitTest(t, repo, "branch", "-D", prepared.BranchName)
 
 	request.QuarantineMismatch = true
@@ -427,54 +270,6 @@ func TestGitWorkspaceProviderQuarantinesIdentityWithoutRetainedBranchBeforeRecre
 	active, found, err := readIdentity(activeIdentityPath(root, request.WorkID))
 	if err != nil || !found || active != recreated.Identity {
 		t.Fatalf("clean recreation did not record the active identity: identity=%#v found=%t error=%v", active, found, err)
-	}
-}
-
-func TestGitWorkspaceProviderCleanupIsIdempotentAndRefusesBranchMismatch(t *testing.T) {
-	repo := initGitRepo(t)
-	root := filepath.Join(t.TempDir(), "worktrees")
-	provider := NewGitProvider(subprocess.OSRunner{})
-	request := boundRequest(Request{WorkingDir: repo, WorktreeRoot: root, WorkID: "assignment_item_456", BranchPrefix: "runner", BaseRef: "HEAD"})
-	prepared, err := provider.Prepare(t.Context(), request)
-	if err != nil {
-		t.Fatalf("prepare task worktree: %v", err)
-	}
-
-	_, err = provider.Cleanup(t.Context(), cleanupFor(request, "runner/different-item"))
-	if err == nil || !strings.Contains(err.Error(), "does not match expected branch") {
-		t.Fatalf("cleanup accepted a mismatched branch: %v", err)
-	}
-	if _, err := os.Stat(prepared.WorktreePath); err != nil {
-		t.Fatalf("mismatched cleanup removed the task worktree: %v", err)
-	}
-
-	cleanupRequest := cleanupFor(request, prepared.BranchName)
-	if _, err := provider.Cleanup(t.Context(), cleanupRequest); err != nil {
-		t.Fatalf("cleanup task workspace: %v", err)
-	}
-	repeated, err := provider.Cleanup(t.Context(), cleanupRequest)
-	if err != nil {
-		t.Fatalf("repeat task cleanup: %v", err)
-	}
-	if repeated.WorktreeRemoved {
-		t.Fatalf("idempotent cleanup reported new removals: %#v", repeated)
-	}
-}
-
-func TestGitWorkspaceProviderCleanupRefusesRetainedBranchWithoutIdentity(t *testing.T) {
-	repo := initGitRepo(t)
-	root := filepath.Join(t.TempDir(), "worktrees")
-	provider := NewGitProvider(subprocess.OSRunner{})
-	request := boundRequest(Request{WorkingDir: repo, WorktreeRoot: root, WorkID: "identityless_branch", BranchPrefix: "runner", BaseRef: "HEAD"})
-	branch := "runner/identityless_branch"
-	runGitTest(t, repo, "branch", branch)
-
-	_, err := provider.Cleanup(t.Context(), cleanupFor(request, branch))
-	if !errors.Is(err, ErrIdentityMismatch) || !strings.Contains(err.Error(), "has no private identity record") {
-		t.Fatalf("cleanup accepted a retained branch without identity: %v", err)
-	}
-	if result := runGitTest(t, repo, "show-ref", "--verify", "refs/heads/"+branch); strings.TrimSpace(result) == "" {
-		t.Fatalf("rejected cleanup removed retained branch %q", branch)
 	}
 }
 
@@ -650,24 +445,5 @@ func TestGitWorkspaceProviderQuarantineCollisionDoesNotOverwriteExistingData(t *
 	}
 	if content, err := os.ReadFile(filepath.Join(root, ".runner-quarantine", stem+"-2", "valuable.txt")); err != nil || string(content) != "old work\n" {
 		t.Fatalf("collision-safe quarantine did not preserve stale work: content=%q error=%v", content, err)
-	}
-}
-
-func TestGitWorkspaceProviderCleanupRefusesIdentityMismatch(t *testing.T) {
-	repo := initGitRepo(t)
-	root := filepath.Join(t.TempDir(), "worktrees")
-	provider := NewGitProvider(subprocess.OSRunner{})
-	request := boundRequest(Request{WorkingDir: repo, WorktreeRoot: root, WorkID: "cleanup_identity", BranchPrefix: "runner", BaseRef: "HEAD"})
-	prepared, err := provider.Prepare(t.Context(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cleanup := cleanupFor(request, prepared.BranchName)
-	cleanup.DelegatedContentDigest = "v1:changed-before-cleanup"
-	if _, err := provider.Cleanup(t.Context(), cleanup); !errors.Is(err, ErrIdentityMismatch) {
-		t.Fatalf("cleanup accepted mismatched identity: %v", err)
-	}
-	if _, err := os.Stat(prepared.WorktreePath); err != nil {
-		t.Fatalf("mismatched cleanup removed the workspace: %v", err)
 	}
 }

@@ -107,7 +107,12 @@ func (c CLI) printStatus(s engine.Status) {
 }
 
 func (c CLI) help() {
-	fmt.Fprintln(c.Out, `Runner local — commands use runner-next --config PATH COMMAND.
+	fmt.Fprintln(c.Out, `Cortexium Runner — local task engine
+
+Usage:
+  cortexium-runner --version
+  cortexium-runner --help
+  cortexium-runner --config PATH COMMAND
 init [--check COMMAND] [--apply]       Preview or initialize private local state.
 task add [--plan] --file TASK.md       Capture Ready work or a Plan request.
 task show ID [--json]                 Inspect content, proof, history and exact next action.
