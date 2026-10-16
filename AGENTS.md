@@ -25,8 +25,9 @@ integration, explicit guarded merge and explicit automatic-merge policy) are
 implemented in `cmd/runner-next`; their qualification and remaining delivery/release boundaries are recorded in that
 plan. Feature scope is frozen after `aedc8bd`. The plan's
 [five release bundles and finish line](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
-are the remaining work source, starting with R1 when authorized. Implement only
-those release obligations or concrete fixes to the frozen contract; additional
+are the remaining work source. R1 live delivery qualification is complete; start
+with R2 when authorized. Implement only those release obligations or concrete
+fixes to the frozen contract; additional
 features require explicit owner direction. Do not create a separate task ledger.
 `docs/architecture.md` and the existing operator guides describe the current
 Project-backed runtime until the replacement lands. Existing code is evidence

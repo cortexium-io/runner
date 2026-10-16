@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five remaining release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 qualification is in progress and R2–R5 are pending. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 13; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five remaining release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification is complete; R2–R5 are pending. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 13; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -777,9 +777,10 @@ must wait when core scenarios, test quality or the operator journey remain weak.
 **Scope frozen on 2026-10-15, after `aedc8bd`.** The nine phase 3 bundles close
 delivery feature construction for the first release. The five bundles below are the
 remaining sequence; this section is the release checklist, not a second backlog.
-R1 was authorized on 2026-10-16; R2–R5 remain pending. The checklist alone
-authorizes no implementation, remote mutation, publication or installation change. When a bundle is authorized, refine
-its verification brief here before code and stop at its exit condition.
+R1 completed on 2026-10-16; R2–R5 remain pending. The checklist alone
+authorizes no implementation, remote mutation, publication or installation change.
+When a bundle is authorized, refine its verification brief here before code and
+stop at its exit condition.
 
 Keep the implemented Plan/Ready process, quality agreements, independent review,
 bounded recovery, configuration, local status and GitHub delivery. Backup/restore
@@ -824,7 +825,7 @@ and acceptance conditions rather than add another feature milestone.
 | **R4 — Promote and package the replacement** | Promote the replacement to `cortexium-runner`; retire the legacy entry point, obsolete consumers/tests and the temporary `runner-next` name. Update architecture, README, setup/examples, help, operator/role references and install/release tooling. Reuse useful low-level code and tests by current requirement. | The packaged binary exposes the replacement commands and version, requires no Project, and its docs/installed instructions match its behavior. Extend the existing packaging, installer and release-security checks; replace the legacy Project smoke journey. Build all four no-CGO targets and verify archives/checksums. Update CI/readiness commands to the qualified package timeout. No compatibility runtime, general updater redesign or new plugin layer. Stop at a reviewable release candidate, without publishing or switching a real installation. |
 | **R5 — Final qualification and cutover rehearsal** | Qualify one reviewed candidate and rehearse the documented breaking cutover on a selected test installation. Check backup, old-owner shutdown, fresh setup, explicit resubmission and the prohibition on restarting stale authority after new remote effects. | Complete the gates below on the candidate; reuse R1–R3 evidence only where subsequent changes have not invalidated it. Exercise the packaged entry point on macOS and Linux and record native sandbox/runtime evidence separately from cross-builds. Finish with tested artifacts, evidence, release notes and the exact installation/cutover procedure. Missing infrastructure or unverified safety leaves this gate open. Stop release-ready; publishing and changing the user's running installation require their own explicit instruction. |
 
-R1 is the next implementation bundle once authorized. If a needed test host,
+R2 is the next implementation bundle once authorized. If a needed test host,
 repository or credential is unavailable, name the specific blocked evidence and
 continue independent preparation; do not substitute a simulated success. Live
 model qualification uses the already selected `gpt-6.1-sol / high` where a model
@@ -885,6 +886,107 @@ the existing GitHub CI/integration/merge protocol tables with stale PR OIDs and
 missing live targets, then repeat alpha's CI and both live integration routes.
 No store format, authority, scheduler or retry change is needed.
 
+#### R1 qualification — complete
+
+**2026-10-16, source `346ae6b`.** Both live delivery routes passed in the
+private [qualification repository](https://github.com/cortexium-io/runner-delivery-qualification).
+The actual `runner-next` ran fresh local state, native Codex `gpt-6.1-sol / high`,
+independent review, Git workspaces and real GitHub Actions. No Project was used.
+The only Runner code change reads `baseRef.target.oid` for CI, open integration
+and merge admission. This corrects the observed stale `baseRefOid`; existing
+GitHub protocol tables now cover stale historical OIDs, missing live targets and
+merged inspection after ref deletion. No new suite, dependency or store format.
+GitHub documents the [PR ref](https://docs.github.com/en/graphql/reference/pulls#pullrequest)
+and its [current target](https://docs.github.com/en/graphql/reference/git#ref);
+the retained live response demonstrates why the distinction matters here.
+
+| Route | Reviewed candidate | Verified base | Confirmed ordinary merge |
+| --- | --- | --- | --- |
+| Human/default, [alpha PR #1](https://github.com/cortexium-io/runner-delivery-qualification/pull/1) | `fd37076ce129a084e0d7c153f40f333073bc5d73` | `7284b842ab6c2b90461a2ea95ee440fb5136dd71` | `b61747ceea99d9f700c57e6fa5fa5ba3f41180b8` |
+| Automatic, [beta PR #3](https://github.com/cortexium-io/runner-delivery-qualification/pull/3) | `29491aaf8d4afcbb7996c3eeb0f6ac0e245efbe3` | `b61747ceea99d9f700c57e6fa5fa5ba3f41180b8` | `5c05a8b14cd710d2e7eb36cb1b15ed15991e9463` |
+
+Both receipts passed independent Git checks: exactly the verified base and
+candidate as the two merge parents, identical candidate/merge trees and merge
+ancestry in the fetched base. Both final files contain exactly `ready` plus one
+newline. Beta had zero invocations while alpha awaited delivery; its first
+attempt began after alpha's confirmed receipt. The parent remained incomplete
+after alpha and completed only after beta's receipt. Each child consumed one
+base refresh, three model calls (implementation, audit, refreshed audit), and
+no repair or escalation.
+
+The host enforced strict classic `main` protection, including administrators,
+with required Actions check `fixture`, app ID `15368`, and no force-push,
+deletion, bypass or queue allowance. Live admission reported
+`viewerCanMergeAsAdmin=false`. Human policy produced no Runner merge dispatch.
+For beta, the operator previewed, saved and applied `merge-policy=automatic`;
+a passing draft stayed open without a dispatch. After external ready marking
+and `task integrate`, Runner recorded eligible protection
+`BPR_kwDOVL46U84FD75U`, policy origin
+`4b3b749456fde40f57e4228c3ae19a7d281b83b5563d4b56535fb72b1d7f3b04`,
+one consumed dispatch and the exact confirmed receipt. No `task merge` command
+or external merge command was used for beta. Protection remained enforced at
+completion. The fixture is drained, with no coordinator or occupied reservation.
+
+**Reproduction and interventions.** Use the retained configuration and quality
+specification: `init --apply`; `quality preview/check` and agreement
+`preview/apply`; `task add --plan`, exact-version approval, `run`, inspect and
+release the proposal. Inspect `task show --json` through review, base verification
+and publication. Reassess settled CI explicitly when needed; mark ready with
+`gh pr ready`. For alpha use ordinary `gh pr merge --merge --match-head-commit`
+and `task integrate`; for beta apply automatic policy through
+`config edit/explain/apply`, then request `task integrate` after ready marking.
+Never use `--admin` or weaken protection.
+
+- The first planner proposal mixed delivery duties into coding acceptance and
+  assumed beta would start on an advanced base. It was rejected before release.
+  `task replace` and a second native plan produced two concise file-only cards;
+  Runner retained responsibility for refresh and dependency/parent completion.
+- The initial fixture triggered the same check on push and PR events. Runner
+  correctly refused duplicate check identities. One additional
+  [fixture setup PR #2](https://github.com/cortexium-io/runner-delivery-qualification/pull/2)
+  changed the workflow to push-only and merged under the existing protection.
+  Alpha refreshed onto that base; beta later refreshed onto alpha's merge.
+- Both synchronization pushes briefly exposed different branch and PR heads.
+  Runner stopped safely, and one explicit `task delivery --reconcile` per child
+  confirmed the settled head. No polling or retry behavior was added.
+- The stale PR base OID blocked alpha's CI. After the narrow adapter fix,
+  drain/rebuild/restart and `task assess-ci` reused its accepted candidate and
+  review. Both integration routes then ran on the corrected adapter. No paid
+  role call was repeated for this adapter-only fix.
+
+**Retained evidence and checks.** Private evidence is under
+`/Users/dan/.codex/runner-qualification/r1-20261016`: configuration, quality and
+Plan inputs, the fixture Git repository, private state/attempt logs and an
+`evidence/` directory with proposal/status snapshots, protection, PR identities,
+exact receipts, native calls, command results and build provenance. The qualified
+binary SHA-256 is
+`925038dd6011992eb7d81cbf96acf3fca3b963690eb4483d9f2fc81a846f7cb2`;
+`build-provenance.json` binds the source commit and retained adapter patch.
+Parent ID is `b8abd0e08caea775764c698b2e876327`; alpha is
+`ddb856ca2f0e2b002b3c81a886b82788`, beta is
+`da118c16d37ea1579f7b7933c7d9b844`.
+
+Eight actual native calls ran (two plans, two implementations, four audits),
+including the unreleased first proposal. Planning started at 06:39:41 UTC and
+both integrations were confirmed by 06:56:51 UTC; this elapsed time includes
+fixture correction, diagnosis and operator work. Provider-reported token usage
+is retained per call; monetary cost is unknown. Environment: macOS 27.0 arm64,
+Go 1.27.1, Apple Git 2.54.0, gh 2.94.0 and Codex CLI 0.162.1.
+
+Passed focused GitHub race tests, `go test -race -timeout 15m ./...` (22 packages),
+`go vet ./...`, building `cmd/runner-next` into the retained fixture binary,
+formatting and `git diff --check`.
+The full gates were repeated after the adapter fix; Go reused valid unaffected
+package results, including the earlier 585.698-second engine suite. Complete
+diff review found no extra architecture or test machinery.
+
+This closes R1 for the frozen strict-classic-protection contract. Readiness is
+still external; settled CI and remote reconciliation can require explicit
+commands. Duplicate required identities remain unavailable. Queues, ruleset-only
+Runner-owned admission, squash/rebase, polling and ready-state writes remain
+unsupported. R2–R5 retain their own backup/restore, complete operator journey,
+packaging and native-platform obligations. Stop here before R2.
+
 #### Required verification
 
 Each implementation bundle uses the existing owning suites and the repository's
@@ -924,10 +1026,10 @@ merely to populate a matrix when valid evidence already covers the claim.
 #### Release finish line
 
 The first replacement is **release-ready** when every item below is checked with
-evidence. These boxes are currently open; the completed construction bundles do
-not imply that release qualification has passed.
+evidence. R1 is closed below; the remaining boxes stay open until their own evidence
+is recorded. Construction completion does not imply release qualification.
 
-- [ ] R1: real human and Runner-owned protected merges have exact receipts; frozen
+- [x] R1: real human and Runner-owned protected merges have exact receipts; frozen
   manual handoffs and unsupported host configurations are documented.
 - [ ] R2: consistent backup/restore and stale-snapshot handling are verified;
   recovery cannot duplicate ownership, reset known consumption or replay writes.
@@ -3433,8 +3535,10 @@ The phase 2 evidence is recorded in the [Ready-policy qualification](#first-phas
 [quality-agreement qualification](#third-phase-2-qualification), plus the
 [operator qualification](#fourth-phase-2-qualification). Nine phase 3 bundle
 qualifications above cover connected delivery through automatic policy.
-The [release checklist](#frozen-first-release-checklist) owns the remaining live,
-restore, operator and packaging evidence; phase 5 board views stay deferred.
+[R1](#r1-qualification--complete) adds real protected human/automatic merges and
+dependency/parent completion. The [release checklist](#frozen-first-release-checklist)
+owns remaining restore, operator, packaging and final candidate evidence; phase 5
+board views stay deferred.
 
 | Requirement | Owning phase | Acceptance evidence |
 | --- | --- | --- |
@@ -3446,7 +3550,7 @@ restore, operator and packaging evidence; phase 5 board views stay deferred.
 | Bounded recovery and understandable configuration | 1; extend in 2/3 | S7 validates the limited policy. The first phase 2 bundle proves Ready repair allowance, persistent backoff, rejection-only escalation, invocation budgets and live policy changes without counter resets. Phase 3 proves bounded refresh/review cycles and explicit automatic-merge policy without repeated writes; R2 qualifies restore. |
 | Independent, sufficient, economical verification | 1; extend in 2 | S6 plus live candidate review. The first phase 2 paired behavioral cases cover fabricated proof, weakened checks, legitimate consolidation and speculative review; no infrastructure error becomes a code rejection. |
 | Provider-neutral architecture and optional views | 1/3/5 | S1 runs without `gh`/Projects. Phase 3 delivery requires no board. Phase 5 disconnect/reconnect and reordered updates converge safely; Trello needs no core scheduling/approval change and exposes no private evidence. |
-| Current-base delivery and confirmed completion | 3/4 | The nine phase 3 qualifications cover base movement, conflicts, CI failure, interrupted publication, exact human/automatic merge receipts and closed-unmerged handling. R1 must close the live protected-merge gap; R5 checks that evidence against the release candidate. |
+| Current-base delivery and confirmed completion | 3/4 | The nine phase 3 qualifications cover base movement, conflicts, CI failure, interrupted publication, exact human/automatic merge receipts and closed-unmerged handling. R1 closes the live protected-merge gap with exact human/automatic receipts and dependency/parent completion; R5 checks that evidence against the release candidate. |
 | Comprehensible progress and recovery | 1/2/4 | Fourth phase 2 qualification covers attention-first status, actual profiles, waits, retained work, exact recovery guidance, watch and named-setting editing. Its local journey stops at a retained candidate. Phase 3 adds delivery inspection; R3/R5 must qualify the full fresh-installation journey. |
 | Packaging, restore and breaking cutover | 1/4 | Phase 1 qualifies the driver and new entry point's target builds. Phase 4 proves platform/runtime checks, consistent backup/restore, no old/new ownership overlap and explicit resubmission. No historical-state converter is required. |
 | Honest operational learning | 1/2/4 | Existing attempts retain call/result evidence; R3/R5 record the journey measures below and unresolved limits without adding an analytics service. Guidance drafts require human review. No inferred cost or unsupported performance claim. |
@@ -3477,13 +3581,11 @@ Do not automatically turn repeated model text into execution policy.
 
 ## Build readiness
 
-The local process and nine delivery bundles are implemented and qualified within
-their recorded boundaries. Feature scope is frozen. Continue only through the
-[five release bundles](#frozen-first-release-checklist), starting with R1 when
-implementation is authorized. They close the live delivery, backup/restore,
-operator, runtime promotion and release-evidence gaps. All five release gates
-remain open until their own evidence is recorded; optional integrations cannot
-displace this work.
+The local process, nine delivery bundles and R1 live delivery qualification are
+complete within their recorded boundaries. Feature scope is frozen. Continue
+through the [release checklist](#frozen-first-release-checklist), starting with R2
+when authorized. Backup/restore, the full operator journey, runtime promotion and
+final release evidence remain open; optional integrations cannot displace them.
 
 [factory]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/README.md
 [factory-setup]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/skills/factory-init/SKILL.md
