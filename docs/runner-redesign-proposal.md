@@ -829,7 +829,7 @@ and acceptance conditions rather than add another feature milestone.
 | **R4 — Promote and package the replacement** | Promote the replacement to `cortexium-runner`; retire the legacy entry point, obsolete consumers/tests and the temporary `runner-next` name. Update architecture, README, setup/examples, help, operator/role references and install/release tooling. Reuse useful low-level code and tests by current requirement. | The packaged binary exposes the replacement commands and version, requires no Project, and its docs/installed instructions match its behavior. Extend the existing packaging, installer and release-security checks; replace the legacy Project smoke journey. Build all four no-CGO targets and verify archives/checksums. Update CI/readiness commands to the qualified package timeout. No compatibility runtime, general updater redesign or new plugin layer. Stop at a reviewable release candidate, without publishing or switching a real installation. |
 | **R5 — Final qualification and cutover rehearsal** | Qualify one reviewed candidate and rehearse the documented breaking cutover on a selected test installation. Check backup, old-owner shutdown, fresh setup, explicit resubmission and the prohibition on restarting stale authority after new remote effects. | Complete the gates below on the candidate; reuse R1–R3 evidence only where subsequent changes have not invalidated it. Exercise the packaged entry point on macOS and Linux and record native sandbox/runtime evidence separately from cross-builds. Finish with tested artifacts, evidence, release notes and the exact installation/cutover procedure. Missing infrastructure or unverified safety leaves this gate open. Stop release-ready; publishing and changing the user's running installation require their own explicit instruction. |
 
-R4 is the next implementation bundle once authorized. If a needed test host,
+R5 is the next release bundle; it is authorized for qualification and an isolated cutover rehearsal. If a needed test host,
 repository or credential is unavailable, name the specific blocked evidence and
 continue independent preparation; do not substitute a simulated success. Live
 model qualification uses the already selected `gpt-6.1-sol / high` where a model
@@ -1410,6 +1410,55 @@ installation change occurred. Installer tests wrote only temporary destinations.
 R1–R3 evidence remains historical support for unchanged role and delivery behavior;
 R5 must assess its applicability to the promoted candidate, run native Linux and
 packaged journey checks, and rehearse cutover. Stop before R5.
+
+#### R5 implementation and verification brief
+
+**Authorized 2026-10-16; baseline candidate `0a2668d`.** Qualify the promoted
+replacement and rehearse fresh cutover only in isolated test roots. The owner
+selected a disposable Docker Linux environment; record the actual Linux kernel,
+image, architecture, user and sandbox/container settings rather than treating a
+cross-build as native execution. Keep the frozen feature scope. Stop release-ready;
+no production installation, service, publishing, tag or remote protection change.
+
+Supported outcomes and verification boundary:
+
+- Identify one source candidate and the four checksum-verified release archives.
+  Reuse R4's macOS race/vet/module/vulnerability evidence where source identity is
+  unchanged; run the native Linux race/vet gates and actual packaged commands.
+  Rebuild/recheck artifacts or rerun invalidated evidence if a production fix is needed.
+- Extend the existing opt-in native quality-check test for explicit denied
+  outside-root read/write, denied loopback network access and bounded sandbox
+  timeout. Existing process-group interruption tests run on both operating
+  systems. A missing native capability blocks qualification; never replace the
+  Codex sandbox with a stub or disable its containment to obtain a pass.
+- Verify actual installation into dedicated test-only binary directories.
+  Exercise fresh setup, quality preview/check/apply, Ready/Plan intake and exact
+  approval, policy preview/save/apply, run/drain/restart, status and backup/restore
+  using the packaged entry point and guide. Reuse the owning controlled CLI
+  journey for deliberate question/dependency/interrupted-review cases, and the
+  unchanged live role evidence instead of buying repeated behavioral matrices.
+- Rehearse an old matching-binary owner shutting down, a consistent preserved
+  backup, fresh format-15 setup at distinct paths, and explicit resubmission with
+  new approval. Do not copy authoritative state or reactivate the old owner.
+  A newer mutation/effect must leave an older snapshot inspection-only; verify
+  refusal to run or mutate it. Preserve the original guard and all moved roots.
+- Review R1's live human/automatic delivery receipts against current contracts;
+  only repeat live delivery if a subsequent change invalidates that proof. Any
+  needed model invocation uses `gpt-6.1-sol / high`; any remote write is limited
+  to the already authorized private delivery-qualification repository.
+- Finish with concise release notes and exact backup/shutdown/install/fresh-setup/
+  resubmission/verification instructions. Identify remaining unsupported modes,
+  irreversible remote effects and why old authority must stay stopped. Record
+  actual calls, elapsed time, operator interventions and evidence reuse. Unknown
+  cost remains unknown.
+
+The existing CLI, store/backup, workspace, execution/process, archive/installer
+and release-security suites own these guarantees. Add no new workflow framework
+or duplicate test registry. The native additions address concrete containment
+evidence missing from the existing opt-in check. Review the entire final diff
+and candidate/artifact identity before closing the R5 box. Missing Linux
+infrastructure or an unresolved required behavior leaves R5 open even when all
+independent work is complete.
 
 #### Required verification
 

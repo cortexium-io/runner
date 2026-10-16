@@ -1,8 +1,8 @@
 # Runner local operator guide
 
 This guide describes the local engine shipped by `cortexium-runner`. GitHub
-Projects is not required. The first replacement release is still a local
-candidate until R5 qualification and an explicitly authorized publication.
+Projects is not required. Candidate qualification is recorded in the release
+checklist; publication and installation require separate explicit authorization.
 
 Release archives include this guide as `OPERATOR.md` and a `runner.example.json`.
 Extract them for offline use. The installer copies only the binary; it does not
@@ -15,7 +15,8 @@ retains a reviewed candidate at **Awaiting delivery**.
 
 ## 1. Build and configure fresh authority
 
-Install the Go version in `go.mod`, Git and Codex CLI separately. Authenticate Codex
+Install Git and Codex CLI separately; source builds also need the Go version in
+`go.mod`. Authenticate Codex
 with your account and select a supported model/reasoning pair. This release
 qualifies sandboxed Codex; it does not install tools, credentials or a service.
 For GitHub delivery, also install `gh` and authenticate to github.com with access
@@ -408,3 +409,68 @@ are outside this release.
 
 The [release checklist and qualification evidence](https://github.com/cortexium-io/runner/blob/main/docs/runner-redesign-proposal.md#frozen-first-release-checklist)
 record what was exercised, actual calls/interventions and remaining release gates.
+
+## 8. Breaking release and cutover
+
+This release replaces Project-owned orchestration with one local coordinator and
+private store. Ready/Plan approvals, quality agreements, bounded work/review/repair,
+status and same-host backup/restore are available without a board. Optional GitHub
+delivery supports draft publication, current-base and CI assessment, bounded
+repair and guarded ordinary merges with exact integration receipts. Configuration
+explicitly controls model/reasoning profiles, escalation, parallelism and limits.
+
+This is a **fresh setup**, not an upgrade of old authority. Store formats before
+15, old Project configuration, old commands and old approval records are not
+accepted. There is no importer, daemon installer or updater. Boards/Trello, other
+harnesses, remote polling, CI reruns, queues, squash/rebase and ruleset-only
+Runner-owned merges remain outside this release. The delivery section above
+describes supported host protection and the human handoffs.
+
+Use the following order for a separately authorized installation. Substitute
+canonical absolute paths and a published version for the placeholders. Keep the
+old and new binaries, configs, repositories and workspaces distinct throughout.
+
+1. **Stop old ownership.** Prevent the old service/launcher from restarting. With
+   the matching old binary/config, drain and wait for its coordinator and all
+   owned processes to exit; inspect status and outstanding remote effects. Drain
+   requested is not drain completed. If the older runtime has different commands,
+   use that version's shutdown instructions. Record each pending task, PR, head,
+   base and confirmed merge; a local backup cannot undo a push or merge.
+2. **Preserve recovery material.** Keep the old binary and its version/hash. For
+   a local-core version supporting backup, use that matching binary's `backup
+   --to /absolute/backups/new-old-snapshot` after drain. Preserve its complete
+   private bundle, original guard and any roots needed by that version. For the
+   legacy Project runtime, preserve its stopped configuration/state/workspaces
+   using its documented recovery procedure. Do not feed either format to the new
+   binary. Leave old launchers disabled and label the old authority inspection-only
+   operationally; different fresh roots do not automatically revoke it.
+3. **Install into a new tool directory.** From the reviewed source checkout run
+   `CORTEXIUM_RUNNER_INSTALL_DIR=/absolute/new-tools sh scripts/install.sh
+   vMAJOR.MINOR.PATCH`. The installer verifies HTTPS, checksum, archive entries and
+   binary version before replacing a file. Check the installed `--version` and
+   `--help`; keep the archive, `SHA256SUMS` and offline guide. The installer neither
+   stops the old owner nor starts the new one. For an unpublished rehearsal use
+   the retained qualification artifacts and isolated test destination only.
+4. **Create fresh authority.** Follow sections 1–2 with new config/state/worktree
+   roots and a fresh checkout at the reconciled base. Select delivery mode before
+   initialization, inspect `init`, then `init --apply`. Preview/check/apply a new
+   quality agreement. Inspect `config explain` and explicitly choose profiles,
+   limits and merge policy; human merge remains the default.
+5. **Resubmit remaining work.** Copy only the human-readable unfinished outcome
+   and verification brief into a new task. Reconcile completed effects and
+   dependencies first. Inspect the new task version and returned preview before
+   approval; a Plan's child release needs its own approval. Never copy SQLite
+   rows, old approvals, action identities or consumed budgets into the new store.
+6. **Verify ownership and progress.** Inspect `status`, start `run`, and check the
+   reported owner/profile/limits and the task's next action. Use the status and
+   delivery sections for attention, host handoffs and confirmed completion. Drain
+   and verify exit before the first new backup. Keep the old owner stopped.
+
+If cutover fails before new work, drain the new owner and inspect both histories
+before deciding what remains. After any new local mutation or remote effect,
+restarting old approvals can duplicate work: recovery proceeds through explicit
+reconciliation and fresh approvals. Never restore an old guard or reset budgets
+to regain permission. A stale snapshot of the **same authority** restores only
+for inspection and refuses run/mutation; separate old installations still require
+the shutdown discipline above. There is no automatic cross-installation revocation
+or rollback of remote effects.

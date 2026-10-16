@@ -9,9 +9,10 @@ dependency-aware tasks. Review the exact preview before approval; releasing a
 plan separately authorizes its children. Runner implements in isolated worktrees,
 runs the agreed checks and asks an independent reviewer to assess the result.
 
-The replacement is now the sole `cortexium-runner` executable. This branch is a
-local release candidate: R5 final qualification and cutover remain. Nothing in
-this documentation publishes a release or upgrades an existing installation.
+The replacement is the sole `cortexium-runner` executable. The
+[release checklist](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
+records candidate qualification. Publication and changing an existing installation
+are separate, explicitly authorized actions.
 
 ## Start
 
@@ -34,7 +35,7 @@ enter work, then start the coordinator. No service is installed automatically.
 ./cortexium-runner --config /absolute/runner/runner.json status
 ```
 
-Initialization needs its displayed preview before apply. Status never creates
+Initialization displays a preview before `init --apply`. Status never creates
 authority. The guide covers the complete flow, configuration editing, limits and
 escalation, interruptions, delivery and same-host backup/restore.
 
@@ -76,7 +77,8 @@ README, `OPERATOR.md` and `runner.example.json`; `SHA256SUMS` covers all four.
 For offline instructions, open `OPERATOR.md` from the extracted archive.
 The HTTPS/checksum-verifying installer copies only the verified binary to the
 selected directory. It does not migrate configuration, install skills or change
-services. Do not use it to cut over an existing installation before R5 approval.
+services. Follow the [breaking cutover procedure](docs/operator-reference.md#8-breaking-release-and-cutover)
+only after candidate qualification and explicit installation authorization.
 
 Release publication remains an explicitly dispatched, reviewed-source workflow.
 It requires an exact lightweight version tag on the reviewed main commit,
