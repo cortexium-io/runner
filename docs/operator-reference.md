@@ -242,6 +242,10 @@ runner task approve TASK_ID --version N --preview APPROVAL_PREVIEW
 runner run
 ```
 
+For a check using external fixtures, supply the relevant immutable helper and
+test source in the request, with provenance. A passing summary alone may not let
+independent review assess whether those assertions prove the requested behavior.
+
 Copy the ID from `add` and the exact version/approval command from `show`, after
 reviewing content, quality revision, base and destination. The displayed preview
 is not approval by itself. Missing Verification requires a configured planner and
@@ -281,8 +285,13 @@ runner task approve TASK_ID --version NEW_VERSION --preview NEW_APPROVAL_PREVIEW
 ```
 
 The original request/evidence remain. Editing the file alone changes nothing.
-Replacing text retains the quality revision. A released Plan or child cannot be replaced;
-stop the batch and submit a new plan if its requirements must change.
+Replacing text retains the quality revision and starts a new version's counters.
+Use this for changed or missing requirements, not to restart an exhausted allowance.
+If an overall budget must carry across clarification, lower the applied invocation
+limit to the remaining allowance before approving the replacement and retain the
+original deadline. For a confirmed failed required check under unchanged scope,
+use the bounded `repair-checks` action instead. A released Plan or child cannot be
+replaced; stop the batch and submit a new plan if its requirements must change.
 
 ### Local results and base integration
 
@@ -379,7 +388,7 @@ application; already admitted work retains the applied policy.
 | `repairs=N` | Shared bounded allowance for operator-confirmed required-check defects, confirmed rejection, eligible CI failure and supported text-conflict repair. |
 | `transient-retries=N` | Bounded retry of recognized transient failures; interruptions need explicit recovery. |
 | `base-refreshes=N` | Allowance for changed-base verification cycles, separate from code repairs. |
-| `invocations=N` or `unlimited` | Per-task model-call ceiling; admission consumes a call even if it later fails. |
+| `invocations=N` or `unlimited` | Limit on role executions per task. Admission consumes one even if execution fails; a role can make several provider requests. |
 | `escalation=careful,next` or `none` | Successors after the starting implementer. Confirmed review rejection advances the ladder; the last profile remains selected within the repair limit. Operator-confirmed check repair, CI/conflict repair and transient retry do not independently advance it. |
 | `merge-policy=human` or `automatic` | Local base or GitHub merge authority; see below before applying automatic policy. |
 

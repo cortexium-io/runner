@@ -1,6 +1,15 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification, R2 backup/restore and R3 operator qualification are complete; R4 promotion/packaging and R5 final qualification are complete within their recorded boundaries. The owner subsequently added the [real-project pilot gate](#real-project-pilots-before-merge); setup qualification is recorded below; the owner has now authorized the remaining qualification work under the bounded brief below. Publication and installation remain separate authorized actions. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Local completion and combined-plan verification are implemented and qualified within their recorded boundaries. Current store format is 17; earlier bundle notes below describe their historical formats.
+Status: The local replacement, delivery bundles and R1–R5 are implemented and
+qualified in `codex/runner-local-core`. The subsequent local-completion,
+real-project pilot, main-reconciliation and final platform/package obligations
+are complete within the [continued qualification record](#continued-real-project-qualification).
+Current store format is **17**. The [frozen checklist](#frozen-first-release-checklist)
+remains the scope boundary; historical briefs below are construction evidence.
+Runner PR #106 and api-mcp pilot PR #6 remain drafts for human review. No Runner
+merge, release publishing or running-installation/cutover change is authorized by
+this completion. Optional views, extra harnesses, remote polling, merge queues
+and additional hosted merge methods remain deferred.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -32,8 +41,9 @@ are. This is design direction, not authorization to start another implementation
 bundle or change the running installation.
 
 The [local completion and combined-plan brief](#local-completion-and-combined-plan-verification-brief)
-now defines that next design boundary, including configurable local delivery and
-merge permission. It is specified, not implemented or qualified.
+defines the implemented local delivery and merge-permission boundary. Its local
+qualification and the subsequent real-project/connected results are recorded
+below; historical briefs are not outstanding implementation work.
 
 Start with [release scope](#first-release-scope), [core contracts](#core-contracts),
 and the [release checklist](#frozen-first-release-checklist).
@@ -1635,7 +1645,7 @@ refreshed caches, reviewed-source release safeguards, nonblocking no-follow FIFO
 protection, bounded subprocess pipe drainage/teardown, safe common-config
 recapture and verified loose/packed Git ref transitions. The shared filesystem,
 subprocess, workspace and release-script owning suites pass with race detection.
-The final full integrated gates remain required.
+Final integrated gate results are recorded in the continued qualification below.
 
 Legacy Project runtime additions, bundled skill installers, legacy Pi/browser
 lanes, migration/rebase delivery and the host/global heavy verification service
@@ -1651,7 +1661,8 @@ image. Genny preparation exposed missing transitive generated-app dependencies
 and a host-shared scratch filesystem incompatibility in Git fixtures. Prepare the
 full declared dependency graph explicitly, qualify real Linux executable scratch,
 and rerun the unchanged owning checks; no assertion or baseline exception is
-changed to accommodate setup. This qualification remains open.
+changed to accommodate setup. The corrected image baseline and pilot results
+are recorded in the continued qualification below.
 
 ##### Pilot finding: recovery after a failed required check (approved)
 
@@ -1722,12 +1733,46 @@ checks remain separately recorded below; focused fixtures are not release gates.
   race/vet/build passed. One owner-confirmed repair used a read-only formatter
   diagnostic; the worker made the correction, all four fresh checks passed, and
   independent audit accepted the candidate. Total: three `gpt-6.1-sol / high`
-  calls, one repair, zero escalations, no counter reset. Native Go/gofmt stayed
-  unavailable to the model; no container socket or host access was granted.
+  role invocations, one repair, zero escalations, no counter reset. Native
+  Go/gofmt stayed unavailable to the model; no container socket or host access
+  was granted.
   The owner explicitly enabled pull requests for this repository, and
   [pilot draft #6](https://github.com/cortexium-io/api-mcp/pull/6) remains unmerged.
   Linux/macOS race/vet/build/format and vulnerability CI passed on the exact
   published head ([run](https://github.com/cortexium-io/api-mcp/actions/runs/38922327516)).
+- **Genny verification/adoption pilot passed.** The isolated existing
+  [PR #576](https://github.com/cortexium-io/genny/pull/576) source at
+  `24665db0e196bfe440d865dff4cbdc3eecf17f2c` needed no correction. Task
+  `5b8ef643f7387a729cbbe18693425121` completed locally at
+  `686fb642d9204927256bac1a2256a9f88a192289`, with the same source tree as that
+  approved snapshot. Fast/scaffold/stats-CLI tests, vet, four-module Staticcheck
+  and adoption checks passed; independent audit accepted the owning assertions
+  without adding tests. The adoption helper rebuilt historical Genny `7e66bf8`
+  plus the candidate's compatibility patch, reproduced both ShowIP outputs twice
+  from unchanged metadata, and passed the consuming backend and race-enabled
+  stats/privacy/cardinality cases. Its private modfile changes only local
+  replacement paths. Image preparation added root/auth checksum entries to the
+  historical fixture; all other archived bytes, both `go.mod` files and all
+  ShowIP fixture files were verified unchanged. No dependency versions changed.
+  Original PR ownership, application source and installation remain untouched.
+  Version 1 spent three role executions and correctly stopped because the brief
+  omitted the adoption helper and consuming assertion source. The normal
+  clarification flow supplied immutable snapshots/provenance, retained the old
+  version/history and created version 2. Before approval, the invocation cap was
+  lowered from eight to the five remaining; the original two-hour deadline was
+  retained. Version 2 spent two executions: **five aggregate**, no repair or
+  escalation. Per-version counters restart on replacement; this explicit lower
+  cap conserved the original overall allowance. The pilot used the matching
+  format-16 `f1b92f6` binary; its unchanged execution path remains qualified for
+  `f9a3c6c`, while the new format boundary has separate native proof below.
+  A separate overlapping probe hit the consuming test's existing three-second
+  asynchronous wait. Serial baseline and both candidate passes retained that
+  assertion and timeout. This qualifies the isolated serial fixture, without a
+  deployment or contention-reliability claim. No new Runner feature was needed
+  to supply the missing brief context. Evidence: `genny-pilot-qualified.json`,
+  the versioned briefs/attempts and `image-evidence/provenance.json` under the
+  private qualification root named above. Both project coordinators are drained
+  and idle; matching binaries, stores, source and receipts remain retained.
 - **Real combined GitHub Plan passed.** Parent
   `19ee70dedefb5831a309314e54847f8b` released two dependent cards, included
   their exact candidates privately, passed combined checks and independent
@@ -1736,16 +1781,25 @@ checks remain separately recorded below; focused fixtures are not release gates.
   The pinned Actions check passed on `bb1341ef8f376d83af9458d57259c33d02313607`.
   A normal protected operator merge produced
   `0630ae05a7c312f6084bba96cf7d80e29d89f4fc`; exact integration inspection
-  completed parent and both children together. Six model calls total, no repair,
-  retry or escalation. This used `9608782` and the dedicated test repository;
-  no project pilot or Runner PR was merged.
-- **Final qualification remains open.** The integrated `9608782` passed the
-  full Linux arm64 race suite, vet and native sandbox check boundary. On macOS,
-  one full engine run hit its 15-minute limit under contention; a subsequent
-  launcher run overlapped source edits and produced a mixed compilation, so it
-  is invalid as a final-candidate gate. Its CLI journey also hit its own deadline.
-  Final checks must use the immutable reviewed candidate and report any remaining
-  resource limitations. No test timeout or assertion was relaxed.
+  completed parent and both children together. Six Codex role invocations total,
+  no repair, retry or escalation. This used `9608782` and the dedicated test
+  repository; no project pilot or Runner PR was merged.
+- **Final code qualification passed.** On immutable `f9a3c6c`, the
+  [PR race/vet gate](https://github.com/cortexium-io/runner/actions/runs/38926057506)
+  and [full platform/release workflow](https://github.com/cortexium-io/runner/actions/runs/38926238688)
+  passed: native Linux/macOS tests and vet, an uncached full Linux race run,
+  vulnerability/module checks, packaged CLI smoke and all four no-CGO
+  archives/checksums. Native Linux arm64 also passed all 13 race-enabled packages,
+  vet and the actual Codex sandbox boundary on `f1b92f6`; native macOS sandbox
+  containment and CLI smoke passed. These boundaries are unchanged by `f9a3c6c`.
+  The new handoff and store-fence owning suites passed race detection on macOS.
+  A fresh native format-17 store accepts current commands; the prior format-16
+  binary refuses both inspection and execution without changing its database.
+  The private `format17-native-fence.json` records the hashes and observations.
+  Earlier local macOS failures are retained: one engine race run hit its
+  15-minute limit under contention; a launcher run overlapping source edits
+  produced invalid mixed compilation and its CLI journey hit its own deadline.
+  Neither is claimed as a final pass. No timeout or assertion was relaxed.
 
 #### R1 implementation and verification brief
 
@@ -5085,18 +5139,24 @@ Do not automatically turn repeated model text into execution policy.
 
 ## Build readiness
 
-The local process, nine delivery bundles and R1–R5 qualification are complete
-within their recorded boundaries. The subsequent
-[real-project pilot gate](#real-project-pilots-before-merge) remains open.
-Pilot setup blockers must be resolved under a separately authorized brief before
-implementation is scheduled. After the pilots, reconcile the redesign with
-current `main` and qualify the integrated candidate. Publication and
-installation/cutover require separate explicit direction and the existing
-reviewed-source release safeguards. The [product and skill reassessment](#product-and-skill-reassessment)
-and its [local completion brief](#local-completion-and-combined-plan-verification-brief)
-define the implemented local journey and its qualification boundary. Renewed
-connected Plan, check-environment, pilot and integrated platform evidence remain
-required under the brief below. Optional integrations stay deferred.
+The local process, nine delivery bundles, R1–R5 and the subsequent owner-approved
+local-completion and real-project qualification obligations are complete within
+their recorded boundaries. Both pilots and renewed combined GitHub Plan delivery
+passed; `main` is reconciled through `14a86d2`. Final code candidate `f9a3c6c`
+passed the required race/vet gates and full platform/package workflow. The
+[continued qualification record](#continued-real-project-qualification) names
+actual binary/source boundaries, interventions and retained failures. Subsequent
+documentation-only changes receive the PR gate; they do not invalidate unchanged
+runtime evidence.
+
+[Runner PR #106](https://github.com/cortexium-io/runner/pull/106) is the consolidated
+draft for human review; [api-mcp #6](https://github.com/cortexium-io/api-mcp/pull/6)
+is its unmerged useful pilot result. Genny's existing PR #576 keeps its ownership
+and unchanged source. No implementation bundle remains implied by this plan.
+Optional integrations and additional harness qualification remain deferred, not
+release blockers. The separate local-model comparison is still research; it
+cannot silently admit another adapter. Publication and installation/cutover
+require separate explicit direction and the reviewed-source release safeguards.
 
 [legacy-plan-delivery]: https://github.com/cortexium-io/runner/blob/14a86d2c26acae4eefe8c499eae4e0cdc4ebede7/docs/decisions/0005-approved-outcome-delivery.md
 [legacy-planner]: https://github.com/cortexium-io/runner/blob/14a86d2c26acae4eefe8c499eae4e0cdc4ebede7/skills/runner-planner/SKILL.md
