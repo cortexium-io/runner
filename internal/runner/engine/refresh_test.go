@@ -281,6 +281,10 @@ func TestConflictRepairRetainsSourceAndReusesBoundedJourney(t *testing.T) {
 			if err = os.WriteFile(filepath.Join(r.Dir, "greeting.txt"), []byte("hello\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
+			result := pass(r)
+			result.Result.Checks[len(result.Result.Checks)-1].Status = "gap"
+			result.Result.Checks[len(result.Result.Checks)-1].Evidence = "Conflict source resolved; Runner checks and independent review must establish dynamic proof."
+			return result
 		}
 		return pass(r)
 	})
@@ -304,7 +308,7 @@ func TestConflictRepairRetainsSourceAndReusesBoundedJourney(t *testing.T) {
 	reopen(t, e)
 	finish(t, e)
 	task = current(t, e, task.ID)
-	if task.NextRole != "audit" || task.Attention != nil {
+	if task.NextRole != "audit" || task.Attention != nil || len(task.Review) == 0 || task.Review[len(task.Review)-1].Status != "gap" {
 		t.Fatal("constructed conflict not recovered", task)
 	}
 	if err = e.git().ValidateCandidate(t.Context(), source); err != nil {
@@ -374,7 +378,7 @@ func TestConflictRepairRetainsSourceAndReusesBoundedJourney(t *testing.T) {
 }
 
 func TestConflictRepairRejectsUnresolvedWorkAndPreservesDecisions(t *testing.T) {
-	for _, scenario := range []string{"markers", "decision", "partial initialization", "revoked result"} {
+	for _, scenario := range []string{"markers", "markers with gap", "decision", "partial initialization", "revoked result"} {
 		t.Run(scenario, func(t *testing.T) {
 			e, source, _ := confirmedDraft(t)
 			applyPolicy(t, e, func(c *config.Config) { c.Policy.MaxRepairs = 1 })
@@ -395,6 +399,9 @@ func TestConflictRepairRejectsUnresolvedWorkAndPreservesDecisions(t *testing.T) 
 			e.Executor = adapter(func(_ context.Context, r execution.Request, _ func(core.Process) error) execution.Completion {
 				calls++
 				result := pass(r)
+				if scenario == "markers with gap" {
+					result.Result.Checks[len(result.Result.Checks)-1].Status = "gap"
+				}
 				if scenario == "decision" || scenario == "revoked result" {
 					result.Result.Outcome, result.Result.Summary = "needs_input", "Which greeting does the new base require?"
 				}
@@ -430,7 +437,7 @@ func TestConflictRepairRejectsUnresolvedWorkAndPreservesDecisions(t *testing.T) 
 			if scenario == "partial initialization" && (calls != 0 || task.Attention == nil || task.Attention.Kind != core.Integrity) {
 				t.Fatal("partial seed launched or reset", task)
 			}
-			if scenario == "markers" && (task.Attention == nil || !strings.Contains(task.Attention.Detail, "unresolved conflict")) {
+			if (scenario == "markers" || scenario == "markers with gap") && (task.Attention == nil || !strings.Contains(task.Attention.Detail, "unresolved conflict")) {
 				t.Fatal("markers were accepted", task)
 			}
 			if scenario == "revoked result" && task.Stage != core.Stopped {

@@ -32,7 +32,7 @@ go build -o /absolute/tools/cortexium-runner ./cmd/cortexium-runner
 
 For an extracted archive, run its `cortexium-runner --version` and `--help`
 directly. Source builds report `dev`; release builds report the injected version.
-The private store format is **16**. Legacy Project configuration and experimental
+The private store format is **17**. Legacy Project configuration and experimental
 store formats are deliberately rejected; there is no in-place migration. Keep
 old binaries with their state/backups, reconcile any outstanding remote effects,
 then use fresh config, state and workspace paths with new approvals. Never point
@@ -112,6 +112,9 @@ right reason. Existing sufficient evidence can mean no new test. Avoid duplicate
 fixtures, implementation-mirroring assertions and arbitrary sleeps. Consolidate
 equivalent cases when their distinct guarantees remain covered.
 
+After Runner accepts all required quality checks, completed source may reach
+review with honest implementer proof gaps. Those gaps remain unproved until
+independent review establishes them. A defect or missing decision still blocks.
 Review starts by auditing the exact candidate and retained evidence without
 running repository commands. If a specific proof gap remains, focused verification
 runs targeted checks in a disposable copy without changing source/tests. A known
@@ -377,7 +380,7 @@ application; already admitted work retains the applied policy.
 | `transient-retries=N` | Bounded retry of recognized transient failures; interruptions need explicit recovery. |
 | `base-refreshes=N` | Allowance for changed-base verification cycles, separate from code repairs. |
 | `invocations=N` or `unlimited` | Per-task model-call ceiling; admission consumes a call even if it later fails. |
-| `escalation=careful,next` or `none` | Successors after the starting implementer. Confirmed review rejection advances the ladder; the last profile remains selected within the repair limit. CI/conflict repair and transient retry do not independently advance it. |
+| `escalation=careful,next` or `none` | Successors after the starting implementer. Confirmed review rejection advances the ladder; the last profile remains selected within the repair limit. Operator-confirmed check repair, CI/conflict repair and transient retry do not independently advance it. |
 | `merge-policy=human` or `automatic` | Local base or GitHub merge authority; see below before applying automatic policy. |
 
 The example's successor keeps the same model/reasoning and gives it more time;

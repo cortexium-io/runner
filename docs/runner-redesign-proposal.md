@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification, R2 backup/restore and R3 operator qualification are complete; R4 promotion/packaging and R5 final qualification are complete within their recorded boundaries. The owner subsequently added the [real-project pilot gate](#real-project-pilots-before-merge); setup qualification is recorded below; the owner has now authorized the remaining qualification work under the bounded brief below. Publication and installation remain separate authorized actions. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Local completion and combined-plan verification are implemented and qualified within their recorded boundaries. Current store format is 16; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification, R2 backup/restore and R3 operator qualification are complete; R4 promotion/packaging and R5 final qualification are complete within their recorded boundaries. The owner subsequently added the [real-project pilot gate](#real-project-pilots-before-merge); setup qualification is recorded below; the owner has now authorized the remaining qualification work under the bounded brief below. Publication and installation remain separate authorized actions. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Local completion and combined-plan verification are implemented and qualified within their recorded boundaries. Current store format is 17; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -1684,13 +1684,68 @@ policy and quality fixtures. Qualify the real pilot's recovery, and make native
 formatter/tool availability explicit before further model work. The explicit owner
 confirmation authorizes this correction to the frozen contract.
 
+The check-image ownership record and new repair continuation change persisted
+execution semantics. Fence the replacement with store format 17 so earlier
+private format-16 binaries reject it before ignoring container ownership or
+repair admission. Preserve prior stores and their matching binaries for evidence;
+fresh setup remains the migration path. Extend the existing previous-store
+rejection coverage and qualify an earlier binary refusing a fresh format-17 store.
+No compatibility runtime or data import is added.
+
 The pilot also qualifies the source-to-review handoff: a succeeded implementer
 result may retain honest proof gaps when Runner completes all pinned checks.
 Construct the bound candidate and pass those gaps and actual check receipts to
 independent audit; gaps do not constitute acceptance. Defect/needs-input or a
 blocked result still stops. Existing audit and focused verification must establish
 every obligation before delivery. Extend the existing proof-gap quality fixture
-to prove this transition and that unproved delivery remains impossible.
+to prove this transition and that unproved delivery remains impossible. Apply the
+same handoff rule to resolved conflict repairs: deterministic marker/source checks
+must run before quality checks and independent audit; unresolved markers and a
+missing decision still stop before checks. Extend the existing conflict journey
+and unresolved-source cases, without another fixture or allowance.
+
+##### Continued real-project qualification
+
+The bounded check-repair implementation is `f1b92f6`. Its owning race-enabled
+fixtures pass: failed-check recovery preserves task/quality/source/history,
+idempotent requests consume no extra write, admission enforces existing limits,
+changed source/evidence and unresolved ownership refuse repair, and a proof gap
+cannot bypass independent audit/focused verification. Retry/resume retains the
+original operator assignment. Native project qualification and final platform
+checks remain separately recorded below; focused fixtures are not release gates.
+
+- **api-mcp local pilot passed.** Task `aaa14807f622d32c60352e879aadeee3`,
+  unchanged version 1, completed to a local result branch at
+  `ec0535108486c9a7277a514c2a2aa46585d3cf4d`. The initial worker changed only
+  configuration source, its owning test suite, README and the approved Go patch
+  baseline. Runner's format check found one whitespace alignment defect while
+  race/vet/build passed. One owner-confirmed repair used a read-only formatter
+  diagnostic; the worker made the correction, all four fresh checks passed, and
+  independent audit accepted the candidate. Total: three `gpt-6.1-sol / high`
+  calls, one repair, zero escalations, no counter reset. Native Go/gofmt stayed
+  unavailable to the model; no container socket or host access was granted.
+  The owner explicitly enabled pull requests for this repository, and
+  [pilot draft #6](https://github.com/cortexium-io/api-mcp/pull/6) remains unmerged.
+  Linux/macOS race/vet/build/format and vulnerability CI passed on the exact
+  published head ([run](https://github.com/cortexium-io/api-mcp/actions/runs/38922327516)).
+- **Real combined GitHub Plan passed.** Parent
+  `19ee70dedefb5831a309314e54847f8b` released two dependent cards, included
+  their exact candidates privately, passed combined checks and independent
+  outcome audit, and published only
+  [qualification PR #4](https://github.com/cortexium-io/runner-delivery-qualification/pull/4).
+  The pinned Actions check passed on `bb1341ef8f376d83af9458d57259c33d02313607`.
+  A normal protected operator merge produced
+  `0630ae05a7c312f6084bba96cf7d80e29d89f4fc`; exact integration inspection
+  completed parent and both children together. Six model calls total, no repair,
+  retry or escalation. This used `9608782` and the dedicated test repository;
+  no project pilot or Runner PR was merged.
+- **Final qualification remains open.** The integrated `9608782` passed the
+  full Linux arm64 race suite, vet and native sandbox check boundary. On macOS,
+  one full engine run hit its 15-minute limit under contention; a subsequent
+  launcher run overlapped source edits and produced a mixed compilation, so it
+  is invalid as a final-candidate gate. Its CLI journey also hit its own deadline.
+  Final checks must use the immutable reviewed candidate and report any remaining
+  resource limitations. No test timeout or assertion was relaxed.
 
 #### R1 implementation and verification brief
 

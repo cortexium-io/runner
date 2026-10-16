@@ -55,7 +55,7 @@ escalation, interruptions, delivery and same-host backup/restore.
 - Boards, Trello, additional harnesses, automatic issue intake, CI reruns,
   background remote polling, services and self-update are outside this release.
   Narrow adapter contracts leave room for later integrations.
-- Store format 16 and strict local configuration deliberately break compatibility.
+- Store format 17 and strict local configuration deliberately break compatibility.
   Preserve older binaries with their state and backups. Reconcile outstanding
   remote effects, initialize fresh authority and approve only remaining work.
   There is no import of old approvals or in-place upgrade.

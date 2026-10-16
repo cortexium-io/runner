@@ -607,7 +607,7 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 					a.SourceHead = snapshot.Head
 				}
 			}
-			conflictDecision := a.ConflictRepair != nil && (completion.Result.Outcome != "succeeded" || core.ReviewOutcome(completion.Result.Checks) != core.Accepted)
+			conflictDecision := a.ConflictRepair != nil && !canReviewImplementation(*completion.Result)
 			if checkErr == nil && a.ConflictRepair != nil && !conflictDecision {
 				checkErr = workspace.CheckConflictResolution(r.Dir, *a.ConflictRepair)
 			}
@@ -726,6 +726,14 @@ func (e *Engine) finishSaved(ctx context.Context) error {
 	}
 	return nil
 }
+
+// A completed source handoff may still need independent proof. Source integrity,
+// conflict markers and required quality checks remain separate mandatory gates.
+func canReviewImplementation(r core.Result) bool {
+	outcome := core.ReviewOutcome(r.Checks)
+	return r.Outcome == "succeeded" && (outcome == core.Accepted || outcome == "gap")
+}
+
 func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) error {
 	if err := e.validate(ctx); err != nil {
 		return err
@@ -770,7 +778,7 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 		outcome = "gap"
 	}
 	if a.Role == "implementer" {
-		if a.ConflictRepair != nil && outcome != "accepted" {
+		if a.ConflictRepair != nil && !canReviewImplementation(*a.Result) {
 			a.State = "applied"
 			t.Attention = &core.Attention{Kind: core.FailureKind(outcome), Detail: a.Result.Summary, Attempt: a.ID}
 			return nil
@@ -800,7 +808,7 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 				return err
 			}
 		}
-		if outcome != "accepted" && !(outcome == "gap" && a.Result.Outcome == "succeeded") {
+		if !canReviewImplementation(*a.Result) {
 			a.State = "applied"
 			t.Attention = &core.Attention{Kind: core.FailureKind(outcome), Detail: a.Result.Summary, Attempt: a.ID}
 			return nil

@@ -13,7 +13,7 @@ and the [redesign plan](runner-redesign-proposal.md) define the accepted replace
 | `internal/runner/cli` | Commands, exact previews and attention-first status; no scheduler. |
 | `internal/runner/config` | Strict configuration, repository quality agreement and policy validation. |
 | `internal/runner/core` | Task versions, approvals, evidence bindings, observations and action types. |
-| `internal/runner/store` | Private transactional persistence, reservations, leases, effect claims and freshness guard. Store format 16 rejects earlier formats. |
+| `internal/runner/store` | Private transactional persistence, reservations, leases, effect claims and freshness guard. Store format 17 rejects earlier formats. |
 | `internal/runner/engine` | One coordinator derives safe actions, admits within limits, launches bounded work and reconciles results. |
 | `internal/runner/execution` | Codex capabilities, contained role/check execution, optional offline check images, structured results and pinned role instructions. |
 | `internal/runner/workspace` | Task workspace binding, exact candidates, base refresh and integration evidence. |
