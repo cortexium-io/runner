@@ -1,7 +1,16 @@
 # ADR 0001: Event-and-action Runner
 
+Historical decision: [ADR 0005](0005-local-runner-core.md) defines which guarantees
+remain in the local replacement. Project-specific mechanisms and deferred
+features below do not describe the current release surface.
+
+
 - Status: Accepted
 - Date: 2026-09-02
+
+For the replacement core, [ADR 0005](0005-local-runner-core.md) supersedes
+Project-based identity, authority and lane entry. The event/action, dependency,
+admission and serialized-integration guarantees below remain in force.
 
 ## Context
 
@@ -117,8 +126,7 @@ that owner, returns its retained PR to implementation without consuming an
 Agent QA rejection, and lets the next safe candidate claim integration. QA
 publication only queues a PR;
 reconciliation lazily compares the selected candidate with the latest base,
-returns clean updates through fresh QA by default (preserving explicit custom
-implementation routes), conflicts through implementation and QA, and requests
+returns updates or conflicts through implementation and QA, and requests
 automatic merge only for a clean reviewed candidate. Manual-review PRs and
 rework requests are not eagerly refreshed. A tracked `rebase` rework may have a
 local corrected history that diverges from the previously published branch;

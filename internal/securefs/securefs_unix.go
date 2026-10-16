@@ -23,8 +23,6 @@ type Directory struct {
 	fd                         int
 	path                       string
 	initial                    FileState
-	runtimeReadOnly            bool
-	runtimeAncestors           []runtimeAncestor
 	beforeOpenDirForTest       func()
 	beforeReplaceCommitForTest func()
 }
@@ -34,7 +32,6 @@ type FileState struct {
 	dev           uint64
 	ino           uint64
 	uid           uint32
-	gid           uint32
 	mode          uint32
 	nlink         uint64
 	size          int64
@@ -122,20 +119,15 @@ func (d *Directory) OpenDir(name string) (*Directory, error) {
 		_ = unix.Close(fd)
 		return nil, fmt.Errorf("%w while opening child directory %q", ErrChanged, name)
 	}
-	if err := validateDirectoryForRead(opened, false, d.runtimeReadOnly, false); err != nil {
+	if err := validateDirectory(opened, false); err != nil {
 		_ = unix.Close(fd)
 		return nil, fmt.Errorf("unsafe child directory %q: %w", name, err)
 	}
-	child := &Directory{
-		fd:              fd,
-		path:            filepath.Join(d.path, name),
-		initial:         stateFromStat(opened),
-		runtimeReadOnly: d.runtimeReadOnly,
-	}
-	if d.runtimeReadOnly {
-		child.runtimeAncestors = append(append([]runtimeAncestor{}, d.runtimeAncestors...), runtimeAncestor{d.path, d.initial})
-	}
-	return child, nil
+	return &Directory{
+		fd:      fd,
+		path:    filepath.Join(d.path, name),
+		initial: stateFromStat(opened),
+	}, nil
 }
 
 func AbsolutePath(path string) (string, error) {
@@ -149,13 +141,6 @@ func AbsolutePath(path string) (string, error) {
 }
 
 func openAbsoluteDir(path string, create, privateTarget bool) (*Directory, error) {
-	return openAbsoluteDirForRead(path, create, privateTarget, false)
-}
-
-func openAbsoluteDirForRead(path string, create, privateTarget, runtimeReadOnly bool) (*Directory, error) {
-	if runtimeReadOnly && (create || privateTarget) {
-		return nil, errors.New("runtime observation cannot create or authorize private directories")
-	}
 	absolute, err := AbsolutePath(path)
 	if err != nil {
 		return nil, err
@@ -178,16 +163,7 @@ func openAbsoluteDirForRead(path string, create, privateTarget, runtimeReadOnly 
 	if absolute == string(os.PathSeparator) {
 		components = nil
 	}
-	var ancestors []runtimeAncestor
-	currentPath := string(os.PathSeparator)
 	for index, component := range components {
-		if runtimeReadOnly {
-			var ancestor unix.Stat_t
-			if err := unix.Fstat(current, &ancestor); err != nil {
-				return nil, err
-			}
-			ancestors = append(ancestors, runtimeAncestor{currentPath, stateFromStat(ancestor)})
-		}
 		if component == "" || component == "." || component == ".." {
 			return nil, fmt.Errorf("secure directory path %q contains an invalid component", absolute)
 		}
@@ -219,13 +195,12 @@ func openAbsoluteDirForRead(path string, create, privateTarget, runtimeReadOnly 
 			return nil, fmt.Errorf("%w while opening directory component %q", ErrChanged, component)
 		}
 		isTarget := index == len(components)-1
-		if err := validateDirectoryForRead(after, privateTarget && isTarget, runtimeReadOnly, !isTarget); err != nil {
+		if err := validateDirectory(after, privateTarget && isTarget); err != nil {
 			_ = unix.Close(next)
 			return nil, fmt.Errorf("unsafe directory component %q: %w", component, err)
 		}
 		_ = unix.Close(current)
 		current = next
-		currentPath = filepath.Join(currentPath, component)
 	}
 	if len(components) == 0 && privateTarget {
 		return nil, errors.New("filesystem root cannot be used as a private workspace root")
@@ -235,7 +210,7 @@ func openAbsoluteDirForRead(path string, create, privateTarget, runtimeReadOnly 
 		return nil, fmt.Errorf("record secure directory state: %w", err)
 	}
 	closeCurrent = false
-	return &Directory{fd: current, path: absolute, initial: stateFromStat(opened), runtimeReadOnly: runtimeReadOnly, runtimeAncestors: ancestors}, nil
+	return &Directory{fd: current, path: absolute, initial: stateFromStat(opened)}, nil
 }
 
 func validateDirectory(stat unix.Stat_t, private bool) error {
@@ -273,14 +248,11 @@ func (d *Directory) Verify() error {
 	if stateFromStat(current) != d.initial {
 		return fmt.Errorf("%w while using directory %s", ErrChanged, d.path)
 	}
-	named, err := openAbsoluteDirForRead(d.path, false, false, d.runtimeReadOnly)
+	named, err := openAbsoluteDir(d.path, false, false)
 	if err != nil {
 		return fmt.Errorf("%w while re-opening directory %s: %v", ErrChanged, d.path, err)
 	}
 	defer named.Close()
-	if err := d.verifyRuntimeAncestors(named); err != nil {
-		return err
-	}
 	if named.initial != d.initial {
 		return fmt.Errorf("%w while resolving directory %s", ErrChanged, d.path)
 	}
@@ -302,17 +274,14 @@ func (d *Directory) verifyIdentity(private bool) error {
 	if err := unix.Fstat(d.fd, &opened); err != nil {
 		return err
 	}
-	if err := validateDirectoryForRead(opened, private, d.runtimeReadOnly, false); err != nil {
+	if err := validateDirectory(opened, private); err != nil {
 		return err
 	}
-	named, err := openAbsoluteDirForRead(d.path, false, private, d.runtimeReadOnly)
+	named, err := openAbsoluteDir(d.path, false, private)
 	if err != nil {
 		return fmt.Errorf("%w while re-opening directory %s: %v", ErrChanged, d.path, err)
 	}
 	defer named.Close()
-	if err := d.verifyRuntimeAncestors(named); err != nil {
-		return err
-	}
 	openedState := stateFromStat(opened)
 	if openedState.dev != named.initial.dev || openedState.ino != named.initial.ino || openedState.mode&unix.S_IFMT != named.initial.mode&unix.S_IFMT {
 		return fmt.Errorf("%w while resolving directory %s", ErrChanged, d.path)
@@ -376,11 +345,6 @@ func (d *Directory) OpenFile(name string) (*PinnedFile, error) {
 	if before.Mode&unix.S_IFMT != unix.S_IFREG {
 		return nil, fmt.Errorf("%s is not a regular file", filepath.Join(d.path, name))
 	}
-	if d.runtimeReadOnly {
-		if err := validateRuntimeReadPermissions(before, false); err != nil {
-			return nil, err
-		}
-	}
 	fd, err := unix.Openat(d.fd, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
@@ -393,12 +357,6 @@ func (d *Directory) OpenFile(name string) (*PinnedFile, error) {
 	if !sameObject(before, opened) {
 		_ = unix.Close(fd)
 		return nil, fmt.Errorf("%w while opening %s", ErrChanged, filepath.Join(d.path, name))
-	}
-	if d.runtimeReadOnly {
-		if err := validateRuntimeReadPermissions(opened, false); err != nil {
-			_ = unix.Close(fd)
-			return nil, err
-		}
 	}
 	file := os.NewFile(uintptr(fd), filepath.Join(d.path, name))
 	if file == nil {
@@ -571,9 +529,6 @@ func ReadFile(path string, limit int64) ([]byte, os.FileMode, FileState, error) 
 }
 
 func (d *Directory) ReplaceFile(name string, content []byte, mode os.FileMode, expected FileState) error {
-	if d.runtimeReadOnly {
-		return errors.New("runtime observation is read-only")
-	}
 	if err := validateLeaf(name); err != nil {
 		return err
 	}
@@ -615,110 +570,6 @@ func (d *Directory) ReplaceFile(name string, content []byte, mode os.FileMode, e
 		d.beforeReplaceCommitForTest()
 	}
 	if err := conditionalReplaceAt(d.fd, temporaryName, name, expected); err != nil {
-		return err
-	}
-	return unix.Fsync(d.fd)
-}
-
-// ReadAppendFile reads a stable snapshot while holding the shared counterpart
-// of AppendFile's lock. Content may advance before the lock is acquired, but
-// identity, ownership and stable readback checks still apply under the lock.
-func (d *Directory) ReadAppendFile(name string, limit int64) ([]byte, os.FileMode, FileState, error) {
-	pinned, err := d.OpenFile(name)
-	if errors.Is(err, unix.ENOENT) {
-		return nil, 0o600, FileState{}, nil
-	}
-	if err != nil {
-		return nil, 0, FileState{}, err
-	}
-	defer pinned.Close()
-	fd := int(pinned.file.Fd())
-	if err := unix.Flock(fd, unix.LOCK_SH); err != nil {
-		return nil, 0, FileState{}, err
-	}
-	defer func() { _ = unix.Flock(fd, unix.LOCK_UN) }()
-	var opened unix.Stat_t
-	if err := unix.Fstat(fd, &opened); err != nil {
-		return nil, 0, FileState{}, err
-	}
-	pinned.initial = stateFromStat(opened)
-	if err := ValidateOwnedRegularFile(pinned.initial, uint32(os.Geteuid())); err != nil {
-		return nil, 0, FileState{}, err
-	}
-	content, err := pinned.ReadAll(limit)
-	if err == nil {
-		err = d.VerifyIdentity()
-	}
-	return content, os.FileMode(opened.Mode & 0o777), pinned.initial, err
-}
-
-// AppendFile appends one bounded record through the pinned directory without
-// following a substituted leaf. It validates the descriptor that receives the
-// bytes, so callers do not need a path-level check separated from the write.
-func (d *Directory) AppendFile(name string, content []byte, mode os.FileMode, maxBytes int64) error {
-	if d.runtimeReadOnly {
-		return errors.New("runtime observation is read-only")
-	}
-	if err := validateLeaf(name); err != nil {
-		return err
-	}
-	if maxBytes <= 0 || int64(len(content)) > maxBytes {
-		return errors.New("secure append exceeds its storage limit")
-	}
-	if err := d.VerifyIdentity(); err != nil {
-		return err
-	}
-	created := true
-	fd, err := unix.Openat(d.fd, name, unix.O_WRONLY|unix.O_APPEND|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, uint32(mode.Perm()))
-	if errors.Is(err, unix.EEXIST) {
-		created = false
-		fd, err = unix.Openat(d.fd, name, unix.O_WRONLY|unix.O_APPEND|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
-	}
-	if err != nil {
-		return err
-	}
-	file := os.NewFile(uintptr(fd), filepath.Join(d.path, name))
-	if file == nil {
-		_ = unix.Close(fd)
-		return errors.New("create secure append file handle")
-	}
-	defer file.Close()
-	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
-		return err
-	}
-	defer func() { _ = unix.Flock(fd, unix.LOCK_UN) }()
-	if created {
-		if err := file.Chmod(mode.Perm()); err != nil {
-			return err
-		}
-	}
-	var opened, named unix.Stat_t
-	if err := unix.Fstat(fd, &opened); err != nil {
-		return err
-	}
-	state := stateFromStat(opened)
-	if err := ValidateOwnedRegularFile(state, uint32(os.Geteuid())); err != nil {
-		return err
-	}
-	if os.FileMode(opened.Mode&0o777) != mode.Perm() {
-		return fmt.Errorf("secure append file mode is %04o, want %04o", opened.Mode&0o777, mode.Perm())
-	}
-	if opened.Size > maxBytes-int64(len(content)) {
-		return errors.New("secure append exceeds its storage limit")
-	}
-	if err := unix.Fstatat(d.fd, name, &named, unix.AT_SYMLINK_NOFOLLOW); err != nil || !sameObject(opened, named) {
-		return fmt.Errorf("%w before appending %s", ErrChanged, filepath.Join(d.path, name))
-	}
-	if _, err := file.Write(content); err != nil {
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		return err
-	}
-	if err := unix.Fstatat(d.fd, name, &named, unix.AT_SYMLINK_NOFOLLOW); err != nil || !sameObject(opened, named) {
-		return fmt.Errorf("%w after appending %s", ErrChanged, filepath.Join(d.path, name))
-	}
-	if err := d.VerifyIdentity(); err != nil {
 		return err
 	}
 	return unix.Fsync(d.fd)
@@ -854,12 +705,12 @@ func randomTemporaryName() (string, error) {
 
 func stateFromStat(stat unix.Stat_t) FileState {
 	mtime, ctime := statTimes(stat)
-	return FileState{Exists: true, dev: uint64(stat.Dev), ino: stat.Ino, uid: stat.Uid, gid: stat.Gid, mode: uint32(stat.Mode), nlink: uint64(stat.Nlink), size: stat.Size, mtime: mtime, ctime: ctime}
+	return FileState{Exists: true, dev: uint64(stat.Dev), ino: stat.Ino, uid: stat.Uid, mode: uint32(stat.Mode), nlink: uint64(stat.Nlink), size: stat.Size, mtime: mtime, ctime: ctime}
 }
 
 func sameFileMetadata(current, expected FileState) bool {
 	return current.Exists == expected.Exists && current.dev == expected.dev && current.ino == expected.ino &&
-		current.uid == expected.uid && current.gid == expected.gid && current.mode == expected.mode && current.nlink == expected.nlink && current.size == expected.size && current.mtime == expected.mtime && current.ctime == expected.ctime
+		current.uid == expected.uid && current.mode == expected.mode && current.nlink == expected.nlink && current.size == expected.size && current.mtime == expected.mtime && current.ctime == expected.ctime
 }
 
 func statTimes(stat unix.Stat_t) (int64, int64) {

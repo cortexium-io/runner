@@ -74,61 +74,7 @@ func (p GitProvider) InspectRetainedReview(ctx context.Context, request Request)
 	return bindGitAdministration(metadataFor(repoRoot, snapshot, identity))
 }
 
-// VerifyWorkspaceAbsent checks every deterministic artifact before treating a
-// new assignment as unexecuted. A missing private identity alone proves no
-// such thing. This observation creates, removes and repairs nothing. Before
-// mutation callers must repeat it under the assignment's operation guard,
-// including on recovery; it is not a reservation against external Git edits.
-func (p GitProvider) VerifyWorkspaceAbsent(ctx context.Context, request Request) error {
-	repoRoot, err := p.repositoryRoot(ctx, request.WorkingDir)
-	if err != nil {
-		return err
-	}
-	root, err := resolveWorktreeRoot(repoRoot, request.WorktreeRoot)
-	if err != nil {
-		return err
-	}
-	if err := securefs.ValidatePrivateDir(root); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	workID, branch, err := resolveWorktreeNames(request.WorkID, request.BranchPrefix, request.BranchName)
-	if err != nil {
-		return err
-	}
-	_, _, identity, err := securefs.ReadFile(activeIdentityPath(root, workID), 64*1024)
-	if err != nil {
-		return err
-	}
-	if identity.Exists {
-		return errors.New("assignment already has a private workspace identity")
-	}
-	path := filepath.Join(root, workID)
-	if _, err := os.Lstat(path); err == nil {
-		return errors.New("assignment already has a workspace path without a private identity; preserve it and use explicit recovery")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if _, registered, err := p.registeredWorktree(ctx, repoRoot, path); err != nil {
-		return err
-	} else if registered {
-		return errors.New("assignment already has a registered worktree without a private identity; preserve it and use explicit recovery")
-	}
-	if _, err := p.git(ctx, repoRoot, "check-ref-format", "--branch", branch); err != nil {
-		return fmt.Errorf("validate absent workspace branch: %w", err)
-	}
-	// Unlike branchExists, a failed query must never count as absence. A
-	// descendant ref also occupies this namespace and prevents safe creation.
-	refs, err := p.git(ctx, repoRoot, "for-each-ref", "--format=%(refname)", "refs/heads/"+branch)
-	if err != nil {
-		return fmt.Errorf("inspect absent workspace branch: %w", err)
-	}
-	if strings.TrimSpace(refs.Stdout) != "" {
-		return errors.New("assignment already has a local branch without a private identity; preserve it and use explicit recovery")
-	}
-	return nil
-}
-
-func (p GitProvider) validateRetainedBinding(ctx context.Context, request Request, reviewOriginalContent bool) (Identity, error) {
+func (p GitProvider) validateRetainedIdentity(ctx context.Context, request Request, reviewOriginalContent bool) (Identity, error) {
 	repoRoot, err := p.repositoryRoot(ctx, request.WorkingDir)
 	if err != nil {
 		return Identity{}, err
@@ -148,10 +94,7 @@ func (p GitProvider) validateRetainedBinding(ctx context.Context, request Reques
 	if err != nil {
 		return Identity{}, err
 	}
-	if !state.Exists {
-		return Identity{}, fmt.Errorf("recovery requires an existing private workspace identity: %w", os.ErrNotExist)
-	}
-	if mode.Perm() != 0o600 {
+	if !state.Exists || mode.Perm() != 0o600 {
 		return Identity{}, errors.New("recovery requires an existing private mode-0600 workspace identity")
 	}
 	if err := securefs.ValidateOwnedRegularFile(state, uint32(os.Geteuid())); err != nil {
@@ -176,45 +119,16 @@ func (p GitProvider) validateRetainedBinding(ctx context.Context, request Reques
 	if recorded != expected {
 		return Identity{}, workspaceIdentityMismatch(expected, recorded, true, "")
 	}
-	return recorded, nil
-}
-
-func (p GitProvider) validateRetainedIdentity(ctx context.Context, request Request, reviewOriginalContent bool) (Identity, error) {
-	recorded, err := p.validateRetainedBinding(ctx, request, reviewOriginalContent)
+	registeredBranch, registered, err := p.registeredWorktree(ctx, repoRoot, path)
 	if err != nil {
 		return Identity{}, err
 	}
-	registeredBranch, registered, err := p.registeredWorktree(ctx, request.WorkingDir, recorded.WorktreePath)
-	if err != nil {
-		return Identity{}, err
-	}
-	if !registered || registeredBranch != recorded.Branch || !p.branchExists(ctx, request.WorkingDir, recorded.Branch) {
+	if !registered || registeredBranch != branch || !p.branchExists(ctx, repoRoot, branch) {
 		return Identity{}, errors.New("recovery requires the matching retained task branch and registered worktree")
 	}
-	info, err := os.Lstat(recorded.WorktreePath)
+	info, err := os.Lstat(path)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return Identity{}, errors.New("retained worktree is missing or is not a no-follow directory")
-	}
-	return recorded, nil
-}
-
-// ValidatePublishedIdentity permits the checkout to have been cleaned after
-// publication, but requires its original private content binding and branch.
-// A present checkout still has to satisfy the ordinary retained-worktree checks.
-func (p GitProvider) ValidatePublishedIdentity(ctx context.Context, request Request) (Identity, error) {
-	recorded, err := p.validateRetainedBinding(ctx, request, false)
-	if err != nil {
-		return Identity{}, err
-	}
-	if _, err := os.Lstat(recorded.WorktreePath); !errors.Is(err, os.ErrNotExist) {
-		return p.validateRetainedIdentity(ctx, request, false)
-	}
-	_, registered, err := p.registeredWorktree(ctx, request.WorkingDir, recorded.WorktreePath)
-	if err != nil {
-		return Identity{}, err
-	}
-	if registered || !p.branchExists(ctx, request.WorkingDir, recorded.Branch) {
-		return Identity{}, errors.New("published recovery requires the retained branch and a fully removed or intact worktree")
 	}
 	return recorded, nil
 }
@@ -257,33 +171,6 @@ func writeIdentity(path string, identity Identity) error {
 		return err
 	}
 	return securefs.WriteFileExclusive(path, content, 0o600)
-}
-
-func replaceIdentity(path string, expected, replacement Identity) error {
-	content, _, state, err := securefs.ReadFile(path, 64*1024)
-	if err != nil {
-		return err
-	}
-	if !state.Exists {
-		return workspaceIdentityMismatch(expected, Identity{}, false, "")
-	}
-	recorded, err := decodeIdentity(content)
-	if err != nil {
-		return err
-	}
-	if recorded != expected {
-		return workspaceIdentityMismatch(expected, recorded, true, "")
-	}
-	replacementContent, err := encodeIdentity(replacement)
-	if err != nil {
-		return err
-	}
-	directory, err := securefs.OpenDir(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.ReplaceFile(filepath.Base(path), replacementContent, 0o600, state)
 }
 
 func encodeIdentity(identity Identity) ([]byte, error) {

@@ -1,226 +1,24 @@
 {
-  "config_version": 5,
-  "runner_id": "runr_local_replace_me",
-  "project_dir": "/absolute/path/to/repository",
-  "repository_references": [
-    {
-      "name": "legacy-application",
-      "path": "/absolute/path/to/reference-checkout",
-      "commit": "0123456789abcdef0123456789abcdef01234567"
-    }
-  ],
-  "max_parallelism": 2,
-  "admission_budget": {
-    "window_seconds": 86400,
-    "max_attempts": 12,
-    "max_harness_seconds": 28800
+  "format": "runner-local-v1",
+  "repository": {
+    "path": "/absolute/project",
+    "base_ref": "refs/heads/main",
+    "base_freshness": "recorded"
   },
-  "resource_limits": {
-    "snapshot_max_entries": 100000,
-    "snapshot_max_file_bytes": 67108864,
-    "snapshot_max_total_bytes": 1073741824
+  "state_dir": "/absolute/runner/state",
+  "worktree_dir": "/absolute/runner/worktrees",
+  "profiles": {
+    "build": {"harness": "codex", "model": "gpt-6.1-sol", "reasoning": "high", "timeout": "20m"},
+    "review": {"harness": "codex", "model": "gpt-6.1-sol", "reasoning": "high", "timeout": "20m"}
   },
-  "github_project": {
-    "owner": "your-github-owner",
-    "number": 1,
-    "intake_repository": "your-github-owner/your-repository",
-    "intake_label": "needs-assessment",
-    "result_field": "Runner Result",
-    "approval_field": "Runner Approval",
-    "phase_field": "Runner Phase",
-    "transition_field": "Runner Transition",
-    "qa_failures_field": "QA Failures",
-    "branch_field": "Runner Branch",
-    "pull_request_field": "Pull Request",
-    "qa_commit_field": "QA Commit",
-    "base_branch": "main",
-    "remote_name": "origin",
-    "auto_merge": false,
-    "merge_method": "merge"
+  "roles": {"planner": "build", "implementer": "build", "reviewer": "review"},
+  "policy": {
+    "merge": "human",
+    "max_parallelism": 1,
+    "max_repairs": 1,
+    "max_transient_retries": 1,
+    "max_base_refreshes": 1,
+    "implementation_ladder": []
   },
-  "harnesses": [
-    {
-      "kind": "codex",
-      "command": "codex",
-      "enabled": true,
-      "workspace_write_root": "/absolute/path/outside/project/.runner-worktrees"
-    }
-  ],
-  "roles": {
-    "planner": {
-      "harness": "codex",
-      "access": "sandboxed",
-      "harness_config": "isolated",
-      "skills": [
-        "runner-planner"
-      ],
-      "reasoning": "high",
-      "timeout_seconds": 1200
-    },
-    "implementer": {
-      "harness": "codex",
-      "access": "sandboxed",
-      "harness_config": "isolated",
-      "skills": [
-        "runner-implementer"
-      ],
-      "reasoning": "high",
-      "timeout_seconds": 7200
-    },
-    "reviewer": {
-      "harness": "codex",
-      "access": "sandboxed",
-      "harness_config": "isolated",
-      "skills": [
-        "runner-reviewer"
-      ],
-      "reasoning": "high",
-      "timeout_seconds": 3600
-    }
-  },
-  "workflow": {
-    "intake_lane": "needs_assessment",
-    "approval_lane": "backlog",
-    "plan_lane": "plan",
-    "ready_lane": "ready",
-    "active_lane": "in_progress",
-    "lanes": {
-      "needs_assessment": {
-        "name": "Needs assessment"
-      },
-      "backlog": {
-        "name": "Backlog"
-      },
-      "plan": {
-        "name": "Plan"
-      },
-      "ready": {
-        "name": "Ready"
-      },
-      "in_progress": {
-        "name": "In Progress"
-      },
-      "agent_qa": {
-        "name": "Agent QA"
-      },
-      "pr_ready": {
-        "name": "PR Ready"
-      },
-      "blocked": {
-        "name": "Blocked"
-      },
-      "done": {
-        "name": "Done"
-      }
-    },
-    "rules": [
-      {
-        "id": "plan",
-        "trigger": {
-          "event": "lane.entered",
-          "lane": "plan"
-        },
-        "action": {
-          "type": "run_role",
-          "role": "planner",
-          "creates_in": "ready",
-          "transitions": {
-            "success": "done",
-            "needs_input": "blocked",
-            "error": "blocked"
-          }
-        }
-      },
-      {
-        "id": "implement",
-        "trigger": {
-          "event": "lane.entered",
-          "lane": "ready"
-        },
-        "action": {
-          "type": "run_role",
-          "role": "implementer",
-          "transitions": {
-            "success": "agent_qa",
-            "needs_input": "blocked",
-            "error": "blocked"
-          }
-        }
-      },
-      {
-        "id": "review",
-        "trigger": {
-          "event": "lane.entered",
-          "lane": "agent_qa"
-        },
-        "action": {
-          "type": "run_role",
-          "role": "reviewer",
-          "max_qa_rejections": 3,
-          "transitions": {
-            "success": "pr_ready",
-            "rejected": "ready",
-            "exhausted": "blocked",
-            "needs_input": "blocked",
-            "error": "blocked"
-          }
-        }
-      },
-      {
-        "id": "publish",
-        "trigger": {
-          "event": "lane.entered",
-          "lane": "pr_ready"
-        },
-        "action": {
-          "type": "publish_pull_request"
-        }
-      },
-      {
-        "id": "pull_request_merged",
-        "trigger": {
-          "event": "pull_request.merged"
-        },
-        "action": {
-          "type": "transition",
-          "to": "done"
-        }
-      },
-      {
-        "id": "pull_request_closed",
-        "trigger": {
-          "event": "pull_request.closed"
-        },
-        "action": {
-          "type": "transition",
-          "to": "blocked"
-        }
-      },
-      {
-        "id": "pull_request_checks_failed",
-        "trigger": {
-          "event": "pull_request.checks_failed"
-        },
-        "action": {
-          "type": "transition",
-          "to": "ready"
-        }
-      },
-      {
-        "id": "pull_request_out_of_date",
-        "trigger": {
-          "event": "pull_request.out_of_date"
-        },
-        "action": {
-          "type": "update_branch",
-          "require_review": true,
-          "transitions": {
-            "updated": "agent_qa",
-            "conflict": "ready",
-            "error": "blocked"
-          }
-        }
-      }
-    ]
-  }
+  "delivery": {"mode": "local"}
 }

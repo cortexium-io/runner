@@ -4,34 +4,10 @@ set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
-live_config=""
-
-usage() {
-	printf '%s\n' 'usage: test-release-readiness.sh [--live-config PATH]'
-	printf '%s\n' '  --live-config PATH  also run Runner Doctor with a real harness model probe'
-}
-
-while [ "$#" -gt 0 ]; do
-	case "$1" in
-		--live-config)
-			if [ "$#" -lt 2 ] || [ -z "$2" ]; then
-				usage >&2
-				exit 2
-			fi
-			live_config=$2
-			shift 2
-			;;
-		--help|-h)
-			usage
-			exit 0
-			;;
-		*)
-			printf '%s\n' "unknown option: $1" >&2
-			usage >&2
-			exit 2
-			;;
-	esac
-done
+if [ "$#" -ne 0 ]; then
+ printf '%s\n' 'usage: test-release-readiness.sh (local checks only; no model calls or publication)' >&2
+ exit 2
+fi
 
 readiness_root=$(mktemp -d "${TMPDIR:-/tmp}/cortexium-runner-readiness.XXXXXX")
 cleanup() {
@@ -49,7 +25,7 @@ run_step() {
 }
 
 verify_source_format() {
-	unformatted=$(gofmt -l cmd internal scripts skills)
+	unformatted=$(gofmt -l cmd internal scripts)
 	if [ -n "$unformatted" ]; then
 		printf '%s\n' 'Go files require formatting:' >&2
 		printf '%s\n' "$unformatted" >&2
@@ -66,7 +42,7 @@ verify_source_format() {
 
 run_step 'Source formatting and script syntax' verify_source_format
 run_step 'Race-enabled test suite' \
-	go test -count=1 -race ./... -timeout=20m
+	go test -count=1 -race -timeout 15m ./...
 run_step 'Static analysis' \
 	go vet ./...
 run_step 'Known-vulnerability scan' \
@@ -90,23 +66,6 @@ else
 	(cd "$readiness_root/release" && shasum -a 256 --check SHA256SUMS)
 fi
 
-if [ -n "$live_config" ]; then
-	case "$live_config" in
-		/*) ;;
-		*) live_config=$(CDPATH= cd -- "$(dirname -- "$live_config")" && pwd)/$(basename -- "$live_config") ;;
-	esac
-	if [ ! -f "$live_config" ]; then
-		printf '%s\n' "live config does not exist: $live_config" >&2
-		exit 1
-	fi
-	run_step 'Build live-probe binary' \
-		go build -trimpath -o "$readiness_root/cortexium-runner" ./cmd/cortexium-runner
-	run_step 'Live GitHub and harness probe' \
-		"$readiness_root/cortexium-runner" doctor --config "$live_config" --probe-harnesses
-fi
-
-printf '\n%s\n' 'Release readiness passed.'
-printf '%s\n' 'Covered: new and existing Projects, empty and initialized remotes, local-config Git protection and repair, dry-run and apply, interactive and scripted init, blocked-item retry, role overrides, review policies, deterministic two-card parallel execution, automatic-merge safety, Project repair, packaged binary startup, and every published platform.'
-if [ -z "$live_config" ]; then
-	printf '%s\n' 'Live GitHub mutations are intentionally not performed. Pass --live-config to add a read-only GitHub inspection and real model probe.'
-fi
+printf '\n%s\n' 'Local release readiness passed.'
+printf '%s\n' 'Covered: local-core race tests, static analysis, vulnerability and module checks, real local CLI smoke, four no-CGO archives and checksums.'
+printf '%s\n' 'R5 still requires native macOS/Linux qualification, final evidence review and an approved cutover. No live model or GitHub calls, publication or operator installation occurred.'

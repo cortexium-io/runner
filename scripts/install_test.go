@@ -92,19 +92,25 @@ func installTestPlatformSupported() bool {
 		(runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64")
 }
 
-func installTestArchive(t *testing.T) (string, []byte) {
+func installTestArchive(t *testing.T, extra ...string) (string, []byte) {
 	t.Helper()
 	platform := runtime.GOOS
 	architecture := runtime.GOARCH
 	packageName := "cortexium-runner-" + installTestVersion + "-" + platform + "-" + architecture
 	archiveName := packageName + ".tar.gz"
-	files := map[string]struct {
+	type archiveFile struct {
 		contents string
 		mode     int64
-	}{
+	}
+	files := map[string]archiveFile{
 		packageName + "/cortexium-runner": {contents: "#!/bin/sh\nprintf '%s\\n' 'cortexium-runner " + installTestVersion + "'\n", mode: 0o755},
 		packageName + "/LICENSE":          {contents: "test license\n", mode: 0o644},
 		packageName + "/README.md":        {contents: "test readme\n", mode: 0o644},
+	}
+	files[packageName+"/OPERATOR.md"] = archiveFile{"operator guide\n", 0o644}
+	files[packageName+"/runner.example.json"] = archiveFile{"{}\n", 0o644}
+	for _, name := range extra {
+		files[packageName+"/"+name] = archiveFile{"unexpected\n", 0o644}
 	}
 	var archive bytes.Buffer
 	gzipWriter := gzip.NewWriter(&archive)
@@ -151,4 +157,23 @@ func installTestServer(t *testing.T, archiveName string, archive []byte, checksu
 	}
 	t.Setenv("CURL_CA_BUNDLE", certificatePath)
 	return server
+}
+
+func TestInstallScriptRejectsUnexpectedArchiveContent(t *testing.T) {
+	if !installTestPlatformSupported() {
+		t.Skip("installer supports macOS and Linux")
+	}
+	archiveName, archive := installTestArchive(t, "runner-next")
+	server := installTestServer(t, archiveName, archive, fmt.Sprintf("%x", sha256.Sum256(archive)))
+	defer server.Close()
+	installDir := t.TempDir()
+	command := exec.Command("sh", "install.sh", installTestVersion)
+	command.Env = append(os.Environ(), "CORTEXIUM_RUNNER_RELEASES_URL="+server.URL+"/releases", "CORTEXIUM_RUNNER_INSTALL_DIR="+installDir)
+	output, err := command.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "unexpected archive entry") {
+		t.Fatalf("unexpected archive accepted: %v\n%s", err, output)
+	}
+	if _, err := os.Stat(filepath.Join(installDir, "cortexium-runner")); !os.IsNotExist(err) {
+		t.Fatalf("failed archive installed a binary: %v", err)
+	}
 }

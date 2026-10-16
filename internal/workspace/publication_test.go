@@ -3,7 +3,6 @@
 package workspace
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -144,7 +143,11 @@ func TestConstructCandidateStagesResolvedMergeAfterHarnessClearsMergeState(t *te
 
 	replacement := prepared.Identity
 	replacement.BaseRevision = baseParent
-	if err := replaceIdentity(activeIdentityPath(root, "resolved_merge"), prepared.Identity, replacement); err != nil {
+	identityBytes, err := encodeIdentity(replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(activeIdentityPath(root, "resolved_merge"), identityBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	prepared, err = bindGitAdministration(metadataFor(prepared.RepoRoot, prepared.SourceSnapshot, replacement))
@@ -193,247 +196,6 @@ func TestConstructCandidateSupportsSHA256RepositoryWithConfigurationDisabled(t *
 	}
 	if len(candidate.CommitOID) != 64 || len(candidate.TreeOID) != 64 {
 		t.Fatalf("SHA-256 candidate returned unexpected object identities: %#v", candidate)
-	}
-}
-
-func TestPublicationAcceptanceRecordsExactTupleExclusively(t *testing.T) {
-	repo := initGitRepo(t)
-	root := filepath.Join(t.TempDir(), "worktrees")
-	provider := NewGitProvider(subprocess.OSRunner{})
-	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
-		WorkingDir: repo, WorktreeRoot: root, WorkID: "accepted_tuple", BranchPrefix: "runner", BaseRef: "HEAD",
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "accepted.txt"), []byte("accepted bytes\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	candidate, err := provider.ConstructCandidate(t.Context(), prepared, "Accepted tuple")
-	if err != nil {
-		t.Fatal(err)
-	}
-	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	record, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate.")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record.CommitOID != candidate.CommitOID || record.TreeOID != candidate.TreeOID || record.ItemID != prepared.Identity.ItemID ||
-		record.DelegatedContentDigest != prepared.Identity.DelegatedContentDigest || record.ApprovedBaseRef != prepared.BaseRef ||
-		record.ApprovedBaseOID != prepared.BaseRevision || record.Repository != prepared.Identity.Repository ||
-		record.DestinationRef != "refs/heads/"+prepared.BranchName || record.AcceptanceSnapshot != accepted.Fingerprint ||
-		record.AcceptanceReport != "QA accepted." || record.AcceptanceComment != "Accepted candidate." {
-		t.Fatalf("publication tuple lost accepted identity: %#v", record)
-	}
-	replayed, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate.")
-	if err != nil || replayed != record {
-		t.Fatalf("exact publication tuple replay changed the record: record=%#v error=%v", replayed, err)
-	}
-	loaded, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, accepted)
-	if err != nil || !found || loaded != record {
-		t.Fatalf("exact publication tuple could not be resumed: found=%t record=%#v error=%v", found, loaded, err)
-	}
-	path := publicationRecordPath(root, candidate.CommitOID)
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("inspect publication record: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("publication record mode = %v, want 0600", info.Mode().Perm())
-	}
-	conflict := record
-	conflict.Repository = "attacker/repository"
-	content, err := json.Marshal(conflict)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content = append(content, '\n')
-	if err := os.WriteFile(path, content, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "Different report.", "Accepted candidate."); err == nil || !strings.Contains(err.Error(), "different immutable tuple") {
-		t.Fatalf("publication record collision was accepted: %v", err)
-	}
-}
-
-func TestPublicationAcceptanceRequiresFreshQAForChangedWorkspaceSnapshot(t *testing.T) {
-	repo := initGitRepo(t)
-	runGitTest(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
-	root := filepath.Join(t.TempDir(), "worktrees")
-	provider := NewGitProvider(subprocess.OSRunner{})
-	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
-		WorkingDir: repo, WorktreeRoot: root, WorkID: "renew_acceptance", BranchPrefix: "runner", BaseRef: "origin/main",
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "accepted.txt"), []byte("accepted bytes\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	candidate, err := provider.ConstructCandidate(t.Context(), prepared, "Accepted candidate")
-	if err != nil {
-		t.Fatal(err)
-	}
-	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	original, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "Original QA report.", "Original acceptance.")
-	if err != nil {
-		t.Fatal(err)
-	}
-	originalPath := publicationRecordPath(root, candidate.CommitOID)
-	originalBytes, err := os.ReadFile(originalPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Equivalent bytes in a newly materialized administrative file still change
-	// the no-follow filesystem identity, as happens when a worktree is recreated.
-	markerPath := filepath.Join(prepared.WorktreePath, ".git")
-	marker, err := os.ReadFile(markerPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(markerPath+".replacement", marker, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(markerPath+".replacement", markerPath); err != nil {
-		t.Fatal(err)
-	}
-	current, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !current.Clean || current.Head != accepted.Head || current.Tree != accepted.Tree || current.Fingerprint == accepted.Fingerprint {
-		t.Fatalf("fixture did not change only the workspace snapshot: before=%#v after=%#v", accepted, current)
-	}
-	if record, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, current); err != nil || found || record != (PublicationRecord{}) {
-		t.Fatalf("changed workspace must require fresh QA, not reuse acceptance or block: found=%t record=%#v err=%v", found, record, err)
-	}
-	if err := provider.PublishAccepted(t.Context(), prepared, original, "origin", "main", PublicationPushPolicy{MergeMethod: "merge"}, func() error { return nil }); err == nil || !strings.Contains(err.Error(), "no longer matches the accepted QA snapshot") {
-		t.Fatalf("old acceptance did not reject workspace drift before publication: %v", err)
-	}
-	if prior, err := provider.HasPriorPublicationAcceptance(t.Context(), prepared, candidate.CommitOID); err != nil || !prior {
-		t.Fatalf("workspace drift lost the prior publication lease proof: prior=%t err=%v", prior, err)
-	}
-	renewed, err := provider.RecordPublicationAcceptance(t.Context(), prepared, current, "Fresh QA report.", "Fresh acceptance.")
-	if err != nil {
-		t.Fatalf("record fresh QA of the unchanged commit: %v", err)
-	}
-	if renewed.AcceptanceSnapshot != current.Fingerprint || renewed.AcceptanceReport != "Fresh QA report." {
-		t.Fatalf("fresh acceptance did not bind the new review: %#v", renewed)
-	}
-	loaded, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, current)
-	if err != nil || !found || loaded != renewed {
-		t.Fatalf("fresh acceptance did not resume: found=%t record=%#v err=%v", found, loaded, err)
-	}
-	if replay, err := provider.RecordPublicationAcceptance(t.Context(), prepared, current, "Fresh QA report.", "Fresh acceptance."); err != nil || replay != renewed {
-		t.Fatalf("fresh acceptance was not idempotent: record=%#v err=%v", replay, err)
-	}
-	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, current, "Different report.", "Fresh acceptance."); err == nil {
-		t.Fatal("fresh acceptance was overwritten with a different report")
-	}
-	after, err := os.ReadFile(originalPath)
-	if err != nil || string(after) != string(originalBytes) {
-		t.Fatalf("original immutable acceptance changed: err=%v", err)
-	}
-	for _, test := range []struct {
-		name   string
-		change func(*PublicationRecord)
-	}{
-		{"item", func(r *PublicationRecord) { r.ItemID = "another-item" }},
-		{"requirements", func(r *PublicationRecord) { r.DelegatedContentDigest = "v1:changed" }},
-		{"base ref", func(r *PublicationRecord) { r.ApprovedBaseRef = "refs/remotes/origin/other" }},
-		{"base commit", func(r *PublicationRecord) { r.ApprovedBaseOID = strings.Repeat("a", 40) }},
-		{"candidate commit", func(r *PublicationRecord) { r.CommitOID = strings.Repeat("a", 40) }},
-		{"candidate tree", func(r *PublicationRecord) { r.TreeOID = strings.Repeat("a", 40) }},
-		{"repository", func(r *PublicationRecord) { r.Repository = "other/repository" }},
-		{"destination", func(r *PublicationRecord) { r.DestinationRef = "refs/heads/other" }},
-		{"malformed snapshot", func(r *PublicationRecord) { r.AcceptanceSnapshot = "" }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			changed := original
-			test.change(&changed)
-			content, err := json.Marshal(changed)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(originalPath, content, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				if err := os.WriteFile(originalPath, originalBytes, 0o600); err != nil {
-					t.Fatal(err)
-				}
-			})
-			if _, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, current); err == nil || found {
-				t.Fatalf("changed anchor was bypassed by snapshot-specific acceptance: found=%t err=%v", found, err)
-			}
-			if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, current, "Fresh QA report.", "Fresh acceptance."); err == nil {
-				t.Fatal("fresh QA laundered the changed anchor")
-			}
-		})
-	}
-}
-
-func TestPublicationAcceptanceIgnoresLegacyReviewBoundaryRecord(t *testing.T) {
-	repo := initGitRepo(t)
-	root := filepath.Join(t.TempDir(), "worktrees")
-	provider := NewGitProvider(subprocess.OSRunner{})
-	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
-		WorkingDir: repo, WorktreeRoot: root, WorkID: "legacy_acceptance", BranchPrefix: "runner", BaseRef: "HEAD",
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "accepted.txt"), []byte("accepted bytes\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	candidate, err := provider.ConstructCandidate(t.Context(), prepared, "Legacy acceptance")
-	if err != nil {
-		t.Fatal(err)
-	}
-	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const report = "QA accepted the exact detached candidate."
-	const comment = "Accepted after detached Agent QA."
-	current, currentPath, err := provider.validatedPublicationAcceptance(t.Context(), prepared, accepted, report, comment, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy := current
-	legacy.Version = publicationRecordVersion - 1
-	content, err := json.Marshal(legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyPath := filepath.Join(root, ".runner-state", "publications", candidate.CommitOID+".json")
-	if err := os.WriteFile(legacyPath, append(content, '\n'), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if record, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, accepted); err != nil || found || record != (PublicationRecord{}) {
-		t.Fatalf("legacy acceptance remained resumable: found=%t record=%#v error=%v", found, record, err)
-	}
-	recorded, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, report, comment)
-	if err != nil {
-		t.Fatalf("record fresh acceptance beside legacy state: %v", err)
-	}
-	if recorded.Version != publicationRecordVersion || recorded.CommitOID != candidate.CommitOID {
-		t.Fatalf("fresh acceptance = %#v", recorded)
-	}
-	loaded, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, accepted)
-	if err != nil || !found || loaded != recorded {
-		t.Fatalf("fresh acceptance did not resume: found=%t record=%#v error=%v", found, loaded, err)
-	}
-	for _, path := range []string{legacyPath, currentPath} {
-		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("expected publication record %s: %v", path, err)
-		}
 	}
 }
 
@@ -488,23 +250,6 @@ func TestPrepareReviewWorkspaceMaterializesExactCandidateOutsideImplementationCh
 	if got := runGitTest(t, review.Path, "show", "HEAD:reviewed.txt"); got != "reviewed bytes\n" {
 		t.Fatalf("private review content = %q", got)
 	}
-	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "receipt.json"), []byte(`{"passed":true}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	wrongCandidate := candidate
-	wrongCandidate.CommitOID = strings.Repeat("f", 40)
-	if err := review.PrepareEvidence(t.Context(), prepared, wrongCandidate, []string{"receipt.json"}, DefaultSnapshotLimits()); err == nil {
-		t.Fatal("evidence bound to a different review candidate")
-	}
-	if err := review.PrepareEvidence(t.Context(), prepared, candidate, []string{"receipt.json"}, DefaultSnapshotLimits()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(review.Path, "receipt.json")); !os.IsNotExist(err) {
-		t.Fatal("untracked evidence contaminated the canonical candidate")
-	}
-	if err := review.VerifyEvidence(t.Context()); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "reviewed.txt"), []byte("late mutation\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -518,61 +263,6 @@ func TestPrepareReviewWorkspaceMaterializesExactCandidateOutsideImplementationCh
 	}
 	if _, err := os.Stat(parent); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("private review workspace was not removed: %v", err)
-	}
-}
-
-func TestReviewWorkspaceCleanupAfterImplementationWorkspaceRemoval(t *testing.T) {
-	testRoot := t.TempDir()
-	t.Setenv("HOME", filepath.Join(testRoot, "home"))
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(testRoot, "cache"))
-	repo := initGitRepo(t)
-	provider := NewGitProvider(subprocess.OSRunner{})
-	request := boundRequest(Request{
-		WorkingDir: repo, WorktreeRoot: filepath.Join(testRoot, "worktrees"), WorkID: "removed_review_source", BranchPrefix: "runner", BaseRef: "HEAD",
-	})
-	prepared, err := provider.Prepare(t.Context(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	candidate, err := provider.ConstructCandidate(t.Context(), prepared, "Review before source cleanup")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "receipt.json"), []byte(`{"passed":true}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	review, err := provider.PrepareReviewWorkspace(t.Context(), prepared, candidate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := review.PrepareEvidence(t.Context(), prepared, candidate, []string{"receipt.json"}, DefaultSnapshotLimits()); err != nil {
-		t.Fatal(err)
-	}
-	// Successful publication removes the implementation checkout before the
-	// deferred private review cleanup, including its separate evidence snapshot.
-	cleaned, err := provider.Cleanup(t.Context(), cleanupFor(request, prepared.BranchName))
-	if err != nil || !cleaned.WorktreeRemoved {
-		t.Fatalf("remove implementation workspace: removed=%t error=%v", cleaned.WorktreeRemoved, err)
-	}
-	if _, err := os.Stat(prepared.WorktreePath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("implementation checkout still exists: %v", err)
-	}
-	if err := review.VerifyEvidence(t.Context()); err != nil {
-		t.Fatalf("private evidence did not survive its source removal: %v", err)
-	}
-	if err := review.Cleanup(t.Context()); err != nil {
-		t.Fatalf("cleanup private review after implementation removal: %v", err)
-	}
-	for _, path := range []string{review.Path, review.EvidencePath, review.parent} {
-		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("private review path survived cleanup: %s: %v", path, err)
-		}
-	}
-	if registrations := runGitTest(t, repo, "worktree", "list", "--porcelain"); strings.Contains(registrations, review.Path) || strings.Contains(registrations, prepared.WorktreePath) {
-		t.Fatalf("removed workspace registration survived cleanup: %s", registrations)
-	}
-	if head := strings.TrimSpace(runGitTest(t, repo, "rev-parse", "HEAD")); head != prepared.BaseRevision {
-		t.Fatalf("review cleanup changed the operator checkout: %s", head)
 	}
 }
 
@@ -640,79 +330,6 @@ func TestReviewWorkspaceRejectsCacheRootResolvingInsideNPMGrant(t *testing.T) {
 	}
 }
 
-func TestPublicationAcceptanceRequiresDurableReviewerOutput(t *testing.T) {
-	repo := initGitRepo(t)
-	provider := NewGitProvider(subprocess.OSRunner{})
-	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
-		WorkingDir: repo, WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"), WorkID: "reviewer_output", BranchPrefix: "runner", BaseRef: "HEAD",
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "", ""); err == nil || !strings.Contains(err.Error(), "reviewer report") {
-		t.Fatalf("empty reviewer output was accepted: %v", err)
-	}
-}
-
-func TestPublicationAcceptanceLoadDoesNotCreateMissingRecord(t *testing.T) {
-	repo := initGitRepo(t)
-	root := filepath.Join(t.TempDir(), "worktrees")
-	provider := NewGitProvider(subprocess.OSRunner{})
-	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
-		WorkingDir: repo, WorktreeRoot: root, WorkID: "missing_acceptance", BranchPrefix: "runner", BaseRef: "HEAD",
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := provider.ConstructCandidate(t.Context(), prepared, "Unreviewed candidate"); err != nil {
-		t.Fatal(err)
-	}
-	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record, found, err := provider.LoadPublicationAcceptance(t.Context(), prepared, accepted); err != nil || found || record != (PublicationRecord{}) {
-		t.Fatalf("missing acceptance was not inert: found=%t record=%#v error=%v", found, record, err)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".runner-state", "publications")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("loading a missing acceptance created state: %v", err)
-	}
-}
-
-func TestPublicationAcceptanceRejectsChangedHeadOrTree(t *testing.T) {
-	repo := initGitRepo(t)
-	root := filepath.Join(t.TempDir(), "worktrees")
-	provider := NewGitProvider(subprocess.OSRunner{})
-	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
-		WorkingDir: repo, WorktreeRoot: root, WorkID: "changed_acceptance", BranchPrefix: "runner", BaseRef: "HEAD",
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "accepted.txt"), []byte("accepted\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := provider.ConstructCandidate(t.Context(), prepared, "Accepted"); err != nil {
-		t.Fatal(err)
-	}
-	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(prepared.WorktreePath, "after-qa.txt"), []byte("unreviewed\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runGitTest(t, prepared.WorktreePath, "add", "--all")
-	runGitTest(t, prepared.WorktreePath, "commit", "-m", "unreviewed change")
-	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate."); err == nil || !strings.Contains(err.Error(), "snapshot, HEAD, tree, or branch changed") {
-		t.Fatalf("changed acceptance snapshot was recorded: %v", err)
-	}
-}
-
 func TestCandidateRejectsForeignGitAdministrationAfterPreparation(t *testing.T) {
 	repo := initGitRepo(t)
 	provider := NewGitProvider(subprocess.OSRunner{})
@@ -729,28 +346,6 @@ func TestCandidateRejectsForeignGitAdministrationAfterPreparation(t *testing.T) 
 	}
 	if _, err := provider.ConstructCandidate(t.Context(), prepared, "Foreign administration"); err == nil || !strings.Contains(err.Error(), "does not match the prepared workspace") {
 		t.Fatalf("foreign Git administration was accepted: %v", err)
-	}
-}
-
-func TestPublicationAcceptanceRejectsCandidateUnrelatedToApprovedBase(t *testing.T) {
-	repo := initGitRepo(t)
-	provider := NewGitProvider(subprocess.OSRunner{})
-	prepared, err := provider.Prepare(t.Context(), boundRequest(Request{
-		WorkingDir: repo, WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"), WorkID: "unrelated_base", BranchPrefix: "runner", BaseRef: "HEAD",
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	tree := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "rev-parse", "HEAD^{tree}"))
-	root := strings.TrimSpace(runGitTest(t, prepared.WorktreePath, "commit-tree", tree, "-m", "Unrelated root"))
-	runGitTest(t, prepared.WorktreePath, "update-ref", "refs/heads/"+prepared.BranchName, root)
-	runGitTest(t, prepared.WorktreePath, "reset", "--hard", root)
-	accepted, err := captureDefaultCheckoutSnapshotState(t.Context(), subprocess.OSRunner{}, prepared.WorktreePath, 30*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := provider.RecordPublicationAcceptance(t.Context(), prepared, accepted, "QA accepted.", "Accepted candidate."); err == nil || !strings.Contains(err.Error(), "not descended from the approved base") {
-		t.Fatalf("candidate unrelated to approved base was accepted: %v", err)
 	}
 }
 

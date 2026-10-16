@@ -1,6 +1,16 @@
 # Decision: Typed workflow composition over three role contracts
 
+Historical decision: [ADR 0005](0005-local-runner-core.md) defines which guarantees
+remain in the local replacement. Project-specific mechanisms and deferred
+features below do not describe the current release surface.
+
+
 Date: 2026-09-03
+
+For the replacement core, [ADR 0005](0005-local-runner-core.md) supersedes the
+Project lane and v5 configuration representation. Three role contracts, typed
+actions and mandatory safety rules remain. The first replacement release uses
+one built-in process; user-authored workflow composition is deferred.
 
 ## Context
 

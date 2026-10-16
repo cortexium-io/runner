@@ -203,9 +203,6 @@ func TestPrivilegedNetworkGitPinsLiteralURLAndRejectsOtherOperations(t *testing.
 	if _, err := RunPrivilegedGitNetwork(t.Context(), runner, profile, []string{"push", url, "abc:refs/heads/task"}, 5*time.Second); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RunPrivilegedGitNetwork(t.Context(), runner, profile, []string{"ls-remote", "--heads", url, "refs/heads/runner/plan-abcdef"}, 5*time.Second); err != nil {
-		t.Fatal(err)
-	}
 	joined := strings.Join(runner.args, "\n")
 	for _, required := range []string{
 		"protocol.allow=never", "protocol.https.allow=always", "credential.helper=", "credential.https://github.com.helper=!gh auth git-credential",
@@ -216,9 +213,7 @@ func TestPrivilegedNetworkGitPinsLiteralURLAndRejectsOtherOperations(t *testing.
 			t.Fatalf("privileged network Git omitted %q:\n%s", required, joined)
 		}
 	}
-	for _, args := range [][]string{{"merge", url}, {"push", "ssh://github.com/owner/repo.git", "abc:refs/heads/task"}, {"fetch", url, "https://github.com/other/repo.git"},
-		{"ls-remote", "--heads", url, "refs/heads/runner/plan-*"}, {"ls-remote", "--heads", url, "refs/heads/develop"}, {"ls-remote", "--upload-pack=other", url, "refs/heads/runner/plan-abc"},
-	} {
+	for _, args := range [][]string{{"merge", url}, {"push", "ssh://github.com/owner/repo.git", "abc:refs/heads/task"}, {"fetch", url, "https://github.com/other/repo.git"}} {
 		if _, err := RunPrivilegedGitNetwork(t.Context(), runner, profile, args, 5*time.Second); err == nil {
 			t.Fatalf("privileged network Git accepted %#v", args)
 		}
@@ -253,6 +248,31 @@ func TestGitHubCLIConfigDirectoryUsesDocumentedAbsolutePrecedence(t *testing.T) 
 				t.Fatalf("GitHub CLI config directory = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestGitHubAPIScrubsAmbientCredentialsAndHost(t *testing.T) {
+	dir := t.TempDir()
+	program := `#!/bin/sh
+printf '%s\n' "$GH_HOST|$GH_TOKEN|$GITHUB_TOKEN|$GH_DEBUG|$GH_CONFIG_DIR|$GH_PROMPT_DISABLED"
+printf '%s\n' "$@"
+cat
+`
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(program), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GH_HOST", "attacker.invalid")
+	t.Setenv("GH_TOKEN", "test-sentinel")
+	t.Setenv("GITHUB_TOKEN", "test-sentinel")
+	t.Setenv("GH_DEBUG", "api")
+	t.Setenv("GH_CONFIG_DIR", dir)
+	r, err := RunGitHubAPI(t.Context(), []string{"graphql", "--method", "POST", "--input", "-"}, strings.NewReader(`{"query":"literal"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(r.Stdout, "||||"+dir+"|1\napi\n--hostname\ngithub.com\n") || !strings.HasSuffix(r.Stdout, `{"query":"literal"}`) {
+		t.Fatalf("unsafe API environment or input: %q", r.Stdout)
 	}
 }
 
@@ -336,6 +356,15 @@ func TestProcessTreeCleanupOnCommandFailure(t *testing.T) {
 	}
 }
 
+func TestEscapedPipeHolderFailsBoundedly(t *testing.T) {
+	outcome := runProcessTreeScenario(t, t.Context(), "escaped", true, nil, func(ctx context.Context, command string, args []string) (Result, error) {
+		return OSRunner{}.Run(ctx, command, args, "", 0)
+	})
+	if outcome.err == nil || !strings.Contains(outcome.err.Error(), "output pipes remained open") || outcome.result.ExitCode != -1 {
+		t.Fatalf("escaped pipe holder was not reported as unresolved cleanup: %#v %v", outcome.result, outcome.err)
+	}
+}
+
 func TestProcessTreeCleanupOnTimeout(t *testing.T) {
 	done := make(chan struct{})
 	ctx := triggeredTimeoutContext{Context: t.Context(), done: done}
@@ -367,30 +396,6 @@ func TestProcessTreeCleanupOnCancellation(t *testing.T) {
 	}
 	if !strings.Contains(outcome.result.Stdout, "leader-terminated") {
 		t.Fatalf("cancellation lost final process output: %#v", outcome.result)
-	}
-}
-
-func TestForcedCleanupDoesNotWaitForeverForDirectReap(t *testing.T) {
-	child := exec.Command("sleep", "60")
-	configureProcessGroup(child)
-	if err := child.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = child.Process.Kill(); _ = child.Wait() }()
-	// Model a direct wait that cannot complete. Group disappearance alone must
-	// not turn this into either a successful cleanup or an unbounded receive.
-	done := make(chan error, 1)
-	go func() {
-		_, err := teardownProcessGroup(child, make(chan commandWaitResult), commandWaitResult{}, false)
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("unconfirmed direct reap accepted")
-		}
-	case <-time.After(3 * processTerminationGracePeriod):
-		t.Fatal("cleanup wait was unbounded")
 	}
 }
 
@@ -461,6 +466,14 @@ func runProcessTreeScenario(t *testing.T, ctx context.Context, behavior string, 
 	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for command completion")
 	}
+	if behavior == "escaped" {
+		// This helper deliberately survives in its own session; only this test owns
+		// its ready-acknowledged PID. The production boundary must report uncertainty.
+		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+			t.Fatalf("stop escaped fixture: %v", err)
+		}
+		return outcome
+	}
 	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("descendant process %d survived command completion: %v", pid, err)
 	}
@@ -506,14 +519,13 @@ func runProcessTreeLeader() {
 		panic(err)
 	}
 	child := exec.Command(os.Args[0], "-test.run=^TestProcessTreeHelper$")
+	if os.Getenv("RUNNER_SUBPROCESS_HELPER_BEHAVIOR") == "escaped" {
+		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
 	child.Env = replaceEnvironment(os.Environ(), "RUNNER_SUBPROCESS_HELPER_ROLE", "descendant")
 	child.ExtraFiles = []*os.File{childReadyWriter}
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
-	if os.Getenv("RUNNER_SUBPROCESS_HELPER_DETACHED") == "true" {
-		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		child.Stdout, child.Stderr = nil, nil
-	}
 	if err := child.Start(); err != nil {
 		panic(err)
 	}
@@ -541,7 +553,7 @@ func runProcessTreeLeader() {
 	fmt.Fprintln(os.Stdout, "leader-ready")
 
 	switch behavior {
-	case "success":
+	case "success", "escaped":
 		return
 	case "failure":
 		os.Exit(23)

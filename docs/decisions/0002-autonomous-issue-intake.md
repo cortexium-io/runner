@@ -1,6 +1,16 @@
 # Decision: Trust-gated autonomous issue intake
 
+Historical decision: [ADR 0005](0005-local-runner-core.md) defines which guarantees
+remain in the local replacement. Project-specific mechanisms and deferred
+features below do not describe the current release surface.
+
+
 Date: 2026-09-02
+
+For the replacement core, [ADR 0005](0005-local-runner-core.md) makes this an
+optional intake capability after the first release. Its explicit trust and
+successful-outcome requirements remain applicable when that capability returns;
+GitHub issues and Projects are not prerequisites for local work.
 
 ## Context
 

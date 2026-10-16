@@ -108,13 +108,8 @@ func RunPrivilegedGitInput(ctx context.Context, profile PrivilegedGitProfile, ar
 // transport and an explicit GitHub CLI credential helper. Callers must supply a
 // literal URL; inherited remotes and URL rewrite configuration remain absent.
 func RunPrivilegedGitNetwork(ctx context.Context, runner Runner, profile PrivilegedGitProfile, args []string, timeout time.Duration) (Result, error) {
-	if len(args) == 0 || args[0] != "fetch" && args[0] != "push" && args[0] != "ls-remote" {
-		return Result{}, errors.New("privileged network Git permits only fetch, push or exact plan-head inspection")
-	}
-	if args[0] == "ls-remote" {
-		if len(args) != 4 || args[1] != "--heads" || !strings.HasPrefix(args[3], "refs/heads/runner/plan-") || strings.ContainsAny(args[3], "*?[]\\ \t\r\n\x00") || strings.Contains(args[3], "..") {
-			return Result{}, errors.New("privileged remote inspection requires one exact plan branch")
-		}
+	if len(args) == 0 || args[0] != "fetch" && args[0] != "push" {
+		return Result{}, errors.New("privileged network Git permits only fetch or push")
 	}
 	repositoryURL := ""
 	for _, argument := range args[1:] {
@@ -129,6 +124,22 @@ func RunPrivilegedGitNetwork(ctx context.Context, runner Runner, profile Privile
 		return Result{}, errors.New("privileged network Git requires one literal GitHub URL")
 	}
 	return runPrivilegedGit(ctx, runner, profile, args, timeout, repositoryURL, nil)
+}
+
+// RunGitHubAPI uses the same operator-owned gh credentials as privileged Git.
+// It ignores ambient token/host/debug overrides and bounds both output streams.
+func RunGitHubAPI(ctx context.Context, args []string, input io.Reader) (Result, error) {
+	environment := []string{"LANG=C", "LC_ALL=C", "GH_PROMPT_DISABLED=1", "GH_TELEMETRY=false"}
+	for _, key := range []string{"PATH", "SYSTEMROOT", "WINDIR"} {
+		if value := os.Getenv(key); value != "" {
+			environment = append(environment, key+"="+value)
+		}
+	}
+	if dir := githubCLIConfigDirectory(os.Environ()); dir != "" {
+		environment = append(environment, "GH_CONFIG_DIR="+dir)
+	}
+	args = append([]string{"api", "--hostname", "github.com", "--header", "Accept: application/vnd.github+json", "--header", "X-GitHub-Api-Version: 2026-03-10"}, args...)
+	return runOSCommandFailClosed(ctx, "gh", args, "", time.Minute, environment, input, GitHubStdoutLimit, DiagnosticStderrLimit)
 }
 
 func runPrivilegedGit(ctx context.Context, runner Runner, profile PrivilegedGitProfile, args []string, timeout time.Duration, repositoryURL string, input io.Reader) (Result, error) {
@@ -342,20 +353,11 @@ type LineFilteredInputRunner interface {
 
 type OSRunner struct{}
 
-type stdoutObserverKey struct{}
-
-// WithStdoutObserver receives the original stream before any diagnostic
-// truncation/filtering. The observer must be bounded and non-blocking.
-func WithStdoutObserver(ctx context.Context, observer io.Writer) context.Context {
-	return context.WithValue(ctx, stdoutObserverKey{}, observer)
-}
-
 func (OSRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (Result, error) {
 	return runOSCommandWithEnvironment(ctx, command, args, dir, timeout, commandEnvironment(ctx))
 }
 
 func (OSRunner) RunBoundedInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, maxBytesPerStream int, truncationMarker string) (Result, error) {
-	ctx = context.WithValue(ctx, harnessProcessKey{}, true)
 	stdout := newBoundedCapture(maxBytesPerStream, truncationMarker)
 	stderr := newBoundedCapture(maxBytesPerStream, truncationMarker)
 	exitCode, err := runOSCommandToWritersInput(ctx, command, args, dir, timeout, nil, input, stdout, stderr)
@@ -418,7 +420,6 @@ func failClosedResult(command string, result Result, err error, maxStdoutBytes, 
 }
 
 func (OSRunner) RunBoundedHeadTailInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, maxBytesPerStream int, truncationMarker string) (Result, error) {
-	ctx = context.WithValue(ctx, harnessProcessKey{}, true)
 	stdout := newHeadTailCapture(maxBytesPerStream, truncationMarker)
 	stderr := newHeadTailCapture(maxBytesPerStream, truncationMarker)
 	exitCode, err := runOSCommandToWritersInput(ctx, command, args, dir, timeout, nil, input, stdout, stderr)
@@ -426,7 +427,6 @@ func (OSRunner) RunBoundedHeadTailInput(ctx context.Context, command string, arg
 }
 
 func (OSRunner) RunLineFilteredInput(ctx context.Context, command string, args []string, dir string, timeout time.Duration, input io.Reader, maxBytesPerStream int, truncationMarker string, keep LineFilter) (Result, error) {
-	ctx = context.WithValue(ctx, harnessProcessKey{}, true)
 	stdout := newLineFilteredCapture(maxBytesPerStream, truncationMarker, keep)
 	stderr := newBoundedCapture(maxBytesPerStream, truncationMarker)
 	exitCode, err := runOSCommandToWritersInput(ctx, command, args, dir, timeout, nil, input, stdout, stderr)
@@ -482,13 +482,6 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 	if environment != nil {
 		cmd.Env = environment
 	}
-	ownership, err := startOwnership(ctx, cmd)
-	if err != nil {
-		return -1, err
-	}
-	if observer, _ := ctx.Value(stdoutObserverKey{}).(io.Writer); observer != nil {
-		stdout = io.MultiWriter(observer, stdout)
-	}
 
 	stdoutReader, stdoutWriter, err := os.Pipe()
 	if err != nil {
@@ -541,17 +534,7 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 		commandErr = ctx.Err()
 	}
 
-	finishCleanup := func(error) {}
-	if ownership != nil {
-		if start, _ := ctx.Value(cleanupObserverKey{}).(func() func(error)); start != nil {
-			finishCleanup = start()
-		}
-	}
 	waitResult, teardownErr := teardownProcessGroup(cmd, waitDone, waitResult, haveWaitResult)
-	teardownErr = errors.Join(teardownErr, ownership.cleanup())
-	if ownership != nil && ownership.environmentVariable() == ownershipVariable {
-		teardownErr = errors.Join(teardownErr, checkHeavyClaim("", ownership.marker))
-	}
 	if teardownErr != nil {
 		// A process that survived teardown may still hold either output pipe.
 		// Closing the readers prevents an unbounded wait while returning the
@@ -586,10 +569,9 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 		commandExitCode = -1
 	}
 	if teardownErr != nil {
-		markCleanupUnresolved(ctx)
-		commandErr = errors.Join(commandErr, &CleanupError{Err: teardownErr})
+		commandExitCode = -1
+		commandErr = errors.Join(commandErr, fmt.Errorf("tear down process group: %w", teardownErr))
 	}
-	finishCleanup(teardownErr)
 	return commandExitCode, commandErr
 }
 

@@ -3,7 +3,6 @@
 package securefs
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -28,11 +27,10 @@ type ArtifactFile struct {
 type ArtifactSet struct{}
 type PathDiscovery struct{}
 
-func EnsurePrivateDir(string) error                     { return errUnsupported }
-func ValidatePrivateDir(string) error                   { return errUnsupported }
-func OpenDir(string) (*Directory, error)                { return nil, errUnsupported }
-func openExternalRuntimeDir(string) (*Directory, error) { return nil, errUnsupported }
-func AbsolutePath(path string) (string, error)          { return filepath.Abs(path) }
+func EnsurePrivateDir(string) error            { return errUnsupported }
+func ValidatePrivateDir(string) error          { return errUnsupported }
+func OpenDir(string) (*Directory, error)       { return nil, errUnsupported }
+func AbsolutePath(path string) (string, error) { return filepath.Abs(path) }
 func ReadFile(string, int64) ([]byte, os.FileMode, FileState, error) {
 	return nil, 0, FileState{}, errUnsupported
 }
@@ -65,17 +63,10 @@ func (d *Directory) ReadDirNamesWithBudget(*SnapshotBudget) ([]string, error) {
 }
 func (d *Directory) OpenDir(string) (*Directory, error)   { return nil, errUnsupported }
 func (d *Directory) OpenFile(string) (*PinnedFile, error) { return nil, errUnsupported }
-func (d *Directory) HashFileContent(context.Context, string, *SnapshotBudget) ([]byte, os.FileMode, error) {
-	return nil, 0, errUnsupported
-}
 func (d *Directory) ReadFile(string, int64) ([]byte, os.FileMode, FileState, error) {
 	return nil, 0, FileState{}, errUnsupported
 }
-func (d *Directory) ReadAppendFile(string, int64) ([]byte, os.FileMode, FileState, error) {
-	return nil, 0, FileState{}, errUnsupported
-}
 func (d *Directory) ReplaceFile(string, []byte, os.FileMode, FileState) error { return errUnsupported }
-func (d *Directory) AppendFile(string, []byte, os.FileMode, int64) error      { return errUnsupported }
 func (f *PinnedFile) Close() error                                            { return nil }
 func (f *PinnedFile) ReadAll(int64) ([]byte, error)                           { return nil, errUnsupported }
 func (f *PinnedFile) ReadAllMutable(int64) ([]byte, error)                    { return nil, errUnsupported }

@@ -90,7 +90,7 @@ entries_path=$download_root/entries
 tar -tzf "$archive_path" >"$entries_path" || fail "could not inspect $archive"
 while IFS= read -r entry; do
 	case "$entry" in
-		"$package"|"$package/"|"$package/cortexium-runner"|"$package/LICENSE"|"$package/README.md") ;;
+		"$package"|"$package/"|"$package/cortexium-runner"|"$package/LICENSE"|"$package/README.md"|"$package/OPERATOR.md"|"$package/runner.example.json") ;;
 		*) fail "unexpected archive entry: $entry" ;;
 	esac
 done <"$entries_path"
