@@ -1618,13 +1618,40 @@ protocol validation enabled. Full integrated gates and both project baselines
 remain pending at this checkpoint.
 
 The first project baseline exposed non-executable Docker scratch and automatic
-VCS stamping against source-only Git inventories. Scratch now uses the existing
-private check directory mounted at container `/tmp`; the explicitly prepared
+VCS stamping against source-only Git inventories. The corrected boundary uses a bounded executable Linux tmpfs at container
+`/tmp`, separate from source/Git discovery; the explicitly prepared
 images select `GOFLAGS=-buildvcs=false` and existing explicit build metadata.
 An affected Genny baseline was cancelled and its owned container was confirmed
 absent before restarting. No failure was waived. Corrected baseline runs use new
 pinned image identities. Private evidence and prepared image inputs live at
 `/Users/dan/.codex/runner-qualification/check-environment-20261016`.
+
+##### Main reconciliation record
+
+Reconciled `main` at `14a86d2c26acae4eefe8c499eae4e0cdc4ebede7` into the
+replacement. The 109 incoming commits were assessed against the new boundaries.
+Retained the Go 1.26.9 security minimum, workload/platform/toolchain-specific
+refreshed caches, reviewed-source release safeguards, nonblocking no-follow FIFO
+protection, bounded subprocess pipe drainage/teardown, safe common-config
+recapture and verified loose/packed Git ref transitions. The shared filesystem,
+subprocess, workspace and release-script owning suites pass with race detection.
+The final full integrated gates remain required.
+
+Legacy Project runtime additions, bundled skill installers, legacy Pi/browser
+lanes, migration/rebase delivery and the host/global heavy verification service
+are retired with their old consumers. Their unused helper APIs were not added to
+the new core. Main's independently numbered old ADR 0005 remains available through
+the existing immutable historical references; local-core ADR 0005 is the current
+accepted decision. Existing role/test/evidence learnings are represented by the
+replacement contracts and qualification cases rather than duplicated old suites.
+The private `main-resolution.json` records the reviewed path dispositions.
+
+The api-mcp unchanged format/race/vet/build baseline passes inside its offline
+image. Genny preparation exposed missing transitive generated-app dependencies
+and a host-shared scratch filesystem incompatibility in Git fixtures. Prepare the
+full declared dependency graph explicitly, qualify real Linux executable scratch,
+and rerun the unchanged owning checks; no assertion or baseline exception is
+changed to accommodate setup. This qualification remains open.
 
 #### R1 implementation and verification brief
 

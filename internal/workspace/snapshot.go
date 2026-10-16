@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -120,12 +121,23 @@ func CaptureCheckoutSnapshotStateWithLimits(ctx context.Context, run subprocess.
 	return captureSnapshotState(ctx, run, worktreePath, timeout, true, true, budget)
 }
 
-func checkoutRelevantConfig(ctx context.Context, run subprocess.Runner, worktreePath, configPath string, timeout time.Duration) (string, error) {
+func checkoutRelevantConfig(ctx context.Context, run subprocess.Runner, worktreePath string, content []byte, timeout time.Duration) (string, error) {
 	if run == nil {
 		run = subprocess.OSRunner{}
 	}
 	if timeout <= 0 {
 		timeout = 30 * time.Second
+	}
+	// Parse the securely pinned bytes, not a shared config path that another
+	// Git operation may atomically replace while this command is reading it.
+	temporary, err := os.MkdirTemp("", "runner-snapshot-config-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(temporary)
+	configPath := filepath.Join(temporary, "config")
+	if err := os.WriteFile(configPath, content, 0o600); err != nil {
+		return "", err
 	}
 	result, err := subprocess.RunGit(ctx, run, []string{"--no-optional-locks", "config", "--file", configPath, "--null", "--list", "--no-includes"}, worktreePath, timeout)
 	if err != nil {
@@ -149,6 +161,42 @@ func checkoutRelevantConfig(ctx context.Context, run subprocess.Runner, worktree
 		writeSnapshotPart(&relevant, key, []byte(value))
 	}
 	return relevant.String(), nil
+}
+
+// Recapture only an atomically updated, safe common config, once. Its protected
+// settings must remain exactly the pinned projection; all other original
+// snapshot controls remain pinned. Never retry an entire checkout on ErrChanged.
+func (s *gitControlSnapshot) verifyCheckoutConfig(ctx context.Context, run subprocess.Runner, relevant string, timeout time.Duration) error {
+	if err := s.commonConfig.verify(); err == nil {
+		return nil
+	} else if !errors.Is(err, securefs.ErrChanged) {
+		return err
+	}
+	if err := securefs.ValidateOwnedRegularFile(s.commonConfig.state, uint32(os.Geteuid())); err != nil {
+		return err
+	}
+	current, err := readPinnedControlFile(s.commonDirectory, "config", s.budget)
+	if err != nil {
+		return err
+	}
+	if err := securefs.ValidateOwnedRegularFile(current.state, uint32(os.Geteuid())); err != nil {
+		return err
+	}
+	if current.mode != s.commonConfig.mode {
+		return fmt.Errorf("%w: common Git config permissions changed", securefs.ErrChanged)
+	}
+	updated, err := checkoutRelevantConfig(ctx, run, s.rootPath, current.content, timeout)
+	if err != nil {
+		return err
+	}
+	if updated != relevant {
+		return fmt.Errorf("%w: protected common Git config changed", securefs.ErrChanged)
+	}
+	if err := current.verify(); err != nil {
+		return err
+	}
+	s.commonConfig = current
+	return nil
 }
 
 func captureSnapshotState(ctx context.Context, run subprocess.Runner, worktreePath string, timeout time.Duration, requireWorktreeRegistration, ignoreBranchTracking bool, budget *securefs.SnapshotBudget) (Snapshot, error) {
@@ -192,7 +240,7 @@ func captureSnapshotState(ctx context.Context, run subprocess.Runner, worktreePa
 	}
 	var relevantConfig string
 	if ignoreBranchTracking {
-		relevantConfig, err = checkoutRelevantConfig(ctx, run, root, filepath.Join(control.commonDirPath, "config"), timeout)
+		relevantConfig, err = checkoutRelevantConfig(ctx, run, root, control.commonConfig.content, timeout)
 		if err != nil {
 			return Snapshot{}, err
 		}
@@ -296,6 +344,11 @@ func captureSnapshotState(ctx context.Context, run subprocess.Runner, worktreePa
 	for _, relativePath := range sortedSnapshotKeys(worktree) {
 		writeSnapshotPart(digest, "worktree-path", []byte(relativePath))
 		writeSnapshotPart(digest, "worktree-content", []byte(worktree[relativePath]))
+	}
+	if ignoreBranchTracking {
+		if err := control.verifyCheckoutConfig(ctx, run, relevantConfig, timeout); err != nil {
+			return Snapshot{}, fmt.Errorf("verify common Git config: %w", err)
+		}
 	}
 	controlState, err := control.Finish(head, registration, results["index"], results["status"], results["replacement-refs"])
 	if err != nil {

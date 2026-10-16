@@ -212,7 +212,7 @@ func (d *Directory) hashMissingPath(parentFD int, name string, directories []sna
 }
 
 func hashRegularAt(parentFD int, name, budgetPath string, before unix.Stat_t, budget *SnapshotBudget, observe snapshotObserver) ([]byte, error) {
-	fd, err := unix.Openat(parentFD, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, err := unix.Openat(parentFD, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}

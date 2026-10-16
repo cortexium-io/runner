@@ -624,3 +624,29 @@ func TestHashPathRejectsEscapesAmbiguityAndSpecialFiles(t *testing.T) {
 		t.Fatalf("special file was certified: digest=%x error=%v", digest, err)
 	}
 }
+
+func TestSnapshotRegularOpenRefusesFIFOSubstitution(t *testing.T) {
+	root := t.TempDir()
+	name := filepath.Join(root, "file")
+	if err := os.WriteFile(name, []byte("old"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := OpenDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dir.Close()
+	var before unix.Stat_t
+	if err := unix.Fstatat(dir.fd, "file", &before, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(name); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mkfifo(name, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hashRegularAt(dir.fd, "file", name, before, nil, nil); err == nil {
+		t.Fatal("FIFO substitution accepted")
+	}
+}

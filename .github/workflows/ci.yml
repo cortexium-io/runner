@@ -3,6 +3,11 @@ name: CI
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      compare-cache:
+        description: Compare Go cache policies on Linux instead of running the release gate
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,52 +22,83 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: ./.github/actions/setup-go
         with:
-          go-version-file: go.mod
-          cache: true
+          workload: race
       - name: Test
-        run: go test -race -timeout 15m ./...
+        run: go test -race ./... -timeout=15m
       - name: Vet
         run: go vet ./...
 
   platform-matrix:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.compare-cache
     name: Platform check (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
+        include:
+          - os: ubuntu-latest
+            package_timeout: 20m
+            job_timeout: 25
+          - os: macos-latest
+            package_timeout: 35m
+            job_timeout: 40
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.job_timeout }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+        with:
+          workload: test
+      - name: Test
+        run: go test ./... -timeout=${{ matrix.package_timeout }}
+      - name: Vet
+        run: go vet ./...
+
+  release-candidate:
+    if: github.event_name == 'workflow_dispatch' && !inputs.compare-cache
+    name: Release candidate
+    needs: platform-matrix
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: ./.github/actions/setup-go
         with:
-          go-version-file: go.mod
-          cache: true
-      - name: Test
-        run: go test -race -timeout 15m ./...
-      - name: Vet
-        run: go vet ./...
+          workload: race
+      - name: Run release-readiness harness
+        run: sh scripts/test-release-readiness.sh
 
-  release-candidate:
-    if: github.event_name == 'workflow_dispatch'
-    name: Release candidate
-    needs: platform-matrix
+  cache-comparison:
+    if: github.event_name == 'workflow_dispatch' && inputs.compare-cache
+    name: Cache comparison (${{ matrix.policy }})
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        policy: [baseline, refreshed]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up Go
+      - name: Baseline Go cache
+        if: matrix.policy == 'baseline'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
-      - name: Run release-readiness harness
-        run: sh scripts/test-release-readiness.sh
+      - name: Refreshed Go cache
+        if: matrix.policy == 'refreshed'
+        uses: ./.github/actions/setup-go
+        with:
+          workload: race
+      - name: Measure race tests
+        # Force execution in both arms; measure build-cache benefit without
+        # presenting cached test results as fresh verification.
+        run: /usr/bin/time -p go test -count=1 -race ./... -timeout=20m
+      - name: Vet
+        run: go vet ./...

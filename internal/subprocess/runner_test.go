@@ -356,6 +356,15 @@ func TestProcessTreeCleanupOnCommandFailure(t *testing.T) {
 	}
 }
 
+func TestEscapedPipeHolderFailsBoundedly(t *testing.T) {
+	outcome := runProcessTreeScenario(t, t.Context(), "escaped", true, nil, func(ctx context.Context, command string, args []string) (Result, error) {
+		return OSRunner{}.Run(ctx, command, args, "", 0)
+	})
+	if outcome.err == nil || !strings.Contains(outcome.err.Error(), "output pipes remained open") || outcome.result.ExitCode != -1 {
+		t.Fatalf("escaped pipe holder was not reported as unresolved cleanup: %#v %v", outcome.result, outcome.err)
+	}
+}
+
 func TestProcessTreeCleanupOnTimeout(t *testing.T) {
 	done := make(chan struct{})
 	ctx := triggeredTimeoutContext{Context: t.Context(), done: done}
@@ -457,6 +466,14 @@ func runProcessTreeScenario(t *testing.T, ctx context.Context, behavior string, 
 	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for command completion")
 	}
+	if behavior == "escaped" {
+		// This helper deliberately survives in its own session; only this test owns
+		// its ready-acknowledged PID. The production boundary must report uncertainty.
+		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+			t.Fatalf("stop escaped fixture: %v", err)
+		}
+		return outcome
+	}
 	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("descendant process %d survived command completion: %v", pid, err)
 	}
@@ -502,6 +519,9 @@ func runProcessTreeLeader() {
 		panic(err)
 	}
 	child := exec.Command(os.Args[0], "-test.run=^TestProcessTreeHelper$")
+	if os.Getenv("RUNNER_SUBPROCESS_HELPER_BEHAVIOR") == "escaped" {
+		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
 	child.Env = replaceEnvironment(os.Environ(), "RUNNER_SUBPROCESS_HELPER_ROLE", "descendant")
 	child.ExtraFiles = []*os.File{childReadyWriter}
 	child.Stdout = os.Stdout
@@ -533,7 +553,7 @@ func runProcessTreeLeader() {
 	fmt.Fprintln(os.Stdout, "leader-ready")
 
 	switch behavior {
-	case "success":
+	case "success", "escaped":
 		return
 	case "failure":
 		os.Exit(23)

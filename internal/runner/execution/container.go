@@ -99,8 +99,8 @@ func runContainerCheck(ctx context.Context, root string, check config.QualityChe
 
 	args := []string{"--host", host, "run", "--name", name, "--rm", "--pull=never", "--network=none", "--ipc=private", "--init", "--read-only",
 		"--user", strconv.Itoa(os.Geteuid()) + ":" + strconv.Itoa(os.Getegid()), "--cap-drop=ALL", "--security-opt=no-new-privileges",
-		"--pids-limit=512", "--memory=4g", "--cpus=2",
-		"--mount", containerMount(root, "/workspace"), "--mount", containerMount(filepath.Join(root, ".runner-output", check.ID, "tmp"), "/tmp"), "--workdir", filepath.Join("/workspace", check.Directory),
+		"--pids-limit=512", "--memory=4g", "--cpus=2", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=2g,mode=1777",
+		"--mount", containerMount(root, "/workspace"), "--workdir", filepath.Join("/workspace", check.Directory),
 		"--env", "HOME=" + filepath.Join("/workspace/.runner-output", check.ID, "home"), "--env", "TMPDIR=/tmp", "--entrypoint", "/bin/sh", check.Image,
 		"-c", `command=$1; shift; for tool do command -v "$tool" >/dev/null || { printf 'missing image prerequisite %s\n' "$tool" >&2; exit 127; }; done; exec /bin/sh -c "$command"`, "runner-check", check.Command}
 	args = append(args, check.Prerequisites...)

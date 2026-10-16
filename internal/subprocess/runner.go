@@ -476,6 +476,9 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 	cmd := exec.Command(command, args...)
 	cmd.Dir = dir
 	cmd.Stdin = input
+	if environment == nil {
+		environment = commandEnvironment(ctx)
+	}
 	if environment != nil {
 		cmd.Env = environment
 	}
@@ -500,6 +503,10 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 	cmd.Stderr = stderrWriter
 
 	configureProcessGroup(cmd)
+	if err := ctx.Err(); err != nil {
+		closePipes()
+		return -1, err
+	}
 	if err = cmd.Start(); err != nil {
 		closePipes()
 		return exitCode(err), err
@@ -535,7 +542,22 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 		_ = stdoutReader.Close()
 		_ = stderrReader.Close()
 	}
-	copyErr := errors.Join(<-copyDone, <-copyDone)
+	// An escaped/uninspectable descendant can retain a pipe even after its
+	// original process group is gone. Bound drainage independently of cleanup.
+	var copyErr error
+	drainTimer := time.NewTimer(processTerminationGracePeriod)
+	for range 2 {
+		select {
+		case err := <-copyDone:
+			copyErr = errors.Join(copyErr, err)
+		case <-drainTimer.C:
+			teardownErr = errors.Join(teardownErr, errors.New("output pipes remained open after process cleanup"))
+			_ = stdoutReader.Close()
+			_ = stderrReader.Close()
+			copyErr = errors.Join(copyErr, <-copyDone)
+		}
+	}
+	drainTimer.Stop()
 	_ = stdoutReader.Close()
 	_ = stderrReader.Close()
 
@@ -547,6 +569,7 @@ func runOSCommandToWritersInput(ctx context.Context, command string, args []stri
 		commandExitCode = -1
 	}
 	if teardownErr != nil {
+		commandExitCode = -1
 		commandErr = errors.Join(commandErr, fmt.Errorf("tear down process group: %w", teardownErr))
 	}
 	return commandExitCode, commandErr
@@ -582,11 +605,7 @@ func teardownProcessGroup(cmd *exec.Cmd, waitDone <-chan commandWaitResult, wait
 	}
 
 	forceErr := terminateProcessGroup(cmd, true)
-	if !haveWaitResult {
-		waitResult = <-waitDone
-		haveWaitResult = true
-	}
-	_, _, clean, verifyErr := waitForProcessGroup(cmd, waitDone, waitResult, haveWaitResult, processTerminationGracePeriod)
+	waitResult, _, clean, verifyErr := waitForProcessGroup(cmd, waitDone, waitResult, haveWaitResult, processTerminationGracePeriod)
 	if clean {
 		return waitResult, nil
 	}
