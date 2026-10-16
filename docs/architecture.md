@@ -15,7 +15,7 @@ and the [redesign plan](runner-redesign-proposal.md) define the accepted replace
 | `internal/runner/core` | Task versions, approvals, evidence bindings, observations and action types. |
 | `internal/runner/store` | Private transactional persistence, reservations, leases, effect claims and freshness guard. Store format 16 rejects earlier formats. |
 | `internal/runner/engine` | One coordinator derives safe actions, admits within limits, launches bounded work and reconciles results. |
-| `internal/runner/execution` | Codex capabilities, sandboxed role/check execution, structured results and pinned role instructions. |
+| `internal/runner/execution` | Codex capabilities, contained role/check execution, optional offline check images, structured results and pinned role instructions. |
 | `internal/runner/workspace` | Task workspace binding, exact candidates, base refresh and integration evidence. |
 | `internal/runner/github` | Narrow draft, base, CI and merge operations; no Project dependency. |
 | `internal/runner/backup` | Drained same-host snapshots, strict manifest validation and guarded restore. |
@@ -49,6 +49,16 @@ test expectations. Named quality checks select `task`, `completion` or `both`
 (default); Ready checks every applicable obligation and parent repairs/refreshes
 also recheck child guarantees. Child evidence is labelled with its historical
 candidate and does not substitute for required combined checks.
+
+Quality checks default to native Codex containment. An owner-approved exact local
+Docker image can instead supply offline tools/dependencies and container-private
+loopback. The existing disposable source-copy boundary and one execution owner
+remain; image root is read-only, host/external networking is absent and no Docker
+socket enters the container. The process record pins the container name and local
+daemon endpoint before launch. Cancellation confirms its removal; recovery and
+backup retain ownership while either process or container is unresolved.
+A model result also requires a successful terminal protocol event; exit zero and
+a result file cannot establish completion after an interrupted stream.
 
 ## Delivery and recovery
 

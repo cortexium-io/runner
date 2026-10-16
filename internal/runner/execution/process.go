@@ -51,7 +51,9 @@ func ObserveCoordinator(path string) (bool, error) {
 	}
 	return false, nil
 }
-func Gone(p core.Process) bool { return p.PID > 1 && errors.Is(unix.Kill(-p.PID, 0), unix.ESRCH) }
+func Gone(p core.Process) bool {
+	return p.PID > 1 && errors.Is(unix.Kill(-p.PID, 0), unix.ESRCH) && ((p.Container == "" && p.DockerHost == "") || (p.Container != "" && containerGone(p)))
+}
 func signalOwned(p core.Process, signal unix.Signal) error {
 	identity, err := processIdentity(p.PID)
 	if err != nil || identity != p.Identity {

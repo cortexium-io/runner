@@ -137,8 +137,10 @@ type Task struct {
 func (t Task) Current() Version { return t.Versions[len(t.Versions)-1] }
 
 type Process struct {
-	PID      int    `json:"pid"`
-	Identity string `json:"identity"`
+	Container  string `json:"container,omitempty"`
+	DockerHost string `json:"docker_host,omitempty"`
+	PID        int    `json:"pid"`
+	Identity   string `json:"identity"`
 }
 
 type CheckObservation struct {

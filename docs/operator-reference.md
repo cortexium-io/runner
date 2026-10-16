@@ -166,6 +166,32 @@ under `.runner-output/`. Exit 0 passes, 1–124 reports failure, 125–127 signa
 unavailable prerequisite. Source/Git modifications, timeouts and unresolved
 processes are unavailable. A report is evidence, not automatic agreement approval.
 
+For checks needing a complete toolchain or local test servers, prepare an offline
+Linux Docker image containing the tools and dependency cache, inspect its exact
+image ID, and add `"check_image": "sha256:<64 lowercase hex digits>"` to the
+quality file. Tags and registry digest references are rejected; Runner uses only
+that already-local image and never pulls or downloads dependencies. Re-run the
+quality preview/baseline/apply flow after an image change. The image ID is pinned
+with the agreement; its baked environment must contain no credentials. This is
+an optional check environment, independent of the selected model harness.
+
+Container checks require a non-root Runner owner and a local Unix-socket Docker
+daemon. Every check gets a fresh unprivileged container, a read-only image root,
+dropped capabilities, bounded memory/processes, private scratch and only its
+disposable source copy mounted. Fixture servers can bind/connect loopback within
+that container. Host loopback, external networking, published ports and the
+Docker socket are unavailable. Prepare dependencies outside Runner before
+applying the agreement; missing image/tools are unavailable proof. Keep image
+build inputs and its recorded ID with operator evidence.
+
+Cancellation removes the named check container before releasing ownership.
+After a hard crash, status/recovery and backup retain ownership while that
+container exists or its pinned daemon cannot be inspected. Inspect the recorded
+`container` and `docker_host` in the process evidence; remove only that verified
+check container, then retry recovery. Changing the current Docker context does
+not redirect observation of an old owner. Native checks keep their existing
+containment when `check_image` is absent.
+
 A successful `quality check` command means a report was recorded, not that its
 checks passed. Inspect each observation and the agreement preview's blockers.
 Verify prerequisites inside the check environment: finding a host executable

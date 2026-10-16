@@ -45,3 +45,30 @@ func codexFailure(path string) string {
 	}
 	return ""
 }
+
+// A valid result file cannot turn an interrupted/failed stream into completion.
+func codexCompleted(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 4096), 1<<20)
+	completed := false
+	for scanner.Scan() {
+		var event struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &event) != nil {
+			return false
+		}
+		switch event.Type {
+		case "turn.started", "turn.failed":
+			completed = false
+		case "turn.completed":
+			completed = true
+		}
+	}
+	return scanner.Err() == nil && completed
+}

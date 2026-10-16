@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/runner/config"
@@ -75,8 +76,12 @@ func TestBaselineExceptionAndCandidateProofUseSamePinnedContract(t *testing.T) {
 			git(t, repo, "add", "legacy.txt")
 			git(t, repo, "commit", "-m", "known baseline failure")
 			phase := "baseline"
+			image := "sha256:" + strings.Repeat("a", 64)
 			canonical := ""
 			e.Checker = checkAdapter(func(_ context.Context, dir string, c config.QualityCheck, evidence string, _ func(core.Process) error) core.CheckObservation {
+				if c.Image != image {
+					t.Fatal("pinned check image was not propagated", c.Image)
+				}
 				r := core.CheckObservation{CheckID: c.ID, Status: "failed", ExitCode: 1, OutputDigest: "known failure", Stopped: true, Evidence: evidence}
 				if phase == "candidate" {
 					if kind == "changed during checks" {
@@ -101,7 +106,7 @@ func TestBaselineExceptionAndCandidateProofUseSamePinnedContract(t *testing.T) {
 				}
 				return r
 			})
-			spec := config.QualitySpec{Definition: "New work must pass; preserve known legacy scope", Checks: []config.QualityCheck{{ID: "legacy", Command: "false", Directory: ".", Prerequisites: []string{"sh"}, Timeout: "1m"}}}
+			spec := config.QualitySpec{CheckImage: image, Definition: "New work must pass; preserve known legacy scope", Checks: []config.QualityCheck{{ID: "legacy", Command: "false", Directory: ".", Prerequisites: []string{"sh"}, Timeout: "1m"}}}
 			p, err := e.PreviewQuality(t.Context(), spec)
 			if err != nil {
 				t.Fatal(err)

@@ -81,3 +81,11 @@ and `20261016-magnitude-repair-retry-1/summary.json`; README files record source
 hashes, observations, interventions and limitations. The matched rerun has a
 separate `20261016-opencode-magnitude-matched` evidence directory. Historical
 multi-harness tests and benchmark settings do not admit new production adapters.
+
+The replacement's modernc SQLite v1.60.1 driver already rolls back an active
+transaction after a failed COMMIT (`tx.go`), unlike the benchmark's custom pool.
+Do not import that pool or its fix. The current store's versioned private schema
+and owning tests remain the boundary for evaluating incompatible-state behavior.
+The check-environment bundle additionally requires Codex's terminal `turn.completed`
+event before accepting structured results; native supplied-evidence qualification
+passed with `gpt-6.1-sol / high` after that change.

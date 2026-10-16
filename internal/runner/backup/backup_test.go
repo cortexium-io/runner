@@ -268,7 +268,7 @@ func TestLaterHistoryOrLostGuardCannotRestoreWritePermission(t *testing.T) {
 }
 
 func TestBackupRefusesUnsettledOrMissingInputs(t *testing.T) {
-	for _, bad := range []string{"open command", "coordinator", "not drained", "local write", "reservation", "process", "baseline process", "candidate", "evidence"} {
+	for _, bad := range []string{"open command", "coordinator", "not drained", "local write", "reservation", "process", "container", "baseline process", "candidate", "evidence"} {
 		t.Run(bad, func(t *testing.T) {
 			f := setup(t)
 			cfg := f.settings.Config
@@ -292,7 +292,7 @@ func TestBackupRefusesUnsettledOrMissingInputs(t *testing.T) {
 				db := writable(t, f)
 				must(t, db.SetDrained(t.Context(), false))
 				must(t, db.Close())
-			case "reservation", "process":
+			case "reservation", "process", "container":
 				db := writable(t, f)
 				as, err := db.Attempts(t.Context(), f.task.ID)
 				must(t, err)
@@ -301,6 +301,9 @@ func TestBackupRefusesUnsettledOrMissingInputs(t *testing.T) {
 					a.Occupying = true
 				} else {
 					a.Process = &core.Process{PID: syscall.Getpgrp(), Identity: "unresolved"}
+					if bad == "container" {
+						a.Process = &core.Process{PID: 2147483647, Identity: "gone", Container: "runner-check-" + core.NewID(), DockerHost: "unix:///runner-deliberately-missing-docker.sock"}
+					}
 				}
 				must(t, db.Commit(t.Context(), f.task.Revision, f.task, &a, false))
 				must(t, db.Close())

@@ -1604,6 +1604,28 @@ candidate, then update draft PR #106 with honest evidence and breaking changes.
 Real-project changes remain available for review under human merge policy. No
 release/tag, publisher dispatch, production merge or running installation change.
 
+##### Remaining qualification progress
+
+The documentation contradictions are reconciled. The optional `check_image`
+contract, durable container ownership and terminal Codex result validation are
+implemented in the existing config/execution/engine boundaries. Native default
+containment and the container boundary both pass. The container control compiles
+and executes a Go program, proves private loopback, rejects host/outbound access,
+checks missing tools and proves cancellation/absence and durable launch gating.
+The existing engine quality contract journey and backup refusal suite pass;
+one actual `gpt-6.1-sol / high` supplied-evidence audit passes with terminal
+protocol validation enabled. Full integrated gates and both project baselines
+remain pending at this checkpoint.
+
+The first project baseline exposed non-executable Docker scratch and automatic
+VCS stamping against source-only Git inventories. Scratch now uses the existing
+private check directory mounted at container `/tmp`; the explicitly prepared
+images select `GOFLAGS=-buildvcs=false` and existing explicit build metadata.
+An affected Genny baseline was cancelled and its owned container was confirmed
+absent before restarting. No failure was waived. Corrected baseline runs use new
+pinned image identities. Private evidence and prepared image inputs live at
+`/Users/dan/.codex/runner-qualification/check-environment-20261016`.
+
 #### R1 implementation and verification brief
 
 **2026-10-16, before qualification or code changes.** Qualify the frozen delivery

@@ -525,7 +525,7 @@ func verifyCopyGit(dir string, before CopyState) error {
 }
 
 func ResolveQuality(ctx context.Context, c config.Config, base string, spec config.QualitySpec) (config.Quality, error) {
-	q := config.Quality{RequiredCI: spec.RequiredCI, Definition: spec.Definition, Checks: spec.Checks, Base: base, Sources: map[string]string{}, Documents: map[string]string{}}
+	q := config.Quality{CheckImage: spec.CheckImage, RequiredCI: spec.RequiredCI, Definition: spec.Definition, Checks: spec.Checks, Base: base, Sources: map[string]string{}, Documents: map[string]string{}}
 	p, err := profile(ctx, c.Repository.Path)
 	if err != nil {
 		return q, err

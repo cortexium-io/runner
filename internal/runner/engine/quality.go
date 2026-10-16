@@ -77,8 +77,10 @@ func (e *Engine) PreviewQuality(ctx context.Context, spec config.QualitySpec) (Q
 	if err = current.Config.ValidateQuality(q); err != nil {
 		return p, err
 	}
-	q.Path = os.Getenv("PATH")
-	p = QualityPreview{RepositoryID: current.RepositoryID, Previous: current.Quality.Revision(), Quality: q, Environment: config.CheckEnvironment}
+	if q.CheckImage == "" {
+		q.Path = os.Getenv("PATH")
+	}
+	p = QualityPreview{RepositoryID: current.RepositoryID, Previous: current.Quality.Revision(), Quality: q, Environment: q.Environment()}
 	p.Preview = core.Digest(p)
 	return p, nil
 }
@@ -140,7 +142,7 @@ func (e *Engine) PreviewAgreement(ctx context.Context, id string, exceptions []c
 	if err != nil {
 		return p, err
 	}
-	p = QualityPreview{RepositoryID: current.RepositoryID, Previous: current.Quality.Revision(), Quality: q, Environment: config.CheckEnvironment, ReportID: id}
+	p = QualityPreview{RepositoryID: current.RepositoryID, Previous: current.Quality.Revision(), Quality: q, Environment: q.Environment(), ReportID: id}
 	if err = q.ValidateResults(q.Baseline, report.Files); err != nil {
 		p.Blockers = append(p.Blockers, err.Error())
 	}
@@ -180,6 +182,7 @@ func (e *Engine) runChecks(ctx context.Context, source string, expected map[stri
 			return results, errors.New("source changed before quality check copy")
 		}
 		check.Path = q.Path
+		check.Image = q.CheckImage
 		r := e.Checker.Check(ctx, copy, check, filepath.Join(dir, check.ID+".log"), started)
 		if r.Stopped {
 			if err = workspace.VerifyCopy(copy, before); err != nil {

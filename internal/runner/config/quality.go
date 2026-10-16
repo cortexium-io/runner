@@ -16,6 +16,7 @@ import (
 const CheckEnvironment = "isolated PATH; private HOME/TMPDIR; LANG=C LC_ALL=C; no inherited credentials"
 
 type QualityCheck struct {
+	Image         string   `json:"-"`
 	At            string   `json:"at,omitempty"`
 	Path          string   `json:"-"`
 	ID            string   `json:"id"`
@@ -25,6 +26,7 @@ type QualityCheck struct {
 	Timeout       string   `json:"timeout"`
 }
 type QualitySpec struct {
+	CheckImage string               `json:"check_image,omitempty"`
 	RequiredCI []core.CIRequirement `json:"required_ci,omitempty"`
 	Definition string               `json:"definition"`
 	Sources    []string             `json:"sources"`
@@ -43,6 +45,7 @@ type BaselineException struct {
 	OutputDigest string            `json:"output_digest"`
 }
 type Quality struct {
+	CheckImage string                  `json:"check_image,omitempty"`
 	RequiredCI []core.CIRequirement    `json:"required_ci,omitempty"`
 	Path       string                  `json:"executable_path"`
 	Definition string                  `json:"definition"`
@@ -52,6 +55,13 @@ type Quality struct {
 	Base       string                  `json:"baseline_base"`
 	Baseline   []core.CheckObservation `json:"baseline"`
 	Exceptions []BaselineException     `json:"exceptions"`
+}
+
+func (q Quality) Environment() string {
+	if q.CheckImage != "" {
+		return "local Docker image " + q.CheckImage + "; private HOME/scratch; no host credentials; container-only loopback; no host or external network"
+	}
+	return CheckEnvironment
 }
 
 func (q Quality) Revision() string {
@@ -73,7 +83,13 @@ var checkID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 func RelativePath(p string) bool {
 	return p != "" && !filepath.IsAbs(p) && filepath.Clean(p) == p && p != ".." && !strings.HasPrefix(p, "../") && p != ".git" && !strings.HasPrefix(p, ".git/")
 }
+
+var imageID = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+
 func (s QualitySpec) Validate() error {
+	if s.CheckImage != "" && !imageID.MatchString(s.CheckImage) {
+		return errors.New("check_image must be an exact local sha256 image ID; tags and automatic pulls are unsupported")
+	}
 	if strings.TrimSpace(s.Definition) == "" || len(s.Checks) == 0 {
 		return errors.New("quality needs a definition and at least one named check")
 	}

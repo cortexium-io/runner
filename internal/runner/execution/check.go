@@ -32,6 +32,9 @@ func (c Codex) Check(ctx context.Context, root string, check config.QualityCheck
 		return fail(err)
 	}
 	for _, name := range check.Prerequisites {
+		if check.Image != "" {
+			break // Image prerequisites are checked inside the actual container.
+		}
 		found := false
 		for _, dir := range filepath.SplitList(check.Path) {
 			if !filepath.IsAbs(dir) {
@@ -87,7 +90,11 @@ func (c Codex) Check(ctx context.Context, root string, check config.QualityCheck
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	_, result.Stopped, err = Run(ctx, c.command(), args, root, "", output, output, started)
+	if check.Image == "" {
+		_, result.Stopped, err = Run(ctx, c.command(), args, root, "", output, output, started)
+	} else {
+		result.Stopped, err = runContainerCheck(ctx, root, check, output, started)
+	}
 	if syncErr := log.Sync(); syncErr != nil {
 		return fail(syncErr)
 	}

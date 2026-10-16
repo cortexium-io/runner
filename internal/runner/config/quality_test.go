@@ -81,6 +81,23 @@ func TestRequiredCIIsExplicitAndPartOfTheQualityRevision(t *testing.T) {
 	}
 }
 
+func TestCheckImagePinsPreparedContentInTheAgreement(t *testing.T) {
+	spec := QualitySpec{Definition: "done", Checks: []QualityCheck{{ID: "test", Command: "true", Directory: ".", Prerequisites: []string{"sh"}, Timeout: "1m"}}}
+	for _, image := range []string{"", "sha256:" + strings.Repeat("a", 64), "ubuntu:24.04", "repo@sha256:" + strings.Repeat("a", 64), "sha256:short"} {
+		spec.CheckImage = image
+		valid := image == "" || image == "sha256:"+strings.Repeat("a", 64)
+		if (spec.Validate() == nil) != valid {
+			t.Fatal("image selection must be immutable local content", image)
+		}
+	}
+	native := Quality{Definition: "done"}
+	container := native
+	container.CheckImage = "sha256:" + strings.Repeat("a", 64)
+	if native.Revision() == container.Revision() {
+		t.Fatal("check environment omitted from agreement identity")
+	}
+}
+
 func TestQualityTimingKeepsReadyCompleteAndPlanChecksScoped(t *testing.T) {
 	q := Quality{Checks: []QualityCheck{{ID: "task", At: "task"}, {ID: "completion", At: "completion"}, {ID: "both"}}}
 	for _, tc := range []struct {

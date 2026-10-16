@@ -31,3 +31,27 @@ func TestOnlyTerminalProviderFailuresAreTransient(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexCompletionRequiresTheSuccessfulTerminalEvent(t *testing.T) {
+	for _, tc := range []struct {
+		name, events string
+		complete     bool
+	}{
+		{"success", "{\"type\":\"turn.started\"}\n{\"type\":\"turn.completed\"}\n", true},
+		{"interrupted stream", "{\"type\":\"turn.started\"}\n", false},
+		{"failed stream", "{\"type\":\"turn.failed\"}\n", false},
+		{"later failure", "{\"type\":\"turn.completed\"}\n{\"type\":\"turn.failed\"}\n", false},
+		{"truncated stream", "{\"type\":\"turn.completed\"}\n{\"type\":", false},
+		{"missing stream", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "events.jsonl")
+			if err := os.WriteFile(path, []byte(tc.events), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if codexCompleted(path) != tc.complete {
+				t.Fatal("incorrect terminal completion")
+			}
+		})
+	}
+}
