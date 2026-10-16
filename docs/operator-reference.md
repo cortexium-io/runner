@@ -327,7 +327,8 @@ and `Repeats` before recovery.
 | Interrupted audit | Use the displayed `task resume ID --attempt ATTEMPT_ID`. It refuses a repeat unless you add `--allow-new-invocation`; that explicitly permits one call of the interrupted role with its pinned profile. The candidate remains retained. |
 | Saved result awaiting continuation | Use the displayed resume or run command. Integrity checks and deterministic continuation reuse the saved result without another model call. |
 | Unknown process ownership | Inspect the recorded process/evidence and resolve ownership before reconciliation. Do not replay work or kill an unrelated PID. |
-| Failed/unavailable repository check | Inspect the retained check log. Correct the problem or agreement and explicitly adopt/approve when required; this is not an automatic code-repair loop. |
+| Failed repository check | Inspect all retained receipts/logs. For a confirmed source defect within the unchanged scope, use `task repair-checks ID --attempt ATTEMPT_ID --reason "CONCRETE_DEFECT"`. This spends the existing repair and invocation allowances, retains source/history and the pinned profile, then reruns checks and independent review. Duplicate requests do not grant another repair. |
+| Unavailable repository check | Resolve the missing tool/environment or agreement; unavailable or incomplete observations cannot authorize source repair. Explicitly adopt/approve a changed agreement when required. |
 | Repair, retry, refresh or invocation limit | Inspect consumption and next profile with `config explain`; explicitly change/apply the relevant limit if more work is warranted. Counters never reset. |
 
 To stop admitting work without canceling active actions:
@@ -372,7 +373,7 @@ application; already admitted work retains the applied policy.
 | --- | --- |
 | `profile.NAME=MODEL REASONING TIMEOUT` | A complete Codex profile. Role settings `planner`, `implementer`, `reviewer` select its name; `planner=none` removes planning. |
 | `parallelism=1..16` | Global admission limit shared by roles and delivery actions. Lowering it does not cancel active work. |
-| `repairs=N` | Shared bounded allowance for confirmed rejection, eligible CI failure and supported text-conflict repair. |
+| `repairs=N` | Shared bounded allowance for operator-confirmed required-check defects, confirmed rejection, eligible CI failure and supported text-conflict repair. |
 | `transient-retries=N` | Bounded retry of recognized transient failures; interruptions need explicit recovery. |
 | `base-refreshes=N` | Allowance for changed-base verification cycles, separate from code repairs. |
 | `invocations=N` or `unlimited` | Per-task model-call ceiling; admission consumes a call even if it later fails. |

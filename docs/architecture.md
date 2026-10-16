@@ -41,7 +41,9 @@ evidence before a write or completion.
 
 Implementers work in isolated task worktrees. Candidate construction uses
 config-free privileged Git and checks identity, object storage, index and tree.
-Checks run in a disposable source copy. The reviewer first audits evidence against
+Checks run in a disposable source copy. Completed source with honest implementer
+proof gaps can reach audit after every required check passes; only independent
+review can establish acceptance. The reviewer first audits evidence against
 the exact candidate; focused verification is a separate bounded action only when
 needed. A concrete defect can consume repair allowance; missing evidence alone
 does not justify a code rewrite. Repository policy and the approved brief own
@@ -92,7 +94,12 @@ Attempts retain selected profiles, counters, processes, results and evidence.
 Restart reconciles ownership before admission. Unknown ownership blocks; a saved
 valid result can continue, while a repeated model invocation requires explicit
 permission. Drain stops admission and lets active work settle. Revocation retains
-history and cannot undo a dispatched remote effect.
+history and cannot undo a dispatched remote effect. An operator may explicitly
+classify a complete failed required check as an in-scope source defect with
+`task repair-checks`. It retains the task, source and receipts, uses the existing
+repair/invocation allowance and pinned profile, and requires fresh checks and
+independent review. Unavailable checks, changed source or unresolved ownership
+cannot authorize that repair; retry/resume retains its diagnostic assignment.
 
 Backup requires drained, idle authority and captures the matching config,
 repository, workspaces and evidence. Restore uses the same binary, host/user and

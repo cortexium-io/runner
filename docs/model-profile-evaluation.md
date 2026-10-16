@@ -49,8 +49,13 @@ Magnitude repair trials used Pi 0.99.1 and OpenCode 2.0.29 with Qwen3.8-27b GGUF
 Q6 and requested low reasoning, with thinking observed. Both eventually passed six
 independent probes, race/vet and four no-CGO builds. Pi needed no corrective code
 feedback; OpenCode needed one round after its change accepted views as tables.
-Their context and backend conditions differed. The fresh matched OpenCode rerun
-is pending; these results do not establish a speed/quality ranking.
+Their context and backend conditions differed. The fresh matched OpenCode/Magnitude attempt ended before any edit: memory
+pressure caused model unload, worker exit and failed compaction. Across its two
+attempts it used 13 repair requests and 29m46s worker time; there was no candidate
+to score. It does not establish a speed/quality ranking. A new matched Pi/OpenCode
+trial on LM Studio, with low thinking and 49,152-token context, is still running.
+LM Studio is the current reliability baseline for that experiment; no new Runner
+adapter is qualified by the choice.
 
 - Validate terminal protocol completion and the required structured result;
   process exit zero alone is insufficient. Pi exited zero after a failed stream

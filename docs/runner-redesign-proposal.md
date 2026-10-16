@@ -1653,6 +1653,45 @@ full declared dependency graph explicitly, qualify real Linux executable scratch
 and rerun the unchanged owning checks; no assertion or baseline exception is
 changed to accommodate setup. This qualification remains open.
 
+##### Pilot finding: recovery after a failed required check (approved)
+
+The api-mcp worker completed its scoped source/test change honestly, with native
+Go/gofmt unavailable. Runner's race, vet and build checks passed, but its format
+check correctly failed; the existing rule blocks review without an automatic
+repair. The current operator route replaces the task version, which restarts
+per-version allowances and repeats already completed source work. That is poor
+recovery for a confirmed formatting defect under the unchanged approved scope.
+No check or assertion was waived. The pilot was drained with its original attempt,
+source and counters retained before the owner approved recovery.
+
+The owner approved this bounded correction on 2026-10-16: an explicit operator
+request may
+classify a complete failed-check observation as a confirmed in-scope source
+defect and request the existing implementation-repair continuation. Require the
+exact task/attempt, no surviving execution/container, unchanged task/quality and
+source binding, actual failed (not unavailable) check evidence, and a concrete
+operator reason. Spend the existing repair and invocation allowances, preserve
+all counters, profiles, source and evidence, and refuse duplicate requests. Do not
+add another repair budget, auto-interpret arbitrary logs, change required checks,
+retry unavailable infrastructure or bypass review. A repair reruns required checks
+and ordinary independent review; exhausted allowances remain exhausted.
+
+Representative proof: formatting failure can receive one explicitly authorized
+source repair, preserving the failed receipt and current source; missing tools,
+stale/revoked authority, modified source, surviving process/container, repeated
+request and exhausted limits cannot obtain a new write. Extend existing operator,
+policy and quality fixtures. Qualify the real pilot's recovery, and make native
+formatter/tool availability explicit before further model work. The explicit owner
+confirmation authorizes this correction to the frozen contract.
+
+The pilot also qualifies the source-to-review handoff: a succeeded implementer
+result may retain honest proof gaps when Runner completes all pinned checks.
+Construct the bound candidate and pass those gaps and actual check receipts to
+independent audit; gaps do not constitute acceptance. Defect/needs-input or a
+blocked result still stops. Existing audit and focused verification must establish
+every obligation before delivery. Extend the existing proof-gap quality fixture
+to prove this transition and that unproved delivery remains impossible.
+
 #### R1 implementation and verification brief
 
 **2026-10-16, before qualification or code changes.** Qualify the frozen delivery
@@ -3193,9 +3232,13 @@ prerequisite version. Replacing task text alone preserves its quality revision.
 Quality checks run after implementation inside its existing reservation, without
 another model call. Complete saved observations survive restart without rerunning
 commands. A failed/unavailable check blocks review with retained evidence and no
-automatic repair or escalation. Correct requirements or explicitly adopt a corrected
-agreement and approve the resulting version. Interrupted checks use the existing
-explicit recovery command; Runner never silently repeats them.
+automatic repair or escalation. For an operator-confirmed in-scope source defect,
+`task repair-checks ID --attempt ATTEMPT_ID --reason "CONCRETE_DEFECT"` queues one
+repair using the existing allowances and pinned profile, followed by all required
+checks and independent review. Unavailable/incomplete checks are ineligible.
+Correct requirements or explicitly adopt a corrected agreement when needed.
+Interrupted checks use the existing explicit recovery command; Runner never
+silently repeats them.
 
 #### Third phase 2 qualification
 

@@ -404,6 +404,24 @@ func (s *Store) Commit(ctx context.Context, expected int, t core.Task, a *core.A
 		if core.PrerequisiteWait(t, prerequisites) != "" {
 			return ErrConflict
 		}
+		if a.Kind == "check_repair" {
+			q := previous.Pending
+			if q == nil || q.Kind != "check_repair" || q.FromAttempt != a.ResumedFrom || a.Role != "implementer" ||
+				a.ProfileName != q.ProfileName || a.Profile != q.Profile ||
+				t.Usage.Repairs != previous.Usage.Repairs+1 || t.Usage.Escalations != previous.Usage.Escalations {
+				return ErrConflict
+			}
+			if err = tx.QueryRowContext(ctx, "SELECT data FROM attempts WHERE id=? AND task_id=?", a.ResumedFrom, t.ID).Scan(&raw); err != nil {
+				return err
+			}
+			var source core.Attempt
+			if err = json.Unmarshal(raw, &source); err != nil {
+				return err
+			}
+			if !source.Authorized(previous) || source.Resume != "check_repair" || source.Occupying || source.State != "failed" || source.Failure != core.ProofGap {
+				return ErrConflict
+			}
+		}
 		if a.Kind == "conflict_repair" {
 			r := previous.ConflictRepair
 			if r == nil || !r.Matches(previous) || previous.Pending == nil || previous.Pending.Kind != "conflict_repair" ||

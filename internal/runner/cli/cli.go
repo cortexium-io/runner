@@ -143,7 +143,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 }
 func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: task add|show|approve|release|replace|adopt-quality|stop|resume|delivery|verify-base|assess-ci|integrate|merge")
+		return errors.New("usage: task add|show|approve|release|replace|adopt-quality|stop|resume|repair-checks|delivery|verify-base|assess-ci|integrate|merge")
 	}
 	command := args[0]
 	args = args[1:]
@@ -161,6 +161,7 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 	var asJSON *bool
 	var attempt *string
 	var allow *bool
+	var reason *string
 	var plan *bool
 	var reconcile *bool
 	switch command {
@@ -175,6 +176,9 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 		preview = f.String("preview", "", "displayed approval-preview digest")
 	case "show":
 		asJSON = f.Bool("json", false, "structured task")
+	case "repair-checks":
+		attempt = f.String("attempt", "", "failed implementation attempt ID")
+		reason = f.String("reason", "", "confirmed in-scope source defect")
 	case "resume":
 		attempt = f.String("attempt", "", "interrupted attempt ID")
 		allow = f.Bool("allow-new-invocation", false, "explicitly authorize one repeated invocation")
@@ -219,6 +223,13 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 		}
 	}
 	switch command {
+	case "repair-checks":
+		if *attempt == "" {
+			return errors.New("--attempt is required")
+		}
+		if err := e.RepairChecks(ctx, id, *attempt, *reason); err != nil {
+			return err
+		}
 	case "merge":
 		if err := e.RequestMerge(ctx, id); err != nil {
 			return err

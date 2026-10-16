@@ -316,11 +316,11 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 		if q := t.Pending; q != nil {
 			a.Kind = q.Kind
 			a.ResumedFrom = q.FromAttempt
-			if q.Kind == "repair" || q.Kind == "ci_repair" || q.Kind == "conflict_repair" {
+			if q.Kind == "repair" || q.Kind == "check_repair" || q.Kind == "ci_repair" || q.Kind == "conflict_repair" {
 				t.Usage.Repairs++
 				if q.Kind == "repair" {
 					t.Usage.Escalations++
-				} else {
+				} else if q.Kind != "check_repair" {
 					t.WorkspaceRepair = t.Usage.Repairs
 					t.BaseProof, t.Review = nil, nil
 				}
@@ -429,6 +429,27 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 			return fail(err)
 		}
 	} else if a.Role == "implementer" {
+		if a.Kind == "check_repair" || a.Kind == "retry" || a.Kind == "resume" {
+			prior, err := e.Store.Attempts(ctx, t.ID)
+			if err != nil {
+				return fail(err)
+			}
+			old, reason := checkRepairOrigin(prior, a)
+			if a.Kind == "check_repair" && old == nil {
+				return fail(errors.New("check repair source attempt missing"))
+			}
+			if old != nil {
+				if a.Kind == "check_repair" {
+					if err := e.checkRepairSource(ctx, t, *old); err != nil {
+						return finished{a, execution.Completion{Stopped: true, Kind: core.Integrity, Error: err.Error()}}
+					}
+				}
+				r.CheckRepairReason, r.QualityEvidence = reason, old.Checks
+				for _, c := range old.Checks {
+					r.ReadRoots = append(r.ReadRoots, c.Evidence)
+				}
+			}
+		}
 		if t.ConflictRepair != nil && t.Candidate != nil && *t.Candidate == t.ConflictRepair.Candidate {
 			if err := e.git().PrepareConflictRepair(ctx, t); err != nil {
 				return finished{a, execution.Completion{Stopped: true, Kind: core.Integrity, Error: err.Error()}}
@@ -449,7 +470,9 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 			return fail(err)
 		}
 		r.Dir = m.WorktreePath
-		r.ReadRoots, err = e.git().ReadRoots(ctx, r.Dir)
+		roots, rootsErr := e.git().ReadRoots(ctx, r.Dir)
+		r.ReadRoots = append(r.ReadRoots, roots...)
+		err = rootsErr
 		if err != nil {
 			return fail(err)
 		}
@@ -777,7 +800,7 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 				return err
 			}
 		}
-		if outcome != "accepted" {
+		if outcome != "accepted" && !(outcome == "gap" && a.Result.Outcome == "succeeded") {
 			a.State = "applied"
 			t.Attention = &core.Attention{Kind: core.FailureKind(outcome), Detail: a.Result.Summary, Attempt: a.ID}
 			return nil

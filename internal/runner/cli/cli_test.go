@@ -145,6 +145,14 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	if err = json.Unmarshal([]byte(run("task", "show", id, "--json")), &view); err != nil {
 		t.Fatal(err)
 	}
+	for _, args := range [][]string{
+		{"task", "repair-checks", id},
+		{"task", "repair-checks", id, "--attempt", "unknown"},
+	} {
+		if err = (CLI{Out: io.Discard, Harness: h}).Run(ctx, append([]string{"--config", cfgPath}, args...)); err == nil {
+			t.Fatal("repair command accepted incomplete confirmation", args)
+		}
+	}
 	run("task", "approve", id, "--version", "1", "--preview", view.Preview)
 	done := make(chan error, 1)
 	go func() { done <- (CLI{Out: io.Discard, Harness: h}).Run(ctx, []string{"--config", cfgPath, "run"}) }()

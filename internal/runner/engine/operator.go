@@ -195,6 +195,11 @@ func describeView(v *View, running bool, now time.Time) {
 			v.NextAction = fmt.Sprintf("task resume %s --attempt %s", t.ID, t.Attention.Attempt)
 		case "ownership":
 			v.NextAction = "inspect the retained process identity with " + show + "; run reconciliation after ownership is resolved; do not replay or kill an unrelated PID"
+		case core.ProofGap:
+			if a != nil && a.Role == "implementer" && a.State == "failed" && len(a.Checks) > 0 {
+				v.NextAction = fmt.Sprintf("inspect complete check evidence with %s; for a confirmed in-scope defect: task repair-checks %s --attempt %s --reason 'CONCRETE_DEFECT'; unavailable checks require capability correction", show, t.ID, a.ID)
+				v.Recovery.Repeats = "one implementation repair using existing repair/invocation allowances and the pinned profile, followed by required checks and independent review"
+			}
 		case core.Decision:
 			v.NextAction = "answer the displayed question in the request, then " + replace
 		}
