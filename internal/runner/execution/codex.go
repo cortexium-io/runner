@@ -16,7 +16,14 @@ import (
 	"github.com/cortexium-io/runner/internal/securefs"
 )
 
+type PlanContext struct {
+	OriginalRequest string         `json:"original_request"`
+	SharedBody      string         `json:"released_shared_body"`
+	Children        []core.Task    `json:"children"`
+	Evidence        []core.Attempt `json:"historical_child_attempts,omitempty"`
+}
 type Request struct {
+	Plan            *PlanContext
 	QualityEvidence []core.CheckObservation
 	Attempt         core.Attempt
 	Task            core.Task
@@ -127,7 +134,7 @@ func (c Codex) Execute(ctx context.Context, r Request, started func(core.Process
 	}
 	schema := `{"type":"object","additionalProperties":false,"properties":{"outcome":{"type":"string","enum":["succeeded","blocked","needs_input"]},"summary":{"type":"string"},"checks":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"},"status":{"type":"string","enum":["pass","gap","defect","needs_input"]},"evidence":{"type":"string"}},"required":["id","status","evidence"]}}},"required":["outcome","summary","checks"]}`
 	if core.PlanningRole(r.Attempt.Role) {
-		schema = `{"type":"object","additionalProperties":false,"properties":{"outcome":{"type":"string","enum":["succeeded","blocked","needs_input"]},"summary":{"type":"string"},"planning":{"type":"object","additionalProperties":false,"properties":{"cards":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"key":{"type":"string"},"body":{"type":"string"},"dependencies":{"type":"array","items":{"type":"string"}}},"required":["key","body","dependencies"]}},"verification":{"type":"string"},"questions":{"type":"array","items":{"type":"string"}}},"required":["cards","verification","questions"]}},"required":["outcome","summary","planning"]}`
+		schema = `{"type":"object","additionalProperties":false,"properties":{"outcome":{"type":"string","enum":["succeeded","blocked","needs_input"]},"summary":{"type":"string"},"planning":{"type":"object","additionalProperties":false,"properties":{"body":{"type":"string"},"cards":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"key":{"type":"string"},"body":{"type":"string"},"dependencies":{"type":"array","items":{"type":"string"}}},"required":["key","body","dependencies"]}},"verification":{"type":"string"},"questions":{"type":"array","items":{"type":"string"}}},"required":["body","cards","verification","questions"]}},"required":["outcome","summary","planning"]}`
 	}
 
 	schemaPath := filepath.Join(r.Attempt.EvidenceDir, "schema.json")
@@ -193,20 +200,29 @@ func Prompt(r Request) string {
 	proofs, _ := json.MarshalIndent(r.Proofs, "", "  ")
 	role := `Implement the approved task in the supplied working directory. Preserve scope. Reuse or extend existing tests when they protect the same behavior; add only tests justified by the verification brief. Do not create a parallel test framework or weaken expected results. Consolidate equivalent tests when every required guarantee remains protected; explain the retained coverage. Do not commit, fetch, push, merge or change Git administration. Complete the required checks and report evidence honestly.`
 	if r.Attempt.Role == "audit" {
-		role = `Independently audit the exact candidate using the supplied read-only source roots. Do not edit source or execute repository commands in this evidence-audit stage. Assess implementation and test sensitivity, redundancy and complexity against the approved brief. Use pass only for sufficient concrete evidence; use gap when a targeted dynamic check is still needed, defect for a confirmed issue, and needs_input for a missing decision. Do not require a new test merely because code changed. Reject only a concrete requirement violation or reachable defect; speculative improvements are not rejection criteria and zero findings is valid. Legitimate consolidation that retains each guarantee is allowed; weakened assertions are not. The implementer's claims are evidence to assess, not authority. A fabricated check report is missing proof until independently established, not by itself proof of a code defect. Inspect the supplied read-only implementation event log for commands and actual results when needed to establish the proof.`
+		role = `Independently audit the exact candidate using the supplied read-only source roots. Do not edit source or execute repository commands in this evidence-audit stage. Assess implementation and test sensitivity, redundancy and complexity against the approved brief. Use pass only for sufficient concrete evidence; use gap when a targeted dynamic check is still needed, defect for a confirmed issue, and needs_input for a missing decision. Do not require a new test merely because code changed. Reject only a concrete requirement violation or reachable defect; speculative improvements are not rejection criteria and zero findings is valid. Legitimate consolidation that retains each guarantee is allowed; weakened assertions are not. The implementer's claims are evidence to assess, not authority. A fabricated check report is missing proof until independently established, not by itself proof of a code defect. When the audit completes with targeted dynamic proof gaps, return outcome succeeded and gap checks so focused verification can resolve them; needs_input is for an actual missing decision. Inspect the supplied read-only implementation event log for commands and actual results when needed to establish the proof.`
 	}
 	if r.Attempt.Role == "verify" {
 		role = `Independently resolve only the listed proof gaps in this disposable candidate copy. Run targeted commands with clear expected results. The copy has only a standalone source inventory, no history or remotes. Put generated reports and caches in .runner-output/ when a custom output path is needed. Generated output is allowed here, but do not modify any source, test, manifest or lockfile. Do not weaken checks or implement repairs. Report defect for a demonstrated issue, gap for remaining missing proof, needs_input for a missing decision, pass only with concrete evidence.`
 	}
 	if core.PlanningRole(r.Attempt.Role) {
-		role = `Plan from the supplied read-only base source and pinned quality agreement. Inspect the repository and existing tests before proposing proof; do not invent filenames. You may list/read source but must not run repository programs, tests or setup, edit source, or implement work. Return a planning object with cards, verification and questions. Use questions and outcome needs_input for missing product decisions; do not invent requirements. Preserve the approved scope. Existing sufficient tests can be reused; no target card count or new test framework. Each verification brief must state representative inputs/expected outcomes, the owning boundary, inspected existing coverage to extend or reuse, and the concrete defect it should detect.`
+		role = `Plan from the supplied read-only base source and pinned quality agreement. Inspect the repository and existing tests before proposing proof; do not invent filenames. You may list/read source but must not run repository programs, tests or setup, edit source, or implement work. Return a planning object with body, cards, verification and questions. Use questions and outcome needs_input for missing product decisions; do not invent requirements. Preserve the approved scope. Existing sufficient tests can be reused; no target card count or new test framework. Each verification brief must state representative inputs/expected outcomes, the owning boundary, inspected existing coverage to extend or reuse, and the concrete defect it should detect.`
 		if r.Attempt.Role == "plan" {
-			role += ` Propose cohesive cards with unique lowercase hyphenated keys and complete Markdown ## Outcome, ## Scope, ## Acceptance and ## Verification sections. Dependencies are a separate array of other keys in this proposal, only for real prerequisites; no inline Dependencies section or outside task IDs. Include non-goals/material assumptions in Scope. Do not include verification outside cards: planning.verification must be empty. If a decision is missing, return questions and no executable cards. A completed proposal requires human release; you cannot approve it.`
+			role += ` Propose cohesive cards with unique lowercase hyphenated keys and complete Markdown ## Outcome, ## Scope, ## Acceptance and ## Verification sections. Dependencies are a separate array of other keys in this proposal, only for real prerequisites; no inline Dependencies section or outside task IDs. Include non-goals/material assumptions in Scope. Also provide planning.body as a complete shared Outcome/Scope/Acceptance/Verification brief covering the entire requested result and cross-card behavior, with inspected final check entrypoints. Preserve every requested behavior and make scope choices explicit. Each card has focused proof; the shared brief has combined outcome proof. planning.verification must be empty. If a decision is missing, return questions and no executable cards. A completed proposal requires human release; you cannot approve it.`
 		} else {
-			role += ` Prepare ONLY the missing verification brief for this already approved Ready task. Return planning.verification with the brief, cards as an empty array, and questions if a real decision is missing. Do not rewrite the task, introduce acceptance criteria, decompose it, or ask for another approval. Routine test placement is your responsibility; use the existing quality agreement and coverage.`
+			role += ` Prepare ONLY the missing verification brief for this already approved Ready task. Return planning.verification with the brief, body as an empty string, cards as an empty array, and questions if a real decision is missing. Do not rewrite the task, introduce acceptance criteria, decompose it, or ask for another approval. Routine test placement is your responsibility; use the existing quality agreement and coverage.`
 		}
 	}
 
+	if r.Plan != nil {
+		plan, _ := json.MarshalIndent(r.Plan, "", "  ")
+		role += "\nReleased Plan context (original request is provenance; shared body and exact child briefs define approved scope):\n" + string(plan)
+		if r.Task.ParentID == "" {
+			role += "\nThis is the combined Plan candidate. Establish the entire shared outcome, cross-card interactions and preservation of child guarantees. Child acceptance alone is insufficient. Historical child attempts name their original candidates; assess relevance explicitly and never treat them as proof of this changed source. Required combined checks must pass. Repairs stay inside the released shared scope and preserve sound sibling changes."
+		} else {
+			role += "\nImplement or review only this child's scope, accounting for the shared outcome. Included prerequisites are in the supplied base. Do not implement siblings or expand scope. Named quality checks marked at=completion are deferred to the combined Plan; do not run them or report their absence as a child proof gap. Checks marked task, both or with no timing apply here. Establish the child's own approved verification brief as well."
+		}
+	}
 	evidence, _ := json.MarshalIndent(r.Task.Review, "", "  ")
 	if r.Attempt.CIRepair != nil {
 		ci, _ := json.MarshalIndent(r.Attempt.CIRepair, "", "  ")

@@ -75,8 +75,8 @@ func (c CLI) printPolicy(p engine.PolicyChange) {
 	cfg := p.Proposed
 	fmt.Fprintln(c.Out, "Resolved execution and merge policy")
 	fmt.Fprintf(c.Out, "Merge policy: %s -> %s; applies to existing and future approved work.\n", p.MergePolicyBefore, cfg.MergePolicy())
-	fmt.Fprintln(c.Out, "Automatic policy derives one guarded merge from a ready PR observation; blocked results wait for another observation. No polling or ready-state writes.")
-	fmt.Fprintf(c.Out, "Delivery: %s; destination: %s; base: %s (fixed at initialization)\n", cfg.Delivery.Mode, cfg.Delivery.Repository, cfg.Repository.BaseRef)
+	fmt.Fprintln(c.Out, "Automatic policy permits guarded integration of accepted work into the configured base; GitHub additionally requires a ready PR and host admission. Existing approved work is included.")
+	fmt.Fprintf(c.Out, "Delivery: %s; destination: %s; base: %s (fixed at initialization)\n", cfg.Delivery.Mode, cfg.Destination(), cfg.Repository.BaseRef)
 	for _, role := range []string{"planner", "implementer", "reviewer"} {
 		name, profile := cfg.Role(role)
 		if name == "" {
@@ -104,8 +104,8 @@ func (c CLI) printPolicy(p engine.PolicyChange) {
 	fmt.Fprintln(c.Out, "Implementation escalation on confirmed rejection:", strings.Join(ladder, " -> "))
 	fmt.Fprintln(c.Out, "The last profile remains selected within the repair allowance. Transient retries do not escalate.")
 	for _, a := range p.Active {
-		if a.Role == "refresh" {
-			fmt.Fprintf(c.Out, "Active base inspection %s: no model; reserved cycle retained\n", a.ID)
+		if core.DeterministicRole(a.Role) {
+			fmt.Fprintf(c.Out, "Active %s %s: no model; reserved work retained\n", a.Role, a.ID)
 		} else {
 			fmt.Fprintf(c.Out, "Pinned attempt %s (%s): %s / %s; %s; unaffected by this edit\n", a.ID, a.Role, a.Profile.Model, a.Profile.Reasoning, a.Profile.Timeout)
 		}
@@ -119,8 +119,8 @@ func (c CLI) printPolicy(p engine.PolicyChange) {
 			fmt.Fprintf(c.Out, " / %d invocations", *effect.After.InvocationsRemaining)
 		}
 		fmt.Fprintf(c.Out, "; base refreshes: %d consumed / %d remaining\n", effect.Usage.BaseRefreshes, effect.After.RefreshesRemaining)
-		if effect.After.Role == "refresh" {
-			fmt.Fprintln(c.Out, "  Next refresh:", effect.After.Reason)
+		if core.DeterministicRole(effect.After.Role) {
+			fmt.Fprintf(c.Out, "  Next %s: %s\n", effect.After.Role, effect.After.Reason)
 		} else if effect.After.Role != "" {
 			fmt.Fprintf(c.Out, "  Next %s: %s / %s; %s\n", effect.After.Role, effect.After.Profile.Model, effect.After.Profile.Reasoning, effect.After.Reason)
 		}

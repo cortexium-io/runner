@@ -100,6 +100,13 @@ func TestReadyPolicyLimitsAndEscalation(t *testing.T) {
 			c.Delivery.Mode = "github-draft"
 			c.Delivery.Repository = "owner/repo"
 		}, true},
+		{"automatic local base", func(c *Config) { c.Policy.Merge = "automatic"; c.Delivery.LocalTarget = "base" }, true},
+		{"unknown local target", func(c *Config) { c.Delivery.LocalTarget = "working-tree" }, false},
+		{"hosted local target", func(c *Config) {
+			c.Delivery.Mode = "github-draft"
+			c.Delivery.Repository = "owner/repo"
+			c.Delivery.LocalTarget = "result"
+		}, false},
 		{"automatic local merge", func(c *Config) { c.Policy.Merge = "automatic" }, false},
 		{"unknown merge policy", func(c *Config) { c.Policy.Merge = "auto" }, false},
 		{"draft publication", func(c *Config) { c.Delivery.Mode = "github-draft"; c.Delivery.Repository = "owner/repo" }, true},

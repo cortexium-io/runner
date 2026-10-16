@@ -44,13 +44,22 @@ func (c CLI) init(ctx context.Context, cfg config.Config, args []string) error {
 		return err
 	}
 	fmt.Fprintf(c.Out, "Repository: %s\nObserved base: %s\nState: %s\nWorkspaces: %s\nUncommitted checkout changes are excluded.\n", cfg.Repository.Path, base, cfg.StateDir, cfg.WorktreeDir)
-	fmt.Fprintf(c.Out, "Delivery: %s; destination: %s; base: %s\n", cfg.Delivery.Mode, cfg.Delivery.Repository, cfg.Repository.BaseRef)
+	fmt.Fprintf(c.Out, "Delivery: %s; destination: %s; base: %s\n", cfg.Delivery.Mode, cfg.Destination(), cfg.Repository.BaseRef)
 	if cfg.Delivery.Mode == "github-draft" {
 		fmt.Fprintln(c.Out, "Accepted tasks authorize pushing the exact candidate and opening one draft PR. Completion requires current-base proof, passing pinned CI and confirmation of an ordinary merge. Credentials: operator gh auth login for github.com.")
 	}
 	fmt.Fprintf(c.Out, "Merge policy: %s. Human is the default; task merge explicitly requests one guarded merge.\n", cfg.MergePolicy())
 	if cfg.MergePolicy() == "automatic" {
-		fmt.Fprintln(c.Out, "Applying this configuration authorizes guarded automatic merging for approved work after a ready PR observation; no polling or ready-state writes.")
+		fmt.Fprintln(c.Out, "Applying this configuration authorizes guarded automatic merging for approved work into "+cfg.Repository.BaseRef+" after all destination requirements pass.")
+	}
+	if cfg.Delivery.Mode == "local" {
+		fmt.Fprintln(c.Out, "Plan children are combined privately; only the accepted overall result is delivered. No GitHub account, remote or gh is required.")
+		if cfg.LocalTarget() == "base" {
+			fmt.Fprintln(c.Out, "Local base delivery fast-forwards the exact accepted candidate. The target must not be checked out in any worktree; Runner never switches or resets your checkout.")
+			if err := (workspace.Git{Settings: config.Settings{Config: cfg, RepositoryID: id}}).TargetAvailable(ctx, cfg.Repository.BaseRef); err != nil {
+				fmt.Fprintln(c.Out, "Readiness:", err)
+			}
+		}
 	}
 	for _, role := range []string{"planner", "implementer", "reviewer"} {
 		name, p := cfg.Role(role)

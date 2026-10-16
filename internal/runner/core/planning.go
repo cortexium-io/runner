@@ -17,6 +17,7 @@ type PlannedCard struct {
 	Dependencies []string `json:"dependencies"`
 }
 type PlanningResult struct {
+	Body         string        `json:"body"`
 	Cards        []PlannedCard `json:"cards"`
 	Verification string        `json:"verification"`
 	Questions    []string      `json:"questions"`
@@ -47,6 +48,10 @@ func (v Version) NeedsVerification() bool {
 }
 func (t Task) Proofs() []Proof {
 	proofs := append([]Proof(nil), t.Current().Proofs...)
+	if t.Release != nil && t.Proposal != nil {
+		v, _ := NewVersion(1, t.Proposal.Body, "", "", "")
+		return v.Proofs
+	}
 	if t.Prepared != nil && t.Current().NeedsVerification() {
 		proofs = append(proofs, Proof{ID: "verification", Requirement: t.Prepared.Requirement})
 	}
@@ -73,7 +78,7 @@ func ValidateRoleResult(role string, r Result, proofs []Proof) error {
 		return errors.New("planner decision request must identify its questions")
 	}
 	if role == "prepare" {
-		if len(p.Cards) != 0 {
+		if len(p.Cards) != 0 || p.Body != "" {
 			return errors.New("verification preparation cannot decompose or rewrite the task")
 		}
 		if r.Outcome == "succeeded" && len(p.Questions) == 0 && strings.TrimSpace(p.Verification) == "" {
@@ -81,7 +86,7 @@ func ValidateRoleResult(role string, r Result, proofs []Proof) error {
 		}
 	} else {
 		if p.Verification != "" {
-			return errors.New("plan verification belongs in each card")
+			return errors.New("plan verification belongs in the shared body and cards")
 		}
 		if len(p.Cards) != 0 || (r.Outcome == "succeeded" && len(p.Questions) == 0) {
 			return ValidateProposal(*p)
@@ -93,6 +98,10 @@ func ValidateRoleResult(role string, r Result, proofs []Proof) error {
 var cardKey = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
 func ValidateProposal(p PlanningResult) error {
+	v, err := NewVersion(1, p.Body, "", "", "")
+	if err != nil || v.NeedsVerification() {
+		return errors.New("plan needs a shared Outcome, Scope, Acceptance and Verification body")
+	}
 	if len(p.Cards) == 0 {
 		return errors.New("proposal must contain at least one complete card")
 	}
@@ -165,7 +174,7 @@ func PrerequisiteWait(t Task, tasks []Task) string {
 	}
 	if t.ParentID != "" {
 		parent, ok := byID[t.ParentID]
-		if !ok || parent.Stage == Stopped || parent.Release == nil {
+		if !ok || parent.Stage == Stopped || parent.Release == nil || parent.Approval == nil {
 			return "parent plan is missing or revoked"
 		}
 		member := false
@@ -174,9 +183,12 @@ func PrerequisiteWait(t Task, tasks []Task) string {
 				member = true
 			}
 		}
-		if !member {
+		if !member || t.Current().Number != 1 {
 			return "task is not in its parent's approved release"
 		}
+	}
+	if t.Release != nil && (t.Candidate != nil || t.NextRole == "combine" || t.Stage == Reviewing) && !AllIncluded(t, tasks) {
+		return "released Plan member is missing, revoked or not included"
 	}
 	for _, dep := range t.Current().Dependencies {
 		task, ok := byID[dep.TaskID]
@@ -185,6 +197,13 @@ func PrerequisiteWait(t Task, tasks []Task) string {
 		}
 		if task.Current().Number != dep.Version {
 			return "dependency version changed: " + dep.TaskID + "; create a new plan"
+		}
+		if t.ParentID != "" && task.ParentID == t.ParentID {
+			parent := byID[t.ParentID]
+			if Included(task, parent) {
+				continue
+			}
+			return fmt.Sprintf("dependency %s v%d awaits inclusion in Plan (%s)", dep.TaskID, dep.Version, task.Stage)
 		}
 		if task.Stage != Completed {
 			return fmt.Sprintf("dependency %s v%d awaits confirmed integration (%s)", dep.TaskID, dep.Version, task.Stage)

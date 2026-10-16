@@ -13,7 +13,7 @@ and the [redesign plan](runner-redesign-proposal.md) define the accepted replace
 | `internal/runner/cli` | Commands, exact previews and attention-first status; no scheduler. |
 | `internal/runner/config` | Strict configuration, repository quality agreement and policy validation. |
 | `internal/runner/core` | Task versions, approvals, evidence bindings, observations and action types. |
-| `internal/runner/store` | Private transactional persistence, reservations, leases, effect claims and freshness guard. Store format 15 rejects earlier formats. |
+| `internal/runner/store` | Private transactional persistence, reservations, leases, effect claims and freshness guard. Store format 16 rejects earlier formats. |
 | `internal/runner/engine` | One coordinator derives safe actions, admits within limits, launches bounded work and reconciles results. |
 | `internal/runner/execution` | Codex capabilities, sandboxed role/check execution, structured results and pinned role instructions. |
 | `internal/runner/workspace` | Task workspace binding, exact candidates, base refresh and integration evidence. |
@@ -29,9 +29,9 @@ transitions to the engine/store rather than editing lifecycle fields.
 ## Authority and progress
 
 Ready authorizes one specified task after an exact-version preview. Plan approval
-authorizes planning only; release separately authorizes approved children and
-their dependency graph. Content, quality and repository/base bindings prevent
-an old approval from silently authorizing changed work.
+authorizes planning only; release separately authorizes the shared outcome,
+exact children and their dependency graph. Content, quality and repository/base
+bindings prevent an old approval from silently authorizing changed work.
 
 The coordinator derives every currently safe action. Dependencies and resource
 conflicts determine safety; configured parallelism limits admission. Long-running
@@ -45,20 +45,38 @@ Checks run in a disposable source copy. The reviewer first audits evidence again
 the exact candidate; focused verification is a separate bounded action only when
 needed. A concrete defect can consume repair allowance; missing evidence alone
 does not justify a code rewrite. Repository policy and the approved brief own
-test expectations.
+test expectations. Named quality checks select `task`, `completion` or `both`
+(default); Ready checks every applicable obligation and parent repairs/refreshes
+also recheck child guarantees. Child evidence is labelled with its historical
+candidate and does not substitute for required combined checks.
 
 ## Delivery and recovery
 
-Local delivery retains acceptance without claiming integration. GitHub delivery
-publishes one draft, verifies/refreshes the current base, synchronizes that draft,
-assesses exact required CI and performs supported bounded repairs. Changed source
+Local delivery creates a verified result branch and a provider-neutral completion
+receipt. Optional local base delivery uses a guarded fast-forward under human or
+automatic merge permission; targets checked out in any worktree are refused.
+Owned ref intents precede Git compare-and-set transactions; dispatch is consumed
+before the effect, and restart observes uncertain writes rather than replaying.
+Plan-head inclusion and final completion update the related tasks atomically.
+
+Plan children start on the admitted private Plan head, including prerequisites.
+Independent child work remains concurrent; inclusion refreshes and serializes
+against that head. Inclusion releases only dependencies in the same Plan. The
+combined candidate receives completion checks and independent outcome review,
+with bounded parent repair when needed. One accepted parent candidate enters the
+same destination path as Ready. Final receipt settles parent and children together.
+Shared scope, membership and quality stay immutable after release.
+
+GitHub delivery publishes one draft, verifies/refreshes the current base,
+synchronizes that draft, assesses exact required CI and performs bounded repairs. Changed source
 invalidates acceptance and runs the required verification again. Unknown remote
 outcomes are observed, not blindly repeated.
 
 Human integration confirms an ordinary merge receipt. Explicit merge or applied
 automatic policy additionally admits one guarded remote merge. Host protection,
 exact candidate/base/CI bindings and a durable consumed dispatch constrain writes.
-An API success alone is not completion; dependent work needs the confirmed receipt.
+An API success alone is not completion. External dependencies need final delivery;
+internal Plan dependencies require exact private inclusion.
 
 Attempts retain selected profiles, counters, processes, results and evidence.
 Restart reconciles ownership before admission. Unknown ownership blocks; a saved

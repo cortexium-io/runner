@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cortexium-io/runner/internal/runner/config"
+	"github.com/cortexium-io/runner/internal/runner/core"
 	"github.com/cortexium-io/runner/internal/runner/engine"
 )
 
@@ -86,7 +87,7 @@ func (c CLI) printStatus(s engine.Status) {
 			fmt.Fprintf(c.Out, "  %s v%d — %s — %s\n    %s\n", v.Task.ID, v.Task.Current().Number, v.Task.Stage, engine.TaskTitle(v.Task), v.Summary)
 			if a := v.FocusAttempt; a != nil {
 				fmt.Fprintf(c.Out, "    Attempt %s: %s / %s", a.ID, a.Role, a.State)
-				if a.Role == "refresh" {
+				if core.DeterministicRole(a.Role) {
 					fmt.Fprint(c.Out, "; deterministic, no model")
 				} else {
 					fmt.Fprintf(c.Out, "; %s / %s", a.Profile.Model, a.Profile.Reasoning)
@@ -120,11 +121,11 @@ task approve|release ID --version N --preview DIGEST
 task replace ID --version N --file TASK.md
 task adopt-quality ID --version N --preview DIGEST
 task resume ID --attempt ID [--allow-new-invocation]
-task delivery ID --reconcile          Inspect and safely continue draft publication/synchronization.
+task delivery ID --reconcile          Inspect and safely continue local or draft delivery.
 task verify-base ID                  Inspect current base; refresh or queue bounded conflict repair.
 task assess-ci ID                    Observe pinned hosted checks for the confirmed draft.
-task integrate ID                    Observe the known PR; automatic policy may act on a ready result.
-task merge ID                        Authorize one guarded ordinary merge of a ready PR.
+task integrate ID                    Confirm a manual local fast-forward or inspect a known PR.
+task merge ID                        Authorize guarded local fast-forward or ordinary ready-PR merge.
 task stop ID                         Revoke authority; retain work and evidence.
 status [--json] [--watch 2s]          Read-only attention, work, waits and retained results.
 config edit [--set KEY=VALUE]         Interactive editor or preview named changes.
@@ -138,9 +139,11 @@ backup --to DIRECTORY                Snapshot a drained, idle installation to a 
 restore --from DIRECTORY [--apply]    Preview or restore to absent original paths; always drained.
 
 Use COMMAND --help for flags. Status and show never start work. Local delivery
-retains an accepted candidate at Awaiting delivery. task integrate ID inspects
-an ordinary merge of the exact verified candidate. task merge ID explicitly
-authorizes one guarded merge of a ready PR; recovery never repeats that write.
-Applied merge-policy=automatic may derive a merge from a ready PR observation.
-Status/show never start work. Confirmed integration releases dependent work.`)
+creates an accepted result branch and completes; delivery.local_target=base
+retains that result until a permitted fast-forward into repository.base_ref.
+The base target must not be checked out in any worktree. policy.merge defaults
+to human; automatic permits guarded base integration of approved work.
+A Plan includes children privately, verifies the combined outcome and delivers
+one parent result. Included children release internal dependencies; parent
+completion settles all children. GitHub remains optional.`)
 }

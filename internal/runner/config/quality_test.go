@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/runner/core"
@@ -77,5 +78,33 @@ func TestRequiredCIIsExplicitAndPartOfTheQualityRevision(t *testing.T) {
 	next.RequiredCI = []core.CIRequirement{req}
 	if old.Revision() == next.Revision() {
 		t.Fatal("CI requirements omitted from pinned revision")
+	}
+}
+
+func TestQualityTimingKeepsReadyCompleteAndPlanChecksScoped(t *testing.T) {
+	q := Quality{Checks: []QualityCheck{{ID: "task", At: "task"}, {ID: "completion", At: "completion"}, {ID: "both"}}}
+	for _, tc := range []struct {
+		task  core.Task
+		final bool
+		want  string
+	}{
+		{core.Task{}, false, "task completion both"},
+		{core.Task{ParentID: "plan"}, false, "task both"},
+		{core.Task{PlanRequest: true}, true, "completion both"},
+		{core.Task{PlanRequest: true}, false, "task completion both"},
+	} {
+		names := []string{}
+		for _, c := range q.For(tc.task, tc.final).Checks {
+			names = append(names, c.ID)
+		}
+		if strings.Join(names, " ") != tc.want {
+			t.Fatal(names, tc.want)
+		}
+	}
+	c := Config{}
+	c.Delivery.Mode = "local"
+	q.RequiredCI = []core.CIRequirement{{Kind: "check", Name: "test", AppID: 1}}
+	if c.ValidateQuality(q) == nil {
+		t.Fatal("hosted obligation silently accepted locally")
 	}
 }

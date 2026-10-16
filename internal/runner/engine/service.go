@@ -39,7 +39,12 @@ func (e *Engine) now() time.Time {
 }
 
 func (e *Engine) git() workspace.Git { return workspace.Git{Settings: e.Settings} }
-func (e *Engine) policy() string     { return core.Digest(e.Settings.Config.Repository) }
+func (e *Engine) policy() string {
+	return core.Digest(struct {
+		Repository config.Repository
+		Delivery   any
+	}{e.Settings.Config.Repository, e.Settings.Config.Delivery})
+}
 func (e *Engine) validate(ctx context.Context) error {
 	current, _, err := e.Store.Settings(ctx)
 	if err != nil {
@@ -73,6 +78,9 @@ func (e *Engine) Add(ctx context.Context, body string) (core.Task, error) {
 }
 
 type View struct {
+	Destination            string              `json:"destination"`
+	LocalTarget            string              `json:"local_target,omitempty"`
+	PlanUsage              *core.Usage         `json:"plan_total_usage,omitempty"`
 	Restoration            *config.Restoration `json:"restoration,omitempty"`
 	MergePolicy            string              `json:"merge_policy"`
 	DeliveryDestination    string              `json:"delivery_destination,omitempty"`
@@ -117,6 +125,22 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	}
 	view := View{Restoration: settings.Restoration, MergePolicy: settings.Config.MergePolicy(), CurrentQuality: settings.Quality.Revision(), Task: t, Attempts: attempts}
 	view.DeliveryDestination = settings.Config.Delivery.Repository
+	view.Destination = settings.Config.Destination()
+	if settings.Config.Delivery.Mode == "local" {
+		view.LocalTarget = settings.Config.LocalTarget()
+	}
+	if t.Release != nil {
+		total := t.Usage
+		for _, child := range tasks {
+			if child.ParentID == t.ID {
+				total.Invocations += child.Usage.Invocations
+				total.Repairs += child.Usage.Repairs
+				total.Escalations += child.Usage.Escalations
+				total.BaseRefreshes += child.Usage.BaseRefreshes
+			}
+		}
+		view.PlanUsage = &total
+	}
 	publications, err := e.Store.Publications(ctx, "")
 	if err != nil {
 		return view, err
@@ -152,7 +176,7 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	if repo != e.Settings.PhysicalRepository() {
 		return view, errors.New("repository identity changed")
 	}
-	if t.Stage != core.Completed && t.Current().Quality != settings.Quality.Revision() && settings.Quality.Revision() != "" && t.Release == nil {
+	if t.Stage != core.Completed && t.Current().Quality != settings.Quality.Revision() && settings.Quality.Revision() != "" && t.Release == nil && t.ParentID == "" {
 		view.QualityAdoptionPreview = adoptionPreview(t, settings.Quality.Revision())
 	}
 	pinned, err := e.taskEngine(ctx, t)
@@ -235,7 +259,7 @@ func (e *Engine) Replace(ctx context.Context, id string, version int, body strin
 	if t.Current().Number != version {
 		return t, store.ErrConflict
 	}
-	if t.Release != nil {
+	if t.Release != nil || t.ParentID != "" {
 		return t, errors.New("released plans are immutable; stop the plan to revoke children and add a new request")
 	}
 	pinned, err := e.taskEngine(ctx, t)
@@ -272,6 +296,7 @@ func replaceVersion(t *core.Task, v core.Version) {
 	t.Review = nil
 	t.Attention = nil
 	t.AdoptionPreview = ""
+	t.LocalMerge, t.LocalInspect = nil, false
 }
 func (e *Engine) Stop(ctx context.Context, id string) error {
 	t, err := e.Store.Task(ctx, id)
@@ -331,10 +356,10 @@ func (e *Engine) Resume(ctx context.Context, id, attempt string, allowNew bool) 
 			}
 			return "Saved result queued for integrity checks and deterministic continuation; no model call authorized.", nil
 		}
-		if a.State != "interrupted" {
+		if a.State != "interrupted" && !(core.DeterministicRole(a.Role) && a.State == "failed") {
 			return "", errors.New("only interrupted execution can repeat; rejected review cannot be repaired by resume")
 		}
-		if !allowNew {
+		if !allowNew && !core.DeterministicRole(a.Role) {
 			return "", fmt.Errorf("%s attempt %s was interrupted; artifacts remain in %s; --allow-new-invocation authorizes repeating that role with the pinned profile", a.Role, a.ID, a.EvidenceDir)
 		}
 		if a.Role == "audit" || a.Role == "verify" {
@@ -348,6 +373,9 @@ func (e *Engine) Resume(ctx context.Context, id, attempt string, allowNew bool) 
 		t.NextRole = a.Role
 		if err = e.Store.Commit(ctx, t.Revision, t, &a, false); err != nil {
 			return "", err
+		}
+		if core.DeterministicRole(a.Role) {
+			return "Deterministic checks requested again; no model invocation authorized. Saved artifacts and allowances remain.", nil
 		}
 		return "One new invocation requested for the interrupted role; artifacts and attempt history are preserved.", nil
 	}

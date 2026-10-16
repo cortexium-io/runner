@@ -113,6 +113,9 @@ func describeView(v *View, running bool, now time.Time) {
 	}
 	show := "task show " + t.ID
 	replace := fmt.Sprintf("task replace %s --version %d --file CLARIFIED_TASK.md; inspect and approve the new version", t.ID, t.Current().Number)
+	if t.Release != nil || t.ParentID != "" {
+		replace = "stop the Plan and add a new request for scope or quality changes"
+	}
 	v.Group = "Needs you"
 	for i := len(v.Publications) - 1; i >= 0; i-- {
 		p := v.Publications[i]
@@ -171,12 +174,19 @@ func describeView(v *View, running bool, now time.Time) {
 			v.Recovery.Repeats = "no automatic conflict repair for unsupported or unrecognized conflicts"
 			return
 		}
+		if a != nil && a.Role == "combine" && t.Attention.Kind != "ownership" && t.Attention.Kind != "saved_result" {
+			v.NextAction = "resolve the required check capability; task resume " + t.ID + " --attempt " + a.ID + "; then run"
+			v.Recovery.Repeats = "deterministic combined checks only; no model call until evidence is available"
+			return
+		}
 		if a != nil && a.Role == "refresh" && t.Attention.Kind != "ownership" && t.Attention.Kind != "saved_result" {
 			v.NextAction = "inspect the base verification failure; config edit --set base-refreshes=N, then save/apply if allowance is exhausted; task verify-base " + t.ID + "; then run"
 			v.Recovery.Repeats = "base inspection and native checks for the retained cycle; no model invocation until a new candidate needs review"
 			return
 		}
 		switch t.Attention.Kind {
+		case "local_delivery":
+			v.NextAction = "resolve the displayed local Git condition; task delivery " + t.ID + " --reconcile; then run"
 		case core.Interrupted:
 			v.Recovery.Repeats = "one invocation of the interrupted role, using its pinned profile, only with --allow-new-invocation"
 			v.NextAction = fmt.Sprintf("task resume %s --attempt %s; inspect repetition details before adding --allow-new-invocation", t.ID, t.Attention.Attempt)
@@ -236,6 +246,27 @@ func describeView(v *View, running bool, now time.Time) {
 		}
 		return
 	case core.AwaitingDelivery:
+		if t.Inclusion != nil {
+			v.Group, v.Summary, v.NextAction = "Waiting", "included in Plan; final verification pending", "inspect Plan "+t.ParentID
+			return
+		}
+		if v.LocalTarget != "" {
+			v.Group, v.Summary, v.NextAction = "Waiting", "preparing verified local result", "run to reconcile local delivery; inspect "+show
+			if t.NextRole == "refresh" {
+				v.Summary = "current-base verification queued"
+			}
+			if result := currentResult(t); result != nil {
+				v.Summary = "reviewed result " + result.Ref + " at " + result.Commit
+				if v.LocalTarget == "base" && v.MergePolicy == "human" && !localMergeAuthorized(t) && !t.LocalInspect {
+					v.Group = "Needs you"
+					v.Summary += "; merge requires your action"
+					v.NextAction = "task merge " + t.ID + "; then run"
+				} else {
+					v.Summary += "; guarded local integration pending"
+				}
+			}
+			return
+		}
 		if t.NextRole == "refresh" {
 			v.Group, v.Summary = "Waiting", "current-base verification queued"
 			v.NextAction = "wait for admission; run if the coordinator is absent or drained"
@@ -310,15 +341,25 @@ func describeView(v *View, running bool, now time.Time) {
 		if t.Stage == core.Completed {
 			if t.Integration != nil {
 				v.Summary = "completed; confirmed merge " + t.Integration.Assessment.Observation.MergeCommit
-			} else if t.Release != nil {
-				v.Summary = "completed; all original released children integrated"
+			} else if t.Completion != nil {
+				v.Summary = "completed; " + t.Completion.Kind + " " + t.Completion.Ref + " at " + t.Completion.Commit
+				if t.Completion.Kind == "result" {
+					v.Summary += "; base unchanged"
+				}
+				if t.Completion.ParentID != "" {
+					v.Summary += "; delivered by Plan " + t.Completion.ParentID
+				}
 			}
 		}
 		return
 	}
 	if t.Release != nil {
-		v.Group, v.Summary = "Waiting", "released plan; children must complete integration"
+		v.Group, v.Summary = "Waiting", "released Plan; waiting for exact child inclusion"
 		v.NextAction = "inspect child tasks with " + show
+		if t.Candidate != nil || t.NextRole == "combine" {
+			v.Summary = "checking combined outcome; " + v.Eligibility.WaitingFor
+			v.NextAction = "run to admit final verification/review; " + show + " for evidence and allowances"
+		}
 		return
 	}
 	v.Group, v.Summary = "Waiting", v.Eligibility.WaitingFor
@@ -335,7 +376,7 @@ func describeView(v *View, running bool, now time.Time) {
 		v.Group = "Needs you"
 		v.NextAction = "run to resume admission"
 	case "dependency":
-		v.NextAction = "inspect the named prerequisite; only its exact completed version can release this task"
+		v.NextAction = "inspect the named prerequisite; only its exact included Plan result or completed external version can release this task"
 	case "":
 		v.Summary = "eligible for " + v.Eligibility.Role
 		if t.Pending != nil && t.Pending.Kind == "conflict_repair" {

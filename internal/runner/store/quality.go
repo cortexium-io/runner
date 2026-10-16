@@ -54,6 +54,9 @@ func (s *Store) ApplyQuality(ctx context.Context, previous string, q config.Qual
 	if err = json.Unmarshal(data, &current); err != nil {
 		return err
 	}
+	if err = current.Config.ValidateQuality(q); err != nil {
+		return err
+	}
 	if current.Quality.Revision() != previous {
 		return ErrConflict
 	}

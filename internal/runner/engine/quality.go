@@ -24,6 +24,9 @@ func (e *Engine) currentQuality(ctx context.Context) error {
 		return errors.New("repository authority changed")
 	}
 	e.Settings = current
+	if err := current.Config.ValidateQuality(current.Quality); err != nil {
+		return err
+	}
 	if current.Quality.Revision() == "" {
 		return errors.New("apply a quality agreement before creating or approving work")
 	}
@@ -69,6 +72,9 @@ func (e *Engine) PreviewQuality(ctx context.Context, spec config.QualitySpec) (Q
 	}
 	q, err := workspace.ResolveQuality(ctx, current.Config, base, spec)
 	if err != nil {
+		return p, err
+	}
+	if err = current.Config.ValidateQuality(q); err != nil {
 		return p, err
 	}
 	q.Path = os.Getenv("PATH")
@@ -213,7 +219,7 @@ func (e *Engine) AdoptQuality(ctx context.Context, id string, version int, previ
 	if t.Stage == core.Completed {
 		return t, errors.New("completed tasks are immutable; add a new request")
 	}
-	if t.Release != nil {
+	if t.Release != nil || t.ParentID != "" {
 		return t, errors.New("released plans are immutable; stop and create a new plan")
 	}
 	if t.Current().Number != version || preview == "" || preview != adoptionPreview(t, e.Settings.Quality.Revision()) {
@@ -229,4 +235,14 @@ func (e *Engine) AdoptQuality(ctx context.Context, id string, version int, previ
 	replaceVersion(&t, v)
 	t.AdoptionPreview = preview
 	return t, e.Store.AdoptQuality(ctx, t.Revision, t)
+}
+
+func exceptionFiles(q config.Quality, files map[string]string) map[string]string {
+	out := map[string]string{}
+	for _, ex := range q.Exceptions {
+		for name := range ex.Files {
+			out[name] = files[name]
+		}
+	}
+	return out
 }

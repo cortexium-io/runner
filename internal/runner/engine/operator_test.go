@@ -29,7 +29,7 @@ func TestOperatorAdviceDistinguishesAttentionWorkAndWaits(t *testing.T) {
 		{"active", "Working", "wait for the recorded attempt", func(v *View) { v.Attempts[0].Occupying = true }, true},
 		{"absent with reservation", "Needs you", "reconcile ownership", func(v *View) { v.Attempts[0].Occupying = true }, false},
 		{"absent without reservation", "Needs you", "run to reconcile", func(v *View) {}, false},
-		{"dependency", "Waiting", "exact completed version", func(v *View) {
+		{"dependency", "Waiting", "completed external version", func(v *View) {
 			v.Eligibility.WaitKind = "dependency"
 			v.Eligibility.WaitingFor = "dependency prior v2: Awaiting delivery"
 		}, true},

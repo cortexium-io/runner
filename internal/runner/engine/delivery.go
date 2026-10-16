@@ -116,7 +116,7 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 		return err
 	}
 	for _, t := range tasks {
-		if t.Stage != core.AwaitingDelivery || t.Candidate == nil || t.Approval == nil || t.Attention != nil {
+		if t.ParentID != "" || t.Stage != core.AwaitingDelivery || t.Candidate == nil || t.Approval == nil || t.Attention != nil {
 			continue
 		}
 		previous := latestPublication(all, t)
@@ -215,7 +215,11 @@ func (e *Engine) publicationAuthority(ctx context.Context, p core.PublicationInt
 	if err != nil {
 		return err
 	}
-	if !p.Authorized(t) {
+	tasks, err := e.Store.Tasks(ctx)
+	if err != nil {
+		return err
+	}
+	if !p.Authorized(t) || core.PrerequisiteWait(t, tasks) != "" {
 		return errors.New("publication authority revoked or acceptance changed")
 	}
 	pinned, err := e.taskEngine(ctx, t)
@@ -383,6 +387,20 @@ func (e *Engine) ReconcileDelivery(ctx context.Context, id string) error {
 	t, err := e.Store.Task(ctx, id)
 	if err != nil {
 		return err
+	}
+	if t.ParentID != "" {
+		return errors.New("child delivery belongs to Plan " + t.ParentID)
+	}
+	if e.Settings.Config.Delivery.Mode == "local" {
+		if t.Stage == core.Completed {
+			return nil
+		}
+		if t.Attention != nil && t.Attention.Kind != "local_delivery" {
+			return errors.New("resolve existing attention first")
+		}
+		t.Attention = nil
+		t.LocalInspect = true
+		return e.Store.Commit(ctx, t.Revision, t, nil, false)
 	}
 	p := latestPublication(all, t)
 	if p != nil && p.Intent.Authorized(t) {

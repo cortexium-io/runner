@@ -25,7 +25,7 @@ func TestReleaseIsAtomicAcrossFailureAndCompetingConnections(t *testing.T) {
 			}
 			defer other.Close()
 			body := "## Outcome\nGreeting\n## Scope\nFile\n## Acceptance\nHello\n## Verification\nRead file; expect hello.\n"
-			parent := core.Task{ID: "plan", Revision: 1, PlanRequest: true, Proposal: &core.PlanningResult{Cards: []core.PlannedCard{{Key: "one", Body: body}, {Key: "two", Body: body}}}}
+			parent := core.Task{ID: "plan", Revision: 1, PlanRequest: true, Proposal: &core.PlanningResult{Body: body, Cards: []core.PlannedCard{{Key: "one", Body: body}, {Key: "two", Body: body}}}}
 			if err = s.Add(ctx, parent); err != nil {
 				t.Fatal(err)
 			}

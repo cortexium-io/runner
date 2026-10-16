@@ -39,7 +39,7 @@ func approvedPlan(t *testing.T, e *Engine, result core.PlanningResult) core.Task
 }
 
 func proposal() core.PlanningResult {
-	return core.PlanningResult{Cards: []core.PlannedCard{{Key: "greeting", Body: brief}, {Key: "usage", Body: brief, Dependencies: []string{"greeting"}}}}
+	return core.PlanningResult{Body: brief, Cards: []core.PlannedCard{{Key: "greeting", Body: brief}, {Key: "usage", Body: brief, Dependencies: []string{"greeting"}}}}
 }
 
 func TestPlanReleaseRecoveryAndDependencyWait(t *testing.T) {
@@ -81,6 +81,11 @@ func TestPlanReleaseRecoveryAndDependencyWait(t *testing.T) {
 	if tasks, _ := e.Store.Tasks(t.Context()); len(tasks) != 3 {
 		t.Fatal("release repeated or partial")
 	}
+	for range 2 {
+		if err = e.prepareCompletions(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
 	root, dependent := plan.Release.Children[0], plan.Release.Children[1]
 	if current(t, e, root).Current().Quality != plan.Current().Quality {
 		t.Fatal("release changed pinned quality")
@@ -100,17 +105,19 @@ func TestPlanReleaseRecoveryAndDependencyWait(t *testing.T) {
 	if current(t, e, root).Stage != core.AwaitingDelivery {
 		t.Fatal("root failed to progress independently")
 	}
-	waiting(t, e, dependent, "awaits confirmed integration")
+	v, err = e.Show(t.Context(), dependent)
+	if err != nil || !strings.Contains(v.Eligibility.WaitingFor, "awaits inclusion in Plan") {
+		t.Fatal(v.Eligibility, err)
+	}
 	if current(t, e, plan.ID).Stage != core.Ready {
 		t.Fatal("parent completed without integrated children")
 	}
 	if _, err = e.Replace(t.Context(), plan.ID, 1, "different plan"); err == nil {
 		t.Fatal("released plan replaced")
 	}
-	if _, err = e.Replace(t.Context(), root, 1, brief); err != nil {
-		t.Fatal(err)
+	if _, err = e.Replace(t.Context(), root, 1, brief); err == nil {
+		t.Fatal("released child replaced")
 	}
-	waiting(t, e, dependent, "dependency version changed")
 }
 
 func TestPlanningCannotReleaseQuestionsMalformedOrChangedAuthority(t *testing.T) {
@@ -168,6 +175,11 @@ func TestStoppingReleasedPlanRevokesChildrenAndLateResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for range 2 {
+		if err = e.prepareCompletions(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
 	a := claim(t, e)
 	f := e.execute(t.Context(), a)
 	if err = e.Stop(t.Context(), plan.ID); err != nil {
@@ -191,14 +203,12 @@ func TestStoppingReleasedPlanRevokesChildrenAndLateResult(t *testing.T) {
 	if attempts[0].State != "superseded" || attempts[0].Result == nil {
 		t.Fatal("late evidence not retained")
 	}
-	if _, err = e.Replace(t.Context(), a.TaskID, 1, brief); err != nil {
-		t.Fatal(err)
+	if _, err = e.Replace(t.Context(), a.TaskID, 1, brief); err == nil {
+		t.Fatal("revoked released child became independently replaceable")
 	}
-	v, _ = e.Show(t.Context(), a.TaskID)
-	if _, err = e.Approve(t.Context(), a.TaskID, 2, v.Preview); err != nil {
-		t.Fatal(err)
+	if _, ok, err := e.claim(t.Context()); ok || err != nil {
+		t.Fatal("stopped Plan admitted more work", err)
 	}
-	waiting(t, e, a.TaskID, "parent plan is missing or revoked")
 }
 
 func TestReadyPreparationPreservesApprovalAndConsumesAllowance(t *testing.T) {

@@ -100,6 +100,12 @@ type Attention struct {
 }
 
 type Task struct {
+	RefWrites       []RefWrite            `json:"ref_writes,omitempty"`
+	Completion      *CompletionReceipt    `json:"completion,omitempty"`
+	Inclusion       *PlanInclusion        `json:"inclusion,omitempty"`
+	PlanHead        string                `json:"plan_head,omitempty"`
+	LocalMerge      *BaseProof            `json:"local_merge,omitempty"`
+	LocalInspect    bool                  `json:"local_inspect,omitempty"`
 	Integration     *IntegrationReceipt   `json:"integration,omitempty"`
 	ConflictRepair  *ConflictRepair       `json:"conflict_repair,omitempty"`
 	CIRepair        *CIRepair             `json:"ci_repair,omitempty"`

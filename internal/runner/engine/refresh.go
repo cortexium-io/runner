@@ -40,6 +40,14 @@ func (e *Engine) VerifyBase(ctx context.Context, id string) error {
 		}
 	}
 	return e.mutate(ctx, id, func(t *core.Task) (*core.Attempt, error) {
+		if t.ParentID != "" {
+			return nil, errors.New("child base verification belongs to Plan " + t.ParentID)
+		}
+		for _, w := range t.RefWrites {
+			if w.Pending() {
+				return nil, errors.New("settle local delivery with task delivery " + id + " --reconcile before requesting another base refresh")
+			}
+		}
 		if p := latestPublication(publications, *t); p != nil && (p.Occupying || p.State != "published") {
 			return nil, errors.New("settle publication with task delivery " + id + " --reconcile before requesting another base refresh")
 		}
@@ -122,13 +130,7 @@ func (e *Engine) executeRefresh(ctx context.Context, t core.Task, a core.Attempt
 	}
 	var err error
 	if t.RefreshTarget == nil {
-		if e.Settings.Config.Delivery.Mode == "local" {
-			_, a.ObservedBase, err = workspace.Observe(ctx, e.Settings.Config)
-		} else if e.Bases == nil {
-			err = errors.New("delivery base adapter unavailable")
-		} else {
-			a.ObservedBase, err = e.Bases.CurrentBase(ctx, e.Settings.Config.Repository.Path, e.Settings.Config.Delivery.Repository, strings.TrimPrefix(e.Settings.Config.Repository.BaseRef, "refs/heads/"))
-		}
+		a.ObservedBase, err = e.observeBase(ctx, t)
 		if err != nil {
 			return fail(err)
 		}
@@ -185,7 +187,7 @@ func (e *Engine) executeRefresh(ctx context.Context, t core.Task, a core.Attempt
 				a.CheckFiles[name] = files[name]
 			}
 		}
-		a.Checks, err = e.runChecks(ctx, candidate.Workspace, files, e.Settings.Quality, filepath.Join(a.EvidenceDir, "quality"), func(p core.Process) error {
+		a.Checks, err = e.runChecks(ctx, candidate.Workspace, files, e.Settings.Quality.For(t, false), filepath.Join(a.EvidenceDir, "quality"), func(p core.Process) error {
 			a.Process, a.State = &p, "checking"
 			return e.mutate(context.Background(), t.ID, func(current *core.Task) (*core.Attempt, error) {
 				if !a.Authorized(*current) {
@@ -202,7 +204,7 @@ func (e *Engine) executeRefresh(ctx context.Context, t core.Task, a core.Attempt
 		if err != nil {
 			return fail(err)
 		}
-		if err = e.Settings.Quality.ValidateResults(a.Checks, files); err != nil {
+		if err = e.Settings.Quality.For(t, false).ValidateResults(a.Checks, files); err != nil {
 			return fail(err)
 		}
 	}
@@ -231,7 +233,7 @@ func (e *Engine) advanceRefresh(ctx context.Context, t *core.Task, a *core.Attem
 		if t.RefreshTarget == nil || *t.RefreshTarget != *a.Refreshed || a.Refreshed.Commit != a.ObservedBase {
 			return errors.New("saved refresh target changed")
 		}
-		if err := e.Settings.Quality.ValidateResults(a.Checks, a.CheckFiles); err != nil {
+		if err := e.Settings.Quality.For(*t, false).ValidateResults(a.Checks, a.CheckFiles); err != nil {
 			return err
 		}
 		next := *t
@@ -261,4 +263,29 @@ func (e *Engine) advanceRefresh(ctx context.Context, t *core.Task, a *core.Attem
 	t.Attention = nil
 	a.State = "applied"
 	return nil
+}
+
+func (e *Engine) observeBase(ctx context.Context, t core.Task) (string, error) {
+	if t.ParentID != "" {
+		parent, err := e.Store.Task(ctx, t.ParentID)
+		if err != nil {
+			return "", err
+		}
+		actual, err := e.git().Ref(ctx, parent.PlanRef())
+		if err != nil {
+			return "", err
+		}
+		if actual != parent.PlanHead {
+			return "", errors.New("private Plan ref changed outside its recorded inclusion; inspect retained work")
+		}
+		return actual, nil
+	}
+	if e.Settings.Config.Delivery.Mode == "local" {
+		_, base, err := workspace.Observe(ctx, e.Settings.Config)
+		return base, err
+	}
+	if e.Bases == nil {
+		return "", errors.New("delivery base adapter unavailable")
+	}
+	return e.Bases.CurrentBase(ctx, e.Settings.Config.Repository.Path, e.Settings.Config.Delivery.Repository, strings.TrimPrefix(e.Settings.Config.Repository.BaseRef, "refs/heads/"))
 }

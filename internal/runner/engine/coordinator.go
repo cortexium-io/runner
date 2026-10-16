@@ -79,12 +79,16 @@ func (e *Engine) Run(ctx context.Context) error {
 			return readErr
 		}
 		e.Settings = settings
+		allTasks, readErr := e.Store.Tasks(workCtx)
+		if readErr != nil {
+			return readErr
+		}
 		for id, call := range publications {
 			t, readErr := e.Store.Task(workCtx, call.intent.TaskID)
 			if readErr != nil {
 				return readErr
 			}
-			if stopping || !call.intent.Authorized(t) {
+			if stopping || !call.intent.Authorized(t) || core.PrerequisiteWait(t, allTasks) != "" {
 				call.cancel()
 			}
 			select {
@@ -105,7 +109,7 @@ func (e *Engine) Run(ctx context.Context) error {
 			if readErr != nil {
 				return readErr
 			}
-			if stopping || !call.attempt.Authorized(t) {
+			if stopping || !call.attempt.Authorized(t) || core.PrerequisiteWait(t, allTasks) != "" {
 				call.cancel()
 			}
 			select {
@@ -121,7 +125,7 @@ func (e *Engine) Run(ctx context.Context) error {
 		if err = e.finishSaved(workCtx); err != nil {
 			return err
 		}
-		if err = e.Store.CompletePlans(workCtx); err != nil {
+		if err = e.prepareCompletions(workCtx); err != nil {
 			return err
 		}
 		if err = e.prepareBaseChecks(workCtx); err != nil {
@@ -285,6 +289,16 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 		if err = e.validate(ctx); err != nil {
 			return core.Attempt{}, false, err
 		}
+		if t.ParentID != "" && t.WorkingBase == nil {
+			for _, parent := range tasks {
+				if parent.ID == t.ParentID && parent.PlanHead != "" {
+					t.WorkingBase = &core.BaseBinding{Commit: parent.PlanHead}
+				}
+			}
+			if t.WorkingBase == nil {
+				continue
+			}
+		}
 		pinned, err := e.taskEngine(ctx, t)
 		if err != nil {
 			return core.Attempt{}, false, err
@@ -324,7 +338,7 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 			}
 		}
 		a.WorkspaceClaim = workspaceClaim(settings.Config, t)
-		if a.Role != "refresh" {
+		if !core.DeterministicRole(a.Role) {
 			t.Usage.Invocations++
 		}
 		a.Invocation = t.Usage.Invocations
@@ -379,14 +393,26 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 		return fail(err)
 	}
 	e = pinned
+	if err = securefs.EnsurePrivateDir(a.EvidenceDir); err != nil {
+		return fail(err)
+	}
 	if a.Role == "refresh" {
 		return e.executeRefresh(ctx, t, a)
+	}
+	if a.Role == "combine" {
+		return e.executeCombined(ctx, t, a)
 	}
 	original, err := workspace.Snapshot(ctx, e.Settings.Config.Repository.Path)
 	if err != nil {
 		return fail(err)
 	}
 	r := execution.Request{Attempt: a, Task: t, Quality: e.Settings.Quality, Proofs: required(t, a.Role)}
+	if !core.PlanningRole(a.Role) && (t.ParentID != "" || t.Release != nil) {
+		r.Plan, err = e.planContext(ctx, t)
+		if err != nil {
+			return fail(err)
+		}
+	}
 	var copyManifest workspace.CopyState
 	if core.PlanningRole(a.Role) {
 		source, err := workspace.BaselineCopy(ctx, e.Settings.Config, a.Base)
@@ -457,7 +483,7 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 			return fail(err)
 		}
 		for _, old := range prior {
-			if (old.Role == "implementer" || old.Role == "refresh") && old.State == "applied" && old.Version == t.Current().Number && old.Generation == t.Generation && old.Candidate != nil && t.Candidate != nil && *old.Candidate == *t.Candidate {
+			if (old.Role == "implementer" || old.Role == "refresh" || old.Role == "combine") && old.State == "applied" && old.Version == t.Current().Number && old.Generation == t.Generation && old.Candidate != nil && t.Candidate != nil && *old.Candidate == *t.Candidate {
 				r.QualityEvidence = old.Checks
 				for _, check := range old.Checks {
 					if check.Evidence != "" {
@@ -474,6 +500,23 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 				}
 				if state.Exists {
 					r.ReadRoots = append(r.ReadRoots, events)
+				}
+			}
+		}
+	}
+	if r.Plan != nil && a.Role != "implementer" {
+		for _, old := range r.Plan.Evidence {
+			events := filepath.Join(old.EvidenceDir, "events.jsonl")
+			_, _, state, readErr := securefs.ReadFile(events, 32<<20)
+			if readErr != nil && !os.IsNotExist(readErr) {
+				return fail(readErr)
+			}
+			if readErr == nil && state.Exists {
+				r.ReadRoots = append(r.ReadRoots, events)
+			}
+			for _, check := range old.Checks {
+				if check.Evidence != "" {
+					r.ReadRoots = append(r.ReadRoots, check.Evidence)
 				}
 			}
 		}
@@ -553,14 +596,14 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 						a.CheckFiles[name] = files[name]
 					}
 				}
-				a.Checks, checkErr = e.runChecks(ctx, r.Dir, files, e.Settings.Quality, filepath.Join(a.EvidenceDir, "quality"), started)
+				a.Checks, checkErr = e.runChecks(ctx, r.Dir, files, e.Settings.Quality.For(t, false), filepath.Join(a.EvidenceDir, "quality"), started)
 				for _, check := range a.Checks {
 					if !check.Stopped {
 						completion.Stopped = false
 					}
 				}
 				if checkErr == nil {
-					checkErr = e.Settings.Quality.ValidateResults(a.Checks, files)
+					checkErr = e.Settings.Quality.For(t, false).ValidateResults(a.Checks, files)
 				}
 			}
 			if checkErr != nil {
@@ -675,6 +718,21 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 	if a.Role == "refresh" {
 		return e.advanceRefresh(ctx, t, a)
 	}
+	if a.Role == "combine" {
+		if a.Refreshed != nil || a.ConflictRepair != nil {
+			return e.advanceRefresh(ctx, t, a)
+		}
+		if a.Candidate == nil {
+			return errors.New("combined candidate missing")
+		}
+		t.Candidate = a.Candidate
+		if err := e.git().ValidateCandidate(ctx, *t); err != nil {
+			return err
+		}
+		t.Stage, t.NextRole, t.Attention = core.Reviewing, "audit", nil
+		a.State = "applied"
+		return nil
+	}
 	if core.PlanningRole(a.Role) {
 		return advancePlanning(t, a)
 	}
@@ -699,7 +757,7 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 				return err
 			}
 		}
-		if err := e.Settings.Quality.ValidateResults(a.Checks, a.CheckFiles); err != nil {
+		if err := e.Settings.Quality.For(*t, false).ValidateResults(a.Checks, a.CheckFiles); err != nil {
 			return err
 		}
 		d, head, err := e.git().Binding(ctx, *t)
@@ -770,6 +828,14 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 		} else {
 			t.Review = checks
 		}
+		if outcome == "accepted" && t.Release != nil {
+			if err := e.combinedChecks(ctx, *t); err != nil {
+				t.Attention = &core.Attention{Kind: core.ProofGap, Detail: err.Error(), Attempt: a.ID}
+				t.NextRole = ""
+				a.State = "applied"
+				return nil
+			}
+		}
 		switch outcome {
 		case "accepted":
 			t.Stage = core.AwaitingDelivery
@@ -779,7 +845,7 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 			}
 			t.Attention = nil
 		case "gap":
-			if a.Role == "audit" && a.Result.Outcome == "succeeded" {
+			if a.Role == "audit" && len(required(*t, "verify")) != 0 {
 				t.NextRole = "verify"
 			} else {
 				t.Attention = &core.Attention{Kind: "missing_proof", Detail: a.Result.Summary, Attempt: a.ID}

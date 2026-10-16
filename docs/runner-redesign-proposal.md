@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification, R2 backup/restore and R3 operator qualification are complete; R4 promotion/packaging and R5 final qualification are complete within their recorded boundaries. The owner subsequently added the [real-project pilot gate](#real-project-pilots-before-merge); setup qualification is recorded below and the pilots are not yet approved to run. Publication and installation remain separate authorized actions. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 15; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification, R2 backup/restore and R3 operator qualification are complete; R4 promotion/packaging and R5 final qualification are complete within their recorded boundaries. The owner subsequently added the [real-project pilot gate](#real-project-pilots-before-merge); setup qualification is recorded below; the owner has now authorized the remaining qualification work under the bounded brief below. Publication and installation remain separate authorized actions. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Local completion and combined-plan verification are implemented and qualified within their recorded boundaries. Current store format is 16; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -24,6 +24,16 @@ Construction briefs and qualification records below retain their historical
 `runner-next` names, store formats and command lines. Links to retired code are
 pinned to the pre-promotion commit; they are reference evidence, not current
 commands or permission to restore Project coupling.
+
+The owner's 2026-10-16 [product and skill reassessment](#product-and-skill-reassessment)
+clarifies the target beyond the qualified first-release boundary. Legacy feature
+parity is not the finish line; useful local completion and optional integrations
+are. This is design direction, not authorization to start another implementation
+bundle or change the running installation.
+
+The [local completion and combined-plan brief](#local-completion-and-combined-plan-verification-brief)
+now defines that next design boundary, including configurable local delivery and
+merge permission. It is specified, not implemented or qualified.
 
 Start with [release scope](#first-release-scope), [core contracts](#core-contracts),
 and the [release checklist](#frozen-first-release-checklist).
@@ -132,7 +142,7 @@ the revision assessed in those chats.
 | Anthropic exposes metadata queries without requiring workspaces. [Article][anthropic] | Keep observation cheap; create a workspace only when an action needs files. Retain Git for Runner's workload. |
 | Anthropic describes both excessive defensive agent review and useful simulations and fuzzing. [Article][anthropic] | Require concrete, reachable review findings. Invest in interruption, concurrency and publication tests instead of speculative machinery. |
 | The earlier Runner assessment found competing recovery advice for moving a card to Ready and retrying its recorded stage. [Status rendering](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/cmd/cortexium-runner/status.go) | Present the appropriate recovery first, including preserved work and the stage that repeats. |
-| Runner already has candidate-bound evidence, focused follow-up review and private recurring-failure drafts. [Architecture](architecture.md), [evaluation guidance](model-profile-evaluation.md) | Preserve these contracts. Improve visibility and measure their effects rather than adding another review hierarchy or learning store. |
+| The earlier Runner had candidate-bound evidence, focused follow-up review and private recurring-failure drafts. [Evaluation guidance](model-profile-evaluation.md) | Preserve evidence integrity and economical review. The replacement retains task evidence but retired the guidance-draft command; review actual incidents before changing instructions, without adding a learning service. |
 
 Keep Runner's continuous reconciliation, interchangeable harness boundary and
 typed internal actions. Do not adopt file-overlap locks as a substitute for actual
@@ -140,6 +150,113 @@ resource conflicts, mandatory extra reviewer roles, or weaker pre-merge proof. A
 post-merge emphasis reflects its unusual scale and does not justify relaxing
 Runner's integration contract. Worktrees also do not isolate ports, databases
 or test fixtures: declare or allocate those resources when a repository needs them.
+
+## Product and skill reassessment
+
+**Owner clarification, 2026-10-16.** Build the simplest complete Runner around
+the accepted local process. The legacy capability comparison is an inventory
+of possible needs, not a restoration checklist. Existing code, skills and
+research must earn inclusion through a current user outcome or concrete risk.
+R1–R5 qualified their frozen scope; they did not establish legacy feature parity
+or completion of every product goal.
+
+### Local process and optional connections
+
+The target journey is setup, Plan or Ready, approval, execution, independent
+review, meaningful completion and recovery using local authority. A code host,
+issue tracker or board must not be required to complete that local journey,
+including real dependencies. Required local Git objects, a usable configured
+harness and repository verification tools remain prerequisites. A cloud harness
+can still require its provider; optional integrations do not imply offline models.
+
+GitHub is the first and most likely code-delivery integration. GitHub Projects
+is the likely first board view; Trello or another provider should follow a real
+use case. Keep intake, views and delivery separate. A board mirrors bounded
+progress and links; it neither owns approvals nor makes a failed task successful.
+An unavailable board delays its synchronization, while a code-host outage delays
+the affected remote delivery. Neither creates another scheduler or cancels
+unrelated eligible local work. Prove the boundary with actual adapters before
+considering any public plugin framework.
+
+The remaining design questions are about the new process:
+
+| Need | Current evidence and design boundary |
+| --- | --- |
+| Complete local work without GitHub | Local mode currently retains a reviewed candidate in Awaiting delivery. The [new brief](#local-completion-and-combined-plan-verification-brief) defines result-branch or configured-branch completion, human/automatic merge permission and durable local proof. These remain unimplemented. A status edit or an agent's claim cannot substitute for completion proof. |
+| Establish the requested Plan outcome | Child acceptance alone does not establish the combined result. The new brief defines a shared approved outcome, private child integration and combined verification before final delivery. The [legacy plan-delivery decision][legacy-plan-delivery] is evidence, not an implementation to port; its amendments and Project machinery are not adopted. The legacy flow itself still awaits live rollout qualification. |
+| Make ordinary repository checks usable | The [pilot preflight](#real-project-pilots-before-merge) demonstrates toolchain discovery, dependency preparation and loopback gaps. Readiness must exercise the actual execution boundary and distinguish missing capability from a product defect. Add only capabilities needed by supported checks, with clear ownership of ports, processes and data; do not solve failures by blanket host access or baseline exceptions. |
+| Make progress and recovery understandable | Keep attention-first status, explicit limits and stage-specific recovery. Assess automatic remote observation, feedback and an operator skill against the connected journey, without duplicating coordinator decisions. Local operation must remain useful without any of those integrations. |
+
+This reassessment does not reopen every deferred feature. Additional harnesses,
+budgets, workflow composition and services require their own demonstrated need.
+Retain the existing pilot boundary and release evidence. Before another build
+instruction, refine the owning brief here with representative outcomes, existing
+coverage and a clear stopping point. Do not create a parity backlog or copy the
+old runtime to reconcile the branch with `main`.
+
+### Skills and instructions assessed
+
+The 2026-10-16 review read all four installed Runner skills, the replacement's
+[embedded role instructions](../internal/runner/execution/codex.go), its
+[paired behavioral cases](../internal/runner/execution/behavior_eval_test.go),
+and the relevant `start-work`, `pr-ready`, `genny-cli` and `techbase-operations`
+skills. It also inspected the interaction evaluation and Genny verification
+references and the Techbase handoff guidance. Unrelated personal skills are
+outside Runner's instruction surface.
+
+The installed planner, reviewer and interaction-design skill files matched
+legacy commit `14a86d2c26acae4eefe8c499eae4e0cdc4ebede7`; the installed implementer
+did not. Its SHA-256 was
+`a965d1f8b85daf6a0d0c760c3b9cfdcae40a9c505f27c09c3ad6cc6057c36f90`.
+This is a source assessment, not a live evaluation or installation change.
+
+| Instruction surface | Retain or adapt | Remove or qualify before use in the replacement |
+| --- | --- | --- |
+| [Planner][legacy-planner] | Coherent outcomes, inspected contracts, actual dependencies, explicit consequential questions and economical verification. | The installed skill delegates proof technique to the implementer and assumes outline/details stages and per-card profile selection. The new brief must define expected behavior, evidence boundary and inspected coverage before coding; use only the supported planning schema and configured profile policy. |
+| Installed implementer | Complete the scoped outcome, diagnose faithful failures, preserve required assertions, extend/consolidate owning tests and report actual results and limitations. | Do not import its `repair_needed`/`test_requested` protocol, specialist handoff, whole-plan gate or host-only receipt assumptions. Replacement assignments follow the approved verification brief and current result/capability contract. A skill grants neither another role nor more time/access. |
+| [Reviewer][legacy-reviewer] | Independent judgment, concrete reachable findings, distinction between defect/missing proof/decision, test sensitivity and valid evidence reuse. | Adapt legacy status names and member-evidence/whole-plan assumptions to implemented boundaries. The new reviewer checks the agreed test strategy; it must not silently return all evidence-method decisions to the implementer or require speculative tests. |
+| [Interaction design][legacy-interaction] and its evaluation reference | User goal, states, adjacent journeys, accessible interaction and evidence suited to the claim. Distinguish requirement, preference and unobserved behavior. | Keep it optional for relevant UI work. It cannot assume a browser grant or mandatory visual pass for backend tasks. Candidate-bound screenshots establish only what they show; the current harness has no browser capability. |
+| Embedded role instructions and behavioral evaluations | These are the replacement's active, already-qualified contracts: explicit briefs, independent audit, focused verification, bounded repair and honest evidence. Existing cases pair weakened assertions with legitimate consolidation and fabricated claims with real evidence. | Reassess omissions against incidents and current requirements. Extend the owning cases only for distinct risks; do not replace concise contracts with the installed legacy handbooks or treat prompt wording tests as behavioral proof. |
+| Operator interface and `start-work` / `pr-ready` | Current repository authority, status inspection, existing commands, scoped recovery and accurate handoff evidence. | There is no dedicated replacement operator skill yet. A future one should explain and invoke the same deterministic commands, never edit private state, reset limits, operate a second queue or grant its own approval. Generic task/PR skills remain human-session tools, not implicit worker permissions. |
+| `genny-cli` | Target-project source ownership, the selected generator version and verification through real entrypoints. | Local installation/update instructions and absolute reference paths do not become agent capabilities. Bind the approved toolchain and checks to the pilot environment; do not update the user's Genny installation as setup for a Runner task. |
+| `techbase-operations` and handoff guidance | Project ownership, explicit delivery authority, observed evidence and required project-specific checks. | It still says GitHub Project state owns work, uses legacy `add plan`/`add ready`, and assumes Runner installs role skills. Those consumers need a separately scoped cutover update. Techbase's external policy is not Runner's core architecture or a requirement for every repository. |
+
+Keep three execution contracts: planner, implementer and reviewer. Preparation,
+audit and focused verification are supported stages, not reasons to add roles.
+Keep runtime guarantees in code and task-specific requirements in the approved
+brief. Optional references should supply relevant reasoning, not repeat the
+entire process in each assignment. If instructions change, qualify their actual
+behavior with the smallest existing paired cases that cover the change before
+using them for new work. Do not turn this documentation review into global skill
+discovery, automatic skill installation or a new skill/plugin framework.
+
+### Carry research into the owning behavior
+
+The [source-control assessment](codex://threads/01a13967-44ab-71f1-b689-ee91f0ea967d)
+and [software-factory assessment](codex://threads/01a11fb1-f1c6-7a52-b8a2-f35fe00ece4f)
+were reread for this pass. Their source observations remain distinct from their
+assistant recommendations and from Runner's qualification results. The existing
+[lessons table](#lessons-and-their-disposition) remains the source mapping.
+
+Apply the software-factory onboarding and conversational-operation lessons to
+repository readiness and the operator interface: one recommended journey,
+visible waits, concrete next actions, and recovery that says what is retained
+and repeated. Keep inspection read-only. Its [setup][factory-setup] and
+[dispatch skill][factory-dispatch-skill] are references, not imported workflow.
+
+Apply [Anthropic's lessons][anthropic] to complete-journey measurement, cheap
+observation and concrete review findings. Measure time to useful completion,
+integration waits, manual interventions and repeated verification with its
+cause. Keep local Git and required pre-integration proof; their scale and
+post-merge emphasis do not establish Runner's needs.
+
+For each later change, state the user need, source or observed incident, affected
+contract and smallest sufficient proof in its existing brief. Preserve the
+testing policy's ownership: repository policy defines quality; author/planner
+defines the verification brief; implementer extends or consolidates tests;
+reviewer checks adequacy and unnecessary complexity. A repeated model claim is
+not a new rule, a successful check is not proof of every claim, and a useful
+lesson does not require importing the mechanism that originally expressed it.
 
 ## Original constraints to replace (historical assessment)
 
@@ -420,7 +537,7 @@ resource cannot be released merely because a wall-clock lease expired.
 | Implementing to Reviewing | Validate and durably record the completed result, construct/validate its candidate, then make independent review eligible. A model's success string is insufficient. |
 | Reviewing to Awaiting delivery | Required proof is sufficient, independent review accepts, and candidate/authority checks still match. No dependency is satisfied yet. |
 | Reviewing to repair | A confirmed defect and remaining repair allowance permit another implementation attempt. Missing proof or a decision stays Reviewing with its own attention reason. |
-| Awaiting delivery to Completed | Confirm the authorized integration outcome. Local acceptance or PR creation alone cannot complete a code task. |
+| Awaiting delivery to Completed | Confirm the configured delivery outcome: a verified local result receipt, an authorized local base fast-forward, or a confirmed GitHub merge. PR creation alone cannot complete connected delivery. |
 | Any nonterminal stage to Stopped | Record revocation, prevent new actions, request cancellation and retain artifacts. Show cancellation pending until owned processes are known to have stopped. |
 
 Plan adds a planning operation and an awaiting-approval proposal in phase 2.
@@ -776,6 +893,394 @@ unconnected packages. Configuration and user-facing progress are core work.
 Do not postpone test design until a final testing phase. Optional integrations
 must wait when core scenarios, test quality or the operator journey remain weak.
 
+### Local completion and combined-plan verification brief
+
+**Status: implemented and qualified on 2026-10-16 within the boundary below.**
+This brief follows the owner's local-core clarification and decision that local
+delivery and permission to merge should be configurable. It supersedes the
+earlier terminal behavior of local mode and child-count-only Plan completion
+in this implementation. R1–R5 remain evidence for their earlier, bounded behavior.
+
+#### Outcome and boundary
+
+A user can finish a Ready task or a dependent Plan using local Git, the configured
+harness and the repository's verification environment, with no GitHub account,
+remote, `gh`, issue tracker or board. Completion identifies the actual reviewed
+result, its evidence and its chosen destination. A Plan must establish the original
+combined outcome, not merely report that its children passed.
+
+Use the existing coordinator, private store, workspaces, three role contracts,
+quality agreement and recovery policy. A single task and a Plan both produce one
+final candidate; the selected delivery capability determines how it completes.
+Coding agents never gain permission to commit, merge, publish or edit authority.
+
+The implementation boundary includes the necessary existing GitHub consumer
+adjustment: a released Plan delivers its final parent candidate through the same
+draft/base/CI/merge path as Ready, rather than publishing children. Keep one Plan
+process across destinations. Reuse GitHub's existing delivery contract without
+adding polling, board views, new harnesses, installed skills, host access or a
+plugin framework.
+Pilot toolchain/loopback fixes remain a separate brief; missing capabilities
+continue to block required proof rather than weaken it.
+
+#### Local destination and merge permission
+
+Keep `delivery.mode=local`. Add one optional `delivery.local_target`, default
+`result`; `base` selects the existing `repository.base_ref` as the destination.
+Do not introduce a second independently configurable base branch. Reuse
+`policy.merge=human|automatic`, with `human` the default.
+
+| Configuration | Successful result and authorization |
+| --- | --- |
+| Local target `result` | Create a dedicated `runner/result/<top-level-task-id>-v<version>` branch at the fully accepted candidate. Its verified creation plus the local receipt completes the task/Plan. Approval/release authorizes this result; there is no further merge gate. The operator's checkout and configured base stay untouched. |
+| Local target `base`, merge `human` | Retain the accepted result branch, then wait in Awaiting delivery. `task merge ID` explicitly requests one guarded local integration into the configured branch. Completion requires confirmation of that exact integration. |
+| Local target `base`, merge `automatic` | After acceptance, the coordinator admits the same guarded integration under the currently applied policy. No extra approval is required per task, but task/release authority and every verification requirement still apply. |
+| GitHub delivery | Keep the existing host protection, CI and ordinary-merge receipt requirements. Local acceptance alone does not complete a task whose approved destination is GitHub. `local_target` is invalid for this mode. |
+
+Reject `automatic` with local target `result`: that target does not merge a base.
+Show the distinction in setup, approval/release previews and `config explain`.
+Destination is part of fixed repository/delivery authority, selected at setup;
+changing it requires fresh setup and new work approval, not reinterpretation of
+in-flight work. Merge permission remains editable through the existing policy
+preview/apply path. Enabling automatic merging names the branch and explains its
+effect on existing approved work; disabling it fences unsent automatic effects.
+An explicit `task merge` request remains separate authority, as it does today.
+
+Local `base` integration advances the branch to the exact accepted candidate by
+fast-forward. The candidate must contain the freshly observed target base; clean
+refresh and bounded conflict repair prepare it when necessary. No force update,
+squash or unrelated history rewrite is permitted. To keep checkout handling
+small and safe, the initial contract supports only targets not checked out in
+any worktree, even if clean. Setup reports that prerequisite; dispatch checks it
+again. Operators must not concurrently check out or administratively alter the
+reserved target. Expected-old-ref checks protect concurrent ref changes. Runner
+never resets, stashes or switches an operator's files to make a merge possible.
+Result mode remains usable while the source checkout is dirty or on the base;
+only committed, approved source is input.
+
+For a human merge, prefer the same Runner command and guarded path. Explicit
+`task integrate ID` may confirm a manual fast-forward only when the target tip
+is exactly the accepted candidate, all local proof/authority still matches, and
+the candidate contains the last verified base. Other unrecorded merge shapes or
+later descendants require attention; do not infer success from ancestry alone.
+Reconciliation of Runner's own recorded integration can recognize its exact
+commit in later target ancestry without repeating the write.
+
+#### Ready and Plan process
+
+Ready retains its current approval, optional verification preparation,
+implementation and independent review. After acceptance, Runner automatically
+observes the current **local** configured base and completes required refresh,
+checks and review before creating the result branch. It then completes in
+`result` mode or follows the selected merge policy in `base` mode. No GitHub
+adapter is constructed or called on this path.
+
+Plan adds one shared Outcome/Scope/Acceptance/Verification body to the existing
+proposal, alongside its cards and dependency graph. Preserve the original request
+as provenance. The shared body states the requested overall result, constraints,
+cross-card behavior and final evidence boundary, grounded in inspected tests.
+It cannot silently omit requested behavior; material scope choices appear in
+the release preview for explicit approval.
+The release preview binds this body, exact children/versions, quality revision,
+destination and authority generation. Missing outcome proof or consequential
+questions prevent release. No separate final-QA card, manifest service or new
+approval stage is needed.
+
+The released Plan then follows these steps:
+
+1. Create a Runner-owned private integration ref/workspace from the approved
+   base. Each child still has its own worktree. Independent children may run
+   concurrently; a child starts from an observed plan head containing all its
+   exact prerequisite results, not the original base copied to every child.
+2. Independently review each child against its scoped brief and shared context.
+   Serialize inclusion into the plan head. If that head moved, refresh against
+   it and regain affected checks/review through the existing bounded mechanism.
+   Record inclusion only for the accepted resulting commit/tree and exact release.
+   Same-file work alone is not a scheduling dependency.
+3. A durable inclusion receipt can release a dependency **inside that Plan**.
+   It is not final delivery and cannot satisfy an external dependency. Show an
+   included child as Awaiting delivery, “included in Plan; final verification
+   pending”; do not mark it Completed or publish a child PR/result branch.
+4. Once all exact released members are included, freeze that combined candidate,
+   refresh it against the current destination base and run final verification.
+   The existing reviewer assesses the shared outcome, cross-card interactions
+   and required child guarantees on this combined source. A one-child Plan still
+   receives this outcome check; Ready does not gain a redundant parent review.
+5. Deliver the accepted parent candidate to its configured destination. Commit
+   parent completion and children’s final completion together, retaining their
+   original inclusion/evidence history. Each child's completion references its
+   inclusion and the parent receipt; do not fabricate individual deliveries.
+   No child count, planner success string
+   or individual acceptance record can replace the final parent receipt.
+
+Private inclusion is authorized by Plan release and does not wait for the
+external merge policy. Only final integration into the configured branch/host
+uses human or automatic merge permission. Plan internals remain private until
+the accepted final result is delivered. Existing public GitHub delivery uses
+one final parent PR, with the same remote guards as Ready.
+Child delivery/merge/integration commands identify the parent and refuse a
+separate delivery. A stopped member blocks completion of the original Plan;
+it cannot be silently removed from the released outcome.
+
+Final review receives the original request, released shared body and child briefs,
+the exact combined source and comparison, and identified child evidence through
+the existing read-only source/evidence boundary. A historical child report is
+labelled with its original candidate and attempt; never relabel it as current
+combined proof or execute captured report content. No new evidence-bundle service
+or mandatory review role is needed.
+
+Released membership, scope and quality remain immutable in this bundle. Reject
+replacement or quality adoption of a released child as well as its parent;
+stop and submit a new request for a consequential contract change. This replaces
+the current behavior that permits child replacement but strands the original
+Plan. Preserve retained work and evidence; never transfer its authority silently.
+
+#### Verification and bounded repair
+
+Repository policy owns when checks run. Extend the existing named quality check
+with `at: task|completion|both`, default `both`; do not create a second catalog.
+`task` covers child implementation/repair and inclusion; `completion` covers the
+combined Plan result. Standalone Ready must satisfy **all** applicable checks,
+running a `both` check once when source and relevant conditions have not changed.
+Plan release requires at least one completion check. Expensive final suites can
+be placed at completion only through an explicit quality agreement, never by the
+planner or implementer. Timing participates in the quality revision and previews;
+baseline qualification still runs every declared check.
+
+Child briefs identify focused evidence and inspected coverage to extend. The
+parent brief identifies meaningful combined behavior and the existing final
+entrypoints. New permanent tests require a credible uncovered failure; combine
+or extend owning tests where useful. The parent reviewer must assess the approved
+outcome beyond test counts, including omitted behavior and accidentally weakened
+child guarantees, without inventing new product requirements.
+
+Runner runs the pinned completion checks on the combined candidate before final
+audit, then uses focused verification only for specific remaining gaps. Required
+failed or unavailable checks prevent acceptance regardless of model prose.
+An observed failing check may be audited to establish a concrete in-scope defect;
+that uses the ordinary reviewer, not a separate failure-classification role.
+A known unavailable capability stops before speculative repair or another model
+call intended merely to bypass that capability.
+Retained child evidence may support unchanged claims with an explicit relevance
+assessment; it is not a substitute for required combined-candidate checks.
+Resume can reuse valid saved results for the same candidate/conditions. Changed
+source or base requires fresh affected proof; do not rerun passing checks solely
+to obtain another report. Parent repairs or final base refresh run task checks
+as well as completion checks, because they can affect prior child guarantees.
+
+A confirmed final-review defect permits the existing implementer to repair the
+retained combined candidate within the **released shared scope**. Reuse the
+parent's repair limit, implementation ladder and reviewer; then rerun the affected
+proof and combined review. Do not requeue completed child attempts, create repair
+cards or add an ownership-classification agent. Original child receipts remain
+historical evidence, not certification of subsequently changed code. Missing
+proof uses focused verification; missing capabilities or product choices require
+attention. Neither automatically authorizes a code repair.
+
+Planning and final review/verification/repair calls consume the parent's existing
+invocation ceiling; child calls consume their respective task ceilings. Show both
+per-task consumption and the Plan total. Parent defects spend parent repairs,
+child defects spend child repairs, and ref operations consume no model calls.
+Refreshes and text-conflict repairs retain the existing limits and escalation
+semantics. A child starting on the current admitted plan head is not a refresh;
+movement after that binding is. Every allowance survives restart and policy edits.
+No unbounded final review loop, hidden budget reset or new global budget is added.
+
+Local quality must be satisfiable locally. Reject hosted `required_ci` for local
+delivery with guidance to establish a suitable explicit quality agreement or
+choose connected delivery. Do not silently drop a hosted obligation or use a
+baseline exception for an unavailable environment. Required browser/database or
+toolchain capabilities remain blockers until separately qualified.
+
+#### Completion proof, ownership and recovery
+
+Separate provider-neutral completion evidence from the existing GitHub-specific
+receipt. Reuse candidate, base-proof, approval and quality identities; local
+success must not fabricate a PR, CI assessment or remote merge. The local receipt
+binds the task/version/generation, release digest when present, destination,
+observed base, accepted commit/tree, verification/review identities and exact
+observed ref result. Plan inclusion additionally binds its child version and
+expected previous plan head. These are records in the existing private store,
+not agent-editable files or a second event journal.
+
+`core` owns these identities and success/dependency rules; `engine` derives the
+actions; `store` enforces atomic claims and receipt commits; `workspace` owns Git
+effects. `execution` supplies the appropriate shared context and result schema,
+and `cli`/`config` expose the choices. Replace the current child-count completion
+shortcut in `Store.CompletePlans` with the verified-outcome path; do not put the
+new scheduling process in SQL or introduce a separate local-delivery engine.
+
+Record owned intent before a Git effect, use expected-old-ref/expected-absence
+updates, observe actual objects/ref state, then commit the receipt and lifecycle
+change transactionally. Serialize plan-head writes per Plan and final base writes
+per physical repository/ref. Recheck authority and current policy at dispatch
+and receipt commit. Long checks run as owned asynchronous work; status, stop and
+unrelated reconciliation must remain responsive.
+
+For result creation, verify that the source base still equals the freshly checked
+base when creating the result ref. For base integration, its expected old value
+must be that verified base. Movement invalidates the pending intent and uses the
+remaining refresh allowance; it never becomes an unconditional ref update. Create
+the result ref once after full acceptance; retain its pinned commit as evidence.
+If a base-mode task later needs a refreshed candidate, retain the earlier result
+and create a separately identified revision, rather than rewriting a branch the
+operator may already be inspecting. Status identifies the current accepted result.
+
+On restart, a known undispatched intent may proceed only with still-valid proof
+and authority. A possibly dispatched write requires inspection: its exact applied
+effect is recorded without repeating it; a missing or changed ref blocks rather
+than assuming the write never happened. A definitely rejected compare-and-set
+can enter bounded refresh with fresh intent, preserving its failed history.
+A coincidentally matching ref without Runner-owned intent does not prove an
+authorized Runner write. A failed compare-and-set or an uncertain process never
+releases a dependent. Stop prevents unsent effects, cancels owned work and retains
+artifacts; a dispatched effect may remain as historical evidence after revocation
+but cannot complete stopped work. Do not roll back operator history to simulate
+cancellation. Later base movement does not reopen a completed result or imply that
+its historical evidence qualifies the new base.
+
+Backups must include new intents, plan heads, result refs, candidate/evidence
+bindings and owned workspaces. Extend existing drained/freshness/restore checks;
+an unresolved local write or live verification process prevents a resumable backup.
+Use a new store format so older binaries cannot ignore the new completion rules.
+Fresh isolated setup is sufficient; no compatibility runtime or authority importer.
+
+#### Operator contract
+
+Keep `task add`, `approve`, `release`, `show`, `status`, `run`, `stop`,
+`verify-base`, `delivery --reconcile`, `merge` and `integrate`. Extend their
+existing local behavior rather than add a second completion CLI. Approval/release
+shows the destination, whether later merging is automatic, the combined proof
+and relevant limits. Status explains child dependency/inclusion, final checks,
+repair or refresh allowance, human merge wait, checked-out target and result
+branch/commit. Inspection remains read-only.
+
+For example, a local Plan with two dependent changes should read:
+“First change included; second change implementing”, then “Checking combined
+outcome”, then either “Completed — result branch …; base unchanged” or “Awaiting
+delivery — reviewed result …; merge into … requires your action”. No GitHub setup
+step or unexplained Awaiting delivery remains in the result-mode journey.
+Update help, setup examples and the operator guide with the implementation.
+Keep installed legacy skills and the running service unchanged.
+
+#### Verification brief and finish line
+
+Extend existing owning suites; the rows below are distinct guarantees, not a
+required new test file or test per table cell. Use real temporary Git and SQLite
+at their boundaries, explicit interruption signals, and small model/host adapters
+only where their protocol is the subject of the test.
+
+| Claim and representative expected result | Existing coverage to extend |
+| --- | --- |
+| Ready completes locally without remotes or `gh`; result mode preserves a dirty operator checkout/base; base mode waits for human permission or performs one authorized fast-forward. A checked-out target is refused without touching files. | [CLI journey](../internal/runner/cli/cli_test.go), [integration journeys](../internal/runner/engine/integration_test.go), [workspace delivery](../internal/runner/workspace/delivery_test.go). Fail the fixture if a GitHub adapter is called. |
+| A Plan A → B plus independent C admits safe concurrent work; B reads A's included code. Missing, replaced, unreviewed or revoked versions cannot release B. All children passing with a missing combined consumer behavior still fails parent review. | [Planning rules](../internal/runner/core/planning_test.go), [store release/claim races](../internal/runner/store/planning_test.go), [Plan journeys](../internal/runner/engine/planning_test.go). |
+| Parent completion requires actual combined checks/review and destination proof; parent and children settle once. Parent repair preserves sound sibling changes, spends its allowance and fixes the combined defect; missing tools spend no repair or escalation. | Extend/replace the old child-count completion expectation in [integration tests](../internal/runner/engine/integration_test.go); reuse [quality](../internal/runner/engine/quality_test.go) and [policy](../internal/runner/engine/policy_test.go) fixtures. |
+| Source/base movement invalidates pending proof; a clean combination is reverified, a text conflict uses the bounded path, and exhaustion stays visible. A valid equivalent test consolidation is accepted while a weakened assertion is rejected. | [Refresh/conflict tests](../internal/runner/engine/refresh_test.go) and existing [paired role evaluations](../internal/runner/execution/behavior_eval_test.go). |
+| Crash before/after a ref write, competing completion, stop at dispatch and edited/deleted refs cannot duplicate work or forge success. Disabling automatic merging fences unsent actions; another task and status still progress during slow checks. | [Integration](../internal/runner/engine/integration_test.go), [merge policy](../internal/runner/engine/merge_test.go), [store](../internal/runner/store/store_test.go) and [policy concurrency](../internal/runner/engine/policy_test.go) suites. |
+| `task`/`completion`/`both` select the agreed checks; Ready does not omit completion checks; Plan does not repeat completion-only suites per child. Changed parent source invalidates affected evidence; hosted-only requirements cannot pass in local mode. | [Quality checks](../internal/runner/config/quality_test.go), [quality journeys](../internal/runner/engine/quality_test.go) and [execution checks](../internal/runner/execution/check_test.go). |
+| Drained backup/restore retains a partially included Plan and completed local results; stale restore cannot revive writes. GitHub Ready retains its gates; a GitHub Plan emits one parent draft only after combined acceptance and completes only after its confirmed merge. | [Backup round trips](../internal/runner/backup/backup_test.go), [delivery](../internal/runner/engine/delivery_test.go), [CI](../internal/runner/engine/ci_test.go), [integration](../internal/runner/engine/integration_test.go) and [merge](../internal/runner/engine/merge_test.go) fixtures. |
+
+Implementation order is local completion/permission and receipts, then shared
+Plan outcome/inclusion/final verification, then consumer/help updates and complete
+qualification. These are internal construction steps, not permission to declare
+the brief complete after Ready alone. Preserve GitHub's existing guarantees while
+adapting its Plan consumer; do not retain an alternate child-PR Plan workflow.
+
+Required implementation gates are `go test -race -timeout 15m ./...`,
+`go vet ./...` and a CLI build. Qualify changed planner/reviewer behavior with
+the existing opt-in native evaluation using `gpt-6.1-sol / high`: one Plan with
+actual dependent changes and combined proof, plus paired combined-outcome defect
+and correct-control cases. Reuse existing test-quality cases unless the changed
+instructions or an unresolved concern invalidate them. Record actual calls,
+limits, commands, outcomes and environment failures separately.
+
+Also exercise real CLI Ready and Plan journeys in disposable local repositories,
+covering result delivery and human/automatic base integration, restart and
+inspection of the delivered code. No GitHub credentials or remote are available
+to those journeys. Controlled GitHub adapter journeys qualify the consumer
+adjustment here; renewed real-GitHub qualification remains a pre-release gate
+before claiming the changed connected Plan flow is live-qualified. No production
+repository, running installation or global skill change belongs to these checks.
+
+Finish only when both local entry paths reach their selected terminal outcome,
+the combined-outcome failure cannot pass, recovery preserves authority and work,
+the configurable merge policy is demonstrated, and help/evidence name the actual
+limits. Stop before pilot implementation/environment expansion, board views,
+remote polling, arbitrary Plan amendments, additional hosted merge methods,
+publishing or installation changes. The following qualification record distinguishes
+implemented behavior from earlier release evidence.
+
+#### Qualification record, 2026-10-16
+
+Implemented in `codex/runner-local-core` under this brief. Local Ready and Plan
+share the existing coordinator and delivery lifecycle. The change adds owned Git
+ref intents, inclusion/completion receipts, the shared Plan brief and check timing
+to the existing packages; it removes the child-count completion shortcut and
+child-PR delivery. No additional scheduler, review role or plugin framework was
+introduced. The operator guide describes configuration, result inspection,
+permission, recovery and the checked-out-base restriction.
+
+Store format **16** deliberately rejects earlier state. Preserve the old binary,
+state and backups; use fresh configuration/state/workspace paths and fresh
+approvals. This bundle does not migrate the running installation.
+
+Verification uses the existing integration, planning, quality, CLI, backup and
+native role-evaluation suites. The owning journeys cover actual temporary Git
+and SQLite, concurrent A → B plus independent C, refresh before inclusion/final
+proof, parent repair, missing capabilities, focused proof gaps, failed required
+checks despite passing review prose, manual/human/automatic local delivery,
+checked-out targets, consumed-write recovery and revocation. The CLI round trip
+now retains completed Ready/Plan results; backup additionally retains a partially
+included Plan and rejects an unresolved local write. GitHub's controlled journey
+proves one parent publication, pinned CI and atomic parent/child completion.
+
+Native qualification uses `gpt-6.1-sol / high` with the real sandboxed Codex
+harness in disposable repositories under `/private/tmp`. The completed operator
+journeys use a six-call per-task ceiling, one repair, no transient retries, two
+base refreshes and parallelism two; each invocation has a four-minute timeout.
+
+| Native observation | Actual result |
+| --- | --- |
+| Two dependent cards: normalize the greeting, then consume it in `example.py`; local result destination | Completed in six model calls: planner, two child implementations/reviews and final parent review. Existing unittest assertions pass; the delivered example prints exactly `Hello, Ada!` and a newline. Base and uncommitted operator work are unchanged. |
+| Ready, local base, human permission | Completed in two calls. Base stayed unchanged until `task merge`; one exact fast-forward receipt then completed the task. |
+| Ready, local base, automatic permission | Completed in two calls with one recorded fast-forward and no per-task merge request. |
+| Paired combined outcome, latest parent reviewer instructions | Two calls: missing consumer behavior was rejected as a defect despite passing unit checks; the correct control was accepted. |
+| Existing fabricated-evidence control, latest reviewer instructions | One call: missing command execution evidence remained a proof gap, not acceptance or an invented source defect. |
+| Final-binary coordinator restart and read-only inspection of the three completed journeys | Passed with unchanged task receipts, candidates and invocation counts; no model calls repeated. |
+| Ready result with `gh` absent from PATH, empty GitHub configuration and no remote | Completed in two calls; delivered assertions pass and the original base/operator files remain unchanged. |
+| Dependent Plan with separate task/completion checks, latest child instructions, and the same unavailable GitHub boundary | Completed in six calls. Each child ran its task check; the parent ran the completion check once. Combined example output and existing assertions pass. No repairs, escalation or refreshes were consumed. |
+
+Qualification exposed and fixed missing read access to historical child command
+logs, a missing evidence directory for no-op refresh backup, and disabled-policy
+reconciliation of already dispatched local writes. Human permission remains bound
+to its exact base proof. Required combined checks cannot be overridden by model
+prose. Restoring a missing check capability resumes deterministic checks without
+spending a repair or escalation; the subsequent ordinary review uses one call.
+
+Keep failures distinct from passing evidence: the first native Plan used six
+calls and stopped with a historical-command-evidence gap before the read-root fix.
+An initial pair launched beneath `.codex` failed while loading instructions before
+model evaluation; moving disposable fixtures to `/private/tmp` fixed the sandbox
+path issue without broadening permissions. The earlier successful combined pair
+used two calls; the latest three-call evaluation above includes the additional
+fabricated-evidence control. Interrupted superseded gate runs are not passes.
+
+Final gates passed: `go test -race -timeout 15m ./...` (recorded with `-json`;
+engine suite 704 seconds), `go vet ./...` and
+`go build -o /private/tmp/runner-local-completion-final ./cmd/cortexium-runner`.
+The complete diff was reviewed; whitespace, documentation links and code fences
+were checked. Native command logs, attempts, summaries and binary identities are indexed
+at `/Users/dan/.codex/runner-qualification/local-completion-20261016/summary.json`.
+The original native fixtures remain at their recorded `/private/tmp` paths;
+evidence is local and is not published with the repository.
+
+The expanded connected Plan flow is **controlled-adapter qualified only**; renewed
+real-GitHub qualification remains a pre-release gate. This bundle does not renew
+Linux release qualification or qualify the pilot toolchain/loopback boundary.
+Real-project pilot implementation, boards, publication, installation and cutover
+remain separate work. No running service, global skill or production repository
+was changed.
+
 ### Frozen first-release checklist
 
 **Scope frozen on 2026-10-15, after `aedc8bd`.** The nine phase 3 bundles close
@@ -907,8 +1412,9 @@ one repair, one transient retry and one base refresh initially. Agree a bounded
 invocation cap with the final task/plan; do not reset counters to continue.
 Confirm no existing Runner owns the selected work before scheduling. Connected
 delivery must use an explicitly selected repository/base and observed CI names
-and app identities. Local mode cannot complete dependent work; a full dependent
-pilot requires confirmed ordinary merges. Measure setup interventions, status
+and app identities. Local result delivery now supports dependent Plans and combined
+verification without GitHub. A connected pilot completes after its confirmed
+ordinary parent merge; human merge remains the policy for these project pilots. Measure setup interventions, status
 clarity, calls/retries, proof reuse and unnecessary test growth as well as the
 result. The end condition is reviewed useful changes plus an honest account of
 operator friction, followed by redesign/main reconciliation and verification of
@@ -1025,6 +1531,78 @@ comparison. Production project working trees, live data, services and the
 installed Runner/Genny binaries remain unchanged. This documentation pass adds
 no maintained tests or production code; the diagnostic fixture stays outside
 the repository. New paid model calls: **0**. Remote writes: **0**.
+
+#### Remaining qualification implementation brief, 2026-10-16
+
+**Authorized:** finish documentation and harness-learning reconciliation, usable
+contained checks, the api-mcp pilot and Genny verification/adoption pilot, renewed
+connected Plan and platform qualification, main reconciliation and PR #106.
+Publication, installation/cutover, project merges, board integrations and new
+model-harness adapters remain separate. The earlier setup-only authorization
+and evidence above are historical, not current scheduling authority.
+
+**Supported check environment:** retain native Codex containment as the default.
+An owner may instead pin a local Docker image by exact `sha256:` image ID in the
+quality agreement. Prepare that image explicitly with its toolchain and offline
+dependencies; Runner neither pulls images nor downloads dependencies. The image
+identity participates in quality previews, approvals and retained evidence.
+Each check gets a fresh container, the existing disposable source copy, private
+HOME/scratch, a read-only container root, unprivileged user, dropped capabilities,
+no host credentials, no Docker socket, no host network and no published ports.
+`--network none` permits fixture loopback only within that container. It does not
+grant access to host loopback or external services. Image preparation is an
+operator action outside repository/model execution. No generic resource service,
+second scheduler or arbitrary permission profile is added.
+
+A durable process record must include container ownership before launch.
+Cancellation must remove the owned container and confirm absence before releasing
+its reservation. Recovery and backup must retain ownership if either its process
+group or container remains, or the Docker daemon cannot establish absence.
+Missing Docker/image/tool, unsupported image configuration and setup failure are
+unavailable proof, never a source defect or baseline waiver. Checks retain source
+integrity verification, output bounds and their existing deadline.
+
+**Representative results and coverage:** extend `config/quality_test.go` for
+immutable image selection and approval identity; extend the execution check and
+process suites for native-default preservation, actual offline tool execution,
+container-only loopback, denied host/outbound access, missing prerequisites,
+source integrity, cancellation/absence and unknown ownership. Use the existing
+engine quality/backup suites for propagation and recovery; do not create a second
+end-to-end test framework. Qualify unchanged api-mcp and Genny commands through
+the exact environment before authorizing model work. The normal race and vet
+gates and native check-boundary qualification remain required.
+
+**Harness learnings:** apply the observations in
+[model and role evaluation](model-profile-evaluation.md#local-harness-benchmark-learnings)
+to existing boundaries. Require valid structured proof and a terminal successful
+protocol result; exit status zero alone is insufficient. Preserve invocation and
+repair/retry bounds across interruptions. Keep backend/capability failure distinct
+from a defect. Context/compaction settings and requested versus observed reasoning
+belong to a qualified profile; do not assume one backend implements another's
+protocol. Codex remains the supported adapter. Pi/OpenCode adapters require their
+own future brief and native contract qualification; do not copy benchmark code.
+
+**Pilots:** api-mcp retains the Ready behavior and owning coverage above. Its
+patched Go baseline must agree with CI before claiming that gate. Use human
+integration and retain candidate-bound local and remote evidence. The owner
+selected an isolated verification/adoption pilot of existing Genny PR #576
+(`24665db0e196bfe440d865dff4cbdc3eecf17f2c`); #575's implementation and ShowIP
+PR #19 already exist. Reproduce the approved historical patch/output contract,
+run applicable existing generated/backend tests and address only demonstrated
+gaps. Do not create duplicate implementation, manufacture dependencies, edit
+ShowIP, replace PR #576 or change its ownership. Record if no source fix is needed.
+Use `gpt-6.1-sol / high`, human merge, parallelism one, one repair/retry/refresh,
+explicit invocation/time limits and fresh isolated authority. The owner's current
+instruction authorizes these pilot approvals within these briefs.
+
+**Finish line:** renew live GitHub qualification of one combined parent draft and
+confirmed ordinary merge in the dedicated qualification repository; review incoming
+`main` changes individually, retaining applicable shared safety fixes and retiring
+legacy-only consumers. Update the Go security baseline and CI/release safeguards.
+Run required full gates, native Mac/Linux and package checks on the resulting
+candidate, then update draft PR #106 with honest evidence and breaking changes.
+Real-project changes remain available for review under human merge policy. No
+release/tag, publisher dispatch, production merge or running installation change.
 
 #### R1 implementation and verification brief
 
@@ -4124,9 +4702,12 @@ without pretending historical runtime state is portable.
 AGENTS.md and ADR 0005 establish the replacement authority, package and testing
 contracts. Earlier decisions identify their superseded assumptions. ADR 0003's
 pinned-reference guarantees remain relevant when references are supported.
-Current role skills remain with the current binary. Phase 1 supplies and
-qualifies replacement implementer/reviewer instructions; phase 2 adds planner
-and operator instructions under the same ownership and recovery policy.
+The installed legacy role skills remain with the running legacy installation.
+The replacement uses its qualified embedded implementation, review and planning
+instructions; R4 retired the old bundled skill catalog. The operator interface
+is implemented, but a dedicated operator skill remains future work. Use the
+[skill reassessment](#skills-and-instructions-assessed) before adapting instructions;
+do not change installed skills as an incidental documentation update.
 
 The new release needs its own accurate architecture, setup guide, examples,
 operator reference and help output. Resolve older contribution/intake wording.
@@ -4144,7 +4725,7 @@ the independent reviewer assesses both the change and its proof. Moving every
 test decision from one agent to another would not itself solve overengineering.
 The decisions need an explicit contract and independent review.
 
-The current [planner skill](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/skills/runner-planner/SKILL.md) deliberately leaves
+The originally assessed [planner skill](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/skills/runner-planner/SKILL.md) deliberately leaves
 verification technique to the implementer, and the
 [reviewer skill](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/skills/runner-reviewer/SKILL.md) repeats that ownership.
 The [implementer skill](https://github.com/cortexium-io/runner/blob/5897f4ce2177c23edaaf6fd565d5768a634fc8a7/skills/runner-implementer/SKILL.md) already asks for
@@ -4364,7 +4945,16 @@ Pilot setup blockers must be resolved under a separately authorized brief before
 implementation is scheduled. After the pilots, reconcile the redesign with
 current `main` and qualify the integrated candidate. Publication and
 installation/cutover require separate explicit direction and the existing
-reviewed-source release safeguards. Optional integrations stay deferred.
+reviewed-source release safeguards. The [product and skill reassessment](#product-and-skill-reassessment)
+and its [local completion brief](#local-completion-and-combined-plan-verification-brief)
+define the implemented local journey and its qualification boundary. Renewed
+connected Plan, check-environment, pilot and integrated platform evidence remain
+required under the brief below. Optional integrations stay deferred.
+
+[legacy-plan-delivery]: https://github.com/cortexium-io/runner/blob/14a86d2c26acae4eefe8c499eae4e0cdc4ebede7/docs/decisions/0005-approved-outcome-delivery.md
+[legacy-planner]: https://github.com/cortexium-io/runner/blob/14a86d2c26acae4eefe8c499eae4e0cdc4ebede7/skills/runner-planner/SKILL.md
+[legacy-reviewer]: https://github.com/cortexium-io/runner/blob/14a86d2c26acae4eefe8c499eae4e0cdc4ebede7/skills/runner-reviewer/SKILL.md
+[legacy-interaction]: https://github.com/cortexium-io/runner/blob/14a86d2c26acae4eefe8c499eae4e0cdc4ebede7/skills/runner-interaction-design/SKILL.md
 
 [factory]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/README.md
 [factory-setup]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/skills/factory-init/SKILL.md

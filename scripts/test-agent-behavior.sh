@@ -2,13 +2,14 @@
 # Explicit opt-in: these cases invoke the authenticated Codex CLI and incur usage.
 set -eu
 usage() {
- printf '%s\n' 'usage: test-agent-behavior.sh ready|plan|ci-repair|conflict-repair MODEL REASONING NEW_EVIDENCE_DIR'
+ printf '%s\n' 'usage: test-agent-behavior.sh ready|plan|combined|ci-repair|conflict-repair MODEL REASONING NEW_EVIDENCE_DIR'
 }
 if [ "$#" -eq 1 ] && { [ "$1" = --help ] || [ "$1" = -h ]; }; then usage; exit 0; fi
 if [ "$#" -ne 4 ]; then usage >&2; exit 2; fi
 case "$1" in
  ready) test_name=TestLiveReadyReviewBehavior ;;
  plan) test_name=TestLivePlanningBehavior ;;
+ combined) test_name=TestLiveCombinedOutcomeBehavior ;;
  ci-repair) test_name=TestLiveCIRepairBehavior ;;
  conflict-repair) test_name=TestLiveConflictRepairBehavior ;;
  *) usage >&2; exit 2 ;;

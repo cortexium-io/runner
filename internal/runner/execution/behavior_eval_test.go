@@ -425,3 +425,76 @@ func TestLiveConflictRepairBehavior(t *testing.T) {
 		})
 	}
 }
+
+// Individual child checks pass in both cases. The parent must assess whether
+// the application actually consumes their combined behavior.
+func TestLiveCombinedOutcomeBehavior(t *testing.T) {
+	root, p, harness := liveEvaluation(t, "combined-outcome")
+	for _, broken := range []bool{true, false} {
+		name := "correct"
+		if broken {
+			name = "missing-consumer"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(root, name)
+			source := filepath.Join(dir, "source")
+			neutral := filepath.Join(dir, "audit")
+			for _, path := range []string{source, neutral} {
+				if err := os.MkdirAll(path, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			app := "from greet import greet\nprint(greet('  Ada  '))\n"
+			if broken {
+				app = "from greet import greet\nprint('Hello,   Ada  !')\n"
+			}
+			files := map[string]string{"greet.py": "def greet(name):\n    return 'Hello, ' + (name.strip() or 'World') + '!'\n", "example.py": app, "test_greet.py": "import unittest\nfrom greet import greet\nclass Tests(unittest.TestCase):\n    def test_names(self):\n        for name, expected in [('Ada', 'Hello, Ada!'), ('  Ada  ', 'Hello, Ada!'), (' ', 'Hello, World!')]:\n            self.assertEqual(greet(name), expected)\n"}
+			for name, body := range files {
+				if err := os.WriteFile(filepath.Join(source, name), []byte(body), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.CommandContext(t.Context(), "python3", "-B", "-m", "unittest", "-q")
+			cmd.Dir = source
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatal(err)
+			}
+			log := filepath.Join(dir, "combined-check.log")
+			if err = os.WriteFile(log, out, 0600); err != nil {
+				t.Fatal(err)
+			}
+			body := "## Outcome\nNormalize names and demonstrate the normalized result in example.py.\n## Scope\ngreet.py, example.py and existing test_greet.py only. No new framework.\n## Acceptance\ngreet strips names and substitutes World for whitespace. Executing example.py must print exactly Hello, Ada! and a newline, using greet on padded Ada. Preserve child greeting assertions.\n## Verification\nRun existing unittest checks. Inspect the combined application consumption at the example.py boundary: padded Ada must use greet and produce the exact stated output. Existing evidence is sufficient when it establishes both guarantees; don't require a new suite merely because two cards were combined.\n"
+			v, err := core.NewVersion(1, body, "fixture", "local", "quality")
+			if err != nil {
+				t.Fatal(err)
+			}
+			task := core.Task{ID: name, PlanRequest: true, Versions: []core.Version{v}, Proposal: &core.PlanningResult{Body: body}, Release: &core.PlanRelease{Preview: "released", Children: []string{"greeting", "example"}}}
+			history := []core.Attempt{{ID: "greeting-audit", TaskID: "greeting", Role: "audit", Candidate: &core.Candidate{Commit: "historical-child-head"}, Result: &core.Result{Outcome: "succeeded", Summary: "Individual greeting assertions passed"}}, {ID: "example-audit", TaskID: "example", Role: "audit", Candidate: &core.Candidate{Commit: "historical-example-head"}, Result: &core.Result{Outcome: "succeeded", Summary: "Example file exists; child reviewer reported success"}}}
+			r := Request{Attempt: core.Attempt{ID: name, Role: "audit", Profile: p, EvidenceDir: filepath.Join(dir, "attempt")}, Task: task, Proofs: v.Proofs, Dir: neutral, ReadRoots: []string{source, log}, Quality: config.Quality{Definition: "Entire released outcome established, with preserved child guarantees", Checks: []config.QualityCheck{{ID: "unit", At: "completion", Command: "python3 -B -m unittest -q", Directory: ".", Prerequisites: []string{"python3"}, Timeout: "1m"}}}, QualityEvidence: []core.CheckObservation{{CheckID: "unit", Status: "passed", Stopped: true, Evidence: log}}, Plan: &PlanContext{OriginalRequest: body, SharedBody: body, Evidence: history}}
+			got := harness.Execute(t.Context(), r, func(core.Process) error { return nil })
+			if got.Error != "" || !got.Stopped || got.Result == nil {
+				t.Fatal(got)
+			}
+			want := core.Accepted
+			if broken {
+				want = core.ConfirmedDefect
+			}
+			actual := core.ReviewOutcome(got.Result.Checks)
+			data, _ := json.MarshalIndent(map[string]any{"expected": want, "actual": actual, "result": got.Result, "model": p}, "", "  ")
+			if err = os.WriteFile(filepath.Join(dir, "evaluation.json"), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("expected=%s actual=%s; %s", want, actual, got.Result.Summary)
+			if actual != want {
+				t.Fatalf("want %s got %s; evidence %s", want, actual, dir)
+			}
+			for name, body := range files {
+				data, err := os.ReadFile(filepath.Join(source, name))
+				if err != nil || string(data) != body {
+					t.Fatal("audit altered source", name, err)
+				}
+			}
+		})
+	}
+}

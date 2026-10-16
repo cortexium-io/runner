@@ -295,8 +295,8 @@ func (c CLI) task(ctx context.Context, e *engine.Engine, args []string) error {
 func (c CLI) printView(v engine.View, full bool) {
 	t := v.Task
 	fmt.Fprintf(c.Out, "%s v%d — %s\n%s\n%s\nNext: %s\n", t.ID, t.Current().Number, t.Stage, engine.TaskTitle(t), v.Summary, v.NextAction)
-	if v.DeliveryDestination != "" {
-		fmt.Fprintln(c.Out, "Configured delivery destination:", v.DeliveryDestination, "; merge policy:", v.MergePolicy)
+	if v.Destination != "" {
+		fmt.Fprintln(c.Out, "Configured delivery destination:", v.Destination, "; merge policy:", v.MergePolicy)
 	}
 	if v.Recovery != nil {
 		fmt.Fprintf(c.Out, "Recovery role: %s\nPreserved: %s\nRepeats: %s\n", v.Recovery.Role, v.Recovery.Preserved, v.Recovery.Repeats)
@@ -314,6 +314,7 @@ func (c CLI) printView(v engine.View, full bool) {
 		fmt.Fprintf(c.Out, "Current default quality: %s\nQuality adoption preview: %s\nAdoption creates an unapproved version and revokes old actions.\n", v.CurrentQuality, v.QualityAdoptionPreview)
 	}
 	if t.Proposal != nil {
+		fmt.Fprintln(c.Out, "Shared outcome and final verification:\n"+t.Proposal.Body)
 		fmt.Fprintf(c.Out, "Proposal: %d cards; %d open questions\n", len(t.Proposal.Cards), len(t.Proposal.Questions))
 		if v.ReleasePreview != "" {
 			fmt.Fprintf(c.Out, "Release preview: %s\n", v.ReleasePreview)
@@ -327,6 +328,15 @@ func (c CLI) printView(v engine.View, full bool) {
 	}
 	if t.Prepared != nil {
 		fmt.Fprintf(c.Out, "Prepared verification (attempt %s):\n%s\n", t.Prepared.Attempt, t.Prepared.Requirement)
+	}
+	if v.PlanUsage != nil {
+		fmt.Fprintf(c.Out, "Plan total: %d invocations, %d repairs, %d base refreshes (parent: %d invocations)\n", v.PlanUsage.Invocations, v.PlanUsage.Repairs, v.PlanUsage.BaseRefreshes, t.Usage.Invocations)
+	}
+	if t.Completion != nil {
+		fmt.Fprintf(c.Out, "Completion: %s; ref %s; commit %s; parent %s\n", t.Completion.Kind, t.Completion.Ref, t.Completion.Commit, t.Completion.ParentID)
+	}
+	for _, w := range t.RefWrites {
+		fmt.Fprintf(c.Out, "Local %s: %s; %s -> %s; %s\n", w.Kind, w.State, w.Ref, w.Commit, w.Detail)
 	}
 	if t.Release != nil {
 		fmt.Fprintf(c.Out, "Released children: %v\n", t.Release.Children)
@@ -423,7 +433,7 @@ func (c CLI) printView(v engine.View, full bool) {
 	}
 	for _, a := range v.Attempts {
 		fmt.Fprintf(c.Out, "Attempt %s: %s / %s", a.ID, a.Role, a.State)
-		if a.Role == "refresh" {
+		if core.DeterministicRole(a.Role) {
 			fmt.Fprint(c.Out, "; deterministic, no model")
 		} else {
 			fmt.Fprintf(c.Out, "; %s / %s", a.Profile.Model, a.Profile.Reasoning)
@@ -443,8 +453,8 @@ func (c CLI) printView(v engine.View, full bool) {
 	}
 	fmt.Fprintln(c.Out)
 	if v.Eligibility.Role != "" && (v.FocusAttempt == nil || !v.FocusAttempt.Occupying) {
-		if v.Eligibility.Role == "refresh" {
-			fmt.Fprintln(c.Out, "Next action: refresh;", v.Eligibility.Reason)
+		if core.DeterministicRole(v.Eligibility.Role) {
+			fmt.Fprintf(c.Out, "Next action: %s; %s\n", v.Eligibility.Role, v.Eligibility.Reason)
 		} else {
 			fmt.Fprintf(c.Out, "Next role: %s; profile %s = %s / %s; reason: %s\n", v.Eligibility.Role, v.Eligibility.ProfileName, v.Eligibility.Profile.Model, v.Eligibility.Profile.Reasoning, v.Eligibility.Reason)
 		}

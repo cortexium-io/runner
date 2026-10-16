@@ -50,7 +50,7 @@ func (p PublicationIntent) Authorized(t Task) bool {
 	if p.Sync != nil && (t.BaseProof == nil || !t.BaseProof.Matches(t) || t.BaseProof.Base != p.Sync.Base) {
 		return false
 	}
-	return t.ID == p.TaskID && t.Current().Number == p.Version && t.Generation == p.Generation &&
+	return t.ParentID == "" && t.ID == p.TaskID && t.Current().Number == p.Version && t.Generation == p.Generation &&
 		t.Stage == AwaitingDelivery && t.NextRole == "" && t.Attention == nil && t.Approval != nil &&
 		t.Approval.Generation == p.Generation && t.Approval.Base == p.ApprovedBase &&
 		t.Candidate != nil && *t.Candidate == p.Candidate && t.Current().Quality == p.Quality &&

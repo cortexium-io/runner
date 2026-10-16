@@ -59,47 +59,17 @@ func completeIntegration(ctx context.Context, tx *sql.Tx, p *core.Publication, o
 			r.State, r.Detail = "stale", "Authority or prerequisite changed before confirmation; observation retained without completion."
 			return nil
 		}
+		if t.Release != nil && !core.AllIncluded(t, tasks) {
+			r.State, r.Detail = "stale", "Plan members changed before confirmation"
+			return nil
+		}
+		t.Completion = &core.CompletionReceipt{Kind: "github", PublicationID: p.Intent.ID, Commit: r.Observation.MergeCommit, Tree: r.Request.Proof.Candidate.Tree}
+		if err = completeChildren(ctx, tx, t, tasks); err != nil {
+			return err
+		}
 		t.Stage, t.NextRole, t.Pending, t.Attention = core.Completed, "", nil, nil
 		t.Integration = &core.IntegrationReceipt{PublicationID: p.Intent.ID, Assessment: *r}
 		return writeTask(ctx, tx, t.Revision, t)
 	}
 	return errors.New("integration task missing")
-}
-
-// Plan completion is deterministic and restartable; no remote read or model is
-// involved. Every child must still be the original approved release version.
-func (s *Store) CompletePlans(ctx context.Context) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	tasks, err := transactionTasks(ctx, tx)
-	if err != nil {
-		return err
-	}
-	byID := map[string]core.Task{}
-	for _, t := range tasks {
-		byID[t.ID] = t
-	}
-	for _, parent := range tasks {
-		if parent.Release == nil || parent.Stage == core.Stopped || parent.Stage == core.Completed || parent.Approval == nil || parent.Approval.Generation != parent.Generation || len(parent.Release.Children) == 0 {
-			continue
-		}
-		done := true
-		for _, id := range parent.Release.Children {
-			child, ok := byID[id]
-			if !ok || child.ParentID != parent.ID || child.Current().Number != 1 || child.Stage != core.Completed || child.Integration == nil || child.Integration.Assessment.State != "confirmed" {
-				done = false
-				break
-			}
-		}
-		if done {
-			parent.Stage, parent.NextRole, parent.Attention = core.Completed, "", nil
-			if err = writeTask(ctx, tx, parent.Revision, parent); err != nil {
-				return err
-			}
-		}
-	}
-	return tx.Commit()
 }

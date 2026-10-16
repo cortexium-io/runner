@@ -16,6 +16,7 @@ import (
 const CheckEnvironment = "isolated PATH; private HOME/TMPDIR; LANG=C LC_ALL=C; no inherited credentials"
 
 type QualityCheck struct {
+	At            string   `json:"at,omitempty"`
 	Path          string   `json:"-"`
 	ID            string   `json:"id"`
 	Command       string   `json:"command"`
@@ -78,6 +79,9 @@ func (s QualitySpec) Validate() error {
 	}
 	seen := map[string]bool{}
 	for _, c := range s.Checks {
+		if c.At != "" && c.At != "task" && c.At != "completion" && c.At != "both" {
+			return fmt.Errorf("check %s: at must be task, completion or both", c.ID)
+		}
 		d, err := time.ParseDuration(c.Timeout)
 		if !checkID.MatchString(c.ID) || seen[c.ID] || strings.TrimSpace(c.Command) == "" || !RelativePath(c.Directory) || err != nil || d <= 0 || len(c.Prerequisites) == 0 {
 			return fmt.Errorf("invalid or duplicate check %q: command, relative directory, prerequisites and positive timeout required", c.ID)
@@ -179,4 +183,19 @@ func (q Quality) ValidateResults(results []core.CheckObservation, files map[stri
 		}
 	}
 	return nil
+}
+
+// For selects only timing; the pinned agreement identity remains the full revision.
+func (q Quality) For(t core.Task, completion bool) Quality {
+	if t.ParentID == "" && (!t.PlanRequest || !completion) {
+		return q
+	}
+	checks := []QualityCheck{}
+	for _, c := range q.Checks {
+		if c.At == "" || c.At == "both" || (t.ParentID != "" && c.At == "task") || (t.ParentID == "" && c.At == "completion") {
+			checks = append(checks, c)
+		}
+	}
+	q.Checks = checks
+	return q
 }

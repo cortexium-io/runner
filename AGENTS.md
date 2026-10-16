@@ -25,10 +25,16 @@ are the release work source. R1 delivery, R2 backup/restore, R3 operator
 qualification, R4 promotion/packaging and R5 final qualification/cutover rehearsal
 are complete within their recorded evidence boundaries. The owner subsequently
 added [real-project pilots before merge](docs/runner-redesign-proposal.md#real-project-pilots-before-merge).
-Setup qualification and pilot briefs are authorized; pilot implementation and
-changes to the execution boundary are not yet authorized. Publication and
+The owner has authorized completion of the remaining release work: documentation
+reconciliation, bounded check-environment fixes, project pilots, renewed delivery
+and platform qualification, main reconciliation and PR preparation. Genny uses
+an isolated copy of PR #576 for verification/adoption and demonstrated gaps;
+do not duplicate or take ownership of its existing implementation. Publication and
 installation require separate explicit authorization. No further implementation
 bundle is implied by the completed R1–R5 checklist.
+The owner has also authorized the [local completion and combined-plan brief](docs/runner-redesign-proposal.md#local-completion-and-combined-plan-verification-brief),
+including configurable local delivery/merge permission. Implementation is now
+authorized in this worktree; publishing and installation remain separate.
 Implement only those release obligations or concrete fixes to the frozen contract;
 additional features require explicit owner direction. Do not create a separate
 task ledger. Architecture and the [operator guide](docs/operator-reference.md)
@@ -56,6 +62,17 @@ Humans can enter work in two direct ways:
 
 - `Plan`: ask the planner to propose a dependency-aware set of cards for review.
 - `Ready`: authorize one sufficiently specified card for implementation.
+
+Feature parity with the old Runner is not the acceptance target. Follow the
+plan's [product and skill reassessment](docs/runner-redesign-proposal.md#product-and-skill-reassessment):
+the target is a complete local journey without a required code host, issue system
+or board. GitHub is the first optional code-delivery integration; GitHub Projects
+is the likely first optional view. The current bundle adds local completion and
+dependent-plan delivery under that brief; its qualification evidence defines the
+verified boundary.
+Reassess role instructions, operator skills and research against the new contracts;
+do not inherit their legacy workflow, permissions or result schemas. This direction
+does not authorize implementation or changes to installed skills/services.
 
 ## Engineering standard
 

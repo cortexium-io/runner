@@ -43,16 +43,19 @@ escalation, interruptions, delivery and same-host backup/restore.
 
 - Sandboxed Codex handles planning, implementation and independent review.
   Models, reasoning, timeouts, parallelism and bounded allowances are explicit.
-- Local delivery retains an accepted candidate. Optional GitHub delivery creates
-  a draft, verifies the current base, assesses pinned CI and performs bounded
-  repair. External ready marking and host reviews remain human steps.
-- Human merge is the default. Explicit or configured automatic merge requires
-  guarded ordinary merges and supported branch protection. Completion requires
-  an exact confirmed integration receipt.
+- Local delivery completes at a verified result branch without GitHub. Optional
+  local base delivery fast-forwards an unoccupied branch under human/default or
+  automatic merge permission. Your working checkout stays untouched.
+- A Plan privately includes dependent work, verifies the combined outcome, then
+  delivers one parent result. Child acceptance alone cannot complete the Plan.
+- Optional GitHub delivery creates one draft, verifies the current base, assesses
+  pinned CI and performs bounded repair. Explicit/automatic hosted merging needs
+  supported protection and an ordinary merge receipt; ready marking and host
+  reviews remain human steps.
 - Boards, Trello, additional harnesses, automatic issue intake, CI reruns,
   background remote polling, services and self-update are outside this release.
   Narrow adapter contracts leave room for later integrations.
-- Store format 15 and strict local configuration deliberately break compatibility.
+- Store format 16 and strict local configuration deliberately break compatibility.
   Preserve older binaries with their state and backups. Reconcile outstanding
   remote effects, initialize fresh authority and approve only remaining work.
   There is no import of old approvals or in-place upgrade.

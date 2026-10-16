@@ -39,8 +39,9 @@ type Config struct {
 	Roles       map[string]string       `json:"roles"`
 	Policy      Policy                  `json:"policy"`
 	Delivery    struct {
-		Mode       string `json:"mode"`
-		Repository string `json:"repository,omitempty"`
+		Mode        string `json:"mode"`
+		LocalTarget string `json:"local_target,omitempty"`
+		Repository  string `json:"repository,omitempty"`
 	} `json:"delivery"`
 }
 
@@ -87,8 +88,14 @@ func (c Config) Validate() error {
 	if c.MergePolicy() != "human" && c.MergePolicy() != "automatic" {
 		return errors.New("merge policy must be human or automatic")
 	}
-	if c.MergePolicy() == "automatic" && c.Delivery.Mode != "github-draft" {
-		return errors.New("automatic merge requires github-draft delivery")
+	if c.Delivery.Mode == "github-draft" && c.Delivery.LocalTarget != "" {
+		return errors.New("local_target is only valid for local delivery")
+	}
+	if c.LocalTarget() != "result" && c.LocalTarget() != "base" {
+		return errors.New("local_target must be result or base")
+	}
+	if c.MergePolicy() == "automatic" && c.Delivery.Mode == "local" && c.LocalTarget() != "base" {
+		return errors.New("automatic merge requires local target base or github-draft delivery")
 	}
 	if c.Policy.MaxParallelism < 1 || c.Policy.MaxParallelism > 16 || c.Policy.MaxRepairs < 0 || c.Policy.MaxTransientRetries < 0 || c.Policy.MaxBaseRefreshes < 0 {
 		return errors.New("parallelism must be 1–16; repair/retry/base-refresh limits must be nonnegative")
@@ -223,4 +230,26 @@ func (s Settings) PhysicalRepository() string {
 		return s.Restoration.RepositoryBinding
 	}
 	return s.RepositoryID
+}
+
+func (c Config) LocalTarget() string {
+	if c.Delivery.LocalTarget == "" {
+		return "result"
+	}
+	return c.Delivery.LocalTarget
+}
+func (c Config) Destination() string {
+	if c.Delivery.Mode == "github-draft" {
+		return "GitHub " + c.Delivery.Repository + " " + c.Repository.BaseRef
+	}
+	if c.LocalTarget() == "base" {
+		return "local fast-forward into " + c.Repository.BaseRef
+	}
+	return "local result branch; base unchanged"
+}
+func (c Config) ValidateQuality(q Quality) error {
+	if c.Delivery.Mode == "local" && len(q.RequiredCI) != 0 {
+		return errors.New("local delivery cannot satisfy required_ci; establish an explicit local quality agreement or choose connected delivery")
+	}
+	return nil
 }

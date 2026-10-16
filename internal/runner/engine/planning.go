@@ -55,6 +55,9 @@ func (e *Engine) Release(ctx context.Context, id string, version int, preview st
 	if err = core.ValidateProposal(*task.Proposal); err != nil {
 		return task, err
 	}
+	if len(e.Settings.Quality.For(task, true).Checks) == 0 {
+		return task, errors.New("Plan release requires at least one completion check")
+	}
 	ids := map[string]string{}
 	for _, card := range task.Proposal.Cards {
 		ids[card.Key] = core.NewID()

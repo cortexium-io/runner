@@ -87,12 +87,16 @@ func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained boo
 	case t.Approval == nil || t.Stage == core.Stopped:
 		v.WaitKind = "approval"
 		v.WaitingFor = "task approval"
+	case t.Inclusion != nil:
+		v.WaitKind, v.WaitingFor = "plan", "included in Plan; final verification pending"
 	case t.NextRole == "":
 		v.WaitKind = "idle"
 		v.WaitingFor = "no pending invocation"
 	case core.PrerequisiteWait(t, tasks) != "":
 		v.WaitKind = "dependency"
 		v.WaitingFor = core.PrerequisiteWait(t, tasks)
+	case t.ParentID != "" && t.WorkingBase == nil && planHead(tasks, t.ParentID) == "":
+		v.WaitKind, v.WaitingFor = "plan", "Plan integration head is not prepared"
 	case core.PlanningRole(t.NextRole) && v.ProfileName == "":
 		v.WaitKind = "configuration"
 		v.WaitingFor = "configure and apply a planner profile"
@@ -105,7 +109,7 @@ func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained boo
 	case t.Pending != nil && t.Pending.Kind == "retry" && t.Pending.Retry > p.MaxTransientRetries:
 		v.WaitKind = "retry_limit"
 		v.WaitingFor = "transient retry limit; inspect failure and explicitly apply more allowance"
-	case t.NextRole != "refresh" && v.InvocationsRemaining != nil && *v.InvocationsRemaining == 0:
+	case !core.DeterministicRole(t.NextRole) && v.InvocationsRemaining != nil && *v.InvocationsRemaining == 0:
 		v.WaitKind = "invocation_limit"
 		v.WaitingFor = "task invocation ceiling; explicitly apply more allowance"
 	case drained:
@@ -176,7 +180,7 @@ func (e *Engine) PreviewPolicy(ctx context.Context, proposed config.Config) (Pol
 	result := PolicyChange{MergePolicyBefore: current.Config.MergePolicy(), Preview: core.Digest([]string{current.Config.Revision(), proposed.Revision()}), AppliedRevision: current.Config.Revision(), Proposed: proposed, Active: []core.Attempt{}, Tasks: []PolicyEffect{}, Warnings: []string{}}
 	if current.Config.MergePolicy() != proposed.MergePolicy() {
 		if proposed.MergePolicy() == "automatic" {
-			result.Warnings = append(result.Warnings, "Applying automatic merge authorizes existing approved work and future approved work in this repository/base. A ready PR observation may trigger one guarded merge; task approval and every proof remain required.")
+			result.Warnings = append(result.Warnings, "Applying automatic merge authorizes existing approved work and future approved work into "+proposed.Repository.BaseRef+". Local base delivery fast-forwards accepted work; GitHub requires a ready PR and host admission. Task approval and every proof remain required.")
 		} else {
 			result.Warnings = append(result.Warnings, "Applying human merge prevents unsent automatic writes. Explicit task merge requests remain authorized; already-dispatched merges can still complete through inspection.")
 		}
@@ -223,4 +227,13 @@ func (e *Engine) PreviewPolicy(ctx context.Context, proposed config.Config) (Pol
 		result.Warnings = append(result.Warnings, "The invocation ceiling cannot admit both initial implementation and independent audit.")
 	}
 	return result, nil
+}
+
+func planHead(tasks []core.Task, id string) string {
+	for _, t := range tasks {
+		if t.ID == id {
+			return t.PlanHead
+		}
+	}
+	return ""
 }

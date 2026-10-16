@@ -30,6 +30,12 @@ func (e *Engine) requestIntegration(ctx context.Context, id string, merge bool) 
 	if err != nil {
 		return err
 	}
+	if t.ParentID != "" {
+		return errors.New("child delivery belongs to Plan " + t.ParentID)
+	}
+	if e.Settings.Config.Delivery.Mode == "local" {
+		return e.requestLocalIntegration(ctx, t, merge)
+	}
 	if t.Stage == core.Completed {
 		return nil
 	}

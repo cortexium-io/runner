@@ -176,6 +176,13 @@ func quiescent(ctx context.Context, v store.Image) error {
 			return errors.New("resolve occupying publications before backup")
 		}
 	}
+	for _, t := range v.Tasks {
+		for _, w := range t.RefWrites {
+			if w.Pending() {
+				return errors.New("settle local ref writes before backup")
+			}
+		}
+	}
 	// Baseline commands record their launch separately, including a crash before
 	// their report was committed. Never assume an orphaned process has stopped.
 	path := filepath.Join(v.Settings.Config.StateDir, "quality")
@@ -449,6 +456,13 @@ func inspect(ctx context.Context, bundle, configPath string) (Manifest, store.Im
 	for _, p := range v.Publications {
 		if p.Occupying {
 			return m, v, errors.New("backup contains occupied publication")
+		}
+	}
+	for _, t := range v.Tasks {
+		for _, w := range t.RefWrites {
+			if w.Pending() {
+				return m, v, errors.New("backup contains unsettled local ref write")
+			}
 		}
 	}
 	return m, v, nil

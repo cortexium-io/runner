@@ -10,8 +10,9 @@ initialize state, install skills, change services or migrate an old installation
 
 Runner records work locally, asks for exact approvals, implements in isolated
 workspaces and reviews independently. `status` explains what needs you and what
-can proceed. Only confirmed integration completes delivered work. Local delivery
-retains a reviewed candidate at **Awaiting delivery**.
+can proceed. A verified local result branch completes work by default. Optional
+base delivery waits for permitted integration. A Plan verifies its combined
+outcome and delivers one result; individual child acceptance does not complete it.
 
 ## 1. Build and configure fresh authority
 
@@ -31,7 +32,7 @@ go build -o /absolute/tools/cortexium-runner ./cmd/cortexium-runner
 
 For an extracted archive, run its `cortexium-runner --version` and `--help`
 directly. Source builds report `dev`; release builds report the injected version.
-The private store format is **15**. Legacy Project configuration and experimental
+The private store format is **16**. Legacy Project configuration and experimental
 store formats are deliberately rejected; there is no in-place migration. Keep
 old binaries with their state/backups, reconcile any outstanding remote effects,
 then use fresh config, state and workspace paths with new approvals. Never point
@@ -77,8 +78,16 @@ Choose delivery **before initialization**. To publish and integrate with GitHub,
 replace `delivery` with `{"mode":"github-draft","repository":"OWNER/REPO"}`.
 Approval then authorizes the exact candidate push and one draft PR in that
 destination. Repository, roots, destination and base cannot change through policy
-editing. Local mode has no integration receipt or manual completion command, so
-dependent work cannot complete there.
+editing. Local mode defaults to `local_target: "result"`: an accepted result is retained at
+`runner/result/TASK_ID-vN` and the task completes, leaving your checkout/base
+unchanged. Choose `{"mode":"local","local_target":"base"}` to retain that
+result and then fast-forward `repository.base_ref`. With `policy.merge: "human"`,
+use `task merge ID`; with `automatic`, the coordinator admits it after all proof
+passes. Automatic policy is invalid for a result-only destination. Local base
+integration requires the target to be **not checked out in any worktree**, even
+if clean. Switch your checkout yourself before running; do not concurrently check
+out or administratively alter the target. Runner never switches, stashes or
+resets your checkout. GitHub mode does not accept `local_target`.
 
 For the remaining commands, define this shell helper in each terminal:
 
@@ -122,10 +131,18 @@ replace it for real work:
     "command": "test -s greeting.txt",
     "directory": ".",
     "prerequisites": ["sh"],
-    "timeout": "1m"
+    "timeout": "1m",
+    "at": "both"
   }]
 }
 ```
+
+Each check has `at: task|completion|both`; omission means `both`. Child work runs
+task checks, the combined Plan runs completion checks, and standalone Ready runs
+all checks. Plan release needs at least one completion check. Baseline runs all
+checks. Parent repairs or base refresh run all checks to protect child guarantees.
+Choose expensive final suites at completion explicitly; agents cannot change this
+agreement. Local mode rejects `required_ci` rather than silently dropping it.
 
 For GitHub delivery, also include `required_ci`, with each exact check name and
 its observed GitHub app identity, for example
@@ -169,8 +186,9 @@ New agreements affect new work. Existing tasks retain their revision until
 `task adopt-quality ID --version N --preview ADOPTION_PREVIEW`, shown by
 `task show`. Adoption revokes the old approval/candidate and creates an unapproved
 version; inspect and approve it again. `quality show --revision DIGEST` reads old
-agreements. Released plans cannot adopt as a batch. Required checks run after
-implementation without a model call; saved complete observations are reused.
+agreements. Released Plans and their children cannot adopt or replace their
+released contract. Required checks run after implementation without a model call;
+saved complete observations are reused.
 
 ## 3. Enter Ready work or ask for a Plan
 
@@ -209,11 +227,21 @@ runner task show PLAN_ID
 runner task release PLAN_ID --version N --preview RELEASE_PREVIEW
 ```
 
-Release only after inspecting the full proposed cards, verification briefs and
-dependencies. It authorizes that exact batch. Independent children can run within
-capacity; a dependent waits for its exact prerequisite version's confirmed
-integration. A draft PR or accepted local candidate does not release it. The
-parent completes only after all children integrate.
+Release only after inspecting the shared Outcome/Scope/Acceptance/Verification
+body, every card and its dependencies, the quality agreement and destination.
+Release authorizes this exact outcome. Independent children can run concurrently;
+a dependent starts from the current private Plan head after its exact prerequisite
+has a durable inclusion receipt. An included child remains Awaiting delivery,
+“included in Plan; final verification pending”. Child inclusion is private and
+independent of final merge permission.
+
+After all children are included, Runner runs combined checks and independent
+outcome review. A concrete combined defect may use the parent's bounded repair
+allowance; a missing capability blocks. Planning, final review and repair consume
+the parent's invocation ceiling; children have their own ceilings. `show` reports
+the Plan total. Final receipt commits parent and child completion together.
+GitHub delivers one parent PR; children never publish separate results.
+Use delivery/merge/integrate on the parent.
 
 If a question appears, put the answer into the complete request file, then:
 
@@ -224,8 +252,28 @@ runner task approve TASK_ID --version NEW_VERSION --preview NEW_APPROVAL_PREVIEW
 ```
 
 The original request/evidence remain. Editing the file alone changes nothing.
-Replacing text retains the quality revision. A released plan cannot be replaced;
+Replacing text retains the quality revision. A released Plan or child cannot be replaced;
 stop the batch and submit a new plan if its requirements must change.
+
+### Local results and base integration
+
+`task show ID` identifies the result branch/commit and its receipt. Inspect or
+check out that result when useful; the original working checkout is untouched.
+For a base destination, `task merge ID` binds human permission to the current
+accepted candidate. If the base moves, bounded refresh and affected checks/review
+produce a new candidate; inspect it and request a new human merge. Earlier result
+branches are retained with subsequent revisions named `-rN`.
+
+`task integrate ID` may confirm your own fast-forward only when the configured
+branch tip exactly equals the accepted candidate and contains its verified base.
+It cannot infer success from an unrecorded squash, merge shape or later descendant.
+Runner's recorded base write can be reconciled in later ancestry.
+
+Use `task delivery ID --reconcile` after resolving a local Git attention condition.
+Possibly dispatched writes are inspected, never repeated. A missing/changed result
+ref cannot manufacture completion. Stopped work retains any already applied effect
+without regaining authority. Use `task verify-base ID` for an accepted result that
+needs fresh base verification. Completed outcomes remain historical when base moves.
 
 ## 4. Follow work and recover deliberately
 
@@ -303,7 +351,7 @@ application; already admitted work retains the applied policy.
 | `base-refreshes=N` | Allowance for changed-base verification cycles, separate from code repairs. |
 | `invocations=N` or `unlimited` | Per-task model-call ceiling; admission consumes a call even if it later fails. |
 | `escalation=careful,next` or `none` | Successors after the starting implementer. Confirmed review rejection advances the ladder; the last profile remains selected within the repair limit. CI/conflict repair and transient retry do not independently advance it. |
-| `merge-policy=human` or `automatic` | GitHub merge authority; see below before applying automatic policy. |
+| `merge-policy=human` or `automatic` | Local base or GitHub merge authority; see below before applying automatic policy. |
 
 The example's successor keeps the same model/reasoning and gives it more time;
 select a different supported model/reasoning if desired. Active attempts and
@@ -317,8 +365,8 @@ With `github-draft`, accepted work publishes one draft, verifies the current
 remote base, refreshes if needed, synchronizes the same draft and assesses pinned
 CI once. A changed candidate runs checks and independent review again. Supported
 text conflicts and explicit CI failures use the shared repair budget; unavailable
-or incomplete evidence requires inspection. Local mode stops with its retained
-candidate and requires no GitHub connection.
+or incomplete evidence requires inspection. Local mode follows the result/base destination described above and requires no
+GitHub connection. The remaining hosted steps apply only to GitHub delivery.
 
 ```sh
 runner task show TASK_ID

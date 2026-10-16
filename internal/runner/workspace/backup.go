@@ -35,6 +35,25 @@ func (g Git) ValidateRetained(ctx context.Context, tasks []core.Task, qualities 
 		return err
 	}
 	for _, t := range tasks {
+		if t.PlanHead != "" {
+			head, err := g.Ref(ctx, t.PlanRef())
+			if err != nil || head != t.PlanHead {
+				return errors.New("retained Plan head changed")
+			}
+		}
+		for _, w := range t.RefWrites {
+			if w.Proof != nil {
+				if _, err = scalar(ctx, p, "cat-file", "-e", w.Proof.Candidate.Commit+"^{commit}"); err != nil {
+					return err
+				}
+			}
+			if w.Kind == "result" && w.State == "confirmed" {
+				head, err := g.Ref(ctx, w.Ref)
+				if err != nil || head != w.Commit {
+					return errors.New("retained local result ref changed")
+				}
+			}
+		}
 		if t.Approval != nil {
 			if _, err = scalar(ctx, p, "cat-file", "-e", t.Approval.Base+"^{commit}"); err != nil {
 				return err

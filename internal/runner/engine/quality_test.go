@@ -13,7 +13,9 @@ import (
 )
 
 func TestAgreementAdoptionRevokesOldWorkAndKeepsHistoricalEvidence(t *testing.T) {
-	e := fixture(t)
+	e := fixture(t, func(c *config.Config) {
+		c.Delivery.Mode, c.Delivery.Repository = "github-draft", "owner/repo"
+	})
 	task := approved(t, e)
 	a := claim(t, e)
 	f := e.execute(t.Context(), a)

@@ -61,7 +61,7 @@ func (h *commandHarness) Execute(ctx context.Context, r execution.Request, _ fun
 		if h.dependencies {
 			cards = append(cards, core.PlannedCard{Key: "followup", Body: commandBrief, Dependencies: []string{"greeting"}})
 		}
-		return execution.Completion{Stopped: true, Result: &core.Result{Outcome: "succeeded", Summary: "Proposed greeting", Planning: &core.PlanningResult{Cards: cards}}}
+		return execution.Completion{Stopped: true, Result: &core.Result{Outcome: "succeeded", Summary: "Proposed greeting", Planning: &core.PlanningResult{Body: cards[0].Body, Cards: cards}}}
 	}
 	if r.Attempt.Role == "implementer" {
 		if e := os.WriteFile(filepath.Join(r.Dir, "greeting.txt"), []byte("hello\n"), 0600); e != nil {
@@ -252,16 +252,16 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 			}
 		}
 	}
-	view = waitView(id, func(v engine.View) bool { return v.Task.Stage == core.AwaitingDelivery })
+	view = waitView(id, func(v engine.View) bool { return v.Task.Stage == core.Completed })
 	run("drain")
 	if err = <-done; err != nil {
 		t.Fatal(err)
 	}
-	if *view.Task.Candidate != candidate || len(view.Attempts) != 3 || view.Attempts[2].Role != "audit" || view.Attempts[2].Profile.Reasoning != "high" {
+	if *view.Task.Candidate != candidate || len(view.Attempts) != 4 || view.Attempts[2].Role != "audit" || view.Attempts[2].Profile.Reasoning != "high" {
 		t.Fatal("recovery lost candidate or pinned reviewer", view)
 	}
-	if advice := run("task", "show", id); !strings.Contains(advice, "integration is still pending") || view.Task.Usage.Invocations != 3 {
-		t.Fatal("local acceptance claims completion or loses consumed calls", advice, view.Task.Usage)
+	if advice := run("task", "show", id); !strings.Contains(advice, "base unchanged") || view.Task.Usage.Invocations != 3 {
+		t.Fatal("local completion missing or loses consumed calls", advice, view.Task.Usage)
 	}
 	dbPath := filepath.Join(cfg.StateDir, "runner.db")
 	before, err := os.ReadFile(dbPath)
@@ -277,7 +277,7 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("inspection wrote authority")
 	}
-	if view.Task.Stage != core.AwaitingDelivery || view.Task.Candidate == nil || len(view.Attempts) != 3 {
+	if view.Task.Stage != core.Completed || view.Task.Candidate == nil || len(view.Attempts) != 4 {
 		t.Fatalf("unexpected retained journey: %+v", view)
 	}
 	if b, err = os.ReadFile(filepath.Join(repo, "greeting.txt")); err != nil || string(b) != "local unrelated edit\n" {
@@ -347,7 +347,7 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 		t.Fatal("dependency not explained", dependent)
 	}
 	advice = run("task", "show", dependent.Task.ID)
-	if !strings.Contains(advice, view.Task.Release.Children[0]) || !strings.Contains(advice, "exact completed version") {
+	if !strings.Contains(advice, view.Task.Release.Children[0]) || !strings.Contains(advice, "exact included Plan result") {
 		t.Fatal("dependency wait hides prerequisite or release condition", advice)
 	}
 	t.Log("Released Plan: dependent names its prerequisite and waits for exact-version completion.")
@@ -364,7 +364,21 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	if strings.Index(human, "Needs you") > strings.Index(human, "Waiting") || strings.Index(human, "Waiting") > strings.Index(human, "Retained") {
 		t.Fatal("status is not attention first", human)
 	}
-	run("task", "stop", id)
+	go func() { done <- (CLI{Out: io.Discard, Harness: h}).Run(ctx, []string{"--config", cfgPath, "run"}) }()
+	view = waitView(id, func(v engine.View) bool { return v.Task.Stage == core.Completed })
+	run("drain")
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+	if view.Task.Completion == nil || view.PlanUsage == nil || view.PlanUsage.Invocations != 6 {
+		t.Fatal("Plan lacks combined proof or final receipt", view)
+	}
+	// A separate pending Ready request exercises explicit quality adoption;
+	// completed results and released Plan members are immutable.
+	if err = os.WriteFile(taskFile, []byte(commandBrief), 0600); err != nil {
+		t.Fatal(err)
+	}
+	readyID = strings.Fields(run("task", "add", "--file", taskFile))[0]
 	// Quality changes apply only to new work until explicit task adoption.
 	spec := config.QualitySpec{Definition: "Updated agreement with an identified legacy exception", Checks: []config.QualityCheck{{ID: "legacy", Command: "false", Directory: ".", Prerequisites: []string{"sh"}, Timeout: "1m"}}}
 	qualityFile := filepath.Join(root, "quality.json")

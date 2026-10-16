@@ -1,6 +1,6 @@
 # ADR 0005: Local Runner core
 
-- Status: Accepted; phases 1 and 2 and nine phase 3 delivery bundles implemented. First-release feature scope is frozen; the [release checklist](../runner-redesign-proposal.md#frozen-first-release-checklist) owns the remaining qualification and cutover work. Optional integrations follow release.
+- Status: Accepted; phases 1 and 2, nine phase 3 delivery bundles and R1–R5 are complete within their recorded boundaries. The [release checklist](../runner-redesign-proposal.md#frozen-first-release-checklist) records qualification; real-project pilots remain open. The dated clarification below defines the broader product target without authorizing implementation. Board views remain deferred.
 - Date: 2026-10-14
 
 ## Context
@@ -69,7 +69,47 @@ The promoted `cortexium-runner`, architecture and operator guide now describe
 the local runtime. Qualified role instructions live in the execution adapter.
 R4 retires the old Project entry point and bundled skill catalog; historical
 decisions and qualification records remain reference evidence. The release
-checklist still requires R5 final qualification before cutover.
+checklist records completed R5 qualification; subsequent pilots and the separately
+authorized cutover remain outstanding.
+
+## Product clarification, 2026-10-16
+
+The owner reaffirmed that this is a new Runner, not a feature-for-feature copy.
+The product target is a complete local Plan/Ready journey without a required
+code host, issue system or board. GitHub remains the first optional delivery
+integration and GitHub Projects the likely first optional view. Harness access
+and repository verification prerequisites remain explicit requirements; this is
+not a promise that a cloud model or unavailable test service works offline.
+
+The R1–R5 qualification stopped local work at an accepted candidate; it did
+not establish local integration or satisfy dependent Plans without GitHub.
+R1–R5 evidence remains valid within its recorded scope, not proof that this
+broader product target was complete. The subsequent brief specifies local
+completion proof and combined-plan outcome before implementation.
+
+Reassess all Runner role skills, embedded instructions, relevant operator skills
+and their references against current contracts. Carry forward supported lessons
+from the two research sessions and observed failures, with source and evidence;
+do not import legacy schemas, permissions, extra roles or workflow machinery.
+The plan's [reassessment](../runner-redesign-proposal.md#product-and-skill-reassessment)
+records findings and the design boundary. No runtime, installed skill, service
+or integration change is authorized by this clarification alone.
+
+## Local completion design, 2026-10-16
+
+The owner requested the [local completion and combined-plan brief](../runner-redesign-proposal.md#local-completion-and-combined-plan-verification-brief)
+and selected configurable delivery and merge permission. The default local result
+is a verified result branch; an optional configured-branch target waits for human
+merge or uses explicitly enabled automatic merge. Runner performs guarded Git
+operations; agents retain their existing implementation/review boundaries.
+
+A Plan produces one combined candidate. Reviewed child inclusion can satisfy
+within-plan dependencies, but final completion requires the shared approved
+outcome, combined verification/review and the selected destination's receipt.
+GitHub delivers that parent candidate through its existing guarded path. The brief
+defines check timing, bounded repair, recovery and required proof. Implementation
+was subsequently authorized in the same worktree. Its qualification record in the
+plan, rather than the older R1–R5 evidence, establishes this expanded behavior.
 
 ## Consequences
 
