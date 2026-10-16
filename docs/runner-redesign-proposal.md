@@ -1139,6 +1139,7 @@ operator guide; R4/R5 retain packaging and native-platform qualification.
 #### R2 qualification
 
 **Completed 2026-10-16 in `codex/runner-local-core`, after the brief above.**
+Implementation and initial evidence are committed in `f561a5c`.
 One offline backup package owns the directory bundle and restore operation;
 the existing store owns SQLite snapshots and maintenance ownership, and the
 existing workspace adapter validates Git. No scheduler, public plugin API,
