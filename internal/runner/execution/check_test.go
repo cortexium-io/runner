@@ -128,7 +128,7 @@ func TestLiveQualityCheckBoundary(t *testing.T) {
 			ID: "deadline", Command: "printf started; exec sleep 30", Directory: ".",
 			Prerequisites: []string{"sh", "sleep"}, Timeout: "2s", Path: os.Getenv("PATH"),
 		})
-		if r.Status != "unavailable" || !r.Stopped || r.Detail == "" {
+		if r.Status != "unavailable" || !r.Stopped || !strings.Contains(r.Detail, "context deadline exceeded") {
 			t.Fatal(r)
 		}
 		if data, err := os.ReadFile(r.Evidence); err != nil || !strings.Contains(string(data), "started") {

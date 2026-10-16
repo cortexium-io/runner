@@ -21,8 +21,11 @@ Its build specification and designated implementation sequence are in the
 promoted to `cmd/cortexium-runner`; packages live in
 `internal/runner`. Feature scope is frozen after `aedc8bd`. The plan's
 [five release bundles and finish line](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
-are the remaining work source. R1 delivery, R2 backup/restore, R3 operator
-qualification and R4 promotion/packaging are complete with recorded evidence. R5 final qualification and cutover require separate authorization.
+are the release work source. R1 delivery, R2 backup/restore, R3 operator
+qualification, R4 promotion/packaging and R5 final qualification/cutover rehearsal
+are complete with recorded evidence. The frozen replacement is release-ready;
+publication and installation require separate explicit authorization. No further
+implementation bundle is implied by the checklist.
 Implement only those release obligations or concrete fixes to the frozen contract;
 additional features require explicit owner direction. Do not create a separate
 task ledger. Architecture and the [operator guide](docs/operator-reference.md)

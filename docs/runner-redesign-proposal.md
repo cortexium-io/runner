@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification, R2 backup/restore and R3 operator qualification are complete; R4 promotion/packaging is complete; R5 remains pending. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 15; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification, R2 backup/restore and R3 operator qualification are complete; R4 promotion/packaging and R5 final qualification are complete; the frozen replacement is release-ready. Publication and installation remain separate authorized actions. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 15; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -781,8 +781,10 @@ must wait when core scenarios, test quality or the operator journey remain weak.
 **Scope frozen on 2026-10-15, after `aedc8bd`.** The nine phase 3 bundles close
 delivery feature construction for the first release. The five bundles below are the
 remaining sequence; this section is the release checklist, not a second backlog.
-R1–R3 completed on 2026-10-16; R4 promotion/packaging is complete; R5 remains pending. The checklist alone
-authorizes no implementation, remote mutation, publication or installation change.
+R1–R5 completed on 2026-10-16; the frozen replacement is release-ready.
+Publication and installation remain separate authorized actions. The checklist
+alone authorizes no implementation, remote mutation, publication or installation
+change.
 When a bundle is authorized, refine its verification brief here before code and
 stop at its exit condition.
 
@@ -829,8 +831,8 @@ and acceptance conditions rather than add another feature milestone.
 | **R4 — Promote and package the replacement** | Promote the replacement to `cortexium-runner`; retire the legacy entry point, obsolete consumers/tests and the temporary `runner-next` name. Update architecture, README, setup/examples, help, operator/role references and install/release tooling. Reuse useful low-level code and tests by current requirement. | The packaged binary exposes the replacement commands and version, requires no Project, and its docs/installed instructions match its behavior. Extend the existing packaging, installer and release-security checks; replace the legacy Project smoke journey. Build all four no-CGO targets and verify archives/checksums. Update CI/readiness commands to the qualified package timeout. No compatibility runtime, general updater redesign or new plugin layer. Stop at a reviewable release candidate, without publishing or switching a real installation. |
 | **R5 — Final qualification and cutover rehearsal** | Qualify one reviewed candidate and rehearse the documented breaking cutover on a selected test installation. Check backup, old-owner shutdown, fresh setup, explicit resubmission and the prohibition on restarting stale authority after new remote effects. | Complete the gates below on the candidate; reuse R1–R3 evidence only where subsequent changes have not invalidated it. Exercise the packaged entry point on macOS and Linux and record native sandbox/runtime evidence separately from cross-builds. Finish with tested artifacts, evidence, release notes and the exact installation/cutover procedure. Missing infrastructure or unverified safety leaves this gate open. Stop release-ready; publishing and changing the user's running installation require their own explicit instruction. |
 
-R5 is the next release bundle; it is authorized for qualification and an isolated cutover rehearsal. If a needed test host,
-repository or credential is unavailable, name the specific blocked evidence and
+R1–R5 are complete with the evidence below. For any later requalification, if a
+needed test host, repository or credential is unavailable, name the specific blocked evidence and
 continue independent preparation; do not substitute a simulated success. Live
 model qualification uses the already selected `gpt-6.1-sol / high` where a model
 call is needed. Use only an identified, authorized test destination for remote
@@ -1460,6 +1462,119 @@ and candidate/artifact identity before closing the R5 box. Missing Linux
 infrastructure or an unresolved required behavior leaves R5 open even when all
 independent work is complete.
 
+#### R5 qualification — complete
+
+**2026-10-16.** The frozen replacement is release-ready within the boundaries
+below. No production code change was needed. The owning opt-in execution suite
+now proves host filesystem containment, network isolation and actual deadline
+cleanup; the operator guide includes release notes and the ordered
+[breaking cutover procedure](operator-reference.md#8-breaking-release-and-cutover).
+No new package, dependency, workflow framework or test suite was introduced.
+
+**Candidate and artifacts.** Packages were built from `5446dbe`, whose production
+code is byte-identical to R4 `0a2668d`. The closing change only strengthens the
+native deadline assertion and records qualification; both native suites were
+rerun, and executable/package inputs remain identical. Retained source manifests
+and artifact metadata bind those inputs to the final tree. The private evidence
+root is `/Users/dan/.codex/runner-qualification/r5-20261016`.
+`v0.0.0` is a local qualification label, not a published release or Git tag.
+
+| Archive target | SHA-256 |
+| --- | --- |
+| `darwin-amd64` | `29fc74f1f6ca387651b1205af76ce4a179d1177de92fdfe4b3486964d9ad172a` |
+| `darwin-arm64` | `8387cc7519ae39d162008d1f678ead9536d4e80afe081ed4b21acfbabc1c97a3` |
+| `linux-amd64` | `5fba30975ea4f14086fb29b10fb1afa72b8340092e9fe227ed610689fe41a320` |
+| `linux-arm64` | `595dcffd89b54739102bbd6162c25135394c2e7e3673cb0e7ea9f4f1306694b7` |
+
+`release/SHA256SUMS`, `artifact-inspection.json` and the install summaries verify
+four target formats, `CGO_ENABLED=0`, exact five-file archive membership and
+byte-identical packaged instructions. Both native arm64 binaries report
+`cortexium-runner v0.0.0`; Linux amd64 also passes a translated version probe.
+macOS amd64 is cross-built only: this host has no x86 translation runtime.
+There is no claim of native amd64 qualification on either OS.
+
+**Native environments and gates.** macOS 27.0 arm64 used Go 1.27.1, Apple Git
+2.54.0 and Codex CLI 0.163.0. Linux used Ubuntu 24.04 arm64, kernel
+`7.0.14-linuxkit`, Go 1.27.1, Git 2.43.0 and Codex CLI 0.163.0 installed through
+its pinned npm package. The owner-selected disposable Docker environment ran
+as UID 1001 with `--init --security-opt seccomp=unconfined`, default capabilities,
+no privileged mode, no host mounts and no copied credentials. Only the non-secret
+model catalogue was copied for capability validation. The image identities,
+Dockerfile and exact container settings are retained. This qualifies actual
+Linux processes/kernel behavior inside Docker Desktop, not arbitrary bare-metal
+hosts or Docker's default seccomp profile. Both test containers and their custom
+image were removed after evidence capture.
+
+Passed macOS `go test -race -timeout 15m ./...` and Linux
+`go test -count=1 -race -timeout 15m ./...`, vet and module verification.
+The current native execution suite passed with `RUNNER_LOCAL_LIVE_CHECKS=1`
+on both platforms, including process-group interruption and pre-launch ownership.
+Linux's complete engine suite took 74.781 seconds; macOS took 712.736 seconds.
+R4's uncached macOS and pinned vulnerability evidence remains valid for unchanged
+production inputs. A fresh Linux `govulncheck@v1.6.0` found zero reachable
+vulnerabilities; it reported one imported-package and twelve required-module
+advisories whose vulnerable symbols are not called. Formatting, shell syntax,
+archive/installer/publication safeguards, CLI smoke and final diff checks passed.
+
+The first Linux probe correctly failed under Docker's default namespace policy.
+A container without an init process retained a terminated child and Runner
+refused to release ownership; adding the init reaper resolved that environment
+limitation. Linux can hide ungranted host paths behind private scratch files:
+the initial syscall-only write assertion was too strict. The final test checks
+both inability to read the host fixture and absence of any host modification or
+creation, while an in-workspace write succeeds. It also proves the loopback
+fixture works outside containment and is inaccessible inside. No Codex sandbox
+policy was weakened. Early failures and final native process/result logs remain
+in the evidence root; four native executions per platform reflect these fixture
+and assertion checks, not repeated paid evaluations.
+
+**Packaged journey and cutover.** The real HTTPS/checksum installer fetched the
+actual archives from a loopback TLS fixture into isolated binary directories on
+both OSs, followed by the packaged CLI smoke. The guide then passed fresh init,
+quality preview/check/apply, Ready and Plan approval, policy preview/save/apply,
+status/watch, run/drain/restart, fresh restore and stale inspection-only restore.
+The old format-14 matching binary completed 58 recorded commands in 5.12 seconds;
+the packaged macOS journey used 58 in 6.85 seconds and Linux 60 in 2.31 seconds.
+Installer runs took 1.57 and 1.16 seconds respectively. These are local scripted
+qualification timings, not Ready-to-merged throughput claims.
+
+The old test owner exited before fresh setup; its exact binary, consistent
+backups, moved roots and guard are retained. The same unfinished human brief was
+resubmitted under a new task identity and exact approval in separate format-15
+roots. The new binary refused the old format-14 store. All test authorities
+were drained and deliberately left inspection-only: a later mutation invalidated
+the snapshot, and restored `run` and task mutation were refused. This rehearses
+old local-core to fresh local-core cutover; it does not claim that an actual
+legacy Project service was switched. Independent old installations are not
+automatically revoked by new roots; the documented old-owner shutdown remains
+essential. The R2 owning regressions, rerun on both OSs, cover a recorded remote
+effect after backup as well as local mutation.
+
+**Live evidence reuse and interventions.** R1's role instructions, Codex execution
+contract and GitHub adapter are unchanged. R2 adds guarded recovery and R4 changes
+branch/ref names; the current owning suites cover those changes. Three read-only
+GitHub requests reconfirmed alpha PR #1, beta PR #3 and strict required-check
+protection in the authorized private fixture. Their candidate and merge SHAs
+still match the exact R1 Git receipts. R1's eight actual `gpt-6.1-sol / high`
+model calls remain the live role/delivery proof; R3's controlled owning journey
+and the current CLI suite cover questions, dependencies and interrupted review.
+Native submitted tasks were stopped before model execution. R5 made **zero new
+model calls and zero remote writes**; monetary cost was not measured.
+
+Operator interventions were fresh paths/Git identity, returned approval previews,
+explicit stopping before paid work, interruption of read-only watch, moving only
+listed restore destinations while retaining the guard, and deliberately adding
+later work to exercise the stale hold. Qualification drivers and command results
+are retained outside the repository; no parallel task system was added. Normal
+local operation needs no `gh` or Project calls, also demonstrated in the Linux
+fixture without `gh` installed. No unsupported feature was added to finish R5.
+
+All five release boxes are closed. Stop release-ready: there was no push, tag,
+publication, production install, service change or change to remote protection.
+Publication must choose its real version and use the existing reviewed-main,
+immutable-artifact release workflow; the local `v0.0.0` fixtures are not a
+published version. Installation/cutover remains a separate authorized action.
+
 #### Required verification
 
 Each implementation bundle uses the existing owning suites and the repository's
@@ -1498,8 +1613,8 @@ merely to populate a matrix when valid evidence already covers the claim.
 #### Release finish line
 
 The first replacement is **release-ready** when every item below is checked with
-evidence. R1–R4 are closed above; the remaining box stays open until its own
-evidence is recorded. Construction completion does not imply release qualification.
+evidence. R1–R5 are now closed above. Construction completion alone did not
+imply release qualification; the recorded R5 gates establish this finish line.
 
 - [x] R1: real human and Runner-owned protected merges have exact receipts; frozen
   manual handoffs and unsupported host configurations are documented.
@@ -1509,7 +1624,7 @@ evidence is recorded. Construction completion does not imply release qualificati
   configuration, test ownership, interruption and recovery are understandable.
 - [x] R4: one replacement binary, accurate instructions and verified packages
   remain; obsolete runtime paths and their superseded tests are retired.
-- [ ] R5: the reviewed candidate passes the required gates and cutover rehearsal;
+- [x] R5: the reviewed candidate passes the required gates and cutover rehearsal;
   artifacts and evidence identify that candidate, with no unresolved defect in
   a required safety, supported-behavior or operator acceptance condition.
 
@@ -4010,7 +4125,7 @@ The phase 2 evidence is recorded in the [Ready-policy qualification](#first-phas
 qualifications above cover connected delivery through automatic policy.
 [R1](#r1-qualification--complete) adds real protected human/automatic merges and
 dependency/parent completion. The [release checklist](#frozen-first-release-checklist)
-owns the completed R1–R4 evidence and remaining final candidate/cutover gate;
+owns the completed R1–R5 evidence and release-ready finish line;
 phase 5 board views stay deferred.
 
 | Requirement | Owning phase | Acceptance evidence |
@@ -4022,11 +4137,11 @@ phase 5 board views stay deferred.
 | Continuous reconciliation and resource safety | 1; extend in 2/3 | S2/S3: exclusive ownership and responsive reconciliation; the first phase 2 bundle proves shared capacity and task/workspace claims across CLI/service; future browser/shared-data capabilities must add their resource claims; phase 3 bundle 7 proves serialized integration inspection without blocking unrelated work; bundle 8 reuses that reservation for one explicit guarded merge and inspection-only recovery; bundle 9 adds applied automatic-policy admission and revocation without another scheduler. |
 | Bounded recovery and understandable configuration | 1; extend in 2/3 | S7 validates the limited policy. The first phase 2 bundle proves Ready repair allowance, persistent backoff, rejection-only escalation, invocation budgets and live policy changes without counter resets. Phase 3 proves bounded refresh/review cycles and explicit automatic-merge policy without repeated writes; R2 qualifies restore. |
 | Independent, sufficient, economical verification | 1; extend in 2 | S6 plus live candidate review. The first phase 2 paired behavioral cases cover fabricated proof, weakened checks, legitimate consolidation and speculative review; no infrastructure error becomes a code rejection. |
-| Provider-neutral architecture and optional views | 1/3/5 | S1 runs without `gh`/Projects. Phase 3 delivery requires no board. Phase 5 disconnect/reconnect and reordered updates converge safely; Trello needs no core scheduling/approval change and exposes no private evidence. |
-| Current-base delivery and confirmed completion | 3/4 | The nine phase 3 qualifications cover base movement, conflicts, CI failure, interrupted publication, exact human/automatic merge receipts and closed-unmerged handling. R1 closes the live protected-merge gap with exact human/automatic receipts and dependency/parent completion; R5 checks that evidence against the release candidate. |
-| Comprehensible progress and recovery | 1/2/4 | Fourth phase 2 qualification covers attention-first status, actual profiles, waits, retained work, exact recovery guidance, watch and named-setting editing. R3 qualifies the consolidated operator guide with fresh native setup/recovery, controlled failure cases and retained live delivery receipts; R5 still owns the packaged journey. |
-| Packaging, restore and breaking cutover | 1/4 | Phase 1 qualifies the driver and new entry point's target builds. R2 proves consistent backup/restore; R4 proves the sole promoted entry point, strict format boundary, four verified archives and native macOS smoke. R5 retains native platform/runtime, ownership/cutover and explicit resubmission qualification. No historical-state converter is required. |
-| Honest operational learning | 1/2/4 | Existing attempts retain call/result evidence; R3 records calls, elapsed time, interventions, repeated verification and evidence boundaries above. R5 must retain those measures through cutover without adding an analytics service. Guidance drafts require human review. No inferred cost or unsupported performance claim. |
+| Provider-neutral architecture and optional views | 1/3/5 | S1 runs without `gh`/Projects. Phase 3 delivery requires no board. Boards and Trello remain deferred; any future adapter must preserve local scheduling/approval authority and protect private evidence. |
+| Current-base delivery and confirmed completion | 3/4 | The nine phase 3 qualifications cover base movement, conflicts, CI failure, interrupted publication, exact human/automatic merge receipts and closed-unmerged handling. R1 closes the live protected-merge gap with exact human/automatic receipts and dependency/parent completion; R5 confirms those receipts and unchanged adapter/role contracts against the release candidate. |
+| Comprehensible progress and recovery | 1/2/4 | Fourth phase 2 qualification covers attention-first status, actual profiles, waits, retained work, exact recovery guidance, watch and named-setting editing. R3 qualifies the consolidated operator guide with fresh native setup/recovery, controlled failure cases and retained live delivery receipts; R5 completes the packaged journey on native macOS/Linux arm64. |
+| Packaging, restore and breaking cutover | 1/4 | Phase 1 qualifies the driver and new entry point's target builds. R2 proves consistent backup/restore; R4 proves the sole promoted entry point, strict format boundary, four verified archives and native macOS smoke. R5 qualifies native macOS/Linux arm64 containment/runtime, isolated installation, ownership/cutover and explicit resubmission. No historical-state converter is required. |
+| Honest operational learning | 1/2/4 | Existing attempts retain call/result evidence; R3 records calls, elapsed time, interventions, repeated verification and evidence boundaries above. R5 records the packaged/cutover timings, interventions and evidence reuse without an analytics service. Guidance drafts require human review. No inferred cost or unsupported performance claim. |
 
 Required repository gates for implementation remain `go test -race -timeout 15m ./...` and
 `go vet ./...`, plus the relevant existing platform/release checks before release.
@@ -4055,11 +4170,11 @@ Do not automatically turn repeated model text into execution policy.
 
 ## Build readiness
 
-The local process, nine delivery bundles and R1–R3 qualification are complete
-within their recorded boundaries. R4 promotes and packages the local runtime;
-its qualification is recorded above. Feature scope remains frozen. Continue with
-R5 only when authorized: final native-platform evidence, the packaged journey and
-cutover rehearsal remain open. Optional integrations cannot displace them.
+The local process, nine delivery bundles and R1–R5 qualification are complete
+within their recorded boundaries. The frozen replacement is release-ready.
+Publication and installation/cutover require separate explicit direction and the
+existing reviewed-source release safeguards. No implementation bundle remains
+for this release; optional integrations stay deferred.
 
 [factory]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/README.md
 [factory-setup]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/skills/factory-init/SKILL.md
