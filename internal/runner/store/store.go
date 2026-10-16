@@ -21,12 +21,15 @@ import (
 var ErrConflict = errors.New("state changed; inspect current state and retry")
 
 type Store struct {
-	db  *sql.DB
-	Dir string
+	db    *sql.DB
+	Dir   string
+	guard *Guard
 }
 
+const Format = 14
+
 const schema = `
-CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=13), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=14), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE quality_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE quality_reports (id TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE settings_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
@@ -41,6 +44,19 @@ CREATE UNIQUE INDEX integration_owner ON publications(integration_key) WHERE occ
 
 func Create(ctx context.Context, dir string, settings config.Settings) (*Store, error) {
 	if err := securefs.EnsurePrivateDir(dir); err != nil {
+		return nil, err
+	}
+	guard, err := LockGuard(dir, false, true)
+	if err != nil {
+		return nil, err
+	}
+	owned := false
+	defer func() {
+		if !owned {
+			guard.Close()
+		}
+	}()
+	if err = guard.Invalidate(); err != nil {
 		return nil, err
 	}
 	path := filepath.Join(dir, "runner.db")
@@ -63,7 +79,7 @@ func Create(ctx context.Context, dir string, settings config.Settings) (*Store, 
 	defer tx.Rollback()
 	if _, err = tx.ExecContext(ctx, schema); err == nil {
 		b, _ := json.Marshal(settings)
-		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,13,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
+		_, err = tx.ExecContext(ctx, "INSERT INTO metadata(id,format,settings) VALUES(1,14,?); INSERT INTO settings_history(revision,data) VALUES(?,?)", b, settings.Config.Revision(), b)
 	}
 	if err == nil && settings.Quality.Revision() != "" {
 		b, _ := json.Marshal(settings.Quality)
@@ -76,11 +92,33 @@ func Create(ctx context.Context, dir string, settings config.Settings) (*Store, 
 		s.Close()
 		return nil, err
 	}
+	s.guard = guard
+	owned = true
 	return s, nil
 }
 
 // Open never creates or repairs authority. Read-only commands do not run migrations.
 func Open(ctx context.Context, dir string, readonly bool) (*Store, error) {
+	guard, err := LockGuard(dir, false, false)
+	if err != nil {
+		return nil, err
+	}
+	s, err := open(ctx, dir, readonly)
+	if err != nil {
+		guard.Close()
+		return nil, err
+	}
+	s.guard = guard
+	if !readonly {
+		if err = s.AllowMutation(ctx); err != nil {
+			s.Close()
+			return nil, err
+		}
+	}
+	return s, nil
+}
+
+func open(ctx context.Context, dir string, readonly bool) (*Store, error) {
 	if err := securefs.ValidatePrivateDir(dir); err != nil {
 		return nil, err
 	}
@@ -101,7 +139,7 @@ func Open(ctx context.Context, dir string, readonly bool) (*Store, error) {
 		s.Close()
 		return nil, fmt.Errorf("missing, corrupt or incompatible authoritative store: %w", err)
 	}
-	if format != 13 {
+	if format != Format {
 		s.Close()
 		return nil, fmt.Errorf("incompatible authoritative store format %d; preserve it and initialize a fresh state directory", format)
 	}
@@ -131,7 +169,13 @@ func connect(ctx context.Context, dir string, readonly bool) (*Store, error) {
 	}
 	return &Store{db: db, Dir: dir}, nil
 }
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	err := s.db.Close()
+	if s.guard != nil {
+		err = errors.Join(err, s.guard.Close())
+	}
+	return err
+}
 func (s *Store) Settings(ctx context.Context) (config.Settings, bool, error) {
 	var settings config.Settings
 	var b []byte

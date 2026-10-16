@@ -341,6 +341,9 @@ func (c CLI) editConfig(ctx context.Context, e *engine.Engine, path string, args
 	if err != nil {
 		return err
 	}
+	if err = e.Store.AllowMutation(ctx); err != nil {
+		return err
+	}
 	if err = dir.ReplaceFile(filepath.Base(path), append(data, '\n'), mode, state); err != nil {
 		return fmt.Errorf("configuration not saved (file may have changed): %w", err)
 	}

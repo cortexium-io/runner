@@ -68,7 +68,7 @@ func (c CLI) init(ctx context.Context, cfg config.Config, args []string) error {
 		if err != nil {
 			return err
 		}
-		if !config.SameRepository(old, config.Settings{Config: cfg, RepositoryID: id}) {
+		if id != old.PhysicalRepository() || !config.SameRepository(old, config.Settings{Config: cfg, RepositoryID: old.RepositoryID, Restoration: old.Restoration}) {
 			return errors.New("incompatible setup: use a distinct state directory")
 		}
 		if len(commands) > 0 || len(sources) > 0 || *definition != f.Lookup("definition").DefValue {

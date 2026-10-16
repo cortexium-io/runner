@@ -63,7 +63,7 @@ func (e *Engine) PreviewQuality(ctx context.Context, spec config.QualitySpec) (Q
 	if err != nil {
 		return p, err
 	}
-	id, base, err := workspace.Observe(ctx, current.Config)
+	_, base, err := workspace.Observe(ctx, current.Config)
 	if err != nil {
 		return p, err
 	}
@@ -72,7 +72,7 @@ func (e *Engine) PreviewQuality(ctx context.Context, spec config.QualitySpec) (Q
 		return p, err
 	}
 	q.Path = os.Getenv("PATH")
-	p = QualityPreview{RepositoryID: id, Previous: current.Quality.Revision(), Quality: q, Environment: config.CheckEnvironment}
+	p = QualityPreview{RepositoryID: current.RepositoryID, Previous: current.Quality.Revision(), Quality: q, Environment: config.CheckEnvironment}
 	p.Preview = core.Digest(p)
 	return p, nil
 }
@@ -127,14 +127,14 @@ func (e *Engine) PreviewAgreement(ctx context.Context, id string, exceptions []c
 	if err != nil {
 		return p, err
 	}
-	if repo != report.RepositoryID || base != report.Quality.Base {
+	if repo != current.PhysicalRepository() || current.RepositoryID != report.RepositoryID || base != report.Quality.Base {
 		return p, errors.New("baseline repository/base changed; collect a fresh baseline")
 	}
 	q, err := report.ResolveExceptions(exceptions)
 	if err != nil {
 		return p, err
 	}
-	p = QualityPreview{RepositoryID: repo, Previous: current.Quality.Revision(), Quality: q, Environment: config.CheckEnvironment, ReportID: id}
+	p = QualityPreview{RepositoryID: current.RepositoryID, Previous: current.Quality.Revision(), Quality: q, Environment: config.CheckEnvironment, ReportID: id}
 	if err = q.ValidateResults(q.Baseline, report.Files); err != nil {
 		p.Blockers = append(p.Blockers, err.Error())
 	}

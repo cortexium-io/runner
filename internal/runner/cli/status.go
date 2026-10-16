@@ -60,13 +60,17 @@ func (c CLI) printStatus(s engine.Status) {
 	}
 	fmt.Fprintf(c.Out, "%s — coordinator %s; drained=%t; reservations=%d/%d\n", s.ObservedAt.Format(time.RFC3339), owner, s.Drained, s.Occupied, s.Parallelism)
 	fmt.Fprintln(c.Out, "Merge policy:", s.MergePolicy)
-	if s.Unapplied {
+	held := s.Restoration != nil && s.Restoration.InspectionOnly
+	if held {
+		fmt.Fprintln(c.Out, "Restored snapshot is inspection-only; later history is unknown. Reconcile retained and remote evidence, then initialize fresh authority at distinct paths and authorize new work. This snapshot cannot resume.")
+	}
+	if s.Unapplied && !held {
 		fmt.Fprintln(c.Out, "Configuration has unapplied edits: config explain, then config apply --preview DIGEST.")
 	}
-	if !s.QualityConfigured {
+	if !s.QualityConfigured && !held {
 		fmt.Fprintln(c.Out, "Quality is not configured: quality preview/check/apply before submitting work.")
 	}
-	if len(s.Tasks) == 0 {
+	if len(s.Tasks) == 0 && !held {
 		fmt.Fprintln(c.Out, "No tasks. Use task add --file TASK.md (or add --plan for a planning request).")
 	}
 	for _, group := range engine.StatusGroups {
@@ -125,6 +129,8 @@ config apply --preview DIGEST         Apply saved edits; active work stays pinne
 quality preview|check|apply|show       Inspect, check and apply repository agreements.
 run                                  Reconcile and admit authorized work.
 drain                                Stop admission and wait for active work to settle.
+backup --to DIRECTORY                Snapshot a drained, idle installation to a new private directory.
+restore --from DIRECTORY [--apply]    Preview or restore to absent original paths; always drained.
 
 Use COMMAND --help for flags. Status and show never start work. Local delivery
 retains an accepted candidate at Awaiting delivery. task integrate ID inspects

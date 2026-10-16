@@ -183,10 +183,17 @@ func (c Config) Role(role string) (string, core.Profile) {
 	return n, c.Profiles[n]
 }
 
+type Restoration struct {
+	Snapshot          string `json:"snapshot"`
+	RepositoryBinding string `json:"repository_binding"`
+	InspectionOnly    bool   `json:"inspection_only"`
+}
+
 type Settings struct {
-	Config       Config  `json:"config"`
-	RepositoryID string  `json:"repository_id"`
-	Quality      Quality `json:"quality"`
+	Restoration  *Restoration `json:"restoration,omitempty"`
+	Config       Config       `json:"config"`
+	RepositoryID string       `json:"repository_id"`
+	Quality      Quality      `json:"quality"`
 }
 
 // SameAuthority permits live execution-policy edits, never a change to the
@@ -196,7 +203,7 @@ func SameAuthority(a, b Settings) bool {
 }
 
 func SameRepository(a, b Settings) bool {
-	return a.RepositoryID == b.RepositoryID &&
+	return a.RepositoryID == b.RepositoryID && core.Digest(a.Restoration) == core.Digest(b.Restoration) &&
 		a.Config.Format == b.Config.Format && a.Config.Repository == b.Config.Repository &&
 		a.Config.StateDir == b.Config.StateDir && a.Config.WorktreeDir == b.Config.WorktreeDir && a.Config.Delivery == b.Config.Delivery
 }
@@ -208,4 +215,12 @@ func (c Config) Implementer(escalations int) (string, core.Profile) {
 	}
 	name := names[escalations]
 	return name, c.Profiles[name]
+}
+
+// PhysicalRepository changes only through validated restore; logical identity remains pinned.
+func (s Settings) PhysicalRepository() string {
+	if s.Restoration != nil {
+		return s.Restoration.RepositoryBinding
+	}
+	return s.RepositoryID
 }

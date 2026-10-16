@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -168,6 +169,11 @@ func TestCorruptStoreIsNotReplacedByOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "runner.db")
+	guard, err := LockGuard(dir, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard.Close()
 	contents := []byte("not a database")
 	if err := os.WriteFile(path, contents, 0600); err != nil {
 		t.Fatal(err)
@@ -185,7 +191,7 @@ func TestCorruptStoreIsNotReplacedByOpen(t *testing.T) {
 }
 
 func TestPreviousStoreRequiresFreshStateWithoutModification(t *testing.T) {
-	for _, format := range []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10} {
+	for _, format := range []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13} {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
 			dir := t.TempDir()
 			if err := os.Chmod(dir, 0700); err != nil {
@@ -203,6 +209,11 @@ func TestPreviousStoreRequiresFreshStateWithoutModification(t *testing.T) {
 				t.Fatal(err)
 			}
 			old.Close()
+			guard, err := LockGuard(dir, false, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			guard.Close()
 			before, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
@@ -212,6 +223,9 @@ func TestPreviousStoreRequiresFreshStateWithoutModification(t *testing.T) {
 				if err == nil {
 					s.Close()
 					t.Fatal("old state silently converted")
+				}
+				if !strings.Contains(err.Error(), "incompatible authoritative store format") {
+					t.Fatal("wrong rejection", err)
 				}
 			}
 			after, err := os.ReadFile(path)

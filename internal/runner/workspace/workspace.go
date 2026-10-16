@@ -91,7 +91,7 @@ func (g Git) validate(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
-	if id != g.Settings.RepositoryID {
+	if id != g.Settings.PhysicalRepository() {
 		return errors.New("repository identity changed")
 	}
 	return nil

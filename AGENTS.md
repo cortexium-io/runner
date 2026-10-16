@@ -25,10 +25,10 @@ integration, explicit guarded merge and explicit automatic-merge policy) are
 implemented in `cmd/runner-next`; their qualification and remaining delivery/release boundaries are recorded in that
 plan. Feature scope is frozen after `aedc8bd`. The plan's
 [five release bundles and finish line](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
-are the remaining work source. R1 live delivery qualification is complete; start
-with R2 when authorized. Implement only those release obligations or concrete
-fixes to the frozen contract; additional
-features require explicit owner direction. Do not create a separate task ledger.
+are the remaining work source. R1 live delivery qualification and R2 backup/restore
+are complete; start with R3 when authorized. Implement only those release
+obligations or concrete fixes to the frozen contract; additional features require
+explicit owner direction. Do not create a separate task ledger.
 `docs/architecture.md` and the existing operator guides describe the current
 Project-backed runtime until the replacement lands. Existing code is evidence
 for required guarantees, not authority to restore superseded Project coupling.

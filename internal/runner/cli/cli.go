@@ -63,7 +63,10 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	}
 	args = global.Args()
 	if *path == "" || len(args) == 0 {
-		return errors.New("usage: runner-next --config PATH init|quality|config explain|config apply|task|run|drain|status")
+		return errors.New("usage: runner-next --config PATH init|quality|config|task|run|drain|status|backup|restore")
+	}
+	if args[0] == "backup" || args[0] == "restore" {
+		return c.maintenance(ctx, *path, args)
 	}
 	cfg, err := config.Load(*path)
 	if err != nil {

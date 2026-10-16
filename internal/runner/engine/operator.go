@@ -20,15 +20,16 @@ type Recovery struct {
 }
 
 type Status struct {
-	MergePolicy       string    `json:"merge_policy"`
-	ObservedAt        time.Time `json:"observed_at"`
-	Running           bool      `json:"coordinator_running"`
-	Drained           bool      `json:"drained"`
-	Unapplied         bool      `json:"unapplied_config"`
-	QualityConfigured bool      `json:"quality_configured"`
-	Parallelism       int       `json:"parallelism"`
-	Occupied          int       `json:"occupied"`
-	Tasks             []View    `json:"tasks"`
+	Restoration       *config.Restoration `json:"restoration,omitempty"`
+	MergePolicy       string              `json:"merge_policy"`
+	ObservedAt        time.Time           `json:"observed_at"`
+	Running           bool                `json:"coordinator_running"`
+	Drained           bool                `json:"drained"`
+	Unapplied         bool                `json:"unapplied_config"`
+	QualityConfigured bool                `json:"quality_configured"`
+	Parallelism       int                 `json:"parallelism"`
+	Occupied          int                 `json:"occupied"`
+	Tasks             []View              `json:"tasks"`
 }
 
 var StatusGroups = []string{"Needs you", "Working", "Waiting", "Retained"}
@@ -53,6 +54,7 @@ func (e *Engine) Status(ctx context.Context, file config.Config) (Status, error)
 		return Status{}, err
 	}
 	out := Status{MergePolicy: s.Config.MergePolicy(), ObservedAt: e.now(), Running: running, Drained: drained, Unapplied: file.Revision() != s.Config.Revision(), QualityConfigured: s.Quality.Revision() != "", Parallelism: s.Config.Policy.MaxParallelism, Tasks: []View{}}
+	out.Restoration = s.Restoration
 	tasks, err := e.Store.Tasks(ctx)
 	if err != nil {
 		return out, err

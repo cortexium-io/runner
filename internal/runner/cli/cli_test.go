@@ -12,10 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cortexium-io/runner/internal/runner/backup"
 	"github.com/cortexium-io/runner/internal/runner/config"
 	"github.com/cortexium-io/runner/internal/runner/core"
 	"github.com/cortexium-io/runner/internal/runner/engine"
 	"github.com/cortexium-io/runner/internal/runner/execution"
+	"github.com/cortexium-io/runner/internal/runner/store"
 )
 
 type commandHarness struct {
@@ -47,6 +49,9 @@ func (h *commandHarness) Check(_ context.Context, dir string, c config.QualityCh
 	return r
 }
 func (h *commandHarness) Execute(ctx context.Context, r execution.Request, _ func(core.Process) error) execution.Completion {
+	if err := os.MkdirAll(r.Attempt.EvidenceDir, 0700); err != nil {
+		return execution.Completion{Stopped: true, Error: err.Error()}
+	}
 	if r.Attempt.Role == "plan" {
 		h.planCalls++
 		if h.planQuestion && h.planCalls == 1 {
@@ -98,7 +103,7 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	var b []byte
 	var err error
 	h := &commandHarness{auditStarted: make(chan struct{}), auditRelease: make(chan struct{}), interruptFirstAudit: true, planQuestion: true, dependencies: true}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	run := func(args ...string) string {
 		t.Helper()
@@ -376,6 +381,77 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	if view.Task.Current().Number != 2 || view.Task.Stage != core.Draft || view.Task.Approval != nil || view.Task.Candidate != nil {
 		t.Fatal("adoption retained old acceptance")
 	}
+
+	// Recover this same journey rather than duplicating Plan, Ready and quality
+	// setup in another suite. All recorded inputs and historical bindings survive.
+	bundle := filepath.Join(root, "backup")
+	var snapshot backup.Report
+	if err = json.Unmarshal([]byte(run("backup", "--to", bundle)), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	original, err := store.ReadImage(ctx, cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run("status")
+	for _, path := range snapshot.Destinations {
+		if err = os.Rename(path, path+".original"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var restored backup.Report
+	if err = json.Unmarshal([]byte(run("restore", "--from", bundle)), &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.Applied || restored.InspectionOnly {
+		t.Fatal(restored)
+	}
+	run("restore", "--from", bundle, "--apply")
+	if err = json.Unmarshal([]byte(run("status", "--json")), &structured); err != nil {
+		t.Fatal(err)
+	}
+	if !structured.Drained || structured.Restoration == nil || structured.Restoration.InspectionOnly {
+		t.Fatal("restore status lost disposition")
+	}
+	afterRestore, err := store.ReadImage(ctx, cfg.StateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterRestore.Settings.Restoration = nil
+	if core.Digest(original) != core.Digest(afterRestore) {
+		t.Fatal("restore changed journey history")
+	}
+	// The first restore consumes continuity. Restoring that snapshot again must
+	// present history without executable advice or a configuration-save bypass.
+	for _, path := range snapshot.Destinations {
+		if err = os.Rename(path, path+".restored"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run("restore", "--from", bundle, "--apply")
+	if text := run("status"); !strings.Contains(text, "inspection-only") || strings.Contains(text, "run to") {
+		t.Fatal("held status gives executable advice", text)
+	}
+	view = engine.View{}
+	if err = json.Unmarshal([]byte(run("task", "show", readyID, "--json")), &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Preview != "" || view.QualityAdoptionPreview != "" || view.Restoration == nil || !view.Restoration.InspectionOnly {
+		t.Fatal("held task grants approval")
+	}
+	for _, args := range [][]string{{"run"}, {"drain"}, {"task", "stop", readyID}, {"task", "resume", readyID, "--attempt", "saved", "--allow-new-invocation"}, {"config", "apply", "--preview", "any"}} {
+		err = (CLI{Out: io.Discard, Harness: h}).Run(ctx, append([]string{"--config", cfgPath}, args...))
+		if err == nil || !strings.Contains(err.Error(), "inspection-only") {
+			t.Fatal("held command admitted", args, err)
+		}
+	}
+	edits = []string{"config", "edit", "--set", "parallelism=3"}
+	preview = previewValue(t, run(edits...), "Save preview")
+	err = (CLI{Out: io.Discard, Harness: h}).Run(ctx, append([]string{"--config", cfgPath}, append(edits, "--save", "--preview", preview)...))
+	if err == nil || !strings.Contains(err.Error(), "inspection-only") {
+		t.Fatal("held config save admitted", err)
+	}
+
 }
 
 func commandFixture(t *testing.T) (string, string, config.Config) {

@@ -36,7 +36,10 @@ The ninth adds [explicit automatic-merge policy](docs/runner-redesign-proposal.m
 `merge-policy=automatic` permits one guarded merge after a ready PR observation.
 Human mode remains the default; applying policy covers existing and future approved
 work, and disabling it prevents unsent automatic writes.
-This build uses store format 13 (earlier formats require fresh state). Local delivery
+The R2 bundle adds [offline backup and restore](docs/runner-redesign-proposal.md#r2-backup-and-recovery-procedure).
+Restore previews original destinations, never overwrites existing paths and starts
+drained; snapshots with unknown later history are inspection-only.
+This build uses store format 14 (earlier formats require fresh state). Local delivery
 still stops at **Awaiting delivery**. Feature scope is now frozen; the
 [five release bundles and checklist](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
 cover live qualification, backup/restore, the operator journey, packaging and

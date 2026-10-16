@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five remaining release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification is complete; R2–R5 are pending. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 13; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five remaining release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification and R2 backup/restore are complete; R3–R5 remain pending. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 14; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -777,7 +777,7 @@ must wait when core scenarios, test quality or the operator journey remain weak.
 **Scope frozen on 2026-10-15, after `aedc8bd`.** The nine phase 3 bundles close
 delivery feature construction for the first release. The five bundles below are the
 remaining sequence; this section is the release checklist, not a second backlog.
-R1 completed on 2026-10-16; R2–R5 remain pending. The checklist alone
+R1 and R2 completed on 2026-10-16; R3–R5 remain pending. The checklist alone
 authorizes no implementation, remote mutation, publication or installation change.
 When a bundle is authorized, refine its verification brief here before code and
 stop at its exit condition.
@@ -825,7 +825,7 @@ and acceptance conditions rather than add another feature milestone.
 | **R4 — Promote and package the replacement** | Promote the replacement to `cortexium-runner`; retire the legacy entry point, obsolete consumers/tests and the temporary `runner-next` name. Update architecture, README, setup/examples, help, operator/role references and install/release tooling. Reuse useful low-level code and tests by current requirement. | The packaged binary exposes the replacement commands and version, requires no Project, and its docs/installed instructions match its behavior. Extend the existing packaging, installer and release-security checks; replace the legacy Project smoke journey. Build all four no-CGO targets and verify archives/checksums. Update CI/readiness commands to the qualified package timeout. No compatibility runtime, general updater redesign or new plugin layer. Stop at a reviewable release candidate, without publishing or switching a real installation. |
 | **R5 — Final qualification and cutover rehearsal** | Qualify one reviewed candidate and rehearse the documented breaking cutover on a selected test installation. Check backup, old-owner shutdown, fresh setup, explicit resubmission and the prohibition on restarting stale authority after new remote effects. | Complete the gates below on the candidate; reuse R1–R3 evidence only where subsequent changes have not invalidated it. Exercise the packaged entry point on macOS and Linux and record native sandbox/runtime evidence separately from cross-builds. Finish with tested artifacts, evidence, release notes and the exact installation/cutover procedure. Missing infrastructure or unverified safety leaves this gate open. Stop release-ready; publishing and changing the user's running installation require their own explicit instruction. |
 
-R2 is the next implementation bundle once authorized. If a needed test host,
+R3 is the next implementation bundle once authorized. If a needed test host,
 repository or credential is unavailable, name the specific blocked evidence and
 continue independent preparation; do not substitute a simulated success. Live
 model qualification uses the already selected `gpt-6.1-sol / high` where a model
@@ -987,6 +987,199 @@ Runner-owned admission, squash/rebase, polling and ready-state writes remain
 unsupported. R2–R5 retain their own backup/restore, complete operator journey,
 packaging and native-platform obligations. Stop here before R2.
 
+#### R2 implementation and verification brief
+
+**2026-10-16, before implementation.** Add explicit `backup --to DIRECTORY` and
+`restore --from DIRECTORY [--apply]` commands to `runner-next`. Restore previews
+by default; apply restores only to the original paths, all of which must be
+absent. Never overwrite an existing installation or unrelated files. Stop before
+R3's complete operator journey.
+
+- Back up only a drained installation with no coordinator, active command,
+  occupying reservation or surviving recorded process. Hold an exclusive
+  maintenance lock while capturing a consistent SQLite snapshot, configuration,
+  private evidence, repository/Git administration, task workspaces and retained
+  role inputs. Keep a private directory bundle with a versioned manifest and
+  hashes; publish the manifest last. No archive framework, online snapshots,
+  relocation, cloud storage or cross-version conversion.
+- Require the same binary, store format, host, user and original paths. Validate
+  the complete bundle, SQLite integrity and referenced artifacts before install.
+  Restore staged data without replacement and expose authority last. Interrupted
+  installation must stay unusable and preserve enough information to inspect and
+  retry without deleting unrelated data.
+- Keep one small maintenance/freshness guard beside the state directory, outside
+  the backup. Normal database users hold shared ownership; writable access and
+  configuration saves durably invalidate its snapshot token before any effect.
+  Backup/restore take exclusive ownership. This is a rollback fence, not another
+  state store or action ledger. Preserve this original guard separately; copying
+  it from an old backup cannot establish freshness.
+- A matching untouched guard permits a drained restore of the same authority.
+  If the guard is missing, replaced or invalidated, restore only for inspection:
+  all writes, execution, policy changes and task recovery remain disabled. There
+  is no override that guesses later consumption or remote effects. Explicit
+  recovery then means reconcile retained/remote evidence and initialize fresh
+  authority at distinct paths, with newly specified and approved work. Keep the
+  historical counters and approvals visible; never resume them as current.
+- Restored Git directories have new filesystem identities. Validate their full
+  copied contents and retained workspace bindings, then record the new physical
+  binding while preserving the logical repository identity used by task, quality
+  and approval records. An ordinary checkout replacement must still fail identity
+  validation. A new store format prevents older binaries ignoring recovery holds;
+  no migration of previous experimental stores is included.
+
+Representative evidence: a real Git/SQLite round-trip preserves tasks, versions,
+quality history, approvals, counters, saved results, candidates and consumed
+publication/merge markers; read-only inspection preserves freshness; a subsequent
+mutation invalidates it. Stale restore after a recorded external effect or
+revocation stays inspection-only and cannot repeat a write or regain permission.
+Reject running ownership, incomplete/corrupt or mismatched bundles, missing
+candidate/evidence files and occupied destinations. Exercise interruption before
+activation and verify retry/cleanup boundaries. Extend the owning store,
+workspace and CLI suites; use one focused filesystem bundle suite for the new
+boundary. Reuse delivery ambiguity/revocation tests rather than copy them. No
+paid role calls are required because role prompts and model execution do not
+change. Run race/vet/build gates, review the complete diff and document the exact
+recovery procedure and retained limitations here.
+
+#### R2 backup and recovery procedure
+
+Use the **same Runner binary**, host, OS user and absolute configuration path
+for creation and restore. This bundle uses store format **14**. Preserve older
+experimental stores with their matching binaries; no format conversion is
+included. The R1 fixture and its format-13 evidence remain unchanged.
+
+1. Finish active commands, stop `status --watch`, and drain the coordinator:
+
+   ```sh
+   runner-next --config /absolute/path/runner.json drain
+   runner-next --config /absolute/path/runner.json status
+   runner-next --config /absolute/path/runner.json backup --to /absolute/path/new-backup
+   ```
+
+   Keep editors, Git tools and other programs from writing these roots while
+   copying. The command refuses active ownership, unresolved process groups or
+   reservations, missing recorded inputs and invalid accepted candidates. A
+   failed launch that never produced an output does not invent a required file.
+   The destination must be new and outside all source roots.
+
+2. Retain the complete private backup directory and the exact binary separately.
+   `manifest.json` is written last; an absent, truncated or mismatched manifest
+   is an incomplete backup. The manifest binds file contents, file/directory permissions and literal
+   symlink targets (link permissions are platform-dependent). The bundle contains the consistent SQLite image, exact config
+   file (including unapplied edits), state/evidence, repository and Git
+   administration, workspaces and recorded role inputs. Host credential stores
+   and installed tools are not collected; files already inside captured roots are
+   copied as-is. Preserve required tool installations
+   separately.
+   Symlinks are copied without following them; special files and Git object
+   alternates are unsupported. The manifest has a 64 MiB limit. This is a private
+   local copy, not an encrypted or
+   signed portable archive.
+
+3. Keep the original `STATE_DIR.guard` file **in place**, beside the state directory.
+   It is intentionally excluded from the backup. Read-only inspection preserves
+   its snapshot token. A writable command, config save, newer backup or restore
+   invalidates/supersedes that token before it can change authority. A failed
+   writable command may conservatively make a snapshot inspection-only too.
+   Never copy an old guard back to claim freshness. Losing the guard, including
+   losing the whole disk, permits historical inspection only.
+
+4. Inspect the restore preview, including every original destination and blocker:
+
+   ```sh
+   runner-next --config /absolute/path/runner.json restore --from /absolute/path/new-backup
+   ```
+
+   The config file may be absent; restore reads it from the bundle. Existing paths
+   are listed as blockers. With the installation stopped, preserve any current
+   files by moving each listed root aside to a distinct name. Do not move or
+   replace the guard. **Every listed destination must be absent**, including
+   retained temporary execution inputs; their parent directories must exist.
+   Restore never removes old data or creates missing mount/parent hierarchies.
+
+5. Repeat the preview, then apply only to those original paths:
+
+   ```sh
+   runner-next --config /absolute/path/runner.json restore --from /absolute/path/new-backup --apply
+   runner-next --config /absolute/path/runner.json status
+   runner-next --config /absolute/path/runner.json task show TASK_ID
+   ```
+
+   An unchanged original guard gives `inspection_only: false`. Restore validates
+   contents, installs without replacement, checks native Git/workspace bindings
+   and starts **drained**. It preserves task versions, quality and approval
+   identities, counters, saved results and consumed delivery writes. Physical Git
+   identity is rebound to the restored copy. Inspect pending configuration and
+   retained work before explicitly issuing `run`; ordinary delivery recovery
+   still inspects uncertain writes and never repeats a consumed merge.
+
+   A missing, replaced or invalidated guard gives `inspection_only: true`.
+   Historical approval and counters remain visible, but `run`, task mutations,
+   config saves/applies and recovery cannot execute. There is no force/resume
+   override. Reconcile the historical work with current remote/local evidence,
+   then initialize fresh authority at distinct paths and specify/approve only
+   work that still remains. A new backup of an inspection-only installation
+   cannot remove its hold.
+
+6. If applying is interrupted, inspect the listed destinations and any sibling
+   `.runner-restore-*` directories. Automatic cleanup removes only this command's
+   staging directories on a normal error; process death may leave them behind.
+   Installed roots remain for inspection. Authority is installed last with a
+   recovery hold, which is released only after all checks succeed. Move partial
+   roots aside explicitly before retrying; nothing is overwritten. Once apply
+   begins, the old snapshot's freshness token is consumed, so a retry remains
+   inspection-only. An incomplete backup must be recreated from a valid drained
+   installation; do not patch its manifest.
+
+This deliberately bounded path does not provide online backup, relocation,
+cross-version migration, automatic rollback, restoration of host credentials or
+reconciliation of unknown later history. R3 will exercise it within the complete
+operator guide; R4/R5 retain packaging and native-platform qualification.
+
+#### R2 qualification
+
+**Completed 2026-10-16 in `codex/runner-local-core`, after the brief above.**
+One offline backup package owns the directory bundle and restore operation;
+the existing store owns SQLite snapshots and maintenance ownership, and the
+existing workspace adapter validates Git. No scheduler, public plugin API,
+archive dependency, role prompt or delivery mechanism was added.
+
+| Evidence | Result |
+| --- | --- |
+| Real SQLite/Git round-trip | Preserves complete task/approval/counter/result history, quality revisions/reports, accepted candidate identity and consumed publication/merge records. Accepted work stays pinned to its original agreement after a newer default. The restored physical Git binding changes while logical authority remains stable. Ordinary checkout replacement still fails validation. |
+| Freshness and ownership | Read-only inspection preserves the guard; writable opens and config saves invalidate it. Commands and maintenance exclude each other. A simulated external effect after backup plus task revocation leaves the restored historical approval inspectable but unusable. Missing/copied guards also force inspection-only recovery. |
+| Failure boundaries | Rejects active commands/coordinator ownership, unresolved process groups, reservations, undrained state, missing candidate/evidence, incomplete/corrupt/incompatible bundles and existing destinations. Controlled interruption before authority installation and before activation cannot expose usable authority. A retry never overwrites partial copies or regains freshness. Native exclusive rename also refuses an existing empty directory. |
+| Existing CLI journey extended | Recovers the same Plan/Ready, interrupted-review, configuration, dependency and agreement history already covered by the owning journey. Status/show retain records but remove approval/execution advice under a hold. Run, task recovery/mutation, config apply and config save cannot bypass it. The fake harness now creates its evidence directory, as the real adapter does. |
+| Built binary, real native checks | Final rehearsal completed 30 commands in 3.80 seconds: initialization, a native baseline check, approval, preview, fresh drained restore, quality-report inspection and configuration application, followed by revocation and a stale inspection-only restore. The configured profile was `gpt-6.1-sol / high`; capability validation and sandboxed shell checks invoked no model. No GitHub writes were made. |
+
+`go test -race -timeout 15m ./...` passed (replacement engine 608.920 seconds).
+Final review added explicit snapshot
+file syncing and exclusive ownership for restoration writes, corrected backup
+freshness reporting, bounded the manifest consistently with its reader and made
+symlink handling independent of platform link permissions. The affected backup,
+CLI and store race suites passed again on the final source (backup about 57
+seconds; CLI about 17 seconds). Final `go vet ./...`,
+`go build -o /tmp/runner-next-r2 ./cmd/runner-next` and `git diff --check` passed.
+The complete source/test/documentation diff was reviewed for scope, recovery
+safety and unnecessary machinery. Existing delivery tests continue to own
+uncertain-write reconciliation and revocation; those journeys were not copied.
+
+Environment: Go 1.27.1, Git 2.54.0 (Apple Git-157), macOS arm64. Final native
+commands, snapshots, matching binary and summary are retained privately at
+`/Users/dan/.codex/runner-qualification/r2-20261016-release-boundary`;
+logs are `/tmp/runner-r2-race.log`, `/tmp/runner-r2-boundary-final.log`,
+`/tmp/runner-r2-vet-final.log` and `/tmp/runner-r2-native-release.log`.
+Earlier rehearsals remain in the neighboring R2 directories. One temporary
+driver used the wrong JSON field (`preview` instead of `apply_preview`) and was
+corrected; this was not a Runner failure. Rehearsals after boundary fixes used
+fresh fixtures and their matching binaries. Every rehearsal made zero model
+calls and zero GitHub writes. The temporary driver is not shipped.
+
+R2 is complete only for this same-host, same-binary, original-path contract.
+Native Linux/runtime packaging qualification remains R5 work; no cross-platform
+runtime success is claimed here. R1's store/binary and remote fixture are
+preserved. Stop before R3's complete operator journey and R4 runtime promotion.
+
 #### Required verification
 
 Each implementation bundle uses the existing owning suites and the repository's
@@ -1031,7 +1224,7 @@ is recorded. Construction completion does not imply release qualification.
 
 - [x] R1: real human and Runner-owned protected merges have exact receipts; frozen
   manual handoffs and unsupported host configurations are documented.
-- [ ] R2: consistent backup/restore and stale-snapshot handling are verified;
+- [x] R2: consistent backup/restore and stale-snapshot handling are verified;
   recovery cannot duplicate ownership, reset known consumption or replay writes.
 - [ ] R3: the full documented operator journey works without undocumented rescue;
   configuration, test ownership, interruption and recovery are understandable.
@@ -3272,8 +3465,8 @@ claimed. It cannot authorize another write after dispatch. A stopped or replaced
 task retains the existing revocation rules. Drain stops new admission and allows
 active work to settle; use human policy to disable unsent automatic writes.
 
-This build uses store format 13. Preserve an older store with its matching binary
-and initialize fresh private state; no in-flight merge authority is imported.
+The current build uses store format 14 (R2 recovery). Preserve an older store with
+its matching binary and initialize fresh private state; no in-flight merge authority is imported.
 The development repository's own configuration has not been switched to automatic.
 Ready-state writes, polling/events, host auto-merge/queues, ruleset-only admission,
 squash/rebase, cleanup and release qualification remain separate work.
@@ -3581,11 +3774,11 @@ Do not automatically turn repeated model text into execution policy.
 
 ## Build readiness
 
-The local process, nine delivery bundles and R1 live delivery qualification are
-complete within their recorded boundaries. Feature scope is frozen. Continue
-through the [release checklist](#frozen-first-release-checklist), starting with R2
-when authorized. Backup/restore, the full operator journey, runtime promotion and
-final release evidence remain open; optional integrations cannot displace them.
+The local process, nine delivery bundles, R1 live delivery qualification and R2
+backup/restore are complete within their recorded boundaries. Feature scope is
+frozen. Continue through the [release checklist](#frozen-first-release-checklist),
+starting with R3 when authorized. The full operator journey, runtime promotion
+and final release evidence remain open; optional integrations cannot displace them.
 
 [factory]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/README.md
 [factory-setup]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/skills/factory-init/SKILL.md

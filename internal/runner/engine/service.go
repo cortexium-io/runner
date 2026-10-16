@@ -52,7 +52,7 @@ func (e *Engine) validate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if id != e.Settings.RepositoryID {
+	if id != e.Settings.PhysicalRepository() {
 		return errors.New("repository identity changed")
 	}
 	return nil
@@ -73,24 +73,25 @@ func (e *Engine) Add(ctx context.Context, body string) (core.Task, error) {
 }
 
 type View struct {
-	MergePolicy            string             `json:"merge_policy"`
-	DeliveryDestination    string             `json:"delivery_destination,omitempty"`
-	Publications           []core.Publication `json:"publications"`
-	Group                  string             `json:"group"`
-	Summary                string             `json:"summary"`
-	FocusAttempt           *core.Attempt      `json:"focus_attempt,omitempty"`
-	ElapsedSeconds         *int64             `json:"elapsed_seconds,omitempty"`
-	Recovery               *Recovery          `json:"recovery,omitempty"`
-	Task                   core.Task          `json:"task"`
-	Attempts               []core.Attempt     `json:"attempts"`
-	ObservedBase           string             `json:"observed_base,omitempty"`
-	Preview                string             `json:"approval_preview,omitempty"`
-	QualityAdoptionPreview string             `json:"quality_adoption_preview,omitempty"`
-	CurrentQuality         string             `json:"current_quality_revision"`
-	ReleasePreview         string             `json:"release_preview,omitempty"`
-	NextAction             string             `json:"next_action"`
-	CancellationPending    bool               `json:"cancellation_pending"`
-	Eligibility            Eligibility        `json:"eligibility"`
+	Restoration            *config.Restoration `json:"restoration,omitempty"`
+	MergePolicy            string              `json:"merge_policy"`
+	DeliveryDestination    string              `json:"delivery_destination,omitempty"`
+	Publications           []core.Publication  `json:"publications"`
+	Group                  string              `json:"group"`
+	Summary                string              `json:"summary"`
+	FocusAttempt           *core.Attempt       `json:"focus_attempt,omitempty"`
+	ElapsedSeconds         *int64              `json:"elapsed_seconds,omitempty"`
+	Recovery               *Recovery           `json:"recovery,omitempty"`
+	Task                   core.Task           `json:"task"`
+	Attempts               []core.Attempt      `json:"attempts"`
+	ObservedBase           string              `json:"observed_base,omitempty"`
+	Preview                string              `json:"approval_preview,omitempty"`
+	QualityAdoptionPreview string              `json:"quality_adoption_preview,omitempty"`
+	CurrentQuality         string              `json:"current_quality_revision"`
+	ReleasePreview         string              `json:"release_preview,omitempty"`
+	NextAction             string              `json:"next_action"`
+	CancellationPending    bool                `json:"cancellation_pending"`
+	Eligibility            Eligibility         `json:"eligibility"`
 }
 
 func (e *Engine) Show(ctx context.Context, id string) (View, error) {
@@ -114,7 +115,7 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	view := View{MergePolicy: settings.Config.MergePolicy(), CurrentQuality: settings.Quality.Revision(), Task: t, Attempts: attempts}
+	view := View{Restoration: settings.Restoration, MergePolicy: settings.Config.MergePolicy(), CurrentQuality: settings.Quality.Revision(), Task: t, Attempts: attempts}
 	view.DeliveryDestination = settings.Config.Delivery.Repository
 	publications, err := e.Store.Publications(ctx, "")
 	if err != nil {
@@ -135,11 +136,20 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 			view.CancellationPending = true
 		}
 	}
+	if settings.Restoration != nil && settings.Restoration.InspectionOnly {
+		describeView(&view, false, e.now())
+		view.Group, view.Summary = "Needs you", "restored snapshot is inspection-only; later history is unknown"
+		view.NextAction = "reconcile retained and remote evidence; initialize fresh authority at distinct paths and authorize new work"
+		view.Eligibility.Role = ""
+		view.Eligibility.WaitKind, view.Eligibility.WaitingFor = "restoration", view.Summary
+		view.Recovery = &Recovery{Preserved: "historical task, approval, counters, results and delivery records", Repeats: "none; this snapshot cannot resume"}
+		return view, nil
+	}
 	repo, base, err := workspace.Observe(ctx, e.Settings.Config)
 	if err != nil {
 		return view, err
 	}
-	if repo != e.Settings.RepositoryID {
+	if repo != e.Settings.PhysicalRepository() {
 		return view, errors.New("repository identity changed")
 	}
 	if t.Stage != core.Completed && t.Current().Quality != settings.Quality.Revision() && settings.Quality.Revision() != "" && t.Release == nil {
@@ -151,10 +161,10 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 	}
 	e = pinned
 	view.ObservedBase = base
-	view.Preview = core.Preview(t, repo, e.policy(), e.Settings.Quality.Revision(), base)
+	view.Preview = core.Preview(t, e.Settings.RepositoryID, e.policy(), e.Settings.Quality.Revision(), base)
 	if t.PlanRequest && t.Proposal != nil && t.Stage == core.AwaitingApproval && t.Attention == nil {
 		if t.Approval != nil && t.Approval.Base == base {
-			view.ReleasePreview = core.ReleasePreview(t, repo, e.policy(), e.Settings.Quality.Revision(), base)
+			view.ReleasePreview = core.ReleasePreview(t, e.Settings.RepositoryID, e.policy(), e.Settings.Quality.Revision(), base)
 		}
 	}
 	running, err := e.observeCoordinator()
