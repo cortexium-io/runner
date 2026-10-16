@@ -2,8 +2,9 @@
 
 This guide describes the current Project-backed runtime. The
 [core redesign plan](runner-redesign-proposal.md) specifies its accepted
-replacement. The first local slice is available separately as `runner-next`;
-use its [command guide](runner-redesign-proposal.md#using-the-implemented-local-slice).
+replacement. The replacement is available separately as `runner-next`;
+use its [complete operator guide](runner-next-guide.md) for setup through
+delivery and restore.
 The commands below apply to the existing `cortexium-runner` binary.
 
 `cortexium-runner` is a local CLI that develops maintainer-approved

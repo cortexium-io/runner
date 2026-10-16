@@ -1,52 +1,19 @@
 # Cortexium Runner
 
-The first local-core milestone is available in `cmd/runner-next`: explicit task
-approval, private SQLite state, isolated Codex implementation, independent review
-and a retained candidate without GitHub Projects. See the [local slice guide and
-qualification](docs/runner-redesign-proposal.md#using-the-implemented-local-slice).
-Phase 2 now adds configurable capacity, bounded retry/repair, escalation, live
-policy preview/apply, Plan proposals with atomic release and dependency waits,
-and planner preparation for Ready tasks missing verification briefs. See the
-[Plan guide and qualification](docs/runner-redesign-proposal.md#using-plan-and-ready-preparation).
-It also supports [quality-agreement revisions and scoped baseline exceptions](docs/runner-redesign-proposal.md#using-quality-agreements),
-with explicit task adoption and Runner-owned candidate checks.
-The [operator guide](docs/runner-redesign-proposal.md#using-the-operator-interface)
-covers attention-first status, read-only watch and the configuration editor.
-The first phase 3 bundle adds [durable GitHub draft publication](docs/runner-redesign-proposal.md#using-draft-publication),
-independent of Projects, with exact candidate binding and interrupted-write recovery.
-The second bundle adds [current-base verification and bounded refresh](docs/runner-redesign-proposal.md#phase-3-second-bundle-current-base-verification-and-bounded-refresh),
-with separate retained candidates and fresh checks/review after base movement.
-The third adds [remote draft synchronization](docs/runner-redesign-proposal.md#phase-3-third-bundle-remote-draft-synchronization):
-verified candidates advance the same draft under an exact remote commit lease.
-The fourth adds [CI assessment](docs/runner-redesign-proposal.md#phase-3-fourth-bundle-ci-assessment)
-against required checks pinned in the quality agreement, with explicit reassessment.
-The fifth adds [bounded CI repair](docs/runner-redesign-proposal.md#phase-3-fifth-bundle-bounded-ci-repair):
-eligible failures use the existing repair allowance, preserve the published candidate,
-and return through checks, review and base verification before updating the same draft.
-The sixth adds [bounded text conflict repair](docs/runner-redesign-proposal.md#using-bounded-conflict-repair):
-text conflicts use the same repair allowance and preserve both the original
-candidate and partial repair work. Unsupported conflicts require inspection.
-The seventh adds [confirmed human integration](docs/runner-redesign-proposal.md#using-confirmed-human-integration):
-Runner verifies ordinary merge commits against the exact reviewed candidate,
-verified base and freshly read pinned CI, then completes tasks and releases dependents.
-The eighth adds [explicit Runner-owned merge](docs/runner-redesign-proposal.md#using-explicit-runner-owned-merge):
-`task merge` admits one protected ordinary merge of a ready PR and recovers an
-uncertain write through inspection only. Human merge remains the default.
-The ninth adds [explicit automatic-merge policy](docs/runner-redesign-proposal.md#using-automatic-merge-policy):
-`merge-policy=automatic` permits one guarded merge after a ready PR observation.
-Human mode remains the default; applying policy covers existing and future approved
-work, and disabling it prevents unsent automatic writes.
-The R2 bundle adds [offline backup and restore](docs/runner-redesign-proposal.md#r2-backup-and-recovery-procedure).
-Restore previews original destinations, never overwrites existing paths and starts
-drained; snapshots with unknown later history are inspection-only.
-This build uses store format 14 (earlier formats require fresh state). Local delivery
-still stops at **Awaiting delivery**. Feature scope is now frozen; the
-[five release bundles and checklist](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
-cover live qualification, backup/restore, the operator journey, packaging and
-cutover. Ready-state writes, polling, merge queues, squash/rebase, ruleset-only
-Runner-owned guards and external views are deferred beyond this release.
-The documentation below describes the existing
-`cortexium-runner` release.
+The replacement local Runner is available in `cmd/runner-next`: Plan/Ready
+approval, isolated Codex implementation, independent review, bounded recovery,
+GitHub delivery and offline backup/restore, without GitHub Projects.
+Start with the [replacement operator guide](docs/runner-next-guide.md) for fresh
+setup, configuration, daily operation, delivery and recovery.
+
+Feature scope is frozen. The [release checklist and evidence](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
+track qualification and the remaining packaging/cutover gates. The replacement
+uses store format 14; earlier stores require fresh setup with their history
+preserved under a matching binary. Local delivery retains accepted work at
+**Awaiting delivery**; GitHub delivery completes only after confirmed integration.
+
+The documentation below and the release installer still describe the existing
+`cortexium-runner` release. Replacement promotion and packaging remain R4 work.
 
 `cortexium-runner` moves trusted or maintainer-approved GitHub Project work through
 planning, implementation, agent review, and a pull request that waits for a

@@ -148,9 +148,12 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	}
 
 	// The editor previews and saves while the audit keeps its admitted profile.
-	edits := []string{"config", "edit", "--set", "parallelism=2", "--set", "planner=build", "--set", "profile.review=controlled medium 1m", "--set", "profile.careful=controlled high 2m", "--set", "repairs=1", "--set", "escalation=careful"}
+	edits := []string{"config", "edit", "--set", "parallelism=2", "--set", "planner=build", "--set", "profile.review=controlled medium 1m", "--set", "profile.careful=controlled high 2m", "--set", "repairs=1", "--set", "transient-retries=1", "--set", "invocations=8", "--set", "escalation=careful"}
 	preview := previewValue(t, run(edits...), "Save preview")
 	run(append(edits, "--save", "--preview", preview)...)
+	if advice := run("status"); !strings.Contains(advice, "unapplied edits") || !strings.Contains(advice, "config explain") {
+		t.Fatal("saved policy has no visible apply step", advice)
+	}
 	var change engine.PolicyChange
 	if err = json.Unmarshal([]byte(run("config", "explain", "--json")), &change); err != nil {
 		t.Fatal(err)
@@ -162,6 +165,13 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 		t.Fatal("stale policy preview accepted")
 	}
 	run("config", "apply", "--preview", change.Preview)
+	var policy engine.PolicyChange
+	if err = json.Unmarshal([]byte(run("config", "explain", "--json")), &policy); err != nil {
+		t.Fatal(err)
+	}
+	if policy.Proposed.Policy.MaxParallelism != 2 || policy.Proposed.Policy.MaxTransientRetries != 1 || policy.Proposed.Policy.MaxInvocationsPerTask == nil || *policy.Proposed.Policy.MaxInvocationsPerTask != 8 {
+		t.Fatal("configured admission limits lost", policy)
+	}
 	if err = json.Unmarshal([]byte(run("task", "show", id, "--json")), &view); err != nil {
 		t.Fatal(err)
 	}
@@ -203,6 +213,11 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	}
 	candidate := *view.Task.Candidate
 	attempt := view.Task.Attention.Attempt
+	advice := run("task", "show", id)
+	if !strings.Contains(advice, "Recovery role: audit") || !strings.Contains(advice, "task resume "+id+" --attempt "+attempt) || !strings.Contains(advice, "--allow-new-invocation") || !strings.Contains(advice, candidate.Commit) {
+		t.Fatal("interrupted review does not explain retained work and repeat permission", advice)
+	}
+	t.Log("Interrupted audit: retained candidate, exact resume command and explicit repeat permission visible.")
 	if err = (CLI{Out: io.Discard, Harness: h}).Run(ctx, []string{"--config", cfgPath, "task", "resume", id, "--attempt", attempt}); err == nil {
 		t.Fatal("review repeated without explicit permission")
 	}
@@ -234,6 +249,9 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	}
 	if *view.Task.Candidate != candidate || len(view.Attempts) != 3 || view.Attempts[2].Role != "audit" || view.Attempts[2].Profile.Reasoning != "high" {
 		t.Fatal("recovery lost candidate or pinned reviewer", view)
+	}
+	if advice := run("task", "show", id); !strings.Contains(advice, "integration is still pending") || view.Task.Usage.Invocations != 3 {
+		t.Fatal("local acceptance claims completion or loses consumed calls", advice, view.Task.Usage)
 	}
 	dbPath := filepath.Join(cfg.StateDir, "runner.db")
 	before, err := os.ReadFile(dbPath)
@@ -271,9 +289,11 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	if err = <-done; err != nil {
 		t.Fatal(err)
 	}
-	if view.Task.Attention.Kind != core.Decision || !strings.Contains(run("task", "show", id), "Which greeting") {
-		t.Fatal("question not visible")
+	advice = run("task", "show", id)
+	if view.Task.Attention.Kind != core.Decision || !strings.Contains(advice, "Which greeting") || !strings.Contains(advice, "task replace "+id+" --version 1") {
+		t.Fatal("question or versioned answer path not visible", advice)
 	}
+	t.Log("Plan question: full question and versioned replacement path visible; clarified request requires fresh approval.")
 	if err = os.WriteFile(taskFile, []byte("Use hello as the greeting; then add the followup."), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -316,6 +336,11 @@ func TestLocalCommandJourneyDrainAndReadOnlyReopen(t *testing.T) {
 	if dependent.Group != "Waiting" || dependent.Eligibility.WaitKind != "dependency" {
 		t.Fatal("dependency not explained", dependent)
 	}
+	advice = run("task", "show", dependent.Task.ID)
+	if !strings.Contains(advice, view.Task.Release.Children[0]) || !strings.Contains(advice, "exact completed version") {
+		t.Fatal("dependency wait hides prerequisite or release condition", advice)
+	}
+	t.Log("Released Plan: dependent names its prerequisite and waits for exact-version completion.")
 	human := run("status")
 	var structured engine.Status
 	if err = json.Unmarshal([]byte(run("status", "--json")), &structured); err != nil {

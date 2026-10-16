@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five remaining release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification and R2 backup/restore are complete; R3–R5 remain pending. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 14; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification, R2 backup/restore and R3 operator qualification are complete; R4/R5 remain pending. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 14; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -15,8 +15,9 @@ implementation or a board's field schema.
 
 The direction is recorded in [ADR 0005](decisions/0005-local-runner-core.md).
 This is the designated replacement specification and build sequence, under
-[AGENTS.md](../AGENTS.md). The [architecture](architecture.md) and existing
-operator guides describe the Project-backed runtime. `cmd/runner-next` now
+[AGENTS.md](../AGENTS.md). The [architecture](architecture.md) and legacy
+operator guides describe the Project-backed runtime. The replacement's current
+workflow is in the [operator guide](runner-next-guide.md). `cmd/runner-next` now
 implements the local process and nine phase 3 delivery bundles below. Remaining
 release work is bounded by the frozen checklist and requires a separate
 implementation instruction.
@@ -777,7 +778,7 @@ must wait when core scenarios, test quality or the operator journey remain weak.
 **Scope frozen on 2026-10-15, after `aedc8bd`.** The nine phase 3 bundles close
 delivery feature construction for the first release. The five bundles below are the
 remaining sequence; this section is the release checklist, not a second backlog.
-R1 and R2 completed on 2026-10-16; R3–R5 remain pending. The checklist alone
+R1–R3 completed on 2026-10-16; R4/R5 remain pending. The checklist alone
 authorizes no implementation, remote mutation, publication or installation change.
 When a bundle is authorized, refine its verification brief here before code and
 stop at its exit condition.
@@ -825,7 +826,7 @@ and acceptance conditions rather than add another feature milestone.
 | **R4 — Promote and package the replacement** | Promote the replacement to `cortexium-runner`; retire the legacy entry point, obsolete consumers/tests and the temporary `runner-next` name. Update architecture, README, setup/examples, help, operator/role references and install/release tooling. Reuse useful low-level code and tests by current requirement. | The packaged binary exposes the replacement commands and version, requires no Project, and its docs/installed instructions match its behavior. Extend the existing packaging, installer and release-security checks; replace the legacy Project smoke journey. Build all four no-CGO targets and verify archives/checksums. Update CI/readiness commands to the qualified package timeout. No compatibility runtime, general updater redesign or new plugin layer. Stop at a reviewable release candidate, without publishing or switching a real installation. |
 | **R5 — Final qualification and cutover rehearsal** | Qualify one reviewed candidate and rehearse the documented breaking cutover on a selected test installation. Check backup, old-owner shutdown, fresh setup, explicit resubmission and the prohibition on restarting stale authority after new remote effects. | Complete the gates below on the candidate; reuse R1–R3 evidence only where subsequent changes have not invalidated it. Exercise the packaged entry point on macOS and Linux and record native sandbox/runtime evidence separately from cross-builds. Finish with tested artifacts, evidence, release notes and the exact installation/cutover procedure. Missing infrastructure or unverified safety leaves this gate open. Stop release-ready; publishing and changing the user's running installation require their own explicit instruction. |
 
-R3 is the next implementation bundle once authorized. If a needed test host,
+R4 is the next implementation bundle once authorized. If a needed test host,
 repository or credential is unavailable, name the specific blocked evidence and
 continue independent preparation; do not substitute a simulated success. Live
 model qualification uses the already selected `gpt-6.1-sol / high` where a model
@@ -1181,6 +1182,115 @@ Native Linux/runtime packaging qualification remains R5 work; no cross-platform
 runtime success is claimed here. R1's store/binary and remote fixture are
 preserved. Stop before R3's complete operator journey and R4 runtime promotion.
 
+#### R3 implementation and verification brief
+
+**Authorized 2026-10-16; define this boundary before qualification and fixes.**
+Qualify the existing `runner-next` operator contract from fresh, separate local
+paths. Publish one concise replacement guide covering setup, repository quality,
+Plan/Ready approval, daily operation, delivery and recovery. Link it from the
+README and the legacy operator reference without promoting or renaming the
+runtime; that remains R4. The guide must distinguish a passing local candidate
+from confirmed integration and show the cause and next action at each wait.
+
+Representative expected results and evidence:
+
+- Fresh build/configuration and native sandbox baseline establish drained local
+  authority without a Project. The guide's command syntax, preview fields and
+  required tools work with the current binary. Record a fresh native rehearsal
+  and retain its exact binary, inputs, outputs and elapsed time.
+- Extend the existing CLI journey only where observable advice lacks coverage:
+  Ready approval; Plan question answered by versioned replacement and approval;
+  proposal inspection/release; dependency wait; interrupted audit resumed with
+  explicit invocation permission; preview/save/apply of model, reasoning,
+  escalation, retry and parallelism limits; drain/restart; fresh and stale restore.
+  Use its controlled harness for deterministic questions and interruptions, with
+  real Git/SQLite/filesystem state. Do not present this as new live model evidence
+  or build a second journey framework.
+- Reuse unchanged live role qualification and R1's real GitHub ordinary-merge
+  receipts for delivered-result inspection, dependency/parent completion and
+  automatic policy. Inspect retained results with their matching binary; no new
+  remote mutation or paid role call is necessary unless a discovered change
+  invalidates that evidence. Record reused call counts separately from new calls.
+- The guide makes testing ownership concrete: repository policy defines required
+  checks, author/planner supplies expected behavior and the verification brief,
+  implementer extends sufficient existing coverage, independent review checks
+  adequacy. Explain focused verification, when no new test is needed and why a
+  repeated check or invocation occurs. Unknown cost/usage stays unknown.
+- R2 recovery is exercised from the guide, including occupied destinations,
+  drained continuation and an inspection-only stale snapshot. Preserve existing
+  roots and the original guard; no overwrite, migration or recovery override.
+
+Fix only concrete supported-flow defects found during this pass and add the
+smallest regression in the owning suite. Run focused CLI/affected checks, the
+full race gate with the qualified 15-minute timeout, vet, build and diff review.
+Record commands, elapsed time, interventions, repeated verification and actual
+model/remote calls here. Stop when the documented journey has no unresolved
+blocker; no package promotion, legacy retirement, installation change or R4 work.
+
+#### R3 qualification
+
+**Completed 2026-10-16, `codex/runner-local-core`, based on `59515c5`.** The
+[replacement operator guide](runner-next-guide.md) is the single current setup
+and command reference through delivery and restore. README points there directly;
+the repository-local operator reference now links to it and preserves the
+authorization boundaries. Its obsolete claim that integration was unsupported
+is removed. Historical bundle notes and the legacy runtime remain separate.
+
+No production code, role prompt, execution behavior or store format changed.
+The owning CLI journey gained small assertions for visible apply advice,
+configured limits, audit recovery permission/candidate retention, local delivery's
+incomplete status, and the named question/dependency recovery paths. No new suite,
+fixture framework or test dependency was introduced.
+
+| Journey evidence | Observed result |
+| --- | --- |
+| Fresh native setup and quality | Built the current binary, copied the guide's JSON/task examples with fresh absolute paths, initialized drained state and ran the real Codex sandbox baseline. The quality preview/check/report/apply sequence used the printed fields successfully. |
+| Native intake and policy | Ready and Plan intake/approval were inspected, then stopped before model execution. The documented editor preview/save/explain/apply worked for parallelism, repair/retry/refresh/invocation limits and the named escalation profile. Saved policy remained visibly unapplied until application. |
+| Complete controlled CLI journey | Existing real Git/SQLite/filesystem journey passed in 15.24 seconds under race detection: Ready implementation; interrupted audit; pinned-profile resume without reimplementation; Plan question, versioned answer and release; exact prerequisite wait; policy changes during review; quality adoption; fresh/stale restore. Five controlled role calls (one implementation, two audits, two plans) exercised these deliberate outcomes, not live model behavior. |
+| Watch, drain and recovery | Native watch was interrupted independently. Foreground run/drain completed before and after a fresh restore. Preview identified occupied destinations; moving only those fixture roots aside permitted drained recovery with history intact. Later work invalidated another snapshot; restoring it visibly blocked execution and mutation as inspection-only. |
+| Delivered result inspection | Read R1's parent, alpha and beta with its matching format-13 binary, using only status/show. Both children displayed Completed, exact confirmed merge receipts and their PRs; the parent displayed all original children integrated. Human/default and applied automatic-policy receipts remain valid. The new format-14 binary did not open or migrate R1's state. |
+
+The native rehearsal took **5.94 seconds**, including receipt inspection: **60
+Runner commands** (53 current-binary commands and seven R1 read-only commands),
+plus six Git setup/provenance commands. It used zero new model calls and zero
+GitHub requests/writes. R1's eight live `gpt-6.1-sol / high` calls (two plans,
+two implementations, four audits) are reused; their original 17-minute-10-second
+journey, interventions and reported token usage remain recorded above. Monetary
+cost is unknown. This is composed qualification with fresh native operations,
+controlled failure cases and retained live delivery evidence, not a claim that
+every event was reproduced in one new live session or a human usability study.
+
+Interventions were the documented setup/approval/policy decisions, explicit audit
+repeat permission, clarification and release, interruption of the read-only
+watch, and preservation of listed roots during restore. Native tasks were stopped
+deliberately before execution to reuse existing live evidence. No database edits,
+counter resets, manual lifecycle transitions or undocumented rescue were needed.
+The controlled audit repeated once because its first invocation was interrupted;
+implementation did not repeat. R1's repeated audits were caused by changed-base
+candidates. No paid behavioral evaluation was repeated because instructions and
+execution were unchanged.
+
+Private evidence is retained at
+`/Users/dan/.codex/runner-qualification/r3-20261016`: exact binary, guide snapshot,
+configuration, quality/task inputs, full command outputs, summary, version facts,
+restored/moved fixture roots, backups and delivered-result text. The matching
+binary SHA-256 is
+`1dcb3c847c5bb666b3ea4b8874204eff5a9b86831da83fd1a1f2e084d08c19f1`.
+Environment: macOS 27.0 arm64, Go 1.27.1, Apple Git 2.54.0 and Codex CLI 0.162.1.
+The native driver is `/tmp/runner-r3-qualify.py`; it is qualification material,
+not a shipped second workflow. Logs are `/tmp/runner-r3-native.log`,
+`/tmp/runner-r3-cli.log`, `/tmp/runner-r3-race.log` and `/tmp/runner-r3-vet.log`.
+
+Passed `go test -race -v ./internal/runner/cli` (18.074 seconds),
+`go test -race -timeout 15m ./...` (replacement engine 661.286 seconds),
+`go vet ./...`, `go build -o /tmp/runner-next-r3 ./cmd/runner-next`, guide shell
+syntax, relative file links and `git diff --check`. The complete diff was reviewed
+for accuracy, scope, redundant tests and unnecessary machinery. The full gate
+repeated the focused CLI suite as required; there was no failure-driven rerun.
+No unresolved blocker remains in the documented R3 journey. Stop before R4.
+Runtime promotion, packaging and native Linux/final cutover qualification remain
+R4/R5 obligations. No production installation or remote repository was changed.
+
 #### Required verification
 
 Each implementation bundle uses the existing owning suites and the repository's
@@ -1220,14 +1330,14 @@ merely to populate a matrix when valid evidence already covers the claim.
 #### Release finish line
 
 The first replacement is **release-ready** when every item below is checked with
-evidence. R1 is closed below; the remaining boxes stay open until their own evidence
-is recorded. Construction completion does not imply release qualification.
+evidence. R1–R3 are closed above; the remaining boxes stay open until their own
+evidence is recorded. Construction completion does not imply release qualification.
 
 - [x] R1: real human and Runner-owned protected merges have exact receipts; frozen
   manual handoffs and unsupported host configurations are documented.
 - [x] R2: consistent backup/restore and stale-snapshot handling are verified;
   recovery cannot duplicate ownership, reset known consumption or replay writes.
-- [ ] R3: the full documented operator journey works without undocumented rescue;
+- [x] R3: the full documented operator journey works without undocumented rescue;
   configuration, test ownership, interruption and recovery are understandable.
 - [ ] R4: one replacement binary, accurate instructions and verified packages
   remain; obsolete runtime paths and their superseded tests are retired.
@@ -2108,8 +2218,9 @@ Use the existing format-4 state; this bundle needs no migration or reset.
 below use the same `--config /absolute/runner.json` prefix. The repository-local
 [operator skill](runner-operator/SKILL.md) explains the authorization boundaries;
 it is not installed automatically and is separate from the legacy bundled skills.
-That reference is qualified through the fifth phase 3 bundle; use the later
-[current merge guide](#using-automatic-merge-policy) for integration authority.
+The consolidated [operator guide](runner-next-guide.md) now covers the complete
+current journey through integration and restore; the bundle notes below retain
+their historical qualification context.
 
 `status` groups tasks by what needs attention, rather than printing every attempt.
 It shows actual attempt settings, elapsed time, evidence, remaining allowances
@@ -3745,9 +3856,9 @@ board views stay deferred.
 | Independent, sufficient, economical verification | 1; extend in 2 | S6 plus live candidate review. The first phase 2 paired behavioral cases cover fabricated proof, weakened checks, legitimate consolidation and speculative review; no infrastructure error becomes a code rejection. |
 | Provider-neutral architecture and optional views | 1/3/5 | S1 runs without `gh`/Projects. Phase 3 delivery requires no board. Phase 5 disconnect/reconnect and reordered updates converge safely; Trello needs no core scheduling/approval change and exposes no private evidence. |
 | Current-base delivery and confirmed completion | 3/4 | The nine phase 3 qualifications cover base movement, conflicts, CI failure, interrupted publication, exact human/automatic merge receipts and closed-unmerged handling. R1 closes the live protected-merge gap with exact human/automatic receipts and dependency/parent completion; R5 checks that evidence against the release candidate. |
-| Comprehensible progress and recovery | 1/2/4 | Fourth phase 2 qualification covers attention-first status, actual profiles, waits, retained work, exact recovery guidance, watch and named-setting editing. Its local journey stops at a retained candidate. Phase 3 adds delivery inspection; R3/R5 must qualify the full fresh-installation journey. |
+| Comprehensible progress and recovery | 1/2/4 | Fourth phase 2 qualification covers attention-first status, actual profiles, waits, retained work, exact recovery guidance, watch and named-setting editing. R3 qualifies the consolidated operator guide with fresh native setup/recovery, controlled failure cases and retained live delivery receipts; R5 still owns the packaged journey. |
 | Packaging, restore and breaking cutover | 1/4 | Phase 1 qualifies the driver and new entry point's target builds. Phase 4 proves platform/runtime checks, consistent backup/restore, no old/new ownership overlap and explicit resubmission. No historical-state converter is required. |
-| Honest operational learning | 1/2/4 | Existing attempts retain call/result evidence; R3/R5 record the journey measures below and unresolved limits without adding an analytics service. Guidance drafts require human review. No inferred cost or unsupported performance claim. |
+| Honest operational learning | 1/2/4 | Existing attempts retain call/result evidence; R3 records calls, elapsed time, interventions, repeated verification and evidence boundaries above. R5 must retain those measures through cutover without adding an analytics service. Guidance drafts require human review. No inferred cost or unsupported performance claim. |
 
 Required repository gates for implementation remain `go test -race ./...` and
 `go vet ./...`, plus the relevant existing platform/release checks before release.
@@ -3775,11 +3886,11 @@ Do not automatically turn repeated model text into execution policy.
 
 ## Build readiness
 
-The local process, nine delivery bundles, R1 live delivery qualification and R2
-backup/restore are complete within their recorded boundaries. Feature scope is
-frozen. Continue through the [release checklist](#frozen-first-release-checklist),
-starting with R3 when authorized. The full operator journey, runtime promotion
-and final release evidence remain open; optional integrations cannot displace them.
+The local process, nine delivery bundles and R1–R3 qualification are complete
+within their recorded boundaries. Feature scope is frozen. Continue through the
+[release checklist](#frozen-first-release-checklist), starting with R4 when
+authorized. Runtime promotion/packaging and final native-platform/cutover evidence
+remain open; optional integrations cannot displace them.
 
 [factory]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/README.md
 [factory-setup]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/skills/factory-init/SKILL.md
