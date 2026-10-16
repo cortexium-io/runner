@@ -23,9 +23,12 @@ promoted to `cmd/cortexium-runner`; packages live in
 [five release bundles and finish line](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
 are the release work source. R1 delivery, R2 backup/restore, R3 operator
 qualification, R4 promotion/packaging and R5 final qualification/cutover rehearsal
-are complete with recorded evidence. The frozen replacement is release-ready;
-publication and installation require separate explicit authorization. No further
-implementation bundle is implied by the checklist.
+are complete within their recorded evidence boundaries. The owner subsequently
+added [real-project pilots before merge](docs/runner-redesign-proposal.md#real-project-pilots-before-merge).
+Setup qualification and pilot briefs are authorized; pilot implementation and
+changes to the execution boundary are not yet authorized. Publication and
+installation require separate explicit authorization. No further implementation
+bundle is implied by the completed R1–R5 checklist.
 Implement only those release obligations or concrete fixes to the frozen contract;
 additional features require explicit owner direction. Do not create a separate
 task ledger. Architecture and the [operator guide](docs/operator-reference.md)

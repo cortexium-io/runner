@@ -149,6 +149,16 @@ under `.runner-output/`. Exit 0 passes, 1–124 reports failure, 125–127 signa
 unavailable prerequisite. Source/Git modifications, timeouts and unresolved
 processes are unavailable. A report is evidence, not automatic agreement approval.
 
+A successful `quality check` command means a report was recorded, not that its
+checks passed. Inspect each observation and the agreement preview's blockers.
+Verify prerequisites inside the check environment: finding a host executable
+does not prove the sandbox can use its tools, libraries or dependencies. Shell
+checks must preserve command failures; for example use
+`files=$(gofmt -l .) && test -z "$files"` so missing `gofmt` cannot pass as empty
+formatting output. Network-dependent fixtures, including loopback servers, need
+a qualified execution environment before work is approved; do not exempt an
+infrastructure failure as a source baseline defect.
+
 For an observed, stable baseline defect, the owner may supply an exceptions file:
 `[{"check_id":"legacy","rationale":"Existing unrelated defect","scope":["legacy.txt"]}]`.
 Pass `--exceptions PATH` to both report preview and apply. The candidate must pass

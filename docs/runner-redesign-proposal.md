@@ -1,6 +1,6 @@
 # Runner core redesign plan
 
-Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification, R2 backup/restore and R3 operator qualification are complete; R4 promotion/packaging and R5 final qualification are complete; the frozen replacement is release-ready. Publication and installation remain separate authorized actions. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 15; earlier bundle notes below describe their historical formats.
+Status: Phases 1 and 2 and the first nine phase 3 bundles are implemented in `codex/runner-local-core`: durable draft publication, current-base verification and bounded refresh, remote draft synchronization, CI assessment, bounded CI repair, bounded text conflict repair, confirmation of human integration, explicit guarded merge, and explicit automatic-merge policy. Feature scope is frozen after `aedc8bd`. The [five release bundles and finish line](#frozen-first-release-checklist) govern further work; R1 live delivery qualification, R2 backup/restore and R3 operator qualification are complete; R4 promotion/packaging and R5 final qualification are complete within their recorded boundaries. The owner subsequently added the [real-project pilot gate](#real-project-pilots-before-merge); setup qualification is recorded below and the pilots are not yet approved to run. Publication and installation remain separate authorized actions. Ready-state writes, polling, queues, squash/rebase and ruleset-only Runner-owned guards are deferred beyond this release. Current store format is 15; earlier bundle notes below describe their historical formats.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -781,7 +781,9 @@ must wait when core scenarios, test quality or the operator journey remain weak.
 **Scope frozen on 2026-10-15, after `aedc8bd`.** The nine phase 3 bundles close
 delivery feature construction for the first release. The five bundles below are the
 remaining sequence; this section is the release checklist, not a second backlog.
-R1–R5 completed on 2026-10-16; the frozen replacement is release-ready.
+R1–R5 completed on 2026-10-16 within their recorded qualification boundaries.
+The owner subsequently added the [real-project pilot gate](#real-project-pilots-before-merge)
+before merge; it is not complete.
 Publication and installation remain separate authorized actions. The checklist
 alone authorizes no implementation, remote mutation, publication or installation
 change.
@@ -838,6 +840,191 @@ model qualification uses the already selected `gpt-6.1-sol / high` where a model
 call is needed. Use only an identified, authorized test destination for remote
 writes; never enable automatic policy on a production installation or alter
 production protection as a side effect of qualification.
+
+#### Real-project pilots before merge
+
+**Authorized 2026-10-16: setup qualification and briefs only.** The owner added
+two real-project pilots as a gate before merging the redesign. R1–R5 remain
+historical qualification of their recorded candidate; they do not establish
+compatibility with arbitrary repositories. Use the packaged R5 candidate,
+isolated committed source copies and fresh drained state. Do not run a planner
+or implementer, approve tasks or quality agreements, publish project changes,
+alter existing installation/configuration, or change protection during this pass.
+Keep evidence here rather than creating a second work ledger.
+
+Qualification must identify the actual target base, required local commands,
+tools/dependencies, existing coverage, and delivery prerequisites. Compare
+representative commands in an ordinary isolated development copy with the same
+commands through packaged Runner quality checks. Separate missing tools,
+dependency preparation, sandbox restrictions and source defects. Reproduce
+loopback access independently of dependency downloads. Do not hide infrastructure
+failures behind baseline exceptions or relax a sandbox to report success.
+
+**Pilot A — api-mcp, proposed Ready brief.** Reject unknown configuration fields
+with a useful error instead of silently ignoring misspelled settings. File
+loading, embedded loading and embedding preparation must agree. Valid existing
+configuration, defaults, relative spec resolution and arbitrary keys in declared
+maps such as `headers` must retain their meaning. Reject unknown nested struct
+fields as well as top-level fields; report the offending field without printing
+credential values or the entire configuration. No live API/Keychain calls,
+authentication redesign, new configuration format, dependency upgrade or general
+validation framework. Define this deliberate compatibility tightening in the
+issue and user documentation before implementation.
+
+The author owns these outcomes; the implementer extends
+`internal/apimcp/config_test.go`, consolidating loader cases where useful. Prove
+one top-level typo, one nested typo, valid map keys, valid file/embedded parity
+and absence of secret values in errors. Reuse existing path/default/credential
+tests; do not duplicate those scenarios or add a new test framework. Required
+local gates are the repository's formatting, vet, race suite and build command.
+Its Linux/macOS CI and vulnerability check remain delivery gates. Setup
+qualification alone cannot establish correctness of this future change.
+
+**Pilot B — Genny, proposed Plan brief.** Shape the smallest dependent delivery
+for [issue #575](https://github.com/cortexium-io/genny/issues/575): resolve the
+supported server-stats enrichment verification contract and provide a bounded,
+reproducible adoption path for ShowIP. Reuse the existing bounded-default fix
+from #494. Proposed sequence: first settle and implement the generator-owned
+hook/test contract; then verify and document its adoption in a disposable app
+fixture against the accepted predecessor. The planner may combine work if no
+meaningful dependency remains; do not manufacture cards to exercise scheduling.
+
+Before implementation, explicitly settle the supported customization of final
+path/route labels and whether adoption uses current generation or a scoped
+backport. Default normalization, privacy, exclusions, storage and authorization
+remain distinct guarantees. Test the default at its owning boundary and supported
+customization through the real hook; do not preserve an application-specific
+post-hook equality assertion by inventing special routes or detecting tests.
+Extend the existing server-stats scaffold/CLI suites and generated fixture;
+preserve credible assertions and avoid duplicating the generated suite. Require
+real-router cardinality/privacy evidence for the chosen adoption fixture and
+the applicable backend/Release Gate checks. Do not edit ShowIP's working tree,
+historical generator checkout, generated files, database or deployment. Source
+and regeneration evidence precede any separately authorized ShowIP adoption.
+
+For both future pilots, use `gpt-6.1-sol / high`, human merge, parallelism one,
+one repair, one transient retry and one base refresh initially. Agree a bounded
+invocation cap with the final task/plan; do not reset counters to continue.
+Confirm no existing Runner owns the selected work before scheduling. Connected
+delivery must use an explicitly selected repository/base and observed CI names
+and app identities. Local mode cannot complete dependent work; a full dependent
+pilot requires confirmed ordinary merges. Measure setup interventions, status
+clarity, calls/retries, proof reuse and unnecessary test growth as well as the
+result. The end condition is reviewed useful changes plus an honest account of
+operator friction, followed by redesign/main reconciliation and verification of
+the integrated source. Publishing and operational cutover stay separate.
+
+##### Setup qualification — pilots blocked, 2026-10-16
+
+The preflight is complete; neither project is approved to execute. Packaged
+Runner from `eee0791bc6ec9f1278c160f0aa4023bdd7d46e72` was invoked directly;
+its binary SHA-256 is
+`49eedf9a83b068af697c947d7f3fd5d0ee332f4f439f371cdc62f426e785b1c6`.
+Fresh clones contain committed source only, with independent config/state/worktree
+roots. Both `init --apply` calls succeed and leave drained, empty, unconfigured
+authority. No coordinator, model, task approval or remote write was started.
+These disposable setups are evidence, not installations to adopt automatically.
+
+| Project and pinned target | Ordinary local control | Packaged Runner checks |
+| --- | --- | --- |
+| api-mcp `main`, `7aced1601ed0b60f55ea777f2d047102db4fd415` | Configuration tests, formatting, uncached race suite, vet and `scripts/build` pass. With isolated Go 1.27.2, race/vet/build pass again and `govulncheck@v1.7.0` reports no reachable vulnerabilities. | Bare `go`/`gofmt` cannot be located inside containment despite host prerequisite detection. The build script also encounters the disposable copy's unborn Git HEAD. A real loopback test is denied after compiler/dependency setup is removed from the experiment. |
+| Genny `dev`, `d298ff57fb848380a9f15ef2831899892c696746` | With isolated Go 1.26.9, fast root tests, the complete scaffold suite, all `TestCLIStatsAddServer` cases (including generated backend tests), root vet and pinned Staticcheck across all four modules pass. | Fast tests fail before package enumeration; focused scaffold/CLI and vet are unavailable because `go` cannot be located. The loopback probe is denied too. |
+
+The actual local control commands were:
+
+```sh
+# api-mcp: Go 1.27.2 in the private qualification cache
+go test -race -count=1 -timeout 10m ./...
+go vet ./...
+VERSION=pilot-preflight OUTPUT=.runner-output/api-mcp-go1.27.2 ./scripts/build
+go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
+# Genny: Go 1.26.9 in the private qualification cache
+scripts/test-fast -count=1 -timeout 10m
+go test ./internal/scaffold -count=1 -timeout 20m
+go test ./internal/cli -run '^TestCLIStatsAddServer' -count=1 -v -timeout 10m
+go vet ./...
+scripts/staticcheck
+```
+
+Controls use explicit, credential-free environments and private dependency/build
+caches. Genny's temporary directory must be outside an enclosing Git repository:
+the first fast-suite run inherited the surrounding `.codex` repository and failed
+the missing-Git-metadata fixture; rerunning in `/private/tmp` passes without any
+source or assertion change. Genny's pinned Staticcheck v0.7.0 cannot read Go 1.27
+export data; it passes on its declared Go 1.26.7 and the selected patched 1.26.9.
+This establishes a need for per-repository toolchain selection. api-mcp's first
+vulnerability check found eight reachable standard-library advisories on the
+installed Go 1.27.1; its repeated check on private Go 1.27.2 passes. The installed
+toolchains and binaries were not replaced. api-mcp's CI still selects Go 1.27.0
+from `go.mod`; align that baseline separately before relying on future green CI.
+
+Containment diagnosis separated three concerns:
+
+- **Tool access:** the captured PATH is correct. Metadata lookup of
+  `/usr/local/go/bin/go` is denied, while direct execution of that absolute path
+  prints its version. An absolute Go test command then fails with `no such tool
+  "vet"`. This is an incomplete usable toolchain boundary, not proof Go is absent
+  from the host. Native checks also expose Apple tool-launcher cache denials.
+- **Loopback:** a diagnostic fixture carries an unmodified, precompiled api-mcp
+  test binary with its source commit and hash. Both selected tests pass outside
+  Runner. Inside Runner, `TestNormalizeConfigUsesBuildVersionByDefault` passes;
+  `TestExecuteOperationExtractsProvenPaginationMetadata` fails at the real
+  `httptest` listener with `bind: operation not permitted`. A separate IPv4 socket
+  probe also fails. This evidence is independent of downloads/compiler access;
+  it is not acceptance evidence for a future candidate.
+- **Check definitions and preparation:** `test -z "$(gofmt -l .)"` can falsely
+  pass when `gofmt` is missing. The draft instead uses
+  `files=$(gofmt -l .) && test -z "$files"`; its native diagnostic correctly
+  reports unavailable. The api-mcp build smoke can use the script's existing
+  explicit `COMMIT=qualification BUILD_DATE=qualification` inputs rather than
+  assume copied Git history; this is a build check, not release metadata.
+  Private HOME/TMPDIR and no network also require deliberate dependency/cache
+  preparation; host caches and downloads are not automatically available.
+
+Both native project reports produce blocked agreement previews. No exceptions
+were requested. A successful report command is not a passing suite, and a socket
+panic classified as `failed` is still an environment incompatibility, not an
+implementer defect or an acceptable baseline exception.
+
+Read-only delivery inspection found ordinary merges enabled and strict required
+checks defined through rulesets on both targets. Human integration fits this
+shape; Runner-owned merge is not qualified against ruleset-only protection.
+The draft agreements pin `kind: check`, observed GitHub Actions app ID `15368`,
+and these exact names:
+
+| Target | Required CI |
+| --- | --- |
+| api-mcp `main` | `Test (ubuntu-latest)`, `Test (macos-15)`, `Vulnerability check` |
+| Genny `dev` | `Non-secret release checks` |
+
+api-mcp's historical head checks are green; Genny's identity comes from merged
+PR #586's head `b140975358829020087844629c1aa84e33d7fef1`. Neither establishes
+future candidate CI. Full Genny CLI, generated frontend build/test/audit and any
+additional adoption-specific gates remain to be selected and run on the shaped
+candidate; they were not claimed from the focused server-stats controls. The
+template change is subject to the repository's path-aware Release Gate. No
+Docker/Postgres, browser, live-service or Linux pilot qualification occurred.
+
+**Required before pilot execution:** authorize a bounded Runner check-environment
+brief covering usable toolchains, explicit dependency preparation and an
+appropriately isolated loopback-fixture capability. Keep default containment;
+do not silently grant unrestricted host/network access. Qualify those changes
+against these unchanged checks, with isolation and missing-prerequisite failures
+covered by the owning execution suite. Agree how Genny's existing issue/Project
+and legacy host-access policy applies to this isolated local-core pilot, confirm
+exclusive ownership, settle #575's hook/adoption decisions, and approve the final
+task/plan and quality agreement. No such implementation is authorized by this
+preflight. External views and other deferred features remain out of scope.
+
+Raw evidence, exact environments, valid but unapplied `quality-draft.json` files,
+CLI reports, hashes and command logs are retained privately at
+`/Users/dan/.codex/runner-qualification/pilots-20261016`.
+`summary.json` indexes the observations; `probes/` retains the controlled native
+comparison. Production project working trees, live data, services and the
+installed Runner/Genny binaries remain unchanged. This documentation pass adds
+no maintained tests or production code; the diagnostic fixture stays outside
+the repository. New paid model calls: **0**. Remote writes: **0**.
 
 #### R1 implementation and verification brief
 
@@ -4171,10 +4358,13 @@ Do not automatically turn repeated model text into execution policy.
 ## Build readiness
 
 The local process, nine delivery bundles and R1–R5 qualification are complete
-within their recorded boundaries. The frozen replacement is release-ready.
-Publication and installation/cutover require separate explicit direction and the
-existing reviewed-source release safeguards. No implementation bundle remains
-for this release; optional integrations stay deferred.
+within their recorded boundaries. The subsequent
+[real-project pilot gate](#real-project-pilots-before-merge) remains open.
+Pilot setup blockers must be resolved under a separately authorized brief before
+implementation is scheduled. After the pilots, reconcile the redesign with
+current `main` and qualify the integrated candidate. Publication and
+installation/cutover require separate explicit direction and the existing
+reviewed-source release safeguards. Optional integrations stay deferred.
 
 [factory]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/README.md
 [factory-setup]: https://github.com/imran-sayed-pro/software-factory/blob/d7034f9d17bbad296dc3b3fcea09792551c70173/skills/factory-init/SKILL.md
