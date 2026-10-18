@@ -100,6 +100,7 @@ type Attention struct {
 }
 
 type Task struct {
+	Source          *Source               `json:"source,omitempty"`
 	RefWrites       []RefWrite            `json:"ref_writes,omitempty"`
 	Completion      *CompletionReceipt    `json:"completion,omitempty"`
 	Inclusion       *PlanInclusion        `json:"inclusion,omitempty"`

@@ -41,6 +41,13 @@ task ledger. Architecture and the [operator guide](docs/operator-reference.md)
 describe the local runtime. Historical qualification records may name retired
 commands and suites; do not restore Project coupling from them.
 
+The owner subsequently authorized the plan's
+[GitHub Issues and owner acceptance bundle](docs/runner-redesign-proposal.md#github-issues-and-owner-acceptance-brief):
+explicit issue intake, local owner approval and an optional progress overview,
+independent of delivery. Keep the current FlowStack work under its existing
+owner; this bundle does not authorize an installation change or active-work
+takeover. Other deferred capabilities retain their boundaries.
+
 When implementation and documentation disagree, identify and resolve the drift
 inside this repository. Do not preserve obsolete behavior for compatibility;
 Runner is pre-stable and replacement work should remove superseded paths and

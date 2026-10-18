@@ -138,6 +138,11 @@ func TestRoundTripPreservesAuthorityAndConsumedEffects(t *testing.T) {
 	// A newer default must not replace the accepted candidate's pinned policy.
 	db := writable(t, f)
 	retainPartialPlan(t, f, db)
+	source := core.Source{Provider: "github-issue", Connection: "owner/repo", ID: "I_request", Revision: "captured"}
+	imported, err := db.Import(t.Context(), core.Task{ID: core.NewID(), Source: &source, Stage: core.Draft, Versions: []core.Version{{Number: 1}}})
+	must(t, err)
+	stamp := time.Now().UTC()
+	must(t, db.RecordProjection(t.Context(), core.ProjectionStatus{LastAttempt: stamp, LastSuccess: &stamp, SnapshotAt: stamp, Revision: "published", Pending: &core.ProjectionWrite{Body: "unconfirmed public progress", Revision: "pending", SnapshotAt: stamp}}))
 	must(t, db.ApplyQuality(t.Context(), f.settings.Quality.Revision(), config.Quality{Definition: "Future work", Sources: map[string]string{"future-policy.md": "future"}}))
 	must(t, db.Close())
 	before, err := store.ReadImage(t.Context(), f.settings.Config.StateDir)
@@ -182,6 +187,11 @@ func TestRoundTripPreservesAuthorityAndConsumedEffects(t *testing.T) {
 		t.Fatal("task, policy, quality, results or delivery records changed")
 	}
 	db = writable(t, f)
+	mapped, found, err := db.ImportedTask(t.Context(), source)
+	must(t, err)
+	if !found || mapped.ID != imported.ID {
+		t.Fatal("restore lost the durable source mapping")
+	}
 	settings, _, err := db.Settings(t.Context())
 	must(t, err)
 	must(t, db.Close())

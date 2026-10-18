@@ -48,12 +48,21 @@ func (e *Engine) Run(ctx context.Context) error {
 	defer ticker.Stop()
 	current := map[string]*active{}
 	publications := map[string]*activePublication{}
+	var projectionDone chan error
+	var projectionCancel context.CancelFunc
+	var nextProjection time.Time
 	defer func() {
+		if projectionDone != nil {
+			projectionCancel()
+		}
 		for _, call := range publications {
 			call.cancel()
 		}
 		for _, call := range current {
 			call.cancel()
+		}
+		if projectionDone != nil {
+			<-projectionDone
 		}
 		for _, call := range current {
 			f := <-call.done
@@ -79,6 +88,15 @@ func (e *Engine) Run(ctx context.Context) error {
 			return readErr
 		}
 		e.Settings = settings
+		if projectionDone != nil {
+			select {
+			case <-projectionDone:
+				projectionCancel()
+				projectionDone = nil
+				nextProjection = e.now().Add(30 * time.Second)
+			default:
+			}
+		}
 		allTasks, readErr := e.Store.Tasks(workCtx)
 		if readErr != nil {
 			return readErr
@@ -157,6 +175,14 @@ func (e *Engine) Run(ctx context.Context) error {
 			}
 		}
 		if !drained && !stopping {
+			if e.Settings.Config.Issues != nil && e.Progress != nil && projectionDone == nil && !e.now().Before(nextProjection) {
+				projectionCtx, cancel := context.WithCancel(context.Background())
+				projectionCancel = cancel
+				done := make(chan error, 1)
+				projectionDone = done
+				worker := *e
+				go func() { done <- worker.SyncOverview(projectionCtx) }()
+			}
 			for {
 				p, ok, claimErr := e.claimPublication(workCtx)
 				if claimErr != nil {

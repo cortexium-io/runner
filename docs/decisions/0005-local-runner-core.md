@@ -1,6 +1,6 @@
 # ADR 0005: Local Runner core
 
-- Status: Accepted; phases 1 and 2, nine phase 3 delivery bundles and R1–R5 are complete within their recorded boundaries. The [release checklist](../runner-redesign-proposal.md#frozen-first-release-checklist) records qualification; real-project pilots remain open. The dated clarification below defines the broader product target without authorizing implementation. Board views remain deferred.
+- Status: Accepted; core implementation, R1–R5 and real-project pilots are qualified within their recorded boundaries, and PR #106 merged on 2026-10-16. The [release checklist](../runner-redesign-proposal.md#frozen-first-release-checklist) records evidence. The dated Issues extension below defines the subsequently authorized bundle; Projects/Trello views remain deferred. Publication and installation remain separate.
 - Date: 2026-10-14
 
 ## Context
@@ -69,8 +69,8 @@ The promoted `cortexium-runner`, architecture and operator guide now describe
 the local runtime. Qualified role instructions live in the execution adapter.
 R4 retires the old Project entry point and bundled skill catalog; historical
 decisions and qualification records remain reference evidence. The release
-checklist records completed R5 qualification; subsequent pilots and the separately
-authorized cutover remain outstanding.
+checklist records completed R5 qualification and the subsequently qualified
+pilots. Publication and installation/cutover require separate authorization.
 
 ## Product clarification, 2026-10-16
 
@@ -110,6 +110,19 @@ GitHub delivers that parent candidate through its existing guarded path. The bri
 defines check timing, bounded repair, recovery and required proof. Implementation
 was subsequently authorized in the same worktree. Its qualification record in the
 plan, rather than the older R1–R5 evidence, establishes this expanded behavior.
+
+## GitHub Issues extension, 2026-10-18
+
+The owner requested GitHub issue requests with a distinct owner acceptance step
+and a useful overview before release. The plan's
+[Issues brief](../runner-redesign-proposal.md#github-issues-and-owner-acceptance-brief)
+adds explicit snapshot intake and an optional one-way progress view through
+separate narrow contracts. Existing local approval and Plan release remain the
+only authority. A labeled issue, its comments and closure cannot authorize or
+change work. The connection is independent of code delivery. GitHub Projects,
+autonomous intake and remote approvals remain deferred. A FlowStack handover
+requires a safe ownership boundary and explicit authorization; active execution
+and historical approvals are not imported.
 
 ## Consequences
 

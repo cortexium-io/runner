@@ -61,6 +61,17 @@ func (c CLI) printStatus(s engine.Status) {
 	}
 	fmt.Fprintf(c.Out, "%s — coordinator %s; drained=%t; reservations=%d/%d\n", s.ObservedAt.Format(time.RFC3339), owner, s.Drained, s.Occupied, s.Parallelism)
 	fmt.Fprintln(c.Out, "Merge policy:", s.MergePolicy)
+	if g := s.Issues; g != nil {
+		fmt.Fprintln(c.Out, "GitHub overview:", g.Overview)
+		if g.Sync.LastSuccess == nil {
+			fmt.Fprintln(c.Out, "Overview has not synchronized yet; github sync, or run for automatic progress updates.")
+		} else {
+			fmt.Fprintln(c.Out, "Overview last verified:", g.Sync.LastSuccess.Format(time.RFC3339))
+		}
+		if g.Sync.Error != "" {
+			fmt.Fprintln(c.Out, g.Sync.Error)
+		}
+	}
 	held := s.Restoration != nil && s.Restoration.InspectionOnly
 	if held {
 		fmt.Fprintln(c.Out, "Restored snapshot is inspection-only; later history is unknown. Reconcile retained and remote evidence, then initialize fresh authority at distinct paths and authorize new work. This snapshot cannot resume.")
@@ -128,6 +139,10 @@ task integrate ID                    Confirm a manual local fast-forward or insp
 task merge ID                        Authorize guarded local fast-forward or ordinary ready-PR merge.
 task stop ID                         Revoke authority; retain work and evidence.
 status [--json] [--watch 2s]          Read-only attention, work, waits and retained results.
+github inbox [--json]                Observe labeled requests and existing local mappings.
+github import --issue N --plan|--ready [--file BRIEF.md]
+                                    Capture a request; owner approval remains explicit and local.
+github sync                         Publish bounded public progress to the configured overview issue.
 config edit [--set KEY=VALUE]         Interactive editor or preview named changes.
 config edit --set KEY=VALUE --save --preview DIGEST
 config explain [--json]              Review resolved policy and effects.

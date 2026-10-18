@@ -27,9 +27,11 @@ type Harness interface {
 	execution.CheckRunner
 }
 type CLI struct {
-	In      io.Reader
-	Out     io.Writer
-	Harness Harness
+	In       io.Reader
+	Out      io.Writer
+	Harness  Harness
+	Sources  engine.RequestSource
+	Progress engine.ProgressPublisher
 }
 
 func (c CLI) flags(name string) *flag.FlagSet {
@@ -63,10 +65,10 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	}
 	args = global.Args()
 	if *path == "" || len(args) == 0 {
-		return errors.New("usage: cortexium-runner --config PATH init|quality|config|task|run|drain|status|backup|restore")
+		return errors.New("usage: cortexium-runner --config PATH init|quality|config|task|github|run|drain|status|backup|restore")
 	}
 	switch args[0] {
-	case "init", "quality", "config", "task", "run", "drain", "status", "backup", "restore":
+	case "init", "quality", "config", "task", "run", "drain", "status", "backup", "restore", "github":
 	default:
 		return fmt.Errorf("unknown command %q; run cortexium-runner help for usage", args[0])
 	}
@@ -81,6 +83,7 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 		return c.init(ctx, cfg, args[1:])
 	}
 	readonly := (args[0] == "quality" && len(args) > 1 && (args[1] == "preview" || args[1] == "show")) || args[0] == "status" || (args[0] == "config" && len(args) > 1 && args[1] != "apply") || (args[0] == "task" && len(args) > 1 && args[1] == "show")
+	readonly = readonly || (args[0] == "github" && len(args) > 1 && args[1] == "inbox")
 	db, err := store.Open(ctx, cfg.StateDir, readonly)
 	if err != nil {
 		return fmt.Errorf("cannot open local authority (inspection never creates it): %w", err)
@@ -94,6 +97,16 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 		return errors.New("configuration has unapplied changes; use config explain, then config apply --preview DIGEST")
 	}
 	app := engine.Engine{Store: db, Settings: settings, Executor: c.Harness, Checker: c.Harness}
+	if settings.Config.Issues != nil {
+		app.Sources, app.Progress = c.Sources, c.Progress
+		issues := github.Issues{Config: *settings.Config.Issues}
+		if app.Sources == nil {
+			app.Sources = issues
+		}
+		if app.Progress == nil {
+			app.Progress = issues
+		}
+	}
 	if cfg.Delivery.Mode == "github-draft" {
 		app.Delivery = github.Host{}
 		app.Bases = github.Host{}
@@ -102,6 +115,8 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 		app.Merges = github.Host{}
 	}
 	switch args[0] {
+	case "github":
+		return c.github(ctx, &app, args[1:])
 	case "quality":
 		return c.quality(ctx, &app, args[1:])
 	case "config":

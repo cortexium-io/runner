@@ -28,6 +28,14 @@ Keep these authority boundaries explicit:
 - Inspect the full task before exact-version approval. Plan approval permits
   planning only; release authorizes its proposed children. Clarifications require
   replacement and new approval. A preview digest alone grants no permission.
+- Optional `github inbox` observes issue requests; `github import` captures one
+  snapshot as an unapproved local task. The owner still approves the exact brief.
+  Issue edits, labels, comments and closure cannot authorize or change work.
+  Inspect overview synchronization health separately from task progress; a failed
+  view does not stop local execution. Only sanitized progress reaches its dedicated
+  Runner-owned issue body. Use the guide's connection setup and sync commands.
+  An uncertain overview write must be observed before newer progress can publish;
+  preserve the pending record rather than force a replay.
 - Configuration preview changes nothing; save changes only the file; apply changes running
   policy. Explain affected queued work and pinned active/retry profiles. Counters
   remain consumed. Applying automatic merge authorizes existing and future approved

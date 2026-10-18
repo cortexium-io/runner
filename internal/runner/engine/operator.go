@@ -20,6 +20,7 @@ type Recovery struct {
 }
 
 type Status struct {
+	Issues            *IssuesStatus       `json:"github_issues,omitempty"`
 	Restoration       *config.Restoration `json:"restoration,omitempty"`
 	MergePolicy       string              `json:"merge_policy"`
 	ObservedAt        time.Time           `json:"observed_at"`
@@ -30,6 +31,11 @@ type Status struct {
 	Parallelism       int                 `json:"parallelism"`
 	Occupied          int                 `json:"occupied"`
 	Tasks             []View              `json:"tasks"`
+}
+
+type IssuesStatus struct {
+	Overview string                `json:"overview"`
+	Sync     core.ProjectionStatus `json:"sync"`
 }
 
 var StatusGroups = []string{"Needs you", "Working", "Waiting", "Retained"}
@@ -55,6 +61,13 @@ func (e *Engine) Status(ctx context.Context, file config.Config) (Status, error)
 	}
 	out := Status{MergePolicy: s.Config.MergePolicy(), ObservedAt: e.now(), Running: running, Drained: drained, Unapplied: file.Revision() != s.Config.Revision(), QualityConfigured: s.Quality.Revision() != "", Parallelism: s.Config.Policy.MaxParallelism, Tasks: []View{}}
 	out.Restoration = s.Restoration
+	if g := s.Config.Issues; g != nil {
+		progress, err := e.Store.Projection(ctx)
+		if err != nil {
+			return out, err
+		}
+		out.Issues = &IssuesStatus{Overview: fmt.Sprintf("https://github.com/%s/issues/%d", g.Repository, g.OverviewIssue), Sync: progress}
+	}
 	tasks, err := e.Store.Tasks(ctx)
 	if err != nil {
 		return out, err

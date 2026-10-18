@@ -1,8 +1,9 @@
 # Runner architecture
 
 Runner is a local event-and-action engine. The private SQLite store is authority;
-GitHub is an optional code host. A board can later project state through a narrow
-adapter, but cannot grant approval or own the lifecycle. [ADR 0005](decisions/0005-local-runner-core.md)
+GitHub is an optional code host. Optional GitHub Issues intake captures requests
+for local owner approval and a dedicated issue projects public progress. Neither
+integration can grant approval or own the lifecycle. [ADR 0005](decisions/0005-local-runner-core.md)
 and the [redesign plan](runner-redesign-proposal.md) define the accepted replacement.
 
 ## Responsibilities
@@ -13,11 +14,11 @@ and the [redesign plan](runner-redesign-proposal.md) define the accepted replace
 | `internal/runner/cli` | Commands, exact previews and attention-first status; no scheduler. |
 | `internal/runner/config` | Strict configuration, repository quality agreement and policy validation. |
 | `internal/runner/core` | Task versions, approvals, evidence bindings, observations and action types. |
-| `internal/runner/store` | Private transactional persistence, reservations, leases, effect claims and freshness guard. Store format 17 rejects earlier formats. |
+| `internal/runner/store` | Private transactional persistence, source mappings, projection health, reservations, leases, effect claims and freshness guard. Store format 18 rejects earlier formats. |
 | `internal/runner/engine` | One coordinator derives safe actions, admits within limits, launches bounded work and reconciles results. |
 | `internal/runner/execution` | Codex capabilities, contained role/check execution, optional offline check images, structured results and pinned role instructions. |
 | `internal/runner/workspace` | Task workspace binding, exact candidates, base refresh and integration evidence. |
-| `internal/runner/github` | Narrow draft, base, CI and merge operations; no Project dependency. |
+| `internal/runner/github` | Separate issue observation, progress presentation, draft, base, CI and merge operations; no Project dependency. |
 | `internal/runner/backup` | Drained same-host snapshots, strict manifest validation and guarded restore. |
 | `internal/workspace`, `internal/subprocess`, `internal/securefs`, `internal/sandboxpath` | Reused Git, process, private filesystem and path protections with their owning tests. |
 
@@ -25,6 +26,27 @@ There is no second scheduler, public plugin framework or installed role-skill
 catalog. Interfaces belong at actual execution/delivery boundaries; configuration
 does not select arbitrary runtime implementations. The CLI delegates state
 transitions to the engine/store rather than editing lifecycle fields.
+
+Issues intake is explicit: `github inbox` observes labeled requests and
+`github import` captures one snapshot as an unapproved Plan/Ready task. Provider
+object identity maps to one local task transactionally. External edits cannot
+replace local content or reset approval/history. Only existing owner approval
+and Plan release commands authorize work.
+
+An Issues connection pins one existing overview issue at setup, independently
+of the code-delivery destination. Its body is Runner-owned. One bounded progress
+action runs asynchronously under the coordinator, without a model reservation;
+manual sync uses the same connection lock and latest local presentation. It
+publishes only escaped titles, relationships, public status/reason categories
+and validated links. Local status exposes synchronization health. Connection
+failure never enters task eligibility or aborts local execution. Inbox and status
+remain read-only; there is no autonomous intake polling or remote approval.
+Inbox uses the applied connection even when the configuration file has unapplied
+edits. Before a remote write, one pending body is saved transactionally. A lost
+response holds newer updates until observation confirms that exact body; restart
+cannot let a delayed old write overtake newer progress. A definite host refusal
+permits a fresh attempt. Fatal coordinator cleanup cancels all work before waiting
+for any view cleanup.
 
 ## Authority and progress
 

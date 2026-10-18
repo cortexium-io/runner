@@ -19,6 +19,8 @@ type Executor interface {
 	Execute(context.Context, execution.Request, func(core.Process) error) execution.Completion
 }
 type Engine struct {
+	Sources      RequestSource
+	Progress     ProgressPublisher
 	Store        *store.Store
 	Settings     config.Settings
 	Executor     Executor

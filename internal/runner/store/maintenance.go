@@ -112,6 +112,7 @@ func (g *Guard) write(token string) error {
 }
 
 type Image struct {
+	Projection   core.ProjectionStatus
 	Settings     config.Settings
 	Drained      bool
 	Tasks        []core.Task
@@ -132,6 +133,10 @@ func ReadImage(ctx context.Context, dir string) (Image, error) {
 	return s.image(ctx)
 }
 func (s *Store) image(ctx context.Context) (v Image, err error) {
+	v.Projection, err = s.Projection(ctx)
+	if err != nil {
+		return
+	}
 	var check string
 	if err = s.db.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&check); err != nil {
 		return
