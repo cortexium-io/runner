@@ -56,8 +56,9 @@ slices land; do not create another plan or task registry.
 
 ## GitHub Issues and owner acceptance brief
 
-Status: implemented with the review fixes below on `codex/runner-github-issues`,
-2026-10-18; pending merge. This bounded extension uses the existing replacement
+Status: implemented with the review fixes below and merged in
+[PR #107](https://github.com/cortexium-io/runner/pull/107) on 2026-10-18 as
+`0cd64f9c4e19ab61d817705ca3404731455dfad1`. This bounded extension uses the existing replacement
 worktree. No publication, installation change or takeover of active FlowStack
 work is included.
 
@@ -141,35 +142,243 @@ Extend owning suites rather than build another orchestration harness:
   a private synthetic GitHub issue/overview exercise. No live model requalification
   is needed unless role instructions or execution semantics change.
 
-### FlowStack pilot boundary
+### FlowStack pilot brief and safe handover
 
-Read `New FS Frontend 2` on host `remote-ssh-discovered:always-on` and observe
-the actual `flowstack/webapp` runtime before handover. On 2026-10-18 at approximately
-10:23 Europe/Copenhagen, the old Runner owned Plan #507: schema controls and
-collection editing were included, guided segments and Vue Flow canvas were
-running, and relationship controls and palette/connections were waiting. Nothing
-in that batch was delivered. The old runner reported no blocked tasks.
+**Prepared 2026-10-18; authorization is observation and this brief only.** No
+FlowStack issue, source, approval, process, service, installation, protection or
+container was changed. The proposal below needs a separate launch decision.
+It does not reopen Runner feature construction or authorize product deployment.
 
-Do not dispatch the same scope while that owner is active. Once it reaches a
-safe boundary, retain the old artifacts and accepted source; assess what remains,
-then explicitly authorize a fresh request against a pinned base in an isolated
-checkout/config/state. Import no historical approval or in-flight process.
-Carry original UX comparisons, query/schema/history/persistence safeguards,
-generated ownership and required checks into the fresh brief. A separate owner
-decision must authorize draining/replacing that installation or taking over
-remaining work. Deployment remains separate.
+#### Observed ownership and retained work
 
-The original request in that session is more specific than its earlier "267
-Done" status: sort/filter schema fields by key/title/description/type; open
-subcollections in the same rooted editor with safe breadcrumbs; make guided
-segments readable and safe while preserving raw-query recovery, relationships
-and nested collections; use Vue Flow for canvas interactions while keeping
-settings, history, validation and persistence separate. The saved comparison is
-`/Users/dan/.local/share/flowstack/ux-parity-20261016/captures/comparison.json` on
-always-on, with synthetic screenshots alongside it. Reuse those pinned references
-through supported read-only handoff; source inspection alone does not prove UX
-parity. Build/edit/save/reopen journeys and visual/keyboard checks remain part of
-acceptance. "Finish the frontend" must not silently expand this six-card scope.
+At approximately **14:15 Europe/Copenhagen**, the real legacy `status --json`,
+process/launchd observations, Git refs and GitHub APIs established:
+
+- The session is [New FS Frontend 2](codex://threads/01a10c72-e48d-7690-95b6-371f9e503664?hostId=remote-ssh-discovered%3Aalways-on).
+  Its working directory is `flowstack/frontend`; the requested new frontend is
+  the **separate `flowstack/webapp` repository**, confirmed by Operations registry,
+  the installed config and source Plan [#507](https://github.com/flowstack/webapp/issues/507).
+- Legacy Runner **v0.7.4**, binary SHA-256
+  `6baac0a523255d69c7faa1c8744450f6500130932d29860d91908fbc38d1eb72`,
+  remains running as PID **66004** on `always-on`. The launchd service is
+  `gui/501/io.cortexium.runner.flowstack-webapp`, with `KeepAlive` and `RunAtLoad`.
+  There were **zero active/queued jobs, one blocked card, one dependency wait and
+  four integrated-undelivered cards**. Idle is not a handover or revocation.
+- The remote `develop` is `fc7b45fafb1839da7c9b5c26f42265d8e205cc51`.
+  The clean ordinary checkout is `bc6f6c7661daaf4a9ce6e9e38dcef4e85d6277a9`,
+  fourteen commits behind. Do not use that checkout's HEAD as the pilot base.
+- The published private plan branch is
+  `runner/plan-d7ed9795adfd88748ced75ce10713653`, head
+  `3fe7a48c223c80e51b27496abcb735dca3363907`: seven commits ahead of that remote
+  `develop`, with 26 changed files. No open webapp PR was observed.
+- Docker still runs `flowstack-webapp:develop-20261010-185726-fc7b45fafb18-2d992782`.
+  Private plan integration does not mean destination delivery or deployment.
+
+| Original card | Observation | Pilot treatment |
+| --- | --- | --- |
+| [#508](https://github.com/flowstack/webapp/issues/508), schema search/sort | Integrated; candidate `ec09ef22ca4a7fa73f63c7817c1373bbafa2a67c` | Preserve; verify combined behavior. |
+| [#509](https://github.com/flowstack/webapp/issues/509), rooted collection editing | Integrated; candidate `2882cff075c85fc10ed3ab816a35d5606b148dde` | Preserve; verify navigation, identities and save boundaries. |
+| [#510](https://github.com/flowstack/webapp/issues/510), guided segments | Blocked at `agent_qa`; retained attempt says **“Base branch is not ready for QA”**, classified `transient_external` | Inspect/adopt source, then obtain fresh checks and independent review; do not assume a product defect or a pass. |
+| [#511](https://github.com/flowstack/webapp/issues/511), relationship/membership authoring | Ready, waiting for #510 | Complete the remaining supported behavior after guided adoption. |
+| [#512](https://github.com/flowstack/webapp/issues/512), controlled Vue Flow canvas | Integrated; candidate `630be39355ecf85a2fddc91515988e8fe2d0e643` | Preserve; verify graph/history/persistence. |
+| [#513](https://github.com/flowstack/webapp/issues/513), palette/connections | Integrated; candidate/plan head `3fe7a48c223c80e51b27496abcb735dca3363907` | Preserve; verify atomic connections and reconnection. |
+
+Guided source is a clean, **unaccepted** commit
+`81bc447317ecf67d6d784e5be6161d68d077ab47`, parent
+`2882cff075c85fc10ed3ab816a35d5606b148dde`, in
+`/Users/dan/Projects/flowstack/.runner-worktrees/assignment_pvti_ladoba7pyc4bh7-9zhbbxjo-dcf072f08f9aa827568504b402e26b53`.
+It changes twelve files, including existing segment suites. It is not published
+as an assignment branch. A copy-only 72,130-byte source patch and commit/tree/parent
+identity were retained privately during preparation; patch SHA-256 is
+`948dad92fecfa87e16235760b6b1d827df1e28b205e491d5a50740ca1ee34e60`.
+This protects the unique delta without approving or applying it. A full verified
+bundle remains part of handover before any old-owner cleanup.
+
+A second observation at **14:27 Europe/Copenhagen** confirmed the same refs,
+card counts, PID and Docker image. The controller was processing a poll, with
+zero active assignments; it continues to own the work.
+
+#### Proposed outcome and delivery boundary
+
+Use **one new Plan**, starting from an isolated, freshly approved source baseline
+that preserves the four integrated cards. Its shared outcome is the original
+six-card UX result, with only two remaining child responsibilities:
+
+1. **Guided adoption:** inspect the retained #510 delta, adopt sound work and fix
+   demonstrated gaps. New/eligible segments default to guided editing; searchable
+   fields, typed readable conditions and nested all/any groups work. Pending edits
+   have apply/cancel and gate save/preview. Raw recovery preserves unsupported or
+   malformed source, explicit conversions and saved-versus-draft preview semantics;
+   server totals, duplicate-submit protection and account/route isolation remain.
+2. **Relationships, dependent on guided adoption:** establish producer-backed
+   discovery, authenticated bounded choices and typed identities, then expose
+   relationship comparisons, membership and collection having/not-having. Distinguish
+   storage lookup keys from relationship values. Preserve missing references and
+   unavailable states; enforce current-segment, child-segment and referenced-parent
+   restrictions. Save/reopen must retain equivalent query meaning; unsupported
+   forms must not broaden or silently replace a query.
+
+The owner reviews the actual proposed children and proof obligations before
+release. Reused work is source/evidence to assess, never inherited approval.
+Do not rebuild four accepted cards or add unrelated parity/features. Preserve their
+shared guarantees: schema metadata and canonical order/identity, dirty/invalid
+inputs, rooted/inline collection save boundaries, Flow topology, undo/redo,
+producer/sendout identity and uncertain-write reconciliation. No backend, protos,
+Genny or Runner implementation changes are included; a demonstrated dependency
+issue returns to its owning repository and pauses only affected work.
+
+**Proposed pilot completion is a verified local result branch**, with human merge
+permission and the optional GitHub Issues overview. Neither the working checkout
+nor `develop` is updated. The receipt must say local result, not merged/delivered
+into `develop`. Preserve a final diff against current remote `develop` for human
+review. Opening a product draft PR, rebase/merge and deployment require later
+explicit authorization and applicable product checks.
+
+This boundary is deliberate: effective GitHub rules require linear history and
+**rebase-only PR integration**; the new Runner's hosted completion supports ordinary
+merge receipts. Also, `develop` has strict/admin-enforced protection but **no
+required check contexts**; hosted `Validate` runs only for PRs to `main`. Do not
+weaken those rules, invent a CI context or enable automatic merge for this pilot.
+The [Operations generated-file policy](https://github.com/techbase/operations/blob/main/docs/workflow.md#generated-file-gate)
+and its coordinator guidance additionally require `Techbase / generated ownership`
+before product admission. Resolve their applicability/onboarding for this
+existing webapp explicitly before launching; it is absent from current required
+contexts. This is a product-policy prerequisite, not a new Runner requirement or
+permission to edit protection. Operations registry is not a replacement scheduler.
+
+#### Verification brief
+
+Repository `AGENTS.md` and the exact pinned quality agreement own required proof.
+The task author fixes expected behavior and evidence boundaries; implementers
+extend owning tests only for credible defects, and independent review checks
+adequacy and redundant complexity. No separate test framework or coverage target.
+
+| Boundary and expected result | Owning coverage to inspect/reuse or extend |
+| --- | --- |
+| Guided: typed comparisons, nested groups and apply/cancel preserve exact source until deliberate apply; invalid/pending edits cannot save or preview | `segmentBuilder.test.ts`, `SegmentBuilder.browser.test.ts`, `SegmentEditing.browser.test.ts`, `SegmentPreview.browser.test.ts`, `tests/e2e/segments.spec.ts`. |
+| Relationships: schema-selected typed identity, bounded authenticated retrieval, missing references, segment restrictions and nonempty includes/negation survive author/save/reopen | `profileContract.test.ts`, `schemaValidation.test.ts`, segment/service/browser suites above; extend their owners for the concrete new forms. Producer source inspection is separate evidence from fixture assertions. |
+| Preserved four-card work: presentation sorting leaves canonical drafts/selection unchanged; rooted navigation preserves metadata and save boundaries; Flow movement/connections preserve topology, history and producer identities | `schemaDraft.test.ts`, `SchemaEditor.browser.test.ts`, `SchemaRoutes.browser.test.ts`, `flowCanvas.test.ts`, `flowGraph.test.ts`, `useFlowDraft.test.ts`, `FlowRoutes.browser.test.ts`, schema/Flow e2e suites. |
+| Usable combined result: wide/narrow keyboard/touch journeys, long labels, pending/empty/error/recovery states and save/readback/reopen | Candidate-bound browser receipts and screenshots at **1440×900** and **390×844**, compared with the pinned problem captures. Fixtures use synthetic `example.test` records, intercept API traffic and abort unapproved origins; they establish UI/fixture behavior, not live-service compatibility. |
+
+Existing suites were located in the retained source, not guessed. Inspect focused
+selection and apply the repository's `test:affected` limits for dynamic/global
+changes. Batch relevant browser selections through **`npm run test:e2e`**, never
+invoke Playwright directly or override its owned output/worker lifecycle. In the
+quality agreement, name task-level checks for both remaining obligations and one
+`at: completion` combined gate. Baseline runs all declared checks. Final combined
+validation requires **`npm ci` followed by `npm run validate:complete`**, sequentially,
+with the repository's fixed workers/timeouts and required Chrome and WebKit
+projects. Do not prepend `validate:fast`, repeat sufficient exact-candidate proof,
+weaken assertions or treat a failed/interrupted gate as an accepted baseline.
+These are the logical repository gates, not a qualified check command yet:
+Runner's `VerifyCopy` rejects added source/JSON/manifest files outside
+`.runner-output`, including ignored files. Ordinary `node_modules`, browser JSON
+reports and build output therefore need a source-preserving preparation/output
+route. Qualify that route through the existing entrypoints and allowed output
+boundary; do not bypass the source guard or treat ignored files as trusted.
+
+The new Runner's native workers have no browser tool or external networking.
+Its supported offline Docker check boundary is a possible execution route, **not
+yet qualified for this repository**. The host's Node 24.20.0/Chrome/WebKit and old
+heavy wrapper do not prove container readiness. The observed images included only
+plain Node images, not a prepared browser check image. Before launch, prove locked
+dependency installation/output placement, Chrome's required `chrome` channel,
+matching WebKit, private fixture loopback, artifact retention/access for independent
+review, and cancellation in the **actual**
+check boundary, under its fixed 4 GiB/two CPU/512-process limits. Pin the exact
+already-local image ID and preparation inputs; bake in no credentials. Do not
+substitute browser engines, expose host networking/socket/config, expand sandbox
+permissions or change source/limits to manufacture a passing baseline. An
+unavailable capability blocks launch and gets a separately scoped decision.
+
+References are pinned data, not execution authority. Retain the source Plan #507
+contract and the visual reference at `a0eed1c8b1be56830f7cbe31bc5f17bb75df6755`
+(`comparison.json` and its three problem PNGs). Producer references remain backend
+`e1af66652a6a3f34dbc79854f3e199c379911845`, protos
+`c6c8e775231f9279f1d4df061df665e5d75b9307`; legacy frontend
+`714128eaeb8e3805431f8fdeaa49a570e2830cea` and old webapp
+`442f5e67d74a1e914568a9a771a6e606057964e6` supply interaction examples only.
+The new runtime does not inherit the old external reference-path grants. Prepare
+only the necessary inspected producer excerpts, problem captures and retained
+segment patch as inert, repository-local pilot inputs in the isolated baseline,
+with original commits/content hashes. Do not copy credentials, `.git`, old task
+metadata or whole private reference trees. Exclude those temporary inputs from
+final product delivery after retaining their provenance privately. If safe input
+preparation is not possible, hold the pilot rather than add a reference framework.
+
+#### Safe handover and launch gates
+
+These are **future steps**, requiring explicit authorization to hold the old
+owner and launch the isolated pilot. They were not executed during preparation.
+Qualify the check environment and resolve the product-policy question **before
+requesting the hold**, using a frozen isolated source copy. Those capability
+probes admit no product/model work and publish nothing. Refresh source-bound
+evidence when handing over; do not leave the old owner stopped while discovering
+whether the proposed environment can run the repository at all.
+
+1. Re-observe the session, real status, processes, remote `develop`/plan refs,
+   retained worktree and open PRs. If anything advanced, update this disposition
+   before approving remaining scope. Let the existing owner finish if it completes
+   the batch first; select only a demonstrated remainder. Preserve unique source
+   and receipts before requesting any old-owner change, then refresh/verify the
+   snapshot after it stops. Never duplicate dispatch.
+2. Use the installed owner's supported graceful stop, scoped to this config:
+   `cortexium-runner stop --config /Users/dan/.config/cortexium-runner/flowstack-webapp.json --wait --timeout 5m`.
+   It stops admission and lets active work settle. Verify process exit, launchd
+   stop acknowledgment and no replacement/KeepAlive respawn; check outstanding
+   model, heavy-check, browser and remote-publication ownership. A timeout or an
+   idle status is not proof of relinquished ownership. Never kill unrelated work.
+3. Retain matching binary/config/launchd hashes, status, metrics/evidence, original
+   requests, branches and all tracked/untracked source. Export the plan and guided
+   commits into a verifiable Git bundle; record parents, trees and file hashes.
+   Keep the originals untouched. Resolve any pending remote effect before another
+   owner can write. Do not import old approvals, counters or result classifications.
+4. Use a new private root, proposed
+   `/Users/dan/.local/share/flowstack/runner-pilot-20261018/`, with sibling
+   `source`, `state`, `worktrees` and `evidence`. Build/copy Runner from reviewed
+   main `0cd64f9c4e19ab61d817705ca3404731455dfad1` into that root and record its
+   hash; never replace `~/.local/bin/cortexium-runner`, installed skills or launchd.
+   In the new repository only, pin the refreshed private plan head as the source
+   baseline, retain the unaccepted segment delta as inert input, and record the
+   resulting operator-input commit. Preserve a diff against destination `develop`;
+   do not mistake the seed for destination delivery.
+   Compare the seed with freshly observed remote `develop`; source drift/conflicts
+   require reviewed adoption and a fresh baseline. Later destination movement needs
+   fresh delivery verification; the local result receipt does not cover that move.
+   Configure `repository.base_ref` as `refs/heads/runner-pilot-baseline` in that
+   isolated repository, and delivery as `{"mode":"local","local_target":"result"}`.
+   This local baseline is distinct from the eventual hosted `develop` destination.
+5. Revalidate the prepared check environment and product-policy decision. Complete
+   fresh init and the quality preview/check/apply flow; inspect each
+   result, including all baseline checks. Existing failed proof or unavailable
+   prerequisites cannot be excused as pilot defects or silently waived.
+6. Only after these gates, create a new request and a separate dedicated overview
+   issue in `flowstack/webapp`. Proposed intake label: **`runner:pilot-request`**;
+   never apply the old owner's `needs-assessment` label. The overview has no intake
+   label and its body is Runner-owned. Import as a Draft Plan, inspect/approve its
+   exact local version, then inspect/release the proposed children separately.
+   Labels/comments and previous authorizations cannot approve the new tasks.
+7. Proposed settings: Codex **gpt-6.1-sol / high** for all three roles, planner
+   20m/implementer 60m/reviewer 30m; max parallelism **2**, one repair, one transient
+   retry, one base refresh and **8 harness invocations per task version**, no
+   escalation ladder. Check timeouts are separate and must be measured in the
+   qualified environment before applying quality. Delivery is **local result**,
+   merge policy **human**. These are fresh visible limits, not migrated budgets.
+   Keep private diagnostics local; verify overview owner/working/waiting/attention
+   and final local-result categories, with no private proof or premature completion.
+8. Stop after the combined checks and independent outcome review establish the
+   original shared outcome, one durable local result receipt covers parent and
+   children, and the overview matches. Retain final candidate/delta, evidence,
+   allowances, recovery observations and remaining limitations. No automatic
+   closure of old issues, product PR/merge, deployment or installed-owner restart.
+   Re-enabling the old service after any new local/remote effects requires explicit
+   reconciliation; it must not resume the original authorized batch concurrently.
+
+Preparation evidence is private at
+`/Users/dan/.codex/runner-qualification/flowstack-pilot-20261018/`: legacy status and
+attempts, source Plan/contract, retained plan tree/compare, browser lifecycle
+source and observation hashes. This is **a prepared brief with launch gates**, not
+proof that the new runtime has executed FlowStack or that visual parity is achieved.
 
 ### GitHub Issues bundle qualification
 
