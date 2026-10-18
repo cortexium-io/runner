@@ -26,14 +26,15 @@ type Store struct {
 	guard *Guard
 }
 
-const Format = 17
+const Format = 18
 
 const schema = `
-CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=17), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=18), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE quality_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE quality_reports (id TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE settings_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
-CREATE TABLE tasks (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, data BLOB NOT NULL);
+CREATE TABLE tasks (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, data BLOB NOT NULL, source_key TEXT UNIQUE);
+CREATE TABLE projection (id INTEGER PRIMARY KEY CHECK(id=1), data BLOB NOT NULL);
 CREATE TABLE attempts (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), occupying INTEGER NOT NULL, workspace_claim TEXT NOT NULL, resumed_from TEXT UNIQUE, data BLOB NOT NULL);
 CREATE UNIQUE INDEX task_owner ON attempts(task_id) WHERE occupying=1;
 CREATE UNIQUE INDEX workspace_owner ON attempts(workspace_claim) WHERE occupying=1;

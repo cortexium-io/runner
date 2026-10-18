@@ -52,10 +52,14 @@ escalation, interruptions, delivery and same-host backup/restore.
   pinned CI and performs bounded repair. Explicit/automatic hosted merging needs
   supported protection and an ordinary merge receipt; ready marking and host
   reviews remain human steps.
-- Boards, Trello, additional harnesses, automatic issue intake, CI reruns,
-  background remote polling, services and self-update are outside this release.
+- Optional GitHub Issues supplies a labeled inbox, explicit snapshot import,
+  local owner approval and one public progress overview. It is independent of
+  code delivery and works without GitHub Projects. See the
+  [Issues journey](docs/operator-reference.md#optional-github-issue-requests-and-overview).
+- Other boards, Trello, additional harnesses, autonomous issue intake, CI reruns,
+  background delivery polling, services and self-update are outside this release.
   Narrow adapter contracts leave room for later integrations.
-- Store format 17 and strict local configuration deliberately break compatibility.
+- Store format 18 and strict local configuration deliberately break compatibility.
   Preserve older binaries with their state and backups. Reconcile outstanding
   remote effects, initialize fresh authority and approve only remaining work.
   There is no import of old approvals or in-place upgrade.

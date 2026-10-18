@@ -30,7 +30,24 @@ type Policy struct {
 	MaxInvocationsPerTask *int     `json:"max_invocations_per_task,omitempty"`
 	ImplementationLadder  []string `json:"implementation_ladder"`
 }
+
+// GitHubIssues supplies intake and a progress view, independently of delivery.
+// The overview issue's body is explicitly owned by Runner.
+type GitHubIssues struct {
+	Repository    string `json:"repository"`
+	OverviewIssue int    `json:"overview_issue"`
+	IntakeLabel   string `json:"intake_label,omitempty"`
+}
+
+func (g GitHubIssues) Label() string {
+	if g.IntakeLabel == "" {
+		return "runner:request"
+	}
+	return g.IntakeLabel
+}
+
 type Config struct {
+	Issues      *GitHubIssues           `json:"github_issues,omitempty"`
 	Format      string                  `json:"format"`
 	Repository  Repository              `json:"repository"`
 	StateDir    string                  `json:"state_dir"`
@@ -75,6 +92,11 @@ func Decode(b []byte, v any) error {
 func (c Config) Validate() error {
 	if c.Format != "runner-local-v1" {
 		return errors.New("configuration format must be runner-local-v1")
+	}
+	if g := c.Issues; g != nil {
+		if !ValidRepository(g.Repository) || g.OverviewIssue < 1 || len(g.Label()) > 50 || strings.ContainsAny(g.Label(), ",\r\n\x00") || strings.TrimSpace(g.Label()) != g.Label() {
+			return errors.New("github_issues requires OWNER/REPO, a positive overview_issue and one nonempty intake label")
+		}
 	}
 	if c.Repository.BaseFreshness != "recorded" || !strings.HasPrefix(c.Repository.BaseRef, "refs/heads/") {
 		return errors.New("this bundle requires a local refs/heads base and explicit recorded freshness")
@@ -211,6 +233,7 @@ func SameAuthority(a, b Settings) bool {
 
 func SameRepository(a, b Settings) bool {
 	return a.RepositoryID == b.RepositoryID && core.Digest(a.Restoration) == core.Digest(b.Restoration) &&
+		core.Digest(a.Config.Issues) == core.Digest(b.Config.Issues) &&
 		a.Config.Format == b.Config.Format && a.Config.Repository == b.Config.Repository &&
 		a.Config.StateDir == b.Config.StateDir && a.Config.WorktreeDir == b.Config.WorktreeDir && a.Config.Delivery == b.Config.Delivery
 }

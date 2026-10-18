@@ -43,6 +43,9 @@ func (c CLI) init(ctx context.Context, cfg config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
+	if g := cfg.Issues; g != nil {
+		fmt.Fprintf(c.Out, "Optional GitHub Issues: %s; label %q. Runner may replace overview issue #%d's body with public progress; use a dedicated issue without the intake label. Requests still need explicit local owner approval.\n", g.Repository, g.Label(), g.OverviewIssue)
+	}
 	fmt.Fprintf(c.Out, "Repository: %s\nObserved base: %s\nState: %s\nWorkspaces: %s\nUncommitted checkout changes are excluded.\n", cfg.Repository.Path, base, cfg.StateDir, cfg.WorktreeDir)
 	fmt.Fprintf(c.Out, "Delivery: %s; destination: %s; base: %s\n", cfg.Delivery.Mode, cfg.Destination(), cfg.Repository.BaseRef)
 	if cfg.Delivery.Mode == "github-draft" {

@@ -20,8 +20,10 @@ Install Git and Codex CLI separately; source builds also need the Go version in
 `go.mod`. Authenticate Codex
 with your account and select a supported model/reasoning pair. This release
 qualifies sandboxed Codex; it does not install tools, credentials or a service.
-For GitHub delivery, also install `gh` and authenticate to github.com with access
-to the destination repository. Projects access is unnecessary.
+For GitHub delivery or optional Issues integration, also install `gh` and
+authenticate to github.com with access to the configured repository. Projects
+access is unnecessary. Issues needs read/write Issues permission for its overview;
+an account with only pull-request permissions is insufficient.
 
 From the Runner checkout:
 
@@ -32,7 +34,7 @@ go build -o /absolute/tools/cortexium-runner ./cmd/cortexium-runner
 
 For an extracted archive, run its `cortexium-runner --version` and `--help`
 directly. Source builds report `dev`; release builds report the injected version.
-The private store format is **17**. Legacy Project configuration and experimental
+The private store format is **18**. Legacy Project configuration and experimental
 store formats are deliberately rejected; there is no in-place migration. Keep
 old binaries with their state/backups, reconcile any outstanding remote effects,
 then use fresh config, state and workspace paths with new approvals. Never point
@@ -313,6 +315,83 @@ ref cannot manufacture completion. Stopped work retains any already applied effe
 without regaining authority. Use `task verify-base ID` for an accepted result that
 needs fresh base verification. Completed outcomes remain historical when base moves.
 
+### Optional GitHub issue requests and overview
+
+Create a dedicated ordinary issue for the overview, without the intake label.
+Its entire body belongs to Runner; do not use an existing request or store human
+notes there. Before initializing fresh authority, add this optional top-level
+configuration alongside `delivery`:
+
+```json
+"github_issues": {
+  "repository": "OWNER/REPO",
+  "overview_issue": 123,
+  "intake_label": "runner:request"
+}
+```
+
+`intake_label` defaults to `runner:request`; create that repository label yourself.
+This connection stays fixed at initialization and can use a different repository
+from code delivery. It works with local delivery too. Omit it for a fully local
+journey. GitHub Projects and Projects permissions are unnecessary.
+
+Create a request issue and apply the intake label. Then:
+
+```sh
+runner github inbox
+runner github import --issue 124 --plan
+# Or, for a sufficiently specified Ready request:
+runner github import --issue 125 --ready --file CLARIFIED_TASK.md
+runner task show TASK_ID
+runner task approve TASK_ID --version N --preview DIGEST
+runner run
+```
+
+Import only captures a snapshot. It grants no invocation permission. The owner
+inspects the full brief, quality, destination and exact preview before approval.
+Plan approval authorizes planning; the returned proposal still needs explicit
+`task release`. Ready requires Outcome, Scope and Acceptance sections; the owner
+may supply a clarified local brief while retaining the original issue snapshot.
+
+Repeated import returns the original mapped task. Changes to the issue title,
+body, labels, comments or open/closed state never change an imported task, reset
+its allowances, approve work or stop it. To change the captured brief, use the
+existing local replacement/approval process; released Plans need a new request.
+GitHub content is request data, including when an owner authored it. This bundle
+discovers/imports explicitly; merely creating or labeling an issue starts nothing.
+Inbox reads use the applied connection, including when the configuration file has
+unapplied edits.
+
+The overview shows all captured/local tasks, Plan relationships, owner decisions,
+active work, waits, attention, stopped work, completion and known PR links. An
+included child remains undelivered until its Plan completes. A local result
+completion does not promise integration into the base. Request bodies remain
+untouched and requests are not automatically closed. Unimported requests remain
+in the labeled GitHub inbox; the overview covers captured work.
+
+`run` attempts a bounded overview refresh after the preceding call settles, with
+30 seconds between calls. `runner github sync` explicitly refreshes it while the
+coordinator is absent or drained. A connection lock prevents overlapping writes.
+An unchanged body is observed without another write. Local `status` shows the
+overview URL, last successful observation and any synchronization failure.
+Before dispatch, Runner retains the exact pending body. If the response is lost,
+`github sync` observes that body before publishing newer progress; it does not
+replay the uncertain write. If it never appears, the view stays held for operator
+reconciliation. Preserve its pending record and diagnostics rather than clearing
+them to force another write. A definite permission or validation refusal can be
+retried after correcting the cause.
+GitHub downtime only delays that view and hosted operations; local execution
+continues. Issue rows are observations, never workflow authority. Large overviews
+fail visibly at the bounded publication size rather than silently drop work.
+
+The public view excludes full briefs, private diagnostics, transcripts, evidence
+paths and approval previews. Inspect exact blockers locally. Do not put sensitive
+content in task titles when opting into a public overview. A closed overview,
+wrong instance marker, request label or missing permissions prevents writes;
+correct that connection and sync again. Fresh state needs a new dedicated issue,
+or an explicitly reviewed clearing of the previous Runner-owned body. Preserve
+the old evidence before doing so. Inspection-only restores cannot publish.
+
 ## 4. Follow work and recover deliberately
 
 `run` stays in the foreground. Use a second terminal for:
@@ -517,9 +596,11 @@ repair and guarded ordinary merges with exact integration receipts. Configuratio
 explicitly controls model/reasoning profiles, escalation, parallelism and limits.
 
 This is a **fresh setup**, not an upgrade of old authority. Store formats before
-15, old Project configuration, old commands and old approval records are not
-accepted. There is no importer, daemon installer or updater. Boards/Trello, other
-harnesses, remote polling, CI reruns, queues, squash/rebase and ruleset-only
+18, old Project configuration, old commands and old approval records are not
+accepted. There is no legacy-state importer, daemon installer or updater.
+Optional issue snapshot import does not migrate execution authority. Other
+boards/Trello, autonomous intake, other harnesses, background delivery polling,
+CI reruns, queues, squash/rebase and ruleset-only
 Runner-owned merges remain outside this release. The delivery section above
 describes supported host protection and the human handoffs.
 

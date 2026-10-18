@@ -4,11 +4,12 @@ Status: The local replacement, delivery bundles and R1–R5 are implemented and
 qualified in `codex/runner-local-core`. The subsequent local-completion,
 real-project pilot, main-reconciliation and final platform/package obligations
 are complete within the [continued qualification record](#continued-real-project-qualification).
-Current store format is **17**. The [frozen checklist](#frozen-first-release-checklist)
+Current store format is **18**. The [frozen checklist](#frozen-first-release-checklist)
 remains the scope boundary; historical briefs below are construction evidence.
-Runner PR #106 and api-mcp pilot PR #6 remain drafts for human review. No Runner
-merge, release publishing or running-installation/cutover change is authorized by
-this completion. Optional views, extra harnesses, remote polling, merge queues
+Runner PR #106 merged into main on 2026-10-16; api-mcp pilot PR #6 remains a draft.
+Release publishing and running-installation/cutover changes remain separate.
+The owner subsequently requested the [GitHub Issues bundle](#github-issues-and-owner-acceptance-brief)
+before release. Other views, extra harnesses, autonomous intake, merge queues
 and additional hosted merge methods remain deferred.
 
 Runner should own its work, approvals, execution and recovery state locally.
@@ -52,6 +53,204 @@ bundle briefs retain the construction history.
 The [coverage map](#requirement-coverage-map) connects important requirements to
 their implementation phase and proof. Keep work status and evidence there as
 slices land; do not create another plan or task registry.
+
+## GitHub Issues and owner acceptance brief
+
+Status: implemented with the review fixes below on `codex/runner-github-issues`,
+2026-10-18; pending merge. This bounded extension uses the existing replacement
+worktree. No publication, installation change or takeover of active FlowStack
+work is included.
+
+### Supported journey and authority
+
+An issue is a request, not permission to work. One optional GitHub Issues
+connection names a repository, an intake label (default `runner:request`) and
+an existing overview issue whose body Runner may maintain. It is independent
+of code delivery: local completion can publish progress and GitHub delivery
+can run without an Issues connection. No GitHub Project is required.
+
+1. Create an issue and apply the intake label. A read-only inbox command lists
+   open matching issues and their existing local mappings. Discovery/import is
+   explicit in this bundle; there is no autonomous intake polling or webhook.
+2. Import one exact issue snapshot as a Plan request or a sufficiently specified
+   Ready brief. An optional operator-authored file supplies a clarified brief.
+   Retain provider/object identity, source URL and content revision locally.
+   Repeated import returns the existing task, including after restart; changed
+   issue content cannot replace an existing task or reset its counters.
+3. The owner inspects and approves the exact local version using the existing
+   approval command. Plan approval authorizes planning only; release still
+   approves the shared outcome, children and dependencies. Unapproved imports
+   cannot invoke a harness. No new owner agent, approval label or remote-comment
+   interpreter is added.
+4. Run the normal local process. Closing/editing an issue, commenting or moving
+   a board card cannot approve, stop, change or complete local work. A source
+   snapshot is historical after import; changes require an explicit local
+   replacement and new approval, under the existing released-Plan rules.
+5. Follow one GitHub overview with task titles/source links, Plan relationships,
+   waiting reasons, owner/attention/working/completed distinctions, PR links and
+   the last successful update time. Included children stay visibly undelivered
+   until the whole Plan completes. Stopped work is separate from completed work.
+
+### Minimum architecture and failure behavior
+
+Keep source observation and progress publication behind separate narrow
+consumer-defined contracts. Reuse the GitHub transport; core approval and
+coordinator rules stay provider-neutral. One durable source mapping prevents
+duplicate intake; one configured existing overview issue avoids uncertain issue
+creation. Validate that the configured overview is an issue, not a PR or intake
+request. Runner owns that issue's body; it does not rewrite request bodies,
+close requests or manipulate repository labels/protections.
+
+The overview publishes only an allowlist of public progress fields. Never copy
+task bodies, approval digests, filesystem paths, raw attention/error details,
+transcripts or private evidence. Show bounded category-level wait/recovery
+guidance; inspect precise diagnostics locally. Escape untrusted titles and links.
+
+Use one bounded asynchronous projection action admitted by the existing
+coordinator, plus an explicit sync command. Serialize manual and automatic writes
+per connection; coalesce to the latest snapshot and record sync health locally.
+No model slot is consumed by a view. Timeout, missing permission or GitHub outage
+affects the connection only and must not stop local implementation or reviews.
+Persist one pending body before dispatch. An uncertain response permits only
+observation of that exact receipt before any newer write, including after restart.
+If it never appears, hold the view for operator reconciliation while local work
+continues. A definite rejection permits a fresh attempt after correction. No
+remote outcome repeats work approval.
+Read-only status/inbox must not write local authority or publish anything.
+Backup/restore retains mappings and sync health; inspection-only restore cannot
+publish. Use fresh state for an incompatible format; no legacy approval import.
+
+### Verification brief
+
+Extend owning suites rather than build another orchestration harness:
+
+- Store: real SQLite, concurrent/repeated import and reopen retain one source
+  mapping and unchanged approval/counters; existing backup round-trip covers the
+  added records. Reject incompatible state.
+- Engine: imported Plan/Ready remains unapproved; explicit approval follows the
+  existing process. One controlled journey covers pending owner, dependency wait,
+  child inclusion versus completion, attention, PR link and stopped work. A
+  blocked/unavailable view cannot hold unrelated deterministic reconciliation or
+  model admission. Synchronization and recovery use channels, not timing sleeps.
+- Adapter: GitHub fixtures cover pagination, issue/PR identity, malformed or
+  unavailable responses, scoped transport writes and public output redaction.
+  Reuse existing process containment and local lifecycle evidence.
+- CLI/config: optional connection, explicit import mode/brief, existing owner
+  approval commands, read-only inbox/status and bounded sync health reporting.
+- Run `go test -race -timeout 15m ./...`, `go vet ./...`, executable smoke and
+  a private synthetic GitHub issue/overview exercise. No live model requalification
+  is needed unless role instructions or execution semantics change.
+
+### FlowStack pilot boundary
+
+Read `New FS Frontend 2` on host `remote-ssh-discovered:always-on` and observe
+the actual `flowstack/webapp` runtime before handover. On 2026-10-18 at approximately
+10:23 Europe/Copenhagen, the old Runner owned Plan #507: schema controls and
+collection editing were included, guided segments and Vue Flow canvas were
+running, and relationship controls and palette/connections were waiting. Nothing
+in that batch was delivered. The old runner reported no blocked tasks.
+
+Do not dispatch the same scope while that owner is active. Once it reaches a
+safe boundary, retain the old artifacts and accepted source; assess what remains,
+then explicitly authorize a fresh request against a pinned base in an isolated
+checkout/config/state. Import no historical approval or in-flight process.
+Carry original UX comparisons, query/schema/history/persistence safeguards,
+generated ownership and required checks into the fresh brief. A separate owner
+decision must authorize draining/replacing that installation or taking over
+remaining work. Deployment remains separate.
+
+The original request in that session is more specific than its earlier "267
+Done" status: sort/filter schema fields by key/title/description/type; open
+subcollections in the same rooted editor with safe breadcrumbs; make guided
+segments readable and safe while preserving raw-query recovery, relationships
+and nested collections; use Vue Flow for canvas interactions while keeping
+settings, history, validation and persistence separate. The saved comparison is
+`/Users/dan/.local/share/flowstack/ux-parity-20261016/captures/comparison.json` on
+always-on, with synthetic screenshots alongside it. Reuse those pinned references
+through supported read-only handoff; source inspection alone does not prove UX
+parity. Build/edit/save/reopen journeys and visual/keyboard checks remain part of
+acceptance. "Finish the frontend" must not silently expand this six-card scope.
+
+### GitHub Issues bundle qualification
+
+Implemented on `codex/runner-github-issues`, from main merge `0d19a9a`. Store format
+18 adds one unique source mapping and connection health; format 17 is preserved
+and rejected rather than migrated. No execution-role instructions, harness
+semantics, dependencies, hosted merge policy or installed skills changed.
+
+- `GOTOOLCHAIN=go1.26.9 go test -race -timeout 15m ./...` passed. Subsequent
+  presentation refinements and the provider-bound configuration simplification
+  received fresh owning engine/CLI/adapter race checks; unchanged lifecycle and
+  low-level results are reused rather than repeating the expensive whole suite.
+  Final `go vet ./...`, formatting and complete diff review passed. Separate
+  source-observation/publication interfaces contain no GitHub configuration;
+  the built-in Issues adapter binds its provider settings at CLI composition.
+- Real CLI used private qualification request
+  [#6](https://github.com/cortexium-io/runner-delivery-qualification/issues/6) and
+  dedicated overview [#5](https://github.com/cortexium-io/runner-delivery-qualification/issues/5).
+  Capture remained Draft with zero invocations. Explicit owner approval produced
+  Ready without starting work. Editing and closing the source then reimporting
+  preserved the exact task/approval/history. Closing the overview failed visibly
+  without changing that task; reopening it restored synchronization. Stopped work
+  remained separate from completion. No role or model invocation was made.
+- Linux arm64 focused race checks passed in a disposable, network-disabled
+  `golang:1.26.9-bookworm` container, image
+  `sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c`,
+  kernel `7.0.14-linuxkit`. This qualifies the changed Go/SQLite/CLI paths inside
+  Docker Desktop; it does not repeat native harness qualification. The container
+  was removed. Existing source and module-cache mounts were read-only.
+  The final provider-bound interfaces also passed fresh Linux engine/CLI/adapter
+  race checks after their simplification.
+- The operator guide and repository-local operator reference now describe the
+  intake/owner/view journey. The real executable smoke and four no-CGO platform
+  archives passed; these are local candidate artifacts, not a published release.
+- Read-only FlowStack observation at approximately 10:43 Europe/Copenhagen still
+  showed two active, two waiting and two included tasks, with no blockers and no
+  delivery. No new Runner was installed or dispatched there. The remaining pilot
+  needs the safe handover decision above, not a second owner for the same work.
+
+Evidence is retained privately at
+`/Users/dan/.codex/runner-qualification/github-issues-20261018/`: native/focused
+test logs, Linux log, CLI snapshots before/after owner acceptance and connection
+failure/recovery, public overview bodies and platform artifacts. This bundle
+does not qualify autonomous intake, remote approvals, Projects/Trello, request
+auto-closure, an unbounded board or FlowStack product completion.
+GitHub transport follows its [REST Issues contract](https://docs.github.com/en/rest/issues/issues):
+only inbox/request reads and the configured overview body's update are added.
+
+### GitHub Issues review fixes, 2026-10-18
+
+The owning regression cases reproduced and now cover four recovery/ownership
+defects: an uncertain old overview write could overtake newer progress; read-only
+inbox used unapplied file configuration; fatal view cleanup delayed cancellation
+of unrelated workers; and concurrent import decoded into caller-owned source
+memory. The fixes retain one pending view body before dispatch, observe its
+receipt before newer publication, bind inbox to applied settings, cancel all work
+before waiting for cleanup, and decode the captured task into a separate value.
+The existing public-output case also covers a trailing backslash in a source title.
+No new scheduler, retry policy, dependency or test harness was added.
+
+Focused native race cases and the Linux arm64 owning suites passed. The existing
+concurrent-source test additionally checks input ownership and passed ten native
+race repetitions. Linux initially exposed its data race; that failed log is
+retained. The incomplete full gate was stopped for the store fix; it is not a
+passing result. A fresh full gate runs against the corrected source, with its
+terminal result recorded on the PR. Vet, executable smoke and four local platform
+archives were renewed after the fix.
+
+The real CLI also exercised overview #5 using a qualification-only transport
+wrapper that forwarded one successful GitHub PATCH but discarded its response.
+Runner retained the pending body; the next sync observed its exact receipt and
+sent no second PATCH. The task, source, history and allowances stayed unchanged,
+with zero model invocations. This complements the controlled delayed-server case;
+it does not claim to reproduce GitHub's server scheduling. If an uncertain write
+never appears, newer view writes remain held for operator reconciliation.
+
+Review evidence is private at
+`/Users/dan/.codex/runner-qualification/github-issues-review-20261018/`:
+regressions before/after fixes, full-gate output, Linux logs, real transport trace
+and task snapshots, executable and platform archives. No release, installation
+change, request auto-closure or FlowStack handover was performed.
 
 ## Accepted direction
 
@@ -5149,11 +5348,13 @@ actual binary/source boundaries, interventions and retained failures. Subsequent
 documentation-only changes receive the PR gate; they do not invalidate unchanged
 runtime evidence.
 
-[Runner PR #106](https://github.com/cortexium-io/runner/pull/106) is the consolidated
-draft for human review; [api-mcp #6](https://github.com/cortexium-io/api-mcp/pull/6)
+[Runner PR #106](https://github.com/cortexium-io/runner/pull/106) merged into main
+on 2026-10-16; [api-mcp #6](https://github.com/cortexium-io/api-mcp/pull/6)
 is its unmerged useful pilot result. Genny's existing PR #576 keeps its ownership
-and unchanged source. No implementation bundle remains implied by this plan.
-Optional integrations and additional harness qualification remain deferred, not
+and unchanged source. No implementation bundle remains from the original release
+checklist. The subsequently requested GitHub Issues extension is defined in its
+[bounded brief](#github-issues-and-owner-acceptance-brief). Other optional integrations
+and additional harness qualification remain deferred, not
 release blockers. The separate local-model comparison is still research; it
 cannot silently admit another adapter. Publication and installation/cutover
 require separate explicit direction and the reviewed-source release safeguards.

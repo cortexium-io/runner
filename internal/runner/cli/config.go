@@ -77,6 +77,9 @@ func (c CLI) printPolicy(p engine.PolicyChange) {
 	fmt.Fprintf(c.Out, "Merge policy: %s -> %s; applies to existing and future approved work.\n", p.MergePolicyBefore, cfg.MergePolicy())
 	fmt.Fprintln(c.Out, "Automatic policy permits guarded integration of accepted work into the configured base; GitHub additionally requires a ready PR and host admission. Existing approved work is included.")
 	fmt.Fprintf(c.Out, "Delivery: %s; destination: %s; base: %s (fixed at initialization)\n", cfg.Delivery.Mode, cfg.Destination(), cfg.Repository.BaseRef)
+	if g := cfg.Issues; g != nil {
+		fmt.Fprintf(c.Out, "GitHub Issues: %s; intake label %q; Runner owns overview issue #%d's body (fixed at initialization). Issue input cannot approve work.\n", g.Repository, g.Label(), g.OverviewIssue)
+	}
 	for _, role := range []string{"planner", "implementer", "reviewer"} {
 		name, profile := cfg.Role(role)
 		if name == "" {

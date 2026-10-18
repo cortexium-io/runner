@@ -109,6 +109,12 @@ func TestReadyPolicyLimitsAndEscalation(t *testing.T) {
 		}, false},
 		{"automatic local merge", func(c *Config) { c.Policy.Merge = "automatic" }, false},
 		{"unknown merge policy", func(c *Config) { c.Policy.Merge = "auto" }, false},
+		{"optional Issues with local delivery", func(c *Config) { c.Issues = &GitHubIssues{Repository: "owner/repo", OverviewIssue: 7} }, true},
+		{"missing overview", func(c *Config) { c.Issues = &GitHubIssues{Repository: "owner/repo"} }, false},
+		{"Issues destination injection", func(c *Config) { c.Issues = &GitHubIssues{Repository: "owner/repo?token=x", OverviewIssue: 7} }, false},
+		{"multiple intake labels", func(c *Config) {
+			c.Issues = &GitHubIssues{Repository: "owner/repo", OverviewIssue: 7, IntakeLabel: "one,two"}
+		}, false},
 		{"draft publication", func(c *Config) { c.Delivery.Mode = "github-draft"; c.Delivery.Repository = "owner/repo" }, true},
 		{"missing destination", func(c *Config) { c.Delivery.Mode = "github-draft" }, false},
 		{"destination injection", func(c *Config) { c.Delivery.Mode = "github-draft"; c.Delivery.Repository = "owner/repo?token=x" }, false},
