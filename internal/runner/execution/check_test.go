@@ -140,6 +140,84 @@ func TestLiveQualityCheckBoundary(t *testing.T) {
 	})
 }
 
+// No model call: test the same read-only grant builder used for audit/verification.
+func TestLiveRetainedCheckArtifacts(t *testing.T) {
+	if os.Getenv("RUNNER_LOCAL_LIVE_CHECKS") == "" {
+		t.Skip("set RUNNER_LOCAL_LIVE_CHECKS=1 for native artifact access qualification")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.MkdirTemp(home, "runner-artifact-access-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Retained native artifact evidence:", root)
+	source, fixture := artifactFixture(t, root)
+	c := Codex{}
+	check := c.Check(t.Context(), source, config.QualityCheck{ID: "native", Command: "test -s .runner-output/reports/shot.png && printf 'actual native check\\n'", Directory: ".", Prerequisites: []string{"sh"}, Path: os.Getenv("PATH"), Timeout: "30s"}, filepath.Join(root, "evidence/native.log"), func(p core.Process) error {
+		data, err := json.Marshal(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(root, "evidence/process.json"), data, 0600)
+	})
+	if check.Status != "passed" || !check.Stopped {
+		t.Fatal(check)
+	}
+	binding := core.Digest("native fixture")
+	check.Artifacts, err = RetainCheckArtifacts(source, []string{".runner-output/reports"}, binding, check)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := CheckReadRoots(check, binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	neutral := filepath.Join(root, "reviewer")
+	if err = os.Mkdir(neutral, 0700); err != nil {
+		t.Fatal(err)
+	}
+	policy := c.policy(neutral, roots)
+	args := append([]string{"sandbox", "-C", neutral, "-P", "runner_local"}, policy[1:]...)
+	probe := `set -eu
+cat "$1" >/dev/null
+cat "$2" >/dev/null
+if cat "$3" >/dev/null 2>&1; then exit 21; fi
+if cat "$4" >/dev/null 2>&1; then exit 22; fi
+if (printf changed >> "$1") 2>/dev/null; then exit 23; fi
+printf 'PNG/report readable; original workspace, sibling evidence and writes denied\n'
+`
+	args = append(args, "--", "/bin/sh", "-c", probe, "artifact-probe",
+		filepath.Join(check.Artifacts.Directory, ".runner-output/reports/shot.png"),
+		filepath.Join(check.Artifacts.Directory, ".runner-output/reports/report.json"),
+		filepath.Join(source, ".runner-output/reports/shot.png"), fixture.Evidence)
+	command := exec.CommandContext(t.Context(), c.command(), args...)
+	command.Dir = neutral
+	output, err := command.CombinedOutput()
+	if writeErr := os.WriteFile(filepath.Join(root, "evidence/native-policy.log"), output, 0600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	if err != nil {
+		t.Fatalf("native read-only artifact boundary: %s: %v", output, err)
+	}
+	if _, err = CheckReadRoots(check, binding); err != nil {
+		t.Fatal("native review changed evidence", err)
+	}
+	data, err := json.MarshalIndent(check, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, "evidence/observation.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Actual container qualification is opt-in and uses a separately prepared image.
 // No image pull, dependency download or model call occurs in this suite.
 func TestLiveContainerCheckBoundary(t *testing.T) {

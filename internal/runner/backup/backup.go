@@ -121,6 +121,9 @@ func references(v store.Image) []string {
 				add(c.Evidence)
 				add(c.Directory)
 			}
+			if c.Artifacts != nil {
+				add(c.Artifacts.Directory)
+			}
 		}
 	}
 	for _, a := range v.Attempts {

@@ -27,6 +27,15 @@ func must(t *testing.T, err error) {
 	}
 }
 
+func TestReferencesIncludeRetainedCheckArtifacts(t *testing.T) {
+	check := core.CheckObservation{Artifacts: &core.CheckArtifacts{Directory: "/private/check-artifacts"}}
+	image := store.Image{Attempts: []core.Attempt{{Checks: []core.CheckObservation{check}}}}
+	paths := references(image)
+	if len(paths) != 1 || paths[0] != check.Artifacts.Directory {
+		t.Fatal("backup omitted retained output", paths)
+	}
+}
+
 type fixture struct {
 	root, path, bundle string
 	settings           config.Settings

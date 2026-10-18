@@ -10,6 +10,7 @@ import (
 
 	"github.com/cortexium-io/runner/internal/runner/config"
 	"github.com/cortexium-io/runner/internal/runner/core"
+	"github.com/cortexium-io/runner/internal/runner/execution"
 	"github.com/cortexium-io/runner/internal/runner/store"
 	"github.com/cortexium-io/runner/internal/runner/workspace"
 	"github.com/cortexium-io/runner/internal/securefs"
@@ -188,6 +189,11 @@ func (e *Engine) runChecks(ctx context.Context, source string, expected map[stri
 			if err = workspace.VerifyCopy(copy, before); err != nil {
 				r.Status = "unavailable"
 				r.Detail = err.Error()
+			} else if r.Status != "unavailable" {
+				r.Artifacts, err = execution.RetainCheckArtifacts(copy, check.Artifacts, core.Digest(expected), r)
+				if err != nil {
+					r.Status, r.Detail = "unavailable", err.Error()
+				}
 			}
 		}
 		results = append(results, r)

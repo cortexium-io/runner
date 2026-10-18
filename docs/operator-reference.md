@@ -149,6 +149,26 @@ checks. Parent repairs or base refresh run all checks to protect child guarantee
 Choose expensive final suites at completion explicitly; agents cannot change this
 agreement. Local mode rejects `required_ci` rather than silently dropping it.
 
+A check that produces reviewer evidence can declare, for example,
+`"artifacts": [".runner-output/browser/reports"]`. Paths are literal files or
+directories relative to the disposable source root, including for commands in a
+subdirectory, strictly below `.runner-output/`. Overlapping selections, globs and
+links are rejected. Select
+reports/screenshots, not dependency caches or the entire output directory.
+After a stopped check passes source integrity verification, Runner copies only
+these outputs beside its private check log. A manifest binds their hashes to the
+source and check/log identity. Missing/empty output or overflow makes proof
+unavailable: at most 10,000 entries, 32 MiB per file, 256 MiB total payload and
+8 MiB manifest. Omission retains log-only evidence.
+
+Reviewers get the retained bundle read-only, with baseline/child evidence labelled
+separately from current-candidate proof. Runner verifies it before dispatch and
+after return; missing, changed or stale evidence blocks review. Logs and artifact
+paths appear in local task/check JSON; the GitHub overview does not upload private
+artifacts. Artifact declarations require a new quality preview/check/apply cycle.
+Store format 19 rejects older state directories without converting them; preserve
+old state and use a fresh isolated directory for this version.
+
 For GitHub delivery, also include `required_ci`, with each exact check name and
 its observed GitHub app identity, for example
 `[{"kind":"check","name":"fixture","app_id":15368}]`. That identity is an

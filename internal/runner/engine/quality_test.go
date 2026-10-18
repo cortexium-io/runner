@@ -15,6 +15,138 @@ import (
 	"github.com/cortexium-io/runner/internal/runner/execution"
 )
 
+func artifactCheck(t *testing.T, dir string, c config.QualityCheck, log string) core.CheckObservation {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "greeting.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, ".runner-output/reports/report.json")
+	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, []byte(fmt.Sprintf("%q", string(data))), 0600); err != nil {
+		t.Fatal(err)
+	}
+	output := []byte(c.ID + " check completed\n")
+	if err = os.WriteFile(log, output, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return core.CheckObservation{Directory: filepath.Join(dir, c.Directory), CheckID: c.ID, Status: "passed", Stopped: true, Evidence: log, OutputDigest: fmt.Sprintf("%x", sha256.Sum256(output))}
+}
+
+func TestReviewRetainsOnlyMatchingArtifactsAndChecksThemAfterReturn(t *testing.T) {
+	for _, change := range []string{"none", "subdirectory", "stale binding", "changed before", "changed during", "check changed source"} {
+		t.Run(change, func(t *testing.T) {
+			e := fixture(t)
+			if change == "subdirectory" {
+				if err := os.Mkdir(filepath.Join(e.Settings.Config.Repository.Path, "nested"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(e.Settings.Config.Repository.Path, "nested/README.txt"), []byte("subdirectory fixture"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				git(t, e.Settings.Config.Repository.Path, "add", ".")
+				git(t, e.Settings.Config.Repository.Path, "commit", "-m", "subdirectory check")
+			}
+			candidate := false
+			e.Checker = checkAdapter(func(_ context.Context, dir string, c config.QualityCheck, evidence string, _ func(core.Process) error) core.CheckObservation {
+				if candidate && change == "check changed source" {
+					if err := os.WriteFile(filepath.Join(dir, "greeting.txt"), []byte("unchecked"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return artifactCheck(t, dir, c, evidence)
+			})
+			spec := config.QualitySpec{Definition: "Exact greeting and retained report", Checks: []config.QualityCheck{{ID: "greeting", Command: "check", Directory: ".", Prerequisites: []string{"sh"}, Timeout: "1m", Artifacts: []string{".runner-output/reports"}}}}
+			if change == "subdirectory" {
+				spec.Checks[0].Directory = "nested"
+			}
+			preview, err := e.PreviewQuality(t.Context(), spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			report, err := e.RunBaseline(t.Context(), spec, preview.Preview)
+			if err != nil {
+				t.Fatal(err)
+			}
+			agreement, err := e.PreviewAgreement(t.Context(), report.ID, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = e.ApplyAgreement(t.Context(), report.ID, nil, agreement.Preview); err != nil {
+				t.Fatal(err)
+			}
+			task := approved(t, e)
+			candidate = true
+			implemented := e.execute(t.Context(), claim(t, e))
+			if change == "check changed source" {
+				if implemented.completion.Error == "" || implemented.attempt.Checks[0].Status != "unavailable" || implemented.attempt.Checks[0].Artifacts != nil {
+					t.Fatal("changed source produced trusted artifacts", implemented)
+				}
+				return
+			}
+			if implemented.completion.Error != "" {
+				t.Fatal(implemented.completion.Error)
+			}
+			if err = e.saveCompletion(t.Context(), implemented); err != nil {
+				t.Fatal(err)
+			}
+			finish(t, e)
+			attempts, err := e.Store.Attempts(t.Context(), task.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			old := attempts[0]
+			bundle := old.Checks[0].Artifacts
+			path := filepath.Join(bundle.Directory, ".runner-output/reports/report.json")
+			if change == "stale binding" {
+				bundle.SourceDigest = "another source"
+				if err = e.mutate(t.Context(), task.ID, func(*core.Task) (*core.Attempt, error) { return &old, nil }); err != nil {
+					t.Fatal(err)
+				}
+			} else if change == "changed before" {
+				if err = os.WriteFile(path, []byte("changed"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			called := false
+			e.Executor = adapter(func(_ context.Context, r execution.Request, _ func(core.Process) error) execution.Completion {
+				called = true
+				roots := strings.Join(r.ReadRoots, "\n")
+				if !strings.Contains(roots, bundle.Directory) || !strings.Contains(roots, report.Quality.Baseline[0].Artifacts.Directory) || strings.Contains(roots, old.Checks[0].Directory) {
+					t.Fatal("current/baseline evidence not narrowly granted", r.ReadRoots)
+				}
+				for _, check := range append(r.Quality.Baseline, r.QualityEvidence...) {
+					data, err := os.ReadFile(filepath.Join(check.Artifacts.Directory, ".runner-output/reports/report.json"))
+					if err != nil || (!strings.Contains(string(data), "before") && !strings.Contains(string(data), "hello")) {
+						t.Fatal("actual baseline/candidate report missing", err)
+					}
+				}
+				if change == "changed during" {
+					if err := os.WriteFile(path, []byte("changed during review"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return pass(r)
+			})
+			f := e.execute(t.Context(), claim(t, e))
+			if (f.completion.Error == "") != (change == "none" || change == "subdirectory") {
+				t.Fatal("incorrect artifact acceptance", change, f.completion)
+			}
+			if called != (change == "none" || change == "subdirectory" || change == "changed during") {
+				t.Fatal("invalid proof reached a reviewer", change)
+			}
+			if f.completion.Error != "" && f.completion.Kind != core.Integrity {
+				t.Fatal("changed evidence misclassified as resumable interruption", f.completion)
+			}
+			if change == "changed during" && (f.completion.Kind != core.Integrity || f.completion.Result != nil) {
+				t.Fatal("review accepted changed evidence", f.completion)
+			}
+		})
+	}
+}
+
 func TestAgreementAdoptionRevokesOldWorkAndKeepsHistoricalEvidence(t *testing.T) {
 	e := fixture(t, func(c *config.Config) {
 		c.Delivery.Mode, c.Delivery.Repository = "github-draft", "owner/repo"

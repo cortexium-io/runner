@@ -16,6 +16,7 @@ import (
 const CheckEnvironment = "isolated PATH; private HOME/TMPDIR; LANG=C LC_ALL=C; no inherited credentials"
 
 type QualityCheck struct {
+	Artifacts     []string `json:"artifacts,omitempty"`
 	Image         string   `json:"-"`
 	At            string   `json:"at,omitempty"`
 	Path          string   `json:"-"`
@@ -107,6 +108,9 @@ func (s QualitySpec) Validate() error {
 				return fmt.Errorf("check %s: prerequisites must be executable names", c.ID)
 			}
 		}
+		if err := ValidateArtifactPaths(c.Artifacts); err != nil {
+			return fmt.Errorf("check %s: %w", c.ID, err)
+		}
 		seen[c.ID] = true
 	}
 	seen = map[string]bool{}
@@ -128,6 +132,36 @@ func (s QualitySpec) Validate() error {
 		ciSeen[r] = true
 	}
 
+	return nil
+}
+
+// ArtifactPath is a literal output selection, never a source or host read grant.
+func ArtifactPath(path string) bool {
+	return RelativePath(path) && strings.HasPrefix(path, ".runner-output/") &&
+		!strings.ContainsAny(path, "*?[]\\\x00") && !strings.ContainsFunc(path, unicode.IsControl)
+}
+
+func ValidateArtifactPaths(paths []string) error {
+	if len(paths) > 10000 {
+		return errors.New("too many artifact selections")
+	}
+	selected := map[string]bool{}
+	for _, path := range paths {
+		if !ArtifactPath(path) {
+			return fmt.Errorf("artifact %q must be a literal path below .runner-output", path)
+		}
+		if selected[path] {
+			return errors.New("artifact selections overlap")
+		}
+		selected[path] = true
+	}
+	for _, path := range paths {
+		for parent := filepath.Dir(path); parent != "."; parent = filepath.Dir(parent) {
+			if selected[parent] {
+				return errors.New("artifact selections overlap")
+			}
+		}
+	}
 	return nil
 }
 
@@ -196,6 +230,9 @@ func (q Quality) ValidateResults(results []core.CheckObservation, files map[stri
 		}
 		if err := q.Accepts(results[i], files); err != nil {
 			return err
+		}
+		if len(check.Artifacts) != 0 && results[i].Artifacts == nil {
+			return fmt.Errorf("check %s lacks its required artifact manifest", check.ID)
 		}
 	}
 	return nil

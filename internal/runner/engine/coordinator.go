@@ -407,6 +407,9 @@ func required(t core.Task, role string) []core.Proof {
 }
 func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 	fail := func(err error) finished { return finished{a, execution.Completion{Stopped: true, Error: err.Error()}} }
+	artifactFailure := func(err error) finished {
+		return finished{a, execution.Completion{Stopped: true, Error: err.Error(), Kind: core.Integrity}}
+	}
 	t, err := e.Store.Task(ctx, a.TaskID)
 	if err != nil {
 		return fail(err)
@@ -433,6 +436,26 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 		return fail(err)
 	}
 	r := execution.Request{Attempt: a, Task: t, Quality: e.Settings.Quality, Proofs: required(t, a.Role)}
+	var verifyArtifacts []func() error
+	grantCheckEvidence := func(check core.CheckObservation, source string) error {
+		for _, spec := range e.Settings.Quality.Checks {
+			if spec.ID == check.CheckID && len(spec.Artifacts) > 0 && check.Artifacts == nil {
+				return fmt.Errorf("check %s: required retained artifacts unavailable", check.CheckID)
+			}
+		}
+		roots, err := execution.CheckReadRoots(check, source)
+		if err != nil {
+			return fmt.Errorf("check %s retained artifacts: %w", check.CheckID, err)
+		}
+		r.ReadRoots = append(r.ReadRoots, roots...)
+		if check.Artifacts != nil {
+			verifyArtifacts = append(verifyArtifacts, func() error {
+				_, err := execution.CheckReadRoots(check, source)
+				return err
+			})
+		}
+		return nil
+	}
 	if !core.PlanningRole(a.Role) && (t.ParentID != "" || t.Release != nil) {
 		r.Plan, err = e.planContext(ctx, t)
 		if err != nil {
@@ -472,7 +495,9 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 				}
 				r.CheckRepairReason, r.QualityEvidence = reason, old.Checks
 				for _, c := range old.Checks {
-					r.ReadRoots = append(r.ReadRoots, c.Evidence)
+					if err := grantCheckEvidence(c, old.SourceDigest); err != nil {
+						return artifactFailure(err)
+					}
 				}
 			}
 		}
@@ -535,8 +560,8 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 			if (old.Role == "implementer" || old.Role == "refresh" || old.Role == "combine") && old.State == "applied" && old.Version == t.Current().Number && old.Generation == t.Generation && old.Candidate != nil && t.Candidate != nil && *old.Candidate == *t.Candidate {
 				r.QualityEvidence = old.Checks
 				for _, check := range old.Checks {
-					if check.Evidence != "" {
-						r.ReadRoots = append(r.ReadRoots, check.Evidence)
+					if err := grantCheckEvidence(check, t.Candidate.Fingerprint); err != nil {
+						return artifactFailure(err)
 					}
 				}
 				events := filepath.Join(old.EvidenceDir, "events.jsonl")
@@ -564,8 +589,8 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 				r.ReadRoots = append(r.ReadRoots, events)
 			}
 			for _, check := range old.Checks {
-				if check.Evidence != "" {
-					r.ReadRoots = append(r.ReadRoots, check.Evidence)
+				if err := grantCheckEvidence(check, old.Candidate.Fingerprint); err != nil {
+					return artifactFailure(err)
 				}
 			}
 		}
@@ -575,7 +600,13 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 			if _, _, _, err := securefs.ReadFile(check.Evidence, 8<<20); err != nil {
 				return fail(fmt.Errorf("pinned baseline evidence unavailable: %w", err))
 			}
-			r.ReadRoots = append(r.ReadRoots, check.Evidence)
+			source := ""
+			if check.Artifacts != nil {
+				source = check.Artifacts.SourceDigest // Pinned baseline, not current-candidate proof.
+			}
+			if err := grantCheckEvidence(check, source); err != nil {
+				return artifactFailure(err)
+			}
 		}
 	}
 	a.ExecutionDir = r.Dir
@@ -602,6 +633,12 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 	}
 	completion := e.Executor.Execute(ctx, r, started)
 	if completion.Stopped {
+		for _, verify := range verifyArtifacts {
+			if err := verify(); err != nil {
+				completion.Result, completion.Error, completion.Kind = nil, err.Error(), core.Integrity
+				break
+			}
+		}
 		after, err := workspace.Snapshot(context.Background(), e.Settings.Config.Repository.Path)
 		if err != nil || after.Fingerprint != original.Fingerprint {
 			completion.Result = nil

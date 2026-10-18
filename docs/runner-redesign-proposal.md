@@ -383,10 +383,11 @@ proof that the new runtime has executed FlowStack or that visual parity is achie
 
 #### Browser/check qualification and product policy, 2026-10-18
 
-**Result: policy defined; environment not yet ready to launch.** The owner
+**Initial result: policy defined; environment not ready to launch.** The owner
 authorized isolated qualification and policy resolution, stopping before pilot
-launch. Two blockers remain below. The legacy process, service, source and
-deployed container remain untouched.
+launch. The two initial blockers are recorded below. The subsequent retained
+artifact bundle resolves proof access; email check reliability still blocks
+launch. The legacy process, service, source and deployed container remain untouched.
 
 **Local pilot policy:** preserve FlowStack's repository-owned local verification
 requirement, and enforce generated ownership locally using the trusted Operations
@@ -508,6 +509,123 @@ observations. This section is the follow-along record; a GitHub overview begins
 only with separately authorized pilot launch. The passing setup controls do not
 qualify the full FlowStack gate or visual outcome. The shipped Runner diff for
 this pass is documentation only; no Go implementation gates were rerun.
+
+#### Retained check artifacts: implementation brief
+
+Authorized 2026-10-18: remove the demonstrated reviewer proof-access gap;
+stop before the FlowStack pilot. Product check reliability, publication, installed
+skills/services and the running installation remain outside this bundle.
+
+Supported behavior and expected results:
+
+- A quality check may declare literal `artifacts` files/directories relative to
+  the disposable source root, strictly below `.runner-output/`, independently of
+  the command's working directory. No glob, source root, parent traversal,
+  duplicate or overlapping selection. Omission retains the
+  existing log-only contract; changing selections changes the quality revision.
+- After the check stops and source/index verification passes, retain only those
+  selected regular files in a new private bundle beside its check log. Preserve
+  relative report/image paths; do not retain caches/dependencies by default.
+  A small manifest binds file hashes to the source fingerprint, check identity
+  and log digest. Fixed bounds: 10,000 entries, 32 MiB/file, 256 MiB payload and
+  8 MiB manifest. Missing/empty declared output, links, special files, unsafe paths
+  or overflow make proof unavailable; never silently drop files.
+- Candidate review receives its matching artifact bundle read-only. Combined-Plan
+  review also receives correctly identified child evidence; baseline and explicit
+  repair evidence retain their own source binding. Validate bindings and bytes
+  before dispatch and again after the role returns. Changed/stale/relocated proof
+  cannot satisfy current review. No check workspace, sibling attempt or host-root
+  read grant, remote upload, browser permission or artifact execution is added.
+- Keep the responsibility in the existing execution/check boundary and coordinator;
+  no new service or plugin framework. The authoritative artifact declaration and
+  receipt contract uses store format 19, preserving/rejecting older stores rather
+  than allowing an older executable to ignore required proof. No migration or
+  installation is part of this work.
+
+Verification extends config validation, execution check coverage and engine
+quality/combined-Plan coverage: real PNG/report retention, current-source grants,
+baseline/child attribution, read-only containment, missing/changed/extra output,
+links/escapes, limits and an exited-zero command that changes source. Reuse the
+secure filesystem and backup suites; include the retained bundle in backup roots.
+Qualify actual native sandbox reads/writes and recheck an already retained
+FlowStack browser PNG/report in isolation, without rerunning the unrelated failing
+email selection or launching work. Complete race/vet gates and full diff review;
+record evidence and remaining product blocker here.
+
+#### Retained check artifacts: implementation and qualification
+
+Implemented in the same worktree, from `48f907e`. `QualityCheck.artifacts` is
+an optional, owner-approved part of the quality revision. The existing execution
+package owns retention and receipt verification; the coordinator captures only
+after source/index checks and grants only the matching retained bundle.
+The compact observation points to a hashed manifest instead of embedding every
+file hash in model prompts or the transactional store. No dependency, role prompt,
+new package, upload service or plugin framework was added.
+
+Candidate and combined-Plan reviews get applicable source-bound artifacts.
+Historical child attempts are filtered to each child's current candidate/version/
+generation; child and baseline proof stays separately labelled. Explicit check
+repair can read its original failed-check bundle. Evidence is verified before
+dispatch and after return. Tampering is an **integrity** condition, not a resumable
+interruption; unavailable checks preserve their actual missing-capability reason.
+Capture failures remain unavailable and cannot become baseline exceptions.
+Backups include retained bundle roots. Store format **19** rejects/preserves format
+18; no existing state, installation or running service was upgraded.
+
+Verification evidence:
+
+- Existing owning suites now cover quality approval identity, output selection,
+  source/index guard precedence, baseline/current attribution, combined/child
+  access, before/after tampering, stale bindings, links, closed-set contents and
+  fixed budgets. Existing store tests prove read-only/read-write rejection leaves
+  older database bytes unchanged; backup and secure filesystem suites are reused.
+- `go test -race -timeout 15m ./...` passed on macOS arm64 with Go **1.26.9**;
+  the engine suite took **890.590 seconds** under concurrent qualification.
+  Final failure classification and diagnostic refinements received fresh owning
+  config/engine race coverage (**31.817 seconds** for engine); unchanged broad
+  results are reused. Final macOS `go vet ./...` passed. No timeout or worker
+  setting was increased to pass a check.
+- Final Go sources passed `go test -race -timeout 15m ./...` and `go vet ./...`
+  on Linux arm64, Go **1.26.9** (engine **93.708 seconds**). The disposable,
+  network-disabled container used image
+  `sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c`,
+  UID 501, init, read-only source/module-cache mounts and private build scratch.
+  Exact Go-source hashes match the final worktree. Both test containers were
+  removed. The repository check environment's four GiB/two CPU limits are unchanged.
+- `TestLiveRetainedCheckArtifacts` passed with Codex CLI **0.163.0** on macOS
+  arm64 (**0.14 seconds**) and native macOS x86_64 on `always-on` (**0.38 seconds**).
+  The same actual native permission probe and artifact suite passed on Linux
+  arm64 (**0.25 seconds** for the native probe), UID 1001, inside a disposable
+  Docker Desktop container using the existing qualified image
+  `sha256:3fba821b15b02a016ac719ed9d3e5e409dc4c4b2180f503b58afe8c38a8b7346`.
+  That container used `--init`, `seccomp=unconfined`, no network/host mounts or
+  credentials, and was removed. This is native Linux containment inside Docker,
+  not bare-metal/default-seccomp qualification. An initial copy/start sequencing
+  error ran no tests; its log is retained separately from the successful run.
+- The actual retained FlowStack six-case browser run
+  `dc3f08d1-71e9-4a2d-9e56-16a69c7c56cb` was rechecked against a fresh production
+  copy state: its original source, logical index and Git controls still match
+  frozen `3fe7a48`. Eighteen report/image/context files were captured, preserving
+  source fingerprint
+  `8b3160ee07034cdffafb46869356efb339e9cf176bb84bbf8f011c5048c1b94b`.
+  Actual native audit policy reads its WebKit PNG and browser JSON report while
+  denying writes, the original workspace and sibling evidence. Retained hashes
+  still match after the probe. Its failed/incomplete result remains **failed**;
+  no product test execution or receipt timestamp was relabelled as passing.
+
+At **15:41 Europe/Copenhagen**, the legacy process is still PID **66004** and the
+binary/config/launchd hashes and deployed container/image match preparation.
+No pilot Plan, approval, model call, issue/status/PR write, publication, protection,
+deployment, installation or service change occurred. Private evidence is in
+`/Users/dan/.codex/runner-qualification/flowstack-artifact-access-20261018/`, with
+earlier/native logs under the prior check-environment evidence root, and remotely
+in `/Users/dan/.local/share/flowstack/runner-artifact-access-20261018/`.
+
+The remaining launch prerequisite is **FlowStack check reliability**, followed by
+a passing complete product gate and fresh applied quality with explicit browser
+artifact selections. This bundle qualifies evidence retention and contained read
+access; it does not claim model visual judgement, product parity, a passing full
+FlowStack baseline or permission to stop the old owner/launch the pilot.
 
 ### GitHub Issues bundle qualification
 
