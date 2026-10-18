@@ -241,9 +241,10 @@ required check contexts**; hosted `Validate` runs only for PRs to `main`. Do not
 weaken those rules, invent a CI context or enable automatic merge for this pilot.
 The [Operations generated-file policy](https://github.com/techbase/operations/blob/main/docs/workflow.md#generated-file-gate)
 and its coordinator guidance additionally require `Techbase / generated ownership`
-before product admission. Resolve their applicability/onboarding for this
-existing webapp explicitly before launching; it is absent from current required
-contexts. This is a product-policy prerequisite, not a new Runner requirement or
+before hosted product admission. Its context is absent from current required
+checks. The local-result policy below retains the ownership checker without
+claiming hosted admission; protection onboarding remains a prerequisite for later
+PR delivery. This is a product-policy boundary, not a new Runner requirement or
 permission to edit protection. Operations registry is not a replacement scheduler.
 
 #### Verification brief
@@ -379,6 +380,134 @@ Preparation evidence is private at
 attempts, source Plan/contract, retained plan tree/compare, browser lifecycle
 source and observation hashes. This is **a prepared brief with launch gates**, not
 proof that the new runtime has executed FlowStack or that visual parity is achieved.
+
+#### Browser/check qualification and product policy, 2026-10-18
+
+**Result: policy defined; environment not yet ready to launch.** The owner
+authorized isolated qualification and policy resolution, stopping before pilot
+launch. Two blockers remain below. The legacy process, service, source and
+deployed container remain untouched.
+
+**Local pilot policy:** preserve FlowStack's repository-owned local verification
+requirement, and enforce generated ownership locally using the trusted Operations
+checker. Do not add `required_ci` to local delivery or fabricate a hosted status.
+This resolves which checks apply to the proposed **local result**, without
+declaring that result admitted to `develop` or ready for a hosted merge.
+
+- Task checks cover each child's approved proof using existing lower-layer and
+  browser suites. The final combined check is `at: completion`: locked `npm ci`
+  followed by `npm run validate:complete`, sequentially, with the repository's
+  original workers, browsers and timeouts. Baseline must run all declared checks;
+  focused smoke evidence is not a complete baseline or pilot acceptance.
+- Generated ownership applies to both task and completion boundaries. Its source
+  is the clean canonical Operations commit
+  `5c1a988485b687f33db847b7ece14e899b4d2394`; reuse `generated_guard.py` and
+  `regeneration.py`, not a second protected-path policy. Its 22 owning tests pass.
+  On frozen source `3fe7a48`, it reports success with no protected paths or required
+  regeneration recipe. The disposable source index produces tree
+  `6baa331dac7b428c734174f05c8a1f3bc7ca0b5d`, exactly matching that Git commit.
+  The check constructs a private verification commit from that inventory and
+  pinned baseline objects. It verifies **tree contents**, not the actual product
+  commit identity; it publishes nothing and executes no candidate program.
+  A future protected-file change must satisfy the same reproduced-output/recipe
+  rules or block. Pin checker, baseline objects and wrapper in the check image;
+  rebuild/requalify them if the approved baseline changes at handover.
+- Operations' hosted requirement remains a separate prerequisite for later
+  hosted product admission/PR delivery: strict/admin-enforced
+  `Techbase / generated ownership` protection and its actual published PR-head
+  result. Neither its absent context on `develop` nor rebase-only integration is
+  waived or changed here. The generic Operations workflow still describes the
+  older hosted/Project route; this local-result qualification does not migrate
+  that workflow or grant hosted merge readiness.
+- Missing capabilities, failed or interrupted checks still block readiness.
+  Browser fixtures prove only their declared synthetic-service scope. No real
+  backend, visual parity, guided adoption or relationship work is accepted by
+  this environment exercise.
+
+Qualification uses a private export of Runner main `0cd64f9` and a caller of its
+unchanged `Codex.Check`, source-copy verifier and native permission builder.
+It runs on `always-on` against a separate archive of frozen source `3fe7a48`;
+the original checkout, Git metadata, legacy state and service are not mounted.
+Private preparation helpers and images are not shipped Runner or product code.
+The fixed boundary remains non-root, read-only image, no capabilities, private
+IPC, network disabled, four GiB, two CPUs and 512 processes.
+
+The final prepared image is
+`sha256:ba1c43c211e5f97f81260c26d5b2f103c0753f8ef7121ca28fba5767ed8fde82`
+on the native Intel Docker host. It uses Node **24.20.0**, the locked Playwright
+**1.62.1**, actual Chrome channel **155.0.8059.84** and its matching WebKit
+**26.5**, from the Debian Bookworm Node base pinned at
+`sha256:be23f54a88d34e8824c741b19b91064094f92c1c97b194144bfc8b50d67258e2`.
+Earlier image/run identities are retained separately, not relabelled as final.
+No image was published or installed as a service.
+
+| Probe | Observed result |
+| --- | --- |
+| Containment and fixture loopback | Chrome and WebKit render; host service/external network, Docker socket, host configuration and inherited sentinel access are denied. The final-image cancellation checkpoint repeats these assertions with both browsers and the fixture server live. |
+| Locked install and output route | Offline `npm ci` installs 408 packages in 17–19 seconds in the real source root. After the original scripts exit, only newly generated dependencies, reports and build output move under `.runner-output`, with internal relative links preserving paths. The browser run retains about 280 MiB. Normal runs pass original source, logical Git-index and control integrity checks. |
+| Earlier lower-layer smoke | `segmentBuilder.test.ts`: 18 passed; `SchemaEditor.browser.test.ts`: 38 passed. These ran before the two Git capture setup corrections below. |
+| Repository end-to-end selection | Through `npm run test:e2e`, six cases use the original two workers, 30-second test deadline, 15-second assertions and zero retries. Three pass: both schema layouts and mobile Chrome email creation. Desktop Chrome and both WebKit email save/reopen cases time out. The 124.378-second browser receipt correctly says failed/incomplete, with zero skips/flaky outcomes. |
+| One bounded focused reproduction | The identical desktop WebKit email creation/save/reopen case passes alone through the same entrypoint, source, browsers, resource limits and deadlines: one passed in 18.7 seconds, one active worker. The final image changes only the wrapper's ability to accept that native file/project selection. This is focused proof, not renewal of the failed selection. |
+| Source-corruption control | A command returns zero after appending to the disposable `package.json`; `VerifyCopy` rejects it as changed source. The frozen source remains unchanged. Git output exclusions do not bypass this guard. |
+| Cancellation | After both browser processes and the fixture are live, actual context cancellation returns **unavailable**, `stopped: true`; the owned container is absent and the intact source copy passes verification. No timeout is mistaken for passing proof. |
+| Independent reviewer proof access | Native audit policy reads the permitted check log but gets `PermissionError` for its retained PNG. **Blocked.** Log grants do not cover browser artifacts. |
+| Complete gate | **Not run.** Required smoke proof already fails and required independent artifact access is unavailable. No complete baseline, quality application, Plan, task approval or model invocation is claimed. Check timeout selection remains pending a passing complete run. |
+
+Two preparation failures were corrected **only in the private image**: Docker
+Desktop's Git ownership mapping, then changing Runner npm logs included in browser
+capture. Trust is limited to `/workspace`; Git source discovery excludes only
+untracked `/.runner-output/`. Tracked files remain included. No source/index
+controls, repository entrypoints, assertions, browsers or limits were changed.
+The first native-access probe also misparsed macOS Python diagnostics as JSON;
+its bounded rerun separated diagnostics and confirmed the same access denial.
+All failed attempts remain in the evidence rather than disappearing after retry.
+
+The sampled six-case container peaked at **3,097,903,104 bytes**, below its four
+GiB limit, with zero observed cgroup OOM events/kills; Docker also reported no OOM
+kill. This supplies no evidence of missing writes or a memory kill. Passing the
+same WebKit case alone suggests a load-sensitive timing/performance problem;
+one focused pass does not establish its precise cause or make the two-worker
+gate reliable. Preserve the failed save/readback and reload states for diagnosis.
+
+**Smallest follow-up boundary, before any pilot or old-owner hold:**
+
+1. **Runner proof access:** define and implement bounded read-only access to
+   retained check artifacts for candidate and combined-Plan review. Bind artifacts
+   to the applicable check/candidate and validate containment/integrity; do not
+   grant the whole check copy, another attempt, host paths or writable evidence.
+   Use the existing engine quality/planning and execution owning suites for the
+   concrete risks: a real PNG/report is readable, writes and sibling/escaping
+   paths remain denied, stale/tampered evidence cannot satisfy current proof.
+   Requalify native access and run Runner's race/vet gates. No new evidence service
+   or browser permission framework is needed.
+2. **FlowStack check reliability:** diagnose the retained email timeouts in the
+   product's existing browser lifecycle under the same frozen source and limits.
+   Establish whether cold compilation/load, fixture synchronization or application
+   behavior owns the delay; the current evidence does not settle that distinction.
+   Any product/tooling fix belongs to a separately authorized FlowStack change.
+   Preserve the assertions, fixed workers and deadlines; do not accept a failed
+   baseline or use a narrow passing rerun as a waiver. Once resolved, obtain fresh
+   representative browser proof and a passing `npm ci` → `validate:complete`, then
+   pin measured timeouts and the actual quality agreement before handover.
+
+At **15:07 Europe/Copenhagen**, the legacy service still runs as PID **66004**:
+zero active/queued, one blocked, one waiting and four integrated-undelivered.
+Binary/config/launchd hashes match preparation; deployed container/image and both
+remote `develop`/private-plan refs are unchanged. All **seven** owned qualification
+containers are absent. No source adoption, remote publication/status write,
+issue/PR/protection change, deployment, installation or service change was made.
+
+Private evidence is retained at
+`/Users/dan/.codex/runner-qualification/flowstack-check-environment-20261018/`
+and on `always-on` at
+`/Users/dan/.local/share/flowstack/runner-check-qualification-20261018/`:
+preparation input hashes, trusted checker/source exports, image/package metadata,
+each actual check/process/integrity observation, failed and focused browser
+receipts/screenshots, resource sample, native policy denial and final ownership
+observations. This section is the follow-along record; a GitHub overview begins
+only with separately authorized pilot launch. The passing setup controls do not
+qualify the full FlowStack gate or visual outcome. The shipped Runner diff for
+this pass is documentation only; no Go implementation gates were rerun.
 
 ### GitHub Issues bundle qualification
 
