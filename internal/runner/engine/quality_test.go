@@ -22,6 +22,9 @@ func artifactCheck(t *testing.T, dir string, c config.QualityCheck, log string) 
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, ".runner-output/reports/report.json")
+	if len(c.Outputs) > 0 {
+		path = filepath.Join(dir, config.OutputArtifacts([]string{"reports/report.json"}, c.Outputs)[0])
+	}
 	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +65,13 @@ func TestReviewRetainsOnlyMatchingArtifactsAndChecksThemAfterReturn(t *testing.T
 			if change == "subdirectory" {
 				spec.Checks[0].Directory = "nested"
 			}
+			artifactPath := ".runner-output/reports/report.json"
+			if change == "subdirectory" {
+				spec.CheckImage = "sha256:" + strings.Repeat("a", 64)
+				spec.Outputs = []config.CheckOutput{{Path: "reports"}}
+				spec.Checks[0].Artifacts = []string{"reports"}
+				artifactPath = ".runner-output/outputs/reports/report.json"
+			}
 			preview, err := e.PreviewQuality(t.Context(), spec)
 			if err != nil {
 				t.Fatal(err)
@@ -99,7 +109,7 @@ func TestReviewRetainsOnlyMatchingArtifactsAndChecksThemAfterReturn(t *testing.T
 			}
 			old := attempts[0]
 			bundle := old.Checks[0].Artifacts
-			path := filepath.Join(bundle.Directory, ".runner-output/reports/report.json")
+			path := filepath.Join(bundle.Directory, artifactPath)
 			if change == "stale binding" {
 				bundle.SourceDigest = "another source"
 				if err = e.mutate(t.Context(), task.ID, func(*core.Task) (*core.Attempt, error) { return &old, nil }); err != nil {
@@ -118,7 +128,7 @@ func TestReviewRetainsOnlyMatchingArtifactsAndChecksThemAfterReturn(t *testing.T
 					t.Fatal("current/baseline evidence not narrowly granted", r.ReadRoots)
 				}
 				for _, check := range append(r.Quality.Baseline, r.QualityEvidence...) {
-					data, err := os.ReadFile(filepath.Join(check.Artifacts.Directory, ".runner-output/reports/report.json"))
+					data, err := os.ReadFile(filepath.Join(check.Artifacts.Directory, artifactPath))
 					if err != nil || (!strings.Contains(string(data), "before") && !strings.Contains(string(data), "hello")) {
 						t.Fatal("actual baseline/candidate report missing", err)
 					}
@@ -131,10 +141,11 @@ func TestReviewRetainsOnlyMatchingArtifactsAndChecksThemAfterReturn(t *testing.T
 				return pass(r)
 			})
 			f := e.execute(t.Context(), claim(t, e))
-			if (f.completion.Error == "") != (change == "none" || change == "subdirectory") {
+			valid := change == "none" || change == "subdirectory"
+			if (f.completion.Error == "") != valid {
 				t.Fatal("incorrect artifact acceptance", change, f.completion)
 			}
-			if called != (change == "none" || change == "subdirectory" || change == "changed during") {
+			if called != (valid || change == "changed during") {
 				t.Fatal("invalid proof reached a reviewer", change)
 			}
 			if f.completion.Error != "" && f.completion.Kind != core.Integrity {

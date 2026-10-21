@@ -75,6 +75,23 @@ func (e *Engine) PreviewQuality(ctx context.Context, spec config.QualitySpec) (Q
 	if err != nil {
 		return p, err
 	}
+	if spec.Preparation != nil {
+		root, err := workspace.BaselineCopy(ctx, current.Config, base)
+		if err != nil {
+			return p, err
+		}
+		defer os.RemoveAll(root)
+		plan, err := execution.PreviewEnvironment(ctx, root, *spec.Preparation)
+		if err != nil {
+			return p, err
+		}
+		prepared, err := execution.PreparedEnvironment(current.Config.StateDir, plan)
+		if err != nil {
+			return p, err
+		}
+		q.Preparation = &prepared
+		q.CheckImage = prepared.Image
+	}
 	q.Checks, err = execution.ResolveCheckCPUs(ctx, q.Checks)
 	if err != nil {
 		return p, err
@@ -179,6 +196,11 @@ func (e *Engine) runChecks(ctx context.Context, source string, expected map[stri
 	}
 	results := []core.CheckObservation{}
 	for _, check := range q.Checks {
+		if q.Preparation != nil {
+			if err := execution.ValidateEnvironmentInputs(source, *q.Preparation); err != nil {
+				return results, err
+			}
+		}
 		copy, before, err := workspace.Copy(source, "")
 		if err != nil {
 			return results, err
@@ -188,13 +210,20 @@ func (e *Engine) runChecks(ctx context.Context, source string, expected map[stri
 		}
 		check.Path = q.Path
 		check.Image = q.CheckImage
+		check.Outputs = q.Outputs
+		if q.Preparation != nil {
+			check.Prepared = &q.Preparation.Spec
+		}
+		if err = workspace.PrepareOutputs(copy, before.Source, q.Outputs); err != nil {
+			return results, err
+		}
 		r := e.Checker.Check(ctx, copy, check, filepath.Join(dir, check.ID+".log"), started)
 		if r.Stopped {
 			if err = workspace.VerifyCopy(copy, before); err != nil {
 				r.Status = "unavailable"
 				r.Detail = err.Error()
 			} else if r.Status != "unavailable" {
-				r.Artifacts, err = execution.RetainCheckArtifacts(copy, check.Artifacts, core.Digest(expected), r)
+				r.Artifacts, err = execution.RetainCheckArtifacts(copy, config.OutputArtifacts(check.Artifacts, q.Outputs), core.Digest(expected), r)
 				if err != nil {
 					r.Status, r.Detail = "unavailable", err.Error()
 				}

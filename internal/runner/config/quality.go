@@ -16,17 +16,19 @@ import (
 const CheckEnvironment = "isolated PATH; private HOME/TMPDIR; LANG=C LC_ALL=C; no inherited credentials"
 
 type QualityCheck struct {
-	CPUs          *int     `json:"cpus,omitempty"`
-	AutoCPUs      bool     `json:"auto_cpus,omitempty"`
-	Artifacts     []string `json:"artifacts,omitempty"`
-	Image         string   `json:"-"`
-	At            string   `json:"at,omitempty"`
-	Path          string   `json:"-"`
-	ID            string   `json:"id"`
-	Command       string   `json:"command"`
-	Directory     string   `json:"directory"`
-	Prerequisites []string `json:"prerequisites"`
-	Timeout       string   `json:"timeout"`
+	Outputs       []CheckOutput         `json:"-"`
+	Prepared      *CheckEnvironmentSpec `json:"-"`
+	CPUs          *int                  `json:"cpus,omitempty"`
+	AutoCPUs      bool                  `json:"auto_cpus,omitempty"`
+	Artifacts     []string              `json:"artifacts,omitempty"`
+	Image         string                `json:"-"`
+	At            string                `json:"at,omitempty"`
+	Path          string                `json:"-"`
+	ID            string                `json:"id"`
+	Command       string                `json:"command"`
+	Directory     string                `json:"directory"`
+	Prerequisites []string              `json:"prerequisites"`
+	Timeout       string                `json:"timeout"`
 }
 
 // CPULimit is the approved container quota; omitted configuration retains two CPUs.
@@ -38,11 +40,13 @@ func (c QualityCheck) CPULimit() int {
 }
 
 type QualitySpec struct {
-	CheckImage string               `json:"check_image,omitempty"`
-	RequiredCI []core.CIRequirement `json:"required_ci,omitempty"`
-	Definition string               `json:"definition"`
-	Sources    []string             `json:"sources"`
-	Checks     []QualityCheck       `json:"checks"`
+	Preparation *CheckEnvironmentSpec `json:"environment,omitempty"`
+	Outputs     []CheckOutput         `json:"outputs,omitempty"`
+	CheckImage  string                `json:"check_image,omitempty"`
+	RequiredCI  []core.CIRequirement  `json:"required_ci,omitempty"`
+	Definition  string                `json:"definition"`
+	Sources     []string              `json:"sources"`
+	Checks      []QualityCheck        `json:"checks"`
 }
 type ExceptionRequest struct {
 	CheckID   string   `json:"check_id"`
@@ -57,21 +61,33 @@ type BaselineException struct {
 	OutputDigest string            `json:"output_digest"`
 }
 type Quality struct {
-	CheckImage string                  `json:"check_image,omitempty"`
-	RequiredCI []core.CIRequirement    `json:"required_ci,omitempty"`
-	Path       string                  `json:"executable_path"`
-	Definition string                  `json:"definition"`
-	Documents  map[string]string       `json:"source_documents,omitempty"`
-	Sources    map[string]string       `json:"sources"`
-	Checks     []QualityCheck          `json:"checks"`
-	Base       string                  `json:"baseline_base"`
-	Baseline   []core.CheckObservation `json:"baseline"`
-	Exceptions []BaselineException     `json:"exceptions"`
+	Preparation *PreparedEnvironment    `json:"prepared_environment,omitempty"`
+	Outputs     []CheckOutput           `json:"outputs,omitempty"`
+	CheckImage  string                  `json:"check_image,omitempty"`
+	RequiredCI  []core.CIRequirement    `json:"required_ci,omitempty"`
+	Path        string                  `json:"executable_path"`
+	Definition  string                  `json:"definition"`
+	Documents   map[string]string       `json:"source_documents,omitempty"`
+	Sources     map[string]string       `json:"sources"`
+	Checks      []QualityCheck          `json:"checks"`
+	Base        string                  `json:"baseline_base"`
+	Baseline    []core.CheckObservation `json:"baseline"`
+	Exceptions  []BaselineException     `json:"exceptions"`
 }
 
 func (q Quality) Environment() string {
 	if q.CheckImage != "" {
-		return "local Docker image " + q.CheckImage + "; private HOME/scratch; no host credentials; container-only loopback; no host or external network"
+		detail := ""
+		if q.Preparation != nil {
+			detail = "; Runner recipe " + q.Preparation.Recipe + "; private dependency copies"
+			if q.Preparation.Spec.Go != "" {
+				detail += "; Go VCS stamping disabled in inventory-only copies"
+			}
+		}
+		if len(q.Outputs) > 0 {
+			detail += "; read-only source with declared writable output views"
+		}
+		return "local Docker image " + q.CheckImage + detail + "; private HOME/scratch; no host credentials; container-only loopback; no host or external network"
 	}
 	return CheckEnvironment
 }
@@ -98,8 +114,13 @@ func RelativePath(p string) bool {
 
 var imageID = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
+func LocalImageID(id string) bool { return imageID.MatchString(id) }
+
 func (s QualitySpec) Validate() error {
-	if s.CheckImage != "" && !imageID.MatchString(s.CheckImage) {
+	if err := s.validateEnvironment(); err != nil {
+		return err
+	}
+	if s.CheckImage != "" && !LocalImageID(s.CheckImage) {
 		return errors.New("check_image must be an exact local sha256 image ID; tags and automatic pulls are unsupported")
 	}
 	if strings.TrimSpace(s.Definition) == "" || len(s.Checks) == 0 {
@@ -107,7 +128,7 @@ func (s QualitySpec) Validate() error {
 	}
 	seen := map[string]bool{}
 	for _, c := range s.Checks {
-		if (c.CPUs != nil || c.AutoCPUs) && s.CheckImage == "" {
+		if (c.CPUs != nil || c.AutoCPUs) && s.CheckImage == "" && s.Preparation == nil {
 			return fmt.Errorf("check %s: CPU configuration requires check_image", c.ID)
 		}
 		if c.CPUs != nil && (*c.CPUs < 1 || *c.CPUs > 4 || c.AutoCPUs) {
@@ -125,7 +146,7 @@ func (s QualitySpec) Validate() error {
 				return fmt.Errorf("check %s: prerequisites must be executable names", c.ID)
 			}
 		}
-		if err := ValidateArtifactPaths(c.Artifacts); err != nil {
+		if err := ValidateOutputArtifacts(c.Artifacts, s.Outputs); err != nil {
 			return fmt.Errorf("check %s: %w", c.ID, err)
 		}
 		seen[c.ID] = true

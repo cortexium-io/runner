@@ -34,7 +34,7 @@ go build -o /absolute/tools/cortexium-runner ./cmd/cortexium-runner
 
 For an extracted archive, run its `cortexium-runner --version` and `--help`
 directly. Source builds report `dev`; release builds report the injected version.
-The private store format is **19**. Legacy Project configuration and experimental
+The private store format is **20**. Legacy Project configuration and experimental
 store formats are deliberately rejected; there is no in-place migration. Keep
 old binaries with their state/backups, reconcile any outstanding remote effects,
 then use fresh config, state and workspace paths with new approvals. Never point
@@ -152,7 +152,7 @@ agreement. Local mode rejects `required_ci` rather than silently dropping it.
 A check that produces reviewer evidence can declare, for example,
 `"artifacts": [".runner-output/browser/reports"]`. Paths are literal files or
 directories relative to the disposable source root, including for commands in a
-subdirectory, strictly below `.runner-output/`. Overlapping selections, globs and
+subdirectory, below `.runner-output/` or a declared output (see below). Overlapping selections, globs and
 links are rejected. Select
 reports/screenshots, not dependency caches or the entire output directory.
 After a stopped check passes source integrity verification, Runner copies only
@@ -166,7 +166,7 @@ separately from current-candidate proof. Runner verifies it before dispatch and
 after return; missing, changed or stale evidence blocks review. Logs and artifact
 paths appear in local task/check JSON; the GitHub overview does not upload private
 artifacts. Artifact declarations require a new quality preview/check/apply cycle.
-Store format 19 rejects older state directories without converting them; preserve
+Store format 20 rejects older state directories without converting them; preserve
 old state and use a fresh isolated directory for this version.
 
 For GitHub delivery, also include `required_ci`, with each exact check name and
@@ -187,7 +187,7 @@ runner quality show
 Use `preview` from each JSON preview and `id` from the returned report. Checks run
 in fresh source copies with private HOME/TMPDIR, fixed PATH and no inherited
 credentials or network. Declare tools in `prerequisites`; keep generated output
-under `.runner-output/`. Exit 0 passes, 1–124 reports failure, 125–127 signals an
+under `.runner-output/` or declared output directories. Exit 0 passes, 1–124 reports failure, 125–127 signals an
 unavailable prerequisite. Source/Git modifications, timeouts and unresolved
 processes are unavailable. A report is evidence, not automatic agreement approval.
 
@@ -200,11 +200,100 @@ quality preview/baseline/apply flow after an image change. The image ID is pinne
 with the agreement; its baked environment must contain no credentials. This is
 an optional check environment, independent of the selected model harness.
 
+Runner can also prepare its built-in Go/Node environment from declarative inputs.
+Use `environment` instead of `check_image`. For example, a Go repository with an
+independent `web` npm package can add these fields to its quality specification:
+
+```json
+{
+  "environment": {
+    "go": "1.26.9",
+    "node": "24.21.0",
+    "playwright": "1.64.1",
+    "go_modules": ["."],
+    "npm_packages": ["web"]
+  },
+  "outputs": [
+    {"path": "web/node_modules"},
+    {"path": "web/test-results"},
+    {"path": "public", "placeholders": ["public/index.html"]}
+  ]
+}
+```
+
+These are example versions/layouts, not automatic project detection. Omit unused
+tools/browser support. Go and Node versions must be exact releases. Optional
+Playwright uses the official versioned Linux image; declare its bundled Node
+version and match every locked Playwright package to that version. npm's version,
+the actual Chromium version, platform, source-input hashes and resolved image IDs
+are recorded in the preparation receipt. Each npm package needs its exact
+`node_modules` output. Output paths and artifact paths are relative to the source
+root, regardless of a check's working directory.
+
+```sh
+runner quality prepare --file /absolute/runner/quality.json
+runner quality prepare --file /absolute/runner/quality.json --apply --preview PREPARATION_PREVIEW
+```
+
+Read `preparation.preview` from the first response. Apply requires a drained
+installation without coordinator ownership. It explicitly resolves versioned official
+Go/Node/Playwright images through their registries and fetches pinned public Go/npm inputs. Fetch
+containers contain only Runner scripts and dependency metadata; no project
+Dockerfile, command, executable or lifecycle hook runs with network access.
+Tool compilation and npm installation validation run offline. Preparation has a
+30-minute total deadline and bounded logs under `state/environments/prepare-*/`;
+errors identify the log. Settled scratch is discarded; receipts and process
+evidence remain. Inspect missing tools or unsupported inputs rather than enabling
+networking for checks.
+
+Go inputs are `go.mod` and `go.sum` (the latter may be absent for a dependency-free
+module). The first recipe requires a complete pinned graph and rejects
+replace/exclude directives. npm requires consistent package.json/lockfile-v3
+metadata and integrity-pinned public registry tarballs. Workspaces, local/git
+dependencies, overrides, unsupported bundled lock entries and private npm
+registries are unavailable capabilities. Engine requirements are enforced. npm
+audit is not implemented in this bundle; preparation is not vulnerability proof.
+
+Pinned Go commands can add `go_tools` entries with `module`, `version`, `package`,
+`name` and the exact archive `sum` (`h1:...`). Declare private module prefixes in
+`private_modules` and explicitly pass `--module-cache /absolute/go/pkg/mod` when
+applying preparation. Runner copies only pinned private archive/metadata entries,
+checks archive/metadata consistency and lets Go verify checksums. It never mounts
+the cache, HOME or credentials. Missing private archives block; automatic private
+authentication is not supported. Go tools build from the exact verified archive
+offline, without a latest-version lookup.
+
+Continue with the existing quality preview/check/apply flow. Preparation neither
+runs the baseline nor approves quality/work, and leaves admission drained. The
+agreement pins the immutable image, tool/manifest identities and output authority.
+Checks privately copy dependency caches and install npm packages/hooks offline;
+they cannot modify a reusable cache. Changed locks/manifests require explicit
+preparation, baseline, agreement approval and adoption for existing work. A missing
+image is unavailable proof; explicit preparation can rebuild it, after which a
+different image identity needs the same approval flow. `run` never prepares/pulls.
+
+The recipe sets `GOTOOLCHAIN=local`, `GOWORK=off`, `GOPROXY=off`, `GOSUMDB=off`
+and `GOFLAGS=-buildvcs=false` during checks. Disposable copies have a private Git
+inventory, without candidate commit history; ordinary Go builds therefore omit
+VCS stamping instead of querying an unborn HEAD. Runner's source-bound receipts
+remain the provenance of these disposable build outputs. Checks requiring real
+candidate Git history are outside this verification-copy contract.
+
+Declared outputs are private writable directory overlays backed by
+`.runner-output/outputs/<path>`; the remaining source mount is read-only. No
+cleanup/restore script is needed. A tracked build placeholder must be listed as an
+exact file and its original bytes are pinned in the preview. Source code,
+manifests, quality sources, links, broad/overlapping outputs and additional tracked
+files under an output are rejected. Generated placeholder bytes exist only in the
+overlay; the candidate retains its original file. Reports can select ordinary
+paths such as `web/test-results`; retained bundles label their private backing
+paths and use the existing limits and read-only reviewer grants.
+
 Each container check may set `"cpus": 1`, `2`, `3` or `4`; omission keeps the
 existing two-CPU quota. Alternatively set `"auto_cpus": true` to use 25% of the
 Docker daemon's available logical CPUs, rounded up and capped at 1–4. For example,
 4 cores select 1, 8 select 2, and 16 or more select 4. The CLI machine's CPU count is
-not used. Both options require `check_image` and cannot be combined. Automatic
+not used. Both options require `check_image` or `environment` and cannot be combined. Automatic
 allocation resolves to an explicit `cpus` value in `quality preview`; inspect it
 before running the baseline and applying the agreement. Detection failure blocks
 preview. A changed detected allocation requires a fresh preview, and execution
@@ -218,7 +307,7 @@ daemon. Every check gets a fresh unprivileged container, a read-only image root,
 dropped capabilities, bounded memory/processes, private scratch and only its
 disposable source copy mounted. Fixture servers can bind/connect loopback within
 that container. Host loopback, external networking, published ports and the
-Docker socket are unavailable. Prepare dependencies outside Runner before
+Docker socket are unavailable. Explicitly prepare dependencies before
 applying the agreement; missing image/tools are unavailable proof. Keep image
 build inputs and its recorded ID with operator evidence.
 
@@ -228,7 +317,14 @@ container exists or its pinned daemon cannot be inspected. Inspect the recorded
 `container` and `docker_host` in the process evidence; remove only that verified
 check container, then retry recovery. Changing the current Docker context does
 not redirect observation of an old owner. Native checks keep their existing
-containment when `check_image` is absent.
+containment when neither `check_image` nor `environment` is configured.
+
+Preparation uses the same named-container ownership boundary. An interrupted
+operation's `*-process.json` record blocks further preparation and backup while
+its process/container is unresolved. Inspect that record's pinned daemon/name,
+settle only that verified owner, then retry. `*-settled.json` records preserve
+confirmed settlement. Backups retain receipts/history/evidence; Docker images are
+external prerequisites and are not included in a backup.
 
 A successful `quality check` command means a report was recorded, not that its
 checks passed. Inspect each observation and the agreement preview's blockers.
@@ -629,7 +725,7 @@ repair and guarded ordinary merges with exact integration receipts. Configuratio
 explicitly controls model/reasoning profiles, escalation, parallelism and limits.
 
 This is a **fresh setup**, not an upgrade of old authority. Store formats before
-19, old Project configuration, old commands and old approval records are not
+20, old Project configuration, old commands and old approval records are not
 accepted. There is no legacy-state importer, daemon installer or updater.
 Optional issue snapshot import does not migrate execution authority. Other
 boards/Trello, autonomous intake, other harnesses, background delivery polling,

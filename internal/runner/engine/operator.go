@@ -20,6 +20,7 @@ type Recovery struct {
 }
 
 type Status struct {
+	CheckEnvironment  string              `json:"check_environment"`
 	Issues            *IssuesStatus       `json:"github_issues,omitempty"`
 	Restoration       *config.Restoration `json:"restoration,omitempty"`
 	MergePolicy       string              `json:"merge_policy"`
@@ -61,6 +62,7 @@ func (e *Engine) Status(ctx context.Context, file config.Config) (Status, error)
 	}
 	out := Status{MergePolicy: s.Config.MergePolicy(), ObservedAt: e.now(), Running: running, Drained: drained, Unapplied: file.Revision() != s.Config.Revision(), QualityConfigured: s.Quality.Revision() != "", Parallelism: s.Config.Policy.MaxParallelism, Tasks: []View{}}
 	out.Restoration = s.Restoration
+	out.CheckEnvironment = s.Quality.Environment()
 	if g := s.Config.Issues; g != nil {
 		progress, err := e.Store.Projection(ctx)
 		if err != nil {

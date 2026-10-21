@@ -287,7 +287,7 @@ func TestLaterHistoryOrLostGuardCannotRestoreWritePermission(t *testing.T) {
 }
 
 func TestBackupRefusesUnsettledOrMissingInputs(t *testing.T) {
-	for _, bad := range []string{"open command", "coordinator", "not drained", "local write", "reservation", "process", "container", "baseline process", "candidate", "evidence"} {
+	for _, bad := range []string{"open command", "coordinator", "not drained", "local write", "reservation", "process", "container", "baseline process", "preparation container", "candidate", "evidence"} {
 		t.Run(bad, func(t *testing.T) {
 			f := setup(t)
 			cfg := f.settings.Config
@@ -332,6 +332,14 @@ func TestBackupRefusesUnsettledOrMissingInputs(t *testing.T) {
 				b, err := json.Marshal(core.Process{PID: syscall.Getpgrp(), Identity: "unresolved"})
 				must(t, err)
 				must(t, os.WriteFile(filepath.Join(dir, "launch-process.json"), b, 0600))
+			case "preparation container":
+				dir := filepath.Join(cfg.StateDir, "environments", "interrupted")
+				must(t, os.MkdirAll(dir, 0700))
+				b, err := json.Marshal(core.Process{Container: "runner-check-" + core.NewID(), DockerHost: "unix:///runner-deliberately-missing-docker.sock"})
+				must(t, err)
+				var proc core.Process
+				must(t, json.Unmarshal(b, &proc))
+				must(t, os.WriteFile(filepath.Join(dir, proc.Container+"-process.json"), b, 0600))
 			case "candidate":
 				must(t, os.Remove(filepath.Join(f.task.Candidate.Workspace, "greeting.txt")))
 			case "evidence":
