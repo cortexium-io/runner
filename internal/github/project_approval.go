@@ -257,7 +257,8 @@ func (s *Project) planBatchApproval(items []WorkItem, selected WorkItem) (Approv
 	if signed, _, _, parseErr := parsePlanningBatchAssertion(source.Approval); parseErr == nil && signed.State == batchReleasedState {
 		batchState = batchReleasedState
 	}
-	if _, err := s.validatePlanningBatch(source.Approval, source, children, batchState); err != nil {
+	provenance, err := s.validatePlanningBatch(source.Approval, source, children, batchState)
+	if err != nil {
 		return ApprovalPlan{}, err
 	}
 	if strings.TrimSpace(source.Transition) != "" {
@@ -271,7 +272,7 @@ func (s *Project) planBatchApproval(items []WorkItem, selected WorkItem) (Approv
 	for index, child := range children {
 		if child.PlanningBatchFingerprint != fingerprint || child.PlanningBatchSize != len(children) || child.PlanningItemIndex != index+1 ||
 			child.PlanningSourceLane != sourceLane || child.PlanningDestination != targetStatus ||
-			child.PlanningSourceFingerprint != PlanningSourceFingerprint(source) {
+			child.PlanningSourceFingerprint != provenance.SourceFingerprint {
 			return ApprovalPlan{}, errors.New("staged planning batch is incomplete, duplicated, reordered, or mixed with changed content")
 		}
 		if batch.Released {

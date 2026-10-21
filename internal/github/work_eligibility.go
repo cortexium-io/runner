@@ -98,6 +98,9 @@ func (s *Project) planningBatchEligibilityIn(item WorkItem, index *workItemIndex
 		if source.ID == "" || !strings.EqualFold(strings.TrimSpace(source.Status), s.doneStatus()) {
 			return WorkEligibilityPlanningBatchIncomplete, "Waiting for the planning batch source and complete batch release."
 		}
+		if source.Transition == RepositoryRenameTransition {
+			return WorkEligibilityTransitionLocked, "Repository rename recovery is awaiting explicit operator completion."
+		}
 		children := index.childrenBySource[sourceID]
 		if len(children) != item.PlanningBatchSize {
 			return WorkEligibilityPlanningBatchIncomplete, "Waiting for every card in the planning batch to be present and released."

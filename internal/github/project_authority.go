@@ -88,6 +88,8 @@ type planningBatchAssertionPayload struct {
 	BatchSize         int    `json:"z"`
 	ChildrenDigest    string `json:"c"`
 	PlanRevision      string `json:"r,omitempty"`
+
+	RepositoryRename *repositoryRenameBinding `json:"x,omitempty"`
 }
 
 type planningBatchChildPayload struct {
@@ -315,8 +317,24 @@ func (s *Project) signAction(item WorkItem, role, state string) (AuthorizedActio
 }
 
 func (s *Project) signPlanningBatch(source WorkItem, children []WorkItem, state, generation string) (string, error) {
+	return s.signPlanningBatchWithRename(source, children, state, generation, nil)
+}
+
+// Explicit amendments may carry a previously validated batch-local binding.
+// Ordinary batch creation always uses signPlanningBatch with no binding.
+func (s *Project) signPlanningBatchWithRename(source WorkItem, children []WorkItem, state, generation string, rename *repositoryRenameBinding) (string, error) {
 	if err := s.validatePlanningBatchPolicy(source, children); err != nil {
 		return "", err
+	}
+	if rename != nil {
+		if state != batchReleasedState {
+			return "", errors.New("repository rename authority requires a released legacy planning batch")
+		}
+		var err error
+		source, children, err = s.originalRenameBindings(source, children, *rename)
+		if err != nil {
+			return "", err
+		}
 	}
 	key, authorityID, err := s.authority.load()
 	if err != nil {
@@ -333,6 +351,7 @@ func (s *Project) signPlanningBatch(source WorkItem, children []WorkItem, state,
 	if err != nil {
 		return "", err
 	}
+	payload.RepositoryRename = rename
 	return signPlanningBatchAssertion(payload, key)
 }
 
@@ -391,10 +410,20 @@ func (s *Project) validateRecordedPlanningBatch(assertion string, source WorkIte
 	if !hmac.Equal(signature, mac.Sum(nil)) {
 		return planningBatchAssertionPayload{}, errors.New("planning batch staging provenance has an invalid signature")
 	}
+	if signed.RepositoryRename != nil {
+		if state != batchReleasedState || signed.PlanRevision != "" {
+			return planningBatchAssertionPayload{}, errors.New("repository rename authority is restricted to released legacy planning batches")
+		}
+		source, children, err = s.originalRenameBindings(source, children, *signed.RepositoryRename)
+		if err != nil {
+			return planningBatchAssertionPayload{}, err
+		}
+	}
 	expected, err := s.planningBatchPayload(source, children, state, signed.Generation, authorityID)
 	if err != nil {
 		return planningBatchAssertionPayload{}, err
 	}
+	expected.RepositoryRename = signed.RepositoryRename
 	if !reflect.DeepEqual(signed, expected) {
 		return planningBatchAssertionPayload{}, errors.New("planning source or exact staged children changed after Runner authenticated the batch")
 	}

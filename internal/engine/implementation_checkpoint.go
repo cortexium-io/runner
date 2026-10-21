@@ -28,6 +28,7 @@ const (
 var errImplementationCheckpointChanged = errors.New("implementation checkpoint changed; inspect retained work before an explicit retry")
 
 type implementationCheckpointRecord struct {
+	RenameRequiresProof    bool                           `json:"rename_requires_proof,omitempty"`
 	Version                int                            `json:"version"`
 	ItemID                 string                         `json:"item_id"`
 	DelegatedContentDigest string                         `json:"delegated_content_digest"`
@@ -138,6 +139,16 @@ func (s *Engine) loadImplementationCheckpoint(item github.WorkItem, content gith
 	record, err := s.readImplementationCheckpoint(item.ID)
 	if err != nil || record == nil {
 		return implementationCheckpoint{}, false, err
+	}
+	if record.RenameRequiresProof {
+		if record.Incomplete || record.Specialist != nil || record.DelegatedContentDigest != content.Digest || record.Repository != metadata.Identity.Repository ||
+			record.Branch != metadata.BranchName || record.Branch != snapshot.Branch || record.BaseRevision != metadata.BaseRevision || record.WorktreePath != metadata.WorktreePath || record.SnapshotFingerprint != snapshot.Fingerprint {
+			return implementationCheckpoint{}, false, errImplementationCheckpointChanged
+		}
+		// Administrative recovery carries allowances, never a successful output
+		// or candidate. The original deadline and spent corrective pass still
+		// constrain the required fresh implementation/verification invocation.
+		return implementationCheckpoint{ExecutionDeadline: record.ExecutionDeadline, CorrectionUsed: record.CorrectionUsed}, false, nil
 	}
 	output := execution.Output{
 		Outcome: execution.OutcomeSucceeded, Summary: record.Summary,

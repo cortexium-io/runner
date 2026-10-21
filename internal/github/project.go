@@ -817,6 +817,9 @@ func (s *Project) RecoverInterruptedFrom(ctx context.Context, items []WorkItem) 
 	for _, item := range items {
 		// Only the protected operator intent can finish these mixed revisions.
 		// Generic recovery must not clear the fence or reauthorize a child.
+		if item.Transition == RepositoryRenameTransition {
+			continue // Only explicit, journal-bound operator recovery may resume it.
+		}
 		if amending[item.ID] || amending[item.PlanningSourceID] {
 			continue
 		}

@@ -113,7 +113,7 @@ func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (Ame
 				children[i] = after.Item
 			}
 		}
-		plan.sourceApproval, err = s.signPlanningBatch(plan.source, children, batchReleasedState, previous.Generation)
+		plan.sourceApproval, err = s.signPlanningBatchWithRename(plan.source, children, batchReleasedState, previous.Generation, previous.RepositoryRename)
 		if err != nil {
 			return AmendmentPlan{}, err
 		}
