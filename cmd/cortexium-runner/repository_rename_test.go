@@ -14,7 +14,7 @@ import (
 func TestRepositoryRenameCLIOnlyAppliesAfterTerminalConfirmation(t *testing.T) {
 	plan := engine.RepositoryRenameRecovery{Batch: github.RepositoryRenamePlan{
 		From: "owner/old", To: "owner/new", Repository: github.RepositoryIdentity{ID: 123, NodeID: "R_identity"}, Source: github.WorkItem{ID: "parent"},
-		Children: []github.RepositoryRenameChild{{Before: github.WorkItem{ID: "child", Body: "Exact old requirements", QAFailures: 2}, After: github.WorkItem{Body: "Exact renewed metadata", Status: "Ready"}}},
+		Children: []github.RepositoryRenameChild{{Before: github.WorkItem{ID: "child", Body: "Exact old requirements", QAFailures: 2}, After: github.WorkItem{Body: "Exact old requirements", Status: "Ready"}}},
 	}, Workspaces: []engine.RenameWorkspace{{ItemID: "child", Before: workspace.Identity{WorktreePath: "/retained/worktree", Branch: "runner/retained"}, Snapshot: workspace.Snapshot{Head: "retained-head", Fingerprint: "dirty-byte-fingerprint"}}}}
 	for _, mode := range []string{"dry-run", "json", "piped yes"} {
 		t.Run(mode, func(t *testing.T) {
@@ -41,7 +41,7 @@ func TestRepositoryRenameCLIOnlyAppliesAfterTerminalConfirmation(t *testing.T) {
 				}
 				return
 			}
-			for _, expected := range []string{"owner/old -> owner/new", "123 / R_identity", "Exact old requirements", "Exact renewed metadata", "QA rejections: 2", "/retained/worktree", "runner/retained", "retained-head", "dirty-byte-fingerprint", "No QA acceptance"} {
+			for _, expected := range []string{"owner/old -> owner/new", "123 / R_identity", "Exact old requirements", "planning provenance", "QA rejections: 2", "/retained/worktree", "runner/retained", "retained-head", "dirty-byte-fingerprint", "No QA acceptance"} {
 				if !strings.Contains(output.String(), expected) {
 					t.Fatalf("preview omitted %q", expected)
 				}

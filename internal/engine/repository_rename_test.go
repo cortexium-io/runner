@@ -214,6 +214,9 @@ func TestRepositoryRenameRecoversExactFourCardBatchAndDirtyUnpublishedWork(t *te
 		if !strings.Contains(item.Body, "requirements mentioning owner/old") {
 			t.Fatal("recovery rewrote requirement text")
 		}
+		if item.Body != original.Body || item.PlanningSourceFingerprint != original.PlanningSourceFingerprint {
+			t.Fatal("recovery rewrote original planning provenance")
+		}
 		if _, err := service.source.Authorize(t.Context(), item); err != nil {
 			t.Fatal(err)
 		}
@@ -221,6 +224,10 @@ func TestRepositoryRenameRecoversExactFourCardBatchAndDirtyUnpublishedWork(t *te
 	ready, err := service.source.ReadyItems(t.Context(), items, 10)
 	if err != nil || len(ready) != 2 {
 		t.Fatalf("dependencies no longer gate admission: ready=%d error=%v", len(ready), err)
+	}
+	approval, err := service.PlanProjectItemApproval(t.Context(), plan.Batch.Source.ID)
+	if err != nil || approval.Batch == nil || !approval.Batch.Released {
+		t.Fatalf("ordinary inspection lost authenticated complete-batch release: %v", err)
 	}
 	retained, err := workspace.NewGitProvider(runner).ValidateRetainedIdentity(t.Context(), service.workspaceRequestForItem(items[1], github.DelegatedContentFor(items[1]).Digest, service.cfg.ProjectDir, false))
 	if err != nil || retained != plan.Workspaces[0].After {
@@ -289,9 +296,9 @@ func TestRepositoryRenameResumesReboundDirtyWorkspaceAfterRestart(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Five locks, then a body and lifecycle update for each child. Private
-			// identities and feedback are renewed before source approval write 14.
-			runner.failAt, runner.afterWrite = 14, after
+			// Five fences and four child lifecycle updates precede the private
+			// bindings and source approval. Recovery never writes issue bodies.
+			runner.failAt, runner.afterWrite = 10, after
 			if err := service.ApplyRepositoryRename(t.Context(), plan); err == nil {
 				t.Fatal("expected source approval interruption")
 			}
@@ -373,6 +380,79 @@ func TestRepositoryRenameRefusesInterruptedContinuationWithoutChangingHistory(t 
 				t.Fatal("refused recovery changed continuation history or work")
 			}
 		})
+	}
+}
+
+func TestRepositoryRenameRefusesCleanupQuarantineAndStandaloneOperations(t *testing.T) {
+	for _, operation := range []string{"cleanup", "verification", "review"} {
+		t.Run(operation, func(t *testing.T) {
+			service, runner, _ := repositoryRenameFixture(t, false)
+			if operation == "verification" {
+				service.cfg.Verification = map[string]config.VerificationEntrypoint{"complete": {Command: "/bin/true"}}
+			}
+			plan, err := service.PlanRepositoryRename(t.Context(), "PVTI_parent", "owner/old")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var lock *github.ProcessLock
+			switch operation {
+			case "cleanup":
+				service.processOwnership.RecordCleanupFailure()
+			case "verification":
+				lock, err = github.AcquireVerificationOperationLock(service.cfg.GitHubProject.GitHubProjectConfig, "complete")
+			case "review":
+				lock, err = github.AcquireQAReviewLock(service.cfg.GitHubProject.GitHubProjectConfig, "PVTI_child_1")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if lock != nil {
+				defer lock.Release()
+			}
+			if err := service.ApplyRepositoryRename(t.Context(), plan); err == nil {
+				t.Fatal("recovery ignored existing cleanup/operation exclusion")
+			}
+			if runner.writes != 0 {
+				t.Fatal("quiescence refusal came after an external write")
+			}
+		})
+	}
+}
+
+func TestRepositoryRenamePreservesConcurrentRequirementsEdit(t *testing.T) {
+	service, runner, _ := repositoryRenameFixture(t, false)
+	plan, err := service.PlanRepositoryRename(t.Context(), "PVTI_parent", "owner/old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const requirement = "\n\nHuman added a material requirement during recovery."
+	var editedBody string
+	runner.observe = func() {
+		if runner.writes == 5 {
+			body := runner.project.remoteItems[1].Body
+			editedBody = strings.Replace(body, "\n\n## Runner planning metadata", requirement+"\n\n## Runner planning metadata", 1)
+			if editedBody == body {
+				t.Fatal("fixture did not retain canonical planning metadata")
+			}
+			runner.project.remoteItems[1].Body = editedBody
+		}
+	}
+	if err := service.ApplyRepositoryRename(t.Context(), plan); err == nil {
+		t.Fatal("recovery authorized an intervening requirements edit")
+	}
+	if runner.project.remoteItems[1].Body != editedBody {
+		t.Fatal("recovery overwrote the human's requirements")
+	}
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items[1].PlanningMetadataInvalid {
+		t.Fatal("regression only checked malformed metadata instead of changed requirements")
+	}
+	ready, err := service.source.ReadyItems(t.Context(), items, 10)
+	if err != nil || len(ready) != 0 {
+		t.Fatal("changed batch gained execution authority")
 	}
 }
 

@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/securefs"
 	"github.com/cortexium-io/runner/internal/workspace"
@@ -182,6 +181,9 @@ func (s *Engine) validateRenameRecovery(ctx context.Context, plan RepositoryRena
 	if plan.Config != qaPreviewDigest(s.cfg) {
 		return errors.New("Runner configuration changed after rename preview")
 	}
+	if err := s.processOwnership.CheckAdmission(); err != nil {
+		return err
+	}
 	if _, active, err := github.InspectProcessState(s.cfg.GitHubProject.GitHubProjectConfig); err != nil || active {
 		return errors.Join(errors.New("stop the Runner worker before previewing repository rename recovery"), err)
 	}
@@ -269,7 +271,17 @@ func (s *Engine) ApplyRepositoryRename(ctx context.Context, plan RepositoryRenam
 	if plan.seal == nil || plan.seal.owner != s || plan.seal.digest != qaPreviewDigest(plan) || plan.Config != qaPreviewDigest(s.cfg) {
 		return errors.New("repository rename preview is missing or modified; preview and confirm again")
 	}
-	release, err := s.acquireRenameMaintenance()
+	ids := []string{plan.Batch.Source.ID}
+	for _, child := range plan.Batch.Children {
+		ids = append(ids, child.Before.ID)
+	}
+	return s.withOfflineDeliveryOperator(ids, func() error {
+		return s.applyRepositoryRename(ctx, plan)
+	})
+}
+
+func (s *Engine) applyRepositoryRename(ctx context.Context, plan RepositoryRenameRecovery) error {
+	release, err := s.acquireRenameAdmission()
 	if err != nil {
 		return err
 	}
@@ -338,9 +350,10 @@ func (s *Engine) ApplyRepositoryRename(ctx context.Context, plan RepositoryRenam
 	})
 }
 
-// Refuse a running worker, planner, synchronous review, or admission. Holding
-// all configured execution slots also excludes already-admitted standalone work.
-func (s *Engine) acquireRenameMaintenance() (func(), error) {
+// The existing offline operator guard owns worker, planning, mutation,
+// verification/review and process-ownership exclusion. Hold admission and every
+// configured slot as well, including standalone work outside this batch.
+func (s *Engine) acquireRenameAdmission() (func(), error) {
 	project := s.cfg.GitHubProject.GitHubProjectConfig
 	var locks []*github.ProcessLock
 	release := func() {
@@ -348,16 +361,13 @@ func (s *Engine) acquireRenameMaintenance() (func(), error) {
 			_ = locks[i].Release()
 		}
 	}
-	acquire := []func(config.GitHubProjectConfig) (*github.ProcessLock, error){
-		github.AcquireProcessLock, github.AcquirePlanningLock, github.AcquireAdmissionLock, github.AcquirePlanningMutationLock,
+	admission, err := github.AcquireAdmissionLock(project)
+	if err != nil {
+		return nil, err
 	}
+	locks = append(locks, admission)
 	for range s.maxParallelism() {
-		acquire = append(acquire, func(project config.GitHubProjectConfig) (*github.ProcessLock, error) {
-			return github.AcquireExecutionSlot(project, s.maxParallelism())
-		})
-	}
-	for _, operation := range acquire {
-		lock, err := operation(project)
+		lock, err := github.AcquireExecutionSlot(project, s.maxParallelism())
 		if err != nil {
 			release()
 			return nil, fmt.Errorf("repository rename recovery requires stopped, idle Runner operations: %w", err)

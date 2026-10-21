@@ -21,6 +21,38 @@ type RepositoryIdentity struct {
 	FullName string `json:"full_name"`
 }
 
+// This private, signed binding preserves the original body and batch digests.
+// Only explicit recovery can mint it after proving both GitHub identities.
+type repositoryRenameBinding struct {
+	From   string `json:"f"`
+	To     string `json:"t"`
+	ID     int64  `json:"i"`
+	NodeID string `json:"n"`
+}
+
+func (s *Project) originalRenameBindings(source WorkItem, children []WorkItem, binding repositoryRenameBinding) (WorkItem, []WorkItem, error) {
+	fromOwner, _, _ := strings.Cut(binding.From, "/")
+	toOwner, _, _ := strings.Cut(binding.To, "/")
+	if binding.ID <= 0 || binding.NodeID == "" || binding.To != s.cfg.IntakeRepository || source.Repository != binding.To ||
+		binding.From == binding.To || !strings.EqualFold(fromOwner, toOwner) || source.PlanRelease != "" {
+		return WorkItem{}, nil, errors.New("signed repository rename does not match the current legacy planning repository")
+	}
+	for _, name := range []string{binding.From, binding.To} {
+		if normalized, err := normalizeGitHubRepository(name); err != nil || normalized != name {
+			return WorkItem{}, nil, errors.New("signed repository rename has an invalid repository name")
+		}
+	}
+	original := append([]WorkItem(nil), children...)
+	for i, child := range original {
+		if child.Repository != binding.To || child.PlanRelease != "" {
+			return WorkItem{}, nil, errors.New("signed repository rename cannot authorize different repositories or delivery parents")
+		}
+		original[i].Repository = binding.From
+	}
+	source.Repository = binding.From
+	return source, original, nil
+}
+
 type RepositoryRenameChild struct {
 	Before WorkItem `json:"before"`
 	After  WorkItem `json:"after"`
@@ -129,44 +161,26 @@ func (s *Project) buildRepositoryRename(from string, identity RepositoryIdentity
 		return fail("original batch destination is no longer the authorized implementation lane")
 	}
 	plan := RepositoryRenamePlan{From: from, To: source.Repository, Repository: identity, Source: source, Renewed: source}
-	newChildren := make([]WorkItem, len(ordered))
-	for i, child := range ordered {
+	for _, child := range ordered {
 		next := child
-		next.Body, err = renamedPlanningBody(child.Body, plan.To, PlanningSourceFingerprint(source))
-		if err != nil {
-			return RepositoryRenamePlan{}, err
-		}
-		next.PlanningSourceFingerprint = PlanningSourceFingerprint(source)
 		next.Status, next.Phase = s.readyStatus(), s.laneIDForStatus(s.readyStatus())
 		next.Result = "Operator recovered the complete planning batch after repository rename; fresh implementation and verification required."
 		action, err := s.signAction(next, s.cfg.LaneRoles[next.Phase], next.Phase)
 		if err != nil {
 			return RepositoryRenamePlan{}, err
 		}
-		newChildren[i] = action.Item
+		renewed := action.Item
 		// Role is derived locally when authorizing; it is not a Project field.
-		newChildren[i].Role = child.Role
-		plan.Children = append(plan.Children, RepositoryRenameChild{Before: child, After: newChildren[i]})
+		renewed.Role = child.Role
+		plan.Children = append(plan.Children, RepositoryRenameChild{Before: child, After: renewed})
 	}
-	plan.Renewed.Approval, err = s.signPlanningBatch(source, newChildren, batchReleasedState, provenance.Generation)
+	key, _, err := s.authority.load()
+	if err != nil {
+		return RepositoryRenamePlan{}, err
+	}
+	provenance.RepositoryRename = &repositoryRenameBinding{From: from, To: identity.FullName, ID: identity.ID, NodeID: identity.NodeID}
+	plan.Renewed.Approval, err = signPlanningBatchAssertion(provenance, key)
 	return plan, err
-}
-
-// renamedPlanningBody changes only the two administrative bindings in the
-// canonical final metadata block. Requirements and dependency text stay byte-exact.
-func renamedPlanningBody(body, repository, fingerprint string) (string, error) {
-	if _, present, err := decodePlannedItemMetadata(body); err != nil || !present {
-		return "", errors.New("cannot renew malformed planning metadata")
-	}
-	start := strings.LastIndex(body, "```json\n") + len("```json\n")
-	end := strings.LastIndex(body, "\n```")
-	var wire plannedItemMetadataWire
-	if err := json.Unmarshal([]byte(body[start:end]), &wire); err != nil {
-		return "", err
-	}
-	wire.Repository, wire.PlanningSourceFingerprint = repository, fingerprint
-	encoded, err := json.Marshal(wire)
-	return body[:start] + string(encoded) + body[end:], err
 }
 
 // ValidateRepositoryRename also accepts only the exact intermediate states of
@@ -236,7 +250,7 @@ func (s *Project) ApplyRepositoryRename(ctx context.Context, plan RepositoryRena
 	if err := s.ValidateRepositoryRename(ctx, plan); err != nil {
 		return err
 	}
-	// Lock every member before changing content. These markers survive ordinary
+	// Lock every member before renewing authority. These markers survive ordinary
 	// polling, including a crash before the final release.
 	for _, id := range append([]string{plan.Source.ID}, renameChildIDs(plan)...) {
 		if err := s.setTextField(ctx, id, s.transitionFieldName(), RepositoryRenameTransition); err != nil {
@@ -244,10 +258,6 @@ func (s *Project) ApplyRepositoryRename(ctx context.Context, plan RepositoryRena
 		}
 	}
 	for _, child := range plan.Children {
-		result, err := s.gh(ctx, "issue", "edit", child.Before.URL, "--body", child.After.Body)
-		if err != nil {
-			return fmt.Errorf("renew planning metadata; rerun confirmed rename recovery: %w", commandFailure(err, result))
-		}
 		if err := s.applyFieldUpdates(ctx, child.After.ID,
 			textProjectField(s.phaseFieldName(), child.After.Phase),
 			textProjectField(s.resultFieldName(), child.After.Result),
@@ -255,6 +265,9 @@ func (s *Project) ApplyRepositoryRename(ctx context.Context, plan RepositoryRena
 			statusProjectField(s.statusFieldName(), child.After.Status)); err != nil {
 			return err
 		}
+	}
+	if err := s.ValidateRepositoryRename(ctx, plan); err != nil {
+		return err
 	}
 	if err := renewWorkspaces(); err != nil {
 		return err

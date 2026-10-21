@@ -1194,7 +1194,7 @@ their separate recovery and are refused before any write.
    an inaccessible old redirect or reused old name blocks recovery. Runner
    authenticates the entire original batch under the old name before renewing
    anything. Inspect every exact body/dependency and retained workspace, branch,
-   HEAD, tree, dirty-byte fingerprint and old/new content binding.
+   HEAD, tree, dirty-byte fingerprint and old/new repository content binding.
 4. Run the same command without `--dry-run` or `--json` in an interactive
    terminal. Review the refreshed preview and explicitly choose **Yes**; the
    default is **No**. Piped input cannot confirm recovery.
@@ -1209,14 +1209,18 @@ Before external writes, Runner saves an immutable mode-`0600` journal under the
 configured workspace root's `.runner-state/repository-renames/`. It retains the
 original signed batch, private workspace identities, checkpoints, verification
 evidence and feedback bytes. Requirements and dependency topology remain exact;
-only repository/source metadata and execution authority are renewed. Actionable
-QA feedback follows the card, while prior review baselines are retained only as
+issue bodies and original planning metadata remain byte-exact. A batch-local
+signed release binding records the old/new repository names and verified numeric
+and node IDs; ordinary action validation still binds the current canonical
+repository. Recovery never writes an issue body, so a concurrent requirements
+edit is retained and invalidates the original authority. Actionable QA feedback follows
+the card, while prior review baselines are retained only as
 history. The original planning batch fingerprint stays as its historical ID.
 Completed implementer checkpoints carry their original execution deadline and
 spent corrective allowance, but cannot reuse successful output or candidate
 proof. Rename recovery never replenishes an exhausted allowance. Use the
-qualified patched runtime for subsequent execution; older binaries cannot read
-the renewed checkpoint marker.
+qualified patched runtime for subsequent execution; older binaries cannot
+interpret the renewed release authority or checkpoint marker.
 
 If recovery is interrupted, leave the worker stopped and rerun the same command
 to preview and explicitly resume the saved operation. Every intermediate Project

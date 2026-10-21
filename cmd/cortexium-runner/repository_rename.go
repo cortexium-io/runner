@@ -85,17 +85,17 @@ func writeRepositoryRenamePreview(output io.Writer, plan engine.RepositoryRename
 	fmt.Fprintf(output, "  Repository: %s -> %s\n  Immutable identity: %d / %s\n  Planning parent: %s (%s)\n  Retained history journal: %s\n",
 		terminalSafeText(plan.Batch.From), terminalSafeText(plan.Batch.To), plan.Batch.Repository.ID, terminalSafeText(plan.Batch.Repository.NodeID),
 		terminalSafeText(plan.Batch.Source.Title), terminalSafeText(plan.Batch.Source.ID), terminalSafeText(plan.Journal))
+	fmt.Fprintln(output, "  Exact preserved planning request:")
+	for _, line := range strings.Split(plan.Batch.Source.Body, "\n") {
+		fmt.Fprintf(output, "    %s\n", terminalSafeText(line))
+	}
 	for _, child := range plan.Batch.Children {
-		fmt.Fprintf(output, "\n  Card %d/%d: %s (%s)\n  Issue: %s\n  Dependencies: %s\n  Destination: %s\n  Branch field: %s\n  QA rejections: %d\n  Content binding: %s -> %s\n",
+		fmt.Fprintf(output, "\n  Card %d/%d: %s (%s)\n  Issue: %s\n  Dependencies: %s\n  Destination: %s\n  Branch field: %s\n  QA rejections: %d\n  Preserved planning source: %s\n",
 			child.Before.PlanningItemIndex, child.Before.PlanningBatchSize, terminalSafeText(child.Before.Title), terminalSafeText(child.Before.ID),
 			terminalSafeText(child.Before.URL), terminalSafeText(strings.Join(child.Before.Dependencies, ", ")), terminalSafeText(child.After.Status),
-			terminalSafeText(child.Before.Branch), child.Before.QAFailures, terminalSafeText(child.Before.PlanningSourceFingerprint), terminalSafeText(child.After.PlanningSourceFingerprint))
-		fmt.Fprintln(output, "  Exact current body:")
+			terminalSafeText(child.Before.Branch), child.Before.QAFailures, terminalSafeText(child.Before.PlanningSourceFingerprint))
+		fmt.Fprintln(output, "  Exact preserved body and planning provenance:")
 		for _, line := range strings.Split(child.Before.Body, "\n") {
-			fmt.Fprintf(output, "    %s\n", terminalSafeText(line))
-		}
-		fmt.Fprintln(output, "  Exact renewed body:")
-		for _, line := range strings.Split(child.After.Body, "\n") {
 			fmt.Fprintf(output, "    %s\n", terminalSafeText(line))
 		}
 	}
@@ -105,6 +105,6 @@ func writeRepositoryRenamePreview(output io.Writer, plan engine.RepositoryRename
 			terminalSafeText(retained.Snapshot.Head), terminalSafeText(retained.Snapshot.Tree), retained.Snapshot.Clean, terminalSafeText(retained.Snapshot.Fingerprint),
 			terminalSafeText(retained.Before.DelegatedContentDigest), terminalSafeText(retained.After.DelegatedContentDigest))
 	}
-	fmt.Fprintln(output, "\n  Requirements, dependencies, candidate bytes, branches, history and rejection counts are preserved. Only repository metadata and execution authority are renewed.")
+	fmt.Fprintln(output, "\n  Bodies, planning provenance, dependencies, candidate bytes, branches, history and rejection counts are preserved. A signed batch-local rename binding renews execution authority.")
 	fmt.Fprintln(output, "  All children return to implementation. No QA acceptance, publication, merge or delivered outcome is granted.")
 }
