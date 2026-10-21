@@ -16,6 +16,8 @@ import (
 const CheckEnvironment = "isolated PATH; private HOME/TMPDIR; LANG=C LC_ALL=C; no inherited credentials"
 
 type QualityCheck struct {
+	CPUs          *int     `json:"cpus,omitempty"`
+	AutoCPUs      bool     `json:"auto_cpus,omitempty"`
 	Artifacts     []string `json:"artifacts,omitempty"`
 	Image         string   `json:"-"`
 	At            string   `json:"at,omitempty"`
@@ -26,6 +28,15 @@ type QualityCheck struct {
 	Prerequisites []string `json:"prerequisites"`
 	Timeout       string   `json:"timeout"`
 }
+
+// CPULimit is the approved container quota; omitted configuration retains two CPUs.
+func (c QualityCheck) CPULimit() int {
+	if c.CPUs == nil {
+		return 2
+	}
+	return *c.CPUs
+}
+
 type QualitySpec struct {
 	CheckImage string               `json:"check_image,omitempty"`
 	RequiredCI []core.CIRequirement `json:"required_ci,omitempty"`
@@ -96,6 +107,12 @@ func (s QualitySpec) Validate() error {
 	}
 	seen := map[string]bool{}
 	for _, c := range s.Checks {
+		if (c.CPUs != nil || c.AutoCPUs) && s.CheckImage == "" {
+			return fmt.Errorf("check %s: CPU configuration requires check_image", c.ID)
+		}
+		if c.CPUs != nil && (*c.CPUs < 1 || *c.CPUs > 4 || c.AutoCPUs) {
+			return fmt.Errorf("check %s: cpus must be 1–4 and cannot be combined with auto_cpus", c.ID)
+		}
 		if c.At != "" && c.At != "task" && c.At != "completion" && c.At != "both" {
 			return fmt.Errorf("check %s: at must be task, completion or both", c.ID)
 		}

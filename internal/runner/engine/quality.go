@@ -75,6 +75,10 @@ func (e *Engine) PreviewQuality(ctx context.Context, spec config.QualitySpec) (Q
 	if err != nil {
 		return p, err
 	}
+	q.Checks, err = execution.ResolveCheckCPUs(ctx, q.Checks)
+	if err != nil {
+		return p, err
+	}
 	if err = current.Config.ValidateQuality(q); err != nil {
 		return p, err
 	}

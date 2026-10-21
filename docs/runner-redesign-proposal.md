@@ -4,7 +4,7 @@ Status: The local replacement, delivery bundles and R1–R5 are implemented and
 qualified in `codex/runner-local-core`. The subsequent local-completion,
 real-project pilot, main-reconciliation and final platform/package obligations
 are complete within the [continued qualification record](#continued-real-project-qualification).
-Current store format is **18**. The [frozen checklist](#frozen-first-release-checklist)
+Current store format is **19**. The [frozen checklist](#frozen-first-release-checklist)
 remains the scope boundary; historical briefs below are construction evidence.
 Runner PR #106 merged into main on 2026-10-16; api-mcp pilot PR #6 remains a draft.
 Release publishing and running-installation/cutover changes remain separate.
@@ -143,6 +143,33 @@ Extend owning suites rather than build another orchestration harness:
   is needed unless role instructions or execution semantics change.
 
 ### FlowStack pilot brief and safe handover
+
+**Current disposition, refreshed 2026-10-21:** the original six-card outcome is
+already delivered. The legacy owner's live status reports no active, queued,
+waiting, blocked or integrated-undelivered work. Parent #507 records successful
+delivery through [PR #514](https://github.com/flowstack/webapp/pull/514), merged
+on 2026-10-19 into `develop` as `c75ef8973b9a1ad1c23d6939213e623a513a62b6`.
+Both previously remaining cards, #510 and #511, are accepted. The old private
+plan branch is no longer a remote ref. Do not recreate, adopt or dispatch its
+completed implementation obligations.
+
+Current `develop` is `607e785b603dab54a45810b9dcb15aa4c4f1f1ac`, including
+the independently qualified browser/runtime work merged through PR #515. Its
+tree is `0c4ad1a707244ee3566b0e450cb8b496bb4ab2ee`; the authorized dev Docker
+update runs that same revision. The existing Runner binary/configuration/service
+remain unchanged, with legacy PID 66004 still polling. No new Runner pilot,
+hold, intake issue, quality application or task approval has occurred.
+
+The owner has authorized reviewing/merging the pending Runner support changes
+and progressing toward a bounded pilot; release/package publishing and installed
+binary/configuration changes remain separate. After learning that the proposed
+remainder is empty, the owner chose **a different useful task before launching**,
+rather than a verification/adoption repeat of this completed plan. There are no
+open webapp issues at this observation. Select and brief that new outcome before
+any new request, quality application, approval or pilot launch; do not invent a
+defect or dispatch completed scope. No old-owner hold is needed for this
+preparation. The 2026-10-18 observations and proposed handover below remain
+historical evidence, not current work or launch authority.
 
 **Prepared 2026-10-18; authorization is observation and this brief only.** No
 FlowStack issue, source, approval, process, service, installation, protection or
@@ -626,6 +653,1765 @@ a passing complete product gate and fresh applied quality with explicit browser
 artifact selections. This bundle qualifies evidence retention and contained read
 access; it does not claim model visual judgement, product parity, a passing full
 FlowStack baseline or permission to stop the old owner/launch the pilot.
+
+#### FlowStack email-check reliability: implementation brief
+
+Authorized 2026-10-18: diagnose and repair the load-sensitive email checks in an
+isolated FlowStack checkout based on frozen plan `3fe7a48`. No pilot launch,
+handover, publication, remote provider write, deployment or installation change is part of
+this bundle. Product changes belong to FlowStack, with evidence recorded here.
+
+Supported behavior and proof obligations:
+
+- Creating a visual email makes no write before explicit Save. Save makes one
+  creation request; success requires readback of the persisted record. Reload
+  preserves the authored MJML, personalization and preheader. Existing rejection,
+  lost-acknowledgement and copy behavior must remain covered by their owning suite.
+- Reproduce the original six-case schema/email selection with the repository's
+  managed `npm run test:e2e` lifecycle, original two workers, four browser/layout
+  projects, deadlines and zero retries. Retain traces/timings and fixture request
+  observations sufficient to distinguish missing writes, application delays,
+  cold compilation and test synchronization. A focused pass cannot waive a
+  concurrent failure; report all failed attempts.
+- Keep the prepared Runner boundary: pinned dependencies/browsers, no network or
+  credentials, non-root, four GiB/two CPUs, disposable source and Git inventory.
+  Fix the demonstrated owning surface with minimum complexity; do not relax
+  assertions, reduce concurrency or add a test framework. The owner's subsequent
+  approvals permit only the named whole-journey budgets recorded below.
+  Assertion deadlines and all other budgets remain unchanged.
+- Extend or consolidate existing coverage only for a concrete regression risk.
+  Run relevant lower-layer/tooling checks, repeat the representative concurrent
+  browser selection with a bounded run count, then run locked `npm ci` followed
+  by `npm run validate:complete` on the final candidate. Preserve source-bound
+  receipts, actual outcomes and resource/cleanup observations. No accepted full
+  baseline exists to reuse.
+
+Review the complete product and documentation diffs, retain the isolated fix and
+exact source identity, and report the cause, verification and remaining launch
+gates. Any newly exposed unrelated failure blocks qualification and is recorded;
+it does not authorize unrelated feature work or weakening the complete gate.
+
+#### FlowStack browser-suite runtime audit: brief
+
+The owner requests an audit of expensive setup and overlapping browser tests,
+with a practical runtime target and no weakened assertions. Define the brief
+before analysis; this pass authorizes investigation and a proposal, not suite
+implementation. Keep publication, installation, existing Runner ownership and
+pilot launch unchanged.
+
+Use the accepted FlowStack tree `dec81715fb61f44f786035cdd4780be660a9e105`,
+actual Check `complete-58472347` and native browser run
+`5ac15549-cd08-4da1-b430-1b1a3feb3665` as the measured baseline. Its 144.326
+minutes include 1,105 browser passes/seven expected skips, without failures or
+retries. Inspect the installed runner/configuration, owning suites, fixture and
+editor lifecycle, existing lower-layer coverage and retained traces. Keep old
+diagnostic source identities separate from the accepted candidate.
+
+Answer these bounded questions:
+
+1. Where does elapsed time go: lower checks, project/file/test execution,
+   browser startup, application/fixture setup, repeated navigation/reload and
+   the behavior actually under test? Distinguish measured cost from source-based
+   hypotheses; a long action alone does not identify its internal cause.
+2. Which tests repeat the same proof, and which similar-looking journeys protect
+   distinct risks such as native clipboard, selection, geometry, persistence or
+   device layout? Map consolidation candidates to the obligations and existing
+   owners that would preserve their proof.
+3. What runtime is practical for focused development and the final complete
+   gate on a named environment? Quantify the reduction required, separate
+   justified suite changes from additional capacity, and describe how a later
+   implementation would demonstrate the target without relaxing correctness.
+
+The output belongs in this plan beside the existing qualification. Retain a
+small reproducible timing analysis in the existing private evidence directory,
+with source/run identities and references for findings. Reuse the passing full
+run and existing traces; do not rerun the complete gate for this audit. Any
+narrow diagnostic execution must resolve a specific remaining question through
+the repository's native runner and retain its own outcome and identity.
+
+No assertion, interaction, write count, source comparison, timeout, skip,
+project, retry, dependency, worker or sandbox setting changes in this pass.
+Preserve the 15s default assertions, explicit 45s readiness waits, two E2E
+workers, zero retries and four-GiB/two-CPU baseline. A proposed consolidation or
+matrix change must identify each displaced proof and its retained owner;
+timing alone does not justify removal. Runtime targets are proposals, not a new
+accepted quality policy or evidence of achieved performance. Finish by checking
+the analysis against native records, reviewing the documentation diff and
+confirming the FlowStack tree is unchanged. No new application tests or repeated
+implementation gates are needed for documentation and read-only analysis.
+
+#### FlowStack browser-suite runtime audit: findings and proposal
+
+Audit date: 2026-10-19. The FlowStack source remains tree `dec81715`; the
+accepted run and its earlier failures retain their original identities. No new
+browser execution, test edit or quality-policy change was made for this audit.
+The reproducible private analysis is `audit-browser-runtime.py` →
+`browser-runtime-audit.json` in the existing qualification directory
+`/Users/dan/.codex/runner-qualification/flowstack-email-reliability-20261018`.
+`audit-browser-setup-traces.py` reads retained diagnostic traces over SSH and
+writes `browser-setup-trace-audit.json`; it launches no process in the product.
+
+**Measured cost.** The complete gate took **144.326 minutes**, of which
+**133.720 minutes** were native browser execution and **10.606 minutes** were
+everything else, including locked installation, lower checks, browser lifecycle
+outside the execution interval, and build. The 350 distinct cases expand to
+1,112 selections: 206 email cases in four projects and 144 other cases in two.
+Seven selections skip for the already-recorded reasons; 1,105 pass once.
+
+| Project | Passes | Summed case minutes | Mean case seconds |
+| --- | ---: | ---: | ---: |
+| Desktop Chromium | 348 | 50.262 | 8.67 |
+| Mobile Chromium | 347 | 48.954 | 8.46 |
+| Desktop WebKit | 205 | 95.946 | 28.08 |
+| Mobile WebKit | 205 | 65.975 | 19.31 |
+
+Summed case time is elapsed test time across concurrent workers, **not** wall
+time, CPU time or a measurement of setup alone. Its **261.136 minutes** fill
+97.6% of the two-worker execution window as an occupancy proxy. Resource samples
+separately show **1.95 CPUs on average** across 142.8 minutes against a two-CPU
+quota. Peak recorded memory reaches the four-GiB boundary; there is no OOM or
+OOM kill. The next investigation belongs inside the work being executed;
+scheduler idle time cannot explain the two-hour cost. More workers inside the
+same CPU/memory limit have no demonstrated speed benefit.
+
+Email families account for **92.3%** of summed case time. The three costliest
+files account for **46.3%**:
+
+| Owning suite | Selected project cases | Summed case minutes |
+| --- | ---: | ---: |
+| `tests/e2e/email-editing.spec.ts` | 160 | 65.502 |
+| `tests/e2e/tiptap-migrated/authoring/email-inline.spec.ts` | 28 | 30.731 |
+| `tests/e2e/tiptap-migrated/transfers/email-inline.spec.ts` | 60 | 24.610 |
+| All `tests/e2e/tiptap-candidate/` fixtures | 336 | 64.576 |
+| Other application families | 288, including four skips | 20.214 |
+
+The candidate row spans multiple files and is separate from the first three
+rows. A file's cost is a prioritization signal, not permission to delete it.
+The longest individual case is desktop WebKit shared authoring history,
+**196.676s**; its four project executions consume **8.138 case minutes**.
+
+**Expensive setup and work identified.**
+
+- The managed Vite server, frozen export and lazy-editor transform warmup happen
+  once per browser invocation (`scripts/browser-run.mjs:107–164` and
+  `scripts/browser-server.mjs:21–36`). Warming the server does not preserve a
+  mounted editor across fresh test pages. Playwright already shares its browser
+  fixture between tests while isolating pages/contexts; adding a shared mutable
+  page or moving setup into `beforeAll` would introduce order coupling. See
+  [Playwright fixture ownership](https://playwright.dev/docs/test-fixtures#built-in-fixtures).
+- The application fixtures repeatedly authenticate, install routes, load the
+  application and mount GrapesJS/Tiptap. `openAuthoringJourney` at
+  `tests/e2e/tiptap-migrated/authoring/email-inline.spec.ts:20` also adds eight
+  content sections and a legacy image to all three of its callers. Those callers
+  include guarded replacement/navigation as well as long-page history and
+  preview. A later change can separate minimal setup from intentional large-page
+  proof, retaining all asserted source/attribute/image invariants and the long
+  fixture wherever scrolling or geometry is part of the obligation.
+- The existing four-case WebKit trace diagnostic `ab31d32a` measures
+  **10.493–21.984s** from first navigation to editor readiness, with **180–198
+  requests** before readiness. That is earlier diagnostic tree `fe1483da`, with
+  tracing and different whole-test allowances; it is evidence of repeated setup
+  work, **not** an estimate of setup's percentage in the final untraced run.
+  Git comparison confirms that only README and the three budget-bearing spec
+  files differ from the final tree; the application, fixture helpers and browser
+  lifecycle being observed are unchanged.
+  The final receipt does not separate navigation, parsing, mount, fixture routing
+  and interaction time. That attribution remains a measured-profiling task.
+- There are **52 static wildcard route sites** across the selected specs. For
+  example `creationFixture`, integrated `start` and migrated `start` intercept
+  `**/*` and continue same-origin assets. Routing disables HTTP caching, and
+  matching requests wait for their handlers, as documented by
+  [Playwright page.route](https://playwright.dev/docs/api/class-page#page-route).
+  This makes repeated dev-module loading and interception a concrete profiling
+  candidate. Fresh test contexts have a cold cache regardless; routing's cache
+  effect matters especially to later loads within a case. Narrowing a URL pattern
+  alone does **not** restore caching while routing remains enabled. Preserve
+  unexpected-request rejection, sanitized fixture isolation and credential checks
+  in any later serving/routing change.
+- The selected files contain **235 navigation, 64 reload and 246 screenshot
+  call sites**. These are source sites, not runtime invocation counts. In the
+  four retained traced cases, three to seven screenshots take **2.143–9.293s**
+  per case in aggregate. Capture cost is worth measuring; the existing records
+  do not support attributing most of the gate to screenshots or removing visual
+  evidence. Many slow journeys also execute dozens of real clicks, keystrokes,
+  layout reads and history transitions after setup. Setup improvements alone
+  have no demonstrated sufficient saving for the proposed finish line.
+
+**Overlap assessment and retained proof owners.** Paths in this table are
+FlowStack paths: candidate/integrated/migrated suites live under `tests/e2e/`,
+compatibility owners under `src/features/email/compatibility/`, and the stock
+picker under `src/features/email/`. These are consolidation candidates, not
+findings that the named tests can already be removed. Timing inventory covers all
+1,112 selections; semantic review covers the representative areas below. This
+is not an assertion-by-assertion deletion manifest. The implementation brief
+must enumerate the assertions/behaviors it moves and verify the receiving
+owner's adequacy first.
+
+| Repeated area | Existing overlap and proposed ownership | Proof that must stay |
+| --- | --- | --- |
+| Whole-source editing | Candidate `source/email-inline.spec.ts:54` and integrated `email-inline.spec.ts:113` both check source/result, apply, undo/redo and save. Let `compatibility/emailSourceEditing.browser.test.ts` own transformation/validation details and one production integration journey own persistence wiring; retain distinct UI assertions at their current owner until an equivalent receiving case is verified. | Candidate CodeMirror virtualization, local editor undo, Escape, focus and exact canvas bounds are additional proof; integrated route/metadata and refreshed-record assertions are additional proof. The two cases are not interchangeable wholesale. |
+| Literal fallback | `email-editor-adapter.spec.ts:581`, candidate `sidebar/email-inline.spec.ts:12` and application `email-editing.spec.ts:1031` repeat one-occurrence mutation/history/reopen, costing **6.076 case minutes** together. `emailTiptapFallback.test.ts` already owns exact expression/occurrence semantics. Keep a canonical production fallback UI/persistence journey; assess which adapter/fixture source assertions add a distinct risk. | Repeated formatted occurrence, trim/unescaped source, selection retention, cancellation and untouched neighbours must keep explicit owners. Unit transactions cannot replace native focus or rendered target proof. |
+| Formatting and history | Candidate `toolbar/email-inline.spec.ts:13`, application `email-editing.spec.ts:1998` and migrated authoring `email-inline.spec.ts:75` repeat formatting/history while adding different context, costing **11.054 case minutes** together. `emailTiptapFormatting.browser.test.ts` already checks exact model/selection/format behavior in both lower-layer engines. Consolidate repeated combinations into that owner and keep concise toolbar wiring plus an integrated history journey. | Full history across inline edits, blocks and images remains distinct from the transfer journey's native structural moves, delayed image and complete-group ordering. Keep both cross-feature orderings; repeated `Undo` assertions alone do not establish duplication. |
+| Stock-provider variants | Three provider application journeys repeat history/save/reopen/copy across four projects, costing **6.038 case minutes**. Existing `services/stockPhotos.browser.test.ts` and `compatibility/emailStockPhotos.browser.test.ts` already parameterize all three providers; `EmailStockPhotoPicker.browser.test.ts` owns chooser/recovery behavior. Propose short provider-specific UI wiring checks and canonical complete delivery journeys after reviewing the gaps. | All providers retain wire/metadata/credit/URL assertions. Keep the Unsplash lost-response/NotFound readback, exactly-one-POST, hotlink policy, authorization/header checks and independent-copy proof. The picker currently seeds PIXABAY, so it is not already a replacement for all provider choices. |
+| Four-project repetition | All 84 candidate-fixture cases run at both viewport sizes in both engines, alongside production integration and lower browser suites. Propose explicit per-behavior engine/viewport ownership rather than the current filename-wide WebKit selection. Pure transformation combinations can be owned by existing lower suites; native and responsive behaviors retain browser coverage. | Candidate fixture layout is not the production mobile workspace. Keep production narrow-screen overlay/inert/focus/layout checks. Native keyboard, rich clipboard, drag, caret and geometry require relevant engine proof; no blanket deletion of the candidate directory or mobile/WebKit projects. |
+
+Two apparent duplicates are specifically **not** removal candidates without new
+evidence. The transfer suite's short-prefix variant (`transfers:198`) performs
+five cut/Undo handoffs to catch the focus-recovery regression; the original
+prefix performs one. Adapter native-group probes (`email-editor-adapter:73,113`)
+observe intermediate native sorter/transaction states that final saved-source
+checks do not. Likewise, migrated transfer `copy/paste` helpers use synthetic
+events for many non-desktop-Chromium cases (`transfers:75–100`); those passes do
+not replace the explicit native clipboard owner test or its separately qualified
+WebKit execution. Preserve this distinction in the coverage map.
+
+The adapter fallback case also exercises a different factory: `emailDocument.ts:810`
+defaults to `createEmailInlineEditing`, while production `EmailEditView.vue:79`
+injects `createEmailTiptapEditing`. Similar source/history assertions across
+these paths are not proof of implementation equivalence. Establish each supported
+adapter contract before retiring any owner; preserve frame isolation,
+hostile-source rejection and external-resource/credential protections regardless
+of where their coverage lives.
+
+**Proposed practical runtime target.** Keep the named baseline environment:
+pinned Linux image and its image-owned offline package cache, two CPUs, four GiB,
+two E2E workers, zero retries. Treat these as user-visible elapsed-time goals,
+including cold browser-lifecycle startup and a fresh locked installation:
+
+| Work boundary | Proposed target |
+| --- | --- |
+| Ordinary focused development checks | At most **5 minutes** for the impacted lower-layer/browser proof |
+| Broader editor proof across engines | At most **10 minutes**, with an explicit selection and preserved native/device obligations |
+| Final complete gate, including fresh `npm ci` and all required layers | At most **30 minutes**: aim for browser work within 18 minutes and other checks within 12 |
+| Intermediate reduction checkpoint | At most **60 minutes** complete; progress toward the finish line, not routine-gate acceptance |
+
+These are proposed acceptance goals, **not a forecast or an achieved quality
+policy**. With the measured non-browser cost unchanged, a 30-minute gate leaves
+19.394 minutes for browser execution. Even ideal two-worker packing allows only
+38.788 summed case minutes, **85.1% below** the current 261.136; startup and tail
+overhead require additional margin. The 60-minute checkpoint requires at least
+62.2% less summed case time by the same ideal calculation. Selecting more workers
+alone is insufficient: even four workers with proportionally larger resources
+would have a theoretical 65.284-minute browser floor for unchanged case cost,
+before startup, tail and other checks. This is arithmetic, not a hardware
+benchmark. Any later capacity proposal needs its own cost and containment review.
+
+The present evidence cannot promise the 30-minute target while preserving every
+proof. It identifies the necessary scale of improvement. Even eliminating all
+candidate-fixture executions would remove at most 24.7% of measured case time
+under unchanged case costs, and is not justified by the overlap review. The
+current findings do not establish a removable duplicate percentage. If measured
+setup improvements and justified consolidation cannot supply it, return the remaining
+tradeoff to the owner; do not silently remove proof, use synthetic input as native
+evidence, relax assertions, or relabel a partial run as complete. Hosted CI's
+20-minute job remains a separate unqualified environment/limit.
+
+**Next implementation boundary to propose:** first measure and reduce repeated
+editor startup through the existing lifecycle and fixture boundaries. Use a
+small matched selection on the accepted source before changing anything: a
+short native candidate traversal, contextual properties, shared authoring
+history and protected-profile reload, in their required projects. Attribute
+initial load, editor readiness, later reload, interaction and capture separately;
+retain cold and subsequent page measurements and tracing overhead explicitly.
+Choose the smallest demonstrated fix, preserve fresh contexts and all existing
+proof, and compare the same selection/settings after it. A helper extraction
+alone is not performance evidence. Propose any fixture-serving/build changes
+inside that existing lifecycle, preserving the frozen candidate and HTML fixture
+routes; add no new runner, mock framework or second evidence system.
+
+Use the overlap table for a later bounded proof-ownership change, with exact
+before/after obligations approved before any matrix reduction. Reuse or extend
+existing suites rather than generating another set of broad journey tests. Run
+the required fresh complete gate once at the delivery boundary for the final
+combined implementation; do not rerun it for every audit or intermediate edit.
+This audit changes documentation and private analysis only and stops before any
+implementation, publication, installation change or pilot.
+
+#### FlowStack editor startup: implementation brief
+
+Retained candidate: `codex/email-check-reliability`, tree
+`2fc25d92c72d616950232031d8c934d4362edc67`, based on accepted reliability tree
+`dec81715fb61f44f786035cdd4780be660a9e105`. The owner authorizes measurement,
+a demonstrated startup fix and verification in this same worktree. Publishing,
+installed Runner/configuration/ownership, deployment and pilot stay unchanged.
+Test consolidation, browser-matrix reduction and a new test runtime are outside
+this bundle.
+
+Owner decision, 2026-10-20: keep CodeMirror for now for FlowStack's existing
+source and JSON editors. This choice is provisional; reconsider Monaco if the
+editing requirements change. The startup measurements below compare CodeMirror
+before and after deferred loading, not CodeMirror against Monaco.
+
+The retained candidate passed its fresh complete gate and is an accepted complete
+baseline. The original aim of a large, uniform first-opening speedup was not
+achieved; the retained outcome removes proved unnecessary CodeMirror loading and
+provides a modest measured readiness improvement. The complete gate still took
+141.647 minutes. The broader 30-minute target remains open.
+
+Supported behavior and implementation:
+
+- Each test retains its isolated page/context, real native editor, frozen source,
+  fixtures and existing source-module APIs. Authenticated routing, frame/resource
+  policy, selection, history, exact source and verified writes remain observable.
+- Source and Feed dialogs share one standard Vue asynchronous component for
+  `EmailSourceCode.vue`. Visual startup does not request that component. Loading
+  and failure feedback leave the containing dialog cancellable without a write;
+  ordinary visual editing remains available after cancellation.
+- The source editor owns requested focus after Vue's DOM flush. First loading
+  and cached reopening retain native focus. Its existing public editing/history
+  methods and the HTML editing route remain available.
+- Keep 15s assertions, explicit 45s readiness waits, all approved whole-test
+  budgets, two E2E workers, zero retries, pinned image and 4GiB/2CPU unchanged.
+  No server-mode, dependency or installation change is retained.
+
+The representative matched selection is these four existing titles in all four
+configured projects (**16 cases**, no expected skips):
+
+- `right-arrow crosses the chip and end-of-line without a ghost caret`;
+- `edits contextual properties and navigates parents in the contained desktop and mobile workspace`;
+- `replays inline formatting, blocks and image changes through one shared history and verified save`;
+- `inserts protected profile chips at retained selection, preserves source and recovers from schema failure`.
+
+Every operation and assertion remains. Before/after runs use normal tracing
+settings and the same private reporter observer, which writes existing native
+steps only after each case finishes. No phase markers or observer enter the
+retained product candidate or final complete gate. Phase-instrumented diagnostics
+attribute work separately; do not substitute their timings for normal-mode proof.
+
+| Project | Initial entry mean, before → after | Reload mean, before → after |
+| --- | --- | --- |
+| Desktop Chromium | 7.252s → 7.373s | 5.011s → 4.496s |
+| Mobile Chromium | 6.116s → 6.047s | 5.000s → 4.772s |
+| Desktop WebKit | 6.964s → 6.792s | 7.567s → 6.250s |
+| Mobile WebKit | 5.729s → 5.380s | 4.818s → 4.143s |
+
+Combined entry/reload readiness across 28 observations changed from 171.429s to
+161.348s (**5.9% lower**). Each Chromium project's combined result was 2.4% lower;
+each WebKit project's was 9.2% lower. Initial-entry results are mixed, including
+one desktop shared-history observation of 9.319s versus 7.839s under concurrent
+load. These are elapsed journey intervals with polling/contention, not CPU
+attribution, statistical guarantees or a whole-gate saving prediction.
+
+Before: Check `startup-baseline-1234270831`, native run
+`3368514c-4672-4c67-b302-f749aacf4cc2`, all 16 passed. After: Check
+`startup-matched-3071087500`, native run
+`2af1fd01-2dd1-4305-8d26-e6dfe2b4c771`, all 16 passed. Product trees are `dec81715`
+and `2fc25d92`; private observer trees are `1edc6486` and `e2fc96f8`. Full identities,
+per-case records and comparison are retained in
+`/Users/dan/.codex/runner-qualification/flowstack-email-reliability-20261018`.
+
+Verification ownership and selection:
+
+- Extend existing owners. Four source-format component cases now also assert
+  requested native focus after Vue's DOM flush; the existing source undo/cancel
+  journey now checks cached reopen. Add one browser case for the concrete
+  deferred-load failure, zero startup requests, cancellation and no write.
+- Native focused proof caught a real first-load focus regression: the original
+  15s focus assertion failed in both desktop engines. Moving focus to the editor's
+  mount boundary after the DOM flush repaired it. Six CodeMirror owner tests and
+  four native focus/history/cached-reopen cases passed in run
+  `4adcdfe9-9456-4878-8711-b1e0ec3ce7a4`. The final complete gate also passed the
+  retained deferred-load failure, source-history and cached-reopen cases in all
+  four projects. Failed iterations remain separate evidence.
+- Related-source discovery selected unrelated router suites. The 127 editor-route
+  and six feed-dialog owner tests passed before a controlled stop; that whole
+  Check is **unavailable/143**, never accepted passing evidence. Subsequent
+  iteration uses explicit owning files and names. Do not repeat applicable
+  passing checks or use static related selection as an automatic impact decision.
+- After reviewing the complete diff, fresh locked `npm ci` plus
+  `npm run validate:complete` passed once on the final uninstrumented source.
+  Development used focused owning checks; neither a `validate:fast` prefix nor
+  the old 52-case budget qualification was repeated. The new logical browser
+  case adds four project executions: **1109 passes / seven unchanged expected
+  skips / 1116 selected**, with zero failures, flaky outcomes or retried attempts.
+
+Final Check `complete-1415226509`, native run
+`5d95d9c1-63c2-4f8d-9186-9c4eb493c10a`, passed lint, architecture, types,
+**4084 unit/component tests, 154 tooling tests**, the browser selection and build.
+The browser fingerprint is
+`6ab6801da3a2a983e18cf3dd74fbe0fcfdbaba84252b2951a903e7bd99dc0486`.
+All 15 receipt/audit conditions passed, including the exact prior skip set,
+source integrity and ownership release. Browser execution took 130.991 minutes;
+the actual Check took 141.647 minutes versus the earlier 144.326-minute baseline.
+These single full-gate observations do not establish an attributable runtime gain.
+
+The independent source audit matched all **904 source files** to the retained
+archive and recomputed the native fingerprint. No private observer or phase
+instrumentation is shipped. All **10448 installed dependency files** matched the
+prior accepted baseline, and the pinned image remained unchanged. Source digests
+before and after Check matched. The 2026-10-20 02:53 CEST read-only audit confirmed
+the installed Runner binary, configuration, service definition, PID `66004` and
+deployed container/image were unchanged; none of 72 recorded owned Check
+containers remained. No publication or pilot occurred.
+
+`qualification-inputs.json`, `editor-startup-complete-outcome.json`, source and
+dependency audits, the installation audit and matched comparison retain the
+identities and results in the private qualification directory above. The final
+`qualification-records.tar.gz` contains **1044 records**, SHA-256
+`acb9e4fc93a6e8718ae349c3fdfbfcb84e7816612791d42258fe286e4ee0addb`;
+the previous 733-record archive is preserved separately. Hosted CI's 20-minute
+envelope and opt-in real-backend behavior remain unqualified.
+
+Alternative measurements are retained, not shipped. Dependency minification
+passed 16 cases but changed combined readiness only 1.5%. Exact-origin routing
+passed two cases without a consistent module-loading gain. Vite 8.2.2 bundled-dev
+phase diagnostics improved startup substantially, but the first compatibility
+selection failed all four direct-source-module imports. Explicit-entry experiments
+then exposed compiler-option/readiness/runtime-asset assumptions in the existing
+frozen-serving contract. None qualified. Keep the supported Vue change; a bundled
+runtime needs a separate brief preserving all current assertions and module
+identity. No experimental server or source-module facade enters this worktree.
+
+Finish with candidate-bound complete receipts, before/after measurements, source
+integrity, owned-process cleanup and a read-only installation/deployment audit.
+Stop before publication, installation changes, pilot or coverage consolidation.
+
+#### Configurable check CPU budget brief — approved 2026-10-21
+
+**Owner authorized this extension, including optional 25% CPU detection.**
+FlowStack editor/transfer diagnostics found that the fixed Check CPU budget is a
+material constraint. Identical instrumented source/image/native fingerprint,
+six cases, two workers, 15s assertions, zero retries and 4GiB memory passed at
+both 2 and 4 CPUs. Browser time changed 4.028 →3.268 min (18.87%); Check elapsed
+4.915 →4.189 min (14.77%). This is one shared-host sample, not a prediction of
+full-gate time. The installed Runner and deployment are unchanged. The first
+capacity attempt never left 2 CPUs and was stopped exit 143; its partial receipt and
+cleanup are retained, not accepted proof.
+
+The FlowStack-only patch preserves all original native navigation keys/loops and
+25 assertion sites in the mixed-transfer variants, adding three focus assertions
+and direct native keyboard dispatch for repeated sweeps. The Frame-resolution
+experiment was removed after failing to show a useful gain. Product code,
+coverage selection and all assertion/journey budgets remain unchanged. This small patch alone
+does not substantiate a large full-suite improvement.
+
+The approved additional Runner bundle adds one optional integer `cpus` field to
+an owner-accepted container quality check. Omitted means 2, preserving the current
+default; explicitly accepted values 1–4 bound initial supported allocation.
+FlowStack's private qualification agreement may request 4. Keep memory 4GiB,
+worker/retry/assertion policy, image pinning, network/filesystem isolation and
+process ownership unchanged. Do not modify an installed binary/config/service,
+Docker host configuration or other repositories' agreements. This is resource
+configuration, not another scheduler.
+
+A check may instead request `auto_cpus: true`: detect the pinned local Docker
+daemon's available logical CPUs, take 25%, round up and clamp to 1–4. This is
+optional; omission still means 2. Reject combining `cpus` and `auto_cpus`, and
+reject either setting without a container image. Resolve automatic allocation
+during quality preview into an explicit `cpus` value before baseline/approval;
+checks never recalculate an approved budget. A changed detected allocation makes
+the baseline preview stale. Detection failure blocks preview, without a guessed
+fallback. Test 1/4/5/8/16/32-core rounding and caps, unavailable/invalid daemon
+observations, agreement identity and host-check refusal. The qualification daemon
+has 4 CPUs, so automatic mode selects 1; FlowStack explicitly requests 4 for the
+final gate. Record this changed resource boundary when comparing timings.
+
+The CPU budget must be validated at intake/execution and included in quality
+revision/evidence, so changing it invalidates old check approval/results normally.
+Extend the existing configuration/agreement and container-argument tests for
+omitted 2, explicit 4, invalid budgets and changed quality identity. Keep default
+and other sandbox arguments unchanged; document the field and retain actual
+container inspection. Run the required Runner race/vet gates and relevant real
+container qualification, then run the FlowStack combined candidate's single
+fresh-install complete gate at its explicitly accepted budget. Keep native
+selection/assertions and all failures. Publishing, installation changes and
+pilot remain outside the bundle.
+
+The 2026-10-21 owner direction authorizes implementation in this worktree and
+one final combined FlowStack gate. It does not authorize publication, installation
+changes or a pilot.
+
+##### CPU configuration qualification — 2026-10-21
+
+Implemented in the existing Runner packages, with no new dependency or scheduler.
+The existing configuration, agreement and execution suites cover invalid/host
+settings, default allocation, rounding/caps, unavailable detection, stale preview
+refusal and durable approval. Required `go test -race -timeout 15m ./...` and
+`go vet ./...` passed. Four real container cases verified default 2, explicit 1
+and 4, and automatic 1 on the four-core daemon; fixed/default cases also verify
+4GiB memory and 512 processes. Every case released container/client ownership.
+The qualified Runner source tree is `9bc6f28d6c3f6dbdcef0208f2d31c5ad89c969f7`;
+subsequent Runner changes are documentation only.
+
+FlowStack's single fresh-install complete gate passed on uninstrumented tree
+`973c9ef16c34ea0d146c75384bd042b9efeb9503`: **4168 lower, 154 tooling,
+619 browser passes /five exact skips**, static checks and production build.
+Check `complete-1289597120`, native run
+`c8f21269-343f-44eb-8a0c-ada723bc08b5`, fingerprint
+`885d1a522eaeff409abd51d98e22b476068189ebdd07b5d6969de866910510bd`.
+All 21 source/dependency/selection/settings/receipt/cleanup conditions passed.
+Actual Check time was **49.218 min**, browser **41.843 min**, compared with
+70.738 /60.373 min at 2 CPUs. This run explicitly used the new `cpus: 4`
+field from launch, with no resource mutation. Memory stayed 4GiB, two workers,
+15s assertions, all named/default journey budgets and zero retries. The different
+quota and shared-host observation prevent attributing the gain solely to the
+small keyboard-driver patch. The 60-minute checkpoint is met; 30 minutes is not.
+
+Private evidence is retained under
+`~/.codex/runner-qualification/flowstack-email-reliability-20261018/`, including
+`editor-transfer-20261020/runner-cpu-inputs.json`, `runner-cpu-verification.json`,
+`complete-outcome.json`, assertion/source/dependency audits and the qualification
+index/archive. The read-only installation audit confirms unchanged binary/config/
+service hashes, PID 66004 and deployment; all 102 recorded owned Check containers
+are absent. Earlier diagnostic failures and resource experiments remain historical,
+not relabelled as accepted proof. Hosted CI and opt-in backend gaps remain explicit.
+No publishing, installation change or pilot occurred. Stop at this boundary.
+
+#### FlowStack fallback consolidation qualification — 2026-10-20
+
+The existing FlowStack audit defines the brief and before/after ownership map.
+Candidate cancellation and formatted-occurrence/history/save now share one
+session. All 17 original assertion and 18 native action sites remain. Five other
+sidebar cases, helper, product/fixture/lower/configuration code and all budgets
+are unchanged; distinct production, mobile, default-adapter, stale-form and
+resting-button proof remain separate. Two duplicate cold entries are retired:
+354 logical cases /626 executions become 353 /624.
+
+The first focused D/W Check failed because the retained source assertion settles
+inline editing; the combined positive phase then waited for an absent editor.
+Retain that failure, explicitly re-enter through the existing greeting button
+and add a focus assertion. Lint and both repaired native executions passed
+without timeout changes. This illustrates why combining registrations needs an
+explicit phase-entry check as well as an assertion-preservation audit.
+
+Fresh install and complete validation passed once on uninstrumented tree
+`872da102c0af97d2814fa8c0730a505a45848193`: **4168 lower, 154 tooling,
+619 browser passes /five exact skips**, static checks and build. Check
+`complete-4119455521`, native run `0ce21924-f6f9-43de-bd6b-fa1e1d224f56`,
+has fingerprint `0286f8ca2611273210b0d18216d8a23b5a14bb1104572b0327243e0bbe13a129`.
+All 21 acceptance conditions pass; 915 source files and 10448 dependency entries
+match frozen inputs, and ownership is released. The pair changed 54.009 → 41.514
+summed seconds; complete 71.231 → 70.738 min and browser 60.545 → 60.373 min.
+There is no material overall runtime improvement; both runtime goals remain open.
+Other fallback coverage has distinct proof; formatting review remains separate.
+
+Private `fallback-20261020/` evidence and the 1372-record archive retain failures,
+receipts and audits; the 1321-record predecessor is preserved. At 16:35 CEST the
+installed Runner/config/service, PID 66004 and deployment were unchanged, with
+all 93 owned Check containers absent. This Runner change is documentation only.
+No publishing, installation change or pilot occurred. Real-backend persistence
+and the hosted 20-minute CI envelope remain unqualified.
+
+#### FlowStack whole-source consolidation qualification — 2026-10-20
+
+The existing FlowStack audit defines the brief and exact assertion/owner map.
+Local undo/Escape/cached-focus and apply/result/history/save now share one bounded
+candidate source journey. All 24 original assertions and seven keyboard-operation
+sites remain, with one added focus assertion. The positive phase retains its
+active-inline entry. Product/fixture/helper code, four neighbouring cases,
+production metadata/preview wiring, both HTML separator branches, lower coverage
+and every budget/settings bound are unchanged. Two duplicate cold entries are
+retired: 355 logical cases / 628 executions become 354 / 626; no native obligation
+is dropped. Edited-spec lint and focused Chromium/GTK WebKit proof passed first.
+
+Fresh install and complete validation passed once on uninstrumented tree
+`3c3a44f3f43c3d27a397cb91186dc3e08c1902bf`: **4168 lower tests, 154 tooling
+tests, 621 browser passes / five exact skips**, static checks and build.
+Check `complete-824810471`, native run `3c4e1afa-0d41-4bc2-a89c-8fa0cac36a50`,
+has fingerprint `223d74e2e2f2dff67fe3d6538f83e1ea31a9933fbf72bb0f9ec5a8f5de3f5262`.
+All 21 acceptance conditions pass; 915 source files and 10448 dependency entries
+match their frozen inputs; ownership is released. No Check failed in this bundle.
+
+The affected pair changed 60.339 → 47.588 summed case-seconds. Complete time was
+70.944 → 71.231 min and browser time 60.535 → 60.545 min: **no material overall
+runtime improvement**. Both complete-runtime goals remain open; shared-host
+observations do not justify a broader speedup claim. Further fallback/formatting
+ownership review remains separate; no additional whole-source consolidation is
+justified by this inspected overlap without changing distinct proof.
+
+Private `whole-source-20261020/` evidence and the 1321-record thin archive retain
+the audits/receipts; the 1286-record predecessor is preserved. At 14:54 CEST the
+installed Runner/config/service, PID 66004 and deployment were unchanged, with
+all 90 owned Check containers absent. This Runner change is documentation only.
+No publishing, installation change or pilot occurred. Real-backend persistence
+and the hosted 20-minute CI envelope remain unqualified.
+
+#### FlowStack repeated MJML compilation qualification — 2026-10-20
+
+The owner authorized a measured, bounded runtime fix in the same isolated
+FlowStack worktree. The existing verification audit defines behavior, expected
+results and proof before implementation. The document command now keeps one
+successful compilation per editor, keyed by exact current serialized compiler
+input, and returns copied results. Serialization still runs on every read;
+changed input still receives full inspection, compilation and preservation.
+Metadata remains current, invalid input fails closed, and unsuccessful work
+cannot replace a successful entry or return it for a different source. No
+revision framework, cross-document cache, renderer or dependency change was added.
+
+The same three privately instrumented property/history journeys made 852 reads
+before and after. **684 repeated compilations were avoided (990 → 306 compiler
+calls)**; observed document-read time fell **12.125 → 3.429 seconds (71.72%)**.
+Both snapshots around reload are retained. The earlier incomplete diagnostic
+and a test-wrapper CommonJS interop failure remain recorded; neither is accepted
+production proof. Two new real-compiler cases in the owning suite prove stable
+reads, caller isolation, edit/undo and failure recovery. Focused affected evidence
+has 568 lower passes, plus seven native passes and one exact non-owning clipboard
+skip. The GTK OS-clipboard case passed with WebKit explicitly owning it.
+
+Fresh install and complete validation passed once on uninstrumented tree
+`4e0e0f6b7747dc0971cf0582444a0e1f59c31b50`: lint, architecture, types,
+**4168 unit/component tests, 154 tooling tests, 623 browser passes / five exact
+skips**, and build. Check `complete-3275093910`, native run
+`2bc0230d-b0f2-48dd-b21c-1df85332bcb4`, has fingerprint
+`007ed466f4d0853b9337af07b9ce307ae024efc269ffb9dc86549b9ad90c485e`.
+All 21 acceptance conditions pass; 915 source files and 10448 dependency entries
+match the frozen source and previously qualified installed inputs. Native
+selection, assertions, budgets, workers/retries and sandbox remain unchanged.
+
+Complete elapsed time changed **73.457 → 70.944 min (3.42%)** and browser
+execution **62.622 → 60.535 min**. The read-path gain is real measured work
+avoidance, but the observed whole-suite reduction is modest and shared-host
+timing does not establish controlled causal attribution. The 60-minute complete
+checkpoint and 30-minute goal remain open. Passing native cases still consume
+118.976 summed minutes, an ideal two-worker browser bound of 59.488 minutes
+before the other gate phases. Continue the existing source/fallback/
+formatting proof-ownership review from measured remaining costs; do not weaken
+native assertions or add another cache speculatively. Focused development checks
+precede one combined complete delivery boundary.
+
+FlowStack's existing verification audit owns the detailed brief and evidence.
+Private `mjml-compilation-20261020/` records and the 1286-record thin archive
+retain measurements, failures and receipts; the preceding 1184-record archive
+is preserved. The 13:28 CEST audit
+confirms unchanged installed Runner/config/service, PID 66004 and deployment,
+with all 88 owned Check containers absent. This Runner change is documentation
+only. No publishing, installation change or pilot occurred. Hosted 20-minute CI
+and real-backend persistence remain unqualified.
+
+#### FlowStack repeated editor work qualification — 2026-10-20
+
+The next authorized bundle consolidated provider-copy proof and fixture setup in
+the same isolated worktree. Six repeated copy-editor entries are removed; one
+native UNSPLASH journey owns the common copy UI, while every provider retains
+cold rendering, wire/credit policy, native history, save and readback. The existing
+mounted picker case now covers all three providers; the both-engine document
+suite retains their independent-copy mutation and original immutability. Eight
+unused scrolling sections are omitted only from the guarded logout fixture.
+The two long authoring owners keep their complete scrolling document. No runtime
+product code, configuration, dependencies, budgets or matrix assignments changed.
+
+A proposed complete-focus-cycle shortcut failed its new 35-step return assumption
+in desktop/mobile Chromium and was removed; the original focus assertions and
+sweeps remain verbatim. Its stopped partial Check, and the separate diagnostic
+WebKit tracing timeout, remain in the evidence. Neither is accepted delivery proof.
+Final focused native verification passed 13/13; owning lower tests passed 28.
+Fresh install and complete validation passed once on tree
+`3f7bd02a05732fdc97fbb971c083dc9e5c4990a5`: lint, architecture, types,
+**4164 unit/component tests, 154 tooling tests, 623 browser passes / five exact
+skips**, and build. Check `complete-3898945858`, native run
+`6f8be9f3-2047-47de-a94d-772c199fc2d3`, has fingerprint
+`7a91292de011ad4a78943965b5e4db922472dbeb572f52823c09d4672f575c31`.
+All 21 audit conditions pass; 915 source files and 10448 installed dependency
+entries match their frozen inputs, source integrity and ownership release pass.
+The unchanged keyboard journey also passed normally without tracing.
+
+Complete elapsed time changed **74.037 → 73.457 min (0.78%)**; browser execution
+**62.762 → 62.622 min**. This is **not a material overall runtime improvement**.
+The matched changed journeys consume 278.981 → 242.062 summed seconds, a small
+part of 123.067 summed case-minutes. Shared-host observations are not controlled
+causal attribution. Both the 60-minute checkpoint and 30-minute goal remain open;
+the ideal two-worker browser bound alone is still 61.534 min.
+
+Next, profile the full MJML compilation command used by history snapshots and
+dirty-state semantic comparisons before designing a change. The call path is
+confirmed; its timing impact is unmeasured. Preserve diagnostics, fail-closed
+state, normalized source, readback and history ownership. Continue the documented
+whole-source/fallback/formatting ownership review without dropping distinct native
+proof or adding a speculative cache. Use focused checks during development;
+one complete gate owns the combined delivery boundary.
+
+FlowStack's existing verification audit owns the detailed brief and assertion
+map. The private `editor-work-20261020/` evidence and 1184-record thin archive
+preserve all experiments and final receipts; the preceding 1117-record archive
+is retained. The 11:21 CEST audit confirmed the installed Runner/config/service,
+PID 66004 and deployment unchanged, with all 81 owned Check containers absent.
+No publishing, installation change or pilot occurred. The hosted 20-minute CI
+envelope and real-backend persistence remain unqualified.
+
+#### FlowStack behavior-based browser qualification — 2026-10-20
+
+The owner resumed FlowStack development here after stopping the frontend chat,
+then approved behavior-based coverage with an exact case map before removing
+executions. The FlowStack source of work is
+`docs/verification-audit/README.md` and its `browser-matrix.md` review. This
+supersedes the earlier boundary stopping before coverage consolidation; publishing,
+the installed Runner/deployment and pilot remain unchanged.
+
+The isolated FlowStack branch adopted merged `develop` commit
+`c75ef8973b9a1ad1c23d6939213e623a513a62b6`, preserving the previously qualified
+reliability/startup work. Three native Playwright project filters and case tags
+replace blanket repetition. Collection and actual execution match the reviewed
+map: **1124 → 628 executions**, all **355 logical cases / 307 registrations**
+retained. Source comparison verifies unchanged bodies, helpers, assertions,
+budgets and skip predicates. Desktop Chromium owns the logical cases; explicit
+WebKit/native and mobile/layout owners retain the reviewed boundary proof.
+Omitted combinations are not called proved. No new test framework or tests were
+needed. Focused native commands honor the same owners; complete validation stays
+at final delivery.
+
+Fresh locked install plus complete validation passed once on tree
+`9f3cbbda5070eac19d1ac76fd253ecfd256704e9`: lint, architecture, types,
+**4162 unit/component tests, 154 tooling tests, 623 browser passes / five exact
+skips**, and build; no failures, flaky outcomes or retries. Native Check
+`complete-1728191761`, run `bb9a6077-9211-4c52-8302-34c4726da11f`, has fingerprint
+`a0343015e96308aeaea2e5233fd03a4245013cc0699dc760c25ba51ca62593e8`.
+All 21 audit conditions pass, including exact selection/skips, all 915 source
+files matching the archive, all 10448 dependency entries matching prior proof,
+source integrity and ownership release. The explicit GTK WebKit OS-clipboard
+owner also passed separately. Assertions remain 15s, readiness/journey budgets
+unchanged, workers 2, retries 0 and sandbox 4GiB/two CPUs.
+
+Observed complete time fell **141.647 → 74.037 minutes (47.73%)**; browser time
+fell **130.991 → 62.762 minutes (52.09%)**. Different bases/host load limit causal
+attribution. This first cut **misses both the 60-minute checkpoint and 30-minute
+goal**. Summed passing case time is 123.530 min, whose ideal two-worker bound is
+61.765 min; scheduling slack offers little headroom. Desktop Chromium alone costs
+50.097 case-min, with 11.275 min outside browser execution. Further reduction needs
+shorter editor setup and consolidated owning-layer proof. Application email
+editing (27.333 case-min), migrated transfers (12.475) and recovery/layout (9.535)
+are the largest remaining families. Preserve native geometry/clipboard and the
+distinct cross-feature history orderings during that work.
+
+Detailed outcomes, preliminary invocation errors, skip ownership and limits are
+recorded in FlowStack's runtime brief and the private qualification directory
+`/Users/dan/.codex/runner-qualification/flowstack-email-reliability-20261018/`.
+`qualification-records.tar.gz` retains 1117 records, SHA-256
+`189ee1760a647f485f8ade9b9336abb9128310b338edd2be5145b8d149998407`,
+with the previous 1044-record archive preserved. The 09:33 CEST audit confirmed the
+installed binary/configuration/service, PID 66004 and deployment/image unchanged;
+all 77 recorded owned Check containers were absent. Hosted CI's 20-minute envelope
+and real-backend persistence remain unqualified. No publication or pilot occurred.
+
+#### FlowStack email-check reliability: implementation and qualification
+
+Accepted reliability baseline before editor-startup work:
+`codex/email-check-reliability`, tree `dec81715fb61f44f786035cdd4780be660a9e105`. The owner approved the Linux GTK
+WebKit 60s default and, on 2026-10-19, the consolidated nine named whole-journey
+budgets below. Both are applied. Every action, proof step, 15s assertion and
+explicit 45s readiness wait is preserved. E2E retains two workers and zero retries
+inside the unchanged four-GiB/two-CPU boundary. Chromium/macOS defaults remain
+30s. The budget patch introduces no tests or timeout helper; README documents
+the accepted platform policy.
+
+The final immutable export SHA-256 is
+`8d951f7d489280c903807193e726e65d6dfc8a5370fe020b5a9d5c8d4fa61273`.
+Its 52-case focused native verification passes **49 cases/three expected
+clipboard-ownership skips**, zero failures/flaky outcomes/retries. The fresh
+locked-install and complete gate also passes on that immutable source: lint,
+architecture, types, **4,084 unit/component tests, 154 tooling tests, 1,105
+browser passes/seven expected skips, and production build**. Actual Check
+`complete-58472347` passes/0 in **144.326 minutes**, inside the private
+240m / 245m settle / 250m driver envelope. Native browser run
+`5ac15549-cd08-4da1-b430-1b1a3feb3665` and its receipt/execution/run agree;
+every attempt is initial with retry zero. The exact skip-set audit, source
+integrity and owned-process cleanup pass. This is the accepted complete baseline
+for tree `dec81715`, not proof for a different source or environment.
+
+The earlier 1b10f251 WebKit matrix reaches its
+120m limit with 381 passes/eleven whole-test timeouts/one 15s reload-assertion
+failure/nineteen unfinished. The exact tail separately passes eighteen cases/one
+expected clipboard skip, then four focused trace cases and 24 normal diagnostic
+cases pass on a separate observation export. All retain their original source
+identities. Every protected-profile 15s reload assertion passes in all four
+projects in both final focused and complete verification. The earlier failure is
+retained; the larger whole-test budget does not relax that assertion or establish
+reliability under every load.
+
+Earlier forty-case focused proof, interrupted complete execution (772
+passes/thirteen new timeouts), the unchanged
+thirteen-case diagnostic (eight passes/five timeouts), and the interrupted
+intermediate WebKit matrix (66 passes/one additional thirty-second timeout) are
+retained under their original candidate identities. Integrity and owned-process
+cleanup pass for both controlled stops. The accepted platform policy below
+supersedes the intermediate per-journey additions. The final 19:51 CEST read-only
+audit confirms unchanged installed Runner binary/configuration/plist hashes,
+service PID and FlowStack deployment, with all 54 recorded owned containers
+absent. No pilot, publication or installation change has occurred. Opt-in real
+backend persistence and hosted CI remain outside this qualification.
+
+The isolated FlowStack branch is `codex/email-check-reliability` at
+`/Users/dan/.codex/worktrees/flowstack-email-reliability/webapp`, based on frozen
+`3fe7a48`. The first startup candidate has tree
+`ec885deeea0793f19144eeb36ce2cb047f11a948`; only the managed browser server,
+its existing frozen-serving test and the README change. No application
+persistence, fixture assertions, dependency, project,
+worker, timeout or retry setting changes.
+
+The original six-case selection reproduced **three failures/three passes** with
+tracing, run `ae32ab26-5382-486a-9495-a668fb617dea`. When Save was reached, the trace
+records one successful creation and successful record readbacks; desktop Chrome
+and desktop WebKit then exhaust the overall journey deadline around reload.
+Mobile Chrome times out before creation; mobile WebKit passes. There is no
+demonstrated missing fixture write. These outcomes remain failed/incomplete.
+Private timing instrumentation also shows serialization and semantic comparison
+usually taking a few milliseconds while module loading and editor startup take
+seconds; its untraced concurrent six-case run passes in **52.1 seconds**. That
+diagnostic source is retained separately and is not part of the fix.
+
+The managed server now transforms the lazy email editor and waits for static
+imports to settle before reporting readiness. It prepares frozen code without
+mounting the editor or seeding application state. The existing lifecycle test
+also verifies a dependent module is transformed before readiness, retaining its
+original source-isolation assertions. No new suite, framework or product cache
+is added. Startup remains subject to the existing 120-second lifecycle bound.
+
+On the candidate, **154 verification-tool tests pass**. Three fresh executions
+of the original concurrent browser selection pass **18/18** cases, zero failures,
+skips, flaky outcomes or retries: **46.943 / 46.251 / 46.121 seconds**. The slowest
+email case is **19.694 seconds**, below the unchanged 30-second test deadline.
+All three receipts bind the same managed candidate fingerprint
+`2fc6747ac443afb9ce19f44ef7b563b94a864a600517e8229a36c48b61a136e3`.
+Source/index/control verification passes and the owned check container is absent.
+
+Qualification image
+`sha256:c066b11c908d6ea36ee5cd6b49b0069171c98a951a7868ddb3392bec8cafa323`
+inherits the previously qualified image and changes only the private check wrapper
+to run the tooling suite and bounded repetitions. Dependencies, browsers and
+containment are unchanged. Diagnosis/focused runs use the prior private Runner
+caller; complete validation uses the same caller built against Runner `b0bdb01`.
+The sampled reliability check peaks at **3,464,237,056 bytes**, with zero observed
+OOM events/kills. No source/index check or browser claim is bypassed.
+
+**First complete gate is interrupted after failures:** fresh locked offline
+`npm ci`, then the unchanged `npm run validate:complete`, through the actual
+Runner container check boundary. The prefix passes lint, architecture, types,
+4,084 unit/component tests (208 suites, 348.53 seconds) and 154 tooling tests.
+The browser selection contains 1,108 cases and binds the same `2fc6747a…` managed
+candidate as focused proof. At the deliberate stop, its partial report records
+222 passed, ten failed and one skipped; the remaining cases are not completed.
+The owned browser lifecycle receives SIGTERM, Runner records unavailable/143,
+source/index/control verification passes and the container is absent. This
+25m13.14s driver run is **not a complete baseline**; build did not run.
+
+**Complete-gate finding and bounded brief extension:** the first complete run
+passes lint, architecture, types, 4,084 unit/component tests and 154 tooling tests,
+then exposes Tiptap fixture assertions placing inserted source before the final
+period rather than after it. Stop that known-failing browser run through its
+owned lifecycle; retain it as failed/interrupted, never as a complete baseline.
+The affected fixtures use `ControlOrMeta+ArrowRight/Left` as line navigation and
+`Alt+Shift+ArrowLeft` for word selection. Those gestures have different native
+meanings on macOS and Linux. Confirm one failure alone under the unchanged Linux
+boundary, then use the equivalent native line/word gestures in the existing
+owning specs if confirmed. Keep all expected source, caret, clipboard, history
+and reopen assertions; do not exclude comparison specs, synthesize DOM selections
+or increase timeouts. Qualify the affected specs concurrently in both engines
+and layouts before retrying the complete gate. No editor feature change or new
+test framework is authorized by this finding.
+
+The unchanged `typed each creates an alias-bound pair…` case also fails alone in
+desktop Chrome, run `959ab6e5-c8a5-4ce8-abfe-ae1a92d83cae`: the inserted source
+precedes the period rather than following it. This is a reproducible native-key
+expectation mismatch, not another load timeout. The isolated correction adds
+three native line/word key constants in `tests/e2e/keyboard.ts` and updates five
+owning specs. A reconstruction check confirms every original assertion and other
+behavior step is byte-for-byte unchanged. macOS keeps its original gestures;
+Linux uses Home/End and Control+Shift+ArrowLeft. No synthetic selection is added.
+This candidate has tree `48cb2a9c14dd1c0508bcb3679b6998eec8ab060b`; its 184-case
+affected browser selection passes all 92 Chrome cases, then exposes WebKit native
+clipboard failures. It is stopped with 110 passes/five failures; remaining cases
+are incomplete. Source/index verification and container cleanup pass again.
+
+**Environment finding and diagnostic boundary:** a single unchanged WebKit
+clipboard case still fails alone. Private instrumentation records the trusted
+copy event setting plain text, HTML and the custom binding, while paste cannot
+retrieve the binding or HTML. A minimal native-event control also loses the
+custom binding in the top document and one/two sandboxed frames; plain text
+survives. This is not evidence of missing email writes. No application clipboard
+fallback or source-scope relaxation is warranted. Before changing supported
+configuration, qualify the same pinned WebKit's GTK embedder with a private
+virtual display inside the unchanged container limits. The image has Xvfb but
+lacks xauth; its first GTK attempt stops in setup, running no browser test. Add
+that runtime prerequisite only to a disposable image, retain the failed attempt,
+and test the native rich-clipboard roundtrip. Any adopted environment correction
+must preserve real keyboard/clipboard proof, isolation between concurrent
+workers, engine/version, assertions and deadlines, with owned display cleanup.
+
+The GTK diagnostic passes the original clipboard/undo case in 13.8 seconds,
+run `320c57e9-d9cf-4f5f-adf8-5d3ba12d561f`. Copy and paste carry the same custom
+binding and HTML; the existing current-draft lookup succeeds. No clipboard data
+is fabricated. Its disposable image adds only Debian xauth `1:1.1.2-1`, image
+`sha256:be5894f02e242387cc9d1eaf739763aff48d517bec4eeddceb70c76bea0ecf99`.
+
+**Supported Linux check correction, before implementation:** configure only
+Linux WebKit end-to-end projects to use the installed GTK embedder with a virtual
+display. A small source-owned launcher delegates display allocation and cleanup
+to `xvfb-run`, one display per browser launch, so concurrent workers do not share
+the system clipboard. Resolve the actual WebKit executable from the locked
+Playwright installation in frozen configuration. Preserve macOS configuration,
+Chrome, versions, workers, assertions and deadlines. Document Xvfb/xauth and add
+the missing CI prerequisite without running or publishing CI. Verify real
+concurrent clipboard isolation, affected native journeys and cancellation/owned
+cleanup, then run a fresh complete gate on the final source. Keep application
+clipboard parsing and source-scope authority unchanged; no mock clipboard,
+display service or additional scheduling system is introduced.
+
+The first two-browser GTK isolation probe establishes independent native bindings
+on displays `:99` and `:100`, then removes the owned container on cancellation.
+It preserves the original source, but its **disposable copy fails verification**:
+the private shell wrapper was terminated before relocating `node_modules` into
+reserved output. Its unavailable receipt is not qualified cancellation proof.
+Correct only that private image wrapper: use an explicit `exec` command, handle
+termination while waiting for a child, preserve failure status and relocate
+generated output before exit. Require copy verification in the cancellation
+caller, then repeat isolation/cancellation on the corrected image. No Runner
+source guard or product assertion is relaxed.
+
+**Owner-approved decision — one journey budget (2026-10-18):** GTK preserves the clipboard,
+but the first concurrent GTK matrix times out in `typed each creates an
+alias-bound pair, renames from endeach, and shares undo/save/reopen`. Its retained
+state is `ready · verified`: save/readback already passed, and the 30-second
+whole-test deadline expires at the following Undo click. This case also performs
+creation, alias rename, two undo/two redo operations, another save and reopen.
+The approved correction is **60 seconds for this one test body across its four
+projects**, preserving 15-second assertions, two workers, zero retries and every
+behavior/source assertion. Apply this explicit owner decision, verify that journey
+across all four projects with two workers, then run a fresh complete gate on the
+final source. Earlier failures remain retained; no complete pass or pilot
+readiness is inferred from this budget change.
+
+The GTK correction is implemented with candidate tree
+`b40e17c596ab806a22da5165b71d94d86f0e4b59`: Linux WebKit configuration and a
+seven-line executable launcher, declared Xvfb/xauth prerequisites in README/CI,
+and the previously described startup/native-key changes. Application source,
+all source/behavior assertions, workers, retries and deadlines remain unchanged.
+The native GTK checkpoint confirms separate displays `:99`/`:100`, WebKit 26.5,
+independent trusted copy/paste of plain text, HTML and current custom bindings.
+After correcting the private wrapper's signal cleanup, the cancellation control
+passes in 105.07s: unavailable/stopped, intact original **and disposable copy**,
+and absent container. It uses final prepared image
+`sha256:3b8e8f45c97f18789cbd5d148f6dedb2aebcf39180627b0f41bb1495526ae483`.
+
+On this product candidate, the original six-case selection passes in 59.652s
+while the larger matrix is active. The 184-case affected matrix finishes in
+1,134.635s with **183 passes/one timeout**, zero skips/flaky outcomes/retries.
+The failure is the long journey above; it is not waived by its unchanged focused
+rerun (21.583s test body, 24.911s browser receipt, run
+`f9d33940-01a5-4067-977d-7928ebf39243`). Both selections and that focused rerun
+bind candidate fingerprint
+`180a2288d0c7a5d07faee258e6f740f7503cb013567c2677617daf10bacf1d94`.
+Their source/index/control checks pass and their containers are absent. Fresh
+locked installation, lint, architecture and types pass on this exact product
+tree through the final image; the scoped static check takes 139.01s and passes
+both source inventories. It is not the complete gate. These observations precede
+the owner's journey-budget approval. The earlier failed/interrupted complete gate
+cannot supply an accepted baseline for the final candidate.
+
+Complete diff review confirms the native-key changes preserve every existing
+assertion and other behavior step. The only additional regression assertion
+extends the owning frozen-serving test to prove editor preparation precedes
+readiness. No application persistence or clipboard code, dependency, assertion
+deadline, worker limit or retry policy changes. The future CI prerequisite is
+unpublished; hosted CI and its existing 20-minute job budget are unqualified by
+these slower, contained local runs. Fixtures do not prove live-backend persistence.
+
+At 17:41 Europe/Copenhagen, read-only before/after observations confirm the
+installed Runner binary, configuration and launchd plist hashes are unchanged,
+its existing PID 66004 remains running, and the deployed FlowStack container
+identity/image are unchanged. No pilot task, source adoption, handover or
+publication is performed. Final cleanup confirms all 17 recorded owned check
+containers are absent. A passing complete gate remains an explicit qualification
+requirement before fresh quality and pilot launch.
+
+**Approved-budget candidate:** tree `72a671d2eda74383aa50de435951f2406d0fc951`
+adds only the single `test.setTimeout(60_000)` and its explanatory comment to the
+GTK candidate. A reconstruction check again confirms the five affected specs
+preserve every baseline assertion and other step apart from the documented
+native gestures and approved budget. The long journey passes all four projects
+with two workers in 52.9s while the original six-case selection runs concurrently
+in a second isolated check and passes in 57.2s. There are no failures, skips,
+flaky outcomes or retries. Run IDs are
+`c0e4d5ad-89b7-4c7c-957e-b71ccb482fc2` and
+`ffb464e8-6cd7-46fa-896b-df6c58468db0`; both receipts bind fingerprint
+`1b93395ed7c3dbe3a80cdc99b24de92eb6b0f59a2bf5ea94cbce3c8f1c4d698e`.
+Both actual Runner checks pass with intact original/disposable inventories and
+absent containers (172.99s / 173.97s driver time). Observed memory peaks are
+3,350,368,256 / 3,447,787,520 bytes respectively, with zero observed OOM events.
+These bounded selections prove concurrent behavior; they do not replace the
+fresh complete gate now running on this final source and the final prepared image.
+
+**Complete-gate finding — paired-helper geometry:** the fresh gate passes all
+4,084 unit/component tests and 154 tooling tests, then a desktop Chrome assertion
+reports a chip overlapping authored text in
+`tiptap-migrated/transfers/email-inline.spec.ts:609`. It fails after 9.207s, not
+at a deadline, and is separate from the approved loop-journey budget. Stop the
+owned browser lifecycle and retain the failed/incomplete report. Before editing,
+inspect the measured rectangles, screenshot and source, then run one unchanged
+focused reproduction under the same boundary. Determine whether it measures
+chip-owned text incorrectly, observes unsettled layout, or reveals actual product
+overlap. Preserve geometry and source assertions; do not increase tolerances,
+hide content, remove coverage or infer that the earlier focused passes qualify
+the whole product. A product redesign or unrelated feature repair needs a new
+bounded brief; this finding does not authorize it.
+
+The unchanged isolated trace reproduces identical rectangles (run
+`a5563fd5-117b-429f-ad7f-ec0140d0e296`); this is a stable authoring-layout defect,
+not load, missing writes or a timeout. The interrupted complete run retains
+378 passes/one failure/two skips after 40m03.72s; its prefix passes 4,084
+unit/component tests (369.19s) and 154 tooling tests (157.342s). Runner records
+unavailable/143 with intact original/disposable inventories and absent container;
+build does not run. The two recorded skips are the desktop project's mobile-only
+layout case and the opt-in local-backend persistence case.
+
+**Bounded geometry correction, before implementation:** private measurement
+keeps every original assertion and restores the original style before assertions.
+It finds two overlaps with the inherited 14.95px chip line box, and none when
+chips use the font's native `normal` line height. Raising numeric row floors also
+removes overlap, but a native chip line box avoids another guessed clearance
+constant. Correct only the injected, editor-only chip `line-height` from `inherit`
+to `normal`, preserving the existing authored-row minimum, font size, labels,
+caret/history behavior and serialized email styles/source. This satisfies the
+existing paired-helper geometry contract; it adds no feature or test exception.
+Keep the 0.5px overlap and 2px alignment assertions unchanged. Extend no suite:
+run native affected unit/component checks and the existing geometry, long
+edit/history/reopen and rich-clipboard/undo journeys across all four projects,
+then run a fresh complete gate on the resulting source. The earlier failed gates
+remain failed and cannot be renewed into an accepted baseline.
+
+The geometry correction has tree `46280253cd3a471fdbb3706f99273246b0759e07`.
+Native affected selection passes 607 tests in 20 unit/component suites. The
+three existing browser journeys pass **12/12** across both engines/layouts in
+93.437s, zero failures/skips/flaky outcomes/retries, run
+`bc6392d7-54a7-484c-8c59-25d2dd3938cb`, fingerprint
+`9ceb79f3e1b0a0892d0ec2612d67c88ff5ed576749037052037dac9404622c31`.
+The original 0.5px overlap/2px alignment assertions pass in resting and editing
+views. Retained desktop Chrome resting and mobile WebKit editing screenshots
+were inspected; no new wrapping or clipping was observed in this geometry
+fixture. The long journey takes 32.879s in desktop WebKit, demonstrating why its
+approved whole-test budget is needed; every assertion retains 15 seconds.
+The actual check passes in 314.75s, with intact original/disposable inventories
+and absent container. Complete diff review confirms only one injected CSS
+property and its comment changed since the approved-budget candidate. A fresh
+locked-install/complete gate is now running on this source; these focused results
+do not waive the interrupted gate or establish complete readiness.
+
+**Complete-gate finding — mobile inspector visibility, before diagnosis:** the
+fresh geometry-corrected gate passes its lower layers and the formerly failing
+geometry case, then mobile Chrome fails
+`tiptap-migrated/authoring/email-inline.spec.ts:291`: the selected-chip action
+section has viewport intersection ratio `0.992290318…`, below the existing full
+visibility requirement. The test has not reached typing or Save. Do not describe
+this as missing writes or extend its timeout. Stop the owned known-failing run,
+retain its partial report and reproduce this exact case alone with a trace.
+Inspect the toolbar bounds and overflow ownership before any change. Preserve
+`toBeInViewport({ ratio: 1 })`, control availability, source and history proof;
+only a demonstrated minimum layout/scroll correction is within this email-check
+bundle, not a toolbar redesign or unrelated feature work.
+
+The unchanged isolated trace reproduces the same visibility ratio, run
+`70c12fc0-e644-4226-812e-26d68400845c`. The failed complete gate is interrupted
+after 57m17.97s; source/index/control verification passes, Runner retains
+unavailable/143, the container is absent, and build does not run. The test fails
+before typing or Save, not at a persistence assertion.
+
+**Bounded inspector correction, before implementation:** private native
+IntersectionObserver measurements show a 366.828px chip-action group clipped to
+364px. Its 96px identity label cannot shrink. Capping the group to its parent's
+content width and permitting only that already-truncated label to shrink produces
+a 356px fully visible group (ratio 1), an 85.172px label and the same row height.
+Apply only `max-w-full` to the group and replace the identity's `shrink-0` with
+`min-w-0`; preserve the identity text/title, every action, fixed toolbar height,
+remaining horizontal scrolling and focus/source/history behavior. No new
+component, scroll watcher or test exception is warranted. Run native affected
+component checks and both existing full-visibility authoring/profile-chip journeys
+in all four projects before a fresh complete gate. Keep all assertions and
+deadlines, apart from the separately approved loop-journey budget, unchanged.
+
+**Bounded test-design correction, before implementation:** on inspector-corrected
+tree `cf51c5fc263502b9ab1327378ae0e683c2d6e3a0`, native affected selection passes
+612 tests in 21 suites. The eight-case browser selection passes six cases, but
+both WebKit authoring journeys reach their existing 120-second whole-test limit.
+They pass full inspector visibility, the first verified Save/reopen and the
+replacement Save/readback; they expire later at the unsaved-footer/logout tail.
+Preview screenshots occur around 78–82s. These outcomes remain failed, not proof
+of missing writes or permission to raise another deadline.
+
+The journey has a natural state reset at its verified Save and `page.reload()`.
+Split its independent post-reload lifecycle into one additional case in the
+same owning file, reusing `openAuthoringJourney` without a new helper/framework.
+Preserve the proof as follows:
+
+| Existing obligation | Ownership after the split |
+| --- | --- |
+| Selection/composition, toolbar/overlay focus and geometry, active typing, image changes, isolated preview, exact payload/source/metadata and one verified Save/reopen | The existing authoring journey, ending after its first verified reopened content. |
+| Protected attribute deletion refusal, no-op preview, exact attributed replacement with verified Save, unsaved navigation cancellation, logout/picker retirement without another write | A separate lifecycle case from the same saved rich fixture, which already contains the protected attributes and opaque template. It selects the unchanged footer by its original text; earlier editing history is not part of this post-reload contract. |
+| Cross-feature undo/redo across formatting, blocks and images | The pre-existing shared-history journey remains unchanged. |
+
+Move the existing tail, not a copy. Retain every source, visibility, control,
+history, metadata and cleanup expectation; adjust only write counts to the new
+independent session (zero before replacement, one after its verified Save).
+Monitor unexpected requests/errors in both cases. Keep 120 seconds per journey,
+all existing assertion waits, two browser workers and zero retries. This adds one case
+per project (1,112 total complete browser selections) rather than relaxing the
+failed case. Run both split journeys and the existing profile-chip inspector
+journey in all four projects, then the fresh complete gate. No old failed gate
+becomes an accepted baseline.
+
+Before retrying the expensive complete gate, qualify the remaining four
+authoring-suite cases (shared cross-feature history, scalar/date conditions and
+canonical variable spellings) in all four projects. This closes the concrete
+GTK coverage gap exposed by the 120-second authoring failure. Use one native
+16-case selection on the same final source; do not repeat the twelve already
+selected split/inspector cases or treat these selections as a complete baseline.
+
+**Source before the additional owner-approved budgets:** tree
+`7d58eae28ba99ed51a9d8b881498234d2b6adc92` passes lint and all twelve split/
+inspector journeys, run `767c58ab-06d6-4c7a-a8b8-81ddf1a94da4`, fingerprint
+`01807b82b862a14591395f237e3c61fcfa6bc13823d02a921110d9cba28de773`.
+The longest authoring case takes 117.239s against its unchanged 120s cap. The
+separate guard lifecycle takes 45.553s at most. All original actions/assertions
+reconstruct the baseline exactly after undoing only the documented case boundary,
+fresh-session counter and footer-locator adaptations.
+
+The remaining native selection finishes **12 passed/four whole-test timeouts**,
+zero skips/flaky outcomes/retries, run `b7b7caca-8180-48b2-8220-0fefcc732f15`.
+Both WebKit shared-history cases exhaust 120s: desktop image setup finishes at
+116.895s before the remaining undo/redo/save cycle; mobile reaches redo after
+undoing to baseline. Desktop scalar/date cases exhaust their existing 90s caps,
+respectively during post-save reopen and final pre-save branch work. Both mobile
+condition variants and all canonical-spelling variants pass. Actual checks retain
+failures, intact original/disposable inventories and absent containers; these
+results do not establish a complete baseline.
+
+The owner approved these named whole-journey budgets on 2026-10-18:
+
+| Named journey | Previous whole-test cap | Approved cap | Reason |
+| --- | --- | --- | --- |
+| Shared formatting/block/image undo/redo and verified save | 120s | 240s | One complete shared-history cycle must stay together; native desktop setup alone consumes 116.895s. |
+| Authoring, current-input preview and verified save/reopen | 120s | 180s | The split is adequate in scope, but the observed 117.239s leaves insufficient load headroom. |
+| Parameterized scalar/date condition authoring and persistence | 90s | 150s | Desktop WebKit reaches the current whole-test boundary during late branch/reopen steps. |
+
+This changes three existing timeout declarations only, in all four projects.
+Default 15s assertion waits and all existing explicit readiness waits (including
+45s waits), proof steps, workers, retries and containment remain unchanged.
+The new guard lifecycle, canonical-spelling journey and other tests keep their
+existing budgets. The separate previously approved 60s loop journey remains as
+approved. The exact approved patch is retained privately as
+`proposed-journey-budgets.patch` under the qualification evidence root. Apply
+these three declarations, run the named affected journeys concurrently, then a
+fresh locked-install/complete gate on the final source. Publication, installation
+and pilot launch remain outside this bundle.
+
+**Approved-budget qualification:** the three declarations produce tree
+`5f2b1bbea631537a77886857017be5b424fccaf3`. Native run
+`900fb2f2-f886-4a11-8acb-06725c44c8f9` passes all sixteen affected journeys in
+671.754s, zero failures/skips/flaky outcomes/retries. Fingerprint
+`681879d571a7f8b60d83d08b72362e1ed3968a4abfbfdecfece5df531295b81b`
+binds the frozen source. Desktop/mobile WebKit shared-history takes
+201.386/156.971s; scalar conditions take 104.916/75.049s. These completed
+workflows exceed their former caps without changing an assertion or bypassing
+any step. The actual Runner check passes, original/disposable source and index
+remain intact, and its container is absent. A source-preparation attempt first
+failed before launch because the private caller's image-id file was placed one
+directory too high; its log is retained, then the private path was corrected.
+This did not execute a browser or change the product candidate.
+
+After reviewing the complete fifteen-file diff and confirming that this delta
+contains exactly the three approved declarations, start the fresh locked-install
+and native `validate:complete` gate on the same immutable source. Its result,
+including any failure, remains required before qualification is complete.
+
+**Additional library-journey finding and proposed verification brief:** on the
+same tree/fingerprint, fresh `npm ci` and `validate:complete` pass lint,
+architecture, types, all 4,084 unit/component tests and all 154 verification-tool
+tests. Browser run `36bf7403-2fde-47c3-83ee-46dc35b66853` records 692 passes,
+one failure and five skips before a deliberate stop. Desktop WebKit's existing
+30-second HTML-template save/archive/restore/reuse case expires during its final
+library archive/readback, after the new email Save and exact-source readback have
+already passed. Its snapshot shows the saved email and a pending library change.
+The actual check is unavailable/143 after cancellation, with intact inventories
+and absent container; build was not reached. This is not an accepted baseline.
+
+The unchanged eight-case traced selection, run
+`126f4545-0084-43e0-aa34-0871f2109d60`, passes all four Chromium cases and times
+out in both WebKit variants of the HTML-template and visual saved-block journeys.
+The HTML cases expire at different late steps (new-email navigation and final
+reload). The visual cases finish actual template/block creation, then expire at
+library insertion or verified Save after undo/redo. Traces show cumulative native
+browser setup, navigation and successful actions rather than one 15-second
+assertion consuming its deadline. Failed outcomes and traces remain retained.
+
+Before another complete run, qualify the remaining `email-editing.spec.ts`
+journeys in both WebKit projects with native selection, two workers and zero
+retries, excluding these two known failures. This closes the concrete coverage
+gap exposed by the Linux GTK path without re-running already passing Chrome.
+Also run the existing single-owner native cut/history case explicitly as desktop
+WebKit: its unchanged test declaration normally selects desktop Chrome and skips
+the other projects. Preserve that ownership selection and report every skip.
+
+The reviewable proposal changes only two existing whole-test declarations:
+
+| Journey | Previous cap | Approved cap |
+| --- | --- | --- |
+| HTML template save, archive, restore and independent exact-source reuse | 30s | 60s |
+| Visual template/saved-block creation, actual insertion, shared history, Save/reopen and library archive | 30s | 90s |
+
+Keep these producer/consumer journeys together: a split with pre-seeded saved
+content would omit reuse of the data actually produced by the UI. Retain every
+action, assertion and existing assertion deadline, two workers, zero retries and
+the four-GiB/two-CPU sandbox. Do not change other budgets. The exact approved
+patch is `proposed-template-budgets.patch` in the private evidence root. The
+owner explicitly approved these two declarations on 2026-10-18. Apply that patch,
+run both affected journeys concurrently in all four projects and the remaining
+WebKit editor selection, then the fresh locked-install/complete gate on the
+final source. No publication, installation change or pilot launch is authorized
+by this decision.
+
+The approved two-line change produces tree
+`a757954e7689e1389a4c688d839ddb558b840d8a`. Run
+`8aeef5cd-d61f-4e95-91dd-f7b2703f2d88` passes all eight affected cases in
+110.602s, zero failures/skips/flaky outcomes/retries, fingerprint
+`4f3eaf31bc5bfaffbb600fd94cccca2dcf80efb928e164e51df6bc02d0c6c212`.
+Desktop WebKit takes 33.216s for HTML and 36.973s for visual reuse; mobile takes
+24.780/32.154s. The actual Runner check passes, inventories are intact and the
+container is absent.
+
+Before retrying the full product gate, close the remaining GTK coverage gap
+with native file selections: finish the remaining editor journeys; then check
+the other email adapters/previews/integration and unchanged fixture files, and
+the migrated transfer/recovery files in separate bounded selections. Reuse the
+already adequate changed-fixture and authoring proofs. Run both WebKit projects,
+two workers, zero retries, unchanged assertion and unapproved journey deadlines.
+Collect failures across these selections before proposing further policy
+changes; do not start another complete gate with a known failure. These are
+development checks, not a complete baseline or a replacement for the final gate.
+
+The remaining editor selection, run `6da6b3ad-3f55-4df5-94e7-13211f8fe05c`,
+finishes in 1,318.250s with **69 passes/seven 30-second whole-journey timeouts**,
+zero skips/flaky outcomes/retries. Both inventories are intact and the container
+is absent; the actual check remains failed/1. The failures are:
+
+| Existing workflow | Failing project(s) and last reached obligation |
+| --- | --- |
+| Independent visual-email copy | Desktop: second Save and exact payload checks pass; the deadline interrupts final reopen readiness. |
+| Cropped-image upload/history/save | Desktop: one upload, one verified Save, exact stored HTML/MJML/metadata checks pass; final reopen readiness is interrupted. |
+| Parameterized stock-provider selection/history/save/reopen/copy | Mobile, all three providers: original Save/reopen and stored-preview assertions pass; the deadline interrupts the independent copy's editor entry. Desktop variants pass later with the other worker idle, which does not waive the concurrent failures. |
+| Parameterized HTML/MJML feed snapshots and preview/test-send recovery | Both MJML projects: persisted snapshots, template and refresh protection pass; the deadline interrupts profile preview or the final test-send form. HTML variants pass. |
+
+All seven expire at their whole-test cap, rather than exhausting an individual
+assertion deadline. No new budget change is applied. The concrete four-line
+proposal, `proposed-editor-followup-budgets.patch`, gives copy, cropped-image and
+the three-provider family 60s each, and the two-format feed family 90s. Keep all
+producer/consumer, write-count, source, history, preview and recovery proof, all
+assertion deadlines, workers, retries and containment unchanged. Finish the
+remaining GTK selections before requesting one consolidated owner decision;
+additional failures are findings, not authority to relax the policy.
+
+**Consolidated GTK finding and next verification boundary, 2026-10-19:** the
+other adapters/previews/integration and unchanged fixture selection, run
+`cbbc2cc9-3af9-4f33-a1cc-f70766198100`, finishes **173 passed/one 30s timeout**
+in 1,222.421s, zero skips/flaky outcomes/retries. The timeout is desktop's
+condition-move round trip after undo/redo, during its second native drag. Mobile
+passes in 13.713s with the other worker idle; that does not waive the failure.
+
+The transfer/recovery selection, run `092aab50-8e9d-48d1-8fc8-c90496466fce`,
+finishes **50 passed/one 30s timeout/one intentional skip** in 1,056.031s, zero
+flaky outcomes/retries. Desktop's passive-selection case expires during the
+last whole-block condition-form checks, after inline selection, apply/cancel
+and undo/redo assertions pass. Mobile passes in 20.679s. The existing native-cut
+test explicitly uses `FLOWSTACK_NATIVE_CLIPBOARD_PROJECT=desktop-webkit-email`:
+desktop passes in 58.747s with every cut/undo/redo/source assertion; mobile skips
+under its existing ownership rule. Both actual checks remain failed/1, with
+intact source/index inventories and absent containers.
+
+The unchanged, concurrent two-project condition-drag trace, run
+`8877936b-403a-4bd9-8034-981cae40eb3f`, retains two 30s timeouts at different
+steps. It shows successful actions and geometry reads before the deadline:
+desktop reaches Undo/Redo after its first drag; mobile reads the empty origin's
+box successfully, then the next read is cut off by context teardown after 58ms.
+There is no demonstrated disappearing paragraph or single long assertion wait.
+The earlier missing-locator error cannot by itself establish a product bug.
+Both inventories are intact and the container is absent.
+
+The consolidated, reviewable patch is `proposed-final-journey-budgets.patch` in
+the private evidence root. It adds only these six whole-test declarations:
+
+| Existing journey/family | Previous cap | Approved cap |
+| --- | --- | --- |
+| Independent visual-email copy | 30s | 60s |
+| Cropped-image upload/history/save/reopen | 30s | 60s |
+| Stock selection/history/save/reopen/independent copy, all three providers | 30s | 60s |
+| Feed snapshot/template/preview/test-send recovery, both HTML/MJML formats | 30s | 90s |
+| Passive selection, inline and whole-block condition forms, apply/cancel/history | 30s | 60s |
+| Condition move out and back through native drags and undo/redo | 30s | 60s |
+
+This covers nine parameter-expanded journeys in their existing suites. Preserve
+all steps and assertions, their existing 15s/45s deadlines, two workers, zero
+retries, unchanged global defaults and four-GiB/two-CPU isolation. The owner
+explicitly approved this exact six-line patch on 2026-10-19. Apply it and run the
+thirty-six affected project/case combinations in
+one native selection on the final source, review the complete diff, then run a
+fresh locked install and `validate:complete`. The existing default native-cut
+ownership explains three extra complete-matrix skips in addition to the two
+layout and two real-backend skips; retain all reasons and the explicit WebKit
+supplement. No failed or interrupted run becomes an accepted baseline.
+
+#### WebKit timeouts and full-gate limit: implementation brief
+
+Owner authorization, 2026-10-19: diagnose and fix the eight retained desktop
+WebKit timeouts and the full-gate limit in the existing isolated worktrees.
+Publishing, the running installation and pilot launch remain out of scope.
+
+Supported result: the eight owning journeys and their shared browser/runtime
+setup work reliably with their existing behavior and proof. The full native
+`npm ci` / `npm run validate:complete` sequence must finish inside an explicit,
+credible outer Check deadline. The previous 120-minute envelope stops with
+161 cases unfinished and cannot serve as an accepted baseline.
+
+- Start from tree `7cbe534820fdf541fa7b8f829835209539963dcc`; retain all prior
+  failures. Confirm no owned check is active before diagnosis. Use one bounded
+  native traced selection of the eight cases with two workers and zero retries.
+  Inspect action timings, individual waits, frame rendering/focus and CPU/memory
+  pressure to distinguish cumulative work, browser setup, stalled interaction
+  and application failures. A timeout is an observation, not a diagnosis.
+- Preserve every behavior, source, selection/caret, history, write-count,
+  validation, rendering and save/reopen assertion. Preserve the existing 15s
+  assertion and explicit 45s readiness deadlines, two workers, zero retries and
+  four-GiB/two-CPU boundary during the initial diagnosis. Do not replace native
+  clipboard or keyboard proof, force interactions, add sleeps, skip cases or
+  introduce a new test framework. Change the demonstrated owning surface only.
+- Prefer a shared browser/setup fix when measurements demonstrate one. Split an
+  oversized journey only at a real verified lifecycle boundary, retain all proof
+  in the owning suite, and explicitly account for fixture/write-count changes.
+  A whole-journey budget change requires measured cumulative cost, not a way to
+  hide an unresolved wait. Keep the decision and impact assessment here.
+- The outer qualification deadline is separate from browser assertions. Size it
+  from the retained complete execution and remaining matrix, with bounded
+  headroom; update only the private Check caller/qualification configuration and
+  its driver watchdog. Runner production code, installed configuration and
+  hosted CI policy are unchanged. Retain the selected deadline and provenance.
+- Extend existing owning unit/tooling coverage only when the fix introduces a
+  credible regression risk. Run applicable lower-layer checks first, then batch
+  the eight cases across all four projects plus representative overlapping
+  editor/fixture journeys. Include the existing explicit WebKit native-cut proof
+  if browser startup or display behavior changes. Inspect the full diff, then
+  run a fresh locked install and native complete gate on the final candidate.
+  A failed/interrupted execution cannot be renewed into a passing baseline.
+
+Finish line: retained candidate-bound focused and complete evidence, all actual
+outcomes/skips, integrity/owned-process cleanup and a fresh installation audit.
+Keep known unproved backend/hosted-platform coverage explicit. Stop before any
+publication, installation change or pilot launch.
+
+**Eight-timeout diagnosis and repair decision, 2026-10-19:** unchanged traced
+run `e0f65b76-1509-4f77-a8a2-def0d28d2abf` selects all eight cases together with
+two workers: **one passed/seven whole-test timeouts**, zero skips/flaky
+outcomes/retries. The last nested-condition case passes after the other worker
+becomes idle. The fixed sandbox reaches its four-GiB boundary without an OOM
+kill. Completed individual waits remain within their existing limits; the
+longest is 8.359s of initial readiness. Median completed clicks range from about
+0.6 to 1.5 seconds across these traces, with input dispatch accounting for a
+material part of that time. The fallback journey completes 151 browser operations
+and reaches final Save confirmation near its 120-second boundary. The short
+journeys make successful progress until their thirty-second cap interrupts
+later proof. This supports cumulative journey cost under the real GTK/sandbox
+configuration; it does not support deleting proof or repairing persistence.
+
+The minimum repair preserves each coherent lifecycle and every existing action
+and assertion: fallback **120s -> 180s**; each of the other seven journeys
+**30s -> 60s**. No blanket/global timeout, assertion deadline, readiness bound,
+worker, retry, clipboard or capacity change is made. Existing owning suites need
+no new cases or helper framework for these declarations. Verification must prove
+the complete original workflows under concurrency; an extended diagnostic alone
+is not passing proof of the repaired candidate.
+
+The private caller uses **180m** for a complete Check, a **185m** settle watchdog
+and a **190m** Go-test watchdog. The previous attempt consumed 120m with 161
+mobile WebKit cases unfinished plus build still outstanding; the three-hour
+budget supplies bounded headroom for that measured remainder. The binary is
+compiled from unchanged Runner `b0bdb01860eadf6095e73bad730c64d701b84f23`, with only
+the two private test-driver duration constants changed. Production Runner source,
+installed quality configuration, the check image and hosted CI policy remain
+unchanged. The repaired FlowStack tree is
+`68182062e4a935e6d222ffafbfd1bc60c3ebb12b`; its fresh forty-case native selection
+covers the eight journeys in all four projects, the long shared-history journey
+in all four, and the explicit desktop WebKit native-cut journey (three other
+project ownership skips). Fresh native complete verification follows only after
+that selection passes.
+
+**Repaired-candidate focused proof:** run
+`96876001-8601-4f32-a99b-98caf7a110c1`, fingerprint
+`4e504cfdc62e71ebd8506340961b8bb96089c48e39b3d5a4cb31869da2f344b0`, finishes
+**37 passed/three intentional clipboard-ownership skips** in 793.097s, zero
+failures/flaky outcomes/retries. The eight journeys pass in all four projects;
+all four shared-history journeys and explicit desktop WebKit native cut pass.
+Desktop fallback takes 119.583s; sidebar chip/word cases 32.100s/31.511s and nested
+movement 30.016s demonstrate why their previous caps had insufficient margin.
+The existing desktop shared-history journey takes 231.591s within its unchanged
+240s cap. Native cut takes 58.042s. Every original workflow assertion remains.
+Source digests match before/after, integrity errors are empty and ownership is
+released. This is focused proof; a fresh complete gate is now running.
+
+One source-export preflight fails before any container or browser starts because
+Git's default tar directory mode is group-writable 0775. The rejected export is
+retained; the next immutable export uses per-invocation `tar.umask=0022`, preserving
+Git content/executable bits while making directories 0755 and files 0644/0755.
+It passes Runner's existing source guard. The corrected archive SHA-256 is
+`1a66dc4edddc87f8ffd18e695a1a0a2b8a04d5622ab0a5b5c44fe37488ab7e59`.
+No guard or installation setting changes.
+
+**Fresh complete attempt and expanded diagnostic boundary:** run
+`5c66c351-ca79-4acf-84a7-fb04c71e8bc8`, actual Check
+`complete-1853722351`, passes fresh locked installation, lint, architecture,
+types, all 4,084 unit/component checks and all 154 tooling checks. The browser
+matrix reaches 772 passes/thirteen additional whole-test timeouts/five existing
+skips before a controlled stop at approximately 95 minutes; 322 remain
+unfinished (two active/320 unstarted), and build is not reached. Actual outcome
+is unavailable/143; native metadata remain running and are not a completed
+receipt. Source digests match and owned-process cleanup passes.
+
+The additional failures span short native editing/clipboard interactions,
+upload/sign-out recovery, two-document adapter mounting and three existing
+120-second workspace journeys. No additional assertion, deadline or production
+code change is made. Before proposing any further repair, run these thirteen
+cases together with trace enabled, two workers, zero retries and their original
+caps in the same immutable candidate. Inspect native action timings and setup,
+plus runtime/process resource data, to distinguish a shared slowdown from
+separate defects. Full-run CPU samples show approximately 1.94–2.00 CPUs in use
+during both low and high host load; host load spikes above 100 are recorded but
+do not establish CPU starvation as the cause. The sandbox reports no OOM kill
+and negligible memory pressure. No thermal/performance warning is recorded by
+the host. Do not turn this partial execution into an accepted baseline or
+increase additional budgets without measured justification.
+
+**Intermediate owning-journey repair brief and decision (superseded below):** the unchanged thirteen-
+case trace run `a4a0bc1e-43a8-4f3c-bb59-d9f9ad050aab` finishes eight passes/five
+whole-test timeouts, zero skips/flaky outcomes/retries, with integrity and owned-
+process cleanup intact. Host load is around four to six during this reproduction.
+The completed assertion waits stay within their existing deadlines (maximum
+8.006s, initial readiness); median native clicks are approximately 0.8–1.4s.
+The workspace-properties journey completes 535 browser protocol operations before
+its 120s cap, at a later workflow step than the full-run failure. Opaque-rule,
+loop, source-preserving typing/history and chip-cut cases likewise make successful
+progress to their thirty-second cap. Eight other journeys pass unchanged, several
+with only a few seconds of whole-test margin: upload/sign-out 28.410s, completion
+29.202s, selected-word loop 26.935s, typed-condition selection 27.927s. The full
+run has already demonstrated their inadequate margin under the same resource
+boundary. No shared stuck assertion, missing write, OOM, or justified browser
+flag/runtime change is identified.
+
+Extend the same measured owning-journey rule to the thirteen full-gate findings,
+without changing any proof, fixture, expectation/readiness deadline, global
+budget, worker, retry or resource bound:
+
+| Existing owning suite | Whole-journey changes |
+| --- | --- |
+| `email-editing.spec.ts` | Unknown-upload/sign-out and opaque-rule feedback 30s -> 60s; workspace properties, canvas move/duplicate/delete and tenant Files recovery 120s -> 180s |
+| `email-editor-adapter.spec.ts` | Two supported documents' mount/edit/move/reopen and resource isolation 30s -> 60s |
+| `tiptap-candidate/boundaries/email-inline.spec.ts` | Delete/Backspace pair unwrap 30s -> 60s |
+| `tiptap-candidate/email-editing.spec.ts` | Completion/cancel, unnamed-loop protection, selected-word loop, and typed-condition selection 30s -> 60s each |
+| `tiptap-candidate/email-inline.spec.ts` | Source-preserving typing/history/reopen and native chip cut/paste/block history 30s -> 60s each |
+
+These are ten additional 60s declarations and three 120s -> 180s changes. They
+retain coherent lifecycle coverage in its existing owning suites; no new tests,
+helpers, application feature or browser flags are needed. Reinspect the complete
+diff, then run the **entire two-project WebKit matrix**, including explicit
+desktop WebKit native-cut ownership, before another fresh complete gate. This
+addresses the now-demonstrated broader WebKit timing concern before spending
+another complete run. The private WebKit-only Check uses a bounded 120m envelope,
+125m settle watchdog and 130m driver watchdog; it is not a complete baseline.
+The fresh complete gate still uses 180m/185m/190m and must include all four
+projects, the lower layers and build. Only a successful actual Check with a
+complete native receipt, source integrity and cleanup qualifies the candidate.
+Keep prior failures and known backend/hosted-platform limitations. No publication,
+installation change or pilot launch is authorized by this extension.
+
+**Accepted owner quality policy, 2026-10-19: Linux GTK WebKit default.** The
+expanded full WebKit matrix exposes another unmodified thirty-second journey
+(`chips stay visible outside editing and clicking an imported helper selects
+its exact pair`). Continuing to add a declaration for each such journey is
+less clear than assigning the demonstrated platform a suitable whole-test
+budget. The brief preserves defaults, so this broader policy was prepared as a concrete
+unapplied patch. The owner explicitly approved: "Approve Linux GTK WebKit
+default of 60 seconds (Recommended)". It is now applied as tree
+`1b10f251b6c2bc486d7d486fbc92b37821a2391d`.
+
+The accepted policy sets **60s only for the two Linux GTK WebKit projects**.
+Chromium and macOS defaults remain 30s; all assertion/readiness deadlines, every
+action/proof step, existing named long-journey budgets, two workers, zero retries
+and the four-GiB/two-CPU sandbox remain unchanged. Remove the seventeen new 60s
+per-journey declarations from this request (seven original and ten additional),
+retaining the four measured 180s long journeys. This reduces the repair to two
+project defaults plus those four long-journey changes relative to the preceding
+approved candidate; no new tests, helper framework or browser flags are added.
+The exact approved patch is retained privately as
+`proposed-linux-webkit-budget.patch`. A failure of an individual fifteen-second
+assertion remains a failure. A stalled action without its own bound may now
+consume up to the additional thirty seconds; the matrix and complete gate must
+still succeed with zero retries. Keep this tradeoff explicit instead of
+implicitly changing every future journey by scattered edits.
+The intermediate `ed8c73f` WebKit matrix is deliberately stopped after 66
+passes/one timeout/zero skips with 345 unfinished; its actual Check is
+unavailable/143, source integrity passes and the owned container is absent. A
+fresh entire WebKit matrix now verifies the accepted source, followed by fresh
+native complete verification. No intermediate execution is relabeled as proof
+of the accepted candidate.
+
+**Remaining named-journey diagnosis after platform approval:** retain the whole
+412-case matrix before choosing a further repair. Its 120m outer deadline stops
+with eleven whole-test timeouts and one failed individual assertion. The nineteen
+unfinished cases subsequently pass in their separate exact selection (eighteen
+passes/one expected skip). Findings reach explicit 90s visual-template, 120s
+image/group-rule, 120s combined-transfer, 180s mobile workspace-properties, 60s
+stock-provider family, 240s shared-history, 180s authoring/preview/save and 150s
+scalar/date budgets; provider variants and scalar/date each share a declaration.
+The PEXELS error snapshot contains the expected
+attribution after the cap fires, so that observation does not establish a missing
+attribution write. Keep individual assertions and all source/write/history proof.
+
+After the matrix settles, select its remaining failed journeys in both WebKit
+projects. Where a whole-test cap prevents observing complete workflow cost, use
+one separate immutable diagnostic export with a bounded five-minute observation
+budget for those selected journeys only. The later mobile shared-history finding
+reaches its 240s cap during Undo traversal, before the complete Redo and persistence
+proof; allow eight minutes for that diagnostic alone to observe the whole replay.
+These are observation bounds, not proposed accepted budgets. Preserve every action and individual
+15s/45s deadline, two workers, zero retries, image and sandbox. Keep the assigned
+worktree's approved named budgets unchanged during this experiment. Inspect the
+complete action timeline, especially the combined native-drag placeholder and
+later history/image/save proof: a persistent individual assertion failure calls
+for a responsible product/test fix. Completed steady work supports a measured
+owning-journey budget proposal with explicit margin. The diagnostic export is
+observation evidence, not an accepted candidate or complete baseline. Present any
+remaining named-budget patch for the owner's decision before changing the
+approved working tree, then verify the accepted candidate and a fresh native
+complete gate. Recalibrate the private outer Check envelope from the measured
+matrix plus earlier lower-layer/Chromium execution, separately from all assertion
+and journey requirements. Publication, installation changes and pilot launch
+remain outside this boundary.
+
+**Diagnostic timing control:** the initial 24-case all-traced export
+`fe1483da01d0d8410a7a459f6ad173d5d102b316` is deliberately stopped after two
+completed cases (run `a2fcb4b2-2e68-475f-bff9-6cdf93adb084`); native metadata stay
+running with twenty-two unfinished. Actual outcome is unavailable/143; source
+integrity and owned-process cleanup pass. The visual-library journey completes
+in 108.896s and image/group rules also complete, preserving their assertions.
+The traced shared-history case is substantially slower than its earlier
+normal-mode evidence. Compare the exact selection without tracing before using
+those timings to size accepted budgets. First isolate the protected-profile
+reload assertion in a four-case trace with the workspace-properties journey,
+covering both WebKit projects under the same concurrent/resource boundary.
+The fifteen-second reload assertion stays unchanged. Neither diagnostic mode
+is accepted full verification or permission to change the assigned budgets.
+
+The focused trace run `ab31d32a-99ae-4da7-b428-57b1b1e04ae6` passes all four
+cases with source integrity and cleanup intact. The protected-profile post-reload
+readiness wait completes in **12.361s desktop / 7.298s mobile**, retaining the
+15s assertion and all write/source/reopen checks. Each reload records 180 module
+and fixture requests; desktop fixture reads complete successfully before the
+editor dependencies and mount finish. This does not reproduce the earlier
+failure or establish a missing write; it also does not prove that readiness has
+ample margin under every load. Keep that retained finding explicit and require
+the unchanged assertion in normal-mode diagnosis and fresh complete verification.
+Normal-mode run `3439ecc5-78b1-4cae-a8c7-356a9166ac7f` passes the exact
+24-case selection on the same diagnostic source, with tracing at its repository
+default: **24 passed, zero failures/skips/flaky outcomes/retries**. Actual Check
+passes/0; source integrity and cleanup pass. Its browser fingerprint matches the
+focused trace, `264b6143f8e45d6d6ade1c3536f2f3ca45005409dd02bf9d7b375b50b37eef65`.
+All native-drag, history, delayed-image, source, write-count and reopen proof
+completes. This is diagnostic evidence; accepted worktree `1b10f251` remains
+unchanged, and no complete baseline exists.
+
+**Consolidated named-budget decision: approved and applied.** The earlier owner
+approval preserved named long-journey budgets. On 2026-10-19 the owner explicitly
+replied "Approve the consolidated named budgets (Recommended)" to the reviewable
+nine-declaration patch. It is now applied as tree `dec81715` under that decision.
+Keep all 15s assertions, explicit 45s readiness waits, actions, two workers,
+zero retries and sandbox bounds unchanged. The normal-mode measurements are not
+the worst full-run cost: the retained matrix reaches existing caps at later
+workflow steps, and shared-history still has complete Redo and persistence proof
+remaining. Give those coherent journeys explicit headroom rather than remove
+proof, add sleeps or introduce a timeout helper/framework.
+
+| Existing journey | Prior cap | Accepted cap | Maximum normal diagnostic |
+| --- | --- | --- | --- |
+| Visual template and saved block | 90s | 150s | 58.682s |
+| Image and grouped-column rules | 120s | 180s | 66.606s |
+| Contextual workspace properties | 180s | 240s | 110.187s |
+| Three stock-provider variants | 60s | 120s | 45.178s |
+| Shared authoring history | 240s | 360s | 221.477s |
+| Authoring, preview and save | 180s | 240s | 107.185s |
+| Scalar/date family | 150s | 240s | 124.715s |
+| Protected-profile journey | 120s | 180s | 79.845s |
+| Combined native transfer/history | 120s | 240s | 112.474s |
+
+The protected-profile row does **not** relax or repair its 15s reload assertion.
+That earlier failure ends at 119.886s with further chip/reopen proof remaining;
+the accepted whole-test allowance prevents a secondary 120s cap from cutting
+that proof short. The strict readiness finding stays retained and must pass on
+the final source. A recurrence requires diagnosis, not another assertion limit.
+As with existing named budgets, these nine declarations apply to all their
+projects. Defaults remain Linux GTK WebKit 60s / other projects 30s. An action
+without its own bound may take longer to fail under the new whole-test cap; this
+is the explicit quality tradeoff accepted by the owner.
+
+The reviewable private patch is `proposed-named-journey-budgets.patch`, SHA-256
+`92b532846d2ecdafff2ed6f325bccdb95534ea106b7d897835776d9abe193f28`.
+It changes nine declarations in three existing suites and documents the already
+approved Linux default in README. Applied tree
+`dec81715fb61f44f786035cdd4780be660a9e105` is the final verification candidate. It needs no
+new tests for constants: the existing owning workflows provide the meaningful
+regression proof. Patch applicability, complete-diff review and whitespace checks
+pass; the assigned staged tree matches the exact approved patch.
+
+The approved patch is applied and the final immutable candidate exported.
+Run the twelve diagnostic titles in all four projects plus the explicit WebKit
+native-cut proof in one native selection: **52 cases, 49 expected passes and
+three clipboard-ownership skips**, zero retries. Then run fresh `npm ci` and
+`npm run validate:complete`, once and sequentially on that final source, with the
+private 240m Check / 245m settle / 250m driver envelope. Retain all outcomes,
+candidate identities, original failures, integrity and owned-process cleanup.
+Stop for any real failure; an interrupted/failed gate remains no baseline.
+Finish with read-only installation verification and refreshed retained records.
+No publication, installation change or pilot launch is authorized.
+
+**Final-candidate focused proof:** run
+`ca998f11-bfb9-4470-a779-403c4cb5849f`, browser fingerprint
+`ab04e8164378b7218fe20d9ab5e688f5c756844d607132fbacf841e91099dfc9`,
+passes **49/52 cases with three expected clipboard-ownership skips** in 23.951
+Check minutes. All thirteen selected titles appear in all four projects; the
+explicit native-cut case passes in desktop WebKit and owns the three skips.
+Every protected-profile 15s reload assertion passes. Actual Check passes/0,
+complete native selection receipt/execution/run agree, every attempt is initial
+with retry zero, source digests match and owned-process cleanup passes. This is
+focused proof, separate from the complete gate below.
+
+**Final-candidate complete proof:** actual Check `complete-58472347` passes/0
+in **144.326 minutes** after fresh locked installation and sequential
+`npm run validate:complete`. Lint, architecture, types, all **4,084
+units/components, 154 tooling tests, 1,105 browser cases and production build
+pass**. Native browser run `5ac15549-cd08-4da1-b430-1b1a3feb3665` completes all
+1,112 selected cases with exactly seven expected skips, zero failures/flaky
+outcomes/retries and the same final fingerprint. The skips are two opt-in real
+backend cases, two viewport-specific exclusions and three native-clipboard
+ownership exclusions; their exact project/title identities match the retained
+expectation. All four protected-profile reload assertions pass unchanged.
+All fifteen summary audit flags pass, including complete receipt/execution/run
+agreement, source integrity and released container ownership. Before/after
+source digest is
+`dd7e4deefc070f44ce4fa82656aa8c70c8813a6c335630524c46ce09c10cde4d`.
+This is an accepted complete baseline for the final immutable candidate only.
+
+The final read-only installation audit at **2026-10-19 19:51 CEST** confirms
+unchanged binary/configuration/plist hashes, service PID `66004`, deployment
+container/image and absence of all **54** recorded owned check containers.
+The refreshed thin evidence archive contains **733 files**, SHA-256
+`a4643ea56d2a86dbc4899c944867e24b53541ced6eaea905657b7ff0c2ec75c5`;
+the 698-file pre-approval snapshot remains separately retained. Raw traces and
+screenshots remain in their original private run directories. The local index
+and `named-complete-outcome.json` retain the accepted candidate, exact skips,
+timing and audit results. Real backend persistence remains opt-in/unproved,
+and hosted CI's existing 20-minute allowance is not qualified by this local
+container execution. No pilot, publication or installation change occurred.
+
+**Private complete-envelope recalibration:** the retained full attempt starts
+its first WebKit case 69.399 minutes after Check launch. The accepted-policy
+WebKit matrix alone exceeds 104 minutes before its final journeys. A 180-minute
+complete envelope therefore has insufficient credible margin for the remaining
+work, build and ordinary timing variation. The next private caller uses a
+**240m Check / 245m settle / 250m driver** envelope. Focused long-journey
+diagnosis and affected proof use **60m / 65m / 70m**. These are private
+qualification-driver bounds compiled from unchanged Runner `b0bdb018`; the
+active earlier caller is untouched. Record the matrix's final duration and the
+resulting complete outcome rather than treating this allowance as proof. Browser
+assertions, accepted journey budgets, capacity, installed policy and hosted CI
+remain unchanged.
+
+**Approved patch qualification, 2026-10-19:** the six additions are exactly
+four declarations in `tests/e2e/email-editing.spec.ts`, one in
+`tests/e2e/tiptap-integration/email-inline.spec.ts`, and one in
+`tests/e2e/tiptap-migrated/recovery-layout/email-inline.spec.ts`. No assertion or
+proof step changed. The archived source is bound to browser fingerprint
+`92660f07052a681c54f1788f04bc76d81e3299d22f344a71ff9883a05b9fb3a4`.
+
+- Initial affected run `9cf8ed65-0749-4507-9a75-7886ef81fae3`: **33 passed/three
+  failures**, zero skips/flaky outcomes/retries. Desktop WebKit hits the existing
+  ten-second product startup fallback before cropped-image upload, reaches the
+  whole-test deadline at the stock PIXABAY copy-entry form, and reaches the
+  passive-selection deadline while awaiting the next whole-block form action.
+  These outcomes do not establish missing writes or a lost form interaction.
+- Diagnostic selection `b16e3cac-c563-4bf4-b740-2d6cc17925e5` runs no tests because
+  of an incorrect project name; its failed check and cleanup are retained.
+  Corrected unchanged trace `40dc28b5-c7fc-40b4-b34b-557cdc9648bb` passes **3/3**:
+  image 56.257s, passive selection 56.482s and PIXABAY 32.183s. Both form clicks
+  complete, and upload/history/save/reopen proof completes. Tracing reaches the
+  four-GiB memory boundary without an OOM kill. Host load is lower than during
+  the initial failure; correlation is not causal proof.
+- Fresh untraced affected run `3ab1a0fe-ed0a-4fa4-bc23-ef4966cc1952` passes
+  **36/36**, zero skips/flaky outcomes/retries. Both source inventories and
+  container cleanup pass. No source or policy change separates these runs.
+- Fresh complete attempt `bba8748b-30a0-49a6-a7bb-9a3e18c0d7c3`, actual Check
+  `complete-2729070886`, passes all lower layers before the browser findings
+  below. It stops at the existing **120-minute Check deadline**. Its last report
+  is **937 passed/eight timed out/six skipped**, with 161 unfinished; it is not a
+  completed browser receipt or a passing complete gate. Build is not reached.
+
+All eight individual failures are desktop WebKit whole-test timeouts in
+previously unchanged journeys, not new assertion-deadline decisions:
+
+| Existing journey | Whole-test cap | Last retained boundary |
+| --- | --- | --- |
+| Literal variable fallback authoring/history/reopen | 120s | First save/readback and reopen pass; Cancel after removal/Undo is interrupted before the second verified save. Mobile WebKit later passes unchanged. |
+| Feed-template ownership, collision rebind and independent save | 30s | Awaiting verified Save confirmation. |
+| Sidebar chip condition, edit from endif, history/save/reopen | 30s | Final reopened chip inspection. |
+| Keyboard-selected word through sidebar focus/cancel | 30s | Final Undo action. |
+| Loop field types and invalid-draft protection | 30s | Whole-test deadline; exact action requires tracing. |
+| Selected-text condition with new hotel/car fields | 30s | Whole-test deadline; exact action requires tracing. |
+| Selected chip/formatted-text movement and pending typing | 30s | History/source assertion boundary. |
+| Complete nested-condition movement with both branches | 30s | Awaiting verified Save confirmation after Redo. |
+
+At that earlier boundary, these failures were unresolved. A whole-test timeout alone does not establish
+whether time was spent cumulatively or an interaction stalled. Diagnose the
+owning cases before changing their structure or budget. The complete check's
+runtime boundary also remains unresolved: all of desktop Chromium, mobile
+Chromium and desktop WebKit finish, but most of mobile WebKit remains unfinished.
+The six observed skips are the two layout exclusions, two opt-in live-backend
+cases, and two existing native-cut ownership exclusions. The third native-cut
+exclusion is in the unvisited remainder. No real-backend proof is claimed.
+
+At 09:46 Europe/Copenhagen on 2026-10-19, a read-only audit at that boundary confirms the
+installed Runner binary/configuration/plist hashes, service PID 66004 and deployed
+FlowStack container/image still match the original observations. All **42**
+recorded owned qualification containers are absent. Actual complete-check source
+inventories match before/after, integrity errors are empty and ownership is
+released. The native browser metadata remains incomplete; the actual stopped
+Check result takes precedence. Full diff and exact six-line-delta checks pass.
+Publishing, the running installation and pilot launch remain untouched.
+
+At **15:11 Europe/Copenhagen on 2026-10-19**, the latest read-only audit confirms
+those binary/configuration/plist hashes, service PID and deployed container/image
+still match. All **52 recorded owned qualification containers are absent**.
+At that audit the assigned source remains `1b10f251` and the nine-declaration
+proposal is unapplied; the subsequent approval/application is recorded above. No publishing, installation change or pilot launch has occurred.
+
+The latest thin-record archive, `qualification-records.tar.gz`, contains **698
+files / 28,935,852 bytes**, SHA-256
+`f98c804f5bc8a6bad3090743ff08c0208dbd94d6c87d1e08eb2ea9f9b836f68f`.
+It retains actual Check results, incomplete native metadata from interrupted
+runs, successful tail and diagnostic receipts, logs, timings, the unapplied
+proposal metadata and the latest installation/cleanup audit. The earlier
+517-file / 23,182,963-byte snapshot, SHA-256
+`827ea2a6b085b73ab25ee6d95dedb46cc913681d010e9c53fd909b144f64a9dc`,
+is preserved as `qualification-records-20261019-before-webkit-timeout-repair.tar.gz`.
+Raw traces, screenshots and error snapshots remain with their original runs.
+No failed, interrupted or focused result is relabeled as a complete baseline.
+
+At 00:52 Europe/Copenhagen on 2026-10-19, a fresh read-only audit confirms the
+installed Runner binary/configuration/plist hashes, service PID 66004 and deployed
+FlowStack container/image still match the original observations. All 37 recorded
+owned check containers are absent. Thin source-bound reports, receipts,
+process/containment observations and logs are consolidated in the local
+`qualification-records.tar.gz` (448 files, 20,209,085 bytes, SHA-256
+`3447706c2a8b98ca3fc736862aa60073b20b9a6558931c316c049ced35edba2e`).
+The previous archive is retained separately; traces and screenshots remain with
+their original runs. At that boundary, the full source diff and six-line proposal
+had been reviewed and passed whitespace/applicability checks. No failure,
+cancellation or focused pass has been relabeled as a complete baseline.
+
+Private source, wrapper/image inputs, check observations, traces, diagnostic
+timings and receipts are retained locally at
+`/Users/dan/.codex/runner-qualification/flowstack-email-reliability-20261018/`
+and on `always-on` at
+`/Users/dan/.local/share/flowstack/runner-email-reliability-20261018/`.
 
 ### GitHub Issues bundle qualification
 

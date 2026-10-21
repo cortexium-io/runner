@@ -34,7 +34,7 @@ go build -o /absolute/tools/cortexium-runner ./cmd/cortexium-runner
 
 For an extracted archive, run its `cortexium-runner --version` and `--help`
 directly. Source builds report `dev`; release builds report the injected version.
-The private store format is **18**. Legacy Project configuration and experimental
+The private store format is **19**. Legacy Project configuration and experimental
 store formats are deliberately rejected; there is no in-place migration. Keep
 old binaries with their state/backups, reconcile any outstanding remote effects,
 then use fresh config, state and workspace paths with new approvals. Never point
@@ -199,6 +199,19 @@ that already-local image and never pulls or downloads dependencies. Re-run the
 quality preview/baseline/apply flow after an image change. The image ID is pinned
 with the agreement; its baked environment must contain no credentials. This is
 an optional check environment, independent of the selected model harness.
+
+Each container check may set `"cpus": 1`, `2`, `3` or `4`; omission keeps the
+existing two-CPU quota. Alternatively set `"auto_cpus": true` to use 25% of the
+Docker daemon's available logical CPUs, rounded up and capped at 1–4. For example,
+4 cores select 1, 8 select 2, and 16 or more select 4. The CLI machine's CPU count is
+not used. Both options require `check_image` and cannot be combined. Automatic
+allocation resolves to an explicit `cpus` value in `quality preview`; inspect it
+before running the baseline and applying the agreement. Detection failure blocks
+preview. A changed detected allocation requires a fresh preview, and execution
+keeps the approved quota even if available capacity later changes. Changing a
+CPU budget requires a new quality preview/check/apply cycle; old results do not
+satisfy the new agreement. This is a per-check limit, not a global CPU reservation;
+concurrent checks may compete. Memory stays 4GiB and other containment is unchanged.
 
 Container checks require a non-root Runner owner and a local Unix-socket Docker
 daemon. Every check gets a fresh unprivileged container, a read-only image root,
@@ -616,7 +629,7 @@ repair and guarded ordinary merges with exact integration receipts. Configuratio
 explicitly controls model/reasoning profiles, escalation, parallelism and limits.
 
 This is a **fresh setup**, not an upgrade of old authority. Store formats before
-18, old Project configuration, old commands and old approval records are not
+19, old Project configuration, old commands and old approval records are not
 accepted. There is no legacy-state importer, daemon installer or updater.
 Optional issue snapshot import does not migrate execution authority. Other
 boards/Trello, autonomous intake, other harnesses, background delivery polling,

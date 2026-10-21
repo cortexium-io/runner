@@ -498,3 +498,56 @@ func TestOperatorCheckRepairRetainsAuthorityEvidenceAndBudgets(t *testing.T) {
 		})
 	}
 }
+
+func TestAutomaticCPUBaselineRejectsChangedCapacityAndPinsApproval(t *testing.T) {
+	e := fixture(t)
+	bin := t.TempDir()
+	count := filepath.Join(bin, "count")
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte("#!/bin/sh\ncat '"+count+"'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("DOCKER_HOST", "unix:///test-docker.sock")
+	writeCount := func(value string) {
+		t.Helper()
+		if err := os.WriteFile(count, []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeCount("8")
+	spec := config.QualitySpec{CheckImage: "sha256:" + strings.Repeat("a", 64), Definition: "CPU-qualified greeting", Checks: []config.QualityCheck{{ID: "greeting", AutoCPUs: true, Command: "check", Directory: ".", Prerequisites: []string{"sh"}, Timeout: "1m"}}}
+	e.Checker = checkAdapter(func(_ context.Context, dir string, c config.QualityCheck, log string, _ func(core.Process) error) core.CheckObservation {
+		if c.AutoCPUs || c.CPULimit() != 2 || c.Image != spec.CheckImage {
+			t.Fatal("check did not receive approved quota", c)
+		}
+		return artifactCheck(t, dir, c, log)
+	})
+	p, err := e.PreviewQuality(t.Context(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCount("16")
+	if _, err := e.RunBaseline(t.Context(), spec, p.Preview); err == nil {
+		t.Fatal("changed detected allocation reused old preview")
+	}
+	writeCount("8")
+	report, err := e.RunBaseline(t.Context(), spec, p.Preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCount("16")
+	approval, err := e.PreviewAgreement(t.Context(), report.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approval.Quality.Checks[0].CPULimit() != 2 {
+		t.Fatal("approval recalculated the measured quota")
+	}
+	if err := e.ApplyAgreement(t.Context(), report.ID, nil, approval.Preview); err != nil {
+		t.Fatal(err)
+	}
+	current, _, err := e.Store.Settings(t.Context())
+	if err != nil || current.Quality.Checks[0].CPULimit() != 2 || current.Quality.Checks[0].AutoCPUs {
+		t.Fatal("quota not pinned in store", err)
+	}
+}
