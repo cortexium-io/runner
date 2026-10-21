@@ -57,6 +57,38 @@ func dockerCommand(ctx context.Context, host string, args ...string) *exec.Cmd {
 	return cmd
 }
 
+// ResolveCheckCPUs freezes optional automatic allocation before baseline approval.
+// Docker's daemon capacity may differ from the machine running the CLI.
+func ResolveCheckCPUs(ctx context.Context, checks []config.QualityCheck) ([]config.QualityCheck, error) {
+	resolved := append([]config.QualityCheck(nil), checks...)
+	cpus := 0
+	for i, check := range resolved {
+		if !check.AutoCPUs {
+			continue
+		}
+		if cpus == 0 {
+			host, err := dockerHost(ctx)
+			if err != nil {
+				return nil, err
+			}
+			infoCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			data, err := dockerCommand(infoCtx, host, "info", "--format", "{{.NCPU}}").Output()
+			cancel()
+			if err != nil {
+				return nil, fmt.Errorf("check CPU detection unavailable: %w", err)
+			}
+			cores, err := strconv.Atoi(strings.TrimSpace(string(data)))
+			if err != nil || cores <= 0 {
+				return nil, errors.New("check CPU detection requires a positive Docker daemon CPU count")
+			}
+			cpus = min(4, 1+(cores-1)/4)
+		}
+		resolved[i].CPUs = new(cpus)
+		resolved[i].AutoCPUs = false
+	}
+	return resolved, nil
+}
+
 // Absence is authoritative only after a successful daemon observation. An exited
 // client, missing executable or unavailable daemon cannot release ownership.
 func containerGone(p core.Process) bool {
@@ -99,7 +131,7 @@ func runContainerCheck(ctx context.Context, root string, check config.QualityChe
 
 	args := []string{"--host", host, "run", "--name", name, "--rm", "--pull=never", "--network=none", "--ipc=private", "--init", "--read-only",
 		"--user", strconv.Itoa(os.Geteuid()) + ":" + strconv.Itoa(os.Getegid()), "--cap-drop=ALL", "--security-opt=no-new-privileges",
-		"--pids-limit=512", "--memory=4g", "--cpus=2", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=2g,mode=1777",
+		"--pids-limit=512", "--memory=4g", "--cpus=" + strconv.Itoa(check.CPULimit()), "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=2g,mode=1777",
 		"--mount", containerMount(root, "/workspace"), "--workdir", filepath.Join("/workspace", check.Directory),
 		"--env", "HOME=" + filepath.Join("/workspace/.runner-output", check.ID, "home"), "--env", "TMPDIR=/tmp", "--entrypoint", "/bin/sh", check.Image,
 		"-c", `command=$1; shift; for tool do command -v "$tool" >/dev/null || { printf 'missing image prerequisite %s\n' "$tool" >&2; exit 127; }; done; exec /bin/sh -c "$command"`, "runner-check", check.Command}

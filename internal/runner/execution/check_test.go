@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -140,6 +141,84 @@ func TestLiveQualityCheckBoundary(t *testing.T) {
 	})
 }
 
+// No model call: test the same read-only grant builder used for audit/verification.
+func TestLiveRetainedCheckArtifacts(t *testing.T) {
+	if os.Getenv("RUNNER_LOCAL_LIVE_CHECKS") == "" {
+		t.Skip("set RUNNER_LOCAL_LIVE_CHECKS=1 for native artifact access qualification")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.MkdirTemp(home, "runner-artifact-access-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Retained native artifact evidence:", root)
+	source, fixture := artifactFixture(t, root)
+	c := Codex{}
+	check := c.Check(t.Context(), source, config.QualityCheck{ID: "native", Command: "test -s .runner-output/reports/shot.png && printf 'actual native check\\n'", Directory: ".", Prerequisites: []string{"sh"}, Path: os.Getenv("PATH"), Timeout: "30s"}, filepath.Join(root, "evidence/native.log"), func(p core.Process) error {
+		data, err := json.Marshal(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(root, "evidence/process.json"), data, 0600)
+	})
+	if check.Status != "passed" || !check.Stopped {
+		t.Fatal(check)
+	}
+	binding := core.Digest("native fixture")
+	check.Artifacts, err = RetainCheckArtifacts(source, []string{".runner-output/reports"}, binding, check)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := CheckReadRoots(check, binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	neutral := filepath.Join(root, "reviewer")
+	if err = os.Mkdir(neutral, 0700); err != nil {
+		t.Fatal(err)
+	}
+	policy := c.policy(neutral, roots)
+	args := append([]string{"sandbox", "-C", neutral, "-P", "runner_local"}, policy[1:]...)
+	probe := `set -eu
+cat "$1" >/dev/null
+cat "$2" >/dev/null
+if cat "$3" >/dev/null 2>&1; then exit 21; fi
+if cat "$4" >/dev/null 2>&1; then exit 22; fi
+if (printf changed >> "$1") 2>/dev/null; then exit 23; fi
+printf 'PNG/report readable; original workspace, sibling evidence and writes denied\n'
+`
+	args = append(args, "--", "/bin/sh", "-c", probe, "artifact-probe",
+		filepath.Join(check.Artifacts.Directory, ".runner-output/reports/shot.png"),
+		filepath.Join(check.Artifacts.Directory, ".runner-output/reports/report.json"),
+		filepath.Join(source, ".runner-output/reports/shot.png"), fixture.Evidence)
+	command := exec.CommandContext(t.Context(), c.command(), args...)
+	command.Dir = neutral
+	output, err := command.CombinedOutput()
+	if writeErr := os.WriteFile(filepath.Join(root, "evidence/native-policy.log"), output, 0600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	if err != nil {
+		t.Fatalf("native read-only artifact boundary: %s: %v", output, err)
+	}
+	if _, err = CheckReadRoots(check, binding); err != nil {
+		t.Fatal("native review changed evidence", err)
+	}
+	data, err := json.MarshalIndent(check, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(root, "evidence/observation.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Actual container qualification is opt-in and uses a separately prepared image.
 // No image pull, dependency download or model call occurs in this suite.
 func TestLiveContainerCheckBoundary(t *testing.T) {
@@ -158,13 +237,17 @@ func TestLiveContainerCheckBoundary(t *testing.T) {
 	t.Log("Retained container evidence:", root)
 	t.Setenv("RUNNER_CHECK_SECRET", "must-not-inherit")
 	var last core.Process
-	run := func(t *testing.T, name, command string, prerequisites []string, timeout string) core.CheckObservation {
+	run := func(t *testing.T, name, command string, prerequisites []string, timeout string, cpus ...int) core.CheckObservation {
 		t.Helper()
 		source := filepath.Join(root, name)
 		if err := os.MkdirAll(source, 0700); err != nil {
 			t.Fatal(err)
 		}
-		r := (Codex{}).Check(t.Context(), source, config.QualityCheck{ID: name, Image: image, Command: command, Directory: ".", Prerequisites: prerequisites, Timeout: timeout}, filepath.Join(root, name+".log"), func(p core.Process) error {
+		check := config.QualityCheck{ID: name, Image: image, Command: command, Directory: ".", Prerequisites: prerequisites, Timeout: timeout}
+		if len(cpus) > 0 {
+			check.CPUs = &cpus[0]
+		}
+		r := (Codex{}).Check(t.Context(), source, check, filepath.Join(root, name+".log"), func(p core.Process) error {
 			last = p
 			data, err := json.Marshal(p)
 			if err != nil {
@@ -181,6 +264,43 @@ func TestLiveContainerCheckBoundary(t *testing.T) {
 		}
 		return r
 	}
+
+	for _, cpus := range []int{0, 1, 4} {
+		t.Run(fmt.Sprintf("cpu_budget_%d", cpus), func(t *testing.T) {
+			want := cpus
+			var configured []int
+			if cpus == 0 {
+				want = 2
+			} else {
+				configured = []int{cpus}
+			}
+			command := fmt.Sprintf(`python3 - <<'PYCPU'
+from pathlib import Path
+quota, period = map(int, Path('/sys/fs/cgroup/cpu.max').read_text().split())
+assert quota == period * %d, (quota, period)
+assert int(Path('/sys/fs/cgroup/memory.max').read_text()) == 4294967296
+assert int(Path('/sys/fs/cgroup/pids.max').read_text()) == 512
+print('approved CPU quota, memory and process limits verified')
+PYCPU`, want)
+			r := run(t, fmt.Sprintf("cpu-%d", want), command, []string{"python3"}, "30s", configured...)
+			if r.Status != "passed" || !r.Stopped || !Gone(last) {
+				t.Fatal(r, last)
+			}
+		})
+	}
+
+	t.Run("automatic_cpu_budget", func(t *testing.T) {
+		checks, err := ResolveCheckCPUs(t.Context(), []config.QualityCheck{{AutoCPUs: true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cpus := checks[0].CPULimit()
+		r := run(t, "cpu-auto", fmt.Sprintf(`python3 -c 'from pathlib import Path; q,p=map(int,Path("/sys/fs/cgroup/cpu.max").read_text().split()); assert q==p*%d'`, cpus), []string{"python3"}, "30s", cpus)
+		if r.Status != "passed" || !r.Stopped || !Gone(last) {
+			t.Fatal(r, last)
+		}
+		t.Log("Resolved approved automatic quota:", cpus)
+	})
 	t.Run("tools_and_containment", func(t *testing.T) {
 		// This host service must stay inaccessible even while fixture loopback works.
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("host")) }))
@@ -276,4 +396,55 @@ PY`
 func strconvQuote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+func TestAutomaticCheckCPUsResolveOnceAndRejectUnavailableCapacity(t *testing.T) {
+	bin := t.TempDir()
+	count := filepath.Join(bin, "count")
+	docker := "#!/bin/sh\ncat " + strconvQuote(count) + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(docker), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("DOCKER_HOST", "unix:///test-docker.sock")
+	checks := []config.QualityCheck{{ID: "automatic", AutoCPUs: true}, {ID: "default"}, {ID: "explicit", CPUs: new(3)}}
+	for _, tc := range []struct {
+		count string
+		want  int
+	}{{"1", 1}, {"4", 1}, {"5", 2}, {"8", 2}, {"16", 4}, {"32", 4}, {"0", 0}, {"-1", 0}, {"invalid", 0}} {
+		if err := os.WriteFile(count, []byte(tc.count), 0600); err != nil {
+			t.Fatal(err)
+		}
+		resolved, err := ResolveCheckCPUs(t.Context(), checks)
+		if tc.want == 0 {
+			if err == nil {
+				t.Fatal("invalid capacity accepted", tc.count)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolved[0].AutoCPUs || resolved[0].CPULimit() != tc.want || resolved[1].CPUs != nil || resolved[2].CPULimit() != 3 || checks[0].CPUs != nil || !checks[0].AutoCPUs {
+			t.Fatal("resolution changed request or unrelated checks", resolved, checks)
+		}
+	}
+	if err := os.Remove(count); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveCheckCPUs(t.Context(), checks); err == nil {
+		t.Fatal("unavailable daemon accepted")
+	}
+	if _, err := ResolveCheckCPUs(t.Context(), checks[1:]); err != nil {
+		t.Fatal("fixed quotas should not query capacity", err)
+	}
+}
+
+func TestUnresolvedOrUnenforceableCheckCPUsCannotExecute(t *testing.T) {
+	for _, check := range []config.QualityCheck{{AutoCPUs: true}, {CPUs: new(2)}, {CPUs: new(0), Image: "prepared"}, {CPUs: new(5), Image: "prepared"}} {
+		r := (Codex{}).Check(t.Context(), t.TempDir(), check, filepath.Join(t.TempDir(), "check.log"), func(core.Process) error { t.Fatal("invalid quota launched"); return nil })
+		if r.Status != "unavailable" || !r.Stopped {
+			t.Fatal(r)
+		}
+	}
 }

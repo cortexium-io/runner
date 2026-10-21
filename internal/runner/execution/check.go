@@ -28,6 +28,12 @@ func (c Codex) Check(ctx context.Context, root string, check config.QualityCheck
 		result.Detail = err.Error()
 		return result
 	}
+	if check.AutoCPUs {
+		return fail(errors.New("automatic check CPUs must be resolved by quality preview before execution"))
+	}
+	if check.CPUs != nil && (check.Image == "" || *check.CPUs < 1 || *check.CPUs > 4) {
+		return fail(errors.New("check cpus requires a container image and a value from 1–4"))
+	}
 	if err := securefs.EnsurePrivateDir(filepath.Dir(evidence)); err != nil {
 		return fail(err)
 	}

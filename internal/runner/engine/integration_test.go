@@ -404,7 +404,7 @@ func TestLocalReadyDestinationsPreserveCheckout(t *testing.T) {
 	}
 }
 func TestCombinedPlanVerifiesOutcomeAndDeliversOnlyParent(t *testing.T) {
-	for _, scenario := range []string{"local", "repair", "base moved", "missing capability", "failed check", "proof gap", "github", "stopped member"} {
+	for _, scenario := range []string{"local", "repair", "base moved", "missing capability", "failed check", "proof gap", "github", "stopped member", "artifacts"} {
 		t.Run(scenario, func(t *testing.T) {
 			e := fixture(t, func(c *config.Config) {
 				c.Policy.MaxBaseRefreshes = 3
@@ -421,6 +421,11 @@ func TestCombinedPlanVerifiesOutcomeAndDeliversOnlyParent(t *testing.T) {
 			q.Checks = append([]config.QualityCheck(nil), q.Checks...)
 			q.Checks[0].At = "task"
 			q.Checks = append(q.Checks, config.QualityCheck{ID: "combined", At: "completion", Command: "test -f usage.txt", Directory: ".", Prerequisites: []string{"sh"}, Timeout: "1m"})
+			if scenario == "artifacts" {
+				for i := range q.Checks {
+					q.Checks[i].Artifacts = []string{".runner-output/reports"}
+				}
+			}
 			if err := e.Store.ApplyQuality(t.Context(), q.Revision(), q); err == nil {
 				t.Fatal("stale agreement applied")
 			}
@@ -436,8 +441,11 @@ func TestCombinedPlanVerifiesOutcomeAndDeliversOnlyParent(t *testing.T) {
 			}
 			checks := map[string]int{}
 			capabilityAvailable := false
-			e.Checker = checkAdapter(func(_ context.Context, dir string, c config.QualityCheck, _ string, _ func(core.Process) error) core.CheckObservation {
+			e.Checker = checkAdapter(func(_ context.Context, dir string, c config.QualityCheck, evidence string, _ func(core.Process) error) core.CheckObservation {
 				checks[c.ID]++
+				if scenario == "artifacts" {
+					return artifactCheck(t, dir, c, evidence)
+				}
 				status := "passed"
 				detail := ""
 				if scenario == "missing capability" && !capabilityAvailable && c.ID == "combined" {
@@ -489,6 +497,20 @@ func TestCombinedPlanVerifiesOutcomeAndDeliversOnlyParent(t *testing.T) {
 				}
 				if r.Task.ID == plan.ID && r.Attempt.Role == "audit" {
 					audits++
+					if scenario == "artifacts" {
+						proof := append([]core.CheckObservation(nil), r.QualityEvidence...)
+						for _, child := range r.Plan.Evidence {
+							proof = append(proof, child.Checks...)
+						}
+						if len(proof) != 3 {
+							t.Fatal("combined and child artifact evidence missing", proof)
+						}
+						for _, check := range proof {
+							if check.Artifacts == nil || !strings.Contains(strings.Join(r.ReadRoots, "\n"), check.Artifacts.Directory) {
+								t.Fatal("combined review lacks retained artifact grant", r.ReadRoots)
+							}
+						}
+					}
 					if scenario == "proof gap" {
 						result.Result.Outcome = "blocked"
 						result.Result.Checks[1].Status = "gap"

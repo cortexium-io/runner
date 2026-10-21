@@ -125,3 +125,65 @@ func TestQualityTimingKeepsReadyCompleteAndPlanChecksScoped(t *testing.T) {
 		t.Fatal("hosted obligation silently accepted locally")
 	}
 }
+
+func TestArtifactSelectionsAreExplicitAndPinned(t *testing.T) {
+	spec := QualitySpec{Definition: "done", Checks: []QualityCheck{{ID: "browser", Command: "true", Directory: ".", Prerequisites: []string{"sh"}, Timeout: "1m"}}}
+	for _, paths := range [][]string{nil, {".runner-output/reports"}, {".runner-output/a.json", ".runner-output/images"}} {
+		spec.Checks[0].Artifacts = paths
+		if err := spec.Validate(); err != nil {
+			t.Fatal(paths, err)
+		}
+	}
+	for _, paths := range [][]string{{"."}, {".runner-output"}, {"/tmp/report"}, {".runner-output/../secret"}, {".runner-output/*.png"}, {".runner-output/link\\escape"}, {".runner-output/a", ".runner-output/a"}, {".runner-output/a", ".runner-output/a-other", ".runner-output/a/child"}} {
+		spec.Checks[0].Artifacts = paths
+		if spec.Validate() == nil {
+			t.Fatal("unsafe selection accepted", paths)
+		}
+	}
+	q := Quality{Definition: "done", Checks: []QualityCheck{{ID: "browser"}}}
+	before := q.Revision()
+	q.Checks[0].Artifacts = []string{".runner-output/reports"}
+	if q.Revision() == before {
+		t.Fatal("artifact policy omitted from approval")
+	}
+	if q.ValidateResults([]core.CheckObservation{{CheckID: "browser", Status: "passed", Stopped: true}}, nil) == nil {
+		t.Fatal("required artifacts silently omitted")
+	}
+	if err := q.ValidateResults([]core.CheckObservation{{CheckID: "browser", Status: "unavailable", Stopped: true, Detail: "prepared image unavailable"}}, nil); err == nil || !strings.Contains(err.Error(), "prepared image unavailable") {
+		t.Fatal("missing artifact report hid the actual unavailable capability", err)
+	}
+}
+
+func TestCheckCPUBudgetIsValidatedAndPinned(t *testing.T) {
+	spec := QualitySpec{CheckImage: "sha256:" + strings.Repeat("a", 64), Definition: "done", Checks: []QualityCheck{{ID: "test", Command: "true", Directory: ".", Prerequisites: []string{"sh"}, Timeout: "1m"}}}
+	for _, tc := range []struct {
+		name      string
+		cpus      *int
+		auto      bool
+		container bool
+		valid     bool
+	}{
+		{"default", nil, false, true, true}, {"one", new(1), false, true, true}, {"four", new(4), false, true, true},
+		{"automatic", nil, true, true, true}, {"zero", new(0), false, true, false}, {"negative", new(-1), false, true, false},
+		{"too many", new(5), false, true, false}, {"conflicting", new(2), true, true, false},
+		{"host default", nil, false, false, true}, {"host explicit", new(2), false, false, false}, {"host automatic", nil, true, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := spec
+			s.Checks = []QualityCheck{spec.Checks[0]}
+			s.Checks[0].CPUs, s.Checks[0].AutoCPUs = tc.cpus, tc.auto
+			if !tc.container {
+				s.CheckImage = ""
+			}
+			if err := s.Validate(); (err == nil) != tc.valid {
+				t.Fatal("CPU validation", tc, err)
+			}
+		})
+	}
+	q := Quality{Definition: "done", CheckImage: spec.CheckImage, Checks: spec.Checks}
+	before := q.Revision()
+	q.Checks[0].CPUs = new(4)
+	if q.Revision() == before {
+		t.Fatal("CPU quota omitted from agreement identity")
+	}
+}

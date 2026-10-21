@@ -394,7 +394,7 @@ func (e *Engine) planContext(ctx context.Context, t core.Task) (*execution.PlanC
 				return nil, err
 			}
 			for _, a := range attempts {
-				if a.State == "applied" && a.Candidate != nil {
+				if a.State == "applied" && a.Candidate != nil && child.Candidate != nil && *a.Candidate == *child.Candidate && a.Version == child.Current().Number && a.Generation == child.Generation {
 					result.Evidence = append(result.Evidence, a)
 				}
 			}

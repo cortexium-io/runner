@@ -145,14 +145,22 @@ type Process struct {
 }
 
 type CheckObservation struct {
-	Directory    string `json:"directory,omitempty"`
-	CheckID      string `json:"check_id"`
-	Status       string `json:"status"`
-	ExitCode     int    `json:"exit_code"`
-	OutputDigest string `json:"output_digest"`
-	Evidence     string `json:"evidence"`
-	Detail       string `json:"detail,omitempty"`
-	Stopped      bool   `json:"stopped"`
+	Artifacts    *CheckArtifacts `json:"artifacts,omitempty"`
+	Directory    string          `json:"directory,omitempty"`
+	CheckID      string          `json:"check_id"`
+	Status       string          `json:"status"`
+	ExitCode     int             `json:"exit_code"`
+	OutputDigest string          `json:"output_digest"`
+	Evidence     string          `json:"evidence"`
+	Detail       string          `json:"detail,omitempty"`
+	Stopped      bool            `json:"stopped"`
+}
+
+// CheckArtifacts identifies retained output, not a grant to the check workspace.
+type CheckArtifacts struct {
+	Directory      string `json:"directory"`
+	SourceDigest   string `json:"source_digest"`
+	ManifestDigest string `json:"manifest_digest"`
 }
 
 type Attempt struct {
