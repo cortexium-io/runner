@@ -375,12 +375,32 @@ gh workflow run ci.yml --ref YOUR_BRANCH -f compare-cache=true
 
 ## Publishing a version
 
+The owner-authorized v0.7 maintenance line is `codex/maintenance-0.7`, rooted at
+the published v0.7.4 commit. It retains the Project-backed runtime for existing
+installations; current `main` contains the replacement local runtime. Maintenance
+fixes must merge through a PR into this branch under the same required `PR check`,
+pull-request, no-force-push and no-deletion rules as `main`, with no bypass actors.
+Do not restore the retired runtime onto `main` to publish a maintenance fix.
+
+For a v0.7 patch release, apply the procedure below to the protected maintenance
+branch: dispatch CI on its exact merged commit, create a lightweight `v0.7.PATCH`
+tag only after both platform checks and release readiness pass, then dispatch
+Release on `codex/maintenance-0.7` with that tag. The workflow accepts only this
+exact maintenance branch and v0.7 tags, in addition to the existing `main` path.
+The `release` environment must still restrict publication to protected branches;
+immutable tag/asset rules, exact dispatch/tag equality, isolated publication and
+the five-file checksum contract remain mandatory. Installation and live recovery
+require the owner's authorization. Repository-rename recovery requires the patched
+runtime for subsequent execution because older binaries cannot read its renewed
+batch authority. Keep retained work and private history through upgrades.
+
 Before the first release, protect `main` with pull requests and the lean
 `PR check`. When another maintainer is available, also require an approving
 review. On the exact reviewed release candidate, manually dispatch CI once and
 require both platform checks plus the release-candidate job to pass as launch
 evidence. Do not make those manual jobs permanent PR requirements. Then create
-a **lightweight** version tag from that reviewed commit on `main` and push it.
+a **lightweight** version tag from that reviewed commit on the selected protected
+release branch and push it.
 Annotated tags and versions outside strict `vMAJOR.MINOR.PATCH` syntax are
 rejected.
 
@@ -397,13 +417,13 @@ git push origin v0.1.0
 
 Create an environment named `release` under **Settings → Environments**. It must:
 
-- restrict deployment branches to protected branches so only protected `main`
-  can dispatch publication; and
+- restrict deployment branches to protected branches so only protected release
+  branches can dispatch publication; and
 - when the GitHub plan and maintainer roster support deployment reviewers,
   require a designated maintainer, prevent self-review, and prevent
   administrators from bypassing the protection rules.
 
-The current private single-maintainer boundary cannot provide independent
+The current single-maintainer boundary cannot provide independent
 deployment approval. In that boundary, the administrator's explicit manual
 workflow dispatch is the human release approval, and the environment's
 protected-branch rule remains mandatory. Do not claim independent review. Add
@@ -417,16 +437,17 @@ test, or build code.
 
 GitHub must apply those environment protections before the publication job is
 sent to a runner. Immediately before every real release, a maintainer must
-inspect the live `main` ruleset, required checks and any configured reviews, the
-environment branch and reviewer controls available for the supported operator
+inspect the selected release branch's live ruleset, required checks and any
+configured reviews, the environment branch and reviewer controls available for the supported operator
 boundary, and the publish job's permissions. The current repository settings
 are not proven by source-controlled tests, so the first real release is blocked
 until that inspection succeeds.
 
-From the Actions page, choose the **Release** workflow while viewing `main`, use
-**Run workflow**, keep the branch set to `main`, enter the pushed tag (for
-example `v0.1.0`), and start the run. The workflow rejects every dispatch whose
-recorded ref is not exactly `refs/heads/main`. Its read-only build resolves the
+From the Actions page, choose the **Release** workflow, use **Run workflow**,
+select `main` or the authorized `codex/maintenance-0.7` branch, enter the pushed
+tag (for example `v0.1.0` or `v0.7.5` respectively), and start the run. The
+workflow rejects every other ref and refuses non-v0.7 tags on the maintenance
+branch. Its read-only build resolves the
 remote tag, rejects missing or annotated tags, proves the tagged commit belongs
 to the exact reviewed dispatch commit, checks out that exact commit without persisted
 credentials, runs release readiness, and builds the four platform archives plus

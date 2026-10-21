@@ -26,7 +26,7 @@ func TestReleaseWorkflowContract(t *testing.T) {
 		"version:",
 		"required: true",
 		"permissions:\n  contents: read",
-		"test \"$DISPATCH_REF\" = refs/heads/main",
+		"Reject dispatches outside protected release branches",
 		"sh scripts/verify-release-source.sh \"$VERSION\" \"$REVIEWED_COMMIT\"",
 		"REPOSITORY_READ_TOKEN: ${{ github.token }}",
 		"GIT_CONFIG_COUNT=1",
@@ -106,6 +106,43 @@ func TestReleaseWorkflowContract(t *testing.T) {
 	finalStep := workflow[strings.Index(workflow, "- name: Publish verified GitHub release"):]
 	requireContains(t, finalStep, "GH_TOKEN: ${{ github.token }}")
 	requireNotContains(t, finalStep, "git ls-remote")
+}
+
+func TestReleaseDispatchBranches(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, run, ok := strings.Cut(jobSection(t, string(data), "build"), "        run: |\n")
+	if !ok {
+		t.Fatal("missing release dispatch guard")
+	}
+	guard, _, ok := strings.Cut(run, "\n      - name:")
+	if !ok {
+		t.Fatal("missing end of release dispatch guard")
+	}
+	for _, test := range []struct {
+		ref     string
+		version string
+		allowed bool
+	}{
+		{"refs/heads/main", "v1.2.3", true},
+		{"refs/heads/codex/maintenance-0.7", "v0.7.5", true},
+		{"refs/heads/codex/maintenance-0.7", "v0.8.0", false},
+		{"refs/heads/codex/maintenance-0.7-other", "v0.7.5", false},
+		{"refs/heads/feature", "v0.7.5", false},
+		{"refs/tags/v0.7.5", "v0.7.5", false},
+		{"refs/pull/109/head", "v0.7.5", false},
+	} {
+		t.Run(test.ref+"/"+test.version, func(t *testing.T) {
+			cmd := exec.Command("sh", "-c", guard)
+			cmd.Env = append(os.Environ(), "DISPATCH_REF="+test.ref, "VERSION="+test.version)
+			output, err := cmd.CombinedOutput()
+			if (err == nil) != test.allowed {
+				t.Fatalf("release guard allowed=%t, want %t: %v %s", err == nil, test.allowed, err, output)
+			}
+		})
+	}
 }
 
 func TestGoCacheWorkflowContract(t *testing.T) {
