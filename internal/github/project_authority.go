@@ -317,8 +317,24 @@ func (s *Project) signAction(item WorkItem, role, state string) (AuthorizedActio
 }
 
 func (s *Project) signPlanningBatch(source WorkItem, children []WorkItem, state, generation string) (string, error) {
+	return s.signPlanningBatchWithRename(source, children, state, generation, nil)
+}
+
+// Explicit amendments may carry a previously validated batch-local binding.
+// Ordinary batch creation always uses signPlanningBatch with no binding.
+func (s *Project) signPlanningBatchWithRename(source WorkItem, children []WorkItem, state, generation string, rename *repositoryRenameBinding) (string, error) {
 	if err := s.validatePlanningBatchPolicy(source, children); err != nil {
 		return "", err
+	}
+	if rename != nil {
+		if state != batchReleasedState {
+			return "", errors.New("repository rename authority requires a released legacy planning batch")
+		}
+		var err error
+		source, children, err = s.originalRenameBindings(source, children, *rename)
+		if err != nil {
+			return "", err
+		}
 	}
 	key, authorityID, err := s.authority.load()
 	if err != nil {
@@ -335,6 +351,7 @@ func (s *Project) signPlanningBatch(source WorkItem, children []WorkItem, state,
 	if err != nil {
 		return "", err
 	}
+	payload.RepositoryRename = rename
 	return signPlanningBatchAssertion(payload, key)
 }
 

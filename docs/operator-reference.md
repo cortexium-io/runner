@@ -1216,6 +1216,8 @@ repository. Recovery never writes an issue body, so a concurrent requirements
 edit is retained and invalidates the original authority. Actionable QA feedback follows
 the card, while prior review baselines are retained only as
 history. The original planning batch fingerprint stays as its historical ID.
+Later explicit requirements amendments retain this checked batch-local binding;
+they still require intact authority and leave the card paused for ordinary retry.
 Completed implementer checkpoints carry their original execution deadline and
 spent corrective allowance, but cannot reuse successful output or candidate
 proof. Rename recovery never replenishes an exhausted allowance. Use the

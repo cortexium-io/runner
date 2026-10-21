@@ -456,6 +456,80 @@ func TestRepositoryRenamePreservesConcurrentRequirementsEdit(t *testing.T) {
 	}
 }
 
+func TestRepositoryRenamePreservesExplicitRequirementsAmendment(t *testing.T) {
+	service, runner, metadata := repositoryRenameFixture(t, true)
+	for _, path := range []string{service.implementationCheckpointPath("PVTI_child_1"), service.verificationEvidencePath("PVTI_child_1")} {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner.project.remoteItems[1].Branch = metadata.BranchName
+	plan, err := service.PlanRepositoryRename(t.Context(), "PVTI_parent", "owner/old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ApplyRepositoryRename(t.Context(), plan); err != nil {
+		t.Fatal(err)
+	}
+	metadata.Identity = plan.Workspaces[0].After
+	if _, err := workspace.NewGitProvider(runner).ConstructCandidate(t.Context(), metadata, "Retain candidate before explicit amendment"); err != nil {
+		t.Fatal(err)
+	}
+	items, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := items[1]
+	const newRequirement = "\n\nAdditional explicitly approved requirement."
+	replacement := strings.Replace(before.Body, "\n\n## Runner planning metadata", newRequirement+"\n\n## Runner planning metadata", 1)
+	if replacement == before.Body {
+		t.Fatal("fixture did not preserve canonical metadata")
+	}
+	preview, err := service.PlanRequirementAmendment(t.Context(), before.ID, replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := service.source.LifecycleItems(t.Context())
+	if err != nil || !reflect.DeepEqual(items, unchanged) {
+		t.Fatal("amendment preview changed authority or requirements")
+	}
+	amended, err := service.ApplyRequirementAmendment(t.Context(), preview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if amended.Status != "Blocked" || amended.Body != replacement || amended.Repository != before.Repository || amended.QAFailures != before.QAFailures || amended.Branch != before.Branch || amended.PullRequest != "" || amended.QACommit != "" {
+		t.Fatalf("amendment lost its pause, binding, or counters: %+v", amended)
+	}
+	after, err := service.source.LifecycleItems(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 2; i < len(items); i++ {
+		if !reflect.DeepEqual(items[i], after[i]) {
+			t.Fatal("amendment renewed a sibling's requirements or action authority")
+		}
+	}
+	if _, err := service.source.Authorize(t.Context(), after[1]); err != nil {
+		t.Fatalf("amended action lost canonical repository authority: %v", err)
+	}
+	identity, err := workspace.NewGitProvider(runner).ValidateRetainedIdentity(t.Context(), service.workspaceRequestForItem(after[1], github.DelegatedContentFor(after[1]).Digest, service.cfg.ProjectDir, false))
+	if err != nil || identity.Repository != plan.Batch.To {
+		t.Fatalf("amended worktree lost its exact current binding: %+v %v", identity, err)
+	}
+	approval, err := service.PlanProjectItemApproval(t.Context(), plan.Batch.Source.ID)
+	if err != nil || approval.Batch == nil || !approval.Batch.Released {
+		t.Fatalf("amendment lost complete-batch authority: %v", err)
+	}
+	journal, err := os.ReadFile(plan.Journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var original RepositoryRenameRecovery
+	if err := json.Unmarshal(journal, &original); err != nil || original.Batch.Children[0].Before.Body != before.Body {
+		t.Fatal("amendment rewrote original recovery history")
+	}
+}
+
 func TestRepositoryRenameRejectsInvalidIdentityBatchAndStalePreview(t *testing.T) {
 	for _, change := range []string{"different repository", "ambiguous identity", "noncanonical", "requirements", "source", "partial", "mixed", "index", "profile", "dependency", "active", "published", "accepted", "transition", "after preview", "modified preview", "dirty after preview", "remote after preview", "worker", "execution"} {
 		t.Run(change, func(t *testing.T) {
