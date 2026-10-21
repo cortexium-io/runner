@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -9,6 +10,54 @@ import (
 	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
+
+func TestRenameCheckpointRequiresFreshInvocationWithoutRenewingAllowances(t *testing.T) {
+	for _, change := range []string{"future deadline", "expired deadline", "changed bytes", "changed branch", "changed requirements"} {
+		t.Run(change, func(t *testing.T) {
+			service := reviewFeedbackTestEngine(t.TempDir())
+			item := github.WorkItem{ID: "PVTI_rename", Repository: "owner/new"}
+			content := github.DelegatedContentFor(github.WorkItem{Body: "Approved requirements", Repository: item.Repository})
+			metadata := workspace.Metadata{WorktreePath: "/retained/worktree", BranchName: "runner/retained", BaseRevision: "base", Identity: workspace.Identity{Repository: item.Repository}}
+			snapshot := workspace.Snapshot{Fingerprint: "exact-bytes", Branch: metadata.BranchName}
+			deadline := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+			if change == "expired deadline" {
+				deadline = time.Date(2000, 1, 1, 12, 0, 0, 0, time.UTC)
+			}
+			output := execution.Output{Outcome: execution.OutcomeSucceeded, Summary: "Historical output", WorkDone: []string{"Historical work"}, Verification: []string{"Historical proof"}}
+			if err := service.saveImplementationCheckpoint(item, content, "old-context", metadata, snapshot, workspace.Candidate{}, output, deadline, true); err != nil {
+				t.Fatal(err)
+			}
+			record, err := service.readImplementationCheckpoint(item.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record.RenameRequiresProof = true
+			encoded, err := json.Marshal(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(service.implementationCheckpointPath(item.ID), encoded, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			switch change {
+			case "changed bytes":
+				snapshot.Fingerprint = "different-bytes"
+			case "changed branch":
+				snapshot.Branch = "runner/other"
+			case "changed requirements":
+				content.Digest = "different-requirements"
+			}
+			loaded, reused, err := service.loadImplementationCheckpoint(item, content, "fresh-context", metadata, snapshot, []string{"Run checks again"})
+			if change == "future deadline" || change == "expired deadline" {
+				if err != nil || reused || !loaded.ExecutionDeadline.Equal(deadline) || !loaded.CorrectionUsed || loaded.Output.Outcome != "" || loaded.Candidate.CommitOID != "" {
+					t.Fatalf("rename reused proof or replenished allowances: %+v reused=%t error=%v", loaded, reused, err)
+				}
+			} else if err == nil || reused {
+				t.Fatal("rename marker authorized a changed workspace or requirement")
+			}
+		})
+	}
+}
 
 func TestImplementationCheckpointResumesOnlyExactTaskContextAndWorkspace(t *testing.T) {
 	service := reviewFeedbackTestEngine(t.TempDir())

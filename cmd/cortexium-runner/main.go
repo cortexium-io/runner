@@ -75,6 +75,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		return runAmend(ctx, args[1:], stdin, stdout)
 	case "retry":
 		return runRetry(ctx, args[1:], stdin, stdout)
+	case "recover-repository-rename":
+		return runRepositoryRename(ctx, args[1:], stdin, stdout)
 	case "status":
 		return runStatus(ctx, args[1:], stdout)
 	case "stop":
@@ -117,6 +119,7 @@ Project work:
   cortexium-runner approve [--config PATH] --item ID|URL [--dry-run]
   cortexium-runner amend [--config PATH] --item ID|URL --body-file PATH [--dry-run|--json]
   cortexium-runner retry [--config PATH] [--item ID|URL|TITLE] [--feedback TEXT] [--dry-run]
+  cortexium-runner recover-repository-rename [--config PATH] --item ID|URL --from OWNER/OLD_NAME [--dry-run|--json]
 
 Execution:
   cortexium-runner run [--config PATH] [--once] [--poll-interval DURATION] [--max-idle-interval DURATION]

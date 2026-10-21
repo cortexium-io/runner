@@ -155,7 +155,7 @@ continues observing unrelated Project and pull-request events while harness
 actions are in flight. It does nothing once you stop it. Use
 `cortexium-runner run --once` for one synchronous polling cycle in a diagnostic
 or scripted workflow. `init`, `doctor`, `plan`, `approve`, `retry`, `status`,
-`metrics`, `guidance`, `role`, `workflow`, `delivery`, `verify`, and `harness` are one-shot commands that exit
+`metrics`, `guidance`, `role`, `workflow`, `delivery`, `verify`, `recover-repository-rename`, and `harness` are one-shot commands that exit
 when they finish. Running
 `cortexium-runner` without arguments shows help; every command supports
 `--help`, and `--version` prints the installed version.
@@ -1159,6 +1159,73 @@ but each target must be uniquely present in the same Project. Runner releases
 the dependent card only after every target has a valid Runner signature for the
 configured successful outcome. Moving a card to `Done` manually does not satisfy
 that condition.
+
+### Recover a released planning batch after a repository rename
+
+Use `recover-repository-rename` when a human renamed the same GitHub repository
+and a complete, previously released issue-backed planning batch now has missing
+child approvals. The planning parent must still be `Done`, and every original
+child must be in `Needs assessment`. This procedure handles unstarted children
+and retained unpublished implementation, including dirty/untracked files and a
+workspace whose branch was never written back to the Project. It does not cover
+repository transfers, different repositories, direct source-less plans,
+whole-plan delivery parents, accepted QA candidates, published branches or PRs,
+or changed requirements. Interrupted correction/specialist continuations require
+their separate recovery and are refused before any write.
+
+1. Stop the worker gracefully using its existing trusted configuration:
+   `cortexium-runner stop --config /absolute/operator/runner.json --wait`.
+   Keep any supervisor from respawning it during recovery. Finish standalone
+   planning/review operations as well. Recovery refuses active local operations.
+2. Verify the administrative rename and update only the trusted `project_dir`,
+   `github_project.intake_repository`, and Git remote to the canonical new
+   name as needed. Keep the Runner ID, Project owner/number, base, profiles and
+   workspace root unchanged. Preserve worktrees and private runtime state.
+3. Preview the complete batch using its parent or any original child:
+
+   ```bash
+   cortexium-runner recover-repository-rename \
+     --config /absolute/operator/runner.json \
+     --item PVTI_PLANNING_PARENT --from owner/old-name --dry-run
+   ```
+
+   `--json` also produces a read-only preview. Both repository names must resolve
+   through GitHub to the same numeric ID, node ID and canonical new full name;
+   an inaccessible old redirect or reused old name blocks recovery. Runner
+   authenticates the entire original batch under the old name before renewing
+   anything. Inspect every exact body/dependency and retained workspace, branch,
+   HEAD, tree, dirty-byte fingerprint and old/new content binding.
+4. Run the same command without `--dry-run` or `--json` in an interactive
+   terminal. Review the refreshed preview and explicitly choose **Yes**; the
+   default is **No**. Piped input cannot confirm recovery.
+5. Inspect `status`, then restart the existing worker through its normal
+   startup mechanism. The parent remains planning-complete; all original children
+   return to implementation, with the original dependencies and rejection counts.
+   Fresh candidate verification and independent QA are required before normal
+   publication and integration. Recovery grants no QA acceptance, merge authority
+   or delivered outcome.
+
+Before external writes, Runner saves an immutable mode-`0600` journal under the
+configured workspace root's `.runner-state/repository-renames/`. It retains the
+original signed batch, private workspace identities, checkpoints, verification
+evidence and feedback bytes. Requirements and dependency topology remain exact;
+only repository/source metadata and execution authority are renewed. Actionable
+QA feedback follows the card, while prior review baselines are retained only as
+history. The original planning batch fingerprint stays as its historical ID.
+Completed implementer checkpoints carry their original execution deadline and
+spent corrective allowance, but cannot reuse successful output or candidate
+proof. Rename recovery never replenishes an exhausted allowance. Use the
+qualified patched runtime for subsequent execution; older binaries cannot read
+the renewed checkpoint marker.
+
+If recovery is interrupted, leave the worker stopped and rerun the same command
+to preview and explicitly resume the saved operation. Every intermediate Project
+write, including a lost response, is recoverable. Ordinary polling leaves rename
+transition markers intact and cannot authorize or repair the batch. A changed
+card, worktree, history record or configuration blocks resumption for assessment.
+Never edit signatures, planning metadata or the journal by hand, clear runtime
+fields, replace cards, or delete work/history to bypass recovery. Keep the journal
+with normal private-state backups after success.
 
 The lifecycle generated by `init` is:
 
