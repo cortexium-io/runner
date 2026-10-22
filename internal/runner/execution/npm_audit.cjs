@@ -51,19 +51,23 @@ async function main() {
   const tree = await arb.loadVirtual()
   if (tree.errors?.length) throw new Error('inconsistent dependency graph')
   const semver = req('semver')
-  for (const node of tree.inventory.values()) {
-    if (!semver.valid(node.version)) throw new Error('unsupported package version')
-    for (const edge of node.edgesOut.values()) {
-      if (!semver.validRange(edge.spec)) throw new Error('unsupported dependency specification')
-      if (!edge.valid && !edge.optional) throw new Error('inconsistent dependency edge')
-      if (edge.error && edge.to) throw new Error('invalid locked dependency')
-    }
-  }
   // Derive omission flags from the graph instead of trusting lockfile flags.
   for (const node of tree.inventory.values()) {
     node.dev = node.optional = node.devOptional = node.peer = node.extraneous = true
   }
   req('@npmcli/arborist/lib/calc-dep-flags.js')(tree)
+  const omit = new Set(policy.omit || [])
+  for (const node of tree.inventory.values()) {
+    if (!semver.valid(node.version)) throw new Error('unsupported package version')
+    const omitted = (omit.has('dev') && node.dev) || (omit.has('optional') && node.optional) || (omit.has('peer') && node.peer)
+    for (const edge of node.edgesOut.values()) {
+      if (!semver.validRange(edge.spec)) throw new Error('unsupported dependency specification')
+      // An omitted subtree may lack platform-only children. Included missing
+      // requirements and invalid installed edges must still block evaluation.
+      if (!edge.valid && !edge.optional && !(omitted && !edge.to)) throw new Error('inconsistent dependency edge')
+      if (edge.error && edge.to) throw new Error('invalid locked dependency')
+    }
+  }
   const report = await AuditReport.load(tree, { omit: policy.omit || [], cache: '/tmp/npm-cache', registry: 'https://registry.npmjs.org/', audit: true })
   if (report.error) throw new Error('audit endpoint unavailable')
   await fs.writeFile('/output/report.json', JSON.stringify(report.toJSON()), { flag: 'wx' })

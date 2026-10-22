@@ -19,7 +19,7 @@ import (
 	"github.com/cortexium-io/runner/internal/securefs"
 )
 
-const environmentRecipe = "go-node-v1"
+const environmentRecipe = "go-node-v2"
 
 // CheckEnvironmentOwnership also protects maintenance after an interrupted
 // preparation. A missing Docker daemon is unknown ownership, not settlement.
@@ -513,7 +513,10 @@ func (p preparation) goGraph(image, work, name string, files map[string][]byte, 
 			return fmt.Errorf("fetch public pinned Go inputs %s: %w", name, err)
 		}
 	}
-	if err = p.run(image, "none", "/work/modules/"+name, []string{containerMount(work, "/work")}, `mkdir -p /tmp/home; export GOPROXY=off GOSUMDB=off; go mod download all`); err != nil {
+	// With lazy module loading, "all" includes dependencies' own tests, whose
+	// modules need not occur in the main module's go.sum. Validate the declared
+	// root graph offline; every go.sum input was already fetched and verified.
+	if err = p.run(image, "none", "/work/modules/"+name, []string{containerMount(work, "/work")}, `mkdir -p /tmp/home; export GOPROXY=off GOSUMDB=off; go mod download`); err != nil {
 		return fmt.Errorf("fetch pinned Go graph %s: %w", name, err)
 	}
 	for file, data := range files {
@@ -603,8 +606,8 @@ func (p preparation) layer(image string, files map[string]string) (string, error
 const environmentBootstrap = `#!/bin/sh
 set -eu
 private=/workspace/.runner-output/environment
-mkdir -p "$private/home" "$private/gomod" "$private/npm" "$private/gocache"
-export HOME="$private/home" GOMODCACHE="$private/gomod" GOCACHE="$private/gocache" GOTOOLCHAIN=local GOWORK=off GOPROXY=off GOSUMDB=off
+mkdir -p "$private/gomod" "$private/npm" "$private/gocache"
+export HOME=/tmp/runner-home GOMODCACHE="$private/gomod" GOCACHE="$private/gocache" GOTOOLCHAIN=local GOWORK=off GOPROXY=off GOSUMDB=off
 export GOFLAGS=-buildvcs=false
 : > "$private/npm-user"; : > "$private/npm-global"
 export npm_config_cache="$private/npm" npm_config_registry=https://registry.npmjs.org npm_config_userconfig="$private/npm-user" npm_config_globalconfig="$private/npm-global"

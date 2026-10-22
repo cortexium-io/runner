@@ -314,12 +314,12 @@ evidence remain. Inspect missing tools or unsupported inputs rather than enablin
 networking for checks.
 
 Go inputs are `go.mod` and `go.sum` (the latter may be absent for a dependency-free
-module). The first recipe requires a complete pinned graph and rejects
-replace/exclude directives. npm requires consistent package.json/lockfile-v3
+module). The recipe requires pinned inputs for the root build/test graph and
+rejects replace/exclude directives. npm requires consistent package.json/lockfile-v3
 metadata and integrity-pinned public registry tarballs. Workspaces, local/git
 dependencies, overrides, unsupported bundled lock entries and private npm
-registries are unavailable capabilities. Engine requirements are enforced. npm
-audit is not implemented in this bundle; preparation is not vulnerability proof.
+registries are unavailable capabilities. Engine requirements are enforced.
+Preparation is not vulnerability proof; configure typed `npm_audit` checks separately.
 
 Pinned Go commands can add `go_tools` entries with `module`, `version`, `package`,
 `name` and the exact archive `sum` (`h1:...`). Declare private module prefixes in
@@ -346,6 +346,12 @@ VCS stamping instead of querying an unborn HEAD. Runner's source-bound receipts
 remain the provenance of these disposable build outputs. Checks requiring real
 candidate Git history are outside this verification-copy contract.
 
+Container checks create a private mode-0700 HOME at `/tmp/runner-home` in their
+temporary filesystem, owned by the check UID. Dependency caches and declared
+outputs keep their private writable mounts. Recipe `go-node-v2` includes this
+boundary; environments prepared with the earlier recipe need explicit preparation
+and approval before use with the new recipe.
+
 Declared outputs are private writable directory overlays backed by
 `.runner-output/outputs/<path>`; the remaining source mount is read-only. No
 cleanup/restore script is needed. A tracked build placeholder must be listed as an
@@ -355,6 +361,12 @@ files under an output are rejected. Generated placeholder bytes exist only in th
 overlay; the candidate retains its original file. Reports can select ordinary
 paths such as `web/test-results`; retained bundles label their private backing
 paths and use the existing limits and read-only reviewer grants.
+
+A command that deletes and recreates its report directory needs a writable output
+parent: for example, declare `artifacts` and retain `artifacts/browser` for
+Playwright. A mounted output root itself cannot be removed. Its parent must still
+contain no protected source; otherwise that layout is unsupported rather than
+permission to widen the source mount or change project scripts.
 
 Each container check may set `"cpus": 1`, `2`, `3` or `4`; omission keeps the
 existing two-CPU quota. Alternatively set `"auto_cpus": true` to use 25% of the

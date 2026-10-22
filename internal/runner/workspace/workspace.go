@@ -353,7 +353,7 @@ func Copy(source, parent string) (string, CopyState, error) {
 			var mode os.FileMode
 			b, mode, _, e = securefs.ReadFile(filepath.Join(source, name), 64<<20)
 			if e == nil {
-				e = securefs.WriteFileExclusive(dest, b, mode.Perm())
+				e = securefs.WriteFileExclusiveExactMode(dest, b, mode.Perm())
 			}
 		}
 		if e != nil {

@@ -64,10 +64,19 @@ func TestEnvironmentInputIdentityAndPrivateArchiveMetadata(t *testing.T) {
 	if inputs["go.sum"] != "absent" {
 		t.Fatal(inputs)
 	}
+	prepared := config.PreparedEnvironment{Recipe: environmentRecipe, Spec: spec, Inputs: inputs}
+	if err = ValidateEnvironmentInputs(root, prepared); err != nil {
+		t.Fatal(err)
+	}
+	prepared.Recipe = "go-node-v1"
+	if err = ValidateEnvironmentInputs(root, prepared); err == nil || !strings.Contains(err.Error(), "recipe changed") {
+		t.Fatal("superseded bootstrap accepted", err)
+	}
+	prepared.Recipe = environmentRecipe
 	if err = os.WriteFile(filepath.Join(root, "go.sum"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if ValidateEnvironmentInputs(root, config.PreparedEnvironment{Spec: spec, Inputs: inputs}) == nil {
+	if ValidateEnvironmentInputs(root, prepared) == nil {
 		t.Fatal("new empty go.sum inherited an absence approval")
 	}
 	cache, err := filepath.EvalSymlinks(t.TempDir())
@@ -208,6 +217,7 @@ func TestLiveReusableEnvironment(t *testing.T) {
 			}
 			command := fmt.Sprintf(`set -eu; test "$(cat %s/node_modules/hook.txt)" = 'offline install'; (cd %s; go build -o /workspace/%s/app .); printf generated > %s/index.html; printf '{"ok":true}' > %s/report.json; if printf corrupt > %s/go.mod 2>/dev/null; then exit 9; fi; printf poison > "$GOMODCACHE/poison"`, layout.nodeDir, layout.goDir, layout.output, layout.output, layout.output, layout.goDir)
 			command += `; test -z "${HTTP_PROXY-}${http_proxy-}${HTTPS_PROXY-}${https_proxy-}"`
+			command += `; test "$HOME" = /tmp/runner-home; test "$(stat -c '%u %a' "$HOME")" = "$(id -u) 700"`
 			command += `; rm -rf "$npm_config_cache/_cacache"`
 			if i == 0 {
 				command += `; test "$(fixture-tool)" = 'pinned tool'; rm -rf "$GOMODCACHE/cache"`

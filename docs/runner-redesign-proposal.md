@@ -14,8 +14,10 @@ and additional hosted merge methods remain deferred.
 The owner subsequently requested the [reusable check environments and controlled
 online audits brief](#reusable-check-environments-and-controlled-online-audits-brief).
 E1 environment/output support and E2 controlled npm audits/freshness are implemented
-in the existing worktree. Code Atlas qualification (E3), pilot launch, public
-release/package publication and installation changes remain separate.
+in the existing worktree. [Code Atlas qualification (E3)](#e3-code-atlas-qualification--2026-10-22)
+is complete within its recorded Linux/browser and native focused-verification
+boundaries. Pilot launch, public release/package publication and
+installation changes remain separate.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -61,13 +63,13 @@ slices land; do not create another plan or task registry.
 
 ## Reusable check environments and controlled online audits brief
 
-**Defined 2026-10-21; E1 and E2 implementation authorized separately.** The owner
+**Defined 2026-10-21; E1/E2 implementation and E3 qualification authorized separately.** The owner
 requested reusable Runner support instead of per-project workarounds. This
 supersedes the proposed private Code Atlas wrapper/image and preparation-audit
 workaround. E1 reusable environment/output handling and E2 controlled npm audits
-and freshness are implemented. Code Atlas qualification (E3), release/package
+and freshness are implemented; E3 results are recorded below. Release/package
 publication, installation/service changes and pilot launch remain outside this
-bundle. The operator guide documents the shipped configuration and commands.
+brief. The operator guide documents the shipped configuration and commands.
 
 ### Outcome and scope
 
@@ -290,6 +292,101 @@ Code Atlas preparation resumes only after the reusable support is separately
 authorized, implemented and qualified. Pilot launch remains a later decision.
 
 
+### E3 Code Atlas qualification — 2026-10-22
+
+**Boundary and result.** Qualified Code Atlas in an independent clone, using
+private format-21 state and a separately built Runner executable. The authority
+is empty and drained: no task, attempt, model invocation or pilot. The original
+checkout, app and old Runner were not written or restarted by this qualification.
+The separate Code Atlas owner chat advanced its source/app during the work; those
+external changes are recorded separately from this run's protected observations.
+No publishing, installation change or public PR was performed.
+
+The initial pin was `85f6335b42c9f0d53e92701ce71c9ea83cb57e3d`. After reviewing
+the owner's five changed UI/test files, the clone adopted
+`cd43df217e77a5f6e19673f47efbe5b7c6b5bc81`; dependencies, tool pins and check
+configuration were unchanged. The owner separately approved one selector repair:
+filter the stale-guide `status` by its expected text, avoiding the concurrent
+`Arranging packages…` status. Clone-only commit
+`a81c0467f897fdd83e7a3dbe361dece34f2c19cb` retains the same `toContainText`
+assertion and every other proof step. Focused browser verification passed before
+the fresh complete baseline. This patch still requires adoption by the project
+owner; it is not present in the original checkout.
+
+**Verification agreement.** The normal README checks remain:
+`go test ./... -count=1 && go vet ./...`, all frontend unit tests, pinned
+`genny doctor --verify-generated`, the production frontend build followed by the
+complete Playwright suite, and typed npm audit equivalent to
+`--omit=dev --omit=optional --audit-level=high` with one-hour freshness.
+Build and browser share one check so the server embeds that build. Browser
+settings remain one worker, zero retries, 60s tests and 10s assertions. No project
+wrapper, Dockerfile, audit snapshot or application-source patch was introduced.
+
+The reusable recipe pins Go 1.26.9, Node 24.21.0, Playwright 1.64.1 and Genny
+`v0.2.3-0.20261019123550-d5717ed19ca0` with its declared archive checksum.
+Only explicitly requested, verified private Genny module archives were imported.
+Ordinary dependency/build/report paths use declared output overlays; the tracked
+frontend index is an explicit placeholder. `artifacts` is the writable report
+parent so Playwright can recreate `artifacts/browser` without widening source
+access. Preparation is explicit; check execution stays offline.
+
+**Generic fixes established during qualification.** Each defect was diagnosed
+before its bounded fix; failed attempts remain in the private evidence record.
+
+- Lazy Go graphs: validate with offline `go mod download` after fetching all
+  checksum-declared inputs. `download all` unnecessarily demanded dependencies'
+  own test modules absent from a valid root graph. Metadata-only reproduction
+  and real project Go tests establish the result; manifests remain byte-identical.
+- npm omissions: derive graph flags before validation and allow missing children
+  only inside policy-omitted subtrees. Included missing requirements and invalid
+  installed edges still block. The existing pinned-npm conformance table adds
+  omitted dev/optional/peer cases and included/required negative controls; full
+  report/exit-code comparisons and the live registry probe passed.
+- Source modes: verification copying uses an exclusive, no-follow exact-mode
+  writer. Ordinary writes and archive extraction retain their umask behavior.
+  A child-process regression proves 0600/0640/0755 files survive `umask 0077`;
+  existing CI no-op/mode-only controls and baseline-exception matching pass
+  under that mask. The new regression fails with the original copy call.
+- Container HOME: create mode-0700 `/tmp/runner-home` under the check UID in
+  private tmpfs. Host-backed HOME caused intermittent root-owned review-cache
+  observations in Linux. Prepared and direct checks use the same boundary;
+  dependency caches and report mounts stay private. Recipe `go-node-v2` requires
+  explicit re-preparation. Saved agreements with a superseded recipe are rejected
+  before command execution, preventing reuse of an old embedded HOME bootstrap.
+  The owning input-identity test covers current, superseded and changed-input cases.
+  Existing live-recipe assertions cover location, owner and mode; source-bound
+  direct/prepared probes and the complete Linux suite qualify the actual change.
+
+**Evidence.** Fresh preparation took **229.8s**. The complete Code
+Atlas baseline passed in **141.7s**, report
+`2341d7c74e37d41478e0fb55211db7e4`: Go tests/vet, 19 frontend tests, 40 generated files, both browser
+journeys with six retained screenshots, and the online audit. Image:
+`sha256:b2bdb063c15b565c18c1b691fc13860668e7519bb94492218dcc2bd8332309f0`. The audit queried at `2026-10-22T07:28:11.967345Z` and reported
+zero findings under the unchanged policy. The source/policy/image-bound agreement
+is revision `141d24c94c4f4f43932cba1bbce1fdaddce4e8a9b44b1af4ed671823c3cfc763`; expiry requires an explicit fresh audit,
+not a snapshot exception.
+
+The retained screenshots/logs pass the production evidence-grant validator and
+native Codex sandbox: evidence readable; writes, original source, raw check copy
+and sibling evidence denied. Direct/prepared container probes establish HOME
+ownership/mode, private loopback, app/external-network denial, no inherited secret,
+source/index write denial even on successful exit, writable outputs and unchanged
+two-CPU/4-GiB/512-PID limits. Cancellation and all owned processes/containers and
+preparation scratch settled. Report-backed copies remain retained under Runner's
+existing backup contract.
+
+Runner's complete `go test -race -timeout 15m ./... && go vet ./...` passed on
+frozen Linux source in **219.7s**, report `0d3361c8d8a40724679a390bb402f963`. Native
+owning suites, strict-umask integration controls and vet passed. The complete
+native race run reached its unchanged 15-minute package cap with no assertion
+failure; it did **not** pass. The Linux result does not establish native macOS
+folder-dialog behavior. No assertion, deadline, retry or sandbox limit was weakened.
+
+Exact source/tool/binary identities, declarative configuration, immutable reports,
+failed/successful gate records and protected observations are retained at
+`/Users/dan/.local/share/cortexium-runner/code-atlas-e3-20261022/summary.json` and
+its `evidence/` directory. Pilot launch remains a separate owner decision.
+
 ### E2 implementation and qualification — 2026-10-22
 
 Implemented in the same worktree, stopping before E3. A quality check now chooses
@@ -506,7 +603,7 @@ Extend owning suites rather than build another orchestration harness:
 
 ### Code Atlas local pilot preparation — 2026-10-21
 
-**Preparation paused at a reusable-capability gap.** The owner rejected per-project
+**Historical preparation pause, superseded by E1/E2 and the [E3 qualification](#e3-code-atlas-qualification--2026-10-22).** The owner rejected per-project
 workarounds and requested the [Runner-owned brief](#reusable-check-environments-and-controlled-online-audits-brief)
 above. A lockfile-bound preparation audit was proposed, but was **not approved**;
 it is not the accepted policy. The custom image/wrapper approach is superseded.

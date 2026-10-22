@@ -155,8 +155,8 @@ func runContainerCheck(ctx context.Context, root string, check config.QualityChe
 		command = `exec /opt/runner/check-env "$@"`
 		args = append(args, "--env", "PATH=/opt/runner/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin")
 	}
-	args = append(args, "--mount", sourceMount, "--workdir", filepath.Join("/workspace", check.Directory), "--env", "HOME="+filepath.Join("/workspace/.runner-output", check.ID, "home"), "--env", "TMPDIR=/tmp", "--env", "LANG=C", "--env", "LC_ALL=C", "--entrypoint", "/bin/sh", check.Image,
-		"-c", `command=$1; shift; while [ "$1" != -- ]; do command -v "$1" >/dev/null || { printf 'missing image prerequisite %s\n' "$1" >&2; exit 127; }; shift; done; shift; if [ "$#" -eq 0 ]; then exec /bin/sh -c "$command"; fi; exec /bin/sh -c "$command" runner-command "$@"`, "runner-check", command)
+	args = append(args, "--mount", sourceMount, "--workdir", filepath.Join("/workspace", check.Directory), "--env", "HOME=/tmp/runner-home", "--env", "TMPDIR=/tmp", "--env", "LANG=C", "--env", "LC_ALL=C", "--entrypoint", "/bin/sh", check.Image,
+		"-c", `mkdir -m 700 "$HOME" || exit 125; command=$1; shift; while [ "$1" != -- ]; do command -v "$1" >/dev/null || { printf 'missing image prerequisite %s\n' "$1" >&2; exit 127; }; shift; done; shift; if [ "$#" -eq 0 ]; then exec /bin/sh -c "$command"; fi; exec /bin/sh -c "$command" runner-command "$@"`, "runner-check", command)
 	args = append(args, check.Prerequisites...)
 	args = append(args, "--")
 	if check.Prepared != nil {

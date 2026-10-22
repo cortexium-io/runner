@@ -194,8 +194,44 @@ func TestLiveNPMAuditEvaluatorAndCancellation(t *testing.T) {
 		vulnerable          bool
 		omit                []string
 		count               int
-	}{{"clean", "high", "passed", false, nil, 0}, {"transitive and meta", "high", "failed", true, nil, 5}, {"omit dev", "high", "failed", true, []string{"dev"}, 4}, {"omit optional", "high", "failed", true, []string{"optional"}, 4}, {"omit peer", "high", "failed", true, []string{"peer"}, 4}, {"omit all", "high", "failed", true, []string{"dev", "optional", "peer"}, 2}, {"threshold", "critical", "passed", true, nil, 5}} {
+		incomplete          string
+	}{
+		{"clean", "high", "passed", false, nil, 0, ""},
+		{"transitive and meta", "high", "failed", true, nil, 5, ""},
+		{"omit dev", "high", "failed", true, []string{"dev"}, 4, ""},
+		{"omit optional", "high", "failed", true, []string{"optional"}, 4, ""},
+		{"omit peer", "high", "failed", true, []string{"peer"}, 4, ""},
+		{"omit all", "high", "failed", true, []string{"dev", "optional", "peer"}, 2, ""},
+		{"threshold", "critical", "passed", true, nil, 5, ""},
+		{"omitted optional subtree", "high", "failed", true, []string{"optional"}, 4, "optional-leaf"},
+		{"omitted dev subtree", "high", "failed", true, []string{"dev"}, 4, "dev-leaf"},
+		{"omitted peer subtree", "high", "failed", true, []string{"peer"}, 4, "peer-leaf"},
+		{"included optional subtree", "high", "unavailable", false, nil, 0, "optional-leaf"},
+		{"required subtree", "high", "unavailable", false, []string{"optional"}, 0, "parent"},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
+			input := input
+			if tc.incomplete != "" {
+				root := npmFixture(t)
+				path := filepath.Join(root, "package-lock.json")
+				data, err := os.ReadFile(path)
+				var lock struct {
+					LockfileVersion int                       `json:"lockfileVersion"`
+					Packages        map[string]map[string]any `json:"packages"`
+				}
+				if err != nil || json.Unmarshal(data, &lock) != nil {
+					t.Fatal("read fixture lock", err)
+				}
+				lock.Packages["node_modules/"+tc.incomplete]["dependencies"] = map[string]string{"missing": "1.0.0"}
+				data, _ = json.Marshal(lock)
+				if err = os.WriteFile(path, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+				input, err = InspectNPMAudit(root, ".")
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			check := config.QualityCheck{ID: "audit", Directory: ".", Timeout: "1m", Image: image, NPMAudit: &config.NPMAuditPolicy{Level: tc.level, Omit: tc.omit}}
 			a := NPMAuditor{transport: func(p map[string][]string) *auditTransport { return registryFixture(p, tc.vulnerable) }}
 			r := a.Audit(t.Context(), input, check, "source", filepath.Join(auditTemp(t), "audit.log"), func(core.Process) error { return nil })
@@ -208,6 +244,9 @@ func TestLiveNPMAuditEvaluatorAndCancellation(t *testing.T) {
 			}
 			if err := VerifyAuditReceipt(r.Audit.Receipt); err != nil {
 				t.Fatal(err)
+			}
+			if tc.status == "unavailable" {
+				return // Included missing requirements must still block the audit.
 			}
 			// Compare against npm's own Arborist.audit and npm-audit-report path,
 			// including the CLI's severity exit code, using the same registry fixture.

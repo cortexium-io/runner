@@ -118,6 +118,9 @@ func environmentInputs(root string, spec config.CheckEnvironmentSpec) (map[strin
 }
 
 func ValidateEnvironmentInputs(root string, prepared config.PreparedEnvironment) error {
+	if prepared.Recipe != environmentRecipe {
+		return errors.New("environment recipe changed; prepare and approve the new quality revision")
+	}
 	inputs, err := environmentInputs(root, prepared.Spec)
 	if err != nil {
 		return err
