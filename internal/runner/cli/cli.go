@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,6 +86,11 @@ func (c CLI) Run(ctx context.Context, args []string) error {
 	}
 	readonly := (args[0] == "quality" && len(args) > 1 && (args[1] == "preview" || args[1] == "show")) || args[0] == "status" || (args[0] == "config" && len(args) > 1 && args[1] != "apply") || (args[0] == "task" && len(args) > 1 && args[1] == "show")
 	readonly = readonly || (args[0] == "github" && len(args) > 1 && args[1] == "inbox")
+	readonly = readonly || (args[0] == "quality" && len(args) > 1 && args[1] == "prepare" && !slices.ContainsFunc(args[2:], func(arg string) bool {
+		name, value, assigned := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+		enabled, _ := strconv.ParseBool(value)
+		return strings.HasPrefix(arg, "-") && name == "apply" && (!assigned || enabled)
+	}))
 	db, err := store.Open(ctx, cfg.StateDir, readonly)
 	if err != nil {
 		return fmt.Errorf("cannot open local authority (inspection never creates it): %w", err)

@@ -23,18 +23,26 @@ func readInput(path string, v any) error {
 }
 func (c CLI) quality(ctx context.Context, e *engine.Engine, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: quality preview|check|apply|show")
+		return errors.New("usage: quality prepare|preview|check|apply|show")
 	}
 	command := args[0]
 	f := c.flags("quality " + command)
 	var file, report, exceptions, preview, revision *string
+	var apply *bool
+	var moduleCache *string
 	switch command {
+	case "prepare":
+		file = f.String("file", "", "quality specification")
+		preview = f.String("preview", "", "displayed environment preview")
+		apply = f.Bool("apply", false, "explicitly prepare the declared offline environment")
+		moduleCache = f.String("module-cache", "", "explicit verified Go module cache; imports only pinned private archives")
 	case "preview":
 		file = f.String("file", "", "quality specification")
 		report = f.String("report", "", "retained baseline report")
 		exceptions = f.String("exceptions", "", "explicit scoped exception requests")
 	case "check":
 		file = f.String("file", "", "quality specification")
+		report = f.String("report", "", "refresh only online audits in this retained baseline report")
 		preview = f.String("preview", "", "displayed baseline preview")
 	case "apply":
 		report = f.String("report", "", "retained baseline report")
@@ -43,13 +51,30 @@ func (c CLI) quality(ctx context.Context, e *engine.Engine, args []string) error
 	case "show":
 		revision = f.String("revision", "", "retained revision; default is current agreement")
 	default:
-		return errors.New("usage: quality preview|check|apply|show")
+		return errors.New("usage: quality prepare|preview|check|apply|show")
 	}
 	if err := f.Parse(args[1:]); err != nil {
 		return err
 	}
 	if f.NArg() != 0 {
 		return errors.New("unexpected quality argument")
+	}
+	if command == "prepare" {
+		if *file == "" {
+			return errors.New("quality prepare requires --file")
+		}
+		var spec config.QualitySpec
+		if err := readInput(*file, &spec); err != nil {
+			return err
+		}
+		p, result, err := e.PrepareQuality(ctx, spec, *apply, *preview, *moduleCache)
+		if err != nil {
+			return err
+		}
+		return c.json(struct {
+			Preview  any                         `json:"preparation"`
+			Prepared *config.PreparedEnvironment `json:"prepared,omitempty"`
+		}{p, result})
 	}
 	if command == "show" {
 		id := *revision
@@ -69,6 +94,16 @@ func (c CLI) quality(ctx context.Context, e *engine.Engine, args []string) error
 		}{id, q})
 	}
 	var requests []config.ExceptionRequest
+	if command == "check" && *report != "" {
+		if *file != "" {
+			return errors.New("use either --file for a full baseline or --report for audit-only refresh")
+		}
+		r, err := e.RefreshBaseline(ctx, *report, *preview)
+		if err != nil {
+			return err
+		}
+		return c.json(r)
+	}
 	if exceptions != nil && *exceptions != "" {
 		if err := readInput(*exceptions, &requests); err != nil {
 			return err

@@ -26,10 +26,11 @@ type Store struct {
 	guard *Guard
 }
 
-const Format = 19
+const Format = 21
 
 const schema = `
-CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=19), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE metadata (id INTEGER PRIMARY KEY CHECK(id=1), format INTEGER NOT NULL CHECK(format=21), settings BLOB NOT NULL, drained INTEGER NOT NULL DEFAULT 1, audit_clock INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE audit_receipts (id TEXT PRIMARY KEY, inputs TEXT NOT NULL, policy TEXT NOT NULL, image TEXT NOT NULL, data BLOB NOT NULL);
 CREATE TABLE quality_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE quality_reports (id TEXT PRIMARY KEY, data BLOB NOT NULL);
 CREATE TABLE settings_history (revision TEXT PRIMARY KEY, data BLOB NOT NULL);

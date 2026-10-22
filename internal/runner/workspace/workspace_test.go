@@ -2,10 +2,56 @@ package workspace
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cortexium-io/runner/internal/runner/config"
+	"golang.org/x/sys/unix"
 )
+
+func TestVerificationCopyPreservesModesUnderUmask(t *testing.T) {
+	const child = "RUNNER_COPY_PERMISSION_CHILD"
+	if os.Getenv(child) != "1" {
+		binary, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Isolate the process-wide mask from the rest of the suite.
+		command := exec.Command(binary, "-test.run=^TestVerificationCopyPreservesModesUnderUmask$", "-test.timeout=30s")
+		command.Env = append(os.Environ(), child+"=1")
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("permission child: %s: %v", output, err)
+		}
+		return
+	}
+	unix.Umask(0077)
+	source := t.TempDir()
+	modes := map[string]os.FileMode{"private.txt": 0600, "shared.txt": 0640, "script.sh": 0755}
+	for name, mode := range modes {
+		path := filepath.Join(source, name)
+		if err := os.WriteFile(path, []byte("source"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	copy, before, err := Copy(source, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = VerifyCopy(copy, before); err != nil {
+		t.Fatal(err)
+	}
+	for name, mode := range modes {
+		info, err := os.Stat(filepath.Join(copy, name))
+		if err != nil || info.Mode().Perm() != mode {
+			t.Fatalf("copied %s: %v, %v; want %04o", name, info, err, mode)
+		}
+	}
+}
 
 func TestVerificationCopyAllowsOutputButRejectsChangedSourceAndLinks(t *testing.T) {
 	source := t.TempDir()
@@ -37,6 +83,65 @@ func TestVerificationCopyAllowsOutputButRejectsChangedSourceAndLinks(t *testing.
 	}
 	if _, e = Manifest(source); e == nil {
 		t.Fatal("external source link accepted")
+	}
+}
+
+func TestOutputViewPreservesSourceAndRejectsBroaderGrants(t *testing.T) {
+	source := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(source, "public"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "public/index.html"), []byte("placeholder"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	copy, before, err := Copy(source, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputs := []config.CheckOutput{{Path: "public", Placeholders: []string{"public/index.html"}}}
+	if err = PrepareOutputs(copy, before.Source, outputs); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(copy, ".runner-output/outputs/public/index.html"), []byte("generated"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = VerifyCopy(copy, before); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(copy, "public/index.html"))
+	if err != nil || string(data) != "placeholder" {
+		t.Fatal("underlying source replaced", err)
+	}
+	for _, path := range []string{"public/extra.html", "public/source.go", "public/package.json"} {
+		files := map[string]string{}
+		for k, v := range before.Source {
+			files[k] = v
+		}
+		files[path] = "600:new"
+		if ValidateOutputs(files, outputs) == nil {
+			t.Fatal("new tracked file inherited output permission", path)
+		}
+		outputs[0].Placeholders = append(outputs[0].Placeholders, path)
+		if path != "public/extra.html" && ValidateOutputs(files, outputs) == nil {
+			t.Fatal("source/manifest accepted as placeholder", path)
+		}
+		outputs[0].Placeholders = outputs[0].Placeholders[:1]
+	}
+	if err = os.WriteFile(filepath.Join(copy, "public/index.html"), []byte("corrupt"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if VerifyCopy(copy, before) == nil {
+		t.Fatal("output grant hid changed underlying source")
+	}
+	linkCopy, linkBefore, err := Copy(source, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Symlink(t.TempDir(), filepath.Join(linkCopy, ".runner-output")); err != nil {
+		t.Fatal(err)
+	}
+	if VerifyCopy(linkCopy, linkBefore) == nil {
+		t.Fatal("output root link accepted")
 	}
 }
 

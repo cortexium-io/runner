@@ -105,7 +105,7 @@ func runContainerCheck(ctx context.Context, root string, check config.QualityChe
 	if os.Geteuid() == 0 {
 		return true, errors.New("container checks require an unprivileged Runner owner")
 	}
-	if err := (config.QualitySpec{CheckImage: check.Image, Definition: "check", Checks: []config.QualityCheck{check}}).Validate(); err != nil {
+	if err := (config.QualitySpec{Outputs: check.Outputs, CheckImage: check.Image, Definition: "check", Checks: []config.QualityCheck{check}}).Validate(); err != nil {
 		return true, err
 	}
 	host, err := dockerHost(ctx)
@@ -128,14 +128,41 @@ func runContainerCheck(ctx context.Context, root string, check config.QualityChe
 	}
 	name := "runner-check-" + core.NewID()
 	owner := core.Process{Container: name, DockerHost: host}
+	// Docker otherwise injects configured proxy URLs (which can contain host
+	// credentials) into containers. Local exact-image checks need no client auth.
+	clientConfig := filepath.Join(root, ".runner-output", check.ID, "docker-client")
+	if err = config.NoSymlinks(clientConfig); err != nil {
+		return true, err
+	}
+	if err = os.MkdirAll(clientConfig, 0700); err != nil {
+		return true, err
+	}
 
-	args := []string{"--host", host, "run", "--name", name, "--rm", "--pull=never", "--network=none", "--ipc=private", "--init", "--read-only",
+	args := []string{"--host", host, "--config", clientConfig, "run", "--name", name, "--rm", "--pull=never", "--network=none", "--ipc=private", "--init", "--read-only",
 		"--user", strconv.Itoa(os.Geteuid()) + ":" + strconv.Itoa(os.Getegid()), "--cap-drop=ALL", "--security-opt=no-new-privileges",
 		"--pids-limit=512", "--memory=4g", "--cpus=" + strconv.Itoa(check.CPULimit()), "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=2g,mode=1777",
-		"--mount", containerMount(root, "/workspace"), "--workdir", filepath.Join("/workspace", check.Directory),
-		"--env", "HOME=" + filepath.Join("/workspace/.runner-output", check.ID, "home"), "--env", "TMPDIR=/tmp", "--entrypoint", "/bin/sh", check.Image,
-		"-c", `command=$1; shift; for tool do command -v "$tool" >/dev/null || { printf 'missing image prerequisite %s\n' "$tool" >&2; exit 127; }; done; exec /bin/sh -c "$command"`, "runner-check", check.Command}
+	}
+	sourceMount := containerMount(root, "/workspace")
+	if len(check.Outputs) > 0 || check.Prepared != nil {
+		sourceMount += ",readonly"
+		args = append(args, "--mount", containerMount(filepath.Join(root, ".runner-output"), "/workspace/.runner-output"))
+		for _, o := range check.Outputs {
+			args = append(args, "--mount", containerMount(filepath.Join(root, ".runner-output", "outputs", o.Path), filepath.Join("/workspace", o.Path)))
+		}
+	}
+	command := check.Command
+	if check.Prepared != nil {
+		command = `exec /opt/runner/check-env "$@"`
+		args = append(args, "--env", "PATH=/opt/runner/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin")
+	}
+	args = append(args, "--mount", sourceMount, "--workdir", filepath.Join("/workspace", check.Directory), "--env", "HOME=/tmp/runner-home", "--env", "TMPDIR=/tmp", "--env", "LANG=C", "--env", "LC_ALL=C", "--entrypoint", "/bin/sh", check.Image,
+		"-c", `mkdir -m 700 "$HOME" || exit 125; command=$1; shift; while [ "$1" != -- ]; do command -v "$1" >/dev/null || { printf 'missing image prerequisite %s\n' "$1" >&2; exit 127; }; shift; done; shift; if [ "$#" -eq 0 ]; then exec /bin/sh -c "$command"; fi; exec /bin/sh -c "$command" runner-command "$@"`, "runner-check", command)
 	args = append(args, check.Prerequisites...)
+	args = append(args, "--")
+	if check.Prepared != nil {
+		args = append(args, check.Command)
+		args = append(args, check.Prepared.NPMPackages...)
+	}
 	// Run persists the owner while its gate shell is still waiting. The container
 	// cannot exist before that callback succeeds.
 	authorized := false

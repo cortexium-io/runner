@@ -3,9 +3,52 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/runner/core"
 )
+
+func TestNPMAuditPolicyAndObservationIdentity(t *testing.T) {
+	check := QualityCheck{ID: "audit", Directory: ".", Timeout: "1m", NPMAudit: &NPMAuditPolicy{Level: "high"}}
+	spec := QualitySpec{CheckImage: "sha256:" + strings.Repeat("a", 64), Definition: "required public audit", Checks: []QualityCheck{check}}
+	if spec.Validate() != nil || check.NPMAudit.Age() != time.Hour {
+		t.Fatal("invalid default audit")
+	}
+	for _, change := range []func(*QualityCheck){func(c *QualityCheck) { c.Command = "npm audit" }, func(c *QualityCheck) { c.Prerequisites = []string{"npm"} }, func(c *QualityCheck) { c.Directory = "../outside" }, func(c *QualityCheck) { c.NPMAudit = &NPMAuditPolicy{Level: "none"} }, func(c *QualityCheck) { c.NPMAudit = &NPMAuditPolicy{Level: "high", MaxAge: "-1h"} }, func(c *QualityCheck) { c.NPMAudit = &NPMAuditPolicy{Level: "high", Omit: []string{"private"}} }} {
+		bad := check
+		change(&bad)
+		spec.Checks = []QualityCheck{bad}
+		if spec.Validate() == nil {
+			t.Fatal("unsafe audit accepted", bad)
+		}
+	}
+	q := Quality{Definition: spec.Definition, CheckImage: spec.CheckImage, Checks: []QualityCheck{check}, Baseline: []core.CheckObservation{{CheckID: "audit", Audit: &core.AuditAssessment{Receipt: core.AuditReceipt{ID: "first"}}}}}
+	revision := q.Revision()
+	q.Baseline[0].Audit.Receipt.ID = "refreshed"
+	q.Baseline[0].Status = "failed"
+	if q.Revision() != revision {
+		t.Fatal("volatile audit changed approval authority")
+	}
+	q.Checks[0].NPMAudit = &NPMAuditPolicy{Level: "critical"}
+	if q.Revision() == revision {
+		t.Fatal("audit policy is outside approval authority")
+	}
+	q.Checks[0] = check
+	q.Baseline[0] = core.CheckObservation{CheckID: "audit", Status: "failed", Stopped: true, OutputDigest: "observed"}
+	if _, err := (QualityReport{Quality: q, Files: map[string]string{"package-lock.json": "lock"}}).ResolveExceptions([]ExceptionRequest{{CheckID: "audit", Rationale: "waiver", Scope: []string{"package-lock.json"}}}); err == nil {
+		t.Fatal("audit baseline exception accepted")
+	}
+	unavailable := core.CheckObservation{CheckID: "audit", Status: "unavailable", Stopped: true, Detail: "unsupported dependency graph"}
+	if err := q.ValidateResults([]core.CheckObservation{unavailable}, nil); err == nil || !strings.Contains(err.Error(), unavailable.Detail) {
+		t.Fatal("audit capability reason hidden", err)
+	}
+
+	now := time.Now().UTC()
+	r := core.AuditReceipt{QueriedAt: now, FinishedAt: now.Add(time.Second), Status: "passed"}
+	if !r.Fresh(now.Add(time.Minute), time.Hour) || r.Fresh(now, time.Hour) || r.Fresh(now.Add(time.Hour), time.Hour) {
+		t.Fatal("invalid freshness window")
+	}
+}
 
 func TestBaselineExceptionIsExactAndCannotCoverUnavailableProof(t *testing.T) {
 	failed := core.CheckObservation{CheckID: "legacy", Status: "failed", ExitCode: 1, OutputDigest: "known-output", Stopped: true}

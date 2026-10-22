@@ -143,6 +143,9 @@ func (e *Engine) Run(ctx context.Context) error {
 		if err = e.finishSaved(workCtx); err != nil {
 			return err
 		}
+		if err = e.prepareAuditRefreshes(workCtx); err != nil {
+			return err
+		}
 		if err = e.prepareCompletions(workCtx); err != nil {
 			return err
 		}
@@ -332,6 +335,11 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 		if err = pinned.git().CheckQuality(ctx, t.Base()); err != nil {
 			return core.Attempt{}, false, err
 		}
+		if (t.NextRole == "audit" || t.NextRole == "verify") && pinned.auditsReady(ctx, t) != nil {
+			queueAuditRefresh(&t)
+			v.ProfileName, v.Profile = "", core.Profile{}
+			v.Reason = "audit expired during admission; refresh it before reserving a review invocation"
+		}
 		a := core.Attempt{
 			ID: core.NewID(), TaskID: t.ID, Version: t.Current().Number, Generation: t.Generation,
 			Role: t.NextRole, ProfileName: v.ProfileName, Profile: v.Profile, PolicyRevision: settings.Config.Revision(),
@@ -371,7 +379,9 @@ func (e *Engine) claim(ctx context.Context) (core.Attempt, bool, error) {
 		a.EvidenceDir = filepath.Join(settings.Config.StateDir, "attempts", a.ID)
 		t.Pending = nil
 		t.NextRole = ""
-		if a.Role == "refresh" {
+		if a.Role == "audit_refresh" {
+			// Refreshing an observation does not change the workflow stage.
+		} else if a.Role == "refresh" {
 			t.Stage = core.AwaitingDelivery
 		} else if core.PlanningRole(a.Role) {
 			t.Stage = core.Planning
@@ -428,8 +438,16 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 	if a.Role == "refresh" {
 		return e.executeRefresh(ctx, t, a)
 	}
+	if a.Role == "audit_refresh" {
+		return e.executeAuditRefresh(ctx, t, a)
+	}
 	if a.Role == "combine" {
 		return e.executeCombined(ctx, t, a)
+	}
+	if a.Role == "audit" || a.Role == "verify" {
+		if err := e.auditsReady(ctx, t); err != nil {
+			return fail(err)
+		}
 	}
 	original, err := workspace.Snapshot(ctx, e.Settings.Config.Repository.Path)
 	if err != nil {
@@ -448,7 +466,7 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 			return fmt.Errorf("check %s retained artifacts: %w", check.CheckID, err)
 		}
 		r.ReadRoots = append(r.ReadRoots, roots...)
-		if check.Artifacts != nil {
+		if check.Artifacts != nil || check.Audit != nil {
 			verifyArtifacts = append(verifyArtifacts, func() error {
 				_, err := execution.CheckReadRoots(check, source)
 				return err
@@ -605,6 +623,20 @@ func (e *Engine) execute(ctx context.Context, a core.Attempt) finished {
 				source = check.Artifacts.SourceDigest // Pinned baseline, not current-candidate proof.
 			}
 			if err := grantCheckEvidence(check, source); err != nil {
+				return artifactFailure(err)
+			}
+		}
+	}
+	if t.Audits != nil && a.Role != "implementer" {
+		current := []core.CheckObservation{}
+		for _, c := range r.QualityEvidence {
+			if c.Audit == nil {
+				current = append(current, c)
+			}
+		}
+		r.QualityEvidence = append(current, t.Audits.Checks...)
+		for _, c := range t.Audits.Checks {
+			if err := grantCheckEvidence(c, c.Audit.SourceDigest); err != nil {
 				return artifactFailure(err)
 			}
 		}
@@ -812,6 +844,21 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 	if a.Role == "refresh" {
 		return e.advanceRefresh(ctx, t, a)
 	}
+	if a.Role == "audit_refresh" {
+		if t.Candidate == nil || a.Candidate == nil || *t.Candidate != *a.Candidate {
+			return errors.New("saved audit candidate changed")
+		}
+		if err := e.git().ValidateCandidate(ctx, *t); err != nil {
+			return err
+		}
+		if err := e.validateAuditChecks(ctx, e.Settings.Quality.Audits(*t), a.Checks); err != nil {
+			return err
+		}
+		bindAudits(t, a.Checks)
+		resumeAfterAudit(t)
+		a.State = "applied"
+		return nil
+	}
 	if a.Role == "combine" {
 		if a.Refreshed != nil || a.ConflictRepair != nil {
 			return e.advanceRefresh(ctx, t, a)
@@ -820,6 +867,7 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 			return errors.New("combined candidate missing")
 		}
 		t.Candidate = a.Candidate
+		bindAudits(t, a.Checks)
 		if err := e.git().ValidateCandidate(ctx, *t); err != nil {
 			return err
 		}
@@ -889,6 +937,7 @@ func (e *Engine) advance(ctx context.Context, t *core.Task, a *core.Attempt) err
 		}
 		a.Candidate = &candidate
 		t.Candidate = &candidate
+		bindAudits(t, a.Checks)
 		if a.CIRepair != nil && candidate.Tree == a.CIRepair.Assessment.Proof.Candidate.Tree {
 			a.State = "applied"
 			t.Attention = &core.Attention{Kind: core.ProofGap, Detail: "CI repair left source unchanged; inspect the failure and clarify missing diagnostic evidence before replacing the task", Attempt: a.ID}

@@ -242,6 +242,7 @@ func (e *Engine) advanceRefresh(ctx context.Context, t *core.Task, a *core.Attem
 			return err
 		}
 		t.WorkingBase, t.Candidate = a.Refreshed, a.Candidate
+		bindAudits(t, a.Checks)
 		t.RefreshTarget, t.BaseProof, t.Review = nil, nil, nil
 		t.Stage, t.NextRole = core.Reviewing, "audit"
 	} else {

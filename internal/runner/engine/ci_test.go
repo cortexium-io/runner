@@ -258,7 +258,7 @@ func TestCIRepairCannotPublishUnchangedOrTamperedSource(t *testing.T) {
 				t.Fatal("tampered source reached implementer")
 			}
 			if scenario != "tampered" && (calls != 1 || got.Attention.Kind != core.ProofGap || !strings.Contains(got.Attention.Detail, "unchanged")) {
-				t.Fatal("no-op repair not explained", got)
+				t.Fatalf("no-op repair not explained: calls=%d attention=%+v", calls, got.Attention)
 			}
 		})
 	}

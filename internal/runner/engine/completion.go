@@ -78,6 +78,9 @@ func (e *Engine) prepareCompletions(ctx context.Context) error {
 		if t.Stage != core.AwaitingDelivery || t.Candidate == nil {
 			continue
 		}
+		if e.auditsReady(ctx, t) != nil {
+			continue
+		}
 		if t.ParentID == "" && e.Settings.Config.Delivery.Mode != "local" {
 			continue
 		}
@@ -171,6 +174,9 @@ func (e *Engine) advanceRef(ctx context.Context, t core.Task, w core.RefWrite) e
 		return err
 	}
 	defer lock.Close()
+	if w.Kind != "plan" && w.Authorized(t) && pinned.auditsReady(ctx, t) != nil {
+		return nil
+	}
 	if w.Kind != "plan" && w.Authorized(t) {
 		if err = pinned.git().ValidateCandidate(ctx, t); err != nil {
 			return e.localAttention(ctx, t, err)
@@ -229,6 +235,12 @@ func (e *Engine) advanceRef(ctx context.Context, t core.Task, w core.RefWrite) e
 			w.State, w.Detail = "rejected", "Automatic merge disabled after reservation; no write sent."
 			return e.Store.SaveRefWrite(ctx, t.Revision, w)
 		}
+		if w.Kind != "plan" {
+			if auditErr := pinned.auditsReady(ctx, t); auditErr != nil {
+				w.State, w.Detail = "rejected", "No write sent: "+auditErr.Error()
+				return e.Store.SaveRefWrite(ctx, t.Revision, w)
+			}
+		}
 		if w.Kind != "manual" {
 			err = pinned.git().ApplyRef(ctx, w)
 			if errors.Is(err, workspace.ErrRefMoved) {
@@ -253,6 +265,9 @@ func (e *Engine) advanceRef(ctx context.Context, t core.Task, w core.RefWrite) e
 		match = pinned.git().Contains(ctx, w.Commit, w.Proof.Base) == nil
 	}
 	w.ObservedAt = e.now()
+	if w.Kind != "plan" && w.Authorized(t) && pinned.auditsReady(ctx, t) != nil {
+		return nil
+	}
 	if !match {
 		w.State, w.Detail = "uncertain", "Ref does not confirm the exact dispatched result; inspect Git and use task delivery --reconcile. The write will not repeat."
 	} else {

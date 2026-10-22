@@ -240,6 +240,9 @@ func (g Git) ReadRoots(ctx context.Context, dir string) ([]string, error) {
 // Manifest excludes Git administration but includes ignored files. Integrity
 // must cover bytes a reviewer can observe, not just a convenient Git diff.
 func Manifest(root string) (map[string]string, error) {
+	return manifest(root, false)
+}
+func manifest(root string, omitOutputs bool) (map[string]string, error) {
 	out := map[string]string{}
 	var total int64
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
@@ -252,6 +255,12 @@ func Manifest(root string) (map[string]string, error) {
 		}
 		if rel == "." {
 			return nil
+		}
+		if omitOutputs && rel == ".runner-output" {
+			if !d.IsDir() {
+				return errors.New("private output root is not a directory")
+			}
+			return filepath.SkipDir
 		}
 		if rel == ".git" {
 			if d.IsDir() {
@@ -344,7 +353,7 @@ func Copy(source, parent string) (string, CopyState, error) {
 			var mode os.FileMode
 			b, mode, _, e = securefs.ReadFile(filepath.Join(source, name), 64<<20)
 			if e == nil {
-				e = securefs.WriteFileExclusive(dest, b, mode.Perm())
+				e = securefs.WriteFileExclusiveExactMode(dest, b, mode.Perm())
 			}
 		}
 		if e != nil {
@@ -365,7 +374,7 @@ func VerifyCopy(dir string, before CopyState) error {
 	if err := verifyCopyGit(dir, before); err != nil {
 		return err
 	}
-	after, e := Manifest(dir)
+	after, e := manifest(dir, true)
 	if e != nil {
 		return e
 	}
@@ -466,7 +475,19 @@ func (g Git) CheckQuality(ctx context.Context, base string) error {
 }
 func (g Git) checkCandidateQuality(root string) error {
 	for name, expected := range g.Settings.Quality.Sources {
-		b, _, _, e := securefs.ReadFile(filepath.Join(root, name), 1<<20)
+		limit := int64(1 << 20)
+		q := g.Settings.Quality
+		if q.Preparation != nil && q.Preparation.Inputs[name] != "" {
+			limit = 8 << 20
+		}
+		for _, o := range q.Outputs {
+			for _, p := range o.Placeholders {
+				if p == name {
+					limit = 64 << 20
+				}
+			}
+		}
+		b, _, _, e := securefs.ReadFile(filepath.Join(root, name), limit)
 		if e != nil {
 			return e
 		}
@@ -525,19 +546,65 @@ func verifyCopyGit(dir string, before CopyState) error {
 }
 
 func ResolveQuality(ctx context.Context, c config.Config, base string, spec config.QualitySpec) (config.Quality, error) {
-	q := config.Quality{CheckImage: spec.CheckImage, RequiredCI: spec.RequiredCI, Definition: spec.Definition, Checks: spec.Checks, Base: base, Sources: map[string]string{}, Documents: map[string]string{}}
+	q := config.Quality{Outputs: spec.Outputs, CheckImage: spec.CheckImage, RequiredCI: spec.RequiredCI, Definition: spec.Definition, Checks: spec.Checks, Base: base, Sources: map[string]string{}, Documents: map[string]string{}}
 	p, err := profile(ctx, c.Repository.Path)
 	if err != nil {
 		return q, err
 	}
+	names := append([]string(nil), spec.Sources...)
+	documents := map[string]bool{}
 	for _, name := range spec.Sources {
+		documents[name] = true
+	}
+	if spec.Preparation != nil {
+		names = append(names, spec.Preparation.InputPaths()...)
+	}
+	for _, o := range spec.Outputs {
+		names = append(names, o.Placeholders...)
+	}
+	for _, name := range names {
+		if _, ok := q.Sources[name]; ok {
+			continue
+		}
 		r, err := subprocess.RunPrivilegedGit(ctx, nil, p, []string{"show", base + ":" + name}, 30*time.Second)
 		if err != nil {
+			optional := false
+			if spec.Preparation != nil {
+				for _, dir := range spec.Preparation.GoModules {
+					if name == filepath.Join(dir, "go.sum") {
+						optional = true
+					}
+				}
+				for _, path := range spec.Sources {
+					if path == name {
+						optional = false
+					}
+				}
+			}
+			if optional {
+				continue
+			}
 			return q, err
 		}
 		digest := sha256.Sum256([]byte(r.Stdout))
 		q.Sources[name] = hex.EncodeToString(digest[:])
-		q.Documents[name] = r.Stdout
+		if documents[name] {
+			q.Documents[name] = r.Stdout
+		}
+	}
+	if len(spec.Outputs) > 0 {
+		root, err := BaselineCopy(ctx, c, base)
+		if err != nil {
+			return q, err
+		}
+		defer os.RemoveAll(root)
+		files, err := Manifest(root)
+		if err != nil {
+			return q, err
+		}
+		if err = ValidateOutputs(files, spec.Outputs); err != nil {
+			return q, err
+		}
 	}
 	return q, nil
 }

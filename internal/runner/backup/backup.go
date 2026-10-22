@@ -166,6 +166,9 @@ func quiescent(ctx context.Context, v store.Image) error {
 	if running {
 		return errors.New("coordinator still owns installation")
 	}
+	if err = execution.CheckEnvironmentOwnership(v.Settings.Config.StateDir); err != nil {
+		return err
+	}
 	for _, a := range v.Attempts {
 		if a.Occupying {
 			return errors.New("resolve occupying attempts before backup")

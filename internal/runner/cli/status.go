@@ -61,6 +61,9 @@ func (c CLI) printStatus(s engine.Status) {
 	}
 	fmt.Fprintf(c.Out, "%s — coordinator %s; drained=%t; reservations=%d/%d\n", s.ObservedAt.Format(time.RFC3339), owner, s.Drained, s.Occupied, s.Parallelism)
 	fmt.Fprintln(c.Out, "Merge policy:", s.MergePolicy)
+	if s.QualityConfigured {
+		fmt.Fprintln(c.Out, "Checks:", s.CheckEnvironment)
+	}
 	if g := s.Issues; g != nil {
 		fmt.Fprintln(c.Out, "GitHub overview:", g.Overview)
 		if g.Sync.LastSuccess == nil {
@@ -147,7 +150,10 @@ config edit [--set KEY=VALUE]         Interactive editor or preview named change
 config edit --set KEY=VALUE --save --preview DIGEST
 config explain [--json]              Review resolved policy and effects.
 config apply --preview DIGEST         Apply saved edits; active work stays pinned.
+quality prepare --file PATH          Preview Runner-owned offline environment preparation.
+quality prepare --file PATH --apply --preview DIGEST [--module-cache PATH]
 quality preview|check|apply|show       Inspect, check and apply repository agreements.
+quality check --report ID --preview DIGEST  Renew baseline audits; retain offline evidence.
 run                                  Reconcile and admit authorized work.
 drain                                Stop admission and wait for active work to settle.
 backup --to DIRECTORY                Snapshot a drained, idle installation to a new private directory.

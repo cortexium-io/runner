@@ -127,6 +127,15 @@ func RetainCheckArtifacts(source string, paths []string, sourceDigest string, ch
 // the log and private artifact bundle. Call again after the role returns.
 func CheckReadRoots(check core.CheckObservation, sourceDigest string) ([]string, error) {
 	roots := []string{}
+	if check.Audit != nil {
+		if check.Audit.SourceDigest == "" || (sourceDigest != "" && sourceDigest != check.Audit.SourceDigest) {
+			return nil, errors.New("audit assessment source binding changed")
+		}
+		if err := VerifyAuditReceipt(check.Audit.Receipt); err != nil {
+			return nil, err
+		}
+		roots = append(roots, check.Audit.Receipt.Report)
+	}
 	if check.Evidence != "" {
 		roots = append(roots, check.Evidence)
 	}

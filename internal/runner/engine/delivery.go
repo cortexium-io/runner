@@ -84,6 +84,9 @@ func (e *Engine) preparePublications(ctx context.Context, active map[string]*act
 		if err != nil {
 			return err
 		}
+		if t.NextRole == "audit_refresh" && t.Attention == nil {
+			continue
+		}
 		if !p.Intent.Authorized(t) && (p.State == "queued" || p.Occupying) {
 			p.State, p.Detail, p.Occupying = "revoked", "Authority revoked; any already-sent remote effect is retained and is not undone.", false
 			p.CIRequest, p.IntegrationRequest = nil, nil
@@ -191,6 +194,13 @@ func (e *Engine) claimPublication(ctx context.Context) (core.Publication, bool, 
 		if (p.State != "queued" && !(p.State == "published" && (p.CIRequest != nil || p.IntegrationRequest != nil))) || p.Occupying {
 			continue
 		}
+		t, readErr := e.Store.Task(ctx, p.Intent.TaskID)
+		if readErr != nil {
+			return p, false, readErr
+		}
+		if p.MergeDispatch == nil && e.auditsReady(ctx, t) != nil {
+			continue
+		}
 		if p.State == "queued" {
 			p.State = "running"
 		}
@@ -221,6 +231,9 @@ func (e *Engine) publicationAuthority(ctx context.Context, p core.PublicationInt
 	}
 	if !p.Authorized(t) || core.PrerequisiteWait(t, tasks) != "" {
 		return errors.New("publication authority revoked or acceptance changed")
+	}
+	if err = e.auditsReady(ctx, t); err != nil {
+		return err
 	}
 	pinned, err := e.taskEngine(ctx, t)
 	if err != nil {

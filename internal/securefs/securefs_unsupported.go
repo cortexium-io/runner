@@ -80,3 +80,5 @@ func (d *PathDiscovery) Paths() []string                                      { 
 func (d *PathDiscovery) Digests() map[string][]byte                           { return nil }
 func (d *PathDiscovery) Verify() error                                        { return errUnsupported }
 func (d *PathDiscovery) Close() error                                         { return nil }
+
+func WriteFileExclusiveExactMode(string, []byte, os.FileMode) error { return errUnsupported }

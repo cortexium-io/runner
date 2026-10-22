@@ -4,13 +4,20 @@ Status: The local replacement, delivery bundles and R1–R5 are implemented and
 qualified in `codex/runner-local-core`. The subsequent local-completion,
 real-project pilot, main-reconciliation and final platform/package obligations
 are complete within the [continued qualification record](#continued-real-project-qualification).
-Current store format is **19**. The [frozen checklist](#frozen-first-release-checklist)
+Current store format is **21**. The [frozen checklist](#frozen-first-release-checklist)
 remains the scope boundary; historical briefs below are construction evidence.
 Runner PR #106 merged into main on 2026-10-16; api-mcp pilot PR #6 remains a draft.
 Release publishing and running-installation/cutover changes remain separate.
 The owner subsequently requested the [GitHub Issues bundle](#github-issues-and-owner-acceptance-brief)
 before release. Other views, extra harnesses, autonomous intake, merge queues
 and additional hosted merge methods remain deferred.
+The owner subsequently requested the [reusable check environments and controlled
+online audits brief](#reusable-check-environments-and-controlled-online-audits-brief).
+E1 environment/output support and E2 controlled npm audits/freshness are implemented
+in the existing worktree. [Code Atlas qualification (E3)](#e3-code-atlas-qualification--2026-10-22)
+is complete within its recorded Linux/browser and native focused-verification
+boundaries. Pilot launch, public release/package publication and
+installation changes remain separate.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -53,6 +60,497 @@ bundle briefs retain the construction history.
 The [coverage map](#requirement-coverage-map) connects important requirements to
 their implementation phase and proof. Keep work status and evidence there as
 slices land; do not create another plan or task registry.
+
+## Reusable check environments and controlled online audits brief
+
+**Defined 2026-10-21; E1/E2 implementation and E3 qualification authorized separately.** The owner
+requested reusable Runner support instead of per-project workarounds. This
+supersedes the proposed private Code Atlas wrapper/image and preparation-audit
+workaround. E1 reusable environment/output handling and E2 controlled npm audits
+and freshness are implemented; E3 results are recorded below. Release/package
+publication, installation/service changes and pilot launch remain outside this
+brief. The operator guide documents the shipped configuration and commands.
+
+### Outcome and scope
+
+An operator describes tools, check commands, output paths and audit policy in the
+existing quality agreement. Runner prepares the environment, executes checks,
+retains evidence and refreshes online observations. Onboarding a supported project
+needs configuration, not application edits, a handwritten Dockerfile, cleanup
+script, copied wrapper or an exception to source/network protections.
+
+Initial support is local Linux Docker checks for Go and Node/npm projects, optional
+locked Playwright Chromium, version-pinned Go command tools such as Genny, and one
+online audit adapter for npm's public registry. Project-owned test commands and
+Genny's generated-ownership requirements remain project policy. No language-wide
+test discovery, automatic dependency upgrades, general network-enabled shell,
+private-registry audit credentials, remote worker, service or public plugin
+framework is included. Unsupported tooling or dependency forms block explicitly.
+
+The user's normal journey is:
+
+1. Declare the supported tool versions, module/package directories, ordinary check
+   commands, disposable outputs, retained reports and typed audit requirements.
+   Keep `at: task|completion|both`, deadlines and CPU configuration. Commands,
+   tools, outputs and outbound audit data appear in the exact preview.
+2. Use one explicit environment-preparation preview/apply operation. Runner owns
+   reusable preparation recipes; it resolves exact input/image identities, checks
+   capabilities and reports missing inputs. It neither runs a model nor starts
+   task admission. Preparation can fetch dependencies under the rules below.
+3. Use the existing quality preview/check/apply journey. Preparation is not a
+   passing baseline or approval. Baseline and task/completion checks use the same
+   execution path; fresh state remains drained until work is separately approved.
+4. Inspect status and retained results. It distinguishes preparation needed,
+   running/failed/unavailable checks and audits needing refresh, with the reason
+   and next action. An expired audit does not require a new image or full test run.
+
+### Runner-owned environment preparation
+
+Extend the existing image/quality boundary rather than introduce another runtime.
+The first built-in recipe composes Go, Node/npm, optional Playwright Chromium and
+explicit pinned Go command tools. It takes ordinary relative project directories;
+no Code Atlas/FlowStack paths, branch names or private qualification scripts belong
+in Runner code. Exact versions come from explicit tool declarations and inspected
+lockfiles, not an unrecorded latest-version lookup. Node/browser/platform identity
+must match the resolved dependency graph. Genny remains pinned to the project's
+declared generator version; preparation does not regenerate or upgrade it.
+
+Preparation separates **fetching inert inputs** from **executing project code**:
+
+- The Runner-owned fetch operation admits only approved tool/package sources,
+  verifies available checksums/integrity and records exact identities. It cannot
+  run a repository Dockerfile, lifecycle hook, arbitrary prepare command or
+  candidate-selected executable while it has network access.
+- Dependency installation, necessary lifecycle hooks, tool compilation and browser
+  probes execute offline in disposable containment. Unsupported network-dependent
+  install hooks are unavailable capabilities, not permission to enable networking.
+- Existing verified private module archives may be imported through the same
+  explicit preparation operation. Import only the required pinned modules; do not
+  mount a user's HOME, credentials, whole module cache or installed application.
+  Automatic private credential provisioning is outside the initial scope.
+- Preparation produces an immutable local image/cache manifest keyed by recipe,
+  tool versions, dependency manifests/locks and platform. Each check receives
+  private writable scratch; checks never write back into a reusable cache. Partial
+  or changed preparation cannot replace a previously approved result. Missing,
+  mismatched or tampered inputs require preparation rather than a network fallback.
+
+Image pulls/builds/downloads remain explicit preparation effects. Ordinary `run`
+does not silently pull an image, prepare a changed dependency graph or execute an
+unreviewed recipe. Changed environment authority uses quality preview/apply and
+the existing explicit adoption rules; it cannot rewrite a released Plan's policy.
+An already-prepared exact local image remains usable through the current path;
+there is no legacy migration or parallel execution mechanism.
+
+### Ordinary build outputs without source workarounds
+
+Declare literal dependency/build/report output paths in quality configuration.
+Runner provides private writable output areas at those ordinary paths during
+checks, backed by its reserved output storage. Commands keep their normal working
+directory and output locations. Reports may be selected from those declared
+outputs without changing application/test code to write `.runner-output` paths.
+Existing bounded artifact manifests and read-only review grants remain the
+retention mechanism; caches are not reviewer artifacts by default.
+
+The source snapshot, Git controls, manifests/locks, quality sources and all
+non-output source remain protected. Reject traversal, links/escapes, root-wide
+outputs, overlaps and declarations covering source code or control files. An
+existing tracked build placeholder is allowed only as an explicitly listed file,
+shown with its original identity in the approval preview. New tracked files under
+an output declaration cannot silently acquire that permission. The isolated
+output view may replace that placeholder while building; its underlying source
+and eventual candidate must retain the approved bytes. Generated outputs never
+become an implementation candidate or integration delta through check execution.
+Do not restore arbitrary modified source to manufacture an integrity pass.
+
+For example, Code Atlas can declare `frontend/node_modules`, `frontend/.genny`,
+`internal/app/http/frontend_dist`, `frontend/test-results` and `artifacts`,
+with the exact tracked `frontend_dist/index.html` placeholder identified separately.
+Retain `artifacts/browser` beneath its writable parent so Playwright can recreate it.
+These are configuration data, not built-in paths or permission to edit the app.
+Preserve its existing Go/frontend tests, build, generated-file verifier, browser
+entrypoint, assertions, workers and deadlines. Native macOS chooser interaction
+remains manual proof; Linux checks of simulated selection do not establish it.
+
+### Controlled online npm audits
+
+Add a typed npm-audit operation to the existing quality-check contract, alongside
+offline command checks. It has an owner-approved package directory, omission and
+severity policy, timeout and existing task/completion timing. It is not a shell
+command plus `network: true`. Ordinary checks, lifecycle hooks and model roles
+retain their existing network denial, container-private loopback, non-root and
+resource/process ownership boundaries.
+
+The audit adapter receives only validated dependency metadata from the exact
+source snapshot. It owns the pinned npm audit implementation and registry
+transport; it neither evaluates project code nor inherits npm/Git configuration,
+proxy settings, credentials, arbitrary arguments or endpoint URLs from the
+candidate. No `npm audit fix`, install, manifest rewrite or automatic repair.
+Initial supported inputs are a single npm package with a consistent lockfile and
+public-registry dependencies. Workspaces, private registries, local/git dependency
+forms and unsupported lock semantics are explicit unsupported cases until qualified;
+they cannot be silently omitted from a clean result.
+
+Use npm's maintained audit evaluation, with conformance against the pinned npm
+version for supported graphs, omission rules, thresholds and transitive/meta
+vulnerabilities. A direct-advisory-only approximation is insufficient. Separate
+the evaluator from a small Runner-owned HTTPS transport so package-controlled
+code never gains network authority. Keep that transport private to this adapter,
+not a general proxy service or extensible network API. Enforce the approved
+registry and allowed request shapes, bounded requests/responses/deadline, validated
+public destinations and no redirects to host/private/link-local services.
+Project configuration cannot redirect it. Logs and reports contain no secrets.
+
+The preview discloses dependency names/versions sent to the public registry.
+Source code, absolute paths, project identity and credentials are not outbound
+audit inputs. npm documents its Bulk Advisory request, broader Quick Audit
+fallback and meta-vulnerability processing in the
+[npm audit reference](https://docs.npmjs.com/cli/v11/commands/npm-audit/).
+The initial adapter permits the bulk request and the package metadata needed by
+the maintained evaluator. It must not silently fall back to a broader Quick Audit
+payload. An unavailable supported endpoint is unavailable proof. Additional
+egress or disclosure requires a separately reviewed capability, not model consent.
+
+### Freshness, evidence and completion
+
+Keep the approved audit policy in the quality revision and volatile observations
+outside policy identity. Each immutable receipt records dependency-input digest,
+adapter/tool/policy identity, registry, query time, outcome/findings and report
+digest, with explicit attribution to the candidate being assessed. Refreshing a
+receipt does not reapprove tasks, reset allowances or change the environment.
+
+The default `max_age` is **one hour**, configurable explicitly in the audit
+policy. A successful result means only that the service reported no findings at
+or above the chosen threshold for those inputs at the recorded time. It cannot
+promise detection of advisories disclosed afterward. Reuse a still-valid matching
+receipt without relabelling its query time; changed dependencies, adapter or audit
+policy require a fresh query regardless of age. Clock uncertainty/backward movement
+cannot extend validity. Preparation or baseline receipts are not permanent passes.
+
+At each applicable review/admission or final-completion/delivery boundary, validate
+the receipt and its age. Refresh only the audit when needed, under the existing
+coordinator's action ownership and admission controls. Do not rebuild the image,
+rerun unrelated passing tests, call a model or require an operator to refresh a
+snapshot manually. An audit expiring while a PR waits must be renewed before the
+merge claim; a completed historical receipt retains its actual observation time.
+There is no background polling/monitoring after completion.
+
+Threshold findings are a **failed** required check. Service refusal, malformed or
+oversized output, unsupported dependencies, timeout, stale proof or incomplete
+ownership are **unavailable** proof. Both block the affected review/completion or
+delivery; an outage cannot reuse an expired clean result or become a baseline
+exception. No waiver mechanism is added. Unrelated safe work may proceed. Queries
+are bounded by their check deadline; there is no new automatic retry loop or
+allowance reset. Existing explicit retry/recovery preserves original observations.
+
+### Responsibility and verification boundary
+
+Use existing responsibilities: config owns declarations and policy validation;
+execution owns prepared environments, contained checks and the narrow audit
+adapter; workspace owns immutable source/output views; engine owns agreement,
+freshness and action admission; store/core own receipts and ownership; CLI owns
+preview/status. Extract a cohesive private helper only where needed. Keep one
+coordinator/store, existing role contracts and no public plugin registry. New
+authoritative fields must reject incompatible state safely rather than let an
+older binary ignore required proof. No migration of installed state is included.
+
+Extend owning suites for concrete regressions:
+
+| Contract | Existing owner and smallest meaningful proof |
+| --- | --- |
+| Environment declarations and identity | `config/quality_test.go` and existing engine quality cases: exact tools/platform/locks/outputs pin approval; unsupported or changed inputs block; refresh of audit data alone preserves authority. |
+| Reusable preparation | Existing execution/container coverage: one shared recipe handles two small independent layouts; missing/tampered inputs and attempted networked lifecycle hooks fail; mutable output cannot poison the next check's cache. |
+| Source and output isolation | `workspace/workspace_test.go`, execution and retained-artifact tests: normal generated files and explicit placeholder output work; source/Git/lock tampering, links and broad output grants fail even after exit zero; original candidate and reports remain bound. |
+| Audit meaning and egress | A focused adapter suite uses deterministic registry fixtures and the pinned maintained npm evaluator: clean/vulnerable/transitive findings, omissions/thresholds, hostile config/URLs, private-host redirects, malformed/oversized replies, outage and cancellation. No real registry required in ordinary Go tests. |
+| Freshness and recovery | Existing engine/store/delivery cases with an injected clock and explicit synchronization: valid reuse, dependency change, new findings on unchanged locks, expiry before completion/merge, restart and overlapping callers. Audit refresh neither resets budgets nor repeats passing tests/model work; one slow query cannot block unrelated reconciliation. |
+| Operator result | Existing CLI, process and backup owners: clear blockers/next action, redacted bounded evidence, retained receipts after reopen/backup and no authority release before process/container/query settlement. |
+
+Implementation verification runs focused owning tests during work, then required
+`go test -race -timeout 15m ./...` and `go vet ./...`, one executable operator smoke
+and actual container/egress/cancellation probes. Reuse applicable earlier native
+containment evidence; requalify changed boundaries. A controlled real npm audit on
+an explicitly approved public dependency graph verifies live transport and records
+the observed result, not an assumption that it is clean. No model calls are
+necessary unless role execution contracts change, which is outside this brief.
+
+### Build order and finish line
+
+1. Implement reusable environment preparation and source/output handling in Runner.
+   Prove ordinary commands work with unchanged project source and existing isolation.
+2. Add the typed npm audit, enforce its transport and receipt freshness through
+   completion/delivery, and finish the owning and required verification above.
+3. Qualify the same shipped mechanisms against a pinned, isolated Code Atlas copy:
+   configure normal project commands, run one passing complete baseline and inspect
+   retained reports/read-only access and cleanup. No custom product wrapper,
+   Dockerfile, audit snapshot, assertion/timeout change or source patch is acceptable.
+   Missing capability blocks rather than reopens a workaround.
+
+The finish line is a reviewed Runner change, usable declarative configuration and
+source/tool-bound qualification evidence, with the old installation and current
+Code Atlas app/data unchanged. Stop before adding/approving a product task,
+starting `run`, publishing a release/package or overview, or changing installations.
+Public PR preparation/merge is not part of this bundle. Current
+Code Atlas preparation resumes only after the reusable support is separately
+authorized, implemented and qualified. Pilot launch remains a later decision.
+
+
+### E3 Code Atlas qualification — 2026-10-22
+
+**Boundary and result.** Qualified Code Atlas in an independent clone, using
+private format-21 state and a separately built Runner executable. The authority
+is empty and drained: no task, attempt, model invocation or pilot. The original
+checkout, app and old Runner were not written or restarted by this qualification.
+The separate Code Atlas owner chat advanced its source/app during the work; those
+external changes are recorded separately from this run's protected observations.
+No publishing, installation change or public PR was performed.
+
+The initial pin was `85f6335b42c9f0d53e92701ce71c9ea83cb57e3d`. After reviewing
+the owner's five changed UI/test files, the clone adopted
+`cd43df217e77a5f6e19673f47efbe5b7c6b5bc81`; dependencies, tool pins and check
+configuration were unchanged. The owner separately approved one selector repair:
+filter the stale-guide `status` by its expected text, avoiding the concurrent
+`Arranging packages…` status. Clone-only commit
+`a81c0467f897fdd83e7a3dbe361dece34f2c19cb` retains the same `toContainText`
+assertion and every other proof step. Focused browser verification passed before
+the fresh complete baseline. This patch still requires adoption by the project
+owner; it is not present in the original checkout.
+
+**Verification agreement.** The normal README checks remain:
+`go test ./... -count=1 && go vet ./...`, all frontend unit tests, pinned
+`genny doctor --verify-generated`, the production frontend build followed by the
+complete Playwright suite, and typed npm audit equivalent to
+`--omit=dev --omit=optional --audit-level=high` with one-hour freshness.
+Build and browser share one check so the server embeds that build. Browser
+settings remain one worker, zero retries, 60s tests and 10s assertions. No project
+wrapper, Dockerfile, audit snapshot or application-source patch was introduced.
+
+The reusable recipe pins Go 1.26.9, Node 24.21.0, Playwright 1.64.1 and Genny
+`v0.2.3-0.20261019123550-d5717ed19ca0` with its declared archive checksum.
+Only explicitly requested, verified private Genny module archives were imported.
+Ordinary dependency/build/report paths use declared output overlays; the tracked
+frontend index is an explicit placeholder. `artifacts` is the writable report
+parent so Playwright can recreate `artifacts/browser` without widening source
+access. Preparation is explicit; check execution stays offline.
+
+**Generic fixes established during qualification.** Each defect was diagnosed
+before its bounded fix; failed attempts remain in the private evidence record.
+
+- Lazy Go graphs: validate with offline `go mod download` after fetching all
+  checksum-declared inputs. `download all` unnecessarily demanded dependencies'
+  own test modules absent from a valid root graph. Metadata-only reproduction
+  and real project Go tests establish the result; manifests remain byte-identical.
+- npm omissions: derive graph flags before validation and allow missing children
+  only inside policy-omitted subtrees. Included missing requirements and invalid
+  installed edges still block. The existing pinned-npm conformance table adds
+  omitted dev/optional/peer cases and included/required negative controls; full
+  report/exit-code comparisons and the live registry probe passed.
+- Source modes: verification copying uses an exclusive, no-follow exact-mode
+  writer. Ordinary writes and archive extraction retain their umask behavior.
+  A child-process regression proves 0600/0640/0755 files survive `umask 0077`;
+  existing CI no-op/mode-only controls and baseline-exception matching pass
+  under that mask. The new regression fails with the original copy call.
+- Container HOME: create mode-0700 `/tmp/runner-home` under the check UID in
+  private tmpfs. Host-backed HOME caused intermittent root-owned review-cache
+  observations in Linux. Prepared and direct checks use the same boundary;
+  dependency caches and report mounts stay private. Recipe `go-node-v2` requires
+  explicit re-preparation. Saved agreements with a superseded recipe are rejected
+  before command execution, preventing reuse of an old embedded HOME bootstrap.
+  The owning input-identity test covers current, superseded and changed-input cases.
+  Existing live-recipe assertions cover location, owner and mode; source-bound
+  direct/prepared probes and the complete Linux suite qualify the actual change.
+
+**Evidence.** Fresh preparation took **229.8s**. The complete Code
+Atlas baseline passed in **141.7s**, report
+`2341d7c74e37d41478e0fb55211db7e4`: Go tests/vet, 19 frontend tests, 40 generated files, both browser
+journeys with six retained screenshots, and the online audit. Image:
+`sha256:b2bdb063c15b565c18c1b691fc13860668e7519bb94492218dcc2bd8332309f0`. The audit queried at `2026-10-22T07:28:11.967345Z` and reported
+zero findings under the unchanged policy. The source/policy/image-bound agreement
+is revision `141d24c94c4f4f43932cba1bbce1fdaddce4e8a9b44b1af4ed671823c3cfc763`; expiry requires an explicit fresh audit,
+not a snapshot exception.
+
+The retained screenshots/logs pass the production evidence-grant validator and
+native Codex sandbox: evidence readable; writes, original source, raw check copy
+and sibling evidence denied. Direct/prepared container probes establish HOME
+ownership/mode, private loopback, app/external-network denial, no inherited secret,
+source/index write denial even on successful exit, writable outputs and unchanged
+two-CPU/4-GiB/512-PID limits. Cancellation and all owned processes/containers and
+preparation scratch settled. Report-backed copies remain retained under Runner's
+existing backup contract.
+
+Runner's complete `go test -race -timeout 15m ./... && go vet ./...` passed on
+frozen Linux source in **219.7s**, report `0d3361c8d8a40724679a390bb402f963`. Native
+owning suites, strict-umask integration controls and vet passed. The complete
+native race run reached its unchanged 15-minute package cap with no assertion
+failure; it did **not** pass. The Linux result does not establish native macOS
+folder-dialog behavior. No assertion, deadline, retry or sandbox limit was weakened.
+
+Exact source/tool/binary identities, declarative configuration, immutable reports,
+failed/successful gate records and protected observations are retained at
+`/Users/dan/.local/share/cortexium-runner/code-atlas-e3-20261022/summary.json` and
+its `evidence/` directory. Pilot launch remains a separate owner decision.
+
+### PR review of E1–E3 — 2026-10-22
+
+Review the complete unpublished environment/audit/qualification diff against
+current `main`. Preserve project assertions, check budgets, installations and the
+unlaunched pilot. Review follow-ups stay inside the approved contracts:
+
+- npm graph omission must also recognize dependencies shared only by development
+  and optional subtrees when both are omitted. Extend the existing pinned-npm
+  conformance table with that graph and a single-omission negative control.
+- An `npm-shrinkwrap.json` must block reusable preparation and later check input
+  validation: npm otherwise selects a different lock from the approved
+  `package-lock.json`. Extend the owning unsupported-input coverage; do not add
+  shrinkwrap support or a project workaround.
+- Reconcile README/operator guidance with implemented audits and output layout.
+
+Reproduce the concrete failures before fixing them. Run focused owning checks
+and live evaluator conformance, then the full Linux race/vet gate. Reuse the
+source/image-bound Code Atlas baseline where unchanged; exercise affected
+prepared-environment behavior without changing project source. Retain the native
+full-suite timeout limitation. Prepare a PR with public verification summaries;
+private project artifacts remain local. No merge or release is authorized here.
+
+**Review outcome.** Both regressions failed before their fixes. The full live
+pinned-npm evaluator/oracle table (including both mixed-subtree cases), public
+registry probe and evaluator/query cancellation passed in 14.3s. Native owning
+race suites and vet passed. A separately built executable previewed the existing
+Code Atlas preparation and agreement and inspected its status; all succeeded,
+with no task/attempt and drained authority. The unchanged project baseline and
+retained-evidence/isolation proof remain the E3 record above; this review does not
+extend its audit query time or native dialog coverage.
+
+The full race/vet gate passed on frozen Linux source in **204.8s**, report
+`0877bee5e8d6a1c14a7db3cf8e855a7a`, with Go 1.26.9 and unchanged two-CPU/4-GiB
+check limits. Synchronizing current `main` introduced no source changes. The
+earlier native full-race timeout remains explicitly unqualified. Review logs,
+runtime hashes, executable identity and protected-installation observations are
+retained under the E3 evidence root's `pr-review-20261022/` directory.
+
+### E2 implementation and qualification — 2026-10-22
+
+Implemented in the same worktree, stopping before E3. A quality check now chooses
+an offline command or typed `npm_audit` policy. The approval preview names the
+package directory, public dependency metadata, severity/omission policy, deadline,
+freshness and pinned image. No role prompt, model permission, external service,
+project wrapper or second scheduler was added.
+
+The private adapter runs maintained npm **11.19.0** from the exact local Node
+image without network, with only sanitized manifest/lock graph data. It uses
+npm's Arborist audit report and meta-vulnerability calculator. Runner's separate
+HTTPS transport permits one Bulk Advisory operation and bounded public-registry
+package metadata required by that evaluator. It ignores project/host npm config,
+credentials and proxy configuration; validates resolved public destinations;
+rejects redirects and Quick Audit; and never runs project code. Deterministic
+registry fixtures compare full reports and severity exit codes with the same
+pinned npm's own `Arborist.audit`/`npm-audit-report` path, including transitive/meta
+findings and dev/optional/peer omissions. Input/transport tests cover unsupported
+forms, allowlists, malformed/oversized responses, private destinations and outages.
+The actual contained cancellation probe confirms both query and evaluator settle.
+
+Receipts are immutable local records with metadata/policy/tool/image identity,
+conservative query-window start and settlement times, source attribution,
+status/findings and the retained report digest. Reuse preserves the original
+record and time while explicitly attributing its assessment to the current source.
+Completed history does not trigger polling. A persisted clock high-water mark
+blocks backwards time, including after restart. Online observations are excluded
+from quality-policy identity; baseline exceptions cannot waive audits.
+
+The coordinator derives audit-only refresh attempts before applicable review and
+local/connected delivery. They share task/workspace ownership and global admission
+with existing actions, spend no model/repair/base-refresh allowance and retain
+source, review and passing offline checks. Failures/unavailability retain attention
+for explicit `task resume`; no new automatic query retry loop exists. Focused
+engine evidence covers restart, reuse, dependency changes, expiry at publication
+and merge authority, findings on unchanged inputs, preserved allowances and
+unrelated work admitted while a refresh waits.
+
+`quality check --report ID --preview TOKEN` renews only a retained baseline's
+audits. It preserves offline evidence and policy identity, returns a new immutable
+report and retains the existing preview/apply approval boundary. Review admission
+rechecks expiry after Git inspection and preserves pending retry/resume profiles.
+An audit result that expires during downtime uses the existing explicit recovery
+to repeat only that query, retaining its original observations and allowances.
+
+The private executable smoke qualifies preview/check/apply, clean public audit,
+unchanged receipt reuse, audit-only baseline renewal, expired-baseline refusal,
+status and exact-binary
+backup/restore with **two immutable audit receipts retained**. It stays drained,
+with zero tasks/model calls and unchanged synthetic source. A separate controlled
+live audit of public `lodash@4.17.20` observed **failed**, with one affected package
+at high severity; it exercises real Bulk Advisory and package-metadata transport
+without assuming a clean result. The required `go test -race -timeout 15m ./...` gate passed in **802.8 seconds**
+(engine: 792.7 seconds), and `go vet ./...` passed. The first race attempt reached
+the engine package's unchanged 15-minute cap without an assertion failure; the
+audit-free path now reuses pinned quality and skips unnecessary audit lookups,
+and the fresh full run passed. No assertion, timeout or admission limit was
+weakened.
+
+Evidence is retained at
+`/Users/dan/.local/share/cortexium-runner/npm-audit-e2-20261022/`:
+`focused-verified.log`, `live-fixtures-final.log`, `live-public-final.log`,
+`operator-qualified/summary.json`, `race-final-result.json`, `vet-final-result.json`
+and `verification.json`. Store format **21** rejects earlier authority without
+migration; no installed state was converted. The shipped scope is public npm
+lockfile v3, ordinary semver graphs and the qualified pinned evaluator. Workspaces,
+private/local/git/alias dependencies, other npm versions and oversized inputs or
+responses remain unavailable capabilities. E3 Code Atlas qualification is the next
+separate boundary; no product work, release, installation change or pilot started.
+
+
+### E1 implementation and qualification — 2026-10-21
+
+Implemented in the existing worktree, stopping before E2. `quality prepare --file`
+previews the built-in `go-node-v1` recipe; explicit `--apply --preview` prepares it
+while drained and holding the existing coordinator exclusion. Preparation does
+not configure quality, admit work or consume task/model allowances. The existing
+quality preview/check/apply and explicit adoption rules remain the approval path.
+
+Config owns exact tool/module/package/output declarations. Execution owns official
+image resolution, metadata-only public fetching, explicit private archive imports,
+offline tool compilation/installation, private check caches and receipts. Workspace
+owns source protection and literal output overlays. Engine connects these to the
+existing check/retention path; there is no additional scheduler or plugin framework.
+The cache index is replaceable only after complete preparation; approved identities
+remain in transactional quality history. Store format **20** rejects older state.
+
+Normal outputs keep their declared paths; only explicitly pinned tracked
+placeholders appear in the writable view. Underlying source and Git controls stay
+unchanged. Reports use existing bounded retention/read-only grants. Manifests,
+locks and placeholder identities are pinned without automatically embedding their
+bodies in model prompts. Offline Go checks use `GOTOOLCHAIN=local`, `GOWORK=off`,
+`GOPROXY=off`, `GOSUMDB=off` and `GOFLAGS=-buildvcs=false`: verification Git contains
+file inventory, not candidate history. This is disclosed in preview and the
+operator guide; disposable build outputs get their provenance from Runner receipts.
+No application assertion, test deadline, worker/retry policy or role contract changed.
+
+Preparation records and settles both Docker clients and containers. Cancellation
+or an uninspectable daemon retains unresolved ownership and blocks preparation or
+backup. Settled scratch is discarded; logs/receipts remain. Check clients use an
+empty private Docker configuration so host proxy settings/credentials are not
+injected. Ordinary checks retain network denial and container-private loopback;
+preparation never executes repository code or lifecycle hooks online.
+
+| Evidence | Result and boundary |
+| --- | --- |
+| Owning suites | Config authority/output validation, absent-vs-empty input identity, private archive/metadata mismatch, source/placeholder/link guards, existing artifact-review journey extended for ordinary output paths, and unresolved-preparation backup refusal. |
+| Real recipe | `RUNNER_LIVE_PREPARATION=1 go test ./internal/runner/execution -run '^TestLiveReusableEnvironment$' -count=1 -v -timeout 15m` passed in 123.364s. Two independent layouts cover public Go/npm fetching, a pinned private Go command, missing/tampered private archives, offline lifecycle execution, Chromium startup, source write denial, retained reports, private cache poisoning/reuse, proxy-credential canary and check/preparation cancellation. |
+| Executable operator journey | Fresh init → preparation preview/apply → quality baseline/approval → show/status → backup passed; admission stayed drained, zero tasks/model calls, original fixture source unchanged. Same-binary restore preserved the final quality/receipts; a separate different-binary probe was correctly refused. Final executable/state/report evidence is under `/Users/dan/.local/share/cortexium-runner/check-environment-e1-20261021/final-operator/`. |
+| Required gates | `go vet ./...` passed (0.399s). Final `go test -race -timeout 15m ./...` passed in 894.963s (engine 884.655s). Logs are under `/Users/dan/.local/share/cortexium-runner/check-environment-e1-20261021/`. An earlier race run was deliberately interrupted when the Docker proxy boundary finding required a fix. |
+
+Live qualification used macOS arm64 / Go 1.27.1 and a local Linux arm64 Docker
+daemon. Recipe tools were Go 1.26.9, Node 24.21.0, npm 11.19.0, Playwright 1.64.1
+and Chromium 156.0.8078.4; exact image/input identities are retained in receipts.
+The guide describes the supported initial dependency forms and complete pinned
+Go graph requirement. Other platform release qualification and the full unchanged
+Code Atlas baseline are not claimed by this fixture evidence.
+
+The old Runner executable remains byte-identical at v0.7.4. Code Atlas's checkout,
+app binary, database, generator guide/project metadata and running PID 75063 are
+unchanged against preparation evidence. No release/package/image was published,
+no installation changed and no pilot launched. Online npm audits, controlled audit
+transport/freshness (E2) and Code Atlas baseline qualification (E3) remain next steps,
+with their original boundaries; do not substitute a frozen audit receipt or a
+project wrapper.
 
 ## GitHub Issues and owner acceptance brief
 
@@ -141,6 +639,73 @@ Extend owning suites rather than build another orchestration harness:
 - Run `go test -race -timeout 15m ./...`, `go vet ./...`, executable smoke and
   a private synthetic GitHub issue/overview exercise. No live model requalification
   is needed unless role instructions or execution semantics change.
+
+### Code Atlas local pilot preparation — 2026-10-21
+
+**Historical preparation pause, superseded by E1/E2 and the [E3 qualification](#e3-code-atlas-qualification--2026-10-22).** The owner rejected per-project
+workarounds and requested the [Runner-owned brief](#reusable-check-environments-and-controlled-online-audits-brief)
+above. A lockfile-bound preparation audit was proposed, but was **not approved**;
+it is not the accepted policy. The custom image/wrapper approach is superseded.
+The observations and original preparation boundary below are retained as history.
+
+The owner authorizes a separate local Runner build and isolated check qualification
+after the folder-picker work finishes. Stop before a pilot task, role invocation,
+public release/package publication or installation change. Preserve the existing
+Code Atlas checkout, ignored database/imports/artifacts, running app and old Runner.
+
+The owning chat is [Explore codebase architecture tools](codex://threads/01a15ea9-b8e7-73e2-8a78-527dd74ae32c).
+Its completed folder-picker revision is `0ecde915b38fba6b03eca078f29154e795f1f026`,
+tree `3d03f08aa0d3793bbe7f2d380e4136485b2bf0ba`, on `codex/code-atlas-mvp`.
+There is no Git remote or existing Code Atlas Runner authority. Preparation uses
+an independent committed clone of that source; later source movement needs a
+fresh impact assessment before launch. Completed MVP work is not resubmitted.
+
+Build Runner from reviewed main `d95aceeab6bc2d22c7fd38acb4980d341a7385e5` into
+a private tool directory, recording source/build/binary identities. Use fresh
+store-format-19 configuration/state/worktree roots, local result delivery, human
+integration, `gpt-6.1-sol / high`, one worker and bounded existing allowances.
+Do not replace a PATH binary, install a service, import legacy state/approvals,
+create a product task, start `run`, or publish an overview. A fresh drained init
+and quality preview/check are preparation, not a pilot launch.
+
+The project's AGENTS.md/README and pinned Genny version own check requirements.
+Use the existing Go/frontend/generated-output suites and unchanged Playwright
+journeys; add no product tests or framework. Task checks cover Go/frontend
+regressions and generated ownership. Completion checks add the original frontend
+build and browser journeys. A standalone Ready task runs both. Baseline checks
+run once after cheap capability probes pass; do not repeat sufficient proof for
+documentation-only changes. Preserve assertions, one browser worker, zero retries,
+60s test/10s assertion budgets, real scanner/persistence and narrow-screen proof.
+Native macOS chooser interaction remains separately manual; Linux browser mocks
+of its returned path do not prove an operating-system dialog.
+
+Prepare one credential-free, pinned local check image with locked offline Go/npm
+inputs and the exact Playwright browser, retaining preparation provenance. Checks
+use Runner's production container boundary: private loopback, no host/external
+network, non-root, read-only image, 4GiB/two CPUs/512 processes. Generated dependency,
+build and browser output must finish below `.runner-output/`; preserve every source
+byte, logical index and Git control. Retain selected reports/screenshots through
+the source-bound artifact contract. Qualify loopback and host/network isolation,
+normal source integrity, an exited-zero source-corruption control, read-only
+reviewer access and cancellation/ownership cleanup through the actual boundary.
+
+The required npm audit needs external network. The earlier proposal to bind a
+preparation snapshot to manifests/lockfile is superseded by Runner-owned live
+auditing and freshness in the new design brief. No snapshot exemption, relaxed
+network setting or audit policy was applied during preparation.
+
+Finish with retained check receipts, source/tool identities, applicable limits,
+fresh empty/drained status and before/after installation/app observations. Leave
+any approval or capability blocker explicit. Private preparation material belongs
+under `/Users/dan/.local/share/cortexium-runner/code-atlas-pilot-20261021/`.
+
+At the pause, the separate binary reports `cortexium-runner local-d95acee` and an
+independent committed Code Atlas clone exists. No fresh Runner store, quality
+baseline/agreement or product task was created. A public Playwright base image was
+downloaded privately; no tailored check image was built or published. Offline
+module-input staging stopped while resolving the pinned generator's own checksum
+metadata; nothing in the project or installed toolchain was patched. These are
+preparation observations, not qualified checks or an end-to-end pilot result.
 
 ### FlowStack pilot brief and safe handover
 

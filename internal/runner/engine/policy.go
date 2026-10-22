@@ -45,6 +45,9 @@ func eligible(c config.Config, t core.Task, attempts []core.Attempt, drained boo
 	if t.NextRole == "refresh" {
 		v.Reason = "deterministic base inspection and pinned checks; independent review follows a changed candidate"
 	}
+	if t.NextRole == "audit_refresh" {
+		v.Reason = "refresh only expired or missing npm audit receipts; retain tests, review, candidate and allowances"
+	}
 	if core.PlanningRole(t.NextRole) {
 		v.Reason = "authorized planning or missing verification preparation"
 	}

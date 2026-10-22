@@ -576,6 +576,16 @@ func (d *Directory) ReplaceFile(name string, content []byte, mode os.FileMode, e
 }
 
 func WriteFileExclusive(path string, content []byte, mode os.FileMode) error {
+	return writeFileExclusive(path, content, mode, false)
+}
+
+// WriteFileExclusiveExactMode preserves permission bits when copying source.
+// Ordinary file creation continues to respect the caller's umask.
+func WriteFileExclusiveExactMode(path string, content []byte, mode os.FileMode) error {
+	return writeFileExclusive(path, content, mode, true)
+}
+
+func writeFileExclusive(path string, content []byte, mode os.FileMode, preserveMode bool) error {
 	directory, err := OpenDir(filepath.Dir(path))
 	if err != nil {
 		return err
@@ -593,6 +603,13 @@ func WriteFileExclusive(path string, content []byte, mode os.FileMode) error {
 	if file == nil {
 		_ = unix.Close(fd)
 		return errors.New("create secure file handle")
+	}
+	if preserveMode {
+		if err := file.Chmod(mode.Perm()); err != nil {
+			_ = file.Close()
+			_ = unix.Unlinkat(directory.fd, name, 0)
+			return err
+		}
 	}
 	if _, err := file.Write(content); err != nil {
 		_ = file.Close()
