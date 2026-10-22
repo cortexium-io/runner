@@ -2709,9 +2709,24 @@ cortexium-runner retry --config /absolute/operator/path/runner.json --item ITEM_
 ```
 
 The applying command requires an interactive terminal, previews the complete
-old and new bodies and exact clean candidate, and defaults to **No**. `--json`
+old and new bodies and exact retained snapshot, and defaults to **No**. `--json`
 is preview-only. Retained work must have intact existing approval, a
 registered clean committed workspace and an implementation/reviewer retry phase.
+
+The narrow exception is a dirty retained implementation in its original released
+planning-only batch. It requires the exact private identity, complete source and
+sibling authority, no implementation checkpoint, no active verification proof,
+and no publication acceptance for this item, including an earlier commit. Its
+preview identifies `DIRTY` retained work and shows the branch/base/HEAD/tree,
+index-entry fingerprint, complete dirty snapshot fingerprint, private evidence
+bindings, original source, every member and QA count, and both full bodies and
+proof contracts. Confirmation rebinds content authority without staging,
+committing, or changing any Git/worktree/history bytes; private feedback remains
+historical. The card stays `Blocked` for a separate ordinary retry. Reviewer
+work and retained active proof still require their existing clean-candidate
+workflow. Missing action authority must first use supported reauthorization
+while the worker is stopped; amendment cannot bypass assessment.
+
 A blank Project Branch is allowed for implementation work only, when the
 deterministic branch and exact private workspace identity validate; it does not
 permit guessing another branch. Reviewer-phase work requires its recorded
@@ -2739,7 +2754,8 @@ branch, rejection count, dependencies, profiles, and siblings. For a released
 Project-driven plan, its source's exact-child release binding is renewed without
 authorizing or changing another child. Previous QA feedback stays historical;
 the old private verification record is archived beside the active record under
-a content-digest suffix. Verification bound to a predecessor of a clean committed
+a content-digest suffix for the clean-candidate workflow. Verification bound to a
+predecessor of a clean committed
 correction may be archived only after validating its original item, content,
 workspace, criteria, literal commit/tree and ancestry; its exact bytes and source
 identities remain historical. Normal execution still requires current-candidate

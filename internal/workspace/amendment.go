@@ -8,8 +8,9 @@ import (
 )
 
 // RebindRetainedContent is an explicit operator boundary, never automatic
-// mismatch recovery. It changes only the content binding of the exact clean
-// candidate that was previewed, leaving all Git data and evidence untouched.
+// mismatch recovery. It changes only the content binding of the exact retained
+// snapshot that the offline amendment authorized, leaving Git and evidence
+// untouched. A dirty snapshot grants no candidate or QA acceptance.
 func (p GitProvider) RebindRetainedContent(ctx context.Context, request Request, expected Identity, snapshot Snapshot, digest string) error {
 	if digest == "" || digest == expected.DelegatedContentDigest {
 		return errors.New("amendment requires a new content identity")
@@ -25,7 +26,7 @@ func (p GitProvider) RebindRetainedContent(ctx context.Context, request Request,
 	if err != nil {
 		return err
 	}
-	if !snapshot.Clean || !current.Clean || current.Fingerprint != snapshot.Fingerprint || current.Head != snapshot.Head || current.Tree != snapshot.Tree || current.Branch != expected.Branch {
+	if current.Clean != snapshot.Clean || current.Fingerprint != snapshot.Fingerprint || current.Head != snapshot.Head || current.Tree != snapshot.Tree || current.Branch != expected.Branch || snapshot.Branch != expected.Branch {
 		return errors.New("retained candidate changed after amendment preview")
 	}
 	replacement := expected
