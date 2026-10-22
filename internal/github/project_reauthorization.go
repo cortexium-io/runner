@@ -5,20 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 )
 
 // ReauthorizationPlan is a new operator approval of one exact released action,
 // not an automatic repair of an invalid signature or an initial batch release.
 type ReauthorizationPlan struct {
-	Item              WorkItem `json:"item"`
-	TargetLaneID      string   `json:"target_lane_id"`
-	TargetStatus      string   `json:"target_status"`
-	Role              string   `json:"role"`
-	Result            string   `json:"result"`
-	Unstarted         bool     `json:"unstarted,omitempty"`
-	PlanRevision      string   `json:"plan_revision,omitempty"`
-	RemoveIntakeLabel bool     `json:"remove_intake_label,omitempty"`
+	Item              WorkItem   `json:"item"`
+	TargetLaneID      string     `json:"target_lane_id"`
+	TargetStatus      string     `json:"target_status"`
+	Role              string     `json:"role"`
+	Result            string     `json:"result"`
+	Unstarted         bool       `json:"unstarted,omitempty"`
+	PlanRevision      string     `json:"plan_revision,omitempty"`
+	RemoveIntakeLabel bool       `json:"remove_intake_label,omitempty"`
+	PlanningSource    *WorkItem  `json:"planning_source,omitempty"`
+	PlanningMembers   []WorkItem `json:"planning_members,omitempty"`
 
 	item WorkItem
 	next AuthorizedAction
@@ -63,10 +66,20 @@ func (s *Project) planReauthorization(item WorkItem, items []WorkItem) (Reauthor
 	}
 	lane := s.laneIDForStatus(s.readyStatus())
 	role := s.cfg.LaneRoles[lane]
+	uniqueLane, _ := s.uniqueAgentLaneForRole(role)
+	if lane == "" || role == "" || uniqueLane != lane {
+		return ReauthorizationPlan{}, errors.New("reauthorization requires one unambiguous Ready implementation lane")
+	}
+	index := newWorkItemIndex(items)
+	parent := index.byID[item.PlanningSourceID]
 	published := strings.TrimSpace(item.PullRequest) != ""
-	unstarted := strings.TrimSpace(item.Branch) == "" && item.PlanningSourceID != ""
-	if lane == "" || role == "" || (strings.TrimSpace(item.Branch) == "" && !unstarted) || item.PlanRelease != "" {
+	unstarted := strings.TrimSpace(item.Branch) == "" && item.PlanningSourceID != "" && parent.PlanRelease != ""
+	branchlessRetained := strings.TrimSpace(item.Branch) == "" && item.PlanningSourceID != "" && !unstarted
+	if (strings.TrimSpace(item.Branch) == "" && !unstarted && !branchlessRetained) || item.PlanRelease != "" {
 		return ReauthorizationPlan{}, errors.New("reauthorization requires a retained implementation branch and configured Ready lane; plan delivery parents cannot return to implementation")
+	}
+	if branchlessRetained && (published || !s.isIntakeIssueURL(item.URL) || item.IssueState != "OPEN") {
+		return ReauthorizationPlan{}, errors.New("branchless retained recovery requires an open unpublished implementation issue")
 	}
 	if unstarted {
 		if published || item.Phase != lane || item.QACommit != "" || item.QAFailures != 0 || !s.isIntakeIssueURL(item.URL) || item.IssueState != "OPEN" {
@@ -128,8 +141,19 @@ func (s *Project) planReauthorization(item WorkItem, items []WorkItem) (Reauthor
 		}
 		revision = delivery.Revision
 	}
-	return ReauthorizationPlan{Item: item, TargetLaneID: lane, TargetStatus: next.Status, Role: role, Result: next.Result,
-		Unstarted: unstarted, PlanRevision: revision, RemoveIntakeLabel: removeLabel, item: item, next: action}, nil
+	plan := ReauthorizationPlan{Item: item, TargetLaneID: lane, TargetStatus: next.Status, Role: role, Result: next.Result,
+		Unstarted: unstarted, PlanRevision: revision, RemoveIntakeLabel: removeLabel, item: item, next: action}
+	if item.PlanningSourceID != "" {
+		if parent.Transition != "" {
+			return ReauthorizationPlan{}, errors.New("reauthorization requires a planning source without an active transition")
+		}
+		plan.PlanningSource = &parent
+		plan.PlanningMembers = append([]WorkItem(nil), index.childrenBySource[parent.ID]...)
+		sort.Slice(plan.PlanningMembers, func(i, j int) bool {
+			return plan.PlanningMembers[i].PlanningItemIndex < plan.PlanningMembers[j].PlanningItemIndex
+		})
+	}
+	return plan, nil
 }
 
 // ApplyReauthorization must follow the operator's exact preview and the

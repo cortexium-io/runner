@@ -70,6 +70,25 @@ func writeReauthorizationPreview(output io.Writer, plan engine.ProjectItemReauth
 	fmt.Fprintf(output, "  Dependencies: %s\n", terminalSafeText(strings.Join(item.Dependencies, ", ")))
 	if !plan.Approval.Unstarted {
 		fmt.Fprintf(output, "  Retained worktree: %s\n", terminalSafeText(plan.Workspace.WorktreePath))
+		fmt.Fprintf(output, "  Retained branch: %s\n  Retained base: %s at %s\n  Content identity: %s\n", terminalSafeText(plan.Workspace.Branch), terminalSafeText(plan.Workspace.BaseRef), terminalSafeText(plan.Workspace.BaseRevision), terminalSafeText(plan.Workspace.DelegatedContentDigest))
+	}
+	if snapshot := plan.RetainedSnapshot; snapshot != nil {
+		fmt.Fprintf(output, "  Retained HEAD: %s\n  Retained tree: %s\n  Retained work clean: %t\n  Retained snapshot: %s\n", terminalSafeText(snapshot.Head), terminalSafeText(snapshot.Tree), snapshot.Clean, terminalSafeText(snapshot.Fingerprint))
+		fmt.Fprintln(output, "  Project Branch remains blank; the existing private identity owns this branch.")
+		for _, kind := range []string{"implementation", "qa_feedback", "verification"} {
+			digest := plan.EvidenceDigests[kind]
+			if digest == "" {
+				digest = "absent"
+			}
+			fmt.Fprintf(output, "  Retained %s evidence: %s\n", kind, terminalSafeText(digest))
+		}
+	}
+	if source := plan.Approval.PlanningSource; source != nil {
+		fmt.Fprintf(output, "  Released planning source: %s (%s)\n", terminalSafeText(source.Title), terminalSafeText(source.ID))
+		fmt.Fprintln(output, "  Exact existing planning members (authority preserved):")
+		for _, member := range plan.Approval.PlanningMembers {
+			fmt.Fprintf(output, "    %s: %s; status=%s; QA failures=%d\n", terminalSafeText(member.ID), terminalSafeText(member.Title), terminalSafeText(member.Status), member.QAFailures)
+		}
 	}
 	writeAuthorizationBoundRuntimePreview(output, item)
 	fmt.Fprintln(output, "  Exact source body:")

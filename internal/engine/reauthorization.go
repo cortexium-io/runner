@@ -9,20 +9,26 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/github"
 	"github.com/cortexium-io/runner/internal/workspace"
 )
 
 type ProjectItemReauthorization struct {
-	Approval    github.ReauthorizationPlan `json:"approval"`
-	Workspace   workspace.Identity         `json:"workspace"`
-	PullRequest *github.PullRequestDetails `json:"pull_request,omitempty"`
+	Approval         github.ReauthorizationPlan `json:"approval"`
+	Workspace        workspace.Identity         `json:"workspace"`
+	PullRequest      *github.PullRequestDetails `json:"pull_request,omitempty"`
+	RetainedSnapshot *workspace.Snapshot        `json:"retained_snapshot,omitempty"`
+	EvidenceDigests  map[string]string          `json:"retained_evidence_digests,omitempty"`
 }
 
 func (s *Engine) PlanProjectItemReauthorization(ctx context.Context, selector string) (ProjectItemReauthorization, error) {
 	plan, err := s.source.PlanReauthorization(ctx, selector)
 	if err != nil {
 		return ProjectItemReauthorization{}, err
+	}
+	if s.cfg.RoleContract(plan.Role) != config.WorkRoleImplementer {
+		return ProjectItemReauthorization{}, errors.New("reauthorization requires the configured implementation role")
 	}
 	if plan.Item.PullRequest != "" {
 		return s.inspectPublishedReauthorization(ctx, plan)
@@ -45,7 +51,46 @@ func (s *Engine) PlanProjectItemReauthorization(ctx context.Context, selector st
 	if err != nil {
 		return ProjectItemReauthorization{}, err
 	}
-	return ProjectItemReauthorization{Approval: plan, Workspace: identity}, nil
+	result := ProjectItemReauthorization{Approval: plan, Workspace: identity}
+	if strings.TrimSpace(plan.Item.Branch) == "" {
+		repo, err := s.repositoryDir(ctx, plan.Item.Repository)
+		if err != nil {
+			return ProjectItemReauthorization{}, err
+		}
+		if err := github.NewPullRequestManager(s.run, s.source).RequireUnpublishedBranch(ctx, identity.Repository, identity.Branch); err != nil {
+			return ProjectItemReauthorization{}, err
+		}
+		provider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
+		request := s.workspaceRequestForItem(plan.Item, identity.DelegatedContentDigest, repo, false)
+		metadata, err := provider.InspectRetainedReview(ctx, request)
+		if err != nil {
+			return ProjectItemReauthorization{}, err
+		}
+		if metadata.Identity != identity {
+			return ProjectItemReauthorization{}, errors.New("retained identity changed during reauthorization preview")
+		}
+		snapshot, err := workspace.CaptureSnapshotStateWithLimits(ctx, s.run, identity.WorktreePath, 30*time.Second, s.snapshotLimits())
+		if err != nil {
+			return ProjectItemReauthorization{}, err
+		}
+		if accepted, err := provider.HasPriorPublicationAcceptance(ctx, metadata, snapshot.Head); err != nil || accepted {
+			return ProjectItemReauthorization{}, errors.Join(errors.New("branchless recovery cannot adopt publication acceptance"), err)
+		}
+		result.RetainedSnapshot = &snapshot
+		result.EvidenceDigests = make(map[string]string)
+		for kind, path := range map[string]string{
+			"implementation": s.implementationCheckpointPath(plan.Item.ID),
+			"qa_feedback":    s.reviewFeedbackPath(plan.Item.ID),
+			"verification":   s.verificationEvidencePath(plan.Item.ID),
+		} {
+			digest, err := amendmentEvidenceDigest(path)
+			if err != nil {
+				return ProjectItemReauthorization{}, err
+			}
+			result.EvidenceDigests[kind] = digest
+		}
+	}
+	return result, nil
 }
 
 func (s *Engine) validateReauthorizationWorkspace(ctx context.Context, item github.WorkItem) (workspace.Identity, error) {
