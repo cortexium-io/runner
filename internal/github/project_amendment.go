@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -15,10 +16,12 @@ import (
 // AmendmentPlan changes the approved requirements, never scheduling metadata or
 // sibling authority. Execution remains paused until a separate ordinary retry.
 type AmendmentPlan struct {
-	Item      WorkItem `json:"item"`
-	Body      string   `json:"replacement_body"`
-	RetryLane string   `json:"retry_lane"`
-	Unstarted bool     `json:"unstarted"`
+	Item            WorkItem   `json:"item"`
+	Body            string     `json:"replacement_body"`
+	RetryLane       string     `json:"retry_lane"`
+	Unstarted       bool       `json:"unstarted"`
+	PlanningSource  *WorkItem  `json:"planning_source,omitempty"`
+	PlanningMembers []WorkItem `json:"planning_members,omitempty"`
 
 	after          AuthorizedAction
 	source         WorkItem
@@ -107,6 +110,11 @@ func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (Ame
 			return AmendmentPlan{}, errors.New("amendment requires a planning source without an active transition")
 		}
 		children := append([]WorkItem(nil), index.childrenBySource[item.PlanningSourceID]...)
+		plan.PlanningSource = &plan.source
+		plan.PlanningMembers = append([]WorkItem(nil), children...)
+		sort.Slice(plan.PlanningMembers, func(i, j int) bool {
+			return plan.PlanningMembers[i].PlanningItemIndex < plan.PlanningMembers[j].PlanningItemIndex
+		})
 		previous, err := s.validatePlanningBatch(plan.source.Approval, plan.source, children, batchReleasedState)
 		if err != nil {
 			return AmendmentPlan{}, err
@@ -173,12 +181,23 @@ func (s *Project) ApplyAmendment(ctx context.Context, plan AmendmentPlan) (resul
 		return result, errors.New("card changed while locking amendment; no requirements were written")
 	}
 	if plan.source.ID != "" {
-		source, err := s.InspectRecoveryItem(ctx, plan.source.ID)
+		items, err := s.LifecycleItems(ctx)
 		if err != nil {
 			return result, err
 		}
-		if !reflect.DeepEqual(source, plan.source) {
-			return result, errors.New("planning source changed during amendment; no requirements were written")
+		index := newWorkItemIndex(items)
+		members := append([]WorkItem(nil), index.childrenBySource[plan.source.ID]...)
+		for i := range members {
+			if members[i].ID == plan.Item.ID {
+				if members[i].Transition != transitionLockValue {
+					return result, errors.New("amendment transition changed; no requirements were written")
+				}
+				members[i].Transition = ""
+			}
+		}
+		sort.Slice(members, func(i, j int) bool { return members[i].PlanningItemIndex < members[j].PlanningItemIndex })
+		if !reflect.DeepEqual(index.byID[plan.source.ID], plan.source) || !reflect.DeepEqual(members, plan.PlanningMembers) {
+			return result, errors.New("planning source or member changed during amendment; no requirements were written")
 		}
 	}
 	response, err := s.gh(ctx, "issue", "edit", plan.Item.URL, "--body", plan.Body)

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/sandboxpath"
@@ -1122,6 +1123,54 @@ func (p GitProvider) HasPriorPublicationAcceptance(_ context.Context, metadata M
 		return false, err
 	}
 	return priorPublicationAcceptance(metadata, commitOID)
+}
+
+// RequireNoPublicationAcceptance keeps dirty-snapshot amendment separate from
+// accepted QA, including acceptance of an earlier commit for the same item.
+// Existing records for other items are read only and never adopted or changed.
+func (p GitProvider) RequireNoPublicationAcceptance(ctx context.Context, metadata Metadata) error {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	if err := validateCandidateMetadata(metadata); err != nil {
+		return err
+	}
+	if err := validateRecordedIdentity(metadata); err != nil {
+		return err
+	}
+	root := filepath.Dir(metadata.Identity.WorktreePath)
+	path := filepath.Dir(publicationRecordPath(root, ""))
+	directory, err := securefs.OpenReadOnlyDir(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	budget, err := securefs.NewSnapshotBudget(p.limits)
+	if err != nil {
+		return err
+	}
+	names, err := directory.ReadDirNamesWithBudget(budget)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if _, _, err := directory.HashFileContent(ctx, name, budget); err != nil {
+			return err
+		}
+		record, err := readPublicationRecord(filepath.Join(path, name))
+		if err != nil {
+			return fmt.Errorf("inspect retained publication history: %w", err)
+		}
+		if record.ItemID == "" || strings.IndexFunc(record.ItemID, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+			return errors.New("retained publication record has missing or noncanonical item ownership")
+		}
+		if record.ItemID == metadata.Identity.ItemID {
+			return errors.New("dirty amendment cannot carry retained publication acceptance")
+		}
+	}
+	return directory.Verify()
 }
 
 // ValidateAmendmentHistory identifies an unaccepted predecessor for archival

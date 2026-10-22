@@ -46,6 +46,17 @@ type Snapshot struct {
 	protectedPaths []string
 }
 
+// IndexFingerprint identifies the exact captured index entries, independently
+// of the HEAD tree and unstaged/untracked work included in Fingerprint.
+func (s Snapshot) IndexFingerprint() string {
+	digest := sha256.New()
+	for _, path := range sortedSnapshotKeys(s.indexEntries) {
+		writeSnapshotPart(digest, "index-path", []byte(path))
+		writeSnapshotPart(digest, "index-entry", []byte(s.indexEntries[path]))
+	}
+	return "sha256:" + hex.EncodeToString(digest.Sum(nil))
+}
+
 // PreparationFingerprint retains every captured Git control and source binding,
 // except package-local control files inside the declared untracked dependency
 // roots. It is a preparation comparison, never a publication snapshot. Capture

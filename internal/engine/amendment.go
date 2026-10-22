@@ -24,6 +24,9 @@ type RequirementAmendment struct {
 	NewProof            []string             `json:"new_proof_obligations"`
 	VerificationDigest  string               `json:"historical_verification_digest,omitempty"`
 	HistoricalCandidate workspace.Candidate  `json:"historical_candidate"`
+	DirtyRetained       bool                 `json:"dirty_retained,omitempty"`
+	IndexFingerprint    string               `json:"index_fingerprint,omitempty"`
+	EvidenceDigests     map[string]string    `json:"retained_evidence_digests,omitempty"`
 }
 
 func (s *Engine) PlanRequirementAmendment(ctx context.Context, selector, body string) (RequirementAmendment, error) {
@@ -78,8 +81,8 @@ func (s *Engine) PlanRequirementAmendment(ctx context.Context, selector, body st
 	if err != nil {
 		return RequirementAmendment{}, err
 	}
-	if !candidate.Clean || candidate.Branch != identity.Branch || !reviewObjectID(candidate.Head) || !reviewObjectID(candidate.Tree) {
-		return RequirementAmendment{}, errors.New("amendment requires a clean committed candidate on the retained branch")
+	if candidate.Branch != identity.Branch || !reviewObjectID(candidate.Head) || !reviewObjectID(candidate.Tree) {
+		return RequirementAmendment{}, errors.New("amendment requires the exact retained branch with valid HEAD and tree")
 	}
 	metadata, err := provider.InspectRetainedReview(ctx, s.workspaceRequestForItem(approval.Item, identity.DelegatedContentDigest, repo, false))
 	if err != nil {
@@ -87,6 +90,33 @@ func (s *Engine) PlanRequirementAmendment(ctx context.Context, selector, body st
 	}
 	if metadata.Identity != identity {
 		return RequirementAmendment{}, errors.New("workspace identity changed during amendment preview")
+	}
+	plan.Workspace, plan.Candidate = identity, candidate
+	plan.IndexFingerprint = candidate.IndexFingerprint()
+	if !candidate.Clean {
+		if s.cfg.RoleContract(lane.Role) != config.WorkRoleImplementer || approval.PlanningSource == nil || approval.PlanningSource.PlanRelease != "" {
+			return RequirementAmendment{}, errors.New("dirty amendment requires a retained implementation in its original released planning-only batch")
+		}
+		if err := provider.RequireNoPublicationAcceptance(ctx, metadata); err != nil {
+			return RequirementAmendment{}, err
+		}
+		plan.DirtyRetained = true
+		plan.EvidenceDigests = make(map[string]string)
+		for kind, path := range map[string]string{
+			"implementation": s.implementationCheckpointPath(approval.Item.ID),
+			"qa_feedback":    s.reviewFeedbackPath(approval.Item.ID),
+			"verification":   s.verificationEvidencePath(approval.Item.ID),
+		} {
+			digest, err := amendmentEvidenceDigest(path)
+			if err != nil {
+				return RequirementAmendment{}, err
+			}
+			if kind != "qa_feedback" && digest != "" {
+				return RequirementAmendment{}, errors.New("dirty amendment cannot retire an implementation checkpoint or active verification proof")
+			}
+			plan.EvidenceDigests[kind] = digest
+		}
+		return plan, nil
 	}
 	acceptanceSnapshot, err := s.checkoutSnapshotState(ctx, identity.WorktreePath)
 	if err != nil {
@@ -141,12 +171,7 @@ func (s *Engine) applyRequirementAmendment(ctx context.Context, plan Requirement
 	if err != nil {
 		return github.WorkItem{}, err
 	}
-	// Snapshot's maps are private workspace implementation details. Its full
-	// fingerprint is public and participates in the exact preview comparison.
-	if !reflect.DeepEqual(plan.Approval, fresh.Approval) || plan.Workspace != fresh.Workspace ||
-		plan.Candidate.Fingerprint != fresh.Candidate.Fingerprint || plan.Candidate.Head != fresh.Candidate.Head ||
-		plan.Candidate.Tree != fresh.Candidate.Tree || plan.VerificationDigest != fresh.VerificationDigest ||
-		!reflect.DeepEqual(plan.HistoricalCandidate, fresh.HistoricalCandidate) || !reflect.DeepEqual(plan.OldProof, fresh.OldProof) || !reflect.DeepEqual(plan.NewProof, fresh.NewProof) {
+	if !reflect.DeepEqual(plan, fresh) {
 		return github.WorkItem{}, errors.New("requirements, card, or candidate changed after amendment preview")
 	}
 	if fresh.Approval.Unstarted {

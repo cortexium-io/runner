@@ -132,3 +132,18 @@ func TestAmendmentPreviewDistinguishesUnstartedWorkAndHistoricalProof(t *testing
 		}
 	}
 }
+
+func TestDirtyAmendmentPreviewDisclosesOriginalAndReplacementAuthority(t *testing.T) {
+	var output bytes.Buffer
+	writeAmendmentPreview(&output, engine.RequirementAmendment{
+		Approval:      github.AmendmentPlan{Item: github.WorkItem{ID: "third", Body: "Exact old body", Phase: "ready"}, Body: "Exact new body", RetryLane: "ready", PlanningSource: &github.WorkItem{ID: "parent", Title: "Original source"}, PlanningMembers: []github.WorkItem{{ID: "first", Status: "Done"}, {ID: "second", Status: "Done", QAFailures: 1}, {ID: "third", Status: "Ready"}, {ID: "fourth", Status: "Ready"}, {ID: "fifth", Status: "Ready"}}},
+		DirtyRetained: true, IndexFingerprint: "index-hash", EvidenceDigests: map[string]string{"qa_feedback": "feedback-hash"},
+		Workspace: workspace.Identity{Branch: "runner/original", BaseRef: "origin/main", BaseRevision: "base-commit", WorktreePath: "/retained/worktree", DelegatedContentDigest: "v1:old-content"},
+		Candidate: workspace.Snapshot{Head: "head-commit", Tree: "head-tree", Fingerprint: "full-dirty-hash"}, OldProof: []string{"old obligation"}, NewProof: []string{"new obligation"},
+	})
+	for _, expected := range []string{"DIRTY retained implementation", "runner/original", "origin/main", "base-commit", "head-commit", "head-tree", "index-hash", "Work clean: false", "full-dirty-hash", "v1:old-content", "implementation evidence: absent", "verification evidence: absent", "qa_feedback evidence: feedback-hash", "Original source (parent)", "first:", "second:", "third:", "fourth:", "fifth:", "QA failures=1", "Exact old body", "Exact new body", "old obligation", "new obligation", "Runner must be stopped", "no commit or staging"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("preview omitted %q: %s", expected, output.String())
+		}
+	}
+}
