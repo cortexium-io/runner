@@ -42,6 +42,7 @@ func (c CLI) quality(ctx context.Context, e *engine.Engine, args []string) error
 		exceptions = f.String("exceptions", "", "explicit scoped exception requests")
 	case "check":
 		file = f.String("file", "", "quality specification")
+		report = f.String("report", "", "refresh only online audits in this retained baseline report")
 		preview = f.String("preview", "", "displayed baseline preview")
 	case "apply":
 		report = f.String("report", "", "retained baseline report")
@@ -93,6 +94,16 @@ func (c CLI) quality(ctx context.Context, e *engine.Engine, args []string) error
 		}{id, q})
 	}
 	var requests []config.ExceptionRequest
+	if command == "check" && *report != "" {
+		if *file != "" {
+			return errors.New("use either --file for a full baseline or --report for audit-only refresh")
+		}
+		r, err := e.RefreshBaseline(ctx, *report, *preview)
+		if err != nil {
+			return err
+		}
+		return c.json(r)
+	}
 	if exceptions != nil && *exceptions != "" {
 		if err := readInput(*exceptions, &requests); err != nil {
 			return err

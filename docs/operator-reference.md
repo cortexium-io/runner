@@ -166,8 +166,75 @@ separately from current-candidate proof. Runner verifies it before dispatch and
 after return; missing, changed or stale evidence blocks review. Logs and artifact
 paths appear in local task/check JSON; the GitHub overview does not upload private
 artifacts. Artifact declarations require a new quality preview/check/apply cycle.
-Store format 20 rejects older state directories without converting them; preserve
+Store format 21 rejects older state directories without converting them; preserve
 old state and use a fresh isolated directory for this version.
+
+A public npm audit is a typed check alongside ordinary offline commands. Add a
+check like this to `checks` (using your package directory):
+
+```json
+{
+  "id": "npm-security",
+  "directory": "web",
+  "npm_audit": {"level": "high", "omit": ["dev"], "max_age": "1h"},
+  "timeout": "2m",
+  "at": "both"
+}
+```
+
+Choose the omission policy deliberately; omit `omit` to assess all dependency
+types. Levels are `info`, `low`, `moderate`, `high`, `critical`; allowed omissions
+are `dev`, `optional`, `peer`. `max_age` defaults to one hour and must be positive.
+Use a prepared Node environment or exact local `check_image` containing the
+qualified npm **11.19.0**. Other npm versions are unavailable. Audits have no shell
+command, prerequisites, artifact selections or CPU overrides; their report is
+retained automatically. Ordinary command checks retain their existing settings.
+
+`quality preview --file` discloses the package directory and dependency names and
+versions eligible for the audit under `npm_audits`, plus the applied omission,
+severity, timing and freshness policy. It makes no audit request. Only validated
+public-registry dependency metadata reaches Runner's fixed public npm transport;
+source, project identity, absolute paths, `.npmrc`, credentials and proxies are
+excluded. The evaluator is offline in the pinned image; project code never runs
+with this transport. There is no Quick Audit fallback, audit fix, install or
+manifest rewriting. Version-3 locks and consistent ordinary semver graphs are
+supported; workspaces, private registries, aliases and local/git dependencies are
+unavailable. Limits are 1,000 locked packages, 1 MiB request, 16 MiB per response,
+128 MiB responses per audit, 8 MiB retained report and the declared total deadline.
+
+Each check observation includes `audit.receipt`, with its actual query-window
+start, finish, input/policy/tool/image identity, findings and report path/digest.
+`queried_at` is a conservative start of the query operation; reuse never changes
+it. Passing means the service reported no finding at the approved threshold at
+that time. It cannot predict later advisories. Inspect `npm_audits` in task JSON
+for the receipt time, expiry and report; status explains pending refresh or the
+blocking failure. Expired proof is not sufficient to approve a baseline.
+To renew only a baseline's online audits, preserving its offline observations:
+
+```sh
+runner quality preview --report REPORT_ID
+runner quality check --report REPORT_ID --preview REFRESH_PREVIEW
+runner quality preview --report NEW_REPORT_ID
+```
+
+The refresh returns a new immutable report. Its quality revision remains unchanged
+when only observations change. Use the new agreement preview for `quality apply`.
+Changed source/base requires a new full baseline. Baseline renewal does not admit
+tasks or invoke a model.
+
+
+While work remains active, Runner refreshes only an expired/mismatched audit
+before applicable review and final local/connected delivery, including merge.
+It retains passing tests, the candidate, review and allowances; no image rebuild,
+model call or manual snapshot update is required. New dependency/audit policy,
+image or adapter identities require a fresh query. Findings fail the required
+check; outages, invalid/unsupported data, timeout or unsettled ownership make it
+unavailable. Neither admits completion or a baseline exception. Inspect the report
+and use the displayed `task resume TASK --attempt ATTEMPT` recovery for a failed
+refresh, then `run`; it does not authorize a model invocation. Backwards clocks
+block until trustworthy time catches up to the stored high-water mark. Completed
+receipts remain historical and are not polled afterward. Backups retain them;
+Docker images still require separate preservation/preparation.
 
 For GitHub delivery, also include `required_ci`, with each exact check name and
 its observed GitHub app identity, for example

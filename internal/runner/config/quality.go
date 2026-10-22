@@ -16,6 +16,7 @@ import (
 const CheckEnvironment = "isolated PATH; private HOME/TMPDIR; LANG=C LC_ALL=C; no inherited credentials"
 
 type QualityCheck struct {
+	NPMAudit      *NPMAuditPolicy       `json:"npm_audit,omitempty"`
 	Outputs       []CheckOutput         `json:"-"`
 	Prepared      *CheckEnvironmentSpec `json:"-"`
 	CPUs          *int                  `json:"cpus,omitempty"`
@@ -25,9 +26,9 @@ type QualityCheck struct {
 	At            string                `json:"at,omitempty"`
 	Path          string                `json:"-"`
 	ID            string                `json:"id"`
-	Command       string                `json:"command"`
+	Command       string                `json:"command,omitempty"`
 	Directory     string                `json:"directory"`
-	Prerequisites []string              `json:"prerequisites"`
+	Prerequisites []string              `json:"prerequisites,omitempty"`
 	Timeout       string                `json:"timeout"`
 }
 
@@ -87,6 +88,12 @@ func (q Quality) Environment() string {
 		if len(q.Outputs) > 0 {
 			detail += "; read-only source with declared writable output views"
 		}
+		for _, check := range q.Checks {
+			if check.NPMAudit != nil {
+				detail += "; separate metadata-only npm audit transport to " + NPMRegistry
+				break
+			}
+		}
 		return "local Docker image " + q.CheckImage + detail + "; private HOME/scratch; no host credentials; container-only loopback; no host or external network"
 	}
 	return CheckEnvironment
@@ -95,6 +102,15 @@ func (q Quality) Environment() string {
 func (q Quality) Revision() string {
 	if q.Definition == "" {
 		return ""
+	}
+	// Online observations remain historical evidence, not approval authority.
+	q.Baseline = append([]core.CheckObservation(nil), q.Baseline...)
+	for i, r := range q.Baseline {
+		for _, check := range q.Checks {
+			if check.ID == r.CheckID && check.NPMAudit != nil {
+				q.Baseline[i] = core.CheckObservation{CheckID: r.CheckID}
+			}
+		}
 	}
 	return core.Digest(q)
 }
@@ -138,8 +154,18 @@ func (s QualitySpec) Validate() error {
 			return fmt.Errorf("check %s: at must be task, completion or both", c.ID)
 		}
 		d, err := time.ParseDuration(c.Timeout)
-		if !checkID.MatchString(c.ID) || seen[c.ID] || strings.TrimSpace(c.Command) == "" || !RelativePath(c.Directory) || err != nil || d <= 0 || len(c.Prerequisites) == 0 {
+		if !checkID.MatchString(c.ID) || seen[c.ID] || !RelativePath(c.Directory) || err != nil || d <= 0 {
 			return fmt.Errorf("invalid or duplicate check %q: command, relative directory, prerequisites and positive timeout required", c.ID)
+		}
+		if c.NPMAudit != nil {
+			if err := c.NPMAudit.Validate(); err != nil {
+				return fmt.Errorf("check %s: %w", c.ID, err)
+			}
+			if !LiteralPath(c.Directory) || c.Command != "" || len(c.Prerequisites) != 0 || len(c.Artifacts) != 0 || c.CPUs != nil || c.AutoCPUs || (s.CheckImage == "" && (s.Preparation == nil || s.Preparation.Node == "")) {
+				return fmt.Errorf("check %s: npm_audit needs a pinned Node check image/environment and literal directory, without command, prerequisites, artifacts or CPU overrides", c.ID)
+			}
+		} else if strings.TrimSpace(c.Command) == "" || len(c.Prerequisites) == 0 {
+			return fmt.Errorf("check %s: command and prerequisites required", c.ID)
 		}
 		for _, p := range c.Prerequisites {
 			if p == "" || strings.ContainsAny(p, "/ \t\n") {
@@ -222,6 +248,11 @@ func (r QualityReport) ResolveExceptions(requests []ExceptionRequest) (Quality, 
 		if found == nil || found.Status != "failed" || !found.Stopped || found.OutputDigest == "" {
 			return q, fmt.Errorf("check %s is not an observed failure eligible for an exception", req.CheckID)
 		}
+		for _, check := range q.Checks {
+			if check.ID == req.CheckID && check.NPMAudit != nil {
+				return q, errors.New("online audits cannot have baseline exceptions")
+			}
+		}
 		ex := BaselineException{CheckID: req.CheckID, Rationale: req.Rationale, ExitCode: found.ExitCode, OutputDigest: found.OutputDigest, Files: map[string]string{}}
 		for _, path := range req.Scope {
 			digest, ok := r.Files[path]
@@ -240,6 +271,11 @@ func (q Quality) Accepts(result core.CheckObservation, files map[string]string) 
 	}
 	if result.Status == "passed" && result.ExitCode == 0 {
 		return nil
+	}
+	for _, check := range q.Checks {
+		if check.ID == result.CheckID && check.NPMAudit != nil {
+			return fmt.Errorf("npm audit %s failed; inspect its retained report", result.CheckID)
+		}
 	}
 	for _, ex := range q.Exceptions {
 		if ex.CheckID != result.CheckID {
@@ -268,6 +304,12 @@ func (q Quality) ValidateResults(results []core.CheckObservation, files map[stri
 		}
 		if err := q.Accepts(results[i], files); err != nil {
 			return err
+		}
+		if check.NPMAudit != nil {
+			a := results[i].Audit
+			if a == nil || a.SourceDigest == "" || a.Receipt.Policy != check.AuditPolicy() || a.Receipt.Adapter != NPMAuditAdapter || a.Receipt.Tool != NPMAuditTool || a.Receipt.Registry != NPMRegistry || a.Receipt.Image != q.CheckImage || a.Receipt.ReportDigest != results[i].OutputDigest || a.Receipt.Status != results[i].Status {
+				return fmt.Errorf("npm audit %s lacks matching immutable receipt", check.ID)
+			}
 		}
 		if len(check.Artifacts) != 0 && results[i].Artifacts == nil {
 			return fmt.Errorf("check %s lacks its required artifact manifest", check.ID)

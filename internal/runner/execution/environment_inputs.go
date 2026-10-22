@@ -71,7 +71,7 @@ func npmInputs(manifest, lock []byte, playwright string) ([]string, error) {
 			return nil, fmt.Errorf("npm package %s needs an integrity-pinned public registry tarball", path)
 		}
 		if strings.HasSuffix("/"+path, "/node_modules/playwright") || strings.HasSuffix("/"+path, "/node_modules/playwright-core") || strings.HasSuffix("/"+path, "/node_modules/@playwright/test") {
-			if playwright == "" || p.Version != playwright {
+			if playwright != "*" && (playwright == "" || p.Version != playwright) {
 				return nil, errors.New("Playwright packages require the matching declared Playwright version")
 			}
 		}

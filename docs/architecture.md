@@ -14,7 +14,7 @@ and the [redesign plan](runner-redesign-proposal.md) define the accepted replace
 | `internal/runner/cli` | Commands, exact previews and attention-first status; no scheduler. |
 | `internal/runner/config` | Strict configuration, repository quality agreement and policy validation. |
 | `internal/runner/core` | Task versions, approvals, evidence bindings, observations and action types. |
-| `internal/runner/store` | Private transactional persistence, source mappings, projection health, reservations, leases, effect claims and freshness guard. Store format 20 rejects earlier formats. |
+| `internal/runner/store` | Private transactional persistence, source mappings, projection health, reservations, leases, effect claims and freshness guard. Store format 21 rejects earlier formats. |
 | `internal/runner/engine` | One coordinator derives safe actions, admits within limits, launches bounded work and reconciles results. |
 | `internal/runner/execution` | Codex capabilities, contained role/check execution, retained check artifacts, explicit Runner-owned Go/Node environment preparation, optional exact local check images, structured results and pinned role instructions. |
 | `internal/runner/workspace` | Task workspace binding, exact candidates, base refresh and integration evidence. |
@@ -141,3 +141,21 @@ qualified separately by paired live cases in `internal/runner/execution`.
 Historical Project workflows and retired tests remain in Git history; they do
 not define the supported command surface. See the [operator guide](operator-reference.md)
 for commands and the plan's release evidence for qualification boundaries.
+
+### Controlled npm audit observations
+
+Typed npm checks share the quality agreement, check timing and coordinator's
+ordinary attempt ownership. Config pins the public audit policy and exact local
+image; execution validates/sanitizes dependency metadata and runs npm 11.19.0's
+maintained evaluator offline. Its private message protocol can request only Bulk
+Advisory and graph-bound package metadata through Runner's bounded, credential-free
+HTTPS transport to the public registry. The evaluator receives no candidate source
+tree or project configuration, and there is no network-enabled command mode.
+
+The store retains immutable audit receipts and a clock high-water mark. Candidate
+assessments reference the original receipt/time with explicit source attribution;
+volatile observations do not alter quality-policy identity. Engine derives
+bounded deterministic audit-only refresh attempts under existing admission and
+ownership, and fences review, local completion, publication and merge with fresh
+proof. Unavailable/failed refreshes stop for explicit recovery. This adds no
+scheduler, polling of completed work or public plugin API.

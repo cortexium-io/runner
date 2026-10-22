@@ -63,7 +63,7 @@ escalation, interruptions, delivery and same-host backup/restore.
   copies and ordinary output paths with retained reports. Preparation and quality
   approval are separate; online audits remain deferred. See the
   [quality journey](docs/operator-reference.md#2-agree-on-quality-before-work).
-- Store format 20 and strict local configuration deliberately break compatibility.
+- Store format 21 and strict local configuration deliberately break compatibility.
   Preserve older binaries with their state and backups. Reconcile outstanding
   remote effects, initialize fresh authority and approve only remaining work.
   There is no import of old approvals or in-place upgrade.

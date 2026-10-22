@@ -184,6 +184,11 @@ func describeView(v *View, running bool, now time.Time) {
 		if a != nil {
 			v.Recovery.Role = a.Role
 		}
+		if a != nil && a.Role == "audit_refresh" && t.Attention.Kind != "ownership" {
+			v.NextAction = "inspect the npm audit report or service/time blocker; task resume " + t.ID + " --attempt " + a.ID + "; then run"
+			v.Recovery.Repeats = "only the bounded npm audit; tests, models, candidate and allowances stay unchanged"
+			return
+		}
 		if t.Attention.Kind == core.UnsupportedConflict {
 			v.NextAction = "inspect the retained conflict with " + show + "; " + replace
 			v.Recovery.Repeats = "no automatic conflict repair for unsupported or unrecognized conflicts"
@@ -246,6 +251,11 @@ func describeView(v *View, running bool, now time.Time) {
 			v.Group = "Needs you"
 			v.NextAction = "run to reconcile the saved result; no new model call is needed"
 		}
+		return
+	}
+	if t.NextRole == "audit_refresh" {
+		v.Group, v.Summary = "Waiting", "npm audit needs refresh; other verification remains retained"
+		v.NextAction = "wait for audit admission; run if the coordinator is absent or drained"
 		return
 	}
 	switch t.Stage {

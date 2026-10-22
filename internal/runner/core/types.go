@@ -100,6 +100,9 @@ type Attention struct {
 }
 
 type Task struct {
+	Audits          *AuditProof           `json:"audits,omitempty"`
+	AuditResume     string                `json:"audit_resume,omitempty"`
+	AuditPending    *Continuation         `json:"audit_pending,omitempty"`
 	Source          *Source               `json:"source,omitempty"`
 	RefWrites       []RefWrite            `json:"ref_writes,omitempty"`
 	Completion      *CompletionReceipt    `json:"completion,omitempty"`
@@ -145,15 +148,16 @@ type Process struct {
 }
 
 type CheckObservation struct {
-	Artifacts    *CheckArtifacts `json:"artifacts,omitempty"`
-	Directory    string          `json:"directory,omitempty"`
-	CheckID      string          `json:"check_id"`
-	Status       string          `json:"status"`
-	ExitCode     int             `json:"exit_code"`
-	OutputDigest string          `json:"output_digest"`
-	Evidence     string          `json:"evidence"`
-	Detail       string          `json:"detail,omitempty"`
-	Stopped      bool            `json:"stopped"`
+	Audit        *AuditAssessment `json:"audit,omitempty"`
+	Artifacts    *CheckArtifacts  `json:"artifacts,omitempty"`
+	Directory    string           `json:"directory,omitempty"`
+	CheckID      string           `json:"check_id"`
+	Status       string           `json:"status"`
+	ExitCode     int              `json:"exit_code"`
+	OutputDigest string           `json:"output_digest"`
+	Evidence     string           `json:"evidence"`
+	Detail       string           `json:"detail,omitempty"`
+	Stopped      bool             `json:"stopped"`
 }
 
 // CheckArtifacts identifies retained output, not a grant to the check workspace.

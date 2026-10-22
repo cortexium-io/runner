@@ -46,13 +46,14 @@ func (e *Engine) taskEngine(ctx context.Context, t core.Task) (*Engine, error) {
 }
 
 type QualityPreview struct {
-	Preview      string         `json:"preview"`
-	RepositoryID string         `json:"repository_id"`
-	Previous     string         `json:"previous_quality_revision"`
-	Quality      config.Quality `json:"quality"`
-	Environment  string         `json:"environment"`
-	Blockers     []string       `json:"blockers"`
-	ReportID     string         `json:"report_id,omitempty"`
+	Audits       map[string]execution.AuditInput `json:"npm_audits,omitempty"`
+	Preview      string                          `json:"preview"`
+	RepositoryID string                          `json:"repository_id"`
+	Previous     string                          `json:"previous_quality_revision"`
+	Quality      config.Quality                  `json:"quality"`
+	Environment  string                          `json:"environment"`
+	Blockers     []string                        `json:"blockers"`
+	ReportID     string                          `json:"report_id,omitempty"`
 }
 
 func (e *Engine) PreviewQuality(ctx context.Context, spec config.QualitySpec) (QualityPreview, error) {
@@ -103,6 +104,24 @@ func (e *Engine) PreviewQuality(ctx context.Context, spec config.QualitySpec) (Q
 		q.Path = os.Getenv("PATH")
 	}
 	p = QualityPreview{RepositoryID: current.RepositoryID, Previous: current.Quality.Revision(), Quality: q, Environment: q.Environment()}
+	for _, check := range q.Checks {
+		if check.NPMAudit == nil {
+			continue
+		}
+		root, err := workspace.BaselineCopy(ctx, current.Config, base)
+		if err != nil {
+			return p, err
+		}
+		input, err := execution.InspectNPMAudit(root, check.Directory)
+		_ = os.RemoveAll(root)
+		if err != nil {
+			return p, fmt.Errorf("npm audit %s: %w", check.ID, err)
+		}
+		if p.Audits == nil {
+			p.Audits = map[string]execution.AuditInput{}
+		}
+		p.Audits[check.ID] = input
+	}
 	p.Preview = core.Digest(p)
 	return p, nil
 }
@@ -168,8 +187,67 @@ func (e *Engine) PreviewAgreement(ctx context.Context, id string, exceptions []c
 	if err = q.ValidateResults(q.Baseline, report.Files); err != nil {
 		p.Blockers = append(p.Blockers, err.Error())
 	}
+	if err = e.validateAuditChecks(ctx, q, q.Baseline); err != nil {
+		p.Blockers = append(p.Blockers, err.Error())
+	}
 	p.Preview = core.Digest(p)
 	return p, nil
+}
+
+// RefreshBaseline preserves every offline observation and the approval policy.
+// It creates a new immutable report; the original remains inspection evidence.
+func (e *Engine) RefreshBaseline(ctx context.Context, id, preview string) (config.QualityReport, error) {
+	p, err := e.PreviewAgreement(ctx, id, nil)
+	if err != nil {
+		return config.QualityReport{}, err
+	}
+	if preview == "" || preview != p.Preview {
+		return config.QualityReport{}, errors.New("baseline refresh preview changed; inspect quality preview --report again")
+	}
+	report, err := e.Store.QualityReport(ctx, id)
+	if err != nil {
+		return report, err
+	}
+	audits := report.Quality
+	audits.Checks = nil
+	for _, check := range report.Quality.Checks {
+		if check.NPMAudit != nil {
+			audits.Checks = append(audits.Checks, check)
+		}
+	}
+	if len(audits.Checks) == 0 {
+		return report, errors.New("baseline has no online audits to refresh")
+	}
+	source, err := workspace.BaselineCopy(ctx, e.Settings.Config, report.Quality.Base)
+	if err != nil {
+		return report, err
+	}
+	defer os.RemoveAll(source)
+	files, err := workspace.Manifest(source)
+	if err != nil {
+		return report, err
+	}
+	if core.Digest(files) != core.Digest(report.Files) {
+		return report, errors.New("baseline source changed; collect a new full baseline")
+	}
+	report.ID = core.NewID()
+	dir := filepath.Join(e.Settings.Config.StateDir, "quality", report.ID)
+	results, err := e.runChecks(ctx, source, files, audits, dir, func(p core.Process) error {
+		data, _ := json.Marshal(p)
+		return securefs.WriteFileExclusive(filepath.Join(dir, core.NewID()+"-process.json"), data, 0600)
+	})
+	if err != nil {
+		return report, err
+	}
+	report.Quality.Baseline = append([]core.CheckObservation(nil), report.Quality.Baseline...)
+	for _, result := range results {
+		for i, old := range report.Quality.Baseline {
+			if old.CheckID == result.CheckID {
+				report.Quality.Baseline[i] = result
+			}
+		}
+	}
+	return report, e.Store.SaveQualityReport(ctx, report)
 }
 func (e *Engine) ApplyAgreement(ctx context.Context, id string, exceptions []config.ExceptionRequest, preview string) error {
 	p, err := e.PreviewAgreement(ctx, id, exceptions)
@@ -196,6 +274,15 @@ func (e *Engine) runChecks(ctx context.Context, source string, expected map[stri
 	}
 	results := []core.CheckObservation{}
 	for _, check := range q.Checks {
+		if check.NPMAudit != nil {
+			check.Image = q.CheckImage
+			r := e.runAudit(ctx, source, expected, check, filepath.Join(dir, check.ID+".log"), started)
+			results = append(results, r)
+			if !r.Stopped {
+				break
+			}
+			continue
+		}
 		if q.Preparation != nil {
 			if err := execution.ValidateEnvironmentInputs(source, *q.Preparation); err != nil {
 				return results, err

@@ -25,6 +25,7 @@ type Engine struct {
 	Settings     config.Settings
 	Executor     Executor
 	Checker      execution.CheckRunner
+	Auditor      execution.AuditRunner
 	Delivery     DeliveryHost
 	Bases        BaseHost
 	Checks       ChecksHost
@@ -80,6 +81,7 @@ func (e *Engine) Add(ctx context.Context, body string) (core.Task, error) {
 }
 
 type View struct {
+	NPMAudits              []AuditStatus       `json:"npm_audits,omitempty"`
 	Destination            string              `json:"destination"`
 	LocalTarget            string              `json:"local_target,omitempty"`
 	PlanUsage              *core.Usage         `json:"plan_total_usage,omitempty"`
@@ -198,6 +200,16 @@ func (e *Engine) Show(ctx context.Context, id string) (View, error) {
 		return view, err
 	}
 	describeView(&view, running, e.now())
+	view.NPMAudits = auditStatus(e.Settings.Quality.Audits(t), t, e.now())
+	if t.Stage != core.Completed && t.Stage != core.Stopped && t.Candidate != nil && t.Attention == nil && (view.FocusAttempt == nil || !view.FocusAttempt.Occupying) && (t.Stage == core.AwaitingDelivery || t.NextRole == "audit_refresh") {
+		for _, audit := range view.NPMAudits {
+			if audit.Status != "passed" {
+				view.Group, view.Summary = "Waiting", "npm audit "+audit.CheckID+" "+audit.Status+"; other verification remains retained"
+				view.NextAction = "run to admit the bounded audit refresh; inspect npm_audits for the receipt time and report"
+				break
+			}
+		}
+	}
 	return view, nil
 }
 func (e *Engine) Approve(ctx context.Context, id string, version int, preview string) (core.Task, error) {
@@ -299,6 +311,8 @@ func replaceVersion(t *core.Task, v core.Version) {
 	t.Attention = nil
 	t.AdoptionPreview = ""
 	t.LocalMerge, t.LocalInspect = nil, false
+	t.Audits, t.AuditResume = nil, ""
+	t.AuditPending = nil
 }
 func (e *Engine) Stop(ctx context.Context, id string) error {
 	t, err := e.Store.Task(ctx, id)
@@ -349,7 +363,10 @@ func (e *Engine) Resume(ctx context.Context, id, attempt string, allowNew bool) 
 		if a.Occupying || (a.Process != nil && !execution.Gone(*a.Process)) {
 			return "", errors.New("execution ownership is unresolved; run reconciliation first")
 		}
-		if a.State == "saved_result" && a.Result != nil {
+		// A saved audit observation can expire during downtime. Recovery repeats
+		// only this deterministic query, retaining its original result and evidence.
+		repeatAudit := a.Role == "audit_refresh" && a.State == "saved_result"
+		if a.State == "saved_result" && a.Result != nil && !repeatAudit {
 			a.Resume = "saved"
 			a.State = "completed"
 			t.Attention = nil
@@ -358,7 +375,7 @@ func (e *Engine) Resume(ctx context.Context, id, attempt string, allowNew bool) 
 			}
 			return "Saved result queued for integrity checks and deterministic continuation; no model call authorized.", nil
 		}
-		if a.State != "interrupted" && !(core.DeterministicRole(a.Role) && a.State == "failed") {
+		if a.State != "interrupted" && !(core.DeterministicRole(a.Role) && a.State == "failed") && !repeatAudit {
 			return "", errors.New("only interrupted execution can repeat; rejected review cannot be repaired by resume")
 		}
 		if !allowNew && !core.DeterministicRole(a.Role) {

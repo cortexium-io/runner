@@ -153,6 +153,7 @@ config apply --preview DIGEST         Apply saved edits; active work stays pinne
 quality prepare --file PATH          Preview Runner-owned offline environment preparation.
 quality prepare --file PATH --apply --preview DIGEST [--module-cache PATH]
 quality preview|check|apply|show       Inspect, check and apply repository agreements.
+quality check --report ID --preview DIGEST  Renew baseline audits; retain offline evidence.
 run                                  Reconcile and admit authorized work.
 drain                                Stop admission and wait for active work to settle.
 backup --to DIRECTORY                Snapshot a drained, idle installation to a new private directory.

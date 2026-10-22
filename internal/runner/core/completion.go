@@ -94,5 +94,7 @@ func AllIncluded(parent Task, tasks []Task) bool {
 	}
 	return true
 }
-func (t Task) PlanRef() string           { return "refs/runner/plans/" + t.ID }
-func DeterministicRole(role string) bool { return role == "refresh" || role == "combine" }
+func (t Task) PlanRef() string { return "refs/runner/plans/" + t.ID }
+func DeterministicRole(role string) bool {
+	return role == "refresh" || role == "combine" || role == "audit_refresh"
+}

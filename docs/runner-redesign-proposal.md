@@ -4,7 +4,7 @@ Status: The local replacement, delivery bundles and R1–R5 are implemented and
 qualified in `codex/runner-local-core`. The subsequent local-completion,
 real-project pilot, main-reconciliation and final platform/package obligations
 are complete within the [continued qualification record](#continued-real-project-qualification).
-Current store format is **19**. The [frozen checklist](#frozen-first-release-checklist)
+Current store format is **21**. The [frozen checklist](#frozen-first-release-checklist)
 remains the scope boundary; historical briefs below are construction evidence.
 Runner PR #106 merged into main on 2026-10-16; api-mcp pilot PR #6 remains a draft.
 Release publishing and running-installation/cutover changes remain separate.
@@ -13,8 +13,9 @@ before release. Other views, extra harnesses, autonomous intake, merge queues
 and additional hosted merge methods remain deferred.
 The owner subsequently requested the [reusable check environments and controlled
 online audits brief](#reusable-check-environments-and-controlled-online-audits-brief).
-That extension is **design only**; its implementation and the Code Atlas pilot
-are not authorized by this documentation pass.
+E1 environment/output support and E2 controlled npm audits/freshness are implemented
+in the existing worktree. Code Atlas qualification (E3), pilot launch, public
+release/package publication and installation changes remain separate.
 
 Runner should own its work, approvals, execution and recovery state locally.
 GitHub Projects should become an optional view. External tools should connect
@@ -60,14 +61,13 @@ slices land; do not create another plan or task registry.
 
 ## Reusable check environments and controlled online audits brief
 
-**Defined 2026-10-21; E1 implementation authorized separately.** The owner requested
-reusable Runner support instead of per-project workarounds. This supersedes the
-proposed private Code Atlas wrapper/image and preparation-audit workaround. The
-current bundle implements reusable environment preparation and output handling
-only. Online audits (E2) and Code Atlas qualification (E3) remain unimplemented.
-Release/package publication, installation/service changes and pilot launch are
-not authorized. The operator guide documents the E1 configuration and commands;
-the online-audit interfaces below remain proposed.
+**Defined 2026-10-21; E1 and E2 implementation authorized separately.** The owner
+requested reusable Runner support instead of per-project workarounds. This
+supersedes the proposed private Code Atlas wrapper/image and preparation-audit
+workaround. E1 reusable environment/output handling and E2 controlled npm audits
+and freshness are implemented. Code Atlas qualification (E3), release/package
+publication, installation/service changes and pilot launch remain outside this
+bundle. The operator guide documents the shipped configuration and commands.
 
 ### Outcome and scope
 
@@ -215,7 +215,7 @@ adapter/tool/policy identity, registry, query time, outcome/findings and report
 digest, with explicit attribution to the candidate being assessed. Refreshing a
 receipt does not reapprove tasks, reset allowances or change the environment.
 
-Proposed default `max_age` is **one hour**, configurable explicitly in the audit
+The default `max_age` is **one hour**, configurable explicitly in the audit
 policy. A successful result means only that the service reported no findings at
 or above the chosen threshold for those inputs at the recorded time. It cannot
 promise detection of advisories disclosed afterward. Reuse a still-valid matching
@@ -288,6 +288,77 @@ starting `run`, publishing a release/package or overview, or changing installati
 Public PR preparation/merge is not part of this bundle. Current
 Code Atlas preparation resumes only after the reusable support is separately
 authorized, implemented and qualified. Pilot launch remains a later decision.
+
+
+### E2 implementation and qualification — 2026-10-22
+
+Implemented in the same worktree, stopping before E3. A quality check now chooses
+an offline command or typed `npm_audit` policy. The approval preview names the
+package directory, public dependency metadata, severity/omission policy, deadline,
+freshness and pinned image. No role prompt, model permission, external service,
+project wrapper or second scheduler was added.
+
+The private adapter runs maintained npm **11.19.0** from the exact local Node
+image without network, with only sanitized manifest/lock graph data. It uses
+npm's Arborist audit report and meta-vulnerability calculator. Runner's separate
+HTTPS transport permits one Bulk Advisory operation and bounded public-registry
+package metadata required by that evaluator. It ignores project/host npm config,
+credentials and proxy configuration; validates resolved public destinations;
+rejects redirects and Quick Audit; and never runs project code. Deterministic
+registry fixtures compare full reports and severity exit codes with the same
+pinned npm's own `Arborist.audit`/`npm-audit-report` path, including transitive/meta
+findings and dev/optional/peer omissions. Input/transport tests cover unsupported
+forms, allowlists, malformed/oversized responses, private destinations and outages.
+The actual contained cancellation probe confirms both query and evaluator settle.
+
+Receipts are immutable local records with metadata/policy/tool/image identity,
+conservative query-window start and settlement times, source attribution,
+status/findings and the retained report digest. Reuse preserves the original
+record and time while explicitly attributing its assessment to the current source.
+Completed history does not trigger polling. A persisted clock high-water mark
+blocks backwards time, including after restart. Online observations are excluded
+from quality-policy identity; baseline exceptions cannot waive audits.
+
+The coordinator derives audit-only refresh attempts before applicable review and
+local/connected delivery. They share task/workspace ownership and global admission
+with existing actions, spend no model/repair/base-refresh allowance and retain
+source, review and passing offline checks. Failures/unavailability retain attention
+for explicit `task resume`; no new automatic query retry loop exists. Focused
+engine evidence covers restart, reuse, dependency changes, expiry at publication
+and merge authority, findings on unchanged inputs, preserved allowances and
+unrelated work admitted while a refresh waits.
+
+`quality check --report ID --preview TOKEN` renews only a retained baseline's
+audits. It preserves offline evidence and policy identity, returns a new immutable
+report and retains the existing preview/apply approval boundary. Review admission
+rechecks expiry after Git inspection and preserves pending retry/resume profiles.
+An audit result that expires during downtime uses the existing explicit recovery
+to repeat only that query, retaining its original observations and allowances.
+
+The private executable smoke qualifies preview/check/apply, clean public audit,
+unchanged receipt reuse, audit-only baseline renewal, expired-baseline refusal,
+status and exact-binary
+backup/restore with **two immutable audit receipts retained**. It stays drained,
+with zero tasks/model calls and unchanged synthetic source. A separate controlled
+live audit of public `lodash@4.17.20` observed **failed**, with one affected package
+at high severity; it exercises real Bulk Advisory and package-metadata transport
+without assuming a clean result. The required `go test -race -timeout 15m ./...` gate passed in **802.8 seconds**
+(engine: 792.7 seconds), and `go vet ./...` passed. The first race attempt reached
+the engine package's unchanged 15-minute cap without an assertion failure; the
+audit-free path now reuses pinned quality and skips unnecessary audit lookups,
+and the fresh full run passed. No assertion, timeout or admission limit was
+weakened.
+
+Evidence is retained at
+`/Users/dan/.local/share/cortexium-runner/npm-audit-e2-20261022/`:
+`focused-verified.log`, `live-fixtures-final.log`, `live-public-final.log`,
+`operator-qualified/summary.json`, `race-final-result.json`, `vet-final-result.json`
+and `verification.json`. Store format **21** rejects earlier authority without
+migration; no installed state was converted. The shipped scope is public npm
+lockfile v3, ordinary semver graphs and the qualified pinned evaluator. Workspaces,
+private/local/git/alias dependencies, other npm versions and oversized inputs or
+responses remain unavailable capabilities. E3 Code Atlas qualification is the next
+separate boundary; no product work, release, installation change or pilot started.
 
 
 ### E1 implementation and qualification — 2026-10-21
