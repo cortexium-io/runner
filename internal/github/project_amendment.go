@@ -44,7 +44,7 @@ func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (Ame
 	if err != nil {
 		return AmendmentPlan{}, fmt.Errorf("amendment requires intact existing approval: %w", err)
 	}
-	unstarted := item.PlanningSourceLane == "local_plan" && item.PlanningSourceID == "" &&
+	unstarted := (item.PlanningSourceID != "" || item.PlanningSourceLane == "local_plan") &&
 		item.Branch == "" && item.Phase == "" && item.QAFailures == 0 &&
 		(item.Result == "" || item.Result == unstartedAmendmentResult)
 	retryLane := item.Phase
@@ -55,7 +55,7 @@ func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (Ame
 	if item.PlanningMetadataInvalid || item.PlanRelease != "" || item.PullRequest != "" || item.QACommit != "" || !inactive ||
 		(!strings.EqualFold(item.Status, s.blockedStatus()) && !s.agentStatus(item.Status)) || retryLane == "" ||
 		!s.agentStatus(s.cfg.LaneStatuses[retryLane]) || strings.EqualFold(item.IssueState, "CLOSED") {
-		return AmendmentPlan{}, errors.New("amendment requires paused unpublished work or a released unstarted local-plan member, with intact approval and no active assignment or QA acceptance")
+		return AmendmentPlan{}, errors.New("amendment requires paused unpublished work or a released unstarted planning member, with intact approval and no active assignment or QA acceptance")
 	}
 	if !s.isIntakeIssueURL(item.URL) {
 		return AmendmentPlan{}, errors.New("amendment requires an issue-backed card in the configured repository")
@@ -103,6 +103,9 @@ func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (Ame
 	plan := AmendmentPlan{Item: item, Body: body, RetryLane: retryLane, Unstarted: unstarted, after: after}
 	if item.PlanningSourceID != "" {
 		plan.source = index.byID[item.PlanningSourceID]
+		if plan.source.Transition != "" {
+			return AmendmentPlan{}, errors.New("amendment requires a planning source without an active transition")
+		}
 		children := append([]WorkItem(nil), index.childrenBySource[item.PlanningSourceID]...)
 		previous, err := s.validatePlanningBatch(plan.source.Approval, plan.source, children, batchReleasedState)
 		if err != nil {
