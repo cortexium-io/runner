@@ -59,7 +59,7 @@ async function main() {
   const omit = new Set(policy.omit || [])
   for (const node of tree.inventory.values()) {
     if (!semver.valid(node.version)) throw new Error('unsupported package version')
-    const omitted = (omit.has('dev') && node.dev) || (omit.has('optional') && node.optional) || (omit.has('peer') && node.peer)
+    const omitted = (omit.has('dev') && node.dev) || (omit.has('optional') && node.optional) || (omit.has('dev') && omit.has('optional') && node.devOptional) || (omit.has('peer') && node.peer)
     for (const edge of node.edgesOut.values()) {
       if (!semver.validRange(edge.spec)) throw new Error('unsupported dependency specification')
       // An omitted subtree may lack platform-only children. Included missing

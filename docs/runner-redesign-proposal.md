@@ -163,8 +163,9 @@ become an implementation candidate or integration delta through check execution.
 Do not restore arbitrary modified source to manufacture an integrity pass.
 
 For example, Code Atlas can declare `frontend/node_modules`, `frontend/.genny`,
-`internal/app/http/frontend_dist`, `frontend/test-results` and `artifacts/browser`,
+`internal/app/http/frontend_dist`, `frontend/test-results` and `artifacts`,
 with the exact tracked `frontend_dist/index.html` placeholder identified separately.
+Retain `artifacts/browser` beneath its writable parent so Playwright can recreate it.
 These are configuration data, not built-in paths or permission to edit the app.
 Preserve its existing Go/frontend tests, build, generated-file verifier, browser
 entrypoint, assertions, workers and deadlines. Native macOS chooser interaction
@@ -386,6 +387,44 @@ Exact source/tool/binary identities, declarative configuration, immutable report
 failed/successful gate records and protected observations are retained at
 `/Users/dan/.local/share/cortexium-runner/code-atlas-e3-20261022/summary.json` and
 its `evidence/` directory. Pilot launch remains a separate owner decision.
+
+### PR review of E1–E3 — 2026-10-22
+
+Review the complete unpublished environment/audit/qualification diff against
+current `main`. Preserve project assertions, check budgets, installations and the
+unlaunched pilot. Review follow-ups stay inside the approved contracts:
+
+- npm graph omission must also recognize dependencies shared only by development
+  and optional subtrees when both are omitted. Extend the existing pinned-npm
+  conformance table with that graph and a single-omission negative control.
+- An `npm-shrinkwrap.json` must block reusable preparation and later check input
+  validation: npm otherwise selects a different lock from the approved
+  `package-lock.json`. Extend the owning unsupported-input coverage; do not add
+  shrinkwrap support or a project workaround.
+- Reconcile README/operator guidance with implemented audits and output layout.
+
+Reproduce the concrete failures before fixing them. Run focused owning checks
+and live evaluator conformance, then the full Linux race/vet gate. Reuse the
+source/image-bound Code Atlas baseline where unchanged; exercise affected
+prepared-environment behavior without changing project source. Retain the native
+full-suite timeout limitation. Prepare a PR with public verification summaries;
+private project artifacts remain local. No merge or release is authorized here.
+
+**Review outcome.** Both regressions failed before their fixes. The full live
+pinned-npm evaluator/oracle table (including both mixed-subtree cases), public
+registry probe and evaluator/query cancellation passed in 14.3s. Native owning
+race suites and vet passed. A separately built executable previewed the existing
+Code Atlas preparation and agreement and inspected its status; all succeeded,
+with no task/attempt and drained authority. The unchanged project baseline and
+retained-evidence/isolation proof remain the E3 record above; this review does not
+extend its audit query time or native dialog coverage.
+
+The full race/vet gate passed on frozen Linux source in **204.8s**, report
+`0877bee5e8d6a1c14a7db3cf8e855a7a`, with Go 1.26.9 and unchanged two-CPU/4-GiB
+check limits. Synchronizing current `main` introduced no source changes. The
+earlier native full-race timeout remains explicitly unqualified. Review logs,
+runtime hashes, executable identity and protected-installation observations are
+retained under the E3 evidence root's `pr-review-20261022/` directory.
 
 ### E2 implementation and qualification — 2026-10-22
 

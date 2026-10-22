@@ -103,6 +103,11 @@ func inputBytes(root, path string) ([]byte, error) {
 }
 
 func environmentInputs(root string, spec config.CheckEnvironmentSpec) (map[string]string, error) {
+	for _, dir := range spec.NPMPackages {
+		if _, err := os.Lstat(filepath.Join(root, dir, "npm-shrinkwrap.json")); !os.IsNotExist(err) {
+			return nil, fmt.Errorf("npm shrinkwrap in %s is unsupported by environment preparation", dir)
+		}
+	}
 	inputs := map[string]string{}
 	for _, path := range spec.InputPaths() {
 		data, err := inputBytes(root, path)

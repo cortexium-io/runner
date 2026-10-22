@@ -208,6 +208,8 @@ func TestLiveNPMAuditEvaluatorAndCancellation(t *testing.T) {
 		{"omitted peer subtree", "high", "failed", true, []string{"peer"}, 4, "peer-leaf"},
 		{"included optional subtree", "high", "unavailable", false, nil, 0, "optional-leaf"},
 		{"required subtree", "high", "unavailable", false, []string{"optional"}, 0, "parent"},
+		{"omitted mixed subtree", "high", "failed", true, []string{"dev", "optional"}, 3, "shared-leaf"},
+		{"mixed subtree still included", "high", "unavailable", false, []string{"dev"}, 0, "shared-leaf"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			input := input
@@ -221,6 +223,12 @@ func TestLiveNPMAuditEvaluatorAndCancellation(t *testing.T) {
 				}
 				if err != nil || json.Unmarshal(data, &lock) != nil {
 					t.Fatal("read fixture lock", err)
+				}
+				if tc.incomplete == "shared-leaf" {
+					lock.Packages["node_modules/shared-leaf"] = map[string]any{"version": "1.0.0", "resolved": "https://registry.npmjs.org/shared-leaf/-/shared-leaf-1.0.0.tgz", "integrity": lock.Packages["node_modules/leaf"]["integrity"]}
+					for _, parent := range []string{"dev-leaf", "optional-leaf"} {
+						lock.Packages["node_modules/"+parent]["dependencies"] = map[string]string{"shared-leaf": "1.0.0"}
+					}
 				}
 				lock.Packages["node_modules/"+tc.incomplete]["dependencies"] = map[string]string{"missing": "1.0.0"}
 				data, _ = json.Marshal(lock)

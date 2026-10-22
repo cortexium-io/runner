@@ -46,6 +46,31 @@ func TestPreparationRejectsUnsupportedInputs(t *testing.T) {
 			t.Fatal("accepted unsupported graph", text)
 		}
 	}
+	t.Run("shrinkwrap overrides approved lock", func(t *testing.T) {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, data := range map[string][]byte{"package.json": manifest, "package-lock.json": []byte(lock)} {
+			if err := os.WriteFile(filepath.Join(root, name), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		spec := config.CheckEnvironmentSpec{Node: "24.21.0", NPMPackages: []string{"."}}
+		inputs, err := environmentInputs(root, spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(root, "npm-shrinkwrap.json"), []byte(lock), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = environmentInputs(root, spec); err == nil || !strings.Contains(err.Error(), "shrinkwrap") {
+			t.Fatal("preparation accepted an overriding lock", err)
+		}
+		if err = ValidateEnvironmentInputs(root, config.PreparedEnvironment{Recipe: environmentRecipe, Spec: spec, Inputs: inputs}); err == nil || !strings.Contains(err.Error(), "shrinkwrap") {
+			t.Fatal("check accepted an overriding lock", err)
+		}
+	})
 }
 
 func TestEnvironmentInputIdentityAndPrivateArchiveMetadata(t *testing.T) {

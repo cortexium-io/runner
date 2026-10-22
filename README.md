@@ -61,7 +61,8 @@ escalation, interruptions, delivery and same-host backup/restore.
   Narrow adapter contracts leave room for later integrations.
 - Explicit Go/Node check preparation supports pinned tools, offline dependency
   copies and ordinary output paths with retained reports. Preparation and quality
-  approval are separate; online audits remain deferred. See the
+  approval are separate. Typed npm audits use controlled public-registry metadata
+  queries and freshness gates; ordinary checks remain offline. See the
   [quality journey](docs/operator-reference.md#2-agree-on-quality-before-work).
 - Store format 21 and strict local configuration deliberately break compatibility.
   Preserve older binaries with their state and backups. Reconcile outstanding

@@ -317,7 +317,7 @@ Go inputs are `go.mod` and `go.sum` (the latter may be absent for a dependency-f
 module). The recipe requires pinned inputs for the root build/test graph and
 rejects replace/exclude directives. npm requires consistent package.json/lockfile-v3
 metadata and integrity-pinned public registry tarballs. Workspaces, local/git
-dependencies, overrides, unsupported bundled lock entries and private npm
+dependencies, overrides, npm shrinkwrap, unsupported bundled lock entries and private npm
 registries are unavailable capabilities. Engine requirements are enforced.
 Preparation is not vulnerability proof; configure typed `npm_audit` checks separately.
 
