@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/cortexium-io/runner/internal/config"
 	"github.com/cortexium-io/runner/internal/sandboxpath"
@@ -1161,6 +1162,9 @@ func (p GitProvider) RequireNoPublicationAcceptance(ctx context.Context, metadat
 		record, err := readPublicationRecord(filepath.Join(path, name))
 		if err != nil {
 			return fmt.Errorf("inspect retained publication history: %w", err)
+		}
+		if record.ItemID == "" || strings.IndexFunc(record.ItemID, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+			return errors.New("retained publication record has missing or noncanonical item ownership")
 		}
 		if record.ItemID == metadata.Identity.ItemID {
 			return errors.New("dirty amendment cannot carry retained publication acceptance")

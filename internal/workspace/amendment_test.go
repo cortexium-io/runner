@@ -3,6 +3,7 @@
 package workspace
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -64,7 +65,7 @@ func TestDirtyAmendmentRebindPreservesGitAndRefusesChangedIndex(t *testing.T) {
 }
 
 func TestDirtyAmendmentRefusesCurrentAndHistoricalPublicationAcceptance(t *testing.T) {
-	for _, state := range []string{"absent", "other item", "current", "historical", "malformed"} {
+	for _, state := range []string{"absent", "other item", "current", "historical", "malformed", "missing owner", "empty owner", "padded owner", "embedded whitespace owner"} {
 		t.Run(state, func(t *testing.T) {
 			repo := initGitRepo(t)
 			provider := NewGitProvider(nil)
@@ -98,6 +99,34 @@ func TestDirtyAmendmentRefusesCurrentAndHistoricalPublicationAcceptance(t *testi
 			}
 			if state == "malformed" {
 				if err := os.WriteFile(publicationRecordPath(filepath.Dir(metadata.WorktreePath), snapshot.Head), []byte("invalid retained record"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if strings.HasSuffix(state, "owner") {
+				path := publicationRecordPath(filepath.Dir(metadata.WorktreePath), snapshot.Head)
+				content, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var record map[string]any
+				if err := json.Unmarshal(content, &record); err != nil {
+					t.Fatal(err)
+				}
+				switch state {
+				case "missing owner":
+					delete(record, "item_id")
+				case "empty owner":
+					record["item_id"] = ""
+				case "padded owner":
+					record["item_id"] = " " + metadata.Identity.ItemID + " "
+				case "embedded whitespace owner":
+					record["item_id"] = "unknown owner"
+				}
+				content, err = json.Marshal(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, content, 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
