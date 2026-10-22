@@ -2828,6 +2828,16 @@ Runner requires unchanged approved content and its existing private worktree
 identity and valid complete-batch sibling authority. Unpublished work needs
 the configured Ready implementation phase and no PR or QA commit. It checks
 these again before writing.
+
+For a legacy planning-only batch, a blank Project Branch does not mean the card
+is unstarted. Runner can use its exact existing private implementation binding,
+without filling the Project Branch or enabling plan delivery. The preview shows
+the retained branch, base, HEAD, tree, dirty snapshot fingerprint and private
+evidence digests, plus the original source and every batch member with its status
+and QA count. Review these before confirming. Apply refuses changes to that
+snapshot, evidence or batch after preview, an active selected card, or a branch
+with an existing PR. This path never adopts a new workspace. Genuinely unstarted
+delivery members retain their separate workspace-and-evidence absence checks.
 This cannot individually approve a new staged child or recover changed task
 scope. Ordinary `retry` remains restricted to validly signed blocked work.
 
@@ -2836,6 +2846,13 @@ uncommitted work, private QA feedback, and QA failure count, and replaces the
 assessment error with a fixed operator-retry result. It does not grant QA
 acceptance, approve siblings, or reset the review budget. No config migration,
 skill update, or new state store is required for this recovery path.
+
+During interrupted-running recovery, a failed fresh GitHub read defers recovery
+to a later poll and retains the card's existing authority and runtime fields.
+The bounded cause is reported locally. A locally invalid signature still parks
+the card in assessment and reports its cause locally, while its Project result
+contains a fixed recovery explanation. An older generic assessment result does
+not establish whether a signature mismatch or a read failure caused it.
 
 The same command also recovers a published card returned to assessment when
 its approval was lost during a human rework handoff. Published recovery requires

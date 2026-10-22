@@ -875,24 +875,47 @@ func (s *Project) RecoverInterruptedFrom(ctx context.Context, items []WorkItem) 
 		if !strings.EqualFold(strings.TrimSpace(item.Status), s.runningStatus()) || strings.TrimSpace(item.Phase) == "" {
 			continue
 		}
-		action, authorizeErr := s.Authorize(ctx, item)
+		// Read failures do not establish invalid authority. Revalidate a fresh
+		// item locally before considering the destructive assessment path.
+		current, readErr := s.itemByID(ctx, item.ID)
+		if readErr != nil {
+			return recovered, interruptedRecoveryError(item.ID, readErr)
+		}
+		if !strings.EqualFold(strings.TrimSpace(current.Status), s.runningStatus()) || strings.TrimSpace(current.Phase) == "" {
+			continue // Another actor already completed or returned this action.
+		}
+		if current.Transition != "" {
+			return recovered, interruptedRecoveryError(item.ID, errors.New("Project transition changed during recovery; inspect it on the next poll"))
+		}
+		if _, _, err := s.authority.load(); err != nil {
+			return recovered, interruptedRecoveryError(item.ID, err)
+		}
+		action, authorizeErr := s.validateAction(current)
 		if authorizeErr != nil {
-			if err := s.reclassifyForApproval(ctx, item, "Interrupted item has invalid Runner authority; review it and run approve again."); err != nil {
+			if err := s.reclassifyForApproval(ctx, current, "Interrupted item has invalid Runner authority; inspect the local cause and preview retry --reauthorize for retained work."); err != nil {
 				return recovered, err
 			}
-			continue
+			return recovered, interruptedRecoveryError(item.ID, authorizeErr)
 		}
-		target := s.cfg.LaneStatuses[strings.TrimSpace(item.Phase)]
+		if err := s.refreshDeliveryAuthority(ctx, current); err != nil {
+			return recovered, interruptedRecoveryError(item.ID, err)
+		}
+		target := s.cfg.LaneStatuses[strings.TrimSpace(current.Phase)]
 		if target == "" {
 			target = s.readyStatus()
 		}
-		detail := fmt.Sprintf("Recovered an interrupted Runner %s phase; the work has been returned to %s.", item.Phase, target)
+		detail := fmt.Sprintf("Recovered an interrupted Runner %s phase; the work has been returned to %s.", current.Phase, target)
 		if err := s.Transition(ctx, action, target, detail, ""); err != nil {
 			return recovered, err
 		}
 		recovered++
 	}
 	return recovered, nil
+}
+
+func interruptedRecoveryError(itemID string, err error) error {
+	// This cause is local-only; Project results contain a fixed explanation.
+	return fmt.Errorf("interrupted item %s recovery: %s", itemID, truncate(err.Error(), 2000))
 }
 
 func (s *Project) recoverStagedPlanningApproval(ctx context.Context, source WorkItem, items []WorkItem) (bool, error) {
