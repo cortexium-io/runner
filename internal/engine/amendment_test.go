@@ -318,7 +318,7 @@ func TestAmendmentReadbackRecognizesCommittedMutation(t *testing.T) {
 
 func TestAmendmentCannotReleaseAnUnapprovedBatch(t *testing.T) {
 	service, _, _, children := stagedPlannerBatchFixture(t, 2)
-	if _, err := service.source.PlanAmendment(t.Context(), children[0].ID, children[0].Body+"\nnew scope"); err == nil {
+	if _, err := service.source.PlanAmendment(t.Context(), children[0].ID, children[0].Body+"\nnew scope", true); err == nil {
 		t.Fatal("amendment bypassed complete-batch approval")
 	}
 }
@@ -342,7 +342,7 @@ func TestAmendmentUpdatesReleasedSourceBindingWithoutChangingSibling(t *testing.
 		}
 	}
 	before := append([]github.WorkItem(nil), project.remoteItems...)
-	plan, err := service.source.PlanAmendment(t.Context(), children[0].ID, strings.Replace(children[0].Body, "The child works.", "The child preserves saved email while allowing preview reflow.", 1))
+	plan, err := service.source.PlanAmendment(t.Context(), children[0].ID, strings.Replace(children[0].Body, "The child works.", "The child preserves saved email while allowing preview reflow.", 1), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +365,7 @@ func TestAmendmentUpdatesReleasedSourceBindingWithoutChangingSibling(t *testing.
 	}
 	// A valid second preview proves the released batch still authenticates
 	// exactly these children, rather than bypassing batch eligibility.
-	if _, err := service.source.PlanAmendment(t.Context(), children[0].ID, children[0].Body); err != nil {
+	if _, err := service.source.PlanAmendment(t.Context(), children[0].ID, children[0].Body, false); err != nil {
 		t.Fatalf("released batch authority is no longer valid: %v", err)
 	}
 }

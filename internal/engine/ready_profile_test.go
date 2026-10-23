@@ -41,11 +41,11 @@ func TestRequirementAmendmentPreservesManualExecutionProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.source.PlanAmendment(t.Context(), item.ID, strings.Replace(body, "Old requirement.", "Revised requirement.", 1)); err != nil {
+	if _, err := service.source.PlanAmendment(t.Context(), item.ID, strings.Replace(body, "Old requirement.", "Revised requirement.", 1), false); err != nil {
 		t.Fatalf("requirement-only amendment refused: %v", err)
 	}
 	for _, changed := range []string{strings.Replace(body, "mechanical", "implementer", 1), "Revised requirement without the existing selection."} {
-		if _, err := service.source.PlanAmendment(t.Context(), item.ID, changed); err == nil || !strings.Contains(err.Error(), "execution profile") {
+		if _, err := service.source.PlanAmendment(t.Context(), item.ID, changed, false); err == nil || !strings.Contains(err.Error(), "execution profile") {
 			t.Fatalf("requirement amendment changed execution policy: %v", err)
 		}
 	}

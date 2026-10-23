@@ -147,3 +147,17 @@ func TestDirtyAmendmentPreviewDisclosesOriginalAndReplacementAuthority(t *testin
 		}
 	}
 }
+
+func TestReadyPhaseAmendmentPreviewShowsPreservedRuntimeAndAbsence(t *testing.T) {
+	plan := engine.RequirementAmendment{Approval: github.AmendmentPlan{Item: github.WorkItem{ID: "unstarted", Phase: "ready", Result: "Previous signed result", Activity: config.RunnerActivityWaitingForDependencies}, Unstarted: true, RetryLane: "ready", ResultStatus: "Blocked", ResultSummary: "Operator amendment; retry required"}, AbsentArtifacts: []string{"workspace paths", "publication acceptance"}}
+	var output bytes.Buffer
+	writeAmendmentPreview(&output, plan)
+	for _, expected := range []string{"recorded phase is preserved", "ready", "Previous signed result", config.RunnerActivityWaitingForDependencies, "Absent: workspace paths", "Absent: publication acceptance", "After confirmation: Blocked", "Operator amendment; retry required"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("preview omitted %q", expected)
+		}
+	}
+	if strings.Contains(output.String(), "phase remains blank") {
+		t.Fatal("preview claimed phase would be cleared")
+	}
+}

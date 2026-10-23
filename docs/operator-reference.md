@@ -2734,7 +2734,11 @@ Project branch so normal QA can validate publication identity.
 Released, unstarted local-plan and Project-plan members instead require proven
 absence of their workspace, branch, identity and execution evidence, zero QA
 failures, unchanged batch metadata, and one unambiguous implementation retry lane. Their phase
-remains blank; the preview explicitly identifies them as unstarted. Signed
+remains blank, or for an original Project-plan member retains the configured
+implementation phase set by an ordinary retry. Both current and legacy workspace
+names, local and remote branches, active and archived execution evidence, and
+publication history are checked; partial artifacts cannot be adopted.
+The preview identifies unstarted work and lists the proved absent artifacts. Signed
 `Waiting for dependencies` activity is allowed only for these unstarted members.
 Project-plan members also require the intact complete released batch and a
 planning source without an active transition. Each amendment renews that
@@ -2764,7 +2768,7 @@ evidence for the revised requirements. Both subsequent implementation and QA
 receive the same revised body and proof obligations through the existing shared
 assignment contract.
 
-The card is left `Blocked`, in its existing retry phase (still blank for an
+The card is left `Blocked`, in its existing retry phase (which can remain blank for an
 unstarted member, with its authenticated role identifying the retry lane).
 After checking the result, an ordinary `retry` returns it to that lane without resetting the QA
 count; restart the original service when ready. Amendment itself does not

@@ -82,8 +82,12 @@ func runAmend(ctx context.Context, args []string, stdin io.Reader, stdout io.Wri
 func writeAmendmentPreview(output io.Writer, plan engine.RequirementAmendment) {
 	fmt.Fprintf(output, "Runner requirement amendment\nItem: %s\nRepository: %s\nRetained HEAD: %s\nWorktree: %s\nRetained QA failures: %d\nRetry lane: %s\n",
 		terminalSafeText(plan.Approval.Item.ID), terminalSafeText(plan.Approval.Item.Repository), terminalSafeText(plan.Candidate.Head), terminalSafeText(plan.Workspace.WorktreePath), plan.Approval.Item.QAFailures, terminalSafeText(plan.Approval.RetryLane))
+	fmt.Fprintf(output, "After confirmation: %s; separate ordinary retry required.\nResult after confirmation: %s\n", terminalSafeText(plan.Approval.ResultStatus), terminalSafeText(plan.Approval.ResultSummary))
 	if plan.Approval.Unstarted {
-		fmt.Fprintln(output, "Unstarted released member: no workspace or prior execution will be created; recorded phase remains blank.")
+		fmt.Fprintln(output, "Unstarted released member: no workspace or prior execution will be created; recorded phase is preserved.")
+		for _, artifact := range plan.AbsentArtifacts {
+			fmt.Fprintf(output, "Absent: %s\n", terminalSafeText(artifact))
+		}
 	} else {
 		fmt.Fprintf(output, "Retained branch: %s\nBase: %s at %s\nTree: %s\nIndex entries: %s\nWork clean: %t\nSnapshot: %s\nContent identity: %s\n", terminalSafeText(plan.Workspace.Branch), terminalSafeText(plan.Workspace.BaseRef), terminalSafeText(plan.Workspace.BaseRevision), terminalSafeText(plan.Candidate.Tree), terminalSafeText(plan.IndexFingerprint), plan.Candidate.Clean, terminalSafeText(plan.Candidate.Fingerprint), terminalSafeText(plan.Workspace.DelegatedContentDigest))
 	}

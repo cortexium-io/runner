@@ -1137,7 +1137,29 @@ func (p GitProvider) RequireNoPublicationAcceptance(ctx context.Context, metadat
 	if err := validateRecordedIdentity(metadata); err != nil {
 		return err
 	}
-	root := filepath.Dir(metadata.Identity.WorktreePath)
+	return p.requireNoPublicationAcceptance(ctx, filepath.Dir(metadata.Identity.WorktreePath), metadata.Identity.ItemID)
+}
+
+// VerifyPublicationAbsent checks history without requiring or creating an
+// identity for an assignment that has never executed.
+func (p GitProvider) VerifyPublicationAbsent(ctx context.Context, request Request) error {
+	privilegedGitMu.Lock()
+	defer privilegedGitMu.Unlock()
+	if request.ItemID == "" || strings.TrimSpace(request.ItemID) != request.ItemID {
+		return errors.New("publication absence requires an exact item identity")
+	}
+	repoRoot, err := p.repositoryRoot(ctx, request.WorkingDir)
+	if err != nil {
+		return err
+	}
+	root, err := resolveWorktreeRoot(repoRoot, request.WorktreeRoot)
+	if err != nil {
+		return err
+	}
+	return p.requireNoPublicationAcceptance(ctx, root, request.ItemID)
+}
+
+func (p GitProvider) requireNoPublicationAcceptance(ctx context.Context, root, itemID string) error {
 	path := filepath.Dir(publicationRecordPath(root, ""))
 	directory, err := securefs.OpenReadOnlyDir(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -1166,8 +1188,8 @@ func (p GitProvider) RequireNoPublicationAcceptance(ctx context.Context, metadat
 		if record.ItemID == "" || strings.IndexFunc(record.ItemID, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
 			return errors.New("retained publication record has missing or noncanonical item ownership")
 		}
-		if record.ItemID == metadata.Identity.ItemID {
-			return errors.New("dirty amendment cannot carry retained publication acceptance")
+		if record.ItemID == itemID {
+			return errors.New("amendment cannot carry retained publication acceptance")
 		}
 	}
 	return directory.Verify()
