@@ -10,9 +10,10 @@ import (
 	"github.com/cortexium-io/runner/internal/subprocess"
 )
 
-// Keep argv well below platform limits, including long and unusual filenames.
+// Leave headroom for the fixed privileged options, Windows argument quoting,
+// separators and terminating NUL, beyond the bounded entry payload.
 const candidateBatchPaths = 128
-const candidateBatchBytes = 32 * 1024
+const candidateBatchBytes = 16 * 1024
 
 type candidateIndexEntry struct {
 	path, mode, objectID string
@@ -97,7 +98,7 @@ func (p GitProvider) stageCandidatePaths(ctx context.Context, profile subprocess
 		return err
 	}
 	// Remove vanished paths before inserting replacements, including a tracked
-	// file becoming a directory or tracked children becoming one regular file.
+	// file becoming a directory containing new untracked paths.
 	args := []string{"--force-remove", "--"}
 	count, size := 0, 0
 	flush := func() error {

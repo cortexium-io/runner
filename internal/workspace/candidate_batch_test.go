@@ -187,7 +187,7 @@ func TestCandidateBatchPreservesLiteralEntriesAndGitlinks(t *testing.T) {
 			if len(candidate.CommitOID) != len(old) || len(candidate.TreeOID) != len(old) {
 				t.Fatal("repository object format changed")
 			}
-			if runner.maxArgs > 34*1024 {
+			if runner.maxArgs > 18*1024 {
 				t.Fatalf("Git argv batch exceeded its bounded transport: %d bytes", runner.maxArgs)
 			}
 		})
@@ -365,5 +365,61 @@ func TestCandidateBatchRetriesOnlyTheContendedLaterIndexWrite(t *testing.T) {
 	}
 	if got := runGitTest(t, metadata.WorktreePath, "status", "--porcelain"); got != "" {
 		t.Fatalf("batch retry lost candidate paths: %q", got)
+	}
+}
+
+type candidateWindowsArgvRunner struct{ maxChars, indexCalls int }
+
+func (r *candidateWindowsArgvRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
+	if command == "git" {
+		// This fixture is ASCII without quotes or backslashes. Windows adds
+		// exactly two quoting characters around arguments containing spaces.
+		// Include the executable, full privileged prefix, separators and NUL.
+		chars := len("git.exe") + 1
+		for _, arg := range args {
+			arg = strings.ReplaceAll(arg, os.DevNull, "NUL")
+			if strings.ContainsAny(arg, "\"\\") || strings.IndexFunc(arg, func(c rune) bool { return c > 127 }) >= 0 {
+				return subprocess.Result{}, fmt.Errorf("unexpected non-fixture Windows argument %q", arg)
+			}
+			chars += 1 + len(arg)
+			if arg == "" || strings.ContainsAny(arg, " \t") {
+				chars += 2
+			}
+		}
+		if chars > r.maxChars {
+			r.maxChars = chars
+		}
+		if slices.Contains(args, "update-index") {
+			r.indexCalls++
+		}
+		if chars > 32767 {
+			return subprocess.Result{}, fmt.Errorf("calculated Windows command line has %d characters including NUL; limit 32767", chars)
+		}
+	}
+	return (subprocess.OSRunner{}).Run(ctx, command, args, dir, timeout)
+}
+
+func TestCandidateBatchFitsQuotedWindowsCommandLine(t *testing.T) {
+	repo := initEmptyGitRepo(t)
+	metadata, err := NewGitProvider(nil).Prepare(t.Context(), boundRequest(Request{WorkingDir: repo, WorktreeRoot: filepath.Join(t.TempDir(), "worktrees"), WorkID: "windows_boundary", BranchPrefix: "runner", BaseRef: "HEAD"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// All 116 paths fit the former 32 KiB entry-only budget, but the complete
+	// quoted Windows command exceeded CreateProcessW's 32767-character limit.
+	for i := range 116 {
+		name := fmt.Sprintf("%03d ", i) + strings.Repeat("x", 216)
+		if err := os.WriteFile(filepath.Join(metadata.WorktreePath, name), []byte("literal bytes\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := &candidateWindowsArgvRunner{}
+	_, err = NewGitProvider(runner).ConstructCandidate(t.Context(), metadata, "Bound complete quoted arguments")
+	t.Logf("calculated_windows_chars_including_NUL=%d index_batches=%d runtime=host_not_Windows", runner.maxChars, runner.indexCalls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runner.indexCalls < 2 || runner.maxChars > 32767 {
+		t.Fatalf("entry batching did not leave Windows prefix/quoting headroom: batches=%d chars=%d", runner.indexCalls, runner.maxChars)
 	}
 }
