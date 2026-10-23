@@ -970,6 +970,26 @@ func (m PullRequestManager) findPlanPublication(ctx context.Context, repository,
 	return m.findPublication(ctx, repository, branch, baseBranch, "all")
 }
 
+// RequireAbsentBranch proves that an unstarted assignment has no remote task
+// branch, including a push that never reached pull-request creation.
+func (m PullRequestManager) RequireAbsentBranch(ctx context.Context, repository, branch string) error {
+	if !config.ValidRepositoryName(repository) || strings.TrimSpace(branch) == "" {
+		return errors.New("branch absence requires an exact repository and branch")
+	}
+	result, err := subprocess.RunGitHub(ctx, m.run, []string{"api", "repos/" + repository + "/git/matching-refs/heads/" + url.PathEscape(branch)}, "", 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("inspect unstarted remote branch: %w", commandFailure(err, result))
+	}
+	var refs *[]json.RawMessage
+	if err := json.Unmarshal([]byte(result.Stdout), &refs); err != nil || refs == nil {
+		return errors.Join(errors.New("invalid remote branch absence response"), err)
+	}
+	if len(*refs) != 0 {
+		return errors.New("unstarted amendment requires an absent remote task branch")
+	}
+	return nil
+}
+
 // RequireUnpublishedBranch refuses closed and merged PRs too, even when the
 // Project PR field is blank. An amendment must not erase publication history.
 func (m PullRequestManager) RequireUnpublishedBranch(ctx context.Context, repository, branch string) error {

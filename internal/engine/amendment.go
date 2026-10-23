@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -27,12 +28,35 @@ type RequirementAmendment struct {
 	DirtyRetained       bool                 `json:"dirty_retained,omitempty"`
 	IndexFingerprint    string               `json:"index_fingerprint,omitempty"`
 	EvidenceDigests     map[string]string    `json:"retained_evidence_digests,omitempty"`
+	AbsentArtifacts     []string             `json:"absent_artifacts,omitempty"`
 }
 
 func (s *Engine) PlanRequirementAmendment(ctx context.Context, selector, body string) (RequirementAmendment, error) {
-	approval, err := s.source.PlanAmendment(ctx, selector, body)
+	item, err := s.source.InspectRecoveryItem(ctx, selector)
 	if err != nil {
 		return RequirementAmendment{}, err
+	}
+	repo, err := s.repositoryDir(ctx, item.Repository)
+	if err != nil {
+		return RequirementAmendment{}, err
+	}
+	request := s.workspaceRequestForItem(item, github.DelegatedContentFor(item).Digest, repo, false)
+	provider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
+	// A public phase or blank Branch cannot distinguish interrupted execution
+	// from an ordinary retry that never started. Only complete private absence
+	// admits the unstarted path; otherwise the exact retained binding is required.
+	unstarted := false
+	var absenceErr error
+	if item.Branch == "" {
+		absenceErr = s.verifyAmendmentWorkspaceAbsent(ctx, provider, request)
+		unstarted = absenceErr == nil
+	}
+	approval, err := s.source.PlanAmendment(ctx, selector, body, unstarted)
+	if err != nil {
+		return RequirementAmendment{}, err
+	}
+	if !reflect.DeepEqual(item, approval.Item) {
+		return RequirementAmendment{}, errors.New("card changed while inspecting amendment workspace")
 	}
 	lane, ok := s.cfg.Workflow.Lanes[approval.RetryLane]
 	if !ok || (s.cfg.RoleContract(lane.Role) != config.WorkRoleImplementer && s.cfg.RoleContract(lane.Role) != config.WorkRoleReviewer) {
@@ -44,27 +68,40 @@ func (s *Engine) PlanRequirementAmendment(ctx context.Context, selector, body st
 	if s.cfg.RoleContract(lane.Role) == config.WorkRoleReviewer && strings.TrimSpace(approval.Item.Branch) == "" {
 		return RequirementAmendment{}, errors.New("reviewer amendment requires the recorded Project branch; it cannot repair publication identity")
 	}
-	repo, err := s.repositoryDir(ctx, approval.Item.Repository)
-	if err != nil {
-		return RequirementAmendment{}, err
-	}
-	request := s.workspaceRequestForItem(approval.Item, github.DelegatedContentFor(approval.Item).Digest, repo, false)
 	branch, err := workspace.RequestBranch(request)
 	if err != nil {
 		return RequirementAmendment{}, err
 	}
-	if err := github.NewPullRequestManager(s.run, s.source).RequireUnpublishedBranch(ctx, approval.Item.Repository, branch); err != nil {
-		return RequirementAmendment{}, err
+	if !approval.Unstarted {
+		if err := github.NewPullRequestManager(s.run, s.source).RequireUnpublishedBranch(ctx, approval.Item.Repository, branch); err != nil {
+			return RequirementAmendment{}, err
+		}
 	}
-	provider := workspace.NewGitProviderWithLimits(s.run, s.snapshotLimits())
 	plan := RequirementAmendment{Approval: approval, OldProof: approvedVerificationContract(approval.Item.Body), NewProof: approvedVerificationContract(approval.Body)}
 	if approval.Unstarted {
-		if err := provider.VerifyWorkspaceAbsent(ctx, request); err != nil {
+		if err := s.verifyAmendmentWorkspaceAbsent(ctx, provider, request); err != nil {
 			return RequirementAmendment{}, err
 		}
-		if err := s.checkAdoptionEvidenceAbsent(approval.Item.ID); err != nil {
+		if err := s.checkUnstartedAmendmentEvidenceAbsent(approval.Item.ID); err != nil {
 			return RequirementAmendment{}, err
 		}
+		if err := provider.VerifyPublicationAbsent(ctx, request); err != nil {
+			return RequirementAmendment{}, err
+		}
+		for _, workID := range []string{"assignment_" + itemRefComponent(item.ID), "assignment_" + safeRefComponent(item.ID)} {
+			absentBranch, err := workspace.RequestBranch(workspace.Request{WorkID: workID, BranchPrefix: "runner"})
+			if err != nil {
+				return RequirementAmendment{}, err
+			}
+			manager := github.NewPullRequestManager(s.run, s.source)
+			if err := manager.RequireUnpublishedBranch(ctx, item.Repository, absentBranch); err != nil {
+				return RequirementAmendment{}, err
+			}
+			if err := manager.RequireAbsentBranch(ctx, item.Repository, absentBranch); err != nil {
+				return RequirementAmendment{}, err
+			}
+		}
+		plan.AbsentArtifacts = []string{"workspace paths", "registered worktrees", "local and remote branches", "private identities", "implementation checkpoint", "verification evidence", "QA feedback", "publication acceptance", "pull requests"}
 		return plan, nil
 	}
 	// Retiring an implementation checkpoint could replenish a spent deadline or
@@ -74,7 +111,7 @@ func (s *Engine) PlanRequirementAmendment(ctx context.Context, selector, body st
 	}
 	identity, err := s.validateReauthorizationWorkspace(ctx, approval.Item)
 	if err != nil {
-		return RequirementAmendment{}, err
+		return RequirementAmendment{}, errors.Join(err, absenceErr)
 	}
 	// Use the full retained-worktree snapshot, not a Git status summary.
 	candidate, err := workspace.CaptureSnapshotStateWithLimits(ctx, s.run, identity.WorktreePath, 30*time.Second, s.snapshotLimits())
@@ -154,6 +191,58 @@ func (s *Engine) PlanRequirementAmendment(ctx context.Context, selector, body st
 	}
 	plan.Workspace, plan.Candidate, plan.VerificationDigest = identity, candidate, verificationDigest
 	return plan, nil
+}
+
+// Check both current and legacy names, even if the private identity is gone.
+// Selecting a name by its existing identity alone would miss orphaned artifacts.
+func (s *Engine) verifyAmendmentWorkspaceAbsent(ctx context.Context, provider workspace.GitProvider, request workspace.Request) error {
+	for _, workID := range []string{"assignment_" + itemRefComponent(request.ItemID), "assignment_" + safeRefComponent(request.ItemID)} {
+		request.WorkID = workID
+		if err := provider.VerifyWorkspaceAbsent(ctx, request); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Archived evidence also proves prior execution. Check both deterministic
+// names instead of choosing only the currently active record lookup.
+func (s *Engine) checkUnstartedAmendmentEvidenceAbsent(itemID string) error {
+	for _, kind := range []struct{ directory, prefix string }{
+		{"implementation", "implementation_"}, {"verification", "verification_"}, {"qa-feedback", "review_"},
+	} {
+		directory, err := securefs.OpenReadOnlyDir(filepath.Join(s.implementationWorkspaceRoot(), ".runner-state", kind.directory))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		budget, err := securefs.NewSnapshotBudget(s.snapshotLimits())
+		if err != nil {
+			directory.Close()
+			return err
+		}
+		names, err := directory.ReadDirNamesWithBudget(budget)
+		if err == nil {
+			for _, name := range names {
+				for _, suffix := range []string{itemRefComponent(itemID), safeRefComponent(itemID)} {
+					stem := kind.prefix + suffix + ".json"
+					if name == stem || strings.HasPrefix(name, stem+".") {
+						err = errors.New("unstarted amendment refuses retained or archived execution evidence")
+					}
+				}
+			}
+		}
+		if err == nil {
+			err = directory.Verify()
+		}
+		directory.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Engine) ApplyRequirementAmendment(ctx context.Context, plan RequirementAmendment) (item github.WorkItem, err error) {

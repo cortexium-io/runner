@@ -29,6 +29,8 @@ type pullRequestTestRunner struct {
 	viewBase          string
 	viewBaseOID       string
 	viewOutput        string
+	remoteRefs        string
+	remoteRefsErr     error
 	listOutput        string
 	viewFailures      int
 	configuredActor   string
@@ -80,6 +82,8 @@ func (r *pullRequestTestRunner) Run(ctx context.Context, command string, args []
 	joined := strings.Join(args, " ")
 	r.calls = append(r.calls, joined)
 	switch {
+	case strings.Contains(joined, "/git/matching-refs/heads/"):
+		return subprocess.Result{Stdout: r.remoteRefs}, r.remoteRefsErr
 	case joined == "api user --jq .login":
 		actor := r.configuredActor
 		if actor == "" {
@@ -1154,4 +1158,26 @@ func runGitTest(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
 	}
 	return string(output)
+}
+
+func TestUnstartedAmendmentRequiresPositiveRemoteBranchAbsence(t *testing.T) {
+	for _, tc := range []struct {
+		name, response string
+		failure        error
+		absent         bool
+	}{
+		{"absent", "[]", nil, true}, {"present", `[{"ref":"refs/heads/runner/task"}]`, nil, false},
+		{"null", "null", nil, false}, {"malformed", "{}", nil, false}, {"unavailable", "[]", errors.New("unavailable"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := &pullRequestTestRunner{remoteRefs: tc.response, remoteRefsErr: tc.failure}
+			err := NewPullRequestManager(runner, staticActionRefresher{}).RequireAbsentBranch(t.Context(), "owner/repo", "runner/task")
+			if (err == nil) != tc.absent {
+				t.Fatalf("unexpected branch absence decision: %v", err)
+			}
+			if len(runner.calls) != 1 || runner.calls[0] != "api repos/owner/repo/git/matching-refs/heads/runner%2Ftask" {
+				t.Fatalf("wrong repository/branch query: %v", runner.calls)
+			}
+		})
+	}
 }

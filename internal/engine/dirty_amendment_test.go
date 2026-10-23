@@ -123,7 +123,7 @@ func TestDirtyAmendmentPreservesGitHistoryAndCompleteLegacyBatch(t *testing.T) {
 	if identity != metadata.Identity {
 		t.Fatal("amendment changed another identity field")
 	}
-	if _, err := service.source.PlanAmendment(t.Context(), after.ID, item.Body); err != nil {
+	if _, err := service.source.PlanAmendment(t.Context(), after.ID, item.Body, false); err != nil {
 		t.Fatalf("complete revised batch does not authenticate: %v", err)
 	}
 	if _, err := service.PlanProjectItemRetry(t.Context(), after.ID); err != nil {
@@ -330,7 +330,7 @@ func TestDirtyAmendmentReadbackRecognizesCommittedScopeAndSource(t *testing.T) {
 	if _, err := service.validateReauthorizationWorkspace(t.Context(), after); err != nil {
 		t.Fatalf("committed content binding was rolled back: %v", err)
 	}
-	if _, err := service.source.PlanAmendment(t.Context(), after.ID, preview.Approval.Item.Body); err != nil {
+	if _, err := service.source.PlanAmendment(t.Context(), after.ID, preview.Approval.Item.Body, false); err != nil {
 		t.Fatalf("committed cohort no longer authenticates: %v", err)
 	}
 	snapshot, err := workspace.CaptureSnapshotStateWithLimits(t.Context(), runner, metadata.WorktreePath, 30*time.Second, service.snapshotLimits())

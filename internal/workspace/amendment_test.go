@@ -142,6 +142,14 @@ func TestDirtyAmendmentRefusesCurrentAndHistoricalPublicationAcceptance(t *testi
 					t.Fatalf("acceptance was not identified: %v", err)
 				}
 			}
+			// The absence check must work without adopting or creating an identity.
+			if err := os.Remove(activeIdentityPath(filepath.Dir(metadata.WorktreePath), "dirty_history")); err != nil {
+				t.Fatal(err)
+			}
+			err = provider.VerifyPublicationAbsent(t.Context(), Request{WorkingDir: repo, WorktreeRoot: filepath.Dir(metadata.WorktreePath), ItemID: metadata.Identity.ItemID})
+			if (err == nil) != (state == "absent" || state == "other item") {
+				t.Fatalf("publication history without an identity: %v", err)
+			}
 		})
 	}
 }

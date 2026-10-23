@@ -19,6 +19,8 @@ type AmendmentPlan struct {
 	Item            WorkItem   `json:"item"`
 	Body            string     `json:"replacement_body"`
 	RetryLane       string     `json:"retry_lane"`
+	ResultStatus    string     `json:"result_status"`
+	ResultSummary   string     `json:"result_summary"`
 	Unstarted       bool       `json:"unstarted"`
 	PlanningSource  *WorkItem  `json:"planning_source,omitempty"`
 	PlanningMembers []WorkItem `json:"planning_members,omitempty"`
@@ -30,7 +32,9 @@ type AmendmentPlan struct {
 
 const unstartedAmendmentResult = "Operator amended the approved requirements before execution. QA failure count retained; explicit retry required."
 
-func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (AmendmentPlan, error) {
+// PlanAmendment receives the engine's workspace classification. Unstarted is
+// allowed only after the engine proves private execution artifacts absent.
+func (s *Project) PlanAmendment(ctx context.Context, selector, body string, unstarted bool) (AmendmentPlan, error) {
 	body = strings.TrimSpace(body)
 	if body == "" || len(body) > 60_000 || !utf8.ValidString(body) || strings.ContainsRune(body, 0) {
 		return AmendmentPlan{}, errors.New("replacement body must be nonempty UTF-8 text of at most 60000 bytes without NUL")
@@ -47,12 +51,15 @@ func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (Ame
 	if err != nil {
 		return AmendmentPlan{}, fmt.Errorf("amendment requires intact existing approval: %w", err)
 	}
-	unstarted := (item.PlanningSourceID != "" || item.PlanningSourceLane == "local_plan") &&
-		item.Branch == "" && item.Phase == "" && item.QAFailures == 0 &&
-		(item.Result == "" || item.Result == unstartedAmendmentResult)
 	retryLane := item.Phase
 	if unstarted {
 		retryLane, _ = s.uniqueAgentLaneForRole(action.Role)
+		if (item.PlanningSourceID == "" && item.PlanningSourceLane != "local_plan") ||
+			item.Branch != "" || item.QAFailures != 0 ||
+			(item.Result != "" && item.Result != unstartedAmendmentResult) ||
+			(item.Phase != "" && (item.PlanningSourceID == "" || item.Phase != retryLane)) {
+			return AmendmentPlan{}, errors.New("unstarted amendment requires an original planning member with no execution history and a blank or configured implementation phase")
+		}
 	}
 	inactive := item.Activity == "" || (unstarted && item.Activity == config.RunnerActivityWaitingForDependencies)
 	if item.PlanningMetadataInvalid || item.PlanRelease != "" || item.PullRequest != "" || item.QACommit != "" || !inactive ||
@@ -103,7 +110,7 @@ func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (Ame
 	if err != nil {
 		return AmendmentPlan{}, err
 	}
-	plan := AmendmentPlan{Item: item, Body: body, RetryLane: retryLane, Unstarted: unstarted, after: after}
+	plan := AmendmentPlan{Item: item, Body: body, RetryLane: retryLane, ResultStatus: next.Status, ResultSummary: next.Result, Unstarted: unstarted, after: after}
 	if item.PlanningSourceID != "" {
 		plan.source = index.byID[item.PlanningSourceID]
 		if plan.source.Transition != "" {
@@ -136,7 +143,7 @@ func (s *Project) PlanAmendment(ctx context.Context, selector, body string) (Ame
 // retained workspace under its operator mutation guard. Ambiguous writes are
 // read back; rollback never overwrites an intervening operator edit.
 func (s *Project) ApplyAmendment(ctx context.Context, plan AmendmentPlan) (result WorkItem, err error) {
-	fresh, err := s.PlanAmendment(ctx, plan.Item.ID, plan.Body)
+	fresh, err := s.PlanAmendment(ctx, plan.Item.ID, plan.Body, plan.Unstarted)
 	if err != nil {
 		return result, err
 	}

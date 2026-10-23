@@ -20,6 +20,7 @@ import (
 type recoveryTestRunner struct {
 	project      *fakeGitHubProjectRunner
 	afterLock    func()
+	remoteRefs   string
 	pullRequests string
 	pullRequest  map[string]any
 }
@@ -28,6 +29,13 @@ func (r *recoveryTestRunner) Run(ctx context.Context, command string, args []str
 	if command == "gh" && len(args) >= 2 && args[0] == "pr" && args[1] == "view" && r.pullRequest != nil {
 		encoded, err := json.Marshal(r.pullRequest)
 		return subprocess.Result{Stdout: string(encoded)}, err
+	}
+	if command == "gh" && len(args) == 2 && args[0] == "api" && strings.Contains(args[1], "/git/matching-refs/heads/") {
+		refs := r.remoteRefs
+		if refs == "" {
+			refs = "[]"
+		}
+		return subprocess.Result{Stdout: refs}, nil
 	}
 	if command == "git" {
 		return runEngineTestGit(ctx, args, dir, timeout)
