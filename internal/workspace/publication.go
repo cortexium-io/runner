@@ -377,10 +377,8 @@ func (p GitProvider) ConstructCandidateForMergeMethod(ctx context.Context, metad
 		return Candidate{}, fmt.Errorf("parse untracked candidate paths: %w", err)
 	}
 	paths = append(paths, untracked...)
-	for _, path := range paths {
-		if err := p.stageCandidatePath(ctx, profile, path); err != nil {
-			return Candidate{}, err
-		}
+	if err := p.stageCandidatePaths(ctx, profile, paths); err != nil {
+		return Candidate{}, err
 	}
 	if result, runErr := p.privilegedGit(ctx, profile, "ls-files", "-u"); runErr != nil {
 		return Candidate{}, fmt.Errorf("inspect staged candidate conflicts: %w", commandError(runErr, result))
@@ -773,23 +771,6 @@ func (p GitProvider) rejectReplacementObjects(ctx context.Context, profile subpr
 	return nil
 }
 
-func (p GitProvider) stageCandidatePath(ctx context.Context, profile subprocess.PrivilegedGitProfile, path string) error {
-	mode, objectID, exists, err := p.candidatePathEntry(ctx, profile, path, true)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		if err := p.updateCandidateIndex(ctx, profile, "--force-remove", "--", path); err != nil {
-			return fmt.Errorf("remove deleted candidate path %q: %w", path, err)
-		}
-		return nil
-	}
-	if err := p.updateCandidateIndex(ctx, profile, "--add", "--cacheinfo", mode, objectID, path); err != nil {
-		return fmt.Errorf("stage candidate path %q: %w", path, err)
-	}
-	return nil
-}
-
 func (p GitProvider) updateCandidateIndex(ctx context.Context, profile subprocess.PrivilegedGitProfile, args ...string) error {
 	for attempt := 0; ; attempt++ {
 		result, err := p.privilegedGit(ctx, profile, append([]string{"update-index"}, args...)...)
@@ -898,17 +879,17 @@ func (p GitProvider) verifyCandidateWorktree(ctx context.Context, profile subpro
 	if err != nil {
 		return fmt.Errorf("parse committed candidate index: %w", err)
 	}
-	for _, path := range sortedSnapshotKeys(index) {
-		mode, objectID, exists, entryErr := p.candidatePathEntry(ctx, profile, path, false)
-		if entryErr != nil {
-			return entryErr
+	entries, err := p.candidatePathEntries(ctx, profile, sortedSnapshotKeys(index), false)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.exists {
+			return fmt.Errorf("committed candidate path %q is missing from the worktree", entry.path)
 		}
-		if !exists {
-			return fmt.Errorf("committed candidate path %q is missing from the worktree", path)
-		}
-		expected := fmt.Sprintf("mode=%s object=%s stage=0 assume-unchanged=false skip-worktree=false", mode, objectID)
-		if index[path] != expected {
-			return fmt.Errorf("committed candidate path %q does not match its literal worktree bytes and mode", path)
+		expected := fmt.Sprintf("mode=%s object=%s stage=0 assume-unchanged=false skip-worktree=false", entry.mode, entry.objectID)
+		if index[entry.path] != expected {
+			return fmt.Errorf("committed candidate path %q does not match its literal worktree bytes and mode", entry.path)
 		}
 	}
 	untrackedResult, err := p.privilegedGit(ctx, profile, "ls-files", "--others", "--exclude-standard", "-z")

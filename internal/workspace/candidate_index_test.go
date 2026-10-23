@@ -15,14 +15,16 @@ import (
 )
 
 type indexLockRunner struct {
-	calls int
-	after func()
+	calls     int
+	arguments [][]string
+	after     func()
 }
 
 func (r *indexLockRunner) Run(ctx context.Context, command string, args []string, dir string, timeout time.Duration) (subprocess.Result, error) {
 	result, err := (subprocess.OSRunner{}).Run(ctx, command, args, dir, timeout)
 	if command == "git" && slices.Contains(args, "update-index") {
 		r.calls++
+		r.arguments = append(r.arguments, append([]string(nil), args...))
 		if r.after != nil {
 			r.after()
 		}
