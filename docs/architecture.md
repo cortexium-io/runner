@@ -977,6 +977,12 @@ the restart-stable owner. It recovers an existing owner before item ordering,
 disarms duplicate owners, and compares only the selected candidate with the
 latest base. A clean moved-base refresh follows the configured `updated` route,
 defaulting to QA; conflicts follow the implementation recovery route.
+With automatic merge disabled, reconciliation compares each published candidate
+against its base and follows that same local refresh/fresh-QA path. It never
+requests merge or claims automatic integration; human merge policy is unchanged.
+An up-to-date manual candidate needs no recreated worktree. The PR identity and
+signed action are revalidated before refresh, and a completed local refresh is
+returned to QA even if its prior Project transition was interrupted.
 Pre-QA and pre-publication clean refreshes return to the current reviewer lane.
 The engine validates retained evidence against the exact pre-refresh candidate
 before mutation, then binds it to the refreshed review while preserving its

@@ -6172,48 +6172,6 @@ func TestAgentQAResumesExactAcceptanceWithoutAnotherReviewerRun(t *testing.T) {
 	}
 }
 
-func TestOutOfDateManualPullRequestWaitsForHumanWithoutEagerRefresh(t *testing.T) {
-	repo, remote := createPublicationRepository(t)
-	runGitTest(t, repo, "checkout", "-b", "cortexium/task")
-	if err := os.WriteFile(filepath.Join(repo, "feature.txt"), []byte("feature\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runGitTest(t, repo, "add", "--all")
-	runGitTest(t, repo, "commit", "-m", "feature")
-	runGitTest(t, repo, "push", "-u", "origin", "cortexium/task")
-	originalHead := strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/cortexium/task"))
-	runGitTest(t, repo, "checkout", "main")
-	advanceRemoteBase(t, repo, "base.txt", "base update\n")
-	item := github.WorkItem{
-		ID: "PVTI_manual_pr", Title: "Implement", Body: "Criteria", Repository: "owner/repo", Status: "PR Ready",
-		PullRequest: "https://github.com/owner/repo/pull/12", Branch: "cortexium/task", QACommit: "qa-head",
-	}
-	item.Approval = testApproval(item)
-	project := &fakeGitHubProjectRunner{itemsJSON: `{"items":[` + projectItemJSON(item) + `]}`}
-	service, err := New(completeEngineTestConfig(config.Config{
-		ProjectDir: repo,
-		GitHubProject: &config.GitHubProjectConfig{
-			Owner: "owner", Number: 4, IntakeRepository: "owner/repo", AutoMerge: false,
-		},
-	}), openPullRequestRunner{project: project})
-	if err != nil {
-		t.Fatalf("configure service: %v", err)
-	}
-	items, err := service.source.LifecycleItems(t.Context())
-	if err != nil {
-		t.Fatalf("load lifecycle items: %v", err)
-	}
-	if _, changed, err := service.reconcilePullRequests(t.Context(), items); err != nil {
-		t.Fatalf("reconcile manual pull request: %v", err)
-	} else if changed {
-		t.Fatal("manual pull request reconciliation reported an integration action")
-	}
-	remoteHead := strings.TrimSpace(runGitTest(t, "", "--git-dir", remote, "rev-parse", "refs/heads/cortexium/task"))
-	if project.status != "" || project.phase != "" || project.result != "" || remoteHead != originalHead {
-		t.Fatalf("manual pull request was eagerly refreshed: status=%q phase=%q result=%q before=%s after=%s", project.status, project.phase, project.result, originalHead, remoteHead)
-	}
-}
-
 func TestAcceptedAgentQAQueuesConfiguredAutomaticIntegration(t *testing.T) {
 	repo, _ := createPublicationRepository(t)
 	item := github.WorkItem{
