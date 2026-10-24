@@ -54,18 +54,25 @@ var reconciliationFetchBoundaries = []struct {
 	name    string
 	fetch   int
 	warning string
+	manual  bool
 }{
-	{"base comparison", 1, "Pull request branch inspection failed."},
-	{"worktree synchronization", 2, "Pull request worktree preparation failed."},
+	{"base comparison", 1, "Pull request branch inspection failed.", false},
+	{"worktree synchronization", 2, "Pull request worktree preparation failed.", false},
+	{"manual base comparison", 1, "Pull request branch inspection failed.", true},
+	{"manual worktree synchronization", 2, "Pull request worktree preparation failed.", true},
 }
 
-func newBranchFetchFailure(t *testing.T, fetch int) (*Engine, *disappearingPRBranchRunner, []github.WorkItem) {
+func newBranchFetchFailure(t *testing.T, fetch int, manual bool) (*Engine, *disappearingPRBranchRunner, []github.WorkItem) {
 	t.Helper()
 	original, inner, _ := autoMergeReconciliationService(t, "PR Ready", true)
 	runner := &disappearingPRBranchRunner{inner: inner, failAt: fetch}
+	if manual {
+		inner.enabled = false
+		advanceRemoteBase(t, original.cfg.ProjectDir, "new-base.txt", "independent work\n")
+	}
 	service, err := New(completeEngineTestConfig(config.Config{
 		ProjectDir:    original.cfg.ProjectDir,
-		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo", AutoMerge: true},
+		GitHubProject: &config.GitHubProjectConfig{Owner: "owner", Number: 4, IntakeRepository: "owner/repo", AutoMerge: !manual},
 	}), runner)
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +87,7 @@ func newBranchFetchFailure(t *testing.T, fetch int) (*Engine, *disappearingPRBra
 func TestReconciliationRecoversMergedPRAfterFetchFailure(t *testing.T) {
 	for _, boundary := range reconciliationFetchBoundaries {
 		t.Run(boundary.name, func(t *testing.T) {
-			service, runner, items := newBranchFetchFailure(t, boundary.fetch)
+			service, runner, items := newBranchFetchFailure(t, boundary.fetch, boundary.manual)
 			runner.state = "MERGED"
 
 			warnings, changed, err := service.reconcilePullRequests(t.Context(), items)
@@ -98,7 +105,7 @@ func TestReconciliationRecoversMergedPRAfterFetchFailure(t *testing.T) {
 func TestReconciliationBlocksClosedPRAfterFetchFailure(t *testing.T) {
 	for _, boundary := range reconciliationFetchBoundaries {
 		t.Run(boundary.name, func(t *testing.T) {
-			service, runner, items := newBranchFetchFailure(t, boundary.fetch)
+			service, runner, items := newBranchFetchFailure(t, boundary.fetch, boundary.manual)
 			runner.state = "CLOSED"
 
 			warnings, changed, err := service.reconcilePullRequests(t.Context(), items)
@@ -117,7 +124,7 @@ func TestReconciliationBlocksClosedPRAfterFetchFailure(t *testing.T) {
 func TestReconciliationReportsOpenPRFetchFailure(t *testing.T) {
 	for _, boundary := range reconciliationFetchBoundaries {
 		t.Run(boundary.name, func(t *testing.T) {
-			service, runner, items := newBranchFetchFailure(t, boundary.fetch)
+			service, runner, items := newBranchFetchFailure(t, boundary.fetch, boundary.manual)
 			runner.state = "OPEN"
 
 			warnings, changed, err := service.reconcilePullRequests(t.Context(), items)
@@ -135,7 +142,7 @@ func TestReconciliationReportsOpenPRFetchFailure(t *testing.T) {
 func TestReconciliationRejectsChangedMergedHeadAfterFetchFailure(t *testing.T) {
 	for _, boundary := range reconciliationFetchBoundaries {
 		t.Run(boundary.name, func(t *testing.T) {
-			service, runner, items := newBranchFetchFailure(t, boundary.fetch)
+			service, runner, items := newBranchFetchFailure(t, boundary.fetch, boundary.manual)
 			runner.state, runner.changedHead = "MERGED", true
 
 			warnings, changed, err := service.reconcilePullRequests(t.Context(), items)
@@ -153,7 +160,7 @@ func TestReconciliationRejectsChangedMergedHeadAfterFetchFailure(t *testing.T) {
 func TestReconciliationPreservesInspectionErrorAfterFetchFailure(t *testing.T) {
 	for _, boundary := range reconciliationFetchBoundaries {
 		t.Run(boundary.name, func(t *testing.T) {
-			service, runner, items := newBranchFetchFailure(t, boundary.fetch)
+			service, runner, items := newBranchFetchFailure(t, boundary.fetch, boundary.manual)
 			runner.inspectionErr = errors.New("PR inspection unavailable")
 
 			_, changed, err := service.reconcilePullRequests(t.Context(), items)

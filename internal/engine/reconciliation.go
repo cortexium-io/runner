@@ -454,86 +454,86 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			} else if blocked {
 				continue
 			}
-			if _, err := s.cleanupAuthorizedItemWorkspace(ctx, action); err != nil {
-				warnings = append(warnings, workspaceCleanupWarning(item, err))
-			}
-			continue
 		}
-		integrationKey, err := s.integrationResourceKey(item, details.BaseRefName)
-		if err != nil {
-			return warnings, changed, err
-		}
-		integrationOwner := integrationOwners[integrationKey]
-		if details.AutoMergeEnabled && integrationOwner == "" {
-			integrationOwner = item.ID
-			integrationOwners[integrationKey] = item.ID
-		}
-		if integrationOwner != "" && integrationOwner != item.ID {
-			if details.AutoMergeEnabled {
-				if blocked, err := cancelAutoMerge(action, details, laneID); err != nil {
-					return warnings, changed, err
-				} else if blocked {
-					continue
-				}
+		integrationKey := ""
+		desiredActivity := config.RunnerActivityAwaitingHumanReview
+		if s.cfg.GitHubProject.AutoMerge {
+			integrationKey, err = s.integrationResourceKey(item, details.BaseRefName)
+			if err != nil {
+				return warnings, changed, err
 			}
-			if _, err := s.cleanupAuthorizedItemWorkspace(ctx, action); err != nil {
-				warnings = append(warnings, workspaceCleanupWarning(item, err))
+			integrationOwner := integrationOwners[integrationKey]
+			if details.AutoMergeEnabled && integrationOwner == "" {
+				integrationOwner = item.ID
+				integrationOwners[integrationKey] = item.ID
 			}
-			if strings.TrimSpace(item.Activity) != config.RunnerActivityWaitingForIntegration {
-				if err := s.updateActivity(ctx, action, config.RunnerActivityWaitingForIntegration); err != nil {
-					return warnings, changed, err
+			if integrationOwner != "" && integrationOwner != item.ID {
+				if details.AutoMergeEnabled {
+					if blocked, err := cancelAutoMerge(action, details, laneID); err != nil {
+						return warnings, changed, err
+					} else if blocked {
+						continue
+					}
 				}
-				changed = true
-			}
-			continue
-		}
-		if integrationOwner == "" && integrationUnavailable[integrationKey] {
-			if strings.TrimSpace(item.Activity) != config.RunnerActivityWaitingForIntegration {
-				if err := s.updateActivity(ctx, action, config.RunnerActivityWaitingForIntegration); err != nil {
-					return warnings, changed, err
+				if _, err := s.cleanupAuthorizedItemWorkspace(ctx, action); err != nil {
+					warnings = append(warnings, workspaceCleanupWarning(item, err))
 				}
-				changed = true
-			}
-			continue
-		}
-		if integrationOwner == "" {
-			integrationOwners[integrationKey] = item.ID
-		}
-		desiredActivity := config.RunnerActivityWaitingForMerge
-		if details.MergeStateStatus == "BLOCKED" {
-			checked, checkErr := manager.InspectAuthorizedWithChecks(ctx, action)
-			if checkErr != nil {
-				return warnings, changed, checkErr
-			}
-			if checkErr := github.ValidateTrackedPullRequest(checked, item.Repository, item.Branch, item.QACommit, s.baseBranch(), ""); checkErr != nil {
-				return warnings, changed, fmt.Errorf("pull request identity changed during status-check inspection: %w", checkErr)
-			}
-			if len(checked.FailedChecks) > 0 {
-				if !hasChecksFailedEvent {
-					return warnings, changed, fmt.Errorf("pull request %s has failed checks and workflow has no %s event", details.URL, config.WorkflowEventPRChecksFailed)
+				if strings.TrimSpace(item.Activity) != config.RunnerActivityWaitingForIntegration {
+					if err := s.updateActivity(ctx, action, config.RunnerActivityWaitingForIntegration); err != nil {
+						return warnings, changed, err
+					}
+					changed = true
 				}
-				if blocked, cancelErr := cancelAutoMerge(action, details, laneID); cancelErr != nil {
-					return warnings, changed, cancelErr
-				} else if blocked {
-					continue
-				}
-				detail := failedChecksProjectDetail(details.URL, checked.FailedChecks)
-				target := checksFailedEvent.To
-				if err := s.transitionChecksFailed(ctx, action, s.cfg.LaneStatus(target), s.phaseForTargetLane(target), detail); err != nil {
-					return warnings, changed, err
-				}
-				warning := RunResult{Item: item, Outcome: "warning", Summary: "GitHub checks failed; Runner returned the card to implementation without recording an Agent QA rejection."}
-				if item.PlanRelease != "" {
-					warning.Outcome = execution.OutcomeBlocked
-					warning.Summary = "Final plan PR checks failed; retained candidate requires explicit owning-card recovery. No extra work or QA allowance was granted."
-				}
-				warnings = append(warnings, warning)
-				delete(integrationOwners, integrationKey)
-				changed = true
 				continue
 			}
-			if checked.ChecksPending {
-				desiredActivity = config.RunnerActivityWaitingForCI
+			if integrationOwner == "" && integrationUnavailable[integrationKey] {
+				if strings.TrimSpace(item.Activity) != config.RunnerActivityWaitingForIntegration {
+					if err := s.updateActivity(ctx, action, config.RunnerActivityWaitingForIntegration); err != nil {
+						return warnings, changed, err
+					}
+					changed = true
+				}
+				continue
+			}
+			if integrationOwner == "" {
+				integrationOwners[integrationKey] = item.ID
+			}
+			desiredActivity = config.RunnerActivityWaitingForMerge
+			if details.MergeStateStatus == "BLOCKED" {
+				checked, checkErr := manager.InspectAuthorizedWithChecks(ctx, action)
+				if checkErr != nil {
+					return warnings, changed, checkErr
+				}
+				if checkErr := github.ValidateTrackedPullRequest(checked, item.Repository, item.Branch, item.QACommit, s.baseBranch(), ""); checkErr != nil {
+					return warnings, changed, fmt.Errorf("pull request identity changed during status-check inspection: %w", checkErr)
+				}
+				if len(checked.FailedChecks) > 0 {
+					if !hasChecksFailedEvent {
+						return warnings, changed, fmt.Errorf("pull request %s has failed checks and workflow has no %s event", details.URL, config.WorkflowEventPRChecksFailed)
+					}
+					if blocked, cancelErr := cancelAutoMerge(action, details, laneID); cancelErr != nil {
+						return warnings, changed, cancelErr
+					} else if blocked {
+						continue
+					}
+					detail := failedChecksProjectDetail(details.URL, checked.FailedChecks)
+					target := checksFailedEvent.To
+					if err := s.transitionChecksFailed(ctx, action, s.cfg.LaneStatus(target), s.phaseForTargetLane(target), detail); err != nil {
+						return warnings, changed, err
+					}
+					warning := RunResult{Item: item, Outcome: "warning", Summary: "GitHub checks failed; Runner returned the card to implementation without recording an Agent QA rejection."}
+					if item.PlanRelease != "" {
+						warning.Outcome = execution.OutcomeBlocked
+						warning.Summary = "Final plan PR checks failed; retained candidate requires explicit owning-card recovery. No extra work or QA allowance was granted."
+					}
+					warnings = append(warnings, warning)
+					delete(integrationOwners, integrationKey)
+					changed = true
+					continue
+				}
+				if checked.ChecksPending {
+					desiredActivity = config.RunnerActivityWaitingForCI
+				}
 			}
 		}
 		repoRoot, err := s.repositoryDir(ctx, item.Repository)
@@ -571,6 +571,15 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 			continue
 		}
 		if !needsRefresh {
+			// Manual merge policy does not require a worktree while the exact
+			// reviewed head still contains the base. An advanced base below uses
+			// the same local refresh and fresh-QA path as automatic integration.
+			if !s.cfg.GitHubProject.AutoMerge {
+				if _, err := s.cleanupAuthorizedItemWorkspace(ctx, action); err != nil {
+					warnings = append(warnings, workspaceCleanupWarning(item, err))
+				}
+				continue
+			}
 			prepared, blocked, prepareErr := prepareWorkspace(action, item, delegatedContent.Digest, repoRoot, laneID, details.AutoMergeEnabled)
 			if prepareErr != nil {
 				return warnings, changed, prepareErr
@@ -633,6 +642,15 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		if handled || details.State != "OPEN" {
 			continue
 		}
+		if err := github.ValidateTrackedPullRequest(details, item.Repository, item.Branch, item.QACommit, s.baseBranch(), ""); err != nil {
+			return warnings, changed, fmt.Errorf("pull request identity changed before base refresh: %w", err)
+		}
+		// Refresh performs local Git mutations before its Project transition.
+		// Revalidate the signed action after the second PR observation as well.
+		action, delegatedContent, err = s.source.RefreshDelegatedContent(ctx, action)
+		if err != nil {
+			return warnings, changed, err
+		}
 		preparedWorkspace, blocked, err := prepareWorkspace(action, item, delegatedContent.Digest, repoRoot, laneID, details.AutoMergeEnabled)
 		if err != nil {
 			return warnings, changed, err
@@ -684,7 +702,10 @@ func (s *Engine) reconcilePullRequests(ctx context.Context, items []github.WorkI
 		if handled || details.State != "OPEN" {
 			continue
 		}
-		if refresh.Updated || refresh.Conflicted {
+		// A prior refresh can finish before its Project transition is canceled.
+		// Its retained local head still needs fresh QA even if this call found
+		// the same base and therefore had no further Git update to perform.
+		if refresh.Updated || refresh.Conflicted || refresh.CommitSHA != item.QACommit {
 			if !hasOutdatedEvent {
 				continue
 			}
