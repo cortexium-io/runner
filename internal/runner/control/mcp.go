@@ -195,7 +195,12 @@ func Call(ctx context.Context, session *mcp.ClientSession, name string, args any
 		return nil, e
 	}
 	if r.IsError {
-		return nil, r.GetError()
+		for _, content := range r.Content {
+			if text, ok := content.(*mcp.TextContent); ok && text.Text != "" {
+				return nil, fmt.Errorf("%s: %s", name, text.Text)
+			}
+		}
+		return nil, fmt.Errorf("%s failed without a diagnostic", name)
 	}
 	b, e := json.Marshal(r.StructuredContent)
 	return b, e

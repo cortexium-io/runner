@@ -89,6 +89,13 @@ func TestMCPControlRoundTrip(t *testing.T) {
 	}
 	defer session.Close()
 	args := StartArgs{RequestID: "wire-start", Project: "demo", Inputs: map[string]any{"name": "Hello over MCP"}}
+	// Tool failures cross the wire as text, not the SDK's server-only error.
+	invalid := args
+	invalid.RequestID = "wire-rejected"
+	invalid.Project = "missing"
+	if _, err = Call(ctx, session, "runner_start", invalid); err == nil || !strings.Contains(err.Error(), "project is not configured") {
+		t.Fatalf("tool failure lost its reason: %v", err)
+	}
 	var started runner.Summary
 	call := func(name string, args, out any) {
 		t.Helper()

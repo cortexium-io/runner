@@ -206,15 +206,28 @@ func (w *Workspaces) Capture(ctx context.Context, a runner.Assignment) (*runner.
 	if _, e = git(ctx, r.WorkDir, env, nil, 4096, "read-tree", r.Base); e != nil {
 		return nil, e
 	}
-	paths, e := git(ctx, r.WorkDir, env, nil, 1<<20, "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".", ":(exclude).runner-tmp")
+	// Discover changes using the workspace index, then collect literal bytes into
+	// the separate index below. Unchanged assets are already in the base tree and
+	// must neither consume the patch allowance nor be rehashed one file at a time.
+	paths, e := git(ctx, r.WorkDir, nil, nil, 1<<20, "diff-index", "--name-only", "-z", "--no-ext-diff", "--no-textconv", r.Base, "--", ".", ":(exclude).runner-tmp")
 	if e != nil {
 		return nil, e
 	}
+	untracked, e := git(ctx, r.WorkDir, nil, nil, 1<<20, "ls-files", "--others", "--exclude-standard", "-z", "--", ".", ":(exclude).runner-tmp")
+	if e != nil {
+		return nil, e
+	}
+	if len(paths)+len(untracked) > 1<<20 {
+		return nil, runner.ErrCapacity
+	}
+	paths = append(paths, untracked...)
+	seen := map[string]bool{}
 	for _, p := range bytes.Split(paths, []byte{0}) {
 		name := string(p)
-		if name == "" || name == ".runner-tmp" || strings.HasPrefix(name, ".runner-tmp/") {
+		if name == "" || seen[name] || name == ".runner-tmp" || strings.HasPrefix(name, ".runner-tmp/") {
 			continue
 		}
+		seen[name] = true
 		if !fs.ValidPath(name) {
 			return nil, errors.New("unsafe source path")
 		}

@@ -318,3 +318,63 @@ one additional turn for the corrected exercise. Both allowances are now consumed
 
 The two exercises reported 83,131 native tokens in total. Coordination usage is
 unknown, so this is a known native subtotal rather than complete resource cost.
+
+## First real-project pilot, 29 October 2026
+
+Dan authorized taking over techba.se and Jack's Break, coordinating their chats,
+and starting fresh work through this Runner. No old Runner tasks, approval gates
+or execution state were imported. Techba.se's five-article publication was already
+complete; no new publication work was invented. Jack's old worker was confirmed
+stopped before the fresh run, with its completed source committed at
+`cdff68477086d1d2b70f4dd989868e0b15adcf58`.
+
+The fresh task corrected one observed Futoshiki typography inconsistency: Erase
+inherited a 25px numeric-key style, while Notes used the shared 16px word-label
+style. One source-edit step used Sol/xhigh, a five-minute attempt deadline, no
+automatic retry and a retained patch. Focused frontend verification belonged to
+the coordinator; the built-in Go check was not presented as frontend support.
+
+The first admission on Mega Mini was correctly rejected below its 5GiB free-space
+reserve (about 4.4GiB available). No run or model turn was admitted there. Temporary
+tools were removed. The actual run used Black Magic, with about 168GiB available,
+2GiB managed-content allowance and the same 5GiB reserve. The source repository
+contains about 1.1GiB of tracked documentation/evidence, which makes whole-tree
+checkout a concrete resource cost even for this small edit.
+
+Run `run_ANLYOQ2SUF5T3DKSC5CVFBCBO5` used one attempt. The model made the edit but
+did not return a structured completion before its deadline. The result is
+**Failed**, not a successful automated workflow. Runner stopped the turn and
+preserved its workspace. The collector then incorrectly rejected unchanged large
+baseline assets under the patch limit. After the collector fix and restart, the
+same settled attempt produced a 7,255-byte patch; no replacement turn ran.
+
+The recovered patch changes one Vue file by two insertions/two deletions. Its
+gameplay script is byte-identical. Coordinator checks on Node24.21.0 passed all
+17 existing Futoshiki component tests (2.09s). An isolated Vite fixture mounted
+the actual modified component against a copied public Go fixture. At 1280×1000
+and 390×844, word labels measured 16px, digits 25px, targets at least 48px, with
+no horizontal overflow. Browser input exercised entry, Erase and Notes on/off.
+This does not qualify a new embedded app or the full seven-player handoff. The
+existing port4320, operator storage and production were unchanged.
+
+Reported native usage was 66,127 input and 3,329 output tokens: **69,456 known
+native tokens**, including 35,968 cached input. Coordination usage is unavailable.
+The worker attempted unavailable Node and Perl commands before using the edit
+tool. The cause of the missing timely completion is unestablished. No efficiency
+improvement is demonstrated; this cost is excessive for the change.
+
+Two actual integration defects were fixed in the owning suites:
+
+- MCP tool errors are read from wire content. The SDK's `GetError` is server-only
+  and always nil on clients; using it hid the admission error behind an empty-JSON
+  error. The round-trip test now proves rejection preserves its domain reason.
+- Collection discovers changed/new paths using the workspace index and retains
+  their literal bytes in the separate collection index. Unchanged baseline assets
+  are preserved without rehashing or applying the patch-size cap to them. Existing
+  coverage now includes an unchanged asset larger than the patch allowance;
+  modified-file limits, deletion, staging, modes and restoration remain covered.
+
+Race tests and vet passed after these fixes. The source prompt is language-neutral;
+the profile retains its existing Go/system-command permissions. Node tooling in
+the worker, general frontend execution and automatic frontend verification have
+not been added or qualified.

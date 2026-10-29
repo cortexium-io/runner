@@ -83,6 +83,8 @@ func TestWorkspaceRetainsChangesAndBaseAcrossCleanup(t *testing.T) {
 		"binary":     {0, 1, 2},
 		"executable": []byte("#!/bin/sh\n"),
 		".gitignore": []byte("ignored/\n"),
+		// Existing assets larger than the patch allowance must remain untouched.
+		"large-asset": bytes.Repeat([]byte("unchanged"), 8192),
 	} {
 		if e := os.WriteFile(filepath.Join(repo, name), data, 0644); e != nil {
 			t.Fatal(e)
@@ -93,6 +95,7 @@ func TestWorkspaceRetainsChangesAndBaseAcrossCleanup(t *testing.T) {
 	d := workspaceDisk(t)
 	w := &Workspaces{disk: d}
 	a := sourceAssignment(d, repo, "attempt_source")
+	a.Limits.MaxArtifact = 32 << 10
 	r, e := w.Prepare(context.Background(), a)
 	if e != nil {
 		t.Fatal(e)

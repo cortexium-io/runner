@@ -51,6 +51,25 @@ replacement rejected, cancellation settled, edits retained and cleanup completed
 Both recovery allowances are consumed; further native generation requires renewed
 authorization. Preserve both results and their durable no-repeat receipts.
 
+The owner subsequently authorized taking over techba.se and Jack's Break through
+fresh work in the new Runner after coordinating with their existing chats. Do not
+import or resume old Runner tasks/state. The Techbase publication is complete;
+there is no remaining authorized publication task. Jack's old worker is stopped,
+and its completed implementation is committed at `cdff68477086d1d2b70f4dd989868e0b15adcf58`.
+The first fresh pilot is one bounded Sol/xhigh source-edit attempt correcting
+Futoshiki word-button typography, with a five-minute attempt limit and retained
+patch. Reuse the existing sandboxed source-edit capability; no Node installation
+or permission expansion in the worker. Coordinator-owned focused frontend checks
+remain outside the engine for this pilot, and must be reported separately.
+No production merge/deployment or replacement of the user's existing preview is
+authorized before the agreed local review. The source prompt names a bounded
+source task; language/framework instructions belong to the selected role/task.
+That pilot allowance is consumed. The attempt timed out, and its partial Vue
+edit was recovered without another turn. Its focused component tests/rendered
+checks pass, but the Runner result remains Failed. A new coding turn requires a
+new task/allowance; do not retry the pilot silently. The pilot also exposed and
+fixed client-side MCP error reporting and collection of unchanged large assets.
+
 ## Engineering
 
 Use minimum sufficient complexity and idiomatic Go. Keep one coordinator and one
