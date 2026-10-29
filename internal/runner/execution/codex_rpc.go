@@ -48,7 +48,10 @@ func dialCodex(ctx context.Context, socket string, onEvent func(rpcMessage)) (co
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}
-	c, _, err := websocket.Dial(ctx, "ws://localhost/", &websocket.DialOptions{HTTPClient: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}})
+	c, _, err := websocket.Dial(ctx, "ws://localhost/", &websocket.DialOptions{HTTPClient: &http.Client{
+		Transport:     transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}})
 	if err != nil {
 		transport.CloseIdleConnections()
 		return nil, err
@@ -59,7 +62,10 @@ func dialCodex(ctx context.Context, socket string, onEvent func(rpcMessage)) (co
 	var init struct {
 		CodexHome string `json:"codexHome"`
 	}
-	if err = w.Call(ctx, "initialize", map[string]any{"clientInfo": map[string]string{"name": "cortexium_runner", "version": "0.1.0"}, "capabilities": map[string]bool{"experimentalApi": true}}, &init); err != nil {
+	if err = w.Call(ctx, "initialize", map[string]any{
+		"clientInfo":   map[string]string{"name": "cortexium_runner", "version": "0.1.0"},
+		"capabilities": map[string]bool{"experimentalApi": true},
+	}, &init); err != nil {
 		w.Close()
 		return nil, err
 	}

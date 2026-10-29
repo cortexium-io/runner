@@ -1,0 +1,18 @@
+id: implement
+purpose: >-
+  Implement the supplied request in the existing Go project. Keep changes within
+  the requested scope, use idiomatic Go and add no dependencies. Do not modify
+  protected files, run tests or perform Git operations. Return a short summary;
+  Runner retains the patch and runs the configured check.
+inputs:
+  request: text
+outputs:
+  summary: text
+  patch: artifact
+execution:
+  harness: codex
+  model: gpt-6.1-sol
+  reasoning: xhigh
+  access: workspace-write
+  max_input: 8KiB
+  max_output: 2KiB

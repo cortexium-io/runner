@@ -1,0 +1,17 @@
+id: greeting
+inputs:
+  name: text
+max_attempts: 4
+max_attempts_per_step: 2
+attempt_timeout: 30s
+steps:
+  - id: prepare
+    role: prepare
+    inputs:
+      name: {from_input: name}
+  - id: finish
+    role: finish
+    inputs:
+      message: {from_step: prepare, output: message}
+outputs:
+  result: {from_step: finish, output: result}

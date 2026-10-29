@@ -1,0 +1,25 @@
+id: implement-and-check
+inputs:
+  request: text
+steps:
+  - id: implement
+    role: implement
+    inputs:
+      request:
+        from_input: request
+  - id: check
+    role: check
+    inputs:
+      patch:
+        from_step: implement
+        output: patch
+outputs:
+  patch:
+    from_step: implement
+    output: patch
+  check:
+    from_step: check
+    output: check
+max_attempts: 2
+max_attempts_per_step: 1
+attempt_timeout: 5m

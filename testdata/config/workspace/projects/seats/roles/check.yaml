@@ -1,0 +1,9 @@
+id: check
+purpose: Run the supplied Go contract suite against the saved candidate.
+inputs:
+  patch: artifact
+outputs:
+  check: text
+execution:
+  harness: go-check
+  access: workspace-read

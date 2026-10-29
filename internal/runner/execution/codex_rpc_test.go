@@ -80,7 +80,11 @@ func TestCodexWireUsesNativeProtocol(t *testing.T) {
 				return
 			}
 			if m.Method == "inspect" {
-				request, _ := json.Marshal(rpcMessage{ID: json.RawMessage(`777`), Method: "item/permissions/requestApproval", Params: json.RawMessage(`{}`)})
+				request, _ := json.Marshal(rpcMessage{
+					ID:     json.RawMessage(`777`),
+					Method: "item/permissions/requestApproval",
+					Params: json.RawMessage(`{}`),
+				})
 				if err = c.Write(ctx, websocket.MessageText, request); err != nil {
 					return
 				}

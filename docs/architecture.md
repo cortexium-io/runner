@@ -10,7 +10,7 @@ Start with the example configuration, then `types.go`, then follow a run through
 | `internal/runner/` | `types.go` owns contracts; `engine.go` owns operations, admission, coordination and lifecycle decisions. |
 | `internal/runner/config/` | YAML/JSON parsing, reference/type validation and validated file edits. |
 | `internal/runner/sqlite/` | Single instance lock, bounded snapshots, request receipts and artifact references. |
-| `internal/runner/execution/` | Deterministic jobs and the input-only Codex adapter behind Start/Observe/Stop/Release. |
+| `internal/runner/execution/` | Deterministic jobs, Codex and fixed Go checking behind Start/Observe/Stop/Release; owns Git workspaces. |
 | `internal/runner/control/` | MCP translation and the CLI's MCP client. |
 
 `disk.go` and platform free-space helpers belong to the core's controlled resource
@@ -69,6 +69,45 @@ during another executor call remains pending until that call settles. The adapte
 records terminal facts before the core collects them. After the core's SQLite
 commit, Release deletes the owned native thread. A qualified native "no rollout
 found" deletion response makes interrupted cleanup repeatable.
+
+## Follow the writable Go process
+
+The [workspace example](../examples/workspace/README.md) shows the same core and
+control operations with a per-run request. The fixed native qualification input
+lives in `testdata/seats/`. Optional source descriptors
+are data in the core; Git and Go operations belong to the execution adapter.
+
+1. Core freezes the repository/ref, role profiles and bindings with the run.
+   `workspace.go` resolves the ref once, records the base and owned resource,
+   protects the base with a run ref, and prepares one detached run worktree.
+2. `workspace_native.go` creates named native access profiles. The adapter checks
+   their effective filesystem/network policy and runs zero-turn command probes.
+   Coding explicitly selects the local environment and that workspace's roots;
+   input-only execution continues to select no environment or roots. Shared
+   native generation/workspace readiness is reused while those facts are stable.
+3. The fresh coding thread receives the original brief and returns bounded text.
+   `service.go` collects source after native settlement, including failed or
+   cancelled partial work. A temporary Git index/object store captures literal
+   regular-file bytes without collection hooks/filters or shared loose objects.
+   The retained binary patch excludes scratch; its metadata records base/tree,
+   producing attempt and prior candidate. Git tree identity describes saved
+   content; it is not a task approval checksum.
+4. Core persists source references before downstream work or Release. The fixed
+   `go-check` profile consumes the exact patch identity and runs `go test ./...`
+   through the native standalone command API. It creates no model turn. Source is
+   read-only; caches/output are attempt-owned, with network and downloads disabled.
+5. Core's optional `RunResources` lifecycle releases successful/cancelled run
+   worktrees after attempts/results are secured. Failed worktrees remain for
+   authorized retry until retained-history cleanup. Attempt caches are released
+   separately. History expiry releases the base pin before deleting artifacts.
+
+A source collection/SQLite failure holds recovery state rather than releasing
+unsaved code. Command termination acknowledgement is not completion: only the
+final command response establishes settlement. A lost command connection or changed
+native service with unresolved children keeps execution Unknown and retains the
+workspace/capacity. Killing the server is not treated as proof that children exited.
+The first workspace/check configuration requires concurrency one; arbitrary
+background commands, crash survival and broader project layouts are unqualified.
 
 ## State and recovery
 
@@ -135,7 +174,19 @@ native protocol translation, lost acknowledgement, settings checks, setup
 cancellation, saved-result recovery and repeatable cleanup. `codex_rpc_test.go`
 owns the actual Unix/WebSocket framing and unsolicited-request refusal. The
 opt-in native suite is separate; normal tests submit no model tasks. Broader
-workspace/tool execution, remote control and installation remain unverified.
+arbitrary workspace/tool execution, remote control and installation remain unverified.
+
+Test fixtures live under the repository-root `testdata/`: configuration mutation
+fixtures under `testdata/config/`, and the disposable Go qualification project
+under `testdata/seats/`. Published examples are independent configurations;
+one table-driven configuration test checks that they load without executing work.
+
+The workspace collector suite owns base pinning, user checkout preservation,
+new/deleted/binary/mode changes, bounded capture, artifact reuse and restoration.
+Writable protocol tests add lost-reply/unknown/cancel/restart source assertions.
+`command_test.go` owns terminate-versus-settlement and disconnected command
+behavior. The core suite owns a source result's failed SQLite commit; the config
+suite owns writable/check profile restrictions. These do not spend model turns.
 
 ## First-slice verification, 28 October 2026
 
@@ -184,3 +235,45 @@ Abrupt host loss, forced native-process death, upgrades, writable workspaces,
 arbitrary skills/tools and native Linux execution remain unqualified. The three-task
 allowance is consumed; further generation requires renewed authorization. Offline
 race/vet checks and Linux cross-compilation are recorded with the final handoff.
+
+## Writable Go qualification, 29 October 2026
+
+CLI 0.164.0 on macOS arm64, Go 1.27.1, `gpt-6.1-sol` / `xhigh`. One new
+coding turn was submitted. It added an idiomatic `ParseSeats` implementation
+using `strconv.Atoi` and a positive-count guard. The supplied six-case Go test
+passed through the configured model-free check. After original worktree removal,
+the retained patch restored the same Git tree; disposable repositories, caches,
+state and native service were removed. Only small source/result/receipt evidence
+remains in the private qualification directory.
+
+| Measurement | Observed |
+| --- | --- |
+| Successful qualification retry | 33.04 seconds |
+| Coding attempt, including its readiness | 26.135 seconds |
+| Whole qualification window, including setup debugging | 784.274 seconds |
+| Native reported input/output | 31,094 / 602 tokens |
+| Cached input, included in input above | 23,680 tokens |
+| Observed managed content peak | 149,720,417 bytes; SQLite capacity reserved separately at 4 MiB |
+| Observed native content peak | 4,647,014 bytes; included in managed content |
+| Retained patch | 531 bytes |
+
+31,696 is the known native token subtotal, not the complete implementation or
+coordination cost. Coordination tokens and a reliable worker command history were
+unavailable. The configured check executed once; the command-history gap prevents
+independent confirmation that the worker never ran an additional check. This is
+lifecycle qualification, not a quality/efficiency comparison or proof of savings.
+
+Zero-turn probes established edit/check source and scratch access, protected module
+and test files, denied private/Git reads, symlink escape denial and network denial.
+An empty input-only thread confirmed its restrictions in the workspace-enabled
+instance. Initial writable setup incorrectly retained input-only's empty environment
+list, which disabled local execution. The setup guard rejected it before any turn.
+The adapter now explicitly selects/verifies the local environment. An empty-thread
+qualification-audit cleanup error was also fixed without model calls. The window
+above includes that failed readiness attempt and debugging; the one-turn receipt
+was retained across retries, and the fifteen-minute deadline was not reset.
+
+The renewed one-turn allowance is consumed. Normal tests skip both opt-in native
+suites. Race tests and vet passed; native cancellation/abrupt child-process loss,
+Linux runtime enforcement, arbitrary projects/tools and production installation
+remain outside this live qualification. Uncertain settlement fails closed.

@@ -19,6 +19,7 @@ import (
 
 type ConfigureFunc func(file, field string, value json.RawMessage) error
 type StartArgs struct {
+	SourceRef string            `json:"source_ref,omitempty"`
 	RequestID string            `json:"request_id"`
 	Project   string            `json:"project"`
 	Process   string            `json:"process,omitempty"`
@@ -65,7 +66,13 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 			}
 			values[k] = runner.Value{ArtifactID: id}
 		}
-		r, e := c.Start(runner.StartRequest{RequestID: in.RequestID, Project: in.Project, Process: in.Process, Inputs: values})
+		r, e := c.Start(runner.StartRequest{
+			RequestID: in.RequestID,
+			Project:   in.Project,
+			Process:   in.Process,
+			SourceRef: in.SourceRef,
+			Inputs:    values,
+		})
 		if e != nil {
 			return nil, e
 		}
@@ -106,7 +113,11 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		if e != nil {
 			return nil, e
 		}
-		return map[string]string{"file": in.File, "field": in.Field, "effective": "future run definitions; global concurrency affects admission immediately"}, nil
+		return map[string]string{
+			"file":      in.File,
+			"field":     in.Field,
+			"effective": "future run definitions; global concurrency affects admission immediately",
+		}, nil
 	})
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s }, &mcp.StreamableHTTPOptions{Stateless: true})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +144,17 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 	})
 }
 func summary(r runner.Run) runner.Summary {
-	return runner.Summary{ID: r.ID, Project: r.ProjectID, Process: r.Process.ID, Status: r.Status, Reason: r.Reason, Step: r.Step, Attempts: len(r.Attempts), Revision: r.Revision, Updated: r.Updated}
+	return runner.Summary{
+		ID:       r.ID,
+		Project:  r.ProjectID,
+		Process:  r.Process.ID,
+		Status:   r.Status,
+		Reason:   r.Reason,
+		Step:     r.Step,
+		Attempts: len(r.Attempts),
+		Revision: r.Revision,
+		Updated:  r.Updated,
+	}
 }
 
 type authorizedTransport struct{ token string }
@@ -160,7 +181,13 @@ func Connect(ctx context.Context, endpoint, token string) (*mcp.ClientSession, e
 	}
 	// A configured run record may be up to 1MiB; leave framing headroom while
 	// keeping the client response bound independent of observation count.
-	return client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: endpoint, HTTPClient: httpClient, MaxRetries: -1, DisableStandaloneSSE: true, MaxEventSize: 2 << 20}, nil)
+	return client.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint:             endpoint,
+		HTTPClient:           httpClient,
+		MaxRetries:           -1,
+		DisableStandaloneSSE: true,
+		MaxEventSize:         2 << 20,
+	}, nil)
 }
 func Call(ctx context.Context, session *mcp.ClientSession, name string, args any) (json.RawMessage, error) {
 	r, e := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})

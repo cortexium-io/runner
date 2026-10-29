@@ -1855,6 +1855,294 @@ The implementation and three native task executions are complete within the
 The initial generation allowance is consumed. Remaining unsupported capabilities
 and unqualified failure environments are explicit in that record.
 
+## Agreed first writable workspace lifecycle
+
+Agreed 29 October 2026, following the core/adapter checkpoint `eba1c74`.
+This is a design agreement; writable implementation and further native generation
+remain separate authorization decisions.
+
+One Runner-owned Git worktree belongs to a run and follows its sequential steps.
+An attempt owns its session and scratch data; it does not own the only copy of
+the code result. Record the selected Git base and resource ownership once. Git
+isolation preserves the user's checkout; it does not itself enforce worker access.
+Filesystem/tool permissions are agreed in the next section.
+
+When a writable attempt fails:
+
+- Confirm that the previous execution has settled before admitting another writer.
+  Unknown execution keeps its workspace and stays in reconciliation.
+- Preserve current edits, including new source files. A failed session or failed
+  check does not automatically reset the worktree or repeat completed steps.
+- An eligible configured retry/repair uses the preserved workspace and a fresh
+  session. Supply the original task/accepted changes, relevant current diff and
+  previous failure reason rather than the full previous conversation. Preserve
+  consumed allowances. Ordinary configured recovery need not involve a human.
+- For the first writable fixture, keep one automatic attempt per step. Restarting
+  from the selected code baseline is an explicit recovery choice; preserve the
+  discarded changes first and restrict the operation to this owned worktree.
+
+Apply the existing resource lifecycle to successful, failed and cancelled runs:
+retain required code changes and check results outside disposable resources before
+cleanup. Once execution is settled, preservation is confirmed and no consumer
+requires the live worktree, retention/storage policy may remove it. Failed
+worktrees need not occupy disk forever. If required preservation fails or exceeds
+its allowance, expose the storage problem and constrain admission rather than
+silently discarding code. Avoid copying build caches into the retained code result.
+
+Base selection, attempt-start source identity and the retained change format are
+agreed below. Native access requires the qualification described below. No new
+task-content hash, approval checksum or per-file lock is implied by Git change
+provenance.
+
+## Agreed first writable permission boundary
+
+Agreed 29 October 2026. Keep the first writable fixture to a small Go project
+using the standard library. Runner owns Git operations and resource management;
+the worker receives the code and access needed for its assigned step.
+
+| Resource | Worker access | Owner |
+| --- | --- | --- |
+| Run worktree source | Read/write for a coding step; read for a checking step. | Run |
+| Attempt scratch, Go build cache and temporary test output | Read/write, disposable after required results are secured. | Attempt |
+| Selected Go installation | Read/execute. | Host |
+| Git administrative data, including the worktree's `.git` entry | No access. Runner supplies the relevant diff and performs Git operations. | Runner |
+| Runner database, control credentials/socket and native account/session data | No access. | Runner/native harness |
+| Unrelated projects and private user files | No grant. | User |
+
+Use native OS-enforced permission profiles for commands, including the programs
+started by `go test`. A prompt instruction or Git worktree is insufficient.
+The trusted native harness retains its selected authentication; its task commands
+must not receive that authentication or Runner control credentials through files
+or environment variables. Use a small explicit command environment, a non-login
+shell and attempt-owned `TMPDIR`, `GOTMPDIR` and `GOCACHE`. Keep toolchain selection
+local and automatic dependency/toolchain downloads disabled for this fixture.
+
+No task network or local-service/socket access is needed for this fixture. Model
+service traffic belongs to the trusted harness and is separate from task network
+access. Do not inherit apps, MCP servers, web search, browser access, hooks,
+subagents, host skills or project-selected capability/configuration additions.
+Supply the selected instructions explicitly. Other projects may later declare
+additional capabilities; this fixture does not install or enable them.
+
+Resolve actual owned paths before assigning access. Keep the writable instance,
+native home, worktree and scratch outside global system temporary directories;
+do not grant all of `/tmp` or the user's home for convenience. Exact exclusions
+protect known private locations. Treat code edits as results to inspect, not as
+permission to execute changed scripts or configuration outside the sandbox.
+
+**Readiness evidence, not writable-adapter qualification.** On macOS with
+`codex-cli 0.164.0`, a temporary standard-library Go program was run through
+`codex sandbox` and then `codex app-server`'s `command/exec`, selecting a named
+permission profile. Outside the system temporary directory, the native command
+path allowed source/scratch writes and blocked Git metadata writes, reads of dummy
+native-private data, unrelated files, a denied subtree and a symlink escape.
+Loopback TCP connection attempts failed with an OS permission error. No thread,
+turn or model generation was started, and no actual credential was read.
+
+The equivalent fixture under `/tmp` failed the file exclusions, including after
+canonicalizing it to `/private/tmp`; network denial still worked. The same file
+checks passed when the fixture moved outside system temporary directories. This
+is a concrete native-runtime limitation observed here, not proof that aliases
+alone explain it. Do not rely on nested exclusions inside system temporary
+directories to protect Runner data. The owned probe files and services are
+disposable; retain this result rather than the test caches or native histories.
+
+The installed protocol exposes named `permissions` on thread/turn creation and
+`permissionProfile` on standalone commands. These cannot be mixed with the older
+`sandbox`/`sandboxPolicy` fields. The current input-only adapter uses the older
+settings and remains unchanged. A writable implementation must resolve and check
+its effective native policy without silently widening it. Before enabling real
+writable turns, verify every enabled file-edit/read path, command environment,
+private-directory boundary and cancellation/recovery behavior through the actual
+adapter. The command probes do not qualify built-in editing tools, Linux runtime
+enforcement or a production project. Unsupported boundaries remain a visible
+readiness failure; they do not trigger an unsandboxed fallback.
+
+The native permission semantics and separate capability controls are described in
+the [official Codex permissions documentation](https://learn.chatgpt.com/docs/permissions).
+Disk isolation is not a hard quota: retain the existing distinction between
+Runner-controlled storage bounds and observed native growth/stop thresholds.
+This agreement adds no per-file locks, content acceptance checksums or automatic
+approval escalation. Writable implementation and additional native generations
+remain unapproved.
+
+## Agreed Git starting point and retained code result
+
+Agreed 29 October 2026. This defines the first local writable slice, not an
+implementation or permission to modify another project's checkout.
+
+**Starting point.** The project selects a local repository and default Git ref;
+a run may explicitly select another permitted ref or commit. Do not guess a branch
+name, fetch, pull or merge as part of preparation. When preparing the run's first
+workspace, resolve that selection to one exact commit, record it and create the
+detached run worktree from it before admitting a worker. Before preparation,
+status shows the requested ref and that the base is not yet selected. Afterward,
+branch movement, configuration edits, retries and Runner restarts do not select a
+different base. A comparison can request the original exact commit explicitly.
+
+The user's uncommitted edits are not implicit input and need not block this
+isolated run. Preserve their checkout and index. Including uncommitted user work
+requires an explicit future input capability; the first fixture starts from a
+committed baseline. Keep one recorded Runner-owned Git ref protecting the selected
+base while retained changes or recovery need it. This is ordinary Git object
+retention; it neither locks the user's branch nor creates an acceptance gate.
+
+**Saved result.** Retain a Git binary patch from that base to the current source,
+plus small source/provenance metadata in the normal run/attempt records. The patch
+is an ordinary bounded file artifact outside SQLite. The record identifies the
+repository, exact base, artifact and producing attempt; normal outcome and check
+records state whether this is partial work or an accepted result. No complete
+repository archive, new task ledger or second evidence format is needed.
+
+Capture tracked changes, staged or unstaged, and new non-ignored source files in
+the selected source scope. Include deletions, binary content and executable-bit
+changes. A rename can be represented as deletion plus addition without changing
+the restored source. Use the project's declared collection/ignore policy; keep
+build caches and scratch outside the source result. Required ignored outputs need
+an explicit collection declaration. Unsupported file types or an uncollectable
+required output produce a visible collection failure, not a claim that all work
+was saved. Symlink/submodule source support is outside this first Go fixture.
+
+Runner performs collection with hooks, external diff/text conversion and project
+filter execution disabled. Temporary capture indexes/Git objects belong in owned,
+accounted scratch; do not leave snapshot commits or loose capture objects in the
+shared source repository. The first fixture has no custom Git filters. Native Git
+capture/restoration details still require implementation qualification.
+
+**Attempts and cleanup.** The first attempt starts from the recorded base. A later
+attempt records the particular saved source result it receives, then uses the
+same run workspace. After a writer has settled, secure its changed source before
+handoff or workspace cleanup, including partial changes from a failed/cancelled
+attempt. Saving code does not mark its task successful or its checks passed.
+Unknown execution remains in reconciliation before another writer or cleanup.
+Reuse the existing source artifact when a checking step makes no source changes;
+do not create repeated snapshots on observation polls.
+
+Secure the bounded patch and persist its reference before allowing worktree
+removal. If collection fails or exceeds its allowance, keep the recoverable
+worktree and expose the storage/collection problem; do not silently truncate,
+reset or repeat development. Account for the worktree, capture scratch and patch
+under the existing resource policy. Track the base ref as a retained resource and
+release it once no retained patch, consumer or recovery requires it. Do not run
+aggressive garbage collection on the user's repository as routine cleanup.
+
+Restoration starts from the recorded base in an owned clean workspace and applies
+the saved patch. A missing base or failed application is a visible inability to
+restore; it does not select a newer branch or silently omit changes. This first
+contract depends on the registered local repository retaining its pinned base.
+Transfer to another machine or preservation independent of that repository needs
+an explicit base-transfer/archive capability later. Existing retention rules
+decide which intermediate results remain needed; do not keep every checkpoint
+forever for possible experiments.
+
+**Format evidence.** One disposable local Git fixture restored the exact source
+tree from its base plus a 982-byte patch, covering a modified Go file, new file,
+deleted file, binary change and executable-bit change. Ignored scratch was absent
+from the restored result. This used no model calls; the entire owned fixture was
+removed. It establishes the patch format's suitability, not the implementation's
+crash, storage or native-worker behavior. No writable runtime code was changed.
+
+## Agreed first writable fixture and qualification
+
+Agreed and subsequently authorized 29 October 2026. The bounded writable slice
+and its one-turn native qualification are now implemented. The
+[actual code path and qualification](architecture.md#follow-the-writable-go-process)
+record the completed evidence and remaining limits. Role/skill catalogs and model
+quality comparisons remain later work.
+
+**Task.** Seed one disposable Go module with a package declaration and a fixed
+table-driven contract test. Codex adds only `seats.go`, implementing
+`ParseSeats(text string) (int, error)`. Use Go's standard decimal integer
+conversion: a positive value succeeds; failed conversion or a non-positive value
+returns zero and an error. Error wording and distinct error types are not part of
+the contract. Supply these cases up front:
+
+| Input | Value | Error |
+| --- | --- | --- |
+| `"1"` | 1 | No |
+| `"12"` | 12 | No |
+| `""` | 0 | Yes |
+| `"many"` | 0 | Yes |
+| `"0"` | 0 | Yes |
+| `"-1"` | 0 | Yes |
+
+The baseline intentionally lacks the implementation required by the supplied
+tests. Protect the contract test and module files from edits; creating other
+source files, changing the contract or adding dependencies is outside the task.
+This fixture supplies tests to isolate execution behavior. It does not evaluate
+test authorship or establish that Runner improves on a clean Codex session.
+
+**Process.** Use two sequential configured steps in the one run workspace:
+
+1. **Implement:** one fresh Codex thread/turn, `gpt-6.1-sol` / `xhigh`, original
+   brief and supplied fixture context. Enable the sandboxed local command tool
+   for file reads/writes, with the agreed access boundary and other capabilities
+   disabled. Runner secures the candidate patch and provenance after settlement;
+   the worker returns only its bounded declared result. Do not ask it to run tests
+   or perform Git operations.
+2. **Check:** run the fixed command `go test ./...` once, without a model, against
+   that candidate. Source is read-only; Go cache and temporary output use this
+   step's owned scratch. This is the entire six-case suite for one tiny package.
+   Retain its bounded result linked to the candidate. Only passing checks and a
+   secured source result permit successful completion. A failed check preserves
+   the candidate and reports failure without an automatic repair turn.
+
+Implement only the command/check support this configured journey needs; do not
+introduce a general shell workflow framework. The normal status/control interface
+must identify the active step, fixed base, saved candidate, check result and any
+recovery/storage reason. Cleanup trouble remains a maintenance issue after a
+successful result, under the existing lifecycle rules.
+
+**Proof ownership.** Reuse the core's existing lifecycle tests. Extend the owning
+adapter/workspace tests with these source-specific assertions, using controlled
+helpers and explicit synchronization rather than spending model turns on faults:
+
+- Lost launch acknowledgement/reconnect leaves one attempt and one execution;
+  reconnect does not repeat a source write or replace the run's base/workspace.
+- Cancellation after a confirmed partial write, followed by Runner restart,
+  preserves that source as unaccepted work. Unknown activity holds its workspace
+  and writer capacity until settled; it does not admit a replacement writer.
+- Interrupted result collection and an oversized result preserve recoverable
+  source, expose the collection/storage reason and reconcile retained artifacts
+  without duplicate payloads or premature worktree cleanup.
+- After original workspace removal, the saved patch restores the same source
+  from the pinned base, including new files. The collector's format coverage owns
+  deletion/binary/mode cases; do not duplicate that matrix in paid native runs or
+  rerun the Go tests merely to establish identical restored bytes.
+
+Before a paid turn, use zero-generation native command/readiness checks for the
+actual edit and check profiles: allowed source/scratch access, protected tests
+and Git data, denied private data/symlink escapes and denied network access.
+Include effective input-only restrictions where shared adapter settings change.
+An unenforceable boundary prevents dispatch. Native success then proves the real
+coding-to-check-to-retention journey. These proofs do not claim abrupt host-loss
+survival, native Linux support or general project compatibility.
+
+**Authorized allowance (now consumed).** One native coding turn total, with no automatic retry or
+model substitution. A turn can contain multiple model requests; it is not a hard
+token cap. Allow 15 minutes for native qualification overall, at most five for
+the coding turn, reserving the remainder for readiness, checking, result capture
+and cleanup. Stop before another turn if it fails to finish. Keep the isolated
+instance's managed allowance at 512 MiB, minimum free space at 1 GiB, native stop
+threshold at 32 MiB and retained patch at most 32 KiB. Worker/native growth limits
+remain monitored stop thresholds that can overshoot; controlled retained writes
+use enforced bounds. Do not silently enlarge limits or erase unresolved work to
+fit the allowance.
+
+Report the source/check outcome, execution count, elapsed time, reported native
+tokens/cache usage and peak observed managed storage, plus recovery and cleanup
+results. Include setup/check/coordination work where measured and mark unavailable
+usage explicitly; do not present a native subtotal as total cost. This is lifecycle
+qualification, not an A/B efficiency benchmark. The implementation must pass the
+repository's required Go gates; ordinary tests keep native generation opt-in.
+
+The actual native coding setup explicitly selects one local environment and its
+workspace roots. Input-only execution retains empty environments/roots. Failed
+worktrees remain available for retry until history retention; successful/cancelled
+worktrees may be released once their source is secured. Instance-level protected
+source paths and concurrency one bound this first capability. The
+[workspace example](../examples/workspace/README.md) is the supported schema.
+
 ## Authorized first implementation slice
 
 **Authorized by the owner's subsequent “Yes please” to starting this isolated

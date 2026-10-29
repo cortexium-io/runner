@@ -1,0 +1,11 @@
+id: demo
+name: Codex input-only qualification
+workspace: .
+processes:
+  summarize: processes/summarize.yaml
+default_process: summarize
+roles:
+  summary:
+    file: roles/summary.yaml
+  finish:
+    file: roles/finish.yaml

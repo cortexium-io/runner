@@ -38,11 +38,11 @@ and 16 projects per instance.
 
 An instance sets `projects`, `concurrency`, `reconcile_interval` and `storage`.
 A project sets `id`, `name`, `workspace`, `processes`, `default_process` and role
-bindings (`file`, optional `profile`). Workspace is descriptive in this slice;
-no code is executed there. A role sets `id`, optional `purpose`, named `inputs`/
+bindings (`file`, optional `profile`). Optional `source: {ref: HEAD}` enables
+a local Git source baseline; without it, workspace is descriptive. A role sets `id`, optional `purpose`, named `inputs`/
 `outputs` and either `execution` or named `profiles` with a `default_profile`.
 
-Only `harness: deterministic` is supported. Its modes are `echo`, `file`, `fail`,
+The `harness: deterministic` modes are `echo`, `file`, `fail`,
 `needs_help` and `log`; setup fields are `input`, `output`, optional `text`,
 `delay` and `log_bytes`. Echo/log return one text output; file returns one artifact.
 A selected input must be declared text or artifact. These are controlled test
@@ -154,8 +154,8 @@ adapter; supported observations are reported, with missing usage kept unknown.
 Only declared inline text inputs/outputs are supported. No environment or workspace
 roots are selected. MCP/apps/plugins/hooks, shell/subagent tools, web search and
 automatic skill/instruction discovery are disabled. Required effective settings
-are checked before requesting a turn. Wider workspace access and role skills/tools
-need their own adapter/profile qualification; they are rejected by this schema.
+are checked before requesting a turn. The separately qualified bounded Go workspace profiles are described below.
+Other role skills/tool catalogs remain outside this schema.
 
 `inspect` includes the native thread/turn handle, confirmed effective setup and
 reported usage. `status` reports shared native-store bytes. The recorded native
@@ -178,3 +178,47 @@ all native jobs have been released. Uncertain/uncommitted state is preserved.
 The initial native qualification used its three-task allowance. The ordinary Go
 suite skips the opt-in test. Do not enable `RUNNER_NATIVE_QUALIFY=1` without explicit
 authorization for a new bounded set of model executions.
+
+## Bounded writable Go execution
+
+See [the configuration example](../examples/workspace/README.md). It accepts the
+implementation task through the `request` run input. The fixed Go qualification
+fixture belongs to `testdata/seats/`.
+A source-enabled project names its repository root and explicit `source.ref`.
+`start --source-ref REF` / MCP `source_ref` may select another local ref/commit.
+Runner freezes that selection with the run and resolves the commit at preparation;
+subsequent branch movement/restarts do not change its base. No automatic fetch,
+pull, merge or inclusion of uncommitted user edits occurs.
+
+The instance must select `codex.go_binary` and concurrency one. Its optional
+`codex.read_only_paths` lists exact relative source paths protected from worker
+writes; the example protects `go.mod`; add the test files that must remain unchanged. These are service
+settings and require restart. Workspaces/state must use short private paths outside
+system temporary directories. The first fixture supports regular source files and
+rejects symlinks/submodules/Git attributes in the baseline; it is not a general
+qualification of existing repositories or custom Git configurations.
+
+A coding role uses `harness: codex` / `access: workspace-write`, declared text
+outputs plus `patch: artifact`. Runner produces that patch; the native result
+schema requests text only. Coding uses the explicitly selected local environment,
+named permissions, no login shell and an explicit command environment. Git/native
+account/control files and external capabilities remain inaccessible to the worker.
+
+The check role uses `harness: go-check` / `access: workspace-read`, exactly
+`patch: artifact` input and `check: text` output. It has no model settings and
+runs only the fixed Go suite command. A candidate mismatch prevents checking.
+No automatic repair is configured in the example. Inspect shows source base/tree,
+workspace, input/saved patch references, check result and `resources_released`.
+
+Source is secured even for failed/cancelled coding attempts. Successful/cancelled
+worktrees are removed after settlement and saved results; failed worktrees remain
+for authorized retry until history expiry. Cache/scratch release is separate from
+code retention. Retained patches pin their base commit, with ordinary retention
+releasing that ref once no results/consumers require it. Collection or persistence
+failure holds the attempt for recovery. An uncertain child command holds capacity;
+server exit alone does not authorize source cleanup or replacement execution.
+
+Native worker/scratch growth is monitored, not an OS quota. The measured live scope
+and remaining limitations are in the [qualification record](architecture.md#writable-go-qualification-29-october-2026).
+The renewed one-turn allowance has been used; do not opt in to another native run
+without a new explicit allowance. Ordinary repository gates submit no model work.

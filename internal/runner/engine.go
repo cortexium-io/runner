@@ -16,6 +16,7 @@ import (
 )
 
 type StartRequest struct {
+	SourceRef string           `json:"source_ref,omitempty"`
 	RequestID string           `json:"request_id"`
 	Project   string           `json:"project"`
 	Process   string           `json:"process,omitempty"`
@@ -73,7 +74,19 @@ func New(ctx context.Context, s Store, e Executor, d *Disk, cfg Snapshot) (*Core
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	c := &Core{store: s, executor: e, disk: d, snapshot: Clone(cfg), runs: map[string]Run{}, inFlight: map[string]bool{}, wake: make(chan struct{}, 1), changed: make(chan struct{}), ctx: ctx, cancel: cancel, loopDone: make(chan struct{})}
+	c := &Core{
+		store:    s,
+		executor: e,
+		disk:     d,
+		snapshot: Clone(cfg),
+		runs:     map[string]Run{},
+		inFlight: map[string]bool{},
+		wake:     make(chan struct{}, 1),
+		changed:  make(chan struct{}),
+		ctx:      ctx,
+		cancel:   cancel,
+		loopDone: make(chan struct{}),
+	}
 	c.executionUpdates = map[string]bool{}
 	for _, r := range saved {
 		if a := r.Current(); a != nil && a.State != Finished {
@@ -147,6 +160,9 @@ func (c *Core) Start(req StartRequest) (Run, error) {
 	if !ok {
 		return Run{}, errors.New("project is not configured")
 	}
+	if req.SourceRef != "" && (p.Source == nil || len(req.SourceRef) > 256 || strings.HasPrefix(req.SourceRef, "-")) {
+		return Run{}, errors.New("source_ref needs a source-enabled project and a local ref/commit")
+	}
 	name := req.Process
 	if name == "" {
 		name = p.DefaultProcess
@@ -176,7 +192,21 @@ func (c *Core) Start(req StartRequest) (Run, error) {
 	if free < int64(c.disk.Policy.MinFree)+int64(c.disk.Policy.Database.MaxRecord)*2 {
 		return Run{}, fmt.Errorf("%w: free-space reserve", ErrCapacity)
 	}
-	r := Run{ID: "run_" + rand.Text(), ProjectID: p.ID, Process: Clone(proc), Roles: map[string]Role{}, Profiles: map[string]string{}, Inputs: Clone(req.Inputs), Status: "Queued", Created: time.Now().UTC()}
+	r := Run{
+		Repository: p.Workspace,
+		Source:     Clone(p.Source),
+		ID:         "run_" + rand.Text(),
+		ProjectID:  p.ID,
+		Process:    Clone(proc),
+		Roles:      map[string]Role{},
+		Profiles:   map[string]string{},
+		Inputs:     Clone(req.Inputs),
+		Status:     "Queued",
+		Created:    time.Now().UTC(),
+	}
+	if req.SourceRef != "" {
+		r.Source.Ref = req.SourceRef
+	}
 	for _, step := range proc.Steps {
 		r.Roles[step.Role] = Clone(p.Roles[step.Role])
 		r.Profiles[step.Role] = p.Profiles[step.Role]
@@ -204,11 +234,27 @@ func (c *Core) Get(id string) (Run, error) {
 func (c *Core) Status() Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	s := Status{ConfigError: c.configError, MaintenanceError: c.maintenanceError, ManagedFiles: c.disk.Used(), DatabaseReservation: c.disk.Policy.Database.MaxSize, ManagedLimit: c.disk.Policy.MaxManaged}
+	s := Status{
+		ConfigError:         c.configError,
+		MaintenanceError:    c.maintenanceError,
+		ManagedFiles:        c.disk.Used(),
+		DatabaseReservation: c.disk.Policy.Database.MaxSize,
+		ManagedLimit:        c.disk.Policy.MaxManaged,
+	}
 	s.TotalRuns = len(c.runs)
 	s.NativeStoreBytes = c.disk.NativeUsed()
 	for _, r := range c.runs {
-		s.Runs = append(s.Runs, Summary{r.ID, r.ProjectID, r.Process.ID, r.Status, r.Reason, r.Step, len(r.Attempts), r.Revision, r.Updated})
+		s.Runs = append(s.Runs, Summary{
+			r.ID,
+			r.ProjectID,
+			r.Process.ID,
+			r.Status,
+			r.Reason,
+			r.Step,
+			len(r.Attempts),
+			r.Revision,
+			r.Updated,
+		})
 	}
 	sort.Slice(s.Runs, func(i, j int) bool { return s.Runs[i].Updated.After(s.Runs[j].Updated) })
 	if len(s.Runs) > 100 {
@@ -226,7 +272,17 @@ func (c *Core) Wait(ctx context.Context, id string, after int64) (Summary, error
 			return Summary{}, ErrNotFound
 		}
 		if r.Revision > after {
-			return Summary{r.ID, r.ProjectID, r.Process.ID, r.Status, r.Reason, r.Step, len(r.Attempts), r.Revision, r.Updated}, nil
+			return Summary{
+				r.ID,
+				r.ProjectID,
+				r.Process.ID,
+				r.Status,
+				r.Reason,
+				r.Step,
+				len(r.Attempts),
+				r.Revision,
+				r.Updated,
+			}, nil
 		}
 		select {
 		case <-ctx.Done():
@@ -274,6 +330,9 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 		return r, ErrNotFound
 	}
 	r = Clone(r)
+	if c.inFlight[r.ID] {
+		return Run{}, errors.New("run resource cleanup is active; wait before retrying")
+	}
 	if (r.Status != "Waiting" && r.Status != "Failed") || r.Active() {
 		return Run{}, errors.New("retry needs settled failed/waiting work; unknown execution must be reconciled first")
 	}
@@ -302,6 +361,7 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 	r.Process.MaxAttempts += req.ExtraAttempts
 	r.Process.MaxAttemptsPerStep += req.ExtraAttempts
 	r.Status = "Queued"
+	r.ResourcesReleased = false
 	r.Reason = "authorized retry"
 	rec := Receipt{Key: req.RequestID, Kind: "retry", Args: args, RunID: r.ID}
 	if e := c.persist(r, nil, &rec); e != nil {
@@ -376,6 +436,21 @@ func (c *Core) tick() time.Duration {
 			}
 		}
 		if r.Terminal() {
+			if _, ok := c.executor.(RunResources); ok && r.Status != "Failed" && !r.ResourcesReleased && !c.inFlight[r.ID] {
+				ready := true
+				for _, old := range r.Attempts {
+					if !old.Released {
+						ready = false
+					}
+				}
+				if ready {
+					if r.CleanupError != "" && time.Since(r.Updated) < time.Minute {
+						next = min(next, time.Minute-time.Since(r.Updated))
+					} else {
+						c.launch(id, r.ID, "release_run", Assignment{})
+					}
+				}
+			}
 			continue
 		}
 		if a != nil && a.State != Finished {
@@ -482,7 +557,13 @@ func (c *Core) tick() time.Duration {
 			_ = c.persist(r, nil, nil)
 			continue
 		}
-		a2 := Attempt{ID: "attempt_" + rand.Text(), Step: r.Step, Profile: r.NextProfile, State: NotStarted, Started: time.Now().UTC()}
+		a2 := Attempt{
+			ID:      "attempt_" + rand.Text(),
+			Step:    r.Step,
+			Profile: r.NextProfile,
+			State:   NotStarted,
+			Started: time.Now().UTC(),
+		}
 		if a2.Profile == "" {
 			a2.Profile = r.Profiles[r.Process.Steps[r.Step].Role]
 		}
@@ -518,7 +599,21 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 	if e != nil {
 		return Assignment{}, e
 	}
-	return Assignment{AttemptID: a.ID, Setup: ExecutionSetup{p}, Inputs: inputs, WorkDir: filepath.Join(c.disk.Root, "work", a.ID), OutputDir: filepath.Join(c.disk.Root, "artifacts", a.ID), Limits: ExecutionLimits{c.disk.Policy.Database.MaxRecord, c.disk.Policy.MaxArtifact, c.disk.Policy.Logs.MaxPerAttempt}, Task: r.Roles[step.Role].Purpose, OutputTypes: Clone(r.Roles[step.Role].Outputs), AllowHelp: step.Escalation != nil, Deadline: a.Deadline}, nil
+	return Assignment{
+		RunID:       r.ID,
+		Repository:  r.Repository,
+		Source:      Clone(r.Source),
+		AttemptID:   a.ID,
+		Setup:       ExecutionSetup{p},
+		Inputs:      inputs,
+		WorkDir:     filepath.Join(c.disk.Root, "work", a.ID),
+		OutputDir:   filepath.Join(c.disk.Root, "artifacts", a.ID),
+		Limits:      ExecutionLimits{c.disk.Policy.Database.MaxRecord, c.disk.Policy.MaxArtifact, c.disk.Policy.Logs.MaxPerAttempt},
+		Task:        r.Roles[step.Role].Purpose,
+		OutputTypes: Clone(r.Roles[step.Role].Outputs),
+		AllowHelp:   step.Escalation != nil,
+		Deadline:    a.Deadline,
+	}, nil
 }
 func bindings(r Run, bs map[string]Binding) (map[string]Value, error) {
 	out := map[string]Value{}
@@ -574,6 +669,8 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 			err = c.executor.Stop(ctx, id)
 		case "release":
 			err = c.executor.Release(ctx, id)
+		case "release_run":
+			err = c.executor.(RunResources).ReleaseRun(ctx, runID)
 		}
 		c.mu.Lock()
 		defer c.mu.Unlock()
@@ -582,6 +679,16 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 			return
 		}
 		r := Clone(c.runs[runID])
+		if op == "release_run" {
+			if err != nil {
+				r.CleanupError = Clip(err.Error())
+			} else {
+				r.ResourcesReleased = true
+				r.CleanupError = ""
+			}
+			_ = c.persist(r, nil, nil)
+			return
+		}
 		index := -1
 		for i := range r.Attempts {
 			if r.Attempts[i].ID == id {
@@ -636,7 +743,10 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 		encoded, encodeErr := json.Marshal(obs)
 		if encodeErr != nil || len(encoded) > int(c.disk.Policy.Database.MaxRecord)/2 {
 			if obs.State == Finished {
-				obs = Observation{State: Finished, End: &ExecutionEnd{Kind: "failed", Reason: "executor returned malformed or oversized result metadata"}}
+				obs = Observation{
+					State: Finished,
+					End:   &ExecutionEnd{Kind: "failed", Reason: "executor returned malformed or oversized result metadata"},
+				}
 			} else {
 				obs = Observation{State: Unknown, Reason: "executor returned unusable observation metadata"}
 			}
@@ -651,6 +761,9 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 		if obs.Effective != nil {
 			a.Effective = Clone(obs.Effective)
 		}
+		if obs.Source != nil {
+			a.Source = Clone(obs.Source)
+		}
 		a.DroppedLogBytes = obs.DroppedLogBytes
 		a.Reason = Clip(obs.Reason)
 		a.NextCheck = obs.NextCheck
@@ -658,6 +771,17 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 			a.NextCheck = time.Now().Add(fallback)
 		}
 		var arts []Artifact
+		if a.Source != nil && a.Source.PatchID != "" {
+			if !strings.HasPrefix(a.Source.PatchID, a.ID+"/") {
+				obs = Observation{State: Unknown, Reason: "source artifact does not belong to this attempt"}
+			} else if n, e := c.disk.ArtifactSize(a.Source.PatchID); e != nil {
+				obs = Observation{State: Unknown, Reason: Clip(e.Error())}
+			} else {
+				arts = append(arts, Artifact{a.Source.PatchID, r.ID, r.ProjectID, n})
+			}
+		}
+		a.State = obs.State
+		a.Reason = Clip(obs.Reason)
 		switch obs.State {
 		case NotStarted:
 			if r.CancelRequested || a.TimedOut {
@@ -691,7 +815,7 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 			a.Reason = ""
 			a.NextCheck = time.Time{}
 			a.FinishedAt = time.Now().UTC()
-			arts = c.finish(&r, index)
+			arts = append(arts, c.finish(&r, index)...)
 		default:
 			a.State = Unknown
 			r.Status = "Waiting"
@@ -701,6 +825,18 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 			return
 		}
 		if e := c.persist(r, arts, nil); e != nil && a.State == Finished {
+			if a.Source != nil {
+				a.State = Unknown
+				a.NextCheck = time.Now().Add(fallback)
+				a.End = nil
+				r.Step = a.Step
+				r.Status = "Waiting"
+				r.Reason = "source result persistence requires recovery: " + Clip(e.Error())
+				r.Outputs = nil
+				_ = c.persist(r, nil, nil)
+				c.Wake()
+				return
+			}
 			a.End = &ExecutionEnd{Kind: "failed", Reason: "result persistence rejected: " + Clip(e.Error())}
 			r.Step = a.Step
 			r.Status = "Failed"
@@ -823,7 +959,7 @@ func (c *Core) Collect() error {
 		if !r.Terminal() || time.Since(r.Updated) < ttl {
 			continue
 		}
-		ready := true
+		ready := !c.inFlight[id]
 		for _, a := range r.Attempts {
 			if !a.Released || c.inFlight[a.ID] {
 				ready = false
@@ -838,6 +974,11 @@ func (c *Core) Collect() error {
 		}
 		if used {
 			continue
+		}
+		if resources, ok := c.executor.(RunResources); ok {
+			if e = resources.ForgetRun(c.ctx, id); e != nil {
+				return e
+			}
 		}
 		for _, a := range r.Attempts {
 			if e = c.disk.Remove("artifacts/" + a.ID); e != nil {

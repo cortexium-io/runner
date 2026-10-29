@@ -1,0 +1,16 @@
+projects:
+  - projects/demo/project.yaml
+concurrency: 2
+reconcile_interval: 5m
+storage:
+  max_managed: 16MiB
+  min_free: 16MiB
+  database:
+    max_size: 4MiB
+    max_record: 16KiB
+    max_runs: 20
+  max_artifact: 64KiB
+  keep_runs: 168h
+  logs:
+    max_per_attempt: 2KiB
+    keep_for: 48h

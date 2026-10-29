@@ -110,6 +110,17 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 		} else {
 			c.AuthFile = resolve(l.Path, c.AuthFile)
 		}
+		if c.GoBinary != "" && strings.ContainsRune(c.GoBinary, os.PathSeparator) {
+			c.GoBinary = resolve(l.Path, c.GoBinary)
+		}
+		if len(c.ReadOnlyPaths) > 32 {
+			return s, errors.New("codex.read_only_paths is limited to 32 relative source paths")
+		}
+		for _, path := range c.ReadOnlyPaths {
+			if !validRelative(path) || path == ".runner-tmp" || strings.HasPrefix(path, ".runner-tmp/") {
+				return s, errors.New("invalid codex.read_only_paths entry")
+			}
+		}
 		if c.StorageLimit == 0 {
 			c.StorageLimit = 16 << 20
 		}
@@ -133,7 +144,19 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 		if !validID(f.ID) || s.Projects[f.ID].ID != "" {
 			return s, fmt.Errorf("%s: missing/duplicate project ID %q", path, f.ID)
 		}
-		p := runner.Project{ID: f.ID, Name: f.Name, Workspace: resolve(path, f.Workspace), DefaultProcess: f.DefaultProcess, Roles: map[string]runner.Role{}, Processes: map[string]runner.Process{}, Profiles: map[string]string{}}
+		p := runner.Project{
+			ID:             f.ID,
+			Name:           f.Name,
+			Workspace:      resolve(path, f.Workspace),
+			DefaultProcess: f.DefaultProcess,
+			Source:         runner.Clone(f.Source),
+			Roles:          map[string]runner.Role{},
+			Processes:      map[string]runner.Process{},
+			Profiles:       map[string]string{},
+		}
+		if p.Source != nil && (p.Source.Ref == "" || len(p.Source.Ref) > 256 || strings.HasPrefix(p.Source.Ref, "-")) {
+			return s, errors.New("source.ref must select an explicit local Git ref or commit")
+		}
 		for name, b := range f.Roles {
 			var role runner.Role
 			if e = read(resolve(path, b.File), &role); e != nil {
@@ -162,17 +185,34 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 				if e = ready(profile); e != nil {
 					return s, fmt.Errorf("role %s: %w", name, e)
 				}
-				if profile.Harness == "codex" {
+				if profile.Harness == "codex" || profile.Harness == "go-check" {
 					if strings.TrimSpace(role.Purpose) == "" {
 						return s, fmt.Errorf("role %s: Codex execution needs an explicit task purpose", name)
 					}
 					if s.Instance.Codex == nil {
 						return s, errors.New("a codex profile requires instance codex settings")
 					}
-					for _, contract := range []map[string]string{role.Inputs, role.Outputs} {
-						for _, kind := range contract {
+					if profile.Access != "input-only" && (p.Source == nil || s.Instance.Concurrency != 1) {
+						return s, errors.New("first workspace/check profiles need project source settings and concurrency: 1")
+					}
+					if profile.Access != "input-only" && s.Instance.Codex.GoBinary == "" {
+						return s, errors.New("workspace execution requires explicit codex.go_binary")
+					}
+					if profile.Access == "workspace-write" && role.Outputs["patch"] != "artifact" {
+						return s, errors.New("workspace coding needs a patch artifact output owned by Runner")
+					}
+					if profile.Harness == "go-check" && (len(role.Inputs) != 1 || role.Inputs["patch"] != "artifact" || len(role.Outputs) != 1 || role.Outputs["check"] != "text") {
+						return s, errors.New("go-check needs one patch artifact input and one check text output")
+					}
+					if profile.Harness != "go-check" {
+						for _, kind := range role.Inputs {
 							if kind != "text" {
-								return s, errors.New("the first Codex adapter supports declared text inputs/outputs only")
+								return s, errors.New("Codex inputs must be declared text")
+							}
+						}
+						for name, kind := range role.Outputs {
+							if kind != "text" && !(profile.Access == "workspace-write" && name == "patch" && kind == "artifact") {
+								return s, errors.New("Codex outputs must be text or the Runner-owned workspace patch")
 							}
 						}
 					}
@@ -390,9 +430,15 @@ func types(m map[string]string) error {
 	return nil
 }
 func ready(p runner.Profile) error {
+	if p.Harness == "go-check" {
+		if p.Access != "workspace-read" || p.Model != "" || p.Reasoning != "" || p.Mode != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.Instructions != "" || p.MaxInput != 0 || p.MaxOutput != 0 {
+			return errors.New("go-check selects workspace-read access and no model/deterministic settings")
+		}
+		return nil
+	}
 	if p.Harness == "codex" {
-		if p.Model == "" || len(p.Model) > 100 || p.Access != "input-only" || p.Mode != "" || p.Input != "" || p.Output != "" || p.Delay != "" || p.Text != "" || p.LogBytes != 0 {
-			return errors.New("codex needs an explicit model and input-only access, without deterministic settings")
+		if p.Model == "" || len(p.Model) > 100 || (p.Access != "input-only" && p.Access != "workspace-write") || p.Mode != "" || p.Input != "" || p.Output != "" || p.Delay != "" || p.Text != "" || p.LogBytes != 0 {
+			return errors.New("codex needs an explicit model and input-only/workspace-write access, without deterministic settings")
 		}
 		switch p.Reasoning {
 		case "low", "medium", "high", "xhigh":
@@ -490,4 +536,16 @@ func validateProcess(v runner.Process, p runner.Project) error {
 		}
 	}
 	return nil
+}
+
+func validRelative(path string) bool {
+	if path == "." || !filepath.IsLocal(path) || path != filepath.ToSlash(filepath.Clean(path)) {
+		return false
+	}
+	for _, ch := range path {
+		if ch < ' ' || ch == '\\' || strings.ContainsRune("\"*?[]", ch) {
+			return false
+		}
+	}
+	return true
 }

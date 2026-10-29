@@ -99,9 +99,14 @@ type Instance struct {
 
 // CodexSettings describes one instance-owned native service, not model context.
 type CodexSettings struct {
-	Binary       string `json:"binary"`
-	AuthFile     string `json:"auth_file"`
-	StorageLimit Bytes  `json:"storage_limit"`
+	Binary        string   `json:"binary"`
+	AuthFile      string   `json:"auth_file"`
+	StorageLimit  Bytes    `json:"storage_limit"`
+	GoBinary      string   `json:"go_binary,omitempty"`
+	ReadOnlyPaths []string `json:"read_only_paths,omitempty"`
+}
+type SourceSettings struct {
+	Ref string `json:"ref"`
 }
 type RoleBinding struct {
 	File    string `json:"file"`
@@ -111,6 +116,7 @@ type ProjectFile struct {
 	ID             string                 `json:"id"`
 	Name           string                 `json:"name"`
 	Workspace      string                 `json:"workspace"`
+	Source         *SourceSettings        `json:"source,omitempty"`
 	Processes      map[string]string      `json:"processes"`
 	DefaultProcess string                 `json:"default_process"`
 	Roles          map[string]RoleBinding `json:"roles"`
@@ -119,6 +125,7 @@ type Project struct {
 	ID             string
 	Name           string
 	Workspace      string
+	Source         *SourceSettings
 	DefaultProcess string
 	Processes      map[string]Process
 	Roles          map[string]Role
@@ -253,6 +260,9 @@ type ExecutionLimits struct {
 	MaxLog      Bytes `json:"max_log"`
 }
 type Assignment struct {
+	RunID       string            `json:"run_id,omitempty"`
+	Repository  string            `json:"repository,omitempty"`
+	Source      *SourceSettings   `json:"source,omitempty"`
 	AttemptID   string            `json:"attempt_id"`
 	Setup       ExecutionSetup    `json:"setup"`
 	Inputs      map[string]Value  `json:"inputs"`
@@ -289,6 +299,7 @@ type ExecutionEnd struct {
 	Reason string      `json:"reason,omitempty"`
 }
 type Observation struct {
+	Source          *SourceResult   `json:"source,omitempty"`
 	State           ExecutionState  `json:"state"`
 	NativeHandle    string          `json:"native_handle,omitempty"`
 	End             *ExecutionEnd   `json:"end,omitempty"`
@@ -312,7 +323,22 @@ type Executor interface {
 	Release(context.Context, string) error
 }
 
+// RunResources owns source workspaces independently of attempt sessions.
+type RunResources interface {
+	ReleaseRun(context.Context, string) error
+	ForgetRun(context.Context, string) error
+}
+type SourceResult struct {
+	Tree         string `json:"tree"`
+	InputPatchID string `json:"input_patch_id,omitempty"`
+	Repository   string `json:"repository"`
+	Base         string `json:"base"`
+	WorkDir      string `json:"work_dir"`
+	PatchID      string `json:"patch_id,omitempty"`
+	AttemptID    string `json:"attempt_id"`
+}
 type Attempt struct {
+	Source          *SourceResult   `json:"source,omitempty"`
 	ID              string          `json:"id"`
 	Step            int             `json:"step"`
 	Profile         string          `json:"profile"`
@@ -335,24 +361,27 @@ type Attempt struct {
 	Effective       *ExecutionFacts `json:"effective,omitempty"`
 }
 type Run struct {
-	ID              string            `json:"id"`
-	ProjectID       string            `json:"project_id"`
-	Process         Process           `json:"process"`
-	Roles           map[string]Role   `json:"roles"`
-	Profiles        map[string]string `json:"profiles"`
-	Inputs          map[string]Value  `json:"inputs"`
-	Outputs         map[string]Value  `json:"outputs,omitempty"`
-	Attempts        []Attempt         `json:"attempts,omitempty"`
-	Step            int               `json:"step"`
-	NextProfile     string            `json:"next_profile,omitempty"`
-	Escalations     int               `json:"escalations"`
-	Status          string            `json:"status"`
-	Reason          string            `json:"reason,omitempty"`
-	CancelRequested bool              `json:"cancel_requested,omitempty"`
-	CleanupError    string            `json:"cleanup_error,omitempty"`
-	Created         time.Time         `json:"created"`
-	Updated         time.Time         `json:"updated"`
-	Revision        int64             `json:"revision"`
+	Repository        string            `json:"repository,omitempty"`
+	Source            *SourceSettings   `json:"source,omitempty"`
+	ResourcesReleased bool              `json:"resources_released,omitempty"`
+	ID                string            `json:"id"`
+	ProjectID         string            `json:"project_id"`
+	Process           Process           `json:"process"`
+	Roles             map[string]Role   `json:"roles"`
+	Profiles          map[string]string `json:"profiles"`
+	Inputs            map[string]Value  `json:"inputs"`
+	Outputs           map[string]Value  `json:"outputs,omitempty"`
+	Attempts          []Attempt         `json:"attempts,omitempty"`
+	Step              int               `json:"step"`
+	NextProfile       string            `json:"next_profile,omitempty"`
+	Escalations       int               `json:"escalations"`
+	Status            string            `json:"status"`
+	Reason            string            `json:"reason,omitempty"`
+	CancelRequested   bool              `json:"cancel_requested,omitempty"`
+	CleanupError      string            `json:"cleanup_error,omitempty"`
+	Created           time.Time         `json:"created"`
+	Updated           time.Time         `json:"updated"`
+	Revision          int64             `json:"revision"`
 }
 
 func (r Run) Terminal() bool {

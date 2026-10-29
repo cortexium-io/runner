@@ -17,6 +17,7 @@ type Disk struct {
 	Root       string
 	Policy     StoragePolicy
 	used       int64
+	peak       int64
 	native     int64
 	nativePeak int64
 }
@@ -29,6 +30,11 @@ func OpenDisk(root string, p StoragePolicy) (*Disk, error) {
 			return nil, e
 		}
 	}
+	canonical, e := filepath.EvalSymlinks(root)
+	if e != nil {
+		return nil, e
+	}
+	d.Root = canonical
 	if e := d.Refresh(); e != nil {
 		return nil, e
 	}
@@ -46,7 +52,7 @@ func (d *Disk) Refresh() error {
 	for _, dir := range []string{"jobs", "work", "artifacts", "logs", "native"} {
 		e := filepath.WalkDir(filepath.Join(d.Root, dir), func(path string, ent fs.DirEntry, err error) error {
 			if err != nil {
-				if dir == "native" && errors.Is(err, os.ErrNotExist) {
+				if (dir == "native" || dir == "work") && errors.Is(err, os.ErrNotExist) {
 					return nil
 				}
 				return err
@@ -59,13 +65,13 @@ func (d *Disk) Refresh() error {
 			}
 			// The instance lock is held before opening Disk. Incomplete atomic
 			// replacements are private writer scratch, never retained outputs.
-			if dir != "native" && !ent.IsDir() && strings.HasPrefix(ent.Name(), ".write-") {
+			if dir != "native" && dir != "work" && !ent.IsDir() && strings.HasPrefix(ent.Name(), ".write-") {
 				return os.Remove(path)
 			}
 			if !ent.IsDir() {
 				i, e := ent.Info()
 				if e != nil {
-					if dir == "native" && errors.Is(e, os.ErrNotExist) {
+					if (dir == "native" || dir == "work") && errors.Is(e, os.ErrNotExist) {
 						return nil
 					}
 					return e
@@ -82,6 +88,7 @@ func (d *Disk) Refresh() error {
 		}
 	}
 	d.used, d.native = total, native
+	d.peak = max(d.peak, total)
 	d.nativePeak = max(d.nativePeak, native)
 	return nil
 }
@@ -150,6 +157,7 @@ func (d *Disk) Write(name string, b []byte, limit Bytes) error {
 		return e
 	}
 	d.used += int64(len(b)) - old
+	d.peak = max(d.peak, d.used)
 	return nil
 }
 func (d *Disk) Read(name string, limit Bytes) ([]byte, error) {
@@ -217,3 +225,6 @@ func (d *Disk) ArtifactSize(id string) (int64, error) {
 	}
 	return i.Size(), nil
 }
+
+// Peak reports observed managed content; SQLite capacity is reserved separately.
+func (d *Disk) Peak() int64 { d.mu.Lock(); defer d.mu.Unlock(); return d.peak }

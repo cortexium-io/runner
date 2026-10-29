@@ -26,9 +26,14 @@ type scriptedPeer struct {
 	notify       func(rpcMessage)
 	turn         nativeTurn
 	thread       string
+	config       *runner.CodexSettings
+	onTurn       func(string)
+	workspace    string
+	checks       int
 	starts       int
 	deleted      int
 	lostReply    bool
+	readError    bool
 	wrongModel   bool
 	stayActive   bool
 	gate         chan struct{}
@@ -56,21 +61,89 @@ func (p *scriptedPeer) Call(ctx context.Context, method string, params, out any)
 	switch method {
 	case "config/read":
 		features := map[string]bool{}
-		for _, name := range []string{"shell_tool", "apps", "hooks", "plugins", "remote_plugin", "multi_agent", "goals", "memories", "view_image", "request_permissions", "shell_snapshot", "skill_mcp_dependency_install"} {
+		for _, name := range []string{
+			"shell_tool",
+			"apply_patch_freeform",
+			"apps",
+			"hooks",
+			"plugins",
+			"remote_plugin",
+			"multi_agent",
+			"goals",
+			"memories",
+			"view_image",
+			"request_permissions",
+			"shell_snapshot",
+			"skill_mcp_dependency_install",
+		} {
 			features[name] = false
 		}
 		features["skip_host_skill_discovery"] = true
-		result = map[string]any{"config": map[string]any{"features": features, "mcp_servers": map[string]any{}, "plugins": map[string]any{}, "marketplaces": map[string]any{}, "web_search": "disabled", "project_doc_max_bytes": 0, "skills": map[string]any{"include_instructions": false, "bundled": map[string]bool{"enabled": false}}}}
+		result = map[string]any{"config": map[string]any{
+			"features":              features,
+			"mcp_servers":           map[string]any{},
+			"plugins":               map[string]any{},
+			"marketplaces":          map[string]any{},
+			"web_search":            "disabled",
+			"project_doc_max_bytes": 0,
+			"skills":                map[string]any{"include_instructions": false, "bundled": map[string]bool{"enabled": false}},
+		}}
+		if p.config != nil && p.config.GoBinary != "" {
+			c := &Codex{cfg: p.config}
+			_, goRoot, e := c.goInstallation(ctx)
+			if e != nil {
+				return e
+			}
+			profiles := map[string]any{}
+			for _, name := range []string{"runner-input", "runner-edit", "runner-check"} {
+				profiles[name] = map[string]any{"filesystem": workspaceFiles(p.config, name, goRoot), "network": map[string]any{"enabled": false}}
+			}
+			result.(map[string]any)["config"].(map[string]any)["permissions"] = profiles
+		}
 	case "model/list":
-		result = map[string]any{"data": []any{map[string]any{"id": "gpt-6.1-sol", "supportedReasoningEfforts": []any{map[string]string{"reasoningEffort": "xhigh"}}}}}
+		result = map[string]any{"data": []any{map[string]any{
+			"id":                        "gpt-6.1-sol",
+			"supportedReasoningEfforts": []any{map[string]string{"reasoningEffort": "xhigh"}},
+		}}}
+	case "command/exec":
+		args := params.(map[string]any)
+		argv := args["command"].([]string)
+		for _, arg := range argv {
+			if arg == "test" {
+				p.checks++
+			}
+		}
+		result = map[string]any{"exitCode": 0, "stdout": "ok fixture", "stderr": ""}
 	case "thread/start":
+		args := params.(map[string]any)
+		if args["permissions"] == "runner-edit" {
+			p.workspace = args["cwd"].(string)
+		}
 		p.thread = "native-thread"
 		model := "gpt-6.1-sol"
 		if p.wrongModel {
 			model = "other-model"
 		}
-		result = map[string]any{"thread": map[string]any{"id": p.thread, "historyMode": "legacy", "environments": []any{}}, "model": model, "reasoningEffort": "xhigh", "approvalPolicy": "never", "sandbox": map[string]any{"type": "readOnly", "networkAccess": false}, "instructionSources": []any{}, "runtimeWorkspaceRoots": []any{}}
+		result = map[string]any{
+			"thread":                map[string]any{"id": p.thread, "historyMode": "legacy", "environments": []any{}},
+			"model":                 model,
+			"reasoningEffort":       "xhigh",
+			"approvalPolicy":        "never",
+			"sandbox":               map[string]any{"type": "readOnly", "networkAccess": false},
+			"instructionSources":    []any{},
+			"runtimeWorkspaceRoots": []any{},
+		}
+		if p.workspace != "" {
+			m := result.(map[string]any)
+			m["thread"].(map[string]any)["environments"] = []any{map[string]any{"environmentId": "local", "cwd": p.workspace, "runtimeWorkspaceRoots": []string{p.workspace}}}
+			m["activePermissionProfile"] = map[string]any{"id": "runner-edit"}
+			m["runtimeWorkspaceRoots"] = []string{p.workspace}
+			m["sandbox"] = map[string]any{"type": "workspaceWrite", "networkAccess": false}
+		}
 	case "turn/start":
+		if p.onTurn != nil {
+			p.onTurn(p.workspace)
+		}
 		p.starts++
 		p.turn = nativeTurn{ID: "native-turn", Status: "inProgress"}
 		if !p.stayActive {
@@ -81,10 +154,17 @@ func (p *scriptedPeer) Call(ctx context.Context, method string, params, out any)
 		}
 		result = map[string]any{"turn": p.turn}
 		if !p.stayActive {
-			p.emit("thread/tokenUsage/updated", map[string]any{"threadId": p.thread, "turnId": p.turn.ID, "tokenUsage": map[string]any{"total": map[string]int{"inputTokens": 123, "outputTokens": 15, "cachedInputTokens": 0}}})
+			p.emit("thread/tokenUsage/updated", map[string]any{
+				"threadId":   p.thread,
+				"turnId":     p.turn.ID,
+				"tokenUsage": map[string]any{"total": map[string]int{"inputTokens": 123, "outputTokens": 15, "cachedInputTokens": 0}},
+			})
 			p.emit("turn/completed", map[string]any{"threadId": p.thread, "turn": p.turn})
 		}
 	case "thread/read":
+		if p.readError {
+			return io.ErrUnexpectedEOF
+		}
 		result = map[string]any{"thread": nativeThread{ID: p.thread, Turns: []nativeTurn{p.turn}}}
 	case "thread/resume":
 		result = map[string]any{}
@@ -127,11 +207,62 @@ func nativeSnapshot() runner.Snapshot {
 	p.Database.MaxSize = 4 << 20
 	p.MaxArtifact = 4096
 	p.Logs.MaxPerAttempt = 2048
-	role := runner.Role{ID: "summary", Purpose: "Summarize the supplied document.", Inputs: map[string]string{"document": "text"}, Outputs: map[string]string{"summary": "text"}, Execution: &runner.Profile{Harness: "codex", Model: "gpt-6.1-sol", Reasoning: "xhigh", Access: "input-only", MaxInput: 4096, MaxOutput: 2048}}
-	finish := runner.Role{ID: "finish", Inputs: map[string]string{"text": "text"}, Outputs: map[string]string{"result": "text"}, Execution: &runner.Profile{Harness: "deterministic", Mode: "echo", Input: "text", Output: "result"}}
-	proc := runner.Process{ID: "summarize", Inputs: map[string]string{"document": "text"}, Steps: []runner.Step{{ID: "summary", Role: "summary", Inputs: map[string]runner.Binding{"document": {FromInput: "document"}}}, {ID: "finish", Role: "finish", Inputs: map[string]runner.Binding{"text": {FromStep: "summary", Output: "summary"}}}}, Outputs: map[string]runner.Binding{"result": {FromStep: "finish", Output: "result"}}, MaxAttempts: 2, MaxAttemptsPerStep: 1, AttemptTimeout: "2m"}
-	project := runner.Project{ID: "demo", DefaultProcess: "summarize", Roles: map[string]runner.Role{"summary": role, "finish": finish}, Processes: map[string]runner.Process{"summarize": proc}, Profiles: map[string]string{}}
-	return runner.Snapshot{Instance: runner.Instance{Concurrency: 1, ReconcileInterval: "5m", Storage: p, Codex: &runner.CodexSettings{Binary: "codex", AuthFile: "/unused", StorageLimit: 16 << 20}}, Projects: map[string]runner.Project{"demo": project}}
+	role := runner.Role{
+		ID:      "summary",
+		Purpose: "Summarize the supplied document.",
+		Inputs:  map[string]string{"document": "text"},
+		Outputs: map[string]string{"summary": "text"},
+		Execution: &runner.Profile{
+			Harness:   "codex",
+			Model:     "gpt-6.1-sol",
+			Reasoning: "xhigh",
+			Access:    "input-only",
+			MaxInput:  4096,
+			MaxOutput: 2048,
+		},
+	}
+	finish := runner.Role{
+		ID:        "finish",
+		Inputs:    map[string]string{"text": "text"},
+		Outputs:   map[string]string{"result": "text"},
+		Execution: &runner.Profile{Harness: "deterministic", Mode: "echo", Input: "text", Output: "result"},
+	}
+	proc := runner.Process{
+		ID:     "summarize",
+		Inputs: map[string]string{"document": "text"},
+		Steps: []runner.Step{
+			{
+				ID:     "summary",
+				Role:   "summary",
+				Inputs: map[string]runner.Binding{"document": {FromInput: "document"}},
+			},
+			{
+				ID:     "finish",
+				Role:   "finish",
+				Inputs: map[string]runner.Binding{"text": {FromStep: "summary", Output: "summary"}},
+			},
+		},
+		Outputs:            map[string]runner.Binding{"result": {FromStep: "finish", Output: "result"}},
+		MaxAttempts:        2,
+		MaxAttemptsPerStep: 1,
+		AttemptTimeout:     "2m",
+	}
+	project := runner.Project{
+		ID:             "demo",
+		DefaultProcess: "summarize",
+		Roles:          map[string]runner.Role{"summary": role, "finish": finish},
+		Processes:      map[string]runner.Process{"summarize": proc},
+		Profiles:       map[string]string{},
+	}
+	return runner.Snapshot{
+		Instance: runner.Instance{
+			Concurrency:       1,
+			ReconcileInterval: "5m",
+			Storage:           p,
+			Codex:             &runner.CodexSettings{Binary: "codex", AuthFile: "/unused", StorageLimit: 16 << 20},
+		},
+		Projects: map[string]runner.Project{"demo": project},
+	}
 }
 
 type nativeRig struct {
@@ -155,6 +286,7 @@ func openNativeRig(t *testing.T, dir string, cfg runner.Snapshot, script *script
 		return disk.Read("artifacts/"+id, disk.Policy.MaxArtifact)
 	}, cfg.Instance.Codex)
 	if script != nil {
+		script.config = cfg.Instance.Codex
 		script.done = make(chan struct{})
 		script.notify = service.Codex.receive
 		service.Codex.peer = script
@@ -179,7 +311,11 @@ func (r *nativeRig) close() {
 }
 func startSummary(t *testing.T, c *runner.Core, key string) runner.Run {
 	t.Helper()
-	r, err := c.Start(runner.StartRequest{RequestID: key, Project: "demo", Inputs: map[string]runner.Value{"document": runner.Text("The meeting is Tuesday at noon.")}})
+	r, err := c.Start(runner.StartRequest{
+		RequestID: key,
+		Project:   "demo",
+		Inputs:    map[string]runner.Value{"document": runner.Text("The meeting is Tuesday at noon.")},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +355,11 @@ func TestNativeAdapterCorrelationAndAdmission(t *testing.T) {
 		lost, bad bool
 		want      string
 		starts    int
-	}{{"push completion without fallback polling", false, false, "Completed", 1}, {"lost launch acknowledgement", true, false, "Completed", 1}, {"native settings mismatch", false, true, "Failed", 0}} {
+	}{
+		{"push completion without fallback polling", false, false, "Completed", 1},
+		{"lost launch acknowledgement", true, false, "Completed", 1},
+		{"native settings mismatch", false, true, "Failed", 0},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := &scriptedPeer{lostReply: tc.lost, wrongModel: tc.bad}
 			rig := openNativeRig(t, filepath.Join(t.TempDir(), "state"), nativeSnapshot(), p)
@@ -287,8 +427,16 @@ func TestCancellationDuringNativeSetupDoesNotStartTurn(t *testing.T) {
 	}
 }
 func TestNativeResultBoundary(t *testing.T) {
-	a := runner.Assignment{Setup: runner.ExecutionSetup{Profile: runner.Profile{MaxOutput: 256}}, OutputTypes: map[string]string{"summary": "text"}}
-	for _, tc := range []struct{ name, text string }{{"invalid JSON", "{broken"}, {"wrong output", `{"outcome":"ready","outputs":{"other":"text"},"reason":""}`}, {"trailing data", `{"outcome":"ready","outputs":{"summary":"text"},"reason":""} {}`}, {"oversized output", strings.Repeat("x", 257)}} {
+	a := runner.Assignment{
+		Setup:       runner.ExecutionSetup{Profile: runner.Profile{MaxOutput: 256}},
+		OutputTypes: map[string]string{"summary": "text"},
+	}
+	for _, tc := range []struct{ name, text string }{
+		{"invalid JSON", "{broken"},
+		{"wrong output", `{"outcome":"ready","outputs":{"other":"text"},"reason":""}`},
+		{"trailing data", `{"outcome":"ready","outputs":{"summary":"text"},"reason":""} {}`},
+		{"oversized output", strings.Repeat("x", 257)},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			turn := goodTurn()
 			turn.Items[0].Text = tc.text
@@ -305,8 +453,17 @@ func TestNativeJobCanBeCollectedAfterAdapterRestart(t *testing.T) {
 	rig := openNativeRig(t, dir, cfg, p)
 	// Save the exact uncertain dispatch position, as if Runner disappeared after
 	// the native turn started but before its response/result was committed.
-	a := runner.Assignment{AttemptID: "attempt_restart", Setup: runner.ExecutionSetup{Profile: *cfg.Projects["demo"].Roles["summary"].Execution}, OutputTypes: map[string]string{"summary": "text"}}
-	j := nativeJob{Assignment: a, Stage: "starting_turn", ThreadID: "native-thread", Generation: "scripted-generation"}
+	a := runner.Assignment{
+		AttemptID:   "attempt_restart",
+		Setup:       runner.ExecutionSetup{Profile: *cfg.Projects["demo"].Roles["summary"].Execution},
+		OutputTypes: map[string]string{"summary": "text"},
+	}
+	j := nativeJob{
+		Assignment: a,
+		Stage:      "starting_turn",
+		ThreadID:   "native-thread",
+		Generation: "scripted-generation",
+	}
 	p.thread = "native-thread"
 	p.turn = goodTurn()
 	rig.service.Codex.mu.Lock()
@@ -428,7 +585,12 @@ func TestReleaseReconcilesAnAlreadyDeletedNativeThread(t *testing.T) {
 	rig := openNativeRig(t, filepath.Join(t.TempDir(), "state"), nativeSnapshot(), p)
 	defer rig.close()
 	id := "attempt_release"
-	j := nativeJob{Assignment: runner.Assignment{AttemptID: id}, ThreadID: "native-thread", Stage: "active", End: &runner.ExecutionEnd{Kind: "stopped"}}
+	j := nativeJob{
+		Assignment: runner.Assignment{AttemptID: id},
+		ThreadID:   "native-thread",
+		Stage:      "active",
+		End:        &runner.ExecutionEnd{Kind: "stopped"},
+	}
 	rig.service.Codex.mu.Lock()
 	err := rig.service.Codex.saveLocked(j)
 	rig.service.Codex.mu.Unlock()

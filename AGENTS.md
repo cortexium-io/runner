@@ -26,6 +26,15 @@ outside this slice. The initial three native task executions have been used;
 further native generation needs renewed authorization. Ordinary tests skip native
 qualification. Protocol/readiness probes that submit no turn use no model call.
 
+The owner subsequently authorized the
+[first writable fixture and qualification](docs/process-core-design.md#agreed-first-writable-fixture-and-qualification):
+one isolated Go source workspace, retained patch, and a fixed check step. Use one
+implementation owner. The renewed native allowance is exactly one coding turn,
+Sol / xhigh, at most five minutes within fifteen minutes of qualification; no
+automatic repair or model substitution. That one native turn is now consumed;
+the writable journey completed. Further native generation needs a renewed
+allowance. Normal tests remain model-free. No installation or other-project changes.
+
 ## Engineering
 
 Use minimum sufficient complexity and idiomatic Go. Keep one coordinator and one
@@ -34,6 +43,10 @@ adapters depend on the core, and main wires them. Configuration files own policy
 SQLite stores resolved run settings and bounded operational facts. Do not add
 another scheduler, event store, public plugin framework, whole-task checksum
 gates or generic abstraction without a concrete need.
+
+Write long composite literals across multiple lines, with one field or element
+per line, and use `gofmt` for alignment. Keep short, simple literals compact.
+Avoid dense single-line initializers that obscure the structure of a value.
 
 Do not introduce or store Python source, packages, environments or caches.
 Preserve unrelated work. A replacement removes obsolete paths and updates their
@@ -50,6 +63,9 @@ hostile input merely because its interface compiles.
 
 Use the smallest reliable evidence for changed behavior. Extend the owning suite,
 check duplication and placement, and state the defect or contract a test proves.
+Keep each runnable example in `examples/<name>/`. Keep test fixtures in the
+repository-root `testdata/`, grouped by purpose and separate from examples. Test only relevant
+contracts; keep suites concise and coherent, with no duplicated proof.
 Table-driven tests suit related cases; they are not a requirement for unrelated
 scenarios. Avoid arbitrary synchronization sleeps and repeated passing checks.
 The deterministic core suite owns lifecycle/recovery/storage; config tests own

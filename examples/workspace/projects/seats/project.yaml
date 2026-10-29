@@ -1,0 +1,14 @@
+id: seats
+name: Local Go workspace example
+# Select the root of your small, committed, standard-library Go project.
+workspace: /absolute/path/to/go-project
+source:
+  ref: HEAD
+default_process: implement-and-check
+roles:
+  implement:
+    file: roles/implement.yaml
+  check:
+    file: roles/check.yaml
+processes:
+  implement-and-check: processes/implement-and-check.yaml

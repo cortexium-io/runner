@@ -18,6 +18,7 @@ import (
 )
 
 type nativeJob struct {
+	Workspace     *workspaceRecord       `json:"workspace,omitempty"`
 	Assignment    runner.Assignment      `json:"assignment"`
 	Stage         string                 `json:"stage"`
 	ThreadID      string                 `json:"thread_id,omitempty"`
@@ -50,10 +51,17 @@ type nativeThread struct {
 	Turns        []nativeTurn    `json:"turns"`
 }
 
+type nativeCommand struct {
+	peer codexPeer
+	id   string
+}
+
 // Codex owns native correlation and collection. It makes no process/retry/domain
-// decisions for the core. Its private service has no task environment or external
-// tools; broader workspace/skill/tool execution is deliberately unsupported.
+// decisions for the core. Access profiles distinguish input-only work from the
+// bounded local Go workspace/check capability. External tools remain disabled.
 type Codex struct {
+	commands    map[string]nativeCommand
+	workspaces  *Workspaces
 	disk        *runner.Disk
 	cfg         *runner.CodexSettings
 	mu          sync.Mutex
@@ -80,7 +88,22 @@ type Codex struct {
 
 func NewCodex(d *runner.Disk, cfg *runner.CodexSettings) *Codex {
 	ctx, cancel := context.WithCancel(context.Background())
-	c := &Codex{disk: d, cfg: runner.Clone(cfg), jobs: map[string]nativeJob{}, preparing: map[string]bool{}, probing: map[string]bool{}, changed: make(chan struct{}), ctx: ctx, cancel: cancel, events: make(chan rpcMessage, 64), overflow: make(chan struct{}, 1), tail: &diagnosticTail{limit: int(d.Policy.Logs.MaxPerAttempt)}, connect: dialCodex, subscribed: map[string]codexPeer{}}
+	c := &Codex{
+		commands:   map[string]nativeCommand{},
+		disk:       d,
+		cfg:        runner.Clone(cfg),
+		jobs:       map[string]nativeJob{},
+		preparing:  map[string]bool{},
+		probing:    map[string]bool{},
+		changed:    make(chan struct{}),
+		ctx:        ctx,
+		cancel:     cancel,
+		events:     make(chan rpcMessage, 64),
+		overflow:   make(chan struct{}, 1),
+		tail:       &diagnosticTail{limit: int(d.Policy.Logs.MaxPerAttempt)},
+		connect:    dialCodex,
+		subscribed: map[string]codexPeer{},
+	}
 	if entries, err := os.ReadDir(filepath.Join(d.Root, "jobs")); err == nil {
 		for _, entry := range entries {
 			if id, ok := strings.CutSuffix(entry.Name(), ".codex.json"); ok {
@@ -160,8 +183,17 @@ func (c *Codex) Start(ctx context.Context, a runner.Assignment) (runner.Observat
 	if err := ctx.Err(); err != nil {
 		return runner.Observation{}, err
 	}
-	if _, _, err := nativePayload(a); err != nil {
-		return runner.Observation{State: runner.Finished, End: &runner.ExecutionEnd{Kind: "failed", Reason: "readiness: " + runner.Clip(err.Error())}}, nil
+	if a.Setup.Profile.Harness == "go-check" && (a.Setup.Profile.Access != "workspace-read" || a.OutputTypes["check"] != "text" || len(a.OutputTypes) != 1 || a.Inputs["patch"].ArtifactID == "" || len(a.Inputs) != 1) {
+		return runner.Observation{
+			State: runner.Finished,
+			End:   &runner.ExecutionEnd{Kind: "failed", Reason: "readiness: invalid fixed Go check assignment"},
+		}, nil
+	}
+	if _, _, err := nativePayload(a); a.Setup.Profile.Harness != "go-check" && err != nil {
+		return runner.Observation{
+			State: runner.Finished,
+			End:   &runner.ExecutionEnd{Kind: "failed", Reason: "readiness: " + runner.Clip(err.Error())},
+		}, nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -176,7 +208,10 @@ func (c *Codex) Start(ctx context.Context, a runner.Assignment) (runner.Observat
 	j := nativeJob{Assignment: runner.Clone(a), Stage: "allocated"}
 	b, _ := json.Marshal(j)
 	if len(b)+int(a.Setup.Profile.MaxOutput)+2048 > int(a.Limits.MaxRecord) {
-		return runner.Observation{State: runner.Finished, End: &runner.ExecutionEnd{Kind: "failed", Reason: "readiness: assignment and result do not fit the native record allowance"}}, nil
+		return runner.Observation{
+			State: runner.Finished,
+			End:   &runner.ExecutionEnd{Kind: "failed", Reason: "readiness: assignment and result do not fit the native record allowance"},
+		}, nil
 	}
 	if err := c.saveLocked(j); err != nil {
 		return runner.Observation{}, err
@@ -187,7 +222,28 @@ func (c *Codex) Start(ctx context.Context, a runner.Assignment) (runner.Observat
 	return observation(j), nil
 }
 func observation(j nativeJob) runner.Observation {
-	o := runner.Observation{State: runner.Running, Reason: "native " + j.Stage, Usage: j.Usage, NativeHandle: j.ThreadID, NativePeakBytes: j.PeakBytes, Effective: j.Effective}
+	o := runner.Observation{
+		State:           runner.Running,
+		Reason:          "native " + j.Stage,
+		Usage:           j.Usage,
+		NativeHandle:    j.ThreadID,
+		NativePeakBytes: j.PeakBytes,
+		Effective:       j.Effective,
+	}
+	if j.Workspace != nil {
+		o.Source = &runner.SourceResult{
+			Repository: j.Workspace.Repository,
+			Base:       j.Workspace.Base,
+			WorkDir:    j.Workspace.WorkDir,
+			AttemptID:  j.Assignment.AttemptID,
+		}
+		if j.Workspace.Candidate != nil {
+			o.Source.InputPatchID = j.Workspace.Candidate.PatchID
+		}
+	}
+	if j.Assignment.Setup.Profile.Harness == "go-check" {
+		o.NativeHandle = "command/" + j.Assignment.AttemptID
+	}
 	if j.TurnID != "" {
 		o.NativeHandle += "/" + j.TurnID
 	}
@@ -203,14 +259,14 @@ func observation(j nativeJob) runner.Observation {
 func (c *Codex) launch(id string) {
 	defer c.wg.Done()
 	defer func() { c.mu.Lock(); delete(c.preparing, id); c.mu.Unlock(); c.signal() }()
-	ctx, cancel := context.WithTimeout(c.ctx, 20*time.Second)
+	ctx, cancel := context.WithTimeout(c.ctx, c.setupTimeout(id))
 	defer cancel()
 	if err := c.begin(ctx, id); err != nil {
 		_ = c.mutate(id, func(j *nativeJob) {
 			if j.End != nil {
 				return
 			}
-			if j.Stage == "starting_turn" || j.Stage == "active" {
+			if j.Stage == "starting_turn" || j.Stage == "active" || j.Stage == "checking" || j.Stage == "checking_readiness" {
 				j.Reason = "native turn dispatch requires reconciliation: " + runner.Clip(err.Error())
 			} else {
 				j.End = &runner.ExecutionEnd{Kind: "failed", Reason: "readiness: " + runner.Clip(err.Error())}
@@ -228,19 +284,59 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	if j.Assignment.Setup.Profile.Access != "input-only" {
+		if c.workspaces == nil {
+			return errors.New("source workspace support is absent")
+		}
+		workspace, e := c.workspaces.Prepare(ctx, j.Assignment)
+		if e != nil {
+			return e
+		}
+		j.Workspace = &workspace
+		if e = c.mutate(id, func(saved *nativeJob) { saved.Workspace = &workspace }); e != nil {
+			return e
+		}
+	}
 	peer, err := c.openPeer(ctx)
 	if err != nil {
 		return err
 	}
+
+	if err = checkNativeConfig(ctx, peer); err != nil {
+		return err
+	}
+	if j.Workspace != nil {
+		if err = c.checkWorkspaceConfig(ctx, peer); err != nil {
+			return err
+		}
+		c.connMu.Lock()
+		readyGeneration := c.generation
+		c.connMu.Unlock()
+		if j.Workspace.ReadyGeneration != readyGeneration {
+			if err = c.mutate(id, func(j *nativeJob) { j.Stage = "checking_readiness" }); err != nil {
+				return err
+			}
+			if err = c.workspaceReadiness(ctx, peer, j); err != nil {
+				return err
+			}
+			if err = c.workspaces.MarkReady(j.Assignment.RunID, readyGeneration); err != nil {
+				return err
+			}
+			if err = c.mutate(id, func(j *nativeJob) { j.Stage = "allocated" }); err != nil {
+				return err
+			}
+		}
+	}
+	if j.Assignment.Setup.Profile.Harness == "go-check" {
+		return c.beginCheck(ctx, id, peer, j)
+	}
+
 	c.connMu.Lock()
 	generation := c.generation
 	samePeer := c.peer == peer
 	c.connMu.Unlock()
 	if !samePeer {
 		return errors.New("native connection changed during setup; reconcile before launch")
-	}
-	if err = checkNativeConfig(ctx, peer); err != nil {
-		return err
 	}
 	if err = checkNativeModel(ctx, peer, j.Assignment.Setup.Profile); err != nil {
 		return err
@@ -260,8 +356,48 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 		} `json:"sandbox"`
 		Sources []string        `json:"instructionSources"`
 		Roots   json.RawMessage `json:"runtimeWorkspaceRoots"`
+		Active  struct {
+			ID string `json:"id"`
+		} `json:"activePermissionProfile"`
 	}
-	params := map[string]any{"model": p.Model, "approvalPolicy": "never", "sandbox": "read-only", "cwd": filepath.Join(c.disk.Root, "native", "empty"), "baseInstructions": nativeBase + p.Instructions, "developerInstructions": "Perform only the supplied Runner assignment and return its declared structured result.", "environments": []any{}, "runtimeWorkspaceRoots": []any{}, "allowProviderModelFallback": false, "historyMode": "legacy", "config": map[string]any{"model_reasoning_effort": p.Reasoning}}
+	params := map[string]any{
+		"model":                      p.Model,
+		"approvalPolicy":             "never",
+		"sandbox":                    "read-only",
+		"cwd":                        filepath.Join(c.disk.Root, "native", "empty"),
+		"baseInstructions":           nativeBase + p.Instructions,
+		"developerInstructions":      "Perform only the supplied Runner assignment and return its declared structured result.",
+		"environments":               []any{},
+		"runtimeWorkspaceRoots":      []any{},
+		"allowProviderModelFallback": false,
+		"historyMode":                "legacy",
+		"config":                     map[string]any{"model_reasoning_effort": p.Reasoning},
+	}
+	if c.cfg.GoBinary != "" {
+		delete(params, "sandbox")
+		params["permissions"] = "runner-input"
+	}
+	if j.Workspace != nil {
+		params["environments"] = []any{map[string]any{
+			"environmentId":         "local",
+			"cwd":                   j.Workspace.WorkDir,
+			"runtimeWorkspaceRoots": []string{j.Workspace.WorkDir},
+		}}
+		params["permissions"] = "runner-edit"
+		params["cwd"] = j.Workspace.WorkDir
+		params["runtimeWorkspaceRoots"] = []string{j.Workspace.WorkDir}
+		params["baseInstructions"] = workspaceBase + p.Instructions
+		env, e := c.workerEnvironment(j)
+		if e != nil {
+			return e
+		}
+		params["config"] = map[string]any{
+			"model_reasoning_effort":   p.Reasoning,
+			"features.shell_tool":      true,
+			"allow_login_shell":        false,
+			"shell_environment_policy": map[string]any{"inherit": "none", "set": env},
+		}
+	}
 	if err = peer.Call(ctx, "thread/start", params, &started); err != nil {
 		return err
 	}
@@ -278,8 +414,24 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 	}); err != nil {
 		return err
 	}
-	if started.Model != p.Model || started.Reasoning != p.Reasoning || started.Approval != "never" || started.Sandbox.Type != "readOnly" || started.Sandbox.Network || len(started.Sources) != 0 || string(started.Roots) != "[]" || string(started.Thread.Environments) != "[]" || started.Thread.HistoryMode != "legacy" {
-		return errors.New("native setup did not confirm the exact model/reasoning, read-only access, empty environments/roots/instruction sources and legacy history")
+	envsOK := string(started.Thread.Environments) == "[]"
+	rootsOK := string(started.Roots) == "[]"
+	sandboxOK := started.Sandbox.Type == "readOnly" && !started.Sandbox.Network
+	if j.Workspace != nil {
+		var roots []string
+		_ = json.Unmarshal(started.Roots, &roots)
+		rootsOK = len(roots) == 1 && roots[0] == j.Workspace.WorkDir
+		sandboxOK = started.Active.ID == "runner-edit" && started.Sandbox.Type == "workspaceWrite" && !started.Sandbox.Network
+		var envs []struct {
+			ID    string   `json:"environmentId"`
+			Cwd   string   `json:"cwd"`
+			Roots []string `json:"runtimeWorkspaceRoots"`
+		}
+		_ = json.Unmarshal(started.Thread.Environments, &envs)
+		envsOK = len(envs) == 1 && envs[0].ID == "local" && envs[0].Cwd == j.Workspace.WorkDir && len(envs[0].Roots) == 1 && envs[0].Roots[0] == j.Workspace.WorkDir
+	}
+	if started.Model != p.Model || started.Reasoning != p.Reasoning || started.Approval != "never" || !sandboxOK || len(started.Sources) != 0 || !rootsOK || !envsOK || started.Thread.HistoryMode != "legacy" {
+		return fmt.Errorf("native setup mismatch: model=%q effort=%q approval=%q profile=%q sandbox=%q roots_match=%t environments_match=%t instruction_sources=%d history=%q", started.Model, started.Reasoning, started.Approval, started.Active.ID, started.Sandbox.Type, rootsOK, envsOK, len(started.Sources), started.Thread.HistoryMode)
 	}
 	prompt, schema, err := nativePayload(j.Assignment)
 	if err != nil {
@@ -292,7 +444,7 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 			j.End = &runner.ExecutionEnd{Kind: "stopped", Reason: "native setup stopped before turn dispatch"}
 			return
 		}
-		j.Effective = &runner.ExecutionFacts{Model: p.Model, Reasoning: p.Reasoning, Access: "input-only", HistoryMode: "legacy"}
+		j.Effective = &runner.ExecutionFacts{Model: p.Model, Reasoning: p.Reasoning, Access: p.Access, HistoryMode: "legacy"}
 		j.Stage = "starting_turn"
 	}); err != nil {
 		return err
@@ -303,7 +455,13 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 	var result struct {
 		Turn nativeTurn `json:"turn"`
 	}
-	err = peer.Call(ctx, "turn/start", map[string]any{"threadId": started.Thread.ID, "input": []any{map[string]any{"type": "text", "text": prompt}}, "model": p.Model, "effort": p.Reasoning, "outputSchema": schema}, &result)
+	err = peer.Call(ctx, "turn/start", map[string]any{
+		"threadId":     started.Thread.ID,
+		"input":        []any{map[string]any{"type": "text", "text": prompt}},
+		"model":        p.Model,
+		"effort":       p.Reasoning,
+		"outputSchema": schema,
+	}, &result)
 	if err != nil {
 		return err
 	}
@@ -332,6 +490,17 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 	return nil
 }
 
+func (c *Codex) setupTimeout(id string) time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	j, e := c.loadLocked(id)
+	if e == nil && j.Assignment.Setup.Profile.Access != "input-only" {
+		return max(time.Millisecond, time.Until(j.Assignment.Deadline))
+	}
+	return 20 * time.Second
+}
+
+const workspaceBase = "You execute one bounded Go source task in the supplied workspace. Use only local sandboxed commands. Do not run tests, use Git, add dependencies, change protected files, use Python or start other work. Do not request login shells. Return the declared structured result; Runner retains the source and runs the configured check.\n"
 const nativeBase = "You execute one input-only Runner assignment. Use the supplied text only. Do not call tools, access files, ask follow-up questions or start other work. Return exactly the structured result required by the output schema. Use ready when the requested outputs are available. Use needs_help only when that outcome is declared.\n"
 
 func nativePayload(a runner.Assignment) (string, any, error) {
@@ -339,7 +508,7 @@ func nativePayload(a runner.Assignment) (string, any, error) {
 		return "", nil, errors.New("an explicit task purpose is required")
 	}
 	p := a.Setup.Profile
-	if p.Harness != "codex" || p.Access != "input-only" || p.Model == "" || p.Reasoning == "" || p.MaxInput < 128 || p.MaxOutput < 128 {
+	if p.Harness != "codex" || (p.Access != "input-only" && p.Access != "workspace-write") || p.Model == "" || p.Reasoning == "" || p.MaxInput < 128 || p.MaxOutput < 128 {
 		return "", nil, errors.New("incomplete input-only Codex profile")
 	}
 	inputs := map[string]string{}
@@ -356,7 +525,7 @@ func nativePayload(a runner.Assignment) (string, any, error) {
 	}{a.Task, inputs})
 	props := map[string]any{}
 	required := []string{}
-	for k, kind := range a.OutputTypes {
+	for k, kind := range nativeOutputTypes(a) {
 		if kind != "text" {
 			return "", nil, errors.New("only declared text outputs are supported by this adapter")
 		}
@@ -372,11 +541,32 @@ func nativePayload(a runner.Assignment) (string, any, error) {
 	var outputs any = out
 	if a.AllowHelp {
 		outcomes = append(outcomes, "needs_help")
-		outputs = map[string]any{"anyOf": []any{out, map[string]any{"type": "object", "properties": map[string]any{}, "required": []string{}, "additionalProperties": false}}}
+		outputs = map[string]any{"anyOf": []any{
+			out,
+			map[string]any{
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"required":             []string{},
+				"additionalProperties": false,
+			},
+		}}
 	}
-	schema := map[string]any{"type": "object", "properties": map[string]any{"outcome": map[string]any{"type": "string", "enum": outcomes}, "outputs": outputs, "reason": map[string]any{"type": "string"}}, "required": []string{"outcome", "outputs", "reason"}, "additionalProperties": false}
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"outcome": map[string]any{"type": "string", "enum": outcomes},
+			"outputs": outputs,
+			"reason":  map[string]any{"type": "string"},
+		},
+		"required":             []string{"outcome", "outputs", "reason"},
+		"additionalProperties": false,
+	}
 	sb, _ := json.Marshal(schema)
-	if len(payload)+len(nativeBase)+len(p.Instructions)+len(sb) > int(p.MaxInput) {
+	base := nativeBase
+	if p.Access == "workspace-write" {
+		base = workspaceBase
+	}
+	if len(payload)+len(base)+len(p.Instructions)+len(sb) > int(p.MaxInput) {
 		return "", nil, errors.New("resolved input/instructions/schema exceed max_input")
 	}
 	return string(payload), schema, nil
@@ -399,7 +589,21 @@ func checkNativeConfig(ctx context.Context, peer codexPeer) error {
 	if json.Unmarshal(r.Config["features"], &raw) != nil {
 		return errors.New("native feature settings were not reported")
 	}
-	for _, k := range []string{"shell_tool", "apps", "hooks", "plugins", "remote_plugin", "multi_agent", "goals", "memories", "view_image", "request_permissions", "shell_snapshot", "skill_mcp_dependency_install"} {
+	for _, k := range []string{
+		"shell_tool",
+		"apply_patch_freeform",
+		"apps",
+		"hooks",
+		"plugins",
+		"remote_plugin",
+		"multi_agent",
+		"goals",
+		"memories",
+		"view_image",
+		"request_permissions",
+		"shell_snapshot",
+		"skill_mcp_dependency_install",
+	} {
 		var v bool
 		if json.Unmarshal(raw[k], &v) != nil || v {
 			return fmt.Errorf("native feature %s was not disabled", k)
@@ -483,6 +687,12 @@ func (c *Codex) reconcile(id string) {
 	if err != nil || j.End != nil {
 		return
 	}
+	if j.Stage == "checking" || j.Stage == "checking_readiness" {
+		_ = c.mutate(id, func(j *nativeJob) {
+			j.Reason = "native command outcome is unknown; retain its workspace and inspect the original execution"
+		})
+		return
+	}
 	if j.Stage != "active" && j.Stage != "starting_turn" {
 		_ = c.mutate(id, func(j *nativeJob) {
 			j.End = &runner.ExecutionEnd{Kind: "failed", Reason: "native setup interrupted before turn dispatch"}
@@ -491,6 +701,15 @@ func (c *Codex) reconcile(id string) {
 	}
 	peer, err := c.openPeer(ctx)
 	if err == nil {
+		c.connMu.Lock()
+		currentGeneration := c.generation
+		c.connMu.Unlock()
+		if j.Workspace != nil && j.Generation != "" && j.Generation != currentGeneration {
+			_ = c.mutate(id, func(j *nativeJob) {
+				j.Reason = "native service changed; original child execution settlement is unconfirmed"
+			})
+			return
+		}
 		var r struct {
 			Thread nativeThread `json:"thread"`
 		}
@@ -598,7 +817,11 @@ func (c *Codex) enforceStorage(cause error) {
 	for _, id := range ids {
 		j, e := c.loadLocked(id)
 		if e == nil && j.End == nil && err == nil {
-			j.End = &runner.ExecutionEnd{Kind: "failed", Reason: j.StopReason}
+			if j.Workspace != nil {
+				j.Reason = "resource stop requested; child execution settlement remains unconfirmed"
+			} else {
+				j.End = &runner.ExecutionEnd{Kind: "failed", Reason: j.StopReason}
+			}
 			j.PeakBytes = max(j.PeakBytes, c.disk.NativeUsed())
 			_ = c.saveLocked(j)
 		}
@@ -639,13 +862,24 @@ func (c *Codex) event(m rpcMessage) {
 		c.acceptTurn(id, p.Turn)
 	} else {
 		_ = c.mutate(id, func(j *nativeJob) {
-			j.Usage = runner.Usage{InputTokens: &p.TokenUsage.Total.Input, OutputTokens: &p.TokenUsage.Total.Output, CachedInputTokens: &p.TokenUsage.Total.Cached}
+			j.Usage = runner.Usage{
+				InputTokens:       &p.TokenUsage.Total.Input,
+				OutputTokens:      &p.TokenUsage.Total.Output,
+				CachedInputTokens: &p.TokenUsage.Total.Cached,
+			}
 		})
 	}
 }
 func (c *Codex) acceptTurn(id string, t nativeTurn) {
+	c.connMu.Lock()
+	generation := c.generation
+	c.connMu.Unlock()
 	_ = c.mutate(id, func(j *nativeJob) {
 		if j.End != nil {
+			return
+		}
+		if j.Workspace != nil && j.Generation != "" && j.Generation != generation {
+			j.Reason = "native service changed; original child execution settlement is unconfirmed"
 			return
 		}
 		if j.TurnID != "" && j.TurnID != t.ID {
@@ -702,7 +936,7 @@ func parseNativeResult(a runner.Assignment, t nativeTurn) *runner.ExecutionEnd {
 		r.Outputs[k] = runner.Text(v)
 	}
 	if r.Outcome == "ready" {
-		if err := runner.ValidateValues(r.Outputs, a.OutputTypes); err != nil {
+		if err := runner.ValidateValues(r.Outputs, nativeOutputTypes(a)); err != nil {
 			return fail(runner.Clip(err.Error()))
 		}
 	} else if r.Outcome != "needs_help" || !a.AllowHelp || r.Reason == "" || len(r.Reason) > 512 || len(r.Outputs) != 0 {
@@ -746,12 +980,27 @@ func (c *Codex) Stop(ctx context.Context, id string) error {
 	if err = c.mutate(id, func(j *nativeJob) { j.StopRequested = true }); err != nil {
 		return err
 	}
+	if (j.Stage == "checking" || j.Stage == "checking_readiness") && !preparing {
+		return c.stopCheck(ctx, id)
+	}
+	if j.Stage == "checking" {
+		return c.stopCheck(ctx, id)
+	}
 	if preparing && j.TurnID == "" {
 		return nil
+	}
+	if j.Assignment.Setup.Profile.Harness == "go-check" {
+		return c.stopCheck(ctx, id)
 	}
 	peer, err := c.openPeer(ctx)
 	if err != nil {
 		return err
+	}
+	c.connMu.Lock()
+	generation := c.generation
+	c.connMu.Unlock()
+	if j.Workspace != nil && j.Generation != "" && j.Generation != generation {
+		return errors.New("original child settlement is unconfirmed after native service change")
 	}
 	if j.TurnID == "" {
 		c.reconcileNow(id)
@@ -793,6 +1042,11 @@ func (c *Codex) Release(ctx context.Context, id string) error {
 			if !errors.As(err, &rpc) || rpc.Code != -32600 || rpc.Message != "no rollout found for thread id "+j.ThreadID {
 				return err
 			}
+		}
+	}
+	if j.Workspace != nil && c.workspaces != nil {
+		if err = c.workspaces.ReleaseAttempt(j.Assignment); err != nil {
+			return err
 		}
 	}
 	if err = c.disk.Remove("work/" + id); err != nil {
@@ -876,4 +1130,12 @@ func (c *Codex) clearHomeLocked() error {
 		return err
 	}
 	return c.disk.Refresh()
+}
+
+func nativeOutputTypes(a runner.Assignment) map[string]string {
+	out := runner.Clone(a.OutputTypes)
+	if a.Setup.Profile.Access == "workspace-write" && out["patch"] == "artifact" {
+		delete(out, "patch")
+	}
+	return out
 }

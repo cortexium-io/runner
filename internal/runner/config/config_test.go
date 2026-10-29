@@ -14,10 +14,11 @@ import (
 // This suite owns file formats, validation and edits. Coordinator snapshot
 // isolation is covered by the core suite, rather than repeated per format.
 func fixture(t *testing.T) (*Loader, string) {
-	return fixtureFrom(t, "../../../examples/demo")
+	return fixtureFrom(t, "demo")
 }
-func fixtureFrom(t *testing.T, source string) (*Loader, string) {
+func fixtureFrom(t *testing.T, name string) (*Loader, string) {
 	t.Helper()
+	source := filepath.Join("..", "..", "..", "testdata", "config", name)
 	dir := t.TempDir()
 	err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -48,7 +49,7 @@ func fixtureFrom(t *testing.T, source string) (*Loader, string) {
 }
 
 func TestCodexConfigurationIsExplicitAndBounded(t *testing.T) {
-	l, dir := fixtureFrom(t, "../../../examples/codex")
+	l, dir := fixtureFrom(t, "codex")
 	s, err := l.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -152,8 +153,16 @@ func TestInvalidConfigurationAndRepairDetection(t *testing.T) {
 		{"unknown field", "instance.yaml", "projects: []\nmystery: true\n"},
 		{"duplicate key", "instance.yaml", "concurrency: 2\nconcurrency: 3\n"},
 		{"extra document", "instance.yaml", "projects: []\n---\nprojects: []\n"},
-		{"bad reference", "projects/demo/processes/greeting.yaml", "id: greeting\nsteps: [{id: work, role: absent}]\n"},
-		{"bad profile contract", "projects/demo/roles/prepare.yaml", "id: prepare\ninputs: {name: text}\noutputs: {message: artifact}\nexecution: {harness: deterministic, mode: echo, input: name, output: message}\n"},
+		{
+			"bad reference",
+			"projects/demo/processes/greeting.yaml",
+			"id: greeting\nsteps: [{id: work, role: absent}]\n",
+		},
+		{
+			"bad profile contract",
+			"projects/demo/roles/prepare.yaml",
+			"id: prepare\ninputs: {name: text}\noutputs: {message: artifact}\nexecution: {harness: deterministic, mode: echo, input: name, output: message}\n",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			l, dir := fixture(t)
@@ -192,5 +201,35 @@ func TestInvalidConfigurationAndRepairDetection(t *testing.T) {
 	write(t, filepath.Join(dir, "new.yaml"), "id: new\n")
 	if !l.Changed() {
 		t.Fatal("creation of missing reference not detected")
+	}
+}
+
+// Workspace profiles own one fixed local check; they cannot accidentally acquire
+// model/deterministic options or parallelize an unqualified command lifecycle.
+func TestWorkspaceConfiguration(t *testing.T) {
+	l, _ := fixtureFrom(t, "workspace")
+	snapshot, e := l.Load()
+	if e != nil {
+		t.Fatal(e)
+	}
+	if snapshot.Projects["seats"].Source.Ref != "HEAD" || snapshot.Projects["seats"].Roles["check"].Execution.Harness != "go-check" {
+		t.Fatal("workspace selection lost")
+	}
+	for _, tc := range []struct {
+		name, path, field string
+		value             any
+	}{
+		{"exclusive command ownership", "instance.yaml", "concurrency", 2},
+		{"explicit toolchain", "instance.yaml", "codex.go_binary", ""},
+		{"protected source paths", "instance.yaml", "codex.read_only_paths", []string{"../private"}},
+		{"check has no model", "projects/seats/roles/check.yaml", "execution.model", "gpt-6.1-sol"},
+		{"source result is declared", "projects/seats/roles/implement.yaml", "outputs.patch", "text"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, _ := json.Marshal(tc.value)
+			if _, e = l.Set(tc.path, tc.field, b); e == nil {
+				t.Fatal("unsupported workspace setup accepted")
+			}
+		})
 	}
 }

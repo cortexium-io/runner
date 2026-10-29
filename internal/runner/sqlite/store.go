@@ -73,7 +73,15 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	// DELETE journaling avoids unbounded WAL readers in this single-writer first slice.
 	// Reserve 2/3 of the database allowance for journal/index/maintenance overhead.
 	pages := int64(p.Database.MaxSize) / 3 / 4096
-	for _, q := range []string{"PRAGMA page_size=4096", "PRAGMA journal_mode=DELETE", "PRAGMA synchronous=FULL", "PRAGMA foreign_keys=ON", "PRAGMA busy_timeout=3000", "PRAGMA temp_store=MEMORY", fmt.Sprintf("PRAGMA max_page_count=%d", pages)} {
+	for _, q := range []string{
+		"PRAGMA page_size=4096",
+		"PRAGMA journal_mode=DELETE",
+		"PRAGMA synchronous=FULL",
+		"PRAGMA foreign_keys=ON",
+		"PRAGMA busy_timeout=3000",
+		"PRAGMA temp_store=MEMORY",
+		fmt.Sprintf("PRAGMA max_page_count=%d", pages),
+	} {
 		if _, e = db.Exec(q); e != nil {
 			return nil, e
 		}

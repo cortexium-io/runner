@@ -42,6 +42,7 @@ func run(ctx context.Context, args []string) error {
 	endpoint := fs.String("endpoint", "http://127.0.0.1:8787/mcp", "existing local MCP endpoint")
 	listen := fs.String("listen", "127.0.0.1:8787", "local service address")
 	project := fs.String("project", "", "project ID")
+	sourceRef := fs.String("source-ref", "", "local Git ref/commit; otherwise the project source default")
 	process := fs.String("process", "", "process ID; otherwise project default")
 	input := fs.String("inputs", "{}", "JSON object of inline inputs")
 	artifacts := fs.String("artifacts", "{}", "JSON object of input artifact IDs")
@@ -97,7 +98,14 @@ func run(ctx context.Context, args []string) error {
 		}
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
 		method = "runner_start"
-		a = control.StartArgs{RequestID: *requestID, Project: *project, Process: *process, Inputs: inputs, Artifacts: refs}
+		a = control.StartArgs{
+			RequestID: *requestID,
+			Project:   *project,
+			Process:   *process,
+			SourceRef: *sourceRef,
+			Inputs:    inputs,
+			Artifacts: refs,
+		}
 	case "status":
 		method = "runner_status"
 		a = struct{}{}
@@ -222,7 +230,11 @@ func serve(ctx context.Context, path, root, addr string) error {
 	if e != nil {
 		return e
 	}
-	server := &http.Server{Handler: control.Handler(core, string(token), set), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: time.Minute}
+	server := &http.Server{
+		Handler:           control.Handler(core, string(token), set),
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       time.Minute,
+	}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	fmt.Fprintln(os.Stderr, "Runner MCP endpoint: http://"+listener.Addr().String()+"/mcp")

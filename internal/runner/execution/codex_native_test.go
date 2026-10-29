@@ -79,7 +79,11 @@ func TestNativeCodexQualification(t *testing.T) {
 			defer func() { current.close() }()
 			before := calls.Load()
 			started := time.Now()
-			run, err := rig.core.Start(runner.StartRequest{RequestID: name, Project: "demo", Inputs: map[string]runner.Value{"document": runner.Text("Booking Desk opens Tuesday at noon. Every reservation requires email confirmation.")}})
+			run, err := rig.core.Start(runner.StartRequest{
+				RequestID: name,
+				Project:   "demo",
+				Inputs:    map[string]runner.Value{"document": runner.Text("Booking Desk opens Tuesday at noon. Every reservation requires email confirmation.")},
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -161,7 +165,15 @@ func TestNativeCodexQualification(t *testing.T) {
 				NativePeak     int64        `json:"native_store_peak_bytes"`
 				RetainedNative int64        `json:"native_bytes_before_service_shutdown"`
 				Status         string       `json:"status"`
-			}{name, time.Since(started).Milliseconds(), calls.Load() - before, a.Usage, a.NativePeakBytes, current.disk.NativeUsed(), done.Status}
+			}{
+				name,
+				time.Since(started).Milliseconds(),
+				calls.Load() - before,
+				a.Usage,
+				a.NativePeakBytes,
+				current.disk.NativeUsed(),
+				done.Status,
+			}
 			b, _ := json.Marshal(report)
 			t.Log(string(b))
 		})

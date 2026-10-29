@@ -74,7 +74,10 @@ func (d *Deterministic) Observe(ctx context.Context, id string) (runner.Observat
 	defer d.mu.Unlock()
 	j, e := d.load(id)
 	if errors.Is(e, os.ErrNotExist) {
-		return runner.Observation{State: runner.NotStarted, Reason: "no controlled durable job exists; this executor has no external launch side effect"}, nil
+		return runner.Observation{
+			State:  runner.NotStarted,
+			Reason: "no controlled durable job exists; this executor has no external launch side effect",
+		}, nil
 	}
 	if e != nil {
 		return runner.Observation{State: runner.Unknown, Reason: runner.Clip(e.Error())}, nil

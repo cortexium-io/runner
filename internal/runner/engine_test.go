@@ -30,10 +30,32 @@ func policy() runner.StoragePolicy {
 	return p
 }
 func snapshot(p runner.StoragePolicy) runner.Snapshot {
-	role := runner.Role{ID: "worker", Inputs: map[string]string{"text": "text"}, Outputs: map[string]string{"result": "text"}, Execution: &runner.Profile{Harness: "deterministic", Mode: "echo", Input: "text", Output: "result"}}
-	proc := runner.Process{ID: "demo", Inputs: map[string]string{"text": "text"}, Steps: []runner.Step{{ID: "work", Role: "worker", Inputs: map[string]runner.Binding{"text": {FromInput: "text"}}}}, Outputs: map[string]runner.Binding{"result": {FromStep: "work", Output: "result"}}, MaxAttempts: 2, MaxAttemptsPerStep: 2, AttemptTimeout: "3s"}
-	project := runner.Project{ID: "demo", DefaultProcess: "demo", Roles: map[string]runner.Role{"worker": role}, Profiles: map[string]string{}, Processes: map[string]runner.Process{"demo": proc}}
-	return runner.Snapshot{Instance: runner.Instance{Concurrency: 2, ReconcileInterval: "20ms", Storage: p}, Projects: map[string]runner.Project{"demo": project}}
+	role := runner.Role{
+		ID:        "worker",
+		Inputs:    map[string]string{"text": "text"},
+		Outputs:   map[string]string{"result": "text"},
+		Execution: &runner.Profile{Harness: "deterministic", Mode: "echo", Input: "text", Output: "result"},
+	}
+	proc := runner.Process{
+		ID:                 "demo",
+		Inputs:             map[string]string{"text": "text"},
+		Steps:              []runner.Step{{ID: "work", Role: "worker", Inputs: map[string]runner.Binding{"text": {FromInput: "text"}}}},
+		Outputs:            map[string]runner.Binding{"result": {FromStep: "work", Output: "result"}},
+		MaxAttempts:        2,
+		MaxAttemptsPerStep: 2,
+		AttemptTimeout:     "3s",
+	}
+	project := runner.Project{
+		ID:             "demo",
+		DefaultProcess: "demo",
+		Roles:          map[string]runner.Role{"worker": role},
+		Profiles:       map[string]string{},
+		Processes:      map[string]runner.Process{"demo": proc},
+	}
+	return runner.Snapshot{
+		Instance: runner.Instance{Concurrency: 2, ReconcileInterval: "20ms", Storage: p},
+		Projects: map[string]runner.Project{"demo": project},
+	}
 }
 
 type rig struct {
@@ -117,7 +139,11 @@ func TestExecutionOutcomesAndAllowances(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, want string
 		attempts         int
-	}{{"success", "echo", "Completed", 1}, {"bounded failure", "fail", "Failed", 2}, {"escalation", "needs_help", "Completed", 2}} {
+	}{
+		{"success", "echo", "Completed", 1},
+		{"bounded failure", "fail", "Failed", 2},
+		{"escalation", "needs_help", "Completed", 2},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := policy()
 			s := snapshot(p)
@@ -154,7 +180,11 @@ func TestExecutionOutcomesAndAllowances(t *testing.T) {
 			if e != nil || again.ID != run.ID {
 				t.Fatalf("idempotent start: %+v %v", again, e)
 			}
-			_, e = r.core.Start(runner.StartRequest{RequestID: "start", Project: "demo", Inputs: map[string]runner.Value{"text": runner.Text("different")}})
+			_, e = r.core.Start(runner.StartRequest{
+				RequestID: "start",
+				Project:   "demo",
+				Inputs:    map[string]runner.Value{"text": runner.Text("different")},
+			})
 			if e == nil {
 				t.Fatal("reused request identity accepted different work")
 			}
@@ -290,7 +320,11 @@ func TestRestartCollectsExistingResultAndPreservesArtifact(t *testing.T) {
 	p.Roles["worker"] = prepare
 	p.Roles["finish"] = finish
 	proc := p.Processes["demo"]
-	proc.Steps = append(proc.Steps, runner.Step{ID: "finish", Role: "finish", Inputs: map[string]runner.Binding{"text": {FromStep: "work", Output: "result"}}})
+	proc.Steps = append(proc.Steps, runner.Step{
+		ID:     "finish",
+		Role:   "finish",
+		Inputs: map[string]runner.Binding{"text": {FromStep: "work", Output: "result"}},
+	})
 	proc.Outputs["result"] = runner.Binding{FromStep: "finish", Output: "result"}
 	p.Processes["demo"] = proc
 	s.Projects["demo"] = p
@@ -376,7 +410,11 @@ func TestStorageLimitsAndCollection(t *testing.T) {
 	if e = r.disk.Write("artifacts/large/file", make([]byte, int(p.MaxArtifact)+1), p.MaxArtifact); !errors.Is(e, runner.ErrCapacity) {
 		t.Fatal("oversized artifact accepted", e)
 	}
-	req := runner.StartRequest{RequestID: "large", Project: "demo", Inputs: map[string]runner.Value{"text": runner.Text(strings.Repeat("x", int(p.Database.MaxRecord)))}}
+	req := runner.StartRequest{
+		RequestID: "large",
+		Project:   "demo",
+		Inputs:    map[string]runner.Value{"text": runner.Text(strings.Repeat("x", int(p.Database.MaxRecord)))},
+	}
 	if _, e = r.core.Start(req); e == nil {
 		t.Fatal("oversized input/evidence record accepted")
 	}
@@ -489,7 +527,11 @@ func TestRunAllowanceCoversAllSteps(t *testing.T) {
 	p := s.Projects["demo"]
 	proc := p.Processes["demo"]
 	proc.MaxAttempts = 1
-	proc.Steps = append(proc.Steps, runner.Step{ID: "again", Role: "worker", Inputs: map[string]runner.Binding{"text": {FromStep: "work", Output: "result"}}})
+	proc.Steps = append(proc.Steps, runner.Step{
+		ID:     "again",
+		Role:   "worker",
+		Inputs: map[string]runner.Binding{"text": {FromStep: "work", Output: "result"}},
+	})
 	p.Processes["demo"] = proc
 	s.Projects["demo"] = p
 	r := openRig(t, t.TempDir(), s, nil)
@@ -607,7 +649,12 @@ func TestRetentionPreservesArtifactsWithConsumers(t *testing.T) {
 	first := begin(t, r.core, "produce", "demo")
 	done := await(t, r.core, first.ID, released)
 	artifact := done.Outputs["result"]
-	second, err := r.core.Start(runner.StartRequest{RequestID: "consume", Project: "demo", Process: "consume", Inputs: map[string]runner.Value{"text": artifact}})
+	second, err := r.core.Start(runner.StartRequest{
+		RequestID: "consume",
+		Project:   "demo",
+		Process:   "consume",
+		Inputs:    map[string]runner.Value{"text": artifact},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,4 +711,82 @@ func TestStorageAdmissionLeavesRoomToCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	await(t, r.core, second.ID, released)
+}
+
+type rejectSourceStore struct {
+	runner.Store
+	mu     sync.Mutex
+	reject bool
+}
+
+func (s *rejectSourceStore) Save(ctx context.Context, r runner.Run, arts []runner.Artifact, receipt *runner.Receipt) error {
+	s.mu.Lock()
+	reject := s.reject
+	s.mu.Unlock()
+	if reject {
+		for _, a := range r.Attempts {
+			if a.Source != nil && a.State == runner.Finished {
+				return runner.ErrCapacity
+			}
+		}
+	}
+	return s.Store.Save(ctx, r, arts, receipt)
+}
+
+type sourceObservationExecutor struct {
+	runner.Executor
+	disk *runner.Disk
+}
+
+func (e *sourceObservationExecutor) Observe(ctx context.Context, id string) (runner.Observation, error) {
+	o, err := e.Executor.Observe(ctx, id)
+	if err == nil && o.State == runner.Finished {
+		patch := id + "/source.patch"
+		if err = e.disk.Write("artifacts/"+patch, []byte("retained partial source"), 1024); err != nil {
+			return runner.Observation{}, err
+		}
+		o.Source = &runner.SourceResult{
+			Repository: "fixture",
+			Base:       "recorded-base",
+			WorkDir:    "owned-source",
+			AttemptID:  id,
+			PatchID:    patch,
+		}
+	}
+	return o, err
+}
+
+// A SQLite failure after file capture must hold the attempt for reconciliation,
+// rather than mark it failed/releasable and lose its retained source reference.
+func TestSourceCommitFailureRetainsRecoverableAttempt(t *testing.T) {
+	r := openRig(t, t.TempDir(), snapshot(policy()), nil)
+	r.core.Close()
+	store := &rejectSourceStore{Store: r.store, reject: true}
+	core, e := runner.New(context.Background(), store, &sourceObservationExecutor{Executor: r.backend, disk: r.disk}, r.disk, snapshot(policy()))
+	if e != nil {
+		t.Fatal(e)
+	}
+	r.core = core
+	defer r.close()
+	run := begin(t, core, "source-commit", "demo")
+	held := await(t, core, run.ID, func(r runner.Run) bool {
+		return r.Status == "Waiting" && r.Current() != nil && r.Current().Source != nil
+	})
+	if !held.Active() || held.Current().Released {
+		t.Fatal("source failure released its attempt")
+	}
+	if _, e = r.disk.ArtifactSize(held.Current().Source.PatchID); e != nil {
+		t.Fatal("source file lost", e)
+	}
+	store.mu.Lock()
+	store.reject = false
+	store.mu.Unlock()
+	core.ExecutionChanged(held.Current().ID)
+	done := await(t, core, run.ID, func(r runner.Run) bool { return r.Status == "Completed" })
+	if len(done.Attempts) != 1 {
+		t.Fatal("source persistence retried development")
+	}
+	if _, e = r.store.Artifact(context.Background(), done.Attempts[0].Source.PatchID); e != nil {
+		t.Fatal("source artifact was not registered", e)
+	}
 }

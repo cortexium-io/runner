@@ -143,7 +143,11 @@ func (c *Codex) openPeer(ctx context.Context) (codexPeer, error) {
 	}
 	cmd := exec.Command(binary, "app-server", "--listen", "unix://"+socket, "--strict-config")
 	cmd.Dir = filepath.Join(c.disk.Root, "native", "empty")
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "CODEX_HOME=" + filepath.Join(c.disk.Root, "native")}
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + os.Getenv("HOME"),
+		"CODEX_HOME=" + filepath.Join(c.disk.Root, "native"),
+	}
 	setNativeProcessGroup(cmd)
 	cmd.Stdout = c.tail
 	cmd.Stderr = c.tail
@@ -217,7 +221,11 @@ func (c *Codex) prepareHome() error {
 			return errors.New("readiness: native authentication cache is not a private regular file")
 		}
 	}
-	if err = c.disk.Write("native/config.toml", []byte(nativeConfig), 8192); err != nil {
+	config, e := c.nativeConfiguration(context.Background())
+	if e != nil {
+		return e
+	}
+	if err = c.disk.Write("native/config.toml", []byte(config), 16384); err != nil {
 		return err
 	}
 	return os.MkdirAll(filepath.Join(c.disk.Root, "native", "empty"), 0700)
