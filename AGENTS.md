@@ -1,104 +1,69 @@
 # Runner working agreements
 
-## Repository authority
+## Current authority and scope
 
-This repository is the source of truth for Cortexium Runner. Parent-directory
-documents and sibling Cortexium repositories are not Runner architecture or
-product authority unless a document in this repository links to them
-explicitly.
+This repository owns Cortexium Runner. Use explicit user direction, this file,
+then the [process-core design](docs/process-core-design.md), implemented contracts
+and tests. [Architecture](docs/architecture.md) explains the actual first slice.
+Earlier ADRs, redesign plans and qualification records describe the previous
+runtime; they are historical evidence, not current implementation requirements.
+Do not create a parallel task ledger.
 
-Use these sources in descending order of authority:
+The owner authorized a clean implementation on `codex/runner-process-core` after
+agreeing the design. The first slice is one local Go service, YAML/JSON
+configuration, SQLite operational state, MCP/CLI control and a deterministic
+executor. Finish the complete two-step journey and its recovery/storage proofs.
+No installed service, other project, release publication or cutover is authorized.
+Real harnesses, roles/skills, benchmarks, Git workspaces and reporting integrations
+belong to later explicitly chosen slices. Do not copy old runtime features back.
 
-1. Explicit user direction for the current work.
-2. This file.
-3. Accepted decisions in `docs/decisions/`.
-4. `docs/architecture.md` and the implemented contracts and tests.
-5. The remaining Runner documentation.
+The owner subsequently authorized the first Codex adapter under the
+[agreed ownership, assignment and qualification contract](docs/process-core-design.md#agreed-first-codex-adapter-ownership-and-launch).
+It supports text-only input/output and `input-only` access through an instance-owned
+`codex app-server`, with no selected task environment or external tools. Workspace
+coding, skills/tool catalogs, deployment and installed-service changes remain
+outside this slice. The initial three native task executions have been used;
+further native generation needs renewed authorization. Ordinary tests skip native
+qualification. Protocol/readiness probes that submit no turn use no model call.
 
-The accepted replacement direction is [ADR 0005](docs/decisions/0005-local-runner-core.md).
-Its build specification and designated implementation sequence are in the
-[core redesign plan](docs/runner-redesign-proposal.md). The local replacement is
-promoted to `cmd/cortexium-runner`; packages live in
-`internal/runner`. Feature scope is frozen after `aedc8bd`. The plan's
-[five release bundles and finish line](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
-are the release work source. R1 delivery, R2 backup/restore, R3 operator
-qualification, R4 promotion/packaging and R5 final qualification/cutover rehearsal
-are complete within their recorded evidence boundaries. The owner subsequently
-added [real-project pilots before merge](docs/runner-redesign-proposal.md#real-project-pilots-before-merge).
-The owner has authorized completion of the remaining release work: documentation
-reconciliation, bounded check-environment fixes, project pilots, renewed delivery
-and platform qualification, main reconciliation and PR preparation. Genny uses
-an isolated copy of PR #576 for verification/adoption and demonstrated gaps;
-do not duplicate or take ownership of its existing implementation. Publication and
-installation require separate explicit authorization. No further implementation
-bundle is implied by the completed R1–R5 checklist.
-The owner has also authorized the [local completion and combined-plan brief](docs/runner-redesign-proposal.md#local-completion-and-combined-plan-verification-brief),
-including configurable local delivery/merge permission. Implementation is now
-authorized in this worktree; publishing and installation remain separate.
-Implement only those release obligations or concrete fixes to the frozen contract;
-additional features require explicit owner direction. Do not create a separate
-task ledger. Architecture and the [operator guide](docs/operator-reference.md)
-describe the local runtime. Historical qualification records may name retired
-commands and suites; do not restore Project coupling from them.
+## Engineering
 
-The owner subsequently authorized the plan's
-[GitHub Issues and owner acceptance bundle](docs/runner-redesign-proposal.md#github-issues-and-owner-acceptance-brief):
-explicit issue intake, local owner approval and an optional progress overview,
-independent of delivery. Keep the current FlowStack work under its existing
-owner; this bundle does not authorize an installation change or active-work
-takeover. Other deferred capabilities retain their boundaries.
+Use minimum sufficient complexity and idiomatic Go. Keep one coordinator and one
+private transactional store. Core contracts live next to their consumers;
+adapters depend on the core, and main wires them. Configuration files own policy;
+SQLite stores resolved run settings and bounded operational facts. Do not add
+another scheduler, event store, public plugin framework, whole-task checksum
+gates or generic abstraction without a concrete need.
 
-When implementation and documentation disagree, identify and resolve the drift
-inside this repository. Do not preserve obsolete behavior for compatibility;
-Runner is pre-stable and replacement work should remove superseded paths and
-update their consumers.
+Do not introduce or store Python source, packages, environments or caches.
+Preserve unrelated work. A replacement removes obsolete paths and updates their
+consumers; it need not preserve behavior from the old pre-stable runtime.
 
-## Product direction
+Persist dispatch identity before execution and results before downstream work or
+Release. Reconcile uncertainty before replacement. Cancellation requires observed
+settlement. Admission limits must leave room to finish/recover admitted work.
+Only delete resources whose ownership and lifecycle are known. Never treat an
+unqualified adapter as safe for production, arbitrary external processes or
+hostile input merely because its interface compiles.
 
-Runner is a local event-and-action engine. It should observe state, derive every
-currently safe action, and start as many as configuration admits. A long-running
-harness action must not block unrelated deterministic reconciliation.
+## Verification
 
-Dependencies and resource conflicts define safety. Global, provider, or other
-configured limits are admission controls, not workflow lanes or batches.
-Implementation, review, and pull-request preparation may proceed concurrently;
-integration into one repository/base branch is serialized and refreshes the
-candidate against the latest base immediately before merge.
+Use the smallest reliable evidence for changed behavior. Extend the owning suite,
+check duplication and placement, and state the defect or contract a test proves.
+Table-driven tests suit related cases; they are not a requirement for unrelated
+scenarios. Avoid arbitrary synchronization sleeps and repeated passing checks.
+The deterministic core suite owns lifecycle/recovery/storage; config tests own
+file/edit semantics; MCP tests own the wire/access boundary. Do not repeat the
+whole failure matrix per transport or adapter.
 
-Humans can enter work in two direct ways:
+Required implementation gates:
 
-- `Plan`: ask the planner to propose a dependency-aware set of cards for review.
-- `Ready`: authorize one sufficiently specified card for implementation.
+```sh
+go test -race -timeout 15m ./...
+go vet ./...
+```
 
-Feature parity with the old Runner is not the acceptance target. Follow the
-plan's [product and skill reassessment](docs/runner-redesign-proposal.md#product-and-skill-reassessment):
-the target is a complete local journey without a required code host, issue system
-or board. GitHub is the first optional code-delivery integration; GitHub Projects
-is the likely first optional view. The current bundle adds local completion and
-dependent-plan delivery under that brief; its qualification evidence defines the
-verified boundary.
-Reassess role instructions, operator skills and research against the new contracts;
-do not inherit their legacy workflow, permissions or result schemas. This direction
-does not authorize implementation or changes to installed skills/services.
-
-## Engineering standard
-
-Use minimum sufficient complexity. The replacement has one explicit coordinator
-and one private transactional local store. External boards are optional views;
-intake and code delivery have separate, narrow adapter contracts. Do not add
-another scheduler, distributed queue, full event-sourcing system, compatibility
-layer or public plugin framework without a demonstrated need.
-
-Before implementation, define the supported behavior, representative expected
-results, verification boundary and existing coverage to extend. Repository
-policy owns the quality requirements; the task author or planner defines the
-verification brief; the implementer writes the change; the independent reviewer
-checks adequacy and unnecessary complexity. Extend or consolidate the owning
-suite when sensible. A test needs a credible defect it detects, not merely a
-coverage target. Existing sufficient evidence can mean no new test.
-
-Follow the redesign plan's testing policy for replacement work. Do not copy the
-old test suite or change shipped role prompts merely to make the documentation
-look consistent; qualify the replacement instructions with their owning slice.
-Review the complete diff before finishing. Implementation gates remain
-`go test -race -timeout 15m ./...` and `go vet ./...`, with platform/release checks at release.
+Run broader platform or real harness qualification only when relevant. Review the
+complete diff before finishing and report actual verification and limitations.
+Use one implementation owner for this bounded slice; do not add agents without
+explicit authorization. Publication and installation need separate authorization.

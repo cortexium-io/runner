@@ -1,862 +1,180 @@
-# Runner local operator guide
+# Process-core operator guide
 
-This guide describes the local engine shipped by `cortexium-runner`. GitHub
-Projects is not required. Candidate qualification is recorded in the release
-checklist; publication and installation require separate explicit authorization.
+This branch is a clean first slice. Use a new private state directory. Do not point
+it at an installed Runner database, migrate old approvals or replace a service.
+The executable supports `serve`, `start`, `status`, `inspect`, `wait`, `cancel`,
+`retry` and `config-set`. Each command accepts `--help`.
 
-Release archives include this guide as `OPERATOR.md` and a `runner.example.json`.
-Extract them for offline use. The installer copies only the binary; it does not
-initialize state, install skills, change services or migrate an old installation.
-
-Runner records work locally, asks for exact approvals, implements in isolated
-workspaces and reviews independently. `status` explains what needs you and what
-can proceed. A verified local result branch completes work by default. Optional
-base delivery waits for permitted integration. A Plan verifies its combined
-outcome and delivers one result; individual child acceptance does not complete it.
-
-## 1. Build and configure fresh authority
-
-Install Git and Codex CLI separately; source builds also need the Go version in
-`go.mod`. Authenticate Codex
-with your account and select a supported model/reasoning pair. This release
-qualifies sandboxed Codex; it does not install tools, credentials or a service.
-For GitHub delivery or optional Issues integration, also install `gh` and
-authenticate to github.com with access to the configured repository. Projects
-access is unnecessary. Issues needs read/write Issues permission for its overview;
-an account with only pull-request permissions is insufficient.
-
-From the Runner checkout:
+## Service and control
 
 ```sh
-go build -o /absolute/tools/cortexium-runner ./cmd/cortexium-runner
-/absolute/tools/cortexium-runner help
+go build -o ./cortexium-runner ./cmd/cortexium-runner
+./cortexium-runner serve --config examples/demo/instance.yaml --data /absolute/new/state
 ```
 
-For an extracted archive, run its `cortexium-runner --version` and `--help`
-directly. Source builds report `dev`; release builds report the injected version.
-The private store format is **20**. Legacy Project configuration and experimental
-store formats are deliberately rejected; there is no in-place migration. Keep
-old binaries with their state/backups, reconcile any outstanding remote effects,
-then use fresh config, state and workspace paths with new approvals. Never point
-both runtimes at the same work or import old approval authority.
+The default endpoint is `http://127.0.0.1:8787/mcp`. Change the server address with
+`--listen 127.0.0.1:PORT` and give clients the matching `--endpoint .../mcp`.
+Only numeric loopback listeners are accepted. There is one service per state
+directory, enforced with an OS lock. Startup refuses non-private directories,
+foreign database formats and unexpected state-root contents.
 
-The output directory must exist. Use a committed target repository with a local
-base branch and configured Git author identity. Uncommitted checkout edits are
-excluded. Create a private JSON configuration at `/absolute/runner/runner.json`:
+`owner.token` is private local authentication; clients read it through `--data`.
+An MCP client can connect using Streamable HTTP and `Authorization: Bearer TOKEN`.
+Do not expose the token or endpoint through a public proxy. TLS/OAuth, SSH/stdio
+forwarding and multi-machine discovery are not part of this qualification.
 
-```json
-{
-  "format": "runner-local-v1",
-  "repository": {
-    "path": "/absolute/project",
-    "base_ref": "refs/heads/main",
-    "base_freshness": "recorded"
-  },
-  "state_dir": "/absolute/runner/state",
-  "worktree_dir": "/absolute/runner/worktrees",
-  "profiles": {
-    "build": {"harness": "codex", "model": "gpt-6.1-sol", "reasoning": "high", "timeout": "20m"},
-    "review": {"harness": "codex", "model": "gpt-6.1-sol", "reasoning": "high", "timeout": "20m"}
-  },
-  "roles": {"planner": "build", "implementer": "build", "reviewer": "review"},
-  "policy": {
-    "merge": "human",
-    "max_parallelism": 1,
-    "max_repairs": 1,
-    "max_transient_retries": 1,
-    "max_base_refreshes": 1,
-    "implementation_ladder": []
-  },
-  "delivery": {"mode": "local"}
-}
+SIGINT/SIGTERM stops the service. It does not cancel runs. Restart with the same
+configuration/state to reconcile saved deterministic jobs and collect results.
+Do not launch a second service to recover a live instance.
+
+## Configuration files
+
+[The demo](../examples/demo/instance.yaml) selects a project, which selects role
+and process files. References resolve relative to the containing file. Either
+YAML or JSON is accepted with the same strict fields. The demo deliberately uses
+both. Unrecognized fields fail validation; later design examples are not yet the
+runtime schema. Each file is limited to 16KiB, one document, with at most 64 files
+and 16 projects per instance.
+
+An instance sets `projects`, `concurrency`, `reconcile_interval` and `storage`.
+A project sets `id`, `name`, `workspace`, `processes`, `default_process` and role
+bindings (`file`, optional `profile`). Workspace is descriptive in this slice;
+no code is executed there. A role sets `id`, optional `purpose`, named `inputs`/
+`outputs` and either `execution` or named `profiles` with a `default_profile`.
+
+Only `harness: deterministic` is supported. Its modes are `echo`, `file`, `fail`,
+`needs_help` and `log`; setup fields are `input`, `output`, optional `text`,
+`delay` and `log_bytes`. Echo/log return one text output; file returns one artifact.
+A selected input must be declared text or artifact. These are controlled test
+operations, not commands, tools, skills or real model profiles.
+
+A process declares inputs, an ordered `steps` list, named final output bindings,
+`max_attempts`, `max_attempts_per_step` and `attempt_timeout`. A step binds role
+inputs to `{from_input: name}` or `{from_step: earlier, output: name}`. Types are
+`text`, `json` or `artifact`; the current deterministic transformations consume
+text/artifact only. Up to eight steps, eight named values per contract and sixteen
+total attempts are supported. Automatic per-step attempts are bounded at four.
+
+A step may declare escalation, using profiles already defined on its role:
+
+```yaml
+escalation:
+  on: needs_help
+  profile: stronger
+  max_times: 1
+  exhausted: wait
 ```
 
-Replace all paths with canonical absolute paths without symlink components.
-Repository, state and worktree roots must be separate and non-overlapping; keep
-the config outside them. Use fresh state/worktree paths, make their parent
-directories first, and restrict config access with `chmod 600`.
+This changes the execution profile while preserving contracts/history. It does
+not reset the run budget or authorize another project, tool or capability.
 
-Choose delivery **before initialization**. To publish and integrate with GitHub,
-replace `delivery` with `{"mode":"github-draft","repository":"OWNER/REPO"}`.
-Approval then authorizes the exact candidate push and one draft PR in that
-destination. Repository, roots, destination and base cannot change through policy
-editing. Local mode defaults to `local_target: "result"`: an accepted result is retained at
-`runner/result/TASK_ID-vN` and the task completes, leaving your checkout/base
-unchanged. Choose `{"mode":"local","local_target":"base"}` to retain that
-result and then fast-forward `repository.base_ref`. With `policy.merge: "human"`,
-use `task merge ID`; with `automatic`, the coordinator admits it after all proof
-passes. Automatic policy is invalid for a result-only destination. Local base
-integration requires the target to be **not checked out in any worktree**, even
-if clean. Switch your checkout yourself before running; do not concurrently check
-out or administratively alter the target. Runner never switches, stashes or
-resets your checkout. GitHub mode does not accept `local_target`.
-
-For the remaining commands, define this shell helper in each terminal:
+Human edits are detected by a 250ms file-stat check plus a five-minute fallback.
+A valid complete configuration reloads automatically. Invalid edits leave the
+last valid setup active and appear as `config_error` in status. Fix the file to
+clear the error. Active runs keep their selected definitions; global concurrency
+controls new admission. Storage changes require a restart and sufficient existing
+capacity. MCP rejects a live storage edit before changing the file.
 
 ```sh
-runner() { /absolute/tools/cortexium-runner --config /absolute/runner/runner.json "$@"; }
-runner init
-runner init --apply
+./cortexium-runner config-set --data /absolute/new/state --file instance.yaml --field concurrency --value 3
 ```
 
-The first command previews; the second checks Codex capabilities and creates
-drained state. With no checks supplied, it says quality is unconfigured. No model
-has run. Complete the agreement below before submitting work.
+Control editing is restricted to selected files. The field path uses dots and
+zero-based sequence indexes. YAML comments are preserved where possible; JSON
+stays JSON. The full configuration is validated before atomic replacement. There
+is no separate apply action, task checksum or automatic modification of active runs.
 
-## 2. Agree on quality before work
-
-The repository owner selects required checks and policy sources. The author or
-planner defines the task's expected behavior, failure cases and verification
-brief **before implementation**. The implementer reuses or extends the owning
-suite; independent review checks adequacy and unnecessary complexity. A good
-test detects a credible defect, checks observable behavior and fails for the
-right reason. Existing sufficient evidence can mean no new test. Avoid duplicate
-fixtures, implementation-mirroring assertions and arbitrary sleeps. Consolidate
-equivalent cases when their distinct guarantees remain covered.
-
-After Runner accepts all required quality checks, completed source may reach
-review with honest implementer proof gaps. Those gaps remain unproved until
-independent review establishes them. A defect or missing decision still blocks.
-Review starts by auditing the exact candidate and retained evidence without
-running repository commands. If a specific proof gap remains, focused verification
-runs targeted checks in a disposable copy without changing source/tests. A known
-defect can trigger bounded repair; missing evidence alone is not a code defect.
-This keeps a second full suite from becoming an automatic review ritual.
-
-Create `/absolute/runner/quality.json` using the repository's actual commands and
-committed policy files. This example checks a tiny text-only rehearsal repository;
-replace it for real work:
-
-```json
-{
-  "definition": "Satisfy the approved outcome; preserve unrelated behavior; reuse sufficient existing tests.",
-  "sources": [],
-  "checks": [{
-    "id": "greeting",
-    "command": "test -s greeting.txt",
-    "directory": ".",
-    "prerequisites": ["sh"],
-    "timeout": "1m",
-    "at": "both"
-  }]
-}
-```
-
-Each check has `at: task|completion|both`; omission means `both`. Child work runs
-task checks, the combined Plan runs completion checks, and standalone Ready runs
-all checks. Plan release needs at least one completion check. Baseline runs all
-checks. Parent repairs or base refresh run all checks to protect child guarantees.
-Choose expensive final suites at completion explicitly; agents cannot change this
-agreement. Local mode rejects `required_ci` rather than silently dropping it.
-
-A check that produces reviewer evidence can declare, for example,
-`"artifacts": [".runner-output/browser/reports"]`. Paths are literal files or
-directories relative to the disposable source root, including for commands in a
-subdirectory, below `.runner-output/` or a declared output (see below). Overlapping selections, globs and
-links are rejected. Select
-reports/screenshots, not dependency caches or the entire output directory.
-After a stopped check passes source integrity verification, Runner copies only
-these outputs beside its private check log. A manifest binds their hashes to the
-source and check/log identity. Missing/empty output or overflow makes proof
-unavailable: at most 10,000 entries, 32 MiB per file, 256 MiB total payload and
-8 MiB manifest. Omission retains log-only evidence.
-
-Reviewers get the retained bundle read-only, with baseline/child evidence labelled
-separately from current-candidate proof. Runner verifies it before dispatch and
-after return; missing, changed or stale evidence blocks review. Logs and artifact
-paths appear in local task/check JSON; the GitHub overview does not upload private
-artifacts. Artifact declarations require a new quality preview/check/apply cycle.
-Store format 21 rejects older state directories without converting them; preserve
-old state and use a fresh isolated directory for this version.
-
-A public npm audit is a typed check alongside ordinary offline commands. Add a
-check like this to `checks` (using your package directory):
-
-```json
-{
-  "id": "npm-security",
-  "directory": "web",
-  "npm_audit": {"level": "high", "omit": ["dev"], "max_age": "1h"},
-  "timeout": "2m",
-  "at": "both"
-}
-```
-
-Choose the omission policy deliberately; omit `omit` to assess all dependency
-types. Levels are `info`, `low`, `moderate`, `high`, `critical`; allowed omissions
-are `dev`, `optional`, `peer`. `max_age` defaults to one hour and must be positive.
-Use a prepared Node environment or exact local `check_image` containing the
-qualified npm **11.19.0**. Other npm versions are unavailable. Audits have no shell
-command, prerequisites, artifact selections or CPU overrides; their report is
-retained automatically. Ordinary command checks retain their existing settings.
-
-`quality preview --file` discloses the package directory and dependency names and
-versions eligible for the audit under `npm_audits`, plus the applied omission,
-severity, timing and freshness policy. It makes no audit request. Only validated
-public-registry dependency metadata reaches Runner's fixed public npm transport;
-source, project identity, absolute paths, `.npmrc`, credentials and proxies are
-excluded. The evaluator is offline in the pinned image; project code never runs
-with this transport. There is no Quick Audit fallback, audit fix, install or
-manifest rewriting. Version-3 locks and consistent ordinary semver graphs are
-supported; workspaces, private registries, aliases and local/git dependencies are
-unavailable. Limits are 1,000 locked packages, 1 MiB request, 16 MiB per response,
-128 MiB responses per audit, 8 MiB retained report and the declared total deadline.
-
-Each check observation includes `audit.receipt`, with its actual query-window
-start, finish, input/policy/tool/image identity, findings and report path/digest.
-`queried_at` is a conservative start of the query operation; reuse never changes
-it. Passing means the service reported no finding at the approved threshold at
-that time. It cannot predict later advisories. Inspect `npm_audits` in task JSON
-for the receipt time, expiry and report; status explains pending refresh or the
-blocking failure. Expired proof is not sufficient to approve a baseline.
-To renew only a baseline's online audits, preserving its offline observations:
+## Runs, retries and cancellation
 
 ```sh
-runner quality preview --report REPORT_ID
-runner quality check --report REPORT_ID --preview REFRESH_PREVIEW
-runner quality preview --report NEW_REPORT_ID
+./cortexium-runner start --data /absolute/new/state --project demo --inputs '{"name":"Hello"}' --request-id request-1
+./cortexium-runner inspect --data /absolute/new/state --run RUN_ID
+./cortexium-runner wait --data /absolute/new/state --run RUN_ID
+./cortexium-runner cancel --data /absolute/new/state --run RUN_ID
+./cortexium-runner retry --data /absolute/new/state --run RUN_ID --request-id retry-1 --extra-attempts 1
 ```
 
-The refresh returns a new immutable report. Its quality revision remains unchanged
-when only observations change. Use the new agreement preview for `quality apply`.
-Changed source/base requires a new full baseline. Baseline renewal does not admit
-tasks or invoke a model.
-
-
-While work remains active, Runner refreshes only an expired/mismatched audit
-before applicable review and final local/connected delivery, including merge.
-It retains passing tests, the candidate, review and allowances; no image rebuild,
-model call or manual snapshot update is required. New dependency/audit policy,
-image or adapter identities require a fresh query. Findings fail the required
-check; outages, invalid/unsupported data, timeout or unsettled ownership make it
-unavailable. Neither admits completion or a baseline exception. Inspect the report
-and use the displayed `task resume TASK --attempt ATTEMPT` recovery for a failed
-refresh, then `run`; it does not authorize a model invocation. Backwards clocks
-block until trustworthy time catches up to the stored high-water mark. Completed
-receipts remain historical and are not polled afterward. Backups retain them;
-Docker images still require separate preservation/preparation.
-
-For GitHub delivery, also include `required_ci`, with each exact check name and
-its observed GitHub app identity, for example
-`[{"kind":"check","name":"fixture","app_id":15368}]`. That identity is an
-example from the qualification repository, not a universal setting. Commit
-statuses use `kind: "status"` and omit `app_id`. An empty list is unconfigured,
-not permission to skip CI; duplicate matching results require inspection.
-
-```sh
-runner quality preview --file /absolute/runner/quality.json
-runner quality check --file /absolute/runner/quality.json --preview BASELINE_PREVIEW
-runner quality preview --report REPORT_ID
-runner quality apply --report REPORT_ID --preview AGREEMENT_PREVIEW
-runner quality show
-```
-
-Use `preview` from each JSON preview and `id` from the returned report. Checks run
-in fresh source copies with private HOME/TMPDIR, fixed PATH and no inherited
-credentials or network. Declare tools in `prerequisites`; keep generated output
-under `.runner-output/` or declared output directories. Exit 0 passes, 1–124 reports failure, 125–127 signals an
-unavailable prerequisite. Source/Git modifications, timeouts and unresolved
-processes are unavailable. A report is evidence, not automatic agreement approval.
-
-For checks needing a complete toolchain or local test servers, prepare an offline
-Linux Docker image containing the tools and dependency cache, inspect its exact
-image ID, and add `"check_image": "sha256:<64 lowercase hex digits>"` to the
-quality file. Tags and registry digest references are rejected; Runner uses only
-that already-local image and never pulls or downloads dependencies. Re-run the
-quality preview/baseline/apply flow after an image change. The image ID is pinned
-with the agreement; its baked environment must contain no credentials. This is
-an optional check environment, independent of the selected model harness.
-
-Runner can also prepare its built-in Go/Node environment from declarative inputs.
-Use `environment` instead of `check_image`. For example, a Go repository with an
-independent `web` npm package can add these fields to its quality specification:
-
-```json
-{
-  "environment": {
-    "go": "1.26.9",
-    "node": "24.21.0",
-    "playwright": "1.64.1",
-    "go_modules": ["."],
-    "npm_packages": ["web"]
-  },
-  "outputs": [
-    {"path": "web/node_modules"},
-    {"path": "web/test-results"},
-    {"path": "public", "placeholders": ["public/index.html"]}
-  ]
-}
-```
-
-These are example versions/layouts, not automatic project detection. Omit unused
-tools/browser support. Go and Node versions must be exact releases. Optional
-Playwright uses the official versioned Linux image; declare its bundled Node
-version and match every locked Playwright package to that version. npm's version,
-the actual Chromium version, platform, source-input hashes and resolved image IDs
-are recorded in the preparation receipt. Each npm package needs its exact
-`node_modules` output. Output paths and artifact paths are relative to the source
-root, regardless of a check's working directory.
-
-```sh
-runner quality prepare --file /absolute/runner/quality.json
-runner quality prepare --file /absolute/runner/quality.json --apply --preview PREPARATION_PREVIEW
-```
-
-Read `preparation.preview` from the first response. Apply requires a drained
-installation without coordinator ownership. It explicitly resolves versioned official
-Go/Node/Playwright images through their registries and fetches pinned public Go/npm inputs. Fetch
-containers contain only Runner scripts and dependency metadata; no project
-Dockerfile, command, executable or lifecycle hook runs with network access.
-Tool compilation and npm installation validation run offline. Preparation has a
-30-minute total deadline and bounded logs under `state/environments/prepare-*/`;
-errors identify the log. Settled scratch is discarded; receipts and process
-evidence remain. Inspect missing tools or unsupported inputs rather than enabling
-networking for checks.
-
-Go inputs are `go.mod` and `go.sum` (the latter may be absent for a dependency-free
-module). The recipe requires pinned inputs for the root build/test graph and
-rejects replace/exclude directives. npm requires consistent package.json/lockfile-v3
-metadata and integrity-pinned public registry tarballs. Workspaces, local/git
-dependencies, overrides, npm shrinkwrap, unsupported bundled lock entries and private npm
-registries are unavailable capabilities. Engine requirements are enforced.
-Preparation is not vulnerability proof; configure typed `npm_audit` checks separately.
-
-Pinned Go commands can add `go_tools` entries with `module`, `version`, `package`,
-`name` and the exact archive `sum` (`h1:...`). Declare private module prefixes in
-`private_modules` and explicitly pass `--module-cache /absolute/go/pkg/mod` when
-applying preparation. Runner copies only pinned private archive/metadata entries,
-checks archive/metadata consistency and lets Go verify checksums. It never mounts
-the cache, HOME or credentials. Missing private archives block; automatic private
-authentication is not supported. Go tools build from the exact verified archive
-offline, without a latest-version lookup.
-
-Continue with the existing quality preview/check/apply flow. Preparation neither
-runs the baseline nor approves quality/work, and leaves admission drained. The
-agreement pins the immutable image, tool/manifest identities and output authority.
-Checks privately copy dependency caches and install npm packages/hooks offline;
-they cannot modify a reusable cache. Changed locks/manifests require explicit
-preparation, baseline, agreement approval and adoption for existing work. A missing
-image is unavailable proof; explicit preparation can rebuild it, after which a
-different image identity needs the same approval flow. `run` never prepares/pulls.
-
-The recipe sets `GOTOOLCHAIN=local`, `GOWORK=off`, `GOPROXY=off`, `GOSUMDB=off`
-and `GOFLAGS=-buildvcs=false` during checks. Disposable copies have a private Git
-inventory, without candidate commit history; ordinary Go builds therefore omit
-VCS stamping instead of querying an unborn HEAD. Runner's source-bound receipts
-remain the provenance of these disposable build outputs. Checks requiring real
-candidate Git history are outside this verification-copy contract.
-
-Container checks create a private mode-0700 HOME at `/tmp/runner-home` in their
-temporary filesystem, owned by the check UID. Dependency caches and declared
-outputs keep their private writable mounts. Recipe `go-node-v2` includes this
-boundary; environments prepared with the earlier recipe need explicit preparation
-and approval before use with the new recipe.
-
-Declared outputs are private writable directory overlays backed by
-`.runner-output/outputs/<path>`; the remaining source mount is read-only. No
-cleanup/restore script is needed. A tracked build placeholder must be listed as an
-exact file and its original bytes are pinned in the preview. Source code,
-manifests, quality sources, links, broad/overlapping outputs and additional tracked
-files under an output are rejected. Generated placeholder bytes exist only in the
-overlay; the candidate retains its original file. Reports can select ordinary
-paths such as `web/test-results`; retained bundles label their private backing
-paths and use the existing limits and read-only reviewer grants.
-
-A command that deletes and recreates its report directory needs a writable output
-parent: for example, declare `artifacts` and retain `artifacts/browser` for
-Playwright. A mounted output root itself cannot be removed. Its parent must still
-contain no protected source; otherwise that layout is unsupported rather than
-permission to widen the source mount or change project scripts.
-
-Each container check may set `"cpus": 1`, `2`, `3` or `4`; omission keeps the
-existing two-CPU quota. Alternatively set `"auto_cpus": true` to use 25% of the
-Docker daemon's available logical CPUs, rounded up and capped at 1–4. For example,
-4 cores select 1, 8 select 2, and 16 or more select 4. The CLI machine's CPU count is
-not used. Both options require `check_image` or `environment` and cannot be combined. Automatic
-allocation resolves to an explicit `cpus` value in `quality preview`; inspect it
-before running the baseline and applying the agreement. Detection failure blocks
-preview. A changed detected allocation requires a fresh preview, and execution
-keeps the approved quota even if available capacity later changes. Changing a
-CPU budget requires a new quality preview/check/apply cycle; old results do not
-satisfy the new agreement. This is a per-check limit, not a global CPU reservation;
-concurrent checks may compete. Memory stays 4GiB and other containment is unchanged.
-
-Container checks require a non-root Runner owner and a local Unix-socket Docker
-daemon. Every check gets a fresh unprivileged container, a read-only image root,
-dropped capabilities, bounded memory/processes, private scratch and only its
-disposable source copy mounted. Fixture servers can bind/connect loopback within
-that container. Host loopback, external networking, published ports and the
-Docker socket are unavailable. Explicitly prepare dependencies before
-applying the agreement; missing image/tools are unavailable proof. Keep image
-build inputs and its recorded ID with operator evidence.
-
-Cancellation removes the named check container before releasing ownership.
-After a hard crash, status/recovery and backup retain ownership while that
-container exists or its pinned daemon cannot be inspected. Inspect the recorded
-`container` and `docker_host` in the process evidence; remove only that verified
-check container, then retry recovery. Changing the current Docker context does
-not redirect observation of an old owner. Native checks keep their existing
-containment when neither `check_image` nor `environment` is configured.
-
-Preparation uses the same named-container ownership boundary. An interrupted
-operation's `*-process.json` record blocks further preparation and backup while
-its process/container is unresolved. Inspect that record's pinned daemon/name,
-settle only that verified owner, then retry. `*-settled.json` records preserve
-confirmed settlement. Backups retain receipts/history/evidence; Docker images are
-external prerequisites and are not included in a backup.
-
-A successful `quality check` command means a report was recorded, not that its
-checks passed. Inspect each observation and the agreement preview's blockers.
-Verify prerequisites inside the check environment: finding a host executable
-does not prove the sandbox can use its tools, libraries or dependencies. Shell
-checks must preserve command failures; for example use
-`files=$(gofmt -l .) && test -z "$files"` so missing `gofmt` cannot pass as empty
-formatting output. Network-dependent fixtures, including loopback servers, need
-a qualified execution environment before work is approved; do not exempt an
-infrastructure failure as a source baseline defect.
-
-For an observed, stable baseline defect, the owner may supply an exceptions file:
-`[{"check_id":"legacy","rationale":"Existing unrelated defect","scope":["legacy.txt"]}]`.
-Pass `--exceptions PATH` to both report preview and apply. The candidate must pass
-or reproduce the exact failure with scoped files unchanged; variable timestamps
-or diagnostics prevent matching. Never weaken an assertion to accept a failure.
-
-New agreements affect new work. Existing tasks retain their revision until
-`task adopt-quality ID --version N --preview ADOPTION_PREVIEW`, shown by
-`task show`. Adoption revokes the old approval/candidate and creates an unapproved
-version; inspect and approve it again. `quality show --revision DIGEST` reads old
-agreements. Released Plans and their children cannot adopt or replace their
-released contract. Required checks run after implementation without a model call;
-saved complete observations are reused.
-
-## 3. Enter Ready work or ask for a Plan
-
-For one specified change, create a task file such as:
-
-```markdown
-## Outcome
-Change the greeting to hello.
-## Scope
-greeting.txt only.
-## Acceptance
-The file contains exactly hello followed by one newline.
-## Verification
-Read the file and compare the exact bytes. The repository check covers presence;
-this tiny text change needs no new test suite. Do not change unrelated files.
-```
-
-```sh
-runner task add --file /absolute/runner/task.md
-runner task show TASK_ID
-runner task approve TASK_ID --version N --preview APPROVAL_PREVIEW
-runner run
-```
-
-For a check using external fixtures, supply the relevant immutable helper and
-test source in the request, with provenance. A passing summary alone may not let
-independent review assess whether those assertions prove the requested behavior.
-
-Copy the ID from `add` and the exact version/approval command from `show`, after
-reviewing content, quality revision, base and destination. The displayed preview
-is not approval by itself. Missing Verification requires a configured planner and
-adds a preparation call. A sufficient Ready brief normally needs implementation
-and audit; focused review or repairs can add calls.
-
-For a larger request, use `task add --plan --file REQUEST.md`, inspect and approve
-as above. This approval authorizes **planning only**. In another terminal:
-
-```sh
-runner task show PLAN_ID
-runner task release PLAN_ID --version N --preview RELEASE_PREVIEW
-```
-
-Release only after inspecting the shared Outcome/Scope/Acceptance/Verification
-body, every card and its dependencies, the quality agreement and destination.
-Release authorizes this exact outcome. Independent children can run concurrently;
-a dependent starts from the current private Plan head after its exact prerequisite
-has a durable inclusion receipt. An included child remains Awaiting delivery,
-“included in Plan; final verification pending”. Child inclusion is private and
-independent of final merge permission.
-
-After all children are included, Runner runs combined checks and independent
-outcome review. A concrete combined defect may use the parent's bounded repair
-allowance; a missing capability blocks. Planning, final review and repair consume
-the parent's invocation ceiling; children have their own ceilings. `show` reports
-the Plan total. Final receipt commits parent and child completion together.
-GitHub delivers one parent PR; children never publish separate results.
-Use delivery/merge/integrate on the parent.
-
-If a question appears, put the answer into the complete request file, then:
-
-```sh
-runner task replace TASK_ID --version N --file /absolute/runner/clarified.md
-runner task show TASK_ID
-runner task approve TASK_ID --version NEW_VERSION --preview NEW_APPROVAL_PREVIEW
-```
-
-The original request/evidence remain. Editing the file alone changes nothing.
-Replacing text retains the quality revision and starts a new version's counters.
-Use this for changed or missing requirements, not to restart an exhausted allowance.
-If an overall budget must carry across clarification, lower the applied invocation
-limit to the remaining allowance before approving the replacement and retain the
-original deadline. For a confirmed failed required check under unchanged scope,
-use the bounded `repair-checks` action instead. A released Plan or child cannot be
-replaced; stop the batch and submit a new plan if its requirements must change.
-
-### Local results and base integration
-
-`task show ID` identifies the result branch/commit and its receipt. Inspect or
-check out that result when useful; the original working checkout is untouched.
-For a base destination, `task merge ID` binds human permission to the current
-accepted candidate. If the base moves, bounded refresh and affected checks/review
-produce a new candidate; inspect it and request a new human merge. Earlier result
-branches are retained with subsequent revisions named `-rN`.
-
-`task integrate ID` may confirm your own fast-forward only when the configured
-branch tip exactly equals the accepted candidate and contains its verified base.
-It cannot infer success from an unrecorded squash, merge shape or later descendant.
-Runner's recorded base write can be reconciled in later ancestry.
-
-Use `task delivery ID --reconcile` after resolving a local Git attention condition.
-Possibly dispatched writes are inspected, never repeated. A missing/changed result
-ref cannot manufacture completion. Stopped work retains any already applied effect
-without regaining authority. Use `task verify-base ID` for an accepted result that
-needs fresh base verification. Completed outcomes remain historical when base moves.
-
-### Optional GitHub issue requests and overview
-
-Create a dedicated ordinary issue for the overview, without the intake label.
-Its entire body belongs to Runner; do not use an existing request or store human
-notes there. Before initializing fresh authority, add this optional top-level
-configuration alongside `delivery`:
-
-```json
-"github_issues": {
-  "repository": "OWNER/REPO",
-  "overview_issue": 123,
-  "intake_label": "runner:request"
-}
-```
-
-`intake_label` defaults to `runner:request`; create that repository label yourself.
-This connection stays fixed at initialization and can use a different repository
-from code delivery. It works with local delivery too. Omit it for a fully local
-journey. GitHub Projects and Projects permissions are unnecessary.
-
-Create a request issue and apply the intake label. Then:
-
-```sh
-runner github inbox
-runner github import --issue 124 --plan
-# Or, for a sufficiently specified Ready request:
-runner github import --issue 125 --ready --file CLARIFIED_TASK.md
-runner task show TASK_ID
-runner task approve TASK_ID --version N --preview DIGEST
-runner run
-```
-
-Import only captures a snapshot. It grants no invocation permission. The owner
-inspects the full brief, quality, destination and exact preview before approval.
-Plan approval authorizes planning; the returned proposal still needs explicit
-`task release`. Ready requires Outcome, Scope and Acceptance sections; the owner
-may supply a clarified local brief while retaining the original issue snapshot.
-
-Repeated import returns the original mapped task. Changes to the issue title,
-body, labels, comments or open/closed state never change an imported task, reset
-its allowances, approve work or stop it. To change the captured brief, use the
-existing local replacement/approval process; released Plans need a new request.
-GitHub content is request data, including when an owner authored it. This bundle
-discovers/imports explicitly; merely creating or labeling an issue starts nothing.
-Inbox reads use the applied connection, including when the configuration file has
-unapplied edits.
-
-The overview shows all captured/local tasks, Plan relationships, owner decisions,
-active work, waits, attention, stopped work, completion and known PR links. An
-included child remains undelivered until its Plan completes. A local result
-completion does not promise integration into the base. Request bodies remain
-untouched and requests are not automatically closed. Unimported requests remain
-in the labeled GitHub inbox; the overview covers captured work.
-
-`run` attempts a bounded overview refresh after the preceding call settles, with
-30 seconds between calls. `runner github sync` explicitly refreshes it while the
-coordinator is absent or drained. A connection lock prevents overlapping writes.
-An unchanged body is observed without another write. Local `status` shows the
-overview URL, last successful observation and any synchronization failure.
-Before dispatch, Runner retains the exact pending body. If the response is lost,
-`github sync` observes that body before publishing newer progress; it does not
-replay the uncertain write. If it never appears, the view stays held for operator
-reconciliation. Preserve its pending record and diagnostics rather than clearing
-them to force another write. A definite permission or validation refusal can be
-retried after correcting the cause.
-GitHub downtime only delays that view and hosted operations; local execution
-continues. Issue rows are observations, never workflow authority. Large overviews
-fail visibly at the bounded publication size rather than silently drop work.
-
-The public view excludes full briefs, private diagnostics, transcripts, evidence
-paths and approval previews. Inspect exact blockers locally. Do not put sensitive
-content in task titles when opting into a public overview. A closed overview,
-wrong instance marker, request label or missing permissions prevents writes;
-correct that connection and sync again. Fresh state needs a new dedicated issue,
-or an explicitly reviewed clearing of the previous Runner-owned body. Preserve
-the old evidence before doing so. Inspection-only restores cannot publish.
-
-## 4. Follow work and recover deliberately
-
-`run` stays in the foreground. Use a second terminal for:
-
-```sh
-runner status
-runner status --watch 2s
-runner task show TASK_ID
-runner task show TASK_ID --json
-```
-
-Status groups **Needs you**, **Working**, **Waiting**, **Retained** in that order.
-It shows cause, actual profile, elapsed time, evidence, remaining allowances and
-next action. JSON supplies the same advice. Watch only observes; Ctrl-C stops the
-watch, not the coordinator. `task show` includes the request, questions, proof,
-all attempts, candidate and delivery history. Read `Recovery role`, `Preserved`
-and `Repeats` before recovery.
-
-| What you see | What to do |
-| --- | --- |
-| Question or rejected requirement | Clarify the request, replace its displayed version, inspect and approve the new version. |
-| Dependency wait | Inspect the named prerequisite/version and finish its integration; do not reapprove or remove the dependency to bypass it. |
-| Capacity or retry backoff | Wait; unrelated eligible work continues within configured limits. |
-| Interrupted audit | Use the displayed `task resume ID --attempt ATTEMPT_ID`. It refuses a repeat unless you add `--allow-new-invocation`; that explicitly permits one call of the interrupted role with its pinned profile. The candidate remains retained. |
-| Saved result awaiting continuation | Use the displayed resume or run command. Integrity checks and deterministic continuation reuse the saved result without another model call. |
-| Unknown process ownership | Inspect the recorded process/evidence and resolve ownership before reconciliation. Do not replay work or kill an unrelated PID. |
-| Failed repository check | Inspect all retained receipts/logs. For a confirmed source defect within the unchanged scope, use `task repair-checks ID --attempt ATTEMPT_ID --reason "CONCRETE_DEFECT"`. This spends the existing repair and invocation allowances, retains source/history and the pinned profile, then reruns checks and independent review. Duplicate requests do not grant another repair. |
-| Unavailable repository check | Resolve the missing tool/environment or agreement; unavailable or incomplete observations cannot authorize source repair. Explicitly adopt/approve a changed agreement when required. |
-| Repair, retry, refresh or invocation limit | Inspect consumption and next profile with `config explain`; explicitly change/apply the relevant limit if more work is warranted. Counters never reset. |
-
-To stop admitting work without canceling active actions:
-
-```sh
-runner drain
-runner status
-runner run
-```
-
-Drain waits for the coordinator to settle; it does not wait for every task to
-finish. The next explicit `run` reconciles retained work and clears drain. Use
-`task stop ID` to revoke a task or a released plan's batch. Cancellation can take
-time, and a sent remote effect may still settle. Evidence and remote artifacts
-remain; stopping does not delete branches or close PRs.
-
-## 5. Change execution policy
-
-`config edit` provides an interactive editor over the same JSON file. `done`
-previews and offers to save; `cancel`, EOF or declining save leaves it unchanged.
-For repeatable commands, preview and save the same settings:
-
-```sh
-runner config edit --set parallelism=2 --set repairs=1 --set transient-retries=1 \
-  --set base-refreshes=2 --set invocations=8 \
-  --set 'profile.careful=gpt-6.1-sol high 30m' --set escalation=careful
-runner config edit --set parallelism=2 --set repairs=1 --set transient-retries=1 \
-  --set base-refreshes=2 --set invocations=8 \
-  --set 'profile.careful=gpt-6.1-sol high 30m' --set escalation=careful \
-  --save --preview SAVE_PREVIEW
-runner config explain
-runner config apply --preview APPLY_PREVIEW
-```
-
-Save changes the file; apply changes running policy. `config explain --json`
-uses **`apply_preview`**, while task JSON uses **`approval_preview`** or
-**`release_preview`**. Stale previews are refused. Saved but unapplied edits are
-visible in status and block new mutating commands except drain/stop and policy
-application; already admitted work retains the applied policy.
-
-| Setting | Meaning |
-| --- | --- |
-| `profile.NAME=MODEL REASONING TIMEOUT` | A complete Codex profile. Role settings `planner`, `implementer`, `reviewer` select its name; `planner=none` removes planning. |
-| `parallelism=1..16` | Global admission limit shared by roles and delivery actions. Lowering it does not cancel active work. |
-| `repairs=N` | Shared bounded allowance for operator-confirmed required-check defects, confirmed rejection, eligible CI failure and supported text-conflict repair. |
-| `transient-retries=N` | Bounded retry of recognized transient failures; interruptions need explicit recovery. |
-| `base-refreshes=N` | Allowance for changed-base verification cycles, separate from code repairs. |
-| `invocations=N` or `unlimited` | Limit on role executions per task. Admission consumes one even if execution fails; a role can make several provider requests. |
-| `escalation=careful,next` or `none` | Successors after the starting implementer. Confirmed review rejection advances the ladder; the last profile remains selected within the repair limit. Operator-confirmed check repair, CI/conflict repair and transient retry do not independently advance it. |
-| `merge-policy=human` or `automatic` | Local base or GitHub merge authority; see below before applying automatic policy. |
-
-The example's successor keeps the same model/reasoning and gives it more time;
-select a different supported model/reasoning if desired. Active attempts and
-pending retries/resumes retain their admitted profiles even if those names change.
-Explain shows pinned work and effects on future admissions. Apply starts no
-coordinator and grants no fresh allowance to an exhausted counter.
-
-## 6. Deliver and inspect the result
-
-With `github-draft`, accepted work publishes one draft, verifies the current
-remote base, refreshes if needed, synchronizes the same draft and assesses pinned
-CI once. A changed candidate runs checks and independent review again. Supported
-text conflicts and explicit CI failures use the shared repair budget; unavailable
-or incomplete evidence requires inspection. Local mode follows the result/base destination described above and requires no
-GitHub connection. The remaining hosted steps apply only to GitHub delivery.
-
-```sh
-runner task show TASK_ID
-runner task delivery TASK_ID --reconcile
-runner task verify-base TASK_ID
-runner task assess-ci TASK_ID
-runner task integrate TASK_ID
-```
-
-These are **next-action alternatives**, not a sequence to run blindly. Follow
-status: settle publication/synchronization first, verify a stale base, reassess
-settled CI, then inspect integration. Run the coordinator if absent or drained.
-There is no remote polling, CI rerun or ready-state write. A ready PR must be
-returned to draft externally before Runner can synchronize another candidate.
-An uncertain PR creation is inspected and never blindly repeated.
-
-A human marks the PR ready and satisfies host reviews. Under default `human`
-policy, merge through GitHub using an **ordinary merge commit**, then request
-`task integrate ID`. Runner confirms exact candidate/tree, merge parents, current
-base ancestry and pinned CI before completion. Squash/rebase receipts are not
-supported. A closed PR or an unmatched merge needs attention.
-
-Alternatively, `task merge ID` explicitly authorizes one guarded ordinary merge.
-Runner requires a classic branch protection rule with strict required checks and
-admin enforcement, ordinary merge enabled, no bypass/force-push/deletion allowance,
-no auto-merge/queue, and satisfied host merge/review conditions. Ruleset-only
-repositories use human integration. Runner never changes these protections.
-
-Applying `merge-policy=automatic` through the same edit/save/explain/apply steps
-authorizes guarded merge for **existing and future approved work** after a ready
-PR observation. `task integrate` can then trigger a write. It still needs external
-ready marking/reviews and explicit reassessment after waits. Disabling the policy
-blocks unsent automatic writes. A consumed merge dispatch is never repeated;
-use `task integrate` to inspect an uncertain outcome, with human resolution if
-it remains open. Host destination/protection must stay stable during dispatch.
-
-After confirmation, `task show` displays **Completed**, `Confirmed integration`,
-the PR URL, merge commit and retained base proof. It also retains all calls,
-checks, publication/CI observations and any merge dispatch. Inspect the parent
-and dependent to confirm progress. Acceptance, passing CI and a successful merge
-API response alone are not completion. Do not claim token usage or cost when the
-provider did not report them; inspect retained attempt evidence for actual usage.
-
-## 7. Back up and restore on the same host
-
-Finish other commands and stop watches. Keep editors/Git tools from changing the
-captured roots. Preserve the exact binary separately, then:
-
-```sh
-runner drain
-runner status
-runner backup --to /absolute/backups/new-snapshot
-runner restore --from /absolute/backups/new-snapshot
-```
-
-The backup directory must be new and outside source roots. It includes the exact
-config, consistent SQLite state/evidence, repository/Git administration, workspaces
-and recorded inputs. Keep the complete private bundle; `manifest.json` is written
-last. Credentials/tools are not collected separately; files inside captured roots
-are copied as-is. Symlinks are copied literally, special files/Git object alternates
-are unsupported, and the manifest limit is 64 MiB. This is not an encrypted archive.
-
-Restore requires the same binary, host, OS user and original config/path roots.
-Keep the original **`STATE_DIR.guard` in place**, outside the backup. Read-only
-inspection preserves freshness. A writable command, config save, newer backup or
-restore consumes/invalidates the token; even a refused writable command may do so.
-Copying an old guard cannot establish freshness.
-
-The restore preview lists **all destinations and blockers**, including retained
-temporary execution inputs. While stopped, preserve existing roots by moving
-each listed destination to a distinct name; never move/replace the guard. All
-destinations must be absent and their parent directories must exist. The config
-itself may be absent: restore reads it from the bundle. Repeat preview, then:
-
-```sh
-runner restore --from /absolute/backups/new-snapshot --apply
-runner status
-runner task show TASK_ID
-```
-
-An untouched original guard permits `inspection_only: false`. The restored
-authority starts **drained**; inspect pending config, tasks, counters and remote
-history before explicit `run`. Existing candidate/approval identities and consumed
-writes remain intact.
-
-If freshness is lost, `inspection_only: true` preserves history but blocks run,
-task mutations, config save/apply and recovery. There is no override. Reconcile
-retained and current remote evidence, then initialize fresh authority at distinct
-paths and approve only remaining work. Do not restart an old approval after later
-remote effects. Losing the disk/guard also requires this explicit fresh recovery.
-
-An interrupted restore may leave installed roots and sibling `.runner-restore-*`
-staging directories. Inspect and preserve partial roots before retrying. Authority
-is installed last under a hold; a retry cannot regain consumed freshness. Nothing
-is overwritten. Recreate an incomplete backup from a valid drained installation;
-do not patch its manifest. Online backup, relocation and cross-version recovery
-are outside this release.
-
-The [release checklist and qualification evidence](https://github.com/cortexium-io/runner/blob/main/docs/runner-redesign-proposal.md#frozen-first-release-checklist)
-record what was exercised, actual calls/interventions and remaining release gates.
-
-## 8. Breaking release and cutover
-
-This release replaces Project-owned orchestration with one local coordinator and
-private store. Ready/Plan approvals, quality agreements, bounded work/review/repair,
-status and same-host backup/restore are available without a board. Optional GitHub
-delivery supports draft publication, current-base and CI assessment, bounded
-repair and guarded ordinary merges with exact integration receipts. Configuration
-explicitly controls model/reasoning profiles, escalation, parallelism and limits.
-
-This is a **fresh setup**, not an upgrade of old authority. Store formats before
-20, old Project configuration, old commands and old approval records are not
-accepted. There is no legacy-state importer, daemon installer or updater.
-Optional issue snapshot import does not migrate execution authority. Other
-boards/Trello, autonomous intake, other harnesses, background delivery polling,
-CI reruns, queues, squash/rebase and ruleset-only
-Runner-owned merges remain outside this release. The delivery section above
-describes supported host protection and the human handoffs.
-
-Use the following order for a separately authorized installation. Substitute
-canonical absolute paths and a published version for the placeholders. Keep the
-old and new binaries, configs, repositories and workspaces distinct throughout.
-
-1. **Stop old ownership.** Prevent the old service/launcher from restarting. With
-   the matching old binary/config, drain and wait for its coordinator and all
-   owned processes to exit; inspect status and outstanding remote effects. Drain
-   requested is not drain completed. If the older runtime has different commands,
-   use that version's shutdown instructions. Record each pending task, PR, head,
-   base and confirmed merge; a local backup cannot undo a push or merge.
-2. **Preserve recovery material.** Keep the old binary and its version/hash. For
-   a local-core version supporting backup, use that matching binary's `backup
-   --to /absolute/backups/new-old-snapshot` after drain. Preserve its complete
-   private bundle, original guard and any roots needed by that version. For the
-   legacy Project runtime, preserve its stopped configuration/state/workspaces
-   using its documented recovery procedure. Do not feed either format to the new
-   binary. Leave old launchers disabled and label the old authority inspection-only
-   operationally; different fresh roots do not automatically revoke it.
-3. **Install into a new tool directory.** From the reviewed source checkout run
-   `CORTEXIUM_RUNNER_INSTALL_DIR=/absolute/new-tools sh scripts/install.sh
-   vMAJOR.MINOR.PATCH`. The installer verifies HTTPS, checksum, archive entries and
-   binary version before replacing a file. Check the installed `--version` and
-   `--help`; keep the archive, `SHA256SUMS` and offline guide. The installer neither
-   stops the old owner nor starts the new one. For an unpublished rehearsal use
-   the retained qualification artifacts and isolated test destination only.
-4. **Create fresh authority.** Follow sections 1–2 with new config/state/worktree
-   roots and a fresh checkout at the reconciled base. Select delivery mode before
-   initialization, inspect `init`, then `init --apply`. Preview/check/apply a new
-   quality agreement. Inspect `config explain` and explicitly choose profiles,
-   limits and merge policy; human merge remains the default.
-5. **Resubmit remaining work.** Copy only the human-readable unfinished outcome
-   and verification brief into a new task. Reconcile completed effects and
-   dependencies first. Inspect the new task version and returned preview before
-   approval; a Plan's child release needs its own approval. Never copy SQLite
-   rows, old approvals, action identities or consumed budgets into the new store.
-6. **Verify ownership and progress.** Inspect `status`, start `run`, and check the
-   reported owner/profile/limits and the task's next action. Use the status and
-   delivery sections for attention, host handoffs and confirmed completion. Drain
-   and verify exit before the first new backup. Keep the old owner stopped.
-
-If cutover fails before new work, drain the new owner and inspect both histories
-before deciding what remains. After any new local mutation or remote effect,
-restarting old approvals can duplicate work: recovery proceeds through explicit
-reconciliation and fresh approvals. Never restore an old guard or reset budgets
-to regain permission. A stale snapshot of the **same authority** restores only
-for inspection and refuses run/mutation; separate old installations still require
-the shutdown discipline above. There is no automatic cross-installation revocation
-or rollback of remote effects.
+Start/retry print their request ID before the operation. Reuse the same ID and
+arguments after an uncertain response; a different operation under that ID is
+rejected. Receipts expire with retained runs. `--artifacts '{"name":"ID"}'` supplies
+retained artifact inputs separately from inline `--inputs`. Artifacts must belong
+to the same project. Retry optionally selects an existing `--profile`; explicit
+extra allowance is at most four, with the total still bounded at sixteen.
+
+Status returns at most the 100 most recently updated summaries plus `total_runs`,
+configuration/storage errors and content-byte accounting. Inspect returns one
+bounded record with resolved setup, attempts, outputs, usage and cleanup state.
+Unknown usage is omitted, not recorded as zero. No model tokens are consumed by
+the deterministic executor. Wait uses Go revision signals and returns at terminal
+or Waiting status; Waiting requires inspection of its reason and active attempt.
+
+A cancellation request is not confirmation. Uncertain execution is observed before
+replacement and continues to hold capacity. If stop retries are exhausted, inspect
+execution and repeat Cancel to explicitly authorize another bounded stop allowance.
+Never retry an active/unknown execution merely to clear its status.
+
+## Storage and retention
+
+The demo uses small allowances. Defaults are 10GiB managed content, 5GiB minimum
+free space, 256MiB database reservation, 16KiB records, up to 1000 retained runs,
+16MiB artifacts and 2MiB logs per attempt. Log retention is 48 hours; terminal run
+retention is seven days. Byte values accept integers or B/KiB/MiB/GiB strings.
+The database reserves recovery headroom and can admit fewer runs than max_runs.
+
+Oversized inline data must be reduced or passed as a declared retained artifact.
+A run definition initially uses at most half its record allowance so attempts can
+finish. History capacity or disk pressure can leave work Waiting/Queued with a
+reason. Release failures appear separately from successful process completion.
+
+Maintenance runs each minute. Only settled, released, expired terminal runs are
+removed; retained consumers pin producer artifacts. Deleting a run also deletes
+its receipts and remaining owned logs. Active/uncertain resources are retained.
+File-content accounting is not an OS disk quota; see the precise
+[storage boundary](architecture.md#bounded-storage). Do not manually edit the
+SQLite database or delete live job/artifact files to make space.
+
+## Input-only Codex execution
+
+Use [examples/codex](../examples/codex/instance.yaml) with a new state directory and
+an existing Codex CLI account. The instance's `codex` block selects `binary`,
+optional `auth_file` (default `~/.codex/auth.json`) and `storage_limit`. The native
+home is private to this instance and links to the existing account file. No login,
+installation or normal user configuration is changed by Runner. Native managed
+authentication may refresh its credentials as ordinary Codex does.
+
+The role needs an explicit `purpose` and an execution profile containing `harness:
+codex`, `model`, `reasoning`, `access: input-only`, `max_input`, `max_output` and
+optional `instructions`. Supported reasoning selections are low/medium/high/xhigh;
+the native model catalog must advertise the exact selected pair. Both byte limits
+must be explicit, from 128B to 8KiB. They bound Runner-assembled input and the final
+native result, respectively. Native harness context is additional: these fields
+are not total model-context/token caps. There is no hard token/cost cap in this
+adapter; supported observations are reported, with missing usage kept unknown.
+
+Only declared inline text inputs/outputs are supported. No environment or workspace
+roots are selected. MCP/apps/plugins/hooks, shell/subagent tools, web search and
+automatic skill/instruction discovery are disabled. Required effective settings
+are checked before requesting a turn. Wider workspace access and role skills/tools
+need their own adapter/profile qualification; they are rejected by this schema.
+
+`inspect` includes the native thread/turn handle, confirmed effective setup and
+reported usage. `status` reports shared native-store bytes. The recorded native
+peak is sampled, instance-scoped data, not disk usage attributable to one attempt;
+do not sum it across attempts. The native socket path must fit within 100 bytes;
+choose a short private state-directory path.
+
+Instance Codex settings require restart; role/profile edits affect future runs.
+On normal service shutdown, Runner requests interruption, retains native facts
+and stops its private app-server within a five-second grace. Startup collects
+saved results and reconciles unfinished work. This does not promise that active
+work survives a service/host crash. An unknown execution stays Waiting until
+resolved. Use explicit Cancel/Retry under the normal retained allowance rules.
+
+Native storage is measured every 250ms. `storage_limit` is a stop threshold, not
+an OS quota, and can overshoot between observations. Session cleanup follows
+SQLite result commit. Reusable native cache is removed on clean service exit when
+all native jobs have been released. Uncertain/uncommitted state is preserved.
+
+The initial native qualification used its three-task allowance. The ordinary Go
+suite skips the opt-in test. Do not enable `RUNNER_NATIVE_QUALIFY=1` without explicit
+authorization for a new bounded set of model executions.

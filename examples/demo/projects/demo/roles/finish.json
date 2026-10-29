@@ -1,0 +1,12 @@
+{
+  "id": "finish",
+  "purpose": "Read the retained file and return its contents.",
+  "inputs": {"message": "artifact"},
+  "outputs": {"result": "text"},
+  "execution": {
+    "harness": "deterministic",
+    "mode": "echo",
+    "input": "message",
+    "output": "result"
+  }
+}

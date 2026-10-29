@@ -1,5 +1,10 @@
 # Runner core redesign plan
 
+> Historical runtime plan. On the clean `codex/runner-process-core` branch,
+> [process-core-design.md](process-core-design.md), the README and architecture
+> describe current authority and behavior. The qualification claims below apply
+> to the previous runtime, not the new deterministic process core.
+
 Status: The local replacement, delivery bundles and R1–R5 are implemented and
 qualified in `codex/runner-local-core`. The subsequent local-completion,
 real-project pilot, main-reconciliation and final platform/package obligations

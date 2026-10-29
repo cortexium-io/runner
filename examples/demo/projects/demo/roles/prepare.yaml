@@ -1,0 +1,12 @@
+id: prepare
+purpose: Retain the input as a small file.
+inputs:
+  name: text
+outputs:
+  message: artifact
+execution:
+  harness: deterministic
+  mode: file
+  input: name
+  output: message
+  delay: 1s

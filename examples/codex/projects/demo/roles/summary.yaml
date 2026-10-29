@@ -1,0 +1,14 @@
+id: summary
+purpose: Summarize the supplied document in one short sentence.
+inputs:
+  document: text
+outputs:
+  summary: text
+execution:
+  harness: codex
+  model: gpt-6.1-sol
+  reasoning: xhigh
+  access: input-only
+  max_input: 4KiB
+  max_output: 2KiB
+  instructions: Preserve the document's concrete facts and add none. Use only the supplied input; do not call tools.

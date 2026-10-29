@@ -1,161 +1,186 @@
-# Runner architecture
+# Process core: code walkthrough
 
-Runner is a local event-and-action engine. The private SQLite store is authority;
-GitHub is an optional code host. Optional GitHub Issues intake captures requests
-for local owner approval and a dedicated issue projects public progress. Neither
-integration can grant approval or own the lifecycle. [ADR 0005](decisions/0005-local-runner-core.md)
-and the [redesign plan](runner-redesign-proposal.md) define the accepted replacement.
+This describes the clean first slice, not the previous task/approval runtime.
+Start with the example configuration, then `types.go`, then follow a run through
+`engine.go`. There are six responsibilities:
 
-## Responsibilities
-
-| Package | Responsibility |
+| Location | Owns |
 | --- | --- |
-| `cmd/cortexium-runner` | Process signals, version and CLI entry point. |
-| `internal/runner/cli` | Commands, exact previews and attention-first status; no scheduler. |
-| `internal/runner/config` | Strict configuration, repository quality agreement and policy validation. |
-| `internal/runner/core` | Task versions, approvals, evidence bindings, observations and action types. |
-| `internal/runner/store` | Private transactional persistence, source mappings, projection health, reservations, leases, effect claims and freshness guard. Store format 21 rejects earlier formats. |
-| `internal/runner/engine` | One coordinator derives safe actions, admits within limits, launches bounded work and reconciles results. |
-| `internal/runner/execution` | Codex capabilities, contained role/check execution, retained check artifacts, explicit Runner-owned Go/Node environment preparation, optional exact local check images, structured results and pinned role instructions. |
-| `internal/runner/workspace` | Task workspace binding, exact candidates, base refresh and integration evidence. |
-| `internal/runner/github` | Separate issue observation, progress presentation, draft, base, CI and merge operations; no Project dependency. |
-| `internal/runner/backup` | Drained same-host snapshots, strict manifest validation and guarded restore. |
-| `internal/workspace`, `internal/subprocess`, `internal/securefs`, `internal/sandboxpath` | Reused Git, process, private filesystem and path protections with their owning tests. |
+| `cmd/cortexium-runner/main.go` | Service lifetime, reload/maintenance timers and thin CLI commands. Wires adapters. |
+| `internal/runner/` | `types.go` owns contracts; `engine.go` owns operations, admission, coordination and lifecycle decisions. |
+| `internal/runner/config/` | YAML/JSON parsing, reference/type validation and validated file edits. |
+| `internal/runner/sqlite/` | Single instance lock, bounded snapshots, request receipts and artifact references. |
+| `internal/runner/execution/` | Deterministic jobs and the input-only Codex adapter behind Start/Observe/Stop/Release. |
+| `internal/runner/control/` | MCP translation and the CLI's MCP client. |
 
-There is no second scheduler, public plugin framework or installed role-skill
-catalog. Interfaces belong at actual execution/delivery boundaries; configuration
-does not select arbitrary runtime implementations. The CLI delegates state
-transitions to the engine/store rather than editing lifecycle fields.
+`disk.go` and platform free-space helpers belong to the core's controlled resource
+handling. They do not form a second scheduling or storage service. The core
+imports no MCP SDK, configuration parser, SQLite driver or execution adapter.
 
-Issues intake is explicit: `github inbox` observes labeled requests and
-`github import` captures one snapshot as an unapproved Plan/Ready task. Provider
-object identity maps to one local task transactionally. External edits cannot
-replace local content or reset approval/history. Only existing owner approval
-and Plan release commands authorize work.
+## Follow the demo
 
-An Issues connection pins one existing overview issue at setup, independently
-of the code-delivery destination. Its body is Runner-owned. One bounded progress
-action runs asynchronously under the coordinator, without a model reservation;
-manual sync uses the same connection lock and latest local presentation. It
-publishes only escaped titles, relationships, public status/reason categories
-and validated links. Local status exposes synchronization health. Connection
-failure never enters task eligibility or aborts local execution. Inbox and status
-remain read-only; there is no autonomous intake polling or remote approval.
-Inbox uses the applied connection even when the configuration file has unapplied
-edits. Before a remote write, one pending body is saved transactionally. A lost
-response holds newer updates until observation confirms that exact body; restart
-cannot let a delayed old write overtake newer progress. A definite host refusal
-permits a fresh attempt. Fatal coordinator cleanup cancels all work before waiting
-for any view cleanup.
+1. `config.Load` resolves instance → project → roles/process. It rejects unknown
+   fields, unsupported executors, invalid bindings and mismatched contracts.
+2. `Core.Start` validates values and availability, freezes the selected process
+   and roles, then commits the run and request receipt before acknowledging it.
+3. The coordinator admits a saved attempt under concurrency and storage bounds.
+   Executor calls run outside its mutex with bounded contexts. Different eligible
+   runs can progress while a call or another run is uncertain.
+4. `Start` creates a durable controlled job before its side effects. `Observe`
+   supplies facts; it does not decide process policy. The demo's first job writes
+   `artifacts/<attempt>/result` and returns that reference.
+5. The core validates the declared result and owned artifact, then commits both.
+   Only then can it dispatch the dependent step and release the old job/work
+   directory. Outputs live outside disposable work directories.
+6. The second step consumes the retained file. The core resolves the final output
+   binding and marks the run Completed. Cleanup can finish independently without
+   turning completed work into a new execution failure.
 
-## Authority and progress
+The wake channel makes state changes prompt. Known completion/deadline timers
+avoid waiting for the fallback reconciliation interval (default five minutes).
+There is one coordinator, no agent polling loop and no model-authored task ledger.
+`runner_wait` blocks in Go on a revision signal; the CLI repeats waits in Go.
 
-Ready authorizes one specified task after an exact-version preview. Plan approval
-authorizes planning only; release separately authorizes the shared outcome,
-exact children and their dependency graph. Content, quality and repository/base
-bindings prevent an old approval from silently authorizing changed work.
+## Follow the Codex adapter
 
-The coordinator derives every currently safe action. Dependencies and resource
-conflicts determine safety; configured parallelism limits admission. Long-running
-model work does not block unrelated deterministic reconciliation. Integration
-serializes by repository/base, observes current base and CI and validates retained
-evidence before a write or completion.
+`execution/service.go` routes attempts using their selected harness and durable
+native job record. `codex.go` owns setup, native thread/turn correlation, bounded
+result parsing and collection. `codex_rpc.go` owns bounded JSON-RPC over the private
+Unix WebSocket; it never retries a turn-start request. `codex_process.go` owns the
+instance's private service, configuration, account link and process lifetime.
+The small platform files provide process groups and kernel socket-peer identity.
 
-Implementers work in isolated task worktrees. Candidate construction uses
-config-free privileged Git and checks identity, object storage, index and tree.
-Checks run in a disposable source copy. Completed source with honest implementer
-proof gaps can reach audit after every required check passes; only independent
-review can establish acceptance. The reviewer first audits evidence against
-the exact candidate; focused verification is a separate bounded action only when
-needed. A concrete defect can consume repair allowance; missing evidence alone
-does not justify a code rewrite. Repository policy and the approved brief own
-test expectations. Named quality checks select `task`, `completion` or `both`
-(default); Ready checks every applicable obligation and parent repairs/refreshes
-also recheck child guarantees. Child evidence is labelled with its historical
-candidate and does not substitute for required combined checks.
+Each attempt supplies its frozen task, inputs, model/reasoning, instructions,
+output contract and deadline. The first profile supports inline text only. Before
+generation it verifies read-only native policy, no selected environments or
+workspace roots, empty external tool catalogs and no loaded instruction files.
+The instance's private Codex home replaces ordinary user configuration; the
+harness uses a link to the existing local authentication file.
 
-Quality checks default to native Codex containment. An owner-approved exact local
-Docker image can instead supply offline tools/dependencies and container-private
-loopback. The existing disposable source-copy boundary and one execution owner
-remain; image root is read-only, host/external networking is absent and no Docker
-socket enters the container. The process record pins the container name and local
-daemon endpoint before launch. Cancellation confirms its removal; recovery and
-backup retain ownership while either process or container is unresolved.
-A model result also requires a successful terminal protocol event; exit zero and
-a result file cannot establish completion after an interrupted stream.
+The adapter saves its thread ID before requesting a turn, then saves the turn ID.
+After a lost reply, it reads that thread's legacy history. Reattaching event
+notifications may call `thread/resume`; this starts no turn and adds no prompt.
+The explicit legacy mode is needed because the installed CLI's default history
+read reported an unsupported operation during probing.
 
-## Delivery and recovery
+Native completion/connection events call `Core.ExecutionChanged(attemptID)`,
+bringing observation forward from the five-minute fallback. An event arriving
+during another executor call remains pending until that call settles. The adapter
+records terminal facts before the core collects them. After the core's SQLite
+commit, Release deletes the owned native thread. A qualified native "no rollout
+found" deletion response makes interrupted cleanup repeatable.
 
-Local delivery creates a verified result branch and a provider-neutral completion
-receipt. Optional local base delivery uses a guarded fast-forward under human or
-automatic merge permission; targets checked out in any worktree are refused.
-Owned ref intents precede Git compare-and-set transactions; dispatch is consumed
-before the effect, and restart observes uncertain writes rather than replaying.
-Plan-head inclusion and final completion update the related tasks atomically.
+## State and recovery
 
-Plan children start on the admitted private Plan head, including prerequisites.
-Independent child work remains concurrent; inclusion refreshes and serializes
-against that head. Inclusion releases only dependencies in the same Plan. The
-combined candidate receives completion checks and independent outcome review,
-with bounded parent repair when needed. One accepted parent candidate enters the
-same destination path as Ready. Final receipt settles parent and children together.
-Shared scope, membership and quality stay immutable after release.
+Run states are Queued, Running, Waiting, Completed, Failed and Cancelled, with a
+reason and revision. Step position is zero-based in the API. Attempts separately
+record execution state, selected profile, deadline, terminal result, stop/retry
+allowances and cleanup. Waiting does not imply that execution has stopped.
 
-GitHub delivery publishes one draft, verifies/refreshes the current base,
-synchronizes that draft, assesses exact required CI and performs bounded repairs. Changed source
-invalidates acceptance and runs the required verification again. Unknown remote
-outcomes are observed, not blindly repeated.
+A saved dispatch may have reached its executor even if the response was lost.
+An uncertain acknowledgement becomes Unknown; it holds capacity and is observed,
+not replaced. Restart reconciles all unsettled saved attempts first. Only the
+deterministic adapter can interpret an absent job as definitely NotStarted,
+because that job is its entire execution. Future adapters must establish their
+own positive evidence; an absent CLI session listing is not enough.
 
-Human integration confirms an ordinary merge receipt. Explicit merge or applied
-automatic policy additionally admits one guarded remote merge. Host protection,
-exact candidate/base/CI bindings and a durable consumed dispatch constrain writes.
-An API success alone is not completion. External dependencies need final delivery;
-internal Plan dependencies require exact private inclusion.
+Cancellation requests Stop but settles only after confirmed terminal/absent
+execution. Stop errors have a bounded allowance; observations continue after it
+is exhausted. Retry requires settled failed/waiting work, keeps attempt history,
+and needs explicit extra allowance when consumed. Escalation changes only a
+permitted profile and consumes the same process attempt allowance.
 
-Attempts retain selected profiles, counters, processes, results and evidence.
-Restart reconciles ownership before admission. Unknown ownership blocks; a saved
-valid result can continue, while a repeated model invocation requires explicit
-permission. Drain stops admission and lets active work settle. Revocation retains
-history and cannot undo a dispatched remote effect. An operator may explicitly
-classify a complete failed required check as an in-scope source defect with
-`task repair-checks`. It retains the task, source and receipts, uses the existing
-repair/invocation allowance and pinned profile, and requires fresh checks and
-independent review. Unavailable checks, changed source or unresolved ownership
-cannot authorize that repair; retry/resume retains its diagnostic assignment.
+Configuration edits affect future runs. Valid global concurrency changes affect
+admission immediately; a lower limit does not kill existing attempts. Storage
+policy is fixed for a running service. Invalid reloads leave all prior settings
+active and appear in status. There is no task-content checksum approval gate.
 
-Backup requires drained, idle authority and captures the matching config,
-repository, workspaces and evidence. Restore uses the same binary, host/user and
-original absent paths. The original external guard establishes freshness; stale
-or lost freshness allows inspection only. Restore cannot revive consumed writes.
+## Bounded storage
 
-## Verification ownership
+SQLite holds one capped snapshot per run plus small request/artifact records;
+there are no transcripts or append-only observation payloads. Replaying a request
+returns the existing run. Retention deletes its request receipts, so replay is
+only guaranteed while that run is retained. At most 17 receipts are retained per
+run. The effective run count may be below the configured maximum to reserve
+update space. Database main pages use at most one third of the DB allowance;
+DELETE journaling leaves the rest for rollback and metadata overhead.
 
-Core/store tests own bindings and transactional invariants. Engine journey tests
-own lifecycle, admission, interruption and delivery behavior. Adapter tests own
-provider parsing and process/Git boundaries; CLI tests own operator commands.
-Low-level safety suites remain beside the reused primitives. Release scripts test
-the actual executable and archives without a second orchestration harness.
+The controlled file writer checks per-file limits, managed content bytes and
+minimum free space before writes, including temporary replacement content. New
+attempt admission reserves room for controlled job/result/log writes. Logs have a
+bounded retained tail and a dropped-byte count. Release removes settled jobs and
+work; retention removes expired logs and terminal runs, including their remaining
+logs/artifacts. A retained consumer pins its producer's artifacts.
 
-Use `go test -race -timeout 15m ./...` and `go vet ./...`. Model behavior is
-qualified separately by paired live cases in `internal/runner/execution`.
-Historical Project workflows and retired tests remain in Git history; they do
-not define the supported command surface. See the [operator guide](operator-reference.md)
-for commands and the plan's release evidence for qualification boundaries.
+These are file-content and database bounds, not a filesystem quota. Directory
+allocation, filesystem metadata, unrelated files and arbitrary external processes
+are not accounted as exact physical bytes. The deterministic adapter creates a
+bounded number of owned files; minimum free space preserves headroom. A real
+executor must qualify its own external output/resource controls before use.
+There is no claim of power-loss durability across every filesystem: atomic rename
+and SQLite FULL synchronization cover the tested process-restart boundary.
 
-### Controlled npm audit observations
+## Test ownership
 
-Typed npm checks share the quality agreement, check timing and coordinator's
-ordinary attempt ownership. Config pins the public audit policy and exact local
-image; execution validates/sanitizes dependency metadata and runs npm 11.19.0's
-maintained evaluator offline. Its private message protocol can request only Bulk
-Advisory and graph-bound package metadata through Runner's bounded, credential-free
-HTTPS transport to the public registry. The evaluator receives no candidate source
-tree or project configuration, and there is no network-enabled command mode.
+| Suite | Purpose |
+| --- | --- |
+| `internal/runner/engine_test.go` | Real SQLite/file integration: outcomes, shared allowances, escalation, idempotency, uncertain acknowledgements, independent progress, restart, stop/cancel, unusable metadata, frozen settings, record/log/history bounds and consumer-safe retention. |
+| `internal/runner/config/config_test.go` | Mixed formats, reference/schema errors, change/repair detection, comment-preserving YAML edits and validated atomic changes. |
+| `internal/runner/control/mcp_test.go` | Real SDK/HTTP round trip, wire replay/inspect/wait/config forwarding, token and Host/Origin boundaries. |
 
-The store retains immutable audit receipts and a clock high-water mark. Candidate
-assessments reference the original receipt/time with explicit source attribution;
-volatile observations do not alter quality-policy identity. Engine derives
-bounded deterministic audit-only refresh attempts under existing admission and
-ownership, and fences review, local completion, publication and merge with fresh
-proof. Unavailable/failed refreshes stop for explicit recovery. This adds no
-scheduler, polling of completed work or public plugin API.
+Adapters are exercised by the owning integration suites rather than repeating
+all scenarios in separate adapter suites. Tests use revision notifications and
+controlled outcomes instead of arbitrary sleeps. `execution/codex_test.go` owns
+native protocol translation, lost acknowledgement, settings checks, setup
+cancellation, saved-result recovery and repeatable cleanup. `codex_rpc_test.go`
+owns the actual Unix/WebSocket framing and unsolicited-request refusal. The
+opt-in native suite is separate; normal tests submit no model tasks. Broader
+workspace/tool execution, remote control and installation remain unverified.
+
+## First-slice verification, 28 October 2026
+
+On macOS arm64 with Go 1.27.1, `go test -race -timeout 15m ./...` and
+`go vet ./...` passed. The built binary completed the two-step MCP/CLI journey,
+returned the expected text, released both workspaces, replayed the same start,
+preserved an attempt across restart and confirmed active cancellation. A deadline
+expired across the restart exercise and settled as Failed without replacement.
+Valid control edits applied; invalid control edits were rejected before writing.
+The file watcher exposed an invalid manual edit and cleared its error after repair.
+Linux amd64 compiled with CGO disabled; native Linux execution and hosted CI have
+not been run. Owned smoke services and temporary proof data were removed afterward.
+
+## Codex adapter qualification, 29 October 2026
+
+CLI 0.164.0 on macOS arm64, Go 1.27.1; all tasks selected `gpt-6.1-sol` / `xhigh`.
+Exactly three native turns were submitted. Initial connection/readiness failures
+submitted zero turns; the fix allowed Codex's private socket alias without
+following it during storage accounting.
+
+| Native case | Result | Core wall time | Reported input/output tokens |
+| --- | --- | --- | --- |
+| Summary and deterministic result consumer | Completed; owned thread released | 6.49s | 4623 / 117 |
+| Lost launch reply, closed connection and reattachment | Completed with one submitted turn | 11.97s | 4623 / 199 |
+| Cancel, close Runner and reopen saved state | Cancelled; one retained attempt, cleanup completed | 0.72s | Unknown |
+
+The two completed calls reported 9,562 tokens combined, including native harness
+input. Both reported zero cached input tokens. Usage for the interrupted call is
+unknown; 9,562 is a known subtotal, not total account cost. The fixture suite took
+19.23s. This is lifecycle qualification, not a comparison against baseline Codex
+or proof of better model quality/cache efficiency. The tiny task still consumed
+4,623 native input tokens per completed call, which leaves context cost as a
+concrete future measurement target.
+
+Observed native content was roughly 3.2–3.6MiB, excluding core SQLite and filesystem
+allocation overhead. Native writes are rescanned every 250ms; `storage_limit` is
+a monitored stop threshold that can overshoot, not an OS quota. Admission reserves
+native growth/recovery room. Session data is deleted after result commit; reusable
+metadata/cache remains bounded and is cleared on clean service exit when no native
+job remains. Unknown/uncommitted resources stay retained. Links are counted without
+following them and are never accepted as result artifacts. The private socket alias
+and native account/runtime links are supported; other managed buckets reject links.
+
+The qualification exercised graceful Runner restart and a real transport break.
+Abrupt host loss, forced native-process death, upgrades, writable workspaces,
+arbitrary skills/tools and native Linux execution remain unqualified. The three-task
+allowance is consumed; further generation requires renewed authorization. Offline
+race/vet checks and Linux cross-compilation are recorded with the final handoff.
