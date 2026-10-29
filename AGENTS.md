@@ -35,6 +35,18 @@ automatic repair or model substitution. That one native turn is now consumed;
 the writable journey completed. Further native generation needs a renewed
 allowance. Normal tests remain model-free. No installation or other-project changes.
 
+The owner subsequently authorized one bounded writable recovery exercise:
+abruptly stop the Runner owner process while a native command is active, reopen
+the same state, reconcile the existing native attempt, and cancel through normal
+controls while retaining its edits. Allow at most one new Sol/xhigh coding turn,
+five minutes per attempt and fifteen minutes for qualification. Use the durable
+one-turn receipt; no automatic repair turn or replacement task is authorized.
+`RUNNER_NATIVE_RECOVERY=1` opts into this exercise; normal tests skip it. The
+one-turn allowance was consumed without injecting the crash: code-mode shell
+output lacked the notification expected by the first test synchronizer. The
+synchronizer now observes the explicit readiness file; it has not been qualified
+with another native turn. Further native generation needs renewed authorization.
+
 ## Engineering
 
 Use minimum sufficient complexity and idiomatic Go. Keep one coordinator and one

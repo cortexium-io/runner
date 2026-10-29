@@ -108,6 +108,19 @@ Unknown usage is omitted, not recorded as zero. No model tokens are consumed by
 the deterministic executor. Wait uses Go revision signals and returns at terminal
 or Waiting status; Waiting requires inspection of its reason and active attempt.
 
+After an unexpected Runner exit, restart with the same configuration and data
+directory, then use `inspect --run RUN_ID`. Runner reconciles saved execution
+before admitting a replacement; restarting does not authorize another coding
+attempt. If the original Codex service is reachable, the adapter can reattach to
+its saved thread/turn. Abrupt writable owner-process recovery is still awaiting
+live qualification; see the [recovery exercise record](architecture.md#writable-recovery-exercise-29-october-2026).
+
+To stop recovered work, use `cancel --run RUN_ID`, then inspect until cancellation
+and cleanup are confirmed. A Waiting/unknown attempt still holds capacity. If the
+reason says that original child settlement is unconfirmed, retain the state and
+workspace and inspect the original execution; there is no supported force-clear
+operation. Do not delete job files, edit SQLite or retry to bypass that state.
+
 A cancellation request is not confirmation. Uncertain execution is observed before
 replacement and continues to hold capacity. If stop retries are exhausted, inspect
 execution and repeat Cancel to explicitly authorize another bounded stop allowance.

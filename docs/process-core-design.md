@@ -2143,6 +2143,24 @@ worktrees may be released once their source is secured. Instance-level protected
 source paths and concurrency one bound this first capability. The
 [workspace example](../examples/workspace/README.md) is the supported schema.
 
+## Agreed writable owner-process recovery qualification
+
+Authorized 29 October 2026 after checkpointing the writable slice. Exercise one
+abrupt Runner owner-process exit while its instance-owned Codex service and a
+worker command remain active. Reopen the same operational state, reconcile the
+same attempt/thread/turn/workspace, reject replacement while active, then cancel
+through the existing control operation. Confirm that the original command has
+settled, the pre-interruption source bytes survive in the retained patch, and
+owned resources can be released. This does not qualify loss of the native service
+or host, or authorize replacement when child settlement is unknown.
+
+The allowance is one new `gpt-6.1-sol` / `xhigh` coding turn, at most five minutes,
+within fifteen minutes for the exercise. Reuse the existing Go fixture, native
+adapter and durable one-turn guard. Normal tests skip the explicit
+`RUNNER_NATIVE_RECOVERY=1` exercise. Preserve failed evidence and do not spend a
+second turn to repair a failed qualification. No installation or other-project
+changes are authorized.
+
 ## Authorized first implementation slice
 
 **Authorized by the owner's subsequent “Yes please” to starting this isolated

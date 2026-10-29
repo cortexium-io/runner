@@ -157,10 +157,8 @@ func qualifyWorkspacePermissions(t *testing.T, ctx context.Context, root string,
 	}
 	t.Log("zero-turn native permission probes passed: source/scratch, protected files, private data, Git, symlink escape and network")
 }
-func TestNativeWritableQualification(t *testing.T) {
-	if os.Getenv("RUNNER_NATIVE_WORKSPACE") != "1" {
-		t.Skip("explicit opt-in required; at most one Sol/xhigh coding turn")
-	}
+func writableQualificationRoot(t *testing.T) (string, time.Time, context.Context) {
+	t.Helper()
 	root := os.Getenv("RUNNER_WORKSPACE_QUAL_DIR")
 	if root == "" {
 		t.Fatal("RUNNER_WORKSPACE_QUAL_DIR must name the authorized private qualification directory")
@@ -197,7 +195,14 @@ func TestNativeWritableQualification(t *testing.T) {
 		t.Fatal("qualification finish/cleanup reserve reached; no turn dispatched")
 	}
 	ctx, cancel := context.WithDeadline(context.Background(), started.Add(15*time.Minute))
-	defer cancel()
+	t.Cleanup(cancel)
+	return root, started, ctx
+}
+func TestNativeWritableQualification(t *testing.T) {
+	if os.Getenv("RUNNER_NATIVE_WORKSPACE") != "1" {
+		t.Skip("explicit opt-in required; at most one Sol/xhigh coding turn")
+	}
+	root, started, ctx := writableQualificationRoot(t)
 	repo := sourceRepositoryAt(t, filepath.Join(root, "repository"))
 	cfg := workspaceSnapshot(t, repo)
 	home, e := os.UserHomeDir()

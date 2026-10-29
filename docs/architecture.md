@@ -277,3 +277,22 @@ The renewed one-turn allowance is consumed. Normal tests skip both opt-in native
 suites. Race tests and vet passed; native cancellation/abrupt child-process loss,
 Linux runtime enforcement, arbitrary projects/tools and production installation
 remain outside this live qualification. Uncertain settlement fails closed.
+
+## Writable recovery exercise, 29 October 2026
+
+Checkpoint `66a09bd` preserves the completed writable implementation. The first
+owner-process recovery exercise consumed one new Sol/xhigh turn but failed before
+fault injection. Code-mode nested shell output did not emit the commandExecution
+output notification expected by the test. The worker made its edit, its bounded
+barrier expired, and the ordinary coding/check process completed. No Runner crash
+was injected; this is not evidence of abrupt-process recovery.
+
+The failed exercise took 300.26 seconds, with reported native input 56,001 and
+output 1,042 tokens (57,043 known native tokens). Cached input 42,368 is included
+in input. Coordination usage remains unknown. The configured check ran once.
+The owned native service and fixture resources were released; only a small
+result, retained patch and no-repeat receipts remain in the private qualification
+directory. The test now waits on the command's explicit readiness file and checks
+that its process is live, rather than relying on tool-output notification shape.
+Race tests and vet pass. A corrected live exercise requires a new turn allowance;
+no second coding turn has been submitted.
