@@ -44,8 +44,12 @@ one-turn receipt; no automatic repair turn or replacement task is authorized.
 `RUNNER_NATIVE_RECOVERY=1` opts into this exercise; normal tests skip it. The
 one-turn allowance was consumed without injecting the crash: code-mode shell
 output lacked the notification expected by the first test synchronizer. The
-synchronizer now observes the explicit readiness file; it has not been qualified
-with another native turn. Further native generation needs renewed authorization.
+synchronizer now observes the explicit readiness file. The owner explicitly
+approved one additional Sol/xhigh coding turn, capped at five minutes, and that
+corrected exercise passed: abrupt owner exit, same native attempt reattached,
+replacement rejected, cancellation settled, edits retained and cleanup completed.
+Both recovery allowances are consumed; further native generation requires renewed
+authorization. Preserve both results and their durable no-repeat receipts.
 
 ## Engineering
 

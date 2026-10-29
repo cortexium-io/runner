@@ -112,8 +112,9 @@ After an unexpected Runner exit, restart with the same configuration and data
 directory, then use `inspect --run RUN_ID`. Runner reconciles saved execution
 before admitting a replacement; restarting does not authorize another coding
 attempt. If the original Codex service is reachable, the adapter can reattach to
-its saved thread/turn. Abrupt writable owner-process recovery is still awaiting
-live qualification; see the [recovery exercise record](architecture.md#writable-recovery-exercise-29-october-2026).
+its saved thread/turn. The writable fixture qualified this path on macOS after
+SIGKILL of the Runner owner process, with the original native service and command
+still running; see the [recovery exercise record](architecture.md#writable-recovery-exercise-29-october-2026).
 
 To stop recovered work, use `cancel --run RUN_ID`, then inspect until cancellation
 and cleanup are confirmed. A Waiting/unknown attempt still holds capacity. If the

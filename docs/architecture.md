@@ -280,19 +280,41 @@ remain outside this live qualification. Uncertain settlement fails closed.
 
 ## Writable recovery exercise, 29 October 2026
 
-Checkpoint `66a09bd` preserves the completed writable implementation. The first
-owner-process recovery exercise consumed one new Sol/xhigh turn but failed before
-fault injection. Code-mode nested shell output did not emit the commandExecution
-output notification expected by the test. The worker made its edit, its bounded
-barrier expired, and the ordinary coding/check process completed. No Runner crash
-was injected; this is not evidence of abrupt-process recovery.
+On macOS arm64, CLI 0.164.0 and Go 1.27.1, the corrected recovery exercise passed
+with one `gpt-6.1-sol` / `xhigh` turn. After the worker wrote `seats.go` and reached
+a live blocked command, the test sent SIGKILL to the subprocess hosting Runner's
+real core, adapter and SQLite store. No graceful shutdown ran in that subprocess.
+Reopening the same state reattached to the original native service and thread.
 
-The failed exercise took 300.26 seconds, with reported native input 56,001 and
-output 1,042 tokens (57,043 known native tokens). Cached input 42,368 is included
-in input. Coordination usage remains unknown. The configured check ran once.
-The owned native service and fixture resources were released; only a small
-result, retained patch and no-repeat receipts remain in the private qualification
-directory. The test now waits on the command's explicit readiness file and checks
-that its process is live, rather than relying on tool-output notification shape.
-Race tests and vet pass. A corrected live exercise requires a new turn allowance;
-no second coding turn has been submitted.
+- Run, attempt, thread, turn, source base and workspace identities were preserved.
+- Reattachment took 25 ms; the original command was still live afterward.
+- Retry was rejected while that execution remained active. No replacement turn
+  or check-step attempt was submitted.
+- Normal Cancel settled the native turn and command. The run became Cancelled,
+  with its attempt and workspace resources released and no cleanup error.
+- The 530-byte patch restored exactly the source bytes present before the crash.
+  The fixture, private native service, workspace and caches were cleaned up. Only
+  result/start/no-repeat receipts remain (545 bytes of file content).
+
+The corrected exercise took 23.02 seconds and reported native input 25,374 and
+output 714 tokens (26,088 known native tokens). Cached input 18,560 is included in
+input. This measures the bounded fixture, not arbitrary-project recovery or
+efficiency against baseline Codex. Native service/host loss and native Linux
+execution remain unqualified; their uncertain settlement must not be bypassed.
+
+Checkpoint `66a09bd` preserves the writable implementation and `0e01ea3` the
+corrected test. The runtime needed no recovery change. Race tests and vet passed
+for that code and were reused; only documentation changed after the live pass.
+
+The first exercise failed before fault injection because code-mode nested shell
+output did not emit the commandExecution output notification expected by its
+synchronizer. Its barrier expired and the ordinary coding/check process completed.
+That failed exercise took 300.26 seconds and reported native input 56,001 and
+output 1,042 tokens (57,043 known native tokens), including 42,368 cached input.
+The correction observes the explicit readiness file and live process instead of
+tool-output notification shape. Failed evidence and no-repeat receipts were
+preserved; its disposable resources were cleaned up. The owner approved exactly
+one additional turn for the corrected exercise. Both allowances are now consumed.
+
+The two exercises reported 83,131 native tokens in total. Coordination usage is
+unknown, so this is a known native subtotal rather than complete resource cost.

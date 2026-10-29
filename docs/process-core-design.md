@@ -2154,12 +2154,23 @@ settled, the pre-interruption source bytes survive in the retained patch, and
 owned resources can be released. This does not qualify loss of the native service
 or host, or authorize replacement when child settlement is unknown.
 
-The allowance is one new `gpt-6.1-sol` / `xhigh` coding turn, at most five minutes,
-within fifteen minutes for the exercise. Reuse the existing Go fixture, native
+The initial allowance was one new `gpt-6.1-sol` / `xhigh` coding turn, at most five
+minutes, within fifteen minutes for the exercise. Reuse the existing Go fixture, native
 adapter and durable one-turn guard. Normal tests skip the explicit
 `RUNNER_NATIVE_RECOVERY=1` exercise. Preserve failed evidence and do not spend a
 second turn to repair a failed qualification. No installation or other-project
 changes are authorized.
+
+After the first exercise missed the readiness signal and completed without fault
+injection, the owner explicitly approved one additional Sol/xhigh coding turn,
+capped at five minutes, for the corrected readiness-file synchronizer. Keep the
+first result and receipt, use a fresh private receipt directory, and retain the
+fifteen-minute exercise limit. This is not permission for further repair turns.
+
+The corrected exercise passed, as recorded in the
+[recovery qualification](architecture.md#writable-recovery-exercise-29-october-2026).
+Both authorized recovery turns are consumed. The runtime required no change for
+the qualified owner-process failure; the correction was to the test synchronizer.
 
 ## Authorized first implementation slice
 

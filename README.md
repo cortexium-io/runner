@@ -57,7 +57,10 @@ cancellation followed by a graceful Runner restart. It uses one private native
 service per instance and a fresh thread per coding attempt. The
 [writable qualification fixture](testdata/seats/README.md) additionally qualifies one
 source change, retained patch and fixed Go check. Arbitrary project execution,
-skills and tool catalogs remain outside this qualification. Configurable
+skills and tool catalogs remain outside this qualification. A separate
+[writable recovery exercise](docs/architecture.md#writable-recovery-exercise-29-october-2026)
+qualified abrupt Runner owner-process exit, reattachment to the original native
+work, cancellation and preservation of edits on macOS. Configurable
 branches, dynamic plans, attention/archive operations and dashboards remain design
 work beyond this slice. No AI test-author role or benchmark system was added.
 
