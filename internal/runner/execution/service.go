@@ -8,9 +8,10 @@ import (
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
-// Service routes deterministic, Codex and fixed Go-check execution. Durable jobs retain
+// Service routes deterministic, Codex, fixed Go-check and configured commands. Durable jobs retain
 // routing across restart; no second workflow, dispatch queue or retry policy.
 type Service struct {
+	commands      *Commands
 	disk          *runner.Disk
 	deterministic *Deterministic
 	workspaces    *Workspaces
@@ -19,6 +20,7 @@ type Service struct {
 
 func NewService(d *runner.Disk, read func(context.Context, string) ([]byte, error), cfg *runner.CodexSettings) *Service {
 	s := &Service{disk: d, deterministic: New(d, read), workspaces: &Workspaces{disk: d}}
+	s.commands = NewCommands(d, cfg, s.workspaces, read)
 	if cfg != nil {
 		s.Codex = NewCodex(d, cfg)
 		s.Codex.workspaces = s.workspaces
@@ -26,12 +28,15 @@ func NewService(d *runner.Disk, read func(context.Context, string) ([]byte, erro
 	return s
 }
 func (s *Service) SetWake(wake func(string)) {
+	s.commands.SetWake(wake)
 	if s.Codex != nil {
 		s.Codex.SetWake(wake)
 	}
 }
 func (s *Service) Start(ctx context.Context, a runner.Assignment) (runner.Observation, error) {
 	switch a.Setup.Profile.Harness {
+	case "command":
+		return s.commands.Start(ctx, a)
 	case "deterministic":
 		return s.deterministic.Start(ctx, a)
 	case "codex", "go-check":
@@ -53,6 +58,9 @@ func (s *Service) native(id string) (bool, error) {
 	return true, err
 }
 func (s *Service) Observe(ctx context.Context, id string) (runner.Observation, error) {
+	if s.commands.Owns(id) {
+		return s.commands.Observe(ctx, id)
+	}
 	native, err := s.native(id)
 	if err != nil {
 		return runner.Observation{}, err
@@ -70,6 +78,9 @@ func (s *Service) Observe(ctx context.Context, id string) (runner.Observation, e
 	return s.deterministic.Observe(ctx, id)
 }
 func (s *Service) Stop(ctx context.Context, id string) error {
+	if s.commands.Owns(id) {
+		return s.commands.Stop(ctx, id)
+	}
 	native, err := s.native(id)
 	if err != nil {
 		return err
@@ -83,6 +94,9 @@ func (s *Service) Stop(ctx context.Context, id string) error {
 	return s.deterministic.Stop(ctx, id)
 }
 func (s *Service) Release(ctx context.Context, id string) error {
+	if s.commands.Owns(id) {
+		return s.commands.Release(ctx, id)
+	}
 	native, err := s.native(id)
 	if err != nil {
 		return err
@@ -96,6 +110,7 @@ func (s *Service) Release(ctx context.Context, id string) error {
 	return s.deterministic.Release(ctx, id)
 }
 func (s *Service) Close(ctx context.Context) error {
+	s.commands.Close()
 	if s.Codex != nil {
 		return s.Codex.Close(ctx)
 	}

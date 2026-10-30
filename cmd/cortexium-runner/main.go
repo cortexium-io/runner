@@ -32,6 +32,9 @@ func main() {
 	}
 }
 func run(ctx context.Context, args []string) error {
+	if len(args) == 2 && args[0] == "command-worker" {
+		return execution.RunCommandWorker(ctx, args[1])
+	}
 	if len(args) == 0 {
 		return errors.New("usage: cortexium-runner serve|start|status|inspect|cancel|retry|wait|config-set")
 	}

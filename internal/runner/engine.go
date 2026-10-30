@@ -531,6 +531,20 @@ func (c *Core) tick() time.Duration {
 			continue
 		}
 		reserve := int64(3*c.disk.Policy.Database.MaxRecord+c.disk.Policy.MaxArtifact+c.disk.Policy.Logs.MaxPerAttempt) + 4096
+		step := r.Process.Steps[r.Step]
+		role := r.Roles[step.Role]
+		profileName := r.NextProfile
+		if profileName == "" {
+			profileName = r.Profiles[step.Role]
+		}
+		if profile, err := role.Profile(profileName); err == nil && profile.Harness == "command" {
+			reserve += int64(c.disk.Policy.Database.MaxRecord) + 16384
+			for _, kind := range role.Inputs {
+				if kind == "artifact" {
+					reserve += int64(c.disk.Policy.MaxArtifact)
+				}
+			}
+		}
 		var nativeReserve int64
 		if cfg := c.snapshot.Instance.Codex; cfg != nil {
 			nativeReserve = max(0, int64(cfg.StorageLimit)-c.disk.NativeUsed())
@@ -567,7 +581,11 @@ func (c *Core) tick() time.Duration {
 		if a2.Profile == "" {
 			a2.Profile = r.Profiles[r.Process.Steps[r.Step].Role]
 		}
-		timeout, _ := time.ParseDuration(r.Process.AttemptTimeout)
+		timeoutText := r.Process.AttemptTimeout
+		if step.AttemptTimeout != "" {
+			timeoutText = step.AttemptTimeout
+		}
+		timeout, _ := time.ParseDuration(timeoutText)
 		a2.Deadline = a2.Started.Add(timeout)
 		ass, e := c.assignment(r, a2)
 		if e != nil {

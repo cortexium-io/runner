@@ -56,8 +56,9 @@ text/artifact only. Up to eight steps, eight named values per contract and sixte
 total attempts are supported. Automatic per-step attempts are bounded at four.
 
 `attempt_timeout` limits each admitted attempt, including executor setup and
-execution. Five minutes was the small pilot's chosen value, not a universal
-Runner limit. Expiry requests a stop; confirming settlement, securing edits and
+execution. A step may override the process default with its own `attempt_timeout`
+(positive, at most one hour). Five minutes was the small pilot's chosen value,
+not a universal Runner limit. Expiry requests a stop; confirming settlement, securing edits and
 cleanup can continue afterward. It neither abandons uncertain execution nor
 guarantees that the whole run has finished by that time.
 
@@ -242,3 +243,46 @@ Native worker/scratch growth is monitored, not an OS quota. The measured live sc
 and remaining limitations are in the [qualification record](architecture.md#writable-go-qualification-29-october-2026).
 The renewed one-turn allowance has been used; do not opt in to another native run
 without a new explicit allowance. Ordinary repository gates submit no model work.
+
+## Configured command execution
+
+[examples/command](../examples/command/README.md) shows a model-free command on
+committed source. Use `harness: command`, `access: workspace-read` and an explicit
+task purpose. This first implementation shares workspace preparation, Go runtime
+settings and concurrency one with the writable adapter. It uses the installed
+Codex sandbox, but creates no native thread or model turn and needs no model settings.
+
+`command.args` is argv, with an absolute executable and at most 32 arguments;
+there is no implicit shell. `directory` is relative to the source root. Optional
+`env` adds/replaces explicit environment entries. Args and env support
+`{workspace}`, `{scratch}` and `{input.NAME}` for a retained artifact input.
+Text inputs express dependencies; they are not interpolated as commands.
+The command starts with a clean environment and attempt-owned Go caches.
+
+Inputs may be text and at most one artifact. Outputs are `check: text` plus
+optional `artifact: artifact`. `command.artifact` names that one regular file,
+relative to scratch, within `storage.max_artifact`; symlink escapes are rejected.
+The check output contains exit status and a short diagnostic. A bounded log tail
+is retained separately. Failed checks do not produce successful outputs.
+
+Source is read-only, only attempt scratch is writable, and networking is disabled.
+`codex.command_read_paths` grants up to 16 selected runtime/dependency paths for
+commands only. It does not expand coding permissions. Paths are resolved relative
+to the instance file; filesystem root is forbidden. Runtime settings require a
+service restart. Copy needed dependencies into scratch before a build that writes
+beside them. Ordinary dependency links in disposable work are counted without
+following them; controlled file IO and retained artifacts cannot traverse links.
+
+The same Runner executable starts a small private `command-worker` process after
+saving dispatch intent. The worker claims its attempt once and saves its result
+outside the child's sandbox. Owner shutdown detaches it; restart reads that same
+receipt rather than dispatching again. Cancel writes a private stop signal, and
+the worker stops the command's process group before recording settlement. Missing
+or invalid settlement evidence remains Unknown and retains resources.
+
+Supported scope is trusted, synchronous commands on macOS/Linux. Do not configure
+daemons, detached children or scripts that escape their process group. Owner-crash
+recovery and the sandbox were exercised on macOS; host/worker loss and Linux
+runtime enforcement remain unqualified. Storage growth is monitored, not an OS
+quota. The older `go-check` uses the connection-scoped native API and retains its
+documented lost-connection limitation.

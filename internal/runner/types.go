@@ -97,13 +97,15 @@ type Instance struct {
 	Codex             *CodexSettings `json:"codex,omitempty"`
 }
 
-// CodexSettings describes one instance-owned native service, not model context.
+// CodexSettings selects the instance's native service and command runtime,
+// not model context.
 type CodexSettings struct {
-	Binary        string   `json:"binary"`
-	AuthFile      string   `json:"auth_file"`
-	StorageLimit  Bytes    `json:"storage_limit"`
-	GoBinary      string   `json:"go_binary,omitempty"`
-	ReadOnlyPaths []string `json:"read_only_paths,omitempty"`
+	Binary           string   `json:"binary"`
+	AuthFile         string   `json:"auth_file"`
+	StorageLimit     Bytes    `json:"storage_limit"`
+	GoBinary         string   `json:"go_binary,omitempty"`
+	ReadOnlyPaths    []string `json:"read_only_paths,omitempty"`
+	CommandReadPaths []string `json:"command_read_paths,omitempty"`
 }
 type SourceSettings struct {
 	Ref string `json:"ref"`
@@ -138,19 +140,29 @@ type Snapshot struct {
 }
 
 type Profile struct {
-	Harness      string `json:"harness"`
-	Mode         string `json:"mode"`
-	Delay        string `json:"delay,omitempty"`
-	Input        string `json:"input,omitempty"`
-	Output       string `json:"output,omitempty"`
-	Text         string `json:"text,omitempty"`
-	LogBytes     int64  `json:"log_bytes,omitempty"`
-	Model        string `json:"model,omitempty"`
-	Reasoning    string `json:"reasoning,omitempty"`
-	Instructions string `json:"instructions,omitempty"`
-	Access       string `json:"access,omitempty"`
-	MaxInput     Bytes  `json:"max_input,omitempty"`
-	MaxOutput    Bytes  `json:"max_output,omitempty"`
+	Command      *Command `json:"command,omitempty"`
+	Harness      string   `json:"harness"`
+	Mode         string   `json:"mode"`
+	Delay        string   `json:"delay,omitempty"`
+	Input        string   `json:"input,omitempty"`
+	Output       string   `json:"output,omitempty"`
+	Text         string   `json:"text,omitempty"`
+	LogBytes     int64    `json:"log_bytes,omitempty"`
+	Model        string   `json:"model,omitempty"`
+	Reasoning    string   `json:"reasoning,omitempty"`
+	Instructions string   `json:"instructions,omitempty"`
+	Access       string   `json:"access,omitempty"`
+	MaxInput     Bytes    `json:"max_input,omitempty"`
+	MaxOutput    Bytes    `json:"max_output,omitempty"`
+}
+
+// Command is a configured argv, never a model-selected shell string. Runtime
+// paths belong to the instance; only source/scratch substitutions are supported.
+type Command struct {
+	Args      []string          `json:"args"`
+	Directory string            `json:"directory,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	Artifact  string            `json:"artifact,omitempty"`
 }
 type Role struct {
 	ID             string             `json:"id"`
@@ -188,10 +200,11 @@ type Escalation struct {
 	Exhausted string `json:"exhausted"`
 }
 type Step struct {
-	ID         string             `json:"id"`
-	Role       string             `json:"role"`
-	Inputs     map[string]Binding `json:"inputs"`
-	Escalation *Escalation        `json:"escalation,omitempty"`
+	AttemptTimeout string             `json:"attempt_timeout,omitempty"`
+	ID             string             `json:"id"`
+	Role           string             `json:"role"`
+	Inputs         map[string]Binding `json:"inputs"`
+	Escalation     *Escalation        `json:"escalation,omitempty"`
 }
 type Process struct {
 	ID                 string             `json:"id"`

@@ -7,7 +7,8 @@ processes and runs, subject to explicit shared resource limits.
 This branch contains the **first clean process-core slice**: a runnable local
 service with file configuration, SQLite state, MCP/CLI control, a controlled
 deterministic executor, input-only Codex execution and a bounded writable Go
-workflow with a model-free check step.
+workflow with a model-free check step. Configured synchronous command steps also
+support bounded checks/builds and artifact handoff without a model.
 It does not replace an installed Runner service or import its state.
 
 ## Try the two-step process

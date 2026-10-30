@@ -59,7 +59,7 @@ func (d *Disk) Refresh() error {
 			}
 			if ent.Type()&os.ModeSymlink != 0 {
 				nativeLink := dir == "native" && path != filepath.Join(d.Root, "native")
-				if !nativeLink && path != filepath.Join(d.Root, "jobs", "codex.sock") {
+				if !nativeLink && dir != "work" && path != filepath.Join(d.Root, "jobs", "codex.sock") {
 					return fmt.Errorf("managed path is a symlink: %s", path)
 				}
 			}
@@ -99,7 +99,18 @@ func (d *Disk) path(name string) (string, error) {
 	if !fs.ValidPath(name) || !(strings.HasPrefix(name, "jobs/") || strings.HasPrefix(name, "work/") || strings.HasPrefix(name, "artifacts/") || strings.HasPrefix(name, "logs/") || strings.HasPrefix(name, "native/")) {
 		return "", errors.New("invalid managed path")
 	}
-	return filepath.Join(d.Root, filepath.FromSlash(name)), nil
+	path := filepath.Join(d.Root, filepath.FromSlash(name))
+	for parent := filepath.Dir(path); parent != d.Root; parent = filepath.Dir(parent) {
+		if parent == filepath.Dir(parent) {
+			return "", errors.New("managed path is outside its root")
+		}
+		if info, err := os.Lstat(parent); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("managed paths must not traverse symlinks")
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+	}
+	return path, nil
 }
 func (d *Disk) Used() int64 { d.mu.Lock(); defer d.mu.Unlock(); return d.used }
 func (d *Disk) Write(name string, b []byte, limit Bytes) error {

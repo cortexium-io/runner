@@ -81,6 +81,21 @@ its patch passed the existing focused tests and rendered typography checks.
 That allowance is now consumed. The guidance correction has one successful live
 result; the original stall's exact cause remains unestablished.
 
+The owner subsequently authorized the bounded configurable command/check step
+and using it to finish Jack's Break through the local review handoff. Use
+read-only source and owned scratch; commands are
+configured argv, not model-selected shell strings. Preserve only bounded command
+facts and declared artifacts. Existing evidence remains valid while its inputs
+are unchanged. The exact new serving executable needs its required Nonogram
+qualification once. Updating the existing local preview with its saved progress
+preserved is authorized; production merge/deployment and installed-service cutover
+are not. No additional model generation is needed for this command-only work.
+The connection-scoped native command API lost settlement evidence during this
+exercise. The new command harness therefore uses a durable Go worker around
+`codex sandbox`; it is an internal execution mode, not another scheduler. The
+existing fixed Go-check adapter is unchanged. Preserve the earlier uncertain
+results rather than treating service shutdown as command settlement.
+
 ## Engineering
 
 Use minimum sufficient complexity and idiomatic Go. Keep one coordinator and one

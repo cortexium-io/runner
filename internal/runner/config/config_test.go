@@ -204,7 +204,7 @@ func TestInvalidConfigurationAndRepairDetection(t *testing.T) {
 	}
 }
 
-// Workspace profiles own one fixed local check; they cannot accidentally acquire
+// Workspace profiles own local checks; they cannot accidentally acquire
 // model/deterministic options or parallelize an unqualified command lifecycle.
 func TestWorkspaceConfiguration(t *testing.T) {
 	l, _ := fixtureFrom(t, "workspace")
@@ -229,6 +229,44 @@ func TestWorkspaceConfiguration(t *testing.T) {
 			b, _ := json.Marshal(tc.value)
 			if _, e = l.Set(tc.path, tc.field, b); e == nil {
 				t.Fatal("unsupported workspace setup accepted")
+			}
+		})
+	}
+}
+
+func TestCommandConfiguration(t *testing.T) {
+	l, dir := fixtureFrom(t, "workspace")
+	write(t, filepath.Join(dir, "projects/seats/roles/check.yaml"), `id: check
+purpose: Check the selected source without a model.
+inputs: {patch: artifact}
+outputs: {check: text}
+execution:
+  harness: command
+  access: workspace-read
+  command:
+    args: [/usr/bin/true]
+    directory: frontend
+    env: {TMPDIR: "{scratch}"}
+`)
+	if _, err := l.Load(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, field string
+		value       any
+	}{
+		{"no implicit shell", "execution.command.args", []string{"true"}},
+		{"no source escape", "execution.command.directory", "../other"},
+		{"no artifact escape", "execution.command.artifact", "../other"},
+		{"no model", "execution.model", "gpt-6.1-sol"},
+		{"read only source", "execution.access", "workspace-write"},
+		{"artifact contract", "execution.command.artifact", "bundle.tgz"},
+		{"environment names", "execution.command.env", map[string]string{"INVALID=NAME": "x"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, _ := json.Marshal(tc.value)
+			if _, err := l.Set("projects/seats/roles/check.yaml", tc.field, data); err == nil {
+				t.Fatal("invalid command configuration accepted")
 			}
 		})
 	}

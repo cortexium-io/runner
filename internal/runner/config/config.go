@@ -121,6 +121,16 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 				return s, errors.New("invalid codex.read_only_paths entry")
 			}
 		}
+		if len(c.CommandReadPaths) > 16 {
+			return s, errors.New("codex.command_read_paths is limited to 16 runtime paths")
+		}
+		for i, path := range c.CommandReadPaths {
+			path = resolve(l.Path, path)
+			if path == string(filepath.Separator) {
+				return s, errors.New("command runtime paths must not grant the filesystem root")
+			}
+			c.CommandReadPaths[i] = path
+		}
 		if c.StorageLimit == 0 {
 			c.StorageLimit = 16 << 20
 		}
@@ -185,12 +195,12 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 				if e = ready(profile); e != nil {
 					return s, fmt.Errorf("role %s: %w", name, e)
 				}
-				if profile.Harness == "codex" || profile.Harness == "go-check" {
+				if profile.Harness == "codex" || profile.Harness == "go-check" || profile.Harness == "command" {
 					if strings.TrimSpace(role.Purpose) == "" {
-						return s, fmt.Errorf("role %s: Codex execution needs an explicit task purpose", name)
+						return s, fmt.Errorf("role %s: execution needs an explicit task purpose", name)
 					}
 					if s.Instance.Codex == nil {
-						return s, errors.New("a codex profile requires instance codex settings")
+						return s, errors.New("native execution requires instance codex settings")
 					}
 					if profile.Access != "input-only" && (p.Source == nil || s.Instance.Concurrency != 1) {
 						return s, errors.New("first workspace/check profiles need project source settings and concurrency: 1")
@@ -204,7 +214,31 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 					if profile.Harness == "go-check" && (len(role.Inputs) != 1 || role.Inputs["patch"] != "artifact" || len(role.Outputs) != 1 || role.Outputs["check"] != "text") {
 						return s, errors.New("go-check needs one patch artifact input and one check text output")
 					}
-					if profile.Harness != "go-check" {
+					if profile.Harness == "command" {
+						artifacts := 0
+						for _, kind := range role.Inputs {
+							if kind == "artifact" {
+								artifacts++
+							}
+							if kind != "text" && kind != "artifact" {
+								return s, errors.New("command inputs must be text or retained artifacts")
+							}
+						}
+						if artifacts > 1 {
+							return s, errors.New("command supports at most one retained artifact input")
+						}
+						want := 1
+						if profile.Command.Artifact != "" {
+							want = 2
+							if role.Outputs["artifact"] != "artifact" {
+								return s, errors.New("command artifact needs a declared artifact output")
+							}
+						}
+						if len(role.Outputs) != want || role.Outputs["check"] != "text" {
+							return s, errors.New("command needs a check text output and only its optional artifact output")
+						}
+					}
+					if profile.Harness == "codex" {
 						for _, kind := range role.Inputs {
 							if kind != "text" {
 								return s, errors.New("Codex inputs must be declared text")
@@ -430,6 +464,29 @@ func types(m map[string]string) error {
 	return nil
 }
 func ready(p runner.Profile) error {
+	if p.Harness == "command" {
+		if p.Access != "workspace-read" || p.Command == nil || p.Model != "" || p.Reasoning != "" || p.Mode != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.Instructions != "" || p.MaxInput != 0 || p.MaxOutput != 0 {
+			return errors.New("command selects workspace-read access, command settings and no model settings")
+		}
+		cmd := p.Command
+		if len(cmd.Args) == 0 || len(cmd.Args) > 32 || !filepath.IsAbs(cmd.Args[0]) || strings.Contains(cmd.Args[0], "{") || (cmd.Directory != "" && !validRelative(cmd.Directory)) || (cmd.Artifact != "" && !validRelative(cmd.Artifact)) || len(cmd.Env) > 32 {
+			return errors.New("command needs an absolute executable, at most 32 args/env entries and relative directory/artifact paths")
+		}
+		for _, arg := range cmd.Args {
+			if len(arg) > 4096 || strings.ContainsRune(arg, 0) {
+				return errors.New("invalid or oversized command argument")
+			}
+		}
+		for key, value := range cmd.Env {
+			if key == "" || strings.ContainsAny(key, "=\x00") || len(value) > 4096 || strings.ContainsRune(value, 0) {
+				return errors.New("invalid command environment entry")
+			}
+		}
+		return nil
+	}
+	if p.Command != nil {
+		return errors.New("command settings require the command harness")
+	}
 	if p.Harness == "go-check" {
 		if p.Access != "workspace-read" || p.Model != "" || p.Reasoning != "" || p.Mode != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.Instructions != "" || p.MaxInput != 0 || p.MaxOutput != 0 {
 			return errors.New("go-check selects workspace-read access and no model/deterministic settings")
@@ -501,6 +558,12 @@ func validateProcess(v runner.Process, p runner.Project) error {
 		return "", errors.New("binding must reference a declared run input or an earlier step output")
 	}
 	for _, step := range v.Steps {
+		if step.AttemptTimeout != "" {
+			d, err := time.ParseDuration(step.AttemptTimeout)
+			if err != nil || d <= 0 || d > time.Hour {
+				return fmt.Errorf("step %s: attempt_timeout must be positive and at most one hour", step.ID)
+			}
+		}
 		if !validID(step.ID) || seen[step.ID].ID != "" {
 			return errors.New("missing/duplicate step ID")
 		}

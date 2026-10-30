@@ -10,7 +10,7 @@ Start with the example configuration, then `types.go`, then follow a run through
 | `internal/runner/` | `types.go` owns contracts; `engine.go` owns operations, admission, coordination and lifecycle decisions. |
 | `internal/runner/config/` | YAML/JSON parsing, reference/type validation and validated file edits. |
 | `internal/runner/sqlite/` | Single instance lock, bounded snapshots, request receipts and artifact references. |
-| `internal/runner/execution/` | Deterministic jobs, Codex and fixed Go checking behind Start/Observe/Stop/Release; owns Git workspaces. |
+| `internal/runner/execution/` | Deterministic jobs, Codex, fixed Go checking and configured commands behind Start/Observe/Stop/Release; owns Git workspaces. |
 | `internal/runner/control/` | MCP translation and the CLI's MCP client. |
 
 `disk.go` and platform free-space helpers belong to the core's controlled resource
@@ -412,3 +412,59 @@ overflow at 1280×1000 and 390×844. These are coordinator checks, not an automa
 frontend check step or a full application qualification. Runner's race tests and
 vet passed after the instruction change. No product commit, merge or deployment
 was made by this follow-up, and no additional coding attempt is authorized.
+
+## Configured commands and local review, 30 October 2026
+
+`configured_command.go` owns setup, observation, collection and release.
+`command_worker.go` is a private mode of the same executable. It claims dispatch
+once, runs configured argv through `codex sandbox`, bounds its log and writes a
+durable result outside the child's sandbox. This removes the new harness's
+dependence on an app-server connection for command settlement. Core scheduling,
+retry policy and workspace/artifact lifecycle remain unchanged. The old fixed
+`go-check` adapter retains its previous native API and limitations.
+
+The adapter suite owns worker-owner separation, duplicate-dispatch rejection,
+completion/cancellation, artifact collection and uncertain-worker retention.
+The disk suite owns disposable dependency-link accounting and controlled IO
+escape rejection. The existing core/config suites cover per-step deadlines and
+command contracts; there is no duplicated transport failure matrix.
+
+A real zero-model exercise used Node under the actual sandbox, confirming source
+read, denied source writes, denied Git reads and scratch artifact handoff.
+After a second command reached an explicit FIFO barrier, SIGKILL stopped the
+Runner owner. Restart recovered the same worker/attempt; normal Cancel settled
+the command and released its resources. No replacement execution was submitted.
+
+Jack's Break then used the adapter for its existing Futoshiki tests, embedded app
+build and exact executable's Nonogram qualification:
+
+| Evidence | Result |
+| --- | --- |
+| Focused tests | Existing 17 tests passed; reused after a scratch-copy helper fix because frontend inputs were unchanged. |
+| Build | Typecheck, client/SSR/prerender and pinned Go embed passed, 20.502s. |
+| Qualification | 120 development + 480 held-out starts, exact replay; same four enabled choices, 40.196s. |
+| Final build → qualification run | Completed in 61.472s, two attempts, resources released. |
+| Model usage for these command steps | Zero. Coordination usage is unavailable; this is not a total-cost benchmark. |
+
+The compiled app passed layout checks for all seven players at desktop/phone
+widths. Coordinator browser review and updating the existing local preview were
+outside Runner; this is not an automatic end-to-end release workflow. The
+preview kept its SQLite file and browser origin. No production merge/deployment
+or installed-service cutover occurred.
+
+The first native-command prototypes hit ordinary dependency symlinks during
+storage accounting. Their connection-scoped exits were lost, so those runs remain
+uncertain; they are not rewritten as successes. A subsequent durable-command build
+failed normally because its scratch copy omitted TypeScript JSON fixtures. That
+helper was corrected without rerunning the passing frontend tests. Managed work
+now counts symlink bytes without following them; retained artifacts and controlled
+IO still reject link traversal.
+
+Live qualification is macOS arm64 with Codex 0.164.0. Only trusted synchronous
+commands that retain their process group are supported. Host/worker loss, escaped
+background children, Linux sandbox enforcement and arbitrary hostile programs
+remain outside this proof. Missing settlement evidence retains resources. A
+monitored storage limit may overshoot and is not a filesystem quota.
+
+Final `go test -race -timeout 15m ./...` and `go vet ./...` passed. Linux amd64
+compiled with CGO disabled; this is compile evidence, not Linux sandbox proof.

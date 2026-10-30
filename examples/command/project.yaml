@@ -1,0 +1,10 @@
+id: command-demo
+name: Committed source command
+workspace: /absolute/path/to/repository
+source:
+  ref: HEAD
+default_process: check
+roles:
+  readme: {file: role.yaml}
+processes:
+  check: process.yaml

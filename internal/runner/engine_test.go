@@ -139,10 +139,12 @@ func TestExecutionOutcomesAndAllowances(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, want string
 		attempts         int
+		timeout          string
 	}{
-		{"success", "echo", "Completed", 1},
-		{"bounded failure", "fail", "Failed", 2},
-		{"escalation", "needs_help", "Completed", 2},
+		{"success", "echo", "Completed", 1, ""},
+		{"bounded failure", "fail", "Failed", 2, ""},
+		{"escalation", "needs_help", "Completed", 2, ""},
+		{"step deadline", "echo", "Failed", 1, "20ms"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := policy()
@@ -150,6 +152,13 @@ func TestExecutionOutcomesAndAllowances(t *testing.T) {
 			project := s.Projects["demo"]
 			role := project.Roles["worker"]
 			role.Execution.Mode = tc.mode
+			if tc.timeout != "" {
+				role.Execution.Delay = "1h"
+				proc := project.Processes["demo"]
+				proc.MaxAttempts = 1
+				proc.Steps[0].AttemptTimeout = tc.timeout
+				project.Processes["demo"] = proc
+			}
 			if tc.mode == "needs_help" {
 				local := *role.Execution
 				sol := local
@@ -169,6 +178,9 @@ func TestExecutionOutcomesAndAllowances(t *testing.T) {
 			done := await(t, r.core, run.ID, released)
 			if done.Status != tc.want || len(done.Attempts) != tc.attempts {
 				t.Fatalf("got %s/%d attempts: %s", done.Status, len(done.Attempts), done.Reason)
+			}
+			if tc.timeout != "" && done.Attempts[0].Deadline.Sub(done.Attempts[0].Started) != 20*time.Millisecond {
+				t.Fatal("step deadline did not override the process default")
 			}
 			if done.Status == "Completed" && string(done.Outputs["result"].Inline) != `"Hello"` {
 				t.Fatalf("wrong output: %+v", done.Outputs)
