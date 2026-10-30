@@ -70,6 +70,17 @@ checks pass, but the Runner result remains Failed. A new coding turn requires a
 new task/allowance; do not retry the pilot silently. The pilot also exposed and
 fixed client-side MCP error reporting and collection of unchanged large assets.
 
+The owner subsequently authorized diagnosing and fixing the stalled pilot on
+30 October 2026. Verify the scoped correction with one fresh Sol/xhigh coding
+attempt, at most five minutes, without an automatic retry or model substitution.
+Preserve a bounded diagnostic summary before native cleanup; do not retain a
+second transcript or change the old pilot's Failed result. This allowance is
+separate from the consumed pilot and recovery allowances above.
+The fresh attempt completed in 42.318 seconds with 34,731 known native tokens;
+its patch passed the existing focused tests and rendered typography checks.
+That allowance is now consumed. The guidance correction has one successful live
+result; the original stall's exact cause remains unestablished.
+
 ## Engineering
 
 Use minimum sufficient complexity and idiomatic Go. Keep one coordinator and one

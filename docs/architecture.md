@@ -378,3 +378,37 @@ Race tests and vet passed after these fixes. The source prompt is language-neutr
 the profile retains its existing Go/system-command permissions. Node tooling in
 the worker, general frontend execution and automatic frontend verification have
 not been added or qualified.
+
+## Bounded completion follow-up, 30 October 2026
+
+The first pilot's native transcript had already expired. Saved coordinator
+observations show failed Node and Perl edit attempts, followed by a successful
+patch and readback. Usage was unchanged between the 14:49:19 UTC observation and
+deadline interruption at 14:52:27. These facts identify avoidable tool selection
+and a missing final result; they do not establish why final generation stalled.
+
+The workspace instructions now direct edits through `apply_patch`, describe the
+current Go/system-command environment, discourage alternate interpreters and
+require the declared result immediately after the requested edit and readback.
+The pilot role also explicitly names available tools and the completion boundary.
+No execution policy, timeout, permission or model setting was relaxed.
+
+One fresh run used the same original source base, task, Sol/xhigh setting and
+five-minute attempt timeout. It completed normally in 42.318 seconds, returned
+its structured result and retained a 7,249-byte patch. Native usage was 32,520
+input and 2,211 output tokens: **34,731 known native tokens**, including 13,312
+cached input. Coordination tokens remain unavailable. The native diagnostic
+summary records two tool calls and a final answer; no transcript was retained.
+This single successful follow-up demonstrates completion with the corrected
+guidance, not repeatable savings or isolation of the earlier stall's cause.
+
+The patch changes only the same Vue file by two insertions/two deletions. Its
+script is unchanged, and its only difference from the previously checked
+candidate is `.value-controls .number-key` instead of
+`.value-controls button.number-key`. All 17 existing Futoshiki component tests
+passed on the new file in 2.28 seconds. The isolated component fixture again
+measured 16px word labels, 25px digits, targets at least 48px and no horizontal
+overflow at 1280×1000 and 390×844. These are coordinator checks, not an automatic
+frontend check step or a full application qualification. Runner's race tests and
+vet passed after the instruction change. No product commit, merge or deployment
+was made by this follow-up, and no additional coding attempt is authorized.

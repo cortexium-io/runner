@@ -55,6 +55,12 @@ inputs to `{from_input: name}` or `{from_step: earlier, output: name}`. Types ar
 text/artifact only. Up to eight steps, eight named values per contract and sixteen
 total attempts are supported. Automatic per-step attempts are bounded at four.
 
+`attempt_timeout` limits each admitted attempt, including executor setup and
+execution. Five minutes was the small pilot's chosen value, not a universal
+Runner limit. Expiry requests a stop; confirming settlement, securing edits and
+cleanup can continue afterward. It neither abandons uncertain execution nor
+guarantees that the whole run has finished by that time.
+
 A step may declare escalation, using profiles already defined on its role:
 
 ```yaml

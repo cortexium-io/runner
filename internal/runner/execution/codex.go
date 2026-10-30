@@ -500,7 +500,7 @@ func (c *Codex) setupTimeout(id string) time.Duration {
 	return 20 * time.Second
 }
 
-const workspaceBase = "You execute one bounded source task in the supplied workspace. Use only local sandboxed commands. Do not run tests, use Git, add dependencies, change protected files, use Python or start other work. Do not request login shells. Return the declared structured result; Runner retains the source. Follow the assignment's declared verification arrangement.\n"
+const workspaceBase = "You execute one bounded source task in the supplied workspace. Use apply_patch for edits and bounded local shell reads for context. This profile provides Go and basic system commands; do not try alternate interpreters or request login shells. Do not run tests, use Git, add dependencies, change protected files, use Python or start other work. After the requested edit and readback, return the declared structured result immediately with outcome ready. Runner retains the source. Follow the assignment's declared verification arrangement.\n"
 const nativeBase = "You execute one input-only Runner assignment. Use the supplied text only. Do not call tools, access files, ask follow-up questions or start other work. Return exactly the structured result required by the output schema. Use ready when the requested outputs are available. Use needs_help only when that outcome is declared.\n"
 
 func nativePayload(a runner.Assignment) (string, any, error) {
