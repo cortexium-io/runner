@@ -110,3 +110,47 @@ func TestCompactResult(t *testing.T) {
 		t.Fatal("released failed source was still reported retained or pending")
 	}
 }
+
+// An owner must see the exact saved approval evidence through the restricted
+// result API, without inspect access or a final process output.
+func TestCompactResultDecisionOutputs(t *testing.T) {
+	proof := strings.Repeat("restore snapshot path and exact digest; ", 40)
+	r := runner.Run{
+		Status: "Waiting",
+		Process: runner.Process{Steps: []runner.Step{
+			{ID: "prepare", Role: "operator"},
+		}},
+		Roles: map[string]runner.Role{
+			"operator": {Execution: &runner.Profile{Harness: "release"}},
+		},
+		Decision: &runner.Decision{AttemptID: "qualified"},
+		Attempts: []runner.Attempt{
+			{
+				ID: "stale", State: runner.Finished, Released: true,
+				End: &runner.ExecutionEnd{Result: &runner.StepResult{
+					Outputs: map[string]runner.Value{"receipt": runner.Text("stale approval")},
+				}},
+			},
+			{
+				ID: "qualified", State: runner.Finished, Released: true,
+				End: &runner.ExecutionEnd{Result: &runner.StepResult{
+					Outputs: map[string]runner.Value{"receipt": runner.Text(proof)},
+				}},
+			},
+		},
+	}
+	out := compactResult(r, time.Now())
+	if len(out.Outputs) != 0 || out.DecisionOutputs["receipt"].Preview != proof || out.DecisionOutputs["receipt"].Truncated {
+		t.Fatal("saved decision evidence unavailable or clipped before completion")
+	}
+	r.Attempts[1].End.Result.Outputs["receipt"] = runner.Text(strings.Repeat("ø", 3000))
+	out = compactResult(r, time.Now())
+	got := out.DecisionOutputs["receipt"]
+	if !got.Truncated || len(got.Preview) != 4096 || !utf8.ValidString(got.Preview) {
+		t.Fatal("approval preview exceeded its UTF-8-safe bound")
+	}
+	r.Decision = nil
+	if got := compactResult(r, time.Now()); len(got.DecisionOutputs) != 0 {
+		t.Fatal("approval evidence exposed without a pending decision")
+	}
+}

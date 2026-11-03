@@ -68,4 +68,8 @@ do not split it into chat-coordinated development and release runs. Omit
 `source_ref` to use its configured latest-main admission, or supply an explicit
 full commit. Supply `benchmark: "none"` when no benchmark is relevant. Present the
 exact saved merge/production/recovery decision and its receipt; approve none of
-them on the owner's behalf. Known configured recovery stays inside the process.
+them on the owner's behalf. `runner_result.decision_outputs` previews the saved
+decision attempt's outputs before final process outputs exist; use its receipt
+to present exact approval facts without inspect access. These previews have a
+4 KiB total bound and mark truncation explicitly. Known configured recovery stays
+inside the process.

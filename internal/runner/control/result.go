@@ -28,6 +28,7 @@ type Result struct {
 	Outputs           map[string]Output `json:"outputs,omitempty"`
 	Candidate         *Candidate        `json:"candidate,omitempty"`
 	Decision          *runner.Decision  `json:"decision,omitempty"`
+	DecisionOutputs   map[string]Output `json:"decision_outputs,omitempty"`
 }
 
 type Usage struct {
@@ -80,6 +81,11 @@ func compactResult(r runner.Run, now time.Time) Result {
 		end = r.Created
 	}
 	for _, a := range r.Attempts {
+		if r.Decision != nil && a.ID == r.Decision.AttemptID && a.End != nil && a.End.Result != nil {
+			// Approval facts belong to the saved decision's exact attempt. A
+			// restricted intake needs these before process outputs exist.
+			out.DecisionOutputs = previewOutputs(a.End.Result.Outputs, 4096)
+		}
 		if r.Terminal() && a.FinishedAt.After(end) {
 			end = a.FinishedAt
 		}
@@ -119,23 +125,29 @@ func compactResult(r runner.Run, now time.Time) Result {
 	if r.Terminal() && r.Source != nil && !r.ResourcesReleased {
 		out.CleanupPending = true
 	}
+	out.Outputs = previewOutputs(r.Outputs, 1024)
+	return out
+}
+
+func previewOutputs(values map[string]runner.Value, perOutput int) map[string]Output {
 	// Contracts contain at most eight outputs. Preview bytes are bounded across
 	// all of them, and artifacts remain references rather than loaded evidence.
-	names := make([]string, 0, len(r.Outputs))
-	for name := range r.Outputs {
+	out := make(map[string]Output, len(values))
+	names := make([]string, 0, len(values))
+	for name := range values {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	remaining := 4096
 	for _, name := range names {
-		v := r.Outputs[name]
+		v := values[name]
 		value := Output{ArtifactID: v.ArtifactID}
 		if len(v.Inline) != 0 {
 			var text string
 			if json.Unmarshal(v.Inline, &text) != nil {
 				text = string(v.Inline)
 			}
-			limit := min(1024, remaining)
+			limit := min(perOutput, remaining)
 			if len(text) > limit {
 				value.Truncated = true
 				for limit > 0 && !utf8.RuneStart(text[limit]) {
@@ -146,7 +158,7 @@ func compactResult(r runner.Run, now time.Time) Result {
 			value.Preview = text
 			remaining -= len(text)
 		}
-		out.Outputs[name] = value
+		out[name] = value
 	}
 	return out
 }
