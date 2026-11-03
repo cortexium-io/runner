@@ -1,0 +1,15 @@
+{
+  "id": "verify",
+  "purpose": "Perform the configured verify release action, preserving immutable receipts and operator boundaries.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "verify",
+    "access": "input-only"
+  }
+}

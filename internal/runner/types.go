@@ -90,11 +90,18 @@ func (p StoragePolicy) Validate() error {
 }
 
 type Instance struct {
-	Projects          []string       `json:"projects"`
-	Concurrency       int            `json:"concurrency"`
-	ReconcileInterval string         `json:"reconcile_interval"`
-	Storage           StoragePolicy  `json:"storage"`
-	Codex             *CodexSettings `json:"codex,omitempty"`
+	Projects          []string         `json:"projects"`
+	Concurrency       int              `json:"concurrency"`
+	ReconcileInterval string           `json:"reconcile_interval"`
+	Storage           StoragePolicy    `json:"storage"`
+	Codex             *CodexSettings   `json:"codex,omitempty"`
+	Release           *ReleaseSettings `json:"release,omitempty"`
+}
+
+// ReleaseSettings selects a trusted, model-free operator. Product code and task
+// data cannot supply commands or credentials to this capability.
+type ReleaseSettings struct {
+	Command []string `json:"command"`
 }
 
 // CodexSettings selects the instance's native service and command runtime,
@@ -312,6 +319,7 @@ type ExecutionLimits struct {
 	MaxLog      Bytes `json:"max_log"`
 }
 type Assignment struct {
+	ProjectID   string            `json:"project_id,omitempty"`
 	RunID       string            `json:"run_id,omitempty"`
 	Repository  string            `json:"repository,omitempty"`
 	Source      *SourceSettings   `json:"source,omitempty"`

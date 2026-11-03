@@ -13,13 +13,14 @@ import (
 type Service struct {
 	candidates    *Candidates
 	commands      *Commands
+	releases      *Releases
 	disk          *runner.Disk
 	deterministic *Deterministic
 	workspaces    *Workspaces
 	Codex         *Codex
 }
 
-func NewService(d *runner.Disk, read func(context.Context, string) ([]byte, error), cfg *runner.CodexSettings) *Service {
+func NewService(d *runner.Disk, read func(context.Context, string) ([]byte, error), cfg *runner.CodexSettings, release ...*runner.ReleaseSettings) *Service {
 	s := &Service{
 		disk:          d,
 		deterministic: New(d, read),
@@ -31,6 +32,10 @@ func NewService(d *runner.Disk, read func(context.Context, string) ([]byte, erro
 	}
 	s.candidates = &Candidates{disk: d, workspaces: s.workspaces}
 	s.commands = NewCommands(d, cfg, s.workspaces, read)
+	s.releases = &Releases{disk: d}
+	if len(release) > 0 {
+		s.releases.cfg = runner.Clone(release[0])
+	}
 	if cfg != nil {
 		s.Codex = NewCodex(d, cfg)
 		s.Codex.workspaces = s.workspaces
@@ -45,6 +50,8 @@ func (s *Service) SetWake(wake func(string)) {
 }
 func (s *Service) Start(ctx context.Context, a runner.Assignment) (runner.Observation, error) {
 	switch a.Setup.Profile.Harness {
+	case "release":
+		return s.releases.Start(ctx, a)
 	case "git-candidate":
 		return s.candidates.Start(ctx, a)
 	case "command":
@@ -70,6 +77,9 @@ func (s *Service) native(id string) (bool, error) {
 	return true, err
 }
 func (s *Service) Observe(ctx context.Context, id string) (runner.Observation, error) {
+	if s.releases.Owns(id) {
+		return s.releases.Observe(ctx, id)
+	}
 	if s.candidates.Owns(id) {
 		return s.candidates.Observe(ctx, id)
 	}
@@ -93,6 +103,9 @@ func (s *Service) Observe(ctx context.Context, id string) (runner.Observation, e
 	return s.deterministic.Observe(ctx, id)
 }
 func (s *Service) Stop(ctx context.Context, id string) error {
+	if s.releases.Owns(id) {
+		return s.releases.Stop(ctx, id)
+	}
 	if s.candidates.Owns(id) {
 		return s.candidates.Stop(ctx, id)
 	}
@@ -112,6 +125,9 @@ func (s *Service) Stop(ctx context.Context, id string) error {
 	return s.deterministic.Stop(ctx, id)
 }
 func (s *Service) Release(ctx context.Context, id string) error {
+	if s.releases.Owns(id) {
+		return s.releases.Release(ctx, id)
+	}
 	if s.candidates.Owns(id) {
 		return s.candidates.Release(ctx, id)
 	}

@@ -380,6 +380,10 @@ func (c *Core) Apply(s Snapshot, err error) {
 		c.configError = "Codex service settings require restart; last valid configuration remains active"
 		return
 	}
+	if !reflect.DeepEqual(s.Instance.Release, c.snapshot.Instance.Release) {
+		c.configError = "release operator settings require restart; last valid configuration remains active"
+		return
+	}
 	c.snapshot = Clone(s)
 	c.configError = ""
 	c.Wake()
@@ -647,6 +651,7 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		return Assignment{}, e
 	}
 	return Assignment{
+		ProjectID:   r.ProjectID,
 		RunID:       r.ID,
 		Repository:  r.Repository,
 		Source:      Clone(r.Source),

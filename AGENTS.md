@@ -2,6 +2,14 @@
 
 ## Current authority and scope
 
+On 3 November 2026 the owner additionally authorized completing Jack's Break's
+release workflow in Runner, coordinating with its existing release chat and
+qualifying the complete path. Merge and production changes require separate
+explicit owner approvals. Reuse GitHub's protected merge and the existing Compose
+controller, preserve history and qualified artifacts, and keep credentials outside
+model execution. Model-free isolated qualification and pilot installation are
+authorized; no approval of a fixture authorizes production actions or restoration.
+
 On 3 November 2026 the owner authorized completing the agreed development workflow,
 including correction loops, iterative benchmarking, dependent work and full
 end-to-end verification without an external chat coordinating its stages. Reuse

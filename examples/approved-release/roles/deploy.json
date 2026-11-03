@@ -1,0 +1,15 @@
+{
+  "id": "deploy",
+  "purpose": "Perform the configured deploy release action, preserving immutable receipts and operator boundaries.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "deploy",
+    "access": "input-only"
+  }
+}

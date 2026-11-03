@@ -1,0 +1,167 @@
+package execution
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"time"
+
+	"github.com/cortexium-io/runner/internal/release"
+	"github.com/cortexium-io/runner/internal/runner"
+)
+
+// Releases invokes one trusted operator action. It does not run product source,
+// grant native roles credentials, approve a gate or schedule downstream work.
+type Releases struct {
+	disk *runner.Disk
+	cfg  *runner.ReleaseSettings
+}
+
+type releaseJob struct {
+	Assignment runner.Assignment    `json:"assignment"`
+	Command    []string             `json:"command"`
+	Stopped    bool                 `json:"stopped,omitempty"`
+	End        *runner.ExecutionEnd `json:"end,omitempty"`
+}
+
+func releaseName(id string) string { return "jobs/" + id + ".release.json" }
+func (r *Releases) Owns(id string) bool {
+	_, err := os.Lstat(filepath.Join(r.disk.Root, releaseName(id)))
+	return !errors.Is(err, os.ErrNotExist)
+}
+func (r *Releases) load(id string) (releaseJob, error) {
+	var j releaseJob
+	b, err := r.disk.Read(releaseName(id), r.disk.Policy.Database.MaxRecord)
+	if err == nil {
+		err = json.Unmarshal(b, &j)
+	}
+	if err == nil && j.Assignment.AttemptID != id {
+		err = errors.New("release identity differs from saved intent")
+	}
+	return j, err
+}
+func (r *Releases) save(j releaseJob) error {
+	b, err := json.Marshal(j)
+	if err != nil {
+		return err
+	}
+	return r.disk.Write(releaseName(j.Assignment.AttemptID), b, r.disk.Policy.Database.MaxRecord)
+}
+func (r *Releases) Start(ctx context.Context, a runner.Assignment) (runner.Observation, error) {
+	if _, err := r.load(a.AttemptID); errors.Is(err, os.ErrNotExist) {
+		if r.cfg == nil || len(r.cfg.Command) == 0 {
+			return runner.Observation{
+				State: runner.Finished,
+				End:   &runner.ExecutionEnd{Kind: "failed", Reason: "release operator is not configured"},
+			}, nil
+		}
+		if err = r.save(releaseJob{Assignment: runner.Clone(a), Command: runner.Clone(r.cfg.Command)}); err != nil {
+			return runner.Observation{}, err
+		}
+	} else if err != nil {
+		return runner.Observation{}, err
+	}
+	return r.Observe(ctx, a.AttemptID)
+}
+func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, error) {
+	j, err := r.load(id)
+	if err != nil {
+		return runner.Observation{}, err
+	}
+	zero := int64(0)
+	o := runner.Observation{
+		State:     runner.Running,
+		Usage:     runner.Usage{InputTokens: &zero, OutputTokens: &zero, CachedInputTokens: &zero},
+		NextCheck: time.Now().Add(3 * time.Second),
+	}
+	if j.End == nil {
+		if j.Assignment.Source == nil {
+			return o, errors.New("release requires an explicit source")
+		}
+		request := release.Request{
+			Project:  j.Assignment.ProjectID,
+			RunID:    j.Assignment.RunID,
+			Key:      id,
+			Action:   j.Assignment.Setup.Profile.Mode,
+			Source:   j.Assignment.Source.Ref,
+			Previous: j.Assignment.Inputs["receipt"].Inline,
+		}
+		input, _ := json.Marshal(request)
+		call, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(call, j.Command[0], j.Command[1:]...)
+		cmd.Stdin = bytes.NewReader(input)
+		output := &diagnosticTail{limit: 32 << 10}
+		cmd.Stdout = output
+		cmd.Stderr = &diagnosticTail{limit: 1024}
+		if err = cmd.Run(); err != nil {
+			o.State = runner.Unknown
+			o.Reason = "release operator disconnected; rejoin the same saved operation " + id
+			return o, nil
+		}
+		var response release.Response
+		if err = json.Unmarshal(output.bytes(), &response); err != nil || response.Key != id {
+			o.State = runner.Unknown
+			o.Reason = "release operator response identity or format differs; retain the operation"
+			return o, nil
+		}
+		o.Reason = runner.Clip(response.Reason)
+		if response.State != "finished" {
+			if response.State != "running" {
+				o.State = runner.Unknown
+			}
+			return o, nil
+		}
+		outcome := "ready"
+		if response.Failed {
+			outcome = "blocked"
+		}
+		if len(response.Receipt) == 0 {
+			response.Receipt = json.RawMessage(`{}`)
+		}
+		j.End = &runner.ExecutionEnd{
+			Kind:   "returned",
+			Result: &runner.StepResult{Outcome: outcome, Reason: o.Reason, Outputs: map[string]runner.Value{"receipt": {Inline: response.Receipt}}},
+		}
+		if j.Stopped {
+			j.End = &runner.ExecutionEnd{
+				Kind:   "stopped",
+				Reason: "release cancellation settled; inspect retained operator receipt " + id + " before recovery",
+			}
+		}
+		if err = r.save(j); err != nil {
+			return runner.Observation{}, err
+		}
+	}
+	o.State, o.End = runner.Finished, j.End
+	return o, nil
+}
+func (r *Releases) Stop(ctx context.Context, id string) error {
+	j, err := r.load(id)
+	if err != nil || j.End != nil {
+		return err
+	}
+	j.Stopped = true
+	if err = r.save(j); err != nil {
+		return err
+	}
+	_, err = r.Observe(ctx, id)
+	return err
+}
+func (r *Releases) Release(_ context.Context, id string) error {
+	j, err := r.load(id)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if j.End == nil {
+		return errors.New("cannot release an unsettled external operation")
+	}
+	return r.disk.Remove(releaseName(id))
+}

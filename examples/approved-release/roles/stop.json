@@ -1,0 +1,15 @@
+{
+  "id": "stop",
+  "purpose": "Perform the configured stop release action, preserving immutable receipts and operator boundaries.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "stop",
+    "access": "input-only"
+  }
+}

@@ -52,3 +52,11 @@ candidate as ready for integration/release decisions; never describe it as
 merged, deployed or fully qualified beyond the actual proof. Coordinator token
 usage remains additional to the Runner result and must be included in any
 end-to-end benchmark.
+
+The [approved release process](../examples/approved-release/README.md) adds the
+model-free Jack's Break release operator. It owns qualification reuse, protected
+merge, backups, explicit migration, Compose deployment and live verification. Two
+saved decisions separate merge from production approval. Intake presents the
+receipt and exact decision ID to the owner and must never approve it. Operator
+configuration/credentials remain separate from coding roles. Uncertain remote
+effects require inspection; a client disconnect grants no replacement operation.

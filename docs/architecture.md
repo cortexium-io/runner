@@ -1,5 +1,12 @@
 # Process core: code walkthrough
 
+The [approved release example](../examples/approved-release/README.md) documents
+the 3 November credential-bearing, model-free release adapter and its two explicit
+owner decisions. `execution/release.go` retains local attempt identity;
+`internal/release` journals and reconciles one operator action at a time over the
+existing SSH connection. It does not choose stages or approve work. GitHub and
+Compose remain the owning services for merge and deployment state.
+
 This describes the clean first slice, not the previous task/approval runtime.
 Start with the example configuration, then `types.go`, then follow a run through
 `engine.go`. There are six responsibilities:

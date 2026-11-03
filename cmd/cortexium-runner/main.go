@@ -206,7 +206,7 @@ func serve(ctx context.Context, path, root, addr string) error {
 		}
 		return disk.Read("artifacts/"+id, disk.Policy.MaxArtifact)
 	}
-	executor := execution.NewService(disk, read, snapshot.Instance.Codex)
+	executor := execution.NewService(disk, read, snapshot.Instance.Codex, snapshot.Instance.Release)
 	defer func() {
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

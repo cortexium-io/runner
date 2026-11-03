@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -93,6 +94,20 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 	}
 	if e := s.Instance.Storage.Validate(); e != nil {
 		return s, e
+	}
+	if c := s.Instance.Release; c != nil {
+		if len(c.Command) == 0 || len(c.Command) > 16 || !filepath.IsAbs(c.Command[0]) {
+			return s, errors.New("release.command requires an absolute executable and at most 16 arguments")
+		}
+		for _, arg := range c.Command {
+			if len(arg) > 4096 || strings.ContainsRune(arg, 0) {
+				return s, errors.New("invalid release operator argument")
+			}
+		}
+		info, err := os.Stat(c.Command[0])
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+			return s, errors.New("release.command must name an existing executable")
+		}
 	}
 	if c := s.Instance.Codex; c != nil {
 		if c.Binary == "" {
@@ -217,6 +232,16 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 				if e = ready(profile); e != nil {
 					return s, fmt.Errorf("role %s: %w", name, e)
 				}
+				if profile.Harness == "release" {
+					c := s.Instance.Release
+					if c == nil || len(c.Command) == 0 || len(c.Command) > 16 || !filepath.IsAbs(c.Command[0]) || strings.TrimSpace(role.Purpose) == "" || p.Source == nil || s.Instance.Concurrency != 1 || len(role.Outputs) != 1 || role.Outputs["receipt"] != "json" {
+						return s, errors.New("release needs a trusted instance command, source, concurrency one, purpose and one JSON receipt output")
+					}
+					if profile.Mode == "prepare" && len(role.Inputs) != 0 || profile.Mode != "prepare" && (len(role.Inputs) != 1 || role.Inputs["receipt"] != "json") {
+						return s, errors.New("release prepare has no inputs; later actions require one JSON receipt")
+					}
+					continue
+				}
 				if profile.Harness == "codex" || profile.Harness == "go-check" || profile.Harness == "command" || profile.Harness == "git-candidate" {
 					if strings.TrimSpace(role.Purpose) == "" {
 						return s, fmt.Errorf("role %s: execution needs an explicit task purpose", name)
@@ -295,6 +320,9 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 				return s, fmt.Errorf("process name %q does not match its definition", name)
 			}
 			if e = validateProcess(process, p); e != nil {
+				return s, fmt.Errorf("process %s: %w", name, e)
+			}
+			if e = validateReleaseProcess(process, p); e != nil {
 				return s, fmt.Errorf("process %s: %w", name, e)
 			}
 			p.Processes[name] = process
@@ -485,6 +513,12 @@ func boundedTypes(m map[string]string, limit int) error {
 	return nil
 }
 func ready(p runner.Profile) error {
+	if p.Harness == "release" {
+		if p.Access != "input-only" || !slices.Contains([]string{"prepare", "merge", "backup", "stop", "migrate", "pin", "deploy", "verify"}, p.Mode) || p.Command != nil || p.Model != "" || p.Reasoning != "" || p.Instructions != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.MaxInput != 0 || p.MaxOutput != 0 {
+			return errors.New("release selects a fixed action and input-only access without model or command settings")
+		}
+		return nil
+	}
 	if p.Harness == "command" {
 		if p.Access != "workspace-read" || p.Command == nil || p.Model != "" || p.Reasoning != "" || p.Mode != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.Instructions != "" || p.MaxInput != 0 || p.MaxOutput != 0 {
 			return errors.New("command selects workspace-read access, command settings and no model settings")
