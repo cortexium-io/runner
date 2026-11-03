@@ -10,6 +10,13 @@ controller, preserve history and qualified artifacts, and keep credentials outsi
 model execution. Model-free isolated qualification and pilot installation are
 authorized; no approval of a fixture authorizes production actions or restoration.
 
+Live release qualification exposed the protected WAL directory's closed-backup
+boundary before migration. The owner approved one direct restart of the existing
+previous container as emergency recovery; that exception is consumed. Preserve the
+failed release and its recovery evidence. Correct/qualify the quiesced backup path
+without source permission changes; a production retry needs an explicit owner
+decision and retains the existing run identity and consumed attempts.
+
 On 3 November 2026 the owner authorized completing the agreed development workflow,
 including correction loops, iterative benchmarking, dependent work and full
 end-to-end verification without an external chat coordinating its stages. Reuse

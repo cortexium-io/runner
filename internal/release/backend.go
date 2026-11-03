@@ -286,6 +286,9 @@ func (b *Live) Advance(ctx context.Context, j *Job, save func() error) error {
 
 func (b *Live) prepare(ctx context.Context, j *Job) error {
 	c := b.Config
+	if _, err := b.host(ctx, nil, filepath.Join(filepath.Dir(c.BackupHelper), "runner-snapshot"), "--help"); err != nil {
+		return fail(j, "quiesced snapshot runtime is unavailable; install/verify it before release approval")
+	}
 	controller, err := readFile(c.ControllerConfig, 256<<10)
 	if err != nil {
 		return err

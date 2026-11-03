@@ -114,12 +114,16 @@ func (b *Live) snapshot(ctx context.Context, j *Job, save func() error, final bo
 	if final {
 		suffix = "-stopped"
 	}
-	remote := filepath.Join(c.BackupDir, j.Request.RunID+suffix+".db")
-	local := filepath.Join(c.OffsiteBackupDir, j.Request.RunID+suffix+".db")
+	stem := j.Request.RunID + suffix
+	if final {
+		stem = j.Request.Key + suffix
+	}
+	remote := filepath.Join(c.BackupDir, stem+".db")
+	local := filepath.Join(c.OffsiteBackupDir, stem+".db")
 	if !final && j.Receipt.Backup != "" || final && j.Receipt.FinalBackup != "" {
 		return nil
 	}
-	hash, err := b.capture(ctx, j.Request.RunID+suffix)
+	hash, err := b.capture(ctx, stem, final, j.Receipt.PriorContainer, j.Receipt.PriorImage)
 	if err != nil {
 		return err
 	}
@@ -143,15 +147,36 @@ func (b *Live) snapshot(ctx context.Context, j *Job, save func() error, final bo
 	return save()
 }
 
-func (b *Live) capture(ctx context.Context, stem string) (string, error) {
+func (b *Live) capture(ctx context.Context, stem string, quiesced bool, containerID, image string) (string, error) {
 	c := b.Config
 	if err := os.MkdirAll(c.OffsiteBackupDir, 0700); err != nil {
 		return "", err
 	}
 	remote := filepath.Join(c.BackupDir, stem+".db")
 	if _, err := b.host(ctx, nil, "test", "-f", remote); err != nil {
-		if _, err = b.host(ctx, nil, "python3", c.BackupHelper, "backup", filepath.Join(c.DataDir, "games.db"), remote); err != nil {
+		args := []string{"python3", c.BackupHelper, "backup", filepath.Join(c.DataDir, "games.db"), remote}
+		if quiesced {
+			args = []string{
+				filepath.Join(filepath.Dir(c.BackupHelper), "runner-snapshot"),
+				"--source", filepath.Join(c.DataDir, "games.db"),
+				"--destination", remote,
+				"--engine", c.Engine,
+				"--container", containerID,
+				"--image", image,
+			}
+		}
+		if _, err = b.host(ctx, nil, args...); err != nil {
 			return "", err
+		}
+	}
+	var proof SnapshotProof
+	if quiesced {
+		marker, err := b.host(ctx, nil, "cat", remote+".verified")
+		if err != nil {
+			return "", errors.New("quiesced backup completion receipt is not available")
+		}
+		if json.Unmarshal(marker, &proof) != nil || proof.Source != filepath.Join(c.DataDir, "games.db") || proof.Destination != remote || len(proof.SnapshotSHA) != 64 {
+			return "", errors.New("quiesced backup completion identity differs")
 		}
 	}
 	if _, err := b.host(ctx, nil, "python3", c.BackupHelper, "verify", remote); err != nil {
@@ -160,6 +185,9 @@ func (b *Live) capture(ctx context.Context, stem string) (string, error) {
 	data, err := b.host(ctx, nil, "cat", remote)
 	if err != nil {
 		return "", err
+	}
+	if quiesced && proof.SnapshotSHA != Digest(data) {
+		return "", errors.New("quiesced backup bytes differ from completion receipt")
 	}
 	if err = writeExclusive(filepath.Join(c.OffsiteBackupDir, stem+".db"), data); err != nil {
 		return "", err
@@ -338,10 +366,10 @@ func (b *Live) migrate(ctx context.Context, j *Job, save func() error) error {
 	if c.State.Status != "exited" || c.State.ExitCode != 0 {
 		return fail(j, "migration failed; Games remains stopped, data restore requires a separate owner decision")
 	}
-	if _, err = b.capture(ctx, j.Request.RunID+"-migrated"); err != nil {
+	if _, err = b.capture(ctx, j.Request.Key+"-migrated", true, j.Receipt.PriorContainer, j.Receipt.PriorImage); err != nil {
 		return err
 	}
-	if err = verifyMigration(j.Receipt.FinalBackup, filepath.Join(b.Config.OffsiteBackupDir, j.Request.RunID+"-migrated.db")); err != nil {
+	if err = verifyMigration(j.Receipt.FinalBackup, filepath.Join(b.Config.OffsiteBackupDir, j.Request.Key+"-migrated.db")); err != nil {
 		return fail(j, "migration changed data outside its accepted contract; application stays stopped and recovery requires an owner decision")
 	}
 	return done(j, "Pinned-image migration completed successfully. Recovery snapshots retained; no automatic database restore.")

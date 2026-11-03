@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -224,5 +225,27 @@ func TestMigrationDoesNotRepeatAnUncertainContainerStart(t *testing.T) {
 	}
 	if err := b.migrate(t.Context(), &j, func() error { return nil }); err == nil || starts != 0 || j.Done {
 		t.Fatal("uncertain migration was repeated or falsely settled", err, starts, j.Done)
+	}
+}
+
+func TestQuiescedCaptureCannotAcceptAnIncompleteDestination(t *testing.T) {
+	b := Live{Config: Config{SSH: "fixture", BackupDir: "/backup", DataDir: "/data", OffsiteBackupDir: t.TempDir()}}
+	verifications := 0
+	b.runCommand = func(_ context.Context, _ []byte, _ string, args ...string) ([]byte, error) {
+		remote := args[len(args)-1]
+		if strings.Contains(remote, ".verified") {
+			return nil, errors.New("completion marker absent")
+		}
+		if strings.Contains(remote, "python3") {
+			verifications++
+		}
+		return nil, nil
+	}
+	if _, err := b.capture(t.Context(), "new_attempt", true, "container", "image"); err == nil || verifications != 0 {
+		t.Fatal("partial destination accepted or inspected before completion", err, verifications)
+	}
+	files, err := os.ReadDir(b.Config.OffsiteBackupDir)
+	if err != nil || len(files) != 0 {
+		t.Fatal("incomplete backup was retained as accepted", err)
 	}
 }
