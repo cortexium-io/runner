@@ -12,7 +12,8 @@ review, saved approval decisions and retained candidate/delivery artifacts.
 Dependency-ordered task collections expand fixed templates inside the same run.
 Configured synchronous commands support checks, benchmarks, builds and project
 delivery without another model coordinator.
-It does not replace an installed Runner service or import its state.
+It does not import legacy Runner state. Qualified pilot installation remains an
+explicit operator action.
 
 ## Try the two-step process
 
@@ -53,6 +54,11 @@ focused verification, read-only review and local candidate integration inside
 Runner. [External coordinators](docs/coordinator.md) submit work and report results
 or decisions; they do not perform missing stages themselves. This process stops
 at a checked, reviewed local branch and does not merge, push or deploy.
+
+The [connected Jack's Break process](examples/jacks-break/README.md) adds product
+packaging, runtime/browser qualification and approved release, with bounded
+correction/measurement and configured recovery. Merge, production and database
+restoration remain separate saved owner decisions.
 
 ## Qualified boundary
 

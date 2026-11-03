@@ -2,6 +2,17 @@
 
 ## Current authority and scope
 
+The owner subsequently authorized all three delivery-closure changes: safe
+release recovery, a connected Jack's Break development/qualification/release
+process, and failure-focused qualification. Reuse the existing engine, adapters,
+owner decisions and owning project tools. A configured pre-migration recovery may
+restart only the unchanged previous service after positive no-mutation proof.
+Merge, production deployment and database restoration remain explicit owner
+decisions. Do not inject failures into production. Qualify failures on disposable
+resources, preserve the pilot's history, and install the verified capability in
+the existing pilot. A fresh bounded real task may use the configured model and
+correction limits; older consumed fixture allowances do not authorize repeats.
+
 On 3 November 2026 the owner additionally authorized completing Jack's Break's
 release workflow in Runner, coordinating with its existing release chat and
 qualifying the complete path. Merge and production changes require separate

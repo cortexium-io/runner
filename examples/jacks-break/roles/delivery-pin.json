@@ -1,0 +1,15 @@
+{
+  "id": "delivery-pin",
+  "purpose": "Execute the configured pin operation within its saved authority and evidence boundary.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "pin",
+    "access": "input-only"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "delivery-inspect-migration",
+  "purpose": "Execute the configured inspect-migration operation within its saved authority and evidence boundary.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "inspect-migration",
+    "access": "input-only"
+  }
+}

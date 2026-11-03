@@ -32,7 +32,7 @@ func NewService(d *runner.Disk, read func(context.Context, string) ([]byte, erro
 	}
 	s.candidates = &Candidates{disk: d, workspaces: s.workspaces}
 	s.commands = NewCommands(d, cfg, s.workspaces, read)
-	s.releases = &Releases{disk: d}
+	s.releases = &Releases{disk: d, workspaces: s.workspaces}
 	if len(release) > 0 {
 		s.releases.cfg = runner.Clone(release[0])
 	}
@@ -155,6 +155,9 @@ func (s *Service) Close(ctx context.Context) error {
 }
 
 func (s *Service) ReleaseRun(ctx context.Context, r runner.Run) error {
+	if err := s.releases.recoverCancelledStop(ctx, r); err != nil {
+		return err
+	}
 	return s.workspaces.releaseRun(ctx, r.ID, r.Status == "Failed")
 }
 func (s *Service) ForgetRun(ctx context.Context, id string) error {

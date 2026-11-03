@@ -1,0 +1,53 @@
+{
+  "project": "jacks-break",
+  "repository": "owner/repository",
+  "branch": "main",
+  "state_dir": "/private/release/state",
+  "gh": "/absolute/path/to/gh",
+  "compose": [
+    "/absolute/path/to/compose-deploy",
+    "--config",
+    "/private/controller.json",
+    "serve"
+  ],
+  "controller_config": "/private/controller.json",
+  "deploy_project": "games-site",
+  "docker": "/absolute/path/to/docker",
+  "docker_host": "ssh://deploy@docker-host",
+  "engine": "OPERATOR_VERIFIED_ENGINE_ID",
+  "ssh": "/usr/bin/ssh",
+  "host": "deploy@docker-host",
+  "environment": "/private/application.env",
+  "data_dir": "/remote/application/data",
+  "backup_helper": "/remote/application/sqlite_backup.py",
+  "backup_dir": "/remote/application/backups",
+  "offsite_backup_dir": "/private/offsite-backups",
+  "public_url": "https://example.com",
+  "recover_before_migration": true,
+  "delivery": {
+    "root": "/private/delivery",
+    "git": "/absolute/path/to/git",
+    "codex": "/absolute/path/to/codex",
+    "python": "/absolute/path/to/python3.12",
+    "node": "/absolute/path/to/node24",
+    "go": "/absolute/path/to/go1.26.7",
+    "module_cache": "/private/runtime/modcache",
+    "read_paths": [
+      "/private/runtime",
+      "/absolute/runtime/installation"
+    ],
+    "browser_module": "/private/runtime/node_modules/playwright/index.mjs",
+    "browser_executable": "/private/runtime/chrome-headless-shell",
+    "trust_bundle": "/private/runtime/public-trust.pem",
+    "probe": "/remote/application/runner-http-probe",
+    "ownership": [
+      "/absolute/path/to/operations-python",
+      "/private/operations/techbase_ops.py",
+      "check-pr",
+      "jacks-break"
+    ],
+    "timeout": "20m",
+    "storage_limit": 8589934592,
+    "min_free": 5368709120
+  }
+}

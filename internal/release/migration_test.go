@@ -67,6 +67,31 @@ func TestMigrationPreservesApplicationDataAndExistingLedger(t *testing.T) {
 			if (err == nil) != (change == "correct") {
 				t.Fatal(change, err)
 			}
+			if change == "correct" {
+				if err = validateMigrationInput(after); err != nil {
+					t.Fatal("later release rejected an already-applied 0017", err)
+				}
+				for _, condition := range []string{"unchanged", "new ledger row", "changed application"} {
+					t.Run(condition, func(t *testing.T) {
+						next := filepath.Join(t.TempDir(), "next.db")
+						bytes, _ := os.ReadFile(after)
+						os.WriteFile(next, bytes, 0600)
+						db, _ := sql.Open("sqlite", next)
+						db.Exec("UPDATE _genny_migration_lock SET locked_at=102")
+						if condition == "new ledger row" {
+							db.Exec("INSERT INTO _genny_migrations VALUES('unqualified','checksum','2026-11-04')")
+						}
+						if condition == "changed application" {
+							db.Exec("UPDATE application SET value='lost'")
+						}
+						db.Close()
+						err := verifyMigration(after, next)
+						if (err == nil) != (condition == "unchanged") {
+							t.Fatal(condition, err)
+						}
+					})
+				}
+			}
 		})
 	}
 }

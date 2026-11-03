@@ -516,7 +516,7 @@ func (c *Codex) setupTimeout(id string) time.Duration {
 
 const workspaceBase = "You execute one bounded source task in the supplied workspace. Use apply_patch for edits and bounded local shell reads for context. This profile provides Go and basic system commands; do not try alternate interpreters or request login shells. Do not use Git, add dependencies, change protected files, use Python or start other work. Run checks only when explicitly authorized by the selected role and task, within their exact scope and budget. Finish the assigned work and return the declared structured result. Runner retains the source and runs the configured verification.\n"
 const reviewBase = "You review one Runner candidate against the original request and supplied check results. Source is read-only; scratch is writable. Read the supplied patch and only the affected source/contracts needed to judge it. Do not edit source, run tests, use Git, install tools, launch agents or repair anything. Return the declared structured review, including concrete blockers or missing proof. Do not approve incomplete work.\n"
-const nativeBase = "You execute one input-only Runner assignment. Use the supplied text only. Do not call tools, access files, ask follow-up questions or start other work. Return exactly the structured result required by the output schema. Use ready when the requested outputs are available. Use needs_help only when that outcome is declared.\n"
+const nativeBase = "You execute one input-only Runner assignment. Use the supplied inputs only. Do not call tools, access files, ask follow-up questions or start other work. Return exactly the structured result required by the output schema. Use ready when the requested outputs are available. Use needs_help only when that outcome is declared.\n"
 
 func nativePayload(a runner.Assignment) (string, any, error) {
 	if strings.TrimSpace(a.Task) == "" {
@@ -526,25 +526,24 @@ func nativePayload(a runner.Assignment) (string, any, error) {
 	if p.Harness != "codex" || (p.Access != "input-only" && p.Access != "workspace-write" && p.Access != "workspace-read") || p.Model == "" || p.Reasoning == "" || p.MaxInput < 128 || p.MaxOutput < 128 {
 		return "", nil, errors.New("incomplete input-only Codex profile")
 	}
-	inputs := map[string]string{}
+	inputs := map[string]any{}
 	for k, v := range a.Inputs {
 		if p.Access == "workspace-write" && k == "patch" && v.ArtifactID != "" {
 			inputs[k] = "Runner already restored the retained patch into this workspace. Continue from these files; do not reapply the patch."
 			continue
 		}
-		if p.Access == "workspace-read" && k == "patch" && v.ArtifactID != "" {
-			inputs[k] = filepath.Join(".runner-tmp", a.AttemptID, "inputs", "patch")
+		if p.Access == "workspace-read" && v.ArtifactID != "" {
+			inputs[k] = filepath.Join(".runner-tmp", a.AttemptID, "inputs", k)
 			continue
 		}
-		var s string
-		if v.ArtifactID != "" || json.Unmarshal(v.Inline, &s) != nil {
-			return "", nil, errors.New("only inline text inputs are supported by this adapter")
+		if v.ArtifactID != "" || !json.Valid(v.Inline) {
+			return "", nil, errors.New("Codex inputs must be inline JSON or the configured workspace patch")
 		}
-		inputs[k] = s
+		inputs[k] = json.RawMessage(v.Inline)
 	}
 	payload, _ := json.Marshal(struct {
-		Task   string            `json:"task"`
-		Inputs map[string]string `json:"inputs"`
+		Task   string         `json:"task"`
+		Inputs map[string]any `json:"inputs"`
 	}{a.Task, inputs})
 	props := map[string]any{}
 	required := []string{}

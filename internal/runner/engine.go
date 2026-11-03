@@ -556,6 +556,14 @@ func (c *Core) tick() time.Duration {
 					reserve += int64(c.disk.Policy.MaxArtifact)
 				}
 			}
+		} else if err == nil && profile.Harness == "codex" && profile.Access == "workspace-read" {
+			artifacts := 0
+			for _, kind := range role.Inputs {
+				if kind == "artifact" {
+					artifacts++
+				}
+			}
+			reserve += int64(max(0, artifacts-1)) * int64(c.disk.Policy.MaxArtifact)
 		}
 		var nativeReserve int64
 		if cfg := c.snapshot.Instance.Codex; cfg != nil {
@@ -576,7 +584,7 @@ func (c *Core) tick() time.Duration {
 			}
 			continue
 		}
-		b, _ := json.Marshal(r)
+		b, _, _ := MarshalRunRecord(r)
 		if len(b)+2048 > int(c.disk.Policy.Database.MaxRecord) {
 			r.Status = "Waiting"
 			r.Reason = "run history capacity reached; retain results and start a scoped replacement run"

@@ -16,6 +16,18 @@ type controllerJob struct {
 	Status  string `json:"status"`
 	Commit  string `json:"commit"`
 	Started bool   `json:"deployment_started"`
+	Inputs  struct {
+		ExpectedCommit string `json:"expected_commit"`
+	} `json:"inputs"`
+}
+
+type deploymentFailure struct {
+	job     string
+	started bool
+}
+
+func (e *deploymentFailure) Error() string {
+	return "controller failed after deployment started; retain job " + e.job + " for observed recovery"
 }
 
 func (b *Live) controller(ctx context.Context, j *Job, save func() error, validate bool) (bool, error) {
@@ -54,8 +66,11 @@ func (b *Live) controller(ctx context.Context, j *Job, save func() error, valida
 		return false, errors.New("controller job identity differs")
 	}
 	if status.Status == "failed" || status.Status == "interrupted" {
+		if b.Config.Delivery != nil && (status.Status == "failed" || !status.Started) {
+			return false, &deploymentFailure{job: j.RemoteID, started: status.Started}
+		}
 		if status.Started {
-			return false, errors.New("controller failed after deployment started; remote state needs owner inspection; retain job " + j.RemoteID)
+			return false, errors.New("controller interrupted after deployment started; remote settlement needs inspection; retain job " + j.RemoteID)
 		}
 		return false, fail(j, fmt.Sprintf("controller %s; deployment_started=%t; inspect remote state before a new operation (job %s)", status.Status, status.Started, j.RemoteID))
 	}
@@ -90,7 +105,7 @@ func (b *Live) backup(ctx context.Context, j *Job, save func() error) error {
 		j.Reason = "waiting for exact-main deployment validation"
 		return nil
 	}
-	return done(j, "Fresh consistent off-host backup and exact-main controller validation passed. Approval authorizes stopping Games, a final stopped-data backup, migration 0017, image/report pinning, deployment and verification. Database restoration is excluded and needs a separate decision.")
+	return done(j, "Fresh consistent off-host backup and exact-main controller validation passed. Approval authorizes stopping Games, a final stopped-data backup, the qualified migration check, image/report pinning, deployment and verification. Database restoration needs a separate decision.")
 }
 
 func (b *Live) currentMain(ctx context.Context, j *Job) error {
@@ -161,6 +176,7 @@ func (b *Live) capture(ctx context.Context, stem string, quiesced bool, containe
 				"--source", filepath.Join(c.DataDir, "games.db"),
 				"--destination", remote,
 				"--engine", c.Engine,
+				"--project", c.DeployProject,
 				"--container", containerID,
 				"--image", image,
 			}
@@ -173,21 +189,24 @@ func (b *Live) capture(ctx context.Context, stem string, quiesced bool, containe
 	if quiesced {
 		marker, err := b.host(ctx, nil, "cat", remote+".verified")
 		if err != nil {
-			return "", errors.New("quiesced backup completion receipt is not available")
+			return "", &proofFailure{"quiesced backup completion receipt is not available"}
 		}
 		if json.Unmarshal(marker, &proof) != nil || proof.Source != filepath.Join(c.DataDir, "games.db") || proof.Destination != remote || len(proof.SnapshotSHA) != 64 {
-			return "", errors.New("quiesced backup completion identity differs")
+			return "", &proofFailure{"quiesced backup completion identity differs"}
 		}
 	}
 	if _, err := b.host(ctx, nil, "python3", c.BackupHelper, "verify", remote); err != nil {
-		return "", errors.New("backup integrity/restore proof failed; preserve partial files for the owner")
+		if knownFailure(err) {
+			return "", &proofFailure{"backup integrity/restore proof failed; preserve partial files for the owner"}
+		}
+		return "", err
 	}
 	data, err := b.host(ctx, nil, "cat", remote)
 	if err != nil {
 		return "", err
 	}
 	if quiesced && proof.SnapshotSHA != Digest(data) {
-		return "", errors.New("quiesced backup bytes differ from completion receipt")
+		return "", &proofFailure{"quiesced backup bytes differ from completion receipt"}
 	}
 	if err = writeExclusive(filepath.Join(c.OffsiteBackupDir, stem+".db"), data); err != nil {
 		return "", err
@@ -306,7 +325,26 @@ func (b *Live) stop(ctx context.Context, j *Job, save func() error) error {
 		}
 		return nil
 	}
+	if b.Config.RecoverBeforeMigration && j.StoppedSHA == "" {
+		hash, err := b.closedFingerprint(ctx, j)
+		if err != nil {
+			return err
+		}
+		j.StoppedSHA = hash
+		j.Receipt.DataSHA = hash
+		if err = save(); err != nil {
+			return err
+		}
+	}
 	if err = b.snapshot(ctx, j, save, true); err != nil || j.Failed {
+		if err != nil && knownFailure(err) && b.Config.RecoverBeforeMigration {
+			j.Failure = "final stopped-data backup failed"
+			j.Recovery = "needed"
+			if err = save(); err != nil {
+				return err
+			}
+			return b.recoverBeforeMigration(ctx, j, save)
+		}
 		return err
 	}
 	return done(j, "Games stopped; final consistent off-host snapshot preserved for explicit recovery. Migration may now run.")
@@ -364,12 +402,20 @@ func (b *Live) migrate(ctx context.Context, j *Job, save func() error) error {
 		return nil
 	}
 	if c.State.Status != "exited" || c.State.ExitCode != 0 {
+		if b.Config.Delivery != nil && c.State.Status == "exited" {
+			j.Outcome = "recovery_required"
+			return done(j, "Migration exited unsuccessfully; Runner will inspect stopped data and present an explicit backup restoration decision")
+		}
 		return fail(j, "migration failed; Games remains stopped, data restore requires a separate owner decision")
 	}
 	if _, err = b.capture(ctx, j.Request.Key+"-migrated", true, j.Receipt.PriorContainer, j.Receipt.PriorImage); err != nil {
 		return err
 	}
 	if err = verifyMigration(j.Receipt.FinalBackup, filepath.Join(b.Config.OffsiteBackupDir, j.Request.Key+"-migrated.db")); err != nil {
+		if b.Config.Delivery != nil {
+			j.Outcome = "recovery_required"
+			return done(j, "Migration data contract failed; stopped data and accepted snapshot retained for an explicit restoration decision")
+		}
 		return fail(j, "migration changed data outside its accepted contract; application stays stopped and recovery requires an owner decision")
 	}
 	return done(j, "Pinned-image migration completed successfully. Recovery snapshots retained; no automatic database restore.")
@@ -494,6 +540,9 @@ func writeAtomic(file string, data []byte) error {
 	return os.Rename(f.Name(), file)
 }
 func (b *Live) deploy(ctx context.Context, j *Job, save func() error) error {
+	if j.Resume != "" {
+		return b.redeploy(ctx, j, save)
+	}
 	if err := b.currentMain(ctx, j); err != nil {
 		return fail(j, err.Error())
 	}
@@ -514,6 +563,16 @@ func (b *Live) deploy(ctx context.Context, j *Job, save func() error) error {
 		return fail(j, "approved image/report environment binding differs")
 	}
 	ready, err := b.controller(ctx, j, save, false)
+	var failure *deploymentFailure
+	if b.Config.Delivery != nil && errors.As(err, &failure) {
+		j.Receipt.Deployment = failure.job
+		j.Outcome = "recovery_required"
+		if !failure.started {
+			j.Outcome = "retry_safe"
+			j.Receipt.Inspection = "controller conclusively failed before deployment_started; one configured retry is permitted"
+		}
+		return done(j, "Deployment failed after effects began; Runner will inspect the same job and present a bounded recovery approval")
+	}
 	if err != nil || j.Failed {
 		return err
 	}

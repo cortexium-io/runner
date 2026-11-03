@@ -65,8 +65,8 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 		sort.Strings(s.Files)
 	}()
 	read := func(path string, out any) error {
-		if len(files) >= 64 && !files[path] {
-			return errors.New("configuration exceeds 64 files")
+		if len(files) >= 128 && !files[path] {
+			return errors.New("configuration exceeds 128 files")
 		}
 		files[path] = true
 		var b []byte
@@ -96,6 +96,12 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 		return s, e
 	}
 	if c := s.Instance.Release; c != nil {
+		if c.GitHub != "" {
+			info, err := os.Stat(c.GitHub)
+			if !filepath.IsAbs(c.GitHub) || err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+				return s, errors.New("release.github must name an absolute executable")
+			}
+		}
 		if len(c.Command) == 0 || len(c.Command) > 16 || !filepath.IsAbs(c.Command[0]) {
 			return s, errors.New("release.command requires an absolute executable and at most 16 arguments")
 		}
@@ -237,8 +243,16 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 					if c == nil || len(c.Command) == 0 || len(c.Command) > 16 || !filepath.IsAbs(c.Command[0]) || strings.TrimSpace(role.Purpose) == "" || p.Source == nil || s.Instance.Concurrency != 1 || len(role.Outputs) != 1 || role.Outputs["receipt"] != "json" {
 						return s, errors.New("release needs a trusted instance command, source, concurrency one, purpose and one JSON receipt output")
 					}
-					if profile.Mode == "prepare" && len(role.Inputs) != 0 || profile.Mode != "prepare" && (len(role.Inputs) != 1 || role.Inputs["receipt"] != "json") {
-						return s, errors.New("release prepare has no inputs; later actions require one JSON receipt")
+					if profile.Mode == "publish" {
+						if c.GitHub == "" || len(role.Inputs) != 2 || role.Inputs["candidate"] != "text" || role.Inputs["previous"] != "json" {
+							return s, errors.New("release publication requires a configured GitHub executable and one candidate input")
+						}
+					} else if profile.Mode == "deploy" && len(role.Inputs) == 3 {
+						if role.Inputs["receipt"] != "json" || role.Inputs["recovery"] != "json" || role.Inputs["previous"] != "json" {
+							return s, errors.New("deployment recovery inputs must be JSON receipts")
+						}
+					} else if !((profile.Mode == "prepare" || profile.Mode == "readiness") && len(role.Inputs) == 0) && (len(role.Inputs) != 1 || role.Inputs["receipt"] != "json") {
+						return s, errors.New("release actions require one JSON receipt; legacy prepare has no inputs")
 					}
 					continue
 				}
@@ -283,8 +297,8 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 					}
 					if profile.Harness == "codex" {
 						for name, kind := range role.Inputs {
-							if kind != "text" && !((profile.Access == "workspace-read" || profile.Access == "workspace-write") && name == "patch" && kind == "artifact") {
-								return s, errors.New("Codex inputs must be text or a workspace patch artifact")
+							if kind != "text" && kind != "json" && !(kind == "artifact" && (profile.Access == "workspace-read" || profile.Access == "workspace-write" && name == "patch")) {
+								return s, errors.New("Codex inputs must be text, JSON or a workspace patch artifact")
 							}
 						}
 						for name, kind := range role.Outputs {
@@ -514,7 +528,22 @@ func boundedTypes(m map[string]string, limit int) error {
 }
 func ready(p runner.Profile) error {
 	if p.Harness == "release" {
-		if p.Access != "input-only" || !slices.Contains([]string{"prepare", "merge", "backup", "stop", "migrate", "pin", "deploy", "verify"}, p.Mode) || p.Command != nil || p.Model != "" || p.Reasoning != "" || p.Instructions != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.MaxInput != 0 || p.MaxOutput != 0 {
+		if p.Access != "input-only" || !slices.Contains([]string{
+			"readiness",
+			"publish",
+			"qualify",
+			"prepare",
+			"merge",
+			"backup",
+			"stop",
+			"migrate",
+			"inspect-migration",
+			"restore",
+			"pin",
+			"deploy",
+			"inspect",
+			"verify",
+		}, p.Mode) || p.Command != nil || p.Model != "" || p.Reasoning != "" || p.Instructions != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.MaxInput != 0 || p.MaxOutput != 0 {
 			return errors.New("release selects a fixed action and input-only access without model or command settings")
 		}
 		return nil

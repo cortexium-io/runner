@@ -1,0 +1,15 @@
+{
+  "id": "delivery-qualify",
+  "purpose": "Execute the configured qualify operation within its saved authority and evidence boundary.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "qualify",
+    "access": "input-only"
+  }
+}

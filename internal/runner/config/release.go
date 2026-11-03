@@ -2,52 +2,155 @@ package config
 
 import (
 	"errors"
-	"reflect"
-
 	"github.com/cortexium-io/runner/internal/runner"
+	"reflect"
 )
 
-// Release credentials are available only to this closed, model-free sequence.
-// In particular neither intake nor a task template can start at a mutation.
+// Credential-bearing delivery is a closed suffix. Ordinary coding/correction
+// steps may precede it, but cannot jump into it or supply a release receipt.
 func validateReleaseProcess(p runner.Process, project runner.Project) error {
-	actions := []string{"prepare", "merge", "backup", "stop", "migrate", "pin", "deploy", "verify"}
+	start := -1
 	selected := make([]runner.Profile, len(p.Steps))
-	usesRelease := false
 	for i, step := range p.Steps {
 		profile, err := project.Roles[step.Role].Profile(project.Profiles[step.Role])
 		if err == nil {
 			selected[i] = profile
-			usesRelease = usesRelease || profile.Harness == "release"
+			if start < 0 && profile.Harness == "release" && profile.Mode != "readiness" {
+				start = i
+			}
 		}
 	}
-	if !usesRelease {
+	if start < 0 {
+		for _, profile := range selected {
+			if profile.Harness == "release" {
+				return errors.New("delivery readiness must lead to the complete delivery process")
+			}
+		}
 		return nil
 	}
-	bad := errors.New("release requires prepare → approved merge → backup → approved stop → migrate → pin → deploy → verify, immutable receipt bindings and no retries")
-	if len(p.Steps) != len(actions) || len(p.Inputs) != 0 || p.MaxAttempts != len(actions) || p.MaxAttemptsPerStep != 1 || len(p.Outputs) != 1 {
+	actions := []string{"prepare", "merge", "backup", "stop", "migrate", "pin", "deploy", "verify"}
+	connected := selected[start].Mode == "publish"
+	bad := errors.New("release requires immutable ordered qualification/merge/backup/production gates; coding may enter only through candidate publication")
+	if connected {
+		if start < 2 || selected[0].Harness != "release" || selected[0].Mode != "readiness" || len(p.Steps[0].Inputs) != 0 || !reflect.DeepEqual(p.Steps[0].Routes, map[string]runner.Route{"ready": {Next: p.Steps[1].ID}, "blocked": {Next: "$fail"}}) {
+			return bad
+		}
+		actions = append([]string{"publish", "qualify"}, actions...)
+		actions = append(actions[:len(actions)-1], "inspect", "verify")
+		for i, action := range actions {
+			if action == "migrate" {
+				actions = append(actions[:i+1], append([]string{"inspect-migration", "restore"}, actions[i+1:]...)...)
+				break
+			}
+		}
+	}
+	if len(p.Steps)-start != len(actions) || p.MaxAttemptsPerStep != 1 || (!connected && (start != 0 || len(p.Inputs) != 0 || p.MaxAttempts != 8)) {
 		return bad
 	}
-	for i, step := range p.Steps {
-		if selected[i].Harness != "release" || selected[i].Mode != actions[i] || step.ForEach != nil || step.Reuse || step.Escalation != nil || len(step.Routes) != 2 || step.Routes["blocked"] != (runner.Route{Next: "$fail"}) {
+	if len(p.Outputs) != 1 || !reflect.DeepEqual(p.Outputs["receipt"], runner.Binding{FromStep: p.Steps[len(p.Steps)-1].ID, Output: "receipt"}) {
+		return bad
+	}
+	if connected {
+		if start == 0 || selected[start-1].Harness != "git-candidate" {
+			return bad
+		}
+		for _, step := range p.Steps[:start] {
+			for _, route := range step.Routes {
+				if route.Next == "$complete" {
+					return bad
+				}
+				for _, target := range p.Steps[start+1:] {
+					if route.Next == target.ID {
+						return bad
+					}
+				}
+			}
+		}
+	}
+	for offset, action := range actions {
+		i := start + offset
+		step := p.Steps[i]
+		count := 2
+		if connected && action == "deploy" {
+			count = 4
+		}
+		if connected && action == "migrate" {
+			count = 3
+		}
+		if connected && action == "qualify" {
+			count = 3
+		}
+		if selected[i].Harness != "release" || selected[i].Mode != action || step.ForEach != nil || step.Reuse || step.Escalation != nil || len(step.Routes) != count || step.Routes["blocked"] != (runner.Route{Next: "$fail"}) {
 			return bad
 		}
 		next := "$complete"
-		if i+1 < len(actions) {
+		if i+1 < len(p.Steps) {
 			next = p.Steps[i+1].ID
 		}
-		if step.Routes["ready"] != (runner.Route{Next: next, Approval: i == 0 || i == 2}) {
-			return bad
-		}
-		if i == 0 {
-			if len(step.Inputs) != 0 {
+		approval := action == "prepare" || action == "backup"
+		maxTimes := 0
+		if connected && action == "qualify" {
+			if step.Routes["changes_requested"] != (runner.Route{Next: p.Steps[1].ID, MaxTimes: 1}) {
 				return bad
 			}
-		} else if !reflect.DeepEqual(step.Inputs, map[string]runner.Binding{"receipt": {FromStep: p.Steps[i-1].ID, Output: "receipt"}}) {
+		}
+		if connected && action == "migrate" {
+			next = p.Steps[i+3].ID
+			if step.Routes["recovery_required"] != (runner.Route{Next: p.Steps[i+1].ID}) {
+				return bad
+			}
+		}
+		if connected && action == "inspect-migration" {
+			approval = true
+		}
+		if connected && action == "deploy" {
+			next = p.Steps[len(p.Steps)-1].ID
+			if step.Routes["retry_safe"] != (runner.Route{Next: step.ID, MaxTimes: 1}) || step.Routes["recovery_required"] != (runner.Route{Next: p.Steps[i+1].ID}) {
+				return bad
+			}
+		}
+		if connected && action == "inspect" {
+			next = p.Steps[i-1].ID
+			approval = true
+			maxTimes = 1
+		}
+		if action == "restore" {
+			if !reflect.DeepEqual(step.Routes, map[string]runner.Route{"restored": {Next: "$fail"}, "blocked": {Next: "$fail"}}) {
+				return bad
+			}
+		} else if step.Routes["ready"] != (runner.Route{Next: next, Approval: approval, MaxTimes: maxTimes}) {
 			return bad
 		}
-	}
-	if !reflect.DeepEqual(p.Outputs, map[string]runner.Binding{"receipt": {FromStep: p.Steps[7].ID, Output: "receipt"}}) {
-		return bad
+		if offset == 0 {
+			if connected {
+				empty := runner.Value{Inline: []byte(`{}`)}
+				if !reflect.DeepEqual(step.Inputs, map[string]runner.Binding{
+					"candidate": {FromStep: p.Steps[start-1].ID, Output: "candidate"},
+					"previous":  {FromStep: step.ID, Output: "receipt", Previous: true, Default: &empty},
+				}) {
+					return bad
+				}
+			} else if len(step.Inputs) != 0 {
+				return bad
+			}
+		} else {
+			previous := i - 1
+			if connected && action == "pin" {
+				previous = i - 3
+			}
+			if connected && action == "verify" {
+				previous = i - 2
+			}
+			inputs := map[string]runner.Binding{"receipt": {FromStep: p.Steps[previous].ID, Output: "receipt"}}
+			if connected && action == "deploy" {
+				empty := runner.Value{Inline: []byte(`{}`)}
+				inputs["recovery"] = runner.Binding{FromStep: p.Steps[i+1].ID, Output: "receipt", Previous: true, Default: &empty}
+				inputs["previous"] = runner.Binding{FromStep: step.ID, Output: "receipt", Previous: true, Default: &empty}
+			}
+			if !reflect.DeepEqual(step.Inputs, inputs) {
+				return bad
+			}
+		}
 	}
 	return nil
 }

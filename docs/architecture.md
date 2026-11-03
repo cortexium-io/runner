@@ -88,8 +88,8 @@ instance's private service, configuration, account link and process lifetime.
 The small platform files provide process groups and kernel socket-peer identity.
 
 Each attempt supplies its frozen task, inputs, model/reasoning, instructions,
-output contract and deadline. The first profile supports inline text only. Before
-generation it verifies read-only native policy, no selected environments or
+output contract and deadline. Input-only profiles accept inline text/JSON and
+return text. Before generation that profile verifies read-only native policy, no selected environments or
 workspace roots, empty external tool catalogs and no loaded instruction files.
 The instance's private Codex home replaces ordinary user configuration; the
 harness uses a link to the existing local authentication file.
@@ -199,7 +199,9 @@ active and appear in status. There is no task-content checksum approval gate.
 
 ## Bounded storage
 
-SQLite holds one capped snapshot per run plus small request/artifact records;
+SQLite holds separately capped settings and operational history documents for
+each run, atomically in one row, plus small request/artifact records. Format 2
+adds the settings column while retaining existing format-1 history unchanged;
 there are no transcripts or append-only observation payloads. Replaying a request
 returns the existing run. Retention deletes its request receipts, so replay is
 only guaranteed while that run is retained. At most 17 receipts are retained per

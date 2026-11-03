@@ -302,4 +302,10 @@ func TestNativePayloadDescribesRestoredSeed(t *testing.T) {
 	if _, _, err := nativePayload(a); err == nil {
 		t.Fatal("input-only native payload accepted a seed artifact")
 	}
+	a.Inputs = map[string]runner.Value{"feedback": {Inline: []byte(`{"failure":"literal feedback"}`)}, "empty": {Inline: []byte(`null`)}}
+	a.OutputTypes = map[string]string{"summary": "text"}
+	payload, _, err = nativePayload(a)
+	if err != nil || !strings.Contains(payload, `"feedback":{"failure":"literal feedback"}`) || !strings.Contains(payload, `"empty":null`) {
+		t.Fatal("JSON feedback was changed or rejected", payload, err)
+	}
 }

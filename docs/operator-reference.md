@@ -33,7 +33,7 @@ Do not launch a second service to recover a live instance.
 and process files. References resolve relative to the containing file. Either
 YAML or JSON is accepted with the same strict fields. The demo deliberately uses
 both. Unrecognized fields fail validation; later design examples are not yet the
-runtime schema. Each file is limited to 16KiB, one document, with at most 64 files
+runtime schema. Each file is limited to 16KiB, one document, with at most 128 files
 and 16 projects per instance.
 
 An instance sets `projects`, `concurrency`, `reconcile_interval` and `storage`.
@@ -188,9 +188,10 @@ focused checking, read-only review and local candidate integration. A failed
 check or blocked review stops with no extra attempt. The caller must not perform
 missing stages outside Runner or invent a repair dispatch loop.
 
-Codex additionally accepts `workspace-read` access for source review. Its only
-optional artifact input is `patch`, which must identify the run's retained
-candidate and is materialized in attempt scratch. Other inputs/outputs are text.
+Codex additionally accepts `workspace-read` access for source review. Retained
+artifact inputs are materialized in attempt scratch; `patch` must identify the
+run's retained candidate. This also supports measurement evidence. Other inputs
+are inline text or JSON; outputs remain text.
 The existing `runner-check` permission profile allows source reads and scratch
 writes, with Git/private/network restrictions unchanged. Review submits a model
 turn only when that step is actually dispatched. The zero-turn preflight verifies
@@ -263,7 +264,11 @@ The database reserves recovery headroom and can admit fewer runs than max_runs.
 
 Oversized inline data must be reduced or passed as a declared retained artifact.
 A run definition initially uses at most half its record allowance so attempts can
-finish. History capacity or disk pressure can leave work Waiting/Queued with a
+finish. Format 2 stores settings and operational history as separately capped
+documents in the same transaction, within the existing database/run reservation.
+Format-1 records remain readable without rewriting their history. Downgrading
+requires a matching pre-upgrade database backup. History capacity or disk pressure
+can leave work Waiting/Queued with a
 reason. Release failures appear separately from successful process completion.
 
 Maintenance runs each minute. Only settled, released, expired terminal runs are
@@ -291,7 +296,7 @@ native result, respectively. Native harness context is additional: these fields
 are not total model-context/token caps. There is no hard token/cost cap in this
 adapter; supported observations are reported, with missing usage kept unknown.
 
-Only declared inline text inputs/outputs are supported. No environment or workspace
+Declared inline text/JSON inputs and text outputs are supported. No environment or workspace
 roots are selected. MCP/apps/plugins/hooks, shell/subagent tools, web search and
 automatic skill/instruction discovery are disabled. Required effective settings
 are checked before requesting a turn. The separately qualified bounded Go workspace profiles are described below.

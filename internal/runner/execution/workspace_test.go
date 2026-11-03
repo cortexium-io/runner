@@ -352,9 +352,13 @@ func workspaceSnapshot(t *testing.T, repo string) runner.Snapshot {
 	s.Projects["demo"] = project
 	return s
 }
-func waitSourceRun(t *testing.T, c *runner.Core, id string, ready func(runner.Run) bool) runner.Run {
+func waitSourceRun(t *testing.T, c *runner.Core, id string, ready func(runner.Run) bool, timeout ...time.Duration) runner.Run {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	duration := 10 * time.Second
+	if len(timeout) > 0 {
+		duration = timeout[0]
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 	for {
 		r, e := c.Get(id)

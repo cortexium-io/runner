@@ -102,6 +102,7 @@ type Instance struct {
 // data cannot supply commands or credentials to this capability.
 type ReleaseSettings struct {
 	Command []string `json:"command"`
+	GitHub  string   `json:"github,omitempty"`
 }
 
 // CodexSettings selects the instance's native service and command runtime,
@@ -390,11 +391,11 @@ type RunResources interface {
 	ForgetRun(context.Context, string) error
 }
 type SourceResult struct {
-	Tree         string `json:"tree"`
+	Tree         string `json:"tree,omitempty"`
 	InputPatchID string `json:"input_patch_id,omitempty"`
-	Repository   string `json:"repository"`
-	Base         string `json:"base"`
-	WorkDir      string `json:"work_dir"`
+	Repository   string `json:"repository,omitempty"`
+	Base         string `json:"base,omitempty"`
+	WorkDir      string `json:"work_dir,omitempty"`
 	PatchID      string `json:"patch_id,omitempty"`
 	AttemptID    string `json:"attempt_id"`
 }
@@ -406,11 +407,11 @@ type Attempt struct {
 	Superseded      bool            `json:"superseded,omitempty"`
 	EvidenceKey     string          `json:"evidence_key,omitempty"`
 	ReusedFrom      string          `json:"reused_from,omitempty"`
-	Profile         string          `json:"profile"`
+	Profile         string          `json:"profile,omitempty"`
 	State           ExecutionState  `json:"state"`
 	Started         time.Time       `json:"started"`
 	Deadline        time.Time       `json:"deadline"`
-	NextCheck       time.Time       `json:"next_check,omitempty"`
+	NextCheck       time.Time       `json:"next_check,omitzero"`
 	End             *ExecutionEnd   `json:"end,omitempty"`
 	Usage           Usage           `json:"usage"`
 	Reason          string          `json:"reason,omitempty"`

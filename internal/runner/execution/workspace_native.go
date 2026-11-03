@@ -170,19 +170,24 @@ func envCommand(env map[string]string, argv ...string) []string {
 // A reviewer reads the retained patch, never an unbounded transcript or a new
 // source snapshot. The run's current candidate must still identify that patch.
 func (c *Codex) reviewInput(j nativeJob) error {
-	id := j.Assignment.Inputs["patch"].ArtifactID
-	if id == "" {
-		return nil
+	for name, value := range j.Assignment.Inputs {
+		id := value.ArtifactID
+		if id == "" {
+			continue
+		}
+		if name == "patch" && (j.Workspace.Candidate == nil || j.Workspace.Candidate.PatchID != id) {
+			return errors.New("review patch differs from the workspace candidate")
+		}
+		data, err := c.disk.Read("artifacts/"+id, j.Assignment.Limits.MaxArtifact)
+		if err != nil {
+			return err
+		}
+		file := filepath.Join("work", j.Assignment.RunID, "source", ".runner-tmp", j.Assignment.AttemptID, "inputs", name)
+		if err = c.disk.Write(file, data, j.Assignment.Limits.MaxArtifact); err != nil {
+			return err
+		}
 	}
-	if j.Workspace.Candidate == nil || j.Workspace.Candidate.PatchID != id {
-		return errors.New("review patch differs from the workspace candidate")
-	}
-	data, err := c.disk.Read("artifacts/"+id, j.Assignment.Limits.MaxArtifact)
-	if err != nil {
-		return err
-	}
-	name := filepath.Join("work", j.Assignment.RunID, "source", ".runner-tmp", j.Assignment.AttemptID, "inputs", "patch")
-	return c.disk.Write(name, data, j.Assignment.Limits.MaxArtifact)
+	return nil
 }
 
 // Probe the exact server profiles without requesting a thread or model turn.

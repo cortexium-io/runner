@@ -1,0 +1,13 @@
+{
+  "id": "delivery-readiness",
+  "purpose": "Execute the configured readiness operation within its saved authority and evidence boundary.",
+  "inputs": {},
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "readiness",
+    "access": "input-only"
+  }
+}

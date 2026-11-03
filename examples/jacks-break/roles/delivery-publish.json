@@ -1,0 +1,16 @@
+{
+  "id": "delivery-publish",
+  "purpose": "Execute the configured publish operation within its saved authority and evidence boundary.",
+  "inputs": {
+    "candidate": "text",
+    "previous": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "publish",
+    "access": "input-only"
+  }
+}

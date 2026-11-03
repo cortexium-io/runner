@@ -60,3 +60,12 @@ saved decisions separate merge from production approval. Intake presents the
 receipt and exact decision ID to the owner and must never approve it. Operator
 configuration/credentials remain separate from coding roles. Uncertain remote
 effects require inspection; a client disconnect grants no replacement operation.
+
+The [connected Jack's Break process](../examples/jacks-break/README.md) joins
+development, bounded measurement/correction, review, draft publication and product
+qualification to those release gates. Select `deliver` for a full delivery request;
+do not split it into chat-coordinated development and release runs. Omit
+`source_ref` to use its configured latest-main admission, or supply an explicit
+full commit. Supply `benchmark: "none"` when no benchmark is relevant. Present the
+exact saved merge/production/recovery decision and its receipt; approve none of
+them on the owner's behalf. Known configured recovery stays inside the process.

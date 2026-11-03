@@ -4,7 +4,6 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -100,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version != 0 && version != 1 {
+	if version != 0 && version != 1 && version != 2 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -112,12 +111,17 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 			return nil, errors.New("database is not a process-core database; use separate state")
 		}
 		_, e = db.Exec(`BEGIN;
-CREATE TABLE runs(id TEXT PRIMARY KEY, project TEXT NOT NULL, data BLOB NOT NULL);
+CREATE TABLE runs(id TEXT PRIMARY KEY, project TEXT NOT NULL, data BLOB NOT NULL, definition BLOB);
 CREATE TABLE requests(key TEXT PRIMARY KEY, kind TEXT NOT NULL, args BLOB NOT NULL, run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE);
 CREATE TABLE artifacts(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), project TEXT NOT NULL, bytes INTEGER NOT NULL);
 CREATE TABLE artifact_uses(artifact TEXT NOT NULL REFERENCES artifacts(id), run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE, PRIMARY KEY(artifact,run_id));
-PRAGMA user_version=1; COMMIT;`)
+PRAGMA user_version=2; COMMIT;`)
 		if e != nil {
+			return nil, e
+		}
+	}
+	if version == 1 {
+		if _, e = db.Exec("BEGIN; ALTER TABLE runs ADD COLUMN definition BLOB; PRAGMA user_version=2; COMMIT;"); e != nil {
 			return nil, e
 		}
 	}
@@ -136,22 +140,22 @@ PRAGMA user_version=1; COMMIT;`)
 }
 func (s *Store) Close() error { e := s.db.Close(); _ = s.guard.Close(); return e }
 func (s *Store) Load(ctx context.Context) ([]runner.Run, error) {
-	rows, e := s.db.QueryContext(ctx, "SELECT data FROM runs ORDER BY id")
+	rows, e := s.db.QueryContext(ctx, "SELECT data,definition FROM runs ORDER BY id")
 	if e != nil {
 		return nil, e
 	}
 	defer rows.Close()
 	var out []runner.Run
 	for rows.Next() {
-		var b []byte
-		if e = rows.Scan(&b); e != nil {
+		var b, definition []byte
+		if e = rows.Scan(&b, &definition); e != nil {
 			return nil, e
 		}
-		if len(b) > int(s.policy.Database.MaxRecord) {
+		if len(b) > int(s.policy.Database.MaxRecord) || len(definition) > int(s.policy.Database.MaxRecord) {
 			return nil, errors.New("oversized stored run")
 		}
-		var r runner.Run
-		if e = json.Unmarshal(b, &r); e != nil {
+		r, e := runner.UnmarshalRunRecord(b, definition)
+		if e != nil {
 			return nil, e
 		}
 		out = append(out, r)
@@ -159,11 +163,11 @@ func (s *Store) Load(ctx context.Context) ([]runner.Run, error) {
 	return out, rows.Err()
 }
 func (s *Store) Save(ctx context.Context, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt) error {
-	b, e := json.Marshal(r)
+	b, definition, e := runner.MarshalRunRecord(r)
 	if e != nil {
 		return e
 	}
-	if len(b) > int(s.policy.Database.MaxRecord) {
+	if len(b) > int(s.policy.Database.MaxRecord) || len(definition) > int(s.policy.Database.MaxRecord) {
 		return fmt.Errorf("%w: run record exceeds %d bytes", runner.ErrCapacity, s.policy.Database.MaxRecord)
 	}
 	tx, e := s.db.BeginTx(ctx, nil)
@@ -184,7 +188,7 @@ func (s *Store) Save(ctx context.Context, r runner.Run, artifacts []runner.Artif
 			return fmt.Errorf("%w: retained run limit %d", runner.ErrCapacity, s.maxRuns)
 		}
 	}
-	if _, e = tx.ExecContext(ctx, "INSERT INTO runs(id,project,data) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data", r.ID, r.ProjectID, b); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO runs(id,project,data,definition) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,definition=excluded.definition", r.ID, r.ProjectID, b, definition); e != nil {
 		return e
 	}
 	for _, a := range artifacts {

@@ -191,13 +191,49 @@ func (w *Workspaces) retainCandidate(ctx context.Context, a runner.Assignment) (
 	}
 	ref := candidateRef(a.RunID)
 	hash := strings.TrimSpace(string(commit))
+	if r.CandidatePins == nil {
+		r.CandidatePins = map[string]string{}
+	}
+	if previous, ok := r.CandidatePins[a.AttemptID]; ok && previous != hash {
+		return "", errors.New("saved candidate intent differs")
+	}
+	r.CandidatePins[a.AttemptID] = hash
+	if err = w.save(r); err != nil {
+		return "", err
+	}
+	pinRef := "refs/runner/candidates/" + a.RunID + "/" + a.AttemptID
+	pinned, pinErr := git(ctx, r.Repository, nil, nil, 256, "rev-parse", "--verify", pinRef)
+	if pinErr == nil {
+		if strings.TrimSpace(string(pinned)) != hash {
+			return "", errors.New("candidate history pin changed; preserve it")
+		}
+	} else if _, err = git(ctx, r.Repository, nil, nil, 1024, "update-ref", pinRef, hash, strings.Repeat("0", len(hash))); err != nil {
+		return "", err
+	}
 	old, readErr := git(ctx, r.Repository, nil, nil, 256, "rev-parse", "--verify", ref)
 	if readErr == nil {
 		if strings.TrimSpace(string(old)) != hash {
-			return "", errors.New("candidate branch already contains different work; preserve it and ask the user")
+			if strings.TrimSpace(string(old)) != r.CandidateCommit {
+				return "", errors.New("candidate branch already contains different work; preserve it and ask the user")
+			}
+			worktrees, err := git(ctx, r.Repository, nil, nil, 16<<10, "worktree", "list", "--porcelain")
+			if err != nil {
+				return "", err
+			}
+			if strings.Contains(string(worktrees), "\nbranch "+ref+"\n") {
+				return "", errors.New("candidate branch is checked out by a user; preserve it")
+			}
+			if _, err = git(ctx, r.Repository, nil, nil, 1024, "update-ref", ref, hash, r.CandidateCommit); err != nil {
+				return "", err
+			}
 		}
-	} else if _, err = git(ctx, r.Repository, nil, nil, 1024, "update-ref", ref, hash, strings.Repeat("0", len(hash))); err != nil {
-		return "", err
+	} else {
+		if r.CandidateCommit != "" {
+			return "", errors.New("owned candidate branch disappeared; preserve history and ask the user")
+		}
+		if _, err = git(ctx, r.Repository, nil, nil, 1024, "update-ref", ref, hash, strings.Repeat("0", len(hash))); err != nil {
+			return "", err
+		}
 	}
 	r.CandidateCommit = hash
 	if err = w.save(r); err != nil {

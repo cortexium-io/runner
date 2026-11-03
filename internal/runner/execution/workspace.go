@@ -37,6 +37,7 @@ type workspaceRecord struct {
 	Released        bool                 `json:"released,omitempty"`
 	Candidate       *runner.SourceResult `json:"candidate,omitempty"`
 	CandidateCommit string               `json:"candidate_commit,omitempty"`
+	CandidatePins   map[string]string    `json:"candidate_pins,omitempty"`
 }
 
 func workspaceName(id string) string { return "jobs/" + id + ".workspace.json" }
@@ -71,6 +72,7 @@ func gitEnvironment() []string {
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_TERMINAL_PROMPT=0",
+		"GIT_NO_REPLACE_OBJECTS=1",
 		"LC_ALL=C",
 	}
 }
@@ -765,6 +767,17 @@ func (w *Workspaces) ForgetRun(ctx context.Context, id string) error {
 			return err
 		}
 		// A branch advanced or checked out by a user is no longer disposable.
+	}
+	for attempt, hash := range r.CandidatePins {
+		ref := "refs/runner/candidates/" + id + "/" + attempt
+		current, err := git(ctx, r.Repository, nil, nil, 256, "rev-parse", "--verify", ref)
+		if err == nil && strings.TrimSpace(string(current)) == hash {
+			if _, e = git(ctx, r.Repository, nil, nil, 1024, "update-ref", "-d", ref, hash); e != nil {
+				return e
+			}
+		} else if err != nil && !missingCandidateRef(ctx, r.Repository, ref) {
+			return err
+		}
 	}
 	if _, e = git(ctx, r.Repository, nil, nil, 4096, "update-ref", "-d", pin(id), r.Base); e != nil {
 		return e

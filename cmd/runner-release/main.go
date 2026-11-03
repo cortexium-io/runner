@@ -16,7 +16,15 @@ import (
 
 func main() {
 	config := flag.String("config", "", "private immutable operator policy")
+	worker := flag.String("delivery-worker", "", "internal private delivery work")
 	flag.Parse()
+	if *worker != "" && *config == "" && flag.NArg() == 0 {
+		if err := release.RunDeliveryWorker(*worker); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *config == "" || flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "--config is required")
 		os.Exit(2)

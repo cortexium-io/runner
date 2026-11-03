@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cortexium-io/runner/internal/release"
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
@@ -120,5 +121,61 @@ func TestReleaseCompleteWorkflowApprovalsRestartAndFailure(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCancelledStopResultUsesConfiguredRecoveryOnce(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "release-fixture")
+	build := exec.Command("go", "build", "-o", binary, "./testdata/release-operator")
+	build.Dir = filepath.Join("..", "..", "..")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatal(err, string(out))
+	}
+	root := t.TempDir()
+	journal := filepath.Join(root, "operations")
+	os.Mkdir(journal, 0700)
+	head := strings.Repeat("a", 40)
+	t.Setenv("RUNNER_RELEASE_FIXTURE_STATE", root)
+	t.Setenv("RUNNER_RELEASE_FIXTURE_HEAD", head)
+	t.Setenv("RUNNER_RELEASE_FIXTURE_CONNECTED", "1")
+	stop := release.Receipt{
+		Key:     "attempt_stop",
+		RunID:   "run_cancelled",
+		Action:  "stop",
+		Policy:  "fixture",
+		Source:  head,
+		DataSHA: strings.Repeat("b", 64),
+	}
+	data, _ := json.Marshal(release.Job{
+		Request: release.Request{Project: "demo", RunID: stop.RunID, Key: stop.Key, Action: "stop", Source: head},
+		Receipt: stop,
+		Done:    true,
+	})
+	os.WriteFile(filepath.Join(journal, stop.Key+".json"), data, 0600)
+	previous, _ := json.Marshal(stop)
+	disk := workspaceDisk(t)
+	r := &Releases{disk: disk, cfg: &runner.ReleaseSettings{Command: []string{binary}}}
+	run := runner.Run{
+		ID: stop.RunID, ProjectID: "demo", Source: &runner.SourceSettings{Ref: head}, CancelRequested: true, Status: "Cancelled",
+		Process: runner.Process{Steps: []runner.Step{{ID: "stop", Role: "stop"}}},
+		Roles:   map[string]runner.Role{"stop": {ID: "stop", Execution: &runner.Profile{Harness: "release", Access: "input-only", Mode: "stop"}}},
+		Attempts: []runner.Attempt{{
+			ID:       stop.Key,
+			State:    runner.Finished,
+			Released: true,
+			End: &runner.ExecutionEnd{
+				Kind:   "returned",
+				Result: &runner.StepResult{Outcome: "ready", Outputs: map[string]runner.Value{"receipt": {Inline: previous}}},
+			},
+		}},
+	}
+	for range 2 {
+		if err := r.recoverCancelledStop(t.Context(), run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls, _ := os.ReadFile(filepath.Join(root, "calls"))
+	if string(calls) != "recover-stop\n" {
+		t.Fatal("cancelled stop repeated recovery or advanced release", string(calls))
 	}
 }

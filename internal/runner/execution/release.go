@@ -17,15 +17,21 @@ import (
 // Releases invokes one trusted operator action. It does not run product source,
 // grant native roles credentials, approve a gate or schedule downstream work.
 type Releases struct {
-	disk *runner.Disk
-	cfg  *runner.ReleaseSettings
+	disk       *runner.Disk
+	cfg        *runner.ReleaseSettings
+	workspaces *Workspaces
 }
 
 type releaseJob struct {
-	Assignment runner.Assignment    `json:"assignment"`
-	Command    []string             `json:"command"`
-	Stopped    bool                 `json:"stopped,omitempty"`
-	End        *runner.ExecutionEnd `json:"end,omitempty"`
+	Assignment     runner.Assignment    `json:"assignment"`
+	Command        []string             `json:"command"`
+	Stopped        bool                 `json:"stopped,omitempty"`
+	End            *runner.ExecutionEnd `json:"end,omitempty"`
+	GitHub         string               `json:"github,omitempty"`
+	SourcePrepared bool                 `json:"source_prepared,omitempty"`
+	Candidate      string               `json:"candidate,omitempty"`
+	SelectedBase   string               `json:"selected_base,omitempty"`
+	CancelReceipt  json.RawMessage      `json:"cancel_receipt,omitempty"`
 }
 
 func releaseName(id string) string { return "jobs/" + id + ".release.json" }
@@ -59,7 +65,7 @@ func (r *Releases) Start(ctx context.Context, a runner.Assignment) (runner.Obser
 				End:   &runner.ExecutionEnd{Kind: "failed", Reason: "release operator is not configured"},
 			}, nil
 		}
-		if err = r.save(releaseJob{Assignment: runner.Clone(a), Command: runner.Clone(r.cfg.Command)}); err != nil {
+		if err = r.save(releaseJob{Assignment: runner.Clone(a), Command: runner.Clone(r.cfg.Command), GitHub: r.cfg.GitHub}); err != nil {
 			return runner.Observation{}, err
 		}
 	} else if err != nil {
@@ -89,6 +95,35 @@ func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, 
 			Action:   j.Assignment.Setup.Profile.Mode,
 			Source:   j.Assignment.Source.Ref,
 			Previous: j.Assignment.Inputs["receipt"].Inline,
+			Recovery: j.Assignment.Inputs["recovery"].Inline,
+			Retry:    j.Assignment.Inputs["previous"].Inline,
+		}
+		if request.Action == "readiness" {
+			if err := r.prepareReleaseSource(ctx, &j); err != nil {
+				o.State = runner.Unknown
+				o.Reason = runner.Clip(err.Error())
+				return o, nil
+			}
+		}
+		request.Source = r.releaseSource(j)
+		if len(j.CancelReceipt) > 0 {
+			request.Key = id + "_cancel"
+			request.Action = "recover-stop"
+			request.Previous = j.CancelReceipt
+		}
+		if request.Action == "readiness" && r.workspaces != nil {
+			if w, err := r.workspaces.load(j.Assignment.RunID); err == nil {
+				o.Source = &runner.SourceResult{Repository: w.Repository, Base: w.Base, WorkDir: w.WorkDir, AttemptID: id}
+			}
+		}
+		if request.Action == "publish" {
+			candidate, err := r.publishCandidate(ctx, &j)
+			if err != nil {
+				o.State = runner.Unknown
+				o.Reason = runner.Clip(err.Error())
+				return o, nil
+			}
+			request.Candidate = candidate
 		}
 		input, _ := json.Marshal(request)
 		call, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -104,7 +139,7 @@ func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, 
 			return o, nil
 		}
 		var response release.Response
-		if err = json.Unmarshal(output.bytes(), &response); err != nil || response.Key != id {
+		if err = json.Unmarshal(output.bytes(), &response); err != nil || response.Key != request.Key {
 			o.State = runner.Unknown
 			o.Reason = "release operator response identity or format differs; retain the operation"
 			return o, nil
@@ -116,21 +151,50 @@ func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, 
 			}
 			return o, nil
 		}
+		if j.Stopped && request.Action == "stop" && !response.Failed {
+			var receipt struct {
+				Source  string `json:"source_ref"`
+				DataSHA string `json:"data_sha256"`
+			}
+			if json.Unmarshal(response.Receipt, &receipt) == nil && receipt.Source != "" && receipt.DataSHA != "" {
+				j.CancelReceipt = response.Receipt
+				if err = r.save(j); err != nil {
+					return runner.Observation{}, err
+				}
+				o.Reason = "release cancellation is restoring the unchanged previous service before migration"
+				return o, nil
+			}
+		}
 		outcome := "ready"
+		if response.Outcome != "" {
+			outcome = response.Outcome
+		}
 		if response.Failed {
 			outcome = "blocked"
 		}
 		if len(response.Receipt) == 0 {
 			response.Receipt = json.RawMessage(`{}`)
 		}
+		reason := o.Reason
+		var handle struct {
+			Source string `json:"source_ref"`
+		}
+		if outcome == "ready" && json.Unmarshal(response.Receipt, &handle) == nil && handle.Source != "" {
+			switch request.Action {
+			case "readiness", "publish", "qualify", "merge", "stop", "migrate", "pin", "deploy":
+				// The private journal retains the complete operation narrative.
+				// Persist decision/failure reasons and compact successful handles.
+				reason = ""
+			}
+		}
 		j.End = &runner.ExecutionEnd{
 			Kind:   "returned",
-			Result: &runner.StepResult{Outcome: outcome, Reason: o.Reason, Outputs: map[string]runner.Value{"receipt": {Inline: response.Receipt}}},
+			Result: &runner.StepResult{Outcome: outcome, Reason: reason, Outputs: map[string]runner.Value{"receipt": {Inline: response.Receipt}}},
 		}
 		if j.Stopped {
 			j.End = &runner.ExecutionEnd{
 				Kind:   "stopped",
-				Reason: "release cancellation settled; inspect retained operator receipt " + id + " before recovery",
+				Reason: "release cancellation settled: " + o.Reason + "; retained operator receipt " + request.Key,
 			}
 		}
 		if err = r.save(j); err != nil {
@@ -164,4 +228,59 @@ func (r *Releases) Release(_ context.Context, id string) error {
 		return errors.New("cannot release an unsettled external operation")
 	}
 	return r.disk.Remove(releaseName(id))
+}
+
+// Cancellation can race with a successful stop result before its next step is
+// dispatched. The normal run cleanup owns the same configured compensation;
+// it cannot discard the workspace and leave an unchanged old service stopped.
+func (r *Releases) recoverCancelledStop(ctx context.Context, run runner.Run) error {
+	if len(run.Attempts) == 0 {
+		return nil
+	}
+	last := run.Attempts[len(run.Attempts)-1]
+	if !run.CancelRequested && !last.TimedOut {
+		return nil
+	}
+	step := run.Process.Steps[last.Step]
+	profile, err := run.Roles[step.Role].Profile(last.Profile)
+	if err != nil || profile.Harness != "release" || profile.Mode != "stop" || last.End == nil || last.End.Result == nil || last.End.Result.Outcome != "ready" {
+		return nil
+	}
+	previous := last.End.Result.Outputs["receipt"].Inline
+	var receipt struct {
+		Source  string `json:"source_ref"`
+		DataSHA string `json:"data_sha256"`
+	}
+	if json.Unmarshal(previous, &receipt) != nil || receipt.Source == "" || receipt.DataSHA == "" {
+		return nil
+	}
+	a := runner.Assignment{
+		ProjectID: run.ProjectID, RunID: run.ID, AttemptID: last.ID + "_cancel", Repository: run.Repository,
+		Source: &runner.SourceSettings{Ref: receipt.Source},
+		Setup:  runner.ExecutionSetup{Profile: runner.Profile{Harness: "release", Access: "input-only", Mode: "recover-stop"}},
+		Inputs: map[string]runner.Value{"receipt": {Inline: previous}},
+		Limits: runner.ExecutionLimits{MaxRecord: r.disk.Policy.Database.MaxRecord},
+	}
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		o, err := r.Start(ctx, a)
+		if err != nil {
+			return err
+		}
+		if o.State == runner.Finished {
+			var proof struct {
+				Recovery string `json:"recovery"`
+			}
+			if o.End == nil || o.End.Result == nil || json.Unmarshal(o.End.Result.Outputs["receipt"].Inline, &proof) != nil || proof.Recovery == "" {
+				return errors.New("cancelled release needs owner inspection; configured previous-service recovery did not establish health")
+			}
+			return r.Release(ctx, a.AttemptID)
+		}
+		select {
+		case <-ctx.Done():
+			return errors.New("cancelled release recovery remains active; retain its saved operation")
+		case <-ticker.C:
+		}
+	}
 }

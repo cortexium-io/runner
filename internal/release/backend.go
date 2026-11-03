@@ -24,32 +24,34 @@ import (
 // Config is private operator policy. It contains paths and resource identities,
 // never authentication values. The same immutable policy binds every receipt.
 type Config struct {
-	Project          string   `json:"project"`
-	Repository       string   `json:"repository"`
-	PR               int      `json:"pr"`
-	Branch           string   `json:"branch"`
-	Head             string   `json:"head"`
-	Base             string   `json:"base"`
-	StateDir         string   `json:"state_dir"`
-	Evidence         string   `json:"evidence"`
-	Package          string   `json:"package"`
-	Report           string   `json:"report"`
-	ReportSHA        string   `json:"report_sha256"`
-	GH               string   `json:"gh"`
-	Compose          []string `json:"compose"`
-	ControllerConfig string   `json:"controller_config"`
-	DeployProject    string   `json:"deploy_project"`
-	Docker           string   `json:"docker"`
-	DockerHost       string   `json:"docker_host"`
-	Engine           string   `json:"engine"`
-	SSH              string   `json:"ssh"`
-	Host             string   `json:"host"`
-	Environment      string   `json:"environment"`
-	DataDir          string   `json:"data_dir"`
-	BackupHelper     string   `json:"backup_helper"`
-	BackupDir        string   `json:"backup_dir"`
-	OffsiteBackupDir string   `json:"offsite_backup_dir"`
-	PublicURL        string   `json:"public_url"`
+	Project                string          `json:"project"`
+	Repository             string          `json:"repository"`
+	PR                     int             `json:"pr"`
+	Branch                 string          `json:"branch"`
+	Head                   string          `json:"head"`
+	Base                   string          `json:"base"`
+	StateDir               string          `json:"state_dir"`
+	Evidence               string          `json:"evidence"`
+	Package                string          `json:"package"`
+	Report                 string          `json:"report"`
+	ReportSHA              string          `json:"report_sha256"`
+	GH                     string          `json:"gh"`
+	Compose                []string        `json:"compose"`
+	ControllerConfig       string          `json:"controller_config"`
+	DeployProject          string          `json:"deploy_project"`
+	Docker                 string          `json:"docker"`
+	DockerHost             string          `json:"docker_host"`
+	Engine                 string          `json:"engine"`
+	SSH                    string          `json:"ssh"`
+	Host                   string          `json:"host"`
+	Environment            string          `json:"environment"`
+	DataDir                string          `json:"data_dir"`
+	BackupHelper           string          `json:"backup_helper"`
+	BackupDir              string          `json:"backup_dir"`
+	OffsiteBackupDir       string          `json:"offsite_backup_dir"`
+	PublicURL              string          `json:"public_url"`
+	RecoverBeforeMigration bool            `json:"recover_before_migration,omitempty"`
+	Delivery               *DeliveryConfig `json:"delivery,omitempty"`
 }
 
 func Load(file string) (*Operator, error) {
@@ -63,14 +65,12 @@ func Load(file string) (*Operator, error) {
 	if err = d.Decode(&c); err != nil {
 		return nil, err
 	}
-	if !safeID.MatchString(c.Project) || !regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`).MatchString(c.Repository) || c.PR < 1 || c.Branch != "main" || !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(c.Head) || !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(c.Base) || len(c.Compose) == 0 || !filepath.IsAbs(c.Compose[0]) || !strings.HasPrefix(c.PublicURL, "https://") {
+	legacyIdentity := c.PR >= 1 && regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(c.Head) && regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(c.Base)
+	if !safeID.MatchString(c.Project) || !regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`).MatchString(c.Repository) || c.Branch != "main" || (c.Delivery == nil && !legacyIdentity) || len(c.Compose) == 0 || !filepath.IsAbs(c.Compose[0]) || !strings.HasPrefix(c.PublicURL, "https://") {
 		return nil, errors.New("invalid release policy identities")
 	}
-	for _, p := range []string{
+	paths := []string{
 		c.StateDir,
-		c.Evidence,
-		c.Package,
-		c.Report,
 		c.GH,
 		c.Docker,
 		c.SSH,
@@ -80,7 +80,13 @@ func Load(file string) (*Operator, error) {
 		c.BackupDir,
 		c.OffsiteBackupDir,
 		c.ControllerConfig,
-	} {
+	}
+	if c.Delivery == nil {
+		paths = append(paths, c.Evidence, c.Package, c.Report)
+	} else if err = c.Delivery.validate(); err != nil {
+		return nil, err
+	}
+	for _, p := range paths {
 		if !filepath.IsAbs(p) {
 			return nil, errors.New("release policy paths must be absolute")
 		}
@@ -92,6 +98,7 @@ func Load(file string) (*Operator, error) {
 		Project:    c.Project,
 		Source:     c.Head,
 		Backend:    &Live{Config: c},
+		Delivery:   c.Delivery != nil,
 	}, nil
 }
 
@@ -105,18 +112,43 @@ func (b *Live) command(ctx context.Context, input []byte, path string, args ...s
 	if b.runCommand != nil {
 		return b.runCommand(ctx, input, path, args...)
 	}
+	return b.commandWithEnvironment(ctx, input, nil, path, args...)
+}
+
+func (b *Live) commandWithEnvironment(ctx context.Context, input []byte, environment []string, path string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
+	configureReleaseCommand(cmd)
 	cmd.Stdin = bytes.NewReader(input)
 	if lease, ok := ctx.Value(leaseKey{}).(*os.File); ok {
 		cmd.ExtraFiles = []*os.File{lease}
 	}
 	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "GIT_TERMINAL_PROMPT=0")
+	if environment != nil {
+		cmd.Env = environment
+	}
 	out := &limitedOutput{limit: 256 << 20}
 	cmd.Stdout = out
-	cmd.Stderr = io.Discard
+	diagnostic := &diagnosticOutput{limit: 64 << 10}
+	cmd.Stderr = diagnostic
 	err := cmd.Run()
 	if err != nil {
-		return nil, fmt.Errorf("operator %s command failed", filepath.Base(path))
+		if directory, ok := ctx.Value(deliveryDiagnosticKey{}).(string); ok {
+			identity, _ := json.Marshal(append([]string{path}, args...))
+			_ = writeExclusive(filepath.Join(directory, "diagnostic-"+Digest(identity)[:16]+".log"), diagnostic.Bytes())
+		}
+	}
+	if !releaseCommandSettled(cmd) {
+		return nil, &commandUncertain{program: filepath.Base(path)}
+	}
+	if err != nil {
+		var exit *exec.ExitError
+		if ctx.Err() == nil && path == b.Config.SSH && errors.As(err, &exit) && exit.ExitCode() == 255 && strings.Contains(diagnostic.String(), "Connection timed out during banner exchange") {
+			return nil, &connectionUnavailable{}
+		}
+		if ctx.Err() == nil && errors.As(err, &exit) && exit.ExitCode() > 0 && exit.ExitCode() != 255 {
+			return nil, &commandFailure{program: filepath.Base(path), code: exit.ExitCode()}
+		}
+		return nil, &commandUncertain{program: filepath.Base(path)}
 	}
 	return out.Bytes(), nil
 }
@@ -124,6 +156,19 @@ func (b *Live) command(ctx context.Context, input []byte, path string, args ...s
 type limitedOutput struct {
 	bytes.Buffer
 	limit int
+}
+
+type diagnosticOutput struct {
+	bytes.Buffer
+	limit int
+}
+
+func (b *diagnosticOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	if remaining := b.limit - b.Len(); remaining > 0 {
+		_, _ = b.Buffer.Write(p[:min(remaining, len(p))])
+	}
+	return n, nil
 }
 
 func (b *limitedOutput) Write(p []byte) (int, error) {
@@ -149,7 +194,25 @@ func (b *Live) host(ctx context.Context, input []byte, args ...string) ([]byte, 
 	for i, a := range args {
 		quoted[i] = quote(a)
 	}
-	return b.command(ctx, input, b.Config.SSH, "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", b.Config.Host, strings.Join(quoted, " "))
+	argv := []string{
+		"-T",
+		"-o",
+		"BatchMode=yes",
+		"-o",
+		"StrictHostKeyChecking=yes",
+		"-o",
+		"ConnectTimeout=10",
+		b.Config.Host,
+		strings.Join(quoted, " "),
+	}
+	data, err := b.command(ctx, input, b.Config.SSH, argv...)
+	var unavailable *connectionUnavailable
+	if errors.As(err, &unavailable) && ctx.Err() == nil {
+		// No SSH session or remote command existed. One reconnect reuses the
+		// same operation; an acknowledgement lost after dispatch never retries.
+		return b.command(ctx, input, b.Config.SSH, argv...)
+	}
+	return data, err
 }
 func (b *Live) docker(ctx context.Context, args ...string) ([]byte, error) {
 	return b.command(ctx, nil, b.Config.Docker, append([]string{"--host", b.Config.DockerHost}, args...)...)
@@ -237,7 +300,32 @@ func done(j *Job, note string) error {
 }
 func intent(j *Job, phase string, save func() error) error { j.Phase = phase; return save() }
 
-func (b *Live) Advance(ctx context.Context, j *Job, save func() error) error {
+func (b *Live) Advance(ctx context.Context, j *Job, save func() error) (err error) {
+	defer func() {
+		if b.Config.RecoverBeforeMigration && j.Request.Action == "migrate" && j.Phase == "" && j.Receipt.DataSHA != "" && (j.Failed || knownFailure(err)) {
+			j.Failure = "migration preparation failed before mutation: " + j.Reason
+			j.Done, j.Failed, j.Recovery, j.StoppedSHA = false, false, "needed", j.Receipt.DataSHA
+			if err = save(); err == nil {
+				err = b.recoverBeforeMigration(ctx, j, save)
+			}
+		}
+	}()
+	// Dynamic identities come from accepted operator receipts; static policy
+	// continues to own destinations, executables and recovery authority.
+	if b.Config.Delivery != nil {
+		resolved := *b
+		resolved.Config = b.Config
+		if j.Request.Action != "publish" {
+			resolved.Config.Head, resolved.Config.Base, resolved.Config.PR = j.Receipt.Head, j.Receipt.Base, j.Receipt.PR
+			resolved.Config.Package = j.Receipt.Package
+			resolved.Config.Evidence = filepath.Join(j.Receipt.Package, "release-qualification.json")
+			resolved.Config.Report, resolved.Config.ReportSHA = j.Receipt.Report, j.Receipt.ReportSHA
+		}
+		b = &resolved
+		if j.Request.Action == "publish" || j.Request.Action == "qualify" || j.Request.Action == "readiness" {
+			return b.delivery(ctx, j, save)
+		}
+	}
 	var engine string
 	data, err := b.docker(ctx, "info", "--format", "{{.ID}}")
 	if err != nil {
@@ -246,6 +334,15 @@ func (b *Live) Advance(ctx context.Context, j *Job, save func() error) error {
 	engine = strings.TrimSpace(string(data))
 	if engine != b.Config.Engine {
 		return fail(j, "Docker engine identity changed; owner decision required")
+	}
+	if j.Request.Action == "recover-stop" && j.Recovery == "" {
+		j.Recovery, j.StoppedSHA, j.Failure = "needed", j.Receipt.DataSHA, "release cancelled before migration"
+		if err = save(); err != nil {
+			return err
+		}
+	}
+	if j.Recovery != "" {
+		return b.recoverBeforeMigration(ctx, j, save)
 	}
 	if j.Request.Action != "prepare" {
 		policy, e := readFile(b.Config.ControllerConfig, 256<<10)
@@ -274,10 +371,16 @@ func (b *Live) Advance(ctx context.Context, j *Job, save func() error) error {
 		return b.stop(ctx, j, save)
 	case "migrate":
 		return b.migrate(ctx, j, save)
+	case "inspect-migration":
+		return b.inspectMigration(ctx, j)
+	case "restore":
+		return b.restorePrevious(ctx, j, save)
 	case "pin":
 		return b.pin(ctx, j, save)
 	case "deploy":
 		return b.deploy(ctx, j, save)
+	case "inspect":
+		return b.inspectDeployment(ctx, j)
 	case "verify":
 		return b.verify(ctx, j)
 	}
@@ -326,7 +429,11 @@ func (b *Live) prepare(ctx context.Context, j *Job) error {
 	if err = json.Unmarshal(data, &e); err != nil {
 		return err
 	}
-	if e.Status != "qualified" || e.Commit != c.Head || e.Nonogram.Report != c.Report || e.Nonogram.SHA != c.ReportSHA || e.Nonogram.Development != 120 || e.Nonogram.HeldOut != 480 || !e.Nonogram.Final || !e.Migration.Backup || !e.Migration.Preserved || !e.Migration.Restored || e.Runtime.Choices != 239 || e.Runtime.Passed != 239 || !e.Runtime.Identical || !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(e.Image) {
+	validRuntime := e.Runtime.Choices > 0 && e.Runtime.Choices <= 1000 && e.Runtime.Passed == e.Runtime.Choices
+	if c.Delivery == nil {
+		validRuntime = validRuntime && e.Runtime.Choices == 239
+	}
+	if e.Status != "qualified" || e.Commit != c.Head || e.Nonogram.Report != c.Report || e.Nonogram.SHA != c.ReportSHA || e.Nonogram.Development != 120 || e.Nonogram.HeldOut != 480 || !e.Nonogram.Final || !e.Migration.Backup || !e.Migration.Preserved || !e.Migration.Restored || !validRuntime || !e.Runtime.Identical || !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(e.Image) {
 		return fail(j, "qualification receipt does not satisfy the pinned release")
 	}
 	files := map[string]string{
@@ -337,6 +444,9 @@ func (b *Live) prepare(ctx context.Context, j *Job) error {
 		"rehearsal.json":              e.Evidence["migration"],
 		"browser/receipt.json":        e.Evidence["browser"],
 		"target-browser/receipt.json": e.Evidence["targetBrowser"],
+	}
+	if c.Delivery != nil {
+		delete(files, "target-browser/receipt.json")
 	}
 	for file, hash := range files {
 		data, err = readFile(filepath.Join(c.Package, file), 4<<20)
@@ -448,7 +558,7 @@ func (b *Live) prepare(ctx context.Context, j *Job) error {
 	}
 	j.Receipt.Head, j.Receipt.Base, j.Receipt.Image, j.Receipt.ServerSHA = c.Head, c.Base, e.Image, e.ServerSHA
 	j.Receipt.Report, j.Receipt.ReportSHA, j.Receipt.PriorImage, j.Receipt.PriorContainer = c.Report, c.ReportSHA, old.Image, old.ID
-	return done(j, "Qualified PR/image/report bound; merge requires explicit owner approval. Production migration 0017 needs a verified fresh backup; live restore is a separate decision. Existing stalled QA helper cleanup remains an operator issue.")
+	return done(j, "Qualified PR/image/report bound; merge requires explicit owner approval. Production release needs a fresh backup and a separate migration/deployment approval. Database restoration is a separate decision.")
 }
 
 func (b *Live) merge(ctx context.Context, j *Job, save func() error) error {

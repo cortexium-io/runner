@@ -198,6 +198,32 @@ func TestCandidateIntegrationRecoveryAndConflict(t *testing.T) {
 	if err != nil || string(replayed.End.Result.Outputs["candidate"].Inline) != string(first.End.Result.Outputs["candidate"].Inline) {
 		t.Fatal("integration replay changed its candidate", err)
 	}
+	var original string
+	json.Unmarshal(first.End.Result.Outputs["candidate"].Inline, &original)
+	oldHash := strings.Split(original, "\n")[1]
+	if err = os.WriteFile(filepath.Join(r.WorkDir, "seats.go"), []byte(seatsImplementation+"\n// Qualified correction.\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	owner := a
+	owner.AttemptID = "attempt_correction_owner"
+	owner.Setup.Profile = runner.Profile{Harness: "codex", Access: "workspace-write"}
+	corrected, err := w.Capture(t.Context(), owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.AttemptID = "attempt_corrected_candidate"
+	a.Deadline = a.Deadline.Add(time.Second)
+	a.Inputs["patch"] = runner.Value{ArtifactID: corrected.PatchID}
+	next, err := c.Start(t.Context(), a)
+	if err != nil || next.End.Kind != "returned" {
+		t.Fatal("owned correction did not advance", err, next)
+	}
+	if got := string(fixtureGit(t, r.Repository, "show", candidateRef(a.RunID)+":seats.go")); !strings.Contains(got, "Qualified correction") {
+		t.Fatal("corrected source was not integrated")
+	}
+	if got := strings.TrimSpace(string(fixtureGit(t, r.Repository, "rev-parse", "refs/runner/candidates/"+a.RunID+"/attempt_candidate"))); got != oldHash {
+		t.Fatal("earlier candidate history was lost")
+	}
 	ref := "refs/heads/codex/runner/" + a.RunID
 	fixtureGit(t, r.Repository, "update-ref", ref, r.Base)
 	c.save(candidateJob{Assignment: a})

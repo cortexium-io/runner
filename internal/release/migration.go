@@ -149,7 +149,15 @@ func validateMigrationInput(file string) error {
 		return err
 	}
 	if _, exists := s.Ledger[migrationName]; exists {
-		return errors.New("migration is already applied")
+		if s.Ledger[migrationName][0] != migrationChecksum {
+			return errors.New("applied migration checksum differs")
+		}
+		for _, table := range removedTables {
+			if _, exists := s.Tables[table]; exists {
+				return errors.New("retired stock table remains after migration")
+			}
+		}
+		return nil
 	}
 	for _, table := range removedTables {
 		if _, exists := s.Tables[table]; !exists {
@@ -166,6 +174,28 @@ func verifyMigration(beforeFile, afterFile string) error {
 	after, err := inspectDatabase(afterFile)
 	if err != nil {
 		return err
+	}
+	if _, applied := before.Ledger[migrationName]; applied {
+		if err = validateMigrationInput(beforeFile); err != nil {
+			return err
+		}
+		if len(before.Tables) != len(after.Tables) || len(before.Ledger) != len(after.Ledger) {
+			return errors.New("this qualified release requires no new schema migration")
+		}
+		for name, hash := range before.Tables {
+			if after.Tables[name] != hash {
+				return errors.New("application table changed")
+			}
+		}
+		for name, row := range before.Ledger {
+			if after.Ledger[name] != row {
+				return errors.New("existing migration ledger row changed")
+			}
+		}
+		if after.LockID != before.LockID || after.LockTime < before.LockTime {
+			return errors.New("migration lock identity/time regressed")
+		}
+		return nil
 	}
 	for name, hash := range before.Tables {
 		if slices.Contains(removedTables, name) {
