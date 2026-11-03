@@ -3,7 +3,10 @@ package execution
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,6 +76,89 @@ func workspaceDisk(t *testing.T) *runner.Disk {
 		t.Fatal(e)
 	}
 	return d
+}
+
+func TestWorkspaceModuleCacheEnvironmentAndReadiness(t *testing.T) {
+	cache := t.TempDir()
+	c := &Codex{cfg: &runner.CodexSettings{GoBinary: "go"}, ctx: context.Background()}
+	j := nativeJob{
+		Assignment: runner.Assignment{AttemptID: "permission"},
+		Workspace:  &workspaceRecord{WorkDir: t.TempDir()},
+	}
+	env, err := c.workerEnvironment(j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := env["GOMODCACHE"]; ok {
+		t.Fatal("unselected module cache added to worker environment")
+	}
+	c.cfg.GoModuleCache = cache
+	env, err = c.workerEnvironment(j)
+	if err != nil || env["GOMODCACHE"] != cache || env["GOPROXY"] != "off" || env["GOSUMDB"] != "off" {
+		t.Fatal("module cache changed the offline workspace environment", env, err)
+	}
+	for _, profile := range []string{"runner-input", "runner-edit", "runner-check"} {
+		files := workspaceFiles(c.cfg, profile, "/go")
+		if profile == "runner-input" {
+			if _, ok := files[cache]; ok {
+				t.Fatal("input-only profile acquired the module cache")
+			}
+		} else if files[cache] != "read" {
+			t.Fatalf("%s module cache is not read-only", profile)
+		}
+	}
+	if err := os.Remove(cache); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.workerEnvironment(j); err == nil || !strings.Contains(err.Error(), "codex.go_module_cache") {
+		t.Fatalf("worker accepted a missing module cache: %v", err)
+	}
+	if _, err := c.nativeConfiguration(context.Background()); err == nil || !strings.Contains(err.Error(), "codex.go_module_cache") {
+		t.Fatalf("native setup accepted a missing module cache: %v", err)
+	}
+}
+
+func TestWorkspaceGoCheckEnvironmentAndReadiness(t *testing.T) {
+	c := &Codex{cfg: &runner.CodexSettings{GoBinary: "go"}, ctx: context.Background()}
+	j := nativeJob{
+		Assignment: runner.Assignment{AttemptID: "permission"},
+		Workspace:  &workspaceRecord{WorkDir: t.TempDir()},
+	}
+	env, err := c.workerEnvironment(j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := env["RUNNER_GO_CHECK"]; ok {
+		t.Fatal("unselected Go check executable added to worker environment")
+	}
+	binary := filepath.Join(t.TempDir(), "runner-go-check")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	c.cfg.GoCheckBinary = binary
+	env, err = c.workerEnvironment(j)
+	if err != nil || env["RUNNER_GO_CHECK"] != binary {
+		t.Fatal("Go check executable not selected", env, err)
+	}
+	for _, profile := range []string{"runner-input", "runner-edit", "runner-check"} {
+		files := workspaceFiles(c.cfg, profile, "/go")
+		if profile == "runner-input" {
+			if _, ok := files[binary]; ok {
+				t.Fatal("input-only profile acquired the Go check executable")
+			}
+		} else if files[binary] != "read" {
+			t.Fatalf("%s Go check executable is not read-only", profile)
+		}
+	}
+	if err := os.Remove(binary); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.workerEnvironment(j); err == nil || !strings.Contains(err.Error(), "codex.go_check_binary") {
+		t.Fatalf("worker accepted a missing Go check executable: %v", err)
+	}
+	if _, err := c.nativeConfiguration(context.Background()); err == nil || !strings.Contains(err.Error(), "codex.go_check_binary") {
+		t.Fatalf("native setup accepted a missing Go check executable: %v", err)
+	}
 }
 
 // The collector suite owns all file-format cases. Protocol tests need only a new Go file.
@@ -314,6 +400,436 @@ func TestWritableLostReplyAndOneCheck(t *testing.T) {
 	}
 	if _, e = os.Stat(done.Attempts[0].Source.WorkDir); !errors.Is(e, os.ErrNotExist) {
 		t.Fatal("completed worktree not cleaned")
+	}
+}
+
+func TestWritableFailedReleaseAndAuthorizedRetryRestoreCandidate(t *testing.T) {
+	repo := sourceRepository(t)
+	cfg := workspaceSnapshot(t, repo)
+	script := &scriptedPeer{results: []nativeTurn{{ID: "failed-turn", Status: "failed"}}}
+	script.onTurn = func(dir string) {
+		if script.starts != 0 {
+			if data, err := os.ReadFile(filepath.Join(dir, "seats.go")); err != nil || string(data) != seatsImplementation {
+				t.Error("authorized retry did not restore the saved candidate", err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, "seats.go"), []byte(seatsImplementation), 0600); err != nil {
+			t.Error(err)
+		}
+	}
+	rig := openNativeRig(t, filepath.Join(t.TempDir(), "state"), cfg, script)
+	defer rig.close()
+	r, err := rig.core.Start(runner.StartRequest{RequestID: "failed-source", Project: "demo", Inputs: map[string]runner.Value{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := waitSourceRun(t, rig.core, r.ID, func(r runner.Run) bool { return r.Status == "Failed" && allReleased(r) && r.ResourcesReleased })
+	first := failed.Attempts[0].Source
+	if first == nil || first.PatchID == "" || len(failed.Outputs) != 0 {
+		t.Fatalf("failed candidate was lost or accepted: %+v", failed)
+	}
+	if _, err := os.Stat(first.WorkDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("settled failed checkout was not released", err)
+	}
+	if _, err := rig.disk.ArtifactSize(first.PatchID); err != nil {
+		t.Fatal("failed patch was not retained", err)
+	}
+	if got := strings.TrimSpace(string(fixtureGit(t, repo, "rev-parse", pin(r.ID)))); got != first.Base {
+		t.Fatal("failed cleanup lost the accepted base")
+	}
+	if err := os.WriteFile(filepath.Join(repo, "doc.go"), []byte("user index\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fixtureGit(t, repo, "add", "doc.go")
+	if err := os.WriteFile(filepath.Join(repo, "doc.go"), []byte("user checkout\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	index, checkout := fixtureGit(t, repo, "diff", "--cached", "--binary"), fixtureGit(t, repo, "diff", "--binary")
+	if _, err := rig.core.Retry(runner.RetryRequest{RequestID: "explicit-retry", RunID: r.ID, ExtraAttempts: 1}); err != nil {
+		t.Fatal(err)
+	}
+	done := waitSourceRun(t, rig.core, r.ID, func(r runner.Run) bool { return r.Status == "Completed" && allReleased(r) && r.ResourcesReleased })
+	if len(done.Attempts) != 3 || done.Attempts[0].End.Kind != "failed" || done.Attempts[1].Source == nil || done.Attempts[1].Source.InputPatchID != first.PatchID || done.Attempts[1].Source.Base != first.Base {
+		t.Fatalf("retry rewrote history or lost source provenance: %+v", done)
+	}
+	script.mu.Lock()
+	starts := script.starts
+	script.mu.Unlock()
+	if starts != 2 {
+		t.Fatalf("unexpected model dispatch count: %d", starts)
+	}
+	if !bytes.Equal(index, fixtureGit(t, repo, "diff", "--cached", "--binary")) || !bytes.Equal(checkout, fixtureGit(t, repo, "diff", "--binary")) {
+		t.Fatal("same-run restoration changed the user's index or checkout")
+	}
+}
+
+func TestWritableFailedUncapturedSourceSurvivesHistoryExpiry(t *testing.T) {
+	cfg := workspaceSnapshot(t, sourceRepository(t))
+	cfg.Instance.Storage.KeepRuns = "1ns"
+	script := &scriptedPeer{results: []nativeTurn{{ID: "failed-turn", Status: "failed"}}}
+	// An ignored file is intentionally outside source capture, unlike owned
+	// scratch. The failed run must retain it even after ordinary history expiry.
+	script.onTurn = func(dir string) {
+		if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("uncaptured\n"), 0600); err != nil {
+			t.Error(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "uncaptured"), []byte("unique\n"), 0600); err != nil {
+			t.Error(err)
+		}
+	}
+	rig := openNativeRig(t, filepath.Join(t.TempDir(), "state"), cfg, script)
+	defer rig.close()
+	r, err := rig.core.Start(runner.StartRequest{RequestID: "preserved-failure", Project: "demo", Inputs: map[string]runner.Value{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := waitSourceRun(t, rig.core, r.ID, func(r runner.Run) bool { return r.Status == "Failed" && allReleased(r) && r.CleanupError != "" })
+	if failed.ResourcesReleased {
+		t.Fatal("failed source with unique bytes was released")
+	}
+	if err := rig.core.Collect(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rig.core.Get(r.ID); err != nil {
+		t.Fatal("history expiry discarded preserved failed work", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(failed.Attempts[0].Source.WorkDir, "uncaptured")); err != nil || string(data) != "unique\n" {
+		t.Fatal("uncaptured failed source was lost", err)
+	}
+}
+
+func TestWorkspaceFailedCleanupPreservesUncapturedSourceAndMissingProof(t *testing.T) {
+	for _, change := range []string{"missing-candidate", "missing-patch", "changed-patch", "tracked-edit", "untracked-file", "ignored-file"} {
+		t.Run(change, func(t *testing.T) {
+			ctx := context.Background()
+			d, repo := workspaceDisk(t), sourceRepository(t)
+			w := &Workspaces{disk: d}
+			a := sourceAssignment(d, repo, "attempt_preserved")
+			r, err := w.Prepare(ctx, a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer w.ForgetRun(ctx, a.RunID)
+			if change == "missing-candidate" {
+				// Exercise lost recovery metadata for actual captured edits;
+				// an unchanged base no longer needs an empty candidate to release.
+				if err := os.WriteFile(filepath.Join(r.WorkDir, "doc.go"), []byte("package seats\n// captured edit\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			candidate, err := w.Capture(ctx, a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch change {
+			case "missing-candidate":
+				r.Candidate = nil
+				if err := w.save(r); err != nil {
+					t.Fatal(err)
+				}
+			case "missing-patch":
+				if err := d.Remove("artifacts/" + candidate.PatchID); err != nil {
+					t.Fatal(err)
+				}
+			case "changed-patch":
+				if err := d.Write("artifacts/"+candidate.PatchID, addedSeedFile("different.txt", "100644"), d.Policy.MaxArtifact); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				name := "uncaptured.txt"
+				if change == "tracked-edit" {
+					name = "doc.go"
+				}
+				if change == "ignored-file" {
+					exclude := strings.TrimSpace(string(fixtureGit(t, repo, "rev-parse", "--git-path", "info/exclude")))
+					if !filepath.IsAbs(exclude) {
+						exclude = filepath.Join(repo, exclude)
+					}
+					if err := os.MkdirAll(filepath.Dir(exclude), 0700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(exclude, []byte("uncaptured.txt\n"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := os.WriteFile(filepath.Join(r.WorkDir, name), []byte("unique source\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := w.releaseRun(ctx, a.RunID, true); err == nil {
+				t.Fatal("failed cleanup discarded source without complete recovery proof")
+			}
+			if saved, err := w.load(a.RunID); err != nil || saved.Released {
+				t.Fatal("preserved workspace was marked released", err)
+			}
+			if _, err := os.Stat(filepath.Join(r.WorkDir, ".git")); err != nil {
+				t.Fatal("preserved source checkout is missing", err)
+			}
+		})
+	}
+}
+
+func TestWorkspaceProofUsesOnlyDisposableIndexLocks(t *testing.T) {
+	ctx := context.Background()
+	d, repo := workspaceDisk(t), sourceRepository(t)
+	w := &Workspaces{disk: d}
+	a := sourceAssignment(d, repo, "attempt_index_locks")
+	r, err := w.Prepare(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.ForgetRun(ctx, a.RunID)
+	if _, err := w.Capture(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	r, err = w.load(a.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexPath := strings.TrimSpace(string(fixtureGit(t, r.WorkDir, "rev-parse", "--path-format=absolute", "--git-path", "index")))
+	mainIndex := strings.TrimSpace(string(fixtureGit(t, repo, "rev-parse", "--path-format=absolute", "--git-path", "index")))
+	wantIndex, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Git ignores optional uppercase extensions. Pad a valid index to the live
+	// footprint without thousands of source files, then recompute its checksum.
+	files := fixtureGit(t, r.WorkDir, "ls-files")
+	extensionSize := 1_400_000 - len(wantIndex) - 8
+	extended := append(bytes.Clone(wantIndex[:len(wantIndex)-sha1.Size]), []byte("TEST")...)
+	extended = binary.BigEndian.AppendUint32(extended, uint32(extensionSize))
+	extended = append(extended, make([]byte, extensionSize)...)
+	checksum := sha1.Sum(extended)
+	wantIndex = append(extended, checksum[:]...)
+	if err := os.WriteFile(indexPath, wantIndex, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(files, fixtureGit(t, r.WorkDir, "ls-files")) {
+		t.Fatal("large index fixture changed tracked source")
+	}
+	wantMainIndex, err := os.ReadFile(mainIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(indexPath+".lock", []byte("settled private lock"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	assertUntouched := func() {
+		t.Helper()
+		for path, want := range map[string][]byte{
+			indexPath:           wantIndex,
+			mainIndex:           wantMainIndex,
+			indexPath + ".lock": []byte("settled private lock"),
+		} {
+			if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, want) {
+				t.Fatalf("proof changed the live index or its lock: %s: %v", path, err)
+			}
+		}
+	}
+	configuredLimit := d.Policy.MaxArtifact
+	d.Policy.MaxArtifact = 1024
+	if _, _, err := w.retainedCandidate(ctx, r, true); !errors.Is(err, runner.ErrCapacity) {
+		t.Fatal("proof index exceeded the configured artifact budget", err)
+	}
+	assertUntouched()
+	d.Policy.MaxArtifact = configuredLimit
+	if _, _, err := w.retainedCandidate(ctx, r, true); err != nil {
+		t.Fatal("valid large proof index or real worktree index.lock blocked read-only proof", err)
+	}
+	assertUntouched()
+
+	// Cancel exactly after an index command takes its disposable lock. The
+	// wrapper blocks on a FIFO; no timing sleep or live Git process is involved.
+	fixture := t.TempDir()
+	for _, name := range []string{"ready", "hold"} {
+		if err := exec.Command("mkfifo", filepath.Join(fixture, name)).Run(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ready, err := os.OpenFile(filepath.Join(fixture, "ready"), os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ready.Close()
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shellPath := func(path string) string { return "'" + strings.ReplaceAll(path, "'", "'\"'\"'") + "'" }
+	scratchIndex := filepath.Join(d.Root, "work", a.RunID, "seed-validation", "index")
+	script := fmt.Sprintf(`#!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = read-tree ]; then
+    [ "$GIT_INDEX_FILE" = %s ] || exit 91
+    printf disposable > "$GIT_INDEX_FILE.lock"
+    printf ready > %s
+    IFS= read -r gate < %s
+    exit 92
+  fi
+done
+exec %s "$@"
+`, shellPath(scratchIndex), shellPath(filepath.Join(fixture, "ready")), shellPath(filepath.Join(fixture, "hold")), shellPath(realGit))
+	if err := os.WriteFile(filepath.Join(fixture, "git"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	originalPath := os.Getenv("PATH")
+	t.Setenv("PATH", fixture+string(os.PathListSeparator)+originalPath)
+	started, result := make(chan error, 1), make(chan error, 1)
+	go func() {
+		var one [1]byte
+		_, err := ready.Read(one[:])
+		started <- err
+	}()
+	cancelled, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	go func() {
+		_, _, err := w.retainedCandidate(cancelled, r, true)
+		result <- err
+	}()
+	select {
+	case err := <-started:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case err := <-result:
+		t.Fatal("index command did not reach its disposable lock", err)
+	case <-cancelled.Done():
+		t.Fatal("index command did not reach its disposable lock", cancelled.Err())
+	}
+	if data, err := os.ReadFile(scratchIndex + ".lock"); err != nil || string(data) != "disposable" {
+		t.Fatal("index command did not lock owned scratch", err)
+	}
+	cancel()
+	if err := <-result; err == nil {
+		t.Fatal("cancelled proof completed successfully")
+	}
+	assertUntouched()
+	if _, err := os.Stat(filepath.Dir(scratchIndex)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("cancelled proof retained disposable index state", err)
+	}
+	t.Setenv("PATH", originalPath)
+	if err := w.releaseRun(ctx, a.RunID, true); err != nil {
+		t.Fatal("settled private index.lock blocked owned forced cleanup", err)
+	}
+	if got, err := os.ReadFile(mainIndex); err != nil || !bytes.Equal(got, wantMainIndex) {
+		t.Fatal("owned cleanup changed the original checkout index", err)
+	}
+}
+
+func TestWorkspaceFailedCleanupAboveCapacityAndRestoreReplay(t *testing.T) {
+	for _, missingGitLink := range []bool{false, true} {
+		t.Run(fmt.Sprint("partial-checkout=", missingGitLink), func(t *testing.T) {
+			ctx := context.Background()
+			d, repo := workspaceDisk(t), sourceRepository(t)
+			w := &Workspaces{disk: d}
+			a := sourceAssignment(d, repo, "attempt_restore")
+			r, err := w.Prepare(ctx, a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer w.ForgetRun(ctx, a.RunID)
+			if err := os.WriteFile(filepath.Join(r.WorkDir, "saved.txt"), []byte("saved candidate\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := w.Capture(ctx, a); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(r.WorkDir, ".runner-tmp"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(r.WorkDir, ".runner-tmp", "disposable"), make([]byte, 256<<10), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := d.Refresh(); err != nil {
+				t.Fatal(err)
+			}
+			policy := d.Policy
+			d.Policy.MaxManaged = d.Policy.Database.MaxSize + runner.Bytes(d.Used()) - 1
+			if err := w.releaseRun(ctx, a.RunID, true); err != nil {
+				t.Fatal("verified cleanup could not free resources above the monitored cap", err)
+			}
+			d.Policy = policy
+			r, err = w.load(a.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.Released = false // Removal finished but its metadata save was lost.
+			if err := w.save(r); err != nil {
+				t.Fatal(err)
+			}
+			r, err = w.Prepare(ctx, a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.Released = true // The final restore readiness save was interrupted.
+			if err := w.save(r); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(r.WorkDir, "partial.txt"), []byte("pre-execution residue"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if missingGitLink {
+				if err := os.Remove(filepath.Join(r.WorkDir, ".git")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			reopened := &Workspaces{disk: d}
+			r, err = reopened.Prepare(ctx, a)
+			if err != nil || r.Released || r.Candidate == nil {
+				t.Fatal("interrupted restoration was not recoverable", err)
+			}
+			if _, err := os.Stat(filepath.Join(r.WorkDir, "partial.txt")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("pre-execution residue survived restore replay", err)
+			}
+			file := filepath.Join(r.WorkDir, "saved.txt")
+			if data, err := os.ReadFile(file); err != nil || string(data) != "saved candidate\n" {
+				t.Fatal("restore replay lost the retained candidate", err)
+			}
+			if err := os.WriteFile(file, []byte("ready edits\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := reopened.Prepare(ctx, a); err != nil {
+				t.Fatal(err)
+			}
+			if data, err := os.ReadFile(file); err != nil || string(data) != "ready edits\n" {
+				t.Fatal("ready restore replay reset later source edits", err)
+			}
+		})
+	}
+}
+
+func TestWorkspaceCapacityRefusesBeforeCheckoutAndCanResume(t *testing.T) {
+	ctx := context.Background()
+	d, repo := workspaceDisk(t), sourceRepository(t)
+	if err := os.WriteFile(filepath.Join(repo, "asset"), make([]byte, 256<<10), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fixtureGit(t, repo, "add", "asset")
+	fixtureGit(t, repo, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgSign=false", "commit", "--quiet", "-m", "large source")
+	w := &Workspaces{disk: d, nativeLimit: 64 << 10}
+	a := sourceAssignment(d, repo, "attempt_capacity")
+	policy := d.Policy
+	d.Policy.MaxManaged = d.Policy.Database.MaxSize + 3*d.Policy.Database.MaxRecord + d.Policy.MaxArtifact + d.Policy.Logs.MaxPerAttempt + 128<<10
+	if _, err := w.Prepare(ctx, a); !errors.Is(err, runner.ErrCapacity) {
+		t.Fatal("oversized checkout was admitted", err)
+	}
+	r, err := w.load(a.RunID)
+	if err != nil || r.Base == "" {
+		t.Fatal("capacity refusal lost recoverable preparation identity", err)
+	}
+	if _, err := os.Stat(r.WorkDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("capacity was checked after allocating source", err)
+	}
+	if worktrees := fixtureGit(t, repo, "worktree", "list", "--porcelain"); bytes.Contains(worktrees, []byte(r.WorkDir)) {
+		t.Fatal("capacity refusal registered a disposable checkout")
+	}
+	if err := w.releaseRun(ctx, a.RunID, true); err != nil {
+		t.Fatal("metadata-only failure was held for nonexistent source proof", err)
+	}
+	d.Policy = policy
+	defer w.ForgetRun(ctx, a.RunID)
+	if restored, err := w.Prepare(ctx, a); err != nil || restored.Base != r.Base {
+		t.Fatal("same preparation could not resume when capacity was available", err)
 	}
 }
 

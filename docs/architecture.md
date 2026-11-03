@@ -40,6 +40,36 @@ The wake channel makes state changes prompt. Known completion/deadline timers
 avoid waiting for the fallback reconciliation interval (default five minutes).
 There is one coordinator, no agent polling loop and no model-authored task ledger.
 `runner_wait` blocks in Go on a revision signal; the CLI repeats waits in Go.
+`runner_run` combines the existing start operation with a Go revision wait through
+completion/Waiting and normal settled cleanup. `runner_result` presents bounded
+outputs and usage without loading artifact evidence or returning inputs/setup.
+These live in `control/result.go`; they add no core state or coordination policy.
+Client cancellation ends only the wait. Full records remain available via inspect.
+
+The 31 October 2026 control qualification used the real compiled CLI and local MCP
+service with deterministic steps: one submission completed both steps and cleanup
+in 1.049s, returning 606 bytes. Reusing its request ID kept the same run and two
+attempts. Further runs confirmed Failed and Waiting results, client interruption
+without run cancellation, and explicit cancellation followed by settled cleanup.
+These four runs used zero model turns. The control suite owns compact output bounds,
+partial token accounting and the actual wire/rejoin contract. Core recovery proofs
+were reused; no native coding/recovery exercise was repeated. Required race/vet
+gates passed. This qualifies control behavior, not end-to-end model cost savings.
+
+The subsequent guide replay exposed a command-startup race: the owning process
+could observe its launched child before `started.json` existed. The command
+adapter now keeps that interval Running using its existing child-wait callback;
+after owner restart or child exit, absent settlement evidence remains Unknown.
+A deterministic regression reproduces the old false uncertainty and proves both
+the startup correction and the exit-without-receipt boundary. No grace sleep or
+control-layer suppression of Waiting was added.
+
+The intake permission preflight used the pinned native Codex service's
+`config/read`, `thread/start` and `mcpServer/tool/call`, with no `turn/start`.
+Only `runner_run` was enabled and preapproved, with the owner token passed through
+a private environment variable. The actual MCP invocation completed the two-step
+deterministic demo and cleanup. This verifies loaded configuration and native
+manual tool invocation; it does not claim a new generated intake or coding replay.
 
 ## Follow the Codex adapter
 
@@ -58,6 +88,10 @@ The instance's private Codex home replaces ordinary user configuration; the
 harness uses a link to the existing local authentication file.
 
 The adapter saves its thread ID before requesting a turn, then saves the turn ID.
+An acknowledged active turn on the same subscribed connection uses completion
+events; observation does not require its rollout file to be flushed. Lost
+ownership, uncertain dispatch and requested stops still reconcile through native
+history before reporting settlement or permitting replacement.
 After a lost reply, it reads that thread's legacy history. Reattaching event
 notifications may call `thread/resume`; this starts no turn and adds no prompt.
 The explicit legacy mode is needed because the installed CLI's default history
@@ -110,6 +144,28 @@ The first workspace/check configuration requires concurrency one; arbitrary
 background commands, crash survival and broader project layouts are unqualified.
 
 ## State and recovery
+
+The 1 November 2026 reviewed Go process moves focused checking, independent
+read-only review and local candidate integration behind the same run. The Codex
+adapter reuses `runner-check` for review, materializes the retained patch in
+scratch and keeps stable configured context before access-specific guidance.
+The model-free `git-candidate` adapter secures its intent before reconstructing
+the patch with a private index and creating an owned local commit/ref. It never
+changes the user checkout, merges, pushes or deploys. Its same-intent replay,
+blocked review, branch conflict, cancellation and retention boundaries are owned
+by `candidate_test.go`; the existing collector owns patch fidelity.
+
+The four-stage process and rejection path passed the scripted native/core
+integration tests. Real pinned Codex permission probes established read-only
+review setup and source/scratch/private/Git/network restrictions without a model
+turn. A separate native intake configuration exposed only run/result/status and
+successfully invoked status. Required race/vet gates passed. The idle Jack's
+Break pilot was switched to the maintained build and four-stage configuration,
+preserving all 29 historical runs and the existing project checkpoint. This
+qualifies wiring and permissions, not model review quality, savings or a new
+end-to-end product result. Workspace concurrency remains one; unsupported
+frontend/browser/release work must surface a capability gap. See the
+[coordinator contract](coordinator.md) and [example](../examples/reviewed-go/README.md).
 
 Run states are Queued, Running, Waiting, Completed, Failed and Cancelled, with a
 reason and revision. Step position is zero-based in the API. Attempts separately
@@ -468,3 +524,79 @@ monitored storage limit may overshoot and is not a filesystem quota.
 
 Final `go test -race -timeout 15m ./...` and `go vet ./...` passed. Linux amd64
 compiled with CGO disabled; this is compile evidence, not Linux sandbox proof.
+
+## Complete development workflow, 3 November 2026
+
+The existing core now routes declared domain outcomes, retaining per-route
+repetition counts independently of retries within a step visit. Returning to an
+owner freezes its feedback, supersedes downstream proof and creates another
+visit. A default ready result continues forward. Unknown worker outcomes cannot
+invent stages or waive proof. `workflow.go` owns transitions and exact saved
+decisions; `tasks.go` expands fixed templates from validated bounded task data.
+The same SQLite run retains the resolved steps, attempts, artifacts and usage.
+No scheduler, task ledger or model polling layer was added.
+
+Task collections execute in dependency order in the shared owned workspace.
+Template roles are selected before execution; task data supplies only inputs and
+dependencies. Invalid plans fail before item execution. Joins forward committed
+artifact references without changing their producer. Current-candidate bindings
+make cumulative source available to final verification/review/integration and a
+later correction owner. Offline text-only checks can opt into reuse within a run;
+source tree, selected inputs/profile/runtime must match. Reuse is recorded as an
+attempt linked to its earlier proof and executes no command or model.
+
+The model-free core suite owns correction, repetition exhaustion, stale proof,
+feedback handoff, invalid dependencies and decision persistence/replay. The native
+adapter's existing candidate suite additionally verifies two dependent coding
+items produce one combined reviewed tree while preserving the user's checkout.
+Configuration tests reject unbounded return routes and invalid template inputs;
+command tests distinguish expected domain rejection from execution failure.
+
+The isolated development fixture loads ordinary file configuration and uses the
+real MCP interface. Its paid qualification used macOS arm64, Go 1.27.1 and pinned
+Codex 0.164.0, with exactly three Sol/xhigh turns:
+
+| Stage | Evidence |
+| --- | --- |
+| First owner | Implemented the Go website greeting and HTML escaping; 25.677s. |
+| Fixed verification | Required greeting/HTTP tests passed; 4.441s. |
+| Benchmark | Actual Go benchmark retained measurements and requested another round; 4.338s. |
+| Second owner | Interpreted the measurements; retained the unchanged correct implementation; 18.973s. |
+| Verification reuse | Same captured source tree and check inputs; zero command execution. |
+| Second benchmark | Actual new measurement, within the configured return limit; 4.189s. |
+| Independent read-only review | Approved the original request, candidate and supplied evidence; 17.533s. |
+| Candidate integration | Created one local reviewed commit; 0.105s. |
+| Approval/restart | Saved fixture approval survived closing/reopening Runner; explicit decision resumed the same run. |
+| Package and delivered-result check | Built a retained executable, then launched that exact artifact and passed headless desktop/mobile greeting and HTML-injection journeys; 5.111s combined. |
+
+One `runner_run` submission executed through the approval wait; one explicit
+fixture decision followed by `runner_result(wait=true)` completed the rest. The
+maintenance chat did not select, launch or interpret individual process stages.
+The final result reported 10 attempts, three model turns, 80.400s and 65,383 known
+worker tokens (31,232 cached input), with no incomplete usage and no pending
+cleanup. These are process measurements; this maintenance chat is additional,
+and no comparative quality, currency cost or optimization win is claimed.
+
+Run: `run_QQOLP5GULXAODQJO6XPIFWBQXI`. Its selected configuration, full attempts,
+compact result and artifacts are retained privately under
+`~/.codex/rw-live-20261103a`. Three earlier model-free preflights exposed Node
+library/OpenSSL and macOS Chromium launch prerequisites; a fourth passed with the
+existing qualified standalone Node and headless browser setup. A final probe
+also confirmed check reuse. All preflights used scripted judgments and zero model
+turns. Their failures were preserved, not reported as model failures or successes.
+
+This qualifies the complete bounded Go website fixture and the generic routing
+mechanism. The approval is for a disposable fixture, not production publication.
+Live forced review rejection and model quality across projects are not established;
+rejection/correction/limits are covered deterministically. Native Linux sandbox,
+remote/multi-user operation, intra-run parallel workspaces, arbitrary external
+processes and deployment to a production provider remain unqualified. Project
+verification, benchmark and release tools still require their real configuration.
+
+Final verification also passed the required full race suite and `go vet`, the
+compiled CLI's dependency-ordered three-attempt journey (45.668ms, zero model
+usage, settled cleanup), and the maintained portable intake profile's real native
+tool inventory/status call (zero model turns). Intake exposed exactly
+run/result/status and rejected an unavailable configuration tool. Model-free
+comparison-input tests cover separate retained baseline/proposed artifacts;
+approval rejection tests confirm that denied delivery never executes.

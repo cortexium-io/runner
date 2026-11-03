@@ -155,7 +155,187 @@ func qualifyWorkspacePermissions(t *testing.T, ctx context.Context, root string,
 			t.Fatalf("zero-turn %s permission probe: %v: %s", profile.name, e, diagnostic.bytes())
 		}
 	}
-	t.Log("zero-turn native permission probes passed: source/scratch, protected files, private data, Git, symlink escape and network")
+	for _, runtime := range []struct{ path, command string }{
+		{cfg.Instance.Codex.GoModuleCache, "/bin/ls"},
+		{cfg.Instance.Codex.GoCheckBinary, "/bin/cat"},
+	} {
+		if runtime.path == "" {
+			continue
+		}
+		command := exec.CommandContext(ctx, cfg.Instance.Codex.Binary, "sandbox", "-P", "runner-input", "-C", source, "--", runtime.command, runtime.path)
+		command.Env = []string{"PATH=" + os.Getenv("PATH"), "CODEX_HOME=" + home}
+		tail := &diagnosticTail{limit: 1024}
+		command.Stdout, command.Stderr = tail, tail
+		err := command.Run()
+		out := tail.bytes()
+		if err == nil || (!strings.Contains(string(out), "Operation not permitted") && !strings.Contains(string(out), "Permission denied")) {
+			t.Fatalf("input-only profile must deny selected workspace runtime access: %v: %s", err, out)
+		}
+	}
+	t.Log("zero-turn native permission probes passed: source/scratch, protected files, private data, Git, symlink escape, selected read-only Go runtimes and network")
+}
+
+// This opt-in spends no model turns. Reuse the source/scratch/network permission
+// probe and verify the real native service accepts the review permission profile.
+func TestNativeReviewPreflight(t *testing.T) {
+	if os.Getenv("RUNNER_NATIVE_PREFLIGHT") != "1" {
+		t.Skip("explicit opt-in for native permission checks; zero model turns")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.MkdirTemp(filepath.Join(home, ".codex"), "rrp-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(root)
+	cfg := workspaceSnapshot(t, sourceRepositoryAt(t, filepath.Join(root, "source")))
+	cfg.Instance.Codex.AuthFile = filepath.Join(home, ".codex", "auth.json")
+	cfg.Instance.Codex.Binary = os.Getenv("RUNNER_PREFLIGHT_CODEX")
+	cfg.Instance.Codex.GoModuleCache = filepath.Join(root, "modcache")
+	if err := os.Mkdir(cfg.Instance.Codex.GoModuleCache, 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Instance.Codex.GoCheckBinary = filepath.Join(root, "runner-go-check")
+	if err := os.WriteFile(cfg.Instance.Codex.GoCheckBinary, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if goBinary := os.Getenv("RUNNER_PREFLIGHT_GO"); goBinary != "" {
+		cfg.Instance.Codex.GoBinary = goBinary
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	qualifyWorkspacePermissions(t, ctx, root, cfg)
+	rig := openNativeRig(t, filepath.Join(root, "state"), cfg, nil)
+	defer rig.close()
+	peer, err := rig.service.Codex.openPeer(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rig.service.Codex.checkWorkspaceConfig(ctx, peer); err != nil {
+		t.Fatal(err)
+	}
+	var thread struct {
+		Thread struct {
+			ID string `json:"id"`
+		} `json:"thread"`
+		Active struct {
+			ID string `json:"id"`
+		} `json:"activePermissionProfile"`
+	}
+	if err := peer.Call(ctx, "thread/start", map[string]any{
+		"model": "gpt-6.1-sol", "approvalPolicy": "never", "permissions": "runner-check",
+		"cwd": filepath.Join(root, "source"), "runtimeWorkspaceRoots": []string{filepath.Join(root, "source")},
+		"environments": []any{map[string]any{"environmentId": "local", "cwd": filepath.Join(root, "source"), "runtimeWorkspaceRoots": []string{filepath.Join(root, "source")}}},
+		"historyMode":  "legacy", "config": map[string]any{"model_reasoning_effort": "xhigh", "features.shell_tool": true},
+	}, &thread); err != nil {
+		t.Fatal(err)
+	}
+	if thread.Thread.ID == "" || thread.Active.ID != "runner-check" {
+		t.Fatalf("native review profile differs: %+v", thread)
+	}
+	if err := peer.Call(ctx, "thread/delete", map[string]string{"threadId": thread.Thread.ID}, nil); err != nil && !strings.Contains(err.Error(), "no rollout found") {
+		t.Fatal(err)
+	}
+	t.Log("read-only review profile accepted; no turn/start submitted")
+	if intake := os.Getenv("RUNNER_COORDINATOR_HOME"); intake != "" {
+		qualifyCoordinatorTools(t, ctx, root, cfg.Instance.Codex.Binary, intake)
+	}
+}
+
+func qualifyCoordinatorTools(t *testing.T, ctx context.Context, root, binary, home string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	token, err := os.ReadFile(os.Getenv("RUNNER_COORDINATOR_TOKEN_FILE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	intakeRoot := filepath.Join(root, "intake")
+	if err := os.MkdirAll(filepath.Join(intakeRoot, "jobs"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the production wire's home-identity check intact.
+	if err := os.Symlink(home, filepath.Join(intakeRoot, "native")); err != nil {
+		t.Fatal(err)
+	}
+	socket := filepath.Join(intakeRoot, "jobs", "codex.sock")
+	cmd := exec.CommandContext(ctx, binary, "app-server", "--listen", "unix://"+socket, "--strict-config")
+	cmd.Dir = filepath.Join(filepath.Dir(home), "empty")
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "CODEX_HOME=" + home, "RUNNER_OWNER_TOKEN=" + strings.TrimSpace(string(token))}
+	tail := &diagnosticTail{limit: 2048}
+	cmd.Stdout, cmd.Stderr = tail, tail
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	var peer codexPeer
+	var lastError error
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for peer == nil {
+		peer, err = dialCodex(ctx, socket, func(rpcMessage) {})
+		if err == nil {
+			break
+		}
+		lastError = err
+		select {
+		case <-ctx.Done():
+			t.Fatalf("coordinator readiness: %v; last: %v: %s", ctx.Err(), lastError, tail.bytes())
+		case <-tick.C:
+		}
+	}
+	defer peer.Close()
+	var config struct {
+		Config map[string]json.RawMessage `json:"config"`
+	}
+	if err := peer.Call(ctx, "config/read", map[string]bool{"includeLayers": false}, &config); err != nil {
+		t.Fatal(err)
+	}
+	var features map[string]bool
+	_ = json.Unmarshal(config.Config["features"], &features)
+	for _, name := range []string{"shell_tool", "apply_patch_freeform", "multi_agent", "apps", "plugins", "remote_plugin", "view_image"} {
+		if enabled, exists := features[name]; !exists || enabled {
+			t.Fatalf("coordinator capability %s not explicitly disabled", name)
+		}
+	}
+	var thread struct {
+		Thread struct {
+			ID string `json:"id"`
+		} `json:"thread"`
+	}
+	if err := peer.Call(ctx, "thread/start", map[string]any{"model": "gpt-6.1-sol", "approvalPolicy": "never", "sandbox": "read-only", "cwd": filepath.Dir(home) + "/empty", "environments": []any{}, "runtimeWorkspaceRoots": []any{}, "historyMode": "legacy"}, &thread); err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Call(context.Background(), "thread/delete", map[string]string{"threadId": thread.Thread.ID}, nil)
+	var inventory struct {
+		Data []struct {
+			Name  string                     `json:"name"`
+			Tools map[string]json.RawMessage `json:"tools"`
+		} `json:"data"`
+	}
+	if err := peer.Call(ctx, "mcpServerStatus/list", map[string]any{"threadId": thread.Thread.ID, "detail": "toolsAndAuthOnly"}, &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Data) != 1 || inventory.Data[0].Name != "runner" || len(inventory.Data[0].Tools) != 3 {
+		t.Fatalf("unexpected coordinator tool inventory: %+v", inventory)
+	}
+	for _, name := range []string{"runner_run", "runner_result", "runner_status"} {
+		if _, ok := inventory.Data[0].Tools[name]; !ok {
+			t.Fatalf("coordinator lacks %s", name)
+		}
+	}
+	var result struct {
+		IsError bool `json:"isError"`
+	}
+	if err := peer.Call(ctx, "mcpServer/tool/call", map[string]any{"threadId": thread.Thread.ID, "server": "runner", "tool": "runner_status", "arguments": map[string]any{}}, &result); err != nil || result.IsError {
+		t.Fatalf("coordinator cannot read Runner status: %v, %+v", err, result)
+	}
+	if err := peer.Call(ctx, "mcpServer/tool/call", map[string]any{"threadId": thread.Thread.ID, "server": "runner", "tool": "runner_configure", "arguments": map[string]any{"file": "not-selected", "field": "concurrency", "value": 1}}, &result); err == nil && !result.IsError {
+		t.Fatal("coordinator invoked an unavailable configuration tool")
+	}
+	t.Log("coordinator exposes only run/result/status; native status call passed; zero model turns")
 }
 func writableQualificationRoot(t *testing.T) (string, time.Time, context.Context) {
 	t.Helper()

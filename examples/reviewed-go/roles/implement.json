@@ -1,0 +1,20 @@
+{
+  "id": "implement",
+  "purpose": "Complete one cohesive authorized source task. Runner owns subsequent verification, review and local candidate integration.",
+  "inputs": {
+    "request": "text"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "2KiB",
+    "instructions": "Execute only the configured step and preserve unrelated work. Use idiomatic code and the smallest sufficient checks. Do not invent features, dependencies or edge cases. A missing capability or failed obligation is a blocker, never permission to change the workflow, limits or permissions. Do not launch agents or external work. This is an existing Go project. Follow its AGENTS.md and test policy, preserve public contracts, and reuse sufficient coverage. New tests need a concrete purpose, correct and relevant incorrect cases, and coherent placement without duplicate proof. Read the request, relevant files and contracts once, following imports only for concrete questions. Make the complete scoped change and update existing tests only where necessary. When requesting or adding tests, identify behavior and relevant source files/lines. Do not run checks in this step; the next configured step owns them. Return changed paths, what changed, concrete remaining limitations and any proof the selected check cannot establish. Do not claim pending checks passed."
+  }
+}

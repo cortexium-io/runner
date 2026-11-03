@@ -207,10 +207,7 @@ func (c *Core) Start(req StartRequest) (Run, error) {
 	if req.SourceRef != "" {
 		r.Source.Ref = req.SourceRef
 	}
-	for _, step := range proc.Steps {
-		r.Roles[step.Role] = Clone(p.Roles[step.Role])
-		r.Profiles[step.Role] = p.Profiles[step.Role]
-	}
+	selectedRoles(proc.Steps, r.Roles, r.Profiles, p)
 	b, _ := json.Marshal(r)
 	if len(b) > int(c.disk.Policy.Database.MaxRecord)/2 {
 		return Run{}, errors.New("run definition/inputs exceed half the record allowance; use smaller scoped definitions or declared artifacts")
@@ -333,11 +330,14 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 	if c.inFlight[r.ID] {
 		return Run{}, errors.New("run resource cleanup is active; wait before retrying")
 	}
+	if r.Decision != nil {
+		return Run{}, errors.New("pending approval requires decide, not retry")
+	}
 	if (r.Status != "Waiting" && r.Status != "Failed") || r.Active() {
 		return Run{}, errors.New("retry needs settled failed/waiting work; unknown execution must be reconciled first")
 	}
-	if req.ExtraAttempts < 0 || req.ExtraAttempts > 4 || r.Process.MaxAttempts+req.ExtraAttempts > 16 {
-		return Run{}, errors.New("extra_attempts exceeds the first-slice allowance")
+	if req.ExtraAttempts < 0 || req.ExtraAttempts > 4 || r.Process.MaxAttempts+req.ExtraAttempts > 128 {
+		return Run{}, errors.New("extra_attempts exceeds the per-operation or run allowance")
 	}
 	if req.Profile != "" {
 		role := r.Roles[r.Process.Steps[r.Step].Role]
@@ -349,12 +349,7 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 	if len(r.Attempts) >= r.Process.MaxAttempts+req.ExtraAttempts {
 		return Run{}, errors.New("attempt allowance exhausted; explicitly grant extra_attempts")
 	}
-	stepAttempts := 0
-	for _, a := range r.Attempts {
-		if a.Step == r.Step {
-			stepAttempts++
-		}
-	}
+	stepAttempts := visitAttempts(r)
 	if stepAttempts >= r.Process.MaxAttemptsPerStep+req.ExtraAttempts {
 		return Run{}, errors.New("step attempt allowance exhausted; explicitly grant extra_attempts")
 	}
@@ -436,10 +431,10 @@ func (c *Core) tick() time.Duration {
 			}
 		}
 		if r.Terminal() {
-			if _, ok := c.executor.(RunResources); ok && r.Status != "Failed" && !r.ResourcesReleased && !c.inFlight[r.ID] {
+			if _, ok := c.executor.(RunResources); ok && !r.ResourcesReleased && !c.inFlight[r.ID] {
 				ready := true
 				for _, old := range r.Attempts {
-					if !old.Released {
+					if old.State != Finished || !old.Released {
 						ready = false
 					}
 				}
@@ -524,6 +519,19 @@ func (c *Core) tick() time.Duration {
 		if r.Status != "Queued" || active >= c.snapshot.Instance.Concurrency {
 			continue
 		}
+		if r.Process.Steps[r.Step].ForEach != nil {
+			original := Clone(r)
+			if err := expandTasks(&r); err != nil {
+				r.Status, r.Reason = "Failed", Clip(err.Error())
+			}
+			if err := c.persist(r, nil, nil); err == nil {
+				c.Wake()
+			} else {
+				original.Status, original.Reason = "Waiting", "task expansion requires record capacity: "+Clip(err.Error())
+				_ = c.persist(original, nil, nil)
+			}
+			continue
+		}
 		if len(r.Attempts) >= r.Process.MaxAttempts {
 			r.Status = "Waiting"
 			r.Reason = "run attempt allowance exhausted"
@@ -574,6 +582,7 @@ func (c *Core) tick() time.Duration {
 		a2 := Attempt{
 			ID:      "attempt_" + rand.Text(),
 			Step:    r.Step,
+			Visit:   r.Visit,
 			Profile: r.NextProfile,
 			State:   NotStarted,
 			Started: time.Now().UTC(),
@@ -592,6 +601,23 @@ func (c *Core) tick() time.Duration {
 			r.Status = "Waiting"
 			r.Reason = Clip(e.Error())
 			_ = c.persist(r, nil, nil)
+			continue
+		}
+		a2.EvidenceKey = c.evidenceKey(r, ass)
+		if prior := priorEvidence(r, a2.EvidenceKey); prior != nil {
+			zero := int64(0)
+			a2.State, a2.Released, a2.FinishedAt = Finished, true, time.Now().UTC()
+			a2.End, a2.ReusedFrom = Clone(prior.End), prior.ID
+			a2.Usage = Usage{InputTokens: &zero, OutputTokens: &zero, CachedInputTokens: &zero}
+			r.Attempts = append(r.Attempts, a2)
+			arts := c.finish(&r, len(r.Attempts)-1)
+			if err := c.persist(r, arts, nil); err == nil {
+				c.Wake()
+			} else {
+				original := Clone(c.runs[id])
+				original.Status, original.Reason = "Waiting", "check reuse requires record capacity: "+Clip(err.Error())
+				_ = c.persist(original, nil, nil)
+			}
 			continue
 		}
 		r.Attempts = append(r.Attempts, a2)
@@ -613,7 +639,10 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 	if e != nil {
 		return Assignment{}, e
 	}
-	inputs, e := bindings(r, step.Inputs)
+	inputs := Clone(r.StepInputs)
+	if inputs == nil {
+		inputs, e = bindings(r, step.Inputs)
+	}
 	if e != nil {
 		return Assignment{}, e
 	}
@@ -630,12 +659,32 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		Task:        r.Roles[step.Role].Purpose,
 		OutputTypes: Clone(r.Roles[step.Role].Outputs),
 		AllowHelp:   step.Escalation != nil,
+		Outcomes:    stepOutcomes(step),
 		Deadline:    a.Deadline,
 	}, nil
 }
 func bindings(r Run, bs map[string]Binding) (map[string]Value, error) {
 	out := map[string]Value{}
 	for name, b := range bs {
+		if b.FromCandidate {
+			found := false
+			for i := len(r.Attempts) - 1; i >= 0; i-- {
+				a := r.Attempts[i]
+				if !a.Superseded && a.Source != nil && a.Source.PatchID != "" && a.End != nil && a.End.Kind == "returned" && a.End.Result != nil && a.End.Result.Outcome != "needs_help" {
+					out[name] = Value{ArtifactID: a.Source.PatchID}
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, errors.New("current accepted source candidate unavailable")
+			}
+			continue
+		}
+		if b.Literal != nil {
+			out[name] = Clone(*b.Literal)
+			continue
+		}
 		if b.FromInput != "" {
 			v, ok := r.Inputs[b.FromInput]
 			if !ok {
@@ -654,7 +703,7 @@ func bindings(r Run, bs map[string]Binding) (map[string]Value, error) {
 		found := false
 		for i := len(r.Attempts) - 1; i >= 0; i-- {
 			a := r.Attempts[i]
-			if a.Step == index && a.End != nil && a.End.Kind == "returned" && a.End.Result != nil && a.End.Result.Outcome == "ready" {
+			if a.Step == index && (!a.Superseded || b.Previous) && a.End != nil && a.End.Kind == "returned" && a.End.Result != nil && a.End.Result.Outcome != "needs_help" {
 				v, ok := a.End.Result.Outputs[b.Output]
 				if ok {
 					out[name] = v
@@ -664,7 +713,10 @@ func bindings(r Run, bs map[string]Binding) (map[string]Value, error) {
 			}
 		}
 		if !found {
-			return nil, fmt.Errorf("required output %s.%s unavailable", b.FromStep, b.Output)
+			if b.Default == nil {
+				return nil, fmt.Errorf("required output %s.%s unavailable", b.FromStep, b.Output)
+			}
+			out[name] = Clone(*b.Default)
 		}
 	}
 	return out, nil
@@ -688,7 +740,10 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 		case "release":
 			err = c.executor.Release(ctx, id)
 		case "release_run":
-			err = c.executor.(RunResources).ReleaseRun(ctx, runID)
+			c.mu.Lock()
+			r := Clone(c.runs[runID])
+			c.mu.Unlock()
+			err = c.executor.(RunResources).ReleaseRun(ctx, r)
 		}
 		c.mu.Lock()
 		defer c.mu.Unlock()
@@ -843,6 +898,11 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 			return
 		}
 		if e := c.persist(r, arts, nil); e != nil && a.State == Finished {
+			saved := c.runs[runID]
+			r.Visit, r.StepInputs, r.RouteUses, r.Decision = saved.Visit, saved.StepInputs, saved.RouteUses, saved.Decision
+			for i := range saved.Attempts {
+				r.Attempts[i].Superseded = saved.Attempts[i].Superseded
+			}
 			if a.Source != nil {
 				a.State = Unknown
 				a.NextCheck = time.Now().Add(fallback)
@@ -875,13 +935,27 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 		b, _ := json.Marshal(result)
 		if len(b) > int(c.disk.Policy.Database.MaxRecord)/2 {
 			end = &ExecutionEnd{Kind: "failed", Reason: "result exceeds bounded result allowance"}
-		} else if result.Outcome == "ready" {
+		} else if result.Outcome == "ready" || step.Routes[result.Outcome].Next != "" {
 			if e := ValidateValues(result.Outputs, r.Roles[step.Role].Outputs); e != nil {
 				end = &ExecutionEnd{Kind: "failed", Reason: Clip(e.Error())}
 			} else {
 				for _, v := range result.Outputs {
 					if v.ArtifactID != "" {
 						if !strings.HasPrefix(v.ArtifactID, a.ID+"/") {
+							// A generated task join forwards a selected, already committed
+							// input reference; it never manufactures artifact ownership.
+							profile, _ := r.Roles[step.Role].Profile(a.Profile)
+							if profile.Harness == "deterministic" && profile.Mode == "collect" {
+								inputs, _ := bindings(*r, step.Inputs)
+								matched := false
+								for _, input := range inputs {
+									matched = matched || input.ArtifactID == v.ArtifactID
+								}
+								artifact, err := c.store.Artifact(c.ctx, v.ArtifactID)
+								if matched && err == nil && artifact.RunID == r.ID {
+									continue
+								}
+							}
 							end = &ExecutionEnd{Kind: "failed", Reason: "output artifact does not belong to this attempt"}
 							break
 						}
@@ -911,29 +985,9 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 		r.Reason = "attempt deadline reached"
 		return arts
 	}
-	attempts := 0
-	for _, x := range r.Attempts {
-		if x.Step == a.Step {
-			attempts++
-		}
-	}
-	if end.Kind == "returned" && end.Result.Outcome == "ready" {
-		r.Step++
-		r.NextProfile = ""
-		r.Escalations = 0
-		r.Reason = ""
-		if r.Step == len(r.Process.Steps) {
-			outputs, e := bindings(*r, r.Process.Outputs)
-			if e != nil {
-				r.Status = "Failed"
-				r.Reason = Clip(e.Error())
-			} else {
-				r.Outputs = outputs
-				r.Status = "Completed"
-			}
-		} else {
-			r.Status = "Queued"
-		}
+	attempts := visitAttempts(*r)
+	if end.Kind == "returned" && end.Result.Outcome != "needs_help" {
+		c.route(r, a)
 		return arts
 	}
 	if end.Kind == "returned" {
@@ -994,6 +1048,9 @@ func (c *Core) Collect() error {
 			continue
 		}
 		if resources, ok := c.executor.(RunResources); ok {
+			if !r.ResourcesReleased {
+				continue // Failed source without complete recovery proof is retained.
+			}
 			if e = resources.ForgetRun(c.ctx, id); e != nil {
 				return e
 			}

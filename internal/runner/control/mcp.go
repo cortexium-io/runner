@@ -46,43 +46,41 @@ func add[In any](s *mcp.Server, name, description string, f func(context.Context
 		if e != nil {
 			return nil, nil, e
 		}
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "Runner result is in structuredContent."}}}, out, nil
+		data, e := json.Marshal(out)
+		if e != nil {
+			return nil, nil, e
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}}, out, nil
 	})
 }
 func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 	s := mcp.NewServer(&mcp.Implementation{Name: "cortexium-runner", Version: "0.1.0-core"}, nil)
 	add(s, "runner_start", "Start an explicitly selected project process. Reuse request_id after an uncertain response.", func(ctx context.Context, in StartArgs) (any, error) {
-		values := map[string]runner.Value{}
-		for k, v := range in.Inputs {
-			b, e := json.Marshal(v)
-			if e != nil {
-				return nil, e
-			}
-			values[k] = runner.Value{Inline: b}
-		}
-		for k, id := range in.Artifacts {
-			if _, ok := values[k]; ok {
-				return nil, fmt.Errorf("input %s is both inline and artifact", k)
-			}
-			values[k] = runner.Value{ArtifactID: id}
-		}
-		r, e := c.Start(runner.StartRequest{
-			RequestID: in.RequestID,
-			Project:   in.Project,
-			Process:   in.Process,
-			SourceRef: in.SourceRef,
-			Inputs:    values,
-		})
+		r, e := start(c, in)
 		if e != nil {
 			return nil, e
 		}
 		return summary(r), nil
+	})
+	add(s, "runner_run", "Start or rejoin a selected process, follow configured steps/correction routes and wait in Go until completion or Waiting. Reuse request_id after disconnect; disconnect does not cancel work or grant additional allowance.", func(ctx context.Context, in StartArgs) (any, error) {
+		r, err := start(c, in)
+		if err != nil {
+			return nil, err
+		}
+		return result(ctx, c, ResultArgs{RunID: r.ID, Wait: true})
+	})
+	add(s, "runner_result", "Read compact status, bounded output previews, artifact references, elapsed time, known token usage and cleanup state. Set wait to join completion/Waiting without model polling; unknown usage remains explicit.", func(ctx context.Context, in ResultArgs) (any, error) {
+		return result(ctx, c, in)
 	})
 	add(s, "runner_status", "Compact current status, storage accounting and configuration errors; at most 100 run summaries.", func(context.Context, struct{}) (any, error) { return c.Status(), nil })
 	add(s, "runner_inspect", "Inspect one bounded run record, including selected setup, attempts and result references.", func(ctx context.Context, in RunArgs) (any, error) { return c.Get(in.RunID) })
 	add(s, "runner_cancel", "Request cancellation. Terminal cancellation requires observed execution settlement.", func(ctx context.Context, in RunArgs) (any, error) { r, e := c.Cancel(in.RunID); return summary(r), e })
 	add(s, "runner_retry", "Retry settled failed work, retaining consumed attempts. extra_attempts explicitly grants additional allowance.", func(ctx context.Context, in runner.RetryRequest) (any, error) {
 		r, e := c.Retry(in)
+		return summary(r), e
+	})
+	add(s, "runner_decide", "Approve or reject one saved decision using its exact decision_id. Does not grant extra attempts or approve a different candidate.", func(ctx context.Context, in runner.DecisionRequest) (any, error) {
+		r, e := c.Decide(in)
 		return summary(r), e
 	})
 	add(s, "runner_wait", "Wait in code for a run revision/completion, without a model status-polling loop. A timeout is not run failure.", func(ctx context.Context, in WaitArgs) (any, error) {
@@ -141,6 +139,29 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 		h.ServeHTTP(w, r)
+	})
+}
+func start(c *runner.Core, in StartArgs) (runner.Run, error) {
+	values := map[string]runner.Value{}
+	for k, v := range in.Inputs {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return runner.Run{}, err
+		}
+		values[k] = runner.Value{Inline: b}
+	}
+	for k, id := range in.Artifacts {
+		if _, ok := values[k]; ok {
+			return runner.Run{}, fmt.Errorf("input %s is both inline and artifact", k)
+		}
+		values[k] = runner.Value{ArtifactID: id}
+	}
+	return c.Start(runner.StartRequest{
+		RequestID: in.RequestID,
+		Project:   in.Project,
+		Process:   in.Process,
+		SourceRef: in.SourceRef,
+		Inputs:    values,
 	})
 }
 func summary(r runner.Run) runner.Summary {

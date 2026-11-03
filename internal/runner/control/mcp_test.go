@@ -15,6 +15,7 @@ import (
 	"github.com/cortexium-io/runner/internal/runner/config"
 	"github.com/cortexium-io/runner/internal/runner/execution"
 	"github.com/cortexium-io/runner/internal/runner/sqlite"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Owns the actual MCP wire/client contract and local access boundary. Execution
@@ -96,7 +97,6 @@ func TestMCPControlRoundTrip(t *testing.T) {
 	if _, err = Call(ctx, session, "runner_start", invalid); err == nil || !strings.Contains(err.Error(), "project is not configured") {
 		t.Fatalf("tool failure lost its reason: %v", err)
 	}
-	var started runner.Summary
 	call := func(name string, args, out any) {
 		t.Helper()
 		b, err := Call(ctx, session, name, args)
@@ -107,15 +107,35 @@ func TestMCPControlRoundTrip(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	call("runner_start", args, &started)
+	var finished Result
+	call("runner_run", args, &finished)
+	if finished.Status != "Completed" || finished.CleanupPending || !finished.ExecutionSettled || finished.Usage.IncompleteAttempts != 0 || finished.Usage.KnownTotalTokens != 0 || finished.Outputs["result"].Preview != "Hello over MCP" {
+		t.Fatalf("compact completion lost result/cleanup/accounting: %+v", finished)
+	}
 	var replay runner.Summary
 	call("runner_start", args, &replay)
-	if replay.ID != started.ID {
+	if replay.ID != finished.ID {
 		t.Fatal("wire replay created another run")
 	}
-	for !startedStatusTerminal(started.Status) {
-		call("runner_wait", WaitArgs{RunID: started.ID, After: started.Revision}, &started)
+	var joined Result
+	call("runner_run", args, &joined)
+	if joined.ID != finished.ID || joined.Attempts != 2 {
+		t.Fatal("rejoining completion dispatched more work")
 	}
+	call("runner_result", ResultArgs{RunID: finished.ID, Wait: true}, &joined)
+	// Native Codex consumes MCP text content. The same compact result must be
+	// readable there, not only in structuredContent used by the Go client.
+	wireResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "runner_result", Arguments: ResultArgs{RunID: finished.ID}})
+	if err != nil || wireResult.IsError || len(wireResult.Content) != 1 {
+		t.Fatalf("native-facing result unavailable: %+v, %v", wireResult, err)
+	}
+	text, ok := wireResult.Content[0].(*mcp.TextContent)
+	var nativeResult Result
+	if !ok || json.Unmarshal([]byte(text.Text), &nativeResult) != nil || nativeResult.ID != finished.ID || nativeResult.Status != "Completed" || nativeResult.Outputs["result"].Preview != "Hello over MCP" {
+		t.Fatal("native-facing MCP text hides the actual compact result")
+	}
+	var started runner.Summary
+	call("runner_wait", WaitArgs{RunID: finished.ID}, &started)
 	var result runner.Run
 	call("runner_inspect", RunArgs{RunID: started.ID}, &result)
 	if result.Status != "Completed" || string(result.Outputs["result"].Inline) != `"Hello over MCP"` || len(result.Attempts) != 2 {
@@ -131,8 +151,4 @@ func TestMCPControlRoundTrip(t *testing.T) {
 	if edited["file"] != "instance.yaml" {
 		t.Fatal("configuration response missing")
 	}
-}
-
-func startedStatusTerminal(status string) bool {
-	return status == "Completed" || status == "Failed" || status == "Cancelled" || status == "Waiting"
 }

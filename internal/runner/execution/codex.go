@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -232,10 +233,11 @@ func observation(j nativeJob) runner.Observation {
 	}
 	if j.Workspace != nil {
 		o.Source = &runner.SourceResult{
-			Repository: j.Workspace.Repository,
-			Base:       j.Workspace.Base,
-			WorkDir:    j.Workspace.WorkDir,
-			AttemptID:  j.Assignment.AttemptID,
+			Repository:   j.Workspace.Repository,
+			Base:         j.Workspace.Base,
+			WorkDir:      j.Workspace.WorkDir,
+			AttemptID:    j.Assignment.AttemptID,
+			InputPatchID: j.Workspace.SeedPatchID,
 		}
 		if j.Workspace.Candidate != nil {
 			o.Source.InputPatchID = j.Workspace.Candidate.PatchID
@@ -293,6 +295,11 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 			return e
 		}
 		j.Workspace = &workspace
+		if j.Assignment.Setup.Profile.Access == "workspace-read" {
+			if err := c.reviewInput(j); err != nil {
+				return err
+			}
+		}
 		if e = c.mutate(id, func(saved *nativeJob) { saved.Workspace = &workspace }); e != nil {
 			return e
 		}
@@ -365,7 +372,7 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 		"approvalPolicy":             "never",
 		"sandbox":                    "read-only",
 		"cwd":                        filepath.Join(c.disk.Root, "native", "empty"),
-		"baseInstructions":           nativeBase + p.Instructions,
+		"baseInstructions":           p.Instructions + nativeBase,
 		"developerInstructions":      "Perform only the supplied Runner assignment and return its declared structured result.",
 		"environments":               []any{},
 		"runtimeWorkspaceRoots":      []any{},
@@ -386,7 +393,11 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 		params["permissions"] = "runner-edit"
 		params["cwd"] = j.Workspace.WorkDir
 		params["runtimeWorkspaceRoots"] = []string{j.Workspace.WorkDir}
-		params["baseInstructions"] = workspaceBase + p.Instructions
+		params["baseInstructions"] = p.Instructions + workspaceBase
+		if p.Access == "workspace-read" {
+			params["permissions"] = "runner-check"
+			params["baseInstructions"] = p.Instructions + reviewBase
+		}
 		env, e := c.workerEnvironment(j)
 		if e != nil {
 			return e
@@ -422,6 +433,9 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 		_ = json.Unmarshal(started.Roots, &roots)
 		rootsOK = len(roots) == 1 && roots[0] == j.Workspace.WorkDir
 		sandboxOK = started.Active.ID == "runner-edit" && started.Sandbox.Type == "workspaceWrite" && !started.Sandbox.Network
+		if p.Access == "workspace-read" {
+			sandboxOK = started.Active.ID == "runner-check" && started.Sandbox.Type == "workspaceWrite" && !started.Sandbox.Network
+		}
 		var envs []struct {
 			ID    string   `json:"environmentId"`
 			Cwd   string   `json:"cwd"`
@@ -500,7 +514,8 @@ func (c *Codex) setupTimeout(id string) time.Duration {
 	return 20 * time.Second
 }
 
-const workspaceBase = "You execute one bounded source task in the supplied workspace. Use apply_patch for edits and bounded local shell reads for context. This profile provides Go and basic system commands; do not try alternate interpreters or request login shells. Do not run tests, use Git, add dependencies, change protected files, use Python or start other work. After the requested edit and readback, return the declared structured result immediately with outcome ready. Runner retains the source. Follow the assignment's declared verification arrangement.\n"
+const workspaceBase = "You execute one bounded source task in the supplied workspace. Use apply_patch for edits and bounded local shell reads for context. This profile provides Go and basic system commands; do not try alternate interpreters or request login shells. Do not use Git, add dependencies, change protected files, use Python or start other work. Run checks only when explicitly authorized by the selected role and task, within their exact scope and budget. Finish the assigned work and return the declared structured result. Runner retains the source and runs the configured verification.\n"
+const reviewBase = "You review one Runner candidate against the original request and supplied check results. Source is read-only; scratch is writable. Read the supplied patch and only the affected source/contracts needed to judge it. Do not edit source, run tests, use Git, install tools, launch agents or repair anything. Return the declared structured review, including concrete blockers or missing proof. Do not approve incomplete work.\n"
 const nativeBase = "You execute one input-only Runner assignment. Use the supplied text only. Do not call tools, access files, ask follow-up questions or start other work. Return exactly the structured result required by the output schema. Use ready when the requested outputs are available. Use needs_help only when that outcome is declared.\n"
 
 func nativePayload(a runner.Assignment) (string, any, error) {
@@ -508,11 +523,19 @@ func nativePayload(a runner.Assignment) (string, any, error) {
 		return "", nil, errors.New("an explicit task purpose is required")
 	}
 	p := a.Setup.Profile
-	if p.Harness != "codex" || (p.Access != "input-only" && p.Access != "workspace-write") || p.Model == "" || p.Reasoning == "" || p.MaxInput < 128 || p.MaxOutput < 128 {
+	if p.Harness != "codex" || (p.Access != "input-only" && p.Access != "workspace-write" && p.Access != "workspace-read") || p.Model == "" || p.Reasoning == "" || p.MaxInput < 128 || p.MaxOutput < 128 {
 		return "", nil, errors.New("incomplete input-only Codex profile")
 	}
 	inputs := map[string]string{}
 	for k, v := range a.Inputs {
+		if p.Access == "workspace-write" && k == "patch" && v.ArtifactID != "" {
+			inputs[k] = "Runner already restored the retained patch into this workspace. Continue from these files; do not reapply the patch."
+			continue
+		}
+		if p.Access == "workspace-read" && k == "patch" && v.ArtifactID != "" {
+			inputs[k] = filepath.Join(".runner-tmp", a.AttemptID, "inputs", "patch")
+			continue
+		}
 		var s string
 		if v.ArtifactID != "" || json.Unmarshal(v.Inline, &s) != nil {
 			return "", nil, errors.New("only inline text inputs are supported by this adapter")
@@ -537,7 +560,9 @@ func nativePayload(a runner.Assignment) (string, any, error) {
 		return "", nil, errors.New("at least one output is required")
 	}
 	out := map[string]any{"type": "object", "properties": props, "required": required, "additionalProperties": false}
-	outcomes := []string{"ready"}
+	outcomes := append([]string{"ready"}, a.Outcomes...)
+	slices.Sort(outcomes)
+	outcomes = slices.Compact(outcomes)
 	var outputs any = out
 	if a.AllowHelp {
 		outcomes = append(outcomes, "needs_help")
@@ -565,6 +590,8 @@ func nativePayload(a runner.Assignment) (string, any, error) {
 	base := nativeBase
 	if p.Access == "workspace-write" {
 		base = workspaceBase
+	} else if p.Access == "workspace-read" {
+		base = reviewBase
 	}
 	if len(payload)+len(base)+len(p.Instructions)+len(sb) > int(p.MaxInput) {
 		return "", nil, errors.New("resolved input/instructions/schema exceed max_input")
@@ -703,11 +730,19 @@ func (c *Codex) reconcile(id string) {
 	if err == nil {
 		c.connMu.Lock()
 		currentGeneration := c.generation
+		subscribed := c.subscribed[j.ThreadID] == peer
 		c.connMu.Unlock()
 		if j.Workspace != nil && j.Generation != "" && j.Generation != currentGeneration {
 			_ = c.mutate(id, func(j *nativeJob) {
 				j.Reason = "native service changed; original child execution settlement is unconfirmed"
 			})
+			return
+		}
+		// The accepted turn and live subscription are the execution evidence.
+		// Its rollout may not be flushed yet. Read history only to reconcile lost
+		// ownership, dispatch uncertainty or a requested stop.
+		if j.Stage == "active" && j.TurnID != "" && j.Reason == "" && !j.StopRequested &&
+			j.Generation != "" && j.Generation == currentGeneration && subscribed {
 			return
 		}
 		var r struct {
@@ -935,7 +970,7 @@ func parseNativeResult(a runner.Assignment, t nativeTurn) *runner.ExecutionEnd {
 	for k, v := range result.Outputs {
 		r.Outputs[k] = runner.Text(v)
 	}
-	if r.Outcome == "ready" {
+	if r.Outcome == "ready" || slices.Contains(a.Outcomes, r.Outcome) {
 		if err := runner.ValidateValues(r.Outputs, nativeOutputTypes(a)); err != nil {
 			return fail(runner.Clip(err.Error()))
 		}

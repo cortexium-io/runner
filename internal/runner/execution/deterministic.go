@@ -97,7 +97,21 @@ func (d *Deterministic) observe(ctx context.Context, j job) (runner.Observation,
 		result := runner.StepResult{Outcome: "ready", Outputs: map[string]runner.Value{}}
 		var data []byte
 		var e error
-		if p.Input != "" {
+		if p.Mode == "collect" {
+			values := map[string]any{}
+			for name, v := range j.Assignment.Inputs {
+				if v.ArtifactID != "" {
+					values[name] = map[string]string{"artifact_id": v.ArtifactID}
+				} else {
+					var value any
+					if err := json.Unmarshal(v.Inline, &value); err != nil {
+						return runner.Observation{}, err
+					}
+					values[name] = value
+				}
+			}
+			data, e = json.Marshal(values)
+		} else if p.Input != "" {
 			v, ok := j.Assignment.Inputs[p.Input]
 			if !ok {
 				e = fmt.Errorf("missing profile input %s", p.Input)
@@ -129,6 +143,11 @@ func (d *Deterministic) observe(ctx context.Context, j job) (runner.Observation,
 				e = d.disk.Write("artifacts/"+artifact, data, j.Assignment.Limits.MaxArtifact)
 				if e == nil {
 					result.Outputs[p.Output] = runner.Value{ArtifactID: artifact}
+				}
+			case "collect":
+				result.Outputs[p.Output] = runner.Text(string(data))
+				if p.Input != "" {
+					result.Outputs["last"] = j.Assignment.Inputs[p.Input]
 				}
 			case "echo", "log":
 				result.Outputs[p.Output] = runner.Text(string(data))

@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -40,6 +41,7 @@ type Commands struct {
 	read         func(context.Context, string) ([]byte, error)
 	mu           sync.Mutex
 	preparing    map[string]bool
+	running      map[string]bool
 	wake         func(string)
 	closed       bool
 	launchWorker func(string, func()) error
@@ -56,6 +58,7 @@ func NewCommands(d *runner.Disk, cfg *runner.CodexSettings, w *Workspaces, read 
 		workspaces: w,
 		read:       read,
 		preparing:  map[string]bool{},
+		running:    map[string]bool{},
 		ctx:        ctx,
 		cancel:     cancel,
 	}
@@ -213,8 +216,14 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 		return err
 	}
 	job.Workspace = &w
-	if patch := a.Inputs["patch"].ArtifactID; patch != "" && (w.Candidate == nil || w.Candidate.PatchID != patch) {
-		return errors.New("patch does not identify this workspace's candidate")
+	if patch := a.Inputs["patch"].ArtifactID; patch != "" {
+		expected, ready := w.SeedPatchID, w.SeedReady
+		if w.Candidate != nil {
+			expected, ready = w.Candidate.PatchID, true
+		}
+		if !ready || expected != patch {
+			return errors.New("patch does not identify this workspace's prepared source")
+		}
 	}
 	local := &Codex{disk: c.disk, cfg: c.cfg, ctx: ctx}
 	env, err := local.workerEnvironment(nativeJob{Assignment: a, Workspace: &w})
@@ -259,7 +268,7 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 	for p, mode := range paths {
 		fmt.Fprintf(&config, "%s=%s\n", strconv.Quote(p), strconv.Quote(mode))
 	}
-	config.WriteString("[permissions.runner-command.network]\nenabled=false\n")
+	fmt.Fprintf(&config, "[permissions.runner-command.network]\nenabled=%t\n", spec.Network)
 	control := commandControl(a.AttemptID)
 	if err = c.disk.Write(control+"/config/config.toml", []byte(config.String()), 16384); err != nil {
 		return err
@@ -299,10 +308,16 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 	if err = c.save(*job); err != nil {
 		return err
 	}
-	if err = c.launchWorker(filepath.Join(c.disk.Root, control, "spec.json"), func() { c.notify(a.AttemptID) }); err != nil {
+	if err = c.launchWorker(filepath.Join(c.disk.Root, control, "spec.json"), func() {
+		c.mu.Lock()
+		delete(c.running, a.AttemptID)
+		c.mu.Unlock()
+		c.notify(a.AttemptID)
+	}); err != nil {
 		job.End = &runner.ExecutionEnd{Kind: "failed", Reason: "command worker could not start: " + runner.Clip(err.Error())}
 		return c.save(*job)
 	}
+	c.running[a.AttemptID] = true
 	return nil
 }
 func (c *Commands) Observe(ctx context.Context, id string) (runner.Observation, error) {
@@ -360,7 +375,11 @@ func (c *Commands) Observe(ctx context.Context, id string) (runner.Observation, 
 	var receipt struct {
 		PID int `json:"pid"`
 	}
-	if e != nil || json.Unmarshal(started, &receipt) != nil || !processAlive(receipt.PID) {
+	if errors.Is(e, os.ErrNotExist) && c.running[id] {
+		// The launch succeeded and its wait callback has not observed exit.
+		// A restarted owner lacks this evidence and still needs the receipt.
+		o.Reason = "command worker starting"
+	} else if e != nil || json.Unmarshal(started, &receipt) != nil || !processAlive(receipt.PID) {
 		o.State = runner.Unknown
 		o.Reason = "command worker settlement is unconfirmed; retain its workspace"
 	} else {
@@ -437,6 +456,11 @@ func commandValue(value string, job commandJob, env map[string]string) string {
 	for name, input := range job.Assignment.Inputs {
 		if input.ArtifactID != "" {
 			bindings = append(bindings, "{input."+name+"}", filepath.Join(job.Workspace.WorkDir, ".runner-tmp", job.Assignment.AttemptID, "inputs", name))
+		} else {
+			var text string
+			if json.Unmarshal(input.Inline, &text) == nil {
+				bindings = append(bindings, "{text."+name+"}", text)
+			}
 		}
 	}
 	return strings.NewReplacer(bindings...).Replace(value)
@@ -445,10 +469,32 @@ func collectCommand(d *runner.Disk, job commandJob, result commandResult) (*runn
 	if result.Kind == "stopped" {
 		return &runner.ExecutionEnd{Kind: "stopped", Reason: "command worker confirmed its process group stopped"}, nil
 	}
-	if result.ExitCode != 0 {
+	cmd := job.Assignment.Setup.Profile.Command
+	outcome, mapped := cmd.ExitOutcomes[result.ExitCode]
+	if result.ExitCode != 0 && !mapped {
 		return &runner.ExecutionEnd{Kind: "failed", Reason: fmt.Sprintf("command exited %d: %s", result.ExitCode, runner.Clip(result.Diagnostic))}, nil
 	}
-	outputs := map[string]runner.Value{"check": runner.Text("command exited 0\n" + runner.Clip(result.Diagnostic))}
+	if !mapped {
+		outcome = "ready"
+	}
+	reason := ""
+	if cmd.Result != "" {
+		data, err := commandArtifact(filepath.Join(job.Workspace.WorkDir, ".runner-tmp", job.Assignment.AttemptID), cmd.Result, job.Assignment.Limits.MaxRecord/2)
+		if err != nil {
+			return &runner.ExecutionEnd{Kind: "failed", Reason: "command result: " + runner.Clip(err.Error())}, nil
+		}
+		var domain struct {
+			Outcome string `json:"outcome"`
+			Reason  string `json:"reason"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if err = decoder.Decode(&domain); err != nil || decoder.Decode(new(any)) != io.EOF || domain.Outcome == "" || len(domain.Reason) > 512 {
+			return &runner.ExecutionEnd{Kind: "failed", Reason: "invalid command domain result"}, nil
+		}
+		outcome, reason = domain.Outcome, domain.Reason
+	}
+	outputs := map[string]runner.Value{"check": runner.Text(fmt.Sprintf("command exited %d\n%s", result.ExitCode, runner.Clip(result.Diagnostic)))}
 	if file := job.Assignment.Setup.Profile.Command.Artifact; file != "" {
 		data, err := commandArtifact(filepath.Join(job.Workspace.WorkDir, ".runner-tmp", job.Assignment.AttemptID), file, job.Assignment.Limits.MaxArtifact)
 		if err != nil {
@@ -460,7 +506,7 @@ func collectCommand(d *runner.Disk, job commandJob, result commandResult) (*runn
 		}
 		outputs["artifact"] = runner.Value{ArtifactID: artifact}
 	}
-	return &runner.ExecutionEnd{Kind: "returned", Result: &runner.StepResult{Outcome: "ready", Outputs: outputs}}, nil
+	return &runner.ExecutionEnd{Kind: "returned", Result: &runner.StepResult{Outcome: outcome, Reason: reason, Outputs: outputs}}, nil
 }
 func commandArtifact(scratch, name string, limit runner.Bytes) ([]byte, error) {
 	file := filepath.Join(scratch, name)

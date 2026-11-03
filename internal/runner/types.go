@@ -104,6 +104,8 @@ type CodexSettings struct {
 	AuthFile         string   `json:"auth_file"`
 	StorageLimit     Bytes    `json:"storage_limit"`
 	GoBinary         string   `json:"go_binary,omitempty"`
+	GoModuleCache    string   `json:"go_module_cache,omitempty"`
+	GoCheckBinary    string   `json:"go_check_binary,omitempty"`
 	ReadOnlyPaths    []string `json:"read_only_paths,omitempty"`
 	CommandReadPaths []string `json:"command_read_paths,omitempty"`
 }
@@ -163,6 +165,11 @@ type Command struct {
 	Directory string            `json:"directory,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
 	Artifact  string            `json:"artifact,omitempty"`
+	Network   bool              `json:"network,omitempty"`
+	// Result is a scratch JSON file containing only outcome/reason. Expected
+	// nonzero exits can instead be mapped to domain outcomes explicitly.
+	Result       string         `json:"result,omitempty"`
+	ExitOutcomes map[int]string `json:"exit_outcomes,omitempty"`
 }
 type Role struct {
 	ID             string             `json:"id"`
@@ -192,6 +199,20 @@ type Binding struct {
 	FromInput string `json:"from_input,omitempty"`
 	FromStep  string `json:"from_step,omitempty"`
 	Output    string `json:"output,omitempty"`
+	Default   *Value `json:"default,omitempty"`
+	FromItem  string `json:"from_item,omitempty"`
+	Literal   *Value `json:"literal,omitempty"`
+	// Previous explicitly carries feedback across a correction boundary.
+	// Ordinary proof bindings exclude superseded results.
+	Previous      bool `json:"previous,omitempty"`
+	FromCandidate bool `json:"from_candidate,omitempty"`
+}
+
+// Route is declared policy, never a next-step instruction supplied by a worker.
+type Route struct {
+	Next     string `json:"next"`
+	MaxTimes int    `json:"max_times,omitempty"`
+	Approval bool   `json:"approval,omitempty"`
 }
 type Escalation struct {
 	On        string `json:"on"`
@@ -205,6 +226,24 @@ type Step struct {
 	Role           string             `json:"role"`
 	Inputs         map[string]Binding `json:"inputs"`
 	Escalation     *Escalation        `json:"escalation,omitempty"`
+	Routes         map[string]Route   `json:"routes,omitempty"`
+	ForEach        *TaskGroup         `json:"for_each,omitempty"`
+	Reuse          bool               `json:"reuse,omitempty"`
+}
+
+// Task data selects work and dependencies, never new roles or permissions.
+// Items are executed in stable dependency order in the run's owned workspace.
+type TaskGroup struct {
+	Items  Binding           `json:"items"`
+	Inputs map[string]string `json:"inputs"`
+	Steps  []Step            `json:"steps"`
+	Output Binding           `json:"output"`
+}
+
+type TaskItem struct {
+	ID        string                     `json:"id"`
+	DependsOn []string                   `json:"depends_on,omitempty"`
+	Inputs    map[string]json.RawMessage `json:"inputs"`
 }
 type Process struct {
 	ID                 string             `json:"id"`
@@ -285,6 +324,7 @@ type Assignment struct {
 	Task        string            `json:"task,omitempty"`
 	OutputTypes map[string]string `json:"output_types,omitempty"`
 	AllowHelp   bool              `json:"allow_help,omitempty"`
+	Outcomes    []string          `json:"outcomes,omitempty"`
 	Deadline    time.Time         `json:"deadline,omitempty"`
 }
 type StepResult struct {
@@ -338,7 +378,7 @@ type Executor interface {
 
 // RunResources owns source workspaces independently of attempt sessions.
 type RunResources interface {
-	ReleaseRun(context.Context, string) error
+	ReleaseRun(context.Context, Run) error
 	ForgetRun(context.Context, string) error
 }
 type SourceResult struct {
@@ -354,6 +394,10 @@ type Attempt struct {
 	Source          *SourceResult   `json:"source,omitempty"`
 	ID              string          `json:"id"`
 	Step            int             `json:"step"`
+	Visit           int             `json:"visit,omitempty"`
+	Superseded      bool            `json:"superseded,omitempty"`
+	EvidenceKey     string          `json:"evidence_key,omitempty"`
+	ReusedFrom      string          `json:"reused_from,omitempty"`
 	Profile         string          `json:"profile"`
 	State           ExecutionState  `json:"state"`
 	Started         time.Time       `json:"started"`
@@ -386,6 +430,10 @@ type Run struct {
 	Outputs           map[string]Value  `json:"outputs,omitempty"`
 	Attempts          []Attempt         `json:"attempts,omitempty"`
 	Step              int               `json:"step"`
+	Visit             int               `json:"visit,omitempty"`
+	StepInputs        map[string]Value  `json:"step_inputs,omitempty"`
+	RouteUses         map[string]int    `json:"route_uses,omitempty"`
+	Decision          *Decision         `json:"decision,omitempty"`
 	NextProfile       string            `json:"next_profile,omitempty"`
 	Escalations       int               `json:"escalations"`
 	Status            string            `json:"status"`
@@ -397,6 +445,15 @@ type Run struct {
 	Revision          int64             `json:"revision"`
 }
 
+type Decision struct {
+	ID        string `json:"id"`
+	AttemptID string `json:"attempt_id"`
+	Step      string `json:"step"`
+	Outcome   string `json:"outcome"`
+	Next      string `json:"next"`
+	Reason    string `json:"reason,omitempty"`
+}
+
 func (r Run) Terminal() bool {
 	return r.Status == "Completed" || r.Status == "Failed" || r.Status == "Cancelled"
 }
@@ -405,7 +462,7 @@ func (r Run) Current() *Attempt {
 		return nil
 	}
 	a := &r.Attempts[len(r.Attempts)-1]
-	if a.Step != r.Step {
+	if a.Step != r.Step || a.Visit != r.Visit {
 		return nil
 	}
 	return a

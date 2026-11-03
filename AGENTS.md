@@ -2,6 +2,15 @@
 
 ## Current authority and scope
 
+On 3 November 2026 the owner authorized completing the agreed development workflow,
+including correction loops, iterative benchmarking, dependent work and full
+end-to-end verification without an external chat coordinating its stages. Reuse
+the existing core, adapters, storage and attempt limits. Qualify with isolated
+fixtures and bounded native work; production product changes, publication and
+installed-service cutover remain separate actions. Preserve the existing pilot
+and the uncommitted process-core work. The complete-process qualification permits
+at most four Sol/xhigh native turns; its durable receipt prevents silent repeats.
+
 This repository owns Cortexium Runner. Use explicit user direction, this file,
 then the [process-core design](docs/process-core-design.md), implemented contracts
 and tests. [Architecture](docs/architecture.md) explains the actual first slice.
@@ -96,7 +105,33 @@ exercise. The new command harness therefore uses a durable Go worker around
 existing fixed Go-check adapter is unchanged. Preserve the earlier uncertain
 results rather than treating service shutdown as command settlement.
 
+The owner subsequently authorized a lean submit-to-result control path after the
+matched guide-fix comparison. Reuse existing processes and execution lifecycle;
+wait and summarize in Go rather than model polling. This slice adds compact
+CLI/MCP control, not another scheduler, model role, installation or product change.
+Verify with model-free execution and the required Go gates; no further native
+generation is needed for these control/presentation changes.
+
+The owner subsequently authorized correcting the command-startup Waiting race
+and verifying intake permissions without model calls. Keep real uncertainty
+visible; verify ownership through worker lifecycle evidence, not a grace sleep.
+The next comparison must run its entire process, including coordination and
+reporting, in fresh short sessions. Do not coordinate another replay from this
+historical chat or spend model turns for this correction/preflight.
+
 ## Engineering
+
+The owner subsequently authorized updating the Jack's Break pilot to the current
+build and moving its complete scoped delivery process into Runner. External chats
+coordinate only; see [the coordinator contract](docs/coordinator.md). This slice
+adds read-only native review using the existing check permission profile and
+model-free local candidate integration; it does not authorize merging, pushing,
+deploying, silently increasing allowances or introducing another scheduler.
+Preserve the existing checkpoint and run history. Verify the process model-free
+and native permissions with zero model turns; no new product generation is
+required for this cutover. Keep workspace concurrency one until separately
+qualified. Unsupported work must surface a capability gap rather than move into
+the external coordinator.
 
 Use minimum sufficient complexity and idiomatic Go. Keep one coordinator and one
 private transactional store. Core contracts live next to their consumers;

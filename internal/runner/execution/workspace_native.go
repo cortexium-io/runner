@@ -60,6 +60,9 @@ func (c *Codex) nativeConfiguration(ctx context.Context) (string, error) {
 	if c.cfg.GoBinary == "" {
 		return nativeConfig, nil
 	}
+	if e := c.workspaceRuntimeReadiness(); e != nil {
+		return "", e
+	}
 	if e := writableLocation(c.disk.Root); e != nil {
 		return "", e
 	}
@@ -71,6 +74,12 @@ func (c *Codex) nativeConfiguration(ctx context.Context) (string, error) {
 	for _, name := range []string{"runner-input", "runner-edit", "runner-check"} {
 		config += "\n[permissions." + name + ".filesystem]\n\":minimal\"=\"read\"\n" + strconv.Quote(goRoot) + "=\"read\"\n"
 		if name != "runner-input" {
+			if c.cfg.GoModuleCache != "" {
+				config += strconv.Quote(c.cfg.GoModuleCache) + "=\"read\"\n"
+			}
+			if c.cfg.GoCheckBinary != "" {
+				config += strconv.Quote(c.cfg.GoCheckBinary) + "=\"read\"\n"
+			}
 			config += "[permissions." + name + ".filesystem.\":workspace_roots\"]\n"
 			mode := "read"
 			if name == "runner-edit" {
@@ -89,6 +98,9 @@ func (c *Codex) nativeConfiguration(ctx context.Context) (string, error) {
 	return config, nil
 }
 func (c *Codex) workerEnvironment(j nativeJob) (map[string]string, error) {
+	if e := c.workspaceRuntimeReadiness(); e != nil {
+		return nil, e
+	}
 	binary, goRoot, e := c.goInstallation(c.ctx)
 	if e != nil {
 		return nil, e
@@ -102,7 +114,7 @@ func (c *Codex) workerEnvironment(j nativeJob) (map[string]string, error) {
 			return nil, e
 		}
 	}
-	return map[string]string{
+	env := map[string]string{
 		"PATH":        filepath.Dir(binary) + ":/usr/bin:/bin:/usr/sbin:/sbin",
 		"TMPDIR":      scratch,
 		"GOTMPDIR":    filepath.Join(scratch, "tmp"),
@@ -115,7 +127,37 @@ func (c *Codex) workerEnvironment(j nativeJob) (map[string]string, error) {
 		"GOWORK":      "off",
 		"CGO_ENABLED": "0",
 		"GOFLAGS":     "-buildvcs=false",
-	}, nil
+	}
+	if c.cfg.GoModuleCache != "" {
+		env["GOMODCACHE"] = c.cfg.GoModuleCache
+	}
+	if c.cfg.GoCheckBinary != "" {
+		env["RUNNER_GO_CHECK"] = c.cfg.GoCheckBinary
+	}
+	return env, nil
+}
+
+func (c *Codex) workspaceRuntimeReadiness() error {
+	if c.cfg == nil {
+		return nil
+	}
+	if c.cfg.GoModuleCache != "" {
+		path, err := filepath.EvalSymlinks(c.cfg.GoModuleCache)
+		if err != nil {
+			return fmt.Errorf("codex.go_module_cache: %w", err)
+		}
+		info, err := os.Stat(path)
+		if err != nil || !info.IsDir() || !filepath.IsAbs(path) || path == string(filepath.Separator) {
+			return errors.New("codex.go_module_cache must name an existing absolute directory other than the filesystem root")
+		}
+	}
+	if c.cfg.GoCheckBinary != "" {
+		info, err := os.Stat(c.cfg.GoCheckBinary)
+		if err != nil || !filepath.IsAbs(c.cfg.GoCheckBinary) || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+			return errors.New("codex.go_check_binary must name an existing absolute executable file")
+		}
+	}
+	return nil
 }
 func envCommand(env map[string]string, argv ...string) []string {
 	args := []string{"/usr/bin/env", "-i"}
@@ -123,6 +165,24 @@ func envCommand(env map[string]string, argv ...string) []string {
 		args = append(args, k+"="+v)
 	}
 	return append(args, argv...)
+}
+
+// A reviewer reads the retained patch, never an unbounded transcript or a new
+// source snapshot. The run's current candidate must still identify that patch.
+func (c *Codex) reviewInput(j nativeJob) error {
+	id := j.Assignment.Inputs["patch"].ArtifactID
+	if id == "" {
+		return nil
+	}
+	if j.Workspace.Candidate == nil || j.Workspace.Candidate.PatchID != id {
+		return errors.New("review patch differs from the workspace candidate")
+	}
+	data, err := c.disk.Read("artifacts/"+id, j.Assignment.Limits.MaxArtifact)
+	if err != nil {
+		return err
+	}
+	name := filepath.Join("work", j.Assignment.RunID, "source", ".runner-tmp", j.Assignment.AttemptID, "inputs", "patch")
+	return c.disk.Write(name, data, j.Assignment.Limits.MaxArtifact)
 }
 
 // Probe the exact server profiles without requesting a thread or model turn.
@@ -319,6 +379,8 @@ func main(){
  denied:=func(path string){_,err:=os.ReadFile(path);if !errors.Is(err,os.ErrPermission){panic("private/Git/symlink read boundary")}}
  denied(private);denied(filepath.Join(root,".git"));if escape!=""{denied(escape)}
  for _,name:=range os.Args[5:]{f,err:=os.OpenFile(filepath.Join(root,name),os.O_WRONLY,0);if err==nil{f.Close();panic("protected source write boundary")};if !errors.Is(err,os.ErrPermission){panic("protected source not checked")}}
+ if cache:=os.Getenv("GOMODCACHE");cache!=""{if _,err:=os.ReadDir(cache);err!=nil{panic("module cache read boundary")};target:=filepath.Join(cache,".runner-write-probe");f,err:=os.OpenFile(target,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600);if err==nil{f.Close();os.Remove(target);panic("module cache write boundary")};if !errors.Is(err,os.ErrPermission){panic("module cache not checked")}}
+ if reporter:=os.Getenv("RUNNER_GO_CHECK");reporter!=""{if _,err:=os.ReadFile(reporter);err!=nil{panic("Go check runtime read boundary")};f,err:=os.OpenFile(reporter,os.O_WRONLY,0);if err==nil{f.Close();panic("Go check runtime write boundary")};if !errors.Is(err,os.ErrPermission){panic("Go check runtime not checked")}}
  conn,err:=net.DialTimeout("tcp","127.0.0.1:9",time.Second);if conn!=nil{conn.Close()};if !errors.Is(err,syscall.EPERM)&&!errors.Is(err,syscall.EACCES){panic("network boundary")}
 }
 `
@@ -326,6 +388,12 @@ func main(){
 func workspaceFiles(cfg *runner.CodexSettings, name, goRoot string) map[string]any {
 	files := map[string]any{":minimal": "read", goRoot: "read"}
 	if name != "runner-input" {
+		if cfg.GoModuleCache != "" {
+			files[cfg.GoModuleCache] = "read"
+		}
+		if cfg.GoCheckBinary != "" {
+			files[cfg.GoCheckBinary] = "read"
+		}
 		mode := "read"
 		if name == "runner-edit" {
 			mode = "write"

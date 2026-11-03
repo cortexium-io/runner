@@ -1,0 +1,15 @@
+{
+  "id": "worker",
+  "inputs": {
+    "text": "text"
+  },
+  "outputs": {
+    "result": "text"
+  },
+  "execution": {
+    "harness": "deterministic",
+    "mode": "echo",
+    "input": "text",
+    "output": "result"
+  }
+}

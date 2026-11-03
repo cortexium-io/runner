@@ -1,0 +1,16 @@
+{
+  "id": "integrate",
+  "purpose": "Retain the exact approved candidate on an owned local branch; preserve the working checkout and never merge, push or deploy.",
+  "inputs": {
+    "patch": "artifact",
+    "verdict": "text",
+    "review": "text"
+  },
+  "outputs": {
+    "candidate": "text"
+  },
+  "execution": {
+    "harness": "git-candidate",
+    "access": "workspace-read"
+  }
+}

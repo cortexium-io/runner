@@ -26,9 +26,7 @@ go build -o cortexium-runner ./cmd/cortexium-runner
 In another terminal, supply the actual task as a run input:
 
 ```sh
-./cortexium-runner start --data "$HOME/.local/share/runner-go-example" --project seats --inputs '{"request":"Fix the behavior described by the existing failing tests."}'
-./cortexium-runner inspect --data "$HOME/.local/share/runner-go-example" --run RUN_ID
-./cortexium-runner wait --data "$HOME/.local/share/runner-go-example" --run RUN_ID
+./cortexium-runner run --data "$HOME/.local/share/runner-go-example" --project seats --inputs '{"request":"Fix the behavior described by the existing failing tests."}' --request-id seats-fix-1
 ```
 
 The role defines stable implementation instructions; `request` contains the
@@ -36,6 +34,11 @@ particular work. The worker returns a summary, and Runner produces the patch.
 The check consumes that candidate, with read-only source and private scratch.
 There is one attempt per step and no automatic repair. Completion requires
 passing checks and retained source.
+
+The command waits without a model coordinating each step and returns bounded
+output previews, the retained patch reference, time, known token usage and cleanup
+state. Reuse the request ID after a lost response; use `result --run RUN_ID --wait`
+to rejoin an identified run. Client interruption does not cancel execution.
 
 Inspect exposes the selected base, workspace, saved source and check result.
 Successful/cancelled runs release settled worktrees after saving results. Failed

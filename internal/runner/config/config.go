@@ -113,6 +113,28 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 		if c.GoBinary != "" && strings.ContainsRune(c.GoBinary, os.PathSeparator) {
 			c.GoBinary = resolve(l.Path, c.GoBinary)
 		}
+		if c.GoModuleCache != "" {
+			path, err := filepath.EvalSymlinks(resolve(l.Path, c.GoModuleCache))
+			if err != nil {
+				return s, fmt.Errorf("codex.go_module_cache: %w", err)
+			}
+			info, err := os.Stat(path)
+			if err != nil || !info.IsDir() || path == string(filepath.Separator) {
+				return s, errors.New("codex.go_module_cache must name an existing directory other than the filesystem root")
+			}
+			c.GoModuleCache = path
+		}
+		if c.GoCheckBinary != "" {
+			path, err := filepath.EvalSymlinks(resolve(l.Path, c.GoCheckBinary))
+			if err != nil {
+				return s, fmt.Errorf("codex.go_check_binary: %w", err)
+			}
+			info, err := os.Stat(path)
+			if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+				return s, errors.New("codex.go_check_binary must name an existing executable file")
+			}
+			c.GoCheckBinary = path
+		}
 		if len(c.ReadOnlyPaths) > 32 {
 			return s, errors.New("codex.read_only_paths is limited to 32 relative source paths")
 		}
@@ -195,7 +217,7 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 				if e = ready(profile); e != nil {
 					return s, fmt.Errorf("role %s: %w", name, e)
 				}
-				if profile.Harness == "codex" || profile.Harness == "go-check" || profile.Harness == "command" {
+				if profile.Harness == "codex" || profile.Harness == "go-check" || profile.Harness == "command" || profile.Harness == "git-candidate" {
 					if strings.TrimSpace(role.Purpose) == "" {
 						return s, fmt.Errorf("role %s: execution needs an explicit task purpose", name)
 					}
@@ -214,18 +236,14 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 					if profile.Harness == "go-check" && (len(role.Inputs) != 1 || role.Inputs["patch"] != "artifact" || len(role.Outputs) != 1 || role.Outputs["check"] != "text") {
 						return s, errors.New("go-check needs one patch artifact input and one check text output")
 					}
+					if profile.Harness == "git-candidate" && (len(role.Inputs) != 3 || role.Inputs["patch"] != "artifact" || role.Inputs["verdict"] != "text" || role.Inputs["review"] != "text" || len(role.Outputs) != 1 || role.Outputs["candidate"] != "text") {
+						return s, errors.New("git-candidate needs patch/verdict/review inputs and one candidate text output")
+					}
 					if profile.Harness == "command" {
-						artifacts := 0
 						for _, kind := range role.Inputs {
-							if kind == "artifact" {
-								artifacts++
-							}
 							if kind != "text" && kind != "artifact" {
 								return s, errors.New("command inputs must be text or retained artifacts")
 							}
-						}
-						if artifacts > 1 {
-							return s, errors.New("command supports at most one retained artifact input")
 						}
 						want := 1
 						if profile.Command.Artifact != "" {
@@ -239,9 +257,9 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 						}
 					}
 					if profile.Harness == "codex" {
-						for _, kind := range role.Inputs {
-							if kind != "text" {
-								return s, errors.New("Codex inputs must be declared text")
+						for name, kind := range role.Inputs {
+							if kind != "text" && !((profile.Access == "workspace-read" || profile.Access == "workspace-write") && name == "patch" && kind == "artifact") {
+								return s, errors.New("Codex inputs must be text or a workspace patch artifact")
 							}
 						}
 						for name, kind := range role.Outputs {
@@ -453,8 +471,11 @@ func validID(s string) bool {
 	return true
 }
 func types(m map[string]string) error {
-	if len(m) > 8 {
-		return errors.New("at most eight named values are supported per contract")
+	return boundedTypes(m, 8)
+}
+func boundedTypes(m map[string]string, limit int) error {
+	if len(m) > limit {
+		return fmt.Errorf("at most %d named values are supported per contract", limit)
 	}
 	for k, t := range m {
 		if !validID(k) || (t != "text" && t != "json" && t != "artifact") {
@@ -469,8 +490,13 @@ func ready(p runner.Profile) error {
 			return errors.New("command selects workspace-read access, command settings and no model settings")
 		}
 		cmd := p.Command
-		if len(cmd.Args) == 0 || len(cmd.Args) > 32 || !filepath.IsAbs(cmd.Args[0]) || strings.Contains(cmd.Args[0], "{") || (cmd.Directory != "" && !validRelative(cmd.Directory)) || (cmd.Artifact != "" && !validRelative(cmd.Artifact)) || len(cmd.Env) > 32 {
+		if len(cmd.Args) == 0 || len(cmd.Args) > 32 || !filepath.IsAbs(cmd.Args[0]) || strings.Contains(cmd.Args[0], "{") || (cmd.Directory != "" && !validRelative(cmd.Directory)) || (cmd.Artifact != "" && !validRelative(cmd.Artifact)) || (cmd.Result != "" && !validRelative(cmd.Result)) || len(cmd.ExitOutcomes) > 8 || (cmd.Result != "" && len(cmd.ExitOutcomes) != 0) || len(cmd.Env) > 32 {
 			return errors.New("command needs an absolute executable, at most 32 args/env entries and relative directory/artifact paths")
+		}
+		for code, outcome := range cmd.ExitOutcomes {
+			if code < 0 || code > 255 || !validID(outcome) || outcome == "needs_help" {
+				return errors.New("exit_outcomes requires exit codes 0–255 and named domain outcomes")
+			}
 		}
 		for _, arg := range cmd.Args {
 			if len(arg) > 4096 || strings.ContainsRune(arg, 0) {
@@ -487,15 +513,15 @@ func ready(p runner.Profile) error {
 	if p.Command != nil {
 		return errors.New("command settings require the command harness")
 	}
-	if p.Harness == "go-check" {
+	if p.Harness == "go-check" || p.Harness == "git-candidate" {
 		if p.Access != "workspace-read" || p.Model != "" || p.Reasoning != "" || p.Mode != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.Instructions != "" || p.MaxInput != 0 || p.MaxOutput != 0 {
-			return errors.New("go-check selects workspace-read access and no model/deterministic settings")
+			return fmt.Errorf("%s selects workspace-read access and no model/deterministic settings", p.Harness)
 		}
 		return nil
 	}
 	if p.Harness == "codex" {
-		if p.Model == "" || len(p.Model) > 100 || (p.Access != "input-only" && p.Access != "workspace-write") || p.Mode != "" || p.Input != "" || p.Output != "" || p.Delay != "" || p.Text != "" || p.LogBytes != 0 {
-			return errors.New("codex needs an explicit model and input-only/workspace-write access, without deterministic settings")
+		if p.Model == "" || len(p.Model) > 100 || (p.Access != "input-only" && p.Access != "workspace-write" && p.Access != "workspace-read") || p.Mode != "" || p.Input != "" || p.Output != "" || p.Delay != "" || p.Text != "" || p.LogBytes != 0 {
+			return errors.New("codex needs an explicit model and input-only/workspace-write/workspace-read access, without deterministic settings")
 		}
 		switch p.Reasoning {
 		case "low", "medium", "high", "xhigh":
@@ -530,27 +556,60 @@ func ready(p runner.Profile) error {
 	return nil
 }
 func validateProcess(v runner.Process, p runner.Project) error {
-	if e := types(v.Inputs); e != nil {
+	return validateProcessInputs(v, p, 8)
+}
+func validateProcessInputs(v runner.Process, p runner.Project, inputLimit int) error {
+	var groupErr error
+	v, p, groupErr = validateGroups(v, p)
+	if groupErr != nil {
+		return groupErr
+	}
+	if e := boundedTypes(v.Inputs, inputLimit); e != nil {
 		return e
 	}
-	if len(v.Steps) < 1 || len(v.Steps) > 8 || len(v.Outputs) > 8 || v.MaxAttempts < 1 || v.MaxAttempts > 16 || v.MaxAttemptsPerStep < 1 || v.MaxAttemptsPerStep > 4 {
-		return errors.New("process exceeds first-slice step/attempt/output bounds")
+	if len(v.Steps) < 1 || len(v.Steps) > 64 || len(v.Outputs) > 8 || v.MaxAttempts < 1 || v.MaxAttempts > 128 || v.MaxAttemptsPerStep < 1 || v.MaxAttemptsPerStep > 4 {
+		return errors.New("process exceeds step/attempt/output bounds (64 steps, 128 attempts, 4 attempts per visit)")
 	}
 	d, e := time.ParseDuration(v.AttemptTimeout)
 	if e != nil || d <= 0 || d > time.Hour {
 		return errors.New("attempt_timeout must be positive and at most one hour")
 	}
 	seen := map[string]runner.Role{}
+	positions := map[string]int{}
+	for i, step := range v.Steps {
+		if !validID(step.ID) || positions[step.ID] != 0 {
+			return errors.New("missing/duplicate step ID")
+		}
+		positions[step.ID] = i + 1
+	}
 	sourceType := func(b runner.Binding) (string, error) {
-		if b.FromInput != "" && b.FromStep == "" && b.Output == "" {
+		if b.FromCandidate {
+			if p.Source == nil || b.FromInput != "" || b.FromStep != "" || b.Output != "" || b.Default != nil || b.Previous || b.FromItem != "" || b.Literal != nil {
+				return "", errors.New("from_candidate selects only a source-enabled project's current candidate")
+			}
+			return "artifact", nil
+		}
+		if b.FromItem != "" || b.Literal != nil {
+			return "", errors.New("literal/from_item are reserved for expanded task data")
+		}
+		if b.FromInput != "" && b.FromStep == "" && b.Output == "" && b.Default == nil {
 			t, ok := v.Inputs[b.FromInput]
 			if ok {
 				return t, nil
 			}
 		}
 		if b.FromInput == "" && b.FromStep != "" && b.Output != "" {
-			if r, ok := seen[b.FromStep]; ok {
-				if t, ok := r.Outputs[b.Output]; ok {
+			r, ok := seen[b.FromStep]
+			if !ok && b.Default != nil && positions[b.FromStep] > 0 {
+				r, ok = p.Roles[v.Steps[positions[b.FromStep]-1].Role]
+			}
+			if ok {
+				if t, exists := r.Outputs[b.Output]; exists {
+					if b.Default != nil {
+						if b.Default.ArtifactID != "" || runner.ValidateValues(map[string]runner.Value{"default": *b.Default}, map[string]string{"default": t}) != nil {
+							return "", errors.New("binding default must be inline and match the output type")
+						}
+					}
 					return t, nil
 				}
 			}
@@ -571,6 +630,17 @@ func validateProcess(v runner.Process, p runner.Project) error {
 		if !ok {
 			return fmt.Errorf("missing role %q", step.Role)
 		}
+		if step.Reuse {
+			profile, err := role.Profile(p.Profiles[step.Role])
+			if err != nil || profile.Access != "workspace-read" || (profile.Harness != "go-check" && profile.Harness != "command") || profile.Command != nil && profile.Command.Network {
+				return errors.New("reuse requires an offline model-free read-only check")
+			}
+			for _, kind := range role.Outputs {
+				if kind != "text" {
+					return errors.New("reused checks return text receipts only")
+				}
+			}
+		}
 		if len(step.Inputs) != len(role.Inputs) {
 			return fmt.Errorf("step %s inputs do not match role", step.ID)
 		}
@@ -581,6 +651,20 @@ func validateProcess(v runner.Process, p runner.Project) error {
 			}
 			if role.Inputs[name] != t {
 				return fmt.Errorf("step %s input %s has incompatible type", step.ID, name)
+			}
+		}
+		if len(step.Routes) > 8 {
+			return errors.New("at most eight outcome routes per step")
+		}
+		for outcome, route := range step.Routes {
+			if !validID(outcome) || outcome == "needs_help" || route.MaxTimes < 0 || route.MaxTimes > 128 {
+				return errors.New("route needs a declared outcome and a 0–128 repetition bound")
+			}
+			if route.Next != "$complete" && route.Next != "$fail" {
+				target := positions[route.Next]
+				if target == 0 || target <= positions[step.ID] && route.MaxTimes == 0 {
+					return errors.New("route target must exist; return paths require max_times")
+				}
 			}
 		}
 		if esc := step.Escalation; esc != nil {

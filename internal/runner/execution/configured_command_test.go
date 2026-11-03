@@ -7,11 +7,121 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
+
+// Text is one literal argv element. Shell metacharacters and other placeholder
+// spellings in a request must not be evaluated or recursively substituted.
+func TestConfiguredCommandLiteralText(t *testing.T) {
+	c, a := commandFixture(t)
+	defer c.Close()
+	text := "$(touch /tmp/runner-must-not-create); {workspace}\nsecond line"
+	a.Inputs = map[string]runner.Value{"selection": runner.Text(text)}
+	a.Setup.Profile.Command = &runner.Command{Args: []string{"/bin/echo", "{text.selection}"}}
+	if _, err := c.Start(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	end := waitCommandEnd(t, c, a.AttemptID)
+	if end.End.Kind != "returned" || !strings.Contains(string(end.End.Result.Outputs["check"].Inline), "$(touch /tmp/runner-must-not-create); {workspace}") {
+		t.Fatalf("text was not passed literally: %+v", end.End)
+	}
+}
+
+// A recovered patch may be measured before a writer runs. Keep that seed
+// distinct from a captured candidate, and allow the later writer's new patch.
+func TestConfiguredCommandInitialRetainedPatch(t *testing.T) {
+	c, a := commandFixture(t)
+	defer c.Close()
+	ctx := context.Background()
+	patch := addedSeedFile("seed.txt", "100644")
+	c.read = func(_ context.Context, id string) ([]byte, error) {
+		if id == "retained/changes.patch" {
+			return patch, nil
+		}
+		return c.disk.Read("artifacts/"+id, c.disk.Policy.MaxArtifact)
+	}
+	c.workspaces.read = c.read
+	a.Inputs = map[string]runner.Value{"patch": {ArtifactID: "retained/changes.patch"}}
+	a.Setup.Profile.Command = &runner.Command{Args: []string{"/bin/cat", "{workspace}/seed.txt"}}
+	check := func(want string) {
+		t.Helper()
+		a.Deadline = time.Now().Add(6 * time.Second)
+		if _, err := c.Start(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+		end := waitCommandEnd(t, c, a.AttemptID)
+		if end.End.Kind != "returned" || !strings.Contains(string(end.End.Result.Outputs["check"].Inline), want) {
+			t.Fatalf("command did not read retained source: %+v", end.End)
+		}
+		if err := c.Release(ctx, a.AttemptID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check("retained")
+	r, err := c.workspaces.load(a.RunID)
+	if err != nil || !r.SeedReady || r.Candidate != nil {
+		t.Fatalf("seed was not ready or was presented as captured work: %+v: %v", r, err)
+	}
+	if err := c.workspaces.releaseRun(ctx, a.RunID, true); err != nil {
+		t.Fatal("recoverable seed blocked failed cleanup", err)
+	}
+	a.AttemptID = "attempt_reopened_seed"
+	check("retained") // The same patch is restored after owned checkout cleanup.
+	writer := a
+	writer.Setup.Profile = runner.Profile{Harness: "codex", Access: "workspace-write"}
+	r, err = c.workspaces.Prepare(ctx, writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.WorkDir, "seed.txt"), []byte("corrected\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := c.workspaces.Capture(ctx, writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.AttemptID = "attempt_new_candidate"
+	a.Inputs["patch"] = runner.Value{ArtifactID: candidate.PatchID}
+	check("corrected")
+	if err := c.workspaces.ForgetRun(ctx, a.RunID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConfiguredCommandNetworkSelection(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		name := "default-off"
+		if enabled {
+			name = "explicit-on"
+		}
+		t.Run(name, func(t *testing.T) {
+			c, a := commandFixture(t)
+			defer c.Close()
+			a.Setup.Profile.Command = &runner.Command{
+				Args:    []string{"/usr/bin/true"},
+				Network: enabled,
+			}
+			if _, err := c.Start(context.Background(), a); err != nil {
+				t.Fatal(err)
+			}
+			if end := waitCommandEnd(t, c, a.AttemptID); end.End.Kind != "returned" {
+				t.Fatal(end.End)
+			}
+			config, err := c.disk.Read(commandControl(a.AttemptID)+"/config/config.toml", 16384)
+			want := "[permissions.runner-command.network]\nenabled=false\n"
+			if enabled {
+				want = "[permissions.runner-command.network]\nenabled=true\n"
+			}
+			if err != nil || !strings.Contains(string(config), want) {
+				t.Fatalf("command network selection: %v: %s", err, config)
+			}
+		})
+	}
+}
 
 // The test-only sandbox shim isolates worker lifecycle from native permissions.
 // The real sandbox boundary is qualified by the zero-model project exercise.
@@ -93,6 +203,37 @@ func waitCommandEnd(t *testing.T, c *Commands, id string) runner.Observation {
 			t.Fatalf("command did not settle: %s", o.Reason)
 		case <-tick.C:
 		}
+	}
+}
+
+// A successful launch can precede the worker's durable startup receipt. Keep
+// that interval Running only while this owner still knows the child is alive.
+func TestConfiguredCommandBeforeStartupReceipt(t *testing.T) {
+	c, a := commandFixture(t)
+	defer c.Close()
+	launched := make(chan func(), 1)
+	c.launchWorker = func(_ string, finished func()) error {
+		launched <- finished
+		return nil
+	}
+	if _, err := c.Start(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	var exited func()
+	select {
+	case exited = <-launched:
+	case <-time.After(4 * time.Second):
+		t.Fatal("worker did not launch")
+	}
+	c.setup.Wait() // Preparation has finished; no startup receipt exists yet.
+	o, err := c.Observe(context.Background(), a.AttemptID)
+	if err != nil || o.State != runner.Running || o.End != nil {
+		t.Fatalf("live owned child reported uncertain during startup: %+v, %v", o, err)
+	}
+	exited() // An exit without a final receipt is still genuinely uncertain.
+	o, err = c.Observe(context.Background(), a.AttemptID)
+	if err != nil || o.State != runner.Unknown || o.End != nil {
+		t.Fatalf("child exit without settlement hidden: %+v, %v", o, err)
 	}
 }
 
@@ -217,5 +358,59 @@ func TestCommandArtifactRejectsSymlinkEscape(t *testing.T) {
 	}
 	if _, err := commandArtifact(scratch, "escape/file", 1024); err == nil {
 		t.Fatal("artifact escaped scratch")
+	}
+}
+
+func TestCommandDomainResults(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		exit                  int
+		mapping               map[int]string
+		body                  string
+		wantKind, wantOutcome string
+	}{
+		{name: "expected rejection", exit: 1, mapping: map[int]string{1: "changes_requested"}, wantKind: "returned", wantOutcome: "changes_requested"},
+		{name: "unexpected failure", exit: 2, mapping: map[int]string{1: "changes_requested"}, wantKind: "failed"},
+		{name: "benchmark continue", body: `{"outcome":"continue","reason":"measure another candidate"}`, wantKind: "returned", wantOutcome: "continue"},
+		{name: "no worker-selected step", body: `{"outcome":"ready","next":"deploy"}`, wantKind: "failed"},
+		{name: "trailing result", body: `{"outcome":"ready"} {}`, wantKind: "failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, a := commandFixture(t)
+			defer c.Close()
+			scratch := filepath.Join(c.disk.Root, "work", a.RunID, "source", ".runner-tmp", a.AttemptID)
+			if err := os.MkdirAll(scratch, 0700); err != nil {
+				t.Fatal(err)
+			}
+			a.Setup.Profile.Command = &runner.Command{ExitOutcomes: tc.mapping}
+			if tc.body != "" {
+				a.Setup.Profile.Command.Result = "domain.json"
+				if err := os.WriteFile(filepath.Join(scratch, "domain.json"), []byte(tc.body), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			job := commandJob{Assignment: a, Workspace: &workspaceRecord{WorkDir: filepath.Join(c.disk.Root, "work", a.RunID, "source")}}
+			end, err := collectCommand(c.disk, job, commandResult{ExitCode: tc.exit})
+			if err != nil || end.Kind != tc.wantKind || tc.wantOutcome != "" && end.Result.Outcome != tc.wantOutcome {
+				t.Fatalf("%+v %v", end, err)
+			}
+		})
+	}
+}
+
+// Comparing baseline/proposed artifacts uses the same bounded input handoff,
+// without granting access to other workspaces or Git history.
+func TestConfiguredCommandComparisonInputs(t *testing.T) {
+	c, a := commandFixture(t)
+	defer c.Close()
+	c.read = func(_ context.Context, id string) ([]byte, error) { return []byte(id + "\n"), nil }
+	a.Inputs = map[string]runner.Value{"baseline": {ArtifactID: "baseline"}, "proposed": {ArtifactID: "proposed"}}
+	a.Setup.Profile.Command = &runner.Command{Args: []string{"/bin/cat", "{input.baseline}", "{input.proposed}"}}
+	if _, err := c.Start(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	done := waitCommandEnd(t, c, a.AttemptID)
+	if done.End.Kind != "returned" || !strings.Contains(string(done.End.Result.Outputs["check"].Inline), "baseline\\nproposed") {
+		t.Fatalf("comparison lost bounded inputs: %+v", done.End)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cortexium-io/runner/internal/runner"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -234,6 +235,123 @@ func TestWorkspaceConfiguration(t *testing.T) {
 	}
 }
 
+func TestGoModuleCacheConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name, path string
+		valid      bool
+	}{
+		{"default", "", true},
+		{"relative", "runtime/modcache", true},
+		{"absolute", "absolute", true},
+		{"missing", "runtime/missing", false},
+		{"file", "runtime/file", false},
+		{"root", "/", false},
+		{"root symlink", "runtime/root", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l, dir := fixtureFrom(t, "workspace")
+			cache := filepath.Join(dir, "runtime", "modcache")
+			if err := os.MkdirAll(cache, 0700); err != nil {
+				t.Fatal(err)
+			}
+			write(t, filepath.Join(dir, "runtime", "file"), "dummy")
+			if err := os.Symlink("/", filepath.Join(dir, "runtime", "root")); err != nil {
+				t.Fatal(err)
+			}
+			path := tc.path
+			if path == "absolute" {
+				path = cache
+			}
+			if path != "" {
+				data, err := os.ReadFile(l.Path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				value, _ := json.Marshal(path)
+				write(t, l.Path, strings.Replace(string(data), "  go_binary: go\n", "  go_binary: go\n  go_module_cache: "+string(value)+"\n", 1))
+			}
+			snapshot, err := l.Load()
+			if !tc.valid {
+				if err == nil || !strings.Contains(err.Error(), "codex.go_module_cache") {
+					t.Fatalf("invalid module cache accepted: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := ""
+			if path != "" {
+				want, err = filepath.EvalSymlinks(cache)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if snapshot.Instance.Codex.GoModuleCache != want {
+				t.Fatalf("module cache = %q, want %q", snapshot.Instance.Codex.GoModuleCache, want)
+			}
+		})
+	}
+}
+
+func TestGoCheckBinaryConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name, path string
+		valid      bool
+	}{
+		{"default", "", true},
+		{"relative", "runtime/runner-go-check", true},
+		{"absolute", "absolute", true},
+		{"missing", "runtime/missing", false},
+		{"directory", "runtime", false},
+		{"not executable", "runtime/plain", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l, dir := fixtureFrom(t, "workspace")
+			if err := os.Mkdir(filepath.Join(dir, "runtime"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			binary := filepath.Join(dir, "runtime", "runner-go-check")
+			if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			write(t, filepath.Join(dir, "runtime", "plain"), "dummy")
+			path := tc.path
+			if path == "absolute" {
+				path = binary
+			}
+			if path != "" {
+				data, err := os.ReadFile(l.Path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				value, _ := json.Marshal(path)
+				write(t, l.Path, strings.Replace(string(data), "  go_binary: go\n", "  go_binary: go\n  go_check_binary: "+string(value)+"\n", 1))
+			}
+			snapshot, err := l.Load()
+			if !tc.valid {
+				if err == nil || !strings.Contains(err.Error(), "codex.go_check_binary") {
+					t.Fatalf("invalid Go check executable accepted: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := ""
+			if path != "" {
+				want, err = filepath.EvalSymlinks(binary)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if snapshot.Instance.Codex.GoCheckBinary != want {
+				t.Fatalf("Go check executable = %q, want %q", snapshot.Instance.Codex.GoCheckBinary, want)
+			}
+		})
+	}
+}
+
 func TestCommandConfiguration(t *testing.T) {
 	l, dir := fixtureFrom(t, "workspace")
 	write(t, filepath.Join(dir, "projects/seats/roles/check.yaml"), `id: check
@@ -248,8 +366,16 @@ execution:
     directory: frontend
     env: {TMPDIR: "{scratch}"}
 `)
-	if _, err := l.Load(); err != nil {
+	s, err := l.Load()
+	if err != nil {
 		t.Fatal(err)
+	}
+	if s.Projects["seats"].Roles["check"].Execution.Command.Network {
+		t.Fatal("command networking must default to disabled")
+	}
+	s, err = l.Set("projects/seats/roles/check.yaml", "execution.command.network", json.RawMessage("true"))
+	if err != nil || !s.Projects["seats"].Roles["check"].Execution.Command.Network {
+		t.Fatal("explicit command networking was not selected", err)
 	}
 	for _, tc := range []struct {
 		name, field string
@@ -269,5 +395,72 @@ execution:
 				t.Fatal("invalid command configuration accepted")
 			}
 		})
+	}
+}
+
+func TestCommandNetworkingCannotExpandOtherHarnesses(t *testing.T) {
+	for _, harness := range []string{"codex", "go-check", "git-candidate", "deterministic"} {
+		t.Run(harness, func(t *testing.T) {
+			p := runner.Profile{
+				Harness: harness,
+				Access:  "workspace-read",
+				Command: &runner.Command{Network: true},
+			}
+			if err := ready(p); err == nil {
+				t.Fatal("command network setting accepted by another harness")
+			}
+		})
+	}
+}
+
+func TestReadOnlyReviewConfiguration(t *testing.T) {
+	l, dir := fixtureFrom(t, "workspace")
+	write(t, filepath.Join(dir, "projects/seats/roles/check.yaml"), `id: check
+purpose: Review a retained candidate without changing source.
+inputs: {patch: artifact}
+outputs: {check: text}
+execution:
+  harness: codex
+  access: workspace-read
+  model: gpt-6.1-sol
+  reasoning: xhigh
+  max_input: 8KiB
+  max_output: 2KiB
+`)
+	if _, err := l.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Set("projects/seats/roles/check.yaml", "execution.access", json.RawMessage(`"input-only"`)); err == nil {
+		t.Fatal("input-only model accepted a source patch")
+	}
+	if _, err := l.Set("projects/seats/roles/check.yaml", "outputs.check", json.RawMessage(`"artifact"`)); err == nil {
+		t.Fatal("read-only review claimed a writable source artifact")
+	}
+}
+
+func TestWorkspaceWritePatchSeedConfiguration(t *testing.T) {
+	l, dir := fixtureFrom(t, "workspace")
+	role := filepath.Join(dir, "projects/seats/roles/implement.yaml")
+	data, err := os.ReadFile(role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, role, strings.Replace(string(data), "inputs: {}", "inputs: {patch: artifact}", 1))
+	process := filepath.Join(dir, "projects/seats/processes/implement-and-check.yaml")
+	data, err = os.ReadFile(process)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Replace(string(data), "inputs: {}", "inputs: {patch: artifact}", 1)
+	text = strings.Replace(text, "    inputs: {}", "    inputs: {patch: {from_input: patch}}", 1)
+	write(t, process, text)
+	if _, err := l.Load(); err != nil {
+		t.Fatal("workspace coding seed rejected", err)
+	}
+	if _, err := l.Set("projects/seats/roles/implement.yaml", "execution.access", json.RawMessage(`"input-only"`)); err == nil || !strings.Contains(err.Error(), "Codex inputs") {
+		t.Fatal("input-only profile accepted workspace seed", err)
+	}
+	if _, err := l.Set("projects/seats/roles/implement.yaml", "inputs.other", json.RawMessage(`"artifact"`)); err == nil || !strings.Contains(err.Error(), "Codex inputs") {
+		t.Fatal("coding accepted an artifact other than patch", err)
 	}
 }

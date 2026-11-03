@@ -1,0 +1,25 @@
+{
+  "id": "review",
+  "purpose": "Independently judge the candidate against the original request, scoped check and affected contracts; report blockers without repairing.",
+  "inputs": {
+    "request": "text",
+    "patch": "artifact",
+    "summary": "text",
+    "check": "text",
+    "package": "text",
+    "tests": "text"
+  },
+  "outputs": {
+    "verdict": "text",
+    "summary": "text"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "8KiB",
+    "max_output": "2KiB",
+    "instructions": "Execute only the configured step and preserve unrelated work. Use idiomatic code and the smallest sufficient checks. Do not invent features, dependencies or edge cases. A missing capability or failed obligation is a blocker, never permission to change the workflow, limits or permissions. Do not launch agents or external work. This is an existing Go project. Follow its AGENTS.md and test policy, preserve public contracts, and reuse sufficient coverage. New tests need a concrete purpose, correct and relevant incorrect cases, and coherent placement without duplicate proof. Read the retained patch and necessary affected source, original request, selected check scope and actual check result. Check completeness, correctness, public behavior, idioms, generated ownership, unnecessary work, duplicated functionality and meaningful test purpose/placement. Do not rerun checks. Return verdict exactly APPROVE only if the task and its required proof are satisfied; otherwise BLOCKED. Summary must state concrete findings or missing proof and the recommended next decision. Do not repair, widen scope or silently waive proof. Keep the summary concise."
+  }
+}

@@ -36,7 +36,7 @@ func run(ctx context.Context, args []string) error {
 		return execution.RunCommandWorker(ctx, args[1])
 	}
 	if len(args) == 0 {
-		return errors.New("usage: cortexium-runner serve|start|status|inspect|cancel|retry|wait|config-set")
+		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|decide|wait|config-set")
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -50,6 +50,9 @@ func run(ctx context.Context, args []string) error {
 	input := fs.String("inputs", "{}", "JSON object of inline inputs")
 	artifacts := fs.String("artifacts", "{}", "JSON object of input artifact IDs")
 	runID := fs.String("run", "", "run ID")
+	decisionID := fs.String("decision", "", "pending decision ID")
+	choice := fs.String("choice", "", "explicit approve or reject choice")
+	wait := fs.Bool("wait", false, "wait for completion/Waiting with result")
 	requestID := fs.String("request-id", "", "idempotency key; generated and printed before start/retry if omitted")
 	profile := fs.String("profile", "", "named profile for authorized retry")
 	extra := fs.Int("extra-attempts", 0, "additional explicitly authorized retry allowance")
@@ -87,7 +90,7 @@ func run(ctx context.Context, args []string) error {
 	var method string
 	var a any
 	switch command {
-	case "start":
+	case "start", "run":
 		var inputs map[string]any
 		var refs map[string]string
 		if e = json.Unmarshal([]byte(*input), &inputs); e != nil {
@@ -100,7 +103,7 @@ func run(ctx context.Context, args []string) error {
 			*requestID = rand.Text()
 		}
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
-		method = "runner_start"
+		method = "runner_" + command
 		a = control.StartArgs{
 			RequestID: *requestID,
 			Project:   *project,
@@ -115,6 +118,16 @@ func run(ctx context.Context, args []string) error {
 	case "inspect", "cancel":
 		method = "runner_" + command
 		a = control.RunArgs{RunID: *runID}
+	case "result":
+		method = "runner_result"
+		a = control.ResultArgs{RunID: *runID, Wait: *wait}
+	case "decide":
+		if *requestID == "" {
+			*requestID = rand.Text()
+		}
+		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
+		method = "runner_decide"
+		a = runner.DecisionRequest{RequestID: *requestID, RunID: *runID, DecisionID: *decisionID, Choice: *choice}
 	case "retry":
 		if *requestID == "" {
 			*requestID = rand.Text()

@@ -1,6 +1,6 @@
 # Runner process core design
 
-Updated 29 October 2026. **The first bounded Go slice is authorized and implemented
+Updated 3 November 2026. **The bounded development workflow is authorized and implemented
 on `codex/runner-process-core`; no installation or cutover is authorized.**
 
 The [README](../README.md), [actual code walkthrough](architecture.md) and
@@ -15,6 +15,16 @@ broader schemas, APIs and execution policies remain for later slices.
 Earlier Runner code and qualification remain historical references. The new
 slice implements the bounded scope below; it does not complete every capability
 in this design. Keep this record current rather than creating another plan.
+
+The 3 November completion implements named outcome routes, bounded correction
+and experiment repetition separate from execution retries, current-candidate
+bindings, opt-in reuse of unchanged check evidence, persisted approval/resume and
+dependency-ordered task expansion from fixed templates. One ordinary core owns
+all of them. The operator guide specifies the accepted syntax; the architecture
+record owns end-to-end evidence. Task items remain serial in one owned workspace.
+Nested/parallel task groups, in-flight plan amendment, remote/multi-user control,
+arbitrary role tool catalogs and distribution remain outside this qualification.
+Production delivery requires its configured project capability and authorization.
 
 ## Core contract at a glance
 
@@ -1261,8 +1271,10 @@ Independent items can proceed under the agreed parallel-safety/resource rules.
 
 Shared final steps wait for the declared required item results and execute at the
 collection join, so common verification/delivery need not repeat for every item.
-Completed items remain visible when another item waits or fails. Concrete group/
-collection syntax, item amendments and workspace composition remain open.
+Completed items remain visible when another item waits or fails. The current
+`for_each` syntax supports bounded serial dependency order and a shared owned
+source workspace. Item amendments and concurrent workspace composition remain
+open; the implemented syntax is documented in the operator reference.
 
 ## Experiments on a selected task or step
 

@@ -31,6 +31,7 @@ type scriptedPeer struct {
 	workspace    string
 	checks       int
 	starts       int
+	reads        int
 	deleted      int
 	lostReply    bool
 	readError    bool
@@ -39,6 +40,9 @@ type scriptedPeer struct {
 	gate         chan struct{}
 	entered      chan struct{}
 	deleteErrors []error
+	results      []nativeTurn
+	permissions  []string
+	instructions []string
 }
 
 func (p *scriptedPeer) Done() <-chan struct{} { return p.done }
@@ -116,7 +120,10 @@ func (p *scriptedPeer) Call(ctx context.Context, method string, params, out any)
 		result = map[string]any{"exitCode": 0, "stdout": "ok fixture", "stderr": ""}
 	case "thread/start":
 		args := params.(map[string]any)
-		if args["permissions"] == "runner-edit" {
+		permission, _ := args["permissions"].(string)
+		p.permissions = append(p.permissions, permission)
+		p.instructions = append(p.instructions, args["baseInstructions"].(string))
+		if permission == "runner-edit" || permission == "runner-check" {
 			p.workspace = args["cwd"].(string)
 		}
 		p.thread = "native-thread"
@@ -136,7 +143,7 @@ func (p *scriptedPeer) Call(ctx context.Context, method string, params, out any)
 		if p.workspace != "" {
 			m := result.(map[string]any)
 			m["thread"].(map[string]any)["environments"] = []any{map[string]any{"environmentId": "local", "cwd": p.workspace, "runtimeWorkspaceRoots": []string{p.workspace}}}
-			m["activePermissionProfile"] = map[string]any{"id": "runner-edit"}
+			m["activePermissionProfile"] = map[string]any{"id": permission}
 			m["runtimeWorkspaceRoots"] = []string{p.workspace}
 			m["sandbox"] = map[string]any{"type": "workspaceWrite", "networkAccess": false}
 		}
@@ -148,6 +155,10 @@ func (p *scriptedPeer) Call(ctx context.Context, method string, params, out any)
 		p.turn = nativeTurn{ID: "native-turn", Status: "inProgress"}
 		if !p.stayActive {
 			p.turn = goodTurn()
+			if len(p.results) != 0 {
+				p.turn = p.results[0]
+				p.results = p.results[1:]
+			}
 		}
 		if p.lostReply {
 			return io.ErrUnexpectedEOF
@@ -162,8 +173,9 @@ func (p *scriptedPeer) Call(ctx context.Context, method string, params, out any)
 			p.emit("turn/completed", map[string]any{"threadId": p.thread, "turn": p.turn})
 		}
 	case "thread/read":
+		p.reads++
 		if p.readError {
-			return io.ErrUnexpectedEOF
+			return &rpcError{-32603, "failed to read session metadata: rollout is empty"}
 		}
 		result = map[string]any{"thread": nativeThread{ID: p.thread, Turns: []nativeTurn{p.turn}}}
 	case "thread/resume":
@@ -383,6 +395,94 @@ func TestNativeAdapterCorrelationAndAdmission(t *testing.T) {
 		})
 	}
 }
+
+// Prelaunch rejections must preserve their readiness reason and release the
+// attempt without a durable job, a native turn or reconciliation polling.
+func TestNativeReadinessRejectionWithoutJobSettles(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*runner.Profile, runner.StoragePolicy)
+		want   string
+	}{
+		{
+			name: "input allowance",
+			change: func(p *runner.Profile, _ runner.StoragePolicy) {
+				p.MaxInput = 128
+			},
+			want: "resolved input/instructions/schema exceed max_input",
+		},
+		{
+			name: "record allowance",
+			change: func(p *runner.Profile, storage runner.StoragePolicy) {
+				p.MaxOutput = storage.Database.MaxRecord
+			},
+			want: "assignment and result do not fit the native record allowance",
+		},
+		{
+			name: "fixed check assignment",
+			change: func(p *runner.Profile, _ runner.StoragePolicy) {
+				p.Harness = "go-check"
+			},
+			want: "invalid fixed Go check assignment",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := nativeSnapshot()
+			tc.change(cfg.Projects["demo"].Roles["summary"].Execution, cfg.Instance.Storage)
+			peer := &scriptedPeer{}
+			rig := openNativeRig(t, filepath.Join(t.TempDir(), "state"), cfg, peer)
+			defer rig.close()
+			run := startSummary(t, rig.core, tc.name)
+			done := awaitRun(t, rig.core, run.ID, allReleased)
+			if done.Status != "Failed" || !strings.Contains(done.Reason, "readiness: "+tc.want) || len(done.Attempts) != 1 {
+				t.Fatalf("readiness rejection was lost: %+v", done)
+			}
+			if _, err := rig.disk.Read(nativeName(done.Attempts[0].ID), cfg.Instance.Storage.Database.MaxRecord); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("prelaunch rejection created a job: %v", err)
+			}
+			peer.mu.Lock()
+			thread, starts := peer.thread, peer.starts
+			peer.mu.Unlock()
+			if thread != "" || starts != 0 {
+				t.Fatalf("prelaunch rejection reached the native model: thread=%q starts=%d", thread, starts)
+			}
+		})
+	}
+}
+
+func TestNativeLiveTurnDoesNotRequireFlushedHistory(t *testing.T) {
+	p := &scriptedPeer{stayActive: true, readError: true}
+	rig := openNativeRig(t, filepath.Join(t.TempDir(), "state"), nativeSnapshot(), p)
+	defer rig.close()
+	run := startSummary(t, rig.core, "unflushed-history")
+	run = awaitRun(t, rig.core, run.ID, func(r runner.Run) bool {
+		return len(r.Attempts) > 0 && r.Attempts[0].NativeHandle == "native-thread/native-turn"
+	})
+	id := run.Attempts[0].ID
+	// Exercise observation's reconciliation synchronously: an accepted turn on
+	// the subscribed connection must not depend on its rollout being flushed.
+	rig.service.Codex.wg.Add(1)
+	rig.service.Codex.reconcile(id)
+	o, err := rig.service.Observe(context.Background(), id)
+	if err != nil || o.State != runner.Running {
+		t.Fatalf("live native turn lost: %+v, %v", o, err)
+	}
+	p.mu.Lock()
+	reads := p.reads
+	p.mu.Unlock()
+	if reads != 0 {
+		t.Fatalf("queried unflushed history %d times despite live subscription", reads)
+	}
+	p.emit("turn/completed", map[string]any{"threadId": "native-thread", "turn": goodTurn()})
+	done := awaitRun(t, rig.core, run.ID, allReleased)
+	p.mu.Lock()
+	starts := p.starts
+	p.mu.Unlock()
+	if done.Status != "Completed" || starts != 1 {
+		t.Fatalf("completion lost or native work repeated: %s, starts=%d", done.Status, starts)
+	}
+}
+
 func TestCancellationDuringNativeSetupDoesNotStartTurn(t *testing.T) {
 	p := &scriptedPeer{gate: make(chan struct{}), entered: make(chan struct{}, 1)}
 	rig := openNativeRig(t, filepath.Join(t.TempDir(), "state"), nativeSnapshot(), p)
@@ -503,9 +603,10 @@ func TestNativeJobCanBeCollectedAfterAdapterRestart(t *testing.T) {
 	}
 	secondPeer.mu.Lock()
 	starts := secondPeer.starts
+	reads := secondPeer.reads
 	secondPeer.mu.Unlock()
-	if starts != 0 {
-		t.Fatal("recovery started another native task")
+	if starts != 0 || reads == 0 {
+		t.Fatalf("recovery must read the existing turn without replacement: starts=%d, reads=%d", starts, reads)
 	}
 	if err = r2.service.Release(ctx, a.AttemptID); err != nil {
 		t.Fatal(err)

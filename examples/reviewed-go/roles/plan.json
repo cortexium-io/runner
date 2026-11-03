@@ -1,0 +1,19 @@
+{
+  "id": "plan",
+  "purpose": "Turn the original authorized request into a small dependency-aware collection of cohesive implementation tasks.",
+  "inputs": {
+    "request": "text"
+  },
+  "outputs": {
+    "tasks": "text"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "input-only",
+    "max_input": "8KiB",
+    "max_output": "2KiB",
+    "instructions": "Return tasks as JSON array text: [{\"id\":\"short_id\",\"depends_on\":[],\"inputs\":{\"request\":\"self-contained task including original acceptance conditions and relevant file references\"}}]. Use 1–8 tasks, stable unique IDs and only dependencies within this collection. Keep cohesive work together. Do not add requirements, roles, permissions, tooling work or release authority. The configured process owns combined verification, benchmarking, independent review and authorized delivery. If a material requirement is missing, preserve that uncertainty in the task rather than inventing a decision."
+  }
+}
