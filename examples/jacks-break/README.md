@@ -17,8 +17,13 @@ the private operator journal hold the full evidence.
 
 The readiness step refreshes configured `refs/remotes/origin/main`, hydrates source
 and pins the run's immutable base before model work. An explicit full commit is
-also supported. It checks the selected build runtimes, protected closed-WAL backup
-permissions on Linux, npm TLS, target storage and an isolated headless browser.
+also supported. It checks the selected build runtimes, a real scratch-image build,
+protected closed-WAL backup permissions on Linux, npm TLS, target storage and an
+isolated headless browser. The trusted Docker command includes its installed
+runtime directory for credential-helper lookup in minimal SSH environments.
+The readiness probe exercises the same builder as qualification. Its owned image
+tag is removed with a bounded command, then absence is independently confirmed;
+a lost cleanup acknowledgement cannot masquerade as a failed image build.
 Coding and review have no release credentials. Publication consumes only the
 retained, approved candidate. A correction advances the same owned draft PR using
 an exact compare-and-swap; older candidate commits remain pinned.

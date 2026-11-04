@@ -125,6 +125,14 @@ func (b *Live) commandWithEnvironment(ctx context.Context, input []byte, environ
 	cmd.Env = append(os.Environ(), "GH_PROMPT_DISABLED=1", "GIT_TERMINAL_PROMPT=0")
 	if environment != nil {
 		cmd.Env = environment
+	} else if path == b.Config.Docker {
+		// SSH's minimal PATH may omit the installed CLI's sibling plugins and
+		// credential helper. Keep them in this trusted command's environment.
+		binary, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return nil, err
+		}
+		cmd.Env = append(cmd.Env, "PATH="+filepath.Dir(binary)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
 	out := &limitedOutput{limit: 256 << 20}
 	cmd.Stdout = out
@@ -135,6 +143,11 @@ func (b *Live) commandWithEnvironment(ctx context.Context, input []byte, environ
 		if directory, ok := ctx.Value(deliveryDiagnosticKey{}).(string); ok {
 			identity, _ := json.Marshal(append([]string{path}, args...))
 			_ = writeExclusive(filepath.Join(directory, "diagnostic-"+Digest(identity)[:16]+".log"), diagnostic.Bytes())
+			progress := out.Bytes()
+			if len(progress) > 64<<10 {
+				progress = progress[len(progress)-(64<<10):]
+			}
+			_ = writeExclusive(filepath.Join(directory, "diagnostic-"+Digest(identity)[:16]+".stdout.log"), progress)
 		}
 	}
 	if !releaseCommandSettled(cmd) {

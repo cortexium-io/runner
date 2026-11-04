@@ -350,11 +350,11 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 		return Run{}, errors.New("attempt allowance exhausted; explicitly grant extra_attempts")
 	}
 	stepAttempts := visitAttempts(r)
-	if stepAttempts >= r.Process.MaxAttemptsPerStep+req.ExtraAttempts {
+	if stepAttempts >= visitAttemptLimit(r)+req.ExtraAttempts {
 		return Run{}, errors.New("step attempt allowance exhausted; explicitly grant extra_attempts")
 	}
 	r.Process.MaxAttempts += req.ExtraAttempts
-	r.Process.MaxAttemptsPerStep += req.ExtraAttempts
+	r.VisitExtraAttempts += req.ExtraAttempts
 	r.Status = "Queued"
 	r.ResourcesReleased = false
 	r.Reason = "authorized retry"
@@ -913,6 +913,7 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 		if e := c.persist(r, arts, nil); e != nil && a.State == Finished {
 			saved := c.runs[runID]
 			r.Visit, r.StepInputs, r.RouteUses, r.Decision = saved.Visit, saved.StepInputs, saved.RouteUses, saved.Decision
+			r.VisitExtraAttempts = saved.VisitExtraAttempts
 			for i := range saved.Attempts {
 				r.Attempts[i].Superseded = saved.Attempts[i].Superseded
 			}
@@ -1005,7 +1006,7 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 	}
 	if end.Kind == "returned" {
 		esc := step.Escalation
-		if r.Escalations < esc.MaxTimes && attempts < r.Process.MaxAttemptsPerStep && len(r.Attempts) < r.Process.MaxAttempts {
+		if r.Escalations < esc.MaxTimes && attempts < visitAttemptLimit(*r) && len(r.Attempts) < r.Process.MaxAttempts {
 			r.NextProfile = esc.Profile
 			r.Escalations++
 			r.Status = "Queued"
@@ -1016,7 +1017,7 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 		}
 		return arts
 	}
-	if end.Kind == "failed" && attempts < r.Process.MaxAttemptsPerStep && len(r.Attempts) < r.Process.MaxAttempts {
+	if end.Kind == "failed" && attempts < visitAttemptLimit(*r) && len(r.Attempts) < r.Process.MaxAttempts {
 		r.Status = "Queued"
 		r.Reason = "bounded execution retry"
 	} else {

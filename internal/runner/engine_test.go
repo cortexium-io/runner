@@ -243,6 +243,51 @@ func TestManualRetryRetainsHistory(t *testing.T) {
 	}
 }
 
+func TestRetryAllowanceDoesNotIncreaseLaterStepRetries(t *testing.T) {
+	s := snapshot(policy())
+	p := s.Projects["demo"]
+	proc := p.Processes["demo"]
+	proc.MaxAttempts, proc.MaxAttemptsPerStep = 8, 1
+	proc.Steps = append(proc.Steps, runner.Step{
+		ID: "downstream", Role: "downstream-worker",
+		Inputs: map[string]runner.Binding{"text": {FromInput: "text"}},
+	})
+	p.Processes["demo"] = proc
+	role := p.Roles["worker"]
+	good, bad := *role.Execution, *role.Execution
+	bad.Mode = "fail"
+	role.Execution, role.DefaultProfile = nil, "bad"
+	role.Profiles = map[string]runner.Profile{"bad": bad, "good": good}
+	p.Roles["worker"] = role
+	p.Roles["downstream-worker"] = runner.Role{
+		ID: "downstream-worker", Inputs: role.Inputs, Outputs: role.Outputs, Execution: &bad,
+	}
+	s.Projects["demo"] = p
+	dir := t.TempDir()
+	r := openRig(t, dir, s, nil)
+	run := begin(t, r.core, "scoped-retry", "demo")
+	await(t, r.core, run.ID, released)
+	req := runner.RetryRequest{RequestID: "one-extra", RunID: run.ID, Profile: "good", ExtraAttempts: 1}
+	if _, err := r.core.Retry(req); err != nil {
+		r.close()
+		t.Fatal(err)
+	}
+	done := await(t, r.core, run.ID, released)
+	if done.Status != "Failed" || done.Step != 1 || len(done.Attempts) != 3 || done.Process.MaxAttemptsPerStep != 1 || done.VisitExtraAttempts != 0 {
+		r.close()
+		t.Fatalf("owner grant leaked into later work: %+v", done)
+	}
+	r.close()
+	reopened := openRig(t, dir, s, nil)
+	defer reopened.close()
+	if _, err := reopened.core.Retry(runner.RetryRequest{RequestID: "no-new-grant", RunID: run.ID}); err == nil {
+		t.Fatal("downstream step inherited the previous retry grant after restart")
+	}
+	if replay, err := reopened.core.Retry(req); err != nil || len(replay.Attempts) != 3 {
+		t.Fatal("retry receipt replay spent the grant twice", err)
+	}
+}
+
 type startUnknown struct {
 	runner.Executor
 	mu        sync.Mutex

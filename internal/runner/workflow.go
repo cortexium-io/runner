@@ -152,6 +152,7 @@ func (c *Core) advance(r *Run, result *StepResult, route Route) {
 	}
 	r.StepInputs = inputs
 	r.Step, r.Visit = next, r.Visit+1
+	r.VisitExtraAttempts = 0
 	r.Status, r.Reason = "Queued", ""
 }
 
@@ -163,4 +164,8 @@ func visitAttempts(r Run) int {
 		}
 	}
 	return n
+}
+
+func visitAttemptLimit(r Run) int {
+	return r.Process.MaxAttemptsPerStep + r.VisitExtraAttempts
 }

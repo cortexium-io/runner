@@ -226,7 +226,9 @@ arguments after an uncertain response; a different operation under that ID is
 rejected. Receipts expire with retained runs. `--artifacts '{"name":"ID"}'` supplies
 retained artifact inputs separately from inline `--inputs`. Artifacts must belong
 to the same project. Retry optionally selects an existing `--profile`; explicit
-extra allowance is at most four, with the total still bounded at sixteen.
+extra allowance is at most four, with the total still bounded at 128. A grant
+increases the run total and only the current step visit's execution allowance;
+advancing to another step or correction visit restores its configured limit.
 
 Status returns at most the 100 most recently updated summaries plus `total_runs`,
 configuration/storage errors and content-byte accounting. Inspect returns one

@@ -14,6 +14,31 @@ import (
 	"time"
 )
 
+func TestDeliveryPlatformImageBuilderReadiness(t *testing.T) {
+	policy := os.Getenv("RUNNER_DELIVERY_PLATFORM_POLICY")
+	if policy == "" {
+		t.Skip("explicit isolated qualification policy required; no model turns")
+	}
+	op, err := Load(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := op.Backend.(*Live).Config
+	if c.Delivery == nil || !strings.Contains(c.Delivery.Root, "-qualification/") {
+		t.Fatal("builder test requires isolated qualification storage")
+	}
+	run := "lab_builder_" + strings.ReplaceAll(time.Now().UTC().Format("20060102T150405.000000000"), ".", "_")
+	j := Job{Request: Request{RunID: run, Key: run}, Worker: filepath.Join(c.Delivery.Root, run, "work.json")}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	defer cancel()
+	ctx = context.WithValue(ctx, deliveryDiagnosticKey{}, filepath.Dir(j.Worker))
+	b := Live{Config: c}
+	if err = b.imageBuilderReadiness(ctx, &j); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Actual image-builder/helper readiness passed; owned scratch tag removed:", run)
+}
+
 // Recheck only the changed browser adapter on disposable data, reusing immutable
 // build/runtime proofs. This never alters the original Runner result/evidence.
 func TestDeliveryPlatformBrowserQualification(t *testing.T) {
