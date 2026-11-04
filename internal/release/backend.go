@@ -139,15 +139,20 @@ func (b *Live) commandWithEnvironment(ctx context.Context, input []byte, environ
 	diagnostic := &diagnosticOutput{limit: 64 << 10}
 	cmd.Stderr = diagnostic
 	err := cmd.Run()
-	if err != nil {
+	build := path == b.Config.Docker && len(args) > 2 && args[0] == "--host" && args[2] == "build"
+	if err != nil || build {
 		if directory, ok := ctx.Value(deliveryDiagnosticKey{}).(string); ok {
+			prefix := "diagnostic-"
+			if err == nil {
+				prefix = "build-"
+			}
 			identity, _ := json.Marshal(append([]string{path}, args...))
-			_ = writeExclusive(filepath.Join(directory, "diagnostic-"+Digest(identity)[:16]+".log"), diagnostic.Bytes())
+			_ = writeExclusive(filepath.Join(directory, prefix+Digest(identity)[:16]+".log"), diagnostic.Bytes())
 			progress := out.Bytes()
 			if len(progress) > 64<<10 {
 				progress = progress[len(progress)-(64<<10):]
 			}
-			_ = writeExclusive(filepath.Join(directory, "diagnostic-"+Digest(identity)[:16]+".stdout.log"), progress)
+			_ = writeExclusive(filepath.Join(directory, prefix+Digest(identity)[:16]+".stdout.log"), progress)
 		}
 	}
 	if !releaseCommandSettled(cmd) {

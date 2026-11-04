@@ -110,6 +110,62 @@ func TestDeliveryPlatformImageBuilderReadiness(t *testing.T) {
 	t.Log("Actual image-builder/helper readiness passed; owned scratch tag removed:", run)
 }
 
+// Exercise the exact candidate export command with retained, reproduced inputs.
+// Only a unique disposable tag is created; production and run journals are untouched.
+func TestDeliveryPlatformImageExport(t *testing.T) {
+	policy, buildContext := os.Getenv("RUNNER_DELIVERY_PLATFORM_POLICY"), os.Getenv("RUNNER_IMAGE_EXPORT_CONTEXT")
+	if policy == "" || buildContext == "" {
+		t.Skip("explicit isolated policy and retained build context required; no model turns")
+	}
+	op, err := Load(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := op.Backend.(*Live).Config
+	if c.Delivery == nil || !strings.Contains(c.Delivery.Root, "-qualification/") || !filepath.IsAbs(buildContext) {
+		t.Fatal("image export requires isolated qualification storage and explicit inputs")
+	}
+	run := "lab_export_" + strings.ReplaceAll(time.Now().UTC().Format("20060102T150405.000000000"), ".", "_")
+	root := filepath.Join(c.Delivery.Root, run)
+	if err = os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	defer cancel()
+	ctx = context.WithValue(ctx, deliveryDiagnosticKey{}, root)
+	b := Live{Config: c}
+	engine, err := b.docker(ctx, "info", "--format", "{{.ID}}")
+	if err != nil || strings.TrimSpace(string(engine)) != c.Engine {
+		t.Fatal("configured engine differs", err)
+	}
+	tag := "runner-export:" + strings.ToLower(run)
+	id, err := b.buildImage(ctx, buildContext, tag, filepath.Join(root, "image.id"))
+	if err != nil {
+		t.Fatal("image export failed; logs:", root, err)
+	}
+	data, err := b.docker(ctx, "image", "inspect", id, "--format", "{{.Id}}")
+	if err != nil || strings.TrimSpace(string(data)) != id {
+		t.Fatal("exported image is unavailable on configured engine; logs:", root, err)
+	}
+	if _, err = b.docker(ctx, "image", "rm", tag); err != nil {
+		t.Fatal("disposable tag cleanup uncertain; logs:", root, err)
+	}
+	// Another retained qualification tag holds these exact inputs, so removing
+	// this owned alias leaves the image available. Verify without the alias.
+	serverSHA, err := fileHash(filepath.Join(buildContext, "server"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := Job{
+		Request: Request{RunID: run, Key: run},
+		Receipt: Receipt{ServerSHA: serverSHA},
+	}
+	if err = b.verifyCandidateImage(ctx, &j, id); err != nil {
+		t.Fatal("image/runtime/executable proof depended on its removed tag; logs:", root, err)
+	}
+	t.Log("Explicit export, removed alias and immutable image/runtime/executable proof passed; logs:", root)
+}
+
 // Recheck only the changed browser adapter on disposable data, reusing immutable
 // build/runtime proofs. This never alters the original Runner result/evidence.
 func TestDeliveryPlatformBrowserQualification(t *testing.T) {

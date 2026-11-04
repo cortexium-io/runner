@@ -22,41 +22,12 @@ func (b *Live) qualifyCandidate(ctx context.Context, j *Job) (err error) {
 		return errors.New("invalid package manifest")
 	}
 	tag := "jacks-break:runner-" + strings.ToLower(j.Request.Key)
-	if _, err = b.docker(ctx, "build", "--network=none", "--platform", "linux/amd64", "--tag", tag, filepath.Join(output, "context")); err != nil {
-		return err
-	}
-	data, err = b.docker(ctx, "image", "inspect", tag)
+	image, err := b.buildImage(ctx, filepath.Join(output, "context"), tag, filepath.Join(output, "image.id"))
 	if err != nil {
 		return err
 	}
-	var images []struct {
-		ID           string `json:"Id"`
-		OS           string `json:"Os"`
-		Architecture string
-		Config       struct{ User string }
-	}
-	if json.Unmarshal(data, &images) != nil || len(images) != 1 || images[0].OS != "linux" || images[0].Architecture != "amd64" || images[0].Config.User != "65532:65532" {
-		return errors.New("candidate image runtime differs")
-	}
-	j.Receipt.Image = images[0].ID
-	// Use an owned stopped container to inspect the bytes actually in the image.
-	name := "runner-image-" + j.Request.Key
-	if _, err = b.docker(ctx, "create", "--name", name, "--label", "cortexium.runner.run="+j.Request.RunID, "--network", "none", "--read-only", j.Receipt.Image, "version"); err != nil {
+	if err = b.verifyCandidateImage(ctx, j, image); err != nil {
 		return err
-	}
-	imageContainer := name
-	defer func() {
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
-		defer cancel()
-		err = errors.Join(err, b.removeSettledContainer(cleanup, imageContainer, j.Request.RunID, j.Receipt.Image))
-	}()
-	data, err = b.docker(ctx, "cp", name+":/app/server", "-")
-	if err != nil {
-		return err
-	}
-	hash, err := tarFileHash(data, "server")
-	if err != nil || hash != j.Receipt.ServerSHA {
-		return errors.New("image executable differs from reproduced executable")
 	}
 	remote := j.Receipt.Remote
 	if _, err = b.host(ctx, nil, "mkdir", "-p", remote+"/source/internal/app/http/frontend_dist", remote+"/nonogram"); err != nil {
@@ -105,7 +76,7 @@ func (b *Live) qualifyCandidate(ctx context.Context, j *Job) (err error) {
 	if !regexp.MustCompile(`^[1-9][0-9]*:[0-9]+$`).MatchString(user) {
 		return errors.New("qualification requires a non-root owner")
 	}
-	name = "runner-qualify-" + j.Request.Key
+	name := "runner-qualify-" + j.Request.Key
 	args := []string{
 		"run",
 		"--name",

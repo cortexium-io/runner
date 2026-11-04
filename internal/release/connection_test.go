@@ -3,6 +3,7 @@
 package release
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -81,6 +82,31 @@ func TestFailedDeliveryCommandRetainsProgressAndErrorStreams(t *testing.T) {
 		}
 		if err != nil || string(data) != want {
 			t.Fatal("failure diagnostics lost command evidence", err)
+		}
+	}
+}
+
+func TestSuccessfulDockerBuildRetainsBoundedStreamsOnlyForBuilds(t *testing.T) {
+	root := t.TempDir()
+	program := filepath.Join(root, "docker")
+	if err := os.WriteFile(program, []byte("#!/bin/sh\nhead -c 70000 /dev/zero; printf 'export complete\\n'; head -c 70000 /dev/zero >&2\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	b := Live{Config: Config{Docker: program, DockerHost: "fixture"}}
+	ctx := context.WithValue(t.Context(), deliveryDiagnosticKey{}, root)
+	for _, action := range []string{"build", "cp"} {
+		if _, err := b.docker(ctx, action); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := filepath.Glob(filepath.Join(root, "build-*.log"))
+	if err != nil || len(files) != 2 {
+		t.Fatal("successful build evidence missing or unrelated output retained", files, err)
+	}
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil || len(data) != 64<<10 || strings.HasSuffix(file, ".stdout.log") && !bytes.HasSuffix(data, []byte("export complete\n")) {
+			t.Fatal("build evidence is unbounded or lost its output tail", file, len(data), err)
 		}
 	}
 }

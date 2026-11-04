@@ -33,6 +33,11 @@ manifest against Git, independently reproduces the Linux executable, builds the
 artifact-only image, runs the frozen Nonogram development/held-out cohorts,
 rehearses migration and previous-image recovery on copied data, probes every
 advertised runtime choice and runs 18 headless desktop/mobile player journeys.
+Image builds explicitly load their output and save a fresh `image.id`. Runtime
+and executable checks use that immutable digest rather than the mutable tag;
+missing or inconsistent export evidence stops qualification. Bounded private
+build stdout/stderr are retained on success as well as failure. A successful
+build exit alone never qualifies an image or permits a replacement build.
 It does not claim to cover arbitrary frontend, authentication or other new product
 obligations. Unsupported obligations block rather than move to the chat.
 
@@ -149,6 +154,10 @@ The opt-in `TestDeliveryPlatformQualification` uses a private
 `RUNNER_DELIVERY_PLATFORM_POLICY` and `RUNNER_DELIVERY_PLATFORM_BINARY` to test
 actual installed tools without models or production mutations. Its synthetic
 publication journal is restricted to separate `-qualification/` storage.
+`TestDeliveryPlatformImageExport` additionally takes
+`RUNNER_IMAGE_EXPORT_CONTEXT`, an already reproduced retained context. It tests
+the actual export and image/executable checks after removing its disposable tag.
+It preserves existing images, product runs, approvals and production.
 `TestDeliveryPlatformRecovery` additionally requires the disposable Linux helper
 from `testdata/release-lab`, selected by `RUNNER_DELIVERY_FAULT_HELPER`. It creates
 a separate Compose project and synthetic database. Run these platform exercises
