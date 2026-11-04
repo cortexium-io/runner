@@ -133,7 +133,6 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 			return err
 		}
 	}
-	fmt.Printf("runner-measure round=%d selector=%s skipped=%t baseline=%t failed=%t seconds=%.6f; actual output retained in measurements.json\n", round, selector, m.Skipped, m.Baseline, m.Failed, m.Seconds)
 	if m.Failed {
 		fmt.Println(m.Error)
 	}
@@ -150,6 +149,9 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 			}
 		}
 	}
+	// Command results retain the diagnostic tail. Keep routing metadata last so
+	// a long cohort cannot erase the round required by the next measurement.
+	fmt.Printf("runner-measure round=%d selector=%s skipped=%t baseline=%t failed=%t seconds=%.6f; actual output retained in measurements.json\n", round, selector, m.Skipped, m.Baseline, m.Failed, m.Seconds)
 	return nil
 }
 

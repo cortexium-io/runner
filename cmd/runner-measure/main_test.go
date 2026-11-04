@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +35,40 @@ func TestMeasurementRejectsUnsafeOrUnmeasuredSelections(t *testing.T) {
 		if n, err := selection("internal/foo", test.selector, test.previous); err != nil || n != test.round {
 			t.Fatal(n, err)
 		}
+	}
+}
+
+func TestLongMeasurementKeepsRoundInCommandDiagnosticTail(t *testing.T) {
+	goBinary, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := t.TempDir()
+	os.WriteFile(filepath.Join(source, "go.mod"), []byte("module sample\n\ngo 1.26.0\n"), 0600)
+	var body strings.Builder
+	body.WriteString("package sample\nimport \"testing\"\n")
+	for i := range 12 {
+		fmt.Fprintf(&body, "func BenchmarkCohort%02d%s(b *testing.B){for i:=0;i<b.N;i++{_ = i+1}}\n", i, strings.Repeat("LongName", 8))
+	}
+	os.WriteFile(filepath.Join(source, "sample_test.go"), []byte(body.String()), 0600)
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := os.Stdout
+	os.Stdout = writer
+	err = run(goBinary, source, t.TempDir(), ".", "^BenchmarkCohort", "", false)
+	os.Stdout = previous
+	writer.Close()
+	output, readErr := io.ReadAll(reader)
+	reader.Close()
+	if err != nil || readErr != nil || len(output) <= 480 {
+		t.Fatal("long measurement fixture failed", err, readErr, string(output))
+	}
+	// This is the command worker's retained diagnostic bound.
+	tail := string(output[len(output)-480:])
+	if round, err := selection(".", "^BenchmarkCohort", tail); err != nil || round != 2 {
+		t.Fatal("round metadata was lost before the next configured step", round, err, tail)
 	}
 }
 
