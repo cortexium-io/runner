@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { pathToFileURL } from 'node:url'
+import { PageReadiness } from './browser_render.mjs'
 const { chromium } = await import(pathToFileURL(process.env.RUNNER_PLAYWRIGHT_MODULE).href)
 
 const [origin, output, resume] = process.argv.slice(2)
@@ -9,19 +10,8 @@ const expectedSizes = { Sudoku: [], Suguru: [6, 8, 10, 12], Nonogram: [5, 10, 15
 const receipt = resume ? { ...JSON.parse(fs.readFileSync(resume + '/receipt.json')), complete: false, failure: undefined, reusedEvidence: resume } : { origin, mockedResponses: false, headless: true, journeys: [], complete: false }
 const paths = Object.fromEntries(receipt.journeys.filter(row => row.path).map(row => [row.game, row.path]))
 fs.mkdirSync(output, { recursive: true })
-async function bounded(page, selector) {
-  // DOM content and SSR visibility precede stylesheet/font completion on a
-  // reload. Measure the rendered page, keeping the overflow assertions strict.
-  await page.waitForLoadState('load')
-  await page.waitForFunction(() => [...document.querySelectorAll('link[rel="stylesheet"]')].every(link => link.disabled || link.sheet !== null))
-  await page.evaluate(() => document.fonts.ready.then(() => undefined))
-  const bounds = await page.locator(selector).first().boundingBox()
-  assert.ok(bounds, 'missing ' + selector)
-  const metrics = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }))
-  assert.ok(metrics.scroll <= metrics.width + 1, 'page overflow: ' + JSON.stringify(metrics))
-  assert.ok(bounds.x >= -1 && bounds.x + bounds.width <= metrics.width + 1, 'frame overflow: ' + JSON.stringify(bounds))
-  return { ...bounds, viewportWidth: metrics.width, pageScrollWidth: metrics.scroll }
-}
+const readiness = new PageReadiness(receipt)
+const bounded = (page, selector) => readiness.bounded(page, selector)
 let browser
 let lastPage
 try {
@@ -32,21 +22,14 @@ try {
     const page = await context.newPage()
     lastPage = page
     page.setDefaultTimeout(20000)
-    const errors = []
-    page.on('pageerror', error => errors.push(error.message))
-    page.on('requestfailed', request => {
-      if (new URL(request.url()).origin === origin && ['stylesheet', 'script', 'font'].includes(request.resourceType())) {
-        receipt.resourceFailures ??= []
-        receipt.resourceFailures.push({ path: new URL(request.url()).pathname, error: request.failure()?.errorText })
-      }
-    })
+    readiness.watch(page, origin)
     for (const game of games) {
       const previous = receipt.journeys.find(row => row.device === device.name && row.game === game)
       if (previous?.states.includes('reload')) continue
       const record = previous ?? { device: device.name, game, states: [] }
       if (!previous) receipt.journeys.push(record)
       if (!record.path) {
-      await page.goto(origin, { waitUntil: 'domcontentloaded' })
+      await readiness.goto(page, origin)
       await page.getByRole('link', { name: 'Choose ' + game, exact: true }).click()
       const dialog = page.getByRole('dialog', { name: 'New ' + game, exact: true })
       await dialog.waitFor({ state: 'visible' })
@@ -85,10 +68,10 @@ try {
         record.path = paths[game]
         record.states.push('New generated on demand')
       } else {
-        await page.goto(origin + paths[game], { waitUntil: 'domcontentloaded' })
+        await readiness.goto(page, origin + paths[game])
         record.states.push('actual native reopen')
       }
-      } else await page.goto(origin + record.path, { waitUntil: 'domcontentloaded' })
+      } else await readiness.goto(page, origin + record.path)
       await page.locator('.player-board-frame').first().waitFor({ state: 'visible' })
       record.bounds = await bounded(page, '.player-board-frame')
       const board = page.locator('.player-board-frame').first()
@@ -114,14 +97,14 @@ try {
       await frame.locator('table, svg').first().waitFor({ state: 'visible' })
       await page.getByRole('button', { name: 'Close preview', exact: true }).click()
       record.states.push('print preview')
-      await page.reload({ waitUntil: 'domcontentloaded' })
+      await readiness.reload(page)
       await page.locator('.player-board-frame').first().waitFor({ state: 'visible' })
       await bounded(page, '.player-board-frame')
       record.states.push('reload')
       await page.screenshot({ path: output + '/' + device.name + '-' + game.toLowerCase() + '.png', fullPage: true })
       fs.writeFileSync(output + '/receipt.json', JSON.stringify(receipt, null, 2))
     }
-    assert.deepEqual(errors, [], 'browser errors')
+    readiness.assertNoErrors(page)
     await browser.close(); browser = undefined
   }
   receipt.complete = true

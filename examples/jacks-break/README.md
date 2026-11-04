@@ -36,6 +36,21 @@ advertised runtime choice and runs 18 headless desktop/mobile player journeys.
 It does not claim to cover arbitrary frontend, authentication or other new product
 obligations. Unsupported obligations block rather than move to the chat.
 
+`release-reviewed.json` is the complete model-free continuation for an already
+accepted publication. Supply that publication's JSON receipt and its full base
+commit as `source_ref`. Adoption verifies the original private journal and the
+still-open GitHub PR/head/base. It creates no source edits, commits or duplicate
+PR. Qualification runs again, followed by the same fresh merge, production and
+recovery approval gates; prior approvals are not carried forward. The failed
+development run remains intact. Its 16-attempt bound and per-visit limit of one
+introduce no additional model allowance.
+
+Browser layout verdicts require at least one loaded stylesheet and ready fonts.
+A failed critical main-page resource gets one navigation retry with its failed
+navigation diagnostics retained. Persistent resource failures remain operator
+blockers; only a fully rendered overflow is a source correction. Puzzle creation
+and hints are never replayed by this resource retry.
+
 ## Installation
 
 Copy `process.json` and `roles/` into the private project. Set executable and cache

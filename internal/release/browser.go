@@ -21,6 +21,9 @@ import (
 //go:embed browser.mjs
 var browserScript []byte
 
+//go:embed browser_render.mjs
+var browserRenderScript []byte
+
 func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 	c := b.Config
 	work := filepath.Join(filepath.Dir(j.Worker), "work")
@@ -29,6 +32,9 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 	}
 	script := filepath.Join(work, "browser.mjs")
 	if err = writeExclusive(script, browserScript); err != nil {
+		return err
+	}
+	if err = writeExclusive(filepath.Join(work, "browser_render.mjs"), browserRenderScript); err != nil {
 		return err
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

@@ -29,13 +29,18 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 		return nil
 	}
 	actions := []string{"prepare", "merge", "backup", "stop", "migrate", "pin", "deploy", "verify"}
-	connected := selected[start].Mode == "publish"
+	adopted := selected[start].Mode == "adopt"
+	connected := selected[start].Mode == "publish" || adopted
 	bad := errors.New("release requires immutable ordered qualification/merge/backup/production gates; coding may enter only through candidate publication")
 	if connected {
-		if start < 2 || selected[0].Harness != "release" || selected[0].Mode != "readiness" || len(p.Steps[0].Inputs) != 0 || !reflect.DeepEqual(p.Steps[0].Routes, map[string]runner.Route{"ready": {Next: p.Steps[1].ID}, "blocked": {Next: "$fail"}}) {
+		if adopted {
+			if start != 0 || p.MaxAttempts != 16 || !reflect.DeepEqual(p.Inputs, map[string]string{"publication": "json"}) {
+				return bad
+			}
+		} else if start < 2 || selected[0].Harness != "release" || selected[0].Mode != "readiness" || len(p.Steps[0].Inputs) != 0 || !reflect.DeepEqual(p.Steps[0].Routes, map[string]runner.Route{"ready": {Next: p.Steps[1].ID}, "blocked": {Next: "$fail"}}) {
 			return bad
 		}
-		actions = append([]string{"publish", "qualify"}, actions...)
+		actions = append([]string{selected[start].Mode, "qualify"}, actions...)
 		actions = append(actions[:len(actions)-1], "inspect", "verify")
 		for i, action := range actions {
 			if action == "migrate" {
@@ -50,7 +55,7 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 	if len(p.Outputs) != 1 || !reflect.DeepEqual(p.Outputs["receipt"], runner.Binding{FromStep: p.Steps[len(p.Steps)-1].ID, Output: "receipt"}) {
 		return bad
 	}
-	if connected {
+	if connected && !adopted {
 		if start == 0 || selected[start-1].Harness != "git-candidate" {
 			return bad
 		}
@@ -90,7 +95,11 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 		approval := action == "prepare" || action == "backup"
 		maxTimes := 0
 		if connected && action == "qualify" {
-			if step.Routes["changes_requested"] != (runner.Route{Next: p.Steps[1].ID, MaxTimes: 1}) {
+			correction := runner.Route{Next: p.Steps[1].ID, MaxTimes: 1}
+			if adopted {
+				correction = runner.Route{Next: "$fail"}
+			}
+			if step.Routes["changes_requested"] != correction {
 				return bad
 			}
 		}
@@ -122,7 +131,11 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 			return bad
 		}
 		if offset == 0 {
-			if connected {
+			if adopted {
+				if !reflect.DeepEqual(step.Inputs, map[string]runner.Binding{"receipt": {FromInput: "publication"}}) {
+					return bad
+				}
+			} else if connected {
 				empty := runner.Value{Inline: []byte(`{}`)}
 				if !reflect.DeepEqual(step.Inputs, map[string]runner.Binding{
 					"candidate": {FromStep: p.Steps[start-1].ID, Output: "candidate"},

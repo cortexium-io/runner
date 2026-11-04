@@ -14,6 +14,77 @@ import (
 	"time"
 )
 
+func TestDeliveryPlatformAdoptReviewedPublication(t *testing.T) {
+	policy, publication := os.Getenv("RUNNER_ADOPTION_POLICY"), os.Getenv("RUNNER_ADOPTION_PUBLICATION")
+	if policy == "" || publication == "" {
+		t.Skip("explicit operator policy and accepted publication required; read-only GitHub check, no model turns")
+	}
+	op, err := Load(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(publication) != filepath.Join(op.Directory, filepath.Base(publication)) {
+		t.Fatal("publication must belong to this operator journal")
+	}
+	data, err := readFile(publication, 32<<10)
+	var old Job
+	if err != nil || json.Unmarshal(data, &old) != nil || !old.Done || old.Failed || old.Request.Action != "publish" || old.Receipt.Policy != op.PolicyHash {
+		t.Fatal("accepted publication unavailable", err)
+	}
+	// Keep the real credential/runtime policy and immutable receipt, but every
+	// write goes to this disposable journal. Adoption only performs a GitHub GET.
+	op.Directory = t.TempDir()
+	if err = os.Chmod(op.Directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = writeJSON(filepath.Join(op.Directory, old.Receipt.Key+".json"), old); err != nil {
+		t.Fatal(err)
+	}
+	previous, _ := json.Marshal(publicReceipt(old.Receipt, true))
+	result, err := op.Call(t.Context(), Request{Project: op.Project, RunID: "lab_adoption", Key: "adopt", Action: "adopt", Source: old.Receipt.Source, Previous: previous})
+	if err != nil || result.State != "finished" || result.Failed {
+		t.Fatal("live publication identity could not be adopted", result, err)
+	}
+	t.Log("Accepted reviewed publication and live PR/head/base verified; production, original journal and approvals unchanged")
+}
+
+func TestDeliveryPlatformBrowserReadiness(t *testing.T) {
+	policy, fixture := os.Getenv("RUNNER_DELIVERY_PLATFORM_POLICY"), os.Getenv("RUNNER_BROWSER_READINESS_FIXTURE")
+	if policy == "" || fixture == "" {
+		t.Skip("explicit isolated policy and synthetic browser fixture required; no model turns")
+	}
+	op, err := Load(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := op.Backend.(*Live).Config
+	if c.Delivery == nil || !strings.Contains(c.Delivery.Root, "-qualification/") {
+		t.Fatal("browser readiness requires isolated qualification storage")
+	}
+	root := filepath.Join(c.Delivery.Root, "lab_resources_"+strings.ReplaceAll(time.Now().UTC().Format("20060102T150405.000000000"), ".", "_"))
+	if err = os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := readFile(fixture, 128<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string][]byte{"fixture.mjs": data, "browser_render.mjs": browserRenderScript} {
+		if err = writeExclusive(filepath.Join(root, name), content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+	b := Live{Config: c}
+	j := Job{Worker: filepath.Join(root, "work.json")}
+	out, err := b.sandbox(ctx, &j, []string{root}, "/usr/bin/env", "RUNNER_PLAYWRIGHT_MODULE="+c.Delivery.BrowserModule, "RUNNER_BROWSER_EXECUTABLE="+c.Delivery.BrowserExecutable, c.Delivery.Node, filepath.Join(root, "fixture.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(string(out))
+}
+
 func TestDeliveryPlatformImageBuilderReadiness(t *testing.T) {
 	policy := os.Getenv("RUNNER_DELIVERY_PLATFORM_POLICY")
 	if policy == "" {

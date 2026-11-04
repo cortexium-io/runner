@@ -362,6 +362,9 @@ func (b *Live) Advance(ctx context.Context, j *Job, save func() error) (err erro
 			resolved.Config.Report, resolved.Config.ReportSHA = j.Receipt.Report, j.Receipt.ReportSHA
 		}
 		b = &resolved
+		if j.Request.Action == "adopt" {
+			return b.adopt(ctx, j)
+		}
 		if j.Request.Action == "publish" || j.Request.Action == "qualify" || j.Request.Action == "readiness" {
 			return b.delivery(ctx, j, save)
 		}

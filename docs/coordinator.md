@@ -73,3 +73,12 @@ decision attempt's outputs before final process outputs exist; use its receipt
 to present exact approval facts without inspect access. These previews have a
 4 KiB total bound and mark truncation explicitly. Known configured recovery stays
 inside the process.
+
+After verifier/infrastructure maintenance, the model-free `release-reviewed`
+process can continue an accepted reviewed publication without another coding or
+review turn. Submit its original publication receipt and exact base commit; the
+operator authenticates that journal and the live PR/head/base. It reuses the same
+PR and performs full qualification before fresh protected approvals. It does not
+change the failed original run or inherit an earlier approval. A new continuation
+still needs the owner's authorization; the chat never edits history to simulate
+a successful retry.

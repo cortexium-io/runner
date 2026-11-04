@@ -42,6 +42,46 @@ func deliveryFixture(t *testing.T) (runner.Process, runner.Project) {
 	return p, project
 }
 
+func TestReviewedReleaseEntryKeepsQualificationAndApprovalGates(t *testing.T) {
+	_, project := deliveryFixture(t)
+	root := filepath.Join("..", "..", "..", "examples", "jacks-break")
+	var p runner.Process
+	data, err := os.ReadFile(filepath.Join(root, "release-reviewed.json"))
+	if err != nil || json.Unmarshal(data, &p) != nil {
+		t.Fatal("reviewed release example unavailable", err)
+	}
+	var role runner.Role
+	data, err = os.ReadFile(filepath.Join(root, "roles", "delivery-adopt.json"))
+	if err != nil || json.Unmarshal(data, &role) != nil {
+		t.Fatal("adoption role unavailable", err)
+	}
+	project.Roles[role.ID] = role
+	validate := func(p runner.Process) error {
+		return errors.Join(validateProcess(p, project), validateReleaseProcess(p, project))
+	}
+	if err = validate(p); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range p.Steps {
+		if project.Roles[step.Role].Execution.Harness != "release" {
+			t.Fatal("reviewed release introduced model work")
+		}
+	}
+	for _, change := range []func(*runner.Process){
+		func(p *runner.Process) { p.Steps = p.Steps[1:] },
+		func(p *runner.Process) { p.Steps[1].Routes["ready"] = runner.Route{Next: "merge"} },
+		func(p *runner.Process) { p.Steps[2].Routes["ready"] = runner.Route{Next: "merge"} },
+		func(p *runner.Process) { p.Steps[4].Routes["ready"] = runner.Route{Next: "stop"} },
+		func(p *runner.Process) { p.Steps[1].Inputs["receipt"] = runner.Binding{FromInput: "publication"} },
+	} {
+		bad := runner.Clone(p)
+		change(&bad)
+		if validate(bad) == nil {
+			t.Fatal("reviewed entry bypassed its closed release sequence")
+		}
+	}
+}
+
 func TestConnectedDeliveryCannotBypassCandidateOrRecoveryApprovals(t *testing.T) {
 	p, project := deliveryFixture(t)
 	validate := func(p runner.Process) error {

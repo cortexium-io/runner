@@ -531,6 +531,7 @@ func ready(p runner.Profile) error {
 		if p.Access != "input-only" || !slices.Contains([]string{
 			"readiness",
 			"publish",
+			"adopt",
 			"qualify",
 			"prepare",
 			"merge",

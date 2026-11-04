@@ -113,7 +113,7 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 	if o.Delivery && q.Action == "readiness" {
 		index = 0
 	}
-	if o.Delivery && (q.Action == "inspect" || q.Action == "inspect-migration" || q.Action == "restore" || q.Action == "recover-stop") {
+	if o.Delivery && (q.Action == "adopt" || q.Action == "inspect" || q.Action == "inspect-migration" || q.Action == "restore" || q.Action == "recover-stop") {
 		index = len(actions)
 	}
 	validSource := q.Source == o.Source
@@ -162,6 +162,10 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 			allowed := []string{actions[index-1]}
 			if o.Delivery {
 				switch q.Action {
+				case "adopt":
+					allowed = []string{"publish"}
+				case "qualify":
+					allowed = []string{"publish", "adopt"}
 				case "inspect":
 					allowed = []string{"deploy"}
 				case "inspect-migration":
@@ -174,7 +178,7 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 					allowed = []string{"deploy"}
 				}
 			}
-			if !safeID.MatchString(p.Key) || p.RunID != q.RunID || !slices.Contains(allowed, p.Action) || p.Policy != o.PolicyHash || source != q.Source {
+			if !safeID.MatchString(p.Key) || !safeID.MatchString(p.RunID) || p.RunID != q.RunID && q.Action != "adopt" || !slices.Contains(allowed, p.Action) || p.Policy != o.PolicyHash || source != q.Source {
 				return out, errors.New("previous release identity/policy differs")
 			}
 			previous, err := readFile(filepath.Join(o.Directory, p.Key+".json"), 32<<10)
@@ -182,7 +186,7 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 				return out, err
 			}
 			var saved Job
-			if json.Unmarshal(previous, &saved) != nil || !saved.Done || saved.Failed || publicReceipt(saved.Receipt, o.Delivery) != p {
+			if json.Unmarshal(previous, &saved) != nil || !saved.Done || saved.Failed || saved.Request.Project != q.Project || saved.Request.RunID != p.RunID || saved.Request.Action != p.Action || publicReceipt(saved.Receipt, o.Delivery) != p {
 				return out, errors.New("previous receipt is not an accepted operator result")
 			}
 			expectedOutcome := ""
@@ -272,7 +276,7 @@ func publicReceipt(r Receipt, connected bool) Receipt {
 	// The private operator journal owns the full chain. Intermediate handoffs
 	// retain a small immutable handle; approval/final receipts expose the proof.
 	compact := Receipt{Key: r.Key, RunID: r.RunID, Action: r.Action, Policy: r.Policy, Source: r.Source, Recovery: r.Recovery}
-	if r.Action == "publish" {
+	if r.Action == "publish" || r.Action == "adopt" {
 		compact.Head = r.Head
 	}
 	switch r.Action {
