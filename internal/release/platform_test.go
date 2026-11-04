@@ -4,6 +4,7 @@ package release
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -12,6 +13,61 @@ import (
 	"testing"
 	"time"
 )
+
+// Recheck only the changed browser adapter on disposable data, reusing immutable
+// build/runtime proofs. This never alters the original Runner result/evidence.
+func TestDeliveryPlatformBrowserQualification(t *testing.T) {
+	policy, receipt := os.Getenv("RUNNER_DELIVERY_PLATFORM_POLICY"), os.Getenv("RUNNER_DELIVERY_PLATFORM_BROWSER_RECEIPT")
+	if policy == "" || receipt == "" {
+		t.Skip("explicit isolated policy and saved candidate receipt required; no model turns")
+	}
+	op, err := Load(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := op.Backend.(*Live).Config
+	if c.Delivery == nil || !strings.Contains(c.Delivery.Root, "-qualification/") {
+		t.Fatal("browser test requires isolated qualification storage")
+	}
+	data, err := readFile(receipt, 32<<10)
+	var j Job
+	if err != nil || json.Unmarshal(data, &j) != nil || j.Receipt.Image == "" || j.Receipt.Report == "" {
+		t.Fatal("saved immutable candidate proof required", err)
+	}
+	run := "lab_browser_" + strings.ReplaceAll(time.Now().UTC().Format("20060102T150405.000000000"), ".", "_")
+	root := filepath.Join(c.Delivery.Root, run)
+	original := j.Receipt.Package
+	j.Request.RunID, j.Request.Key = run, run
+	j.Worker, j.Receipt.Package = filepath.Join(root, "work.json"), filepath.Join(root, "output")
+	j.Receipt.Remote = filepath.Join(c.BackupDir, run)
+	j.Done, j.Failed, j.Reason = false, false, ""
+	if err = os.MkdirAll(j.Receipt.Package, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"manifest.json", "reproduction.json", "qualification.result.json", "runtime-http.json", "rehearsal.json"} {
+		data, err = readPackageFile(original, name, 8<<20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = writeExclusive(filepath.Join(j.Receipt.Package, name), data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
+	defer cancel()
+	b := Live{Config: c}
+	if _, err = b.host(ctx, nil, "mkdir", "-m", "0700", j.Receipt.Remote); err != nil {
+		t.Fatal(err)
+	}
+	err = b.browserCandidate(ctx, &j)
+	if saveErr := writeJSON(filepath.Join(root, "result.json"), j); saveErr != nil {
+		t.Fatal(saveErr)
+	}
+	if err != nil || !j.Done || j.Failed {
+		t.Fatal("browser qualification failed; proof:", root, err)
+	}
+	t.Log("18 headless journeys passed; immutable build/runtime proofs reused:", root)
+}
 
 // This opt-in test executes the actual installed provider, sandbox, package
 // builder, Docker qualification and headless browser. Its synthetic publication

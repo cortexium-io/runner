@@ -254,6 +254,57 @@ func TestWorkspaceRetainsChangesAndBaseAcrossCleanup(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestWorkspaceInitializationLockRequiresCompleteCheckoutAndRetainedCleanup(t *testing.T) {
+	ctx := context.Background()
+	repo, d := sourceRepository(t), workspaceDisk(t)
+	w := &Workspaces{disk: d}
+	a := sourceAssignment(d, repo, "attempt_initialization")
+	r, err := w.Prepare(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtureGit(t, repo, "worktree", "lock", "--reason", "initializing", r.WorkDir)
+	doc := filepath.Join(r.WorkDir, "doc.go")
+	data, err := os.ReadFile(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = w.Prepare(ctx, a); err == nil || !strings.Contains(err.Error(), "initialization is incomplete") {
+		t.Fatal("partial checkout was admitted", err)
+	}
+	if err = os.WriteFile(doc, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = w.Prepare(ctx, a); err != nil {
+		t.Fatal("verified complete initialization could not settle", err)
+	}
+	if err = os.WriteFile(filepath.Join(r.WorkDir, "seats.go"), []byte(seatsImplementation), 0600); err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := w.Capture(ctx, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtureGit(t, repo, "worktree", "lock", "--reason", "operator inspection", r.WorkDir)
+	if err = w.releaseRun(ctx, a.RunID, true); err == nil {
+		t.Fatal("cleanup overrode an operator lock")
+	}
+	fixtureGit(t, repo, "worktree", "unlock", r.WorkDir)
+	fixtureGit(t, repo, "worktree", "lock", "--reason", "initializing", r.WorkDir)
+	if err = w.releaseRun(ctx, a.RunID, true); err != nil {
+		t.Fatal("retained candidate could not release a settled initialization lock", err)
+	}
+	if _, err = d.ArtifactSize(candidate.PatchID); err != nil {
+		t.Fatal("initialization recovery discarded the retained patch", err)
+	}
+	if _, err = os.Stat(r.WorkDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("settled owned checkout was not removed", err)
+	}
+}
 func TestWorkspaceCaptureFailurePreservesPartialWork(t *testing.T) {
 	repo := sourceRepository(t)
 	d := workspaceDisk(t)

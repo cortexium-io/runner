@@ -233,6 +233,11 @@ func (w *Workspaces) Prepare(ctx context.Context, a runner.Assignment) (workspac
 	if e = w.verifyWorkspace(ctx, r); e != nil {
 		return r, e
 	}
+	if restoring || r.Candidate == nil && r.ReadyGeneration == "" {
+		if e = w.settleInitialization(ctx, r, true); e != nil {
+			return r, e
+		}
+	}
 	if restoring || (r.SeedPatchID != "" && !r.SeedReady) {
 		if len(patch) != 0 {
 			if _, e = git(ctx, r.WorkDir, nil, patch, 4096, "apply", "--index", "--binary"); e != nil {
@@ -322,6 +327,39 @@ func (w *Workspaces) verifyWorkspace(ctx context.Context, r workspaceRecord) err
 	return nil
 }
 
+// A cancelled Git checkout can leave its own initialization lock behind.
+// Before admitting work, require the complete unchanged base. Cleanup already
+// proves a failed candidate is retained before removing its owned checkout.
+// Other lock reasons always require operator inspection.
+func (w *Workspaces) settleInitialization(ctx context.Context, r workspaceRecord, requireClean bool) error {
+	path, err := git(ctx, r.WorkDir, nil, nil, 4096, "rev-parse", "--path-format=absolute", "--git-path", "locked")
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(strings.TrimSpace(string(path)))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	data, err := io.ReadAll(io.LimitReader(f, 64))
+	f.Close()
+	if err != nil {
+		return err
+	}
+	if string(data) != "initializing\n" {
+		return errors.New("owned workspace has an operator lock; preserve and inspect it")
+	}
+	if requireClean {
+		if _, err = git(ctx, r.WorkDir, nil, nil, 4096, "diff", "--quiet", r.Base, "--"); err != nil {
+			return errors.New("owned checkout initialization is incomplete; preserve it before admitting work")
+		}
+	}
+	_, err = git(ctx, r.Repository, nil, nil, 4096, "worktree", "unlock", r.WorkDir)
+	return err
+}
+
 // Only a registered, owned pre-model worktree may be rebuilt after an interrupted
 // seed application. Once SeedReady is durable, Prepare never enters this path.
 func (w *Workspaces) rebuildSeedWorkspace(ctx context.Context, r workspaceRecord) error {
@@ -355,6 +393,11 @@ func (w *Workspaces) rebuildSeedWorkspace(ctx context.Context, r workspaceRecord
 			return e
 		} else if e = w.verifyWorkspace(ctx, r); e != nil {
 			return e
+		}
+		if _, e = os.Lstat(filepath.Join(r.WorkDir, ".git")); e == nil {
+			if e = w.settleInitialization(ctx, r, false); e != nil {
+				return e
+			}
 		}
 	}
 	_, e = git(ctx, r.Repository, nil, nil, 4096, "worktree", "remove", "--force", r.WorkDir)
@@ -716,6 +759,9 @@ func (w *Workspaces) releaseRun(ctx context.Context, id string, preserveCandidat
 	}
 	if _, e = os.Lstat(r.WorkDir); e == nil {
 		if e = w.verifyWorkspace(ctx, r); e != nil {
+			return e
+		}
+		if e = w.settleInitialization(ctx, r, false); e != nil {
 			return e
 		}
 		if _, e = git(ctx, r.Repository, nil, nil, 4096, "worktree", "remove", "--force", r.WorkDir); e != nil {

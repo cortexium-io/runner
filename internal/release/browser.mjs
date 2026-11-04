@@ -10,6 +10,11 @@ const receipt = resume ? { ...JSON.parse(fs.readFileSync(resume + '/receipt.json
 const paths = Object.fromEntries(receipt.journeys.filter(row => row.path).map(row => [row.game, row.path]))
 fs.mkdirSync(output, { recursive: true })
 async function bounded(page, selector) {
+  // DOM content and SSR visibility precede stylesheet/font completion on a
+  // reload. Measure the rendered page, keeping the overflow assertions strict.
+  await page.waitForLoadState('load')
+  await page.waitForFunction(() => [...document.querySelectorAll('link[rel="stylesheet"]')].every(link => link.disabled || link.sheet !== null))
+  await page.evaluate(() => document.fonts.ready.then(() => undefined))
   const bounds = await page.locator(selector).first().boundingBox()
   assert.ok(bounds, 'missing ' + selector)
   const metrics = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }))
@@ -29,6 +34,12 @@ try {
     page.setDefaultTimeout(20000)
     const errors = []
     page.on('pageerror', error => errors.push(error.message))
+    page.on('requestfailed', request => {
+      if (new URL(request.url()).origin === origin && ['stylesheet', 'script', 'font'].includes(request.resourceType())) {
+        receipt.resourceFailures ??= []
+        receipt.resourceFailures.push({ path: new URL(request.url()).pathname, error: request.failure()?.errorText })
+      }
+    })
     for (const game of games) {
       const previous = receipt.journeys.find(row => row.device === device.name && row.game === game)
       if (previous?.states.includes('reload')) continue
