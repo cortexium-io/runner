@@ -158,6 +158,17 @@ func (b *Live) commandWithEnvironment(ctx context.Context, input []byte, environ
 		if ctx.Err() == nil && path == b.Config.SSH && errors.As(err, &exit) && exit.ExitCode() == 255 && strings.Contains(diagnostic.String(), "Connection timed out during banner exchange") {
 			return nil, &connectionUnavailable{}
 		}
+		if ctx.Err() == nil && path == b.Config.Docker && errors.As(err, &exit) && exit.ExitCode() == 1 && len(args) > 2 && args[0] == "--host" {
+			text := strings.TrimSpace(diagnostic.String())
+			beforeBuild := args[2] == "build" && strings.HasPrefix(text, "ERROR: failed to build: listing workers: failed to list workers: Unavailable: connection error:")
+			// Docker wraps SSH failures in exit 1. A read-only query or
+			// pre-solve worker discovery can reconnect without replaying effects.
+			if (dockerQuery(args[2:]) || beforeBuild) && strings.Contains(text, "command [ssh ") &&
+				strings.Contains(text, "has exited with exit status 255") &&
+				strings.Contains(text, "stderr=Connection timed out during banner exchange") {
+				return nil, &connectionUnavailable{}
+			}
+		}
 		if ctx.Err() == nil && errors.As(err, &exit) && exit.ExitCode() > 0 && exit.ExitCode() != 255 {
 			return nil, &commandFailure{program: filepath.Base(path), code: exit.ExitCode()}
 		}
@@ -218,17 +229,33 @@ func (b *Live) host(ctx context.Context, input []byte, args ...string) ([]byte, 
 		b.Config.Host,
 		strings.Join(quoted, " "),
 	}
-	data, err := b.command(ctx, input, b.Config.SSH, argv...)
+	return b.reconnect(ctx, input, b.Config.SSH, argv...)
+}
+
+func (b *Live) reconnect(ctx context.Context, input []byte, path string, args ...string) ([]byte, error) {
+	data, err := b.command(ctx, input, path, args...)
 	var unavailable *connectionUnavailable
 	if errors.As(err, &unavailable) && ctx.Err() == nil {
-		// No SSH session or remote command existed. One reconnect reuses the
-		// same operation; an acknowledgement lost after dispatch never retries.
-		return b.command(ctx, input, b.Config.SSH, argv...)
+		// Only positively established pre-dispatch failures receive one
+		// reconnect. A reply lost after dispatch never authorizes replay.
+		return b.command(ctx, input, path, args...)
 	}
 	return data, err
 }
 func (b *Live) docker(ctx context.Context, args ...string) ([]byte, error) {
-	return b.command(ctx, nil, b.Config.Docker, append([]string{"--host", b.Config.DockerHost}, args...)...)
+	return b.reconnect(ctx, nil, b.Config.Docker, append([]string{"--host", b.Config.DockerHost}, args...)...)
+}
+
+func dockerQuery(args []string) bool {
+	switch args[0] {
+	case "info", "ps", "inspect", "port":
+		return true
+	case "image", "network":
+		return len(args) > 1 && (args[1] == "inspect" || args[1] == "ls")
+	case "cp":
+		return len(args) == 3 && strings.Contains(args[1], ":") && args[2] == "-"
+	}
+	return false
 }
 func (b *Live) tool(ctx context.Context, name string, args any, target any) error {
 	if b.callTool != nil {

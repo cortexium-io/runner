@@ -129,3 +129,44 @@ func TestDockerUsesItsConfiguredRuntimeForCredentialHelpers(t *testing.T) {
 		t.Fatal("Docker runtime selection changed the parent environment")
 	}
 }
+
+func TestDockerReconnectsOnlyBeforeBuildDispatch(t *testing.T) {
+	for _, test := range []struct {
+		name, action, phase string
+		alwaysFail          bool
+		calls               int
+		connected           bool
+	}{
+		{name: "startup reconnect", action: "build", phase: "listing workers", calls: 2, connected: true},
+		{name: "startup exhausted", action: "build", phase: "listing workers", alwaysFail: true, calls: 2},
+		{name: "read-only query", action: "inspect", phase: "query", calls: 2, connected: true},
+		{name: "read-only exhausted", action: "inspect", phase: "query", alwaysFail: true, calls: 2},
+		{name: "build dispatched", action: "build", phase: "solving build", calls: 1},
+		{name: "multi-effect run", action: "run", phase: "listing workers", calls: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			program, marker := filepath.Join(root, "docker"), filepath.Join(root, "calls")
+			transport := "command [ssh -T fixture docker system dial-stdio] has exited with exit status 255: stderr=Connection timed out during banner exchange"
+			message := "ERROR: failed to build: " + test.phase + ": failed to list workers: Unavailable: connection error: desc = transport: Error while dialing: " + transport
+			if test.action == "inspect" {
+				message = "error during connect: Get http://fixture/containers/image/json: " + transport
+			}
+			failure := "printf '%s\\n' " + quote(message) + " >&2; exit 1\n"
+			second := "printf 'connected\\n'; exit 0\n"
+			if test.alwaysFail {
+				second = failure
+			}
+			script := "#!/bin/sh\nif [ -e " + quote(marker) + " ]; then printf 'second\\n' >> " + quote(marker) + "; " + second + "fi\nprintf 'first\\n' > " + quote(marker) + "; " + failure
+			if err := os.WriteFile(program, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			b := Live{Config: Config{Docker: program, DockerHost: "fixture"}}
+			out, err := b.docker(t.Context(), test.action, "fixed-context")
+			calls, _ := os.ReadFile(marker)
+			if strings.Count(string(calls), "\n") != test.calls || (err == nil) != test.connected || test.connected && string(out) != "connected\n" {
+				t.Fatal("Docker reconnect boundary or bound violated", err, string(calls))
+			}
+		})
+	}
+}

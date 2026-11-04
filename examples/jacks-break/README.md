@@ -95,7 +95,9 @@ requires its matching pre-upgrade database backup after new format-2 runs exist.
 - Lost replies, interrupted effects and unsettled processes retain their original
   identity. They never authorize another release, migration or database restore.
   An SSH timeout before authentication gets one bounded reconnect; a disconnect
-  after remote dispatch never gets that retry.
+  after remote dispatch never gets that retry. The same boundary covers Docker's
+  wrapped SSH error during pre-solve worker discovery and read-only queries;
+  mutating Docker operations never receive that general query retry.
 
 Merge approval does not approve production. Production approval does not approve
 database restoration. Shared Docker cleanup and unrelated changes are outside
