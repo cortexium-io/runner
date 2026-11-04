@@ -6,7 +6,6 @@
     "patch": "artifact",
     "summary": "text",
     "check": "text",
-    "package": "text",
     "tests": "text",
     "measurement": "text",
     "measurements": "artifact",

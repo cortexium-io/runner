@@ -169,9 +169,6 @@
           "from_step": "check",
           "output": "check"
         },
-        "package": {
-          "from_input": "package"
-        },
         "tests": {
           "from_input": "tests"
         },

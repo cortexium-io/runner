@@ -96,6 +96,9 @@ func TestRetainedInvestigationMeasuresBeforeModelsAndKeepsReleaseGates(t *testin
 		if err != nil || json.Unmarshal(data, &role) != nil {
 			t.Fatal("investigation role unavailable", err)
 		}
+		if err = errors.Join(types(role.Inputs), types(role.Outputs), ready(*role.Execution)); err != nil {
+			t.Fatal("investigation role contract is unsupported", id, err)
+		}
 		project.Roles[id] = role
 	}
 	validate := func(p runner.Process) error {
