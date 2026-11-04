@@ -32,12 +32,27 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 	adopted := selected[start].Mode == "adopt"
 	connected := selected[start].Mode == "publish" || adopted
 	bad := errors.New("release requires immutable ordered qualification/merge/backup/production gates; coding may enter only through candidate publication")
+	readiness := 0
+	// A retained-scaffold investigation may collect a read-only baseline before
+	// infrastructure admission. Admission still precedes every model turn.
+	if connected && !adopted && selected[0].Harness == "command" {
+		if len(p.Steps) < 3 || selected[0].Access != "workspace-read" || p.Inputs["patch"] != "artifact" || p.Steps[0].ForEach != nil || p.Steps[0].Reuse || p.Steps[0].Escalation != nil ||
+			p.Steps[0].Inputs["patch"] != (runner.Binding{FromInput: "patch"}) ||
+			!reflect.DeepEqual(p.Steps[0].Routes, map[string]runner.Route{
+				"continue": {Next: p.Steps[1].ID},
+				"ready":    {Next: p.Steps[1].ID},
+			}) {
+			return bad
+		}
+		readiness = 1
+	}
+	owner := readiness + 1
 	if connected {
 		if adopted {
 			if start != 0 || p.MaxAttempts != 16 || !reflect.DeepEqual(p.Inputs, map[string]string{"publication": "json"}) {
 				return bad
 			}
-		} else if start < 2 || selected[0].Harness != "release" || selected[0].Mode != "readiness" || len(p.Steps[0].Inputs) != 0 || !reflect.DeepEqual(p.Steps[0].Routes, map[string]runner.Route{"ready": {Next: p.Steps[1].ID}, "blocked": {Next: "$fail"}}) {
+		} else if start <= owner || selected[readiness].Harness != "release" || selected[readiness].Mode != "readiness" || len(p.Steps[readiness].Inputs) != 0 || !reflect.DeepEqual(p.Steps[readiness].Routes, map[string]runner.Route{"ready": {Next: p.Steps[owner].ID}, "blocked": {Next: "$fail"}}) || selected[owner].Harness != "codex" || selected[owner].Access != "workspace-write" {
 			return bad
 		}
 		actions = append([]string{selected[start].Mode, "qualify"}, actions...)
@@ -95,7 +110,7 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 		approval := action == "prepare" || action == "backup"
 		maxTimes := 0
 		if connected && action == "qualify" {
-			correction := runner.Route{Next: p.Steps[1].ID, MaxTimes: 1}
+			correction := runner.Route{Next: p.Steps[owner].ID, MaxTimes: 1}
 			if adopted {
 				correction = runner.Route{Next: "$fail"}
 			}

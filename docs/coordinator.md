@@ -82,3 +82,16 @@ PR and performs full qualification before fresh protected approvals. It does not
 change the failed original run or inherit an earlier approval. A new continuation
 still needs the owner's authorization; the chat never edits history to simulate
 a successful retry.
+
+For an investigation with a retained benchmark scaffold, select the complete
+`investigate-retained` process and supply that patch as its `patch` artifact
+input, its exact base, and the normal request/check/benchmark inputs. Its first
+read-only command measures the scaffold before infrastructure readiness and any
+model turn. Unsuccessful baseline samples remain explicit failure evidence for
+the investigator, not a passing candidate measurement. The owner receives bounded
+baseline output and the reviewer receives its full report. Existing checks,
+bounded measurement, review, publication, qualification and the protected release
+suffix run normally. Preserve
+the blocked original run; never advance it by rewriting its outcome. For a new
+benchmark task without a scaffold, the initial owner hands its runnable scaffold
+to downstream measurement without claiming the correction has already passed.

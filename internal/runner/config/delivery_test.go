@@ -82,6 +82,47 @@ func TestReviewedReleaseEntryKeepsQualificationAndApprovalGates(t *testing.T) {
 	}
 }
 
+func TestRetainedInvestigationMeasuresBeforeModelsAndKeepsReleaseGates(t *testing.T) {
+	_, project := deliveryFixture(t)
+	root := filepath.Join("..", "..", "..", "examples", "jacks-break")
+	var p runner.Process
+	data, err := os.ReadFile(filepath.Join(root, "investigate-retained.json"))
+	if err != nil || json.Unmarshal(data, &p) != nil {
+		t.Fatal("retained investigation unavailable", err)
+	}
+	for _, id := range []string{"delivery-baseline", "investigation-owner", "investigation-review"} {
+		var role runner.Role
+		data, err = os.ReadFile(filepath.Join(root, "roles", id+".json"))
+		if err != nil || json.Unmarshal(data, &role) != nil {
+			t.Fatal("investigation role unavailable", err)
+		}
+		project.Roles[id] = role
+	}
+	validate := func(p runner.Process) error {
+		return errors.Join(validateProcess(p, project), validateReleaseProcess(p, project))
+	}
+	if err = validate(p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Steps[2].Inputs["baseline"] != (runner.Binding{FromStep: "baseline", Output: "check"}) || p.Steps[5].Inputs["baseline_measurements"] != (runner.Binding{FromStep: "baseline", Output: "artifact"}) {
+		t.Fatal("owner did not receive real baseline feedback")
+	}
+	for _, change := range []func(*runner.Process){
+		func(p *runner.Process) { p.Steps[0].Routes["continue"] = runner.Route{Next: "owner"} },
+		func(p *runner.Process) { p.Steps[1].Routes["ready"] = runner.Route{Next: "publish"} },
+		func(p *runner.Process) { p.Steps[0].Inputs["patch"] = runner.Binding{FromCandidate: true} },
+		func(p *runner.Process) {
+			p.Steps[8].Routes["changes_requested"] = runner.Route{Next: "baseline", MaxTimes: 1}
+		},
+	} {
+		bad := runner.Clone(p)
+		change(&bad)
+		if validate(bad) == nil {
+			t.Fatal("investigation bypassed admission/source/repair identity")
+		}
+	}
+}
+
 func TestConnectedDeliveryCannotBypassCandidateOrRecoveryApprovals(t *testing.T) {
 	p, project := deliveryFixture(t)
 	validate := func(p runner.Process) error {

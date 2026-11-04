@@ -25,6 +25,9 @@ type measurement struct {
 	Seconds  float64   `json:"seconds"`
 	Output   string    `json:"output"`
 	Skipped  bool      `json:"skipped"`
+	Baseline bool      `json:"baseline,omitempty"`
+	Failed   bool      `json:"failed,omitempty"`
+	Error    string    `json:"error,omitempty"`
 }
 
 func selection(pkg, selector, previous string) (int, error) {
@@ -59,14 +62,15 @@ func main() {
 	pkg := flag.String("package", "", "relative package")
 	selector := flag.String("benchmark", "none", "anchored benchmark selector or none")
 	previous := flag.String("previous", "", "retained prior check")
+	baseline := flag.Bool("baseline", false, "retain an unsuccessful benchmark as investigation feedback")
 	flag.Parse()
-	if err := run(*goBinary, *source, *scratch, *pkg, *selector, *previous); err != nil {
+	if err := run(*goBinary, *source, *scratch, *pkg, *selector, *previous, *baseline); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(goBinary, source, scratch, pkg, selector, previous string) error {
+func run(goBinary, source, scratch, pkg, selector, previous string, baseline bool) error {
 	round, err := selection(pkg, selector, previous)
 	if err != nil {
 		return err
@@ -74,7 +78,17 @@ func run(goBinary, source, scratch, pkg, selector, previous string) error {
 	if !filepath.IsAbs(goBinary) || !filepath.IsAbs(source) || !filepath.IsAbs(scratch) {
 		return errors.New("explicit absolute runtime/source/scratch paths required")
 	}
-	m := measurement{Round: round, Package: pkg, Selector: selector, Started: time.Now().UTC(), Skipped: selector == "none"}
+	if baseline && (selector == "none" || previous != "") {
+		return errors.New("baseline needs an actual named benchmark and no preceding round")
+	}
+	m := measurement{
+		Round:    round,
+		Package:  pkg,
+		Selector: selector,
+		Started:  time.Now().UTC(),
+		Skipped:  selector == "none",
+		Baseline: baseline,
+	}
 	outcome := "ready"
 	if !m.Skipped {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -84,24 +98,32 @@ func run(goBinary, source, scratch, pkg, selector, previous string) error {
 		var output boundedOutput
 		cmd.Stdout = &output
 		cmd.Stderr = &output
-		if err = cmd.Run(); err != nil {
-			return errors.New("configured measurement failed; " + output.String())
-		}
+		err = cmd.Run()
 		m.Output = output.String()
 		m.Seconds = time.Since(m.Started).Seconds()
-		if !regexp.MustCompile(`(?m)^Benchmark\S+\s+\d+\s+`).MatchString(m.Output) {
-			return errors.New("benchmark selector executed no measurement")
+		if err != nil {
+			var exit *exec.ExitError
+			if ctx.Err() != nil || !errors.As(err, &exit) || exit.ExitCode() != 1 {
+				return errors.New("configured measurement failed; " + m.Output)
+			}
+			m.Failed, m.Error = true, "Go benchmark failed; inspect retained output before claiming a performance baseline"
+		} else if !regexp.MustCompile(`(?m)^Benchmark\S+\s+\d+\s+`).MatchString(m.Output) {
+			m.Failed, m.Error = true, "benchmark selector executed no measurement"
 		}
-		if round == 1 {
+		if round == 1 || m.Failed {
 			outcome = "continue"
 		}
 	}
 	if err = os.MkdirAll(scratch, 0700); err != nil {
 		return err
 	}
+	reason := "Bounded measurement; Runner owns the next owner/review stage"
+	if m.Failed {
+		reason = m.Error
+	}
 	for name, value := range map[string]any{
 		"measurements.json": m,
-		"domain.json":       map[string]string{"outcome": outcome, "reason": "Bounded measurement; Runner owns the next owner/review stage"},
+		"domain.json":       map[string]string{"outcome": outcome, "reason": reason},
 	} {
 		data, err := json.Marshal(value)
 		if err != nil {
@@ -111,10 +133,21 @@ func run(goBinary, source, scratch, pkg, selector, previous string) error {
 			return err
 		}
 	}
-	fmt.Printf("runner-measure round=%d selector=%s skipped=%t seconds=%.6f; actual output retained in measurements.json\n", round, selector, m.Skipped, m.Seconds)
-	for _, line := range strings.Split(m.Output, "\n") {
-		if strings.HasPrefix(line, "Benchmark") {
-			fmt.Println(line)
+	fmt.Printf("runner-measure round=%d selector=%s skipped=%t baseline=%t failed=%t seconds=%.6f; actual output retained in measurements.json\n", round, selector, m.Skipped, m.Baseline, m.Failed, m.Seconds)
+	if m.Failed {
+		fmt.Println(m.Error)
+	}
+	if baseline || m.Failed {
+		text := m.Output
+		if len(text) > 1024 {
+			text = text[:512] + "\n[truncated; complete output retained in measurements.json]\n" + text[len(text)-512:]
+		}
+		fmt.Println("measurement output:\n" + strings.ToValidUTF8(text, "?"))
+	} else {
+		for _, line := range strings.Split(m.Output, "\n") {
+			if strings.HasPrefix(line, "Benchmark") {
+				fmt.Println(line)
+			}
 		}
 	}
 	return nil

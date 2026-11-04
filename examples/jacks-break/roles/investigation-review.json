@@ -1,0 +1,28 @@
+{
+  "id": "investigation-review",
+  "purpose": "Independently judge the candidate against the original request, scoped check and affected contracts; report blockers without repairing.",
+  "inputs": {
+    "request": "text",
+    "patch": "artifact",
+    "summary": "text",
+    "check": "text",
+    "package": "text",
+    "tests": "text",
+    "measurement": "text",
+    "measurements": "artifact",
+    "baseline_measurements": "artifact"
+  },
+  "outputs": {
+    "verdict": "text",
+    "summary": "text"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Compare the retained baseline evidence with the candidate measurements. A failed baseline is failure evidence, never a successful timing claim. Require a supported cause and meaningful unchanged acceptance conditions. Independently review the original scoped Go request, retained patch, actual focused check and measurement evidence. Follow AGENTS.md and docs/testing.md; read only affected source/contracts needed to judge completeness, correctness, public behavior, generated ownership, unnecessary work and meaningful test purpose/placement. Source is read-only. Do not edit, retest, use Git, launch agents or perform external work. Downstream packaging, runtime/browser qualification and protected release still must pass. Return ready with verdict exactly APPROVE only for a complete source handoff with sufficient supplied focused proof. A concrete in-scope repair returns changes_requested with verdict BLOCKED. Missing capability, infrastructure uncertainty or a required material decision returns blocked. Do not waive proof or widen scope. Keep findings and any missing proof in a summary of at most 240 characters."
+  }
+}

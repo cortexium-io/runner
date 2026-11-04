@@ -14,6 +14,30 @@ import (
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
+func TestInvestigationPayloadFitsExistingLimit(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "jacks-break", "roles", "investigation-owner.json"))
+	var role runner.Role
+	if err != nil || json.Unmarshal(data, &role) != nil {
+		t.Fatal("investigation role unavailable", err)
+	}
+	a := runner.Assignment{
+		Task:        role.Purpose,
+		Setup:       runner.ExecutionSetup{Profile: *role.Execution},
+		OutputTypes: role.Outputs,
+		Inputs: map[string]runner.Value{
+			"request":       runner.Text(strings.Repeat("r", 2200)),
+			"baseline":      runner.Text(strings.Repeat("b", 1400)),
+			"check":         runner.Text(strings.Repeat("c", 256)),
+			"measurement":   runner.Text(strings.Repeat("m", 1024)),
+			"review":        runner.Text(strings.Repeat("v", 240)),
+			"qualification": runner.Value{Inline: []byte(`{"key":"retained_qualification","head":"` + strings.Repeat("a", 40) + `"}`)},
+		},
+	}
+	if _, _, err = nativePayload(a); err != nil {
+		t.Fatal("bounded investigation feedback exceeds the unchanged profile", err)
+	}
+}
+
 // The core/native/command/Git/provider boundary is real; judgments and remote
 // effects are scripted. The provider never contacts GitHub or production.
 func TestConnectedDeliveryCorrectionAndRecoveryDecisions(t *testing.T) {
@@ -23,7 +47,7 @@ func TestConnectedDeliveryCorrectionAndRecoveryDecisions(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatal(err, string(output))
 	}
-	for _, mode := range []string{"complete", "qa", "backup", "migration", "retry", "approval", "uncertain", "all"} {
+	for _, mode := range []string{"complete", "qa", "backup", "migration", "retry", "approval", "uncertain", "all", "baseline"} {
 		t.Run(mode, func(t *testing.T) {
 			repo := sourceRepository(t)
 			head := strings.TrimSpace(string(fixtureGit(t, repo, "rev-parse", "HEAD")))
@@ -39,7 +63,11 @@ func TestConnectedDeliveryCorrectionAndRecoveryDecisions(t *testing.T) {
 			project := cfg.Projects["demo"]
 			root := filepath.Join("..", "..", "..", "examples", "jacks-break")
 			var process runner.Process
-			data, err := os.ReadFile(filepath.Join(root, "process.json"))
+			processFile := "process.json"
+			if mode == "baseline" {
+				processFile = "investigate-retained.json"
+			}
+			data, err := os.ReadFile(filepath.Join(root, processFile))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -69,6 +97,20 @@ func TestConnectedDeliveryCorrectionAndRecoveryDecisions(t *testing.T) {
 printf '%s\n' '{"outcome":"ready","reason":"scripted measurement; real measurement is qualified separately"}' > "$TMPDIR/domain.json"
 printf 'fixture measurement retained\n'`}, Artifact: "measurements.json", Result: "domain.json"}
 			project.Roles[measure.ID] = measure
+			if mode == "baseline" {
+				helper := filepath.Join(t.TempDir(), "measure")
+				cmd := exec.Command("go", "build", "-o", helper, "./cmd/runner-measure")
+				cmd.Dir = filepath.Join("..", "..", "..")
+				if output, err := cmd.CombinedOutput(); err != nil {
+					t.Fatal(err, string(output))
+				}
+				args := []string{helper, "--go", goBinary, "--source", "{workspace}", "--scratch", "{scratch}", "--package", ".", "--benchmark", "^BenchmarkBaseline$"}
+				baseline := project.Roles["delivery-baseline"]
+				baseline.Execution.Command = &runner.Command{Args: append(append([]string{}, args...), "--baseline"), Artifact: "measurements.json", Result: "domain.json"}
+				project.Roles[baseline.ID] = baseline
+				measure.Execution.Command = &runner.Command{Args: append(args, "--previous", "{text.previous}"), Artifact: "measurements.json", Result: "domain.json"}
+				project.Roles[measure.ID] = measure
+			}
 			if mode == "all" {
 				measure.Execution.Command.Args = []string{"/bin/sh", "-c", `outcome=ready; round=2
 if [ -z "$1" ]; then outcome=continue; round=1; fi
@@ -77,8 +119,25 @@ printf '{"outcome":"%s","reason":"scripted measurement"}\n' "$outcome" > "$TMPDI
 printf 'runner-measure round=%s selector=fixture skipped=false\n' "$round"`, "fixture", "{text.previous}"}
 				project.Roles[measure.ID] = measure
 			}
-			project.Processes = map[string]runner.Process{"deliver": process}
-			project.DefaultProcess = "deliver"
+			project.Processes = map[string]runner.Process{process.ID: process}
+			project.DefaultProcess = process.ID
+			if mode == "baseline" {
+				seedRole := runner.Clone(project.Roles["investigation-owner"])
+				seedRole.ID, seedRole.Inputs = "scaffold", map[string]string{}
+				project.Roles[seedRole.ID] = seedRole
+				project.Processes["scaffold"] = runner.Process{
+					ID:     "scaffold",
+					Inputs: map[string]string{},
+					Steps: []runner.Step{{
+						ID:     "scaffold",
+						Role:   "scaffold",
+						Routes: map[string]runner.Route{"blocked": {Next: "$fail"}},
+					}},
+					MaxAttempts:        1,
+					MaxAttemptsPerStep: 1,
+					AttemptTimeout:     "2m",
+				}
+			}
 			project.Source = &runner.SourceSettings{Ref: "refs/remotes/origin/main"}
 			cfg.Projects["demo"] = project
 			operator := t.TempDir()
@@ -89,6 +148,11 @@ printf 'runner-measure round=%s selector=fixture skipped=false\n' "$round"`, "fi
 			approved := goodTurn()
 			approved.Items[0].Text = `{"outcome":"ready","outputs":{"verdict":"APPROVE","summary":"Fixture source approved"},"reason":""}`
 			script := &scriptedPeer{results: []nativeTurn{goodTurn(), approved}}
+			if mode == "baseline" {
+				blocked := goodTurn()
+				blocked.Items[0].Text = `{"outcome":"blocked","outputs":{"summary":"Scaffold retained; measurements required"},"reason":"Missing initial measurement"}`
+				script.results = []nativeTurn{blocked, goodTurn(), goodTurn(), approved}
+			}
 			if mode == "qa" {
 				script.results = append(script.results, goodTurn(), approved)
 			}
@@ -116,6 +180,27 @@ printf 'runner-measure round=%s selector=fixture skipped=false\n' "$round"`, "fi
 				script.results = []nativeTurn{wide, wide, wide, correction, wide, approved, wide, approved}
 			}
 			script.onTurn = func(dir string) {
+				if mode == "baseline" {
+					file := filepath.Join(dir, "baseline_test.go")
+					if script.starts == 0 {
+						if err := os.WriteFile(file, []byte("package seats\nimport \"testing\"\nfunc BenchmarkBaseline(b *testing.B){b.Fatal(\"observed baseline failure\")}\n"), 0600); err != nil {
+							t.Error(err)
+						}
+						if err := os.WriteFile(filepath.Join(dir, "seats.go"), []byte(seatsImplementation), 0600); err != nil {
+							t.Error(err)
+						}
+					} else if script.starts == 1 {
+						data, err := os.ReadFile(file)
+						if err != nil || !strings.Contains(string(data), "observed baseline failure") {
+							t.Error("retained scaffold was not restored before investigation", err)
+						}
+					} else if script.starts == 2 {
+						if err := os.WriteFile(file, []byte("package seats\nimport \"testing\"\nfunc BenchmarkBaseline(b *testing.B){for i:=0;i<b.N;i++{if _,err:=ParseSeats(\"2\");err!=nil{b.Fatal(err)}}}\n"), 0600); err != nil {
+							t.Error(err)
+						}
+					}
+					return
+				}
 				if script.starts == 0 || mode == "qa" && script.starts == 2 || mode == "all" && (script.starts == 1 || script.starts == 2 || script.starts == 4 || script.starts == 6) {
 					body := seatsImplementation
 					if mode == "all" {
@@ -150,15 +235,29 @@ printf 'runner-measure round=%s selector=fixture skipped=false\n' "$round"`, "fi
 			state := filepath.Join(t.TempDir(), "state")
 			rig := openNativeRig(t, state, cfg, script, hook)
 			defer func() { rig.close() }()
+			inputs := map[string]runner.Value{
+				"request":   runner.Text("Implement positive seat parsing"),
+				"package":   runner.Text("."),
+				"tests":     runner.Text(""),
+				"benchmark": runner.Text("none"),
+			}
+			var old runner.Run
+			if mode == "baseline" {
+				old, err = rig.core.Start(runner.StartRequest{RequestID: "scaffold", Project: "demo", Process: "scaffold", Inputs: map[string]runner.Value{}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				old = waitSourceRun(t, rig.core, old.ID, func(r runner.Run) bool { return r.Terminal() && allReleased(r) })
+				if old.Status != "Failed" || len(old.Attempts) != 1 || old.Attempts[0].Source == nil {
+					t.Fatal("failed scaffold was not retained", old)
+				}
+				inputs["patch"] = runner.Value{ArtifactID: old.Attempts[0].Source.PatchID}
+				inputs["benchmark"] = runner.Text("^BenchmarkBaseline$")
+			}
 			r, err := rig.core.Start(runner.StartRequest{
 				RequestID: "connected",
 				Project:   "demo",
-				Inputs: map[string]runner.Value{
-					"request":   runner.Text("Implement positive seat parsing"),
-					"package":   runner.Text("."),
-					"tests":     runner.Text(""),
-					"benchmark": runner.Text("none"),
-				},
+				Inputs:    inputs,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -239,6 +338,25 @@ printf 'runner-measure round=%s selector=fixture skipped=false\n' "$round"`, "fi
 			}
 			if mode == "all" && (len(end.Attempts) != 35 || script.starts != 8 || strings.Count(text, "deploy\n") != 3) {
 				t.Fatal("combined configured correction/recovery path differs", len(end.Attempts), script.starts, text)
+			}
+			if mode == "baseline" {
+				first := end.Attempts[0]
+				feedback := string(first.End.Result.Outputs["check"].Inline)
+				if first.Step != 0 || first.End.Result.Outcome != "continue" || !strings.Contains(feedback, "failed=true") || !strings.Contains(feedback, "observed baseline failure") || script.starts != 4 {
+					t.Fatal("baseline did not precede investigation and configured iteration", first, script.starts)
+				}
+				data, err := rig.disk.Read("artifacts/"+first.End.Result.Outputs["artifact"].ArtifactID, rig.disk.Policy.MaxArtifact)
+				if err != nil || !strings.Contains(string(data), "observed baseline failure") {
+					t.Fatal("failed baseline evidence was lost", err, string(data))
+				}
+				failedMeasure := end.Attempts[4]
+				if failedMeasure.End.Result.Outcome != "continue" || !strings.Contains(string(failedMeasure.End.Result.Outputs["check"].Inline), "failed=true") {
+					t.Fatal("failed candidate measurement bypassed its configured correction", failedMeasure)
+				}
+				preserved, err := rig.core.Get(old.ID)
+				if err != nil || preserved.Status != "Failed" || preserved.Attempts[0].Source.PatchID != old.Attempts[0].Source.PatchID || end.Attempts[2].Source.InputPatchID != old.Attempts[0].Source.PatchID {
+					t.Fatal("original failure or cumulative source provenance changed", err)
+				}
 			}
 			encoded, _, _ := runner.MarshalRunRecord(end)
 			if len(encoded) > 40<<10 {

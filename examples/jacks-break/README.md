@@ -45,6 +45,16 @@ recovery approval gates; prior approvals are not carried forward. The failed
 development run remains intact. Its 16-attempt bound and per-visit limit of one
 introduce no additional model allowance.
 
+`investigate-retained.json` is the complete baseline-first entry for an
+unreviewed retained scaffold. Supply its `patch` artifact and full base commit,
+plus the same request/package/tests/benchmark inputs as `deliver`. A read-only
+baseline command runs before infrastructure readiness and the first model turn;
+its retained report is supplied directly to the investigator. A failed or missing
+sample is marked failed and cannot qualify the candidate. Normal candidate
+measurements remain strict. The existing correction/review/qualification/release
+steps and their protected approvals follow, within the unchanged 35-attempt cap.
+The original failed run and its patch stay preserved.
+
 Browser layout verdicts require at least one loaded stylesheet and ready fonts.
 A failed critical main-page resource gets one navigation retry with its failed
 navigation diagnostics retained. Persistent resource failures remain operator
