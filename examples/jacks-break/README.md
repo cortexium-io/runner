@@ -61,6 +61,13 @@ navigation diagnostics retained. Persistent resource failures remain operator
 blockers; only a fully rendered overflow is a source correction. Puzzle creation
 and hints are never replayed by this resource retry.
 
+The browser SSH forward requires its own positive loopback-bind signal before
+journeys start. Startup is bounded, keeps private stderr diagnostics and may
+reconnect once only after a confirmed pre-authentication banner timeout. It uses
+a dedicated connection; a forwarding denial, an unrelated local listener or a
+failure after binding cannot trigger browser replay. Process pipe copying also
+preserves the configured stdout/stderr bounds.
+
 ## Installation
 
 Copy `process.json` and `roles/` into the private project. Set executable and cache

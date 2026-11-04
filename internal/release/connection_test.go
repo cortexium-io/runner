@@ -4,12 +4,25 @@ package release
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 )
+
+func TestProcessOutputCopiesRespectConfiguredBounds(t *testing.T) {
+	input := func() io.Reader { return io.LimitReader(strings.NewReader(strings.Repeat("x", 32)), 32) }
+	diagnostic := &diagnosticOutput{limit: 8}
+	if n, err := io.Copy(diagnostic, input()); err != nil || n != 32 || diagnostic.Len() != 8 {
+		t.Fatal("stderr copy bypassed its retention bound", n, err, diagnostic.Len())
+	}
+	output := &limitedOutput{limit: 8}
+	if _, err := io.Copy(output, input()); err == nil || output.Len() > 8 {
+		t.Fatal("stdout copy bypassed its output allowance", err, output.Len())
+	}
+}
 
 func TestImageBuilderReadinessReconcilesLostCleanupAcknowledgement(t *testing.T) {
 	for _, remaining := range []bool{false, true} {

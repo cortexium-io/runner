@@ -187,6 +187,16 @@ type diagnosticOutput struct {
 	limit int
 }
 
+// io.Copy must use the bounded Write methods rather than bytes.Buffer's
+// promoted ReadFrom fast path when os/exec copies a child process's pipes.
+func (b *diagnosticOutput) ReadFrom(r io.Reader) (int64, error) {
+	return io.Copy(struct{ io.Writer }{b}, r)
+}
+
+func (b *limitedOutput) ReadFrom(r io.Reader) (int64, error) {
+	return io.Copy(struct{ io.Writer }{b}, r)
+}
+
 func (b *diagnosticOutput) Write(p []byte) (int, error) {
 	n := len(p)
 	if remaining := b.limit - b.Len(); remaining > 0 {

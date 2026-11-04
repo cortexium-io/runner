@@ -5,13 +5,11 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -114,33 +112,11 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 	if err != nil || remoteHost != "127.0.0.1" {
 		return errors.New("browser target is not an isolated loopback port")
 	}
-	forwardCtx, stopForward := context.WithCancel(ctx)
-	defer stopForward()
-	ssh := exec.CommandContext(forwardCtx, c.SSH, "-N", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ExitOnForwardFailure=yes", "-L", "127.0.0.1:"+strconv.Itoa(local)+":127.0.0.1:"+remotePort, c.Host)
-	ssh.Stdout, ssh.Stderr = io.Discard, io.Discard
-	if err = ssh.Start(); err != nil {
+	stopForward, err := b.browserForward(ctx, filepath.Dir(j.Worker), local, remotePort)
+	if err != nil {
 		return err
 	}
-	settled := make(chan error, 1)
-	go func() { settled <- ssh.Wait() }()
-	defer func() { stopForward(); <-settled }()
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		conn, e := net.DialTimeout("tcp", address, 100*time.Millisecond)
-		if e == nil {
-			conn.Close()
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case e := <-settled:
-			settled <- e
-			return errors.New("candidate browser forward failed")
-		case <-ticker.C:
-		}
-	}
+	defer func() { err = errors.Join(err, stopForward()) }()
 	output := filepath.Join(j.Receipt.Package, "browser")
 	if _, err = b.sandbox(ctx, j, []string{work, output}, "/usr/bin/env", "RUNNER_PLAYWRIGHT_MODULE="+c.Delivery.BrowserModule, "RUNNER_BROWSER_EXECUTABLE="+c.Delivery.BrowserExecutable, c.Delivery.Node, script, public, output); err != nil {
 		var result struct {
