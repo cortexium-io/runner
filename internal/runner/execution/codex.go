@@ -512,11 +512,15 @@ func (c *Codex) setupTimeout(id string) time.Duration {
 	return 20 * time.Second
 }
 
-const workspaceBase = "You execute one bounded source task in the supplied workspace. Use apply_patch for edits and bounded local shell reads for context. This profile provides Go and basic system commands; do not try alternate interpreters or request login shells. Do not use Git, add dependencies, change protected files, use Python or start other work. Run checks only when explicitly authorized by the selected role and task, within their exact scope and budget. Finish the assigned work and return the declared structured result. Runner retains the source and runs the configured verification.\n"
+const workspaceBase = "You execute one bounded source task in the supplied workspace. Use apply_patch for edits and bounded local shell reads for context. This profile provides Go and basic system commands; do not try alternate interpreters or request login shells. Do not use Git, add dependencies, change protected files, use Python or start other work. Run checks only when explicitly authorized by the selected role and task, within their exact scope and budget. Treat deadline_utc as the hard cutoff; remaining_seconds is a prompt-time snapshot. Return the declared structured result before cutoff. When measurement is needed, hand off runnable source to the configured steps and state the missing proof. Use ready only for a complete role handoff; final acceptance belongs to configured checks, measurement and review. Runner retains the source.\n"
 const reviewBase = "You review one Runner candidate against the original request and supplied check results. Source is read-only; scratch is writable. Read the supplied patch and only the affected source/contracts needed to judge it. Do not edit source, run tests, use Git, install tools, launch agents or repair anything. Return the declared structured review, including concrete blockers or missing proof. Do not approve incomplete work.\n"
 const nativeBase = "You execute one input-only Runner assignment. Use the supplied inputs only. Do not call tools, access files, ask follow-up questions or start other work. Return exactly the structured result required by the output schema. Use ready when the requested outputs are available. Use needs_help only when that outcome is declared.\n"
 
 func nativePayload(a runner.Assignment) (string, any, error) {
+	return nativePayloadAt(a, time.Now())
+}
+
+func nativePayloadAt(a runner.Assignment, now time.Time) (string, any, error) {
 	if strings.TrimSpace(a.Task) == "" {
 		return "", nil, errors.New("an explicit task purpose is required")
 	}
@@ -539,10 +543,18 @@ func nativePayload(a runner.Assignment) (string, any, error) {
 		}
 		inputs[k] = json.RawMessage(v.Inline)
 	}
-	payload, _ := json.Marshal(struct {
-		Task   string         `json:"task"`
-		Inputs map[string]any `json:"inputs"`
-	}{a.Task, inputs})
+	request := struct {
+		Task             string         `json:"task"`
+		Inputs           map[string]any `json:"inputs"`
+		DeadlineUTC      string         `json:"deadline_utc,omitempty"`
+		RemainingSeconds *int64         `json:"remaining_seconds,omitempty"`
+	}{Task: a.Task, Inputs: inputs}
+	if !a.Deadline.IsZero() {
+		request.DeadlineUTC = a.Deadline.UTC().Format(time.RFC3339Nano)
+		remaining := max(int64(0), int64(a.Deadline.Sub(now)/time.Second))
+		request.RemainingSeconds = &remaining
+	}
+	payload, _ := json.Marshal(request)
 	props := map[string]any{}
 	required := []string{}
 	for k, kind := range nativeOutputTypes(a) {

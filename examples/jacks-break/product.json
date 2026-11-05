@@ -92,6 +92,9 @@
           "default": {
             "inline": ""
           }
+        },
+        "frontend_tests": {
+          "from_input": "frontend_tests"
         }
       },
       "routes": {

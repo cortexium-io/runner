@@ -99,6 +99,19 @@ check, measurement, independent combined review and the same protected suffix.
 Its `frontend_tests` JSON file list is separate from the Go `tests` selector.
 It retains the existing model, input/output and 35-attempt ceilings.
 
+`retained-product.json` selects `deliver-retained-product` for an authorized
+continuation of an unreviewed patch. Its five normal product inputs are joined by
+`patch` and `original_baseline` artifact inputs. Candidate measurement restores
+the patch before readiness, keeping the source's seed identity stable. Initial
+frontend and Go checks collect conclusive source failures before another owner
+turn; infrastructure failures still stop execution. The unchanged original
+baseline is supplied separately to owner and reviewer. Current feedback falls
+back to those initial command results, and the first post-owner measurement is
+round 2. The owner receives the configured frontend file list as its eighth input.
+Final checks, review, one publication and the unchanged protected release suffix
+follow within the same 35-attempt/20-minute and model/storage limits. The original
+failed run stays intact; a new continuation needs explicit authorization.
+
 Investigation owners receive the complete baseline and current measurement
 artifacts. Before the first candidate measurement, the declared one-level binding
 `{"from_step":"measure","output":"artifact","previous":true,"fallback":{"from_step":"baseline","output":"artifact"}}`

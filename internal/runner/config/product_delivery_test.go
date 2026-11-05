@@ -11,13 +11,12 @@ import (
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
-// The combined route must carry both check scopes and actual baseline evidence
-// through correction before publishing one cumulative candidate.
-func TestCombinedProductDeliveryKeepsBothScopesAndProtectedSuffix(t *testing.T) {
+func productDeliveryFixture(t *testing.T, file string) (runner.Process, runner.Project) {
+	t.Helper()
 	_, project := deliveryFixture(t)
 	root := filepath.Join("..", "..", "..", "examples", "jacks-break")
 	var p runner.Process
-	data, err := os.ReadFile(filepath.Join(root, "product.json"))
+	data, err := os.ReadFile(filepath.Join(root, file))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +40,14 @@ func TestCombinedProductDeliveryKeepsBothScopesAndProtectedSuffix(t *testing.T) 
 		}
 		project.Roles[step.Role] = role
 	}
+	return p, project
+}
+
+// The combined route must carry both check scopes and actual baseline evidence
+// through correction before publishing one cumulative candidate.
+func TestCombinedProductDeliveryKeepsBothScopesAndProtectedSuffix(t *testing.T) {
+	p, project := productDeliveryFixture(t, "product.json")
+	var err error
 	if err = errors.Join(validateProcess(p, project), validateReleaseProcess(p, project)); err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +73,7 @@ func TestCombinedProductDeliveryKeepsBothScopesAndProtectedSuffix(t *testing.T) 
 		}
 	}
 	if steps["owner"].Role != "product-owner" || steps["review"].Role != "product-review" ||
+		steps["owner"].Inputs["frontend_tests"] != (runner.Binding{FromInput: "frontend_tests"}) ||
 		steps["frontend-check"].Inputs["tests"] != (runner.Binding{FromInput: "frontend_tests"}) ||
 		steps["check"].Inputs["tests"] != (runner.Binding{FromInput: "tests"}) ||
 		steps["owner"].Inputs["baseline"] != (runner.Binding{FromStep: "baseline", Output: "artifact"}) ||

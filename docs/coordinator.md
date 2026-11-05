@@ -116,3 +116,16 @@ suffix run normally. Preserve
 the blocked original run; never advance it by rewriting its outcome. For a new
 benchmark task without a scaffold, the initial owner hands its runnable scaffold
 to downstream measurement without claiming the correction has already passed.
+
+For an authorized continuation of an unreviewed retained product patch, select
+`deliver-retained-product`. Supply `request`, `package`, Go `tests`, explicit
+`frontend_tests`, `benchmark`, and the `patch` and `original_baseline` artifact IDs,
+with the patch's exact base as `source_ref`. The first read-only command restores
+and measures the candidate before readiness; it is not a new original baseline.
+Readiness and initial frontend/Go checks then precede the owner. The owner and
+reviewer receive the unchanged original baseline plus current candidate evidence;
+the owner also receives the exact frontend selection and authoritative deadline.
+The same bounded correction, review and single-publication release path follows.
+Preserve the original failed run. Submission needs fresh owner authorization;
+merge, production and restoration remain separate saved approvals. Limits do not
+increase, and the coordinator performs none of these product checks itself.

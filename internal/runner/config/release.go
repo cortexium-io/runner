@@ -55,12 +55,33 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 		readiness = 1
 	}
 	owner := readiness + 1
+	// A retained candidate may collect conclusive source assertions after
+	// readiness before another model turn. These fixed offline commands proceed
+	// in order on pass or source rejection; neither can skip to release effects.
+	if connected && !adopted {
+		for owner < start && selected[owner].Harness == "command" {
+			step, profile := p.Steps[owner], selected[owner]
+			if owner+1 >= start || profile.Access != "workspace-read" || profile.Command == nil || profile.Command.Network ||
+				step.ForEach != nil || step.Reuse || step.Escalation != nil || !reflect.DeepEqual(step.Routes, map[string]runner.Route{
+				"ready":             {Next: p.Steps[owner+1].ID},
+				"changes_requested": {Next: p.Steps[owner+1].ID},
+			}) {
+				return bad
+			}
+			for name, binding := range step.Inputs {
+				if binding.FromCandidate || name == "patch" && (readiness != 1 || p.Inputs["patch"] != "artifact" || binding != (runner.Binding{FromInput: "patch"})) {
+					return bad
+				}
+			}
+			owner++
+		}
+	}
 	if connected {
 		if adopted {
 			if start != 0 || p.MaxAttempts != 16 || !reflect.DeepEqual(p.Inputs, map[string]string{"publication": "json"}) {
 				return bad
 			}
-		} else if start <= owner || selected[readiness].Harness != "release" || selected[readiness].Mode != "readiness" || len(p.Steps[readiness].Inputs) != 0 || !reflect.DeepEqual(p.Steps[readiness].Routes, map[string]runner.Route{"ready": {Next: p.Steps[owner].ID}, "blocked": {Next: "$fail"}}) || selected[owner].Harness != "codex" || selected[owner].Access != "workspace-write" {
+		} else if start <= owner || selected[readiness].Harness != "release" || selected[readiness].Mode != "readiness" || len(p.Steps[readiness].Inputs) != 0 || !reflect.DeepEqual(p.Steps[readiness].Routes, map[string]runner.Route{"ready": {Next: p.Steps[readiness+1].ID}, "blocked": {Next: "$fail"}}) || selected[owner].Harness != "codex" || selected[owner].Access != "workspace-write" {
 			return bad
 		}
 		actions = append([]string{selected[start].Mode, "qualify"}, actions...)
