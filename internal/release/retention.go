@@ -87,8 +87,13 @@ func (b *Live) retainedPackages() ([]retainedPackage, []Job, error) {
 		if json.Unmarshal(data, &work) != nil || work.Config.Delivery == nil {
 			return nil, nil, errors.New("retained package has no captured operator policy")
 		}
-		canonical, _ := json.Marshal(work.Config)
-		if Digest(canonical) != j.Receipt.Policy || work.Config.Project != b.Config.Project || work.Config.Repository != b.Config.Repository || work.Config.StateDir != b.Config.StateDir || work.Config.Delivery.Root != b.Config.Delivery.Root || work.Job.Request.Key != key || work.Job.Request.RunID != j.Request.RunID || work.Job.Receipt.Head != j.Receipt.Head {
+		capturedRequest, _ := json.Marshal(work.Job.Request)
+		journalRequest, _ := json.Marshal(j.Request)
+		captured := work.Job.Receipt
+		if string(capturedRequest) != string(journalRequest) || work.Job.Worker != j.Worker || captured.Key != j.Receipt.Key || captured.RunID != j.Receipt.RunID || captured.Action != j.Receipt.Action || captured.Policy != j.Receipt.Policy || captured.Head != j.Receipt.Head || captured.Base != j.Receipt.Base || captured.Source != j.Receipt.Source || captured.PR != j.Receipt.PR || captured.Package != j.Receipt.Package {
+			return nil, nil, errors.New("retained worker publication differs from its operator journal")
+		}
+		if !capturedDeliveryPolicy(work) || work.Config.Project != b.Config.Project || work.Config.Repository != b.Config.Repository || work.Config.StateDir != b.Config.StateDir || work.Config.Delivery.Root != b.Config.Delivery.Root {
 			return nil, nil, errors.New("retained package policy or publication binding differs")
 		}
 		data, err = readPackageFile(j.Receipt.Package, "manifest.json", 8<<20)
@@ -137,6 +142,29 @@ func (b *Live) retainedPackages() ([]retainedPackage, []Job, error) {
 		return strings.Compare(a.Job.Request.Key, c.Job.Request.Key)
 	})
 	return packages, jobs, nil
+}
+
+func capturedDeliveryPolicy(work deliveryWork) bool {
+	canonical, _ := json.Marshal(work.Config)
+	if Digest(canonical) == work.Job.Receipt.Policy {
+		return true
+	}
+	// Advance resolves these identities before capturing qualification work.
+	// Its predecessor is an accepted publish/adopt, with no built package or
+	// report yet. Authenticate that exact resolution before recovering the
+	// static delivery defaults; an unrelated changed field still changes hash.
+	c, r := work.Config, work.Job.Receipt
+	if c.Head != r.Head || c.Base != r.Base || c.PR != r.PR || c.Package != "" || c.Evidence != "release-qualification.json" || c.Report != "" || c.ReportSHA != "" {
+		return false
+	}
+	canonical, _ = json.Marshal(staticDeliveryPolicy(c))
+	return Digest(canonical) == r.Policy
+}
+
+func staticDeliveryPolicy(c Config) Config {
+	c.PR = 0
+	c.Head, c.Base, c.Package, c.Evidence, c.Report, c.ReportSHA = "", "", "", "", "", ""
+	return c
 }
 
 func (b *Live) collectArchives(ctx context.Context) error {

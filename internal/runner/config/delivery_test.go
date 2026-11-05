@@ -141,7 +141,7 @@ func TestRetainedInvestigationMeasuresBeforeModelsAndKeepsReleaseGates(t *testin
 	if err = validate(p); err != nil {
 		t.Fatal(err)
 	}
-	if p.Steps[2].Inputs["baseline"] != (runner.Binding{FromStep: "baseline", Output: "check"}) || p.Steps[5].Inputs["baseline_measurements"] != (runner.Binding{FromStep: "baseline", Output: "artifact"}) {
+	if p.Steps[2].Inputs["baseline"] != (runner.Binding{FromStep: "baseline", Output: "artifact"}) || p.Steps[5].Inputs["baseline_measurements"] != (runner.Binding{FromStep: "baseline", Output: "artifact"}) {
 		t.Fatal("owner did not receive real baseline feedback")
 	}
 	for _, change := range []func(*runner.Process){

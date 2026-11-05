@@ -21,7 +21,8 @@ The private delivery policy may enable:
 "retention": {"raw_archives": 2}
 ```
 
-Before new readiness admission, this collects only settled, owned, superseded
+Before new readiness admission and each fresh qualification worker, this collects
+only settled, owned, superseded
 `source.tar.gz` files. It retains the configured 2–8 newest independently
 reproduced packages, current and previous successful release packages, and
 pending release/recovery dependencies. It authenticates each attempt against its

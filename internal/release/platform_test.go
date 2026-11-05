@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,7 +70,7 @@ func TestDeliveryPlatformBrowserReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, content := range map[string][]byte{"fixture.mjs": data, "browser_render.mjs": browserRenderScript, "browser_contract.mjs": browserContractScript} {
+	for name, content := range map[string][]byte{"fixture.mjs": data, "browser_render.mjs": browserRenderScript, "browser_contract.mjs": browserContractScript, "browser_fixture.mjs": browserFixtureScript} {
 		if err = writeExclusive(filepath.Join(root, name), content); err != nil {
 			t.Fatal(err)
 		}
@@ -83,6 +84,113 @@ func TestDeliveryPlatformBrowserReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Log(string(out))
+}
+
+func TestDeliveryPlatformBrowserContainerReadiness(t *testing.T) {
+	policy := os.Getenv("RUNNER_DELIVERY_PLATFORM_POLICY")
+	if policy == "" {
+		t.Skip("explicit isolated policy and installed immutable browser runtime required; no product source or models")
+	}
+	op, err := Load(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := op.Backend.(*Live).Config
+	if c.Delivery == nil || c.Delivery.BrowserImage == "" || !strings.Contains(c.Delivery.Root, "-qualification/") {
+		t.Fatal("isolated fixed-image browser policy required")
+	}
+	root := filepath.Join(c.Delivery.Root, "lab_browser_container_"+strings.ReplaceAll(time.Now().UTC().Format("20060102T150405.000000000"), ".", "_"))
+	if err = os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	b := Live{Config: c}
+	run := filepath.Base(root)
+	j := Job{Request: Request{RunID: run, Key: run}, Worker: filepath.Join(root, "work.json")}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	defer cancel()
+	ctx = context.WithValue(ctx, deliveryDiagnosticKey{}, root)
+	if err = b.browserContainerReadiness(ctx, &j); err != nil {
+		t.Fatal("isolated browser capability failed; evidence:", root, err)
+	}
+	t.Log("Both engines and strict synthetic acceptance passed under fixed container policy:", c.Delivery.BrowserImage, "driver:", browserDriverDigest(), "proof:", root)
+}
+
+func TestDeliveryPlatformBrowserContainerCancellation(t *testing.T) {
+	policy := os.Getenv("RUNNER_DELIVERY_PLATFORM_POLICY")
+	if policy == "" {
+		t.Skip("explicit isolated fixed-image policy required; no product source or models")
+	}
+	op, err := Load(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := op.Backend.(*Live).Config
+	if c.Delivery == nil || c.Delivery.BrowserImage == "" || !strings.Contains(c.Delivery.Root, "-qualification/") {
+		t.Fatal("isolated browser container policy required")
+	}
+	run := "lab_browser_cancel_" + strings.ReplaceAll(time.Now().UTC().Format("20060102T150405.000000000"), ".", "_")
+	root := filepath.Join(c.Delivery.Root, run)
+	if err = os.MkdirAll(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	j := Job{Request: Request{RunID: run, Key: run}, Worker: filepath.Join(root, "work.json")}
+	b := Live{Config: c}
+	ctx, timeout := context.WithTimeout(t.Context(), 30*time.Second)
+	defer timeout()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	observed := make(chan bool, 1)
+	b.runCommand = func(call context.Context, input []byte, program string, args ...string) ([]byte, error) {
+		if program == c.Docker && len(args) > 2 && args[2] == "start" {
+			id := args[len(args)-1]
+			go func() {
+				probe, stop := context.WithTimeout(t.Context(), 10*time.Second)
+				defer stop()
+				ticker := time.NewTicker(50 * time.Millisecond)
+				defer ticker.Stop()
+				for {
+					raw, e := b.commandWithEnvironment(probe, nil, nil, c.Docker, "--host", c.DockerHost, "inspect", id)
+					var rows []container
+					if e == nil && json.Unmarshal(raw, &rows) == nil && len(rows) == 1 && rows[0].ID == id && rows[0].Image == c.Delivery.BrowserImage && rows[0].Config.Labels["cortexium.runner.attempt"] == run && rows[0].State.Running {
+						observed <- true
+						cancel()
+						return
+					}
+					select {
+					case <-probe.Done():
+						observed <- false
+						return
+					case <-ticker.C:
+					}
+				}
+			}()
+		}
+		return b.commandWithEnvironment(call, input, nil, program, args...)
+	}
+	err = b.runBrowserContainer(ctx, &j, "none", filepath.Join(root, "browser-readiness"), browserContainerInput{Mode: "readiness"})
+	var uncertain *commandUncertain
+	if err == nil || !errors.As(err, &uncertain) {
+		t.Fatal("cancelled dispatched browser was replayable/settled as acceptance", err)
+	}
+	select {
+	case running := <-observed:
+		if !running {
+			t.Fatal("browser never positively ran before cancellation")
+		}
+	case <-time.After(11 * time.Second):
+		t.Fatal("cancellation observer did not settle")
+	}
+	b.runCommand = nil
+	cleanup, stop := context.WithTimeout(t.Context(), 15*time.Second)
+	defer stop()
+	remaining, err := b.docker(cleanup, "ps", "-a", "--filter", "label=cortexium.runner.attempt="+run, "--format", "{{.ID}}")
+	if err != nil || strings.TrimSpace(string(remaining)) != "" {
+		t.Fatal("cancelled browser exact identity not conclusively cleaned", err, string(remaining))
+	}
+	if err = writeJSON(filepath.Join(root, "settlement.json"), map[string]any{"status": "cancelled-and-settled", "image": c.Delivery.BrowserImage, "driver": browserDriverDigest(), "remaining": []string{}}); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Cancellation after positively observed dispatch kept uncertainty and removed only its exact owned container; proof:", root)
 }
 
 func TestDeliveryPlatformImageBuilderReadiness(t *testing.T) {

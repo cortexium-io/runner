@@ -124,6 +124,19 @@ func qualifyWorkspacePermissions(t *testing.T, ctx context.Context, root string,
 	if e != nil {
 		t.Fatal(e)
 	}
+	inputs, e := stagedInputDirectory(source, j.Assignment.AttemptID, true)
+	if e != nil {
+		t.Fatal(e)
+	}
+	evidence := filepath.Join(inputs, "evidence.json")
+	if e = os.WriteFile(evidence, []byte(`{"retained":true}`), 0600); e != nil {
+		t.Fatal(e)
+	}
+	env["RUNNER_EVIDENCE_PROBE"] = evidence
+	if e = disk.Write("artifacts/permission-dummy", []byte("private artifact"), 128); e != nil {
+		t.Fatal(e)
+	}
+	env["RUNNER_ARTIFACT_STORE_PROBE"] = filepath.Join(disk.Root, "artifacts", "permission-dummy")
 	probe := filepath.Join(env["TMPDIR"], "access-probe.go")
 	if e = os.WriteFile(probe, []byte(workspaceProbe), 0600); e != nil {
 		t.Fatal(e)

@@ -295,10 +295,8 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 			return e
 		}
 		j.Workspace = &workspace
-		if j.Assignment.Setup.Profile.Access == "workspace-read" {
-			if err := c.reviewInput(j); err != nil {
-				return err
-			}
+		if err := c.workspaceInputs(j); err != nil {
+			return err
 		}
 		if e = c.mutate(id, func(saved *nativeJob) { saved.Workspace = &workspace }); e != nil {
 			return e
@@ -532,12 +530,12 @@ func nativePayload(a runner.Assignment) (string, any, error) {
 			inputs[k] = "Runner already restored the retained patch into this workspace. Continue from these files; do not reapply the patch."
 			continue
 		}
-		if p.Access == "workspace-read" && v.ArtifactID != "" {
-			inputs[k] = filepath.Join(".runner-tmp", a.AttemptID, "inputs", k)
+		if (p.Access == "workspace-read" || p.Access == "workspace-write") && v.ArtifactID != "" {
+			inputs[k] = filepath.Join(".runner-tmp", "inputs", a.AttemptID, k)
 			continue
 		}
 		if v.ArtifactID != "" || !json.Valid(v.Inline) {
-			return "", nil, errors.New("Codex inputs must be inline JSON or the configured workspace patch")
+			return "", nil, errors.New("Codex inputs must be inline JSON or declared workspace artifacts")
 		}
 		inputs[k] = json.RawMessage(v.Inline)
 	}

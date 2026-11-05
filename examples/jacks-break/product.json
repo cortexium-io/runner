@@ -66,10 +66,11 @@
         },
         "measurement": {
           "from_step": "measure",
-          "output": "check",
+          "output": "artifact",
           "previous": true,
-          "default": {
-            "inline": ""
+          "fallback": {
+            "from_step": "baseline",
+            "output": "artifact"
           }
         },
         "qualification": {
@@ -82,7 +83,7 @@
         },
         "baseline": {
           "from_step": "baseline",
-          "output": "check"
+          "output": "artifact"
         },
         "frontend_check": {
           "from_step": "frontend-check",

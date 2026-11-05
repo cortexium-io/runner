@@ -12,7 +12,7 @@ for (const engine of [
   if (!engine.executable) throw new Error(`Browser prerequisite missing: configure the installed ${engine.name} executable`)
   let browser
   try {
-    browser = await engine.type.launch({ executablePath: engine.executable, headless: true, args: engine.name === 'Chromium' ? ['--disable-gpu', '--single-process', '--no-zygote'] : [] })
+    browser = await engine.type.launch({ executablePath: engine.executable, headless: true, args: engine.name === 'Chromium' && process.platform === 'darwin' ? ['--disable-gpu', '--single-process', '--no-zygote'] : [] })
     const context = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true })
     const page = await context.newPage()
     await page.setContent('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><button style="width:120px;height:48px">Touch probe</button><script>window.touchProof=0;document.addEventListener("touchstart",e=>{if(e.isTrusted)window.touchProof++});document.querySelector("button").onclick=()=>document.body.dataset.activated="yes"</script>')

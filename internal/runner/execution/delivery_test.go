@@ -26,9 +26,9 @@ func TestInvestigationPayloadFitsExistingLimit(t *testing.T) {
 		OutputTypes: role.Outputs,
 		Inputs: map[string]runner.Value{
 			"request":       runner.Text(strings.Repeat("r", 2200)),
-			"baseline":      runner.Text(strings.Repeat("b", 1400)),
+			"baseline":      {ArtifactID: "attempt_baseline/result"},
 			"check":         runner.Text(strings.Repeat("c", 256)),
-			"measurement":   runner.Text(strings.Repeat("m", 1024)),
+			"measurement":   {ArtifactID: "attempt_measure/result"},
 			"review":        runner.Text(strings.Repeat("v", 240)),
 			"qualification": runner.Value{Inline: []byte(`{"key":"retained_qualification","head":"` + strings.Repeat("a", 40) + `"}`)},
 		},

@@ -104,7 +104,7 @@ func TestReviewedCandidateProcess(t *testing.T) {
 						t.Error(err)
 					}
 				} else {
-					files, err := filepath.Glob(filepath.Join(dir, ".runner-tmp", "*", "inputs", "patch"))
+					files, err := filepath.Glob(filepath.Join(dir, ".runner-tmp", "inputs", "*", "patch"))
 					if err != nil || len(files) != 1 {
 						t.Errorf("review lacks its retained patch: %v, %v", files, err)
 					}

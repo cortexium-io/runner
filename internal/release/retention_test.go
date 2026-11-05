@@ -64,6 +64,13 @@ func retainedFixture(t *testing.T, b *Live, n int) Job {
 	}
 	policy, _ := json.Marshal(b.Config)
 	j.Receipt.Policy = Digest(policy)
+	// Capture the real Advance resolution, whose dynamic identity differs from
+	// the static policy hashed into the operator receipt.
+	resolved := b.Config
+	resolved.Head, resolved.Base, resolved.PR = j.Receipt.Head, j.Receipt.Base, j.Receipt.PR
+	resolved.Package = ""
+	resolved.Evidence = "release-qualification.json"
+	resolved.Report, resolved.ReportSHA = "", ""
 	manifest := packageManifest{
 		Revision:  head,
 		Clean:     true,
@@ -78,7 +85,7 @@ func retainedFixture(t *testing.T, b *Live, n int) Job {
 		manifest.Artifacts[name] = Digest(data)
 	}
 	for file, data := range map[string]any{
-		j.Worker: deliveryWork{Config: b.Config, Job: j},
+		j.Worker: deliveryWork{Config: resolved, Job: j},
 		filepath.Join(b.Config.StateDir, key+".json"): j,
 		filepath.Join(output, "manifest.json"):        manifest,
 		filepath.Join(output, "reproduction.json"):    map[string]string{"status": "passed", "commit": head, "serverSHA256": Digest(server)},
@@ -104,6 +111,60 @@ func saveRetainedJob(t *testing.T, b *Live, j Job) {
 	t.Helper()
 	if err := writeJSON(filepath.Join(b.Config.StateDir, j.Request.Key+".json"), j); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCapturedPolicyAcceptsAdvanceResolutionAndRefusesOtherChanges(t *testing.T) {
+	for _, mode := range []string{"resolved", "original hash", "head", "base", "PR", "package", "evidence", "report", "report hash", "static destination", "worker publication", "unknown static defaults"} {
+		t.Run(mode, func(t *testing.T) {
+			b := archiveFixture(t)
+			j := retainedFixture(t, b, 0)
+			data, err := os.ReadFile(j.Worker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var work deliveryWork
+			if err = json.Unmarshal(data, &work); err != nil {
+				t.Fatal(err)
+			}
+			switch mode {
+			case "original hash":
+				work.Config = b.Config
+			case "head":
+				work.Config.Head = strings.Repeat("c", 40)
+			case "base":
+				work.Config.Base = strings.Repeat("c", 40)
+			case "PR":
+				work.Config.PR++
+			case "package":
+				work.Config.Package = "/unverified/package"
+			case "evidence":
+				work.Config.Evidence = "/unverified/evidence"
+			case "report":
+				work.Config.Report = "/unverified/report"
+			case "report hash":
+				work.Config.ReportSHA = strings.Repeat("0", 64)
+			case "static destination":
+				work.Config.Host = "unverified.example"
+			case "worker publication":
+				work.Job.Receipt.Head = strings.Repeat("c", 40)
+			case "unknown static defaults":
+				static := b.Config
+				static.PR = 42
+				canonical, _ := json.Marshal(static)
+				j.Receipt.Policy = Digest(canonical)
+				work.Job.Receipt.Policy = j.Receipt.Policy
+				saveRetainedJob(t, b, j)
+			}
+			if err = writeJSON(j.Worker, work); err != nil {
+				t.Fatal(err)
+			}
+			packages, _, err := b.retainedPackages()
+			want := mode == "resolved" || mode == "original hash"
+			if (err == nil) != want || want && len(packages) != 1 {
+				t.Fatal("captured policy accepted unrelated changes or rejected real Advance resolution", mode, err)
+			}
+		})
 	}
 }
 
@@ -211,7 +272,7 @@ func TestArchiveRetentionPreservesUnprovenOrActivelyOwnedBytes(t *testing.T) {
 }
 
 func TestSameCandidateReuseCopiesOnlyBoundBuildArtifacts(t *testing.T) {
-	for _, mode := range []string{"reuse", "different candidate", "different runtime", "retention upgrade", "artifact changed"} {
+	for _, mode := range []string{"reuse", "resolved new attempt", "different candidate", "different base", "different source", "different PR", "different runtime", "different static destination", "retention upgrade", "artifact changed"} {
 		t.Run(mode, func(t *testing.T) {
 			b := archiveFixture(t)
 			origin := retainedFixture(t, b, 0)
@@ -222,10 +283,26 @@ func TestSameCandidateReuseCopiesOnlyBoundBuildArtifacts(t *testing.T) {
 			os.MkdirAll(root, 0700)
 			current.Worker, current.Receipt.Package = filepath.Join(root, "work.json"), filepath.Join(root, "output")
 			switch mode {
+			case "resolved new attempt":
+				// Current work has the same authenticated publication, but its
+				// Advance-resolved output paths are owned by this new attempt.
+				b.Config.Head, b.Config.Base, b.Config.PR = current.Receipt.Head, current.Receipt.Base, current.Receipt.PR
+				b.Config.Package = current.Receipt.Package
+				b.Config.Evidence = filepath.Join(current.Receipt.Package, "release-qualification.json")
+				b.Config.Report = filepath.Join(current.Receipt.Package, "runtime-report.json")
+				b.Config.ReportSHA = strings.Repeat("d", 64)
 			case "different candidate":
 				current.Receipt.Head = strings.Repeat("c", 40)
+			case "different base":
+				current.Receipt.Base = strings.Repeat("c", 40)
+			case "different source":
+				current.Receipt.Source = strings.Repeat("c", 40)
+			case "different PR":
+				current.Receipt.PR++
 			case "different runtime":
 				b.Config.Delivery.Go = "/other/runtime/go"
+			case "different static destination":
+				b.Config.Host = "other.example"
 			case "retention upgrade":
 				b.Config.Delivery.Retention = &ArchiveRetention{RawArchives: 3}
 			case "artifact changed":
@@ -238,7 +315,7 @@ func TestSameCandidateReuseCopiesOnlyBoundBuildArtifacts(t *testing.T) {
 				}
 				return
 			}
-			want := mode == "reuse" || mode == "retention upgrade"
+			want := mode == "reuse" || mode == "resolved new attempt" || mode == "retention upgrade"
 			if err != nil || reused != want {
 				t.Fatal("same-candidate build reuse boundary differs", reused, err)
 			}

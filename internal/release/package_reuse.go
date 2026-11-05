@@ -69,6 +69,9 @@ func samePackagePolicy(a, b Config) bool {
 	ac, bc := *a.Delivery, *b.Delivery
 	ac.Retention, bc.Retention = nil, nil
 	a.Delivery, b.Delivery = &ac, &bc
+	// Advance's receipt-derived publication/package fields do not change build
+	// inputs. The exact candidate and publication were compared by the caller.
+	a, b = staticDeliveryPolicy(a), staticDeliveryPolicy(b)
 	aj, _ := json.Marshal(a)
 	bj, _ := json.Marshal(b)
 	return string(aj) == string(bj)

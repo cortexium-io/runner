@@ -282,6 +282,8 @@ func (w *Workspaces) checkoutCapacity(a runner.Assignment, sourceBytes int64) er
 	reserve := int64(3*p.Database.MaxRecord+p.MaxArtifact+p.Logs.MaxPerAttempt) + 8192
 	if a.Setup.Profile.Harness == "command" {
 		reserve += int64(p.Database.MaxRecord) + 16384
+	}
+	if a.Setup.Profile.Harness == "command" || a.Setup.Profile.Harness == "codex" {
 		for _, input := range a.Inputs {
 			if input.ArtifactID != "" {
 				reserve += int64(p.MaxArtifact)
@@ -886,6 +888,20 @@ func (w *Workspaces) ReleaseAttempt(a runner.Assignment) error {
 	}
 	if !fs.ValidPath(a.AttemptID) || strings.Contains(a.AttemptID, "/") {
 		return errors.New("invalid attempt identity")
+	}
+	if dir, err := stagedInputDirectory(r.WorkDir, a.AttemptID, false); err != nil {
+		return err
+	} else if dir != "" {
+		files, err := stagedInputData(w.disk, a)
+		if err != nil {
+			return err
+		}
+		if err = verifyStagedInputs(dir, files); err != nil {
+			return err
+		}
+		if err = os.RemoveAll(dir); err != nil {
+			return err
+		}
 	}
 	if e = os.RemoveAll(filepath.Join(parent, a.AttemptID)); e != nil {
 		return e

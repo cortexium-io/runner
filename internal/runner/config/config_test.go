@@ -480,7 +480,28 @@ func TestWorkspaceWritePatchSeedConfiguration(t *testing.T) {
 	if _, err := l.Set("projects/seats/roles/implement.yaml", "execution.access", json.RawMessage(`"input-only"`)); err == nil || !strings.Contains(err.Error(), "Codex inputs") {
 		t.Fatal("input-only profile accepted workspace seed", err)
 	}
-	if _, err := l.Set("projects/seats/roles/implement.yaml", "inputs.other", json.RawMessage(`"artifact"`)); err == nil || !strings.Contains(err.Error(), "Codex inputs") {
-		t.Fatal("coding accepted an artifact other than patch", err)
+	if _, err := l.Set("projects/seats/roles/implement.yaml", "inputs.other", json.RawMessage(`"artifact"`)); err == nil || !strings.Contains(err.Error(), "inputs do not match role") {
+		t.Fatal("coding accepted an undeclared artifact binding", err)
+	}
+}
+
+func TestWorkspaceWriteDeclaredEvidenceConfiguration(t *testing.T) {
+	l, dir := fixtureFrom(t, "workspace")
+	role := filepath.Join(dir, "projects/seats/roles/implement.yaml")
+	data, err := os.ReadFile(role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, role, strings.Replace(string(data), "inputs: {}", "inputs: {baseline: artifact}", 1))
+	process := filepath.Join(dir, "projects/seats/processes/implement-and-check.yaml")
+	data, err = os.ReadFile(process)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Replace(string(data), "inputs: {}", "inputs: {baseline: artifact}", 1)
+	text = strings.Replace(text, "    inputs: {}", "    inputs: {baseline: {from_input: baseline}}", 1)
+	write(t, process, text)
+	if _, err = l.Load(); err != nil {
+		t.Fatal("explicit retained evidence rejected for writable role", err)
 	}
 }

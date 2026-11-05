@@ -721,24 +721,12 @@ func bindings(r Run, bs map[string]Binding) (map[string]Value, error) {
 			out[name] = v
 			continue
 		}
-		index := -1
-		for i, s := range r.Process.Steps {
-			if s.ID == b.FromStep {
-				index = i
-				break
-			}
+		v, found := stepOutput(r, b)
+		if !found && b.Fallback != nil {
+			v, found = stepOutput(r, *b.Fallback)
 		}
-		found := false
-		for i := len(r.Attempts) - 1; i >= 0; i-- {
-			a := r.Attempts[i]
-			if a.Step == index && (!a.Superseded || b.Previous) && a.End != nil && a.End.Kind == "returned" && a.End.Result != nil && a.End.Result.Outcome != "needs_help" {
-				v, ok := a.End.Result.Outputs[b.Output]
-				if ok {
-					out[name] = v
-					found = true
-				}
-				break
-			}
+		if found {
+			out[name] = v
 		}
 		if !found {
 			if b.Default == nil {
@@ -748,6 +736,24 @@ func bindings(r Run, bs map[string]Binding) (map[string]Value, error) {
 		}
 	}
 	return out, nil
+}
+
+func stepOutput(r Run, b Binding) (Value, bool) {
+	index := -1
+	for i, s := range r.Process.Steps {
+		if s.ID == b.FromStep {
+			index = i
+			break
+		}
+	}
+	for i := len(r.Attempts) - 1; i >= 0; i-- {
+		a := r.Attempts[i]
+		if a.Step == index && (!a.Superseded || b.Previous) && a.End != nil && a.End.Kind == "returned" && a.End.Result != nil && a.End.Result.Outcome != "needs_help" {
+			v, ok := a.End.Result.Outputs[b.Output]
+			return v, ok
+		}
+	}
+	return Value{}, false
 }
 func (c *Core) launch(runID, id, op string, ass Assignment) {
 	c.inFlight[id] = true

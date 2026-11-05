@@ -18,16 +18,19 @@ import (
 )
 
 type measurement struct {
-	Round    int       `json:"round"`
-	Package  string    `json:"package"`
-	Selector string    `json:"selector"`
-	Started  time.Time `json:"started"`
-	Seconds  float64   `json:"seconds"`
-	Output   string    `json:"output"`
-	Skipped  bool      `json:"skipped"`
-	Baseline bool      `json:"baseline,omitempty"`
-	Failed   bool      `json:"failed,omitempty"`
-	Error    string    `json:"error,omitempty"`
+	Round          int                        `json:"round"`
+	Package        string                     `json:"package"`
+	Selector       string                     `json:"selector"`
+	Started        time.Time                  `json:"started"`
+	Seconds        float64                    `json:"seconds"`
+	Output         string                     `json:"output"`
+	Skipped        bool                       `json:"skipped"`
+	Baseline       bool                       `json:"baseline,omitempty"`
+	Failed         bool                       `json:"failed,omitempty"`
+	Error          string                     `json:"error,omitempty"`
+	Evidence       map[string]json.RawMessage `json:"evidence,omitempty"`
+	EvidenceStatus string                     `json:"evidence_status"`
+	EvidenceNote   string                     `json:"evidence_note,omitempty"`
 }
 
 func selection(pkg, selector, previous string) (int, error) {
@@ -82,19 +85,33 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 		return errors.New("baseline needs an actual named benchmark and no preceding round")
 	}
 	m := measurement{
-		Round:    round,
-		Package:  pkg,
-		Selector: selector,
-		Started:  time.Now().UTC(),
-		Skipped:  selector == "none",
-		Baseline: baseline,
+		Round:          round,
+		Package:        pkg,
+		Selector:       selector,
+		Started:        time.Now().UTC(),
+		Skipped:        selector == "none",
+		Baseline:       baseline,
+		EvidenceStatus: "not_requested",
+	}
+	if err = os.MkdirAll(scratch, 0700); err != nil {
+		return err
 	}
 	outcome := "ready"
 	if !m.Skipped {
+		evidence := filepath.Join(scratch, "evidence")
+		if err = os.Mkdir(evidence, 0700); err != nil {
+			return fmt.Errorf("create fresh measurement evidence directory: %w", err)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, goBinary, "test", "-mod=readonly", "-run", "^$", "-bench", selector, "-benchtime=1x", "-count=1", "./"+pkg)
 		cmd.Dir = source
+		for _, value := range os.Environ() {
+			if !strings.HasPrefix(value, "RUNNER_MEASURE_EVIDENCE=") {
+				cmd.Env = append(cmd.Env, value)
+			}
+		}
+		cmd.Env = append(cmd.Env, "RUNNER_MEASURE_EVIDENCE="+evidence)
 		var output boundedOutput
 		cmd.Stdout = &output
 		cmd.Stderr = &output
@@ -110,16 +127,31 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 		} else if !regexp.MustCompile(`(?m)^Benchmark\S+\s+\d+\s+`).MatchString(m.Output) {
 			m.Failed, m.Error = true, "benchmark selector executed no measurement"
 		}
+		m.Evidence, err = collectEvidence(evidence)
+		switch {
+		case err != nil:
+			m.Failed, m.EvidenceStatus = true, "invalid"
+			if m.Error != "" {
+				m.Error += "; "
+			}
+			m.Error += "structured benchmark evidence rejected: " + err.Error()
+		case len(m.Evidence) == 0:
+			m.EvidenceStatus = "incomplete"
+			m.EvidenceNote = "No structured request/phase evidence was provided; stdout may be truncated."
+		default:
+			m.EvidenceStatus = "provided"
+			m.EvidenceNote = "Declared files retained; request/phase completeness and acceptance require review."
+		}
 		if round == 1 || m.Failed {
 			outcome = "continue"
 		}
 	}
-	if err = os.MkdirAll(scratch, 0700); err != nil {
-		return err
-	}
 	reason := "Bounded measurement; Runner owns the next owner/review stage"
 	if m.Failed {
 		reason = m.Error
+	}
+	if len(reason) > 480 {
+		reason = strings.ToValidUTF8(reason[:480], "?") + " [see measurements.json]"
 	}
 	for name, value := range map[string]any{
 		"measurements.json": m,
@@ -128,6 +160,9 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 		data, err := json.Marshal(value)
 		if err != nil {
 			return err
+		}
+		if len(data) > 16<<20 {
+			return errors.New("measurement report exceeds 16MiB artifact ceiling")
 		}
 		if err = os.WriteFile(filepath.Join(scratch, name), data, 0600); err != nil {
 			return err

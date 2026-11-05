@@ -296,9 +296,9 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 						}
 					}
 					if profile.Harness == "codex" {
-						for name, kind := range role.Inputs {
-							if kind != "text" && kind != "json" && !(kind == "artifact" && (profile.Access == "workspace-read" || profile.Access == "workspace-write" && name == "patch")) {
-								return s, errors.New("Codex inputs must be text, JSON or a workspace patch artifact")
+						for _, kind := range role.Inputs {
+							if kind != "text" && kind != "json" && !(kind == "artifact" && (profile.Access == "workspace-read" || profile.Access == "workspace-write")) {
+								return s, errors.New("Codex inputs must be text, JSON or explicitly declared workspace artifacts")
 							}
 						}
 						for name, kind := range role.Outputs {
@@ -650,8 +650,21 @@ func validateProcessInputs(v runner.Process, p runner.Project, inputLimit int) e
 		positions[step.ID] = i + 1
 	}
 	sourceType := func(b runner.Binding) (string, error) {
+		fallbackKind := ""
+		if b.Fallback != nil {
+			f := *b.Fallback
+			if b.FromStep == "" || b.FromInput != "" || b.FromCandidate || b.FromItem != "" || b.Literal != nil || b.Default != nil ||
+				f.FromStep == "" || f.Output == "" || f != (runner.Binding{FromStep: f.FromStep, Output: f.Output}) {
+				return "", errors.New("fallback selects only one earlier step/output and cannot mix with a default")
+			}
+			role, ok := seen[f.FromStep]
+			if !ok || role.Outputs[f.Output] == "" {
+				return "", errors.New("fallback must select a declared earlier step output")
+			}
+			fallbackKind = role.Outputs[f.Output]
+		}
 		if b.FromCandidate {
-			if p.Source == nil || b.FromInput != "" || b.FromStep != "" || b.Output != "" || b.Default != nil || b.Previous || b.FromItem != "" || b.Literal != nil {
+			if p.Source == nil || b.FromInput != "" || b.FromStep != "" || b.Output != "" || b.Default != nil || b.Fallback != nil || b.Previous || b.FromItem != "" || b.Literal != nil {
 				return "", errors.New("from_candidate selects only a source-enabled project's current candidate")
 			}
 			return "artifact", nil
@@ -667,11 +680,14 @@ func validateProcessInputs(v runner.Process, p runner.Project, inputLimit int) e
 		}
 		if b.FromInput == "" && b.FromStep != "" && b.Output != "" {
 			r, ok := seen[b.FromStep]
-			if !ok && b.Default != nil && positions[b.FromStep] > 0 {
+			if !ok && (b.Default != nil || b.Fallback != nil) && positions[b.FromStep] > 0 {
 				r, ok = p.Roles[v.Steps[positions[b.FromStep]-1].Role]
 			}
 			if ok {
 				if t, exists := r.Outputs[b.Output]; exists {
+					if fallbackKind != "" && fallbackKind != t {
+						return "", errors.New("fallback and primary output types must match")
+					}
 					if b.Default != nil {
 						if b.Default.ArtifactID != "" || runner.ValidateValues(map[string]runner.Value{"default": *b.Default}, map[string]string{"default": t}) != nil {
 							return "", errors.New("binding default must be inline and match the output type")

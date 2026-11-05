@@ -68,10 +68,15 @@ func TestCombinedProductDeliveryKeepsBothScopesAndProtectedSuffix(t *testing.T) 
 	if steps["owner"].Role != "product-owner" || steps["review"].Role != "product-review" ||
 		steps["frontend-check"].Inputs["tests"] != (runner.Binding{FromInput: "frontend_tests"}) ||
 		steps["check"].Inputs["tests"] != (runner.Binding{FromInput: "tests"}) ||
-		steps["owner"].Inputs["baseline"] != (runner.Binding{FromStep: "baseline", Output: "check"}) ||
+		steps["owner"].Inputs["baseline"] != (runner.Binding{FromStep: "baseline", Output: "artifact"}) ||
 		steps["review"].Inputs["frontend_checks"] != (runner.Binding{FromStep: "frontend-check", Output: "artifact"}) ||
 		steps["review"].Inputs["baseline_measurements"] != (runner.Binding{FromStep: "baseline", Output: "artifact"}) {
 		t.Fatal("combined owner/reviewer lost a domain or its actual proof")
+	}
+	measurement := steps["owner"].Inputs["measurement"]
+	if measurement.FromStep != "measure" || measurement.Output != "artifact" || !measurement.Previous || measurement.Fallback == nil ||
+		*measurement.Fallback != (runner.Binding{FromStep: "baseline", Output: "artifact"}) {
+		t.Fatal("first and correction visits must receive the full applicable evidence")
 	}
 	for _, id := range []string{"frontend-check", "check", "measure", "review", "integrate"} {
 		if steps[id].Inputs["patch"] != (runner.Binding{FromCandidate: true}) {

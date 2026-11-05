@@ -87,7 +87,7 @@ func TestBaselineRetainsFailureWithoutClaimingSuccess(t *testing.T) {
 		}
 		data, _ := os.ReadFile(filepath.Join(scratch, "measurements.json"))
 		var m measurement
-		if json.Unmarshal(data, &m) != nil || !m.Baseline || !m.Failed || m.Error == "" || m.Skipped {
+		if json.Unmarshal(data, &m) != nil || !m.Baseline || !m.Failed || m.Error == "" || m.Skipped || m.EvidenceStatus != "incomplete" {
 			t.Fatal("unsuccessful baseline was reported as success", string(data))
 		}
 		if selector == "^BenchmarkFailure$" && !strings.Contains(m.Output, "observed baseline failure") {

@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,11 +31,17 @@ type choice struct {
 }
 
 type observation struct {
-	Choice       choice `json:"choice"`
-	Milliseconds int64  `json:"milliseconds"`
-	Reopened     bool   `json:"identicalReopen"`
-	Error        string `json:"error,omitempty"`
-	Path         string `json:"path,omitempty"`
+	Choice           choice            `json:"choice"`
+	Milliseconds     int64             `json:"milliseconds"`
+	Reopened         bool              `json:"identicalReopen"`
+	Error            string            `json:"error,omitempty"`
+	Path             string            `json:"path,omitempty"`
+	NonogramGeometry *nonogramGeometry `json:"nonogramGeometry,omitempty"`
+}
+
+type nonogramGeometry struct {
+	RowTextUnits int `json:"rowTextUnits"`
+	ColumnClues  int `json:"columnClues"`
 }
 
 func main() {
@@ -183,6 +190,9 @@ func main() {
 		if err == nil {
 			o.Path, err = publicationPath(c.Game, identity)
 		}
+		if err == nil && c.Game == "nonogram" {
+			o.NonogramGeometry, err = publicationNonogramGeometry(c.Size, original)
+		}
 		if err != nil {
 			o.Error = err.Error()
 		} else {
@@ -236,5 +246,45 @@ func publicationPath(game string, identity map[string]any) (string, error) {
 		return "", errors.New("publication identity cannot form a canonical route")
 	}
 	return "/" + game + "/" + id, nil
+}
+
+// These are the payload-dependent tracks used by NonogramWorkspace: joined row
+// clue text determines the left strip, and column run count determines height.
+func publicationNonogramGeometry(size int, publication json.RawMessage) (*nonogramGeometry, error) {
+	var value struct {
+		Definition struct {
+			Size          int
+			Rows, Columns [][]int
+		}
+	}
+	if json.Unmarshal(publication, &value) != nil || value.Definition.Size != size || size < 5 || size > 25 || len(value.Definition.Rows) != size || len(value.Definition.Columns) != size {
+		return nil, errors.New("Nonogram publication geometry is incomplete")
+	}
+	result := &nonogramGeometry{RowTextUnits: 1, ColumnClues: 1}
+	for axis, lines := range [][][]int{value.Definition.Rows, value.Definition.Columns} {
+		for _, clues := range lines {
+			if len(clues) > (size+1)/2 {
+				return nil, errors.New("Nonogram publication clues exceed board geometry")
+			}
+			parts := []string{}
+			sum := 0
+			for _, clue := range clues {
+				if clue < 1 || clue > size {
+					return nil, errors.New("Nonogram publication clue is invalid")
+				}
+				sum += clue
+				parts = append(parts, strconv.Itoa(clue))
+			}
+			if sum+max(0, len(clues)-1) > size {
+				return nil, errors.New("Nonogram publication clues do not fit their line")
+			}
+			if axis == 0 {
+				result.RowTextUnits = max(result.RowTextUnits, len(strings.Join(parts, " ")))
+			} else {
+				result.ColumnClues = max(result.ColumnClues, len(clues))
+			}
+		}
+	}
+	return result, nil
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "private release HTTP:", err); os.Exit(1) }

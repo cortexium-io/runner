@@ -54,6 +54,18 @@ func (b *Live) deliveryReadiness(ctx context.Context, j *Job) error {
 	if err = os.MkdirAll(work, 0700); err != nil {
 		return err
 	}
+	if c.Delivery.BrowserImage != "" {
+		// The frontend builder still uses the host Node trust bundle; keep its
+		// original registry TLS admission independent of browser placement.
+		if _, err = b.sandbox(ctx, j, []string{work}, c.Delivery.Node, "--input-type=module", "--eval", `const r=await fetch('https://registry.npmjs.org/ws');if(!r.ok)throw new Error('npm TLS readiness failed');await r.arrayBuffer();`); err != nil {
+			return err
+		}
+		if err = b.browserContainerReadiness(ctx, j); err != nil {
+			return err
+		}
+		j.Receipt.Source, j.Receipt.Head = j.Request.Source, j.Request.Source
+		return done(j, "Source/runtime admission, protected backup probe and isolated Chromium/WebKit container acceptance passed; no model or production mutation")
+	}
 	script := filepath.Join(work, "browser-probe.mjs")
 	if err = writeExclusive(script, browserProbeScript); err != nil {
 		return err

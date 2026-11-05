@@ -26,6 +26,7 @@ type DeliveryConfig struct {
 	ReadPaths         []string          `json:"read_paths"`
 	BrowserModule     string            `json:"browser_module"`
 	BrowserExecutable string            `json:"browser_executable"`
+	BrowserImage      string            `json:"browser_image,omitempty"`
 	WebKitExecutable  string            `json:"webkit_executable,omitempty"`
 	TrustBundle       string            `json:"trust_bundle"`
 	Probe             string            `json:"probe"`
@@ -40,13 +41,16 @@ func (c DeliveryConfig) validate() error {
 	if err := c.Retention.validate(); err != nil {
 		return err
 	}
+	if c.BrowserImage != "" && !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(c.BrowserImage) {
+		return errors.New("browser runtime requires an immutable full image ID")
+	}
 	if c.WebKitExecutable != "" && (!filepath.IsAbs(c.WebKitExecutable) || filepath.Clean(c.WebKitExecutable) != c.WebKitExecutable) {
 		return errors.New("WebKit executable must be an explicit absolute runtime path")
 	}
 	if len(c.Ownership) == 0 || len(c.Ownership) > 16 || !filepath.IsAbs(c.Ownership[0]) {
 		return errors.New("delivery requires its fixed generated-ownership command")
 	}
-	for _, path := range append([]string{
+	paths := []string{
 		c.Root,
 		c.Git,
 		c.Codex,
@@ -54,11 +58,13 @@ func (c DeliveryConfig) validate() error {
 		c.Node,
 		c.Go,
 		c.ModuleCache,
-		c.BrowserModule,
-		c.BrowserExecutable,
 		c.Probe,
 		c.TrustBundle,
-	}, c.ReadPaths...) {
+	}
+	if c.BrowserImage == "" {
+		paths = append(paths, c.BrowserModule, c.BrowserExecutable)
+	}
+	for _, path := range append(paths, c.ReadPaths...) {
 		if !filepath.IsAbs(path) || filepath.Clean(path) != path || path == string(filepath.Separator) {
 			return errors.New("delivery runtime/storage paths must be absolute")
 		}
@@ -184,7 +190,7 @@ func RunDeliveryWorker(file string) error {
 	ctx = context.WithValue(ctx, deliveryDiagnosticKey{}, filepath.Dir(file))
 	b := Live{Config: work.Config}
 	j := &work.Job
-	if j.Request.Action == "readiness" {
+	if j.Request.Action == "readiness" || j.Request.Action == "qualify" {
 		if err = b.collectArchives(ctx); err != nil {
 			_ = fail(j, "owned archive retention could not establish safe collection: "+err.Error())
 			return writeJSON(filepath.Join(filepath.Dir(file), "result.json"), j)

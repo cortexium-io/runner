@@ -103,8 +103,14 @@ For an investigation with a retained benchmark scaffold, select the complete
 input, its exact base, and the normal request/check/benchmark inputs. Its first
 read-only command measures the scaffold before infrastructure readiness and any
 model turn. Unsuccessful baseline samples remain explicit failure evidence for
-the investigator, not a passing candidate measurement. The owner receives bounded
-baseline output and the reviewer receives its full report. Existing checks,
+the investigator, not a passing candidate measurement. For an already committed
+scaffold, select `investigate-source` without supplying a patch. The owner and
+reviewer receive the full retained baseline and measurement reports through
+protected artifact inputs. Before the first candidate measurement, its configured
+binding falls back to the baseline report. Command output tails are diagnostics,
+not a substitute for that evidence. Benchmarks can write bounded JSON sidecars to
+`RUNNER_MEASURE_EVIDENCE`; missing or truncated evidence remains incomplete, and
+the reviewer still judges completeness and acceptance. Existing checks,
 bounded measurement, review, publication, qualification and the protected release
 suffix run normally. Preserve
 the blocked original run; never advance it by rewriting its outcome. For a new

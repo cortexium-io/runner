@@ -26,6 +26,9 @@ var browserRenderScript []byte
 var browserContractScript []byte
 
 func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
+	if b.Config.Delivery.BrowserImage != "" {
+		return b.browserContainerCandidate(ctx, j)
+	}
 	c := b.Config
 	work := filepath.Join(filepath.Dir(j.Worker), "work")
 	if err = os.MkdirAll(work, 0700); err != nil {
@@ -125,16 +128,11 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 	defer func() { err = errors.Join(err, stopForward()) }()
 	output := filepath.Join(j.Receipt.Package, "browser")
 	if _, err = b.sandbox(ctx, j, []string{work, output}, "/usr/bin/env", "RUNNER_PLAYWRIGHT_MODULE="+c.Delivery.BrowserModule, "RUNNER_BROWSER_EXECUTABLE="+c.Delivery.BrowserExecutable, "RUNNER_WEBKIT_EXECUTABLE="+c.Delivery.WebKitExecutable, c.Delivery.Node, script, public, output); err != nil {
-		var result struct {
-			Failure string `json:"failure"`
-		}
 		data, readErr := readPackageFile(output, "receipt.json", 128<<10)
-		if knownFailure(err) && readErr == nil && json.Unmarshal(data, &result) == nil && strings.HasPrefix(result.Failure, "AssertionError") {
-			message := strings.SplitN(result.Failure, "\n", 2)[0]
-			if len(message) > 512 {
-				message = message[:512]
+		if knownFailure(err) && readErr == nil {
+			if source := browserAssertionFailure(data); source != nil {
+				return source
 			}
-			return &sourceFailure{reason: "candidate browser obligation failed: " + message}
 		}
 		return err
 	}

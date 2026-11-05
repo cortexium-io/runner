@@ -108,6 +108,9 @@ func expandTasks(r *Run) error {
 			if names[b.FromStep] {
 				b.FromStep = prefix + b.FromStep
 			}
+			if b.Fallback != nil && names[b.Fallback.FromStep] {
+				b.Fallback.FromStep = prefix + b.Fallback.FromStep
+			}
 			return b
 		}
 		for _, template := range g.Steps {

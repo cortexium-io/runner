@@ -5,11 +5,20 @@ export const games = ['Sudoku', 'Suguru', 'Nonogram', 'Binary', 'Futoshiki', 'Sh
 export const mobileViewports = [{ width: 320, height: 568 }, { width: 360, height: 640 }, { width: 390, height: 844 }]
 export const boardSelector = '.puzzle-board,.shikaku-board,.nonogram-board,.binary-board,.futoshiki-board,.hashi-board,.calcudoku-board,.kakuro-board'
 
-export function geometryKey(choice) {
-  const { game, size = 0, rows = 0, columns = 0 } = choice
+export function geometryKey(choice, nonogram) {
+  const { game, size = 0, rows = 0, columns = 0, maximum = 0 } = choice
   assert.ok(games.some(name => name.toLowerCase() === game), 'unknown geometry game')
   assert.ok([size, rows, columns].every(n => Number.isInteger(n) && n >= 0 && n <= 30), 'invalid geometry dimensions')
-  return `${game}:${size}:${rows}:${columns}`
+  let key = `${game}:${size}:${rows}:${columns}`
+  if (game === 'suguru') {
+    assert.ok([4, 5, 6].includes(maximum), 'missing Suguru control maximum')
+    key += `:max:${maximum}`
+  }
+  if (game === 'nonogram') {
+    assert.ok(nonogram && Number.isInteger(nonogram.rowTextUnits) && nonogram.rowTextUnits >= 1 && nonogram.rowTextUnits <= size * 3 && Number.isInteger(nonogram.columnClues) && nonogram.columnClues >= 1 && nonogram.columnClues <= Math.ceil(size / 2), 'missing validated Nonogram clue footprint')
+    key += `:clues:${nonogram.rowTextUnits}:${nonogram.columnClues}`
+  }
+  return key
 }
 
 // Reuse the actual paths from the native catalogue proof, not fixtures or guessed
@@ -21,8 +30,8 @@ export function geometryCases(runtime) {
   for (const row of runtime.observations) {
     assert.equal(row.identicalReopen, true, 'native publication did not reopen')
     assert.ok(!row.error && typeof row.path === 'string' && new RegExp(`^/${row.choice.game}/[A-Za-z0-9_-]+$`).test(row.path), 'missing source-bound catalogue path')
-    const key = geometryKey(row.choice)
-    if (!cases.has(key)) cases.set(key, { key, game: row.choice.game, path: row.path })
+    const key = geometryKey(row.choice, row.nonogramGeometry)
+    if (!cases.has(key)) cases.set(key, { key, game: row.choice.game, path: row.path, size: row.choice.size })
   }
   assert.equal(new Set([...cases.values()].map(row => row.game)).size, games.length, 'catalogue omits an interaction family')
   return [...cases.values()]
@@ -105,7 +114,7 @@ export async function savedState(page) {
   }))
 }
 
-async function renderedState(page) {
+export async function renderedState(page) {
   return page.locator('.player-board-frame:visible').first().evaluate(frame => ({
     cells: [...frame.querySelectorAll('button')].map(node => ({ text: node.textContent.trim(), value: node.getAttribute('data-value'), fill: node.style.getPropertyValue('--rectangle-fill') })),
     bridges: [...frame.querySelectorAll('.hashi-board svg g')].map(node => node.querySelectorAll('line').length)
@@ -134,12 +143,13 @@ export async function dragRectangle(page, touch, engine, first = 0, last = 6) {
   const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
   assert.ok(within(a, viewport) && within(b, viewport), 'rectangle corners are outside the play viewport')
   const start = { x: a.x + a.width / 2, y: a.y + a.height / 2 }, end = { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+  for (const [point, cell] of [[start, first], [end, last]]) assert.equal(await page.evaluate(({ point }) => document.elementFromPoint(point.x,point.y)?.closest('[data-cell]')?.getAttribute('data-cell'), { point }),String(cell),'Shikaku corner is clipped or covered')
   if (touch && engine === 'chromium') {
     const cdp = await page.context().newCDPSession(page)
     try {
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...start, id: 1 }] })
-      for (let i = 1; i <= 8; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: start.x + (end.x - start.x) * i / 8, y: start.y + (end.y - start.y) * i / 8, id: 1 }] })
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      // The browser's native gesture controller completes the drag and prevents
+      // a fling. Raw touch packets can leave subsequent tap clicks suppressed.
+      await cdp.send('Input.synthesizeScrollGesture', { ...start, xDistance: end.x - start.x, yDistance: end.y - start.y, gestureSourceType: 'touch', speed: 400, preventFling: true })
     } finally { await cdp.detach() }
   } else if (touch) {
     // Playwright WebKit has native taps but no public native touch-drag API.
@@ -153,11 +163,35 @@ export async function dragRectangle(page, touch, engine, first = 0, last = 6) {
   }
 }
 
-export async function editAndRestore(page, game, touch, engine, readiness) {
+export async function prepareShikakuTouch(page) {
+  const cells = page.locator('.shikaku-board:visible [data-cell]')
+  for (let i=0;i<8;i++) {
+    const box = await cells.first().boundingBox()
+    if (Math.min(box.width,box.height)>=32) break
+    const zoom = page.getByRole('button',{name:'Zoom in',exact:true})
+    assert.equal(await zoom.count(),1,'large Shikaku needs a visible usable Zoom in control for touch editing')
+    await activate(page,zoom,true)
+    try { await page.waitForFunction(previous => document.querySelector('.shikaku-board [data-cell]')?.getBoundingClientRect().width > previous+0.5,box.width) }
+    catch(error){if(error.name!=='TimeoutError')throw error;assert.fail('Shikaku zoom did not enlarge actual cells')}
+  }
+  const pair = await cells.evaluateAll(nodes => {
+    const n=Math.sqrt(nodes.length),frame=nodes[0]?.closest('.player-board-frame')?.getBoundingClientRect()
+    const visible=node=>{const r=node.getBoundingClientRect();return Math.min(r.width,r.height)>=32&&r.left>=Math.max(0,frame.left)-1&&r.top>=Math.max(0,frame.top)-1&&r.right<=Math.min(innerWidth,frame.right)+1&&r.bottom<=Math.min(innerHeight,frame.bottom)+1&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('[data-cell]')===node}
+    if(!Number.isInteger(n)||!frame)return
+    for(let first=0;first<nodes.length;first++){const last=first+n+1;if(first%n<n-1&&last<nodes.length&&visible(nodes[first])&&visible(nodes[last]))return{first,last}}
+  })
+  assert.ok(pair,'large Shikaku has no reachable 2×2 touch region after bounded zoom')
+  return pair
+}
+
+export async function editAndRestore(page, game, touch, engine, readiness, corners = { first: 0, last: 6 }) {
   const before = await savedState(page)
   const inputBefore = await page.evaluate(() => window.runnerInputEvidence)
   const frame = page.locator('.player-board-frame:visible').first()
-  if (game === 'Shikaku') await dragRectangle(page, touch, engine)
+  let paint
+  const paintBefore=game==='Shikaku'?await frame.locator('[data-cell]').evaluateAll(nodes=>nodes.map(node=>getComputedStyle(node).backgroundColor)):null
+  const scrollBefore=await page.evaluate(()=>[scrollX,scrollY])
+  if (game === 'Shikaku') await dragRectangle(page, touch, engine,corners.first,corners.last)
   else if (game === 'Hashi') {
     const pair = await frame.locator('[data-island]').evaluateAll(nodes => {
       const islands = nodes.map(node => { const r = node.getBoundingClientRect(); return { id: node.getAttribute('data-island'), x: r.x + r.width / 2, y: r.y + r.height / 2 } })
@@ -181,6 +215,19 @@ export async function editAndRestore(page, game, touch, engine, readiness) {
     await activate(page, control, touch, touch)
   }
   await waitState(page, before, true)
+  if(game==='Shikaku'){
+    const grid=Math.sqrt(await frame.locator('[data-cell]').count()),expected=[]
+    assert.ok(Number.isInteger(grid),'Shikaku cell grid is not square')
+    for(let row=Math.min(Math.floor(corners.first/grid),Math.floor(corners.last/grid));row<=Math.max(Math.floor(corners.first/grid),Math.floor(corners.last/grid));row++)for(let col=Math.min(corners.first%grid,corners.last%grid);col<=Math.max(corners.first%grid,corners.last%grid);col++)expected.push(row*grid+col)
+    const scrollAfter=await page.evaluate(()=>[scrollX,scrollY])
+    if(touch)assert.ok(scrollAfter.every((value,i)=>Math.abs(value-scrollBefore[i])<=1),'Shikaku touch rectangle panned the page')
+    try { await page.waitForFunction(({expected,paintBefore})=>{
+      const cells=[...document.querySelectorAll('.shikaku-board [data-cell]')]
+      const painted=cells.filter(node=>node.style.getPropertyValue('--rectangle-fill').trim()).map(node=>Number(node.dataset.cell)).sort((a,b)=>a-b)
+      return JSON.stringify(painted)===JSON.stringify(expected)&&expected.every(i=>getComputedStyle(cells[i]).backgroundColor!==paintBefore[i])
+    },{expected,paintBefore}) }catch(error){if(error.name!=='TimeoutError')throw error;const actual=await frame.locator('[data-cell]').evaluateAll(nodes=>nodes.filter(node=>node.style.getPropertyValue('--rectangle-fill').trim()).map(node=>Number(node.dataset.cell)));assert.fail(`Shikaku painted cells differ: expected ${expected.slice(0,20)}; actual ${actual.slice(0,20)}`)}
+    paint={grid,...corners,cells:expected,scroll:[...scrollBefore,...scrollAfter]}
+  }
   const edited = await savedState(page)
   const rendered = await renderedState(page)
   await activate(page, page.getByRole('button', { name: 'Undo', exact: true }), touch, touch)
@@ -194,5 +241,5 @@ export async function editAndRestore(page, game, touch, engine, readiness) {
   await verifyPlayArea(page, touch)
   assert.deepEqual(await savedState(page), edited, 'reload changed saved puzzle state')
   assert.deepEqual(await renderedState(page), rendered, 'reload did not restore the visible board edit')
-  return { input, touchDrag: touch && game === 'Shikaku' ? engine === 'chromium' ? 'native-verified' : 'native-taps-verified; WebKit drag API unavailable' : undefined }
+  return { input, paint, touchDrag: touch && game === 'Shikaku' ? engine === 'chromium' ? 'native-verified' : 'native-taps-verified; WebKit drag API unavailable' : undefined }
 }

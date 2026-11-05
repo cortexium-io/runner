@@ -208,8 +208,11 @@ type Binding struct {
 	FromStep  string `json:"from_step,omitempty"`
 	Output    string `json:"output,omitempty"`
 	Default   *Value `json:"default,omitempty"`
-	FromItem  string `json:"from_item,omitempty"`
-	Literal   *Value `json:"literal,omitempty"`
+	// Fallback selects an earlier configured step output when FromStep has no
+	// accepted result yet. It is one level, with no literal artifact grants.
+	Fallback *Binding `json:"fallback,omitempty"`
+	FromItem string   `json:"from_item,omitempty"`
+	Literal  *Value   `json:"literal,omitempty"`
 	// Previous explicitly carries feedback across a correction boundary.
 	// Ordinary proof bindings exclude superseded results.
 	Previous      bool `json:"previous,omitempty"`

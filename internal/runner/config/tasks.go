@@ -45,7 +45,7 @@ func validateGroups(v runner.Process, p runner.Project) (runner.Process, runner.
 			}
 			for name, b := range s.Inputs {
 				if b.FromItem != "" {
-					if g.Inputs[b.FromItem] == "" || b.FromInput != "" || b.FromStep != "" || b.Literal != nil || b.Default != nil {
+					if g.Inputs[b.FromItem] == "" || b.FromInput != "" || b.FromStep != "" || b.Literal != nil || b.Default != nil || b.Fallback != nil {
 						return v, p, errors.New("from_item must select one declared item input")
 					}
 					b.FromInput = "_item_" + b.FromItem
@@ -69,7 +69,7 @@ func validateGroups(v runner.Process, p runner.Project) (runner.Process, runner.
 				kind = p.Roles[s.Role].Outputs[g.Output.Output]
 			}
 		}
-		if kind == "" || g.Output.FromInput != "" || g.Output.Default != nil || g.Output.Literal != nil {
+		if kind == "" || g.Output.FromInput != "" || g.Output.Default != nil || g.Output.Literal != nil || g.Output.Fallback != nil {
 			return v, p, errors.New("task output must select a template step output")
 		}
 		name := step.ID + "-join"

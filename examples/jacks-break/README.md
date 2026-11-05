@@ -36,6 +36,10 @@ advertised runtime choice and runs 36 headless desktop/mobile player journeys
 across Chromium and WebKit. Every distinct advertised board geometry is also
 opened at 320, 360 and 390 CSS pixels in both engines. Those paths come from the
 same candidate's successful native publication/reopen proof.
+Nonogram representatives include actual validated row-clue text width and column
+clue count; Suguru includes its control maximum. Difficulty/density is grouped
+only for fixed-track layouts. Missing footprint evidence cannot qualify an older
+report. Receipts use compact metrics within the existing 128 KiB bound.
 Image builds explicitly load their output and save a fresh `image.id`. Runtime
 and executable checks use that immutable digest rather than the mutable tag;
 missing or inconsistent export evidence stops qualification. Bounded private
@@ -43,7 +47,9 @@ build stdout/stderr are retained on success as well as failure. A successful
 build exit alone never qualifies an image or permits a replacement build.
 Browser acceptance checks actual board and internal overflow, initial New entry,
 reachable primary controls, real touch edits, Undo/Redo and saved visible state
-after reload. A small overview needs working accessible `Zoom in` and `Fit board`
+after reload and home Resume. Shikaku additionally proves the intended painted
+cells without page pan, including one largest advertised board per engine and
+viewport. A small overview needs working accessible `Zoom in` and `Fit board`
 controls that make clues readable. Locator scrolling cannot rescue mobile entry
 or edit failures. Chromium verifies Shikaku with native touch drag; WebKit verifies
 its complete native two-corner/Add path because Playwright exposes no public
@@ -85,13 +91,40 @@ measurements remain strict. The existing correction/review/qualification/release
 steps and their protected approvals follow, within the unchanged 35-attempt cap.
 The original failed run and its patch stay preserved.
 
+`investigate-source.json` uses the same complete investigation when the scaffold
+is already committed. It measures the supplied source directly without inventing
+a patch. `product.json` selects `deliver-product` for one combined frontend and
+Go investigation candidate: baseline, readiness, one owner, frontend check, Go
+check, measurement, independent combined review and the same protected suffix.
+Its `frontend_tests` JSON file list is separate from the Go `tests` selector.
+It retains the existing model, input/output and 35-attempt ceilings.
+
+Investigation owners receive the complete baseline and current measurement
+artifacts. Before the first candidate measurement, the declared one-level binding
+`{"from_step":"measure","output":"artifact","previous":true,"fallback":{"from_step":"baseline","output":"artifact"}}`
+selects the baseline. A fallback selects only an earlier configured step/output
+of the same type; it cannot grant a literal artifact or nest another fallback.
+Artifacts are copied into `.runner-tmp/inputs/<attempt>/<name>`, which is read-only
+for coding and review. Other private state and the artifact store remain outside
+worker access. Cleanup verifies ownership and retained bytes before removing only
+that attempt's input directory; drift is preserved for inspection.
+
+The measurement helper sets `RUNNER_MEASURE_EVIDENCE` to an owned scratch directory.
+Native benchmarks may write complete synthetic request/seed/phase records as flat
+regular JSON files there, at most 64 files and 8 MiB total. Links, directories,
+invalid JSON and excess data are rejected. The files are embedded in the retained
+`measurements.json`, within its 16 MiB artifact ceiling. Missing sidecars are
+explicitly incomplete; provided files still require semantic review. Go benchmark
+stdout and its truncation remain visible and are never a substitute for complete
+structured proof. No production/player logging is enabled by this mechanism.
+
 Browser layout verdicts require at least one loaded stylesheet and ready fonts.
 A failed critical main-page resource gets one navigation retry with its failed
 navigation diagnostics retained. Persistent resource failures remain operator
 blockers; only a fully rendered overflow is a source correction. Puzzle creation
 and hints are never replayed by this resource retry.
 
-The browser SSH forward requires its own positive loopback-bind signal before
+The legacy host browser's SSH forward requires its own positive loopback-bind signal before
 journeys start. Startup is bounded, keeps private stderr diagnostics and may
 reconnect once only after a confirmed pre-authentication banner timeout. It uses
 a dedicated connection; a forwarding denial, an unrelated local listener or a
@@ -108,8 +141,12 @@ selected. Configure instance `release.github` with the trusted `gh` executable a
 SSH. Keep the operator policy, authentication and journals outside Git.
 
 The operator's `delivery` settings select absolute runtime paths, read-only caches,
-a public CA bundle, `browser_executable` (Chromium), `webkit_executable`, the
-matching Playwright `browser_module`, and the existing generated-ownership command.
+a public CA bundle and the existing generated-ownership command. Prefer the
+[fixed Linux browser runtime](../../internal/release/browser-runtime/README.md)
+through `delivery.browser_image` on the existing Docker engine when macOS
+Seatbelt cannot provide WebKit's GUI-service registration. This adds no host
+browser permissions. Legacy host runtimes instead configure `browser_executable`
+(Chromium), `webkit_executable` and a matching Playwright `browser_module`.
 Readiness launches both engines and requires a trusted native touch event and its
 actual button action before model work. A missing engine is a precise prerequisite
 failure, never a silent fallback. The macOS WebKit runtime can report zero touch
@@ -203,3 +240,7 @@ production authority. Real delivery stops at the actual saved owner decisions.
 `testdata/browser-acceptance/main.mjs` fixture. It proves both engines pass native
 touch/Undo/Redo/reload at all three widths, and rejects clipped boards, wrong entry
 scroll, offscreen controls and ignored touch without opening a product service.
+The fixed-image equivalent is `TestDeliveryPlatformBrowserContainerReadiness`;
+it retains the enforced Docker inspection and exact image/driver/version proof.
+`TestDeliveryPlatformBrowserContainerCancellation` separately proves cancellation
+after positively observed dispatch, uncertainty preservation and exact cleanup.

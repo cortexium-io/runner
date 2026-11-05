@@ -85,7 +85,7 @@ func (c *Codex) nativeConfiguration(ctx context.Context) (string, error) {
 			if name == "runner-edit" {
 				mode = "write"
 			}
-			config += "\".\"=" + strconv.Quote(mode) + "\n\".runner-tmp\"=\"write\"\n"
+			config += "\".\"=" + strconv.Quote(mode) + "\n\".runner-tmp\"=\"write\"\n\".runner-tmp/inputs\"=\"read\"\n"
 			for _, p := range c.cfg.ReadOnlyPaths {
 				config += strconv.Quote(p) + "=\"read\"\n"
 			}
@@ -167,29 +167,6 @@ func envCommand(env map[string]string, argv ...string) []string {
 	return append(args, argv...)
 }
 
-// A reviewer reads the retained patch, never an unbounded transcript or a new
-// source snapshot. The run's current candidate must still identify that patch.
-func (c *Codex) reviewInput(j nativeJob) error {
-	for name, value := range j.Assignment.Inputs {
-		id := value.ArtifactID
-		if id == "" {
-			continue
-		}
-		if name == "patch" && (j.Workspace.Candidate == nil || j.Workspace.Candidate.PatchID != id) {
-			return errors.New("review patch differs from the workspace candidate")
-		}
-		data, err := c.disk.Read("artifacts/"+id, j.Assignment.Limits.MaxArtifact)
-		if err != nil {
-			return err
-		}
-		file := filepath.Join("work", j.Assignment.RunID, "source", ".runner-tmp", j.Assignment.AttemptID, "inputs", name)
-		if err = c.disk.Write(file, data, j.Assignment.Limits.MaxArtifact); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // Probe the exact server profiles without requesting a thread or model turn.
 func (c *Codex) workspaceReadiness(ctx context.Context, peer codexPeer, j nativeJob) error {
 	if c.cfg.GoBinary == "" || j.Workspace == nil {
@@ -206,6 +183,22 @@ func (c *Codex) workspaceReadiness(ctx context.Context, peer codexPeer, j native
 		return e
 	}
 	defer c.disk.Remove(dummy)
+	artifactDummy := "artifacts/permission-dummy"
+	if e = c.disk.Write(artifactDummy, []byte("dummy"), 128); e != nil {
+		return e
+	}
+	defer c.disk.Remove(artifactDummy)
+	env["RUNNER_ARTIFACT_STORE_PROBE"] = filepath.Join(c.disk.Root, filepath.FromSlash(artifactDummy))
+	inputs, e := stagedInputDirectory(j.Workspace.WorkDir, j.Assignment.AttemptID, true)
+	if e != nil {
+		return e
+	}
+	evidence := filepath.Join(filepath.Dir(inputs), ".permission-probe-"+j.Assignment.AttemptID)
+	if e = os.WriteFile(evidence, []byte("retained evidence"), 0600); e != nil {
+		return e
+	}
+	defer os.Remove(evidence)
+	env["RUNNER_EVIDENCE_PROBE"] = evidence
 
 	if e = os.WriteFile(probe, []byte(workspaceProbe), 0600); e != nil {
 		return e
@@ -383,6 +376,8 @@ func main(){
  if (err==nil)!=(mode=="write"){panic("source write boundary")};if err==nil{os.Remove(target)}
  denied:=func(path string){_,err:=os.ReadFile(path);if !errors.Is(err,os.ErrPermission){panic("private/Git/symlink read boundary")}}
  denied(private);denied(filepath.Join(root,".git"));if escape!=""{denied(escape)}
+ if artifact:=os.Getenv("RUNNER_ARTIFACT_STORE_PROBE");artifact!=""{denied(artifact)}
+ if evidence:=os.Getenv("RUNNER_EVIDENCE_PROBE");evidence!=""{if _,err:=os.ReadFile(evidence);err!=nil{panic("evidence read boundary")};f,err:=os.OpenFile(evidence,os.O_WRONLY,0);if err==nil{f.Close();panic("evidence write boundary")};if !errors.Is(err,os.ErrPermission){panic("evidence write not checked")};if err:=os.Rename(filepath.Dir(evidence),filepath.Dir(evidence)+"-moved");!errors.Is(err,os.ErrPermission){panic("evidence directory rename boundary")}}
  for _,name:=range os.Args[5:]{f,err:=os.OpenFile(filepath.Join(root,name),os.O_WRONLY,0);if err==nil{f.Close();panic("protected source write boundary")};if !errors.Is(err,os.ErrPermission){panic("protected source not checked")}}
  if cache:=os.Getenv("GOMODCACHE");cache!=""{if _,err:=os.ReadDir(cache);err!=nil{panic("module cache read boundary")};target:=filepath.Join(cache,".runner-write-probe");f,err:=os.OpenFile(target,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600);if err==nil{f.Close();os.Remove(target);panic("module cache write boundary")};if !errors.Is(err,os.ErrPermission){panic("module cache not checked")}}
  if reporter:=os.Getenv("RUNNER_GO_CHECK");reporter!=""{if _,err:=os.ReadFile(reporter);err!=nil{panic("Go check runtime read boundary")};f,err:=os.OpenFile(reporter,os.O_WRONLY,0);if err==nil{f.Close();panic("Go check runtime write boundary")};if !errors.Is(err,os.ErrPermission){panic("Go check runtime not checked")}}
@@ -403,7 +398,7 @@ func workspaceFiles(cfg *runner.CodexSettings, name, goRoot string) map[string]a
 		if name == "runner-edit" {
 			mode = "write"
 		}
-		roots := map[string]any{".": mode, ".runner-tmp": "write"}
+		roots := map[string]any{".": mode, ".runner-tmp": "write", ".runner-tmp/inputs": "read"}
 		for _, path := range cfg.ReadOnlyPaths {
 			roots[path] = "read"
 		}
