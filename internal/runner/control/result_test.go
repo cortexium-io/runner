@@ -1,13 +1,18 @@
 package control
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
 	"github.com/cortexium-io/runner/internal/runner"
+	"github.com/cortexium-io/runner/internal/runner/config"
+	"github.com/cortexium-io/runner/internal/runner/sqlite"
 )
 
 // Owns presentation bounds and accounting. Execution/recovery policy stays in
@@ -152,5 +157,104 @@ func TestCompactResultDecisionOutputs(t *testing.T) {
 	r.Decision = nil
 	if got := compactResult(r, time.Now()); len(got.DecisionOutputs) != 0 {
 		t.Fatal("approval evidence exposed without a pending decision")
+	}
+}
+
+func TestResultDistinguishesBoundedReconciliationFromOwnerWaiting(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		name     string
+		trusted  bool
+		expired  bool
+		decision bool
+		want     bool
+	}{
+		{name: "same operation reconnect", trusted: true, want: true},
+		{name: "unresolved effect"},
+		{name: "deadline reached", trusted: true, expired: true},
+		{name: "owner decision", trusted: true, decision: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := runner.Run{
+				Status:   "Waiting",
+				Process:  runner.Process{Steps: []runner.Step{{ID: "operator", Role: "operator"}}},
+				Attempts: []runner.Attempt{{State: runner.Unknown, Reconciling: tc.trusted, Deadline: now.Add(time.Minute)}},
+			}
+			if tc.expired {
+				r.Attempts[0].Deadline = now
+			}
+			if tc.decision {
+				r.Decision = &runner.Decision{ID: "protected"}
+			}
+			out := compactResult(r, now)
+			if out.Reconciling != tc.want || out.ExecutionSettled {
+				t.Fatal("reconciliation was presented as settlement or hid a real blocker", out)
+			}
+		})
+	}
+}
+
+type waitingResultExecutor struct{ reconciling bool }
+
+func (e waitingResultExecutor) Start(context.Context, runner.Assignment) (runner.Observation, error) {
+	return runner.Observation{State: runner.Unknown, Reconciling: e.reconciling, NextCheck: time.Now().Add(time.Hour)}, nil
+}
+func (e waitingResultExecutor) Observe(context.Context, string) (runner.Observation, error) {
+	return e.Start(context.Background(), runner.Assignment{})
+}
+func (waitingResultExecutor) Stop(context.Context, string) error    { return nil }
+func (waitingResultExecutor) Release(context.Context, string) error { return nil }
+
+func TestResultWaitJoinsSelfReconciliationAndReturnsTrueUnknown(t *testing.T) {
+	for _, trusted := range []bool{false, true} {
+		t.Run(map[bool]string{true: "same operation", false: "unknown effect"}[trusted], func(t *testing.T) {
+			loader, err := config.New("../../../examples/demo/instance.yaml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := loader.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.Instance.Storage.MinFree = 0
+			dir := filepath.Join(t.TempDir(), "state")
+			store, err := sqlite.Open(dir, cfg.Instance.Storage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			disk, err := runner.OpenDisk(dir, cfg.Instance.Storage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			core, err := runner.New(t.Context(), store, waitingResultExecutor{trusted}, disk, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer core.Close()
+			r, err := start(core, StartArgs{RequestID: "wait-fixture", Project: "demo", Inputs: map[string]any{"name": "fixture"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			for r.Status != "Waiting" {
+				if _, err = core.Wait(ctx, r.ID, r.Revision); err != nil {
+					t.Fatal(err)
+				}
+				r, err = core.Get(r.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			// A cancelled caller is a deterministic witness of the wait branch:
+			// a transient Waiting must join Core.Wait, not return a user blocker.
+			joined, stop := context.WithCancel(t.Context())
+			stop()
+			out, err := result(joined, core, ResultArgs{RunID: r.ID, Wait: true})
+			if trusted && !errors.Is(err, context.Canceled) || !trusted && (err != nil || out.Status != "Waiting" || out.Reconciling) {
+				t.Fatal("result wait returned transient reconciliation or hid true uncertainty", out, err)
+			}
+		})
 	}
 }

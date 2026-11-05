@@ -135,6 +135,7 @@ func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, 
 		cmd.Stderr = &diagnosticTail{limit: 1024}
 		if err = cmd.Run(); err != nil {
 			o.State = runner.Unknown
+			o.Reconciling = true
 			o.Reason = "release operator disconnected; rejoin the same saved operation " + id
 			return o, nil
 		}
@@ -190,6 +191,9 @@ func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, 
 		j.End = &runner.ExecutionEnd{
 			Kind:   "returned",
 			Result: &runner.StepResult{Outcome: outcome, Reason: reason, Outputs: map[string]runner.Value{"receipt": {Inline: response.Receipt}}},
+		}
+		if response.Failed && response.Retryable && (request.Action == "readiness" || request.Action == "qualify") {
+			j.End = &runner.ExecutionEnd{Kind: "failed", Reason: o.Reason, Retryable: true}
 		}
 		if j.Stopped {
 			j.End = &runner.ExecutionEnd{

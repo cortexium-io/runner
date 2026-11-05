@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -33,6 +34,7 @@ type observation struct {
 	Milliseconds int64  `json:"milliseconds"`
 	Reopened     bool   `json:"identicalReopen"`
 	Error        string `json:"error,omitempty"`
+	Path         string `json:"path,omitempty"`
 }
 
 func main() {
@@ -178,6 +180,9 @@ func main() {
 				}
 			}
 		}
+		if err == nil {
+			o.Path, err = publicationPath(c.Game, identity)
+		}
 		if err != nil {
 			o.Error = err.Error()
 		} else {
@@ -211,5 +216,25 @@ func main() {
 	if status != "passed" {
 		os.Exit(1)
 	}
+}
+
+// The public classic routes omit their internal identity prefix. All other
+// games use the returned native ID verbatim; never invent a sample identity.
+func publicationPath(game string, identity map[string]any) (string, error) {
+	id, ok := identity["id"].(string)
+	if !ok || identity["game"] != game || identity["contentRevision"] != "1" {
+		return "", errors.New("publication identity is incomplete")
+	}
+	if game == "sudoku" || game == "suguru" {
+		prefix := game + "-generated:"
+		if !strings.HasPrefix(id, prefix) {
+			return "", errors.New("classic publication identity prefix differs")
+		}
+		id = strings.TrimPrefix(id, prefix)
+	}
+	if len(id) > 128 || !regexp.MustCompile(`^[A-Za-z0-9_-]+$`).MatchString(id) {
+		return "", errors.New("publication identity cannot form a canonical route")
+	}
+	return "/" + game + "/" + id, nil
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "private release HTTP:", err); os.Exit(1) }

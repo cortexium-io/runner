@@ -16,25 +16,33 @@ import (
 // DeliveryConfig selects installed runtimes and private owned storage. Candidate
 // code supplies neither these paths nor release commands. Builds run sandboxed.
 type DeliveryConfig struct {
-	Root              string   `json:"root"`
-	Git               string   `json:"git"`
-	Codex             string   `json:"codex"`
-	Python            string   `json:"python"`
-	Node              string   `json:"node"`
-	Go                string   `json:"go"`
-	ModuleCache       string   `json:"module_cache"`
-	ReadPaths         []string `json:"read_paths"`
-	BrowserModule     string   `json:"browser_module"`
-	BrowserExecutable string   `json:"browser_executable"`
-	TrustBundle       string   `json:"trust_bundle"`
-	Probe             string   `json:"probe"`
-	Ownership         []string `json:"ownership"`
-	Timeout           string   `json:"timeout"`
-	StorageLimit      int64    `json:"storage_limit"`
-	MinFree           int64    `json:"min_free"`
+	Root              string            `json:"root"`
+	Git               string            `json:"git"`
+	Codex             string            `json:"codex"`
+	Python            string            `json:"python"`
+	Node              string            `json:"node"`
+	Go                string            `json:"go"`
+	ModuleCache       string            `json:"module_cache"`
+	ReadPaths         []string          `json:"read_paths"`
+	BrowserModule     string            `json:"browser_module"`
+	BrowserExecutable string            `json:"browser_executable"`
+	WebKitExecutable  string            `json:"webkit_executable,omitempty"`
+	TrustBundle       string            `json:"trust_bundle"`
+	Probe             string            `json:"probe"`
+	Ownership         []string          `json:"ownership"`
+	Timeout           string            `json:"timeout"`
+	StorageLimit      int64             `json:"storage_limit"`
+	MinFree           int64             `json:"min_free"`
+	Retention         *ArchiveRetention `json:"retention,omitempty"`
 }
 
 func (c DeliveryConfig) validate() error {
+	if err := c.Retention.validate(); err != nil {
+		return err
+	}
+	if c.WebKitExecutable != "" && (!filepath.IsAbs(c.WebKitExecutable) || filepath.Clean(c.WebKitExecutable) != c.WebKitExecutable) {
+		return errors.New("WebKit executable must be an explicit absolute runtime path")
+	}
 	if len(c.Ownership) == 0 || len(c.Ownership) > 16 || !filepath.IsAbs(c.Ownership[0]) {
 		return errors.New("delivery requires its fixed generated-ownership command")
 	}
@@ -141,6 +149,7 @@ func (b *Live) delivery(ctx context.Context, j *Job, save func() error) error {
 		return errors.New(result.Reason)
 	}
 	j.Receipt, j.Done, j.Failed, j.Reason, j.Outcome = result.Receipt, result.Done, result.Failed, result.Reason, result.Outcome
+	j.Retryable = result.Retryable
 	return nil
 }
 
@@ -175,6 +184,12 @@ func RunDeliveryWorker(file string) error {
 	ctx = context.WithValue(ctx, deliveryDiagnosticKey{}, filepath.Dir(file))
 	b := Live{Config: work.Config}
 	j := &work.Job
+	if j.Request.Action == "readiness" {
+		if err = b.collectArchives(ctx); err != nil {
+			_ = fail(j, "owned archive retention could not establish safe collection: "+err.Error())
+			return writeJSON(filepath.Join(filepath.Dir(file), "result.json"), j)
+		}
+	}
 	if err = b.deliveryCapacity(ctx, j.Request.Action == "readiness"); err == nil {
 		capacityFailure := make(chan error, 1)
 		monitorDone := make(chan struct{})
@@ -231,6 +246,11 @@ func RunDeliveryWorker(file string) error {
 			return writeJSON(filepath.Join(filepath.Dir(file), "result.json"), j)
 		}
 		_ = fail(j, j.Request.Action+" failed; bounded private diagnostics and output retained: "+err.Error())
+		var unavailable *connectionUnavailable
+		// Repeating a fresh isolated qualification/readiness visit is safe only
+		// for a positively established pre-dispatch connection failure. Unknown
+		// effects retain this worker identity above and never authorize replay.
+		j.Retryable = errors.As(err, &unavailable) && (j.Request.Action == "readiness" || j.Request.Action == "qualify")
 		var source *sourceFailure
 		if j.Request.Action == "qualify" && errors.As(err, &source) {
 			j.Failed = false

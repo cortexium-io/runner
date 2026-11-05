@@ -42,6 +42,40 @@ func deliveryFixture(t *testing.T) (runner.Process, runner.Project) {
 	return p, project
 }
 
+func TestFrontendDeliveryKeepsSourceProofCorrectionAndProtectedRelease(t *testing.T) {
+	_, project := deliveryFixture(t)
+	root := filepath.Join("..", "..", "..", "examples", "jacks-break")
+	var p runner.Process
+	data, err := os.ReadFile(filepath.Join(root, "frontend.json"))
+	if err != nil || json.Unmarshal(data, &p) != nil {
+		t.Fatal("frontend process unavailable", err)
+	}
+	for _, id := range []string{"frontend-owner", "frontend-check", "frontend-review"} {
+		var role runner.Role
+		data, err = os.ReadFile(filepath.Join(root, "roles", id+".json"))
+		if err != nil || json.Unmarshal(data, &role) != nil {
+			t.Fatal("frontend role unavailable", id, err)
+		}
+		if err = errors.Join(types(role.Inputs), types(role.Outputs), ready(*role.Execution)); err != nil {
+			t.Fatal(id, err)
+		}
+		project.Roles[id] = role
+	}
+	if err = errors.Join(validateProcess(p, project), validateReleaseProcess(p, project)); err != nil {
+		t.Fatal(err)
+	}
+	steps := map[string]runner.Step{}
+	for _, step := range p.Steps {
+		steps[step.ID] = step
+	}
+	if p.ID != "deliver-frontend" || p.MaxAttempts != 35 || steps["check"].Reuse || steps["review"].Inputs["checks"] != (runner.Binding{FromStep: "check", Output: "artifact"}) || steps["qualify"].Routes["changes_requested"].Next != "owner" {
+		t.Fatal("frontend handoff lost proof, bounded correction or qualification ownership")
+	}
+	if len(project.Roles["frontend-review"].Inputs) > 8 || project.Roles["frontend-check"].Outputs["artifact"] != "artifact" {
+		t.Fatal("frontend proof contract exceeds existing engine capability")
+	}
+}
+
 func TestReviewedReleaseEntryKeepsQualificationAndApprovalGates(t *testing.T) {
 	_, project := deliveryFixture(t)
 	root := filepath.Join("..", "..", "..", "examples", "jacks-break")

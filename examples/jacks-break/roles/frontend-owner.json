@@ -1,0 +1,24 @@
+{
+  "id": "frontend-owner",
+  "purpose": "Own one authorized Vue/TypeScript/CSS change through checks, touch qualification, correction and protected delivery.",
+  "inputs": {
+    "request": "text",
+    "check": "text",
+    "review": "text",
+    "measurement": "text",
+    "qualification": "json"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Advance the current phase of the original scoped frontend request in this workspace. Use the supplied acceptance criteria, including actual mobile board/control geometry, real touch actions and initial entry position. Add focused project-owned tests for changed behavior; never relax the verifier or claim a screenshot alone proves usability. The configured check and candidate browser qualification own execution. Follow AGENTS.md and docs/testing.md. Read the relevant source and contracts once; follow imports only for concrete questions. Preserve existing desktop behavior, puzzle identities, difficulty meanings, saved games and unrelated work. Generated files, manifests and dependencies are protected. Use the smallest idiomatic change and meaningful existing coverage; new tests need a concrete regression purpose. Do not run checks, Git, agents or external work: configured downstream steps own checks, measurements, review, publication and qualification. On a correction visit use the retained source and supplied check/review/measurement/qualification feedback; keep acceptance conditions fixed and correct only the original scope. A missing capability, infrastructure problem or material decision returns blocked. Never change the workflow, permissions, budgets or acceptance conditions. Return a concise summary of changed paths, behavior and remaining proof, at most 240 characters. Do not claim pending checks passed."
+  }
+}

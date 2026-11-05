@@ -69,7 +69,7 @@ func TestDeliveryPlatformBrowserReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, content := range map[string][]byte{"fixture.mjs": data, "browser_render.mjs": browserRenderScript} {
+	for name, content := range map[string][]byte{"fixture.mjs": data, "browser_render.mjs": browserRenderScript, "browser_contract.mjs": browserContractScript} {
 		if err = writeExclusive(filepath.Join(root, name), content); err != nil {
 			t.Fatal(err)
 		}
@@ -78,7 +78,7 @@ func TestDeliveryPlatformBrowserReadiness(t *testing.T) {
 	defer cancel()
 	b := Live{Config: c}
 	j := Job{Worker: filepath.Join(root, "work.json")}
-	out, err := b.sandbox(ctx, &j, []string{root}, "/usr/bin/env", "RUNNER_PLAYWRIGHT_MODULE="+c.Delivery.BrowserModule, "RUNNER_BROWSER_EXECUTABLE="+c.Delivery.BrowserExecutable, c.Delivery.Node, filepath.Join(root, "fixture.mjs"))
+	out, err := b.sandbox(ctx, &j, []string{root}, "/usr/bin/env", "RUNNER_PLAYWRIGHT_MODULE="+c.Delivery.BrowserModule, "RUNNER_BROWSER_EXECUTABLE="+c.Delivery.BrowserExecutable, "RUNNER_WEBKIT_EXECUTABLE="+c.Delivery.WebKitExecutable, c.Delivery.Node, filepath.Join(root, "fixture.mjs"))
 	if err != nil {
 		t.Fatal(err)
 	}

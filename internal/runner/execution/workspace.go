@@ -305,24 +305,36 @@ func (w *Workspaces) checkoutCapacity(a runner.Assignment, sourceBytes int64) er
 
 func (w *Workspaces) verifyWorkspace(ctx context.Context, r workspaceRecord) error {
 	info, e := os.Lstat(r.WorkDir)
-	if e != nil || !info.IsDir() {
-		return errors.New("owned workspace is missing or not a directory")
+	if e != nil {
+		return e
+	}
+	if !info.IsDir() {
+		return &runner.CleanupBlockedError{Reason: "owned workspace is not a directory; preserve it"}
 	}
 	info, e = os.Lstat(filepath.Join(r.WorkDir, ".git"))
+	if e != nil && !errors.Is(e, os.ErrNotExist) {
+		return e
+	}
 	if e != nil || !info.Mode().IsRegular() {
-		return errors.New("owned workspace Git link is missing or not a regular file")
+		return &runner.CleanupBlockedError{Reason: "owned workspace Git link is missing or not a regular file; preserve it"}
 	}
 	head, e := git(ctx, r.WorkDir, nil, nil, 256, "rev-parse", "HEAD")
-	if e != nil || strings.TrimSpace(string(head)) != r.Base {
-		return errors.New("owned workspace base differs; preserve and inspect it before recovery")
+	if e != nil {
+		return e
+	}
+	if strings.TrimSpace(string(head)) != r.Base {
+		return &runner.CleanupBlockedError{Reason: "owned workspace base differs; preserve and inspect it before recovery"}
 	}
 	common, e := git(ctx, r.WorkDir, nil, nil, 4096, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	if e != nil {
 		return e
 	}
 	expected, e := git(ctx, r.Repository, nil, nil, 4096, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if e != nil || !bytes.Equal(common, expected) {
-		return errors.New("workspace Git ownership differs from the recorded repository")
+	if e != nil {
+		return e
+	}
+	if !bytes.Equal(common, expected) {
+		return &runner.CleanupBlockedError{Reason: "workspace Git ownership differs from the recorded repository; preserve it"}
 	}
 	return nil
 }
@@ -509,7 +521,7 @@ func (w *Workspaces) validateSeed(ctx context.Context, r workspaceRecord, patch 
 		return 0, e
 	}
 	if r.Candidate != nil && strings.TrimSpace(string(tree)) != r.Candidate.Tree {
-		return 0, errors.New("retained patch does not reconstruct the saved candidate")
+		return 0, &runner.CleanupBlockedError{Reason: "retained patch does not reconstruct the saved candidate; preserve the workspace"}
 	}
 	entries, e := git(ctx, r.Repository, env, nil, 1<<20, "ls-tree", "-rlz", strings.TrimSpace(string(tree)))
 	if e != nil {
@@ -529,6 +541,10 @@ func (w *Workspaces) validateSeed(ctx context.Context, r workspaceRecord, patch 
 	}
 	if verifyCheckout {
 		if _, e = git(ctx, r.WorkDir, env, nil, 4096, "diff", "--quiet", "--no-ext-diff", "--no-textconv", "--", ".", ":(exclude).runner-tmp"); e != nil {
+			var exit *exec.ExitError
+			if errors.As(e, &exit) && exit.ExitCode() == 1 {
+				return 0, &runner.CleanupBlockedError{Reason: "workspace differs from the retained candidate; preserve it for inspection"}
+			}
 			return 0, fmt.Errorf("workspace differs from the retained candidate or cannot be verified; preserve it: %w", e)
 		}
 		// Include ignored files: only the owned .runner-tmp tree is disposable
@@ -538,7 +554,7 @@ func (w *Workspaces) validateSeed(ctx context.Context, r workspaceRecord, patch 
 			return 0, er
 		}
 		if len(untracked) != 0 {
-			return 0, errors.New("workspace has uncaptured files; preserve it")
+			return 0, &runner.CleanupBlockedError{Reason: "workspace has uncaptured files; preserve it"}
 		}
 	}
 	return sourceBytes, nil
@@ -552,11 +568,14 @@ func (w *Workspaces) retainedCandidate(ctx context.Context, r workspaceRecord, v
 		var patch []byte
 		if r.SeedPatchID != "" {
 			if !r.SeedReady || w.read == nil {
-				return nil, 0, errors.New("workspace seed is not recoverable; preserve it")
+				return nil, 0, &runner.CleanupBlockedError{Reason: "workspace seed is not recoverable; preserve it"}
 			}
 			var err error
 			patch, err = w.read(ctx, r.SeedPatchID)
 			if err != nil {
+				if errors.Is(err, os.ErrNotExist) || errors.Is(err, runner.ErrNotFound) {
+					return nil, 0, &runner.CleanupBlockedError{Reason: "retained workspace seed is missing; preserve the workspace"}
+				}
 				return nil, 0, err
 			}
 			if len(patch) > int(w.disk.Policy.MaxArtifact) {
@@ -567,10 +586,13 @@ func (w *Workspaces) retainedCandidate(ctx context.Context, r workspaceRecord, v
 		return patch, sourceBytes, err
 	}
 	if c.PatchID == "" || c.Tree == "" || c.AttemptID == "" || c.Repository != r.Repository || c.Base != r.Base || c.WorkDir != r.WorkDir {
-		return nil, 0, errors.New("failed workspace lacks a reconstructible retained candidate; preserve it")
+		return nil, 0, &runner.CleanupBlockedError{Reason: "failed workspace lacks a reconstructible retained candidate; preserve it"}
 	}
 	patch, e := w.disk.Read("artifacts/"+c.PatchID, w.disk.Policy.MaxArtifact)
 	if e != nil {
+		if errors.Is(e, os.ErrNotExist) {
+			return nil, 0, &runner.CleanupBlockedError{Reason: "retained candidate patch is missing; preserve the workspace"}
+		}
 		return nil, 0, e
 	}
 	sourceBytes, e := w.validateSeed(ctx, r, patch, w.disk.Policy.MaxArtifact, verifyCheckout)

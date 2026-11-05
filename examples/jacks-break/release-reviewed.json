@@ -280,5 +280,6 @@
   },
   "max_attempts": 16,
   "max_attempts_per_step": 1,
-  "attempt_timeout": "20m"
+  "attempt_timeout": "20m",
+  "infrastructure_retries": 1
 }

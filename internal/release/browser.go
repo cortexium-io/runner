@@ -22,6 +22,9 @@ var browserScript []byte
 //go:embed browser_render.mjs
 var browserRenderScript []byte
 
+//go:embed browser_contract.mjs
+var browserContractScript []byte
+
 func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 	c := b.Config
 	work := filepath.Join(filepath.Dir(j.Worker), "work")
@@ -33,6 +36,9 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 		return err
 	}
 	if err = writeExclusive(filepath.Join(work, "browser_render.mjs"), browserRenderScript); err != nil {
+		return err
+	}
+	if err = writeExclusive(filepath.Join(work, "browser_contract.mjs"), browserContractScript); err != nil {
 		return err
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -118,7 +124,7 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 	}
 	defer func() { err = errors.Join(err, stopForward()) }()
 	output := filepath.Join(j.Receipt.Package, "browser")
-	if _, err = b.sandbox(ctx, j, []string{work, output}, "/usr/bin/env", "RUNNER_PLAYWRIGHT_MODULE="+c.Delivery.BrowserModule, "RUNNER_BROWSER_EXECUTABLE="+c.Delivery.BrowserExecutable, c.Delivery.Node, script, public, output); err != nil {
+	if _, err = b.sandbox(ctx, j, []string{work, output}, "/usr/bin/env", "RUNNER_PLAYWRIGHT_MODULE="+c.Delivery.BrowserModule, "RUNNER_BROWSER_EXECUTABLE="+c.Delivery.BrowserExecutable, "RUNNER_WEBKIT_EXECUTABLE="+c.Delivery.WebKitExecutable, c.Delivery.Node, script, public, output); err != nil {
 		var result struct {
 			Failure string `json:"failure"`
 		}
@@ -136,14 +142,12 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 	if err != nil {
 		return err
 	}
-	var browser struct {
-		Complete bool
-		Journeys []json.RawMessage
-		Headless bool
-		Mocked   bool `json:"mockedResponses"`
+	runtime, err := readFile(filepath.Join(j.Receipt.Package, "runtime-http.json"), 4<<20)
+	if err != nil {
+		return err
 	}
-	if json.Unmarshal(data, &browser) != nil || !browser.Complete || !browser.Headless || browser.Mocked || len(browser.Journeys) != 18 {
-		return errors.New("headless desktop/mobile browser obligations did not pass")
+	if err = validateBrowserReceipt(data, runtime); err != nil {
+		return err
 	}
 	if err = b.writeQualification(j); err != nil {
 		return err

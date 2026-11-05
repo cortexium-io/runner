@@ -24,6 +24,10 @@ repair agents, alter configuration, change permissions, increase budgets, retry
 or bypass a failed gate unless the user explicitly authorizes that operator action.
 Correction, benchmark repetition and recovery already configured and authorized
 in Runner do not need a new decision. The chat does not coordinate those iterations.
+The [bounded operations policy](operations-policy.md) also covers safe
+infrastructure retries, archive retention and reconciliation waiting within the
+original limits. A parked integrity cleanup condition remains an explicit owner
+maintenance decision; it never grants another product attempt.
 Missing process/capability is a blocker, never permission for external execution.
 Explicit user requests to investigate or maintain Runner itself are separate work.
 
@@ -73,6 +77,17 @@ decision attempt's outputs before final process outputs exist; use its receipt
 to present exact approval facts without inspect access. These previews have a
 4 KiB total bound and mark truncation explicitly. Known configured recovery stays
 inside the process.
+
+Select the complete `deliver-frontend` variant for a scoped Vue/mobile request.
+Its `tests` input is a JSON array of explicit frontend-relative test filenames;
+the fixed command retains real executed assertions for independent review. Use
+`deliver-product` for the explicitly combined frontend and Go investigation;
+its separate `frontend_tests` and Go `tests` inputs keep both scopes verifiable
+before a single publication and protected release suffix. Missing browser
+prerequisites stop admission; missing frontend tools stop the configured check,
+rather than transferring checks to the chat. Chromium and WebKit qualification verifies native touch, saved
+edits and every advertised geometry at 320/360/390 pixels. Headless emulation
+and WebKit's public native touch-drag limitation remain explicit in the report.
 
 After verifier/infrastructure maintenance, the model-free `release-reviewed`
 process can continue an accepted reviewed publication without another coding or

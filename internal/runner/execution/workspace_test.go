@@ -539,8 +539,8 @@ func TestWritableFailedUncapturedSourceSurvivesHistoryExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	failed := waitSourceRun(t, rig.core, r.ID, func(r runner.Run) bool { return r.Status == "Failed" && allReleased(r) && r.CleanupError != "" })
-	if failed.ResourcesReleased {
-		t.Fatal("failed source with unique bytes was released")
+	if failed.ResourcesReleased || !failed.CleanupBlocked {
+		t.Fatal("failed source with unique bytes was released or its integrity condition was not parked")
 	}
 	if err := rig.core.Collect(); err != nil {
 		t.Fatal(err)
@@ -611,8 +611,9 @@ func TestWorkspaceFailedCleanupPreservesUncapturedSourceAndMissingProof(t *testi
 					t.Fatal(err)
 				}
 			}
-			if err := w.releaseRun(ctx, a.RunID, true); err == nil {
-				t.Fatal("failed cleanup discarded source without complete recovery proof")
+			var blocked *runner.CleanupBlockedError
+			if err := w.releaseRun(ctx, a.RunID, true); !errors.As(err, &blocked) {
+				t.Fatal("failed cleanup discarded source or did not park its permanent integrity condition", err)
 			}
 			if saved, err := w.load(a.RunID); err != nil || saved.Released {
 				t.Fatal("preserved workspace was marked released", err)

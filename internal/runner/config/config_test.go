@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -81,6 +82,25 @@ func write(t *testing.T, path, text string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(text), 0600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInfrastructureRecoveryPolicyIsExplicitAndBounded(t *testing.T) {
+	l, _ := fixture(t)
+	if _, err := l.Load(); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []int{0, 1, 2, -1, 3} {
+		loaded, err := l.Set("projects/demo/processes/greeting.yaml", "infrastructure_retries", json.RawMessage(fmt.Sprint(n)))
+		if n < 0 || n > 2 {
+			if err == nil {
+				t.Fatal("unbounded infrastructure recovery policy accepted", n)
+			}
+			continue
+		}
+		if err != nil || loaded.Projects["demo"].Processes["greeting"].InfrastructureRetries != n || loaded.Projects["demo"].Processes["greeting"].MaxAttempts != 4 {
+			t.Fatal("infrastructure policy changed the original total cap", n, err)
+		}
 	}
 }
 

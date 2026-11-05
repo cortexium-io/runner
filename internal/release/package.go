@@ -93,6 +93,16 @@ func (b *Live) sandbox(ctx context.Context, j *Job, writePaths []string, args ..
 }
 
 func (b *Live) packageCandidate(ctx context.Context, j *Job) error {
+	if reused, err := b.reusePackage(ctx, j); err != nil {
+		return err
+	} else if reused {
+		data, err := readPackageFile(j.Receipt.Package, "manifest.json", 8<<20)
+		var manifest packageManifest
+		if err != nil || json.Unmarshal(data, &manifest) != nil {
+			return errors.New("reused package manifest is unavailable")
+		}
+		return b.reproducePackage(ctx, j, manifest)
+	}
 	c := b.Config.Delivery
 	work := filepath.Join(filepath.Dir(j.Worker), "work")
 	source := filepath.Join(work, "source")
@@ -185,9 +195,21 @@ func (b *Live) packageCandidate(ctx context.Context, j *Job) error {
 			return errors.New("packaged artifact differs: " + name)
 		}
 	}
+	return b.reproducePackage(ctx, j, manifest)
+}
+
+func (b *Live) reproducePackage(ctx context.Context, j *Job, manifest packageManifest) error {
+	var err error
+	c := b.Config.Delivery
+	work := filepath.Join(filepath.Dir(j.Worker), "work")
+	if err = os.MkdirAll(work, 0700); err != nil {
+		return err
+	}
+	output := j.Receipt.Package
+	source := filepath.Join(work, "source")
 	// Reproduce from the builder's frozen source and its bound compiled assets,
 	// inside the same credential-free sandbox, rather than trusting a receipt.
-	if err = os.RemoveAll(source); err != nil {
+	if err := os.RemoveAll(source); err != nil {
 		return err
 	}
 	reproduce := filepath.Join(work, "reproduce")

@@ -33,11 +33,19 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 	connected := selected[start].Mode == "publish" || adopted
 	bad := errors.New("release requires immutable ordered qualification/merge/backup/production gates; coding may enter only through candidate publication")
 	readiness := 0
-	// A retained-scaffold investigation may collect a read-only baseline before
-	// infrastructure admission. Admission still precedes every model turn.
+	// An investigation may measure committed source or one explicitly supplied
+	// retained scaffold before admission. Every model turn still follows admission.
 	if connected && !adopted && selected[0].Harness == "command" {
-		if len(p.Steps) < 3 || selected[0].Access != "workspace-read" || p.Inputs["patch"] != "artifact" || p.Steps[0].ForEach != nil || p.Steps[0].Reuse || p.Steps[0].Escalation != nil ||
-			p.Steps[0].Inputs["patch"] != (runner.Binding{FromInput: "patch"}) ||
+		patchType, retained := p.Inputs["patch"]
+		if retained && (patchType != "artifact" || p.Steps[0].Inputs["patch"] != (runner.Binding{FromInput: "patch"})) {
+			return bad
+		}
+		for name, binding := range p.Steps[0].Inputs {
+			if binding.FromCandidate || binding.Previous || name == "patch" && !retained || project.Roles[p.Steps[0].Role].Inputs[name] == "artifact" && (name != "patch" || !retained) {
+				return bad
+			}
+		}
+		if len(p.Steps) < 3 || selected[0].Access != "workspace-read" || p.Steps[0].ForEach != nil || p.Steps[0].Reuse || p.Steps[0].Escalation != nil ||
 			!reflect.DeepEqual(p.Steps[0].Routes, map[string]runner.Route{
 				"continue": {Next: p.Steps[1].ID},
 				"ready":    {Next: p.Steps[1].ID},

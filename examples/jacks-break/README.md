@@ -32,14 +32,36 @@ One fixed project qualification operation packages the clean commit, checks its
 manifest against Git, independently reproduces the Linux executable, builds the
 artifact-only image, runs the frozen Nonogram development/held-out cohorts,
 rehearses migration and previous-image recovery on copied data, probes every
-advertised runtime choice and runs 18 headless desktop/mobile player journeys.
+advertised runtime choice and runs 36 headless desktop/mobile player journeys
+across Chromium and WebKit. Every distinct advertised board geometry is also
+opened at 320, 360 and 390 CSS pixels in both engines. Those paths come from the
+same candidate's successful native publication/reopen proof.
 Image builds explicitly load their output and save a fresh `image.id`. Runtime
 and executable checks use that immutable digest rather than the mutable tag;
 missing or inconsistent export evidence stops qualification. Bounded private
 build stdout/stderr are retained on success as well as failure. A successful
 build exit alone never qualifies an image or permits a replacement build.
-It does not claim to cover arbitrary frontend, authentication or other new product
-obligations. Unsupported obligations block rather than move to the chat.
+Browser acceptance checks actual board and internal overflow, initial New entry,
+reachable primary controls, real touch edits, Undo/Redo and saved visible state
+after reload. A small overview needs working accessible `Zoom in` and `Fit board`
+controls that make clues readable. Locator scrolling cannot rescue mobile entry
+or edit failures. Chromium verifies Shikaku with native touch drag; WebKit verifies
+its complete native two-corner/Add path because Playwright exposes no public
+WebKit touch-drag API. Headless touch emulation does not prove physical-device
+behavior. Unsupported new product obligations block rather than move to the chat.
+
+`frontend.json` selects the complete `deliver-frontend` variant. It uses the same
+protected release suffix, with a frontend owner, scoped frontend command and
+independent frontend review. Its `tests` input is a JSON array of 1..32 explicit
+frontend-relative test files, for example
+`["src/pages/shikaku/ShikakuWorkspace.test.ts"]`; glob patterns and command flags
+are rejected. The command retains actual executed/failed/skipped assertion counts
+and fails if any selected assertion is skipped or no tests run. It stages source
+in owned scratch and links configured immutable dependencies; source and shared
+caches stay read-only. The detailed artifact is retained rather than reused by
+the text-only check cache. `package` remains the Go package for optional existing
+measurement; use `benchmark: "none"` when irrelevant. The existing Go `deliver`
+input contract is unchanged.
 
 `release-reviewed.json` is the complete model-free continuation for an already
 accepted publication. Supply that publication's JSON receipt and its full base
@@ -83,7 +105,12 @@ selected. Configure instance `release.github` with the trusted `gh` executable a
 SSH. Keep the operator policy, authentication and journals outside Git.
 
 The operator's `delivery` settings select absolute runtime paths, read-only caches,
-a public CA bundle, headless browser and the existing generated-ownership command.
+a public CA bundle, `browser_executable` (Chromium), `webkit_executable`, the
+matching Playwright `browser_module`, and the existing generated-ownership command.
+Readiness launches both engines and requires a trusted native touch event and its
+actual button action before model work. A missing engine is a precise prerequisite
+failure, never a silent fallback. The macOS WebKit runtime can report zero touch
+points despite correctly delivering native touch, so that property is not proof.
 Use the exact Go 1.26.7, Node 24.21.0 and Python 3.12 build contract. For Homebrew
 Node, export its normal public trust anchors with `tls.getCACertificates('default')`
 under `--use-system-ca`; the sandbox receives this public PEM bundle through
@@ -91,13 +118,19 @@ under `--use-system-ca`; the sandbox receives this public PEM bundle through
 Select the actual Git binary rather than Apple's `xcrun` wrapper, and give the
 builder its owned temporary directory. Do not disable certificate verification.
 
-Build `runner-release`, `runner-measure`, `runner-snapshot` and
+Build `runner-release`, `runner-measure`, `runner-frontend-check`, `runner-snapshot` and
 `runner-http-probe` from the reviewed Runner commit. The snapshot helper and HTTP
 probe run on the Linux Docker host. Reuse the accepted project backup helper;
 do not introduce Python source. The `delivery.probe` path names the installed Linux
 HTTP probe. `delivery.ownership` is fixed argv for the owning Operations
 `check-pr jacks-break` command, followed by Runner's exact PR number and
 `--publish-status`.
+
+Configure the frontend command's fixed helper, Node and immutable `node_modules`
+paths, and include those runtime/dependency paths in the existing command read
+allowlist. Install all browser prerequisites outside candidate roles. Existing
+runtime reports without canonical publication paths cannot satisfy browser
+contract 2; fresh qualification must produce the current report.
 
 `delivery.storage_limit` is at most 8 GiB and `delivery.min_free` at least 5 GiB.
 Admission and ongoing monitoring cover owned local and target storage. Admission
@@ -163,3 +196,7 @@ from `testdata/release-lab`, selected by `RUNNER_DELIVERY_FAULT_HELPER`. It crea
 a separate Compose project and synthetic database. Run these platform exercises
 serially; no failure is injected into production. Test approval grants no
 production authority. Real delivery stops at the actual saved owner decisions.
+`TestDeliveryPlatformBrowserReadiness` accepts the synthetic
+`testdata/browser-acceptance/main.mjs` fixture. It proves both engines pass native
+touch/Undo/Redo/reload at all three widths, and rejects clipped boards, wrong entry
+scroll, offscreen controls and ignored touch without opening a product service.

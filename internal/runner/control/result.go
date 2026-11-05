@@ -23,6 +23,8 @@ type Result struct {
 	ExecutionSettled  bool              `json:"execution_settled"`
 	CleanupPending    bool              `json:"cleanup_pending"`
 	CleanupError      string            `json:"cleanup_error,omitempty"`
+	CleanupBlocked    bool              `json:"cleanup_blocked,omitempty"`
+	Reconciling       bool              `json:"reconciling,omitempty"`
 	WorkspaceRetained bool              `json:"workspace_retained"`
 	Usage             Usage             `json:"usage"`
 	Outputs           map[string]Output `json:"outputs,omitempty"`
@@ -59,7 +61,7 @@ func result(ctx context.Context, c *runner.Core, in ResultArgs) (Result, error) 
 		out := compactResult(r, time.Now())
 		// Waiting can still have uncertain execution. Report the actual blocker;
 		// never mistake a client disconnect for permission to stop or retry work.
-		if !in.Wait || r.Status == "Waiting" || r.Terminal() && (!out.CleanupPending || out.CleanupError != "") {
+		if !in.Wait || r.Status == "Waiting" && !out.Reconciling || r.Terminal() && (!out.CleanupPending || out.CleanupError != "") {
 			return out, nil
 		}
 		if _, err = c.Wait(ctx, r.ID, r.Revision); err != nil {
@@ -73,8 +75,12 @@ func compactResult(r runner.Run, now time.Time) Result {
 		Summary:          summary(r),
 		ExecutionSettled: true,
 		CleanupError:     runner.Clip(r.CleanupError),
+		CleanupBlocked:   r.CleanupBlocked,
 		Outputs:          map[string]Output{},
 		Decision:         runner.Clone(r.Decision),
+	}
+	if a := r.Current(); r.Status == "Waiting" && r.Decision == nil && a != nil && a.State == runner.Unknown && a.Reconciling && a.Deadline.After(now) {
+		out.Reconciling = true
 	}
 	end := now
 	if r.Terminal() {

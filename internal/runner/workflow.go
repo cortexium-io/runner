@@ -167,5 +167,15 @@ func visitAttempts(r Run) int {
 }
 
 func visitAttemptLimit(r Run) int {
-	return r.Process.MaxAttemptsPerStep + r.VisitExtraAttempts
+	return r.Process.MaxAttemptsPerStep + r.VisitExtraAttempts + min(r.Process.InfrastructureRetries, infrastructureFailures(r))
+}
+
+func infrastructureFailures(r Run) int {
+	n := 0
+	for _, a := range r.Attempts {
+		if a.Step == r.Step && a.Visit == r.Visit && a.End != nil && a.End.Kind == "failed" && a.End.Retryable {
+			n++
+		}
+	}
+	return n
 }

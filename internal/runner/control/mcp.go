@@ -62,20 +62,20 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		}
 		return summary(r), nil
 	})
-	add(s, "runner_run", "Start or rejoin a selected process, follow configured steps/correction routes and wait in Go until completion or Waiting. Reuse request_id after disconnect; disconnect does not cancel work or grant additional allowance.", func(ctx context.Context, in StartArgs) (any, error) {
+	add(s, "runner_run", "Start or rejoin a selected process, following configured steps, corrections and bounded self-reconciliation until completion or an actionable wait. Reuse request_id after disconnect; disconnect does not cancel work or grant additional allowance.", func(ctx context.Context, in StartArgs) (any, error) {
 		r, err := start(c, in)
 		if err != nil {
 			return nil, err
 		}
 		return result(ctx, c, ResultArgs{RunID: r.ID, Wait: true})
 	})
-	add(s, "runner_result", "Read compact status, bounded output previews, artifact references, elapsed time, known token usage and cleanup state. Set wait to join completion/Waiting without model polling; unknown usage remains explicit.", func(ctx context.Context, in ResultArgs) (any, error) {
+	add(s, "runner_result", "Read compact status, bounded outputs, elapsed time, known token usage and cleanup state. Set wait to follow completion and bounded self-reconciliation until a decision or unresolved blocker; unknown usage remains explicit.", func(ctx context.Context, in ResultArgs) (any, error) {
 		return result(ctx, c, in)
 	})
 	add(s, "runner_status", "Compact current status, storage accounting and configuration errors; at most 100 run summaries.", func(context.Context, struct{}) (any, error) { return c.Status(), nil })
 	add(s, "runner_inspect", "Inspect one bounded run record, including selected setup, attempts and result references.", func(ctx context.Context, in RunArgs) (any, error) { return c.Get(in.RunID) })
 	add(s, "runner_cancel", "Request cancellation. Terminal cancellation requires observed execution settlement.", func(ctx context.Context, in RunArgs) (any, error) { r, e := c.Cancel(in.RunID); return summary(r), e })
-	add(s, "runner_retry", "Retry settled failed work, retaining consumed attempts. extra_attempts explicitly grants additional allowance.", func(ctx context.Context, in runner.RetryRequest) (any, error) {
+	add(s, "runner_retry", "Retry settled failed work, retaining consumed attempts. extra_attempts explicitly grants additional allowance. cleanup_only revalidates retained terminal cleanup without executing work or changing allowances.", func(ctx context.Context, in runner.RetryRequest) (any, error) {
 		r, e := c.Retry(in)
 		return summary(r), e
 	})

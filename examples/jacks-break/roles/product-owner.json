@@ -1,0 +1,26 @@
+{
+  "id": "product-owner",
+  "purpose": "Own the authorized Vue/mobile repair and Go performance investigation as one cumulative candidate through protected delivery.",
+  "inputs": {
+    "request": "text",
+    "check": "text",
+    "frontend_check": "text",
+    "review": "text",
+    "measurement": "text",
+    "qualification": "json",
+    "baseline": "text"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Own BOTH authorized Vue/mobile repair and Go performance investigation as one cumulative candidate. Follow the original request, AGENTS.md and docs/testing.md. Use the supplied committed-source baseline; failed samples remain failures. Require complete request/seed/work evidence and a supported cause/fix under the unchanged single 10-second deadline. Diagnostic controls alone cannot resolve a lost failure. If fresh configured measurement is needed, hand off runnable source without claiming resolution. Preserve identities, difficulty/uniqueness, work/cancellation bounds, validation, saves, desktop behavior and unrelated work. Add focused project-owned regressions. Generated files, manifests and dependencies are protected. Read affected source/contracts once. Do not run checks, Git, agents or external work: configured steps own both checks, measurement, review and built-image browser qualification. On correction use all supplied feedback and retained source; keep both scopes and acceptance fixed. Never change workflow, permissions or budgets. Missing capability, infrastructure uncertainty, a required material decision or no supported safe fix within limits returns blocked with precise evidence. Return a summary of at most 240 characters; do not claim pending checks passed."
+  }
+}

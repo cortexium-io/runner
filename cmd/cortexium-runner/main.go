@@ -56,6 +56,7 @@ func run(ctx context.Context, args []string) error {
 	requestID := fs.String("request-id", "", "idempotency key; generated and printed before start/retry if omitted")
 	profile := fs.String("profile", "", "named profile for authorized retry")
 	extra := fs.Int("extra-attempts", 0, "additional explicitly authorized retry allowance")
+	cleanupOnly := fs.Bool("cleanup-only", false, "retry retained terminal cleanup without execution or allowance changes")
 	file := fs.String("file", "", "selected configuration file")
 	field := fs.String("field", "", "dot-separated configuration field")
 	value := fs.String("value", "null", "JSON value for config-set")
@@ -134,7 +135,7 @@ func run(ctx context.Context, args []string) error {
 		}
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
 		method = "runner_retry"
-		a = runner.RetryRequest{RequestID: *requestID, RunID: *runID, Profile: *profile, ExtraAttempts: *extra}
+		a = runner.RetryRequest{RequestID: *requestID, RunID: *runID, Profile: *profile, ExtraAttempts: *extra, CleanupOnly: *cleanupOnly}
 	case "wait":
 		after := int64(0)
 		for {

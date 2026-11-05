@@ -634,6 +634,9 @@ func validateProcessInputs(v runner.Process, p runner.Project, inputLimit int) e
 	if len(v.Steps) < 1 || len(v.Steps) > 64 || len(v.Outputs) > 8 || v.MaxAttempts < 1 || v.MaxAttempts > 128 || v.MaxAttemptsPerStep < 1 || v.MaxAttemptsPerStep > 4 {
 		return errors.New("process exceeds step/attempt/output bounds (64 steps, 128 attempts, 4 attempts per visit)")
 	}
+	if v.InfrastructureRetries < 0 || v.InfrastructureRetries > 2 {
+		return errors.New("infrastructure_retries must be between zero and two per visit")
+	}
 	d, e := time.ParseDuration(v.AttemptTimeout)
 	if e != nil || d <= 0 || d > time.Hour {
 		return errors.New("attempt_timeout must be positive and at most one hour")

@@ -2,6 +2,7 @@ package execution
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,75 @@ import (
 	"github.com/cortexium-io/runner/internal/release"
 	"github.com/cortexium-io/runner/internal/runner"
 )
+
+func TestReleaseAdapterTrustsOnlySafeInfrastructureRetryActions(t *testing.T) {
+	for _, action := range []string{"readiness", "qualify", "merge", "migrate", "deploy"} {
+		t.Run(action, func(t *testing.T) {
+			disk := workspaceDisk(t)
+			binary := filepath.Join(t.TempDir(), "operator")
+			response, _ := json.Marshal(release.Response{Key: "attempt_safe", State: "finished", Failed: true, Retryable: true, Reason: "pre-dispatch connection unavailable"})
+			if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' '"+string(response)+"'\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			r := &Releases{disk: disk}
+			j := releaseJob{
+				Assignment: runner.Assignment{
+					AttemptID: "attempt_safe",
+					ProjectID: "demo",
+					RunID:     "run_safe",
+					Source:    &runner.SourceSettings{Ref: strings.Repeat("a", 40)},
+					Setup:     runner.ExecutionSetup{Profile: runner.Profile{Mode: action}},
+				},
+				Command:        []string{binary},
+				SourcePrepared: true,
+			}
+			if err := r.save(j); err != nil {
+				t.Fatal(err)
+			}
+			o, err := r.Observe(t.Context(), j.Assignment.AttemptID)
+			wantRetry := action == "readiness" || action == "qualify"
+			if err != nil || o.State != runner.Finished || o.End == nil || o.End.Retryable != wantRetry {
+				t.Fatal("privileged operation acquired an automatic replacement allowance", o, err)
+			}
+		})
+	}
+}
+
+func TestReleaseAdapterReconcilesTransportButSurfacesExplicitUnknown(t *testing.T) {
+	disk := workspaceDisk(t)
+	binary := filepath.Join(t.TempDir(), "operator")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 255\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	r := &Releases{disk: disk}
+	j := releaseJob{
+		Assignment: runner.Assignment{
+			AttemptID: "same_operation",
+			ProjectID: "demo",
+			RunID:     "run_same",
+			Source:    &runner.SourceSettings{Ref: strings.Repeat("a", 40)},
+			Setup:     runner.ExecutionSetup{Profile: runner.Profile{Mode: "qualify"}},
+		},
+		Command:        []string{binary},
+		SourcePrepared: true,
+	}
+	if err := r.save(j); err != nil {
+		t.Fatal(err)
+	}
+	o, err := r.Observe(t.Context(), j.Assignment.AttemptID)
+	if err != nil || o.State != runner.Unknown || !o.Reconciling || o.End != nil {
+		t.Fatal("saved transport identity did not enter self-reconciliation", o, err)
+	}
+	response, _ := json.Marshal(release.Response{Key: j.Assignment.AttemptID, State: "unknown", Reason: "worker effect is not established"})
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' '%s'\n", response)
+	if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	o, err = r.Observe(t.Context(), j.Assignment.AttemptID)
+	if err != nil || o.State != runner.Unknown || o.Reconciling || o.End != nil {
+		t.Fatal("explicit unknown effect was hidden as automatic recovery", o, err)
+	}
+}
 
 func TestReleaseCompleteWorkflowApprovalsRestartAndFailure(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "release-fixture")

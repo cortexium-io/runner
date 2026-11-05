@@ -27,6 +27,7 @@ type RetryRequest struct {
 	RunID         string `json:"run_id"`
 	Profile       string `json:"profile,omitempty"`
 	ExtraAttempts int    `json:"extra_attempts,omitempty"`
+	CleanupOnly   bool   `json:"cleanup_only,omitempty"`
 }
 type Summary struct {
 	ID       string    `json:"id"`
@@ -330,6 +331,18 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 	if c.inFlight[r.ID] {
 		return Run{}, errors.New("run resource cleanup is active; wait before retrying")
 	}
+	if req.CleanupOnly {
+		if req.Profile != "" || req.ExtraAttempts != 0 || !r.Terminal() || r.Active() || r.ResourcesReleased || r.CleanupError == "" {
+			return Run{}, errors.New("cleanup_only needs settled terminal retained resources and grants no execution allowance")
+		}
+		r.CleanupBlocked, r.CleanupError = false, ""
+		rec := Receipt{Key: req.RequestID, Kind: "retry", Args: args, RunID: r.ID}
+		if err := c.persist(r, nil, &rec); err != nil {
+			return Run{}, err
+		}
+		c.Wake()
+		return Clone(c.runs[r.ID]), nil
+	}
 	if r.Decision != nil {
 		return Run{}, errors.New("pending approval requires decide, not retry")
 	}
@@ -357,6 +370,8 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 	r.VisitExtraAttempts += req.ExtraAttempts
 	r.Status = "Queued"
 	r.ResourcesReleased = false
+	r.CleanupBlocked = false
+	r.CleanupError = ""
 	r.Reason = "authorized retry"
 	rec := Receipt{Key: req.RequestID, Kind: "retry", Args: args, RunID: r.ID}
 	if e := c.persist(r, nil, &rec); e != nil {
@@ -435,7 +450,7 @@ func (c *Core) tick() time.Duration {
 			}
 		}
 		if r.Terminal() {
-			if _, ok := c.executor.(RunResources); ok && !r.ResourcesReleased && !c.inFlight[r.ID] {
+			if _, ok := c.executor.(RunResources); ok && !r.ResourcesReleased && !r.CleanupBlocked && !c.inFlight[r.ID] {
 				ready := true
 				for _, old := range r.Attempts {
 					if old.State != Finished || !old.Released {
@@ -768,9 +783,12 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 		if op == "release_run" {
 			if err != nil {
 				r.CleanupError = Clip(err.Error())
+				var blocked *CleanupBlockedError
+				r.CleanupBlocked = errors.As(err, &blocked)
 			} else {
 				r.ResourcesReleased = true
 				r.CleanupError = ""
+				r.CleanupBlocked = false
 			}
 			_ = c.persist(r, nil, nil)
 			return
@@ -853,6 +871,7 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 		a.DroppedLogBytes = obs.DroppedLogBytes
 		a.Reason = Clip(obs.Reason)
 		a.NextCheck = obs.NextCheck
+		a.Reconciling = obs.Reconciling && obs.State == Unknown
 		if a.NextCheck.IsZero() {
 			a.NextCheck = time.Now().Add(fallback)
 		}
@@ -997,6 +1016,16 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 	if a.TimedOut {
 		r.Status = "Failed"
 		r.Reason = "attempt deadline reached"
+		return arts
+	}
+	if end.Kind == "failed" && end.Retryable {
+		if infrastructureFailures(*r) <= r.Process.InfrastructureRetries && len(r.Attempts) < r.Process.MaxAttempts {
+			r.Status = "Queued"
+			r.Reason = "configured safe infrastructure retry"
+		} else {
+			r.Status = "Failed"
+			r.Reason = end.Reason
+		}
 		return arts
 	}
 	attempts := visitAttempts(*r)

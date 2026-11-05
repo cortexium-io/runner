@@ -32,12 +32,13 @@ type Request struct {
 	Retry     json.RawMessage `json:"retry,omitempty"`
 }
 type Response struct {
-	Key     string          `json:"key"`
-	State   string          `json:"state"`
-	Reason  string          `json:"reason,omitempty"`
-	Failed  bool            `json:"failed,omitempty"`
-	Receipt json.RawMessage `json:"receipt,omitempty"`
-	Outcome string          `json:"outcome,omitempty"`
+	Key       string          `json:"key"`
+	State     string          `json:"state"`
+	Reason    string          `json:"reason,omitempty"`
+	Failed    bool            `json:"failed,omitempty"`
+	Receipt   json.RawMessage `json:"receipt,omitempty"`
+	Outcome   string          `json:"outcome,omitempty"`
+	Retryable bool            `json:"retryable,omitempty"`
 }
 type Receipt struct {
 	Key               string `json:"key"`
@@ -84,6 +85,7 @@ type Job struct {
 	Worker     string  `json:"worker,omitempty"`
 	Outcome    string  `json:"outcome,omitempty"`
 	Resume     string  `json:"resume,omitempty"`
+	Retryable  bool    `json:"retryable,omitempty"`
 }
 
 // Backend actions must write intent before mutation and reconcile that intent
@@ -265,6 +267,7 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 		out.State = "finished"
 	}
 	out.Reason, out.Failed, out.Outcome = job.Reason, job.Failed, job.Outcome
+	out.Retryable = job.Done && job.Failed && job.Retryable
 	out.Receipt, err = json.Marshal(publicReceipt(job.Receipt, o.Delivery))
 	return out, err
 }

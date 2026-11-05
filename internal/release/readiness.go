@@ -2,12 +2,16 @@ package release
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
+
+//go:embed browser_probe.mjs
+var browserProbeScript []byte
 
 func (b *Live) deliveryReadiness(ctx context.Context, j *Job) error {
 	c := b.Config
@@ -51,11 +55,10 @@ func (b *Live) deliveryReadiness(ctx context.Context, j *Job) error {
 		return err
 	}
 	script := filepath.Join(work, "browser-probe.mjs")
-	probe := []byte("import {pathToFileURL} from 'node:url';const r=await fetch('https://registry.npmjs.org/ws');if(!r.ok)throw new Error('npm TLS readiness failed');await r.arrayBuffer();const {chromium}=await import(pathToFileURL(process.env.RUNNER_PLAYWRIGHT_MODULE).href);const b=await chromium.launch({executablePath:process.env.RUNNER_BROWSER_EXECUTABLE,headless:true,args:['--disable-gpu','--single-process','--no-zygote']});await b.close();console.log('npm TLS and headless browser runtime ready');\n")
-	if err = writeExclusive(script, probe); err != nil {
+	if err = writeExclusive(script, browserProbeScript); err != nil {
 		return err
 	}
-	if _, err = b.sandbox(ctx, j, []string{work}, "/usr/bin/env", "RUNNER_PLAYWRIGHT_MODULE="+c.Delivery.BrowserModule, "RUNNER_BROWSER_EXECUTABLE="+c.Delivery.BrowserExecutable, c.Delivery.Node, script); err != nil {
+	if _, err = b.sandbox(ctx, j, []string{work}, "/usr/bin/env", "RUNNER_PLAYWRIGHT_MODULE="+c.Delivery.BrowserModule, "RUNNER_BROWSER_EXECUTABLE="+c.Delivery.BrowserExecutable, "RUNNER_WEBKIT_EXECUTABLE="+c.Delivery.WebKitExecutable, c.Delivery.Node, script); err != nil {
 		return err
 	}
 	j.Receipt.Source, j.Receipt.Head = j.Request.Source, j.Request.Source

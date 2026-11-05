@@ -254,13 +254,14 @@ type TaskItem struct {
 	Inputs    map[string]json.RawMessage `json:"inputs"`
 }
 type Process struct {
-	ID                 string             `json:"id"`
-	Inputs             map[string]string  `json:"inputs"`
-	Steps              []Step             `json:"steps"`
-	Outputs            map[string]Binding `json:"outputs"`
-	MaxAttempts        int                `json:"max_attempts"`
-	MaxAttemptsPerStep int                `json:"max_attempts_per_step"`
-	AttemptTimeout     string             `json:"attempt_timeout"`
+	ID                    string             `json:"id"`
+	Inputs                map[string]string  `json:"inputs"`
+	Steps                 []Step             `json:"steps"`
+	Outputs               map[string]Binding `json:"outputs"`
+	MaxAttempts           int                `json:"max_attempts"`
+	MaxAttemptsPerStep    int                `json:"max_attempts_per_step"`
+	InfrastructureRetries int                `json:"infrastructure_retries,omitempty"`
+	AttemptTimeout        string             `json:"attempt_timeout"`
 }
 
 type Value struct {
@@ -359,15 +360,21 @@ type ExecutionEnd struct {
 	Kind   string      `json:"kind"`
 	Result *StepResult `json:"result,omitempty"`
 	Reason string      `json:"reason,omitempty"`
+	// Retryable is trusted adapter evidence of a settled, safe infrastructure
+	// failure. Task output and candidate code cannot grant this classification.
+	Retryable bool `json:"retryable,omitempty"`
 }
 type Observation struct {
-	Source          *SourceResult   `json:"source,omitempty"`
-	State           ExecutionState  `json:"state"`
-	NativeHandle    string          `json:"native_handle,omitempty"`
-	End             *ExecutionEnd   `json:"end,omitempty"`
-	Usage           Usage           `json:"usage"`
-	Reason          string          `json:"reason,omitempty"`
-	NextCheck       time.Time       `json:"next_check,omitempty"`
+	Source       *SourceResult  `json:"source,omitempty"`
+	State        ExecutionState `json:"state"`
+	NativeHandle string         `json:"native_handle,omitempty"`
+	End          *ExecutionEnd  `json:"end,omitempty"`
+	Usage        Usage          `json:"usage"`
+	Reason       string         `json:"reason,omitempty"`
+	NextCheck    time.Time      `json:"next_check,omitempty"`
+	// Reconciling identifies a bounded rejoin of the same saved operation, not
+	// permission to repeat effects whose settlement is unknown.
+	Reconciling     bool            `json:"reconciling,omitempty"`
 	DroppedLogBytes int64           `json:"dropped_log_bytes,omitempty"`
 	NativePeakBytes int64           `json:"native_peak_bytes,omitempty"`
 	Effective       *ExecutionFacts `json:"effective,omitempty"`
@@ -390,6 +397,14 @@ type RunResources interface {
 	ReleaseRun(context.Context, Run) error
 	ForgetRun(context.Context, string) error
 }
+
+// CleanupBlockedError preserves resources that cannot be proved disposable.
+// The executor classifies only integrity/ownership failures this way; ordinary
+// I/O errors retain the existing bounded-delay cleanup retry.
+type CleanupBlockedError struct{ Reason string }
+
+func (e *CleanupBlockedError) Error() string { return e.Reason }
+
 type SourceResult struct {
 	Tree         string `json:"tree,omitempty"`
 	InputPatchID string `json:"input_patch_id,omitempty"`
@@ -412,6 +427,7 @@ type Attempt struct {
 	Started         time.Time       `json:"started"`
 	Deadline        time.Time       `json:"deadline"`
 	NextCheck       time.Time       `json:"next_check,omitzero"`
+	Reconciling     bool            `json:"reconciling,omitempty"`
 	End             *ExecutionEnd   `json:"end,omitempty"`
 	Usage           Usage           `json:"usage"`
 	Reason          string          `json:"reason,omitempty"`
@@ -450,6 +466,7 @@ type Run struct {
 	Reason             string            `json:"reason,omitempty"`
 	CancelRequested    bool              `json:"cancel_requested,omitempty"`
 	CleanupError       string            `json:"cleanup_error,omitempty"`
+	CleanupBlocked     bool              `json:"cleanup_blocked,omitempty"`
 	Created            time.Time         `json:"created"`
 	Updated            time.Time         `json:"updated"`
 	Revision           int64             `json:"revision"`
