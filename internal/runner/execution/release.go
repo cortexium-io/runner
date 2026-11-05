@@ -101,6 +101,8 @@ func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, 
 		if request.Action == "readiness" {
 			if err := r.prepareReleaseSource(ctx, &j); err != nil {
 				o.State = runner.Unknown
+				var pending *sourceArchivePending
+				o.Reconciling = errors.As(err, &pending)
 				o.Reason = runner.Clip(err.Error())
 				return o, nil
 			}

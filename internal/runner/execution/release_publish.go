@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -12,6 +13,23 @@ import (
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
+
+// A read-only archive can hydrate immutable source objects across observation
+// calls. Only positive call-deadline evidence permits this same-job rejoin.
+type sourceArchivePending struct{ cause error }
+
+func (e *sourceArchivePending) Error() string {
+	return "read-only source archive reached its observation deadline; rejoin the same readiness attempt"
+}
+func (e *sourceArchivePending) Unwrap() error { return e.cause }
+
+func releaseArchiveError(ctx context.Context, err error) error {
+	var exit *exec.ExitError
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) && (errors.Is(err, context.DeadlineExceeded) || errors.As(err, &exit) && exit.ExitCode() == -1) {
+		return &sourceArchivePending{cause: err}
+	}
+	return fmt.Errorf("source archive did not complete: %w", err)
+}
 
 // Publication consumes the model-free retained candidate, never a model's
 // branch/SHA claim. The owned branch uses compare-and-swap and cannot overwrite
@@ -118,7 +136,7 @@ func (r *Releases) prepareReleaseSource(ctx context.Context, j *releaseJob) erro
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
-		return errors.New("source hydration has not completed; rejoin the same readiness attempt")
+		return releaseArchiveError(ctx, err)
 	}
 	a.Source = &runner.SourceSettings{Ref: j.SelectedBase}
 	if _, err := r.workspaces.Prepare(ctx, a); err != nil {

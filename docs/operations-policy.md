@@ -14,6 +14,8 @@ uncertain effects never authorize a replacement. `run` and `result --wait`
 follow this self-reconciliation within the attempt deadline. An explicit unknown
 operator response, exhausted allowance, owner decision or other unresolved
 condition remains visible to the coordinator.
+An identified deadline of the read-only source archive call also rejoins the
+same saved readiness attempt. Ordinary Git exits and cancellation remain visible.
 
 The private delivery policy may enable:
 
