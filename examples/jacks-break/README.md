@@ -49,6 +49,9 @@ or edit failures. Chromium verifies Shikaku with native touch drag; WebKit verif
 its complete native two-corner/Add path because Playwright exposes no public
 WebKit touch-drag API. Headless touch emulation does not prove physical-device
 behavior. Unsupported new product obligations block rather than move to the chat.
+Restricted macOS Chromium uses single-process mode and one context per browser
+lifetime. Each device, geometry viewport and independent support profile gets
+its own browser; a fresh context cannot reuse that single-process browser.
 
 `frontend.json` selects the complete `deliver-frontend` variant. It uses the same
 protected release suffix, with a frontend owner, scoped frontend command and

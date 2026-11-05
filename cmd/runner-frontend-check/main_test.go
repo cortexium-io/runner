@@ -20,7 +20,7 @@ func TestSelectionsRefuseFlagsPatternsTraversalAndDuplicates(t *testing.T) {
 }
 
 func TestCheckerRequiresExecutedUnskippedAssertions(t *testing.T) {
-	for _, scenario := range []string{"passed", "no tests", "skipped", "failed", "missing report", "infrastructure"} {
+	for _, scenario := range []string{"passed", "no tests", "skipped", "failed", "wrong file", "omitted file", "empty file", "duplicate file", "missing report", "infrastructure"} {
 		t.Run(scenario, func(t *testing.T) {
 			root := t.TempDir()
 			source, scratch, modules := filepath.Join(root, "source"), filepath.Join(root, "scratch"), filepath.Join(root, "modules")
@@ -29,7 +29,7 @@ func TestCheckerRequiresExecutedUnskippedAssertions(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			for name, data := range map[string]string{"go.mod": "module fixture\n", "go.sum": "", "frontend/src/board.test.ts": "export const source = 'unchanged'\n"} {
+			for name, data := range map[string]string{"go.mod": "module fixture\n", "go.sum": "", "frontend/src/board.test.ts": "export const source = 'unchanged'\n", "frontend/src/other.test.ts": "export {}\n"} {
 				if err := os.WriteFile(filepath.Join(source, name), []byte(data), 0600); err != nil {
 					t.Fatal(err)
 				}
@@ -46,6 +46,35 @@ func TestCheckerRequiresExecutedUnskippedAssertions(t *testing.T) {
 			case "failed":
 				report = `{"success":false,"numTotalTests":1,"numPassedTests":0,"numFailedTests":1,"testResults":[{"assertionResults":[{"status":"failed"}]}]}`
 			}
+			var result map[string]any
+			if err := json.Unmarshal([]byte(report), &result); err != nil {
+				t.Fatal(err)
+			}
+			files := result["testResults"].([]any)
+			if len(files) > 0 {
+				files[0].(map[string]any)["name"] = filepath.Join(scratch, "source/frontend/src/board.test.ts")
+			}
+			tests := `["src/board.test.ts"]`
+			switch scenario {
+			case "wrong file":
+				files[0].(map[string]any)["name"] = filepath.Join(scratch, "source/frontend/src/other.test.ts")
+			case "omitted file", "empty file":
+				tests = `["src/board.test.ts","src/other.test.ts"]`
+				if scenario == "empty file" {
+					result["testResults"] = append(files, map[string]any{
+						"name":             filepath.Join(scratch, "source/frontend/src/other.test.ts"),
+						"assertionResults": []any{},
+					})
+				}
+			case "duplicate file":
+				result["testResults"] = append(files, files[0])
+				result["numTotalTests"], result["numPassedTests"] = 2, 2
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			report = string(encoded)
 			node := filepath.Join(root, "node")
 			script := "#!/bin/sh\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --outputFile ]; then shift; target=$1; fi; shift; done\nprintf '%s' '" + report + "' > \"$target\"\n"
 			if scenario == "missing report" {
@@ -59,7 +88,7 @@ func TestCheckerRequiresExecutedUnskippedAssertions(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			err := run(options{node: node, modules: modules, source: source, scratch: scratch, tests: `["src/board.test.ts"]`})
+			err = run(options{node: node, modules: modules, source: source, scratch: scratch, tests: tests})
 			if scenario == "infrastructure" || scenario == "missing report" {
 				if err == nil {
 					t.Fatal("missing runtime treated as source feedback")

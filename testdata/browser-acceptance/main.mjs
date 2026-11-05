@@ -30,9 +30,11 @@ const origin = 'http://127.0.0.1:' + server.address().port
 try {
   for (const engine of [{ name: 'chromium', type: chromium, path: process.env.RUNNER_BROWSER_EXECUTABLE }, { name: 'webkit', type: webkit, path: process.env.RUNNER_WEBKIT_EXECUTABLE }]) {
     assert.ok(engine.path, 'missing configured ' + engine.name + ' prerequisite')
-    const browser = await engine.type.launch({ executablePath: engine.path, headless: true, args: engine.name === 'chromium' ? ['--disable-gpu', '--single-process', '--no-zygote'] : [] })
+    const launch = () => engine.type.launch({ executablePath: engine.path, headless: true, args: engine.name === 'chromium' ? ['--disable-gpu', '--single-process', '--no-zygote'] : [] })
+    let browser
     try {
       for (const width of [320, 360, 390]) {
+        browser = await launch()
         const context = await browser.newContext({ viewport: { width, height: 568 }, isMobile: true, hasTouch: true })
         await context.addInitScript(() => {
           window.runnerInputEvidence = { touch: 0, keyboard: 0 }
@@ -50,16 +52,16 @@ try {
         await ready.goto(page, origin + '/valid')
         await verifyPlayArea(page, true)
         await editAndRestore(page, 'Shikaku', true, engine.name, ready)
-        await context.close()
+        await browser.close(); browser = undefined
       }
+      browser = await launch()
       const context = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true })
       await context.addInitScript(() => { window.runnerInputEvidence = { touch: 0, keyboard: 0 }; document.addEventListener('touchstart', e => { if (e.isTrusted) window.runnerInputEvidence.touch++ }) })
       const page = await context.newPage(); page.setDefaultTimeout(700)
       const ready = new PageReadiness({}); ready.watch(page, origin)
       await ready.goto(page, origin + '/ignored')
       await assert.rejects(editAndRestore(page, 'Shikaku', true, engine.name, ready), error => error instanceof assert.AssertionError && error.message.includes('expected saved state'), 'ignored native touch was accepted')
-      await context.close()
-    } finally { await browser.close() }
+    } finally { if (browser) await browser.close() }
   }
   console.log('PASS: both engines; real touch edit/Undo/Redo/reload; 320/360/390; rejected clipping, entry scroll, unreachable actions and ignored touch')
 } finally { await new Promise(resolve => server.close(resolve)) }

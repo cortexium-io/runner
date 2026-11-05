@@ -166,6 +166,7 @@ func run(o options) error {
 		Pending int  `json:"numPendingTests"`
 		Todo    int  `json:"numTodoTests"`
 		Results []struct {
+			Name       string `json:"name"`
 			Assertions []struct {
 				Status          string   `json:"status"`
 				FullName        string   `json:"fullName"`
@@ -177,8 +178,17 @@ func run(o options) error {
 		return errors.New("frontend test report is invalid; test completion is not established")
 	}
 	p.Executed, p.Failed, p.Skipped = result.Passed+result.Failed, result.Failed, result.Pending+result.Todo
+	selected := make(map[string]bool, len(tests))
+	for _, test := range tests {
+		selected[filepath.Join(frontend, filepath.FromSlash(test))] = false
+	}
 	assertions := 0
 	for _, file := range result.Results {
+		seen, exists := selected[file.Name]
+		if !exists || seen || len(file.Assertions) == 0 {
+			return finish(errors.New("frontend report must execute assertions in each selected file exactly once"))
+		}
+		selected[file.Name] = true
 		for _, assertion := range file.Assertions {
 			assertions++
 			if assertion.Status != "passed" {
@@ -191,6 +201,11 @@ func run(o options) error {
 				}
 				return finish(errors.New(message))
 			}
+		}
+	}
+	for _, seen := range selected {
+		if !seen {
+			return finish(errors.New("frontend report omitted a selected test file"))
 		}
 	}
 	if err != nil || !result.Success || result.Total == 0 || result.Passed != result.Total || result.Failed != 0 || p.Skipped != 0 || assertions != result.Total {

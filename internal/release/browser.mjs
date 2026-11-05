@@ -11,13 +11,16 @@ const receipt = { contract: contractVersion, origin, mockedResponses: false, hea
 fs.mkdirSync(output, { recursive: true })
 const readiness = new PageReadiness(receipt)
 const save = () => fs.writeFileSync(output + '/receipt.json', JSON.stringify(receipt, null, 2))
-let browser, lastPage
+const launch = engine => engine.type.launch({ executablePath: engine.executable, headless: true, args: engine.name === 'chromium' ? ['--disable-gpu', '--single-process', '--no-zygote'] : [] })
+let browser, supportBrowser, lastPage
 try {
   for (const engine of [{ name: 'chromium', type: chromium, executable: process.env.RUNNER_BROWSER_EXECUTABLE }, { name: 'webkit', type: webkit, executable: process.env.RUNNER_WEBKIT_EXECUTABLE }]) {
     if (!engine.executable) throw new Error(`Browser prerequisite missing: configured ${engine.name} executable`)
-    browser = await engine.type.launch({ executablePath: engine.executable, headless: true, args: engine.name === 'chromium' ? ['--disable-gpu', '--single-process', '--no-zygote'] : [] })
     receipt.engines.push(engine.name)
     for (const device of [{ name: 'desktop', width: 1440, height: 1000, touch: false }, { name: 'mobile', ...mobileViewports[0], touch: true }]) {
+      // Restricted macOS Chromium requires single-process mode, which supports
+      // only one browser context. Give each isolated profile its own process.
+      browser = await launch(engine)
       const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: device.width, height: device.height }, isMobile: device.touch, hasTouch: device.touch })
       await context.addInitScript(() => {
         window.runnerInputEvidence = { touch: 0, keyboard: 0 }
@@ -76,7 +79,8 @@ try {
         record.states.push('actual edit, Undo, Redo, saved visible state survives reload')
         // A separate fresh profile keeps the deliberate arbitrary edit from
         // making an otherwise valid hint correctly request a recheck first.
-        const supportContext = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: device.width, height: device.height }, isMobile: device.touch, hasTouch: device.touch })
+        supportBrowser = await launch(engine)
+        const supportContext = await supportBrowser.newContext({ ignoreHTTPSErrors: true, viewport: { width: device.width, height: device.height }, isMobile: device.touch, hasTouch: device.touch })
         await supportContext.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
         const support = await supportContext.newPage(); lastPage = support; support.setDefaultTimeout(20000); readiness.watch(support, origin)
         await readiness.goto(support, origin + record.path)
@@ -96,16 +100,17 @@ try {
         await activate(support, support.getByRole('button', { name: 'Close preview', exact: true }), device.touch)
         record.states.push('print preview')
         readiness.assertNoErrors(support)
-        await supportContext.close(); lastPage = page
+        await supportBrowser.close(); supportBrowser = undefined; lastPage = page
         await page.screenshot({ path: `${output}/${engine.name}-${device.name}-${game.toLowerCase()}.png`, fullPage: true })
         save()
       }
       readiness.assertNoErrors(page)
-      await context.close()
+      await browser.close(); browser = undefined
     }
     // All advertised board dimensions are checked without regenerating every
     // difficulty: identities come from the already-passed native catalogue proof.
     for (const viewport of mobileViewports) {
+      browser = await launch(engine)
       const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport, isMobile: true, hasTouch: true })
       await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
       const page = await context.newPage(); lastPage = page; page.setDefaultTimeout(20000); readiness.watch(page, origin)
@@ -116,9 +121,8 @@ try {
         receipt.geometry.push({ engine: engine.name, width: viewport.width, key: sample.key, path: sample.path, board: metrics.board, verifiedZoom: metrics.verifiedZoom === true })
       }
       readiness.assertNoErrors(page)
-      await context.close(); save()
+      await browser.close(); browser = undefined; save()
     }
-    await browser.close(); browser = undefined
   }
   receipt.complete = true
 } catch (error) {
@@ -129,6 +133,7 @@ try {
   }
   throw error
 } finally {
+  if (supportBrowser) await supportBrowser.close()
   if (browser) await browser.close()
   save()
 }
