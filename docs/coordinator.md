@@ -91,6 +91,24 @@ merged, deployed or fully qualified beyond the actual proof. Coordinator token
 usage remains additional to the Runner result and must be included in any
 end-to-end benchmark.
 
+For newly configured planned work, select the complete `develop-planned`,
+`deliver-planned-frontend` or `deliver-planned-investigation` process once. The
+planner reads source and returns bounded card data, dependencies and literal write
+scopes. Runner validates the unaccepted plan, executes eligible cards in isolated
+workspaces, joins their accepted pins, then runs combined checks, independent
+review, corrections and qualification. Do not submit or supervise each card from
+the chat. Parent results expose their statuses and aggregate attempts/usage.
+New example processes share64 attempts across the entire family, allow up to
+eight cards and at most two card actors. These settings do not modify existing
+run definitions or grant additional attempts to an old failed run.
+
+For an already published retained candidate, the planned retained variants accept
+the exact saved patch and authenticated publication handle. Their source-adopt
+step validates the original journal, live owned PR/ref and accepted source before
+seeding work. Publication continues that authenticated PR with a head comparison;
+it reuses no old review, qualification, merge or production approval. Supplying a
+PR number or branch name in task data grants no publication authority.
+
 The [approved release process](../examples/approved-release/README.md) adds the
 model-free Jack's Break release operator. It owns qualification reuse, protected
 merge, backups, explicit migration, Compose deployment and live verification. Two

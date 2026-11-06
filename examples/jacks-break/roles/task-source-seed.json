@@ -1,0 +1,16 @@
+{
+  "id": "task-source-seed",
+  "purpose": "Prepare only Core-authenticated prerequisite source in the isolated card workspace.",
+  "inputs": {
+    "dependencies": "json"
+  },
+  "outputs": {
+    "patch": "artifact",
+    "manifest": "artifact"
+  },
+  "execution": {
+    "harness": "task-source",
+    "mode": "seed",
+    "access": "workspace-read"
+  }
+}

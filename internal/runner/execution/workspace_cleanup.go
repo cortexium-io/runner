@@ -159,7 +159,7 @@ func (w *Workspaces) cleanupQuiescent(r workspaceRecord) (func(), error) {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".codex.json") && !strings.HasSuffix(name, ".command.json") && !strings.HasSuffix(name, ".candidate.json") && !strings.HasSuffix(name, ".release.json") {
+		if !strings.HasSuffix(name, ".codex.json") && !strings.HasSuffix(name, ".command.json") && !strings.HasSuffix(name, ".candidate.json") && !strings.HasSuffix(name, ".release.json") && !strings.HasSuffix(name, ".task-source.json") {
 			continue
 		}
 		data, err := w.disk.Read("jobs/"+name, w.disk.Policy.Database.MaxRecord)

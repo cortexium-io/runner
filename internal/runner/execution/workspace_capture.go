@@ -43,14 +43,21 @@ type captureFile struct {
 	Blob string `json:"blob"`
 }
 type captureManifest struct {
-	RunID       string        `json:"run_id"`
-	AttemptID   string        `json:"attempt_id"`
-	Repository  string        `json:"repository"`
-	Base        string        `json:"base"`
-	WorkDir     string        `json:"work_dir"`
-	ParentPatch string        `json:"parent_patch"`
-	Limit       runner.Bytes  `json:"artifact_limit"`
-	Files       []captureFile `json:"files"`
+	RunID       string            `json:"run_id"`
+	AttemptID   string            `json:"attempt_id"`
+	Repository  string            `json:"repository"`
+	Base        string            `json:"base"`
+	WorkDir     string            `json:"work_dir"`
+	ParentPatch string            `json:"parent_patch"`
+	Limit       runner.Bytes      `json:"artifact_limit"`
+	Files       []captureFile     `json:"files"`
+	TaskSeed    *taskCaptureScope `json:"task_seed,omitempty"`
+}
+
+type taskCaptureScope struct {
+	Identity   runner.TaskIdentity `json:"identity"`
+	Tree       string              `json:"tree"`
+	WritePaths []string            `json:"write_paths"`
 }
 
 func captureDigest(data []byte) string            { h := sha256.Sum256(data); return hex.EncodeToString(h[:]) }
@@ -467,6 +474,13 @@ func capturePaths(ctx context.Context, r workspaceRecord) ([]string, error) {
 
 func (w *Workspaces) newCaptureManifest(ctx context.Context, r workspaceRecord, a runner.Assignment) (captureManifest, error) {
 	m := captureManifest{RunID: a.RunID, AttemptID: a.AttemptID, Repository: r.Repository, Base: r.Base, WorkDir: r.WorkDir, Limit: a.Limits.MaxArtifact, ParentPatch: r.SeedPatchID}
+	if a.TaskSource != nil && a.TaskSource.Identity.ItemID != "" {
+		seed := r.TaskSources[a.TaskSource.Identity.GroupStep]
+		if seed == nil || !seed.Installed || !sameTaskAuthority(seed.Authority, *a.TaskSource) {
+			return m, errors.New("task capture scope differs from its immutable seed")
+		}
+		m.TaskSeed = &taskCaptureScope{Identity: seed.Authority.Identity, Tree: seed.SeedTree, WritePaths: runner.Clone(seed.Authority.WritePaths)}
+	}
 	if r.Candidate != nil {
 		m.ParentPatch = r.Candidate.PatchID
 	}

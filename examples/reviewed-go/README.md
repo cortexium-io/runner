@@ -47,6 +47,27 @@ an explicitly configured process and its required capabilities. Do not substitut
 this Go check for those obligations or have the coordinator perform them outside
 Runner. Browser verification must be headless.
 
+`develop-planned` adds source-aware planning and up to eight dependency cards.
+Its new planner has an 8KiB response budget; card coding, combined correction
+and independent review use 8KiB input and 512B responses. The instance explicitly
+sets `task_concurrency: 2` while root `concurrency` stays one. Cards have isolated
+workspaces and literal write scopes; an internal task pin is unreviewed source,
+never an approval. The source join retains the accepted plan/card manifest as an
+artifact for combined correction and review. Initial work proceeds directly to
+the fixed scoped Go check. Corrections preserve completed cards and rerun the
+combined check/review before the existing reviewed local candidate integration.
+The new 64-attempt ceiling is shared by the whole root family, including cards,
+corrections and infrastructure recovery; children do not each receive 64 tries.
+Malformed or conflicting unaccepted plans return bounded feedback to the same
+planner at most twice, before any card starts; accepted cards are never replanned.
+
+Configure the absolute `runner-go-check` and Go paths in `roles/planned-check.json`
+and the existing immutable runtime read paths before selecting this process.
+It retains actual selected-test execution as an artifact; inconclusive or missing
+execution blocks. This local process ends at a reviewed candidate and grants no
+publication, merge or production authority. Existing processes and their budgets
+remain available unchanged.
+
 ## Iterative and planned development
 
 `develop-iterative` adds bounded verification/review corrections, a project-owned

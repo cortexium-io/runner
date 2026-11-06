@@ -301,7 +301,14 @@ func (b *Live) publish(ctx context.Context, j *Job, save func() error) error {
 		return fail(j, "publication requires an exact retained candidate")
 	}
 	c := b.Config
-	branch := "codex/runner/" + j.Request.RunID
+	branch, err := b.publicationBranch(ctx, j)
+	if err != nil {
+		var proof *proofFailure
+		if errors.As(err, &proof) {
+			return fail(j, err.Error())
+		}
+		return err
+	}
 	var prs []struct {
 		Number int `json:"number"`
 		Head   struct {
@@ -326,7 +333,7 @@ func (b *Live) publish(ctx context.Context, j *Job, save func() error) error {
 		}
 		return nil
 	}
-	if len(prs) != 1 || prs[0].Head.SHA != j.Request.Candidate || prs[0].Base.SHA != j.Request.Source {
+	if len(prs) != 1 || prs[0].Head.SHA != j.Request.Candidate || prs[0].Base.SHA != j.Request.Source || j.Receipt.PublicationRunID != "" && prs[0].Number != j.Receipt.PR {
 		return fail(j, "published PR identity differs from the reviewed candidate/base")
 	}
 	j.Receipt.Head, j.Receipt.Base, j.Receipt.Source, j.Receipt.PR = j.Request.Candidate, j.Request.Source, j.Request.Source, prs[0].Number

@@ -92,6 +92,7 @@ func (p StoragePolicy) Validate() error {
 type Instance struct {
 	Projects          []string         `json:"projects"`
 	Concurrency       int              `json:"concurrency"`
+	TaskConcurrency   int              `json:"task_concurrency,omitempty"`
 	ReconcileInterval string           `json:"reconcile_interval"`
 	Storage           StoragePolicy    `json:"storage"`
 	Codex             *CodexSettings   `json:"codex,omitempty"`
@@ -245,10 +246,14 @@ type Step struct {
 // Task data selects work and dependencies, never new roles or permissions.
 // Items are executed in stable dependency order in the run's owned workspace.
 type TaskGroup struct {
-	Items  Binding           `json:"items"`
-	Inputs map[string]string `json:"inputs"`
-	Steps  []Step            `json:"steps"`
-	Output Binding           `json:"output"`
+	Mode        string             `json:"mode,omitempty"`
+	MaxParallel int                `json:"max_parallel,omitempty"`
+	ScopeInput  string             `json:"scope_input,omitempty"`
+	Evidence    map[string]Binding `json:"evidence,omitempty"`
+	Items       Binding            `json:"items"`
+	Inputs      map[string]string  `json:"inputs"`
+	Steps       []Step             `json:"steps"`
+	Output      Binding            `json:"output"`
 }
 
 type TaskItem struct {
@@ -324,6 +329,7 @@ type ExecutionLimits struct {
 	MaxLog      Bytes `json:"max_log"`
 }
 type Assignment struct {
+	TaskSource  *TaskAssignment   `json:"task_source,omitempty"`
 	ProjectID   string            `json:"project_id,omitempty"`
 	RunID       string            `json:"run_id,omitempty"`
 	Repository  string            `json:"repository,omitempty"`
@@ -452,34 +458,39 @@ type Attempt struct {
 	Effective       *ExecutionFacts `json:"effective,omitempty"`
 }
 type Run struct {
-	Repository         string              `json:"repository,omitempty"`
-	Source             *SourceSettings     `json:"source,omitempty"`
-	ResourcesReleased  bool                `json:"resources_released,omitempty"`
-	ID                 string              `json:"id"`
-	ProjectID          string              `json:"project_id"`
-	Process            Process             `json:"process"`
-	Roles              map[string]Role     `json:"roles"`
-	Profiles           map[string]string   `json:"profiles"`
-	Inputs             map[string]Value    `json:"inputs"`
-	Outputs            map[string]Value    `json:"outputs,omitempty"`
-	Attempts           []Attempt           `json:"attempts,omitempty"`
-	Step               int                 `json:"step"`
-	Visit              int                 `json:"visit,omitempty"`
-	VisitExtraAttempts int                 `json:"visit_extra_attempts,omitempty"`
-	StepInputs         map[string]Value    `json:"step_inputs,omitempty"`
-	RouteUses          map[string]int      `json:"route_uses,omitempty"`
-	CorrectionRecovery *CorrectionRecovery `json:"correction_recovery,omitempty"`
-	Decision           *Decision           `json:"decision,omitempty"`
-	NextProfile        string              `json:"next_profile,omitempty"`
-	Escalations        int                 `json:"escalations"`
-	Status             string              `json:"status"`
-	Reason             string              `json:"reason,omitempty"`
-	CancelRequested    bool                `json:"cancel_requested,omitempty"`
-	CleanupError       string              `json:"cleanup_error,omitempty"`
-	CleanupBlocked     bool                `json:"cleanup_blocked,omitempty"`
-	Created            time.Time           `json:"created"`
-	Updated            time.Time           `json:"updated"`
-	Revision           int64               `json:"revision"`
+	RecordFormat       int                        `json:"record_format,omitempty"`
+	Task               *TaskRunLink               `json:"task,omitempty"`
+	TaskGroups         map[string]*TaskGroupState `json:"task_groups,omitempty"`
+	TaskUsage          []Usage                    `json:"-"`
+	TaskStatuses       []TaskStatus               `json:"-"`
+	Repository         string                     `json:"repository,omitempty"`
+	Source             *SourceSettings            `json:"source,omitempty"`
+	ResourcesReleased  bool                       `json:"resources_released,omitempty"`
+	ID                 string                     `json:"id"`
+	ProjectID          string                     `json:"project_id"`
+	Process            Process                    `json:"process"`
+	Roles              map[string]Role            `json:"roles"`
+	Profiles           map[string]string          `json:"profiles"`
+	Inputs             map[string]Value           `json:"inputs"`
+	Outputs            map[string]Value           `json:"outputs,omitempty"`
+	Attempts           []Attempt                  `json:"attempts,omitempty"`
+	Step               int                        `json:"step"`
+	Visit              int                        `json:"visit,omitempty"`
+	VisitExtraAttempts int                        `json:"visit_extra_attempts,omitempty"`
+	StepInputs         map[string]Value           `json:"step_inputs,omitempty"`
+	RouteUses          map[string]int             `json:"route_uses,omitempty"`
+	CorrectionRecovery *CorrectionRecovery        `json:"correction_recovery,omitempty"`
+	Decision           *Decision                  `json:"decision,omitempty"`
+	NextProfile        string                     `json:"next_profile,omitempty"`
+	Escalations        int                        `json:"escalations"`
+	Status             string                     `json:"status"`
+	Reason             string                     `json:"reason,omitempty"`
+	CancelRequested    bool                       `json:"cancel_requested,omitempty"`
+	CleanupError       string                     `json:"cleanup_error,omitempty"`
+	CleanupBlocked     bool                       `json:"cleanup_blocked,omitempty"`
+	Created            time.Time                  `json:"created"`
+	Updated            time.Time                  `json:"updated"`
+	Revision           int64                      `json:"revision"`
 }
 
 type Decision struct {
@@ -504,7 +515,13 @@ func (r Run) Current() *Attempt {
 	}
 	return a
 }
-func (r Run) Active() bool { a := r.Current(); return a != nil && a.State != Finished }
+func (r Run) Active() bool {
+	if activeTaskGroup(r) != nil {
+		return true
+	}
+	a := r.Current()
+	return a != nil && a.State != Finished
+}
 
 type Artifact struct {
 	ID        string `json:"id"`

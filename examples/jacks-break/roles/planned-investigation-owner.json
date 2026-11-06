@@ -1,0 +1,27 @@
+{
+  "id": "planned-investigation-owner",
+  "purpose": "Use actual retained baseline evidence to investigate and correct the scoped Go defect through the complete delivery process.",
+  "inputs": {
+    "request": "text",
+    "review": "text",
+    "measurement": "artifact",
+    "qualification": "json",
+    "baseline": "artifact",
+    "manifest": "artifact",
+    "join_feedback": "text",
+    "checks": "artifact"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Read the full scoped Go execution receipt; missing selected tests, incomplete execution and skipped proof are not acceptance. On an initial join rejection, use join_feedback and manifest to repair the concrete conflict. Evidence may be baseline/join evidence before the first combined check; it never establishes current-candidate acceptance. Read the accepted plan/card manifest and full current check/measurement evidence before repairing the combined candidate. Preserve completed cards and original acceptance; do not replan. Follow the request, AGENTS.md and docs/testing.md; keep acceptance fixed. Read the supplied baseline and measurement artifacts, including structured evidence; missing sidecars and truncated stdout are incomplete proof. Use all correction feedback. Configured steps own checks and measurements: do not run them. Hand off runnable source when measurement is needed without claiming resolution. Preserve identities, difficulty/uniqueness, saves, public validation, bounds and unrelated work. Missing capability, a material decision or no supported safe fix within limits returns blocked with precise evidence. Never change workflow, permissions or budgets. Return a summary of at most 240 characters; do not claim pending checks passed."
+  }
+}

@@ -99,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version != 0 && version != 1 && version != 2 {
+	if version < 0 || version > 3 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -119,9 +119,20 @@ PRAGMA user_version=2; COMMIT;`)
 		if e != nil {
 			return nil, e
 		}
+		version = 2
 	}
 	if version == 1 {
 		if _, e = db.Exec("BEGIN; ALTER TABLE runs ADD COLUMN definition BLOB; PRAGMA user_version=2; COMMIT;"); e != nil {
+			return nil, e
+		}
+		version = 2
+	}
+	if version == 2 {
+		if _, e = db.Exec(`BEGIN;
+CREATE TABLE attempts(run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+position INTEGER NOT NULL CHECK(position>=0 AND position<128), id TEXT NOT NULL UNIQUE, data BLOB NOT NULL,
+PRIMARY KEY(run_id,position));
+PRAGMA user_version=3; COMMIT;`); e != nil {
 			return nil, e
 		}
 	}
@@ -140,15 +151,22 @@ PRAGMA user_version=2; COMMIT;`)
 }
 func (s *Store) Close() error { e := s.db.Close(); _ = s.guard.Close(); return e }
 func (s *Store) Load(ctx context.Context) ([]runner.Run, error) {
-	rows, e := s.db.QueryContext(ctx, "SELECT data,definition FROM runs ORDER BY id")
+	tx, e := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if e != nil {
+		return nil, e
+	}
+	defer tx.Rollback()
+	rows, e := tx.QueryContext(ctx, "SELECT id,project,data,definition FROM runs ORDER BY id")
 	if e != nil {
 		return nil, e
 	}
 	defer rows.Close()
 	var out []runner.Run
+	var counts []int
 	for rows.Next() {
+		var id, project string
 		var b, definition []byte
-		if e = rows.Scan(&b, &definition); e != nil {
+		if e = rows.Scan(&id, &project, &b, &definition); e != nil {
 			return nil, e
 		}
 		if len(b) > int(s.policy.Database.MaxRecord) || len(definition) > int(s.policy.Database.MaxRecord) {
@@ -158,9 +176,31 @@ func (s *Store) Load(ctx context.Context) ([]runner.Run, error) {
 		if e != nil {
 			return nil, e
 		}
+		if r.ID != id || r.ProjectID != project {
+			return nil, errors.New("stored run identity differs")
+		}
+		count, e := storedAttemptCount(b)
+		if e != nil {
+			return nil, e
+		}
 		out = append(out, r)
+		counts = append(counts, count)
 	}
-	return out, rows.Err()
+	if e = rows.Err(); e != nil {
+		return nil, e
+	}
+	if e = rows.Close(); e != nil {
+		return nil, e
+	}
+	for i := range out {
+		if e = s.loadAttempts(ctx, tx, &out[i], counts[i]); e != nil {
+			return nil, e
+		}
+	}
+	if e = tx.Commit(); e != nil {
+		return nil, e
+	}
+	return out, nil
 }
 func (s *Store) Save(ctx context.Context, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt) error {
 	b, definition, e := runner.MarshalRunRecord(r)
@@ -170,16 +210,21 @@ func (s *Store) Save(ctx context.Context, r runner.Run, artifacts []runner.Artif
 	if len(b) > int(s.policy.Database.MaxRecord) || len(definition) > int(s.policy.Database.MaxRecord) {
 		return fmt.Errorf("%w: run record exceeds %d bytes", runner.ErrCapacity, s.policy.Database.MaxRecord)
 	}
+	attempts, e := s.attemptRecords(r)
+	if e != nil {
+		return e
+	}
 	tx, e := s.db.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
-	var exists int
-	if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs WHERE id=?", r.ID).Scan(&exists); e != nil {
+	var previous []byte
+	e = tx.QueryRowContext(ctx, "SELECT data FROM runs WHERE id=?", r.ID).Scan(&previous)
+	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
-	if exists == 0 {
+	if errors.Is(e, sql.ErrNoRows) {
 		var n int
 		if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM runs").Scan(&n); e != nil {
 			return e
@@ -189,6 +234,9 @@ func (s *Store) Save(ctx context.Context, r runner.Run, artifacts []runner.Artif
 		}
 	}
 	if _, e = tx.ExecContext(ctx, "INSERT INTO runs(id,project,data,definition) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,definition=excluded.definition", r.ID, r.ProjectID, b, definition); e != nil {
+		return e
+	}
+	if e = s.saveAttempts(ctx, tx, r, attempts, previous); e != nil {
 		return e
 	}
 	for _, a := range artifacts {
@@ -212,6 +260,20 @@ func (s *Store) Save(ctx context.Context, r runner.Run, artifacts []runner.Artif
 	for _, a := range r.Attempts {
 		if a.End != nil && a.End.Result != nil {
 			add(a.End.Result.Outputs)
+		}
+	}
+	for _, group := range r.TaskGroups {
+		if group == nil {
+			continue
+		}
+		add(group.Evidence)
+		if group.RootPatchID != "" {
+			refs[group.RootPatchID] = true
+		}
+		for _, child := range group.Children {
+			if child.Candidate != nil && child.Candidate.PatchID != "" {
+				refs[child.Candidate.PatchID] = true
+			}
 		}
 	}
 	for id := range refs {

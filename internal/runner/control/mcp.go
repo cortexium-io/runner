@@ -170,16 +170,24 @@ func start(c *runner.Core, in StartArgs) (runner.Run, error) {
 }
 func summary(r runner.Run) runner.Summary {
 	return runner.Summary{
-		ID:       r.ID,
-		Project:  r.ProjectID,
-		Process:  r.Process.ID,
-		Status:   r.Status,
-		Reason:   r.Reason,
-		Step:     r.Step,
-		Attempts: len(r.Attempts),
-		Revision: r.Revision,
-		Updated:  r.Updated,
+		ID:          r.ID,
+		Project:     r.ProjectID,
+		Process:     r.Process.ID,
+		Status:      r.Status,
+		Reason:      r.Reason,
+		Step:        r.Step,
+		Attempts:    len(r.Attempts),
+		Revision:    r.Revision,
+		Updated:     r.Updated,
+		ParentRunID: taskParent(r),
 	}
+}
+
+func taskParent(r runner.Run) string {
+	if r.Task != nil {
+		return r.Task.Identity.RootRunID
+	}
+	return ""
 }
 
 type authorizedTransport struct{ token string }

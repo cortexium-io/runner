@@ -36,11 +36,36 @@
     },
     "plan": {
       "file": "roles/plan.json"
+    },
+    "planned-plan": {
+      "file": "roles/planned-plan.json"
+    },
+    "planned-card-owner": {
+      "file": "roles/planned-card-owner.json"
+    },
+    "task-source-seed": {
+      "file": "roles/task-source-seed.json"
+    },
+    "task-source-pin": {
+      "file": "roles/task-source-pin.json"
+    },
+    "task-source-join": {
+      "file": "roles/task-source-join.json"
+    },
+    "planned-check": {
+      "file": "roles/planned-check.json"
+    },
+    "planned-repair": {
+      "file": "roles/planned-repair.json"
+    },
+    "planned-review": {
+      "file": "roles/planned-review.json"
     }
   },
   "processes": {
     "develop": "processes/develop.json",
     "develop-iterative": "processes/develop-iterative.json",
-    "develop-tasks": "processes/develop-tasks.json"
+    "develop-tasks": "processes/develop-tasks.json",
+    "develop-planned": "processes/develop-planned.json"
   }
 }

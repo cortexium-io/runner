@@ -1,0 +1,24 @@
+{
+  "id": "planned-repair",
+  "purpose": "Correct the combined Go candidate using full accepted-plan and scoped execution evidence.",
+  "inputs": {
+    "request": "text",
+    "manifest": "artifact",
+    "checks": "artifact",
+    "review": "text",
+    "join_feedback": "text"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "On an initial join rejection, use join_feedback and manifest to repair the concrete conflict. Evidence may be baseline/join evidence before the first combined check; it never establishes current-candidate acceptance. Follow original request, AGENTS.md, accepted plan manifest and full scoped Go proof. Preserve completed cards; repair only the combined candidate within original acceptance. Fix concrete source/check/review findings, preserve public contracts and unrelated work, and add only meaningful regression coverage. Do not run checks, Git, agents or external work. Configured steps own checks and independent review. Missing capability or a material decision returns blocked. Do not change workflow, budgets, dependencies or permissions. Return summary <=240 characters; do not claim pending proof passed."
+  }
+}

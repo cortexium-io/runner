@@ -1,0 +1,24 @@
+{
+  "id": "planned-card-owner",
+  "purpose": "Implement one dependency card inside its declared write scope; hand off source for the fixed combined checks and independent review.",
+  "inputs": {
+    "request": "text",
+    "task": "text",
+    "paths": "json",
+    "manifest": "artifact",
+    "feedback": "text"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Read the original request, card brief, declared paths, dependency manifest and any pin feedback. Follow AGENTS.md and the configured project testing policy. Own only this card and its declared literal write paths; do not change another card or widen acceptance. Dependency code is supplied in the workspace; do not infer source from scheduling alone. Make the complete scoped change and meaningful regression updates; preserve unrelated work, identities, saved data, public contracts, generated ownership and dependencies. The internal pin records unreviewed source only. Configured later steps own actual checks, measurement, independent review, publication and qualification: do not execute checks, Git, agents or external work. Use concrete scope feedback to correct only this card. Missing capability or a material decision returns blocked; never change workflow, budgets or permissions. Return summary <=240 characters and do not claim pending proof passed."
+  }
+}

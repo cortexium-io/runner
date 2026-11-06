@@ -1,7 +1,47 @@
 # Runner process core design
 
-Updated 3 November 2026. **The bounded development workflow is authorized and implemented
-on `codex/runner-process-core`; no installation or cutover is authorized.**
+Updated 6 November 2026. **The owner has authorized completing and installing the
+full bounded planner workflow, safe parallelism and routine recovery, verified
+across real projects. Merge and production remain owner-approved actions.**
+
+## Current completion plan
+
+This is the active plan for the authorized completion work. Earlier slice limits
+below remain historical qualification boundaries until the new proof is recorded.
+
+1. Connect original intake to a source-aware read-only planner, a bounded set of
+   cards with completion conditions and dependencies, and the existing complete
+   check/review/qualification/release process. Models select work within fixed
+   role contracts; they cannot introduce commands, permissions or release policy.
+2. Add opt-in isolated task groups managed by the existing Core scheduler. Each
+   card uses an internally linked run and its own workspace. Declared overlapping
+   write scopes require dependency ordering. Accepted predecessor source seeds
+   dependent cards; deterministic integration establishes one combined candidate.
+   Combined correction and review do not replan or repeat completed cards.
+3. Keep routine source corrections, bounded measurements, known safe infrastructure
+   retries and authenticated same-PR continuation in the configured process.
+   Preserve unknown effects and integrity failures rather than replaying them.
+   One root attempt envelope includes its card attempts and reserves the release
+   suffix before more source work. New planned processes default to eight cards,
+   two parallel card actors and 64 aggregate attempts; older definitions stay fixed.
+4. Store new attempt histories as individually bounded rows in the same SQLite
+   store. Keep existing history documents unchanged and retain the current
+   database, record, artifact and disk limits. Prove restart, cancellation,
+   dependency blocking, scope conflicts, aggregate limits and linked retention.
+5. Qualify the complete path using real Go work, the retained Jack's Break mobile
+   request and a bounded investigation, plus independent project evidence where
+   prerequisites permit. All product execution stays inside Runner. Record exact
+   source/configuration identities, task overlap and dependency evidence, quality
+   results, recovery events, usage and remaining gaps. Install only the verified
+   build, preserving pilot history and all protected approval gates.
+
+Completion requires repeatable request-to-qualified-result behavior with no
+external stage selection, product repair, limit increases or gate bypasses.
+Routine decisions within the approved request use the configured policy; only
+material missing product decisions, uncertain authority/effects, exhausted
+envelopes and protected actions reach the owner. A successful fixture alone does
+not establish cross-project reliability. Existing planner guidance must match
+the actually qualified runtime before the capability is described as ready.
 
 The [README](../README.md), [actual code walkthrough](architecture.md) and
 [operator guide](operator-reference.md) describe that slice and its verification

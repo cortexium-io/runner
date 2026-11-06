@@ -28,5 +28,6 @@
       "max_per_attempt": "64KiB",
       "keep_for": "168h"
     }
-  }
+  },
+  "task_concurrency": 2
 }

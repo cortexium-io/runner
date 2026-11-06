@@ -2,6 +2,7 @@ package release
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -9,6 +10,16 @@ import (
 // Adoption adds no source, publication or approval authority: it only starts a
 // complete qualification/release process for that same still-open PR/head/base.
 func (b *Live) adopt(ctx context.Context, j *Job) error {
+	if j.Request.SourceContinuation {
+		if err := b.continuedPR(ctx, j, j.Receipt.Head); err != nil {
+			var proof *proofFailure
+			if errors.As(err, &proof) {
+				return fail(j, err.Error())
+			}
+			return err
+		}
+		return done(j, fmt.Sprintf("Reviewed PR #%d authenticated for exact retained-source continuation; source checks, review, qualification and protected approvals remain fresh", j.Receipt.PR))
+	}
 	var pr struct {
 		State  string
 		Merged bool

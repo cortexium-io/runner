@@ -10,11 +10,19 @@ import (
 // steps may precede it, but cannot jump into it or supply a release receipt.
 func validateReleaseProcess(p runner.Process, project runner.Project) error {
 	start := -1
+	sourceAdopt := -1
 	selected := make([]runner.Profile, len(p.Steps))
 	for i, step := range p.Steps {
 		profile, err := project.Roles[step.Role].Profile(project.Profiles[step.Role])
 		if err == nil {
 			selected[i] = profile
+			if profile.Harness == "release" && profile.Mode == "source-adopt" {
+				if sourceAdopt >= 0 {
+					return errors.New("one authenticated source adoption may precede planned delivery")
+				}
+				sourceAdopt = i
+				continue
+			}
 			if start < 0 && profile.Harness == "release" && profile.Mode != "readiness" {
 				start = i
 			}
@@ -35,7 +43,13 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 	readiness := 0
 	// An investigation may measure committed source or one explicitly supplied
 	// retained scaffold before admission. Every model turn still follows admission.
-	if connected && !adopted && selected[0].Harness == "command" {
+	if sourceAdopt >= 0 {
+		var err error
+		readiness, err = sourceAdoptionPrefix(p, project, sourceAdopt)
+		if err != nil || !connected || adopted {
+			return bad
+		}
+	} else if connected && !adopted && selected[0].Harness == "command" {
 		patchType, retained := p.Inputs["patch"]
 		if retained && (patchType != "artifact" || p.Steps[0].Inputs["patch"] != (runner.Binding{FromInput: "patch"})) {
 			return bad
@@ -71,6 +85,13 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 				}
 			}
 			owner++
+		}
+		if owner < start && selected[owner].Harness == "codex" && selected[owner].Access == "workspace-read" {
+			var err error
+			owner, err = plannedReleaseOwner(p, project, owner, start)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	if connected {
@@ -181,9 +202,14 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 				}
 			} else if connected {
 				empty := runner.Value{Inline: []byte(`{}`)}
+				previous := runner.Binding{FromStep: step.ID, Output: "receipt", Previous: true, Default: &empty}
+				if sourceAdopt >= 0 {
+					previous.Default = nil
+					previous.Fallback = &runner.Binding{FromStep: p.Steps[sourceAdopt].ID, Output: "receipt"}
+				}
 				if !reflect.DeepEqual(step.Inputs, map[string]runner.Binding{
 					"candidate": {FromStep: p.Steps[start-1].ID, Output: "candidate"},
-					"previous":  {FromStep: step.ID, Output: "receipt", Previous: true, Default: &empty},
+					"previous":  previous,
 				}) {
 					return bad
 				}

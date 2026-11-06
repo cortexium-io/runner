@@ -35,6 +35,10 @@ func releaseArchiveError(ctx context.Context, err error) error {
 // branch/SHA claim. The owned branch uses compare-and-swap and cannot overwrite
 // unrelated work. Reconnecting inspects that same remote ref first.
 func (r *Releases) publishCandidate(ctx context.Context, j *releaseJob) (string, error) {
+	remoteRef, previousHead, _, err := r.publicationAuthorization(j)
+	if err != nil {
+		return "", err
+	}
 	if j.Candidate != "" {
 		return j.Candidate, nil
 	}
@@ -66,35 +70,25 @@ func (r *Releases) publishCandidate(ctx context.Context, j *releaseJob) (string,
 	}
 	helper := "!" + "'" + strings.ReplaceAll(j.GitHub, "'", "'\\''") + "' auth git-credential"
 	args := []string{"-c", "credential.helper=" + helper}
-	remote, err := git(ctx, a.Repository, environment, nil, 1024, append(args, "ls-remote", "--refs", "origin", ref)...)
+	remote, err := git(ctx, a.Repository, environment, nil, 1024, append(args, "ls-remote", "--refs", "origin", remoteRef)...)
 	if err != nil {
 		return "", err
 	}
 	fields := strings.Fields(string(remote))
-	var previous struct {
-		Head   string `json:"head"`
-		RunID  string `json:"run_id"`
-		Action string `json:"action"`
-	}
-	if value := a.Inputs["previous"].Inline; len(value) > 0 && string(value) != "{}" {
-		if json.Unmarshal(value, &previous) != nil || previous.RunID != a.RunID || previous.Action != "publish" || !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(previous.Head) {
-			return "", errors.New("previous publication identity differs")
-		}
-	}
 	if len(fields) > 0 {
-		if len(fields) != 2 || fields[1] != ref || (fields[0] != head && fields[0] != previous.Head) {
+		if len(fields) != 2 || fields[1] != remoteRef || (fields[0] != head && fields[0] != previousHead) {
 			return "", errors.New("remote candidate branch differs; preserve it")
 		}
 		if fields[0] == head {
 			j.Candidate = head
 			return head, r.save(*j)
 		}
-	} else if previous.Head != "" {
+	} else if previousHead != "" {
 		return "", errors.New("previous publication branch disappeared; preserve history")
 	}
 	// Repeating this CAS after an uncertain reply can only create this same ref.
 	// A concurrent/earlier successful creation is inspected on the next observe.
-	if _, err = git(ctx, a.Repository, environment, nil, 4096, append(args, "push", "--porcelain", "--force-with-lease="+ref+":"+previous.Head, "origin", head+":"+ref)...); err != nil {
+	if _, err = git(ctx, a.Repository, environment, nil, 4096, append(args, "push", "--porcelain", "--force-with-lease="+remoteRef+":"+previousHead, "origin", head+":"+remoteRef)...); err != nil {
 		return "", err
 	}
 	j.Candidate = head

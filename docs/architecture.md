@@ -26,6 +26,39 @@ imports no MCP SDK, configuration parser, SQLite driver or execution adapter.
 
 ## Follow the demo
 
+The opt-in planned workflow uses this same coordinator. `parallel_tasks.go`
+reserves child run identities in the parent's frozen task group before creating
+them. Each child has one isolated source workspace, a seed/owner/internal-pin
+process and a bidirectionally checked parent identity. `task_concurrency` limits
+card actors independently from the existing root-family concurrency limit;
+passive parents consume no actor slot. Declared dependencies wait for accepted
+pins and settled attempts. A child pin grants no review or release authority.
+
+`task_admission.go` reserves the fixed unfinished cards and combined/release
+tail before fan-out and subsequent attempts. `family_budget.go` counts root and
+child attempts against one frozen total, including retries and corrections.
+Unordered overlapping scopes are returned to the read-only planner before any
+card starts. The accepted collection is retained once; later combined corrections
+use the normal owner/check/review routes without repeating the collection.
+`execution/task_source.go` assembles pinned predecessor source, checks each
+card's actual write scope and joins accepted commits. Ordinary text conflicts
+retain source and diagnostics for combined repair; ambiguous source ownership
+and external effects remain blocked.
+
+New format3 records put individually bounded attempts in the same SQLite database.
+Existing records retain their original bytes. The run state and frozen definition
+remain bounded separately, and SQLite transactions commit state, attempts,
+artifacts and request receipts together. Linked retention checks outside artifact
+consumers, then deletes only an expired, settled family as a unit; internal
+artifact-reference cycles cannot strand it. Parent result projections include
+child progress and usage, and child revisions wake a caller waiting on its parent.
+
+The 6 November model-free Core proofs exercise actual overlapping dispatch,
+accepted dependency handoff, restart reconciliation without duplicate attempts,
+parent cancellation, invalid-plan feedback, whole-family admission and retention.
+These are runtime proofs; real project qualification is recorded separately when
+complete.
+
 1. `config.Load` resolves instance → project → roles/process. It rejects unknown
    fields, unsupported executors, invalid bindings and mismatched contracts.
 2. `Core.Start` validates values and availability, freezes the selected process

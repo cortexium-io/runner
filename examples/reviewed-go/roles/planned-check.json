@@ -1,0 +1,42 @@
+{
+  "id": "planned-check",
+  "purpose": "Retain actual scoped Go test execution evidence; missing or incomplete execution blocks rather than fabricating acceptance.",
+  "inputs": {
+    "patch": "artifact",
+    "package": "text",
+    "tests": "text"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-go-check",
+        "--go",
+        "/absolute/path/to/go",
+        "--package",
+        "{text.package}",
+        "--run",
+        "{text.tests}",
+        "--timeout",
+        "10m",
+        "--scratch",
+        "{scratch}",
+        "--output",
+        "{scratch}/proof.json"
+      ],
+      "env": {
+        "GOMODCACHE": "/absolute/path/to/module-cache"
+      },
+      "artifact": "proof.json",
+      "exit_outcomes": {
+        "1": "changes_requested",
+        "2": "blocked"
+      }
+    }
+  }
+}

@@ -23,15 +23,17 @@ type Releases struct {
 }
 
 type releaseJob struct {
-	Assignment     runner.Assignment    `json:"assignment"`
-	Command        []string             `json:"command"`
-	Stopped        bool                 `json:"stopped,omitempty"`
-	End            *runner.ExecutionEnd `json:"end,omitempty"`
-	GitHub         string               `json:"github,omitempty"`
-	SourcePrepared bool                 `json:"source_prepared,omitempty"`
-	Candidate      string               `json:"candidate,omitempty"`
-	SelectedBase   string               `json:"selected_base,omitempty"`
-	CancelReceipt  json.RawMessage      `json:"cancel_receipt,omitempty"`
+	Assignment          runner.Assignment    `json:"assignment"`
+	Command             []string             `json:"command"`
+	Stopped             bool                 `json:"stopped,omitempty"`
+	End                 *runner.ExecutionEnd `json:"end,omitempty"`
+	GitHub              string               `json:"github,omitempty"`
+	SourcePrepared      bool                 `json:"source_prepared,omitempty"`
+	Candidate           string               `json:"candidate,omitempty"`
+	SelectedBase        string               `json:"selected_base,omitempty"`
+	CancelReceipt       json.RawMessage      `json:"cancel_receipt,omitempty"`
+	PublicationPrevious json.RawMessage      `json:"publication_previous,omitempty"`
+	Source              *runner.SourceResult `json:"source,omitempty"`
 }
 
 func releaseName(id string) string { return "jobs/" + id + ".release.json" }
@@ -98,6 +100,10 @@ func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, 
 			Recovery: j.Assignment.Inputs["recovery"].Inline,
 			Retry:    j.Assignment.Inputs["previous"].Inline,
 		}
+		sourceAdopt := request.Action == "source-adopt"
+		if sourceAdopt {
+			request.Action, request.SourceContinuation = "adopt", true
+		}
 		if request.Action == "readiness" {
 			if err := r.prepareReleaseSource(ctx, &j); err != nil {
 				o.State = runner.Unknown
@@ -126,6 +132,9 @@ func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, 
 				return o, nil
 			}
 			request.Candidate = candidate
+			if len(j.PublicationPrevious) != 0 {
+				request.Previous = j.PublicationPrevious
+			}
 		}
 		input, _ := json.Marshal(request)
 		call, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -178,6 +187,14 @@ func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, 
 		if len(response.Receipt) == 0 {
 			response.Receipt = json.RawMessage(`{}`)
 		}
+		if sourceAdopt {
+			return r.finishSourceAdoption(ctx, j, o, response, outcome)
+		}
+		if request.Action == "publish" && outcome == "ready" && !j.Stopped {
+			if err = r.recordPublication(j, response.Receipt); err != nil {
+				return runner.Observation{}, err
+			}
+		}
 		reason := o.Reason
 		var handle struct {
 			Source string `json:"source_ref"`
@@ -207,7 +224,7 @@ func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, 
 			return runner.Observation{}, err
 		}
 	}
-	o.State, o.End = runner.Finished, j.End
+	o.State, o.End, o.Source = runner.Finished, j.End, j.Source
 	return o, nil
 }
 func (r *Releases) Stop(ctx context.Context, id string) error {

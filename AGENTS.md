@@ -2,6 +2,24 @@
 
 ## Current authority and scope
 
+On 6 November 2026 the owner authorized completing the planner-to-delivery
+workflow, safe parallel task execution and routine recovery, then verifying it
+across real projects without an external chat coordinating stages. Parallel
+maintenance subagents are explicitly authorized; the main session owns design,
+integration and final qualification. Product work and its checks remain inside
+Runner. Merge, production deployment and database restoration remain explicit
+owner decisions. Preserve existing runs, artifacts and frozen limits.
+
+The current implementation defaults for new planned processes are at most eight
+cards, two concurrent isolated card executions and 64 aggregate attempts shared
+by the root and its cards, with the protected release reserve included. Existing
+processes retain their limits. A new bounded planner role may return up to 8 KiB
+of plan data; existing coding/review model and response limits remain unchanged.
+These are bounded new-process settings, not extra allowance for failed old runs.
+The accepted plan and qualification record belong in the existing process-core
+design and architecture documents. Verified installation in the pilot is part of
+this task; no fixture approval authorizes merge or production actions.
+
 The owner subsequently authorized all three delivery-closure changes: safe
 release recovery, a connected Jack's Break development/qualification/release
 process, and failure-focused qualification. Reuse the existing engine, adapters,

@@ -30,15 +30,16 @@ type RetryRequest struct {
 	CleanupOnly   bool   `json:"cleanup_only,omitempty"`
 }
 type Summary struct {
-	ID       string    `json:"id"`
-	Project  string    `json:"project"`
-	Process  string    `json:"process"`
-	Status   string    `json:"status"`
-	Reason   string    `json:"reason,omitempty"`
-	Step     int       `json:"step"`
-	Attempts int       `json:"attempts"`
-	Revision int64     `json:"revision"`
-	Updated  time.Time `json:"updated"`
+	ID          string    `json:"id"`
+	Project     string    `json:"project"`
+	Process     string    `json:"process"`
+	Status      string    `json:"status"`
+	Reason      string    `json:"reason,omitempty"`
+	Step        int       `json:"step"`
+	Attempts    int       `json:"attempts"`
+	Revision    int64     `json:"revision"`
+	Updated     time.Time `json:"updated"`
+	ParentRunID string    `json:"parent_run_id,omitempty"`
 }
 type Status struct {
 	Runs                []Summary `json:"runs"`
@@ -194,24 +195,24 @@ func (c *Core) Start(req StartRequest) (Run, error) {
 		return Run{}, fmt.Errorf("%w: free-space reserve", ErrCapacity)
 	}
 	r := Run{
-		Repository: p.Workspace,
-		Source:     Clone(p.Source),
-		ID:         "run_" + rand.Text(),
-		ProjectID:  p.ID,
-		Process:    Clone(proc),
-		Roles:      map[string]Role{},
-		Profiles:   map[string]string{},
-		Inputs:     Clone(req.Inputs),
-		Status:     "Queued",
-		Created:    time.Now().UTC(),
+		RecordFormat: 3,
+		Repository:   p.Workspace,
+		Source:       Clone(p.Source),
+		ID:           "run_" + rand.Text(),
+		ProjectID:    p.ID,
+		Process:      Clone(proc),
+		Roles:        map[string]Role{},
+		Profiles:     map[string]string{},
+		Inputs:       Clone(req.Inputs),
+		Status:       "Queued",
+		Created:      time.Now().UTC(),
 	}
 	if req.SourceRef != "" {
 		r.Source.Ref = req.SourceRef
 	}
 	selectedRoles(proc.Steps, r.Roles, r.Profiles, p)
-	b, _ := json.Marshal(r)
-	if len(b) > int(c.disk.Policy.Database.MaxRecord)/2 {
-		return Run{}, errors.New("run definition/inputs exceed half the record allowance; use smaller scoped definitions or declared artifacts")
+	if err := admitRunRecord(r, c.disk.Policy.Database.MaxRecord); err != nil {
+		return Run{}, err
 	}
 	rec := Receipt{Key: req.RequestID, Kind: "start", Args: args, RunID: r.ID}
 	if e = c.persist(r, nil, &rec); e != nil {
@@ -227,7 +228,7 @@ func (c *Core) Get(id string) (Run, error) {
 	if !ok {
 		return r, ErrNotFound
 	}
-	return Clone(r), nil
+	return c.outputRun(r), nil
 }
 func (c *Core) Status() Status {
 	c.mu.Lock()
@@ -252,6 +253,7 @@ func (c *Core) Status() Status {
 			len(r.Attempts),
 			r.Revision,
 			r.Updated,
+			taskParentID(r),
 		})
 	}
 	sort.Slice(s.Runs, func(i, j int) bool { return s.Runs[i].Updated.After(s.Runs[j].Updated) })
@@ -264,6 +266,9 @@ func (c *Core) Wait(ctx context.Context, id string, after int64) (Summary, error
 	for {
 		c.mu.Lock()
 		r, ok := c.runs[id]
+		if ok {
+			r = c.outputRun(r)
+		}
 		ch := c.changed
 		c.mu.Unlock()
 		if !ok {
@@ -280,6 +285,7 @@ func (c *Core) Wait(ctx context.Context, id string, after int64) (Summary, error
 				len(r.Attempts),
 				r.Revision,
 				r.Updated,
+				taskParentID(r),
 			}, nil
 		}
 		select {
@@ -314,6 +320,9 @@ func (c *Core) Cancel(id string) (Run, error) {
 		return Run{}, e
 	}
 	c.Wake()
+	if err := c.renewTaskStops(r); err != nil {
+		return Run{}, err
+	}
 	return Clone(c.runs[id]), nil
 }
 func (c *Core) Retry(req RetryRequest) (Run, error) {
@@ -425,7 +434,7 @@ func (c *Core) tick() time.Duration {
 	next := fallback
 	active := 0
 	for _, r := range c.runs {
-		if r.Active() {
+		if a := r.Current(); a != nil && a.State != Finished {
 			active++
 		}
 	}
@@ -452,8 +461,11 @@ func (c *Core) tick() time.Duration {
 				}
 			}
 		}
+		if c.driveTaskGroup(r) {
+			continue
+		}
 		if r.Terminal() {
-			if _, ok := c.executor.(RunResources); ok && !r.ResourcesReleased && !r.CleanupBlocked && !c.inFlight[r.ID] {
+			if _, ok := c.executor.(RunResources); ok && !r.ResourcesReleased && !r.CleanupBlocked && !c.inFlight[r.ID] && !c.holdTaskResources(r) {
 				ready := true
 				for _, old := range r.Attempts {
 					if old.State != Finished || !old.Released {
@@ -517,7 +529,7 @@ func (c *Core) tick() time.Duration {
 				op := "observe"
 				var ass Assignment
 				if a.State == NotStarted {
-					if err := releaseNotStartedStopReserve(r); err != nil {
+					if err := releaseNotStartedStopReserve(r, c.familyAttempts(r)); err != nil {
 						if reason := Clip(err.Error()); r.Status != "Waiting" || r.Reason != reason {
 							r.Status, r.Reason = "Waiting", reason
 							a.Reconciling = false
@@ -547,7 +559,7 @@ func (c *Core) tick() time.Duration {
 			_ = c.persist(r, nil, nil)
 			continue
 		}
-		if r.Status != "Queued" || active >= c.snapshot.Instance.Concurrency {
+		if r.Status != "Queued" || !c.taskDispatchAllowed(r) {
 			continue
 		}
 		if r.Process.Steps[r.Step].ForEach != nil {
@@ -563,16 +575,27 @@ func (c *Core) tick() time.Duration {
 			}
 			continue
 		}
-		if len(r.Attempts) >= r.Process.MaxAttempts {
+		if c.familyRemaining(r) <= 0 {
 			r.Status = "Waiting"
 			r.Reason = "run attempt allowance exhausted"
 			_ = c.persist(r, nil, nil)
 			continue
 		}
-		if err := releaseStopReserve(r); err != nil {
+		if err := releaseStopReserve(r, c.familyAttempts(r)); err != nil {
 			r.Status, r.Reason = "Waiting", Clip(err.Error())
 			_ = c.persist(r, nil, nil)
 			continue
+		}
+		if r.Task != nil || len(r.TaskGroups) > 0 {
+			reserve, err := c.taskCompletionReserve(r)
+			if err == nil {
+				err = c.familyReserve(r, 1, reserve)
+			}
+			if err != nil {
+				r.Status, r.Reason = "Waiting", Clip(err.Error())
+				_ = c.persist(r, nil, nil)
+				continue
+			}
 		}
 		reserve := int64(3*c.disk.Policy.Database.MaxRecord+c.disk.Policy.MaxArtifact+c.disk.Policy.Logs.MaxPerAttempt) + 4096
 		step := r.Process.Steps[r.Step]
@@ -690,7 +713,7 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 	if e != nil {
 		return Assignment{}, e
 	}
-	return Assignment{
+	assignment := Assignment{
 		ProjectID:   r.ProjectID,
 		RunID:       r.ID,
 		Repository:  r.Repository,
@@ -706,7 +729,9 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		AllowHelp:   step.Escalation != nil,
 		Outcomes:    stepOutcomes(step),
 		Deadline:    a.Deadline,
-	}, nil
+	}
+	assignment.TaskSource, e = c.taskAssignment(r, step)
+	return assignment, e
 }
 func bindings(r Run, bs map[string]Binding) (map[string]Value, error) {
 	out := map[string]Value{}
@@ -813,7 +838,9 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 				r.CleanupError = ""
 				r.CleanupBlocked = false
 			}
-			_ = c.persist(r, nil, nil)
+			if c.persist(r, nil, nil) == nil {
+				c.Wake()
+			}
 			return
 		}
 		index := -1
@@ -1042,7 +1069,7 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 		return arts
 	}
 	if end.Kind == "failed" && end.Retryable {
-		if infrastructureFailures(*r) <= r.Process.InfrastructureRetries && len(r.Attempts) < r.Process.MaxAttempts {
+		if infrastructureFailures(*r) <= r.Process.InfrastructureRetries && c.familyRemaining(*r) > 0 {
 			r.Status = "Queued"
 			r.Reason = "configured safe infrastructure retry"
 		} else {
@@ -1058,7 +1085,7 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 	}
 	if end.Kind == "returned" {
 		esc := step.Escalation
-		if r.Escalations < esc.MaxTimes && attempts < visitAttemptLimit(*r) && len(r.Attempts) < r.Process.MaxAttempts {
+		if r.Escalations < esc.MaxTimes && attempts < visitAttemptLimit(*r) && c.familyRemaining(*r) > 0 {
 			r.NextProfile = esc.Profile
 			r.Escalations++
 			r.Status = "Queued"
@@ -1069,7 +1096,7 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 		}
 		return arts
 	}
-	if end.Kind == "failed" && attempts < visitAttemptLimit(*r) && len(r.Attempts) < r.Process.MaxAttempts {
+	if end.Kind == "failed" && attempts < visitAttemptLimit(*r) && c.familyRemaining(*r) > 0 {
 		r.Status = "Queued"
 		r.Reason = "bounded execution retry"
 	} else {
@@ -1086,6 +1113,10 @@ func (c *Core) Collect() error {
 	defer c.Wake()
 	ttl, _ := time.ParseDuration(c.disk.Policy.KeepRuns)
 	logTTL, _ := time.ParseDuration(c.disk.Policy.Logs.KeepFor)
+	families, err := c.collectTaskFamilies(func(r Run) bool { return time.Since(r.Updated) >= ttl })
+	if err != nil {
+		return err
+	}
 	for id, r := range c.runs {
 		for _, a := range r.Attempts {
 			if a.Released && !a.FinishedAt.IsZero() && time.Since(a.FinishedAt) > logTTL {
@@ -1093,6 +1124,9 @@ func (c *Core) Collect() error {
 					return e
 				}
 			}
+		}
+		if families[id] {
+			continue
 		}
 		if !r.Terminal() || time.Since(r.Updated) < ttl {
 			continue

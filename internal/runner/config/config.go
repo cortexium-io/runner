@@ -188,6 +188,9 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 	if s.Instance.Concurrency < 1 || s.Instance.Concurrency > 32 || len(s.Instance.Projects) == 0 || len(s.Instance.Projects) > 16 {
 		return s, errors.New("need 1–16 projects and 1–32 concurrent attempts")
 	}
+	if s.Instance.TaskConcurrency < 0 || s.Instance.TaskConcurrency > 8 {
+		return s, errors.New("task_concurrency must be zero (disabled) or between one and eight")
+	}
 	for _, pf := range s.Instance.Projects {
 		path := resolve(l.Path, pf)
 		var f runner.ProjectFile
@@ -238,12 +241,29 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 				if e = ready(profile); e != nil {
 					return s, fmt.Errorf("role %s: %w", name, e)
 				}
+				if profile.Harness == "task-source" {
+					if strings.TrimSpace(role.Purpose) == "" || p.Source == nil || s.Instance.Concurrency != 1 || s.Instance.Codex == nil || s.Instance.Codex.GoBinary == "" {
+						return s, errors.New("task-source requires a purpose, project source and configured workspace runtime with concurrency one")
+					}
+					if e = taskSourceContract(role, profile.Mode); e != nil {
+						return s, e
+					}
+					continue
+				}
 				if profile.Harness == "release" {
 					c := s.Instance.Release
-					if c == nil || len(c.Command) == 0 || len(c.Command) > 16 || !filepath.IsAbs(c.Command[0]) || strings.TrimSpace(role.Purpose) == "" || p.Source == nil || s.Instance.Concurrency != 1 || len(role.Outputs) != 1 || role.Outputs["receipt"] != "json" {
+					outputs := len(role.Outputs) == 1 && role.Outputs["receipt"] == "json"
+					if profile.Mode == "source-adopt" {
+						outputs = len(role.Outputs) == 2 && role.Outputs["receipt"] == "json" && role.Outputs["patch"] == "artifact"
+					}
+					if c == nil || len(c.Command) == 0 || len(c.Command) > 16 || !filepath.IsAbs(c.Command[0]) || strings.TrimSpace(role.Purpose) == "" || p.Source == nil || s.Instance.Concurrency != 1 || !outputs {
 						return s, errors.New("release needs a trusted instance command, source, concurrency one, purpose and one JSON receipt output")
 					}
-					if profile.Mode == "publish" {
+					if profile.Mode == "source-adopt" {
+						if c.GitHub == "" || sourceAdoptionContract(role) != nil {
+							return s, errors.New("source-adopt requires configured GitHub and exact publication receipt/patch input and output contracts")
+						}
+					} else if profile.Mode == "publish" {
 						if c.GitHub == "" || len(role.Inputs) != 2 || role.Inputs["candidate"] != "text" || role.Inputs["previous"] != "json" {
 							return s, errors.New("release publication requires a configured GitHub executable and one candidate input")
 						}
@@ -335,6 +355,11 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 			}
 			if e = validateProcess(process, p); e != nil {
 				return s, fmt.Errorf("process %s: %w", name, e)
+			}
+			for _, step := range process.Steps {
+				if g := step.ForEach; g != nil && g.Mode == "isolated" && (s.Instance.TaskConcurrency == 0 || g.MaxParallel > s.Instance.TaskConcurrency) {
+					return s, fmt.Errorf("process %s: isolated group exceeds configured task_concurrency", name)
+				}
 			}
 			if e = validateReleaseProcess(process, p); e != nil {
 				return s, fmt.Errorf("process %s: %w", name, e)
@@ -527,11 +552,18 @@ func boundedTypes(m map[string]string, limit int) error {
 	return nil
 }
 func ready(p runner.Profile) error {
+	if p.Harness == "task-source" {
+		if p.Access != "workspace-read" || !slices.Contains([]string{"seed", "pin", "join"}, p.Mode) || p.Command != nil || p.Model != "" || p.Reasoning != "" || p.Instructions != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.MaxInput != 0 || p.MaxOutput != 0 {
+			return errors.New("task-source selects fixed seed/pin/join mode with workspace-read access and no model or command settings")
+		}
+		return nil
+	}
 	if p.Harness == "release" {
 		if p.Access != "input-only" || !slices.Contains([]string{
 			"readiness",
 			"publish",
 			"adopt",
+			"source-adopt",
 			"qualify",
 			"prepare",
 			"merge",
@@ -620,6 +652,9 @@ func ready(p runner.Profile) error {
 	return nil
 }
 func validateProcess(v runner.Process, p runner.Project) error {
+	if err := taskSourcePlacement(v, p); err != nil {
+		return err
+	}
 	return validateProcessInputs(v, p, 8)
 }
 func validateProcessInputs(v runner.Process, p runner.Project, inputLimit int) error {

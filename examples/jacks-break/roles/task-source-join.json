@@ -1,0 +1,17 @@
+{
+  "id": "task-source-join",
+  "purpose": "Combine authenticated card sources and retain accepted plan evidence before any combined check or review.",
+  "inputs": {
+    "results": "artifact"
+  },
+  "outputs": {
+    "patch": "artifact",
+    "manifest": "artifact",
+    "feedback": "text"
+  },
+  "execution": {
+    "harness": "task-source",
+    "mode": "join",
+    "access": "workspace-read"
+  }
+}

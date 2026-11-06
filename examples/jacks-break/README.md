@@ -5,6 +5,43 @@ review, candidate publication, product qualification and the approved release.
 The external chat submits the request and presents saved owner decisions. No model
 or chat selects the next stage.
 
+`deliver-planned-frontend` and `deliver-planned-investigation` add an admitted
+source-aware planner, 1–8 dependency cards and an explicit model-free source join
+before the existing combined checks, measurements, independent review and closed
+release suffix. Install their `planned-*.json` definitions and referenced roles,
+with instance `task_concurrency: 2`; keep root `concurrency: 1`. The new process
+has one aggregate 64-attempt allowance shared by all cards and recovery. The new
+planner alone has an 8KiB response allowance; coding/review retain 8KiB input and
+512B response limits. Existing 35-attempt processes and frozen runs are unchanged.
+
+Cards receive the original request, a brief, literal write paths and authenticated
+dependency evidence. Independent write scopes must be disjoint; dependencies
+establish ordered overlap. Internal task pins record unreviewed source and cannot
+approve it. The combined owner/reviewer read the accepted plan/card manifest as
+an artifact. Initial joined source goes straight to checks; bounded corrections
+return to the combined owner without repeating planning or completed cards.
+The original baseline artifact reaches planning and every initial/dependent card
+through configured evidence bindings and reserved inputs; task data cannot grant
+artifact access. It remains in the combined manifest. Planned checks, review and
+qualification each permit three source-correction routes within the same shared
+ceiling; benchmark continuation remains one.
+Invalid unaccepted plans return structural feedback to the planner at most twice
+before card dispatch; this route cannot repeat accepted work.
+Planned investigation uses the existing `runner-go-check` helper to retain actual
+scoped test execution in full. Configure its absolute runtime paths before use.
+Merge, production and restoration retain their existing separate owner gates.
+
+`deliver-planned-retained-frontend` and `deliver-planned-retained-investigation`
+continue one accepted publication using its `publication` JSON handle and exact
+`patch` artifact. `source-adopt` authenticates the operator journal/live PR and
+requires the patch tree to equal that accepted head at its original base before
+source is used. Frontend adoption precedes admission/source checks; investigation
+measures the pristine base before adoption. The publisher's first previous handle
+falls back to this authenticated adoption, preserving the original owning ref/PR;
+later corrections use the latest accepted same-run publication. Local candidate
+ownership belongs to the new run. Qualification and all protected approvals are
+fresh. The separate model-free `release-reviewed` process remains unchanged.
+
 `admit → owner → check → measure → review → integrate → publish → qualify → prepare → [merge approval] → merge → backup → [production approval] → stop → migrate → pin → deploy → verify-live`
 
 Checks, review and qualification each permit one in-scope correction. A selected

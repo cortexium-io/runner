@@ -44,7 +44,7 @@ func (c *Core) Decide(req DecisionRequest) (Run, error) {
 		if a == nil || a.ID != d.AttemptID || a.End == nil || a.End.Result == nil || a.End.Result.Outcome != d.Outcome {
 			return Run{}, errors.New("decision evidence is no longer current")
 		}
-		if err := releaseApprovalReserve(r, d.Outcome, r.Process.Steps[r.Step].Routes[d.Outcome]); err != nil {
+		if err := releaseApprovalReserve(r, d.Outcome, r.Process.Steps[r.Step].Routes[d.Outcome], c.familyAttempts(r)); err != nil {
 			c.Wake() // Reconcile an unsafe approval left by an older owner.
 			return Run{}, err
 		}
@@ -90,7 +90,7 @@ func (c *Core) route(r *Run, a *Attempt) {
 		return
 	}
 	if route.Approval {
-		if err := releaseApprovalReserve(*r, result.Outcome, route); err != nil {
+		if err := releaseApprovalReserve(*r, result.Outcome, route, c.familyAttempts(*r)); err != nil {
 			r.Status, r.Reason = "Waiting", Clip(err.Error())
 			return
 		}

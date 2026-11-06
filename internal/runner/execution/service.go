@@ -14,6 +14,7 @@ import (
 // routing across restart; no second workflow, dispatch queue or retry policy.
 type Service struct {
 	candidates    *Candidates
+	tasks         *TaskSources
 	commands      *Commands
 	releases      *Releases
 	disk          *runner.Disk
@@ -37,6 +38,7 @@ func NewService(d *runner.Disk, read func(context.Context, string) ([]byte, erro
 		s.workspaces.nativeLimit = cfg.StorageLimit
 	}
 	s.candidates = &Candidates{disk: d, workspaces: s.workspaces}
+	s.tasks = &TaskSources{disk: d, workspaces: s.workspaces}
 	s.commands = NewCommands(d, cfg, s.workspaces, read)
 	s.releases = &Releases{disk: d, workspaces: s.workspaces}
 	if len(release) > 0 {
@@ -53,6 +55,7 @@ func (s *Service) SetWake(wake func(string)) {
 	s.captureWake = wake
 	s.captureMu.Unlock()
 	s.commands.SetWake(wake)
+	s.tasks.SetWake(wake)
 	if s.Codex != nil {
 		s.Codex.SetWake(wake)
 	}
@@ -63,6 +66,8 @@ func (s *Service) Start(ctx context.Context, a runner.Assignment) (runner.Observ
 		return s.releases.Start(ctx, a)
 	case "git-candidate":
 		return s.candidates.Start(ctx, a)
+	case "task-source":
+		return s.tasks.Start(ctx, a)
 	case "command":
 		return s.commands.Start(ctx, a)
 	case "deterministic":
@@ -86,6 +91,9 @@ func (s *Service) native(id string) (bool, error) {
 	return true, err
 }
 func (s *Service) Observe(ctx context.Context, id string) (runner.Observation, error) {
+	if s.tasks.Owns(id) {
+		return s.tasks.Observe(ctx, id)
+	}
 	if s.releases.Owns(id) {
 		return s.releases.Observe(ctx, id)
 	}
@@ -112,6 +120,9 @@ func (s *Service) Observe(ctx context.Context, id string) (runner.Observation, e
 	return s.deterministic.Observe(ctx, id)
 }
 func (s *Service) Stop(ctx context.Context, id string) error {
+	if s.tasks.Owns(id) {
+		return s.tasks.Stop(ctx, id)
+	}
 	if s.releases.Owns(id) {
 		return s.releases.Stop(ctx, id)
 	}
@@ -134,6 +145,9 @@ func (s *Service) Stop(ctx context.Context, id string) error {
 	return s.deterministic.Stop(ctx, id)
 }
 func (s *Service) Release(ctx context.Context, id string) error {
+	if s.tasks.Owns(id) {
+		return s.tasks.Release(ctx, id)
+	}
 	if s.releases.Owns(id) {
 		return s.releases.Release(ctx, id)
 	}
@@ -161,10 +175,11 @@ func (s *Service) Release(ctx context.Context, id string) error {
 func (s *Service) Close(ctx context.Context) error {
 	s.commands.Close()
 	captureErr := s.closeCaptures(ctx)
+	taskErr := s.tasks.Close(ctx)
 	if s.Codex != nil {
-		return errors.Join(captureErr, s.Codex.Close(ctx))
+		return errors.Join(captureErr, taskErr, s.Codex.Close(ctx))
 	}
-	return captureErr
+	return errors.Join(captureErr, taskErr)
 }
 
 func (s *Service) ReleaseRun(ctx context.Context, r runner.Run) error {
@@ -174,6 +189,18 @@ func (s *Service) ReleaseRun(ctx context.Context, r runner.Run) error {
 	return s.workspaces.releaseRun(ctx, r.ID, r.Status == "Failed")
 }
 func (s *Service) ForgetRun(ctx context.Context, id string) error {
+	if err := s.workspaces.ReleaseRun(ctx, id); err != nil {
+		return err
+	}
+	if err := s.tasks.ForgetRun(ctx, id); err != nil {
+		return err
+	}
+	if err := s.workspaces.forgetAdoptedSource(ctx, id); err != nil {
+		return err
+	}
+	if err := s.releases.ForgetRun(ctx, id); err != nil {
+		return err
+	}
 	return s.workspaces.ForgetRun(ctx, id)
 }
 

@@ -21,15 +21,16 @@ var DeliveryActions = []string{"publish", "qualify", "prepare", "merge", "backup
 var safeID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,100}$`)
 
 type Request struct {
-	Project   string          `json:"project"`
-	RunID     string          `json:"run_id"`
-	Key       string          `json:"key"`
-	Action    string          `json:"action"`
-	Source    string          `json:"source"`
-	Previous  json.RawMessage `json:"previous,omitempty"`
-	Candidate string          `json:"candidate,omitempty"`
-	Recovery  json.RawMessage `json:"recovery,omitempty"`
-	Retry     json.RawMessage `json:"retry,omitempty"`
+	Project            string          `json:"project"`
+	RunID              string          `json:"run_id"`
+	Key                string          `json:"key"`
+	Action             string          `json:"action"`
+	Source             string          `json:"source"`
+	Previous           json.RawMessage `json:"previous,omitempty"`
+	Candidate          string          `json:"candidate,omitempty"`
+	Recovery           json.RawMessage `json:"recovery,omitempty"`
+	Retry              json.RawMessage `json:"retry,omitempty"`
+	SourceContinuation bool            `json:"source_continuation,omitempty"`
 }
 type Response struct {
 	Key       string          `json:"key"`
@@ -71,7 +72,9 @@ type Receipt struct {
 	Inspection        string `json:"inspection,omitempty"`
 	DataSHA           string `json:"data_sha256,omitempty"`
 
-	BrowserFailure BrowserFailureFeedback `json:"browser_failure,omitzero"`
+	BrowserFailure   BrowserFailureFeedback `json:"browser_failure,omitzero"`
+	PublicationRunID string                 `json:"publication_run_id,omitempty"`
+	PublicationKey   string                 `json:"publication_key,omitempty"`
 }
 type Job struct {
 	Request    Request `json:"request"`
@@ -128,6 +131,9 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 	if !safeID.MatchString(q.Key) || !safeID.MatchString(q.RunID) || q.Project != o.Project || !validSource || index < 0 {
 		return out, errors.New("release request is outside the configured project/source/action")
 	}
+	if q.SourceContinuation && (!o.Delivery || q.Action != "adopt") {
+		return out, errors.New("source continuation requires authenticated publication adoption")
+	}
 	if err := os.MkdirAll(o.Directory, 0700); err != nil {
 		return out, err
 	}
@@ -155,7 +161,7 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 	data, err := readFile(file, 32<<10)
 	if errors.Is(err, os.ErrNotExist) {
 		job.Request = q
-		if index > 0 {
+		if index > 0 || o.Delivery && q.Action == "publish" && len(q.Previous) > 0 && string(q.Previous) != "{}" {
 			if err = json.Unmarshal(q.Previous, &job.Receipt); err != nil {
 				return out, err
 			}
@@ -164,9 +170,14 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 			if o.Delivery {
 				source = p.Source
 			}
-			allowed := []string{actions[index-1]}
+			var allowed []string
+			if index > 0 {
+				allowed = []string{actions[index-1]}
+			}
 			if o.Delivery {
 				switch q.Action {
+				case "publish":
+					allowed = []string{"adopt", "publish"}
 				case "adopt":
 					allowed = []string{"publish"}
 				case "qualify":
@@ -205,6 +216,24 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 				return out, errors.New("previous operation did not authorize this route")
 			}
 			job.Receipt = saved.Receipt
+			if q.Action == "publish" {
+				if !acceptedSourcePredecessor(saved) || !o.sourceOriginAccepted(saved.Receipt, q.Project) || p.Action == "adopt" && !saved.Request.SourceContinuation {
+					return out, errors.New("publication continuation requires its accepted source adoption")
+				}
+				job.Receipt = sourcePublicationReceipt(saved.Receipt)
+			}
+			if q.Action == "adopt" && q.SourceContinuation {
+				if !acceptedSourcePredecessor(saved) || saved.Request.Action != "publish" {
+					return out, errors.New("source adoption publication does not bind its exact accepted candidate/base")
+				}
+				job.Receipt = sourcePublicationReceipt(saved.Receipt)
+				if job.Receipt.PublicationRunID == "" && job.Receipt.PublicationKey == "" {
+					job.Receipt.PublicationRunID, job.Receipt.PublicationKey = p.RunID, p.Key
+				}
+				if !o.sourceOriginAccepted(job.Receipt, q.Project) {
+					return out, errors.New("accepted publication has no valid source ownership")
+				}
+			}
 		}
 		if o.Delivery && q.Action == "deploy" {
 			handle, expected, outcome, resume := q.Retry, "deploy", "retry_safe", "safe"
@@ -287,6 +316,10 @@ func publicReceipt(r Receipt, connected bool) Receipt {
 	compact := Receipt{Key: r.Key, RunID: r.RunID, Action: r.Action, Policy: r.Policy, Source: r.Source, Recovery: r.Recovery}
 	if r.Action == "publish" || r.Action == "adopt" {
 		compact.Head = r.Head
+		if r.PublicationRunID != "" || r.PublicationKey != "" {
+			compact.PublicationRunID, compact.PublicationKey = r.PublicationRunID, r.PublicationKey
+			compact.Base, compact.PR = r.Base, r.PR
+		}
 	}
 	switch r.Action {
 	case "stop":

@@ -19,18 +19,19 @@ type ResultArgs struct {
 // Full setup, inputs and attempt history remain available through inspect.
 type Result struct {
 	runner.Summary
-	ElapsedSeconds    float64           `json:"elapsed_seconds"`
-	ExecutionSettled  bool              `json:"execution_settled"`
-	CleanupPending    bool              `json:"cleanup_pending"`
-	CleanupError      string            `json:"cleanup_error,omitempty"`
-	CleanupBlocked    bool              `json:"cleanup_blocked,omitempty"`
-	Reconciling       bool              `json:"reconciling,omitempty"`
-	WorkspaceRetained bool              `json:"workspace_retained"`
-	Usage             Usage             `json:"usage"`
-	Outputs           map[string]Output `json:"outputs,omitempty"`
-	Candidate         *Candidate        `json:"candidate,omitempty"`
-	Decision          *runner.Decision  `json:"decision,omitempty"`
-	DecisionOutputs   map[string]Output `json:"decision_outputs,omitempty"`
+	ElapsedSeconds    float64             `json:"elapsed_seconds"`
+	ExecutionSettled  bool                `json:"execution_settled"`
+	CleanupPending    bool                `json:"cleanup_pending"`
+	CleanupError      string              `json:"cleanup_error,omitempty"`
+	CleanupBlocked    bool                `json:"cleanup_blocked,omitempty"`
+	Reconciling       bool                `json:"reconciling,omitempty"`
+	WorkspaceRetained bool                `json:"workspace_retained"`
+	Usage             Usage               `json:"usage"`
+	Outputs           map[string]Output   `json:"outputs,omitempty"`
+	Candidate         *Candidate          `json:"candidate,omitempty"`
+	Decision          *runner.Decision    `json:"decision,omitempty"`
+	DecisionOutputs   map[string]Output   `json:"decision_outputs,omitempty"`
+	Tasks             []runner.TaskStatus `json:"tasks,omitempty"`
 }
 
 type Usage struct {
@@ -78,6 +79,7 @@ func compactResult(r runner.Run, now time.Time) Result {
 		CleanupBlocked:   r.CleanupBlocked,
 		Outputs:          map[string]Output{},
 		Decision:         runner.Clone(r.Decision),
+		Tasks:            r.TaskStatuses,
 	}
 	if a := r.Current(); r.Status == "Waiting" && r.Decision == nil && a != nil && a.State == runner.Unknown && a.Reconciling && a.Deadline.After(now) {
 		out.Reconciling = true
@@ -125,6 +127,34 @@ func compactResult(r runner.Run, now time.Time) Result {
 	}
 	if r.Terminal() && len(r.Attempts) == 0 {
 		end = r.Updated
+	}
+	for _, task := range r.TaskStatuses {
+		out.Attempts += task.Attempts
+		if task.Active {
+			out.ExecutionSettled = false
+		}
+		out.Reconciling = out.Reconciling || task.Reconciling
+		out.CleanupPending = out.CleanupPending || task.CleanupPending
+		if task.CleanupError != "" && out.CleanupError == "" {
+			out.CleanupError = runner.Clip("task " + task.ID + ": " + task.CleanupError)
+		}
+	}
+	if r.Terminal() && len(r.TaskStatuses) > 0 && r.Updated.After(end) {
+		end = r.Updated
+	}
+	for _, usage := range r.TaskUsage {
+		if usage.InputTokens != nil {
+			out.Usage.KnownInputTokens += *usage.InputTokens
+		}
+		if usage.OutputTokens != nil {
+			out.Usage.KnownOutputTokens += *usage.OutputTokens
+		}
+		if usage.CachedInputTokens != nil {
+			out.Usage.KnownCachedInputTokens += *usage.CachedInputTokens
+		}
+		if usage.InputTokens == nil || usage.OutputTokens == nil || usage.CachedInputTokens == nil {
+			out.Usage.IncompleteAttempts++
+		}
 	}
 	out.ElapsedSeconds = max(0, end.Sub(r.Created).Seconds())
 	out.Usage.KnownTotalTokens = out.Usage.KnownInputTokens + out.Usage.KnownOutputTokens

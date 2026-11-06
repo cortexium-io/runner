@@ -28,20 +28,22 @@ type Workspaces struct {
 	nativeLimit   runner.Bytes
 }
 type workspaceRecord struct {
-	RunID              string                  `json:"run_id"`
-	Repository         string                  `json:"repository"`
-	Base               string                  `json:"base"`
-	WorkDir            string                  `json:"work_dir"`
-	SeedPatchID        string                  `json:"seed_patch_id,omitempty"`
-	SeedReady          bool                    `json:"seed_ready,omitempty"`
-	ReadyGeneration    string                  `json:"ready_generation,omitempty"`
-	Released           bool                    `json:"released,omitempty"`
-	Candidate          *runner.SourceResult    `json:"candidate,omitempty"`
-	CandidateCommit    string                  `json:"candidate_commit,omitempty"`
-	CandidatePins      map[string]string       `json:"candidate_pins,omitempty"`
-	Capture            *captureReference       `json:"capture,omitempty"`
-	CleanupIntent      *workspaceCleanupIntent `json:"cleanup_intent,omitempty"`
-	SourcePreservation *sourcePreservation     `json:"source_preservation,omitempty"`
+	RunID              string                          `json:"run_id"`
+	Repository         string                          `json:"repository"`
+	Base               string                          `json:"base"`
+	WorkDir            string                          `json:"work_dir"`
+	SeedPatchID        string                          `json:"seed_patch_id,omitempty"`
+	SeedReady          bool                            `json:"seed_ready,omitempty"`
+	ReadyGeneration    string                          `json:"ready_generation,omitempty"`
+	Released           bool                            `json:"released,omitempty"`
+	Candidate          *runner.SourceResult            `json:"candidate,omitempty"`
+	CandidateCommit    string                          `json:"candidate_commit,omitempty"`
+	CandidatePins      map[string]string               `json:"candidate_pins,omitempty"`
+	Capture            *captureReference               `json:"capture,omitempty"`
+	CleanupIntent      *workspaceCleanupIntent         `json:"cleanup_intent,omitempty"`
+	SourcePreservation *sourcePreservation             `json:"source_preservation,omitempty"`
+	TaskSources        map[string]*taskWorkspaceRecord `json:"task_sources,omitempty"`
+	AdoptedSource      *adoptedSourceRecord            `json:"adopted_source,omitempty"`
 }
 
 func workspaceName(id string) string { return "jobs/" + id + ".workspace.json" }
@@ -131,7 +133,9 @@ func (w *Workspaces) Prepare(ctx context.Context, a runner.Assignment) (workspac
 	defer w.mu.Unlock()
 	seed := ""
 	if (a.Setup.Profile.Harness == "codex" && a.Setup.Profile.Access == "workspace-write") ||
-		(a.Setup.Profile.Harness == "command" && a.Setup.Profile.Access == "workspace-read") {
+		(a.Setup.Profile.Harness == "command" && a.Setup.Profile.Access == "workspace-read") ||
+		(a.Setup.Profile.Harness == "task-source" && (a.Setup.Profile.Mode == "seed" || a.Setup.Profile.Mode == "join")) ||
+		(a.Setup.Profile.Harness == "release" && a.Setup.Profile.Mode == "source-adopt") {
 		seed = a.Inputs["patch"].ArtifactID
 	}
 	r, e := w.load(a.RunID)
@@ -203,10 +207,7 @@ func (w *Workspaces) Prepare(ctx context.Context, a runner.Assignment) (workspac
 			return r, e
 		}
 	} else if r.SeedPatchID != "" && !r.SeedReady {
-		if w.read == nil {
-			return r, errors.New("workspace seed artifact reader is unavailable")
-		}
-		patch, e = w.read(ctx, r.SeedPatchID)
+		patch, e = w.readSeed(ctx, r, a.Limits.MaxArtifact)
 		if e != nil {
 			return r, e
 		}
@@ -568,11 +569,11 @@ func (w *Workspaces) retainedCandidate(ctx context.Context, r workspaceRecord, v
 		// or ready seed can still reconstruct the source without losing edits.
 		var patch []byte
 		if r.SeedPatchID != "" {
-			if !r.SeedReady || w.read == nil {
+			if !r.SeedReady {
 				return nil, 0, &runner.CleanupBlockedError{Reason: "workspace seed is not recoverable; preserve it"}
 			}
 			var err error
-			patch, err = w.read(ctx, r.SeedPatchID)
+			patch, err = w.readSeed(ctx, r, w.disk.Policy.MaxArtifact)
 			if err != nil {
 				if errors.Is(err, os.ErrNotExist) || errors.Is(err, runner.ErrNotFound) {
 					return nil, 0, &runner.CleanupBlockedError{Reason: "retained workspace seed is missing; preserve the workspace"}
