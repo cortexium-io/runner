@@ -41,7 +41,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	}
 	for _, ent := range entries {
 		switch ent.Name() {
-		case "process-core.sqlite", "process-core.sqlite-journal", "instance.lock", "owner.token", "jobs", "work", "artifacts", "logs", "native":
+		case "process-core.sqlite", "process-core.sqlite-journal", "instance.lock", "owner.token", "jobs", "work", "artifacts", "logs", "native", "forensics":
 		default:
 			return nil, fmt.Errorf("refusing non-process-core state directory: unexpected %s", ent.Name())
 		}

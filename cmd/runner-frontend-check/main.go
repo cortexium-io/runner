@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -23,6 +24,8 @@ import (
 type options struct{ node, modules, source, scratch, tests string }
 
 var errArtifactLimit = errors.New("frontend artifact exceeds its existing 16 MiB limit")
+
+const evidenceLimit = 8 << 20
 
 type proof struct {
 	Schema            int             `json:"schema"`
@@ -40,6 +43,34 @@ type proof struct {
 	ReportSHA256      string          `json:"report_sha256,omitempty"`
 	Files             []fileProof     `json:"files,omitempty"`
 	Vitest            json.RawMessage `json:"vitest,omitempty"`
+	VitestIncomplete  bool            `json:"vitest_incomplete,omitempty"`
+	Typecheck         *typecheckProof `json:"typecheck,omitempty"`
+}
+
+type typecheckProof struct {
+	Status            string           `json:"status"`
+	Node              string           `json:"node"`
+	Tool              string           `json:"tool"`
+	ToolSHA256        string           `json:"tool_sha256,omitempty"`
+	Version           string           `json:"version,omitempty"`
+	TypeScriptVersion string           `json:"typescript_version,omitempty"`
+	Project           string           `json:"project"`
+	ProjectSHA256     string           `json:"project_sha256,omitempty"`
+	ExitCode          *int             `json:"exit_code,omitempty"`
+	Complete          bool             `json:"complete"`
+	Output            string           `json:"output,omitempty"`
+	OutputBytes       int              `json:"output_bytes"`
+	OutputSHA256      string           `json:"output_sha256,omitempty"`
+	Diagnostics       []typeDiagnostic `json:"diagnostics,omitempty"`
+	Reason            string           `json:"reason,omitempty"`
+}
+
+type typeDiagnostic struct {
+	File    string `json:"file"`
+	Line    int    `json:"line"`
+	Column  int    `json:"column"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
 }
 
 type fileProof struct {
@@ -107,6 +138,12 @@ func selections(raw string) ([]string, error) {
 }
 
 func run(o options) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+	return runContext(ctx, o)
+}
+
+func runContext(ctx context.Context, o options) error {
 	tests, err := selections(o.tests)
 	if err != nil {
 		return err
@@ -128,8 +165,11 @@ func run(o options) error {
 				return err
 			}
 			outcome, p.Status = "blocked", "blocked"
-			p.Reason = "complete frontend evidence could not fit the existing 16 MiB artifact limit; raw report was not retained"
+			p.Reason = "complete frontend evidence could not fit the existing 16 MiB artifact limit; raw evidence was not retained"
 			p.Vitest = nil
+			if p.Typecheck != nil {
+				p.Typecheck.Output, p.Typecheck.Diagnostics, p.Typecheck.Complete = "", nil, false
+			}
 			if err = writeJSON(filepath.Join(o.scratch, "frontend-check.json"), p); err != nil {
 				return err
 			}
@@ -195,13 +235,15 @@ func run(o options) error {
 			return finish("blocked", "frontend dependency preparation: "+err.Error())
 		}
 	}
+	p.Typecheck = checkTypes(ctx, o, frontend, p.CanonicalFrontend)
+	if p.Typecheck.Status == "blocked" {
+		return finish("blocked", p.Typecheck.Reason)
+	}
 	report := filepath.Join(o.scratch, "vitest.json")
 	if _, e := os.Lstat(report); !errors.Is(e, os.ErrNotExist) {
 		return finish("blocked", "frontend report output already exists or cannot be identified; refusing stale evidence")
 	}
 	args := append([]string{filepath.Join(deps, "vitest", "vitest.mjs"), "run", "--reporter=json", "--outputFile", report}, tests...)
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
-	defer cancel()
 	command := exec.CommandContext(ctx, o.node, args...)
 	command.Dir = frontend
 	command.WaitDelay = 2 * time.Second
@@ -212,7 +254,7 @@ func run(o options) error {
 	err = command.Run()
 	p.Output = output.String()
 	if ctx.Err() != nil {
-		return errors.New("frontend check cancelled or deadline exceeded; execution must settle before replacement")
+		return finish("blocked", "frontend check cancelled or deadline exceeded; complete execution is not established")
 	}
 	var exit *exec.ExitError
 	executionProblem := ""
@@ -240,9 +282,10 @@ func run(o options) error {
 		_ = input.Close()
 		return finish("blocked", "frontend test report identity changed while opening")
 	}
-	data, readErr := io.ReadAll(io.LimitReader(input, (8<<20)+1))
+	remaining := evidenceLimit - p.Typecheck.OutputBytes
+	data, readErr := io.ReadAll(io.LimitReader(input, int64(remaining)+1))
 	readErr = errors.Join(readErr, input.Close())
-	if readErr != nil || len(data) > 8<<20 || !json.Valid(data) {
+	if readErr != nil || len(data) > remaining || !json.Valid(data) {
 		return finish("blocked", "frontend test report is unreadable, oversized or malformed; test completion is not established")
 	}
 	p.Vitest, p.ReportBytes = json.RawMessage(data), len(data)
@@ -251,7 +294,180 @@ func run(o options) error {
 		return finish("blocked", executionProblem)
 	}
 	outcome, reason := evaluate(&p, code)
+	if outcome != "blocked" && p.Typecheck.Status == "failed" {
+		if outcome == "changes_requested" {
+			return finish("changes_requested", p.Typecheck.Reason+"; "+reason)
+		}
+		return finish("changes_requested", p.Typecheck.Reason)
+	}
 	return finish(outcome, reason)
+}
+
+func checkTypes(ctx context.Context, o options, frontend, canonicalFrontend string) *typecheckProof {
+	p := &typecheckProof{
+		Status:  "blocked",
+		Node:    o.node,
+		Tool:    filepath.Join(o.modules, "vue-tsc", "bin", "vue-tsc.js"),
+		Project: "tsconfig.json",
+	}
+	blocked := func(reason string) *typecheckProof {
+		p.Complete = false
+		p.Reason = clip("frontend typecheck: "+reason, 1000)
+		return p
+	}
+	for _, pkg := range []struct {
+		name    string
+		version *string
+	}{
+		{name: "vue-tsc", version: &p.Version},
+		{name: "typescript", version: &p.TypeScriptVersion},
+	} {
+		data, err := runtimeFile(o.modules, filepath.Join(pkg.name, "package.json"), 64<<10)
+		var metadata struct{ Name, Version string }
+		if err != nil || json.Unmarshal(data, &metadata) != nil || metadata.Name != pkg.name || metadata.Version == "" {
+			return blocked("configured " + pkg.name + " metadata is missing or invalid")
+		}
+		*pkg.version = metadata.Version
+	}
+	tool, err := runtimeFile(o.modules, filepath.Join("vue-tsc", "bin", "vue-tsc.js"), evidenceLimit)
+	if err != nil {
+		return blocked("configured vue-tsc entry is missing or outside its immutable modules")
+	}
+	p.ToolSHA256 = digest(tool)
+	if _, err = runtimeFile(o.modules, filepath.Join("typescript", "lib", "typescript.js"), 16<<20); err != nil {
+		return blocked("configured TypeScript runtime is missing or outside its immutable modules")
+	}
+	project, err := runtimeFile(frontend, p.Project, evidenceLimit)
+	if err != nil {
+		return blocked("tsconfig.json is missing or not a regular owned project")
+	}
+	p.ProjectSHA256 = digest(project)
+	active, cancel := context.WithCancel(ctx)
+	defer cancel()
+	output := &completeOutput{limit: evidenceLimit, cancel: cancel}
+	command := exec.CommandContext(active, o.node, p.Tool, "--noEmit", "--pretty", "false", "--project", p.Project)
+	command.Dir = frontend
+	command.Env = append(os.Environ(), "CI=1", "NO_COLOR=1")
+	command.WaitDelay = 2 * time.Second
+	command.Stdout, command.Stderr = output, output
+	err = command.Run()
+	p.Output, p.OutputBytes = output.String(), output.Len()
+	p.OutputSHA256 = digest(output.Bytes())
+	if output.overflow {
+		return blocked("complete compiler output exceeded the existing 8 MiB raw evidence limit")
+	}
+	if !utf8.Valid(output.Bytes()) {
+		return blocked("compiler output is not valid UTF-8; complete diagnostics are not established")
+	}
+	if ctx.Err() != nil {
+		return blocked("cancelled or deadline exceeded; complete compiler execution is not established")
+	}
+	var exit *exec.ExitError
+	code := 0
+	if err != nil {
+		if !errors.As(err, &exit) || exit.ExitCode() < 0 {
+			return blocked(fmt.Sprintf("configured compiler did not complete: %v", err))
+		}
+		code = exit.ExitCode()
+	}
+	p.ExitCode, p.Complete = &code, true
+	if code == 0 && strings.TrimSpace(p.Output) == "" {
+		p.Status, p.Reason = "passed", "Configured Vue/TypeScript noEmit check passed"
+		return p
+	}
+	if code != 1 && code != 2 {
+		return blocked("compiler exit and diagnostics do not establish a source failure")
+	}
+	pattern := regexp.MustCompile(`^(.+)\(([0-9]+),([0-9]+)\): error TS([0-9]+): (.*)$`)
+	for _, line := range strings.Split(p.Output, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		match := pattern.FindStringSubmatch(line)
+		if match == nil {
+			if len(p.Diagnostics) > 0 && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) {
+				continue // Complete continuation text is retained in Output.
+			}
+			return blocked("compiler output includes an unestablished runtime or project diagnostic")
+		}
+		path := match[1]
+		if !filepath.IsAbs(path) {
+			if !fs.ValidPath(filepath.ToSlash(path)) {
+				return blocked("compiler diagnostic is outside the owned frontend")
+			}
+			path = filepath.Join(frontend, path)
+		}
+		canonical, err := reportedIdentity(canonicalFrontend, path)
+		if err != nil {
+			return blocked("compiler diagnostic is not a regular owned frontend file")
+		}
+		info, statErr := os.Stat(canonical)
+		ext := filepath.Ext(canonical)
+		if statErr != nil || !info.Mode().IsRegular() || ext != ".ts" && ext != ".tsx" && ext != ".vue" {
+			return blocked("compiler diagnostic is not a regular owned TypeScript or Vue source")
+		}
+		lineNumber, lineErr := strconv.Atoi(match[2])
+		column, columnErr := strconv.Atoi(match[3])
+		code, codeErr := strconv.Atoi(match[4])
+		if lineErr != nil || columnErr != nil || codeErr != nil || lineNumber < 1 || column < 1 || code < 1 || code == 2307 || code == 2688 || code == 6053 {
+			return blocked("compiler diagnostic concerns missing input/dependencies or invalid location; source failure is not established")
+		}
+		p.Diagnostics = append(p.Diagnostics, typeDiagnostic{
+			File:    canonical,
+			Line:    lineNumber,
+			Column:  column,
+			Code:    code,
+			Message: clip(match[5], 500),
+		})
+	}
+	if len(p.Diagnostics) == 0 {
+		return blocked("compiler returned no conclusive source diagnostics")
+	}
+	first := p.Diagnostics[0]
+	rel, _ := filepath.Rel(canonicalFrontend, first.File)
+	p.Status = "failed"
+	p.Reason = clip(fmt.Sprintf("%s:%d:%d TS%d: %s", filepath.ToSlash(rel), first.Line, first.Column, first.Code, first.Message), 1000)
+	return p
+}
+
+func runtimeFile(root, name string, limit int64) ([]byte, error) {
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, err
+	}
+	canonical, err := reportedIdentity(canonicalRoot, filepath.Join(root, name))
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(canonical)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > limit {
+		return nil, errors.New("runtime or project file is missing, not regular or oversized")
+	}
+	return os.ReadFile(canonical)
+}
+
+func digest(data []byte) string { return fmt.Sprintf("%x", sha256.Sum256(data)) }
+
+type completeOutput struct {
+	bytes.Buffer
+	limit    int
+	overflow bool
+	cancel   context.CancelFunc
+}
+
+func (b *completeOutput) Write(data []byte) (int, error) {
+	if len(data) > b.limit-b.Len() {
+		n, _ := b.Buffer.Write(data[:b.limit-b.Len()])
+		b.overflow = true
+		b.cancel()
+		return n, errors.New("raw compiler evidence limit exceeded")
+	}
+	return b.Buffer.Write(data)
+}
+
+func (b *completeOutput) ReadFrom(r io.Reader) (int64, error) {
+	return io.Copy(struct{ io.Writer }{b}, r)
 }
 
 func evaluate(p *proof, exitCode int) (string, string) {
@@ -275,6 +491,9 @@ func evaluate(p *proof, exitCode int) (string, string) {
 	}
 	seen := make(map[string]bool, len(selected))
 	problem, assertionFailure := "", ""
+	transformFailures := 0
+	compilerFailure := p.Typecheck != nil && p.Typecheck.Complete && p.Typecheck.Status == "failed" && len(p.Typecheck.Diagnostics) > 0
+	normalFailure := exitCode == 1 && !result.Success
 	passed, failed, skipped, assertions := 0, 0, 0, 0
 	for _, file := range result.Results {
 		canonical, identityErr := reportedIdentity(p.CanonicalFrontend, file.Name)
@@ -311,6 +530,14 @@ func evaluate(p *proof, exitCode int) (string, string) {
 		}
 		seen[canonical] = true
 		f.Assertions = len(file.Assertions)
+		sourceTransform := file.Status == "failed" && len(file.Assertions) == 0 && strings.HasPrefix(strings.TrimSpace(file.Message), "Transform failed with ")
+		if compilerFailure && normalFailure && sourceTransform {
+			// The compiler independently proved an owned-source failure. Keep
+			// suite loading explicitly incomplete, without inventing assertions.
+			transformFailures++
+			f.Diagnostic = "assertions did not load: " + clip(file.Message, 400)
+			continue
+		}
 		if len(file.Assertions) == 0 || file.Status != "passed" && file.Status != "failed" {
 			f.Diagnostic = "selected file has no assertions or an invalid completion status: " + clip(file.Message, 400)
 			if problem == "" {
@@ -369,6 +596,13 @@ func evaluate(p *proof, exitCode int) (string, string) {
 	}
 	if problem != "" {
 		return "blocked", problem
+	}
+	if transformFailures > 0 {
+		p.VitestIncomplete = true
+		if assertions != result.Total || passed != result.Passed || failed != result.Failed || skipped != result.Pending+result.Todo || result.Total != passed+failed+skipped || skipped != 0 {
+			return "blocked", "frontend transform failure has inconsistent assertion counts or skipped tests"
+		}
+		return "changes_requested", "source transform prevented selected assertions; complete compiler and Vitest diagnostics retained"
 	}
 	if result.Total == 0 || assertions != result.Total || passed != result.Passed || failed != result.Failed || skipped != result.Pending+result.Todo || result.Total != passed+failed+skipped {
 		return "blocked", "frontend report assertion counts do not establish complete selected-file execution"

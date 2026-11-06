@@ -78,6 +78,16 @@ input contract is unchanged.
 Scratch preparation includes explicitly imported repository JSON fixtures from
 `docs/` and `testdata/`. It rejects escaped paths and symlinks, and copies no
 unrelated fixture tree. A missing fixture blocks execution with its diagnostic.
+The configured Node also runs the immutable `vue-tsc/bin/vue-tsc.js` with
+`--noEmit --pretty false --project tsconfig.json`. TypeScript and scoped Vitest
+share the existing check deadline. A conclusive type error still permits Vitest
+collection so correction receives both complete diagnostics in the same artifact.
+An authenticated compiler failure plus a matching source-transform failure may
+request correction with `vitest_incomplete` and no invented assertion execution.
+Unexpected, omitted or duplicate files, inconsistent counts and runtime gaps
+still block; readiness still requires both checks to pass completely.
+Missing tools/configuration or incomplete execution blocks acceptance. This adds
+no Vite, SSR or prerender build to the scoped check.
 
 An initial source check supplies real evidence before coding. Corrections and
 review receive the complete bounded Vitest report, including canonical owned-file
@@ -93,6 +103,14 @@ unreviewed mobile patch. A read-only measurement with `benchmark: "none"` restor
 its seed before readiness. The initial frontend check then feeds the owner, and
 later corrections receive the latest full report. Checks, independent review,
 one publication and protected release follow under the existing limits.
+
+Frontend and Nonogram research correction routes allow three returns to the owner
+per source-feedback gate, still within 35 total attempts. An explicitly approved
+`recover-corrections` action can grant that bounded policy to an exhausted older
+run without changing its frozen definition or resetting its cumulative counters.
+It resumes from the saved failed check result, preserves the same draft PR and
+requires fresh downstream proof. It cannot bypass protected approvals, unknown
+effects, source ownership checks or the total attempt ceiling.
 
 `research-nonogram.json` is the evidence-only reproducibility process. It keeps
 the original benchmark as a baseline and uses a separate diagnostic collector

@@ -36,7 +36,7 @@ func run(ctx context.Context, args []string) error {
 		return execution.RunCommandWorker(ctx, args[1])
 	}
 	if len(args) == 0 {
-		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|decide|wait|config-set")
+		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|recover-corrections|decide|wait|config-set")
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -53,7 +53,10 @@ func run(ctx context.Context, args []string) error {
 	decisionID := fs.String("decision", "", "pending decision ID")
 	choice := fs.String("choice", "", "explicit approve or reject choice")
 	wait := fs.Bool("wait", false, "wait for completion/Waiting with result")
-	requestID := fs.String("request-id", "", "idempotency key; generated and printed before start/retry if omitted")
+	requestID := fs.String("request-id", "", "idempotency key; generated and printed before a write if omitted")
+	attemptID := fs.String("attempt", "", "exact saved failed source-correction attempt for recover-corrections")
+	maxUses := fs.Int("max-uses", 0, "authorized total source-correction uses; recover-corrections requires 3")
+	preserveSource := fs.Bool("preserve-source", false, "preserve a verified owned partial checkout as recovery evidence before restoring its saved candidate")
 	profile := fs.String("profile", "", "named profile for authorized retry")
 	extra := fs.Int("extra-attempts", 0, "additional explicitly authorized retry allowance")
 	cleanupOnly := fs.Bool("cleanup-only", false, "retry retained terminal cleanup without execution or allowance changes")
@@ -68,6 +71,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	if *data == "" {
 		return errors.New("--data is required")
+	}
+	if command == "recover-corrections" && (*runID == "" || *attemptID == "" || *maxUses != 3 || *profile != "" || *extra != 0 || *cleanupOnly) {
+		return errors.New("recover-corrections requires --run, --attempt and --max-uses 3; retry allowances/profiles are separate")
 	}
 	root, e := filepath.Abs(*data)
 	if e != nil {
@@ -136,6 +142,13 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
 		method = "runner_retry"
 		a = runner.RetryRequest{RequestID: *requestID, RunID: *runID, Profile: *profile, ExtraAttempts: *extra, CleanupOnly: *cleanupOnly}
+	case "recover-corrections":
+		if *requestID == "" {
+			*requestID = rand.Text()
+		}
+		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
+		method = "runner_recover_corrections"
+		a = runner.RecoverCorrectionsRequest{RequestID: *requestID, RunID: *runID, AttemptID: *attemptID, MaxUses: *maxUses, PreserveSource: *preserveSource}
 	case "wait":
 		after := int64(0)
 		for {

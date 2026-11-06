@@ -24,7 +24,7 @@ type Disk struct {
 
 func OpenDisk(root string, p StoragePolicy) (*Disk, error) {
 	d := &Disk{Root: root, Policy: p}
-	for _, dir := range []string{"jobs", "work", "artifacts", "logs", "native"} {
+	for _, dir := range []string{"jobs", "work", "artifacts", "logs", "native", "forensics"} {
 		path := filepath.Join(root, dir)
 		if e := os.MkdirAll(path, 0700); e != nil {
 			return nil, e
@@ -49,29 +49,30 @@ func (d *Disk) Refresh() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var total, native int64
-	for _, dir := range []string{"jobs", "work", "artifacts", "logs", "native"} {
+	for _, dir := range []string{"jobs", "work", "artifacts", "logs", "native", "forensics"} {
 		e := filepath.WalkDir(filepath.Join(d.Root, dir), func(path string, ent fs.DirEntry, err error) error {
 			if err != nil {
-				if (dir == "native" || dir == "work") && errors.Is(err, os.ErrNotExist) {
+				if (dir == "native" || dir == "work" || dir == "forensics") && errors.Is(err, os.ErrNotExist) {
 					return nil
 				}
 				return err
 			}
 			if ent.Type()&os.ModeSymlink != 0 {
 				nativeLink := dir == "native" && path != filepath.Join(d.Root, "native")
-				if !nativeLink && dir != "work" && path != filepath.Join(d.Root, "jobs", "codex.sock") {
+				forensicLink := dir == "forensics" && path != filepath.Join(d.Root, "forensics")
+				if !nativeLink && !forensicLink && dir != "work" && path != filepath.Join(d.Root, "jobs", "codex.sock") {
 					return fmt.Errorf("managed path is a symlink: %s", path)
 				}
 			}
 			// The instance lock is held before opening Disk. Incomplete atomic
 			// replacements are private writer scratch, never retained outputs.
-			if dir != "native" && dir != "work" && !ent.IsDir() && strings.HasPrefix(ent.Name(), ".write-") {
+			if dir != "native" && dir != "work" && dir != "forensics" && !ent.IsDir() && strings.HasPrefix(ent.Name(), ".write-") {
 				return os.Remove(path)
 			}
 			if !ent.IsDir() {
 				i, e := ent.Info()
 				if e != nil {
-					if (dir == "native" || dir == "work") && errors.Is(e, os.ErrNotExist) {
+					if (dir == "native" || dir == "work" || dir == "forensics") && errors.Is(e, os.ErrNotExist) {
 						return nil
 					}
 					return e
@@ -96,7 +97,7 @@ func (d *Disk) Refresh() error {
 func (d *Disk) NativeUsed() int64 { d.mu.Lock(); defer d.mu.Unlock(); return d.native }
 func (d *Disk) NativePeak() int64 { d.mu.Lock(); defer d.mu.Unlock(); return d.nativePeak }
 func (d *Disk) path(name string) (string, error) {
-	if !fs.ValidPath(name) || !(strings.HasPrefix(name, "jobs/") || strings.HasPrefix(name, "work/") || strings.HasPrefix(name, "artifacts/") || strings.HasPrefix(name, "logs/") || strings.HasPrefix(name, "native/")) {
+	if !fs.ValidPath(name) || !(strings.HasPrefix(name, "jobs/") || strings.HasPrefix(name, "work/") || strings.HasPrefix(name, "artifacts/") || strings.HasPrefix(name, "logs/") || strings.HasPrefix(name, "native/") || strings.HasPrefix(name, "forensics/")) {
 		return "", errors.New("invalid managed path")
 	}
 	path := filepath.Join(d.Root, filepath.FromSlash(name))

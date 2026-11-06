@@ -31,6 +31,40 @@ maintenance decision; it never grants another product attempt.
 Missing process/capability is a blocker, never permission for external execution.
 Explicit user requests to investigate or maintain Runner itself are separate work.
 
+An explicitly approved `runner_recover_corrections` operator action can recover
+an exhausted source-correction route in the same run. Bind the request to the
+current failed attempt and set `max_uses: 3` for at most three total uses of each
+eligible check/review/qualification correction route. This is not three extra
+uses. Runner records an idempotent audit grant beside the frozen definition and
+routes the saved validated `changes_requested` result into a new owner visit;
+it does not repeat the unchanged failed check. Original attempts and evidence
+remain in history, while fresh downstream checks, review and qualification are
+required. Same-run publication advances the existing owned PR with its normal
+head comparison.
+
+This recovery requires settled execution and the retained candidate's normal
+ownership/source validation. Cleanup normally must be complete. An explicitly
+authorized `--preserve-source` recovery can preserve an incomplete owned checkout
+in private Runner forensics before reconstructing the saved candidate. It records
+the preservation receipt, accepts none of that checkout's unexplained changes and
+refuses ambiguous ownership, active execution or an uncertain move. It cannot
+override approvals, unknown external effects, execution failures or the total
+attempt ceiling. A restricted intake must not expose or call it. The CLI
+equivalent is:
+
+```sh
+cortexium-runner recover-corrections --data STATE --run RUN --attempt ATTEMPT \
+  --max-uses 3 --request-id AUTHORIZED-STABLE-ID
+```
+
+Preserved checkouts live under `STATE/forensics/RUN/ATTEMPT/source`; their sibling
+manifest binds the captured patch hash and ownership identity. These files and
+links count toward the existing storage limit, are never followed as candidate
+source, and remain until separately authorized cleanup. Routine workspace and
+temporary-file cleanup does not purge them. New workspace cleanup records a
+durable deletion intent before removal, so a canceled cleanup can reconcile its
+own partial deletion without treating unrelated changes as disposable.
+
 Use a fresh short intake with only `runner_run`, `runner_result` and
 `runner_status` exposed through the existing native Codex MCP configuration.
 Disable shell, editing, browsing, subagents, apps, skill/plugin discovery and
@@ -92,7 +126,11 @@ and WebKit's public native touch-drag limitation remain explicit in the report.
 Frontend delivery checks the admitted source before the first coding visit and
 supplies the complete bounded check artifact to both correction and review.
 The artifact retains the actual Vitest report, file identities and assertion
-diagnostics. Missing or inconsistent execution evidence blocks the process;
+diagnostics, together with the existing project's TypeScript check in owned
+scratch. A complete compiler failure and assertion failure are retained together
+for one correction. A proved compiler error can request correction when matched
+test suites cannot transform; their assertions remain explicitly unexecuted.
+Missing or inconsistent verifier identity/runtime evidence blocks the process;
 conclusive assertion failures use its configured correction route. A short text
 summary is not a replacement for the report. Scratch preparation copies only
 explicitly imported JSON fixtures from the repository's `docs/` and `testdata/`
@@ -101,6 +139,9 @@ trees wholesale or follow fixture symlinks. Select `deliver-retained-frontend`
 with its original base and `patch` artifact to continue an unreviewed mobile
 candidate. It restores and checks that source before another coding visit, keeps
 the failed run intact and uses the same protected release suffix.
+Frontend and Nonogram research variants permit three uses of each configured
+source-correction route under the existing total attempt ceiling. Benchmark
+continuation and protected approval policies remain separately bounded.
 
 Select `research-nonogram` for the separate reproducibility investigation. It
 measures the committed baseline, prepares test-only evidence collection, runs

@@ -79,6 +79,10 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		r, e := c.Retry(in)
 		return summary(r), e
 	})
+	add(s, "runner_recover_corrections", "Owner-authorized recovery of an exhausted saved source rejection. max_uses must be three total uses per eligible source-correction route. Optional preserve_source explicitly preserves a verified owned partial checkout as evidence; default recovery only validates settled source. Frozen definitions, attempts, total budget and protected approvals are unchanged. Routes the saved result without repeating its check.", func(ctx context.Context, in runner.RecoverCorrectionsRequest) (any, error) {
+		r, e := c.RecoverCorrections(in)
+		return summary(r), e
+	})
 	add(s, "runner_decide", "Approve or reject one saved decision using its exact decision_id. Does not grant extra attempts or approve a different candidate.", func(ctx context.Context, in runner.DecisionRequest) (any, error) {
 		r, e := c.Decide(in)
 		return summary(r), e

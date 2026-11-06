@@ -28,18 +28,20 @@ type Workspaces struct {
 	nativeLimit   runner.Bytes
 }
 type workspaceRecord struct {
-	RunID           string               `json:"run_id"`
-	Repository      string               `json:"repository"`
-	Base            string               `json:"base"`
-	WorkDir         string               `json:"work_dir"`
-	SeedPatchID     string               `json:"seed_patch_id,omitempty"`
-	SeedReady       bool                 `json:"seed_ready,omitempty"`
-	ReadyGeneration string               `json:"ready_generation,omitempty"`
-	Released        bool                 `json:"released,omitempty"`
-	Candidate       *runner.SourceResult `json:"candidate,omitempty"`
-	CandidateCommit string               `json:"candidate_commit,omitempty"`
-	CandidatePins   map[string]string    `json:"candidate_pins,omitempty"`
-	Capture         *captureReference    `json:"capture,omitempty"`
+	RunID              string                  `json:"run_id"`
+	Repository         string                  `json:"repository"`
+	Base               string                  `json:"base"`
+	WorkDir            string                  `json:"work_dir"`
+	SeedPatchID        string                  `json:"seed_patch_id,omitempty"`
+	SeedReady          bool                    `json:"seed_ready,omitempty"`
+	ReadyGeneration    string                  `json:"ready_generation,omitempty"`
+	Released           bool                    `json:"released,omitempty"`
+	Candidate          *runner.SourceResult    `json:"candidate,omitempty"`
+	CandidateCommit    string                  `json:"candidate_commit,omitempty"`
+	CandidatePins      map[string]string       `json:"candidate_pins,omitempty"`
+	Capture            *captureReference       `json:"capture,omitempty"`
+	CleanupIntent      *workspaceCleanupIntent `json:"cleanup_intent,omitempty"`
+	SourcePreservation *sourcePreservation     `json:"source_preservation,omitempty"`
 }
 
 func workspaceName(id string) string { return "jobs/" + id + ".workspace.json" }
@@ -162,6 +164,9 @@ func (w *Workspaces) Prepare(ctx context.Context, a runner.Assignment) (workspac
 	} else if e != nil {
 		return r, e
 	}
+	if r.CleanupIntent != nil || r.SourcePreservation != nil && !r.SourcePreservation.Complete {
+		return r, errors.New("workspace cleanup or source preservation is unresolved; reconcile its owned operation before preparation")
+	}
 	// Released stays durable until restoration is ready. An interrupted restore
 	// may rebuild only its owned pre-execution checkout; ready edits are untouched.
 	restoring := r.Released
@@ -233,6 +238,11 @@ func (w *Workspaces) Prepare(ctx context.Context, a runner.Assignment) (workspac
 	}
 	if e = w.verifyWorkspace(ctx, r); e != nil {
 		return r, e
+	}
+	if r.Candidate != nil && !restoring && (a.Setup.Profile.Harness == "codex" || a.Setup.Profile.Harness == "command") {
+		if _, _, e = w.retainedCandidate(ctx, r, true); e != nil {
+			return r, e
+		}
 	}
 	if restoring || r.Candidate == nil && r.ReadyGeneration == "" {
 		if e = w.settleInitialization(ctx, r, true); e != nil {
@@ -586,6 +596,9 @@ func (w *Workspaces) retainedCandidate(ctx context.Context, r workspaceRecord, v
 		}
 		return nil, 0, e
 	}
+	if r.Capture != nil && r.Capture.AttemptID == c.AttemptID && r.Capture.PatchSHA != "" && captureDigest(patch) != r.Capture.PatchSHA {
+		return nil, 0, &runner.CleanupBlockedError{Reason: "retained candidate patch differs from its committed capture; preserve the workspace"}
+	}
 	sourceBytes, e := w.validateSeed(ctx, r, patch, w.disk.Policy.MaxArtifact, verifyCheckout)
 	return patch, sourceBytes, e
 }
@@ -603,6 +616,26 @@ func (w *Workspaces) releaseRun(ctx context.Context, id string, preserveCandidat
 	if e != nil {
 		return e
 	}
+	if r.SourcePreservation != nil && !r.SourcePreservation.Complete {
+		return cleanupBlocked("workspace source preservation must settle before cleanup")
+	}
+	releaseCapture, e := w.cleanupQuiescent(r)
+	if e != nil {
+		return e
+	}
+	defer releaseCapture()
+	lease, e := w.lockCleanup(r)
+	if e != nil {
+		return e
+	}
+	defer lease.Close()
+	ctx = context.WithValue(ctx, captureLeaseKey{}, lease)
+	if r.CleanupIntent != nil {
+		if preserveCandidate && r.CleanupIntent.AllowIgnored {
+			return cleanupBlocked("workspace cleanup mode changed after its deletion intent")
+		}
+		return w.resumeCleanup(ctx, r)
+	}
 	if r.Released {
 		// A restore interrupted before readiness still has Released set. No
 		// execution was admitted into that disposable preparation checkout.
@@ -618,6 +651,8 @@ func (w *Workspaces) releaseRun(ctx context.Context, id string, preserveCandidat
 		}
 		return w.disk.Refresh()
 	}
+	var retainedPatch []byte
+	validated := false
 	if preserveCandidate {
 		if _, e = os.Lstat(r.WorkDir); e == nil {
 			if e = w.verifyWorkspace(ctx, r); e != nil {
@@ -630,9 +665,10 @@ func (w *Workspaces) releaseRun(ctx context.Context, id string, preserveCandidat
 			// Keep the saved base as fresh preparation for an explicit Retry.
 			return w.rebuildSeedWorkspace(ctx, r)
 		}
-		if _, _, e = w.retainedCandidate(ctx, r, e == nil); e != nil {
+		if retainedPatch, _, e = w.retainedCandidate(ctx, r, e == nil); e != nil {
 			return e
 		}
+		validated = true
 	}
 	if r.Candidate != nil && r.Candidate.PatchID != "" {
 		if _, e = w.disk.ArtifactSize(r.Candidate.PatchID); e != nil {
@@ -646,9 +682,25 @@ func (w *Workspaces) releaseRun(ctx context.Context, id string, preserveCandidat
 		if e = w.settleInitialization(ctx, r, false); e != nil {
 			return e
 		}
-		if _, e = git(ctx, r.Repository, nil, nil, 4096, "worktree", "remove", "--force", r.WorkDir); e != nil {
+		if !validated {
+			if retainedPatch, _, e = w.retainedCandidate(ctx, r, false); e != nil {
+				return e
+			}
+		}
+		r.CleanupIntent, e = w.cleanupIndex(ctx, r, retainedPatch, validated)
+		if e != nil {
 			return e
 		}
+		r.CleanupIntent.AllowIgnored = !preserveCandidate
+		if !preserveCandidate {
+			if e = w.checkCleanupSource(ctx, r, false); e != nil {
+				return e
+			}
+		}
+		if e = w.save(r); e != nil {
+			return e
+		}
+		return w.resumeCleanup(ctx, r)
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return e
 	}

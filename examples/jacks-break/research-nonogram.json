@@ -122,7 +122,7 @@
         },
         "changes_requested": {
           "next": "owner",
-          "max_times": 1
+          "max_times": 3
         },
         "blocked": {
           "next": "$fail"
@@ -195,7 +195,7 @@
         },
         "changes_requested": {
           "next": "owner",
-          "max_times": 1
+          "max_times": 3
         },
         "blocked": {
           "next": "$fail"

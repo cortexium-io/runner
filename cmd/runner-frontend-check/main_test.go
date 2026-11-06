@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -114,7 +116,7 @@ func TestCheckerRequiresExecutedUnskippedAssertions(t *testing.T) {
 				encoded = []byte(`{"success":`)
 			}
 			node := filepath.Join(root, "node")
-			script := "#!/bin/sh\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --outputFile ]; then shift; target=$1; fi; shift; done\ncat > \"$target\" <<'RUNNER_REPORT'\n" + string(encoded) + "\nRUNNER_REPORT\n"
+			script := "#!/bin/sh\ncase \"$1\" in */vue-tsc/bin/vue-tsc.js) exit 0;; esac\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --outputFile ]; then shift; target=$1; fi; shift; done\ncat > \"$target\" <<'RUNNER_REPORT'\n" + string(encoded) + "\nRUNNER_REPORT\n"
 			if scenario == "missing report" {
 				script = "#!/bin/sh\nexit 0\n"
 			}
@@ -186,6 +188,23 @@ func frontendFixture(t *testing.T, root string) (source, scratch, modules string
 			t.Fatal(err)
 		}
 	}
+	if err := os.WriteFile(filepath.Join(source, "frontend", "tsconfig.json"), []byte(`{"compilerOptions":{"target":"ES2022","module":"ESNext","moduleResolution":"Bundler","strict":true,"resolveJsonModule":true,"skipLibCheck":true,"types":["node"]},"include":["src/**/*.ts","src/**/*.vue"]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string]string{
+		"vue-tsc/package.json":         `{"name":"vue-tsc","version":"3.3.11"}`,
+		"vue-tsc/bin/vue-tsc.js":       "// fixture compiler entry\n",
+		"typescript/package.json":      `{"name":"typescript","version":"6.0.3"}`,
+		"typescript/lib/typescript.js": "// fixture TypeScript entry\n",
+	} {
+		path := filepath.Join(modules, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return source, scratch, modules
 }
 
@@ -223,6 +242,10 @@ func TestConfiguredVitestRetainsRealReportAndCanonicalIdentity(t *testing.T) {
 		{name: "omitted selected file", tests: `["src/pass.test.ts","src/omitted.test.ts"]`, outcome: "blocked"},
 		{name: "unexpected substring match", tests: `["src/collision.test.ts"]`, outcome: "blocked"},
 		{name: "imported docs and testdata", tests: `["src/nested/fixture-import.test.ts"]`, outcome: "ready"},
+		{name: "runtime passes but TypeScript fails", tests: `["src/pass.test.ts"]`, outcome: "changes_requested"},
+		{name: "Vue source type failure", tests: `["src/pass.test.ts"]`, outcome: "changes_requested"},
+		{name: "combined compiler and assertion failure", tests: `["src/fail.test.ts"]`, outcome: "changes_requested"},
+		{name: "compiler syntax prevents suite loading", tests: `["src/pass.test.ts"]`, outcome: "changes_requested"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -248,6 +271,32 @@ func TestConfiguredVitestRetainsRealReportAndCanonicalIdentity(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+			}
+			if scenario.name == "runtime passes but TypeScript fails" || scenario.name == "combined compiler and assertion failure" {
+				path := filepath.Join(source, "frontend", "src", "board.test.ts")
+				if err := os.WriteFile(path, []byte("export const source: string = 42\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scenario.name == "Vue source type failure" {
+				path := filepath.Join(source, "frontend", "src", "TypeFixture.vue")
+				if err := os.WriteFile(path, []byte("<script setup lang=\"ts\">\nconst label: string = 42\n</script>\n<template>{{ label }}</template>\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scenario.name == "compiler syntax prevents suite loading" {
+				path := filepath.Join(source, "frontend", "src", "pass.test.ts")
+				if err := os.WriteFile(path, []byte("import { expect, test } from 'vitest'\nconst value: = 1\ntest('syntax prevents execution', () => expect(value).toBe(1))\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			compilerBefore, err := os.ReadFile(filepath.Join(modules, "vue-tsc", "bin", "vue-tsc.js"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			projectBefore, err := os.ReadFile(filepath.Join(source, "frontend", "tsconfig.json"))
+			if err != nil {
+				t.Fatal(err)
 			}
 			if err := run(options{node: node, modules: modules, source: source, scratch: scratch, tests: scenario.tests}); err != nil {
 				t.Fatal(err)
@@ -310,10 +359,10 @@ func TestConfiguredVitestRetainsRealReportAndCanonicalIdentity(t *testing.T) {
 					}
 				}
 			}
-			if scenario.outcome == "changes_requested" && (!strings.Contains(retained.Reason, "src/fail.test.ts") || !strings.Contains(retained.Reason, "retained fixture assertion")) {
+			if scenario.name == "assertion failure" && (!strings.Contains(retained.Reason, "src/fail.test.ts") || !strings.Contains(retained.Reason, "retained fixture assertion")) {
 				t.Fatal("real assertion diagnostic was lost", retained.Reason)
 			}
-			if scenario.outcome == "changes_requested" {
+			if scenario.name == "assertion failure" {
 				var report vitestReport
 				if json.Unmarshal(retained.Vitest, &report) != nil || len(report.Results) != 1 || len(report.Results[0].Assertions) != 1 {
 					t.Fatal("real assertion report was lost")
@@ -323,7 +372,92 @@ func TestConfiguredVitestRetainsRealReportAndCanonicalIdentity(t *testing.T) {
 					t.Fatal("long real assertion message was truncated or replaced by its summary")
 				}
 			}
+			if retained.Typecheck == nil || !retained.Typecheck.Complete || retained.Typecheck.Version != "3.3.11" || retained.Typecheck.TypeScriptVersion != "6.0.3" {
+				t.Fatal("pinned compiler receipt is absent or incomplete", retained.Typecheck)
+			}
+			if scenario.name == "compiler syntax prevents suite loading" {
+				if retained.Typecheck.Status != "failed" || !strings.Contains(retained.Typecheck.Output, "TS1110") || !retained.VitestIncomplete || retained.Executed != 0 || retained.Failed != 0 {
+					t.Fatal("compiler failure invented assertion execution", retained)
+				}
+			} else if strings.Contains(scenario.name, "TypeScript fails") || scenario.name == "Vue source type failure" || scenario.name == "combined compiler and assertion failure" {
+				if retained.Typecheck.Status != "failed" || !strings.Contains(retained.Typecheck.Output, "TS2322") || len(retained.Typecheck.Diagnostics) == 0 {
+					t.Fatal("conclusive TS2322 was not retained", retained.Typecheck)
+				}
+				if scenario.name == "combined compiler and assertion failure" && retained.Failed != 1 || scenario.name != "combined compiler and assertion failure" && retained.Failed != 0 {
+					t.Fatal("both independent compiler and Vitest results were not retained", retained.Failed)
+				}
+			} else if retained.Typecheck.Status != "passed" {
+				t.Fatal("valid project did not pass Vue/TypeScript", retained.Typecheck)
+			}
+			compilerAfter, compilerErr := os.ReadFile(filepath.Join(modules, "vue-tsc", "bin", "vue-tsc.js"))
+			projectAfter, projectErr := os.ReadFile(filepath.Join(source, "frontend", "tsconfig.json"))
+			if compilerErr != nil || projectErr != nil || !bytes.Equal(compilerBefore, compilerAfter) || !bytes.Equal(projectBefore, projectAfter) {
+				t.Fatal("typecheck changed source configuration or immutable runtime", compilerErr, projectErr)
+			}
 			t.Logf("Node=%s scenario=%s outcome=%s raw_bytes=%d raw_sha256=%s frontend=%s canonical=%s", strings.TrimSpace(string(version)), scenario.name, domain["outcome"], len(raw), retained.ReportSHA256, retained.Frontend, retained.CanonicalFrontend)
+		})
+	}
+}
+
+func TestCompilerFailureDoesNotBypassVitestIdentityOrRuntimeEvidence(t *testing.T) {
+	for _, scenario := range []string{"transform", "runtime", "duplicate", "unexpected", "omitted", "counts", "skipped", "compiler passed"} {
+		t.Run(scenario, func(t *testing.T) {
+			root := t.TempDir()
+			source, scratch, modules := frontendFixture(t, root)
+			frontend := filepath.Join(scratch, "source", "frontend")
+			load := vitestFile{Name: filepath.Join(frontend, "src", "board.test.ts"), Status: "failed", Message: "Transform failed with 1 error: source syntax"}
+			other := vitestFile{Name: filepath.Join(frontend, "src", "other.test.ts"), Status: "passed", Assertions: []vitestAssertion{{Status: "passed", FullName: "other source still executes"}}}
+			report := vitestReport{Total: 1, Passed: 1, Results: []vitestFile{load, other}}
+			want := "blocked"
+			switch scenario {
+			case "transform":
+				want = "changes_requested"
+			case "runtime":
+				report.Results[0].Message = "Error: verifier runtime dependency unavailable"
+			case "duplicate":
+				report.Results = append(report.Results, load)
+			case "unexpected":
+				report.Results[0].Name = filepath.Join(root, "board.test.ts")
+				if err := os.WriteFile(report.Results[0].Name, []byte("export {}"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "omitted":
+				report.Results = report.Results[:1]
+				report.Total, report.Passed = 0, 0
+			case "counts":
+				report.Total = 2
+			case "skipped":
+				report.Passed, report.Pending = 0, 1
+				report.Results[1].Assertions[0].Status = "pending"
+			}
+			encoded, err := json.Marshal(report)
+			if err != nil {
+				t.Fatal(err)
+			}
+			compiler := "printf '%s\\n' 'src/board.test.ts(1,14): error TS1110: Type expected.'; exit 2"
+			if scenario == "compiler passed" {
+				compiler = "exit 0"
+			}
+			script := "#!/bin/sh\ncase \"$1\" in */vue-tsc/bin/vue-tsc.js) " + compiler + ";; esac\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --outputFile ]; then shift; target=$1; fi; shift; done\ncat > \"$target\" <<'RUNNER_REPORT'\n" + string(encoded) + "\nRUNNER_REPORT\nexit 1\n"
+			node := filepath.Join(root, "node")
+			if err := os.WriteFile(node, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := run(options{node: node, modules: modules, source: source, scratch: scratch, tests: `["src/board.test.ts","src/other.test.ts"]`}); err != nil {
+				t.Fatal(err)
+			}
+			var domain map[string]string
+			data, err := os.ReadFile(filepath.Join(scratch, "domain.json"))
+			if err != nil || json.Unmarshal(data, &domain) != nil || domain["outcome"] != want {
+				t.Fatal("compiler failure bypassed verifier identity/runtime contract", domain, err)
+			}
+			if want == "changes_requested" {
+				var p proof
+				data, err = os.ReadFile(filepath.Join(scratch, "frontend-check.json"))
+				if err != nil || json.Unmarshal(data, &p) != nil || !p.VitestIncomplete || p.Executed != 1 || p.Failed != 0 {
+					t.Fatal("compiler feedback invented or concealed assertion execution", p, err)
+				}
+			}
 		})
 	}
 }
@@ -452,5 +586,123 @@ func TestFixturePreparationBlocksUnsafeOrMissingImportsBeforeExecution(t *testin
 				t.Fatal("outside fixture changed", err)
 			}
 		})
+	}
+}
+
+func TestTypecheckPreservesConclusiveDiagnosticsAndBlocksIncompleteExecution(t *testing.T) {
+	for _, scenario := range []string{"passed", "source failure", "runtime failure", "missing dependency diagnostic", "global configuration diagnostic", "outside diagnostic", "missing tool", "missing configuration", "missing metadata", "missing TypeScript", "launch failure", "cancelled", "deadline"} {
+		t.Run(scenario, func(t *testing.T) {
+			root := t.TempDir()
+			source, _, modules := frontendFixture(t, root)
+			frontend := filepath.Join(source, "frontend")
+			canonical, err := filepath.EvalSymlinks(frontend)
+			if err != nil {
+				t.Fatal(err)
+			}
+			node := filepath.Join(root, "node")
+			message, exitCode, expected := "", "0", "blocked"
+			switch scenario {
+			case "passed":
+				expected = "passed"
+			case "source failure":
+				message = "src/board.test.ts(1,14): error TS2322: Type 'number' is not assignable to type 'string'.\n  Complete continuation evidence\n"
+				exitCode, expected = "2", "failed"
+			case "runtime failure":
+				message, exitCode = "Error: Cannot find module '@volar/typescript'\n", "1"
+			case "missing dependency diagnostic":
+				message, exitCode = "src/board.test.ts(1,1): error TS2307: Cannot find module 'missing-input'.\n", "2"
+			case "global configuration diagnostic":
+				message, exitCode = "error TS18003: No inputs were found in config file.\n", "2"
+			case "outside diagnostic":
+				message, exitCode = "../outside.ts(1,1): error TS2322: Outside source error.\n", "2"
+			case "missing tool":
+				err = os.Remove(filepath.Join(modules, "vue-tsc", "bin", "vue-tsc.js"))
+			case "missing configuration":
+				err = os.Remove(filepath.Join(frontend, "tsconfig.json"))
+			case "missing metadata":
+				err = os.Remove(filepath.Join(modules, "typescript", "package.json"))
+			case "missing TypeScript":
+				err = os.Remove(filepath.Join(modules, "typescript", "lib", "typescript.js"))
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario != "launch failure" {
+				script := "#!/bin/sh\n[ \"$#\" = 6 ] && [ \"$2\" = --noEmit ] && [ \"$3\" = --pretty ] && [ \"$4\" = false ] && [ \"$5\" = --project ] && [ \"$6\" = tsconfig.json ] || exit 99\ncat <<'RUNNER_DIAGNOSTIC'\n" + message + "RUNNER_DIAGNOSTIC\nexit " + exitCode + "\n"
+				if err = os.WriteFile(node, []byte(script), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx := t.Context()
+			if scenario == "cancelled" {
+				cancelled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = cancelled
+			}
+			if scenario == "deadline" {
+				expired, cancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+				defer cancel()
+				ctx = expired
+			}
+			p := checkTypes(ctx, options{node: node, modules: modules}, frontend, canonical)
+			if p.Status != expected {
+				t.Fatal("incorrect typecheck classification", scenario, p)
+			}
+			if scenario == "source failure" && (!p.Complete || p.Output != message || len(p.Diagnostics) != 1 || p.Diagnostics[0].Code != 2322 || p.Diagnostics[0].File != filepath.Join(canonical, "src", "board.test.ts")) {
+				t.Fatal("complete source diagnostic was not retained", p)
+			}
+			if (scenario == "cancelled" || scenario == "deadline" || scenario == "launch failure") && p.Complete {
+				t.Fatal("unestablished compiler execution was marked complete", p)
+			}
+		})
+	}
+}
+
+func TestTypecheckAndVitestShareDeadlineAndRawEvidenceBounds(t *testing.T) {
+	for _, scenario := range []string{"expired shared deadline", "compiler overflow", "shared raw budget"} {
+		t.Run(scenario, func(t *testing.T) {
+			root := t.TempDir()
+			source, scratch, modules := frontendFixture(t, root)
+			node := filepath.Join(root, "node")
+			script := "#!/bin/sh\nexec /usr/bin/head -c 8388609 /dev/zero\n"
+			if scenario == "shared raw budget" {
+				script = "#!/bin/sh\ncase \"$1\" in */vue-tsc/bin/vue-tsc.js) printf '%s' \"src/board.test.ts(1,14): error TS2322: \"; /usr/bin/head -c 1048576 /dev/zero | /usr/bin/tr '\\000' x; printf '\\n'; exit 2;; esac\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --outputFile ]; then shift; target=$1; fi; shift; done\n{ printf '%s' '{\"padding\":\"'; /usr/bin/head -c 7340032 /dev/zero | /usr/bin/tr '\\000' x; printf '%s' '\"}'; } > \"$target\"\n"
+			}
+			if err := os.WriteFile(node, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			ctx := t.Context()
+			if scenario == "expired shared deadline" {
+				expired, cancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+				defer cancel()
+				ctx = expired
+			}
+			if err := runContext(ctx, options{node: node, modules: modules, source: source, scratch: scratch, tests: `["src/board.test.ts"]`}); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(filepath.Join(scratch, "frontend-check.json"))
+			var p proof
+			if err != nil || len(data) > 16<<20 || json.Unmarshal(data, &p) != nil || p.Status != "blocked" || p.Typecheck == nil {
+				t.Fatal("incomplete compiler evidence did not remain bounded and blocked", len(data), err)
+			}
+			if scenario != "shared raw budget" && p.Typecheck.Complete {
+				t.Fatal("incomplete compiler execution was marked complete")
+			}
+			if len(p.Vitest) != 0 || p.Executed != 0 {
+				t.Fatal("Vitest ran after an unestablished compiler execution")
+			}
+			if scenario == "compiler overflow" && p.Typecheck.OutputBytes != evidenceLimit {
+				t.Fatal("raw compiler cap was bypassed", p.Typecheck.OutputBytes)
+			}
+			if scenario == "shared raw budget" && (!p.Typecheck.Complete || !strings.Contains(p.Reason, "oversized") || p.ReportBytes != 0) {
+				t.Fatal("compiler and Vitest gained separate raw evidence allowances", p.Typecheck, p.Reason)
+			}
+		})
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	output := &completeOutput{limit: 8, cancel: cancel}
+	if _, err := output.ReadFrom(strings.NewReader("0123456789")); err == nil || output.Len() != 8 || !output.overflow || ctx.Err() == nil {
+		t.Fatal("ReaderFrom bypassed complete evidence capture limit")
 	}
 }

@@ -401,6 +401,12 @@ type RunResources interface {
 	ForgetRun(context.Context, string) error
 }
 
+// SourceRecoveryValidator checks retained source ownership after execution and
+// cleanup have settled. It grants no execution or cleanup authority.
+type SourceRecoveryValidator interface {
+	ValidateSourceRecovery(context.Context, Run, SourceResult) error
+}
+
 // CleanupBlockedError preserves resources that cannot be proved disposable.
 // The executor classifies only integrity/ownership failures this way; ordinary
 // I/O errors retain the existing bounded-delay cleanup retry.
@@ -446,33 +452,34 @@ type Attempt struct {
 	Effective       *ExecutionFacts `json:"effective,omitempty"`
 }
 type Run struct {
-	Repository         string            `json:"repository,omitempty"`
-	Source             *SourceSettings   `json:"source,omitempty"`
-	ResourcesReleased  bool              `json:"resources_released,omitempty"`
-	ID                 string            `json:"id"`
-	ProjectID          string            `json:"project_id"`
-	Process            Process           `json:"process"`
-	Roles              map[string]Role   `json:"roles"`
-	Profiles           map[string]string `json:"profiles"`
-	Inputs             map[string]Value  `json:"inputs"`
-	Outputs            map[string]Value  `json:"outputs,omitempty"`
-	Attempts           []Attempt         `json:"attempts,omitempty"`
-	Step               int               `json:"step"`
-	Visit              int               `json:"visit,omitempty"`
-	VisitExtraAttempts int               `json:"visit_extra_attempts,omitempty"`
-	StepInputs         map[string]Value  `json:"step_inputs,omitempty"`
-	RouteUses          map[string]int    `json:"route_uses,omitempty"`
-	Decision           *Decision         `json:"decision,omitempty"`
-	NextProfile        string            `json:"next_profile,omitempty"`
-	Escalations        int               `json:"escalations"`
-	Status             string            `json:"status"`
-	Reason             string            `json:"reason,omitempty"`
-	CancelRequested    bool              `json:"cancel_requested,omitempty"`
-	CleanupError       string            `json:"cleanup_error,omitempty"`
-	CleanupBlocked     bool              `json:"cleanup_blocked,omitempty"`
-	Created            time.Time         `json:"created"`
-	Updated            time.Time         `json:"updated"`
-	Revision           int64             `json:"revision"`
+	Repository         string              `json:"repository,omitempty"`
+	Source             *SourceSettings     `json:"source,omitempty"`
+	ResourcesReleased  bool                `json:"resources_released,omitempty"`
+	ID                 string              `json:"id"`
+	ProjectID          string              `json:"project_id"`
+	Process            Process             `json:"process"`
+	Roles              map[string]Role     `json:"roles"`
+	Profiles           map[string]string   `json:"profiles"`
+	Inputs             map[string]Value    `json:"inputs"`
+	Outputs            map[string]Value    `json:"outputs,omitempty"`
+	Attempts           []Attempt           `json:"attempts,omitempty"`
+	Step               int                 `json:"step"`
+	Visit              int                 `json:"visit,omitempty"`
+	VisitExtraAttempts int                 `json:"visit_extra_attempts,omitempty"`
+	StepInputs         map[string]Value    `json:"step_inputs,omitempty"`
+	RouteUses          map[string]int      `json:"route_uses,omitempty"`
+	CorrectionRecovery *CorrectionRecovery `json:"correction_recovery,omitempty"`
+	Decision           *Decision           `json:"decision,omitempty"`
+	NextProfile        string              `json:"next_profile,omitempty"`
+	Escalations        int                 `json:"escalations"`
+	Status             string              `json:"status"`
+	Reason             string              `json:"reason,omitempty"`
+	CancelRequested    bool                `json:"cancel_requested,omitempty"`
+	CleanupError       string              `json:"cleanup_error,omitempty"`
+	CleanupBlocked     bool                `json:"cleanup_blocked,omitempty"`
+	Created            time.Time           `json:"created"`
+	Updated            time.Time           `json:"updated"`
+	Revision           int64               `json:"revision"`
 }
 
 type Decision struct {

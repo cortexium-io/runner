@@ -136,11 +136,14 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 		approval := action == "prepare" || action == "backup"
 		maxTimes := 0
 		if connected && action == "qualify" {
-			correction := runner.Route{Next: p.Steps[owner].ID, MaxTimes: 1}
+			correction := step.Routes["changes_requested"]
+			expected := runner.Route{Next: p.Steps[owner].ID, MaxTimes: correction.MaxTimes}
 			if adopted {
-				correction = runner.Route{Next: "$fail"}
+				expected = runner.Route{Next: "$fail"}
+			} else if correction.MaxTimes < 1 || correction.MaxTimes > 3 {
+				return bad
 			}
-			if step.Routes["changes_requested"] != correction {
+			if correction != expected {
 				return bad
 			}
 		}

@@ -81,7 +81,7 @@ func (c *Core) route(r *Run, a *Attempt) {
 		}
 	}
 	key := step.ID + "/" + result.Outcome
-	if route.MaxTimes > 0 && r.RouteUses[key] >= route.MaxTimes {
+	if limit := routeLimit(*r, r.Step, result.Outcome, route); limit > 0 && r.RouteUses[key] >= limit {
 		r.Status, r.Reason = "Failed", "repetition allowance exhausted: "+key
 		return
 	}
