@@ -91,8 +91,26 @@ merged, deployed or fully qualified beyond the actual proof. Coordinator token
 usage remains additional to the Runner result and must be included in any
 end-to-end benchmark.
 
-For newly configured planned work, select the complete `develop-planned`,
-`deliver-planned-frontend` or `deliver-planned-investigation` process once. The
+Jack's Break dispatch is owned by the process-core instance at
+`/Users/dan/.codex/jbg31` on Black Magic. Black Magic owns the Core, state and
+local MCP service; Mega Mini owns the remote release operator. From another host,
+use the configured SSH connection to Black Magic for the existing Runner CLI
+run/result/status commands. Do not copy `owner.token` or guess a network endpoint.
+Its live default remains `deliver` while the planned
+mobile journey is being qualified. Planned processes are selectable explicitly
+for authorized qualification; their installation alone is not a default cutover.
+After that qualification and operator cutover, new Vue/mobile delivery selects
+`deliver-planned-frontend`. Bounded retained Nonogram research selects
+`research-planned-retained-nonogram`, which ends with reviewed evidence rather
+than release. Keep the older processes for history, compatibility and their
+explicitly supported handoffs. Do not infer Jack's Break dispatch or current work
+from the legacy GitHub board/Operations `runner_config`; that configuration remains
+compatibility metadata for the generated-ownership checker. Use the pilot's own
+submission/result/status interface and present its saved protected decisions.
+
+For other explicitly configured planned work, select the complete
+`develop-planned`, `deliver-planned-frontend` or `deliver-planned-investigation`
+process once. The
 planner reads source and returns bounded card data, dependencies and literal write
 scopes. Runner validates the unaccepted plan, executes eligible cards in isolated
 workspaces, joins their accepted pins, then runs combined checks, independent
@@ -143,9 +161,11 @@ active attempt's allowance.
 
 The [connected Jack's Break process](../examples/jacks-break/README.md) joins
 development, bounded measurement/correction, review, draft publication and product
-qualification to those release gates. Select `deliver` for a full delivery request;
-do not split it into chat-coordinated development and release runs. Omit
-`source_ref` to use its configured latest-main admission, or supply an explicit
+qualification to those release gates. The retained `deliver` process is its scoped
+Go predecessor and the rollout default described above. Select one complete
+process using that routing; do not split work into chat-coordinated development
+and release runs. Omit `source_ref` to use its configured latest-main admission,
+or supply an explicit
 full commit. Supply `benchmark: "none"` when no benchmark is relevant. Present the
 exact saved merge/production/recovery decision and its receipt; approve none of
 them on the owner's behalf. `runner_result.decision_outputs` previews the saved
@@ -154,8 +174,9 @@ to present exact approval facts without inspect access. These previews have a
 4 KiB total bound and mark truncation explicitly. Known configured recovery stays
 inside the process.
 
-Select the complete `deliver-frontend` variant for a scoped Vue/mobile request.
-Its `tests` input is a JSON array of explicit frontend-relative test filenames;
+The earlier `deliver-frontend` variant remains available for compatibility.
+The frontend process's `tests` input is a JSON array of explicit frontend-relative
+test filenames;
 the fixed command retains real executed assertions for independent review. Use
 `deliver-product` for the explicitly combined frontend and Go investigation;
 its separate `frontend_tests` and Go `tests` inputs keep both scopes verifiable
@@ -190,8 +211,8 @@ Frontend and Nonogram research variants permit three uses of each configured
 source-correction route under the existing total attempt ceiling. Benchmark
 continuation and protected approval policies remain separately bounded.
 
-Select `research-nonogram` for the separate reproducibility investigation. It
-measures the committed baseline, prepares test-only evidence collection, runs
+The earlier `research-nonogram` process supports the separate reproducibility
+investigation. It measures the committed baseline, prepares test-only evidence collection, runs
 scoped checks and bounded measurements, and independently reviews the complete
 retained evidence. A supported negative or not-reproduced finding may complete
 the research task. Missing records, malformed collection and unsupported claims
@@ -199,9 +220,10 @@ remain failures. Research completion returns evidence and a retained patch;
 it neither integrates nor publishes source and grants no product-fix or release
 approval. The original release benchmarks and acceptance conditions stay intact.
 
-For an authorized continuation of saved research, select
-`research-retained-nonogram` and supply its `prior_patch` artifact with the
-original base. Runner measures pristine committed source and records its scoped
+The earlier `research-retained-nonogram` continuation remains available for
+compatibility; new planned retained research uses the evidence-only route above.
+Its `prior_patch` artifact is supplied with the original base. Runner measures
+pristine committed source and records its scoped
 test execution before the coding role reads and applies that patch as a reference.
 It does not seed the candidate before the original baseline. Candidate checks,
 measurement, correction and independent review then stay inside that process.

@@ -24,6 +24,16 @@ belongs in Runner, not in the request's conversational history. Already-specifie
 requests can use the ordinary Runner CLI/MCP directly and spend no intake model
 turn. User decisions resume through the owner interface using the saved ID.
 
+Resolve routing before launching this intake: its empty workspace and disabled
+host skills provide no project/process discovery. For Jack's Break, use the
+[pilot routing and qualification contract](../../docs/coordinator.md). After the
+qualified frontend default cutover, supply `deliver-planned-frontend` explicitly
+for new Vue/mobile delivery; use `research-planned-retained-nonogram` for its
+bounded retained research request. The latter returns reviewed evidence without
+release stages. The intake must not translate either request into legacy board
+commands or external stage/product-check calls. Protected decisions remain with
+the owner interface; these tools cannot approve them.
+
 The launcher requires explicit instance/account/executable paths so the portable
 tool cannot silently choose a personal pilot. It uses an empty private read-only
 workspace, retains bounded usage/result diagnostics and cleans its temporary data

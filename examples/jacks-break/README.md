@@ -1,7 +1,16 @@
 # Connected Jack's Break delivery
 
-`deliver` owns scoped Go development, correction, measurements, independent source
-review, candidate publication, product qualification and the approved release.
+Use the [coordinator routing contract](../../docs/coordinator.md) for the current
+pilot default and qualification gate. Once planned mobile delivery is qualified
+and the operator cuts over the default, new Vue/mobile work selects
+`deliver-planned-frontend`. Bounded retained Nonogram research selects
+`research-planned-retained-nonogram`, whose endpoint is reviewed evidence. Submit
+one complete process; external chats do not coordinate cards, product checks or
+release stages. Older process definitions remain for history, compatibility and
+explicit supported handoffs. Merge and production remain saved owner decisions.
+
+The retained `deliver` path owns scoped Go development, correction, measurements,
+independent source review, candidate publication, product qualification and the approved release.
 The external chat submits the request and presents saved owner decisions. No model
 or chat selects the next stage.
 
