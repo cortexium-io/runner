@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sync"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
@@ -18,6 +20,10 @@ type Service struct {
 	deterministic *Deterministic
 	workspaces    *Workspaces
 	Codex         *Codex
+	captureMu     sync.Mutex
+	captures      map[string]*sourceCaptureWork
+	captureWake   func(string)
+	captureClosed bool
 }
 
 func NewService(d *runner.Disk, read func(context.Context, string) ([]byte, error), cfg *runner.CodexSettings, release ...*runner.ReleaseSettings) *Service {
@@ -43,6 +49,9 @@ func NewService(d *runner.Disk, read func(context.Context, string) ([]byte, erro
 	return s
 }
 func (s *Service) SetWake(wake func(string)) {
+	s.captureMu.Lock()
+	s.captureWake = wake
+	s.captureMu.Unlock()
 	s.commands.SetWake(wake)
 	if s.Codex != nil {
 		s.Codex.SetWake(wake)
@@ -120,7 +129,7 @@ func (s *Service) Stop(ctx context.Context, id string) error {
 		if s.Codex == nil {
 			return errors.New("Codex settings are required to stop saved native work")
 		}
-		return s.Codex.Stop(ctx, id)
+		return errors.Join(s.Codex.Stop(ctx, id), s.stopCapture(ctx, id))
 	}
 	return s.deterministic.Stop(ctx, id)
 }
@@ -142,16 +151,20 @@ func (s *Service) Release(ctx context.Context, id string) error {
 		if s.Codex == nil {
 			return errors.New("Codex settings are required to release saved native work")
 		}
+		if err := s.captureReleaseReady(id); err != nil {
+			return err
+		}
 		return s.Codex.Release(ctx, id)
 	}
 	return s.deterministic.Release(ctx, id)
 }
 func (s *Service) Close(ctx context.Context) error {
 	s.commands.Close()
+	captureErr := s.closeCaptures(ctx)
 	if s.Codex != nil {
-		return s.Codex.Close(ctx)
+		return errors.Join(captureErr, s.Codex.Close(ctx))
 	}
-	return nil
+	return captureErr
 }
 
 func (s *Service) ReleaseRun(ctx context.Context, r runner.Run) error {
@@ -180,10 +193,15 @@ func (s *Service) collect(ctx context.Context, id string, o runner.Observation, 
 		return runner.Observation{}, err
 	}
 	if j.Assignment.Setup.Profile.Access == "workspace-write" && j.Workspace != nil {
-		source, err := s.workspaces.Capture(ctx, j.Assignment)
+		source, err := s.captureSource(ctx, j.Assignment, j.StopRequested)
 		if err != nil {
 			o.State = runner.Unknown
 			o.End = nil
+			var pending *capturePending
+			if errors.As(err, &pending) {
+				o.Reconciling = j.Assignment.Deadline.IsZero() || j.Assignment.Deadline.After(time.Now())
+				o.NextCheck = time.Now().Add(250 * time.Millisecond)
+			}
 			o.Reason = "source collection: " + runner.Clip(err.Error())
 			return o, nil
 		}

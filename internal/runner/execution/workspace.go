@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
@@ -38,6 +39,7 @@ type workspaceRecord struct {
 	Candidate       *runner.SourceResult `json:"candidate,omitempty"`
 	CandidateCommit string               `json:"candidate_commit,omitempty"`
 	CandidatePins   map[string]string    `json:"candidate_pins,omitempty"`
+	Capture         *captureReference    `json:"capture,omitempty"`
 }
 
 func workspaceName(id string) string { return "jobs/" + id + ".workspace.json" }
@@ -90,6 +92,9 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	}
 	return b.Buffer.Write(p)
 }
+func (b *boundedBuffer) ReadFrom(r io.Reader) (int64, error) {
+	return io.Copy(struct{ io.Writer }{b}, r)
+}
 func git(ctx context.Context, dir string, extra []string, input []byte, maxBytes int, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.sparseCheckout=false"}, args...)...)
 	cmd.Dir = dir
@@ -99,6 +104,12 @@ func git(ctx context.Context, dir string, extra []string, input []byte, maxBytes
 	diagnostic := &diagnosticTail{limit: 1024}
 	cmd.Stdout = out
 	cmd.Stderr = diagnostic
+	if lease, ok := ctx.Value(captureLeaseKey{}).(*os.File); ok {
+		cmd.ExtraFiles = []*os.File{lease}
+		setNativeProcessGroup(cmd)
+		cmd.Cancel = func() error { return killCommandGroup(cmd) }
+		cmd.WaitDelay = time.Second
+	}
 	e := cmd.Run()
 	if out.err != nil {
 		return nil, out.err
@@ -599,137 +610,6 @@ func (w *Workspaces) retainedCandidate(ctx context.Context, r workspaceRecord, v
 	}
 	sourceBytes, e := w.validateSeed(ctx, r, patch, w.disk.Policy.MaxArtifact, verifyCheckout)
 	return patch, sourceBytes, e
-}
-func (w *Workspaces) Capture(ctx context.Context, a runner.Assignment) (*runner.SourceResult, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	r, e := w.load(a.RunID)
-	if e != nil {
-		return nil, e
-	}
-	if r.Candidate != nil && r.Candidate.AttemptID == a.AttemptID {
-		if r.Candidate.PatchID != "" {
-			if _, e = w.disk.ArtifactSize(r.Candidate.PatchID); e != nil {
-				return nil, e
-			}
-		}
-		return runner.Clone(r.Candidate), nil
-	}
-	if info, e := os.Lstat(filepath.Join(r.WorkDir, ".runner-tmp")); e == nil && !info.IsDir() {
-		return nil, errors.New("scratch root is not a directory")
-	}
-	scratch := filepath.Join(w.disk.Root, "work", a.AttemptID, "capture")
-	if e = os.MkdirAll(filepath.Join(scratch, "objects"), 0700); e != nil {
-		return nil, e
-	}
-	defer os.RemoveAll(scratch)
-	objectDir, e := git(ctx, r.Repository, nil, nil, 4096, "rev-parse", "--path-format=absolute", "--git-path", "objects")
-	if e != nil {
-		return nil, e
-	}
-	env := []string{
-		"GIT_INDEX_FILE=" + filepath.Join(scratch, "index"),
-		"GIT_OBJECT_DIRECTORY=" + filepath.Join(scratch, "objects"),
-		"GIT_ALTERNATE_OBJECT_DIRECTORIES=" + strings.TrimSpace(string(objectDir)),
-	}
-	if _, e = git(ctx, r.WorkDir, env, nil, 4096, "read-tree", r.Base); e != nil {
-		return nil, e
-	}
-	// Discover changes using the workspace index, then collect literal bytes into
-	// the separate index below. Unchanged assets are already in the base tree and
-	// must neither consume the patch allowance nor be rehashed one file at a time.
-	paths, e := git(ctx, r.WorkDir, nil, nil, 1<<20, "diff-index", "--name-only", "-z", "--no-ext-diff", "--no-textconv", r.Base, "--", ".", ":(exclude).runner-tmp")
-	if e != nil {
-		return nil, e
-	}
-	untracked, e := git(ctx, r.WorkDir, nil, nil, 1<<20, "ls-files", "--others", "--exclude-standard", "-z", "--", ".", ":(exclude).runner-tmp")
-	if e != nil {
-		return nil, e
-	}
-	if len(paths)+len(untracked) > 1<<20 {
-		return nil, runner.ErrCapacity
-	}
-	paths = append(paths, untracked...)
-	seen := map[string]bool{}
-	for _, p := range bytes.Split(paths, []byte{0}) {
-		name := string(p)
-		if name == "" || seen[name] || name == ".runner-tmp" || strings.HasPrefix(name, ".runner-tmp/") {
-			continue
-		}
-		seen[name] = true
-		if !fs.ValidPath(name) {
-			return nil, errors.New("unsafe source path")
-		}
-		file := filepath.Join(r.WorkDir, filepath.FromSlash(name))
-		info, er := os.Lstat(file)
-		if errors.Is(er, os.ErrNotExist) {
-			_, e = git(ctx, r.WorkDir, env, nil, 4096, "update-index", "--force-remove", "--", name)
-			if e != nil {
-				return nil, e
-			}
-			continue
-		}
-		if er != nil {
-			return nil, er
-		}
-		if !info.Mode().IsRegular() || info.Size() > int64(a.Limits.MaxArtifact) {
-			return nil, errors.New("source contains unsupported or oversized file")
-		}
-		f, er := os.Open(file)
-		if er != nil {
-			return nil, er
-		}
-		data, er := io.ReadAll(io.LimitReader(f, int64(a.Limits.MaxArtifact)+1))
-		f.Close()
-		if er != nil {
-			return nil, er
-		}
-		if len(data) > int(a.Limits.MaxArtifact) {
-			return nil, runner.ErrCapacity
-		}
-		hash, er := git(ctx, r.WorkDir, env, data, 256, "hash-object", "-w", "--stdin")
-		if er != nil {
-			return nil, er
-		}
-		mode := "100644"
-		if info.Mode()&0111 != 0 {
-			mode = "100755"
-		}
-		if _, e = git(ctx, r.WorkDir, env, nil, 4096, "update-index", "--add", "--cacheinfo", mode+","+strings.TrimSpace(string(hash))+","+name); e != nil {
-			return nil, e
-		}
-	}
-	patch, e := git(ctx, r.WorkDir, env, nil, int(a.Limits.MaxArtifact), "diff", "--cached", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--no-renames", r.Base, "--")
-	if e != nil {
-		return nil, e
-	}
-	tree, e := git(ctx, r.WorkDir, env, nil, 256, "write-tree")
-	if e != nil {
-		return nil, e
-	}
-	result := &runner.SourceResult{
-		Tree:         strings.TrimSpace(string(tree)),
-		Repository:   r.Repository,
-		Base:         r.Base,
-		WorkDir:      r.WorkDir,
-		AttemptID:    a.AttemptID,
-		InputPatchID: r.SeedPatchID,
-	}
-	if r.Candidate != nil {
-		result.InputPatchID = r.Candidate.PatchID
-	}
-	if e = w.disk.Refresh(); e != nil {
-		return nil, e
-	}
-	result.PatchID = a.AttemptID + "/changes.patch"
-	if e = w.disk.Write("artifacts/"+result.PatchID, patch, a.Limits.MaxArtifact); e != nil {
-		return nil, e
-	}
-	r.Candidate = result
-	if e = w.save(r); e != nil {
-		return nil, e
-	}
-	return result, nil
 }
 func (w *Workspaces) ReleaseRun(ctx context.Context, id string) error {
 	return w.releaseRun(ctx, id, false)

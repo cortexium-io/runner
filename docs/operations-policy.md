@@ -17,6 +17,15 @@ condition remains visible to the coordinator.
 An identified deadline of the read-only source archive call also rejoins the
 same saved readiness attempt. Ordinary Git exits and cancellation remain visible.
 
+After a source writer settles, capture retains an owned, bounded snapshot across
+short observation calls. Observations join the same in-flight capture within the
+original attempt deadline. A positive call deadline or an occupied capture lease
+also rejoins that capture with a short recheck. Git children inherit the lease;
+source/checkpoint drift and ordinary Git errors remain actionable. The patch is
+published only after capture completes. This uses the existing attempt and
+storage limits and preserves the original worker result; it grants no new model
+visit or approval.
+
 The private delivery policy may enable:
 
 ```json

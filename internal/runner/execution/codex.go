@@ -1018,11 +1018,11 @@ func (c *Codex) Stop(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if j.End != nil {
-		return nil
-	}
 	if err = c.mutate(id, func(j *nativeJob) { j.StopRequested = true }); err != nil {
 		return err
+	}
+	if j.End != nil {
+		return nil
 	}
 	if (j.Stage == "checking" || j.Stage == "checking_readiness") && !preparing {
 		return c.stopCheck(ctx, id)

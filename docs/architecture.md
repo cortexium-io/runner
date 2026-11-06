@@ -133,6 +133,17 @@ are data in the core; Git and Go operations belong to the execution adapter.
    The retained binary patch excludes scratch; its metadata records base/tree,
    producing attempt and prior candidate. Git tree identity describes saved
    content; it is not a task approval checksum.
+   Capture checkpoints its bounded literal snapshot and completed Git stages
+   across short observation calls. Its lease also covers Git children, so a
+   replacement owner waits for an existing writer before rebuilding private
+   indexes. Source or checkpoint drift remains an integrity failure; only known
+   capture progress rejoins automatically. The previous candidate stays intact
+   until the new patch and workspace record are durable.
+   The execution adapter owns one in-flight capture per saved attempt; short
+   observations join it while its original attempt deadline remains. Shutdown
+   cancels and settles that local operation, and restart reuses the checkpoint.
+   Already-expired attempts retain the bounded observation path for saving
+   partial work.
 4. Core persists source references before downstream work or Release. The fixed
    `go-check` profile consumes the exact patch identity and runs `go test ./...`
    through the native standalone command API. It creates no model turn. Source is
