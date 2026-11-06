@@ -95,21 +95,26 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 func (b *boundedBuffer) ReadFrom(r io.Reader) (int64, error) {
 	return io.Copy(struct{ io.Writer }{b}, r)
 }
-func git(ctx context.Context, dir string, extra []string, input []byte, maxBytes int, args ...string) ([]byte, error) {
+func gitCommand(ctx context.Context, dir string, extra []string, input []byte, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.sparseCheckout=false"}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(gitEnvironment(), extra...)
 	cmd.Stdin = bytes.NewReader(input)
-	out := &boundedBuffer{limit: maxBytes}
-	diagnostic := &diagnosticTail{limit: 1024}
-	cmd.Stdout = out
-	cmd.Stderr = diagnostic
 	if lease, ok := ctx.Value(captureLeaseKey{}).(*os.File); ok {
 		cmd.ExtraFiles = []*os.File{lease}
 		setNativeProcessGroup(cmd)
 		cmd.Cancel = func() error { return killCommandGroup(cmd) }
 		cmd.WaitDelay = time.Second
 	}
+	return cmd
+}
+
+func git(ctx context.Context, dir string, extra []string, input []byte, maxBytes int, args ...string) ([]byte, error) {
+	cmd := gitCommand(ctx, dir, extra, input, args...)
+	out := &boundedBuffer{limit: maxBytes}
+	diagnostic := &diagnosticTail{limit: 1024}
+	cmd.Stdout = out
+	cmd.Stderr = diagnostic
 	e := cmd.Run()
 	if out.err != nil {
 		return nil, out.err
@@ -213,24 +218,9 @@ func (w *Workspaces) Prepare(ctx context.Context, a runner.Assignment) (workspac
 		}
 	}
 	if _, e = os.Lstat(filepath.Join(r.WorkDir, ".git")); errors.Is(e, os.ErrNotExist) {
-		tree, er := git(ctx, r.Repository, nil, nil, 1<<20, "ls-tree", "-rlz", r.Base)
+		sourceBytes, er := sourceTreeBytes(ctx, r.Repository, nil, r.Base, w.disk.Policy.MaxManaged, true)
 		if er != nil {
 			return r, er
-		}
-		var sourceBytes int64
-		for _, entry := range bytes.Split(tree, []byte{0}) {
-			if len(entry) == 0 {
-				continue
-			}
-			parts := bytes.SplitN(entry, []byte{'\t'}, 2)
-			if len(parts) != 2 || !(bytes.HasPrefix(parts[0], []byte("100644 ")) || bytes.HasPrefix(parts[0], []byte("100755 "))) || filepath.Base(string(parts[1])) == ".gitattributes" || filepath.Base(string(parts[1])) == ".gitmodules" || string(parts[1]) == ".runner-tmp" || strings.HasPrefix(string(parts[1]), ".runner-tmp/") || strings.HasPrefix(string(parts[1]), ".codex/") {
-				return r, errors.New("first writable slice supports regular files without Git attributes/submodules")
-			}
-			size, er := treeEntrySize(parts[0])
-			if er != nil || size > int64(w.disk.Policy.MaxManaged)-sourceBytes {
-				return r, runner.ErrCapacity
-			}
-			sourceBytes += size
 		}
 		if e = w.checkoutCapacity(a, max(sourceBytes, patchBytes)); e != nil {
 			return r, e
@@ -536,21 +526,9 @@ func (w *Workspaces) validateSeed(ctx context.Context, r workspaceRecord, patch 
 	if r.Candidate != nil && strings.TrimSpace(string(tree)) != r.Candidate.Tree {
 		return 0, &runner.CleanupBlockedError{Reason: "retained patch does not reconstruct the saved candidate; preserve the workspace"}
 	}
-	entries, e := git(ctx, r.Repository, env, nil, 1<<20, "ls-tree", "-rlz", strings.TrimSpace(string(tree)))
+	sourceBytes, e := sourceTreeBytes(ctx, r.Repository, env, strings.TrimSpace(string(tree)), w.disk.Policy.MaxManaged, false)
 	if e != nil {
 		return 0, e
-	}
-	var sourceBytes int64
-	for _, entry := range bytes.Split(entries, []byte{0}) {
-		if len(entry) == 0 {
-			continue
-		}
-		meta := bytes.SplitN(entry, []byte{'\t'}, 2)
-		size, er := treeEntrySize(meta[0])
-		if er != nil || size > int64(w.disk.Policy.MaxManaged)-sourceBytes {
-			return 0, runner.ErrCapacity
-		}
-		sourceBytes += size
 	}
 	if verifyCheckout {
 		if _, e = git(ctx, r.WorkDir, env, nil, 4096, "diff", "--quiet", "--no-ext-diff", "--no-textconv", "--", ".", ":(exclude).runner-tmp"); e != nil {

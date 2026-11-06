@@ -121,6 +121,8 @@ are data in the core; Git and Go operations belong to the execution adapter.
 1. Core freezes the repository/ref, role profiles and bindings with the run.
    `workspace.go` resolves the ref once, records the base and owned resource,
    protects the base with a run ref, and prepares one detached run worktree.
+   Complete tree inventories stream one bounded record at a time; source-byte
+   totals still pass the existing checkout and free-space reservation checks.
 2. `workspace_native.go` creates named native access profiles. The adapter checks
    their effective filesystem/network policy and runs zero-turn command probes.
    Coding explicitly selects the local environment and that workspace's roots;
