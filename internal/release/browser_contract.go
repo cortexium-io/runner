@@ -1,6 +1,8 @@
 package release
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,59 @@ import (
 )
 
 var browserGames = []string{"Sudoku", "Suguru", "Nonogram", "Binary", "Futoshiki", "Shikaku", "Hashi", "Calcudoku", "Kakuro"}
+
+// This comparable summary travels in the existing opaque qualification receipt.
+// Status describes diagnostic evidence, not qualification acceptance.
+// Full browser evidence stays in its owned package. Its encoded bound leaves
+// room in the unchanged native input budget even for a wide correction receipt.
+const maxBrowserFeedback = 768
+
+type BrowserFailureFeedback struct {
+	Status       string                `json:"status"`
+	Kind         string                `json:"kind,omitempty"`
+	Phase        string                `json:"phase,omitempty"`
+	Path         string                `json:"path,omitempty"`
+	Selector     string                `json:"selector,omitempty"`
+	Cell         string                `json:"cell,omitempty"`
+	Expected     BrowserStateFeedback  `json:"expected,omitzero"`
+	Actual       BrowserStateFeedback  `json:"actual,omitzero"`
+	Differences  int                   `json:"differences,omitempty"`
+	Reload       BrowserReloadFeedback `json:"reload,omitzero"`
+	ReportSHA256 string                `json:"report_sha256"`
+	Issue        string                `json:"issue,omitempty"`
+}
+
+type BrowserStateFeedback struct {
+	Recorded bool                `json:"recorded"`
+	Present  bool                `json:"present"`
+	Identity string              `json:"identity,omitempty"`
+	Text     string              `json:"text,omitempty"`
+	Value    string              `json:"value,omitempty"`
+	Fill     string              `json:"fill,omitempty"`
+	Visible  bool                `json:"visible"`
+	SHA256   string              `json:"sha256,omitempty"`
+	Keys     int                 `json:"keys,omitempty"`
+	Lines    BrowserLineFeedback `json:"lines,omitzero"`
+}
+
+type BrowserLineFeedback struct {
+	Recorded bool `json:"recorded"`
+	Count    int  `json:"count"`
+}
+
+type BrowserReloadFeedback struct {
+	Status         string                  `json:"status"`
+	DocumentStatus int                     `json:"document_status,omitempty"`
+	Responses      int                     `json:"responses,omitempty"`
+	Response       BrowserResponseFeedback `json:"response,omitzero"`
+}
+
+type BrowserResponseFeedback struct {
+	Method  string `json:"method,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Status  int    `json:"status,omitempty"`
+	Outcome string `json:"outcome,omitempty"`
+}
 
 type browserBox struct{ X, Y, Width, Height float64 }
 type browserGeometry struct {
@@ -42,11 +97,12 @@ type browserJourney struct {
 
 func browserAssertionFailure(data []byte) *sourceFailure {
 	var receipt struct {
-		Failure        string
-		FailureContext struct {
-			Engine, Device, Game, Geometry, Phase string
-			Width, Height                         int
-			Board                                 *browserBox
+		Failure           string
+		FailureDiagnostic json.RawMessage
+		FailureContext    struct {
+			Engine, Device, Game, Geometry, Phase, Path string
+			Width, Height                               int
+			Board                                       *browserBox
 		}
 	}
 	if json.Unmarshal(data, &receipt) != nil || !strings.HasPrefix(receipt.Failure, "AssertionError") {
@@ -81,7 +137,257 @@ func browserAssertionFailure(data []byte) *sourceFailure {
 		metrics = fmt.Sprintf("; board %.0fx%.0f at %.0f,%.0f", c.Board.Width, c.Board.Height, c.Board.X, c.Board.Y)
 	}
 	message := bounded(strings.SplitN(receipt.Failure, "\n", 2)[0], max(0, 512-len(prefix)-len(metrics)))
-	return &sourceFailure{reason: bounded(prefix+message+metrics, 512)}
+	return &sourceFailure{reason: bounded(prefix+message+metrics, 512), browser: browserFailureFeedback(data, receipt.FailureDiagnostic, c.Path)}
+}
+
+func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFailureFeedback {
+	sum := sha256.Sum256(report)
+	f := BrowserFailureFeedback{Status: "missing", ReportSHA256: hex.EncodeToString(sum[:])}
+	var d struct {
+		Status, Kind, Phase, Path, Selector, Cell string
+		Expected, Actual                          json.RawMessage
+		Differences                               int
+		Reload                                    struct {
+			Status, Path   string
+			DocumentStatus int
+			Responses      []BrowserResponseFeedback
+		}
+	}
+	if len(raw) == 0 || string(raw) == "null" {
+		f.Issue = "diagnostic not collected"
+		return f
+	}
+	if json.Unmarshal(raw, &d) != nil {
+		f.Issue = "invalid diagnostic"
+		return f
+	}
+	f.Status = "complete"
+	if d.Status != "complete" {
+		f.Status = "partial"
+	}
+	if d.Status == "truncated" {
+		f.Status = "truncated"
+	}
+	clip := func(value string, limit int) string {
+		if len(value) > limit {
+			f.Status = "truncated"
+			return strings.ToValidUTF8(value[:limit], "")
+		}
+		return value
+	}
+	publicPath := func(value string) string {
+		if !regexp.MustCompile(`^/[A-Za-z0-9/_-]*$`).MatchString(value) {
+			if value != "" && f.Status == "complete" {
+				f.Status = "partial"
+			}
+			return ""
+		}
+		return clip(value, 80)
+	}
+	switch d.Kind {
+	case "visible-state", "saved-state", "reload":
+		f.Kind = d.Kind
+	default:
+		f.Status, f.Issue = "partial", "unsupported diagnostic kind"
+	}
+	if d.Phase == "reload" || d.Phase == "home-resume" {
+		f.Phase = d.Phase
+	}
+	if d.Path != "" {
+		path = d.Path
+	} else if d.Reload.Path != "" {
+		path = d.Reload.Path
+	}
+	f.Path, f.Selector, f.Cell = publicPath(path), clip(d.Selector, 80), clip(d.Cell, 24)
+	if f.Path == "" && f.Status == "complete" {
+		f.Status = "partial"
+	}
+	state := func(raw json.RawMessage) BrowserStateFeedback {
+		if len(raw) == 0 {
+			if f.Status == "complete" {
+				f.Status = "partial"
+			}
+			return BrowserStateFeedback{}
+		}
+		if string(raw) == "null" {
+			return BrowserStateFeedback{Recorded: true}
+		}
+		var s struct {
+			Identity, Text, Fill *string
+			Value                json.RawMessage
+			Visible, Present     *bool
+			Lines                *int
+		}
+		if json.Unmarshal(raw, &s) != nil || s.Lines == nil && (s.Present == nil || *s.Present) && (s.Visible == nil || s.Identity == nil || s.Text == nil || s.Fill == nil || len(s.Value) == 0) {
+			if f.Status == "complete" {
+				f.Status = "partial"
+			}
+			return BrowserStateFeedback{}
+		}
+		text := func(value *string, limit int) string {
+			if value == nil {
+				return ""
+			}
+			return clip(*value, limit)
+		}
+		present, visible := true, false
+		if s.Present != nil {
+			present = *s.Present
+		}
+		if s.Visible != nil {
+			visible = *s.Visible
+		}
+		if s.Lines != nil {
+			if s.Visible == nil || *s.Lines < 0 || *s.Lines > 4096 {
+				if f.Status == "complete" {
+					f.Status = "partial"
+				}
+				return BrowserStateFeedback{}
+			}
+			return BrowserStateFeedback{Recorded: true, Present: present, Identity: text(s.Identity, 64), Visible: visible, Lines: BrowserLineFeedback{Recorded: true, Count: *s.Lines}}
+		}
+		var value *string
+		if len(s.Value) > 0 && json.Unmarshal(s.Value, &value) != nil {
+			if f.Status == "complete" {
+				f.Status = "partial"
+			}
+			return BrowserStateFeedback{}
+		}
+		return BrowserStateFeedback{
+			Recorded: true,
+			Present:  present,
+			Identity: text(s.Identity, 64),
+			Text:     text(s.Text, 24),
+			Value:    text(value, 16),
+			Fill:     text(s.Fill, 24),
+			Visible:  visible,
+		}
+	}
+	if d.Kind == "visible-state" {
+		f.Expected, f.Actual = state(d.Expected), state(d.Actual)
+		if f.Selector == "" && f.Status == "complete" {
+			f.Status = "partial"
+		}
+	}
+	if d.Kind == "saved-state" {
+		saved := func(raw json.RawMessage) BrowserStateFeedback {
+			var s struct {
+				SHA256 string
+				Keys   *int
+			}
+			if json.Unmarshal(raw, &s) != nil || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.SHA256) || s.Keys == nil || *s.Keys < 0 || *s.Keys > 4096 {
+				if f.Status == "complete" {
+					f.Status = "partial"
+				}
+				return BrowserStateFeedback{}
+			}
+			return BrowserStateFeedback{Recorded: true, SHA256: s.SHA256, Keys: *s.Keys}
+		}
+		f.Expected, f.Actual = saved(d.Expected), saved(d.Actual)
+	}
+	if d.Differences >= 0 && d.Differences <= 4096 {
+		f.Differences = d.Differences
+		if d.Differences > 1 {
+			f.Status = "truncated"
+		}
+	} else if f.Status == "complete" {
+		f.Status = "partial"
+	}
+	if d.Kind == "visible-state" && d.Differences < 1 && f.Status == "complete" {
+		f.Status = "partial"
+	}
+	if d.Reload.Status != "" {
+		switch d.Reload.Status {
+		case "complete":
+			f.Reload.Status = "complete"
+		case "truncated":
+			f.Reload.Status, f.Status = "truncated", "truncated"
+		case "partial", "missing":
+			f.Reload.Status = d.Reload.Status
+			if f.Status != "truncated" {
+				f.Status = "partial"
+			}
+		default:
+			f.Reload.Status = "missing"
+			if f.Status != "truncated" {
+				f.Status = "partial"
+			}
+		}
+		if d.Reload.DocumentStatus >= 100 && d.Reload.DocumentStatus <= 599 {
+			f.Reload.DocumentStatus = d.Reload.DocumentStatus
+		} else if f.Status == "complete" {
+			f.Status = "partial"
+		}
+		// Navigation/availability responses are retained privately. Prefer the
+		// POST admission; a second POST makes this public summary truncated.
+		responses := []BrowserResponseFeedback{}
+		for _, r := range d.Reload.Responses {
+			if r.Method == "POST" && strings.HasPrefix(r.Path, "/api/") {
+				responses = append(responses, r)
+			}
+		}
+		f.Reload.Responses = len(responses)
+		if len(responses) > 0 {
+			r := responses[len(responses)-1]
+			if r.Method == "GET" || r.Method == "POST" {
+				f.Reload.Response.Method = r.Method
+			}
+			f.Reload.Response.Path = publicPath(r.Path)
+			if r.Status >= 100 && r.Status <= 599 {
+				f.Reload.Response.Status = r.Status
+			} else if r.Outcome != "request-failed" && f.Status == "complete" {
+				f.Status = "partial"
+			}
+			switch r.Outcome {
+			case "http-ok", "http-error", "request-failed":
+				f.Reload.Response.Outcome = r.Outcome
+			}
+			if len(responses) > 1 {
+				f.Status = "truncated"
+			}
+		} else if f.Status == "complete" {
+			f.Status = "partial"
+		}
+	} else {
+		f.Reload.Status = "missing"
+		if f.Status != "truncated" {
+			f.Status = "partial"
+		}
+	}
+	// JSON escaping also consumes the byte budget. Trim only this explicitly
+	// marked public summary, never the source assertion or private evidence.
+	fields := []*string{
+		&f.Path,
+		&f.Selector,
+		&f.Cell,
+		&f.Expected.Identity,
+		&f.Expected.Text,
+		&f.Expected.Value,
+		&f.Expected.Fill,
+		&f.Actual.Identity,
+		&f.Actual.Text,
+		&f.Actual.Value,
+		&f.Actual.Fill,
+		&f.Reload.Response.Path,
+		&f.Reload.Response.Outcome,
+	}
+	for {
+		encoded, _ := json.Marshal(f)
+		if len(encoded) <= maxBrowserFeedback {
+			return f
+		}
+		f.Status = "truncated"
+		var longest *string
+		for _, value := range fields {
+			if longest == nil || len(*value) > len(*longest) {
+				longest = value
+			}
+		}
+		if longest == nil || len(*longest) == 0 {
+			return BrowserFailureFeedback{Status: "truncated", ReportSHA256: f.ReportSHA256, Issue: "diagnostic exceeded feedback budget"}
+		}
+		*longest = strings.ToValidUTF8((*longest)[:len(*longest)/2], "")
+	}
 }
 
 // Reject old or partial receipts even if a driver mistakenly marks them complete.

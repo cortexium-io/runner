@@ -22,36 +22,38 @@ import (
 )
 
 // Config is private operator policy. It contains paths and resource identities,
-// never authentication values. The same immutable policy binds every receipt.
+// never authentication values. Every newly issued receipt binds this policy;
+// an exact publication transition may bridge one authenticated old publication.
 type Config struct {
-	Project                string          `json:"project"`
-	Repository             string          `json:"repository"`
-	PR                     int             `json:"pr"`
-	Branch                 string          `json:"branch"`
-	Head                   string          `json:"head"`
-	Base                   string          `json:"base"`
-	StateDir               string          `json:"state_dir"`
-	Evidence               string          `json:"evidence"`
-	Package                string          `json:"package"`
-	Report                 string          `json:"report"`
-	ReportSHA              string          `json:"report_sha256"`
-	GH                     string          `json:"gh"`
-	Compose                []string        `json:"compose"`
-	ControllerConfig       string          `json:"controller_config"`
-	DeployProject          string          `json:"deploy_project"`
-	Docker                 string          `json:"docker"`
-	DockerHost             string          `json:"docker_host"`
-	Engine                 string          `json:"engine"`
-	SSH                    string          `json:"ssh"`
-	Host                   string          `json:"host"`
-	Environment            string          `json:"environment"`
-	DataDir                string          `json:"data_dir"`
-	BackupHelper           string          `json:"backup_helper"`
-	BackupDir              string          `json:"backup_dir"`
-	OffsiteBackupDir       string          `json:"offsite_backup_dir"`
-	PublicURL              string          `json:"public_url"`
-	RecoverBeforeMigration bool            `json:"recover_before_migration,omitempty"`
-	Delivery               *DeliveryConfig `json:"delivery,omitempty"`
+	Project                string                 `json:"project"`
+	Repository             string                 `json:"repository"`
+	PR                     int                    `json:"pr"`
+	Branch                 string                 `json:"branch"`
+	Head                   string                 `json:"head"`
+	Base                   string                 `json:"base"`
+	StateDir               string                 `json:"state_dir"`
+	Evidence               string                 `json:"evidence"`
+	Package                string                 `json:"package"`
+	Report                 string                 `json:"report"`
+	ReportSHA              string                 `json:"report_sha256"`
+	GH                     string                 `json:"gh"`
+	Compose                []string               `json:"compose"`
+	ControllerConfig       string                 `json:"controller_config"`
+	DeployProject          string                 `json:"deploy_project"`
+	Docker                 string                 `json:"docker"`
+	DockerHost             string                 `json:"docker_host"`
+	Engine                 string                 `json:"engine"`
+	SSH                    string                 `json:"ssh"`
+	Host                   string                 `json:"host"`
+	Environment            string                 `json:"environment"`
+	DataDir                string                 `json:"data_dir"`
+	BackupHelper           string                 `json:"backup_helper"`
+	BackupDir              string                 `json:"backup_dir"`
+	OffsiteBackupDir       string                 `json:"offsite_backup_dir"`
+	PublicURL              string                 `json:"public_url"`
+	RecoverBeforeMigration bool                   `json:"recover_before_migration,omitempty"`
+	Delivery               *DeliveryConfig        `json:"delivery,omitempty"`
+	PublicationTransition  *PublicationTransition `json:"publication_transition,omitempty"`
 }
 
 func Load(file string) (*Operator, error) {
@@ -68,6 +70,9 @@ func Load(file string) (*Operator, error) {
 	legacyIdentity := c.PR >= 1 && regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(c.Head) && regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(c.Base)
 	if !safeID.MatchString(c.Project) || !regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`).MatchString(c.Repository) || c.Branch != "main" || (c.Delivery == nil && !legacyIdentity) || len(c.Compose) == 0 || !filepath.IsAbs(c.Compose[0]) || !strings.HasPrefix(c.PublicURL, "https://") {
 		return nil, errors.New("invalid release policy identities")
+	}
+	if err := c.PublicationTransition.validate(c.Delivery != nil); err != nil {
+		return nil, err
 	}
 	paths := []string{
 		c.StateDir,
@@ -93,12 +98,13 @@ func Load(file string) (*Operator, error) {
 	}
 	canonical, _ := json.Marshal(c)
 	return &Operator{
-		Directory:  c.StateDir,
-		PolicyHash: Digest(canonical),
-		Project:    c.Project,
-		Source:     c.Head,
-		Backend:    &Live{Config: c},
-		Delivery:   c.Delivery != nil,
+		Directory:             c.StateDir,
+		PolicyHash:            Digest(canonical),
+		Project:               c.Project,
+		Source:                c.Head,
+		Backend:               &Live{Config: c},
+		Delivery:              c.Delivery != nil,
+		PublicationTransition: c.PublicationTransition,
 	}, nil
 }
 

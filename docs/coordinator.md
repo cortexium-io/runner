@@ -134,6 +134,11 @@ prerequisites stop admission; missing frontend tools stop the configured check,
 rather than transferring checks to the chat. Chromium and WebKit qualification verifies native touch, saved
 edits and every advertised geometry at 320/360/390 pixels. Headless emulation
 and WebKit's public native touch-drag limitation remain explicit in the report.
+Reload/resume comparisons preserve exact saved snapshots and visible semantic
+cell content while excluding only nonpersistent `.wrong-mark` feedback. Failed
+comparisons retain full private evidence and a bounded qualification diagnostic
+with cell identity, expected/actual state and admission transport facts; missing
+or truncated diagnostics remain explicit.
 
 Frontend delivery checks the admitted source before the first coding visit and
 supplies the complete bounded check artifact to both correction and review.
@@ -187,6 +192,12 @@ PR and performs full qualification before fresh protected approvals. It does not
 change the failed original run or inherit an earlier approval. A new continuation
 still needs the owner's authorization; the chat never edits history to simulate
 a successful retry.
+
+If an authorized verifier upgrade changes the operator policy, an owner-configured
+`publication_transition` can bind one previous policy hash and exact PR/head/base.
+Only adoption of its authenticated original publication may cross that boundary.
+The new run must qualify under the current policy and obtain fresh approvals;
+old qualification, merge, deployment and recovery receipts gain no exception.
 
 For an investigation with a retained benchmark scaffold, select the complete
 `investigate-retained` process and supply that patch as its `patch` artifact

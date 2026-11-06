@@ -294,6 +294,12 @@ these recovery routes. The qualified database contract supports migration 0017
 and later releases with no schema changes; other migrations need an explicitly
 qualified project contract.
 
+An authorized verifier-policy upgrade may configure one `publication_transition`
+with `previous_policy_sha256`, `pr`, `head` and `base`. This permits only model-free
+adoption of that exact authenticated publication into the new policy. Live PR
+identity checks, fresh qualification and all protected approvals still apply.
+It does not accept previous-policy qualification or release effects.
+
 ## Verification
 
 Ordinary tests are model-free. Configuration tests prevent skipped approvals and

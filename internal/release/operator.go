@@ -70,6 +70,8 @@ type Receipt struct {
 	Remote            string `json:"remote,omitempty"`
 	Inspection        string `json:"inspection,omitempty"`
 	DataSHA           string `json:"data_sha256,omitempty"`
+
+	BrowserFailure BrowserFailureFeedback `json:"browser_failure,omitzero"`
 }
 type Job struct {
 	Request    Request `json:"request"`
@@ -94,12 +96,13 @@ type Backend interface {
 	Advance(context.Context, *Job, func() error) error
 }
 type Operator struct {
-	Directory  string
-	PolicyHash string
-	Project    string
-	Source     string
-	Backend    Backend
-	Delivery   bool
+	Directory             string
+	PolicyHash            string
+	Project               string
+	Source                string
+	Backend               Backend
+	Delivery              bool
+	PublicationTransition *PublicationTransition
 }
 
 type leaseKey struct{}
@@ -180,7 +183,7 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 					allowed = []string{"deploy"}
 				}
 			}
-			if !safeID.MatchString(p.Key) || !safeID.MatchString(p.RunID) || p.RunID != q.RunID && q.Action != "adopt" || !slices.Contains(allowed, p.Action) || p.Policy != o.PolicyHash || source != q.Source {
+			if !safeID.MatchString(p.Key) || !safeID.MatchString(p.RunID) || p.RunID != q.RunID && q.Action != "adopt" || !slices.Contains(allowed, p.Action) || source != q.Source {
 				return out, errors.New("previous release identity/policy differs")
 			}
 			previous, err := readFile(filepath.Join(o.Directory, p.Key+".json"), 32<<10)
@@ -190,6 +193,9 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 			var saved Job
 			if json.Unmarshal(previous, &saved) != nil || !saved.Done || saved.Failed || saved.Request.Project != q.Project || saved.Request.RunID != p.RunID || saved.Request.Action != p.Action || publicReceipt(saved.Receipt, o.Delivery) != p {
 				return out, errors.New("previous receipt is not an accepted operator result")
+			}
+			if !o.acceptsPreviousPolicy(q, p, saved) {
+				return out, errors.New("previous release identity/policy differs")
 			}
 			expectedOutcome := ""
 			if q.Action == "inspect" || q.Action == "inspect-migration" {
@@ -287,6 +293,9 @@ func publicReceipt(r Receipt, connected bool) Receipt {
 		compact.DataSHA = r.DataSHA
 	case "qualify", "restore":
 		compact.Note = r.Note
+		if r.Action == "qualify" {
+			compact.BrowserFailure = r.BrowserFailure
+		}
 	case "prepare":
 		compact.Head, compact.Base, compact.PR = r.Head, r.Base, r.PR
 		compact.Image, compact.ServerSHA, compact.ReportSHA = r.Image, r.ServerSHA, r.ReportSHA

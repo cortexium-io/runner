@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { pathToFileURL } from 'node:url'
 import { PageReadiness } from './browser_render.mjs'
-import { contractVersion, games, mobileViewports, geometryCases, verifyPlayArea, activate, editAndRestore, playMetrics, prepareShikakuTouch, savedState, renderedState } from './browser_contract.mjs'
+import { contractVersion, games, mobileViewports, geometryCases, verifyPlayArea, activate, editAndRestore, playMetrics, prepareShikakuTouch, savedState, renderedState, assertSavedState, assertRenderedState, observeAdmission } from './browser_contract.mjs'
 const { chromium, webkit } = await import(pathToFileURL(process.env.RUNNER_PLAYWRIGHT_MODULE).href)
 const [origin, output] = process.argv.slice(2)
 const expectedSizes = { Sudoku: [], Suguru: [6, 8, 10, 12], Nonogram: [5, 10, 15], Binary: [6, 8, 10], Futoshiki: [4, 5, 7], Shikaku: [5, 7, 10], Hashi: [7, 9, 10, 15], Calcudoku: [4, 5, 6, 9], Kakuro: [6, 10, 16] }
@@ -75,6 +75,7 @@ try {
         assert.equal((await response).status(), 200, 'New: ' + game)
         await page.waitForURL(url => url.pathname.startsWith('/' + game.toLowerCase() + '/'))
         record.path = new URL(page.url()).pathname
+        receipt.current.path = record.path
         await page.locator('.player-board-frame:visible').first().waitFor({ state: 'visible' })
         await readiness.ready(page)
         // This runs before any locator interaction can scroll the board into view.
@@ -87,19 +88,22 @@ try {
         record.states.push('actual edit, Undo, Redo, saved visible state survives reload')
         receipt.current.phase = 'home saved-board resume'
         const resumeSave=await savedState(page),resumeView=await renderedState(page)
-        await readiness.goto(page,origin)
-        await page.locator('.saved-row[data-board-id]').first().waitFor({state:'visible'})
-        const code=record.path.split('/').at(-1),ids=[code,game.toLowerCase()+'-generated:'+code]
-        let resume
-        for(const row of await page.locator('.saved-row[data-board-id]').all())if(ids.includes(await row.getAttribute('data-board-id'))){resume=row.locator('.resume-button');break}
-        assert.ok(resume,'home saved-board Resume control is missing for '+record.path)
-        await activate(page,resume,device.touch,false)
-        await page.waitForURL(url=>url.pathname===record.path)
-        await page.locator('.player-board-frame:visible').first().waitFor({state:'visible'})
-        await readiness.ready(page)
-        await verifyPlayArea(page,device.touch)
-        assert.deepEqual(await savedState(page),resumeSave,'home resume changed saved puzzle state')
-        assert.deepEqual(await renderedState(page),resumeView,'home resume did not restore the visible edit')
+        await observeAdmission(page, 'home-resume', async () => {
+          await readiness.goto(page,origin)
+          await page.locator('.saved-row[data-board-id]').first().waitFor({state:'visible'})
+          const code=record.path.split('/').at(-1),ids=[code,game.toLowerCase()+'-generated:'+code]
+          let resume
+          for(const row of await page.locator('.saved-row[data-board-id]').all())if(ids.includes(await row.getAttribute('data-board-id'))){resume=row.locator('.resume-button');break}
+          assert.ok(resume,'home saved-board Resume control is missing for '+record.path)
+          await activate(page,resume,device.touch,false)
+          await page.waitForURL(url=>url.pathname===record.path)
+          await page.locator('.player-board-frame:visible').first().waitFor({state:'visible'})
+          await readiness.ready(page)
+          await verifyPlayArea(page,device.touch)
+          const context = { phase: 'home-resume', path: new URL(page.url()).pathname }
+          assertSavedState(await savedState(page),resumeSave,'home resume changed saved puzzle state',context)
+          assertRenderedState(await renderedState(page),resumeView,'home resume did not restore the visible edit',context)
+        })
         record.resumeInput=await page.evaluate(()=>window.runnerInputEvidence)
         if(device.touch)assert.ok(record.resumeInput.touch>0&&record.resumeInput.keyboard===0,'home resume did not use trusted touch-only input')
         record.states.push('home resume restores saved visible edit in usable viewport')
@@ -146,7 +150,7 @@ try {
       await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
       const page = await context.newPage(); lastPage = page; page.setDefaultTimeout(20000); readiness.watch(page, origin)
       for (const sample of cases) {
-        receipt.current = { engine: engine.name, device: 'mobile', game: sample.game, geometry: sample.key, width: viewport.width, height: viewport.height, phase: 'advertised geometry and readable fit/zoom' }
+        receipt.current = { engine: engine.name, device: 'mobile', game: sample.game, geometry: sample.key, path: sample.path, width: viewport.width, height: viewport.height, phase: 'advertised geometry and readable fit/zoom' }
         await readiness.goto(page, origin + sample.path)
         await page.locator('.player-board-frame:visible').first().waitFor({ state: 'visible' })
         const metrics = await verifyPlayArea(page, true)
@@ -162,7 +166,9 @@ try {
 } catch (error) {
   receipt.failure = error.stack
   receipt.failureContext = { ...receipt.current }
+  if (error.browserDiagnostic) receipt.failureDiagnostic = error.browserDiagnostic
   if (lastPage && !lastPage.isClosed()) {
+    try { receipt.failureContext.path = new URL(lastPage.url()).pathname } catch {}
     try { receipt.failureContext.board = (await playMetrics(lastPage)).board } catch {}
     await lastPage.screenshot({ path: output + '/failure.png', fullPage: false })
     receipt.failureText = (await lastPage.locator('body').innerText()).slice(-8000)

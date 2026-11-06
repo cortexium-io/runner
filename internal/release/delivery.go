@@ -262,6 +262,7 @@ func RunDeliveryWorker(file string) error {
 			j.Failed = false
 			j.Outcome = "changes_requested"
 			j.Reason = source.Error()
+			j.Receipt.BrowserFailure = source.browser
 		}
 		j.Receipt.Note = j.Reason
 	}

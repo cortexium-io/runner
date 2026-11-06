@@ -89,9 +89,25 @@ func TestEvidenceWorkflowDefinitionsFitPilotWithPrivateHelperArgv(t *testing.T) 
 
 func TestEvidenceOwnerAndReviewPayloadsFitUnchangedNativeLimit(t *testing.T) {
 	feedback := runner.Text("command exited 1\n" + strings.Repeat("x", 480))
-	qualification, _ := json.Marshal(map[string]string{"key": "attempt_" + strings.Repeat("a", 26), "run_id": "run_" + strings.Repeat("b", 26), "action": "qualify", "policy_sha256": strings.Repeat("c", 64), "source_ref": strings.Repeat("d", 40), "recovery": "source_correction_required", "note": strings.Repeat("f", 600)})
+	// Exercise the complete 768-byte public diagnostic allowance. The producer's
+	// own tests verify that escaped/structured diagnostics obey this bound.
+	diagnostic := `{"status":"truncated","issue":""}`
+	diagnostic = strings.Replace(diagnostic, `"issue":""`, `"issue":"`+strings.Repeat("x", 768-len(diagnostic))+`"`, 1)
+	if len(diagnostic) != 768 || !json.Valid([]byte(diagnostic)) {
+		t.Fatal("invalid maximum-size diagnostic fixture")
+	}
+	qualification, _ := json.Marshal(map[string]any{
+		"key":             "attempt_" + strings.Repeat("a", 26),
+		"run_id":          "run_" + strings.Repeat("b", 26),
+		"action":          "qualify",
+		"policy_sha256":   strings.Repeat("c", 64),
+		"source_ref":      strings.Repeat("d", 40),
+		"recovery":        "source_correction_required",
+		"note":            strings.Repeat("f", 600),
+		"browser_failure": json.RawMessage(diagnostic),
+	})
 	artifact := runner.Value{ArtifactID: "attempt_" + strings.Repeat("A", 26) + "/result"}
-	for _, file := range []string{"frontend.json", "research-nonogram.json", "retained-research-nonogram.json"} {
+	for _, file := range []string{"frontend.json", "retained-frontend.json", "research-nonogram.json", "retained-research-nonogram.json"} {
 		p, roles := privateEvidenceRoles(t, file)
 		inputs := evidenceBudgetInputs(file)
 		for _, name := range []string{"owner", "review"} {

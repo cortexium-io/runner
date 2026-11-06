@@ -2,13 +2,39 @@
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { pathToFileURL } from 'node:url'
-import { verifyPlayArea, editAndRestore, dragRectangle, activate, prepareShikakuTouch } from './browser_contract.mjs'
+import { verifyPlayArea, editAndRestore, dragRectangle, activate, prepareShikakuTouch, renderedState, assertRenderedState, observeAdmission } from './browser_contract.mjs'
 import { PageReadiness } from './browser_render.mjs'
 const { chromium, webkit } = await import(pathToFileURL(process.env.RUNNER_PLAYWRIGHT_MODULE).href)
+
+function semanticFixture(fault) {
+  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><body><div class="player-board-frame" style="visibility:hidden"><div class="nonogram-board"><button data-cell="0"><span class="player-mark"></span></button><button data-cell="1"></button></div></div><div class="value-controls"><button id="shade">Shade</button><button id="undo">Undo</button><button id="redo">Redo</button></div><script>
+const fault=${JSON.stringify(fault)},key='games-site:semantic:'+fault,board=document.querySelector('.nonogram-board'),cell=board.querySelector('[data-cell="0"]');
+let state=JSON.parse(localStorage.getItem(key)||'null')?.snapshot||{cells:['blank','blank']},past=[],future=[];const restored=state.cells[0]==='filled';
+if(restored&&fault==='saved')state={cells:['filled','filled']};
+function render(){cell.dataset.value=state.cells[0];cell.querySelector('.player-mark').textContent=state.cells[0]==='filled'?'■':'';localStorage.setItem(key,JSON.stringify({snapshot:state}));}
+document.querySelector('#shade').onclick=()=>{past.push(state);state={cells:['filled','blank']};future=[];render()};
+document.querySelector('#undo').onclick=()=>{if(past.length){future.unshift(state);state=past.pop();render()}};
+document.querySelector('#redo').onclick=()=>{if(future.length){past.push(state);state=future.shift();render()}};
+fetch('/api/fixture-admission/'+fault+'?private-query=must-not-appear').then(response=>{if(!response.ok)throw Error('fixture admission');render();if(restored){const mark=cell.querySelector('.player-mark');
+if(fault==='decoration'){const warning=document.createElement('span');warning.className='wrong-mark';warning.textContent='!';cell.append(warning)}
+if(fault==='other-decoration'){const warning=document.createElement('span');warning.className='other-mark';warning.textContent='!';cell.append(warning)}
+if(fault==='value')cell.dataset.value='blank';
+if(fault==='hidden')mark.style.visibility='hidden';
+if(fault==='transparent')mark.style.opacity='0';
+if(fault==='missing')mark.remove();
+if(fault==='identity')cell.dataset.cell='9';
+if(fault==='long'){mark.textContent='x'.repeat(1000);mark.style.display='block';mark.style.overflow='hidden';}
+}document.querySelector('.player-board-frame').style.visibility='visible'});
+</script>`
+}
+
 const server = http.createServer((req, res) => {
+  const path = new URL(req.url, 'http://fixture').pathname
+  if (path.startsWith('/api/fixture-admission/')) { res.setHeader('Content-Type', 'application/json'); return res.end('{"admitted":true}') }
+  if (path.startsWith('/semantic/')) { res.setHeader('Content-Type', 'text/html'); return res.end(semanticFixture(path.split('/').at(-1))) }
   if (req.url === '/style.css') {
     res.setHeader('Content-Type', 'text/css')
-    return res.end('body{margin:0;padding:8px;box-sizing:border-box}button{font:14px sans-serif;height:40px;touch-action:manipulation}.player-board-frame{width:200px;margin-top:20px;overflow:hidden}.shikaku-board{display:grid;grid-template-columns:repeat(5,40px);width:200px;touch-action:none}.shikaku-board button{width:40px;padding:0;box-sizing:border-box;background:var(--rectangle-fill,#fff)}body[data-case^=large] .player-board-frame{width:240px;height:240px}body[data-case^=large] .shikaku-board{width:240px;grid-template-columns:repeat(20,12px)}body[data-case^=large] .shikaku-board button{width:12px;height:12px;font-size:8px}.rectangle-controls{display:flex;flex-wrap:wrap}body[data-case=clip] .shikaku-board{width:420px;grid-template-columns:repeat(5,84px)}body[data-case=internal] .shikaku-board{grid-template-columns:repeat(5,84px)}body[data-case=entry] .player-board-frame{margin-top:900px}body[data-case=control] .rectangle-controls{margin-top:900px}body[data-case=zoom] .shikaku-board button{font-size:10px}')
+    return res.end('body{margin:0;padding:8px;box-sizing:border-box}button{font:14px sans-serif;height:40px;touch-action:manipulation}.player-board-frame{width:200px;margin-top:20px;overflow:hidden}.shikaku-board{display:grid;grid-template-columns:repeat(5,40px);width:200px;touch-action:none}.shikaku-board button{width:40px;padding:0;box-sizing:border-box;background:var(--rectangle-fill,#fff)}.nonogram-board{display:grid;grid-template-columns:repeat(2,40px);width:80px}.nonogram-board button{width:40px}body[data-case^=large] .player-board-frame{width:240px;height:240px}body[data-case^=large] .shikaku-board{width:240px;grid-template-columns:repeat(20,12px)}body[data-case^=large] .shikaku-board button{width:12px;height:12px;font-size:8px}.rectangle-controls{display:flex;flex-wrap:wrap}body[data-case=clip] .shikaku-board{width:420px;grid-template-columns:repeat(5,84px)}body[data-case=internal] .shikaku-board{grid-template-columns:repeat(5,84px)}body[data-case=entry] .player-board-frame{margin-top:900px}body[data-case=control] .rectangle-controls{margin-top:900px}body[data-case=zoom] .shikaku-board button{font-size:10px}')
   }
   const gridSize=req.url.startsWith('/large')?20:5
   res.setHeader('Content-Type', 'text/html')
@@ -86,7 +112,57 @@ try {
       await assert.rejects(editAndRestore(page,'Shikaku',true,engine.name,ready,badCorners),error=>error instanceof assert.AssertionError&&error.message.includes('painted cells differ'),'old pixel hit-testing passed fitted large-board proof')
       await ready.goto(page, origin + '/ignored')
       await assert.rejects(editAndRestore(page, 'Shikaku', true, engine.name, ready), error => error instanceof assert.AssertionError && error.message.includes('expected saved state'), 'ignored native touch was accepted')
+      for (const fault of ['decoration', 'value', 'hidden', 'transparent', 'missing', 'identity', 'other-decoration', 'saved', 'long']) {
+        await ready.goto(page, origin + '/semantic/' + fault)
+        await page.locator('.player-board-frame:visible').waitFor({ state: 'visible' })
+        if (fault === 'decoration') {
+          await editAndRestore(page, 'Nonogram', true, engine.name, ready)
+          assert.equal(await page.locator('.wrong-mark').textContent(), '!', 'fixture did not restore transient check decoration')
+          assert.equal((await renderedState(page)).cells[0].text, '■', 'primary player mark was discarded with warning decoration')
+          continue
+        }
+        await assert.rejects(editAndRestore(page, 'Nonogram', true, engine.name, ready), error => {
+          assert.ok(error instanceof assert.AssertionError, 'semantic source failure lost assertion classification')
+          const diagnostic = error.browserDiagnostic
+          assert.ok(Buffer.byteLength(JSON.stringify(diagnostic)) < 4096, 'private semantic diagnostic exceeded its fixture bound')
+          assert.equal(diagnostic.phase, 'reload')
+          assert.equal(diagnostic.path, '/semantic/' + fault)
+          assert.equal(diagnostic.reload.status, 'complete')
+          assert.equal(diagnostic.reload.documentStatus, 200)
+          assert.ok(diagnostic.reload.responses.some(row => row.method === 'GET' && row.path === '/api/fixture-admission/' + fault && row.status === 200))
+          assert.ok(!JSON.stringify(diagnostic).includes('private-query'), 'reload diagnostics exposed query data')
+          if (fault === 'saved') {
+            assert.equal(diagnostic.kind, 'saved-state')
+            assert.notEqual(diagnostic.expected.sha256, diagnostic.actual.sha256)
+            assert.equal(diagnostic.expected.keys, diagnostic.actual.keys)
+            assert.ok(!JSON.stringify(diagnostic).includes('snapshot'), 'saved-state diagnostic exposed storage contents')
+          } else {
+            assert.equal(diagnostic.kind, 'visible-state', 'wrong diagnostic for ' + fault)
+            assert.equal(diagnostic.cell, '0')
+            assert.equal(diagnostic.selector, '.nonogram-board [data-cell="0"]')
+            assert.equal(diagnostic.expected.identity, 'nonogram-board:data-cell:0')
+            assert.equal(diagnostic.expected.text, '■')
+            assert.equal(diagnostic.expected.value, 'filled')
+            assert.equal(diagnostic.status, fault === 'long' ? 'truncated' : 'complete')
+            if (fault === 'long') assert.equal(diagnostic.actual.text.length, 256)
+          }
+          return true
+        }, 'broken restored primary state passed: ' + fault)
+      }
+      // The same semantic predicate is used for home resume, with its own phase.
+      const expected = await renderedState(page)
+      await page.locator('[data-cell="0"]').evaluate(node => node.remove())
+      const missingCell = await renderedState(page)
+      assert.throws(() => assertRenderedState(missingCell, expected, 'resume primary cell missing', { phase: 'home-resume', path: '/semantic/long' }), error => error.browserDiagnostic.phase === 'home-resume' && error.browserDiagnostic.actual.identity !== error.browserDiagnostic.expected.identity)
+      // Transport failures remain infrastructure failures with bounded facts.
+      const failure = new Error('synthetic navigation interruption')
+      await assert.rejects(observeAdmission(page, 'reload', async () => { throw failure }), error => error === failure && error.browserDiagnostic.reload.status === 'missing' && !(error instanceof assert.AssertionError))
+      const burstFailure = new Error('synthetic admission burst')
+      await assert.rejects(observeAdmission(page, 'reload', async () => {
+        await page.evaluate(async () => { await Promise.all(Array.from({ length: 10 }, (_, i) => fetch('/api/fixture-admission/burst?private-query=' + i))) })
+        throw burstFailure
+      }), error => error === burstFailure && error.browserDiagnostic.reload.status === 'truncated' && error.browserDiagnostic.reload.responses.length === 8 && !JSON.stringify(error.browserDiagnostic).includes('private-query'))
     } finally { if (browser) await browser.close() }
   }
-  console.log('PASS: both engines; real touch edit/Undo/Redo/reload; 320/360/390; rejected clipping, entry scroll, unreachable actions and ignored touch')
+  console.log('PASS: both engines; real touch edit/Undo/Redo/reload; 320/360/390; strict semantic restore ignores only wrong-mark decoration; rejected primary value/visibility/identity/snapshot changes, clipping, entry scroll, unreachable actions and ignored touch')
 } finally { await new Promise(resolve => server.close(resolve)) }

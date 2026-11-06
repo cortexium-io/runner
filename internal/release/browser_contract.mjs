@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 
 export const contractVersion = 2
 export const games = ['Sudoku', 'Suguru', 'Nonogram', 'Binary', 'Futoshiki', 'Shikaku', 'Hashi', 'Calcudoku', 'Kakuro']
@@ -115,10 +117,109 @@ export async function savedState(page) {
 }
 
 export async function renderedState(page) {
-  return page.locator('.player-board-frame:visible').first().evaluate(frame => ({
-    cells: [...frame.querySelectorAll('button')].map(node => ({ text: node.textContent.trim(), value: node.getAttribute('data-value'), fill: node.style.getPropertyValue('--rectangle-fill') })),
-    bridges: [...frame.querySelectorAll('.hashi-board svg g')].map(node => node.querySelectorAll('line').length)
-  }))
+  return page.locator('.player-board-frame:visible').first().evaluate((frame, boardSelector) => {
+    // Compare persistent player content. Check feedback is deliberately transient
+    // after admission/reload; no other descendant or class is discarded.
+    const visible = node => {
+      if (!node.getClientRects().length) return false
+      for (let parent = node; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent)
+        if (style.display === 'none' || style.visibility !== 'visible' || Number(style.opacity) === 0) return false
+      }
+      return true
+    }
+    const text = node => {
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT)
+      let all = '', shown = '', child
+      while ((child = walker.nextNode())) {
+        const parent = child.parentElement
+        const decoration = parent.closest('.wrong-mark')
+        if (decoration && decoration !== node && node.contains(decoration)) continue
+        all += child.textContent
+        const style = getComputedStyle(parent), range = document.createRange()
+        range.selectNodeContents(child)
+        const transparent = style.color === 'transparent' || /^rgba\([^)]*,\s*0(?:\.0+)?\s*\)$/.test(style.color) || /\/\s*0(?:\.0+)?%?\s*\)$/.test(style.color)
+        if (visible(parent) && parseFloat(style.fontSize) > 0 && !transparent && [...range.getClientRects()].some(r => r.width > 0 && r.height > 0)) shown += child.textContent
+      }
+      return { primaryText: all.trim(), text: shown.trim() }
+    }
+    return {
+      cells: [...frame.querySelectorAll('button')].map((node, index) => {
+        const board = node.closest(boardSelector), kind = board?.classList ? [...board.classList].find(name => boardSelector.split(',').includes('.' + name)) : 'board'
+        const attribute = node.hasAttribute('data-cell') ? 'data-cell' : node.hasAttribute('data-island') ? 'data-island' : null
+        const cell = attribute ? node.getAttribute(attribute) : String(index)
+        const escaped = /^[A-Za-z0-9_-]+$/.test(cell) ? cell : CSS.escape(cell)
+        return { identity: `${kind}:${attribute ?? 'button'}:${cell}`, selector: attribute ? `.${kind} [${attribute}="${escaped}"]` : `.${kind} button:nth-of-type(${index + 1})`, cell, present: true, ...text(node), value: node.getAttribute('data-value'), fill: node.style.getPropertyValue('--rectangle-fill'), visible: visible(node) }
+      }),
+      bridges: [...frame.querySelectorAll('.hashi-board svg g')].map(node => ({ lines: node.querySelectorAll('line').length, visible: [...node.querySelectorAll('line')].filter(visible).length }))
+    }
+  }, boardSelector)
+}
+
+// Keep the complete comparison strict, while publishing only the first bounded
+// semantic mismatch. Saved snapshots are represented by digests, never contents.
+function stateFailure(message, diagnostic) {
+  const error = new assert.AssertionError({ message, operator: 'deepStrictEqual' })
+  error.browserDiagnostic = diagnostic
+  throw error
+}
+
+export function assertRenderedState(actual, expected, message, context = {}) {
+  if (isDeepStrictEqual(actual, expected)) return
+  let differences = 0, first
+  for (const field of ['cells', 'bridges']) {
+    for (let i = 0; i < Math.max(actual[field].length, expected[field].length); i++) {
+      if (isDeepStrictEqual(actual[field][i], expected[field][i])) continue
+      differences++
+      first ??= { field, index: i, actual: actual[field][i], expected: expected[field][i] }
+    }
+  }
+  let truncated = differences > 1
+  const bound = value => {
+    if (typeof value !== 'string' || value.length <= 256) return value
+    truncated = true
+    return value.slice(0, 256)
+  }
+  const semantic = value => value ? Object.fromEntries(Object.entries(value).filter(([key]) => !['selector', 'cell'].includes(key)).map(([key, value]) => [key, bound(value)])) : null
+  const expectedCell = semantic(first.expected), actualCell = semantic(first.actual)
+  const selector = bound(first.expected?.selector ?? first.actual?.selector ?? '.hashi-board svg g')
+  const cell = bound(first.expected?.cell ?? first.actual?.cell ?? String(first.index))
+  stateFailure(message, { ...context, status: truncated ? 'truncated' : 'complete', kind: 'visible-state', selector, cell, expected: expectedCell, actual: actualCell, differences })
+}
+
+export function assertSavedState(actual, expected, message, context = {}) {
+  if (isDeepStrictEqual(actual, expected)) return
+  const digest = value => ({ sha256: createHash('sha256').update(JSON.stringify(value)).digest('hex'), keys: value.length })
+  stateFailure(message, { ...context, status: 'complete', kind: 'saved-state', expected: digest(expected), actual: digest(actual) })
+}
+
+// Observe only admission transport facts. No response body, query, storage or
+// credential data is read. Resource readiness keeps its existing classification.
+export async function observeAdmission(page, phase, action) {
+  const origin = new URL(page.url()).origin, rows = new Map()
+  let truncated = false
+  const request = req => {
+    const url = new URL(req.url()), document = req.resourceType() === 'document' && req.frame() === page.mainFrame()
+    if (url.origin !== origin || !document && !url.pathname.startsWith('/api/')) return
+    if (rows.size === 8) { truncated = true; return }
+    if (url.pathname.length > 256) truncated = true
+    rows.set(req, { method: req.method(), path: url.pathname.slice(0, 256), resourceType: req.resourceType(), status: null, outcome: 'pending' })
+  }
+  const response = res => {
+    const row = rows.get(res.request())
+    if (row) { row.status = res.status(); row.outcome = res.ok() ? 'http-ok' : 'http-error' }
+  }
+  const failed = req => { const row = rows.get(req); if (row) row.outcome = 'request-failed' }
+  page.on('request', request); page.on('response', response); page.on('requestfailed', failed)
+  try { return await action() } catch (error) {
+    const responses = [...rows.values()], path = new URL(page.url()).pathname.slice(0, 256)
+    const reload = { status: truncated ? 'truncated' : !responses.length ? 'missing' : responses.some(row => row.outcome === 'pending') ? 'partial' : 'complete', path, documentStatus: responses.findLast(row => row.resourceType === 'document')?.status ?? null, responses }
+    error.browserDiagnostic ??= { status: 'partial', kind: 'reload', phase, path }
+    error.browserDiagnostic.reload = reload
+    throw error
+  } finally {
+    page.off('request', request); page.off('response', response); page.off('requestfailed', failed)
+  }
 }
 
 async function waitState(page, before, changed) {
@@ -236,10 +337,13 @@ export async function editAndRestore(page, game, touch, engine, readiness, corne
   await waitState(page, edited, false)
   const input = await page.evaluate(() => window.runnerInputEvidence)
   if (touch) assert.ok(input.touch > inputBefore.touch && input.keyboard === 0, 'mobile edit did not use trusted touch-only input')
-  await readiness.reload(page)
-  await page.locator('.player-board-frame:visible').first().waitFor({ state: 'visible' })
-  await verifyPlayArea(page, touch)
-  assert.deepEqual(await savedState(page), edited, 'reload changed saved puzzle state')
-  assert.deepEqual(await renderedState(page), rendered, 'reload did not restore the visible board edit')
+  await observeAdmission(page, 'reload', async () => {
+    await readiness.reload(page)
+    await page.locator('.player-board-frame:visible').first().waitFor({ state: 'visible' })
+    await verifyPlayArea(page, touch)
+    const context = { phase: 'reload', path: new URL(page.url()).pathname }
+    assertSavedState(await savedState(page), edited, 'reload changed saved puzzle state', context)
+    assertRenderedState(await renderedState(page), rendered, 'reload did not restore the visible board edit', context)
+  })
   return { input, paint, touchDrag: touch && game === 'Shikaku' ? engine === 'chromium' ? 'native-verified' : 'native-taps-verified; WebKit drag API unavailable' : undefined }
 }

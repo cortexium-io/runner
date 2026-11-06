@@ -45,7 +45,10 @@ func packagePath(root, name string) (string, error) {
 	return path, nil
 }
 
-type sourceFailure struct{ reason string }
+type sourceFailure struct {
+	reason  string
+	browser BrowserFailureFeedback
+}
 
 func (e *sourceFailure) Error() string { return e.reason }
 
