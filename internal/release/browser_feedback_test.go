@@ -2,13 +2,146 @@ package release
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
+
+func browser429DiagnosticFixture() map[string]any {
+	return map[string]any{"status": "complete", "kind": "reload", "phase": "reload", "path": "/shikaku/fixture", "reload": map[string]any{
+		"status": "complete", "path": "/shikaku/fixture", "documentStatus": 200, "responses": []any{
+			map[string]any{"method": "GET", "path": "/shikaku/fixture", "status": 200, "outcome": "http-ok"},
+			map[string]any{"method": "POST", "path": "/api/games/shikaku", "status": 429, "outcome": "http-error"},
+		},
+		"headers": map[string]string{"Cookie": "PRIVATE_COOKIE"}, "body": "PRIVATE_BODY",
+	}}
+}
+
+func TestLegacyBrowserFailureFeedbackKeepsInfrastructureRoutingAndSafeNote(t *testing.T) {
+	for _, failure := range []string{"Error: HTTP429 PRIVATE_FAILURE\nPRIVATE_STACK", "AssertionError: saved board differs"} {
+		data, err := json.Marshal(map[string]any{"failure": failure, "failureDiagnostic": browser429DiagnosticFixture(), "failureContext": map[string]any{"engine": "chromium", "device": "mobile", "game": "Shikaku", "path": "/shikaku/fixture"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		j := Job{Receipt: Receipt{Action: "qualify"}}
+		err = browserReceiptFailure(&j, data, true)
+		var source *sourceFailure
+		if err == nil || errors.As(err, &source) != strings.HasPrefix(failure, "AssertionError") {
+			t.Fatal("source/runtime routing changed", err)
+		}
+		if j.Receipt.BrowserFailure.Reload.Response.Status != 429 || j.Receipt.BrowserFailure.Phase != "reload" || j.Receipt.BrowserFailure.ReportSHA256 == "" {
+			t.Fatal("legacy diagnostics missing", j.Receipt)
+		}
+		if source == nil {
+			if !strings.Contains(err.Error(), "HTTP 429") || !strings.Contains(err.Error(), "chromium/mobile/Shikaku/reload") {
+				t.Fatal("safe runtime note missing facts", err)
+			}
+			j.Receipt.Note = err.Error()
+			encoded, _ := json.Marshal(publicReceipt(j.Receipt, true))
+			if bytes.Contains(encoded, []byte("PRIVATE_")) {
+				t.Fatal("private data escaped", string(encoded))
+			}
+		}
+		encoded, _ := json.Marshal(j.Receipt.BrowserFailure)
+		if len(encoded) > maxBrowserFeedback {
+			t.Fatal("public diagnostic budget increased", len(encoded))
+		}
+	}
+}
+
+func TestLegacyBrowserCommandUsesOnlyExistingContextDeadline(t *testing.T) {
+	c := &DeliveryConfig{BrowserModule: "/module", BrowserExecutable: "/chromium", WebKitExecutable: "/webkit", Node: "/node"}
+	deadline := time.Now().Add(time.Second)
+	ctx, cancel := context.WithDeadline(t.Context(), deadline)
+	defer cancel()
+	args := browserCommand(ctx, c, "/script", "https://fixture.invalid", "/output")
+	want := "RUNNER_BROWSER_DEADLINE_MS=" + strconv.FormatInt(deadline.UnixMilli(), 10)
+	found := false
+	for _, arg := range args {
+		if arg == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("existing deadline omitted/extended", args)
+	}
+	for _, arg := range browserCommand(context.Background(), c, "/script", "https://fixture.invalid", "/output") {
+		if strings.HasPrefix(arg, "RUNNER_BROWSER_DEADLINE_MS=") {
+			t.Fatal("deadline invented without parent budget", arg)
+		}
+	}
+}
+
+func TestBrowserFailureMalformedContextCannotEraseKnownFailure(t *testing.T) {
+	for _, failure := range []string{"Error: HTTP429 PRIVATE_FAILURE", "AssertionError: malformed optional context"} {
+		data, err := json.Marshal(map[string]any{"failure": failure, "failureDiagnostic": browser429DiagnosticFixture(), "failureContext": map[string]any{"engine": []string{"PRIVATE_COOKIE"}, "path": "/shikaku/fixture"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		j := Job{Receipt: Receipt{Action: "qualify"}}
+		err = browserReceiptFailure(&j, data, true)
+		var source *sourceFailure
+		if err == nil || errors.As(err, &source) || !strings.Contains(err.Error(), "invalid failure context") {
+			t.Fatal("known malformed failure was accepted/rerouted", err)
+		}
+		f := j.Receipt.BrowserFailure
+		if f.Status != "partial" || f.Issue != "invalid failure context" || f.ReportSHA256 == "" || f.Reload.Response.Status != 429 {
+			t.Fatal("malformed context lost known evidence", f)
+		}
+		encoded, _ := json.Marshal(f)
+		if len(encoded) > maxBrowserFeedback || bytes.Contains(encoded, []byte("PRIVATE_")) || strings.Contains(err.Error(), "PRIVATE_") {
+			t.Fatal("unsafe or oversized failure evidence", string(encoded), err)
+		}
+	}
+	diagnostic := browserDiagnosticFixture()
+	wide := strings.Repeat("<>&\\\"界", 100)
+	diagnostic["selector"], diagnostic["cell"] = wide, wide
+	for _, key := range []string{"expected", "actual"} {
+		s := diagnostic[key].(map[string]any)
+		for _, field := range []string{"identity", "text", "value", "fill"} {
+			s[field] = wide
+		}
+	}
+	data, _ := json.Marshal(map[string]any{"failure": "Error: known runtime failure", "failureDiagnostic": diagnostic, "failureContext": map[string]any{"engine": []int{1}}})
+	j := Job{}
+	if browserReceiptFailure(&j, data, true) == nil {
+		t.Fatal("wide malformed failure disappeared")
+	}
+	encoded, _ := json.Marshal(j.Receipt.BrowserFailure)
+	if len(encoded) > maxBrowserFeedback || j.Receipt.BrowserFailure.Status != "truncated" {
+		t.Fatal("malformed context exceeded diagnostic budget", len(encoded), j.Receipt.BrowserFailure)
+	}
+}
+
+func TestBrowserAdmissionFeedbackKeepsCanonicalNavigationInfrastructureFacts(t *testing.T) {
+	diagnostic := browser429DiagnosticFixture()
+	diagnostic["kind"], diagnostic["phase"] = "admission", "canonical navigation"
+	data, err := json.Marshal(map[string]any{"failure": "BrowserAdmissionError: PRIVATE_FAILURE", "failureDiagnostic": diagnostic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := Job{Receipt: Receipt{Action: "qualify"}}
+	err = browserReceiptFailure(&j, data, true)
+	var source *sourceFailure
+	if err == nil || errors.As(err, &source) {
+		t.Fatal("admission failure became source assertion", err)
+	}
+	f := j.Receipt.BrowserFailure
+	if f.Kind != "admission" || f.Phase != "canonical navigation" || f.Status != "complete" || f.Reload.Response.Status != 429 || !strings.Contains(err.Error(), "canonical navigation") {
+		t.Fatal("admission facts lost", f, err)
+	}
+	encoded, _ := json.Marshal(f)
+	if len(encoded) > maxBrowserFeedback || bytes.Contains(encoded, []byte("PRIVATE_")) {
+		t.Fatal("admission evidence unsafe/oversized", string(encoded))
+	}
+}
 
 func browserDiagnosticFixture() map[string]any {
 	return map[string]any{

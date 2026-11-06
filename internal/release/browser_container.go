@@ -213,16 +213,7 @@ func (b *Live) runBrowserContainer(ctx context.Context, j *Job, network, output 
 		return errors.New("browser runtime evidence identity differs")
 	}
 	if receipt.Failure != "" {
-		if input.Mode == "qualification" {
-			if source := browserAssertionFailure(data); source != nil {
-				return source
-			}
-		}
-		message := strings.SplitN(receipt.Failure, "\n", 2)[0]
-		if len(message) > 512 {
-			message = message[:512]
-		}
-		return errors.New("isolated browser runtime failed: " + message)
+		return browserReceiptFailure(j, data, input.Mode == "qualification")
 	}
 	return nil
 }

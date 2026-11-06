@@ -10,7 +10,7 @@ const cases = geometryCases(JSON.parse(fs.readFileSync(output + '/../runtime-htt
 const largeShikaku = cases.filter(row=>row.game==='shikaku').reduce((a,b)=>a.size>=b.size?a:b)
 const receipt = { contract: contractVersion, origin, mockedResponses: false, headless: true, engines: [], journeys: [], geometry: [], complete: false, limitations: ['Headless touch emulation is not a physical iOS/Android device check.', 'Playwright WebKit exposes native taps but no public native touch-drag API; its complete two-corner Shikaku path is verified.'] }
 fs.mkdirSync(output, { recursive: true })
-const readiness = new PageReadiness(receipt)
+const readiness = new PageReadiness(receipt, process.env.RUNNER_BROWSER_DEADLINE_MS ? Number(process.env.RUNNER_BROWSER_DEADLINE_MS) : null)
 const save = () => fs.writeFileSync(output + '/receipt.json', JSON.stringify(receipt))
 const launch = engine => engine.type.launch({ executablePath: engine.executable, headless: true, args: engine.name === 'chromium' && process.platform === 'darwin' ? ['--disable-gpu', '--single-process', '--no-zygote'] : [] })
 const instrument = context => context.addInitScript(() => {
@@ -95,10 +95,10 @@ try {
           let resume
           for(const row of await page.locator('.saved-row[data-board-id]').all())if(ids.includes(await row.getAttribute('data-board-id'))){resume=row.locator('.resume-button');break}
           assert.ok(resume,'home saved-board Resume control is missing for '+record.path)
-          await activate(page,resume,device.touch,false)
-          await page.waitForURL(url=>url.pathname===record.path)
-          await page.locator('.player-board-frame:visible').first().waitFor({state:'visible'})
-          await readiness.ready(page)
+          await readiness.board(page, origin + record.path, async () => {
+            await activate(page,resume,device.touch,false)
+            await page.waitForURL(url=>url.pathname===record.path)
+          })
           await verifyPlayArea(page,device.touch)
           const context = { phase: 'home-resume', path: new URL(page.url()).pathname }
           assertSavedState(await savedState(page),resumeSave,'home resume changed saved puzzle state',context)
@@ -114,8 +114,7 @@ try {
         const supportContext = await supportBrowser.newContext({ ignoreHTTPSErrors: true, viewport: { width: device.width, height: device.height }, isMobile: device.touch, hasTouch: device.touch })
         await supportContext.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
         const support = await supportContext.newPage(); lastPage = support; support.setDefaultTimeout(20000); readiness.watch(support, origin)
-        await readiness.goto(support, origin + record.path)
-        await support.locator('.player-board-frame:visible').first().waitFor({ state: 'visible' })
+        await readiness.board(support, origin + record.path)
         const hint = support.getByRole('button', { name: 'A little hint', exact: true })
         if (await hint.count()) {
           receipt.current.phase = 'hint'
@@ -151,8 +150,7 @@ try {
       const page = await context.newPage(); lastPage = page; page.setDefaultTimeout(20000); readiness.watch(page, origin)
       for (const sample of cases) {
         receipt.current = { engine: engine.name, device: 'mobile', game: sample.game, geometry: sample.key, path: sample.path, width: viewport.width, height: viewport.height, phase: 'advertised geometry and readable fit/zoom' }
-        await readiness.goto(page, origin + sample.path)
-        await page.locator('.player-board-frame:visible').first().waitFor({ state: 'visible' })
+        await readiness.board(page, origin + sample.path)
         const metrics = await verifyPlayArea(page, true)
         const proof={ engine: engine.name, width: viewport.width, key: sample.key, path: sample.path, board: metrics.board, verifiedZoom: metrics.verifiedZoom === true }
         receipt.geometry.push(proof)

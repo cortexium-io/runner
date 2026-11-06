@@ -213,8 +213,9 @@ export async function observeAdmission(page, phase, action) {
   page.on('request', request); page.on('response', response); page.on('requestfailed', failed)
   try { return await action() } catch (error) {
     const responses = [...rows.values()], path = new URL(page.url()).pathname.slice(0, 256)
-    const reload = { status: truncated ? 'truncated' : !responses.length ? 'missing' : responses.some(row => row.outcome === 'pending') ? 'partial' : 'complete', path, documentStatus: responses.findLast(row => row.resourceType === 'document')?.status ?? null, responses }
+    const reload = { ...error.browserDiagnostic?.reload, status: truncated ? 'truncated' : !responses.length ? 'missing' : responses.some(row => row.outcome === 'pending') ? 'partial' : 'complete', path, documentStatus: responses.findLast(row => row.resourceType === 'document')?.status ?? null, responses }
     error.browserDiagnostic ??= { status: 'partial', kind: 'reload', phase, path }
+    if (error.browserDiagnostic.kind === 'admission') error.browserDiagnostic.phase = phase
     error.browserDiagnostic.reload = reload
     throw error
   } finally {
@@ -338,8 +339,7 @@ export async function editAndRestore(page, game, touch, engine, readiness, corne
   const input = await page.evaluate(() => window.runnerInputEvidence)
   if (touch) assert.ok(input.touch > inputBefore.touch && input.keyboard === 0, 'mobile edit did not use trusted touch-only input')
   await observeAdmission(page, 'reload', async () => {
-    await readiness.reload(page)
-    await page.locator('.player-board-frame:visible').first().waitFor({ state: 'visible' })
+    await readiness.board(page, page.url(), () => page.reload({ waitUntil: 'load' }))
     await verifyPlayArea(page, touch)
     const context = { phase: 'reload', path: new URL(page.url()).pathname }
     assertSavedState(await savedState(page), edited, 'reload changed saved puzzle state', context)

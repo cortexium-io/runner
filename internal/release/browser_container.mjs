@@ -64,6 +64,7 @@ try {
     args = ['/runner/browser.mjs', 'https://127.0.0.1:9443', output]
   }
   let tail = ''
+  env.RUNNER_BROWSER_DEADLINE_MS = String(Date.now() + input.timeoutMs)
   const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'], timeout: input.timeoutMs, killSignal: 'SIGKILL' })
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { tail = (tail + chunk).slice(-12000) })
   const [code, signal] = await once(child, 'close')

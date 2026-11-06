@@ -70,7 +70,7 @@ func TestBrowserRuntimeRejectsMutableOrDifferentIdentity(t *testing.T) {
 }
 
 func TestBrowserContainerKeepsBoundaryEvidenceAndUnknownDispatch(t *testing.T) {
-	for _, mode := range []string{"passed", "source failure", "runtime failure", "wrong receipt", "lost reply", "wrong owner", "wrong attempt"} {
+	for _, mode := range []string{"passed", "source failure", "runtime failure", "HTTP429", "malformed context", "wrong receipt", "lost reply", "wrong owner", "wrong attempt"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			id := "sha256:" + strings.Repeat("a", 64)
@@ -84,6 +84,16 @@ func TestBrowserContainerKeepsBoundaryEvidenceAndUnknownDispatch(t *testing.T) {
 			}
 			if mode == "runtime failure" {
 				receipt["failure"] = "BrowserRuntimeError: WebKit unavailable"
+			}
+			if mode == "HTTP429" || mode == "wrong receipt" || mode == "malformed context" {
+				receipt["failure"] = "Error: PRIVATE_COOKIE PRIVATE_BODY admission HTTP429\nPRIVATE_STACK"
+				receipt["failureContext"] = map[string]any{"engine": "chromium", "device": "mobile", "game": "Shikaku", "path": "/shikaku/fixture"}
+				receipt["failureDiagnostic"] = browser429DiagnosticFixture()
+				input.Mode = "qualification"
+				if mode == "malformed context" {
+					input.Mode = "readiness"
+					receipt["failureContext"] = map[string]any{"engine": []string{"PRIVATE_COOKIE"}}
+				}
 			}
 			if mode == "wrong receipt" {
 				receipt["runtime"].(map[string]any)["driver"] = "other"
@@ -151,6 +161,28 @@ func TestBrowserContainerKeepsBoundaryEvidenceAndUnknownDispatch(t *testing.T) {
 			var source *sourceFailure
 			if errors.As(err, &source) != (mode == "source failure") {
 				t.Fatal("source/runtime classification changed", err)
+			}
+			authenticatedFailure := mode == "source failure" || mode == "runtime failure" || mode == "HTTP429" || mode == "malformed context"
+			if (j.Receipt.BrowserFailure.Status != "") != authenticatedFailure {
+				t.Fatal("feedback missing or accepted before authenticated settlement", mode, j.Receipt.BrowserFailure)
+			}
+			if mode == "HTTP429" {
+				f := j.Receipt.BrowserFailure
+				if f.Kind != "reload" || f.Phase != "reload" || f.Reload.Response.Status != 429 || f.Reload.Response.Path != "/api/games/shikaku" || !strings.Contains(err.Error(), "chromium/mobile/Shikaku/reload") || !strings.Contains(err.Error(), "HTTP 429") {
+					t.Fatal("429 evidence omitted", f, err)
+				}
+				if mode == "malformed context" && (!strings.Contains(err.Error(), "invalid failure context") || j.Receipt.BrowserFailure.Status != "partial") {
+					t.Fatal("malformed failure context escaped as readiness success", j.Receipt.BrowserFailure, err)
+				}
+				_ = fail(&j, err.Error())
+				j.Receipt.Note = j.Reason
+				if !j.Failed || j.Outcome == "changes_requested" {
+					t.Fatal("429 changed source routing", j)
+				}
+				public, _ := json.Marshal(publicReceipt(j.Receipt, true))
+				if bytes.Contains(public, []byte("PRIVATE_")) {
+					t.Fatal("private browser failure escaped", string(public))
+				}
 			}
 			foreign := mode == "wrong owner" || mode == "wrong attempt"
 			if starts > 1 || foreign && (starts != 0 || removes != 0) || !foreign && removes != 1 || mode == "lost reply" && stops != 1 {

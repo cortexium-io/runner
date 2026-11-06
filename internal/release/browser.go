@@ -127,11 +127,11 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 	}
 	defer func() { err = errors.Join(err, stopForward()) }()
 	output := filepath.Join(j.Receipt.Package, "browser")
-	if _, err = b.sandbox(ctx, j, []string{work, output}, "/usr/bin/env", "RUNNER_PLAYWRIGHT_MODULE="+c.Delivery.BrowserModule, "RUNNER_BROWSER_EXECUTABLE="+c.Delivery.BrowserExecutable, "RUNNER_WEBKIT_EXECUTABLE="+c.Delivery.WebKitExecutable, c.Delivery.Node, script, public, output); err != nil {
+	if _, err = b.sandbox(ctx, j, []string{work, output}, browserCommand(ctx, c.Delivery, script, public, output)...); err != nil {
 		data, readErr := readPackageFile(output, "receipt.json", 128<<10)
 		if knownFailure(err) && readErr == nil {
-			if source := browserAssertionFailure(data); source != nil {
-				return source
+			if failure := browserReceiptFailure(j, data, true); failure != nil {
+				return failure
 			}
 		}
 		return err
@@ -139,6 +139,9 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 	data, err := readFile(filepath.Join(output, "receipt.json"), 128<<10)
 	if err != nil {
 		return err
+	}
+	if failure := browserReceiptFailure(j, data, true); failure != nil {
+		return failure
 	}
 	runtime, err := readFile(filepath.Join(j.Receipt.Package, "runtime-http.json"), 4<<20)
 	if err != nil {
@@ -151,6 +154,14 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 		return err
 	}
 	return done(j, "Headless desktop/mobile player journeys passed against the exact candidate image; qualified release now awaits protected merge approval")
+}
+
+func browserCommand(ctx context.Context, c *DeliveryConfig, script, public, output string) []string {
+	args := []string{"/usr/bin/env", "RUNNER_PLAYWRIGHT_MODULE=" + c.BrowserModule, "RUNNER_BROWSER_EXECUTABLE=" + c.BrowserExecutable, "RUNNER_WEBKIT_EXECUTABLE=" + c.WebKitExecutable}
+	if deadline, ok := ctx.Deadline(); ok {
+		args = append(args, "RUNNER_BROWSER_DEADLINE_MS="+strconv.FormatInt(deadline.UnixMilli(), 10))
+	}
+	return append(args, c.Node, script, public, output)
 }
 
 func (b *Live) writeQualification(j *Job) error {

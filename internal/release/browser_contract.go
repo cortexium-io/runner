@@ -140,6 +140,86 @@ func browserAssertionFailure(data []byte) *sourceFailure {
 	return &sourceFailure{reason: bounded(prefix+message+metrics, 512), browser: browserFailureFeedback(data, receipt.FailureDiagnostic, c.Path)}
 }
 
+// Call only after the driver receipt's execution/runtime ownership is proved.
+// Diagnostics describe evidence, independently of source-vs-infrastructure
+// routing. Never copy arbitrary driver text, response bodies or stacks into
+// the public note; the complete owned report remains available by its digest.
+func browserReceiptFailure(j *Job, data []byte, allowSource bool) error {
+	var receipt struct {
+		Failure           string
+		FailureDiagnostic json.RawMessage
+		FailureContext    json.RawMessage
+	}
+	if json.Unmarshal(data, &receipt) != nil {
+		feedback := browserFailureFeedback(data, nil, "")
+		feedback.Issue = "invalid failure receipt"
+		j.Receipt.BrowserFailure = feedback
+		return errors.New("browser runtime failure receipt is malformed")
+	}
+	if receipt.Failure == "" {
+		return nil
+	}
+	var context struct{ Engine, Device, Game, Path string }
+	invalidContext := false
+	if len(receipt.FailureContext) > 0 && string(receipt.FailureContext) != "null" {
+		invalidContext = json.Unmarshal(receipt.FailureContext, &context) != nil
+	}
+	if invalidContext {
+		context = struct{ Engine, Device, Game, Path string }{}
+	}
+	feedback := browserFailureFeedback(data, receipt.FailureDiagnostic, context.Path)
+	if invalidContext {
+		if feedback.Status == "complete" {
+			feedback.Status = "partial"
+		}
+		feedback.Issue = "invalid failure context"
+		encoded, _ := json.Marshal(feedback)
+		if len(encoded) > maxBrowserFeedback {
+			feedback = BrowserFailureFeedback{Status: "truncated", ReportSHA256: feedback.ReportSHA256, Issue: "invalid failure context; diagnostic exceeded feedback budget"}
+		}
+	}
+	j.Receipt.BrowserFailure = feedback
+	if allowSource && !invalidContext {
+		if source := browserAssertionFailure(data); source != nil {
+			return source
+		}
+	}
+	parts := []string{}
+	if context.Engine == "chromium" || context.Engine == "webkit" {
+		parts = append(parts, context.Engine)
+	}
+	if context.Device == "desktop" || context.Device == "mobile" {
+		parts = append(parts, context.Device)
+	}
+	if slices.Contains(browserGames, context.Game) {
+		parts = append(parts, context.Game)
+	}
+	if feedback.Phase != "" {
+		parts = append(parts, feedback.Phase)
+	}
+	note := "browser runtime failed"
+	if len(parts) > 0 {
+		note += ": " + strings.Join(parts, "/")
+	}
+	if feedback.Path != "" {
+		note += " at " + feedback.Path
+	}
+	if feedback.Reload.DocumentStatus > 0 {
+		note += fmt.Sprintf("; document HTTP %d", feedback.Reload.DocumentStatus)
+	}
+	response := feedback.Reload.Response
+	if response.Method != "" {
+		note += fmt.Sprintf("; %s %s HTTP %d", response.Method, response.Path, response.Status)
+	}
+	if feedback.Issue != "" {
+		note += "; " + feedback.Issue
+	}
+	if len(note) > 512 {
+		note = strings.ToValidUTF8(note[:512], "")
+	}
+	return errors.New(note)
+}
+
 func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFailureFeedback {
 	sum := sha256.Sum256(report)
 	f := BrowserFailureFeedback{Status: "missing", ReportSHA256: hex.EncodeToString(sum[:])}
@@ -185,12 +265,12 @@ func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFai
 		return clip(value, 80)
 	}
 	switch d.Kind {
-	case "visible-state", "saved-state", "reload":
+	case "visible-state", "saved-state", "reload", "admission":
 		f.Kind = d.Kind
 	default:
 		f.Status, f.Issue = "partial", "unsupported diagnostic kind"
 	}
-	if d.Phase == "reload" || d.Phase == "home-resume" {
+	if d.Phase == "reload" || d.Phase == "home-resume" || d.Phase == "canonical navigation" {
 		f.Phase = d.Phase
 	}
 	if d.Path != "" {

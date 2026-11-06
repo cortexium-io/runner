@@ -3,33 +3,58 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import { pathToFileURL } from 'node:url'
 import { verifyPlayArea, editAndRestore, dragRectangle, activate, prepareShikakuTouch, renderedState, assertRenderedState, observeAdmission } from './browser_contract.mjs'
-import { PageReadiness } from './browser_render.mjs'
+import { PageReadiness, BrowserAdmissionError, BrowserResourceError, admissionDelay } from './browser_render.mjs'
 const { chromium, webkit } = await import(pathToFileURL(process.env.RUNNER_PLAYWRIGHT_MODULE).href)
 
-function semanticFixture(fault) {
+function semanticFixture(fault, rate = false) {
+  const behavior = fault.split('_')[0].replace(/^rate-/, '')
+  const admission = rate ? '/api/games/' + (behavior === 'unrelated' ? 'choices' : 'nonogram') : '/api/fixture-admission/' + fault + '?private-query=must-not-appear'
   return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><body><div class="player-board-frame" style="visibility:hidden"><div class="nonogram-board"><button data-cell="0"><span class="player-mark"></span></button><button data-cell="1"></button></div></div><div class="value-controls"><button id="shade">Shade</button><button id="undo">Undo</button><button id="redo">Redo</button></div><script>
-const fault=${JSON.stringify(fault)},key='games-site:semantic:'+fault,board=document.querySelector('.nonogram-board'),cell=board.querySelector('[data-cell="0"]');
+const fault=${JSON.stringify(fault)},behavior=${JSON.stringify(behavior)},key='games-site:semantic:'+fault,board=document.querySelector('.nonogram-board'),cell=board.querySelector('[data-cell="0"]'),actions=JSON.parse(localStorage.getItem('fixture-actions:'+fault)||'{"shade":0,"undo":0,"redo":0}');
 let state=JSON.parse(localStorage.getItem(key)||'null')?.snapshot||{cells:['blank','blank']},past=[],future=[];const restored=state.cells[0]==='filled';
-if(restored&&fault==='saved')state={cells:['filled','filled']};
+if(restored&&behavior==='saved')state={cells:['filled','filled']};
 function render(){cell.dataset.value=state.cells[0];cell.querySelector('.player-mark').textContent=state.cells[0]==='filled'?'■':'';localStorage.setItem(key,JSON.stringify({snapshot:state}));}
-document.querySelector('#shade').onclick=()=>{past.push(state);state={cells:['filled','blank']};future=[];render()};
-document.querySelector('#undo').onclick=()=>{if(past.length){future.unshift(state);state=past.pop();render()}};
-document.querySelector('#redo').onclick=()=>{if(future.length){past.push(state);state=future.shift();render()}};
-fetch('/api/fixture-admission/'+fault+'?private-query=must-not-appear').then(response=>{if(!response.ok)throw Error('fixture admission');render();if(restored){const mark=cell.querySelector('.player-mark');
-if(fault==='decoration'){const warning=document.createElement('span');warning.className='wrong-mark';warning.textContent='!';cell.append(warning)}
-if(fault==='other-decoration'){const warning=document.createElement('span');warning.className='other-mark';warning.textContent='!';cell.append(warning)}
-if(fault==='value')cell.dataset.value='blank';
-if(fault==='hidden')mark.style.visibility='hidden';
-if(fault==='transparent')mark.style.opacity='0';
-if(fault==='missing')mark.remove();
-if(fault==='identity')cell.dataset.cell='9';
-if(fault==='long'){mark.textContent='x'.repeat(1000);mark.style.display='block';mark.style.overflow='hidden';}
+function action(name){actions[name]++;localStorage.setItem('fixture-actions:'+fault,JSON.stringify(actions))}
+document.querySelector('#shade').onclick=()=>{action('shade');past.push(state);state={cells:['filled','blank']};future=[];render()};
+document.querySelector('#undo').onclick=()=>{action('undo');if(past.length){future.unshift(state);state=past.pop();render()}};
+document.querySelector('#redo').onclick=()=>{action('redo');if(future.length){past.push(state);state=future.shift();render()}};
+fetch(${JSON.stringify(admission)},${rate ? "{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fault,restored})}" : 'undefined'}).then(response=>{if(!response.ok)return;render();if(restored){const mark=cell.querySelector('.player-mark');
+if(behavior==='decoration'){const warning=document.createElement('span');warning.className='wrong-mark';warning.textContent='!';cell.append(warning)}
+if(behavior==='other-decoration'){const warning=document.createElement('span');warning.className='other-mark';warning.textContent='!';cell.append(warning)}
+if(behavior==='value')cell.dataset.value='blank';
+if(behavior==='hidden')mark.style.visibility='hidden';
+if(behavior==='transparent')mark.style.opacity='0';
+if(behavior==='missing')mark.remove();
+if(behavior==='identity')cell.dataset.cell='9';
+if(behavior==='long'){mark.textContent='x'.repeat(1000);mark.style.display='block';mark.style.overflow='hidden';}
 }document.querySelector('.player-board-frame').style.visibility='visible'});
 </script>`
 }
 
+const admissions = new Map(), documents = new Map()
 const server = http.createServer((req, res) => {
   const path = new URL(req.url, 'http://fixture').pathname
+  if (req.method === 'POST' && ['/api/games/nonogram', '/api/games/choices'].includes(path)) {
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      const { fault, restored } = JSON.parse(body), behavior = fault.split('_')[0].replace(/^rate-/, '')
+      let status = 200
+      if (restored) {
+        const rows = admissions.get(fault) ?? []; rows.push(Date.now()); admissions.set(fault, rows)
+        if (behavior === 'transport') { req.socket.destroy(); return }
+        status = behavior === 'document' ? 200 : behavior === 'fivehundred' ? 500 : rows.length === 1 || behavior === 'persistent' ? 429 : 200
+        if (status === 429 && behavior !== 'missing') res.setHeader('Retry-After', behavior === 'invalid' ? 'not-a-delay' : behavior === 'oversized' ? '31' : behavior === 'budget' ? '30' : behavior === 'once' ? '1' : '0')
+      }
+      res.writeHead(status, { 'Content-Type': 'application/json' }); res.end('{"admitted":' + (status === 200) + '}')
+    })
+    return
+  }
+  if (path.startsWith('/nonogram/rate-')) {
+    const fault = path.split('/').at(-1); documents.set(fault, (documents.get(fault) ?? 0) + 1)
+    if (fault.startsWith('rate-document_') && documents.get(fault) === 2) { res.writeHead(429, { 'Retry-After': '0', 'Content-Type': 'text/html' }); return res.end('Rate limited document') }
+    res.setHeader('Content-Type', 'text/html'); return res.end(semanticFixture(fault, true))
+  }
   if (path.startsWith('/api/fixture-admission/')) { res.setHeader('Content-Type', 'application/json'); return res.end('{"admitted":true}') }
   if (path.startsWith('/semantic/')) { res.setHeader('Content-Type', 'text/html'); return res.end(semanticFixture(path.split('/').at(-1))) }
   if (req.url === '/style.css') {
@@ -55,6 +80,12 @@ render();</script>`)
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const origin = 'http://127.0.0.1:' + server.address().port
+assert.deepEqual(admissionDelay(null), { retryAfterMs: null, delayMs: 1000 })
+assert.deepEqual(admissionDelay('0'), { retryAfterMs: 0, delayMs: 0 })
+assert.deepEqual(admissionDelay('30'), { retryAfterMs: 30000, delayMs: 30000 })
+const clock = Date.UTC(2026, 10, 7)
+assert.deepEqual(admissionDelay(new Date(clock + 1000).toUTCString(), clock), { retryAfterMs: 1000, delayMs: 1000 })
+for (const value of ['', '-1', '0.1', '31', '1000', 'not-a-delay', 'x'.repeat(129), new Date(clock + 31000).toUTCString()]) assert.equal(admissionDelay(value, clock), null, 'unbounded/invalid delay accepted')
 try {
   for (const engine of [{ name: 'chromium', type: chromium, path: process.env.RUNNER_BROWSER_EXECUTABLE }, { name: 'webkit', type: webkit, path: process.env.RUNNER_WEBKIT_EXECUTABLE }]) {
     assert.ok(engine.path, 'missing configured ' + engine.name + ' prerequisite')
@@ -162,7 +193,110 @@ try {
         await page.evaluate(async () => { await Promise.all(Array.from({ length: 10 }, (_, i) => fetch('/api/fixture-admission/burst?private-query=' + i))) })
         throw burstFailure
       }), error => error === burstFailure && error.browserDiagnostic.reload.status === 'truncated' && error.browserDiagnostic.reload.responses.length === 8 && !JSON.stringify(error.browserDiagnostic).includes('private-query'))
+      for (const behavior of ['once', 'missing', 'document', 'persistent', 'invalid', 'oversized', 'budget', 'unknown', 'fivehundred', 'transport', 'unrelated', 'saved', 'value', 'identity']) {
+        const fault = `rate-${behavior}_${engine.name}`, canonical = origin + '/nonogram/' + fault, evidence = {}
+        const navigation = new PageReadiness(evidence, behavior === 'unknown' ? null : Date.now() + (behavior === 'budget' ? 5000 : 60000))
+        navigation.watch(page, origin)
+        await navigation.goto(page, canonical)
+        await page.locator('.player-board-frame:visible').waitFor({ state: 'visible' })
+        const run = () => editAndRestore(page, 'Nonogram', true, engine.name, navigation)
+        if (['once', 'missing', 'document'].includes(behavior)) {
+          await run()
+          assert.deepEqual(await page.evaluate(fault => JSON.parse(localStorage.getItem('games-site:semantic:' + fault)).snapshot, fault), { cells: ['filled', 'blank'] }, 'backoff changed saved board state')
+          assert.equal((await renderedState(page)).cells[0].value, 'filled')
+        } else if (['saved', 'value', 'identity'].includes(behavior)) {
+          await assert.rejects(run(), error => error instanceof assert.AssertionError && error.browserDiagnostic.kind === (behavior === 'saved' ? 'saved-state' : 'visible-state'), 'backoff waived restored state/identity mismatch')
+        } else {
+          await assert.rejects(run(), error => {
+            assert.ok(!(error instanceof assert.AssertionError), 'infrastructure admission failure became a product assertion')
+            if (behavior !== 'unrelated') {
+              assert.ok(error instanceof BrowserAdmissionError, 'admission failure lost typed infrastructure classification')
+              const response = error.browserDiagnostic.reload.responses.findLast(row => row.path === '/api/games/nonogram')
+              assert.equal(response.status, behavior === 'fivehundred' ? 500 : behavior === 'transport' ? null : 429)
+              assert.ok(!JSON.stringify(error.browserDiagnostic).includes('not-a-delay'), 'raw delay header escaped into evidence')
+            }
+            return true
+          }, 'unsupported admission was retried/passed: ' + behavior)
+        }
+        const retries = ['once', 'missing', 'document', 'persistent', 'saved', 'value', 'identity'].includes(behavior) ? 1 : 0
+        assert.equal(documents.get(fault), 2 + retries, 'canonical navigation was repeated unexpectedly: ' + behavior)
+        assert.equal(evidence.admissionBackoffs?.length ?? 0, retries, 'backoff accounting differs: ' + behavior)
+        assert.deepEqual(await page.evaluate(fault => JSON.parse(localStorage.getItem('fixture-actions:' + fault)), fault), { shade: 1, undo: 1, redo: 1 }, 'edit/Undo/Redo replayed during navigation retry')
+        if (['once', 'missing'].includes(behavior)) {
+          const times = admissions.get(fault)
+          assert.ok(times[1] - times[0] >= 1000, 'retry ignored its server/default delay')
+        }
+      }
+      // An enter action is called once; the retry is a literal canonical GET.
+      const fault = `rate-enter_${engine.name}`, canonical = origin + '/nonogram/' + fault
+      await ready.goto(page, canonical)
+      await page.locator('.player-board-frame:visible').waitFor({ state: 'visible' })
+      await activate(page, page.getByRole('button', { name: 'Shade', exact: true }), true)
+      let enters = 0
+      const navigation = new PageReadiness({}, Date.now() + 60000); navigation.watch(page, origin)
+      await navigation.board(page, canonical, async () => { enters++; await page.goto(canonical, { waitUntil: 'load' }) })
+      assert.equal(enters, 1, 'saved-entry action replayed instead of canonical GET')
+      assert.equal(documents.get(fault), 3)
+      for (const persistent of [false, true]) {
+        const resourceFault = `rate-resource${persistent ? 'persistent' : 'once'}_${engine.name}`, resourceEvidence = {}, resources = new PageReadiness(resourceEvidence, Date.now() + 60000)
+        resources.watch(page, origin)
+        let styles = 0, resourceEnters = 0
+        await page.route('**/style.css', route => ++styles === 1 || persistent ? route.abort('failed') : route.continue())
+        const open = () => resources.board(page, origin + '/nonogram/' + resourceFault, async () => {
+          resourceEnters++; await page.goto(origin + '/nonogram/' + resourceFault, { waitUntil: 'load' })
+        })
+        try {
+          if (persistent) await assert.rejects(open(), BrowserResourceError, 'persistent critical-resource failure passed')
+          else await open()
+        } finally { await page.unroute('**/style.css') }
+        assert.equal(resourceEnters, 1, 'critical-resource recovery replayed the saved-entry callback')
+        assert.equal(documents.get(resourceFault), 2, 'critical-resource recovery repeated more than one canonical GET')
+        assert.equal(resourceEvidence.resourceRetries.length, 1)
+        assert.equal(resourceEvidence.admissionBackoffs, undefined)
+      }
+      const combinedFault = `rate-combined_${engine.name}`, combinedPath = origin + '/nonogram/' + combinedFault, combinedEvidence = {}, combined = new PageReadiness(combinedEvidence, Date.now() + 60000)
+      combined.watch(page, origin)
+      await combined.goto(page, combinedPath)
+      await page.locator('.player-board-frame:visible').waitFor({ state: 'visible' })
+      let styles = 0
+      await page.route('**/style.css', route => ++styles >= 2 ? route.abort('failed') : route.continue())
+      try { await assert.rejects(editAndRestore(page, 'Nonogram', true, engine.name, combined), BrowserResourceError, 'rate retry reset the critical-resource budget') }
+      finally { await page.unroute('**/style.css') }
+      assert.equal(documents.get(combinedFault), 4)
+      assert.equal(combinedEvidence.resourceRetries.length, 1)
+      assert.equal(combinedEvidence.admissionBackoffs.length, 1)
+      const collisionFault = `rate-fivehundred_${engine.name}collision`, collisionPath = origin + '/nonogram/' + collisionFault, collisionEvidence = {}, collision = new PageReadiness(collisionEvidence, Date.now() + 60000)
+      collision.watch(page, origin)
+      await ready.goto(page, collisionPath)
+      await page.locator('.player-board-frame:visible').waitFor({ state: 'visible' })
+      await activate(page, page.getByRole('button', { name: 'Shade', exact: true }), true)
+      await page.route('**/style.css', route => route.abort('failed'))
+      let collisionEnters = 0
+      try {
+        await assert.rejects(collision.board(page, collisionPath, async () => {
+          collisionEnters++
+          const denied = page.waitForResponse(row => new URL(row.url()).pathname === '/api/games/nonogram' && row.status() === 500)
+          await page.goto(collisionPath, { waitUntil: 'load' }); await denied
+        }), BrowserResourceError, 'resource retry replayed a known failed API admission')
+      } finally { await page.unroute('**/style.css') }
+      assert.equal(collisionEnters, 1)
+      assert.equal(documents.get(collisionFault), 2, 'known API500 was replayed because CSS also failed')
+      assert.equal(collisionEvidence.resourceRetries, undefined)
+      assert.equal(collisionEvidence.admissionBackoffs, undefined)
+      const assertionFault = `rate-assert_${engine.name}`, assertionPath = origin + '/nonogram/' + assertionFault
+      await ready.goto(page, assertionPath)
+      await page.locator('.player-board-frame:visible').waitFor({ state: 'visible' })
+      await activate(page, page.getByRole('button', { name: 'Shade', exact: true }), true)
+      const assertion = new assert.AssertionError({ message: 'caller assertion must never replay' }), assertions = new PageReadiness({}, Date.now() + 60000)
+      assertions.watch(page, origin)
+      await assert.rejects(assertions.board(page, assertionPath, async () => {
+        const response = page.waitForResponse(row => new URL(row.url()).pathname === '/api/games/nonogram' && row.status() === 429)
+        await page.goto(assertionPath, { waitUntil: 'load' }); await response
+        throw assertion
+      }), error => error === assertion)
+      assert.equal(documents.get(assertionFault), 2, 'an assertion was replaced by an admission retry')
+      assert.equal(assertions.receipt.admissionBackoffs, undefined)
     } finally { if (browser) await browser.close() }
   }
-  console.log('PASS: both engines; real touch edit/Undo/Redo/reload; 320/360/390; strict semantic restore ignores only wrong-mark decoration; rejected primary value/visibility/identity/snapshot changes, clipping, entry scroll, unreachable actions and ignored touch')
+  console.log('PASS: both engines; real touch edit/Undo/Redo/reload; 320/360/390; strict semantic restore; one bounded canonical 429 backoff without replayed actions/assertions; rejected persistent/invalid/error admissions and changed values/identities/snapshots')
 } finally { await new Promise(resolve => server.close(resolve)) }
