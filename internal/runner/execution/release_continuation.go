@@ -125,11 +125,16 @@ func (r *Releases) finishSourceAdoption(ctx context.Context, j releaseJob, o run
 	} else if response.Failed || outcome != "ready" {
 		j.End = &runner.ExecutionEnd{Kind: "failed", Reason: runner.Clip(response.Reason)}
 	} else {
-		source, err := r.adoptedSource(ctx, j, response.Receipt)
+		if len(j.AdoptionReceipt) == 0 {
+			j.AdoptionReceipt = runner.Clone(response.Receipt)
+			if err := r.save(j); err != nil {
+				return runner.Observation{}, err
+			}
+		}
+		source, err := r.adoptedSource(ctx, j, j.AdoptionReceipt)
 		if err != nil {
-			var pending *sourceArchivePending
 			var capture *capturePending
-			if errors.As(releaseArchiveError(ctx, err), &pending) || errors.As(err, &capture) {
+			if captureWasInterrupted(ctx, err) || errors.As(err, &capture) {
 				o.State, o.Reconciling = runner.Unknown, true
 				o.Reason = "source adoption interrupted; rejoin the same authenticated operation"
 				o.NextCheck = time.Now().Add(time.Second)
@@ -149,6 +154,11 @@ func (r *Releases) finishSourceAdoption(ctx context.Context, j releaseJob, o run
 	if err := r.save(j); err != nil {
 		return runner.Observation{}, err
 	}
+	current, err := r.load(j.Assignment.AttemptID)
+	if err != nil {
+		return runner.Observation{}, err
+	}
+	j = current
 	o.State, o.End, o.Source = runner.Finished, j.End, j.Source
 	return o, nil
 }

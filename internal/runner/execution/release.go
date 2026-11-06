@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/cortexium-io/runner/internal/release"
@@ -17,9 +18,13 @@ import (
 // Releases invokes one trusted operator action. It does not run product source,
 // grant native roles credentials, approve a gate or schedule downstream work.
 type Releases struct {
-	disk       *runner.Disk
-	cfg        *runner.ReleaseSettings
-	workspaces *Workspaces
+	disk           *runner.Disk
+	cfg            *runner.ReleaseSettings
+	workspaces     *Workspaces
+	adoptionMu     sync.Mutex
+	adoptions      map[string]*sourceAdoptionWork
+	adoptionWake   func(string)
+	adoptionClosed bool
 }
 
 type releaseJob struct {
@@ -34,6 +39,7 @@ type releaseJob struct {
 	CancelReceipt       json.RawMessage      `json:"cancel_receipt,omitempty"`
 	PublicationPrevious json.RawMessage      `json:"publication_previous,omitempty"`
 	Source              *runner.SourceResult `json:"source,omitempty"`
+	AdoptionReceipt     json.RawMessage      `json:"adoption_receipt,omitempty"`
 }
 
 func releaseName(id string) string { return "jobs/" + id + ".release.json" }
@@ -53,6 +59,16 @@ func (r *Releases) load(id string) (releaseJob, error) {
 	return j, err
 }
 func (r *Releases) save(j releaseJob) error {
+	r.adoptionMu.Lock()
+	defer r.adoptionMu.Unlock()
+	if j.Assignment.Setup.Profile.Mode == "source-adopt" {
+		if old, err := r.load(j.Assignment.AttemptID); err == nil && old.Stopped {
+			j.Stopped = true
+		}
+		if j.Stopped && j.End != nil {
+			j.End = &runner.ExecutionEnd{Kind: "stopped", Reason: "source adoption settled after cancellation"}
+		}
+	}
 	b, err := json.Marshal(j)
 	if err != nil {
 		return err
@@ -75,7 +91,7 @@ func (r *Releases) Start(ctx context.Context, a runner.Assignment) (runner.Obser
 	}
 	return r.Observe(ctx, a.AttemptID)
 }
-func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, error) {
+func (r *Releases) observeRelease(ctx context.Context, id string) (runner.Observation, error) {
 	j, err := r.load(id)
 	if err != nil {
 		return runner.Observation{}, err
@@ -103,6 +119,9 @@ func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, 
 		sourceAdopt := request.Action == "source-adopt"
 		if sourceAdopt {
 			request.Action, request.SourceContinuation = "adopt", true
+			if len(j.AdoptionReceipt) > 0 {
+				return r.finishSourceAdoption(ctx, j, o, release.Response{Receipt: j.AdoptionReceipt}, "ready")
+			}
 		}
 		if request.Action == "readiness" {
 			if err := r.prepareReleaseSource(ctx, &j); err != nil {
@@ -236,6 +255,11 @@ func (r *Releases) Stop(ctx context.Context, id string) error {
 	if err = r.save(j); err != nil {
 		return err
 	}
+	if j.Assignment.Setup.Profile.Mode == "source-adopt" {
+		if err = r.stopSourceAdoption(ctx, id); err != nil {
+			return err
+		}
+	}
 	_, err = r.Observe(ctx, id)
 	return err
 }
@@ -249,6 +273,11 @@ func (r *Releases) Release(_ context.Context, id string) error {
 	}
 	if j.End == nil {
 		return errors.New("cannot release an unsettled external operation")
+	}
+	if j.Assignment.Setup.Profile.Mode == "source-adopt" {
+		if err = r.releaseSourceAdoption(j); err != nil {
+			return err
+		}
 	}
 	return r.disk.Remove(releaseName(id))
 }

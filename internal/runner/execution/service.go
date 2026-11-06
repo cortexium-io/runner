@@ -56,6 +56,7 @@ func (s *Service) SetWake(wake func(string)) {
 	s.captureMu.Unlock()
 	s.commands.SetWake(wake)
 	s.tasks.SetWake(wake)
+	s.releases.SetWake(wake)
 	if s.Codex != nil {
 		s.Codex.SetWake(wake)
 	}
@@ -174,12 +175,13 @@ func (s *Service) Release(ctx context.Context, id string) error {
 }
 func (s *Service) Close(ctx context.Context) error {
 	s.commands.Close()
+	releaseErr := s.releases.Close(ctx)
 	captureErr := s.closeCaptures(ctx)
 	taskErr := s.tasks.Close(ctx)
 	if s.Codex != nil {
-		return errors.Join(captureErr, taskErr, s.Codex.Close(ctx))
+		return errors.Join(releaseErr, captureErr, taskErr, s.Codex.Close(ctx))
 	}
-	return errors.Join(captureErr, taskErr)
+	return errors.Join(releaseErr, captureErr, taskErr)
 }
 
 func (s *Service) ReleaseRun(ctx context.Context, r runner.Run) error {
