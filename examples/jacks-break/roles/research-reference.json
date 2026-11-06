@@ -1,0 +1,16 @@
+{
+  "id": "research-reference",
+  "purpose": "Copy the declared prior research patch bytes into a new owned evidence artifact without applying source or inheriting a review.",
+  "inputs": {
+    "prior_patch": "artifact"
+  },
+  "outputs": {
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "deterministic",
+    "mode": "file",
+    "input": "prior_patch",
+    "output": "artifact"
+  }
+}

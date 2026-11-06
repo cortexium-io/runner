@@ -167,6 +167,25 @@ test names, package identities and terminal outcomes in a bounded artifact for
 both correction and independent review. Conclusive source failures request
 correction; missing or incomplete execution evidence blocks acceptance.
 
+`planned-retained-research-nonogram.json` selects
+`research-planned-retained-nonogram` for a complete planned research continuation.
+Keep its original source base and supply `prior_patch`, distinct
+`baseline_benchmark`/`benchmark` selections and the scoped tests. It first measures
+and checks pristine source, then copies the reference patch bytes into its own
+evidence artifact. That copy does not restore source or adopt earlier review.
+A read-only research planner and isolated cards receive the actual baseline,
+reference and scoped-check artifacts. Card owners reuse only assigned test-side
+hunks through normal editing; dependent work preserves predecessor changes.
+Runner joins the cards, checks and measures the combined source, and performs
+bounded evidence correction plus independent research review. A complete
+`NOT_REPRODUCED` conclusion is valid. The shared 64-attempt envelope covers the
+entire family; source corrections allow three uses and benchmark continuation
+one. Completion returns the patch, full reports, accepted card manifest, reference
+and conclusion. No integration, publication, release or approval stage exists.
+Install the new research/reference roles alongside the existing task-source and
+research check/measurement roles; existing Go/frontend/research definitions stay
+unchanged.
+
 `release-reviewed.json` is the complete model-free continuation for an already
 accepted publication. Supply that publication's JSON receipt and its full base
 commit as `source_ref`. Adoption verifies the original private journal and the

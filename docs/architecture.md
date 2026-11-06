@@ -59,6 +59,26 @@ parent cancellation, invalid-plan feedback, whole-family admission and retention
 These are runtime proofs; real project qualification is recorded separately when
 complete.
 
+The subsequent real Go qualification used committed source 17b4692 and one
+`develop-planned` submission. Runner planned two independent regression cards,
+ran their native owners concurrently for 507.929 seconds, joined their source,
+passed 11 scoped test records (9 leaves, no failures/skips), obtained an independent
+`APPROVE` and retained candidate 02abbdaf9aade4f6eb40cdb0b5fd2653d60b3431.
+The root and two cards completed with 12 of 64 shared attempts and four native
+turns; all attempt sessions and workspaces were released. The chat selected no
+internal stage and performed no product repair. The candidate adds two Go test
+files and remains local/unmerged/unpushed. This proves one real planned workflow,
+not universal project reliability or a measured cost improvement. Saved usage is
+2,977,257 input tokens (2,669,568 cached) and 51,061 output tokens; coordinator usage
+is additional.
+
+An earlier staging submission failed before any model turn because its state
+directory exceeded the existing Unix-socket path bound. That failed record is
+preserved. Source f79fb42 moves the same static guard to service startup, with
+canonical-path and 99/100/101-byte boundary proofs, so an unsupported root cannot
+accept work. Its complete race/vet gates passed; no model or process allowance
+was increased to correct the staging path.
+
 1. `config.Load` resolves instance → project → roles/process. It rejects unknown
    fields, unsupported executors, invalid bindings and mismatched contracts.
 2. `Core.Start` validates values and availability, freezes the selected process

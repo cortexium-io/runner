@@ -1,0 +1,464 @@
+{
+  "id": "research-planned-retained-nonogram",
+  "infrastructure_retries": 1,
+  "inputs": {
+    "request": "text",
+    "package": "text",
+    "tests": "text",
+    "baseline_benchmark": "text",
+    "benchmark": "text",
+    "prior_patch": "artifact"
+  },
+  "steps": [
+    {
+      "id": "baseline",
+      "role": "delivery-source-baseline",
+      "inputs": {
+        "package": {
+          "from_input": "package"
+        },
+        "benchmark": {
+          "from_input": "baseline_benchmark"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "source-check"
+        },
+        "continue": {
+          "next": "source-check"
+        }
+      }
+    },
+    {
+      "id": "source-check",
+      "role": "nonogram-research-source-check",
+      "inputs": {
+        "package": {
+          "from_input": "package"
+        },
+        "tests": {
+          "from_input": "tests"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "reference"
+        },
+        "changes_requested": {
+          "next": "reference"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "reference",
+      "role": "research-reference",
+      "inputs": {
+        "prior_patch": {
+          "from_input": "prior_patch"
+        }
+      }
+    },
+    {
+      "id": "plan",
+      "role": "nonogram-research-plan",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "feedback": {
+          "from_step": "cards",
+          "output": "feedback",
+          "previous": true,
+          "default": {
+            "inline": ""
+          }
+        },
+        "baseline": {
+          "from_step": "baseline",
+          "output": "artifact"
+        },
+        "prior_patch": {
+          "from_step": "reference",
+          "output": "artifact"
+        },
+        "checks": {
+          "from_step": "source-check",
+          "output": "artifact"
+        },
+        "tests": {
+          "from_input": "tests"
+        },
+        "benchmark": {
+          "from_input": "benchmark"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "cards"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "cards",
+      "for_each": {
+        "mode": "isolated",
+        "max_parallel": 2,
+        "scope_input": "paths",
+        "items": {
+          "from_step": "plan",
+          "output": "tasks"
+        },
+        "inputs": {
+          "task": "text",
+          "paths": "json"
+        },
+        "steps": [
+          {
+            "id": "seed",
+            "role": "task-source-seed",
+            "inputs": {
+              "dependencies": {
+                "from_input": "_task_dependencies"
+              }
+            },
+            "routes": {
+              "blocked": {
+                "next": "$fail"
+              }
+            }
+          },
+          {
+            "id": "owner",
+            "role": "nonogram-research-card",
+            "inputs": {
+              "request": {
+                "from_input": "request"
+              },
+              "task": {
+                "from_item": "task"
+              },
+              "paths": {
+                "from_item": "paths"
+              },
+              "manifest": {
+                "from_step": "pin",
+                "output": "manifest",
+                "previous": true,
+                "fallback": {
+                  "from_step": "seed",
+                  "output": "manifest"
+                }
+              },
+              "feedback": {
+                "from_step": "pin",
+                "output": "feedback",
+                "previous": true,
+                "default": {
+                  "inline": ""
+                }
+              },
+              "baseline": {
+                "from_input": "_task_evidence_baseline"
+              },
+              "prior_patch": {
+                "from_input": "_task_evidence_prior_patch"
+              },
+              "checks": {
+                "from_input": "_task_evidence_checks"
+              }
+            },
+            "routes": {
+              "blocked": {
+                "next": "$fail"
+              }
+            }
+          },
+          {
+            "id": "pin",
+            "role": "task-source-pin",
+            "inputs": {
+              "patch": {
+                "from_step": "owner",
+                "output": "patch"
+              },
+              "summary": {
+                "from_step": "owner",
+                "output": "summary"
+              }
+            },
+            "routes": {
+              "changes_requested": {
+                "next": "owner",
+                "max_times": 3
+              },
+              "blocked": {
+                "next": "$fail"
+              }
+            }
+          }
+        ],
+        "output": {
+          "from_step": "pin",
+          "output": "candidate"
+        },
+        "evidence": {
+          "baseline": {
+            "from_step": "baseline",
+            "output": "artifact"
+          },
+          "prior_patch": {
+            "from_step": "reference",
+            "output": "artifact"
+          },
+          "checks": {
+            "from_step": "source-check",
+            "output": "artifact"
+          }
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "join"
+        },
+        "blocked": {
+          "next": "$fail"
+        },
+        "invalid_plan": {
+          "next": "plan",
+          "max_times": 2
+        }
+      }
+    },
+    {
+      "id": "join",
+      "role": "task-source-join",
+      "inputs": {
+        "results": {
+          "from_step": "cards",
+          "output": "results"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "check"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "owner",
+      "role": "nonogram-planned-research-owner",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "tests": {
+          "from_input": "tests"
+        },
+        "benchmark": {
+          "from_input": "benchmark"
+        },
+        "review": {
+          "from_step": "review",
+          "output": "summary",
+          "previous": true,
+          "fallback": {
+            "from_step": "join",
+            "output": "feedback"
+          }
+        },
+        "baseline": {
+          "from_step": "baseline",
+          "output": "artifact"
+        },
+        "measurements": {
+          "from_step": "measure",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "baseline",
+            "output": "artifact"
+          }
+        },
+        "checks": {
+          "from_step": "check",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "source-check",
+            "output": "artifact"
+          }
+        },
+        "manifest": {
+          "from_step": "join",
+          "output": "manifest"
+        }
+      },
+      "routes": {
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "check",
+      "role": "nonogram-research-check",
+      "inputs": {
+        "patch": {
+          "from_candidate": true
+        },
+        "package": {
+          "from_input": "package"
+        },
+        "tests": {
+          "from_input": "tests"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "measure"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "measure",
+      "role": "delivery-measure",
+      "inputs": {
+        "patch": {
+          "from_candidate": true
+        },
+        "package": {
+          "from_input": "package"
+        },
+        "benchmark": {
+          "from_input": "benchmark"
+        },
+        "previous": {
+          "from_step": "measure",
+          "output": "check",
+          "previous": true,
+          "fallback": {
+            "from_step": "baseline",
+            "output": "check"
+          }
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "review"
+        },
+        "continue": {
+          "next": "owner",
+          "max_times": 1
+        }
+      }
+    },
+    {
+      "id": "review",
+      "role": "nonogram-planned-research-review",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "patch": {
+          "from_candidate": true
+        },
+        "summary": {
+          "from_step": "owner",
+          "output": "summary",
+          "default": {
+            "inline": ""
+          }
+        },
+        "baseline": {
+          "from_step": "baseline",
+          "output": "artifact"
+        },
+        "measurements": {
+          "from_step": "measure",
+          "output": "artifact"
+        },
+        "checks": {
+          "from_step": "check",
+          "output": "artifact"
+        },
+        "manifest": {
+          "from_step": "join",
+          "output": "manifest"
+        },
+        "prior_patch": {
+          "from_step": "reference",
+          "output": "artifact"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "$complete"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "patch": {
+      "from_candidate": true
+    },
+    "baseline": {
+      "from_step": "baseline",
+      "output": "artifact"
+    },
+    "measurements": {
+      "from_step": "measure",
+      "output": "artifact"
+    },
+    "conclusion": {
+      "from_step": "review",
+      "output": "conclusion"
+    },
+    "summary": {
+      "from_step": "review",
+      "output": "summary"
+    },
+    "checks": {
+      "from_step": "check",
+      "output": "artifact"
+    },
+    "manifest": {
+      "from_step": "join",
+      "output": "manifest"
+    },
+    "prior_patch": {
+      "from_step": "reference",
+      "output": "artifact"
+    }
+  },
+  "max_attempts": 64,
+  "max_attempts_per_step": 1,
+  "attempt_timeout": "20m"
+}

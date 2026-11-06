@@ -98,7 +98,7 @@ scopes. Runner validates the unaccepted plan, executes eligible cards in isolate
 workspaces, joins their accepted pins, then runs combined checks, independent
 review, corrections and qualification. Do not submit or supervise each card from
 the chat. Parent results expose their statuses and aggregate attempts/usage.
-New example processes share64 attempts across the entire family, allow up to
+New example processes share 64 attempts across the entire family, allow up to
 eight cards and at most two card actors. These settings do not modify existing
 run definitions or grant additional attempts to an old failed run.
 
@@ -108,6 +108,18 @@ step validates the original journal, live owned PR/ref and accepted source befor
 seeding work. Publication continues that authenticated PR with a head comparison;
 it reuses no old review, qualification, merge or production approval. Supplying a
 PR number or branch name in task data grants no publication authority.
+
+For bounded research without release, select
+`research-planned-retained-nonogram`. Supply the pristine `baseline_benchmark`,
+current `benchmark`, scoped `tests` and authorized `prior_patch` proposal. Runner
+measures committed controls and checks pristine source before planning. It
+materializes the proposal as an owned reference artifact, then supplies the
+baseline, source-check proof and proposal to planners and cards. The proposal is
+evidence to reuse, never a claim that source was already restored or approved.
+After joining, the configured research checks, measurements and independent
+review own correction and the final conclusion. A supported `NOT_REPRODUCED`
+result may complete with reports and a retained patch. This process has no
+integration, publication, qualification, merge or production stage.
 
 The [approved release process](../examples/approved-release/README.md) adds the
 model-free Jack's Break release operator. It owns qualification reuse, protected
