@@ -50,7 +50,7 @@ func TestReadinessLocalGitDeadlineRejoinsSamePreparation(t *testing.T) {
 	call := captureCutoffContext{base}
 	done := make(chan runner.Observation, 1)
 	go func() {
-		o, e := r.Observe(call, j.Assignment.AttemptID)
+		o, e := r.observeRelease(call, j.Assignment.AttemptID)
 		if e != nil {
 			t.Error(e)
 		}
@@ -78,7 +78,7 @@ func TestReadinessLocalGitDeadlineRejoinsSamePreparation(t *testing.T) {
 	if err != nil || saved.SourcePrepared || saved.End != nil || saved.SelectedBase != j.SelectedBase || saved.Assignment.AttemptID != j.Assignment.AttemptID {
 		t.Fatal("local deadline changed saved source intent", saved, err)
 	}
-	o, err = r.Observe(t.Context(), j.Assignment.AttemptID)
+	o, err = r.observeRelease(t.Context(), j.Assignment.AttemptID)
 	if err != nil || o.State != runner.Running || o.Reconciling || o.Source == nil || o.Source.Base != j.SelectedBase {
 		t.Fatal("same local source preparation did not resume", o, err)
 	}

@@ -16,20 +16,31 @@ type sourceAdoptionWork struct {
 	cancel      context.CancelFunc
 	observation runner.Observation
 	err         error
+	prepared    bool
 }
+
+func localSourceMode(mode string) bool   { return mode == "readiness" || mode == "publish" }
+func releaseSourceMode(mode string) bool { return mode == "source-adopt" || localSourceMode(mode) }
 
 func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, error) {
 	j, err := r.load(id)
 	if err != nil {
 		return runner.Observation{}, err
 	}
-	if j.Assignment.Setup.Profile.Mode != "source-adopt" || j.End != nil {
+	mode := j.Assignment.Setup.Profile.Mode
+	if !releaseSourceMode(mode) || j.End != nil {
 		return r.observeRelease(ctx, id)
 	}
-	if j.Stopped {
+	if j.Stopped && mode == "source-adopt" {
 		return r.finishSourceAdoption(ctx, j, runner.Observation{}, release.Response{}, "ready")
 	}
-	return r.joinSourceAdoption(ctx, j)
+	o, prepared, err := r.joinSourceAdoption(ctx, j)
+	if err != nil || !prepared {
+		return o, err
+	}
+	// The trusted external backend keeps its existing request/observation
+	// semantics. Only local preparation is detached from the short observer.
+	return r.observeRelease(ctx, id)
 }
 
 func (r *Releases) SetWake(wake func(string)) {
@@ -69,14 +80,17 @@ func (r *Releases) adoptionLease(j releaseJob) (*os.File, error) {
 	return lease, nil
 }
 
-func (r *Releases) joinSourceAdoption(ctx context.Context, j releaseJob) (runner.Observation, error) {
+func (r *Releases) joinSourceAdoption(ctx context.Context, j releaseJob) (runner.Observation, bool, error) {
+	if j.Assignment.Deadline.IsZero() && ctx.Err() != nil {
+		return localSourceError(ctx, ctx.Err()), false, nil
+	}
 	id := j.Assignment.AttemptID
 	r.adoptionMu.Lock()
 	work := r.adoptions[id]
 	if work != nil {
 		select {
 		case <-work.done:
-			if work.observation.End == nil && j.Assignment.Deadline.After(time.Now()) && !r.adoptionClosed {
+			if work.observation.End == nil && (!work.prepared || j.Stopped) && (j.Assignment.Deadline.IsZero() || j.Assignment.Deadline.After(time.Now()) || j.Stopped) && !r.adoptionClosed {
 				delete(r.adoptions, id)
 				work = nil
 			}
@@ -85,15 +99,15 @@ func (r *Releases) joinSourceAdoption(ctx context.Context, j releaseJob) (runner
 	}
 	if work == nil {
 		current, err := r.load(id)
-		if err != nil || current.Stopped || r.adoptionClosed {
+		if err != nil || current.Stopped && !localSourceMode(current.Assignment.Setup.Profile.Mode) || r.adoptionClosed {
 			r.adoptionMu.Unlock()
 			if err != nil {
-				return runner.Observation{}, err
+				return runner.Observation{}, false, err
 			}
-			return runner.Observation{}, context.Canceled
+			return runner.Observation{}, false, context.Canceled
 		}
 		active, cancel := context.WithCancel(ctx)
-		if !j.Assignment.Deadline.IsZero() {
+		if !j.Assignment.Deadline.IsZero() && !current.Stopped {
 			cancel()
 			active, cancel = context.WithDeadline(context.Background(), j.Assignment.Deadline)
 		}
@@ -108,24 +122,102 @@ func (r *Releases) joinSourceAdoption(ctx context.Context, j releaseJob) (runner
 	select {
 	case <-work.done:
 		r.adoptionMu.Lock()
-		observation, err := runner.Clone(work.observation), work.err
+		observation, prepared, err := runner.Clone(work.observation), work.prepared, work.err
 		r.adoptionMu.Unlock()
-		return observation, err
+		return observation, prepared, err
 	case <-ctx.Done():
 		zero := int64(0)
-		return runner.Observation{State: runner.Unknown, Reconciling: true, Reason: "same authenticated source adoption remains active", NextCheck: time.Now().Add(time.Second), Usage: runner.Usage{InputTokens: &zero, OutputTokens: &zero, CachedInputTokens: &zero}}, nil
+		return runner.Observation{State: runner.Unknown, Reconciling: true, Reason: "same owned release source preparation remains active", NextCheck: time.Now().Add(time.Second), Usage: runner.Usage{InputTokens: &zero, OutputTokens: &zero, CachedInputTokens: &zero}}, false, nil
 	}
+}
+
+func releaseSourcePending(reason string) runner.Observation {
+	zero := int64(0)
+	return runner.Observation{State: runner.Unknown, Reconciling: true, Reason: runner.Clip(reason), NextCheck: time.Now().Add(time.Second), Usage: runner.Usage{InputTokens: &zero, OutputTokens: &zero, CachedInputTokens: &zero}}
+}
+
+func (r *Releases) prepareLocalSource(ctx context.Context, id string) (runner.Observation, bool, error) {
+	j, err := r.load(id)
+	if err != nil {
+		return runner.Observation{}, false, err
+	}
+	if j.End != nil {
+		return runner.Observation{State: runner.Finished, End: j.End, Source: j.Source}, false, nil
+	}
+	if j.Stopped {
+		return r.settleLocalSource(ctx, j)
+	}
+	switch j.Assignment.Setup.Profile.Mode {
+	case "readiness":
+		err = r.prepareReleaseSource(ctx, &j)
+	case "publish":
+		_, err = r.publishCandidate(ctx, &j)
+	default:
+		return runner.Observation{}, false, errors.New("unsupported local release preparation")
+	}
+	if err != nil {
+		return localSourceError(ctx, err), false, nil
+	}
+	current, err := r.load(id)
+	if err != nil {
+		return runner.Observation{}, false, err
+	}
+	if current.Stopped {
+		return r.settleLocalSource(ctx, current)
+	}
+	return runner.Observation{}, true, nil
+}
+
+func localSourceError(ctx context.Context, err error) runner.Observation {
+	o := releaseSourcePending(err.Error())
+	var pending *capturePending
+	var archive *sourceArchivePending
+	var push *publicationPushPending
+	o.Reconciling = errors.Is(ctx.Err(), context.DeadlineExceeded) && captureWasInterrupted(ctx, err) || errors.As(err, &pending) || errors.As(err, &archive) || errors.As(err, &push)
+	return o
+}
+
+func (r *Releases) settleLocalSource(ctx context.Context, j releaseJob) (runner.Observation, bool, error) {
+	// Old prepared jobs may already have reached the trusted backend. Preserve
+	// their same-key reconciliation rather than claiming it was never dispatched.
+	beforeBackend := j.LocalPreparationOwned || j.Assignment.Setup.Profile.Mode == "readiness" && !j.SourcePrepared || j.Assignment.Setup.Profile.Mode == "publish" && j.Candidate == ""
+	if !beforeBackend || j.OperatorDispatched {
+		if j.Assignment.Setup.Profile.Mode == "publish" && j.Candidate == "" {
+			if _, err := r.preparePublication(ctx, &j, false); err != nil {
+				return localSourceError(ctx, err), false, nil
+			}
+		}
+		return runner.Observation{}, true, nil
+	}
+	reason := "release source preparation stopped before backend dispatch"
+	if j.Assignment.Setup.Profile.Mode == "publish" && (j.PushStarted || !j.LocalPreparationOwned) {
+		if _, err := r.preparePublication(ctx, &j, false); err != nil {
+			return localSourceError(ctx, err), false, nil
+		}
+		reason = "publication preparation stopped; exact owned remote ref confirmed at " + j.Candidate + "; backend was not dispatched"
+	}
+	j.End = &runner.ExecutionEnd{Kind: "stopped", Reason: reason}
+	if err := r.save(j); err != nil {
+		return runner.Observation{}, false, err
+	}
+	return runner.Observation{State: runner.Finished, End: j.End, Source: j.Source}, false, nil
 }
 
 func (r *Releases) runSourceAdoption(ctx context.Context, work *sourceAdoptionWork, j releaseJob) {
 	defer work.cancel()
 	var observation runner.Observation
 	var err error
+	prepared := false
 	for {
 		var lease *os.File
 		lease, err = r.adoptionLease(j)
 		if err == nil {
 			active := context.WithValue(ctx, captureLeaseKey{}, lease)
+			if localSourceMode(j.Assignment.Setup.Profile.Mode) {
+				observation, prepared, err = r.prepareLocalSource(active, j.Assignment.AttemptID)
+				lease.Close()
+				break
+			}
 			for {
 				observation, err = r.observeRelease(active, j.Assignment.AttemptID)
 				if err != nil || observation.End != nil || observation.State == runner.Unknown && !observation.Reconciling || ctx.Err() != nil {
@@ -148,7 +240,7 @@ func (r *Releases) runSourceAdoption(ctx context.Context, work *sourceAdoptionWo
 		}
 	}
 	r.adoptionMu.Lock()
-	work.observation, work.err = observation, err
+	work.observation, work.prepared, work.err = observation, prepared, err
 	close(work.done)
 	wake := r.adoptionWake
 	r.adoptionMu.Unlock()

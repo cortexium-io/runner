@@ -28,18 +28,22 @@ type Releases struct {
 }
 
 type releaseJob struct {
-	Assignment          runner.Assignment    `json:"assignment"`
-	Command             []string             `json:"command"`
-	Stopped             bool                 `json:"stopped,omitempty"`
-	End                 *runner.ExecutionEnd `json:"end,omitempty"`
-	GitHub              string               `json:"github,omitempty"`
-	SourcePrepared      bool                 `json:"source_prepared,omitempty"`
-	Candidate           string               `json:"candidate,omitempty"`
-	SelectedBase        string               `json:"selected_base,omitempty"`
-	CancelReceipt       json.RawMessage      `json:"cancel_receipt,omitempty"`
-	PublicationPrevious json.RawMessage      `json:"publication_previous,omitempty"`
-	Source              *runner.SourceResult `json:"source,omitempty"`
-	AdoptionReceipt     json.RawMessage      `json:"adoption_receipt,omitempty"`
+	Assignment            runner.Assignment    `json:"assignment"`
+	Command               []string             `json:"command"`
+	Stopped               bool                 `json:"stopped,omitempty"`
+	End                   *runner.ExecutionEnd `json:"end,omitempty"`
+	GitHub                string               `json:"github,omitempty"`
+	SourcePrepared        bool                 `json:"source_prepared,omitempty"`
+	SourceArchived        bool                 `json:"source_archived,omitempty"`
+	Candidate             string               `json:"candidate,omitempty"`
+	SelectedBase          string               `json:"selected_base,omitempty"`
+	CancelReceipt         json.RawMessage      `json:"cancel_receipt,omitempty"`
+	PublicationPrevious   json.RawMessage      `json:"publication_previous,omitempty"`
+	Source                *runner.SourceResult `json:"source,omitempty"`
+	AdoptionReceipt       json.RawMessage      `json:"adoption_receipt,omitempty"`
+	LocalPreparationOwned bool                 `json:"local_preparation_owned,omitempty"`
+	OperatorDispatched    bool                 `json:"operator_dispatched,omitempty"`
+	PushStarted           bool                 `json:"push_started,omitempty"`
 }
 
 func releaseName(id string) string { return "jobs/" + id + ".release.json" }
@@ -61,12 +65,32 @@ func (r *Releases) load(id string) (releaseJob, error) {
 func (r *Releases) save(j releaseJob) error {
 	r.adoptionMu.Lock()
 	defer r.adoptionMu.Unlock()
-	if j.Assignment.Setup.Profile.Mode == "source-adopt" {
-		if old, err := r.load(j.Assignment.AttemptID); err == nil && old.Stopped {
-			j.Stopped = true
+	if releaseSourceMode(j.Assignment.Setup.Profile.Mode) {
+		if old, err := r.load(j.Assignment.AttemptID); err == nil {
+			j.Stopped = j.Stopped || old.Stopped
+			j.LocalPreparationOwned = j.LocalPreparationOwned || old.LocalPreparationOwned
+			j.OperatorDispatched = j.OperatorDispatched || old.OperatorDispatched
+			j.PushStarted = j.PushStarted || old.PushStarted
+			j.SourcePrepared = j.SourcePrepared || old.SourcePrepared
+			j.SourceArchived = j.SourceArchived || old.SourceArchived
+			if j.Candidate == "" {
+				j.Candidate = old.Candidate
+			}
+			if j.SelectedBase == "" {
+				j.SelectedBase = old.SelectedBase
+			}
+			if j.AdoptionReceipt == nil {
+				j.AdoptionReceipt = old.AdoptionReceipt
+			}
+			if j.Source == nil {
+				j.Source = old.Source
+			}
+			if j.End == nil {
+				j.End = old.End
+			}
 		}
-		if j.Stopped && j.End != nil {
-			j.End = &runner.ExecutionEnd{Kind: "stopped", Reason: "source adoption settled after cancellation"}
+		if j.Stopped && j.End != nil && j.End.Kind != "stopped" {
+			j.End = &runner.ExecutionEnd{Kind: "stopped", Reason: "release source operation settled after cancellation"}
 		}
 	}
 	b, err := json.Marshal(j)
@@ -83,7 +107,7 @@ func (r *Releases) Start(ctx context.Context, a runner.Assignment) (runner.Obser
 				End:   &runner.ExecutionEnd{Kind: "failed", Reason: "release operator is not configured"},
 			}, nil
 		}
-		if err = r.save(releaseJob{Assignment: runner.Clone(a), Command: runner.Clone(r.cfg.Command), GitHub: r.cfg.GitHub}); err != nil {
+		if err = r.save(releaseJob{Assignment: runner.Clone(a), Command: runner.Clone(r.cfg.Command), GitHub: r.cfg.GitHub, LocalPreparationOwned: a.Setup.Profile.Mode == "readiness" || a.Setup.Profile.Mode == "publish"}); err != nil {
 			return runner.Observation{}, err
 		}
 	} else if err != nil {
@@ -103,6 +127,9 @@ func (r *Releases) observeRelease(ctx context.Context, id string) (runner.Observ
 		NextCheck: time.Now().Add(3 * time.Second),
 	}
 	if j.End == nil {
+		if j.Stopped && j.LocalPreparationOwned && !j.OperatorDispatched && localSourceMode(j.Assignment.Setup.Profile.Mode) {
+			return releaseSourcePending("release source cancellation is awaiting its owned preparation worker"), nil
+		}
 		if j.Assignment.Source == nil {
 			return o, errors.New("release requires an explicit source")
 		}
@@ -156,6 +183,12 @@ func (r *Releases) observeRelease(ctx context.Context, id string) (runner.Observ
 			}
 		}
 		input, _ := json.Marshal(request)
+		if (request.Action == "readiness" || request.Action == "publish") && !j.OperatorDispatched {
+			j.OperatorDispatched = true
+			if err = r.save(j); err != nil {
+				return runner.Observation{}, err
+			}
+		}
 		call, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(call, j.Command[0], j.Command[1:]...)
@@ -255,7 +288,7 @@ func (r *Releases) Stop(ctx context.Context, id string) error {
 	if err = r.save(j); err != nil {
 		return err
 	}
-	if j.Assignment.Setup.Profile.Mode == "source-adopt" {
+	if releaseSourceMode(j.Assignment.Setup.Profile.Mode) {
 		if err = r.stopSourceAdoption(ctx, id); err != nil {
 			return err
 		}
@@ -274,7 +307,7 @@ func (r *Releases) Release(_ context.Context, id string) error {
 	if j.End == nil {
 		return errors.New("cannot release an unsettled external operation")
 	}
-	if j.Assignment.Setup.Profile.Mode == "source-adopt" {
+	if releaseSourceMode(j.Assignment.Setup.Profile.Mode) {
 		if err = r.releaseSourceAdoption(j); err != nil {
 			return err
 		}

@@ -17,6 +17,12 @@ import (
 // A read-only archive can hydrate immutable source objects across observation
 // calls. Only positive call-deadline evidence permits this same-job rejoin.
 type sourceArchivePending struct{ cause error }
+type publicationPushPending struct{ cause error }
+
+func (e *publicationPushPending) Error() string {
+	return "publication push settlement is unconfirmed; inspect the same owned remote ref"
+}
+func (e *publicationPushPending) Unwrap() error { return e.cause }
 
 func (e *sourceArchivePending) Error() string {
 	return "read-only source archive reached its observation deadline; rejoin the same readiness attempt"
@@ -35,11 +41,18 @@ func releaseArchiveError(ctx context.Context, err error) error {
 // branch/SHA claim. The owned branch uses compare-and-swap and cannot overwrite
 // unrelated work. Reconnecting inspects that same remote ref first.
 func (r *Releases) publishCandidate(ctx context.Context, j *releaseJob) (string, error) {
+	return r.preparePublication(ctx, j, !j.Stopped || j.Candidate != "")
+}
+
+// A cancelled operation may inspect the same authenticated ref, but cannot
+// issue another push. A successful push whose reply was lost is adopted only
+// after that exact ref is observed at the saved target.
+func (r *Releases) preparePublication(ctx context.Context, j *releaseJob, allowPush bool) (string, error) {
 	remoteRef, previousHead, _, err := r.publicationAuthorization(j)
 	if err != nil {
 		return "", err
 	}
-	if j.Candidate != "" {
+	if j.Candidate != "" && allowPush {
 		return j.Candidate, nil
 	}
 	a := j.Assignment
@@ -86,10 +99,35 @@ func (r *Releases) publishCandidate(ctx context.Context, j *releaseJob) (string,
 	} else if previousHead != "" {
 		return "", errors.New("previous publication branch disappeared; preserve history")
 	}
+	if !allowPush {
+		if j.Candidate != "" {
+			return "", errors.New("remote candidate changed after its saved publication; preserve it")
+		}
+		if j.PushStarted || !j.LocalPreparationOwned {
+			return "", &publicationPushPending{cause: errors.New("unchanged old ref does not prove interrupted remote receive has settled")}
+		}
+		return "", nil
+	}
 	// Repeating this CAS after an uncertain reply can only create this same ref.
 	// A concurrent/earlier successful creation is inspected on the next observe.
-	if _, err = git(ctx, a.Repository, environment, nil, 4096, append(args, "push", "--porcelain", "--force-with-lease="+remoteRef+":"+previousHead, "origin", head+":"+remoteRef)...); err != nil {
+	// Stop before this point is a positive no-dispatch witness. Once the durable
+	// marker commits, cancellation must reconcile the remote rather than guess.
+	current, err := r.load(a.AttemptID)
+	if err != nil {
 		return "", err
+	}
+	if current.Stopped {
+		return "", context.Canceled
+	}
+	if err = ctx.Err(); err != nil {
+		return "", err
+	}
+	j.PushStarted = true
+	if err = r.save(*j); err != nil {
+		return "", err
+	}
+	if _, err = git(ctx, a.Repository, environment, nil, 4096, append(args, "push", "--porcelain", "--force-with-lease="+remoteRef+":"+previousHead, "origin", head+":"+remoteRef)...); err != nil {
+		return "", &publicationPushPending{cause: err}
 	}
 	j.Candidate = head
 	return head, r.save(*j)
@@ -124,13 +162,18 @@ func (r *Releases) prepareReleaseSource(ctx context.Context, j *releaseJob) erro
 			return err
 		}
 	}
-	cmd := exec.CommandContext(ctx, "git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "credential.helper="+helper, "archive", "--format=tar", j.SelectedBase)
-	cmd.Dir = a.Repository
-	cmd.Env = append(gitEnvironment(), "HOME="+os.Getenv("HOME"), "GH_PROMPT_DISABLED=1")
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
-		return releaseArchiveError(ctx, err)
+	if !j.SourceArchived {
+		cmd := gitCommand(ctx, a.Repository, environment, nil, "-c", "credential.helper="+helper, "archive", "--format=tar", j.SelectedBase)
+		cmd.Stdout = io.Discard
+		diagnostic := &diagnosticTail{limit: 1024}
+		cmd.Stderr = diagnostic
+		if err := cmd.Run(); err != nil {
+			return releaseArchiveError(ctx, fmt.Errorf("%w: %s", err, runner.Clip(string(diagnostic.bytes()))))
+		}
+		j.SourceArchived = true
+		if err := r.save(*j); err != nil {
+			return err
+		}
 	}
 	a.Source = &runner.SourceSettings{Ref: j.SelectedBase}
 	if _, err := r.workspaces.Prepare(ctx, a); err != nil {
