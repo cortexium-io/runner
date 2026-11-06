@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -191,6 +192,10 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 }
 
 type boundedOutput struct{ bytes.Buffer }
+
+func (b *boundedOutput) ReadFrom(r io.Reader) (int64, error) {
+	return io.Copy(struct{ io.Writer }{b}, r)
+}
 
 func (b *boundedOutput) Write(p []byte) (int, error) {
 	if len(p) > 256*1024-b.Len() {

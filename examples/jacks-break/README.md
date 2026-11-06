@@ -72,6 +72,30 @@ the text-only check cache. `package` remains the Go package for optional existin
 measurement; use `benchmark: "none"` when irrelevant. The existing Go `deliver`
 input contract is unchanged.
 
+An initial source check supplies real evidence before coding. Corrections and
+review receive the complete bounded Vitest report, including canonical owned-file
+identities and assertion diagnostics. Every selected file must execute assertions
+exactly once; alias resolution cannot accept a different file with the same
+basename. Missing, inconsistent or skipped-only evidence blocks execution rather
+than inventing a source failure. Complete failed assertions request correction.
+The raw report remains bounded to 8 MiB and the encoded proof to the existing
+16 MiB artifact allowance.
+
+`retained-frontend.json` selects `deliver-retained-frontend` for a preserved,
+unreviewed mobile patch. A read-only measurement with `benchmark: "none"` restores
+its seed before readiness. The initial frontend check then feeds the owner, and
+later corrections receive the latest full report. Checks, independent review,
+one publication and protected release follow under the existing limits.
+
+`research-nonogram.json` is the evidence-only reproducibility process. It keeps
+the original benchmark as a baseline and uses a separate diagnostic collector
+for complete request, seed, phase and work records. Expected bounded rejection,
+deadline and non-reproduction are observations; setup, invariant and collection
+failures remain failures. Independent research review requires semantic evidence
+completeness, not merely `evidence_status: provided`. Its completion returns the
+reports and retained patch without integration, publication or release approval.
+Original functional checks, release benchmarks and thresholds remain unchanged.
+
 `release-reviewed.json` is the complete model-free continuation for an already
 accepted publication. Supply that publication's JSON receipt and its full base
 commit as `source_ref`. Adoption verifies the original private journal and the

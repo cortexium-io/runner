@@ -1,0 +1,32 @@
+{
+  "id": "frontend-source-check",
+  "purpose": "Check the committed frontend source before a fresh owner turn, retaining complete assertion evidence without fabricating a patch.",
+  "inputs": {
+    "tests": "text"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-frontend-check",
+        "--node",
+        "/absolute/path/to/node",
+        "--modules",
+        "/absolute/path/to/frontend-node-modules",
+        "--source",
+        "{workspace}",
+        "--scratch",
+        "{scratch}",
+        "--tests",
+        "{text.tests}"
+      ],
+      "result": "domain.json",
+      "artifact": "frontend-check.json"
+    }
+  }
+}

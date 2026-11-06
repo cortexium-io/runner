@@ -121,6 +121,9 @@
         "changes_requested": {
           "next": "owner",
           "max_times": 1
+        },
+        "blocked": {
+          "next": "$fail"
         }
       }
     },

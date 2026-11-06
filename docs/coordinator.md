@@ -89,6 +89,25 @@ rather than transferring checks to the chat. Chromium and WebKit qualification v
 edits and every advertised geometry at 320/360/390 pixels. Headless emulation
 and WebKit's public native touch-drag limitation remain explicit in the report.
 
+Frontend delivery checks the admitted source before the first coding visit and
+supplies the complete bounded check artifact to both correction and review.
+The artifact retains the actual Vitest report, file identities and assertion
+diagnostics. Missing or inconsistent execution evidence blocks the process;
+conclusive assertion failures use its configured correction route. A short text
+summary is not a replacement for the report. Select `deliver-retained-frontend`
+with its original base and `patch` artifact to continue an unreviewed mobile
+candidate. It restores and checks that source before another coding visit, keeps
+the failed run intact and uses the same protected release suffix.
+
+Select `research-nonogram` for the separate reproducibility investigation. It
+measures the committed baseline, prepares test-only evidence collection, runs
+scoped checks and bounded measurements, and independently reviews the complete
+retained evidence. A supported negative or not-reproduced finding may complete
+the research task. Missing records, malformed collection and unsupported claims
+remain failures. Research completion returns evidence and a retained patch;
+it neither integrates nor publishes source and grants no product-fix or release
+approval. The original release benchmarks and acceptance conditions stay intact.
+
 After verifier/infrastructure maintenance, the model-free `release-reviewed`
 process can continue an accepted reviewed publication without another coding or
 review turn. Submit its original publication receipt and exact base commit; the

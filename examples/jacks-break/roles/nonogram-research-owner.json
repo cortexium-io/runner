@@ -1,0 +1,26 @@
+{
+  "id": "nonogram-research-owner",
+  "purpose": "Build only reproducible test-side evidence for the bounded Nonogram 25 Hard investigation.",
+  "inputs": {
+    "request": "text",
+    "tests": "text",
+    "benchmark": "text",
+    "check": "text",
+    "review": "text",
+    "baseline": "artifact",
+    "measurements": "artifact"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Research evidence only; no engine optimization or product-fix claim. Follow request, AGENTS.md and docs/testing.md. Read full baseline and measurement artifacts and all feedback. Change only test-side collectors/regressions and concise research findings; preserve production algorithms, RNG/order, pruning, grading, identities, validation, work/cancellation limits and the single 10-second request deadline. Preserve existing release tests/benchmarks and all six controls. Require fresh engine/generator per sample, no cache hits, actual nonzero bounded work and one deadline across seed rounds; distinguish native work from total request work. Add the separately selected opt-in research benchmark. Record expected bounded rejection/deadline/not-reproduced outcomes as complete structured JSON DATA; broken setup, invariants or incomplete collection remain failures. Missing sidecars or truncated stdout are incomplete evidence. Configured steps execute checks/measurement; do not run them, Git, agents or external work. Use the deadline; hand off a runnable collector before drawing conclusions. Material scope/capability blockers return blocked. Keep summary <=240 characters; no workflow, permission or limit changes."
+  }
+}

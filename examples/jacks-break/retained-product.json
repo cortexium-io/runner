@@ -70,6 +70,9 @@
         },
         "changes_requested": {
           "next": "retained-check"
+        },
+        "blocked": {
+          "next": "$fail"
         }
       }
     },
@@ -177,6 +180,9 @@
         "changes_requested": {
           "next": "owner",
           "max_times": 1
+        },
+        "blocked": {
+          "next": "$fail"
         }
       }
     },

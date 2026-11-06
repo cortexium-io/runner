@@ -14,6 +14,26 @@
       "inputs": {},
       "routes": {
         "ready": {
+          "next": "baseline"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "baseline",
+      "role": "frontend-source-check",
+      "inputs": {
+        "tests": {
+          "from_input": "tests"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "owner"
+        },
+        "changes_requested": {
           "next": "owner"
         },
         "blocked": {
@@ -59,6 +79,15 @@
           "default": {
             "inline": {}
           }
+        },
+        "checks": {
+          "from_step": "check",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "baseline",
+            "output": "artifact"
+          }
         }
       },
       "routes": {
@@ -85,6 +114,9 @@
         "changes_requested": {
           "next": "owner",
           "max_times": 1
+        },
+        "blocked": {
+          "next": "$fail"
         }
       }
     },

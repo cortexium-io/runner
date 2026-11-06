@@ -50,7 +50,7 @@ func TestFrontendDeliveryKeepsSourceProofCorrectionAndProtectedRelease(t *testin
 	if err != nil || json.Unmarshal(data, &p) != nil {
 		t.Fatal("frontend process unavailable", err)
 	}
-	for _, id := range []string{"frontend-owner", "frontend-check", "frontend-review"} {
+	for _, id := range []string{"frontend-owner", "frontend-check", "frontend-source-check", "frontend-review"} {
 		var role runner.Role
 		data, err = os.ReadFile(filepath.Join(root, "roles", id+".json"))
 		if err != nil || json.Unmarshal(data, &role) != nil {

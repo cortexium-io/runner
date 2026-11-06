@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -16,17 +17,64 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type options struct{ node, modules, source, scratch, tests string }
+
+var errArtifactLimit = errors.New("frontend artifact exceeds its existing 16 MiB limit")
+
 type proof struct {
-	Status   string   `json:"status"`
-	Tests    []string `json:"tests"`
-	Executed int      `json:"executed"`
-	Failed   int      `json:"failed"`
-	Skipped  int      `json:"skipped"`
-	Reason   string   `json:"reason,omitempty"`
-	Output   string   `json:"output,omitempty"`
+	Schema            int             `json:"schema"`
+	Status            string          `json:"status"`
+	Tests             []string        `json:"tests"`
+	Executed          int             `json:"executed"`
+	Failed            int             `json:"failed"`
+	Skipped           int             `json:"skipped"`
+	Reason            string          `json:"reason,omitempty"`
+	Output            string          `json:"output,omitempty"`
+	Frontend          string          `json:"frontend,omitempty"`
+	CanonicalFrontend string          `json:"canonical_frontend,omitempty"`
+	ExitCode          *int            `json:"exit_code,omitempty"`
+	ReportBytes       int             `json:"report_bytes,omitempty"`
+	ReportSHA256      string          `json:"report_sha256,omitempty"`
+	Files             []fileProof     `json:"files,omitempty"`
+	Vitest            json.RawMessage `json:"vitest,omitempty"`
+}
+
+type fileProof struct {
+	Selected   string   `json:"selected,omitempty"`
+	Reported   []string `json:"reported,omitempty"`
+	Canonical  string   `json:"canonical,omitempty"`
+	Assertions int      `json:"assertions"`
+	Executed   int      `json:"executed"`
+	Failed     int      `json:"failed"`
+	Skipped    int      `json:"skipped"`
+	Diagnostic string   `json:"diagnostic,omitempty"`
+	identity   fs.FileInfo
+}
+
+type vitestReport struct {
+	Success bool         `json:"success"`
+	Total   int          `json:"numTotalTests"`
+	Passed  int          `json:"numPassedTests"`
+	Failed  int          `json:"numFailedTests"`
+	Pending int          `json:"numPendingTests"`
+	Todo    int          `json:"numTodoTests"`
+	Results []vitestFile `json:"testResults"`
+}
+
+type vitestFile struct {
+	Name       string            `json:"name"`
+	Status     string            `json:"status"`
+	Message    string            `json:"message"`
+	Assertions []vitestAssertion `json:"assertionResults"`
+}
+
+type vitestAssertion struct {
+	Status          string   `json:"status"`
+	FullName        string   `json:"fullName"`
+	FailureMessages []string `json:"failureMessages"`
 }
 
 func main() {
@@ -71,68 +119,86 @@ func run(o options) error {
 	if err = os.MkdirAll(o.scratch, 0700); err != nil {
 		return err
 	}
-	p := proof{Status: "failed", Tests: tests}
-	finish := func(cause error) error {
-		if cause != nil {
-			p.Reason = cause.Error()
-		}
+	p := proof{Schema: 2, Status: "blocked", Tests: tests}
+	finish := func(outcome, reason string) error {
+		p.Status = map[string]string{"ready": "passed", "changes_requested": "failed", "blocked": "blocked"}[outcome]
+		p.Reason = clip(reason, 1000)
 		if err := writeJSON(filepath.Join(o.scratch, "frontend-check.json"), p); err != nil {
+			if !errors.Is(err, errArtifactLimit) {
+				return err
+			}
+			outcome, p.Status = "blocked", "blocked"
+			p.Reason = "complete frontend evidence could not fit the existing 16 MiB artifact limit; raw report was not retained"
+			p.Vitest = nil
+			if err = writeJSON(filepath.Join(o.scratch, "frontend-check.json"), p); err != nil {
+				return err
+			}
+		}
+		if err := writeJSON(filepath.Join(o.scratch, "domain.json"), map[string]string{"outcome": outcome, "reason": clip(p.Reason, 480)}); err != nil {
 			return err
 		}
-		outcome := "ready"
-		if cause != nil {
-			outcome = "changes_requested"
-		}
-		if err := writeJSON(filepath.Join(o.scratch, "domain.json"), map[string]string{"outcome": outcome, "reason": p.Reason}); err != nil {
-			return err
-		}
-		fmt.Printf("frontend-check status=%s executed=%d failed=%d skipped=%d; %s\n", p.Status, p.Executed, p.Failed, p.Skipped, p.Reason)
-		return nil // A conclusively failed test is source feedback, not an operator retry.
+		summary := fmt.Sprintf("frontend-check status=%s executed=%d failed=%d skipped=%d; %s", p.Status, p.Executed, p.Failed, p.Skipped, p.Reason)
+		fmt.Println(clip(summary, 480))
+		return nil // The domain result distinguishes source feedback from unestablished execution.
 	}
 	copy := filepath.Join(o.scratch, "source")
 	if err = os.Mkdir(copy, 0700); err != nil {
-		return err
+		return finish("blocked", "frontend scratch preparation: "+err.Error())
 	}
 	for _, name := range []string{"frontend", "internal", "server", "cmd", "migrations", ".genny", "go.mod", "go.sum"} {
 		if err = copySource(filepath.Join(o.source, name), filepath.Join(copy, name)); err != nil {
-			return err
+			return finish("blocked", "frontend source preparation: "+err.Error())
 		}
 	}
 	// Existing tests import checked-in JSON fixtures; copy only actual imports,
 	// not archived screenshots/build packages or unrelated historical evidence.
 	imported, err := fixtureImports(o.source)
 	if err != nil {
-		return err
+		return finish("blocked", "frontend fixture preparation: "+err.Error())
 	}
 	for _, name := range imported {
 		if err = copySource(filepath.Join(o.source, name), filepath.Join(copy, name)); err != nil {
-			return err
+			return finish("blocked", "frontend fixture preparation: "+err.Error())
 		}
 	}
 	frontend := filepath.Join(copy, "frontend")
+	p.Frontend = frontend
+	p.CanonicalFrontend, err = filepath.EvalSymlinks(frontend)
+	if err != nil {
+		return finish("blocked", "frontend source identity: "+err.Error())
+	}
 	for _, test := range tests {
-		info, e := os.Lstat(filepath.Join(frontend, filepath.FromSlash(test)))
+		path := filepath.Join(frontend, filepath.FromSlash(test))
+		info, e := os.Lstat(path)
 		if e != nil || !info.Mode().IsRegular() {
-			return errors.New("selected frontend test is missing or not a regular file: " + test)
+			return finish("blocked", "selected frontend test is missing or not a regular file: "+test)
 		}
+		canonical, e := filepath.EvalSymlinks(path)
+		if e != nil {
+			return finish("blocked", "selected frontend test identity: "+e.Error())
+		}
+		p.Files = append(p.Files, fileProof{Selected: test, Canonical: canonical, identity: info})
 	}
 	deps := filepath.Join(frontend, "node_modules")
 	if err = os.Mkdir(deps, 0700); err != nil {
-		return err
+		return finish("blocked", "frontend dependency preparation: "+err.Error())
 	}
 	entries, err := os.ReadDir(o.modules)
 	if err != nil {
-		return err
+		return finish("blocked", "frontend dependency preparation: "+err.Error())
 	}
 	for _, entry := range entries {
 		if entry.Name() == ".vite" || entry.Name() == ".vite-temp" || entry.Name() == ".cache" {
 			continue
 		}
 		if err = os.Symlink(filepath.Join(o.modules, entry.Name()), filepath.Join(deps, entry.Name())); err != nil {
-			return err
+			return finish("blocked", "frontend dependency preparation: "+err.Error())
 		}
 	}
 	report := filepath.Join(o.scratch, "vitest.json")
+	if _, e := os.Lstat(report); !errors.Is(e, os.ErrNotExist) {
+		return finish("blocked", "frontend report output already exists or cannot be identified; refusing stale evidence")
+	}
 	args := append([]string{filepath.Join(deps, "vitest", "vitest.mjs"), "run", "--reporter=json", "--outputFile", report}, tests...)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
@@ -149,71 +215,207 @@ func run(o options) error {
 		return errors.New("frontend check cancelled or deadline exceeded; execution must settle before replacement")
 	}
 	var exit *exec.ExitError
+	executionProblem := ""
 	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != 1) {
-		return fmt.Errorf("configured frontend checker failed to execute: %w", err)
+		executionProblem = fmt.Sprintf("configured frontend checker failed to execute: %v", err)
+	}
+	code := 0
+	if exit != nil {
+		code = exit.ExitCode()
+	}
+	p.ExitCode = &code
+	info, readErr := os.Lstat(report)
+	if readErr != nil || !info.Mode().IsRegular() {
+		if executionProblem != "" {
+			return finish("blocked", executionProblem+"; no regular completion report")
+		}
+		return finish("blocked", "frontend test report is missing or not a regular file; test completion is not established")
 	}
 	input, readErr := os.Open(report)
 	if readErr != nil {
-		return errors.New("frontend test report is missing; test completion is not established")
+		return finish("blocked", "frontend test report is missing; test completion is not established")
+	}
+	opened, statErr := input.Stat()
+	if statErr != nil || !os.SameFile(info, opened) {
+		_ = input.Close()
+		return finish("blocked", "frontend test report identity changed while opening")
 	}
 	data, readErr := io.ReadAll(io.LimitReader(input, (8<<20)+1))
 	readErr = errors.Join(readErr, input.Close())
-	var result struct {
-		Success bool `json:"success"`
-		Total   int  `json:"numTotalTests"`
-		Passed  int  `json:"numPassedTests"`
-		Failed  int  `json:"numFailedTests"`
-		Pending int  `json:"numPendingTests"`
-		Todo    int  `json:"numTodoTests"`
-		Results []struct {
-			Name       string `json:"name"`
-			Assertions []struct {
-				Status          string   `json:"status"`
-				FullName        string   `json:"fullName"`
-				FailureMessages []string `json:"failureMessages"`
-			} `json:"assertionResults"`
-		} `json:"testResults"`
+	if readErr != nil || len(data) > 8<<20 || !json.Valid(data) {
+		return finish("blocked", "frontend test report is unreadable, oversized or malformed; test completion is not established")
 	}
-	if readErr != nil || len(data) > 8<<20 || json.Unmarshal(data, &result) != nil {
-		return errors.New("frontend test report is invalid; test completion is not established")
+	p.Vitest, p.ReportBytes = json.RawMessage(data), len(data)
+	p.ReportSHA256 = fmt.Sprintf("%x", sha256.Sum256(data))
+	if executionProblem != "" {
+		return finish("blocked", executionProblem)
+	}
+	outcome, reason := evaluate(&p, code)
+	return finish(outcome, reason)
+}
+
+func evaluate(p *proof, exitCode int) (string, string) {
+	var result vitestReport
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(p.Vitest, &result) != nil || json.Unmarshal(p.Vitest, &fields) != nil {
+		return "blocked", "frontend report schema is invalid; test completion is not established"
+	}
+	for _, key := range []string{"success", "numTotalTests", "numPassedTests", "numFailedTests", "numPendingTests", "numTodoTests", "testResults"} {
+		if raw, ok := fields[key]; !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return "blocked", "frontend report is missing required field: " + key
+		}
 	}
 	p.Executed, p.Failed, p.Skipped = result.Passed+result.Failed, result.Failed, result.Pending+result.Todo
-	selected := make(map[string]bool, len(tests))
-	for _, test := range tests {
-		selected[filepath.Join(frontend, filepath.FromSlash(test))] = false
+	if result.Total < 0 || result.Passed < 0 || result.Failed < 0 || result.Pending < 0 || result.Todo < 0 || len(result.Results) > 64 {
+		return "blocked", "frontend report has invalid or excessive counts"
 	}
-	assertions := 0
+	selected := make(map[string]int, len(p.Files))
+	for i, file := range p.Files {
+		selected[file.Canonical] = i
+	}
+	seen := make(map[string]bool, len(selected))
+	problem, assertionFailure := "", ""
+	passed, failed, skipped, assertions := 0, 0, 0, 0
 	for _, file := range result.Results {
-		seen, exists := selected[file.Name]
-		if !exists || seen || len(file.Assertions) == 0 {
-			return finish(errors.New("frontend report must execute assertions in each selected file exactly once"))
+		canonical, identityErr := reportedIdentity(p.CanonicalFrontend, file.Name)
+		i, exists := selected[canonical]
+		if identityErr != nil || !exists {
+			message := "unexpected frontend report file: " + clip(file.Name, 300)
+			if identityErr != nil {
+				message += "; " + identityErr.Error()
+			}
+			p.Files = append(p.Files, fileProof{Reported: []string{clip(file.Name, 512)}, Canonical: clip(canonical, 512), Diagnostic: message})
+			if problem == "" {
+				problem = message
+			}
+			continue
 		}
-		selected[file.Name] = true
+		f := &p.Files[i]
+		if len(f.Reported) < 2 {
+			f.Reported = append(f.Reported, clip(file.Name, 512))
+		}
+		reported, statErr := os.Stat(file.Name)
+		if statErr != nil || !reported.Mode().IsRegular() || f.identity == nil || !os.SameFile(f.identity, reported) {
+			f.Diagnostic = "reported file differs from the selected source identity"
+			if problem == "" {
+				problem = f.Selected + ": " + f.Diagnostic
+			}
+			continue
+		}
+		if seen[canonical] {
+			f.Diagnostic = "selected file appears more than once, including canonical aliases"
+			if problem == "" {
+				problem = f.Selected + ": " + f.Diagnostic
+			}
+			continue
+		}
+		seen[canonical] = true
+		f.Assertions = len(file.Assertions)
+		if len(file.Assertions) == 0 || file.Status != "passed" && file.Status != "failed" {
+			f.Diagnostic = "selected file has no assertions or an invalid completion status: " + clip(file.Message, 400)
+			if problem == "" {
+				problem = f.Selected + ": " + f.Diagnostic
+			}
+		}
 		for _, assertion := range file.Assertions {
 			assertions++
-			if assertion.Status != "passed" {
-				message := "required frontend assertion failed or skipped: " + assertion.FullName
-				if len(assertion.FailureMessages) > 0 {
-					message += ": " + assertion.FailureMessages[0]
+			if assertion.FullName == "" && problem == "" {
+				problem = f.Selected + ": assertion identity is missing"
+			}
+			switch assertion.Status {
+			case "passed":
+				passed++
+				f.Executed++
+			case "failed":
+				failed++
+				f.Executed++
+				f.Failed++
+				if f.Diagnostic == "" {
+					f.Diagnostic = "failed assertion: " + clip(assertion.FullName, 200)
+					if len(assertion.FailureMessages) > 0 {
+						f.Diagnostic += ": " + clip(assertion.FailureMessages[0], 500)
+					}
 				}
-				if len(message) > 400 {
-					message = message[:400]
+				if assertionFailure == "" {
+					assertionFailure = f.Selected + ": " + f.Diagnostic
 				}
-				return finish(errors.New(message))
+			case "pending", "skipped", "todo", "disabled":
+				skipped++
+				f.Skipped++
+				if f.Diagnostic == "" {
+					f.Diagnostic = "required assertion did not execute: " + clip(assertion.FullName, 300)
+				}
+			default:
+				if problem == "" {
+					problem = f.Selected + ": unknown assertion status " + clip(assertion.Status, 100)
+				}
+			}
+		}
+		if f.Failed > 0 && file.Status != "failed" || f.Failed == 0 && file.Status == "failed" {
+			f.Diagnostic = "file completion status is inconsistent with its assertions: " + clip(file.Message, 400)
+			if problem == "" {
+				problem = f.Selected + ": " + f.Diagnostic
 			}
 		}
 	}
-	for _, seen := range selected {
-		if !seen {
-			return finish(errors.New("frontend report omitted a selected test file"))
+	for i := range p.Tests {
+		file := &p.Files[i]
+		if !seen[file.Canonical] {
+			file.Diagnostic = "selected file omitted from report"
+			if problem == "" {
+				problem = "frontend report omitted selected file: " + file.Selected
+			}
 		}
 	}
-	if err != nil || !result.Success || result.Total == 0 || result.Passed != result.Total || result.Failed != 0 || p.Skipped != 0 || assertions != result.Total {
-		return finish(errors.New("required frontend tests did not all execute and pass"))
+	if problem != "" {
+		return "blocked", problem
 	}
-	p.Status = "passed"
-	p.Reason = "Explicit frontend tests executed against the retained candidate; browser acceptance follows"
-	return finish(nil)
+	if result.Total == 0 || assertions != result.Total || passed != result.Passed || failed != result.Failed || skipped != result.Pending+result.Todo || result.Total != passed+failed+skipped {
+		return "blocked", "frontend report assertion counts do not establish complete selected-file execution"
+	}
+	if skipped != 0 {
+		for _, file := range p.Files {
+			if file.Skipped != 0 {
+				return "blocked", file.Selected + ": required assertion did not execute; " + file.Diagnostic
+			}
+		}
+	}
+	if failed > 0 && !result.Success && exitCode == 1 {
+		return "changes_requested", assertionFailure
+	}
+	if failed != 0 || !result.Success || exitCode != 0 {
+		return "blocked", "frontend process exit/report status is inconsistent with executed assertions"
+	}
+	return "ready", "Explicit frontend tests executed against the retained candidate; browser acceptance follows"
+}
+
+func reportedIdentity(frontend, name string) (string, error) {
+	if !filepath.IsAbs(name) || len(name) > 4096 || filepath.Clean(name) != name {
+		return "", errors.New("report file must have an absolute clean identity")
+	}
+	canonical, err := filepath.EvalSymlinks(name)
+	if err != nil {
+		return "", errors.New("reported file cannot be resolved")
+	}
+	rel, err := filepath.Rel(frontend, canonical)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return canonical, errors.New("reported file is outside the owned frontend")
+	}
+	return canonical, nil
+}
+
+func clip(s string, limit int) string {
+	if len(s) > limit {
+		end := limit - len("…")
+		if end < 0 {
+			return strings.Repeat(".", limit)
+		}
+		for end > 0 && !utf8.RuneStart(s[end]) {
+			end--
+		}
+		return s[:end] + "…"
+	}
+	return s
 }
 
 func copySource(source, target string) error {
@@ -326,9 +528,14 @@ func (b *boundedOutput) ReadFrom(r io.Reader) (int64, error) {
 	return io.Copy(struct{ io.Writer }{b}, r)
 }
 func writeJSON(path string, value any) error {
-	data, err := json.Marshal(value)
-	if err != nil {
+	var data bytes.Buffer
+	encoder := json.NewEncoder(&data)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0600)
+	if data.Len() > 16<<20 {
+		return errArtifactLimit
+	}
+	return os.WriteFile(path, data.Bytes(), 0600)
 }

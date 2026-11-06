@@ -62,10 +62,7 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 		for owner < start && selected[owner].Harness == "command" {
 			step, profile := p.Steps[owner], selected[owner]
 			if owner+1 >= start || profile.Access != "workspace-read" || profile.Command == nil || profile.Command.Network ||
-				step.ForEach != nil || step.Reuse || step.Escalation != nil || !reflect.DeepEqual(step.Routes, map[string]runner.Route{
-				"ready":             {Next: p.Steps[owner+1].ID},
-				"changes_requested": {Next: p.Steps[owner+1].ID},
-			}) {
+				step.ForEach != nil || step.Reuse || step.Escalation != nil || !sourceCheckRoutes(step.Routes, p.Steps[owner+1].ID) {
 				return bad
 			}
 			for name, binding := range step.Inputs {
@@ -210,4 +207,12 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 		}
 	}
 	return nil
+}
+
+func sourceCheckRoutes(routes map[string]runner.Route, next string) bool {
+	if len(routes) != 2 && len(routes) != 3 || routes["ready"] != (runner.Route{Next: next}) || routes["changes_requested"] != (runner.Route{Next: next}) {
+		return false
+	}
+	blocked, exists := routes["blocked"]
+	return len(routes) == 2 && !exists || len(routes) == 3 && exists && blocked == (runner.Route{Next: "$fail"})
 }

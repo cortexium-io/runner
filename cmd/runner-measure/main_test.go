@@ -11,6 +11,22 @@ import (
 	"testing"
 )
 
+func TestMeasurementCopyHonorsOutputBound(t *testing.T) {
+	for _, size := range []int{256 << 10, (256 << 10) + 1} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			var output boundedOutput
+			count, err := io.Copy(&output, io.LimitReader(strings.NewReader(strings.Repeat("x", size)), int64(size)))
+			if size == 256<<10 {
+				if err != nil || count != int64(size) || output.Len() != size {
+					t.Fatal("exact measurement output allowance rejected", count, output.Len(), err)
+				}
+			} else if err == nil || output.Len() > 256<<10 {
+				t.Fatal("ReaderFrom bypassed measurement output allowance", count, output.Len(), err)
+			}
+		})
+	}
+}
+
 func TestMeasurementRejectsUnsafeOrUnmeasuredSelections(t *testing.T) {
 	for _, test := range []struct{ pkg, selector, previous string }{
 		{"../private", "^BenchmarkRun$", ""},
