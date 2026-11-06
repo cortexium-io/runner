@@ -53,6 +53,46 @@ func fakeGo() {
 	emit := func(action, test, output string) {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"Action": action, "Package": "fixture", "Test": test, "Output": output})
 	}
+	if strings.HasPrefix(string(mode), "packages-") {
+		for _, pkg := range []string{"fixture/a", "fixture/b"} {
+			put := func(action, test string) {
+				_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"Action": action, "Package": pkg, "Test": test})
+			}
+			put("start", "")
+			put("run", "TestSame")
+			outcome := "pass"
+			if string(mode) == "packages-fail" && pkg == "fixture/a" {
+				outcome = "fail"
+			}
+			if string(mode) != "packages-unfinished-test" || pkg != "fixture/a" {
+				put(outcome, "TestSame")
+			}
+			if string(mode) != "packages-unfinished-package" || pkg != "fixture/a" {
+				put(outcome, "")
+			}
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"Action": "skip", "Package": "fixture/no-tests"})
+		if string(mode) == "packages-fail" {
+			os.Exit(1)
+		}
+		return
+	}
+	if strings.HasPrefix(string(mode), "build-") {
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"Action": "build-output", "ImportPath": "fixture [fixture.test]", "Output": "fixture_test.go:3: undefined: missing\n"})
+		if string(mode) != "build-missing-terminal" {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"Action": "build-fail", "ImportPath": "fixture [fixture.test]"})
+			// Go can report several compiler errors for the same build identity.
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"Action": "build-output", "ImportPath": "fixture [fixture.test]", "Output": "fixture_test.go:4: undefined: secondMissing\n"})
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"Action": "build-fail", "ImportPath": "fixture [fixture.test]"})
+		}
+		emit("start", "", "")
+		failedBuild := "fixture [fixture.test]"
+		if string(mode) == "build-wrong-link" {
+			failedBuild = "foreign"
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"Action": "fail", "Package": "fixture", "FailedBuild": failedBuild})
+		os.Exit(1)
+	}
 	if string(mode) == "wait" || string(mode) == "group" {
 		for {
 			time.Sleep(time.Hour)
@@ -61,6 +101,11 @@ func fakeGo() {
 	if string(mode) == "no-tests" {
 		emit("pass", "", "")
 		return
+	}
+	if string(mode) == "runtime-fail" {
+		emit("start", "", "")
+		emit("fail", "", "")
+		os.Exit(1)
 	}
 	parent := "TestRegression"
 	if development {
@@ -232,6 +277,36 @@ func TestWorkspaceRelativePackageStaysOffline(t *testing.T) {
 			}
 		})
 	}
+	second, empty := filepath.Join(root, "second"), filepath.Join(root, "empty")
+	for _, dir := range []string{second, empty} {
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(second, "second_test.go"), []byte("package second\nimport \"testing\"\nfunc TestRegression(t *testing.T) {}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(empty, "empty.go"), []byte("package empty\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	o := options{
+		goBinary:  filepath.Join(runtime.GOROOT(), "bin", "go"),
+		pkg:       "...",
+		selection: "^TestRegression$",
+		timeout:   45 * time.Second,
+	}
+	r := run(context.Background(), o)
+	if exitCode(r) != 0 || r.Scope.Passed != 2 || len(r.Scope.Packages) != 3 {
+		t.Fatalf("real Go multi-package receipt lost selected proof: %+v", r.Scope)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "broken_test.go"), []byte("package puzzles\nvar _ = undefinedSourceSymbol\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	o.pkg = "internal/puzzles"
+	r = run(context.Background(), o)
+	if exitCode(r) != 1 || len(r.Scope.Tests) != 0 || len(r.Scope.BuildFailures) == 0 || !strings.Contains(r.Scope.BuildFailures[0].Diagnostic, "undefinedSourceSymbol") {
+		t.Fatalf("real Go build events did not identify settled source failure: %+v", r.Scope)
+	}
 }
 
 func TestFailedRegressionKeepsEarlierOutcomesAndStops(t *testing.T) {
@@ -366,6 +441,126 @@ func TestSelectorsAndArtifactBoundary(t *testing.T) {
 		change(&bad)
 		if err := validate(bad); err == nil {
 			t.Fatalf("invalid selection/boundary accepted: %+v", bad)
+		}
+	}
+}
+
+func TestSingleScopeKeepsPackageIdentityAndCompleteReceipt(t *testing.T) {
+	o := fixture(t, "packages-pass")
+	o.pkg, o.selection, o.regression, o.development = "...", "^TestSame$", "", ""
+	if err := validate(o); err != nil {
+		t.Fatal(err)
+	}
+	r := run(context.Background(), o)
+	if r.Package != "./..." || r.Scope == nil || r.Scope.Passed != 2 || r.Scope.LeafPassed != 2 || len(r.Scope.Packages) != 3 || exitCode(r) != 0 {
+		t.Fatalf("single package scope lost or invented evidence: %+v", r)
+	}
+	want := []testResult{
+		{Package: "fixture/a", Name: "TestSame", Outcome: "pass"},
+		{Package: "fixture/b", Name: "TestSame", Outcome: "pass"},
+	}
+	if !reflect.DeepEqual(r.Scope.Tests, want) {
+		t.Fatalf("same test name in separate packages conflated: %+v", r.Scope.Tests)
+	}
+	observed := calls(t, o)
+	wantArgs := []string{"test", "-json", "-mod=readonly", "-count=1", "-timeout", "10s", "-run", o.selection, "./..."}
+	if len(observed) != 1 || !reflect.DeepEqual(observed[0].Args, wantArgs) {
+		t.Fatalf("single scope retried or altered: %+v", observed)
+	}
+	if err := save(o.output, r); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(o.output)
+	var saved receipt
+	if err != nil || json.Unmarshal(b, &saved) != nil || !reflect.DeepEqual(saved, r) || bytes.Contains(b, []byte(`"regression"`)) || bytes.Contains(b, []byte(`"development"`)) {
+		t.Fatalf("full single-scope artifact missing or misleading: %s; %v", b, err)
+	}
+}
+
+func TestSingleScopeDistinguishesSourceFailureAndIncompleteProof(t *testing.T) {
+	for _, test := range []struct {
+		mode string
+		exit int
+	}{
+		{"pass", 0},
+		{"fail", 1},
+		{"packages-fail", 1},
+		{"build-fail", 1},
+		{"build-missing-terminal", 2},
+		{"build-wrong-link", 2},
+		{"runtime-fail", 2},
+		{"no-tests", 2},
+		{"skip", 2},
+		{"mixed-skip", 2},
+		{"incomplete", 2},
+		{"packages-unfinished-test", 2},
+		{"packages-unfinished-package", 2},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			o := fixture(t, test.mode)
+			o.selection, o.regression, o.development = "^Test", "", ""
+			r := run(context.Background(), o)
+			if got := exitCode(r); got != test.exit || r.Scope == nil || !r.Scope.ChildExited || len(calls(t, o)) != 1 {
+				t.Fatalf("wrong source/collection outcome %d: %+v", got, r.Scope)
+			}
+			if test.mode == "build-fail" && (len(r.Scope.Tests) != 0 || r.Scope.Failed != 0 || len(r.Scope.BuildFailures) != 1 || !strings.Contains(r.Scope.BuildFailures[0].Diagnostic, "undefined: missing")) {
+				t.Fatalf("build failure was hidden or claimed as executed tests: %+v", r.Scope)
+			}
+		})
+	}
+}
+
+func TestSingleScopeCLIOutcomesRetainArtifact(t *testing.T) {
+	for _, test := range []struct {
+		mode string
+		exit int
+	}{{"pass", 0}, {"fail", 1}, {"no-tests", 2}} {
+		t.Run(test.mode, func(t *testing.T) {
+			o := fixture(t, test.mode)
+			binary, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			reporter := filepath.Join(o.scratch, "reporter-fake")
+			if err := os.Symlink(binary, reporter); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(reporter, "--go", o.goBinary, "--package", "...", "--run", "^Test", "--timeout", "10s", "--scratch", o.scratch, "--output", o.output)
+			output, err := cmd.CombinedOutput()
+			if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != test.exit {
+				t.Fatalf("CLI exit mismatch: %v; %s", err, output)
+			}
+			data, err := os.ReadFile(o.output)
+			var r receipt
+			if err != nil || json.Unmarshal(data, &r) != nil || r.Scope == nil || exitCode(r) != test.exit {
+				t.Fatalf("CLI discarded failed/missing proof: %s; %v", data, err)
+			}
+		})
+	}
+}
+
+func TestSingleScopeSelectionIsExclusiveAndRepositoryRelative(t *testing.T) {
+	o := fixture(t, "pass")
+	o.selection, o.regression, o.development = "^TestSelected$", "", ""
+	for _, pkg := range []string{"...", "./...", ".", "internal/puzzles", "./internal/puzzles"} {
+		o.pkg = pkg
+		if err := validate(o); err != nil {
+			t.Fatalf("valid scoped package %q rejected: %v", pkg, err)
+		}
+	}
+	for _, change := range []func(*options){
+		func(o *options) { o.selection = "[" },
+		func(o *options) { o.regression = "^TestRegression$" },
+		func(o *options) { o.development = "^TestDevelopment$" },
+		func(o *options) { o.pkg = "../outside" },
+		func(o *options) { o.pkg = "/outside" },
+		func(o *options) { o.pkg = "internal/..." },
+		func(o *options) { o.pkg = "./internal/../../outside" },
+	} {
+		bad := o
+		change(&bad)
+		if err := validate(bad); err == nil {
+			t.Fatalf("invalid single scope accepted: %+v", bad)
 		}
 	}
 }

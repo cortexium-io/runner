@@ -493,14 +493,23 @@ func fixtureImports(source string) ([]string, error) {
 		}
 		for _, match := range imports.FindAllSubmatch(data, -1) {
 			ref := string(match[1])
+			if filepath.IsAbs(ref) {
+				return fmt.Errorf("imported JSON fixture must be repository-relative: %s", ref)
+			}
 			if !strings.HasPrefix(ref, ".") {
 				continue
 			}
 			name, err := filepath.Rel(source, filepath.Join(filepath.Dir(path), ref))
-			if err != nil || !strings.HasPrefix(filepath.ToSlash(name), "docs/") {
+			if err != nil || !fs.ValidPath(filepath.ToSlash(name)) {
+				return fmt.Errorf("imported JSON fixture escapes the source: %s", ref)
+			}
+			if !strings.HasPrefix(filepath.ToSlash(name), "docs/") && !strings.HasPrefix(filepath.ToSlash(name), "testdata/") {
 				continue
 			}
 			if !seen[name] {
+				if err := regularFixture(source, name); err != nil {
+					return err
+				}
 				seen[name] = true
 				names = append(names, name)
 			}
@@ -508,6 +517,28 @@ func fixtureImports(source string) ([]string, error) {
 		return nil
 	})
 	return names, err
+}
+
+func regularFixture(source, name string) error {
+	if !fs.ValidPath(filepath.ToSlash(name)) {
+		return errors.New("imported JSON fixture path is not clean and contained")
+	}
+	root, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		return err
+	}
+	parts := strings.Split(filepath.ToSlash(name), "/")
+	for i, part := range parts {
+		root = filepath.Join(root, part)
+		info, err := os.Lstat(root)
+		if err != nil {
+			return fmt.Errorf("imported JSON fixture %s: %w", name, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || i < len(parts)-1 && !info.IsDir() || i == len(parts)-1 && !info.Mode().IsRegular() {
+			return fmt.Errorf("imported JSON fixture %s requires regular directories and a regular file without symlinks", name)
+		}
+	}
+	return nil
 }
 
 type boundedOutput struct{ bytes.Buffer }

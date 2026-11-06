@@ -222,6 +222,7 @@ func TestConfiguredVitestRetainsRealReportAndCanonicalIdentity(t *testing.T) {
 		{name: "skipped assertion", tests: `["src/skip.test.ts"]`, outcome: "blocked"},
 		{name: "omitted selected file", tests: `["src/pass.test.ts","src/omitted.test.ts"]`, outcome: "blocked"},
 		{name: "unexpected substring match", tests: `["src/collision.test.ts"]`, outcome: "blocked"},
+		{name: "imported docs and testdata", tests: `["src/nested/fixture-import.test.ts"]`, outcome: "ready"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -237,6 +238,16 @@ func TestConfiguredVitestRetainsRealReportAndCanonicalIdentity(t *testing.T) {
 			source, scratch, _ := frontendFixture(t, root)
 			if err := copySource(filepath.Join("..", "..", "testdata", "frontend-check", "frontend"), filepath.Join(source, "frontend")); err != nil {
 				t.Fatal(err)
+			}
+			fixtureBefore := map[string][]byte{}
+			for _, name := range []string{"docs", "testdata"} {
+				if err := copySource(filepath.Join("..", "..", "testdata", "frontend-check", name), filepath.Join(source, name)); err != nil {
+					t.Fatal(err)
+				}
+				fixtureBefore[name], err = os.ReadFile(filepath.Join(source, name, "imported.json"))
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			if err := run(options{node: node, modules: modules, source: source, scratch: scratch, tests: scenario.tests}); err != nil {
 				t.Fatal(err)
@@ -264,6 +275,39 @@ func TestConfiguredVitestRetainsRealReportAndCanonicalIdentity(t *testing.T) {
 			if scenario.name == "canonical alias" && runtime.GOOS == "darwin" {
 				if retained.Frontend == retained.CanonicalFrontend || retained.Files[0].Canonical != retained.Files[0].Reported[0] {
 					t.Fatal("fixture did not prove actual Mac canonical path alias", retained)
+				}
+			}
+			if scenario.name == "imported docs and testdata" {
+				for _, scope := range []string{"docs", "testdata"} {
+					original := filepath.Join(source, scope, "imported.json")
+					copied := filepath.Join(scratch, "source", scope, "imported.json")
+					before := fixtureBefore[scope]
+					sourceAfter, err := os.ReadFile(original)
+					if err != nil || !bytes.Equal(before, sourceAfter) {
+						t.Fatal("frontend execution changed source fixture", scope, err)
+					}
+					got, err := os.ReadFile(copied)
+					if err != nil || !bytes.Equal(before, got) {
+						t.Fatal("literal imported fixture was not copied", scope, err)
+					}
+					originalInfo, err := os.Stat(original)
+					if err != nil {
+						t.Fatal(err)
+					}
+					copyInfo, err := os.Stat(copied)
+					if err != nil || os.SameFile(originalInfo, copyInfo) {
+						t.Fatal("fixture copy aliases source", scope, err)
+					}
+					if _, err = os.Lstat(filepath.Join(scratch, "source", scope, "unrelated.json")); !os.IsNotExist(err) {
+						t.Fatal("unrelated fixture was copied", scope, err)
+					}
+					if err = os.WriteFile(copied, []byte(`{"scratch":"changed"}`), 0600); err != nil {
+						t.Fatal(err)
+					}
+					after, err := os.ReadFile(original)
+					if err != nil || !bytes.Equal(before, after) {
+						t.Fatal("scratch fixture mutation changed the source", scope, err)
+					}
 				}
 			}
 			if scenario.outcome == "changes_requested" && (!strings.Contains(retained.Reason, "src/fail.test.ts") || !strings.Contains(retained.Reason, "retained fixture assertion")) {
@@ -313,17 +357,28 @@ func TestReportEncodingRetainsHTMLWithoutExceedingExistingArtifactLimit(t *testi
 	}
 }
 
-func TestSourceCopyRefusesLinksAndCopiesOnlyImportedDocs(t *testing.T) {
+func TestSourceCopyRefusesLinksAndFindsOnlyImportedFixtures(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
 	if err := os.MkdirAll(filepath.Join(source, "frontend/src"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(source, "frontend/src/test.ts"), []byte(`import fixture from '../../docs/used.json'`), 0600); err != nil {
+	for _, scope := range []string{"docs", "testdata"} {
+		if err := os.MkdirAll(filepath.Join(source, scope), 0700); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"used.json", "unrelated.json"} {
+			if err := os.WriteFile(filepath.Join(source, scope, name), []byte(`{"fixture":true}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	imports := "import fixture from '../../docs/used.json'\nimport data from '../../testdata/used.json'\nconst again = import('../../docs/used.json')\n"
+	if err := os.WriteFile(filepath.Join(source, "frontend/src/test.ts"), []byte(imports), 0600); err != nil {
 		t.Fatal(err)
 	}
 	names, err := fixtureImports(source)
-	if err != nil || len(names) != 1 || filepath.ToSlash(names[0]) != "docs/used.json" {
+	if err != nil || len(names) != 2 || filepath.ToSlash(names[0]) != "docs/used.json" || filepath.ToSlash(names[1]) != "testdata/used.json" {
 		t.Fatal(names, err)
 	}
 	private := filepath.Join(root, "private")
@@ -336,5 +391,66 @@ func TestSourceCopyRefusesLinksAndCopiesOnlyImportedDocs(t *testing.T) {
 	}
 	if err := copySource(filepath.Join(source, "frontend"), filepath.Join(root, "copy")); err == nil {
 		t.Fatal("source copy followed symlink")
+	}
+}
+
+func TestFixturePreparationBlocksUnsafeOrMissingImportsBeforeExecution(t *testing.T) {
+	for _, scenario := range []string{"missing", "absolute", "escape", "parent symlink", "nested parent symlink", "leaf symlink", "directory leaf"} {
+		t.Run(scenario, func(t *testing.T) {
+			root := t.TempDir()
+			source, scratch, modules := frontendFixture(t, root)
+			private := filepath.Join(root, "outside")
+			if err := os.Mkdir(private, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(private, "used.json"), []byte(`{"private":"sentinel"}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			ref := "../../testdata/used.json"
+			path := filepath.Join(source, "testdata")
+			if scenario == "parent symlink" {
+				if err := os.Symlink(private, path); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Mkdir(path, 0700); err != nil {
+				t.Fatal(err)
+			}
+			switch scenario {
+			case "absolute":
+				ref = filepath.Join(private, "used.json")
+			case "escape":
+				ref = "../../../outside/used.json"
+			case "nested parent symlink":
+				ref = "../../testdata/nested/used.json"
+				if err := os.Symlink(private, filepath.Join(path, "nested")); err != nil {
+					t.Fatal(err)
+				}
+			case "leaf symlink":
+				if err := os.Symlink(filepath.Join(private, "used.json"), filepath.Join(path, "used.json")); err != nil {
+					t.Fatal(err)
+				}
+			case "directory leaf":
+				if err := os.Mkdir(filepath.Join(path, "used.json"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(source, "frontend/src/board.test.ts"), []byte("import fixture from '"+ref+"'\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := run(options{node: filepath.Join(root, "unavailable-node"), modules: modules, source: source, scratch: scratch, tests: `["src/board.test.ts"]`}); err != nil {
+				t.Fatal(err)
+			}
+			var domain map[string]string
+			data, err := os.ReadFile(filepath.Join(scratch, "domain.json"))
+			if err != nil || json.Unmarshal(data, &domain) != nil || domain["outcome"] != "blocked" || !strings.HasPrefix(domain["reason"], "frontend fixture preparation:") {
+				t.Fatal("unsafe or missing fixture reached execution", scenario, domain, err)
+			}
+			if _, err := os.Lstat(filepath.Join(scratch, "source", "frontend", "node_modules")); !os.IsNotExist(err) {
+				t.Fatal("fixture failure reached runtime preparation", err)
+			}
+			if data, err = os.ReadFile(filepath.Join(private, "used.json")); err != nil || string(data) != `{"private":"sentinel"}` {
+				t.Fatal("outside fixture changed", err)
+			}
+		})
 	}
 }

@@ -56,7 +56,7 @@ func TestStructuredEvidenceRejectsLinksTraversalInvalidJSONAndAggregateOverflow(
 	}
 }
 
-func TestMeasurementRetainsStructuredProofDespiteGoLogTruncation(t *testing.T) {
+func TestMeasurementRetainsVerboseLogsAndStructuredProof(t *testing.T) {
 	goBinary, err := exec.LookPath("go")
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +83,12 @@ func BenchmarkEvidence(b *testing.B){
 	if err != nil || json.Unmarshal(data, &m) != nil {
 		t.Fatal("retained measurement unavailable", err)
 	}
-	if m.EvidenceStatus != "provided" || string(m.Evidence["request.json"]) != proof || !strings.Contains(m.Output, "output truncated") || strings.Contains(m.EvidenceNote, "complete evidence") {
-		t.Fatal("structured proof was lost, invented or confused with truncated stdout", m)
+	if m.EvidenceStatus != "provided" || string(m.Evidence["request.json"]) != proof || strings.Contains(m.Output, "output truncated") || strings.Contains(m.EvidenceNote, "complete evidence") {
+		t.Fatal("structured proof or verbose stdout was lost or labelled complete", m)
+	}
+	for i := range 100 {
+		if !strings.Contains(m.Output, fmt.Sprintf("verbose phase diagnostic %d\n", i)) {
+			t.Fatalf("benchmark log %d was omitted from the full artifact", i)
+		}
 	}
 }

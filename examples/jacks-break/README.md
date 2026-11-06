@@ -13,7 +13,10 @@ records that measurement is outside this request. This is domain iteration;
 execution retries neither judge the work nor replace correction policy.
 The process permits at most 35 attempts, with bounded routes and no model fallback.
 Implementation and review summaries are deliberately short; retained artifacts and
-the private operator journal hold the full evidence.
+the private operator journal hold the full evidence. Native prompts state the
+existing byte budget for the entire final JSON response, including its field
+names and reason. Each field fitting separately does not satisfy that budget;
+oversized responses remain execution failures.
 
 The readiness step refreshes configured `refs/remotes/origin/main`, hydrates source
 and pins the run's immutable base before model work. An explicit full commit is
@@ -72,6 +75,10 @@ the text-only check cache. `package` remains the Go package for optional existin
 measurement; use `benchmark: "none"` when irrelevant. The existing Go `deliver`
 input contract is unchanged.
 
+Scratch preparation includes explicitly imported repository JSON fixtures from
+`docs/` and `testdata/`. It rejects escaped paths and symlinks, and copies no
+unrelated fixture tree. A missing fixture blocks execution with its diagnostic.
+
 An initial source check supplies real evidence before coding. Corrections and
 review receive the complete bounded Vitest report, including canonical owned-file
 identities and assertion diagnostics. Every selected file must execute assertions
@@ -95,6 +102,15 @@ failures remain failures. Independent research review requires semantic evidence
 completeness, not merely `evidence_status: provided`. Its completion returns the
 reports and retained patch without integration, publication or release approval.
 Original functional checks, release benchmarks and thresholds remain unchanged.
+
+`retained-research-nonogram.json` selects `research-retained-nonogram`. Supply the
+saved patch as `prior_patch` and retain its original base. The baseline and source
+test receipt are collected against pristine source before the coding role reads
+that reference and applies the in-scope work. This uses the normal edit contract,
+not a source seed after baseline preparation. Candidate checks retain selected
+test names, package identities and terminal outcomes in a bounded artifact for
+both correction and independent review. Conclusive source failures request
+correction; missing or incomplete execution evidence blocks acceptance.
 
 `release-reviewed.json` is the complete model-free continuation for an already
 accepted publication. Supply that publication's JSON receipt and its full base
@@ -151,9 +167,12 @@ Native benchmarks may write complete synthetic request/seed/phase records as fla
 regular JSON files there, at most 64 files and 8 MiB total. Links, directories,
 invalid JSON and excess data are rejected. The files are embedded in the retained
 `measurements.json`, within its 16 MiB artifact ceiling. Missing sidecars are
-explicitly incomplete; provided files still require semantic review. Go benchmark
-stdout and its truncation remain visible and are never a substitute for complete
-structured proof. No production/player logging is enabled by this mechanism.
+explicitly incomplete for collectors that promise structured evidence; the
+unchanged original benchmark does not promise them. Provided files still require
+semantic review. Verbose Go benchmark logs retain the original control records
+within the existing output ceiling and never replace the candidate collector's
+complete structured proof. No production/player logging is enabled by this
+mechanism.
 
 Browser layout verdicts require at least one loaded stylesheet and ready fonts.
 A failed critical main-page resource gets one navigation retry with its failed

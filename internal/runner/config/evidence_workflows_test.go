@@ -59,15 +59,26 @@ func TestResearchIsEvidenceOnlyAndKeepsRealBaselineSeparate(t *testing.T) {
 	if err := errors.Join(validateProcess(p, project), validateReleaseProcess(p, project)); err != nil {
 		t.Fatal(err)
 	}
-	if p.MaxAttempts != 35 || p.MaxAttemptsPerStep != 1 || p.AttemptTimeout != "20m" || p.InfrastructureRetries != 1 || len(p.Steps) != 5 ||
-		p.Steps[0].Inputs["benchmark"] != (runner.Binding{FromInput: "baseline_benchmark"}) || p.Steps[3].Inputs["benchmark"] != (runner.Binding{FromInput: "benchmark"}) ||
-		p.Steps[4].Routes["ready"] != (runner.Route{Next: "$complete"}) || p.Outputs["conclusion"] != (runner.Binding{FromStep: "review", Output: "conclusion"}) {
+	if p.MaxAttempts != 35 || p.MaxAttemptsPerStep != 1 || p.AttemptTimeout != "20m" || p.InfrastructureRetries != 1 || len(p.Steps) != 6 ||
+		p.Steps[0].Inputs["benchmark"] != (runner.Binding{FromInput: "baseline_benchmark"}) || p.Steps[4].Inputs["benchmark"] != (runner.Binding{FromInput: "benchmark"}) ||
+		p.Steps[5].Routes["ready"] != (runner.Route{Next: "$complete"}) || p.Outputs["conclusion"] != (runner.Binding{FromStep: "review", Output: "conclusion"}) {
 		t.Fatal("research lost its distinct baseline, bounded evidence endpoint or conclusion")
+	}
+	if p.Outputs["checks"] != (runner.Binding{FromStep: "check", Output: "artifact"}) {
+		t.Fatal("research omitted its scoped proof artifact")
 	}
 	for _, step := range p.Steps {
 		profile := project.Roles[step.Role].Execution
 		if profile.Harness == "release" || profile.Harness == "git-candidate" || step.ID == "publish" || step.ID == "integrate" {
 			t.Fatal("research acquired product delivery authority")
 		}
+	}
+	retained, roles := productDeliveryFixture(t, "retained-research-nonogram.json")
+	if err := validateProcess(retained, roles); err != nil {
+		t.Fatal(err)
+	}
+	owner := retained.Steps[2]
+	if len(roles.Roles[owner.Role].Inputs) != 8 || owner.Inputs["prior_patch"] != (runner.Binding{FromInput: "prior_patch"}) || retained.Steps[0].Inputs["patch"].FromInput != "" {
+		t.Fatal("retained reference was made a late workspace seed")
 	}
 }

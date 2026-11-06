@@ -22,10 +22,33 @@
       },
       "routes": {
         "ready": {
-          "next": "owner"
+          "next": "source-check"
         },
         "continue": {
+          "next": "source-check"
+        }
+      }
+    },
+    {
+      "id": "source-check",
+      "role": "nonogram-research-source-check",
+      "inputs": {
+        "package": {
+          "from_input": "package"
+        },
+        "tests": {
+          "from_input": "tests"
+        }
+      },
+      "routes": {
+        "ready": {
           "next": "owner"
+        },
+        "changes_requested": {
+          "next": "owner"
+        },
+        "blocked": {
+          "next": "$fail"
         }
       }
     },
@@ -41,14 +64,6 @@
         },
         "benchmark": {
           "from_input": "benchmark"
-        },
-        "check": {
-          "from_step": "check",
-          "output": "check",
-          "previous": true,
-          "default": {
-            "inline": ""
-          }
         },
         "review": {
           "from_step": "review",
@@ -70,6 +85,15 @@
             "from_step": "baseline",
             "output": "artifact"
           }
+        },
+        "checks": {
+          "from_step": "check",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "source-check",
+            "output": "artifact"
+          }
         }
       },
       "routes": {
@@ -80,7 +104,7 @@
     },
     {
       "id": "check",
-      "role": "delivery-check",
+      "role": "nonogram-research-check",
       "inputs": {
         "patch": {
           "from_candidate": true
@@ -92,7 +116,6 @@
           "from_input": "tests"
         }
       },
-      "reuse": true,
       "routes": {
         "ready": {
           "next": "measure"
@@ -100,6 +123,9 @@
         "changes_requested": {
           "next": "owner",
           "max_times": 1
+        },
+        "blocked": {
+          "next": "$fail"
         }
       }
     },
@@ -150,16 +176,16 @@
           "from_step": "owner",
           "output": "summary"
         },
-        "check": {
-          "from_step": "check",
-          "output": "check"
-        },
         "baseline": {
           "from_step": "baseline",
           "output": "artifact"
         },
         "measurements": {
           "from_step": "measure",
+          "output": "artifact"
+        },
+        "checks": {
+          "from_step": "check",
           "output": "artifact"
         }
       },
@@ -196,6 +222,10 @@
     "summary": {
       "from_step": "review",
       "output": "summary"
+    },
+    "checks": {
+      "from_step": "check",
+      "output": "artifact"
     }
   },
   "max_attempts": 35,

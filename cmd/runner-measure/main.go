@@ -105,7 +105,9 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, goBinary, "test", "-mod=readonly", "-run", "^$", "-bench", selector, "-benchtime=1x", "-count=1", "./"+pkg)
+		// Verbose benchmarks stream B.Log output instead of Go's ten-line
+		// buffered-log preview. The same output ceiling still applies.
+		cmd := exec.CommandContext(ctx, goBinary, "test", "-v", "-mod=readonly", "-run", "^$", "-bench", selector, "-benchtime=1x", "-count=1", "./"+pkg)
 		cmd.Dir = source
 		for _, value := range os.Environ() {
 			if !strings.HasPrefix(value, "RUNNER_MEASURE_EVIDENCE=") {
@@ -117,6 +119,9 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 		cmd.Stdout = &output
 		cmd.Stderr = &output
 		err = cmd.Run()
+		if output.exceeded {
+			return errors.New("measurement output exceeds 256KiB")
+		}
 		m.Output = output.String()
 		m.Seconds = time.Since(m.Started).Seconds()
 		if err != nil {
@@ -191,7 +196,10 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 	return nil
 }
 
-type boundedOutput struct{ bytes.Buffer }
+type boundedOutput struct {
+	bytes.Buffer
+	exceeded bool
+}
 
 func (b *boundedOutput) ReadFrom(r io.Reader) (int64, error) {
 	return io.Copy(struct{ io.Writer }{b}, r)
@@ -199,6 +207,7 @@ func (b *boundedOutput) ReadFrom(r io.Reader) (int64, error) {
 
 func (b *boundedOutput) Write(p []byte) (int, error) {
 	if len(p) > 256*1024-b.Len() {
+		b.exceeded = true
 		return 0, errors.New("measurement output exceeds 256KiB")
 	}
 	return b.Buffer.Write(p)

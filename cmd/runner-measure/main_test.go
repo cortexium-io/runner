@@ -27,6 +27,46 @@ func TestMeasurementCopyHonorsOutputBound(t *testing.T) {
 	}
 }
 
+func TestVerboseBaselineKeepsOriginalLogsAndRejectsOverflow(t *testing.T) {
+	goBinary, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := t.TempDir()
+	if err := os.WriteFile(filepath.Join(source, "go.mod"), []byte("module sample\n\ngo 1.26.0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	body := `package sample
+import("strings";"testing")
+func BenchmarkOriginal(b *testing.B){for i:=0;i<20;i++{b.Logf("original sample %02d",i)}}
+func BenchmarkOverflow(b *testing.B){b.Log(strings.Repeat("x",400<<10))}
+`
+	if err := os.WriteFile(filepath.Join(source, "sample_test.go"), []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	scratch := t.TempDir()
+	if err := run(goBinary, source, scratch, ".", "^BenchmarkOriginal$", "", true); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(scratch, "measurements.json"))
+	var m measurement
+	if err != nil || json.Unmarshal(data, &m) != nil || m.Failed || !m.Baseline || m.EvidenceStatus != "incomplete" || len(m.Evidence) != 0 || strings.Contains(m.Output, "output truncated") {
+		t.Fatalf("original baseline logs were lost or research sidecars invented: %s; %v", data, err)
+	}
+	for i := range 20 {
+		if !strings.Contains(m.Output, fmt.Sprintf("original sample %02d\n", i)) {
+			t.Fatalf("original benchmark log %d missing", i)
+		}
+	}
+	scratch = t.TempDir()
+	if err := run(goBinary, source, scratch, ".", "^BenchmarkOverflow$", "", true); err == nil || !strings.Contains(err.Error(), "exceeds 256KiB") {
+		t.Fatalf("verbose output overflow was accepted as baseline feedback: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(scratch, "measurements.json")); !os.IsNotExist(err) {
+		t.Fatal("overflow emitted a successful measurement artifact", err)
+	}
+}
+
 func TestMeasurementRejectsUnsafeOrUnmeasuredSelections(t *testing.T) {
 	for _, test := range []struct{ pkg, selector, previous string }{
 		{"../private", "^BenchmarkRun$", ""},

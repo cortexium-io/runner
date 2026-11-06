@@ -1,0 +1,238 @@
+{
+  "id": "research-retained-nonogram",
+  "infrastructure_retries": 1,
+  "inputs": {
+    "request": "text",
+    "package": "text",
+    "tests": "text",
+    "baseline_benchmark": "text",
+    "benchmark": "text",
+    "prior_patch": "artifact"
+  },
+  "steps": [
+    {
+      "id": "baseline",
+      "role": "delivery-source-baseline",
+      "inputs": {
+        "package": {
+          "from_input": "package"
+        },
+        "benchmark": {
+          "from_input": "baseline_benchmark"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "source-check"
+        },
+        "continue": {
+          "next": "source-check"
+        }
+      }
+    },
+    {
+      "id": "source-check",
+      "role": "nonogram-research-source-check",
+      "inputs": {
+        "package": {
+          "from_input": "package"
+        },
+        "tests": {
+          "from_input": "tests"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "owner"
+        },
+        "changes_requested": {
+          "next": "owner"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "owner",
+      "role": "nonogram-retained-research-owner",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "tests": {
+          "from_input": "tests"
+        },
+        "benchmark": {
+          "from_input": "benchmark"
+        },
+        "review": {
+          "from_step": "review",
+          "output": "summary",
+          "previous": true,
+          "default": {
+            "inline": ""
+          }
+        },
+        "baseline": {
+          "from_step": "baseline",
+          "output": "artifact"
+        },
+        "measurements": {
+          "from_step": "measure",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "baseline",
+            "output": "artifact"
+          }
+        },
+        "checks": {
+          "from_step": "check",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "source-check",
+            "output": "artifact"
+          }
+        },
+        "prior_patch": {
+          "from_input": "prior_patch"
+        }
+      },
+      "routes": {
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "check",
+      "role": "nonogram-research-check",
+      "inputs": {
+        "patch": {
+          "from_candidate": true
+        },
+        "package": {
+          "from_input": "package"
+        },
+        "tests": {
+          "from_input": "tests"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "measure"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 1
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "measure",
+      "role": "delivery-measure",
+      "inputs": {
+        "patch": {
+          "from_candidate": true
+        },
+        "package": {
+          "from_input": "package"
+        },
+        "benchmark": {
+          "from_input": "benchmark"
+        },
+        "previous": {
+          "from_step": "measure",
+          "output": "check",
+          "previous": true,
+          "fallback": {
+            "from_step": "baseline",
+            "output": "check"
+          }
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "review"
+        },
+        "continue": {
+          "next": "owner",
+          "max_times": 1
+        }
+      }
+    },
+    {
+      "id": "review",
+      "role": "nonogram-research-review",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "patch": {
+          "from_candidate": true
+        },
+        "summary": {
+          "from_step": "owner",
+          "output": "summary"
+        },
+        "baseline": {
+          "from_step": "baseline",
+          "output": "artifact"
+        },
+        "measurements": {
+          "from_step": "measure",
+          "output": "artifact"
+        },
+        "checks": {
+          "from_step": "check",
+          "output": "artifact"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "$complete"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 1
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "patch": {
+      "from_candidate": true
+    },
+    "baseline": {
+      "from_step": "baseline",
+      "output": "artifact"
+    },
+    "measurements": {
+      "from_step": "measure",
+      "output": "artifact"
+    },
+    "conclusion": {
+      "from_step": "review",
+      "output": "conclusion"
+    },
+    "summary": {
+      "from_step": "review",
+      "output": "summary"
+    },
+    "checks": {
+      "from_step": "check",
+      "output": "artifact"
+    }
+  },
+  "max_attempts": 35,
+  "max_attempts_per_step": 1,
+  "attempt_timeout": "20m"
+}

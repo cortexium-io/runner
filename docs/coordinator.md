@@ -94,7 +94,10 @@ supplies the complete bounded check artifact to both correction and review.
 The artifact retains the actual Vitest report, file identities and assertion
 diagnostics. Missing or inconsistent execution evidence blocks the process;
 conclusive assertion failures use its configured correction route. A short text
-summary is not a replacement for the report. Select `deliver-retained-frontend`
+summary is not a replacement for the report. Scratch preparation copies only
+explicitly imported JSON fixtures from the repository's `docs/` and `testdata/`
+directories, with containment and regular-file checks; it does not copy those
+trees wholesale or follow fixture symlinks. Select `deliver-retained-frontend`
 with its original base and `patch` artifact to continue an unreviewed mobile
 candidate. It restores and checks that source before another coding visit, keeps
 the failed run intact and uses the same protected release suffix.
@@ -107,6 +110,21 @@ the research task. Missing records, malformed collection and unsupported claims
 remain failures. Research completion returns evidence and a retained patch;
 it neither integrates nor publishes source and grants no product-fix or release
 approval. The original release benchmarks and acceptance conditions stay intact.
+
+For an authorized continuation of saved research, select
+`research-retained-nonogram` and supply its `prior_patch` artifact with the
+original base. Runner measures pristine committed source and records its scoped
+test execution before the coding role reads and applies that patch as a reference.
+It does not seed the candidate before the original baseline. Candidate checks,
+measurement, correction and independent review then stay inside that process.
+
+Research review receives complete selected-test execution receipts rather than
+an exit-code tail. Original benchmark logs are collected verbosely within the
+existing output ceiling. The original benchmark need not emit the new collector's
+structured sidecars; the candidate collector must still provide complete records
+for semantic review. Native roles receive their existing whole-response JSON byte
+budget explicitly. Oversized responses remain execution failures and cannot be
+adopted as review decisions.
 
 After verifier/infrastructure maintenance, the model-free `release-reviewed`
 process can continue an accepted reviewed publication without another coding or

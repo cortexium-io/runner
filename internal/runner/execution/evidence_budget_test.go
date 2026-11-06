@@ -35,7 +35,7 @@ func privateEvidenceRoles(t *testing.T, file string) (runner.Process, map[string
 			t.Fatal(step.Role, err)
 		}
 		if command := role.Execution.Command; command != nil {
-			replace := strings.NewReplacer("/absolute/path/to/runner-frontend-check", private+"/coordinator/runner-frontend-check", "/absolute/path/to/runner-measure", private+"/coordinator/runner-measure", "/absolute/path/to/node", node, "/absolute/path/to/frontend-node-modules", modules, "/absolute/path/to/go", goBinary, "/absolute/path/to/module-cache", private+"/runtime/modcache")
+			replace := strings.NewReplacer("/absolute/path/to/runner-frontend-check", private+"/coordinator/runner-frontend-check", "/absolute/path/to/runner-measure", private+"/coordinator/runner-measure", "/absolute/path/to/runner-go-check", private+"/coordinator/runner-go-check", "/absolute/path/to/node", node, "/absolute/path/to/frontend-node-modules", modules, "/absolute/path/to/go", goBinary, "/absolute/path/to/module-cache", private+"/runtime/modcache")
 			for i, arg := range command.Args {
 				command.Args[i] = replace.Replace(arg)
 			}
@@ -54,8 +54,12 @@ func privateEvidenceRoles(t *testing.T, file string) (runner.Process, map[string
 func evidenceBudgetInputs(file string) map[string]runner.Value {
 	// Both real prepared requests are shorter than this bound (1,078/1,466B).
 	request := runner.Text(strings.Repeat("bounded evidence request; ", 80))
-	if file == "research-nonogram.json" {
-		return map[string]runner.Value{"request": request, "package": runner.Text("..."), "tests": runner.Text("^Test(RunnerNonogram25Hard.*|Next.*|V2(VariationReplayAndAuthority|AggregateBoundsAndCancellation|LateAndWarmCancellation|PlayerPublicationContract))$"), "baseline_benchmark": runner.Text("^BenchmarkRunnerNonogram25Hard$"), "benchmark": runner.Text("^BenchmarkRunnerNonogram25HardResearch$")}
+	if file == "research-nonogram.json" || file == "retained-research-nonogram.json" {
+		values := map[string]runner.Value{"request": request, "package": runner.Text("..."), "tests": runner.Text("^Test(RunnerNonogram25Hard.*|Next.*|V2(VariationReplayAndAuthority|AggregateBoundsAndCancellation|LateAndWarmCancellation|PlayerPublicationContract))$"), "baseline_benchmark": runner.Text("^BenchmarkRunnerNonogram25Hard$"), "benchmark": runner.Text("^BenchmarkRunnerNonogram25HardResearch$")}
+		if file == "retained-research-nonogram.json" {
+			values["prior_patch"] = runner.Value{ArtifactID: "attempt_" + strings.Repeat("A", 26) + "/changes.patch"}
+		}
+		return values
 	}
 	paths := `["src/components/player-shell.test.ts","src/pages/home/setup-dialog.test.ts","src/pages/shikaku/ShikakuWorkspace.test.ts","src/pages/nonogram/NonogramWorkspace.test.ts","src/pages/kakuro/KakuroWorkspace.test.ts","src/pages/hashi/HashiWorkspace.test.ts","src/pages/hashi/v3-workspace.test.ts","src/pages/binary/BinaryWorkspace.test.ts","src/pages/calcudoku/CalcudokuWorkspace.test.ts","src/pages/futoshiki/FutoshikiWorkspace.test.ts"]`
 	values := map[string]runner.Value{"request": request, "package": runner.Text("..."), "tests": runner.Text(paths), "benchmark": runner.Text("none")}
@@ -66,7 +70,7 @@ func evidenceBudgetInputs(file string) map[string]runner.Value {
 }
 
 func TestEvidenceWorkflowDefinitionsFitPilotWithPrivateHelperArgv(t *testing.T) {
-	for _, file := range []string{"frontend.json", "retained-frontend.json", "research-nonogram.json"} {
+	for _, file := range []string{"frontend.json", "retained-frontend.json", "research-nonogram.json", "retained-research-nonogram.json"} {
 		t.Run(file, func(t *testing.T) {
 			p, roles := privateEvidenceRoles(t, file)
 			profiles := map[string]string{}
@@ -87,7 +91,7 @@ func TestEvidenceOwnerAndReviewPayloadsFitUnchangedNativeLimit(t *testing.T) {
 	feedback := runner.Text("command exited 1\n" + strings.Repeat("x", 480))
 	qualification, _ := json.Marshal(map[string]string{"key": "attempt_" + strings.Repeat("a", 26), "run_id": "run_" + strings.Repeat("b", 26), "action": "qualify", "policy_sha256": strings.Repeat("c", 64), "source_ref": strings.Repeat("d", 40), "recovery": "source_correction_required", "note": strings.Repeat("f", 600)})
 	artifact := runner.Value{ArtifactID: "attempt_" + strings.Repeat("A", 26) + "/result"}
-	for _, file := range []string{"frontend.json", "research-nonogram.json"} {
+	for _, file := range []string{"frontend.json", "research-nonogram.json", "retained-research-nonogram.json"} {
 		p, roles := privateEvidenceRoles(t, file)
 		inputs := evidenceBudgetInputs(file)
 		for _, name := range []string{"owner", "review"} {
