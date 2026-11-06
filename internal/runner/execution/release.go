@@ -127,7 +127,7 @@ func (r *Releases) observeRelease(ctx context.Context, id string) (runner.Observ
 			if err := r.prepareReleaseSource(ctx, &j); err != nil {
 				o.State = runner.Unknown
 				var pending *sourceArchivePending
-				o.Reconciling = errors.As(err, &pending)
+				o.Reconciling = errors.As(err, &pending) || errors.Is(ctx.Err(), context.DeadlineExceeded) && captureWasInterrupted(ctx, err)
 				o.Reason = runner.Clip(err.Error())
 				return o, nil
 			}
