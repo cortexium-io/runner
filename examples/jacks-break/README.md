@@ -282,6 +282,11 @@ requires its matching pre-upgrade database backup after new format-2 runs exist.
   after remote dispatch never gets that retry. The same boundary covers Docker's
   wrapped SSH error during pre-solve worker discovery and read-only queries;
   mutating Docker operations never receive that general query retry.
+- Before release approvals or a new production stop, the core checks remaining
+  attempts against the closed release suffix, including unused deployment retry
+  and inspection/reapplication routes. Thin budgets wait before effects and retain
+  qualification evidence. No allowance is increased automatically; already started
+  operations retain their normal reconciliation path.
 
 Merge approval does not approve production. Production approval does not approve
 database restoration. Shared Docker cleanup and unrelated changes are outside

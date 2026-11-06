@@ -437,6 +437,9 @@ func (c *Core) tick() time.Duration {
 	for _, id := range ids {
 		r := Clone(c.runs[id])
 		a := r.Current()
+		if c.retireUnsafeReleaseDecision(r) {
+			continue
+		}
 		// Release is independent maintenance, including completed runs.
 		for i := range r.Attempts {
 			old := r.Attempts[i]
@@ -514,6 +517,15 @@ func (c *Core) tick() time.Duration {
 				op := "observe"
 				var ass Assignment
 				if a.State == NotStarted {
+					if err := releaseNotStartedStopReserve(r); err != nil {
+						if reason := Clip(err.Error()); r.Status != "Waiting" || r.Reason != reason {
+							r.Status, r.Reason = "Waiting", reason
+							a.Reconciling = false
+							a.NextCheck = time.Now().Add(fallback)
+							_ = c.persist(r, nil, nil)
+						}
+						continue
+					}
 					op = "start"
 					var e error
 					ass, e = c.assignment(r, *a)
@@ -554,6 +566,11 @@ func (c *Core) tick() time.Duration {
 		if len(r.Attempts) >= r.Process.MaxAttempts {
 			r.Status = "Waiting"
 			r.Reason = "run attempt allowance exhausted"
+			_ = c.persist(r, nil, nil)
+			continue
+		}
+		if err := releaseStopReserve(r); err != nil {
+			r.Status, r.Reason = "Waiting", Clip(err.Error())
 			_ = c.persist(r, nil, nil)
 			continue
 		}

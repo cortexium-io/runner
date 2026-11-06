@@ -99,6 +99,18 @@ receipt and exact decision ID to the owner and must never approve it. Operator
 configuration/credentials remain separate from coding roles. Uncertain remote
 effects require inspection; a client disconnect grants no replacement operation.
 
+Before presenting or accepting a release approval, and before starting a new
+production stop, Runner reserves enough remaining attempts for the configured
+closed release suffix and its unused recovery routes. Insufficient reserve leaves
+the qualified evidence intact and waits before the protected action; it grants
+no extra attempts. A pending approval saved by an older build is retired with an
+audit receipt if it lacks that reserve. An already started operation is reconciled
+normally. Any additional allowance still requires explicit owner authorization.
+A saved, positively undispatched Stop is also checked before dispatch, with its
+existing attempt counted once. If held for reserve, it remains active until
+cancellation settles or its original deadline expires; Retry cannot change an
+active attempt's allowance.
+
 The [connected Jack's Break process](../examples/jacks-break/README.md) joins
 development, bounded measurement/correction, review, draft publication and product
 qualification to those release gates. Select `deliver` for a full delivery request;

@@ -23,16 +23,19 @@ import (
 func TestGovernedSourceRecoveryPreservesRunAndAdvancesExistingDraftWithin35(t *testing.T) {
 	measure := evidenceBinary(t, "./cmd/runner-measure")
 	provider := evidenceBinary(t, "./testdata/correction-recovery-provider")
-	for _, preserve := range []bool{false, true} {
-		name := "settled-checkout"
-		if preserve {
-			name = "preserved-legacy-partial-checkout"
-		}
-		t.Run(name, func(t *testing.T) { governedSourceRecoveryJourney(t, measure, provider, preserve) })
+	for _, tc := range []struct {
+		name                  string
+		preserve, extraReview bool
+	}{
+		{"settled-checkout", false, false},
+		{"preserved-legacy-partial-checkout", true, false},
+		{"release-reserve-blocks-all-source-faults", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) { governedSourceRecoveryJourney(t, measure, provider, tc.preserve, tc.extraReview) })
 	}
 }
 
-func governedSourceRecoveryJourney(t *testing.T, measure, provider string, preserve bool) {
+func governedSourceRecoveryJourney(t *testing.T, measure, provider string, preserve, extraReview bool) {
 	t.Helper()
 	repo := sourceRepository(t)
 	for name, value := range map[string]string{"stage.txt": "good", "visit.txt": "pristine"} {
@@ -53,7 +56,10 @@ func governedSourceRecoveryJourney(t *testing.T, measure, provider string, prese
 	approved.Items[0].Text = `{"outcome":"ready","outputs":{"verdict":"APPROVE","summary":"Current fixture proof independently reviewed"},"reason":""}`
 	reviewCorrection := goodTurn()
 	reviewCorrection.Items[0].Text = `{"outcome":"changes_requested","outputs":{"verdict":"BLOCKED","summary":"Add the final fixture regression marker"},"reason":"Missing fixture regression marker"}`
-	script := &scriptedPeer{results: []nativeTurn{goodTurn(), approved, goodTurn(), goodTurn(), goodTurn(), goodTurn(), reviewCorrection, goodTurn(), approved}}
+	script := &scriptedPeer{results: []nativeTurn{goodTurn(), approved, goodTurn(), goodTurn(), goodTurn(), goodTurn(), approved}}
+	if extraReview {
+		script.results = append(script.results[:6], reviewCorrection, goodTurn(), approved)
+	}
 	script.onTurn = func(dir string) {
 		i := script.starts
 		checks := stagedEvidence(t, dir, "checks")
@@ -69,6 +75,10 @@ func governedSourceRecoveryJourney(t *testing.T, measure, provider string, prese
 			}
 		}
 		if i == 1 || i == 6 || i == 8 {
+			generation := map[int]string{1: "initial-owner", 6: "after-governed-repair", 8: "review-corrected"}[i]
+			if !bytes.Contains(checks, []byte(`"status":"passed"`)) || !bytes.Contains(checks, []byte(`"generation":"`+generation+`"`)) {
+				t.Error("independent review did not receive fresh complete check proof", i, string(checks))
+			}
 			return
 		} // Independent reviews do not edit.
 		stage, visit := "good", "initial-owner"
@@ -168,11 +178,26 @@ printf 'bounded assertion summary\n'` + fault}, Result: "domain.json", Artifact:
 		t.Fatal("idempotent recovery replay", err)
 	}
 	waiting := waitSourceRun(t, rig.core, r.ID, func(r runner.Run) bool {
-		return r.Terminal() || r.Decision != nil || r.Status == "Waiting" && !r.Active()
+		if r.Terminal() {
+			return true
+		}
+		if r.Status != "Waiting" || r.Active() {
+			return false
+		}
+		for _, a := range r.Attempts {
+			if !a.Released {
+				return false
+			}
+		}
+		return true
 	}, time.Minute)
-	if waiting.Decision == nil || waiting.Decision.Step != "prepare" || waiting.CorrectionRecovery == nil || waiting.CorrectionRecovery.AttemptID != current.ID || waiting.CorrectionRecovery.MaxUses != 3 || waiting.RouteUses["check/changes_requested"] != 3 || waiting.RouteUses["review/changes_requested"] != 1 {
+	wantReviewUses := 0
+	if extraReview {
+		wantReviewUses = 1
+	}
+	if waiting.Status != "Waiting" || waiting.Step >= len(waiting.Process.Steps) || waiting.Process.Steps[waiting.Step].ID != "prepare" || waiting.CorrectionRecovery == nil || waiting.CorrectionRecovery.AttemptID != current.ID || waiting.CorrectionRecovery.MaxUses != 3 || waiting.RouteUses["check/changes_requested"] != 3 || waiting.RouteUses["review/changes_requested"] != wantReviewUses {
 		calls, _ := os.ReadFile(filepath.Join(operator, "calls"))
-		t.Fatal("same-run governed repair did not reach fresh approval", waiting.Status, waiting.Reason, waiting.RouteUses, "step", waiting.Process.Steps[waiting.Step].ID, string(calls))
+		t.Fatal("same-run governed repair did not reach settled release preparation", waiting.Status, waiting.Reason, waiting.RouteUses, "step", waiting.Step, string(calls))
 	}
 	if !reflect.DeepEqual(waiting.Process, failed.Process) || !reflect.DeepEqual(waiting.Roles, failed.Roles) || !reflect.DeepEqual(waiting.Inputs, failed.Inputs) || waiting.Process.MaxAttempts != 35 || waiting.VisitExtraAttempts != 0 {
 		t.Fatal("recovery mutated frozen definitions/inputs or global allowance")
@@ -252,6 +277,27 @@ printf 'bounded assertion summary\n'` + fault}, Result: "domain.json", Artifact:
 	if _, err = rig.core.Decide(runner.DecisionRequest{RequestID: "stale-approval", RunID: r.ID, DecisionID: "old-head-decision", Choice: "approve"}); err == nil {
 		t.Fatal("changed head accepted stale approval identity")
 	}
+	if extraReview {
+		// This used to spend all 35 attempts on the happy release path. It
+		// must now stop before merge while configured recovery needs reserve.
+		if waiting.Decision != nil || !strings.HasPrefix(waiting.Reason, "release attempt reserve:") || len(waiting.Attempts) != 28 || script.starts != 9 || waiting.ResourcesReleased || prepare.End.Kind != "returned" || prepare.End.Result.Outcome != "ready" {
+			t.Fatal("thin release budget did not preserve a settled preparation without approval", waiting.Status, waiting.Reason, len(waiting.Attempts), script.starts)
+		}
+		for _, effect := range []string{"merge", "backup", "stop", "migrate", "deploy", "verify"} {
+			if strings.Contains(string(calls), effect+"\n") {
+				t.Fatal("insufficient reserve dispatched protected release effect", effect, string(calls))
+			}
+		}
+		compact, _, marshalErr := runner.MarshalRunRecord(waiting)
+		if marshalErr != nil || len(compact) > 40<<10 {
+			t.Fatal("reserve wait plus frozen history/audit exceed pilot record cap", len(compact), marshalErr)
+		}
+		t.Logf("same run safely waiting before merge: %d/35 attempts, %d remaining, %d/%d compact history bytes; no release effects", len(waiting.Attempts), 35-len(waiting.Attempts), len(compact), 40<<10)
+		return
+	}
+	if waiting.Decision == nil || waiting.Decision.Step != "prepare" {
+		t.Fatal("sufficient reserve lost fresh merge approval", waiting.Status, waiting.Reason)
+	}
 	for _, step := range []string{"prepare", "backup"} {
 		w := waitSourceRun(t, rig.core, r.ID, func(r runner.Run) bool { return r.Terminal() || r.Decision != nil }, time.Minute)
 		if w.Decision == nil || w.Decision.Step != step {
@@ -262,8 +308,8 @@ printf 'bounded assertion summary\n'` + fault}, Result: "domain.json", Artifact:
 		}
 	}
 	end := waitSourceRun(t, rig.core, r.ID, func(r runner.Run) bool { return r.Terminal() && allReleased(r) && r.ResourcesReleased }, time.Minute)
-	if end.Status != "Completed" || len(end.Attempts) != 35 || script.starts != 9 {
-		t.Fatal("complete governed path must fit the actual unchanged 35-attempt budget", end.Status, end.Reason, len(end.Attempts), script.starts)
+	if end.Status != "Completed" || len(end.Attempts) != 31 || script.starts != 7 || end.Process.MaxAttempts != 35 {
+		t.Fatal("complete governed path must retain release recovery reserve within the unchanged 35-attempt budget", end.Status, end.Reason, len(end.Attempts), script.starts)
 	}
 	if !reflect.DeepEqual(end.CorrectionRecovery, waiting.CorrectionRecovery) {
 		t.Fatal("preservation/audit receipt changed during ordinary delivery")
@@ -280,7 +326,7 @@ printf 'bounded assertion summary\n'` + fault}, Result: "domain.json", Artifact:
 	}
 	compact, _, err := runner.MarshalRunRecord(end)
 	if err != nil || len(compact) > 40<<10 {
-		t.Fatal("35 attempts plus audit exceed pilot record cap", len(compact), err)
+		t.Fatal("attempt history plus audit exceed pilot record cap", len(compact), err)
 	}
 	t.Logf("same run complete: %d/35 attempts, %d/%d compact history bytes, one PR with one CAS advancement", len(end.Attempts), len(compact), 40<<10)
 }
