@@ -44,7 +44,7 @@ const server = http.createServer((req, res) => {
         const rows = admissions.get(fault) ?? []; rows.push(Date.now()); admissions.set(fault, rows)
         if (behavior === 'transport') { req.socket.destroy(); return }
         status = behavior === 'document' ? 200 : behavior === 'fivehundred' ? 500 : rows.length === 1 || behavior === 'persistent' ? 429 : 200
-        if (status === 429 && behavior !== 'missing') res.setHeader('Retry-After', behavior === 'invalid' ? 'not-a-delay' : behavior === 'oversized' ? '31' : behavior === 'budget' ? '30' : behavior === 'once' ? '1' : '0')
+        if (status === 429 && behavior !== 'noheader') res.setHeader('Retry-After', behavior === 'invalid' ? 'not-a-delay' : behavior === 'oversized' ? '31' : behavior === 'budget' ? '30' : behavior === 'once' ? '1' : '0')
       }
       res.writeHead(status, { 'Content-Type': 'application/json' }); res.end('{"admitted":' + (status === 200) + '}')
     })
@@ -193,17 +193,19 @@ try {
         await page.evaluate(async () => { await Promise.all(Array.from({ length: 10 }, (_, i) => fetch('/api/fixture-admission/burst?private-query=' + i))) })
         throw burstFailure
       }), error => error === burstFailure && error.browserDiagnostic.reload.status === 'truncated' && error.browserDiagnostic.reload.responses.length === 8 && !JSON.stringify(error.browserDiagnostic).includes('private-query'))
-      for (const behavior of ['once', 'missing', 'document', 'persistent', 'invalid', 'oversized', 'budget', 'unknown', 'fivehundred', 'transport', 'unrelated', 'saved', 'value', 'identity']) {
+      for (const behavior of ['once', 'noheader', 'document', 'persistent', 'invalid', 'oversized', 'budget', 'unknown', 'fivehundred', 'transport', 'unrelated', 'saved', 'value', 'identity']) {
+        assert.notEqual(behavior, 'missing', 'rate-header cases must not select the semantic missing-mark mutation')
         const fault = `rate-${behavior}_${engine.name}`, canonical = origin + '/nonogram/' + fault, evidence = {}
         const navigation = new PageReadiness(evidence, behavior === 'unknown' ? null : Date.now() + (behavior === 'budget' ? 5000 : 60000))
         navigation.watch(page, origin)
         await navigation.goto(page, canonical)
         await page.locator('.player-board-frame:visible').waitFor({ state: 'visible' })
         const run = () => editAndRestore(page, 'Nonogram', true, engine.name, navigation)
-        if (['once', 'missing', 'document'].includes(behavior)) {
+        if (['once', 'noheader', 'document'].includes(behavior)) {
           await run()
           assert.deepEqual(await page.evaluate(fault => JSON.parse(localStorage.getItem('games-site:semantic:' + fault)).snapshot, fault), { cells: ['filled', 'blank'] }, 'backoff changed saved board state')
           assert.equal((await renderedState(page)).cells[0].value, 'filled')
+          if (behavior === 'noheader') assert.equal((await renderedState(page)).cells[0].text, '■', 'missing Retry-After must preserve the primary mark')
         } else if (['saved', 'value', 'identity'].includes(behavior)) {
           await assert.rejects(run(), error => error instanceof assert.AssertionError && error.browserDiagnostic.kind === (behavior === 'saved' ? 'saved-state' : 'visible-state'), 'backoff waived restored state/identity mismatch')
         } else {
@@ -218,11 +220,11 @@ try {
             return true
           }, 'unsupported admission was retried/passed: ' + behavior)
         }
-        const retries = ['once', 'missing', 'document', 'persistent', 'saved', 'value', 'identity'].includes(behavior) ? 1 : 0
+        const retries = ['once', 'noheader', 'document', 'persistent', 'saved', 'value', 'identity'].includes(behavior) ? 1 : 0
         assert.equal(documents.get(fault), 2 + retries, 'canonical navigation was repeated unexpectedly: ' + behavior)
         assert.equal(evidence.admissionBackoffs?.length ?? 0, retries, 'backoff accounting differs: ' + behavior)
         assert.deepEqual(await page.evaluate(fault => JSON.parse(localStorage.getItem('fixture-actions:' + fault)), fault), { shade: 1, undo: 1, redo: 1 }, 'edit/Undo/Redo replayed during navigation retry')
-        if (['once', 'missing'].includes(behavior)) {
+        if (['once', 'noheader'].includes(behavior)) {
           const times = admissions.get(fault)
           assert.ok(times[1] - times[0] >= 1000, 'retry ignored its server/default delay')
         }

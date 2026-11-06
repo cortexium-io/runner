@@ -17,8 +17,9 @@ import (
 )
 
 type correctionRecoveryExecutor struct {
-	started  chan runner.Assignment
-	validate func(context.Context, runner.Run, runner.SourceResult) error
+	started        chan runner.Assignment
+	cleanupEntered chan string
+	validate       func(context.Context, runner.Run, runner.SourceResult) error
 }
 
 func (e *correctionRecoveryExecutor) Start(_ context.Context, a runner.Assignment) (runner.Observation, error) {
@@ -28,8 +29,15 @@ func (e *correctionRecoveryExecutor) Start(_ context.Context, a runner.Assignmen
 func (*correctionRecoveryExecutor) Observe(context.Context, string) (runner.Observation, error) {
 	return runner.Observation{State: runner.Unknown, Reason: "fixture holds the new owner"}, nil
 }
-func (*correctionRecoveryExecutor) Stop(context.Context, string) error    { return nil }
-func (*correctionRecoveryExecutor) Release(context.Context, string) error { return nil }
+func (*correctionRecoveryExecutor) Stop(context.Context, string) error { return nil }
+func (e *correctionRecoveryExecutor) Release(ctx context.Context, id string) error {
+	if e.cleanupEntered != nil {
+		e.cleanupEntered <- id
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return nil
+}
 func (e *correctionRecoveryExecutor) ValidateSourceRecovery(ctx context.Context, r runner.Run, s runner.SourceResult) error {
 	if e.validate != nil {
 		return e.validate(ctx, r, s)
@@ -120,6 +128,15 @@ func correctionRecoveryRig(t *testing.T, change func(*runner.Run, *runner.Recove
 		t.Fatal(err)
 	}
 	executor := &correctionRecoveryExecutor{started: make(chan runner.Assignment, 4)}
+	for _, attempt := range r.Attempts {
+		if !attempt.Released {
+			// Preserve the negative fixture's unfinished cleanup until Core
+			// shutdown. An immediate successful mock Release would otherwise
+			// legitimately make recovery eligible before the assertion runs.
+			executor.cleanupEntered = make(chan string, len(r.Attempts))
+			break
+		}
+	}
 	rig := openRig(t, dir, s, func(runner.Executor) runner.Executor { return executor })
 	return rig, s, r, req, executor, dir
 }
@@ -215,10 +232,24 @@ func TestCorrectionRecoveryRejectsOtherFailuresAndBounds(t *testing.T) {
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			rig, _, _, req, _, _ := correctionRecoveryRig(t, test.change)
+			rig, _, _, req, executor, _ := correctionRecoveryRig(t, test.change)
 			defer rig.close()
-			if _, err := rig.core.RecoverCorrections(req); err == nil {
+			if executor.cleanupEntered != nil {
+				select {
+				case id := <-executor.cleanupEntered:
+					if id != req.AttemptID {
+						t.Fatal("fixture is holding a different attempt's cleanup", id)
+					}
+				case <-time.After(4 * time.Second):
+					t.Fatal("unfinished attempt cleanup did not start")
+				}
+			}
+			_, err := rig.core.RecoverCorrections(req)
+			if err == nil {
 				t.Fatal("non-source recovery or allowance change accepted")
+			}
+			if executor.cleanupEntered != nil && !strings.Contains(err.Error(), "all execution and attempt cleanup must settle") {
+				t.Fatal("unfinished cleanup was not the recovery barrier", err)
 			}
 		})
 	}
