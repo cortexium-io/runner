@@ -56,14 +56,16 @@ Earlier Runner code and qualification remain historical references. The new
 slice implements the bounded scope below; it does not complete every capability
 in this design. Keep this record current rather than creating another plan.
 
-The 3 November completion implements named outcome routes, bounded correction
+The historical 3 November completion implemented named outcome routes, bounded correction
 and experiment repetition separate from execution retries, current-candidate
 bindings, opt-in reuse of unchanged check evidence, persisted approval/resume and
 dependency-ordered task expansion from fixed templates. One ordinary core owns
 all of them. The operator guide specifies the accepted syntax; the architecture
-record owns end-to-end evidence. Task items remain serial in one owned workspace.
-Nested/parallel task groups, in-flight plan amendment, remote/multi-user control,
-arbitrary role tool catalogs and distribution remain outside this qualification.
+record owns end-to-end evidence. That qualification used serial task items in
+one owned workspace. The 6 November completion adds isolated parallel card
+groups as described above and in the current code walkthrough. Nested groups,
+in-flight plan amendment, remote/multi-user control, arbitrary role tool catalogs
+and distribution remain outside the qualified scope.
 Production delivery requires its configured project capability and authorization.
 
 ## Core contract at a glance

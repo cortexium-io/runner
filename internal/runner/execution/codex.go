@@ -324,7 +324,7 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 			if err = c.workspaceReadiness(ctx, peer, j); err != nil {
 				return err
 			}
-			if err = c.workspaces.MarkReady(j.Assignment.RunID, readyGeneration); err != nil {
+			if err = c.workspaces.MarkReady(ctx, j.Assignment.RunID, readyGeneration); err != nil {
 				return err
 			}
 			if err = c.mutate(id, func(j *nativeJob) { j.Stage = "allocated" }); err != nil {

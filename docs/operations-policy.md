@@ -17,6 +17,16 @@ condition remains visible to the coordinator.
 An identified deadline of the read-only source archive call also rejoins the
 same saved readiness attempt. Ordinary Git exits and cancellation remain visible.
 
+Source adoption, local readiness preparation and local publication preparation
+have workers owned by the saved attempt, rather than by an individual observer.
+Short observation calls join authentication, source materialization, archiving
+and exact-ref publication preparation under the original deadline. Saved phase
+markers distinguish local work from operator dispatch and a started push. Stop
+settles owned work; it cannot start another push. A confirmed remote target
+retains the known candidate, while an unacknowledged push whose target is still
+old remains uncertain. These rules preserve effect ownership and grant no retry
+allowance or release approval.
+
 After a source writer settles, capture retains an owned, bounded snapshot across
 short observation calls. Observations join the same in-flight capture within the
 original attempt deadline. A positive call deadline or an occupied capture lease

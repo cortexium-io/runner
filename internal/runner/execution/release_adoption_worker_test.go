@@ -176,6 +176,45 @@ func TestSourceAdoptionWorkerCloseRestartAndStopSettleSameAttempt(t *testing.T) 
 	}
 }
 
+func TestSourceAdoptionWorkerCloseDuringAcceptedObjectReadRetainsAuthentication(t *testing.T) {
+	for _, suffix := range []string{"^{tree}", "^"} {
+		t.Run(suffix, func(t *testing.T) {
+			f := newSourceReleaseFixture(t, false)
+			real, err := exec.LookPath("git")
+			if err != nil {
+				t.Fatal(err)
+			}
+			g := adoptionCheckoutGate(t)
+			// The adapter reads each accepted object once before the workspace
+			// helper validates it again. Interrupt that second, helper-owned read.
+			script := "#!/bin/sh\nlast=''\nfor arg do last=$arg; done\n"
+			script += "if [ \"$last\" = " + testShellQuote(f.head+suffix) + " ]; then\n"
+			script += " if [ -e " + testShellQuote(filepath.Join(g.dir, "seen")) + " ] && [ ! -e " + testShellQuote(filepath.Join(g.dir, "blocked")) + " ]; then\n"
+			script += "  : > " + testShellQuote(filepath.Join(g.dir, "blocked")) + "\n  printf 'object-read\\n' > " + testShellQuote(filepath.Join(g.dir, "ready")) + "\n  IFS= read -r release < " + testShellQuote(filepath.Join(g.dir, "hold")) + "\n"
+			script += " fi\n : > " + testShellQuote(filepath.Join(g.dir, "seen")) + "\nfi\nexec " + testShellQuote(real) + " \"$@\"\n"
+			if err = os.WriteFile(filepath.Join(g.dir, "git"), []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			startHeldAdoption(t, f, g)
+			shutdown, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			if err = f.r.Close(shutdown); err != nil {
+				t.Fatal("accepted-object reader did not settle on close", err)
+			}
+			saved, err := f.r.load(f.a.AttemptID)
+			if err != nil || saved.End != nil || saved.Source != nil || len(saved.AdoptionReceipt) == 0 || !saved.Assignment.Deadline.Equal(f.a.Deadline) {
+				t.Fatal("interrupted read became a source mismatch or lost its authentication", saved, err)
+			}
+			resumed := &Releases{disk: f.r.disk, workspaces: f.r.workspaces, cfg: f.r.cfg}
+			defer resumed.Close(context.Background())
+			o, err := resumed.Observe(t.Context(), f.a.AttemptID)
+			if err != nil || o.End == nil || o.End.Kind != "returned" || o.Source == nil || o.Source.Tree != f.tree {
+				t.Fatal("same authenticated adoption did not resume", o.End, err)
+			}
+		})
+	}
+}
+
 func TestSourceAdoptionWorkerDoesNotExtendExpiredAssignment(t *testing.T) {
 	f := newSourceReleaseFixture(t, false)
 	f.a.Deadline = time.Now().Add(-time.Second)

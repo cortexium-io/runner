@@ -67,7 +67,9 @@ func captureObjectBound(size int) int64           { return int64(size) + int64(s
 // Capture checkpoints literal source, then Git objects. Its mutable index is
 // always rebuilt from that verified snapshot; an interrupted index is not proof.
 func (w *Workspaces) Capture(ctx context.Context, a runner.Assignment) (result *runner.SourceResult, err error) {
-	w.mu.Lock()
+	if err = w.lockContext(ctx); err != nil {
+		return nil, err
+	}
 	defer w.mu.Unlock()
 	if !fs.ValidPath(a.AttemptID) || strings.Contains(a.AttemptID, "/") {
 		return nil, errors.New("invalid capture attempt identity")

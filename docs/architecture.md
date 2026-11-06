@@ -79,6 +79,26 @@ canonical-path and 99/100/101-byte boundary proofs, so an unsupported root canno
 accept work. Its complete race/vet gates passed; no model or process allowance
 was increased to correct the staging path.
 
+The retained Jack's Break qualification exposed a separate real-size boundary:
+source adoption included an approximately 500 MiB repository, and short
+observation calls repeatedly interrupted its preparation. Source 7f7634b gives
+authentication and materialization one owned worker for the original attempt.
+After a checkpointed installation, the same adoption attempt completed at
+21:57:24 UTC, before its unchanged 21:59:48 deadline, with the authenticated
+retained tree. No replacement attempt, model turn or allowance was added. This
+was Runner maintenance during qualification, not a claim that the original
+uncorrected runtime completed without operator help.
+
+Installed source 5fc0925 extends that ownership to local readiness preparation
+and publication authentication/CAS preparation. Observers join the saved worker;
+the original attempt deadline, explicit stop and service shutdown still bound
+it. Durable preparation/dispatch/push markers preserve legacy reconciliation and
+prevent a cancelled or uncertain publication from starting another push. The
+credential-bearing remote operator remains eb4cc3d; its approval policy is
+unchanged. Full race tests and vet passed for 5fc0925, and CI passed on macOS and
+Linux. The installation preserved all 91 frozen definitions, including the 85
+original run records and their 113 artifacts and 78 workspace metadata files.
+
 1. `config.Load` resolves instance → project → roles/process. It rejects unknown
    fields, unsupported executors, invalid bindings and mismatched contracts.
 2. `Core.Start` validates values and availability, freezes the selected process

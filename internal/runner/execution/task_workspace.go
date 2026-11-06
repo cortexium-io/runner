@@ -175,7 +175,9 @@ func removeTaskIndex(index string) error {
 // Assembly touches only a disposable index and Git objects. The ordinary seed
 // preparation owns all checkout mutation and interruption recovery afterwards.
 func (w *Workspaces) assembleTaskSource(ctx context.Context, a runner.Assignment) (string, string, []byte, []string, error) {
-	w.mu.Lock()
+	if err := w.lockContext(ctx); err != nil {
+		return "", "", nil, nil, err
+	}
 	defer w.mu.Unlock()
 	repo, base, err := w.taskRepository(ctx, a)
 	if err != nil {
@@ -443,7 +445,9 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 		return err
 	}
 	seedSHA := captureDigest(patch)
-	w.mu.Lock()
+	if err = w.lockContext(ctx); err != nil {
+		return err
+	}
 	r, err := w.load(a.RunID)
 	if errors.Is(err, os.ErrNotExist) {
 		r = workspaceRecord{RunID: a.RunID, Repository: repo, Base: base, WorkDir: filepath.Join(w.disk.Root, "work", a.RunID, "source")}
@@ -497,7 +501,9 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 	if _, err = w.Prepare(ctx, prepared); err != nil {
 		return err
 	}
-	w.mu.Lock()
+	if err = w.lockContext(ctx); err != nil {
+		return err
+	}
 	defer w.mu.Unlock()
 	r, err = w.load(a.RunID)
 	if err != nil {
@@ -538,7 +544,9 @@ func taskUpdateRef(ctx context.Context, repo, ref, hash, previous string) error 
 }
 
 func (w *Workspaces) pinTaskSource(ctx context.Context, a runner.Assignment) (*runner.TaskCandidate, []string, error) {
-	w.mu.Lock()
+	if err := w.lockContext(ctx); err != nil {
+		return nil, nil, err
+	}
 	defer w.mu.Unlock()
 	r, err := w.load(a.RunID)
 	if err != nil {

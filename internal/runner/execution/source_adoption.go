@@ -59,11 +59,17 @@ func (w *Workspaces) prepareAdoptedSource(ctx context.Context, a runner.Assignme
 		return nil, err
 	}
 	tree, err := taskTree(ctx, repo, acceptedHead)
-	if err != nil || tree != acceptedTree {
+	if err != nil {
+		return nil, err
+	}
+	if tree != acceptedTree {
 		return nil, errors.New("accepted source head/tree differs")
 	}
 	parent, err := git(ctx, repo, nil, nil, 256, "rev-parse", "--verify", acceptedHead+"^")
-	if err != nil || strings.TrimSpace(string(parent)) != base {
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(string(parent)) != base {
 		return nil, errors.New("accepted source parent differs from original base")
 	}
 	patch, err := w.read(ctx, a.Inputs["patch"].ArtifactID)
@@ -77,7 +83,9 @@ func (w *Workspaces) prepareAdoptedSource(ctx context.Context, a runner.Assignme
 	if err != nil {
 		return nil, err
 	}
-	w.mu.Lock()
+	if err = w.lockContext(ctx); err != nil {
+		return nil, err
+	}
 	r, err := w.load(a.RunID)
 	if errors.Is(err, os.ErrNotExist) {
 		r = workspaceRecord{RunID: a.RunID, Repository: repo, Base: base, WorkDir: filepath.Join(w.disk.Root, "work", a.RunID, "source")}

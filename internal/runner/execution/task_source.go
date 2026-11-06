@@ -295,8 +295,10 @@ func (s *TaskSources) execute(ctx context.Context, j *taskSourceJob) error {
 		if source.Tree != j.Tree {
 			return errors.New("task assembled tree differs from retained capture")
 		}
+		if err := s.workspaces.lockContext(ctx); err != nil {
+			return err
+		}
 		j.Source = source
-		s.workspaces.mu.Lock()
 		record, loadErr := s.workspaces.load(a.RunID)
 		if loadErr == nil && record.Capture != nil && record.Capture.AttemptID == a.AttemptID {
 			j.Capture = runner.Clone(record.Capture)

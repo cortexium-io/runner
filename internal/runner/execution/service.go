@@ -57,6 +57,7 @@ func (s *Service) SetWake(wake func(string)) {
 	s.commands.SetWake(wake)
 	s.tasks.SetWake(wake)
 	s.releases.SetWake(wake)
+	s.candidates.SetWake(wake)
 	if s.Codex != nil {
 		s.Codex.SetWake(wake)
 	}
@@ -178,10 +179,11 @@ func (s *Service) Close(ctx context.Context) error {
 	releaseErr := s.releases.Close(ctx)
 	captureErr := s.closeCaptures(ctx)
 	taskErr := s.tasks.Close(ctx)
+	candidateErr := s.candidates.Close(ctx)
 	if s.Codex != nil {
-		return errors.Join(releaseErr, captureErr, taskErr, s.Codex.Close(ctx))
+		return errors.Join(releaseErr, captureErr, taskErr, candidateErr, s.Codex.Close(ctx))
 	}
-	return errors.Join(releaseErr, captureErr, taskErr)
+	return errors.Join(releaseErr, captureErr, taskErr, candidateErr)
 }
 
 func (s *Service) ReleaseRun(ctx context.Context, r runner.Run) error {

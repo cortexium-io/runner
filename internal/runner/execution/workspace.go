@@ -129,7 +129,9 @@ func git(ctx context.Context, dir string, extra []string, input []byte, maxBytes
 	return out.Bytes(), nil
 }
 func (w *Workspaces) Prepare(ctx context.Context, a runner.Assignment) (workspaceRecord, error) {
-	w.mu.Lock()
+	if err := w.lockContext(ctx); err != nil {
+		return workspaceRecord{}, err
+	}
 	defer w.mu.Unlock()
 	seed := ""
 	if (a.Setup.Profile.Harness == "codex" && a.Setup.Profile.Access == "workspace-write") ||
@@ -766,8 +768,10 @@ func (w *Workspaces) ForgetRun(ctx context.Context, id string) error {
 	return w.disk.Remove(workspaceName(id))
 }
 
-func (w *Workspaces) MarkReady(id, generation string) error {
-	w.mu.Lock()
+func (w *Workspaces) MarkReady(ctx context.Context, id, generation string) error {
+	if err := w.lockContext(ctx); err != nil {
+		return err
+	}
 	defer w.mu.Unlock()
 	r, e := w.load(id)
 	if e != nil {
