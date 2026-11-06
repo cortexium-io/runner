@@ -214,6 +214,9 @@ func serve(ctx context.Context, path, root, addr string) error {
 	if e != nil {
 		return e
 	}
+	if e = execution.ValidateNativeStatePath(disk.Root, snapshot.Instance.Codex); e != nil {
+		return e
+	}
 	read := func(ctx context.Context, id string) ([]byte, error) {
 		if _, e := store.Artifact(ctx, id); e != nil {
 			return nil, e

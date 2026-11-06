@@ -103,10 +103,10 @@ func (c *Codex) openPeer(ctx context.Context) (codexPeer, error) {
 	if c.cfg == nil {
 		return nil, errors.New("readiness: instance Codex settings are absent")
 	}
-	socket := filepath.Join(c.disk.Root, "jobs", "codex.sock")
-	if len(socket) > 100 {
-		return nil, errors.New("readiness: use a shorter state directory for the native Unix socket (maximum path 100 bytes)")
+	if err := ValidateNativeStatePath(c.disk.Root, c.cfg); err != nil {
+		return nil, err
 	}
+	socket := filepath.Join(c.disk.Root, "jobs", "codex.sock")
 	if _, err := os.Lstat(socket); err == nil {
 		var receipt serverReceipt
 		b, e := c.disk.Read("jobs/codex-server.json", 4096)
