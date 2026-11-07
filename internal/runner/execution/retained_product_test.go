@@ -180,7 +180,7 @@ printf 'fixture frontend assertion: %s\n' "$outcome"`}, Result: "domain.json", A
 	if err != nil {
 		t.Fatal(err)
 	}
-	original = waitSourceRun(t, rig.core, original.ID, func(r runner.Run) bool { return r.Terminal() && allReleased(r) })
+	original = waitSourceRun(t, rig.core, original.ID, func(r runner.Run) bool { return r.Terminal() && allReleased(r) }, time.Minute)
 	if original.Status != "Failed" || len(original.Attempts) != 2 || script.starts != 0 || original.Attempts[0].Source.Base != head {
 		t.Fatal("original source evidence did not settle without model calls", original.Status, original.Reason)
 	}
