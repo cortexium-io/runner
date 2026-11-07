@@ -1,6 +1,6 @@
 # Runner process core design
 
-Updated 6 November 2026. **The owner has authorized completing and installing the
+Updated 7 November 2026. **The owner has authorized completing and installing the
 full bounded planner workflow, safe parallelism and routine recovery, verified
 across real projects. Merge and production remain owner-approved actions.**
 
@@ -35,6 +35,59 @@ below remain historical qualification boundaries until the new proof is recorded
    results, recovery events, usage and remaining gaps. Install only the verified
    build, preserving pilot history and all protected approval gates.
 
+Items 1–4 are implemented in the existing Core, configuration and adapters.
+The accepted path is intake → read-only planner → isolated dependency cards →
+deterministic join → configured combined checks/measurement → independent review
+and bounded correction → current qualification → saved owner approval gates.
+Invalid/cyclic/unordered-overlap plans return bounded feedback to the planner
+before children are created, at most twice in the new examples. Each card uses
+the fixed seed/owner/internal-pin template, the original request, literal write
+scope and retained evidence artifacts. Its internal pin is unreviewed source,
+not an approving review. The combined owner handles later corrections without
+replanning or rerunning accepted cards. Each new planned correction route allows
+up to three total uses under the shared 64-attempt ceiling; benchmark continuation
+remains separately bounded. Older process definitions and failed histories stay
+unchanged.
+
+Retained delivery authenticates the prior publication and supplied patch before
+source use, then advances the same owned PR with a head comparison. It reuses no
+old check, review, qualification or protected approval. The research-only variant
+instead measures pristine controls before materializing the prior patch as owned
+proposal evidence. Planning, cards and combined review receive the baseline and
+proposal artifacts; completion returns evidence, a patch and a supported
+conclusion such as `NOT_REPRODUCED`, without publication or release.
+
+Item 5 remains partly open. Runtime bfa5916 was installed on 7 November at
+00:29 UTC after the full race/vet and macOS/Linux CI gates. The real Go process
+completed with 12/64 shared attempts, four native turns and 507.929 seconds of
+independent owner overlap. The research process completed with 17/64 attempts,
+five native turns, 100 passing outcomes (90 leaves) and independent research
+acceptance; cleanup settled on the same root and children without another
+attempt or model turn. Its six baseline controls have no structured baseline
+trace; its 13 current DATA samples do not reproduce the lost original case or
+establish a fix/speedup. The prior mobile run's internally corrected source and
+same-PR publication are retained, along with its HTTP-429 qualification failure.
+Fresh complete retained mobile run `run_UN4Z2BLWBVDLWN6STLR6LMLBXN` autonomously
+handled planner correction, its card, join, checks, review, integration and
+publication to the same PR #334, using 17/64 aggregate attempts (14 root + 3 child)
+and four native turns. Cleanup settled. Native qualification then failed three
+of 239 observations with HTTP 408 at the existing 10-second boundary: Nonogram
+15/25 hard and Kakuro 30 easy. The same server SHA passed these cases in D7;
+matched random seeds and the cause are unavailable. UN4 stopped before browser
+qualification, so final real frontend qualification, default cutover, merge and
+production remain open. The workflow mechanism is implemented; these
+intermittent backend failures have not been fixed or waived.
+
+The subsequent Runner-only diagnostic repair retains/hashes complete failed
+probe stdout and verifies immutable container/run/attempt/image/exit ownership
+before interpreting it. Known owned failures remain `blocked` without source
+correction or retry; unknown execution and uncertain cleanup stay uncertain.
+That repair was installed from f470b9a after the full race/vet gates and a pure
+semantic replay of the retained failed report passed. All 93 frozen definitions
+and run records were preserved, with no product rerun, limit or policy change.
+The [architecture record](architecture.md) owns exact source,
+image, proof and preservation identities rather than a second work plan.
+
 Completion requires repeatable request-to-qualified-result behavior with no
 external stage selection, product repair, limit increases or gate bypasses.
 Routine decisions within the approved request use the configured policy; only
@@ -44,10 +97,9 @@ not establish cross-project reliability. Existing planner guidance must match
 the actually qualified runtime before the capability is described as ready.
 
 The [README](../README.md), [actual code walkthrough](architecture.md) and
-[operator guide](operator-reference.md) describe that slice and its verification
-boundary. The subsequent input-only Codex adapter is also implemented and its
-three-task qualification is recorded in the code walkthrough. Broader examples
-below are not automatically fields accepted by the runtime loader.
+[operator guide](operator-reference.md) describe the supported runtime and its
+verification boundary. Dated first-slice qualifications below remain historical;
+broader illustrative examples are not automatically fields accepted by the loader.
 
 This is the concise record for the clean Runner design being developed with Dan,
 one piece at a time. It captures the agreed direction and working concepts;
@@ -584,7 +636,14 @@ Check an artifact when the relevant operation needs it; a missing artifact affec
 its consumers, with a specific recovery reason. Avoid a global checksum sweep as
 a prerequisite to resuming unrelated work. SQLite fits this local application-state
 role ([SQLite's application-state guidance](https://www.sqlite.org/appfileformat.html)).
-Schema, backup and corruption-recovery details remain open.
+New format-3 runs store separately bounded state/settings and individually bounded
+attempt rows in that same database. Transactions commit run/attempt changes,
+request receipts and artifact references together. Existing format-1/2 history
+bytes remain unchanged; no observation transcript or second event store is added.
+Family collection rejects outside consumers, atomically deletes the root/child
+records and internal artifact-use cycles, then cleans owned files under a bounded
+durable collection intent. Restart rejoins that cleanup after the database commit.
+Broader backup and corruption-recovery qualification remains separate.
 
 ## Agreed resource lifecycle and cleanup
 
@@ -616,6 +675,12 @@ Recovery requirements take precedence over age-based expiry.
 
 Keep this within normal Runner maintenance, with short resumable cleanup actions
 and no per-step whole-disk scans or extra checksum/locking protocol.
+The implemented terminal `release_run` uses the existing Core-owned operation and
+its cancellation context, bounded to the smaller of the original valid process
+timeout and five minutes. Absent/invalid legacy timeout data keeps the five-second
+fallback. This lets retained-source verification/deletion finish without restarting
+under each short observation call; it adds no execution attempt, worker map or
+allowance. Completed work and cleanup/settlement remain distinct in results.
 
 ### Proposed storage bounds
 
@@ -1105,8 +1170,14 @@ together if the process declares them independent; assembly waits for both.
 
 Exclusive access to a declared shared resource serializes competing work even
 when there is no dependency between it. An uncertain execution retains potentially
-held resource claims until reconciliation establishes they can be released. Exact
-dependency/join syntax, generated-plan admission and fairness rules remain open.
+held resource claims until reconciliation establishes they can be released.
+The implemented software group validates the dependency DAG and literal write
+paths before fan-out, rejecting unordered overlaps. It admits fixed linked child
+runs under `task_concurrency`, waits for accepted predecessor pins and settlement,
+then joins their source before combined verification. It reserves all unfinished
+cards and the configured combined/release suffix in one root-family allowance.
+Broader resource catalogs, distributed scheduling and fairness remain outside
+this qualified scope.
 
 ## Context and tools
 
@@ -1295,8 +1366,9 @@ cohesive work on another allowed profile can be preferable to extra decompositio
 and coordination. Profile guidance supplies reusable instructions; the planner
 supplies the task-specific brief.
 
-An accepted collection creates instances of the configured steps within the same
-run. The plan supplies the work and dependencies; the process supplies the allowed
+An accepted collection creates instances of the configured steps within the root
+process; isolated mode uses internally linked child runs and owned workspaces.
+The plan supplies the work and dependencies; the process supplies the allowed
 execution structure. Item data cannot grant new permissions or insert arbitrary
 roles/process steps. Profile choices must come from options explicitly allowed
 by the process/project for the existing roles. Existing scheduling, context,
@@ -1313,10 +1385,16 @@ Independent items can proceed under the agreed parallel-safety/resource rules.
 
 Shared final steps wait for the declared required item results and execute at the
 collection join, so common verification/delivery need not repeat for every item.
-Completed items remain visible when another item waits or fails. The current
-`for_each` syntax supports bounded serial dependency order and a shared owned
-source workspace. Item amendments and concurrent workspace composition remain
-open; the implemented syntax is documented in the operator reference.
+Completed items remain visible when another item waits or fails. The existing
+serial `for_each` form retains its shared-workspace behavior. Opt-in
+`mode: isolated`, `max_parallel` and `scope_input` freeze literal card ownership
+and dependencies, seed accepted predecessor source, retain internal pins and
+produce one results manifest for the explicit source join. Root evidence bindings
+are frozen artifact references supplied to planners/cards and retained in the
+combined manifest, not a duplicated inline plan in every prompt. Parent results
+include child progress, shared attempts and usage with unknown values preserved;
+child-only revisions wake parent waits. Nested groups and in-flight amendments
+remain unsupported. The operator reference documents the accepted syntax.
 
 ## Experiments on a selected task or step
 

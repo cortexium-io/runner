@@ -7,7 +7,8 @@ owner decisions. `execution/release.go` retains local attempt identity;
 existing SSH connection. It does not choose stages or approve work. GitHub and
 Compose remain the owning services for merge and deployment state.
 
-This describes the clean first slice, not the previous task/approval runtime.
+This describes the process core and its qualified extensions; dated sections
+retain the narrower boundaries of earlier slices.
 Start with the example configuration, then `types.go`, then follow a run through
 `engine.go`. There are six responsibilities:
 
@@ -24,7 +25,7 @@ Start with the example configuration, then `types.go`, then follow a run through
 handling. They do not form a second scheduling or storage service. The core
 imports no MCP SDK, configuration parser, SQLite driver or execution adapter.
 
-## Follow the demo
+## Planned workflows, 6–7 November 2026
 
 The opt-in planned workflow uses this same coordinator. `parallel_tasks.go`
 reserves child run identities in the parent's frozen task group before creating
@@ -33,6 +34,11 @@ process and a bidirectionally checked parent identity. `task_concurrency` limits
 card actors independently from the existing root-family concurrency limit;
 passive parents consume no actor slot. Declared dependencies wait for accepted
 pins and settled attempts. A child pin grants no review or release authority.
+
+The new planned examples admit at most eight cards, two concurrent card actors
+and 64 attempts shared by the root and all children. Existing processes keep
+their frozen limits. The read-only planner has an explicit 8 KiB result allowance;
+coding/review model, input and response limits are unchanged.
 
 `task_admission.go` reserves the fixed unfinished cards and combined/release
 tail before fan-out and subsequent attempts. `family_budget.go` counts root and
@@ -94,10 +100,114 @@ and publication authentication/CAS preparation. Observers join the saved worker;
 the original attempt deadline, explicit stop and service shutdown still bound
 it. Durable preparation/dispatch/push markers preserve legacy reconciliation and
 prevent a cancelled or uncertain publication from starting another push. The
-credential-bearing remote operator remains eb4cc3d; its approval policy is
-unchanged. Full race tests and vet passed for 5fc0925, and CI passed on macOS and
-Linux. The installation preserved all 91 frozen definitions, including the 85
-original run records and their 113 artifacts and 78 workspace metadata files.
+credential-bearing remote operator at that checkpoint was eb4cc3d; its approval
+policy was unchanged. Full race tests and vet passed for 5fc0925, and CI passed
+on macOS and Linux. The installation preserved all 91 frozen definitions,
+including the 85 original run records and their 113 artifacts and 78 workspace
+metadata files.
+
+Runtime bfa5916e3e39078393defa7a0db92b8843a90fc9 was installed on 7 November
+at 00:29 UTC. Its full race suite passed with the execution package taking
+455.480 seconds; vet passed, and CI passed on macOS (9m34s) and Linux (8m44s).
+The verified browser image is
+`sha256:99d8f52d32b27c61d47a832bfd6f93c58577b1e175ad12e671f1d7d7640297d5`,
+bound to driver
+`99052fc177e115b5120c030be9bb44504f739065588afd598044d26f25562fd2`.
+Its isolated synthetic qualification passed Chromium and WebKit in 57.02 seconds.
+It transported and verified all 576 backoff audit rows (83,411 bytes), using a
+hashed `admission-backoffs.json` sidecar bounded to 1,024 rows/1 MiB. The receipt
+remains bounded to 128 KiB and the entire evidence archive to 64 MiB. This proves
+runtime capability and evidence transport, not acceptance of the product candidate
+or physical iOS/Android behavior.
+
+The driver permits one rate-limit recovery only after an observed expected
+same-origin canonical-board/document HTTP 429. It honors a sanitized Retry-After
+of at most 30 seconds within the known owning deadline. One existing critical
+resource recovery is separately bounded across that admission; at most three
+canonical navigations are possible. The original entry action runs once, and
+Play/New/Next, hints, edits, Undo/Redo and assertions are not replayed. Other
+admission failures remain infrastructure blockers. Authenticated failed browser
+receipts retain bounded public diagnostics as well as their full private evidence;
+an infrastructure failure does not become a product correction merely to continue.
+
+The real qualification outcomes at this checkpoint are distinct:
+
+| Workflow | Retained result and limitation |
+| --- | --- |
+| Runner Go, `run_37KYDZLG7NUOEQD5HHYNB5R5CK` | Completed on source 17b4692 with 12/64 aggregate attempts, four native turns, 507.929s owner overlap, passing combined checks and independent approval. Its test-only candidate remains local and unmerged. |
+| Nonogram research, `run_TLGY3X4SH7AKBYWRH7PXWP5HT5` | Completed with 17/64 aggregate attempts, five native turns, 100 passing selected outcomes (90 leaves), six baseline controls, six native/Next samples and seven HTTP samples with complete current DATA receipts. Independent research review returned `ready` with conclusion `NOT_REPRODUCED`. |
+| Mobile, `run_D7IL7VPFG5YFOWN332BWK3O6YD` | Used 22 aggregate attempts. Runner corrected its own review finding, passed 279 selected tests, obtained independent approval and advanced existing PR #334 to `8e816b2d9f3de023e76b3d1a8fa1a72ddb4ee1b7`. Qualification failed when a canonical Shikaku reload received HTTP 429; that failed history remains. |
+| Fresh retained mobile, `run_UN4Z2BLWBVDLWN6STLR6LMLBXN` | Runner autonomously handled planner correction, its card, join, checks, review, integration and same-PR publication. It used 17 aggregate attempts (14 root + 3 child) and four native turns, with all cleanup settled. Native qualification passed 236/239 observations and failed on three HTTP 408 timeouts; it did not reach browser qualification. |
+
+UN4 advanced existing PR #334 to
+`c84f9f47f77f1c4093d8b7dcbedfefa0575cbbe2`, retaining unchanged source tree
+`bbcb6ff177e10331b7e5ace9448d267f0c9cc21d`. Its native gate recorded:
+
+| Observed case | Response | Elapsed |
+| --- | --- | --- |
+| Nonogram 15 hard | HTTP 408 | 10,000 ms |
+| Nonogram 25 hard | HTTP 408 | 10,001 ms |
+| Kakuro 30 easy | HTTP 408 | 10,000 ms |
+
+The earlier D7 qualification used the same server SHA and passed these three
+cases. Their random seeds and the cause of the intermittent failures are
+unavailable; these observations do not establish a separately frozen catalogue
+or a matched-seed replay. The native gate stopped UN4 before any browser run.
+The synthetic image proof above remains valid, while final real frontend
+qualification, default cutover, merge and production remain open.
+
+The subsequent Runner diagnostic repair,
+`f470b9ab6997ce6735c8dbe3190e807f51ad009d`, was installed at 01:39 UTC after
+the full race suite (execution 457.772s, release 9.587s) and vet passed. The local
+Core and remote operator share that source; operator policy and browser image are
+unchanged. A pure semantic replay of the retained 49,646-byte report, SHA256
+`dfb36efe57313e0df544ccd61cb890d84c71f83ad39bae397d42a173ca4b6cbd`, passed
+and returned all three failures as blocked facts. That replay executed no product
+or container; the old run has no retained probe inspection, so it establishes no
+retrospective container ownership or qualification. Its failed history remains.
+
+The repair retains and hashes complete failed probe stdout, and requires positive
+immutable container ID, run, attempt, image and exit ownership before interpreting
+that evidence. A known owned probe failure is an ordinary `blocked` result,
+without automatic source correction or retry. Unknown/running execution and
+uncertain cleanup remain uncertain. This adds diagnostic fidelity without
+changing product thresholds or converting an intermittent backend timeout into
+an authorized frontend repair.
+
+The diagnostic installation preserved all 93 frozen definitions and run records,
+including the original 85 records, 113 artifacts and 78 workspace metadata files.
+The owner token and owning checkout are unchanged. Only the selected operator
+executable/configuration paths changed; its policy hash remains
+`f55186eaa03d856bec3ea9dc496df175a30beec7429977da843ab4271306a2a4`.
+No new product workflow, model visit, retry allowance or default cutover occurred.
+
+The research baseline has six measured controls but no structured baseline trace.
+The current max-uint32 seed sample reached its existing 10-second request limit;
+the original request, seed/history and environment remain unavailable. Complete
+negative evidence does not establish an original-case reproduction, solver fix,
+speedup or release approval. The process returns reports, a retained patch and a
+reviewed conclusion without integration, publication or release stages.
+
+The same research root and two children subsequently finished cleanup under
+bfa5916 without a new attempt or model turn. Core uses its existing owned
+`release_run` operation with `min(valid original process timeout, 5m)` rather than
+the short execution-observation timeout; legacy absent/invalid data retains the
+5-second fallback. It remains canceled by Core shutdown and adds no worker map,
+scheduler or product allowance. Managed content fell from approximately 7.32 GB
+to 0.56 GB. Preservation checks found all 85 original run records, 113 artifacts,
+78 workspace metadata files, the owner token and owning source checkout unchanged.
+
+This qualification included Runner maintenance during real work; it is not a
+claim that the earlier runtime needed no operator recovery. The Go proof,
+review-to-correction handoff, same-PR continuation and completed research are
+evidence for their stated boundaries. Workflow orchestration is implemented;
+final real frontend qualification remains partly open because of the observed
+native backend failures. No protected release gate was bypassed. Proofs are
+retained privately under
+`~/.codex/jbg31/coordinator/planned-completion-20261106`; coordinator usage is
+additional to reported worker usage.
+
+## Follow the demo
 
 1. `config.Load` resolves instance → project → roles/process. It rejects unknown
    fields, unsupported executors, invalid bindings and mismatched contracts.
@@ -256,8 +366,9 @@ successfully invoked status. Required race/vet gates passed. The idle Jack's
 Break pilot was switched to the maintained build and four-stage configuration,
 preserving all 29 historical runs and the existing project checkpoint. This
 qualifies wiring and permissions, not model review quality, savings or a new
-end-to-end product result. Workspace concurrency remains one; unsupported
-frontend/browser/release work must surface a capability gap. See the
+end-to-end product result. At that checkpoint, workspace concurrency remained
+one and frontend/browser/release work needed a separately configured capability.
+See the
 [coordinator contract](coordinator.md) and [example](../examples/reviewed-go/README.md).
 
 Run states are Queued, Running, Waiting, Completed, Failed and Cancelled, with a
@@ -285,10 +396,14 @@ active and appear in status. There is no task-content checksum approval gate.
 
 ## Bounded storage
 
-SQLite holds separately capped settings and operational history documents for
-each run, atomically in one row, plus small request/artifact records. Format 2
-adds the settings column while retaining existing format-1 history unchanged;
-there are no transcripts or append-only observation payloads. Replaying a request
+SQLite preserves the original format-1/2 run documents and uses format 3 for new
+runs: separately capped state/settings plus individually bounded attempt rows,
+committed with request receipts and artifact references in one transaction. It
+does not append observation transcripts. Linked child runs share their root's
+attempt envelope; family retention commits database deletion before removing
+owned files, with a bounded durable collection intent for restart reconciliation.
+External artifact consumers block deletion; internal reference cycles do not.
+Replaying a request
 returns the existing run. Retention deletes its request receipts, so replay is
 only guaranteed while that run is retained. At most 17 receipts are retained per
 run. The effective run count may be below the configured maximum to reserve
@@ -631,7 +746,9 @@ decisions; `tasks.go` expands fixed templates from validated bounded task data.
 The same SQLite run retains the resolved steps, attempts, artifacts and usage.
 No scheduler, task ledger or model polling layer was added.
 
-Task collections execute in dependency order in the shared owned workspace.
+At that 3 November checkpoint, task collections executed in dependency order in
+the shared owned workspace. The opt-in isolated groups documented above were
+added on 6 November; the old serial form remains supported.
 Template roles are selected before execution; task data supplies only inputs and
 dependencies. Invalid plans fail before item execution. Joins forward committed
 artifact references without changing their producer. Current-candidate bindings
@@ -682,11 +799,13 @@ turns. Their failures were preserved, not reported as model failures or successe
 
 This qualifies the complete bounded Go website fixture and the generic routing
 mechanism. The approval is for a disposable fixture, not production publication.
-Live forced review rejection and model quality across projects are not established;
-rejection/correction/limits are covered deterministically. Native Linux sandbox,
-remote/multi-user operation, intra-run parallel workspaces, arbitrary external
-processes and deployment to a production provider remain unqualified. Project
-verification, benchmark and release tools still require their real configuration.
+At that checkpoint, live forced review rejection and model quality across projects
+were not established; rejection/correction/limits were covered deterministically.
+The later planned qualification above records actual isolated owner overlap and
+an internal review-to-correction handoff. Native Linux model sandbox,
+remote/multi-user operation, arbitrary external processes and production-provider
+deployment were outside that fixture. Project verification, benchmark and release
+tools require their own real configuration and qualification.
 
 Final verification also passed the required full race suite and `go vet`, the
 compiled CLI's dependency-ordered three-attempt journey (45.668ms, zero model
