@@ -24,7 +24,9 @@ jobs:
         with:
           workload: race
       - name: Test
-        run: go test -race -timeout 15m ./...
+        # Real command journeys compile isolated fixtures with fresh caches.
+        # This package watchdog leaves Runner's command/process limits intact.
+        run: go test -race -timeout 20m ./...
       - name: Vet
         run: go vet ./...
       - name: Build
