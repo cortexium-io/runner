@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -53,7 +54,12 @@ type Candidate struct {
 	PatchID string `json:"patch_id"`
 }
 
-func result(ctx context.Context, c *runner.Core, in ResultArgs) (Result, error) {
+type resultReader interface {
+	Get(string) (runner.Run, error)
+	Wait(context.Context, string, int64) (runner.Summary, error)
+}
+
+func result(ctx context.Context, c resultReader, in ResultArgs) (Result, error) {
 	for {
 		r, err := c.Get(in.RunID)
 		if err != nil {
@@ -62,13 +68,67 @@ func result(ctx context.Context, c *runner.Core, in ResultArgs) (Result, error) 
 		out := compactResult(r, time.Now())
 		// Waiting can still have uncertain execution. Report the actual blocker;
 		// never mistake a client disconnect for permission to stop or retry work.
-		if !in.Wait || r.Status == "Waiting" && !out.Reconciling || r.Terminal() && (!out.CleanupPending || out.CleanupError != "") {
+		if !in.Wait || r.Status == "Waiting" && !waitingForProgress(r, out) || r.Terminal() && (!out.CleanupPending || out.CleanupError != "") {
 			return out, nil
 		}
 		if _, err = c.Wait(ctx, r.ID, r.Revision); err != nil {
 			return Result{}, err
 		}
 	}
+}
+
+func waitingForProgress(r runner.Run, out Result) bool {
+	if r.Decision != nil {
+		return false
+	}
+	if r.Task == nil && r.Step >= 0 && r.Step < len(r.Process.Steps) {
+		step := r.Process.Steps[r.Step]
+		if step.ForEach != nil && step.ForEach.Mode == "isolated" {
+			return pendingTaskProgress(r)
+		}
+	}
+	return out.Reconciling
+}
+
+// A child update can precede the next parent tick. Join that saved progress
+// without relabeling execution ownership or hiding an actual waiting child.
+func pendingTaskProgress(r runner.Run) bool {
+	if r.Status != "Waiting" || r.Decision != nil || r.CancelRequested || r.Task != nil || r.Step < 0 || r.Step >= len(r.Process.Steps) {
+		return false
+	}
+	step := r.Process.Steps[r.Step]
+	group := r.TaskGroups[step.ID]
+	if step.ForEach == nil || step.ForEach.Mode != "isolated" || group == nil || group.StepID != step.ID || group.Done || group.Failure != "" || len(group.Children) == 0 {
+		return false
+	}
+	resumed := false
+	for _, child := range group.Children {
+		var status *runner.TaskStatus
+		for i := range r.TaskStatuses {
+			if r.TaskStatuses[i].RunID == child.RunID {
+				if status != nil || r.TaskStatuses[i].ID != child.ItemID {
+					return false
+				}
+				status = &r.TaskStatuses[i]
+			}
+		}
+		if status == nil {
+			return false
+		}
+		switch status.Status {
+		case "Queued", "Running", "Completed":
+			resumed = resumed || strings.HasPrefix(r.Reason, "task "+child.ItemID+": ")
+		case "Waiting":
+			if status.Reconciling {
+				resumed = resumed || strings.HasPrefix(r.Reason, "task "+child.ItemID+": ")
+			} else if !(status.Attempts == 0 && status.Reason == "waiting for declared task prerequisites") {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return resumed
 }
 
 func compactResult(r runner.Run, now time.Time) Result {

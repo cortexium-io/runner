@@ -31,6 +31,12 @@ maintenance decision; it never grants another product attempt.
 Missing process/capability is a blocker, never permission for external execution.
 Explicit user requests to investigate or maintain Runner itself are separate work.
 
+`Waiting` alone is not an owner decision. A parent snapshot can briefly retain a
+child's old wait while that child has already queued its next step. Rejoin the
+same run with `runner_result(wait: true)`; complete waiting follows current-group
+progress while still returning saved decisions and genuine unresolved blockers.
+Nonwaiting reads retain the saved status, task states and execution/cleanup facts.
+
 An explicitly approved `runner_recover_corrections` operator action can recover
 an exhausted source-correction route in the same run. Bind the request to the
 current failed attempt and set `max_uses: 3` for at most three total uses of each
@@ -122,6 +128,12 @@ the chat. Parent results expose their statuses and aggregate attempts/usage.
 New example processes share 64 attempts across the entire family, allow up to
 eight cards and at most two card actors. These settings do not modify existing
 run definitions or grant additional attempts to an old failed run.
+
+Once a completed card's exact source pin is durably accepted by its parent and
+all its attempts are released, normal owned cleanup can remove its full checkout.
+Dependent cards and the final join authenticate retained metadata, Git pins and
+patches; those, along with history and artifacts, remain until normal retention.
+Failed, unaccepted or ambiguous work keeps the existing preservation boundary.
 
 For an already published retained candidate, the planned retained variants accept
 the exact saved patch and authenticated publication handle. Their source-adopt

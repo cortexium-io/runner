@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -266,5 +267,27 @@ func (c *Core) holdTaskResources(r Run) bool {
 		return false
 	}
 	root, err := c.taskRoot(r)
-	return err != nil || !root.Terminal()
+	if err != nil {
+		return true
+	}
+	if root.Terminal() {
+		return false
+	}
+	// A completed child no longer needs its full checkout once the parent has
+	// durably accepted the exact immutable pin. ReleaseRun preserves that pin,
+	// its patch/capture and source references until normal family retention.
+	if root.Status != "Running" && root.Status != "Waiting" && root.Status != "Queued" || r.Status != "Completed" || r.CancelRequested || !allAttemptsReleased(r) {
+		return true
+	}
+	group := root.TaskGroups[r.Task.Identity.GroupStep]
+	var candidate TaskCandidate
+	if json.Unmarshal(r.Outputs["result"].Inline, &candidate) != nil || !c.validTaskCandidate(r, group, candidate) {
+		return true
+	}
+	for _, reservation := range group.Children {
+		if reservation.RunID == r.ID && reservation.ItemID == r.Task.Identity.ItemID {
+			return reservation.Candidate == nil || *reservation.Candidate != candidate
+		}
+	}
+	return true
 }
