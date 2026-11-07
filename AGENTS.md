@@ -10,6 +10,17 @@ integration and final qualification. Product work and its checks remain inside
 Runner. Merge, production deployment and database restoration remain explicit
 owner decisions. Preserve existing runs, artifacts and frozen limits.
 
+On 7 November the owner approved extending private delivery retention to older
+independently reproducible compiled build payloads and raw archives. Keep the
+newest two packages, current/previous successful production packages and pending
+release/recovery dependencies. Require positive ownership, settled worker leases
+and manifest/hash proof, with durable collection intent. Keep all run records,
+reports, logs, Git/source patches, database rehearsal copies and backups. Verify
+and install this maintenance, then submit one fresh complete retained backend
+workflow for Nonogram 15/25 hard and Kakuro 30 easy, preserving PR #334's mobile
+changes. Model, process-attempt and storage ceilings stay unchanged; no merge,
+production or restoration action is approved by this authorization.
+
 The current implementation defaults for new planned processes are at most eight
 cards, two concurrent isolated card executions and 64 aggregate attempts shared
 by the root and its cards, with the protected release reserve included. Existing

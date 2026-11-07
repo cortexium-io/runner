@@ -320,6 +320,16 @@ recovery snapshots are retained. Storage exhaustion blocks new work instead of
 raising allowances or deleting recovery evidence. These operator resources have
 separate retention from the core run database.
 
+For an owner-approved bounded payload policy, configure
+`delivery.retention: {"raw_archives": 2, "build_payloads": 2}`. The optional
+build-payload window retains the newest independently reproduced packages plus
+current/previous production and pending release/recovery dependencies. Older
+manifest-bound archives and compiled binaries/assets may be retired after
+ownership, hash and settlement proof; all reports, journals, source history,
+rehearsal databases and backups remain. Missing compiled files need an existing
+durable collection intent. Raw-only configurations keep their earlier behavior.
+See the [operations policy](../../docs/operations-policy.md) for the exact boundary.
+
 Back up the pilot's database, owner token and configuration consistently before
 cutover. Database format 2 stores settings and operational history as separately
 bounded JSON documents in the same transaction. Existing format-1 history remains

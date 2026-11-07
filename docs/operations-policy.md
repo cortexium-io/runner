@@ -51,10 +51,39 @@ private operator journal, captured policy and independent reproduction proof;
 then takes its worker lease and verifies the archive hash before deletion.
 Symlinks, changed bytes, missing ownership and active workers are preserved.
 Deletion intent and completion are retained under the private operator state's
-`archive-retention/` directory. All run records, journals, reports, Git history,
-compiled artifacts and backups remain intact. The existing 8 GiB limit and
-admission reserves still apply; protected dependencies can legitimately prevent
-further admission.
+`archive-retention/` directory. With raw-archive retention alone, all run records,
+journals, reports, Git history, compiled artifacts and backups remain intact.
+The existing 8 GiB limit and admission reserves still apply; protected
+dependencies can legitimately prevent further admission.
+
+An explicitly authorized operator may additionally enable governed build-payload
+retention:
+
+```json
+"retention": {"raw_archives": 2, "build_payloads": 2}
+```
+
+`build_payloads` is opt-in: omitted/zero leaves the raw-only policy unchanged;
+enabled values retain 2–8 newest independently reproduced packages. Current and
+previous successful production packages and pending release/recovery dependencies
+are protected beyond that window. Collection authenticates the private journal,
+captured policy, source manifest and independent reproduction, then takes the
+settled worker lease. It checks the complete target set and all existing hashes
+before the first removal. A bounded private intent records the target identity
+before deletion and supports reconciliation of interrupted collection.
+
+Only the manifest-bound raw archive, server/importer binaries and compiled
+frontend/SSR assets can be retired. Dockerfiles, build logs, commands, graphs,
+manifests, reproduction/qualification/runtime/browser reports, run history, Git
+and source patches, migration-rehearsal databases and backups stay preserved.
+An already absent raw archive is recorded as absent rather than hash-verified;
+missing compiled files require a matching earlier collection intent. Symlinks,
+changed files, ambiguous provenance, active workers and unproved packages are
+preserved. Retired packages cannot satisfy package reuse or qualification.
+
+This policy makes old reproducible payloads collectible under the existing
+storage ceiling; it grants no additional attempts or authority to delete
+protected evidence. The separate Core run/log expiry policy is unchanged.
 
 The same opt-in permits reuse of a verified build package for the exact same
 reviewed head, base and publication with unchanged operator inputs. Retention

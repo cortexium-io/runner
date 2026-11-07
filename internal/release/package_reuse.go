@@ -43,14 +43,16 @@ func (b *Live) reusePackage(ctx context.Context, j *Job) (bool, error) {
 			lease.Close()
 			return false, err
 		}
-		if _, err = packagePath(p.Job.Receipt.Package, "source.tar.gz"); errors.Is(err, os.ErrNotExist) {
-			unlockOperator(lease)
-			lease.Close()
-			continue // A collector may have won the lease before this copy.
-		} else if err != nil {
+		reusable, err := b.packagePayloadReusable(p)
+		if err != nil {
 			unlockOperator(lease)
 			lease.Close()
 			return false, err
+		}
+		if !reusable {
+			unlockOperator(lease)
+			lease.Close()
+			continue // Retired/incomplete packages require a fresh independent build.
 		}
 		err = copyPackage(ctx, p, j.Receipt.Package)
 		unlockOperator(lease)
@@ -61,6 +63,25 @@ func (b *Live) reusePackage(ctx context.Context, j *Job) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+func (b *Live) packagePayloadReusable(p retainedPackage) (bool, error) {
+	targets, err := payloadRetentionTargets(p)
+	if err != nil {
+		return false, err
+	}
+	intent, err := b.readPayloadIntent(p, targets)
+	if err != nil || intent != nil {
+		return false, err
+	}
+	for name := range p.Manifest.Artifacts {
+		if _, err := packagePath(p.Job.Receipt.Package, name); errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func samePackagePolicy(a, b Config) bool {

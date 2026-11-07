@@ -12,25 +12,32 @@ import (
 	"time"
 )
 
-// ArchiveRetention applies only to reproducible raw source archives. Operational
-// journals, reports, Git history, compiled artifacts and recovery data are never
-// collected by this policy.
+// ArchiveRetention collects reproducible build bytes, never owning journals,
+// reports, Git history or recovery data. Compiled payload collection is opt-in.
 type ArchiveRetention struct {
-	RawArchives int `json:"raw_archives"`
+	RawArchives   int `json:"raw_archives"`
+	BuildPayloads int `json:"build_payloads,omitempty"`
 }
 
 func (p *ArchiveRetention) validate() error {
 	if p != nil && (p.RawArchives < 2 || p.RawArchives > 8) {
 		return errors.New("retention.raw_archives must retain between two and eight recent source packages")
 	}
+	if p != nil && p.BuildPayloads != 0 && (p.BuildPayloads < 2 || p.BuildPayloads > 8) {
+		return errors.New("retention.build_payloads must be disabled or retain between two and eight recent build packages")
+	}
 	return nil
 }
 
 type retainedPackage struct {
-	Job      Job
-	Config   Config
-	Manifest packageManifest
-	Changed  time.Time
+	Job             Job
+	Config          Config
+	Manifest        packageManifest
+	Changed         time.Time
+	JournalSHA      string
+	WorkerSHA       string
+	ManifestSHA     string
+	ReproductionSHA string
 }
 
 // retainedPackages authenticates package ownership through both the private
@@ -46,6 +53,7 @@ func (b *Live) retainedPackages() ([]retainedPackage, []Job, error) {
 	}
 	var packages []retainedPackage
 	var jobs []Job
+	payloads := b.Config.Delivery.Retention != nil && b.Config.Delivery.Retention.BuildPayloads != 0
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
@@ -65,6 +73,7 @@ func (b *Live) retainedPackages() ([]retainedPackage, []Job, error) {
 		if j.Request.Project != b.Config.Project {
 			continue
 		}
+		journalSHA := Digest(data)
 		jobs = append(jobs, j)
 		if j.Request.Action != "qualify" || !j.Done {
 			continue
@@ -87,6 +96,11 @@ func (b *Live) retainedPackages() ([]retainedPackage, []Job, error) {
 		if json.Unmarshal(data, &work) != nil || work.Config.Delivery == nil {
 			return nil, nil, errors.New("retained package has no captured operator policy")
 		}
+		workerSHA := Digest(data)
+		workerInfo, err := os.Lstat(j.Worker)
+		if err != nil || !workerInfo.Mode().IsRegular() {
+			return nil, nil, errors.New("retained worker policy is not a regular file")
+		}
 		capturedRequest, _ := json.Marshal(work.Job.Request)
 		journalRequest, _ := json.Marshal(j.Request)
 		captured := work.Job.Receipt
@@ -107,6 +121,7 @@ func (b *Live) retainedPackages() ([]retainedPackage, []Job, error) {
 		if json.Unmarshal(data, &manifest) != nil || !manifest.Clean || manifest.Revision != j.Receipt.Head || !strings.HasPrefix(manifest.Identity, "source-sha256:") || len(manifest.Artifacts["source.tar.gz"]) != 64 {
 			return nil, nil, errors.New("retained package source identity differs")
 		}
+		manifestSHA := Digest(data)
 		data, err = readPackageFile(j.Receipt.Package, "reproduction.json", 8<<10)
 		if errors.Is(err, os.ErrNotExist) {
 			continue // Never collect a raw package whose independent proof did not finish.
@@ -122,18 +137,34 @@ func (b *Live) retainedPackages() ([]retainedPackage, []Job, error) {
 		if json.Unmarshal(data, &proof) != nil || proof.Status != "passed" || proof.Commit != j.Receipt.Head || proof.Server == "" || proof.Server != j.Receipt.ServerSHA || proof.Server != manifest.Artifacts["context/server"] {
 			return nil, nil, errors.New("retained package independent reproduction is not established")
 		}
-		archive, err := packagePath(j.Receipt.Package, "source.tar.gz")
-		if errors.Is(err, os.ErrNotExist) {
-			continue // An earlier authorized collection already removed this raw copy.
+		p := retainedPackage{
+			Job:             j,
+			Config:          work.Config,
+			Manifest:        manifest,
+			JournalSHA:      journalSHA,
+			WorkerSHA:       workerSHA,
+			ManifestSHA:     manifestSHA,
+			ReproductionSHA: Digest(data),
 		}
-		if err != nil {
-			return nil, nil, err
+		if payloads {
+			// The private worker file is captured once before building. Archive
+			// collection and later journal writes must not change package order.
+			p.Changed = workerInfo.ModTime()
+		} else {
+			archive, err := packagePath(j.Receipt.Package, "source.tar.gz")
+			if errors.Is(err, os.ErrNotExist) {
+				continue // Preserve legacy raw-only discovery and ordering.
+			}
+			if err != nil {
+				return nil, nil, err
+			}
+			info, err := os.Stat(archive)
+			if err != nil {
+				return nil, nil, err
+			}
+			p.Changed = info.ModTime()
 		}
-		info, err := os.Stat(archive)
-		if err != nil {
-			return nil, nil, err
-		}
-		packages = append(packages, retainedPackage{Job: j, Config: work.Config, Manifest: manifest, Changed: info.ModTime()})
+		packages = append(packages, p)
 	}
 	slices.SortFunc(packages, func(a, c retainedPackage) int {
 		if n := c.Changed.Compare(a.Changed); n != 0 {
@@ -220,6 +251,19 @@ func (b *Live) collectArchives(ctx context.Context) error {
 		}
 	}
 	for i, p := range packages {
+		if b.Config.Delivery.Retention.BuildPayloads != 0 {
+			if protected[p.Job.Receipt.Package] {
+				continue
+			}
+			raw := i >= b.Config.Delivery.Retention.RawArchives
+			compiled := i >= b.Config.Delivery.Retention.BuildPayloads
+			if raw || compiled {
+				if err := b.removeBuildPayloads(ctx, p, raw, compiled); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if i < b.Config.Delivery.Retention.RawArchives || protected[p.Job.Receipt.Package] {
 			continue
 		}
