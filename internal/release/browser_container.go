@@ -212,10 +212,14 @@ func (b *Live) runBrowserContainer(ctx context.Context, j *Job, network, output 
 	if json.Unmarshal(data, &receipt) != nil || !receipt.TransportComplete || receipt.Runtime.Image != input.Image || receipt.Runtime.Driver != browserDriverDigest() || receipt.Runtime.Playwright != "1.64.1" {
 		return errors.New("browser runtime evidence identity differs")
 	}
+	var failure error
 	if receipt.Failure != "" {
-		return browserReceiptFailure(j, data, input.Mode == "qualification")
+		failure = browserReceiptFailure(j, data, input.Mode == "qualification")
 	}
-	return nil
+	if err = validateBrowserAdmissions(output, data, input.Mode == "qualification"); err != nil {
+		return err
+	}
+	return failure
 }
 
 func (b *Live) closeBrowserRuntime(ctx context.Context, id string, j *Job, image string) (err error) {
@@ -263,8 +267,10 @@ func extractBrowserEvidence(data []byte, output string) error {
 		limit := int64(8 << 20)
 		if h.Name == "receipt.json" {
 			limit = 128 << 10
+		} else if h.Name == browserAdmissionFile {
+			limit = maxBrowserAdmissionBytes
 		}
-		if h.Typeflag != tar.TypeReg || len(h.PAXRecords) > 0 || !regexp.MustCompile(`^(receipt\.json|failure\.png|(chromium|webkit)-(desktop|mobile)-(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)\.png)$`).MatchString(h.Name) || seen[h.Name] || len(seen) >= 38 || h.Size < 0 || h.Size > limit || total+h.Size > 64<<20 {
+		if h.Typeflag != tar.TypeReg || len(h.PAXRecords) > 0 || !regexp.MustCompile(`^(receipt\.json|admission-backoffs\.json|failure\.png|(chromium|webkit)-(desktop|mobile)-(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)\.png)$`).MatchString(h.Name) || seen[h.Name] || len(seen) >= 39 || h.Size < 0 || h.Size > limit || total+h.Size > 64<<20 {
 			return errors.New("browser evidence contains an unexpected, duplicated or oversized entry")
 		}
 		seen[h.Name] = true

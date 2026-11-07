@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import { createHash } from 'node:crypto'
 
 export class BrowserResourceError extends Error {
   name = 'BrowserResourceError'
@@ -23,12 +25,27 @@ export function admissionDelay(value, now = Date.now()) {
   return delayMs <= 30000 ? { retryAfterMs: delayMs, delayMs } : null
 }
 
+// Full retry evidence has its own bounded file, inside the existing archive cap.
+// Keep the receipt small and bind the complete audit, including an empty one.
+export function saveBrowserReceipt(output, receipt, backoffs) {
+  if (!Array.isArray(backoffs) || backoffs.length > 1024) throw new BrowserAdmissionError('admission backoff audit exceeds its record bound')
+  const audit = JSON.stringify(backoffs), bytes = Buffer.byteLength(audit)
+  if (bytes > 1024 * 1024) throw new BrowserAdmissionError('admission backoff audit exceeds its byte bound')
+  const descriptor = { count: backoffs.length, path: 'admission-backoffs.json', bytes, sha256: createHash('sha256').update(audit).digest('hex') }
+  const data = JSON.stringify({ ...receipt, admissionBackoffs: descriptor })
+  if (Buffer.byteLength(data) > 128 * 1024) throw new BrowserAdmissionError('browser receipt exceeds its byte bound')
+  fs.writeFileSync(output + '/' + descriptor.path, audit)
+  fs.writeFileSync(output + '/receipt.json', data)
+  receipt.admissionBackoffs = descriptor
+}
+
 // A missing stylesheet is transport/readiness evidence, never a layout verdict.
 // Only navigation is retried; puzzle creation, hints and assertions are not.
 export class PageReadiness {
   constructor(receipt, deadlineMs = null) {
     if (deadlineMs !== null && (!Number.isSafeInteger(deadlineMs) || deadlineMs <= 0)) throw new BrowserAdmissionError('Browser navigation deadline is invalid')
     this.receipt = receipt; this.deadlineMs = deadlineMs
+    this.admissionBackoffs = []
     this.failures = new WeakMap(); this.errors = new WeakMap(); this.origins = new WeakMap()
   }
 
@@ -137,13 +154,12 @@ export class PageReadiness {
         if (page.url() !== canonical.href) issue = 'canonical identity changed during rate-limited navigation'
         else if (!delay) issue = 'invalid or excessive Retry-After'
         else if (this.deadlineMs === null || Date.now() + delay.delayMs >= this.deadlineMs) issue = 'rate-limit backoff exceeds the known browser deadline'
-        else if ((this.receipt.admissionBackoffs?.length ?? 0) >= 64) issue = 'rate-limit backoff evidence exceeds its bound'
+        else if (this.admissionBackoffs.length >= 1024) issue = 'rate-limit backoff evidence exceeds its bound'
         else {
           rateRetried = true
           const evidence = { method: admission.method, path: admission.path, status: 429, ...delay, attempt: 1 }
           backoffs.push(evidence)
-          this.receipt.admissionBackoffs ??= []
-          this.receipt.admissionBackoffs.push({ ...evidence, canonicalPath: canonical.pathname })
+          this.admissionBackoffs.push({ ...evidence, canonicalPath: canonical.pathname })
           await new Promise(resolve => setTimeout(resolve, delay.delayMs))
           continue
         }

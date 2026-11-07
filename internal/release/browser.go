@@ -130,7 +130,11 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 	if _, err = b.sandbox(ctx, j, []string{work, output}, browserCommand(ctx, c.Delivery, script, public, output)...); err != nil {
 		data, readErr := readPackageFile(output, "receipt.json", 128<<10)
 		if knownFailure(err) && readErr == nil {
-			if failure := browserReceiptFailure(j, data, true); failure != nil {
+			failure := browserReceiptFailure(j, data, true)
+			if auditErr := validateBrowserAdmissions(output, data, true); auditErr != nil {
+				return auditErr
+			}
+			if failure != nil {
 				return failure
 			}
 		}
@@ -140,7 +144,11 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 	if err != nil {
 		return err
 	}
-	if failure := browserReceiptFailure(j, data, true); failure != nil {
+	failure := browserReceiptFailure(j, data, true)
+	if err = validateBrowserAdmissions(output, data, true); err != nil {
+		return err
+	}
+	if failure != nil {
 		return failure
 	}
 	runtime, err := readFile(filepath.Join(j.Receipt.Package, "runtime-http.json"), 4<<20)

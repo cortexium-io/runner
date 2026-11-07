@@ -21,9 +21,9 @@ const runtimeIdentity = () => ({ image: input?.image, driver, playwright: versio
 function archive() {
   const parts = []; let total = 0
   for (const name of fs.readdirSync(output).sort()) {
-    if (!/^(receipt\.json|failure\.png|(chromium|webkit)-(desktop|mobile)-(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)\.png)$/.test(name)) throw new Error('unexpected browser evidence filename')
+    if (!/^(receipt\.json|admission-backoffs\.json|failure\.png|(chromium|webkit)-(desktop|mobile)-(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)\.png)$/.test(name)) throw new Error('unexpected browser evidence filename')
     const stat = fs.lstatSync(output + '/' + name)
-    if (!stat.isFile() || stat.size > (name === 'receipt.json' ? 128 * 1024 : 8 * 1024 * 1024)) throw new Error('browser evidence is not a bounded regular file')
+    if (!stat.isFile() || stat.size > (name === 'receipt.json' ? 128 * 1024 : name === 'admission-backoffs.json' ? 1024 * 1024 : 8 * 1024 * 1024)) throw new Error('browser evidence is not a bounded regular file')
     const body = fs.readFileSync(output + '/' + name)
     total += body.length
     if (total > 64 * 1024 * 1024) throw new Error('browser evidence exceeds archive bound')
@@ -51,7 +51,7 @@ try {
   const { webkit } = await import('/runner/node_modules/playwright/index.mjs')
   const env = { PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', HOME: '/tmp/browser-home', TMPDIR: '/tmp', LANG: 'C.UTF-8', PLAYWRIGHT_BROWSERS_PATH: '/ms-playwright', RUNNER_PLAYWRIGHT_MODULE: '/runner/node_modules/playwright/index.mjs', RUNNER_BROWSER_EXECUTABLE: '/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell', RUNNER_WEBKIT_EXECUTABLE: webkit.executablePath() }
   fs.mkdirSync(env.HOME, { mode: 0o700 })
-  let args = ['/runner/browser_fixture.mjs']
+  let args = ['/runner/browser_fixture.mjs', output]
   if (input.mode === 'qualification') {
     if (typeof input.catalogue !== 'object' || typeof input.cert !== 'string' || typeof input.key !== 'string' || input.cert.length > 10000 || input.key.length > 10000) throw new Error('invalid browser qualification input')
     fs.writeFileSync('/work/runtime-http.json', JSON.stringify(input.catalogue), { mode: 0o600 })
@@ -69,8 +69,8 @@ try {
   for (const stream of [child.stdout, child.stderr]) stream.on('data', chunk => { tail = (tail + chunk).slice(-12000) })
   const [code, signal] = await once(child, 'close')
   let receipt = {}
-  if (input.mode === 'qualification' && fs.existsSync(output + '/receipt.json')) receipt = JSON.parse(fs.readFileSync(output + '/receipt.json'))
-  if (input.mode === 'readiness') receipt = { contract: 2, mode: 'readiness', complete: code === 0, engines: code === 0 ? ['chromium', 'webkit'] : [] }
+  if (fs.existsSync(output + '/receipt.json')) receipt = JSON.parse(fs.readFileSync(output + '/receipt.json'))
+  if (input.mode === 'readiness') receipt = { contract: 2, mode: 'readiness', complete: code === 0, engines: code === 0 ? ['chromium', 'webkit'] : [], admissionBackoffs: receipt.admissionBackoffs }
   if (code !== 0 && !receipt.failure) receipt.failure = `BrowserRuntimeError: trusted driver failed (${code ?? signal}): ${tail}`
   receipt.runtime = runtimeIdentity()
   receipt.transportComplete = true

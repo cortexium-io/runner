@@ -1,10 +1,15 @@
 // Synthetic adapter fixtures only: no product source, network service or models.
 import assert from 'node:assert/strict'
 import http from 'node:http'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { verifyPlayArea, editAndRestore, dragRectangle, activate, prepareShikakuTouch, renderedState, assertRenderedState, observeAdmission } from './browser_contract.mjs'
-import { PageReadiness, BrowserAdmissionError, BrowserResourceError, admissionDelay } from './browser_render.mjs'
+import { PageReadiness, BrowserAdmissionError, BrowserResourceError, admissionDelay, saveBrowserReceipt } from './browser_render.mjs'
 const { chromium, webkit } = await import(pathToFileURL(process.env.RUNNER_PLAYWRIGHT_MODULE).href)
+const auditRow = index => ({ method: 'POST', path: '/api/games/nonogram', status: 429, retryAfterMs: null, delayMs: 1000, attempt: 1, canonicalPath: '/nonogram/audit_' + index })
 
 function semanticFixture(fault, rate = false) {
   const behavior = fault.split('_')[0].replace(/^rate-/, '')
@@ -197,6 +202,7 @@ try {
         assert.notEqual(behavior, 'missing', 'rate-header cases must not select the semantic missing-mark mutation')
         const fault = `rate-${behavior}_${engine.name}`, canonical = origin + '/nonogram/' + fault, evidence = {}
         const navigation = new PageReadiness(evidence, behavior === 'unknown' ? null : Date.now() + (behavior === 'budget' ? 5000 : 60000))
+        if (behavior === 'once') navigation.admissionBackoffs.push(...Array.from({ length: 64 }, (_, i) => auditRow(i)))
         navigation.watch(page, origin)
         await navigation.goto(page, canonical)
         await page.locator('.player-board-frame:visible').waitFor({ state: 'visible' })
@@ -222,7 +228,8 @@ try {
         }
         const retries = ['once', 'noheader', 'document', 'persistent', 'saved', 'value', 'identity'].includes(behavior) ? 1 : 0
         assert.equal(documents.get(fault), 2 + retries, 'canonical navigation was repeated unexpectedly: ' + behavior)
-        assert.equal(evidence.admissionBackoffs?.length ?? 0, retries, 'backoff accounting differs: ' + behavior)
+        assert.equal(navigation.admissionBackoffs.length, retries + (behavior === 'once' ? 64 : 0), 'backoff accounting differs: ' + behavior)
+        assert.equal(evidence.admissionBackoffs, undefined, 'full backoff rows escaped into the receipt before sidecar serialization')
         assert.deepEqual(await page.evaluate(fault => JSON.parse(localStorage.getItem('fixture-actions:' + fault)), fault), { shade: 1, undo: 1, redo: 1 }, 'edit/Undo/Redo replayed during navigation retry')
         if (['once', 'noheader'].includes(behavior)) {
           const times = admissions.get(fault)
@@ -266,7 +273,7 @@ try {
       finally { await page.unroute('**/style.css') }
       assert.equal(documents.get(combinedFault), 4)
       assert.equal(combinedEvidence.resourceRetries.length, 1)
-      assert.equal(combinedEvidence.admissionBackoffs.length, 1)
+      assert.equal(combined.admissionBackoffs.length, 1)
       const collisionFault = `rate-fivehundred_${engine.name}collision`, collisionPath = origin + '/nonogram/' + collisionFault, collisionEvidence = {}, collision = new PageReadiness(collisionEvidence, Date.now() + 60000)
       collision.watch(page, origin)
       await ready.goto(page, collisionPath)
@@ -300,5 +307,32 @@ try {
       assert.equal(assertions.receipt.admissionBackoffs, undefined)
     } finally { if (browser) await browser.close() }
   }
-  console.log('PASS: both engines; real touch edit/Undo/Redo/reload; 320/360/390; strict semantic restore; one bounded canonical 429 backoff without replayed actions/assertions; rejected persistent/invalid/error admissions and changed values/identities/snapshots')
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-browser-audit-'))
+  try {
+    const empty = {}
+    saveBrowserReceipt(scratch, empty, [])
+    assert.equal(empty.admissionBackoffs.count, 0)
+    assert.equal(empty.admissionBackoffs.bytes, 2)
+    assert.equal(fs.readFileSync(scratch + '/admission-backoffs.json', 'utf8'), '[]')
+    const audit = Array.from({ length: 576 }, (_, i) => auditRow(i))
+    const receipt = { contract: 2, geometry: Array.from({ length: 462 }, (_, i) => ({ engine: i % 2 ? 'webkit' : 'chromium', width: [320, 360, 390][i % 3], key: 'nonogram:25:0:0:clues:30:13', path: '/nonogram/ngm1-25-hard-' + i, board: { x: 8, y: 80, width: 304, height: 304 }, verifiedZoom: true })) }
+    assert.ok(Buffer.byteLength(JSON.stringify({ ...receipt, admissionBackoffs: audit })) > 128 * 1024, 'fixture does not exercise the former receipt capacity failure')
+    saveBrowserReceipt(scratch, receipt, audit)
+    const raw = fs.readFileSync(scratch + '/receipt.json'), sidecar = fs.readFileSync(scratch + '/admission-backoffs.json')
+    assert.ok(raw.length < 128 * 1024 && sidecar.length < 1024 * 1024)
+    assert.deepEqual(JSON.parse(sidecar), audit, 'full backoff records were truncated')
+    assert.deepEqual(receipt.admissionBackoffs, { count: 576, path: 'admission-backoffs.json', bytes: sidecar.length, sha256: createHash('sha256').update(sidecar).digest('hex') })
+    assert.throws(() => saveBrowserReceipt(scratch, {}, Array.from({ length: 1025 }, (_, i) => auditRow(i))), BrowserAdmissionError)
+    assert.throws(() => saveBrowserReceipt(scratch, {}, [{ ...auditRow(0), canonicalPath: 'x'.repeat(1024 * 1024) }]), BrowserAdmissionError)
+    assert.throws(() => saveBrowserReceipt(scratch, { overflow: 'x'.repeat(128 * 1024) }, []), BrowserAdmissionError)
+    assert.deepEqual(fs.readFileSync(scratch + '/receipt.json'), raw, 'failed capacity check replaced the prior receipt')
+    assert.deepEqual(fs.readFileSync(scratch + '/admission-backoffs.json'), sidecar, 'failed capacity check replaced prior audit evidence')
+    const maximum = {}
+    saveBrowserReceipt(scratch, maximum, Array.from({ length: 1024 }, (_, i) => auditRow(i)))
+    assert.equal(maximum.admissionBackoffs.count, 1024, 'maximum admitted audit count was rejected')
+    // The container archives this same full synthetic audit to exercise transport
+    // and the owning Go digest/size/count validation, as well as both engines.
+    if (process.argv[2]) saveBrowserReceipt(process.argv[2], { contract: 2, mode: 'readiness' }, audit)
+  } finally { fs.rmSync(scratch, { recursive: true, force: true }) }
+  console.log('PASS: both engines; strict touch/state/geometry; bounded canonical backoff; 576 full audit rows in a hashed sidecar within unchanged receipt/archive caps')
 } finally { await new Promise(resolve => server.close(resolve)) }

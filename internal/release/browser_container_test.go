@@ -21,6 +21,10 @@ func browserTestImage(id string) []byte {
 
 func browserTestArchive(t *testing.T, receipt any) []byte {
 	t.Helper()
+	audit := []byte("[]")
+	if value, ok := receipt.(map[string]any); ok {
+		value["admissionBackoffs"] = browserAuditDescriptor(audit, 0)
+	}
 	data, err := json.Marshal(receipt)
 	if err != nil {
 		t.Fatal(err)
@@ -31,6 +35,12 @@ func browserTestArchive(t *testing.T, receipt any) []byte {
 		t.Fatal(err)
 	}
 	if _, err = w.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err = w.WriteHeader(&tar.Header{Name: browserAdmissionFile, Mode: 0600, Size: int64(len(audit))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = w.Write(audit); err != nil {
 		t.Fatal(err)
 	}
 	if err = w.Close(); err != nil {
@@ -264,8 +274,8 @@ func TestBrowserTransportPreservesArchiveBeyondDiagnosticTail(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "receipt.json"))
-	var receipt map[string]string
-	if err != nil || json.Unmarshal(raw, &receipt) != nil || receipt["padding"] != padding {
+	var receipt struct{ Padding string }
+	if err != nil || json.Unmarshal(raw, &receipt) != nil || receipt.Padding != padding {
 		t.Fatal("complete bounded receipt did not survive transport", err)
 	}
 }

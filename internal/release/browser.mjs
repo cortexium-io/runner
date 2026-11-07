@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
 import { pathToFileURL } from 'node:url'
-import { PageReadiness } from './browser_render.mjs'
+import { PageReadiness, saveBrowserReceipt } from './browser_render.mjs'
 import { contractVersion, games, mobileViewports, geometryCases, verifyPlayArea, activate, editAndRestore, playMetrics, prepareShikakuTouch, savedState, renderedState, assertSavedState, assertRenderedState, observeAdmission } from './browser_contract.mjs'
 const { chromium, webkit } = await import(pathToFileURL(process.env.RUNNER_PLAYWRIGHT_MODULE).href)
 const [origin, output] = process.argv.slice(2)
@@ -11,7 +11,7 @@ const largeShikaku = cases.filter(row=>row.game==='shikaku').reduce((a,b)=>a.siz
 const receipt = { contract: contractVersion, origin, mockedResponses: false, headless: true, engines: [], journeys: [], geometry: [], complete: false, limitations: ['Headless touch emulation is not a physical iOS/Android device check.', 'Playwright WebKit exposes native taps but no public native touch-drag API; its complete two-corner Shikaku path is verified.'] }
 fs.mkdirSync(output, { recursive: true })
 const readiness = new PageReadiness(receipt, process.env.RUNNER_BROWSER_DEADLINE_MS ? Number(process.env.RUNNER_BROWSER_DEADLINE_MS) : null)
-const save = () => fs.writeFileSync(output + '/receipt.json', JSON.stringify(receipt))
+const save = () => saveBrowserReceipt(output, receipt, readiness.admissionBackoffs)
 const launch = engine => engine.type.launch({ executablePath: engine.executable, headless: true, args: engine.name === 'chromium' && process.platform === 'darwin' ? ['--disable-gpu', '--single-process', '--no-zygote'] : [] })
 const instrument = context => context.addInitScript(() => {
   window.runnerInputEvidence={touch:0,keyboard:0}
