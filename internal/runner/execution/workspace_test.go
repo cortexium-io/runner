@@ -424,6 +424,14 @@ func waitSourceRun(t *testing.T, c *runner.Core, id string, ready func(runner.Ru
 		}
 	}
 }
+
+// These workflows compile real Go fixtures with fresh per-attempt build caches.
+// This aggregate observer does not alter any command or process deadline.
+func waitGoWorkflow(t *testing.T, c *runner.Core, id string, ready func(runner.Run) bool) runner.Run {
+	t.Helper()
+	return waitSourceRun(t, c, id, ready, 2*time.Minute)
+}
+
 func TestWritableLostReplyAndOneCheck(t *testing.T) {
 	repo := sourceRepository(t)
 	cfg := workspaceSnapshot(t, repo)

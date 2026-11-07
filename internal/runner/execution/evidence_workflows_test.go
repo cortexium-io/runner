@@ -365,7 +365,7 @@ func TestResearchNegativeEvidenceCompletesOnlyAfterIndependentReview(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			end := waitSourceRun(t, rig.core, r.ID, func(r runner.Run) bool { return r.Terminal() && allReleased(r) }, time.Minute)
+			end := waitGoWorkflow(t, rig.core, r.ID, func(r runner.Run) bool { return r.Terminal() && allReleased(r) })
 			if end.Status != "Completed" || string(end.Outputs["conclusion"].Inline) != `"NOT_REPRODUCED"` || end.Outputs["patch"].ArtifactID == "" {
 				t.Fatal("negative research could not complete truthfully", end.Status, end.Reason, end.Outputs)
 			}

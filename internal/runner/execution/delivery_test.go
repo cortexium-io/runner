@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
@@ -264,9 +263,9 @@ printf 'runner-measure round=%s selector=fixture skipped=false\n' "$round"`, "fi
 			}
 			approve := func(step, key string) {
 				t.Helper()
-				waiting := waitSourceRun(t, rig.core, r.ID, func(r runner.Run) bool {
+				waiting := waitGoWorkflow(t, rig.core, r.ID, func(r runner.Run) bool {
 					return r.Terminal() || r.Status == "Waiting" && (r.Decision != nil && r.Decision.Step == step || strings.Contains(r.Reason, "history capacity"))
-				}, time.Minute)
+				})
 				if waiting.Decision == nil {
 					if mode == "all" {
 						data, _ := json.Marshal(waiting)

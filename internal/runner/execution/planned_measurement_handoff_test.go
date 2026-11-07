@@ -138,7 +138,7 @@ func BenchmarkFixtureHandoff(b *testing.B){
 	if err != nil {
 		t.Fatal(err)
 	}
-	end := waitSourceRun(t, rig.core, r.ID, func(r runner.Run) bool {
+	end := waitGoWorkflow(t, rig.core, r.ID, func(r runner.Run) bool {
 		if r.Terminal() {
 			return true
 		}
@@ -151,7 +151,7 @@ func BenchmarkFixtureHandoff(b *testing.B){
 			}
 		}
 		return true
-	}, time.Minute)
+	})
 	if end.Status != "Waiting" || end.Decision == nil || end.Decision.Step != "prepare" || end.Decision.Next != "merge" || script.starts != 6 || process.MaxAttempts != 64 || process.MaxAttemptsPerStep != 1 || process.AttemptTimeout != "20m" {
 		t.Fatal("planned correction did not reach the original protected handoff", end.Status, end.Reason, end.Decision, script.starts)
 	}

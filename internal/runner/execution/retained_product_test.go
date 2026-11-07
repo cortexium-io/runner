@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
@@ -180,7 +179,7 @@ printf 'fixture frontend assertion: %s\n' "$outcome"`}, Result: "domain.json", A
 	if err != nil {
 		t.Fatal(err)
 	}
-	original = waitSourceRun(t, rig.core, original.ID, func(r runner.Run) bool { return r.Terminal() && allReleased(r) }, time.Minute)
+	original = waitGoWorkflow(t, rig.core, original.ID, func(r runner.Run) bool { return r.Terminal() && allReleased(r) })
 	if original.Status != "Failed" || len(original.Attempts) != 2 || script.starts != 0 || original.Attempts[0].Source.Base != head {
 		t.Fatal("original source evidence did not settle without model calls", original.Status, original.Reason)
 	}
@@ -198,7 +197,7 @@ printf 'fixture frontend assertion: %s\n' "$outcome"`}, Result: "domain.json", A
 		t.Fatal(err)
 	}
 	for _, step := range []string{"prepare", "backup"} {
-		waiting := waitSourceRun(t, rig.core, r.ID, func(r runner.Run) bool { return r.Terminal() || r.Decision != nil }, time.Minute)
+		waiting := waitGoWorkflow(t, rig.core, r.ID, func(r runner.Run) bool { return r.Terminal() || r.Decision != nil })
 		if waiting.Decision == nil || waiting.Decision.Step != step {
 			t.Fatal("protected fixture gate missing", step, waiting.Status, waiting.Reason)
 		}
