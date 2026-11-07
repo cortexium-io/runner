@@ -145,6 +145,10 @@ func (b *Live) commandWithEnvironment(ctx context.Context, input []byte, environ
 	diagnostic := &diagnosticOutput{limit: 64 << 10}
 	cmd.Stderr = diagnostic
 	err := cmd.Run()
+	settled := releaseCommandSettled(cmd)
+	var exit *exec.ExitError
+	knownExit := err == nil || (errors.As(err, &exit) && exit.ExitCode() > 0 && exit.ExitCode() != 255)
+	complete := settled && ctx.Err() == nil && knownExit && !out.exceeded
 	build := path == b.Config.Docker && len(args) > 2 && args[0] == "--host" && args[2] == "build"
 	if err != nil || build {
 		if directory, ok := ctx.Value(deliveryDiagnosticKey{}).(string); ok {
@@ -159,10 +163,18 @@ func (b *Live) commandWithEnvironment(ctx context.Context, input []byte, environ
 				progress = progress[len(progress)-(64<<10):]
 			}
 			_ = writeExclusive(filepath.Join(directory, prefix+Digest(identity)[:16]+".stdout.log"), progress)
+			metadata, _ := json.Marshal(map[string]any{
+				"bytes": len(progress), "sha256": Digest(progress), "complete": complete && len(progress) == out.Len(),
+				"capturedBytes": out.Len(), "capturedSHA256": Digest(out.Bytes()), "capturedComplete": complete,
+			})
+			_ = writeExclusive(filepath.Join(directory, prefix+Digest(identity)[:16]+".stdout.json"), metadata)
 		}
 	}
-	if !releaseCommandSettled(cmd) {
+	if !settled {
 		return nil, &commandUncertain{program: filepath.Base(path)}
+	}
+	if out.exceeded {
+		return nil, &commandUncertain{program: filepath.Base(path) + " stdout exceeded its bound"}
 	}
 	if err != nil {
 		var exit *exec.ExitError
@@ -181,7 +193,7 @@ func (b *Live) commandWithEnvironment(ctx context.Context, input []byte, environ
 			}
 		}
 		if ctx.Err() == nil && errors.As(err, &exit) && exit.ExitCode() > 0 && exit.ExitCode() != 255 {
-			return nil, &commandFailure{program: filepath.Base(path), code: exit.ExitCode()}
+			return out.Bytes(), &commandFailure{program: filepath.Base(path), code: exit.ExitCode()}
 		}
 		return nil, &commandUncertain{program: filepath.Base(path)}
 	}
@@ -190,7 +202,8 @@ func (b *Live) commandWithEnvironment(ctx context.Context, input []byte, environ
 
 type limitedOutput struct {
 	bytes.Buffer
-	limit int
+	limit    int
+	exceeded bool
 }
 
 type diagnosticOutput struct {
@@ -218,6 +231,7 @@ func (b *diagnosticOutput) Write(p []byte) (int, error) {
 
 func (b *limitedOutput) Write(p []byte) (int, error) {
 	if len(p) > b.limit-b.Len() {
+		b.exceeded = true
 		return 0, errors.New("operator output allowance exceeded")
 	}
 	return b.Buffer.Write(p)

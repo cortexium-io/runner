@@ -2,7 +2,6 @@ package release
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -192,23 +191,7 @@ func (b *Live) rehearseCandidate(ctx context.Context, j *Job) (err error) {
 	if err = b.waitTrial(ctx, name); err != nil {
 		return err
 	}
-	probeName := "runner-runtime-" + j.Request.Key
-	runtime, err := b.docker(ctx, "run", "--name", probeName, "--label", "cortexium.runner.run="+j.Request.RunID, "--pull=never", "--network", "container:"+name, "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--memory", "128m", "--pids-limit", "32", "--entrypoint", "/probe", "--mount", "type=bind,src="+c.Delivery.Probe+",dst=/probe,readonly", j.Receipt.Image)
-	if err != nil {
-		return err
-	}
-	var observed struct {
-		Status  string
-		Choices int
-		Passed  int
-	}
-	if json.Unmarshal(runtime, &observed) != nil || observed.Status != "passed" || observed.Choices == 0 || observed.Choices != observed.Passed {
-		return errors.New("runtime catalogue proof failed")
-	}
-	if err = writeExclusive(filepath.Join(j.Receipt.Package, "runtime-http.json"), runtime); err != nil {
-		return err
-	}
-	if err = b.removeSettledContainer(ctx, probeName, j.Request.RunID, j.Receipt.Image); err != nil {
+	if err = b.runtimeProbe(ctx, j, name); err != nil {
 		return err
 	}
 	if err = b.closeTrial(ctx, name, j.Request.RunID, j.Receipt.Image); err != nil {
