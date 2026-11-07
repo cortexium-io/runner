@@ -179,7 +179,10 @@ Go predecessor and the rollout default described above. Select one complete
 process using that routing; do not split work into chat-coordinated development
 and release runs. Omit `source_ref` to use its configured latest-main admission,
 or supply an explicit
-full commit. Supply `benchmark: "none"` when no benchmark is relevant. Present the
+full commit. Optional-measurement delivery and frontend processes accept
+`benchmark: "none"` when no benchmark is relevant. Both planned investigation
+variants require an actual named baseline benchmark and reject `none` before
+model work; their review requires the retained pre-correction report. Present the
 exact saved merge/production/recovery decision and its receipt; approve none of
 them on the owner's behalf. `runner_result.decision_outputs` previews the saved
 decision attempt's outputs before final process outputs exist; use its receipt

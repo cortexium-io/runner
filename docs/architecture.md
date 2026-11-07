@@ -181,6 +181,38 @@ executable/configuration paths changed; its policy hash remains
 `f55186eaa03d856bec3ea9dc496df175a30beec7429977da843ab4271306a2a4`.
 No new product workflow, model visit, retry allowance or default cutover occurred.
 
+The separately authorized backend investigation stopped at readiness before any
+model calls: 4,300,325,576 bytes of retained delivery files plus the existing
+4 GiB working reserve exceeded the unchanged 8 GiB admission limit by 5,358,280
+bytes. Three protected raw source archives accounted for 2,547,348,390 bytes.
+One inspected archive contained 1,126,177,439 uncompressed bytes, including
+1,107,640,722 bytes under `docs/`: historical benchmark data, compressed binaries,
+archives and database evidence were being packaged repeatedly with source.
+
+The approved retention maintenance, source
+`55f43fce0ce7d81e705b562d849578214de86c3c`, passed local race/vet and exact-source
+macOS/Linux CI, then installed at idle. Its cold checkpoint and logical comparison
+preserved all 88 then-live run records, definitions and separate attempt rows
+exactly. Earlier records expired under the unchanged 168-hour Core policy remain
+in the existing cold checkpoints, including the 93-row diagnostic checkpoint.
+The opt-in operator policy adds `build_payloads: 2` with hash-bound deletion
+intents and reproduction, settlement and all-target preflight checks. Newest
+packages, current/previous production and pending release/recovery dependencies
+remain protected; reports, journals, source history, databases and backups remain.
+
+Runner exercised that policy during readiness for the approved fresh workflow
+`run_RE2TJP3K3LTXXEZ6OPTYV26U2M`. It retired exactly 841,083,193 logical bytes
+across 940 compiled files in ten older packages. A separate read-only audit found
+the remaining 1,109 old files and 86 literal links unchanged, with all three
+protected packages retained. Admission then passed without changing any limit.
+This storage proof establishes no product fix or final qualification by itself.
+Planned investigation also now retains the first actual candidate measurement
+before the correction owner, preserving it through later owner backedges for
+independent original/before/current review. A real model-free Core journey covers
+two corrections, complete evidence transport, one publication and the unchanged
+protected merge wait. No fallback relabels pristine controls as that first
+candidate measurement.
+
 The research baseline has six measured controls but no structured baseline trace.
 The current max-uint32 seed sample reached its existing 10-second request limit;
 the original request, seed/history and environment remain unavailable. Complete
