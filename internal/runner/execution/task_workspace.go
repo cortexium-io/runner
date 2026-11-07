@@ -644,7 +644,9 @@ func (w *Workspaces) pinTaskSource(ctx context.Context, a runner.Assignment) (*r
 }
 
 func (w *Workspaces) forgetTaskPins(ctx context.Context, id string) error {
-	w.mu.Lock()
+	if err := w.lockContext(ctx); err != nil {
+		return err
+	}
 	defer w.mu.Unlock()
 	r, err := w.load(id)
 	if errors.Is(err, os.ErrNotExist) {

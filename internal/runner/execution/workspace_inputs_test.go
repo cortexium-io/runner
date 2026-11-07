@@ -51,13 +51,13 @@ func TestWritableEvidenceInputsAreExplicitStagedCopiesAndCleanOnlyTheirAttempt(t
 	if err = os.WriteFile(file, []byte("drift"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if c.workspaceInputs(j) == nil || w.ReleaseAttempt(a) == nil {
+	if c.workspaceInputs(j) == nil || w.ReleaseAttempt(t.Context(), a) == nil {
 		t.Fatal("changed input was overwritten or deleted without ownership proof")
 	}
 	if err = os.WriteFile(file, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = w.ReleaseAttempt(a); err != nil {
+	if err = w.ReleaseAttempt(t.Context(), a); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = os.Stat(filepath.Dir(file)); !os.IsNotExist(err) {

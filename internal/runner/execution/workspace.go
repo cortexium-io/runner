@@ -610,7 +610,9 @@ func (w *Workspaces) ReleaseRun(ctx context.Context, id string) error {
 }
 
 func (w *Workspaces) releaseRun(ctx context.Context, id string, preserveCandidate bool) error {
-	w.mu.Lock()
+	if err := w.lockContext(ctx); err != nil {
+		return err
+	}
 	defer w.mu.Unlock()
 	r, e := w.load(id)
 	if errors.Is(e, os.ErrNotExist) {
@@ -722,7 +724,9 @@ func (w *Workspaces) ForgetRun(ctx context.Context, id string) error {
 	if e := w.ReleaseRun(ctx, id); e != nil {
 		return e
 	}
-	w.mu.Lock()
+	if err := w.lockContext(ctx); err != nil {
+		return err
+	}
 	defer w.mu.Unlock()
 	r, e := w.load(id)
 	if errors.Is(e, os.ErrNotExist) {
@@ -780,8 +784,10 @@ func (w *Workspaces) MarkReady(ctx context.Context, id, generation string) error
 	r.ReadyGeneration = generation
 	return w.save(r)
 }
-func (w *Workspaces) ReleaseAttempt(a runner.Assignment) error {
-	w.mu.Lock()
+func (w *Workspaces) ReleaseAttempt(ctx context.Context, a runner.Assignment) error {
+	if err := w.lockContext(ctx); err != nil {
+		return err
+	}
 	defer w.mu.Unlock()
 	r, e := w.load(a.RunID)
 	if errors.Is(e, os.ErrNotExist) {

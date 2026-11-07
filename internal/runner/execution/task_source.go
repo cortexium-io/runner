@@ -141,7 +141,7 @@ func (s *TaskSources) Stop(ctx context.Context, id string) error {
 	}
 	return err
 }
-func (s *TaskSources) Release(_ context.Context, id string) error {
+func (s *TaskSources) Release(ctx context.Context, id string) error {
 	s.mu.Lock()
 	if work := s.workers[id]; work != nil {
 		select {
@@ -163,10 +163,10 @@ func (s *TaskSources) Release(_ context.Context, id string) error {
 	if j.End == nil {
 		return errors.New("cannot release unsettled task source operation")
 	}
-	if err = s.workspaces.ReleaseAttempt(j.Assignment); err != nil {
+	if err = s.workspaces.ReleaseAttempt(ctx, j.Assignment); err != nil {
 		return err
 	}
-	if err = s.workspaces.releaseTaskScratch(j); err != nil {
+	if err = s.workspaces.releaseTaskScratch(ctx, j); err != nil {
 		return err
 	}
 	return s.disk.Remove(taskSourceName(id))

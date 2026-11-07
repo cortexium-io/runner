@@ -296,7 +296,7 @@ func (r *Releases) Stop(ctx context.Context, id string) error {
 	_, err = r.Observe(ctx, id)
 	return err
 }
-func (r *Releases) Release(_ context.Context, id string) error {
+func (r *Releases) Release(ctx context.Context, id string) error {
 	j, err := r.load(id)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -308,7 +308,7 @@ func (r *Releases) Release(_ context.Context, id string) error {
 		return errors.New("cannot release an unsettled external operation")
 	}
 	if releaseSourceMode(j.Assignment.Setup.Profile.Mode) {
-		if err = r.releaseSourceAdoption(j); err != nil {
+		if err = r.releaseSourceAdoption(ctx, j); err != nil {
 			return err
 		}
 	}

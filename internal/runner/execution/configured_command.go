@@ -442,7 +442,7 @@ func (c *Commands) Release(ctx context.Context, id string) error {
 		return errors.New("cannot release an unsettled command")
 	}
 	if job.Workspace != nil {
-		if err = c.workspaces.ReleaseAttempt(job.Assignment); err != nil {
+		if err = c.workspaces.ReleaseAttempt(ctx, job.Assignment); err != nil {
 			return err
 		}
 	}

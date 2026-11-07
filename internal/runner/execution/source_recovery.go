@@ -22,7 +22,9 @@ func (s *Service) ValidateSourceRecovery(ctx context.Context, run runner.Run, so
 // the ordinary disposable-index verification; absent source needs both durable
 // cleanup confirmations. Normal Prepare still validates/restores before start.
 func (w *Workspaces) validateSourceRecovery(ctx context.Context, run runner.Run, source runner.SourceResult) error {
-	w.mu.Lock()
+	if err := w.lockContext(ctx); err != nil {
+		return err
+	}
 	defer w.mu.Unlock()
 	r, err := w.sourceRecoveryRecord(ctx, run, source)
 	if err != nil {

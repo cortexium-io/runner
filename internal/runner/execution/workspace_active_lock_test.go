@@ -42,3 +42,44 @@ func TestTaskSourceServiceCloseCancelsWorkspaceLockWait(t *testing.T) {
 		t.Fatal("cancelled workspace wait mutated source", err)
 	}
 }
+
+func TestWorkspaceCleanupAndRecoveryWaitsRespectCancellation(t *testing.T) {
+	w := &Workspaces{disk: workspaceDisk(t)}
+	a := runner.Assignment{RunID: "run_missing", AttemptID: "attempt_missing"}
+	run := runner.Run{ID: a.RunID, Status: "Failed"}
+	for _, tc := range []struct {
+		name string
+		call func(context.Context) error
+	}{
+		{"run cleanup", func(ctx context.Context) error { return w.ReleaseRun(ctx, a.RunID) }},
+		{"forget", func(ctx context.Context) error { return w.ForgetRun(ctx, a.RunID) }},
+		{"attempt cleanup", func(ctx context.Context) error { return w.ReleaseAttempt(ctx, a) }},
+		{"task scratch", func(ctx context.Context) error { return w.releaseTaskScratch(ctx, taskSourceJob{Assignment: a}) }},
+		{"adoption pins", func(ctx context.Context) error { return w.forgetAdoptedSource(ctx, a.RunID) }},
+		{"task pins", func(ctx context.Context) error { return w.forgetTaskPins(ctx, a.RunID) }},
+		{"source validation", func(ctx context.Context) error { return w.validateSourceRecovery(ctx, run, runner.SourceResult{}) }},
+		{"source preservation", func(ctx context.Context) error {
+			_, err := w.preserveRecoverySource(ctx, run, runner.SourceResult{})
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w.mu.Lock()
+			defer w.mu.Unlock()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			entered, done := make(chan struct{}), make(chan error, 1)
+			go func() { close(entered); done <- tc.call(ctx) }()
+			<-entered
+			cancel()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatal("cleanup ignored its cancelled lock wait", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("cleanup waited for an unrelated workspace owner")
+			}
+		})
+	}
+}

@@ -297,7 +297,7 @@ func (r *Releases) Close(ctx context.Context) error {
 	return nil
 }
 
-func (r *Releases) releaseSourceAdoption(j releaseJob) error {
+func (r *Releases) releaseSourceAdoption(ctx context.Context, j releaseJob) error {
 	r.adoptionMu.Lock()
 	if work := r.adoptions[j.Assignment.AttemptID]; work != nil {
 		select {
@@ -315,7 +315,7 @@ func (r *Releases) releaseSourceAdoption(j releaseJob) error {
 	}
 	defer lease.Close()
 	if r.workspaces != nil {
-		if err = r.workspaces.ReleaseAttempt(j.Assignment); err != nil {
+		if err = r.workspaces.ReleaseAttempt(ctx, j.Assignment); err != nil {
 			return err
 		}
 	}

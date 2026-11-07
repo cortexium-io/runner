@@ -799,10 +799,14 @@ func stepOutput(r Run, b Binding) (Value, bool) {
 }
 func (c *Core) launch(runID, id, op string, ass Assignment) {
 	c.inFlight[id] = true
+	callTimeout := 5 * time.Second
+	if op == "release_run" {
+		callTimeout = cleanupCallTimeout(c.runs[runID].Process)
+	}
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+		ctx, cancel := context.WithTimeout(c.ctx, callTimeout)
 		defer cancel()
 		var obs Observation
 		var err error

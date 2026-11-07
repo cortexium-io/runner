@@ -1,15 +1,18 @@
 package execution
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 )
 
-func (w *Workspaces) releaseTaskScratch(j taskSourceJob) error {
+func (w *Workspaces) releaseTaskScratch(ctx context.Context, j taskSourceJob) error {
 	a := j.Assignment
-	w.mu.Lock()
+	if err := w.lockContext(ctx); err != nil {
+		return err
+	}
 	defer w.mu.Unlock()
 	root := filepath.Join(w.disk.Root, "work", a.AttemptID)
 	info, err := os.Lstat(root)

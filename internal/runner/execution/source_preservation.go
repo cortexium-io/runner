@@ -44,7 +44,9 @@ func (s *Service) PrepareSourceRecovery(ctx context.Context, run runner.Run, sou
 // contents remain unaccepted evidence; only the previously captured patch can
 // restore source through ordinary Prepare. The move intent precedes all effects.
 func (w *Workspaces) preserveRecoverySource(ctx context.Context, run runner.Run, source runner.SourceResult) (runner.SourcePreservationReceipt, error) {
-	w.mu.Lock()
+	if err := w.lockContext(ctx); err != nil {
+		return runner.SourcePreservationReceipt{}, err
+	}
 	defer w.mu.Unlock()
 	var receipt runner.SourcePreservationReceipt
 	if run.Status != "Failed" || run.CancelRequested || run.Current() == nil || !run.CleanupBlocked || run.CleanupError == "" {

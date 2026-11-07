@@ -1091,7 +1091,7 @@ func (c *Codex) Release(ctx context.Context, id string) error {
 		}
 	}
 	if j.Workspace != nil && c.workspaces != nil {
-		if err = c.workspaces.ReleaseAttempt(j.Assignment); err != nil {
+		if err = c.workspaces.ReleaseAttempt(ctx, j.Assignment); err != nil {
 			return err
 		}
 	}

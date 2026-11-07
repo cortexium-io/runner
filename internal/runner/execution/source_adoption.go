@@ -152,7 +152,9 @@ func sourceAdoptionRef(run, attempt string) string {
 }
 
 func (w *Workspaces) forgetAdoptedSource(ctx context.Context, id string) error {
-	w.mu.Lock()
+	if err := w.lockContext(ctx); err != nil {
+		return err
+	}
 	defer w.mu.Unlock()
 	r, err := w.load(id)
 	if errors.Is(err, os.ErrNotExist) {
