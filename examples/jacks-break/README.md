@@ -40,6 +40,14 @@ Planned investigation uses the existing `runner-go-check` helper to retain actua
 scoped test execution in full. Configure its absolute runtime paths before use.
 Merge, production and restoration retain their existing separate owner gates.
 
+The first candidate measurement's bounded report is copied once by the fixed
+`retain-measurement` command before correction. Its step is anchored before the
+combined owner, so later owner backedges preserve it. Review receives the pristine
+baseline, retained pre-correction measurement and latest measurement explicitly.
+The copy uses read-only source, the declared artifact input and owned scratch;
+it neither validates the experiment nor grants source/release authority. The
+reviewer still judges complete case coverage, matched comparisons and uncertainty.
+
 `deliver-planned-retained-frontend` and `deliver-planned-retained-investigation`
 continue one accepted publication using its `publication` JSON handle and exact
 `patch` artifact. `source-adopt` authenticates the operator journal/live PR and

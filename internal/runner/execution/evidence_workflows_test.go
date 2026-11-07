@@ -46,14 +46,23 @@ func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scr
 	if err != nil || json.Unmarshal(data, &p) != nil {
 		t.Fatal("process unavailable", err)
 	}
-	for _, step := range p.Steps {
-		var role runner.Role
-		data, err = os.ReadFile(filepath.Join(root, "roles", step.Role+".json"))
-		if err != nil || json.Unmarshal(data, &role) != nil {
-			t.Fatal("role unavailable", step.Role, err)
+	var loadRoles func([]runner.Step)
+	loadRoles = func(steps []runner.Step) {
+		for _, step := range steps {
+			if step.ForEach != nil {
+				cfg.Instance.TaskConcurrency = max(cfg.Instance.TaskConcurrency, step.ForEach.MaxParallel)
+				loadRoles(step.ForEach.Steps)
+				continue
+			}
+			var role runner.Role
+			data, err := os.ReadFile(filepath.Join(root, "roles", step.Role+".json"))
+			if err != nil || json.Unmarshal(data, &role) != nil {
+				t.Fatal("role unavailable", step.Role, err)
+			}
+			project.Roles[role.ID] = role
 		}
-		project.Roles[role.ID] = role
 	}
+	loadRoles(p.Steps)
 	goBinary := cfg.Instance.Codex.GoBinary
 	for _, name := range []string{"delivery-measure", "delivery-source-baseline"} {
 		if role, exists := project.Roles[name]; exists {
@@ -72,7 +81,7 @@ func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scr
 		project.Roles[role.ID] = role
 	}
 	var goCheck string
-	for _, name := range []string{"nonogram-research-check", "nonogram-research-source-check"} {
+	for _, name := range []string{"nonogram-research-check", "nonogram-research-source-check", "planned-go-check"} {
 		if role, exists := project.Roles[name]; exists {
 			if goCheck == "" {
 				goCheck = evidenceBinary(t, "./cmd/runner-go-check")

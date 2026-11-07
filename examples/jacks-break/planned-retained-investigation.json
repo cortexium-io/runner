@@ -231,6 +231,29 @@
       }
     },
     {
+      "id": "retain-measurement",
+      "role": "retain-measurement",
+      "inputs": {
+        "measurement": {
+          "from_step": "measure",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "baseline",
+            "output": "artifact"
+          }
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "owner"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
       "id": "owner",
       "role": "planned-investigation-owner",
       "inputs": {
@@ -344,7 +367,7 @@
           "next": "review"
         },
         "continue": {
-          "next": "owner",
+          "next": "retain-measurement",
           "max_times": 1
         }
       }
@@ -366,10 +389,6 @@
             "inline": ""
           }
         },
-        "measurement": {
-          "from_step": "measure",
-          "output": "check"
-        },
         "measurements": {
           "from_step": "measure",
           "output": "artifact"
@@ -384,6 +403,10 @@
         },
         "checks": {
           "from_step": "check",
+          "output": "artifact"
+        },
+        "before_measurements": {
+          "from_step": "retain-measurement",
           "output": "artifact"
         }
       },

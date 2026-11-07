@@ -130,6 +130,16 @@ seeding work. Publication continues that authenticated PR with a head comparison
 it reuses no old review, qualification, merge or production approval. Supplying a
 PR number or branch name in task data grants no publication authority.
 
+Planned investigations retain the first actual candidate measurement as a
+separate artifact before entering the combined correction owner. The fixed copy
+step is anchored before that owner so later correction loops cannot supersede
+it. Independent review receives the pristine controls, this pre-correction report
+and the latest measurement as separate protected inputs. Their case coverage and
+source/seed/environment differences remain explicit; original controls alone do
+not prove new-case coverage or an original incident's reproduction. This uses the
+existing command/artifact mechanism and unchanged process/model limits. The
+coordinator submits the complete request rather than coordinating these stages.
+
 For bounded research without release, select
 `research-planned-retained-nonogram`. Supply the pristine `baseline_benchmark`,
 current `benchmark`, scoped `tests` and authorized `prior_patch` proposal. Runner
