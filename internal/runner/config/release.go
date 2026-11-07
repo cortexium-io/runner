@@ -60,10 +60,7 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 			}
 		}
 		if len(p.Steps) < 3 || selected[0].Access != "workspace-read" || p.Steps[0].ForEach != nil || p.Steps[0].Reuse || p.Steps[0].Escalation != nil ||
-			!reflect.DeepEqual(p.Steps[0].Routes, map[string]runner.Route{
-				"continue": {Next: p.Steps[1].ID},
-				"ready":    {Next: p.Steps[1].ID},
-			}) {
+			!plannedBaselineRoutes(p, p.Steps[1].ID) {
 			return bad
 		}
 		readiness = 1

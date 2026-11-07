@@ -75,7 +75,7 @@ func BenchmarkEvidence(b *testing.B){
 	if err = os.WriteFile(filepath.Join(source, "sample_test.go"), []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = run(goBinary, source, scratch, ".", "^BenchmarkEvidence$", "", true); err != nil {
+	if err = run(goBinary, source, scratch, ".", "^BenchmarkEvidence$", "", true, false); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(scratch, "measurements.json"))

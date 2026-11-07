@@ -26,6 +26,22 @@ func deadlinePayloadAssignment() runner.Assignment {
 	}
 }
 
+func TestAssignmentAdmissionDoesNotReadFutureRecoveryArtifact(t *testing.T) {
+	a := deadlinePayloadAssignment()
+	a.AttemptID = "attempt_collection_repair"
+	a.Inputs["measurement"] = runner.Value{ArtifactID: "attempt_failed/collection-failure.json"}
+	// Recovery validates admission before registering its diagnostic. Only normal
+	// preparation may read the artifact; admission still enforces the input cap.
+	s := &Service{}
+	if err := s.ValidateAssignment(a); err != nil {
+		t.Fatal("admission tried to materialize an unregistered recovery artifact", err)
+	}
+	a.Setup.Profile.MaxInput = 128
+	if err := s.ValidateAssignment(a); err == nil {
+		t.Fatal("deferred artifact reading bypassed the existing input allowance")
+	}
+}
+
 func TestNativePayloadIncludesAuthoritativeDeadlineSnapshot(t *testing.T) {
 	now := time.Date(2026, 11, 5, 12, 0, 0, 500_000_000, time.UTC)
 	future := now.Add(61*time.Second + 250*time.Millisecond).In(time.FixedZone("fixture", 2*60*60))

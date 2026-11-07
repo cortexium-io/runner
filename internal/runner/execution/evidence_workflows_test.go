@@ -27,7 +27,7 @@ func evidenceBinary(t *testing.T, pkg string) string {
 	return file
 }
 
-func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scriptedPeer, configure func(*runner.Project)) (*nativeRig, runner.Process, string) {
+func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scriptedPeer, configure func(*runner.Project), artifactLimit ...runner.Bytes) (*nativeRig, runner.Process, string) {
 	t.Helper()
 	head := strings.TrimSpace(string(fixtureGit(t, repo, "rev-parse", "HEAD")))
 	remote := filepath.Join(t.TempDir(), "remote.git")
@@ -38,6 +38,9 @@ func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scr
 	cfg.Instance.Storage.Database.MaxRecord = 40 << 10
 	cfg.Instance.Storage.Database.MaxSize = 48 << 20
 	cfg.Instance.Storage.Database.MaxRuns = 128
+	if len(artifactLimit) != 0 {
+		cfg.Instance.Storage.MaxArtifact = artifactLimit[0]
+	}
 	cfg.Instance.Release = &runner.ReleaseSettings{Command: []string{provider}, GitHub: "/usr/bin/true"}
 	project := cfg.Projects["demo"]
 	root := filepath.Join("..", "..", "..", "examples", "jacks-break")
@@ -64,13 +67,16 @@ func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scr
 	}
 	loadRoles(p.Steps)
 	goBinary := cfg.Instance.Codex.GoBinary
-	for _, name := range []string{"delivery-measure", "delivery-source-baseline"} {
+	for _, name := range []string{"delivery-measure", "delivery-source-baseline", "planned-investigation-measure"} {
 		if role, exists := project.Roles[name]; exists {
 			args := []string{measure, "--go", goBinary, "--source", "{workspace}", "--scratch", "{scratch}", "--package", "{text.package}", "--benchmark", "{text.benchmark}"}
 			if name == "delivery-source-baseline" {
 				args = append(args, "--baseline")
 			} else {
 				args = append(args, "--previous", "{text.previous}")
+			}
+			if name == "planned-investigation-measure" {
+				args = append(args, "--repair-collection")
 			}
 			role.Execution.Command = &runner.Command{Args: args, Result: "domain.json", Artifact: "measurements.json"}
 			project.Roles[name] = role

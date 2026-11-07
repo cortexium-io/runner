@@ -83,6 +83,10 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		r, e := c.RecoverCorrections(in)
 		return summary(r), e
 	})
+	add(s, "runner_recover_collection", "Owner-authorized one-time repair of an exact saved measurement console overflow. Rejoins the existing source owner with an explicitly incomplete diagnostic; preserves the failed attempt, accepted work, frozen process and all limits. Grants no retry allowance or release approval. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverCollectionRequest) (any, error) {
+		r, e := c.RecoverCollection(in)
+		return summary(r), e
+	})
 	add(s, "runner_decide", "Approve or reject one saved decision using its exact decision_id. Does not grant extra attempts or approve a different candidate.", func(ctx context.Context, in runner.DecisionRequest) (any, error) {
 		r, e := c.Decide(in)
 		return summary(r), e

@@ -15,6 +15,9 @@ func TestPlannedInvestigationRetainsFirstMeasurementWithoutChangingAuthority(t *
 			if err := errors.Join(validateProcess(p, project), validateReleaseProcess(p, project)); err != nil {
 				t.Fatal(err)
 			}
+			if p.Steps[0].Routes["blocked"] != (runner.Route{Next: "$fail"}) {
+				t.Fatal("planned baseline cannot retain an incomplete diagnostic and stop before admission")
+			}
 			copy := plannedStep(t, &p, "retain-measurement")
 			owner := plannedStep(t, &p, "owner")
 			measure := plannedStep(t, &p, "measure")
@@ -47,6 +50,31 @@ func TestPlannedInvestigationRetainsFirstMeasurementWithoutChangingAuthority(t *
 			if reviewer.Execution.Access != "workspace-read" || project.Roles[owner.Role].Execution.Access != "workspace-write" || p.MaxAttempts != 64 || p.MaxAttemptsPerStep != 1 || p.InfrastructureRetries != 1 || p.AttemptTimeout != "20m" ||
 				!plannedStep(t, &p, "prepare").Routes["ready"].Approval || !plannedStep(t, &p, "backup").Routes["ready"].Approval {
 				t.Fatal("measurement retention changed frozen ceilings or protected approvals")
+			}
+		})
+	}
+}
+
+func TestPlannedBaselineBlockedDiagnosticCannotEnterSourceOrReleaseWork(t *testing.T) {
+	for _, file := range []string{"planned-investigation.json", "planned-retained-investigation.json"} {
+		t.Run(file, func(t *testing.T) {
+			base, project := plannedFixture(t, "jacks-break", file)
+			for _, route := range []runner.Route{
+				{Next: base.Steps[1].ID},
+				{Next: "owner"},
+				{Next: "$fail", Approval: true},
+				{Next: "$fail", MaxTimes: 1},
+			} {
+				p := runner.Clone(base)
+				p.Steps[0].Routes["blocked"] = route
+				if validateReleaseProcess(p, project) == nil {
+					t.Fatal("blocked baseline acquired source continuation or decision authority", route)
+				}
+			}
+			legacy := runner.Clone(base)
+			delete(legacy.Steps[0].Routes, "blocked")
+			if err := validateReleaseProcess(legacy, project); err != nil {
+				t.Fatal("existing two-outcome planned baseline definition became invalid", err)
 			}
 		})
 	}

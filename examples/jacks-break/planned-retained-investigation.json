@@ -26,6 +26,9 @@
         },
         "ready": {
           "next": "source-adopt"
+        },
+        "blocked": {
+          "next": "$fail"
         }
       }
     },
@@ -342,7 +345,7 @@
     },
     {
       "id": "measure",
-      "role": "delivery-measure",
+      "role": "planned-investigation-measure",
       "inputs": {
         "patch": {
           "from_candidate": true
@@ -369,6 +372,13 @@
         "continue": {
           "next": "retain-measurement",
           "max_times": 1
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
         }
       }
     },

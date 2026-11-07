@@ -142,7 +142,7 @@ seeding work. Publication continues that authenticated PR with a head comparison
 it reuses no old review, qualification, merge or production approval. Supplying a
 PR number or branch name in task data grants no publication authority.
 
-Planned investigations retain the first actual candidate measurement as a
+Planned investigations retain the first complete candidate measurement as a
 separate artifact before entering the combined correction owner. The fixed copy
 step is anchored before that owner so later correction loops cannot supersede
 it. Independent review receives the pristine controls, this pre-correction report
@@ -151,6 +151,45 @@ source/seed/environment differences remain explicit; original controls alone do
 not prove new-case coverage or an original incident's reproduction. This uses the
 existing command/artifact mechanism and unchanged process/model limits. The
 coordinator submits the complete request rather than coordinating these stages.
+
+New planned investigation collectors route a known stdout overflow to their
+configured owner, for at most three collection-correction uses within the shared
+64-attempt ceiling. This requires settled successful Go execution and safely
+collected sidecars; mixed failures, uncertain execution or malformed evidence
+remain blocked. Console retention stays at 256 KiB, structured sidecars at 8 MiB
+total and the report at 16 MiB. Overflow records bounded output, its digest and
+incompleteness; it never becomes a timing or coverage claim. Source producers
+write complete structured evidence to sidecars and keep console output compact.
+
+An incomplete collection preserves `previous_complete_round` (zero before the
+first complete measurement). Its correction route does not consume the separate
+one-use measurement-continuation route. The first complete measurement is still
+round one and is copied before owner correction; later complete measurements
+retain their ordinary round sequence. Collection failures cannot replace that
+before artifact or the pristine baseline. New planned baselines explicitly route
+`blocked` to failure. A frozen legacy baseline without that route can reject the
+domain outcome before indexing its diagnostic artifact; do not adopt private
+files as accepted evidence or rewrite its frozen routes.
+
+For an explicitly approved legacy measurement failure reporting
+`measurement output exceeds 256KiB`, the owner-only same-run operation is:
+
+```sh
+cortexium-runner recover-collection --data STATE --run RUN --attempt ATTEMPT \
+  --request-id AUTHORIZED-STABLE-ID
+```
+
+It requires the exact settled failed attempt, completed cleanup, authenticated
+current candidate and the frozen owner/check/measurement loop. It preserves the
+failed result and definition, records an idempotent audit, and gives the existing
+owner a new visit with a diagnostic marked `collection_failure` and incomplete.
+That diagnostic establishes only the saved collection error, with no fabricated
+timings, samples or seeds. Original request, baseline, plan, checks and accepted
+cards remain available; downstream evidence is invalidated normally. The action
+increases no attempt allowance or other ceiling and bypasses no protected
+approval. Normal dispatch spends the remaining original allowance. Restricted
+intake must not expose or invoke this operation; rejoin the same request after a
+disconnect.
 
 For bounded research without release, select
 `research-planned-retained-nonogram`. Supply the pristine `baseline_benchmark`,

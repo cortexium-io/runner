@@ -48,6 +48,23 @@ The copy uses read-only source, the declared artifact input and owned scratch;
 it neither validates the experiment nor grants source/release authority. The
 reviewer still judges complete case coverage, matched comparisons and uncertainty.
 
+Planned investigation measurement retains at most 256KiB of combined Go console
+output, with a byte count/hash and explicit completeness status. Full structured
+records belong in `RUNNER_MEASURE_EVIDENCE`: at most 64 JSON files and 8MiB total,
+within the unchanged 16MiB report ceiling. Keep console summaries compact; do not
+print full sample JSON with `b.Log`. A known settled stdout overflow can request
+up to three source corrections through the dedicated planned measurement role;
+unsafe evidence or uncertain execution blocks. Incomplete collection never takes
+the before-copy route or advances the last complete measurement round. These
+corrections remain inside the same shared 64-attempt allowance.
+
+Diagnostic indexing is guaranteed by the updated planned investigation routes.
+Older or frozen measurement/baseline definitions can reject a new `blocked`
+outcome before its artifact is indexed; they are not rewritten. The historical
+overflow retained only its 34-byte error message, and discarded output/sidecars
+cannot be recovered retrospectively. A legacy owner recovery must first repair
+producer compactness; any further unsupported failure stops that workflow.
+
 `deliver-planned-retained-frontend` and `deliver-planned-retained-investigation`
 continue one accepted publication using its `publication` JSON handle and exact
 `patch` artifact. `source-adopt` authenticates the operator journal/live PR and

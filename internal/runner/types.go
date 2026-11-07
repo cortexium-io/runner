@@ -480,6 +480,7 @@ type Run struct {
 	StepInputs         map[string]Value           `json:"step_inputs,omitempty"`
 	RouteUses          map[string]int             `json:"route_uses,omitempty"`
 	CorrectionRecovery *CorrectionRecovery        `json:"correction_recovery,omitempty"`
+	CollectionRecovery *CollectionRecovery        `json:"collection_recovery,omitempty"`
 	Decision           *Decision                  `json:"decision,omitempty"`
 	NextProfile        string                     `json:"next_profile,omitempty"`
 	Escalations        int                        `json:"escalations"`

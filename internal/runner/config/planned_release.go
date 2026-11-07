@@ -128,3 +128,21 @@ func plannedMeasurementSnapshot(p runner.Process, project runner.Project, index,
 	}
 	return incoming == 1 && measurementIndex > index+1 && measurementIndex < reviewIndex && reviewIndex < release-1
 }
+
+// Older baseline definitions retain their two-outcome contract. Planned source
+// collections may additionally preserve a blocked diagnostic and stop before
+// admission; this outcome cannot enter adoption, planning or release work.
+func plannedBaselineRoutes(p runner.Process, next string) bool {
+	expected := map[string]runner.Route{"ready": {Next: next}, "continue": {Next: next}}
+	if blocked, exists := p.Steps[0].Routes["blocked"]; exists {
+		planned := false
+		for _, step := range p.Steps {
+			planned = planned || step.ForEach != nil && step.ForEach.Mode == "isolated"
+		}
+		if p.MaxAttempts != 64 || !planned || blocked != (runner.Route{Next: "$fail"}) {
+			return false
+		}
+		expected["blocked"] = blocked
+	}
+	return reflect.DeepEqual(p.Steps[0].Routes, expected)
+}

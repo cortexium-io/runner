@@ -31,7 +31,7 @@ func sourceAdoptionPrefix(p runner.Process, project runner.Project, index int) (
 		baseline := p.Steps[0]
 		profile := taskProfile(project, baseline)
 		if profile.Harness != "command" || profile.Access != "workspace-read" || profile.Command == nil || profile.Command.Network || baseline.ForEach != nil || baseline.Reuse || baseline.Escalation != nil ||
-			!reflect.DeepEqual(baseline.Routes, map[string]runner.Route{"ready": {Next: adopt.ID}, "continue": {Next: adopt.ID}}) {
+			!plannedBaselineRoutes(p, adopt.ID) {
 			return 0, bad
 		}
 		for name, binding := range baseline.Inputs {

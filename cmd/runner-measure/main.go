@@ -4,10 +4,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"os/exec"
@@ -19,19 +22,24 @@ import (
 )
 
 type measurement struct {
-	Round          int                        `json:"round"`
-	Package        string                     `json:"package"`
-	Selector       string                     `json:"selector"`
-	Started        time.Time                  `json:"started"`
-	Seconds        float64                    `json:"seconds"`
-	Output         string                     `json:"output"`
-	Skipped        bool                       `json:"skipped"`
-	Baseline       bool                       `json:"baseline,omitempty"`
-	Failed         bool                       `json:"failed,omitempty"`
-	Error          string                     `json:"error,omitempty"`
-	Evidence       map[string]json.RawMessage `json:"evidence,omitempty"`
-	EvidenceStatus string                     `json:"evidence_status"`
-	EvidenceNote   string                     `json:"evidence_note,omitempty"`
+	Round                 int                        `json:"round"`
+	Package               string                     `json:"package"`
+	Selector              string                     `json:"selector"`
+	Started               time.Time                  `json:"started"`
+	Seconds               float64                    `json:"seconds"`
+	Output                string                     `json:"output"`
+	OutputBytes           int64                      `json:"output_bytes"`
+	OutputSHA256          string                     `json:"output_sha256"`
+	OutputComplete        bool                       `json:"output_complete"`
+	CollectionFailed      bool                       `json:"collection_failed,omitempty"`
+	PreviousCompleteRound int                        `json:"previous_complete_round"`
+	Skipped               bool                       `json:"skipped"`
+	Baseline              bool                       `json:"baseline,omitempty"`
+	Failed                bool                       `json:"failed,omitempty"`
+	Error                 string                     `json:"error,omitempty"`
+	Evidence              map[string]json.RawMessage `json:"evidence,omitempty"`
+	EvidenceStatus        string                     `json:"evidence_status"`
+	EvidenceNote          string                     `json:"evidence_note,omitempty"`
 }
 
 func selection(pkg, selector, previous string) (int, error) {
@@ -49,10 +57,15 @@ func selection(pkg, selector, previous string) (int, error) {
 	if previous == "" {
 		return 1, nil
 	}
-	match := regexp.MustCompile(`runner-measure round=([0-9]+) `).FindStringSubmatch(previous)
-	if len(match) == 2 {
-		n, err := strconv.Atoi(match[1])
-		if err == nil && n >= 1 && n < 128 {
+	matches := regexp.MustCompile(`(?m)^runner-measure (?:round=([0-9]+) |collection-incomplete previous_complete_round=([0-9]+)(?:\s|$))`).FindAllStringSubmatch(previous, -1)
+	if len(matches) > 0 {
+		match := matches[len(matches)-1]
+		value, minimum := match[1], 1
+		if match[2] != "" {
+			value, minimum = match[2], 0
+		}
+		n, err := strconv.Atoi(value)
+		if err == nil && n >= minimum && n < 128 {
 			return n + 1, nil
 		}
 	}
@@ -67,14 +80,15 @@ func main() {
 	selector := flag.String("benchmark", "none", "anchored benchmark selector or none")
 	previous := flag.String("previous", "", "retained prior check")
 	baseline := flag.Bool("baseline", false, "retain an unsuccessful benchmark as investigation feedback")
+	repairCollection := flag.Bool("repair-collection", false, "request bounded source correction for known stdout collection overflow")
 	flag.Parse()
-	if err := run(*goBinary, *source, *scratch, *pkg, *selector, *previous, *baseline); err != nil {
+	if err := run(*goBinary, *source, *scratch, *pkg, *selector, *previous, *baseline, *repairCollection); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(goBinary, source, scratch, pkg, selector, previous string, baseline bool) error {
+func run(goBinary, source, scratch, pkg, selector, previous string, baseline, repairCollection bool) error {
 	round, err := selection(pkg, selector, previous)
 	if err != nil {
 		return err
@@ -85,14 +99,18 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 	if baseline && (selector == "none" || previous != "") {
 		return errors.New("baseline needs an actual named benchmark and no preceding round")
 	}
+	if repairCollection && (baseline || selector == "none") {
+		return errors.New("collection repair requires an actual candidate benchmark")
+	}
 	m := measurement{
-		Round:          round,
-		Package:        pkg,
-		Selector:       selector,
-		Started:        time.Now().UTC(),
-		Skipped:        selector == "none",
-		Baseline:       baseline,
-		EvidenceStatus: "not_requested",
+		Round:                 round,
+		Package:               pkg,
+		Selector:              selector,
+		Started:               time.Now().UTC(),
+		Skipped:               selector == "none",
+		Baseline:              baseline,
+		EvidenceStatus:        "not_requested",
+		PreviousCompleteRound: round - 1,
 	}
 	if err = os.MkdirAll(scratch, 0700); err != nil {
 		return err
@@ -119,24 +137,29 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 		cmd.Stdout = &output
 		cmd.Stderr = &output
 		err = cmd.Run()
-		if output.exceeded {
-			return errors.New("measurement output exceeds 256KiB")
-		}
 		m.Output = output.String()
+		m.OutputBytes, m.OutputSHA256, m.OutputComplete = output.total, output.sha256(), !output.exceeded
 		m.Seconds = time.Since(m.Started).Seconds()
+		knownExit := err == nil && cmd.ProcessState != nil && cmd.ProcessState.Exited() && cmd.ProcessState.ExitCode() == 0 && ctx.Err() == nil
 		if err != nil {
 			var exit *exec.ExitError
 			if ctx.Err() != nil || !errors.As(err, &exit) || exit.ExitCode() != 1 {
-				return errors.New("configured measurement failed; " + m.Output)
+				knownExit = false
+				if output.exceeded {
+					m.Failed, m.Error = true, "Go measurement did not exit normally; retained output is incomplete"
+				} else {
+					return errors.New("configured measurement failed; " + m.Output)
+				}
+			} else {
+				m.Failed, m.Error = true, "Go benchmark failed; inspect retained output before claiming a performance baseline"
 			}
-			m.Failed, m.Error = true, "Go benchmark failed; inspect retained output before claiming a performance baseline"
-		} else if !regexp.MustCompile(`(?m)^Benchmark\S+\s+\d+\s+`).MatchString(m.Output) {
+		} else if !output.exceeded && !regexp.MustCompile(`(?m)^Benchmark\S+\s+\d+\s+`).MatchString(m.Output) {
 			m.Failed, m.Error = true, "benchmark selector executed no measurement"
 		}
 		m.Evidence, err = collectEvidence(evidence)
 		switch {
 		case err != nil:
-			m.Failed, m.EvidenceStatus = true, "invalid"
+			m.Failed, m.CollectionFailed, m.EvidenceStatus = true, true, "invalid"
 			if m.Error != "" {
 				m.Error += "; "
 			}
@@ -148,7 +171,19 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 			m.EvidenceStatus = "provided"
 			m.EvidenceNote = "Declared files retained; request/phase completeness and acceptance require review."
 		}
-		if round == 1 || m.Failed {
+		if output.exceeded {
+			m.Failed, m.CollectionFailed = true, true
+			if m.Error != "" {
+				m.Error += "; "
+			}
+			m.Error += "measurement output exceeds 256KiB; retained prefix is incomplete"
+		}
+		if m.CollectionFailed {
+			outcome = "blocked"
+			if repairCollection && output.exceeded && knownExit && err == nil {
+				outcome = "changes_requested"
+			}
+		} else if round == 1 || m.Failed {
 			outcome = "continue"
 		}
 	}
@@ -159,20 +194,30 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 	if len(reason) > 480 {
 		reason = strings.ToValidUTF8(reason[:480], "?") + " [see measurements.json]"
 	}
-	for name, value := range map[string]any{
-		"measurements.json": m,
-		"domain.json":       map[string]string{"outcome": outcome, "reason": reason},
+	for _, report := range []struct {
+		name  string
+		value any
+	}{
+		{"measurements.json", m},
+		{"domain.json", map[string]string{"outcome": outcome, "reason": reason}},
 	} {
-		data, err := json.Marshal(value)
-		if err != nil {
+		var encoded bytes.Buffer
+		encoder := json.NewEncoder(&encoded)
+		encoder.SetEscapeHTML(false) // These are JSON files, not embedded HTML.
+		if err := encoder.Encode(report.value); err != nil {
 			return err
 		}
-		if len(data) > 16<<20 {
+		if encoded.Len() > 16<<20 {
 			return errors.New("measurement report exceeds 16MiB artifact ceiling")
 		}
-		if err = os.WriteFile(filepath.Join(scratch, name), data, 0600); err != nil {
+		if err = os.WriteFile(filepath.Join(scratch, report.name), encoded.Bytes(), 0600); err != nil {
 			return err
 		}
+	}
+	if m.CollectionFailed {
+		fmt.Println("Measurement collection incomplete; inspect the bounded diagnostic artifact")
+		fmt.Printf("runner-measure collection-incomplete previous_complete_round=%d\n", m.PreviousCompleteRound)
+		return nil
 	}
 	if m.Failed {
 		fmt.Println(m.Error)
@@ -199,6 +244,8 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline boo
 type boundedOutput struct {
 	bytes.Buffer
 	exceeded bool
+	total    int64
+	digest   hash.Hash
 }
 
 func (b *boundedOutput) ReadFrom(r io.Reader) (int64, error) {
@@ -206,9 +253,19 @@ func (b *boundedOutput) ReadFrom(r io.Reader) (int64, error) {
 }
 
 func (b *boundedOutput) Write(p []byte) (int, error) {
-	if len(p) > 256*1024-b.Len() {
-		b.exceeded = true
-		return 0, errors.New("measurement output exceeds 256KiB")
+	if b.digest == nil {
+		b.digest = sha256.New()
 	}
-	return b.Buffer.Write(p)
+	b.total += int64(len(p))
+	_, _ = b.digest.Write(p)
+	b.exceeded = b.total > 256<<10
+	_, _ = b.Buffer.Write(p[:min(len(p), (256<<10)-b.Len())])
+	return len(p), nil
+}
+
+func (b *boundedOutput) sha256() string {
+	if b.digest == nil {
+		return hex.EncodeToString(sha256.New().Sum(nil))
+	}
+	return hex.EncodeToString(b.digest.Sum(nil))
 }
