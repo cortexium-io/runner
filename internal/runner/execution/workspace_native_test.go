@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -179,7 +180,16 @@ func qualifyWorkspacePermissions(t *testing.T, ctx context.Context, root string,
 		target.Close()
 		defer os.Remove(target.Name())
 		env["RUNNER_SOURCE_PROBE"] = target.Name()
-		argv := append([]string{binary, "run", probe, source, private, profile.mode, link}, cfg.Instance.Codex.ReadOnlyPaths...)
+		argv := append([]string{
+			binary,
+			"run",
+			probe,
+			source,
+			private,
+			profile.mode,
+			link,
+			strconv.FormatBool(cfg.Instance.Codex.GoModuleCache != ""),
+		}, cfg.Instance.Codex.ReadOnlyPaths...)
 		args := append([]string{"sandbox", "-P", profile.name, "-C", source, "--"}, envCommand(env, argv...)...)
 		command := exec.CommandContext(ctx, cfg.Instance.Codex.Binary, args...)
 		command.Env = []string{"PATH=" + os.Getenv("PATH"), "CODEX_HOME=" + home}

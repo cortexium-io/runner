@@ -112,6 +112,13 @@ func (c *Codex) workerEnvironment(j nativeJob) (map[string]string, error) {
 	if info, e := os.Lstat(filepath.Join(j.Workspace.WorkDir, ".runner-tmp")); e == nil && !info.IsDir() {
 		return nil, errors.New("worker scratch root is not a directory")
 	}
+	moduleCache := c.cfg.GoModuleCache
+	if moduleCache == "" {
+		if e = captureDirectory(j.Workspace.WorkDir, ".runner-tmp", j.Assignment.AttemptID, "module-cache"); e != nil {
+			return nil, fmt.Errorf("worker module cache: %w", e)
+		}
+		moduleCache = filepath.Join(scratch, "module-cache")
+	}
 	for _, dir := range []string{scratch, filepath.Join(scratch, "tmp"), filepath.Join(scratch, "cache")} {
 		if e = os.MkdirAll(dir, 0700); e != nil {
 			return nil, e
@@ -122,6 +129,7 @@ func (c *Codex) workerEnvironment(j nativeJob) (map[string]string, error) {
 		"TMPDIR":      scratch,
 		"GOTMPDIR":    filepath.Join(scratch, "tmp"),
 		"GOCACHE":     filepath.Join(scratch, "cache"),
+		"GOMODCACHE":  moduleCache,
 		"GOROOT":      goRoot,
 		"GOTOOLCHAIN": "local",
 		"GOENV":       "off",
@@ -130,9 +138,6 @@ func (c *Codex) workerEnvironment(j nativeJob) (map[string]string, error) {
 		"GOWORK":      "off",
 		"CGO_ENABLED": "0",
 		"GOFLAGS":     "-buildvcs=false",
-	}
-	if c.cfg.GoModuleCache != "" {
-		env["GOMODCACHE"] = c.cfg.GoModuleCache
 	}
 	if c.cfg.GoCheckBinary != "" {
 		env["RUNNER_GO_CHECK"] = c.cfg.GoCheckBinary
@@ -233,6 +238,7 @@ func (c *Codex) workspaceReadiness(ctx context.Context, peer codexPeer, j native
 				filepath.Join(c.disk.Root, filepath.FromSlash(dummy)),
 				p.write,
 				"",
+				strconv.FormatBool(c.cfg.GoModuleCache != ""),
 			}, c.cfg.ReadOnlyPaths...)...),
 			"cwd":               j.Workspace.WorkDir,
 			"permissionProfile": p.name,
@@ -372,20 +378,37 @@ func (c *Codex) command(ctx context.Context, id string, peer codexPeer, params m
 }
 
 const workspaceProbe = `package main
-import("errors";"net";"os";"path/filepath";"syscall";"time")
+import("errors";"net";"os";"path/filepath";"strconv";"syscall";"time")
 func main(){
  root,private,mode,escape:=os.Args[1],os.Args[2],os.Args[3],os.Args[4]
+ cacheReadOnly,cacheErr:=strconv.ParseBool(os.Args[5]);if cacheErr!=nil{panic("module cache mode boundary")}
  target:=os.Getenv("RUNNER_SOURCE_PROBE");err:=os.WriteFile(target,[]byte("probe"),0600)
  if (err==nil)!=(mode=="write"){panic("source write boundary")};if err==nil{os.Remove(target)}
  denied:=func(path string){_,err:=os.ReadFile(path);if !errors.Is(err,os.ErrPermission){panic("private/Git/symlink read boundary")}}
  denied(private);denied(filepath.Join(root,".git"));if escape!=""{denied(escape)}
  if artifact:=os.Getenv("RUNNER_ARTIFACT_STORE_PROBE");artifact!=""{denied(artifact)}
  for _,evidence:=range []string{os.Getenv("RUNNER_EVIDENCE_PROBE"),os.Getenv("RUNNER_INLINE_EVIDENCE_PROBE")}{if evidence!=""{if _,err:=os.ReadFile(evidence);err!=nil{panic("evidence read boundary")};f,err:=os.OpenFile(evidence,os.O_WRONLY,0);if err==nil{f.Close();panic("evidence write boundary")};if !errors.Is(err,os.ErrPermission){panic("evidence write not checked")};if err:=os.Rename(evidence,evidence+"-moved");!errors.Is(err,os.ErrPermission){panic("evidence file rename boundary")};if err:=os.Remove(evidence);!errors.Is(err,os.ErrPermission){panic("evidence delete boundary")};if err:=os.Rename(filepath.Dir(evidence),filepath.Dir(evidence)+"-moved");!errors.Is(err,os.ErrPermission){panic("evidence directory rename boundary")}}}
- for _,name:=range os.Args[5:]{f,err:=os.OpenFile(filepath.Join(root,name),os.O_WRONLY,0);if err==nil{f.Close();panic("protected source write boundary")};if !errors.Is(err,os.ErrPermission){panic("protected source not checked")}}
+ for _,name:=range os.Args[6:]{f,err:=os.OpenFile(filepath.Join(root,name),os.O_WRONLY,0);if err==nil{f.Close();panic("protected source write boundary")};if !errors.Is(err,os.ErrPermission){panic("protected source not checked")}}
  if _,err:=os.Lstat(filepath.Join(root,".gitattributes"));err==nil{f,err:=os.OpenFile(filepath.Join(root,".gitattributes"),os.O_WRONLY,0);if err==nil{f.Close();panic("immutable root attributes write boundary")};if !errors.Is(err,os.ErrPermission){panic("immutable root attributes not checked")}}
- if cache:=os.Getenv("GOMODCACHE");cache!=""{if _,err:=os.ReadDir(cache);err!=nil{panic("module cache read boundary")};target:=filepath.Join(cache,".runner-write-probe");f,err:=os.OpenFile(target,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600);if err==nil{f.Close();os.Remove(target);panic("module cache write boundary")};if !errors.Is(err,os.ErrPermission){panic("module cache not checked")}}
+ probeModuleCache(os.Getenv("GOMODCACHE"),os.Getenv("TMPDIR"),cacheReadOnly)
  if reporter:=os.Getenv("RUNNER_GO_CHECK");reporter!=""{if _,err:=os.ReadFile(reporter);err!=nil{panic("Go check runtime read boundary")};f,err:=os.OpenFile(reporter,os.O_WRONLY,0);if err==nil{f.Close();panic("Go check runtime write boundary")};if !errors.Is(err,os.ErrPermission){panic("Go check runtime not checked")}}
  conn,err:=net.DialTimeout("tcp","127.0.0.1:9",time.Second);if conn!=nil{conn.Close()};if !errors.Is(err,syscall.EPERM)&&!errors.Is(err,syscall.EACCES){panic("network boundary")}
+}
+` + workspaceModuleCacheProbe
+
+const workspaceModuleCacheProbe = `
+func probeModuleCache(cache,scratch string,readOnly bool){
+ if cache==""{panic("module cache absent")}
+ if !readOnly{
+  if scratch==""||cache!=filepath.Join(scratch,"module-cache"){panic("owned module cache containment boundary")}
+  for _,path:=range []string{scratch,cache}{info,err:=os.Lstat(path);if err!=nil||!info.IsDir(){panic("owned module cache directory boundary")}}
+ }
+ if _,err:=os.ReadDir(cache);err!=nil{panic("module cache read boundary")}
+ target:=filepath.Join(cache,".runner-write-probe")
+ f,err:=os.OpenFile(target,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
+ if err==nil{closeErr:=f.Close();removeErr:=os.Remove(target);if closeErr!=nil||removeErr!=nil{panic("module cache probe cleanup boundary")};if readOnly{panic("module cache write boundary")};return}
+ if !readOnly{panic("owned module cache write boundary")}
+ if !errors.Is(err,os.ErrPermission){panic("module cache not checked")}
 }
 `
 

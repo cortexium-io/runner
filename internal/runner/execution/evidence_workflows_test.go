@@ -4,6 +4,7 @@ package execution
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -125,6 +126,94 @@ func TestEvidenceBinaryReusesBuildWithIndependentExecutables(t *testing.T) {
 	}
 }
 
+// Normal test builds keep their shared Go cache. These simulated worker commands
+// run behind a host shim, so their source must only write fixture-owned caches.
+// Reuse compiler objects within one parent fixture; real tests still run each
+// time. Explicit module roots also keep Go's immutable-module index away from
+// mutable source when the worker environment has no HOME/GOPATH. Native cache
+// probes and the production per-attempt cache policy do not use this forwarder.
+func modelFreeFixtureGo(t *testing.T, binary, cache string) (string, string) {
+	t.Helper()
+	modules := filepath.Join(filepath.Dir(cache), "module-cache")
+	for _, path := range []string{cache, modules} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	forwarder := filepath.Join(t.TempDir(), "go")
+	script := "#!/bin/sh\nexport GOCACHE=" + testShellQuote(cache) + "\nexec " + testShellQuote(binary) + " \"$@\"\n"
+	if err := os.WriteFile(forwarder, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	return forwarder, modules
+}
+
+func TestModelFreeFixtureCompilerCacheKeepsFreshSourceResults(t *testing.T) {
+	binary, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache, otherCache := filepath.Join(t.TempDir(), "compiler-cache"), filepath.Join(t.TempDir(), "compiler-cache")
+	compiler, modules := modelFreeFixtureGo(t, binary, cache)
+	otherCompiler, otherModules := modelFreeFixtureGo(t, binary, otherCache)
+	repo := sourceRepository(t)
+	marker := filepath.Join(t.TempDir(), "executions")
+	recorder := fmt.Sprintf("package seats\nimport(\"os\";\"testing\")\nfunc TestInvocation(t *testing.T){f,e:=os.OpenFile(%q,os.O_CREATE|os.O_APPEND|os.O_WRONLY,0600);if e!=nil{t.Fatal(e)};defer f.Close();if _,e=f.WriteString(\"run\\n\");e!=nil{t.Fatal(e)}}\n", marker)
+	if err := os.WriteFile(filepath.Join(repo, "invocation_test.go"), []byte(recorder), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	local := &Codex{cfg: &runner.CodexSettings{GoBinary: compiler, GoModuleCache: modules}, ctx: ctx}
+	env, err := local.workerEnvironment(nativeJob{Assignment: runner.Assignment{AttemptID: "fixture"}, Workspace: &workspaceRecord{WorkDir: repo}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var environment []string
+	for name, value := range env {
+		environment = append(environment, name+"="+value)
+	}
+	for _, tc := range []struct {
+		name   string
+		source string
+		pass   bool
+	}{{"pass", seatsImplementation, true}, {"changed failure", strings.ReplaceAll(seatsImplementation, "n<=0", "n<0"), false}, {"repair", seatsImplementation, true}} {
+		if err := os.WriteFile(filepath.Join(repo, "seats.go"), []byte(tc.source), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.CommandContext(ctx, compiler, "test", "-count=1", "./...")
+		cmd.Dir = repo
+		cmd.Env = environment
+		if out, err := cmd.CombinedOutput(); (err == nil) != tc.pass {
+			t.Fatalf("%s source did not execute its real Go result: %v; %s", tc.name, err, out)
+		}
+	}
+	if data, err := os.ReadFile(marker); err != nil || string(data) != "run\nrun\nrun\n" {
+		t.Fatal("compiler reuse skipped a real test execution", string(data), err)
+	}
+	added := "package seats\nimport \"testing\"\nfunc TestAddedAfterCompile(t *testing.T){}\nfunc BenchmarkAddedAfterCompile(b *testing.B){b.ReportMetric(1,\"proof/op\")}\n"
+	if err := os.WriteFile(filepath.Join(repo, "added_test.go"), []byte(added), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(ctx, compiler, "test", "-v", "-count=1", "-run", "^TestAddedAfterCompile$", "-bench", "^BenchmarkAddedAfterCompile$", "-benchtime=1x", "./...")
+	cmd.Dir = repo
+	cmd.Env = environment
+	if out, err := cmd.CombinedOutput(); err != nil || !bytes.Contains(out, []byte("--- PASS: TestAddedAfterCompile")) || !bytes.Contains(out, []byte("BenchmarkAddedAfterCompile-")) {
+		t.Fatal("compiler cache omitted newly added test/benchmark source", string(out), err)
+	}
+	for compiler, expected := range map[string]string{compiler: cache + "\n" + modules, otherCompiler: otherCache + "\n" + otherModules} {
+		cmd := exec.CommandContext(ctx, compiler, "env", "GOCACHE", "GOMODCACHE")
+		cmd.Dir = repo
+		cmd.Env = environment
+		if compiler == otherCompiler {
+			cmd.Env = append(cmd.Env, "GOMODCACHE="+otherModules)
+		}
+		if out, err := cmd.CombinedOutput(); err != nil || strings.TrimSpace(string(out)) != expected {
+			t.Fatal("fixture compiler cache escaped its own lifetime", string(out), err)
+		}
+	}
+}
+
 func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scriptedPeer, configure func(*runner.Project), artifactLimit ...runner.Bytes) (*nativeRig, runner.Process, string) {
 	t.Helper()
 	head := strings.TrimSpace(string(fixtureGit(t, repo, "rev-parse", "HEAD")))
@@ -164,7 +253,8 @@ func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scr
 		}
 	}
 	loadRoles(p.Steps)
-	goBinary := cfg.Instance.Codex.GoBinary
+	goBinary, moduleCache := modelFreeFixtureGo(t, cfg.Instance.Codex.GoBinary, filepath.Join(filepath.Dir(measure), "compiler-cache"))
+	cfg.Instance.Codex.GoBinary, cfg.Instance.Codex.GoModuleCache = goBinary, moduleCache
 	for _, name := range []string{"delivery-measure", "delivery-source-baseline", "planned-investigation-measure", "planned-investigation-baseline"} {
 		if role, exists := project.Roles[name]; exists {
 			original := role.Execution.Command.Args

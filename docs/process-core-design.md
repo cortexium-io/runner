@@ -53,8 +53,16 @@ not justify more architecture, a limit increase or an acceptance waiver.
 The local verification package watchdog now matches CI's existing twenty minutes.
 The expanded serial workflow suite exceeded the old fifteen-minute watchdog
 while continuing to make progress without assertion failures. Preserve those
-failed verification logs; require a complete passing twenty-minute run. Individual
-fixture deadlines and all Runner/product/model/storage/attempt limits are unchanged.
+failed verification logs; require a complete passing twenty-minute run. All
+Runner/product/model/storage/attempt limits are unchanged.
+
+Model-free orchestration fixtures reuse a compiler cache owned by their parent
+fixture, while real tests and benchmarks still execute with `-count=1`. A
+pass/failing-source/repair regression verifies fresh execution and independent
+fixture caches. Actual native sandbox and production per-attempt caches retain
+their existing policy. The four-measurement repair fixture has a five-minute
+aggregate observer; its command/attempt deadlines and all gate assertions remain
+unchanged.
 
 Live iterative profiling exposed one additional handoff requirement: independent
 review needs intermediate complete reports when instrumentation changes before an

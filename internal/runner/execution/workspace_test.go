@@ -89,8 +89,8 @@ func TestWorkspaceModuleCacheEnvironmentAndReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := env["GOMODCACHE"]; ok {
-		t.Fatal("unselected module cache added to worker environment")
+	if env["GOMODCACHE"] != filepath.Join(j.Workspace.WorkDir, ".runner-tmp", "permission", "module-cache") {
+		t.Fatal("unconfigured module cache is not owned by this attempt", env)
 	}
 	c.cfg.GoModuleCache = cache
 	env, err = c.workerEnvironment(j)

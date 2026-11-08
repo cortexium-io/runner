@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
@@ -101,7 +102,9 @@ func BenchmarkFixtureCollection(b *testing.B){
 	if err != nil {
 		t.Fatal(err)
 	}
-	end := waitGoWorkflow(t, rig.core, r.ID, func(r runner.Run) bool {
+	// Four real Go measurement visits share this aggregate observer; each
+	// command and process attempt retains its existing execution deadline.
+	end := waitSourceRun(t, rig.core, r.ID, func(r runner.Run) bool {
 		if r.Terminal() {
 			return true
 		}
@@ -114,7 +117,7 @@ func BenchmarkFixtureCollection(b *testing.B){
 			}
 		}
 		return true
-	})
+	}, 5*time.Minute)
 	if end.Status != "Waiting" || end.Decision == nil || end.Decision.Step != "prepare" || end.Decision.Next != "merge" || script.starts != 5 || process.MaxAttempts != 64 || end.Process.MaxAttempts != 64 {
 		t.Fatal("complete collection-repair workflow stopped or changed authority", end.Status, end.Reason, end.Decision, script.starts)
 	}

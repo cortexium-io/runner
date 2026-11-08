@@ -342,6 +342,27 @@ unknown regular files and links. These prove the configured mechanism; final
 packet gates, pilot installation and the real measured continuation remain
 separate acceptance obligations.
 
+Verification also exposed an incomplete default Go environment. Without an
+explicit module-cache setting, workers inherited neither `HOME` nor `GOPATH` and
+provided no `GOMODCACHE`. Go 1.26.9 could then retain an obsolete file inventory
+across commands after an actor added source files. Workers now always receive a
+nonempty module-cache path: the configured read-only cache is unchanged, while
+an unconfigured worker uses its existing owned attempt scratch. Foreign files
+and symlinks are rejected without removal; no permissions or allowances expand.
+The normalized-environment regression executes a new test and benchmark after
+an earlier command in the same attempt and verifies stable cache ownership.
+Native readiness distinguishes that writable owned fallback from a configured
+read-only cache using trusted configuration, with both boundaries still probed.
+
+The local verification watchdog now matches CI's existing twenty minutes.
+Model-free orchestration fixtures retain real Go execution with `-count=1` and
+reuse compiler objects in a fixture-owned cache; this keeps their unsandboxed
+source commands away from the user's normal shared build cache. Actual native
+sandbox checks and production per-attempt compiler caches are unchanged. All
+nine delivery and three research cases passed after the environment correction,
+alongside the source-discovery, foreign-path and existing configured-cache races.
+Full-platform gates and pilot installation are still pending.
+
 ## Follow the demo
 
 1. `config.Load` resolves instance → project → roles/process. It rejects unknown

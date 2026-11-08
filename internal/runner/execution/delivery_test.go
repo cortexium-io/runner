@@ -46,6 +46,11 @@ func TestConnectedDeliveryCorrectionAndRecoveryDecisions(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatal(err, string(output))
 	}
+	goBinary, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	goBinary, moduleCache := modelFreeFixtureGo(t, goBinary, filepath.Join(filepath.Dir(binary), "compiler-cache"))
 	for _, mode := range []string{"complete", "qa", "backup", "migration", "retry", "approval", "uncertain", "all", "baseline"} {
 		t.Run(mode, func(t *testing.T) {
 			repo := sourceRepository(t)
@@ -55,6 +60,7 @@ func TestConnectedDeliveryCorrectionAndRecoveryDecisions(t *testing.T) {
 			fixtureGit(t, repo, "remote", "add", "origin", remote)
 			fixtureGit(t, repo, "push", "origin", "HEAD:refs/heads/main")
 			cfg := workspaceSnapshot(t, repo)
+			cfg.Instance.Codex.GoBinary, cfg.Instance.Codex.GoModuleCache = goBinary, moduleCache
 			cfg.Instance.Storage.Database.MaxRecord = 40 << 10
 			cfg.Instance.Storage.Database.MaxSize = 48 << 20
 			cfg.Instance.Storage.Database.MaxRuns = 128
@@ -85,10 +91,6 @@ func TestConnectedDeliveryCorrectionAndRecoveryDecisions(t *testing.T) {
 				project.Roles[role.ID] = role
 			}
 			check := project.Roles["delivery-check"]
-			goBinary, err := exec.LookPath("go")
-			if err != nil {
-				t.Fatal(err)
-			}
 			check.Execution.Command = &runner.Command{Args: []string{goBinary, "test", "-count=1", "./..."}, ExitOutcomes: map[int]string{1: "changes_requested"}}
 			project.Roles[check.ID] = check
 			measure := project.Roles["delivery-measure"]
