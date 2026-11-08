@@ -238,9 +238,13 @@ whole failure matrix per transport or adapter.
 Required implementation gates:
 
 ```sh
-go test -race -timeout 15m ./...
+go test -race -timeout 20m ./...
 go vet ./...
 ```
+
+The package watchdog matches CI and accommodates the complete lifecycle and
+workflow fixtures. It does not change individual fixture deadlines or any
+Runner command, process, model, attempt or storage allowance.
 
 Run broader platform or real harness qualification only when relevant. Review the
 complete diff before finishing and report actual verification and limitations.

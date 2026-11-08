@@ -50,6 +50,12 @@ reopens only its affected proof. A genuine product or prerequisite blocker remai
 explicit, with preserved evidence and the concrete remaining decision; it does
 not justify more architecture, a limit increase or an acceptance waiver.
 
+The local verification package watchdog now matches CI's existing twenty minutes.
+The expanded serial workflow suite exceeded the old fifteen-minute watchdog
+while continuing to make progress without assertion failures. Preserve those
+failed verification logs; require a complete passing twenty-minute run. Individual
+fixture deadlines and all Runner/product/model/storage/attempt limits are unchanged.
+
 Live iterative profiling exposed one additional handoff requirement: independent
 review needs intermediate complete reports when instrumentation changes before an
 experiment. Keeping only the first complete report and the latest one is
