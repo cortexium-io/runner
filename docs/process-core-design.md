@@ -1,6 +1,6 @@
 # Runner process core design
 
-Updated 8 November 2026. **The owner has authorized completing and installing the
+Updated 9 November 2026. **The owner has authorized completing and installing the
 full bounded planner workflow, safe parallelism and routine recovery, verified
 across real projects. Merge and production remain owner-approved actions.**
 
@@ -36,7 +36,7 @@ Merge, production and database restoration retain their saved owner decisions.
    happen outside Runner. Its declared finish grants no push, merge or deployment;
    other production projects still require their own qualified release tools.
 
-Package 1 is qualified and installed with Core `deea6ed` and measure/history
+Package 1 was first qualified and installed with Core `deea6ed` and measure/history
 helpers `26e4d4d`. The execution packet at `26e4d4d` passed 1,550 full race tests
 on Mega Mini, vet on both hosts, macOS/Linux CI and Black Magic's zero-model
 native probes. The lower-budget validator update separately passed focused races,
@@ -88,27 +88,34 @@ not qualify PR #334's mobile source. Do not submit duplicate work or implicitly
 join those candidates. Cutover follows actual qualification; merge, production
 and restoration remain separate owner decisions.
 
-Both investigation-owner roles now distinguish a runnable collector/correction
-handoff from acceptance and later release gates, preserving evidence, access and
-resource bounds. Their exact saved/new-request native preflights passed. Only
-future instruction fields changed; the entire failed NQ record was unchanged.
-The existing `deliver-retained-investigation` continuation
-`run_LUNX2V3PELYHHOO6BYYZOEG4IZ` restores the latest unpublished patch, accepted
-manifest and original baseline without recreating cards. It freshly checks and
-measures, then owns collector correction, review and same-PR qualification.
-Its fixed 35-attempt cap gives a combined maximum of 2 + 19 + 35 = 56 within the
-original 64. It was submitted once through ordinary CLI without another intake
-model turn. Missing matched New controls remain unproved; no threshold or gate
-has been waived.
+The retained LUN continuation stopped at readiness after five attempts. The
+subsequent MNY investigation (`run_MNYKP6MHS63YW7IFJIKDHWE42Z`) exhausted its
+three review corrections at 27/35 attempts. Runner rejoined a lost operator
+connection during readiness and continued without chat intervention. It retained
+five benchmark reports and released all resources. The attempted optimization
+reduced allocation bytes but did not establish the required native and New-path
+performance benefit. Restored controls were also slower in later samples. The
+original HTTP 408 seed was lost; no incident fix or optimization was accepted.
 
-After this Go/copy candidate is accepted, the existing
-`deliver-planned-retained-frontend` process will use its authenticated PR #337
-source for the approved mobile behavior. This supported route reimplements the
-mobile behavior on that source; it does not fuse PR #334's patch. Keep that patch,
-PR and history as reference. Preserve the accepted Go/copy changes, run frontend
-typecheck/Vitest and independent review, then qualify the cumulative candidate
-through the full native/browser gate. This needs no merge, new Runner process or
-configuration-file allowance. Default cutover follows that cumulative proof.
+The combined investigation has used 53/64 attempts: two for NT5, nineteen for NQ
+and its cards, five for LUN, and twenty-seven for MNY. The eleven remaining
+attempts cannot support a configured complete continuation. Preserve the stopped
+run and evidence; any new scope and allowance require an explicit owner decision.
+
+Installed Core and Go-check helper `8f970f1` passed full local race testing,
+vet and [macOS/Linux CI](https://github.com/cortexium-io/runner/actions/runs/42535175138).
+The upgrade preserved all 72 current runs, definitions and artifact bytes. It
+activated four future role fields for prepared-input test provenance and clearer
+measurement and review handoffs. The remote operator remains `721f9e9` under
+its unchanged policy. See [qualification details](architecture.md#release-closure-8-november-2026).
+
+The proposed cumulative mobile workflow uses `deliver-planned-retained-frontend`
+on the authenticated, reviewed PR #337 copy source. Runner would implement the
+approved mobile behavior on that source, keeping PR #334 and the unpublished
+optimization as separate evidence. Full native and browser qualification remains
+mandatory, and any backend failure still blocks release. Default `deliver`
+remains until that qualification succeeds. Merge, production and restoration
+retain separate owner decisions.
 
 Closure requires recorded evidence for all four packages. A new Runner defect
 reopens only its affected proof. A genuine product or prerequisite blocker remains

@@ -448,19 +448,49 @@ The owner also demanded protected publication authority, history bindings and
 future qualification before their configured stages. It stopped at nineteen
 aggregate attempts, before independent review, publication or qualification.
 
-Instruction-only clarification of both investigation owners now permits a
-runnable authorized collector/control handoff while retaining every unproved
-claim and later gate. It grants no Git or artifact access. Pure exact-assignment
-preflights passed within the unchanged eight-input, 8 KiB/512-byte limits. The
-owner API changed only future instruction fields; the failed NQ inspected record
-remained identical. Existing retained-35 run
-`run_LUNX2V3PELYHHOO6BYYZOEG4IZ` reuses its latest patch, original baseline and
-accepted manifest without replanning, then freshly recollects before correction
-and review. Two plus nineteen plus thirty-five remains bounded at fifty-six of
-the original sixty-four attempts. The ordinary CLI submission adds no intake
-model turn; the earlier restricted intake exited cleanly with separately recorded
-usage. Cumulative frontend qualification and default cutover remain open. No
-merge or production approval is inherited.
+The retained LUN continuation stopped at readiness after five attempts. In the
+next investigation, `run_MNYKP6MHS63YW7IFJIKDHWE42Z`, Runner rejoined the same
+readiness operation after an operator disconnect. Both browser readiness probes
+passed without a replacement attempt or chat intervention. This observed rejoin
+is distinct from the new pre-authentication Docker readiness retry, which was
+verified in fixtures. Remote operator `721f9e9` is installed under the unchanged
+policy.
+
+MNY exhausted its three review corrections at 27/35 attempts and released all
+resources. Round 3 supplies complete unoptimized controls. Round 4 reduced
+allocated bytes without demonstrating the required native and New-path time or
+CPU benefit. Round 5 restored the control and was often similarly slow. These
+single samples do not isolate a timing cause. The lost HTTP 408 seed was not
+replayed. No optimization was approved, published or qualified. The retained
+candidate patch `attempt_ZFGDCVDMDXSRHWKTP5QJMGJ3RD/changes.patch`, five reports
+and final review remain preserved. The combined allowance has used 53/64 attempts;
+the remaining eleven cannot support a configured complete continuation.
+
+The installed Core and helper, `8f970f14d42114a78a84f07db07670a3ff5c715e`,
+passed the full local race suite, vet and
+[macOS/Linux CI](https://github.com/cortexium-io/runner/actions/runs/42535175138).
+The optional fixed Go-check receipt binds the prepared patch's base, artifact ID,
+SHA-256, bytes and actual Go runtime; Core authenticates its relation to the
+workspace. Legacy thirteen-argument checks remain compatible. Retained receipts
+stay historical. The investigation roles read complete ordered history as current
+measurement evidence and date source narrative to the reports available when it
+was written. The unchanged eight-port review fixture fits 7,654 of 8,192 bytes;
+the complete 9,082-byte request uses protected typed inputs and fits at 5,902
+bytes. The response bound stays 512 bytes.
+
+The paired installation completed on 8 November at 23:43 UTC. The installer
+verified the owned process had exited before making the cold checkpoint. All 72
+current runs, frozen definitions, five SQLite tables, registered artifacts and
+the owner token remained identical. Older eligible records remain in a verified
+cold checkpoint under ordinary retention. Only four future role fields changed
+after installation; the entire stopped MNY record remained unchanged. Paired
+rollback restores the executables without rewinding the database.
+
+Package 4's local Genny proof is complete. Jack's Break mobile and copy
+qualification still requires an explicit new scope and allowance to proceed
+separately from the failed optimization. The default remains `deliver` until
+full qualification; merge, production and restoration retain separate owner
+decisions.
 
 ## Follow the demo
 
