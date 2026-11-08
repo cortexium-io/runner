@@ -77,6 +77,7 @@ func gitEnvironment() []string {
 		"PATH=" + os.Getenv("PATH"),
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_ATTR_NOSYSTEM=1",
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_NO_REPLACE_OBJECTS=1",
 		"LC_ALL=C",
@@ -100,7 +101,20 @@ func (b *boundedBuffer) ReadFrom(r io.Reader) (int64, error) {
 	return io.Copy(struct{ io.Writer }{b}, r)
 }
 func gitCommand(ctx context.Context, dir string, extra []string, input []byte, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.sparseCheckout=false"}, args...)...)
+	cmd := exec.CommandContext(ctx, "git", append([]string{
+		"-c",
+		"core.hooksPath=/dev/null",
+		"-c",
+		"core.fsmonitor=false",
+		"-c",
+		"core.sparseCheckout=false",
+		"-c",
+		"core.attributesFile=/dev/null",
+		"-c",
+		"core.autocrlf=false",
+		"-c",
+		"core.eol=lf",
+	}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(gitEnvironment(), extra...)
 	cmd.Stdin = bytes.NewReader(input)
@@ -352,7 +366,8 @@ func (w *Workspaces) verifyWorkspace(ctx context.Context, r workspaceRecord) err
 	if !bytes.Equal(common, expected) {
 		return &runner.CleanupBlockedError{Reason: "workspace Git ownership differs from the recorded repository; preserve it"}
 	}
-	return nil
+	_, e = workspaceAttributes(ctx, r)
+	return e
 }
 
 // A cancelled Git checkout can leave its own initialization lock behind.
@@ -436,6 +451,12 @@ func (w *Workspaces) rebuildSeedWorkspace(ctx context.Context, r workspaceRecord
 // owned worktree. Git supplies decoded paths and modes, including both sides of
 // renames; no patch headers or filenames are interpreted by a shell.
 func (w *Workspaces) validateSeed(ctx context.Context, r workspaceRecord, patch []byte, limit runner.Bytes, verifyCheckout bool) (int64, error) {
+	if err := validateAttributeSources(ctx, r.Repository); err != nil {
+		return 0, err
+	}
+	if _, _, err := rootAttributes(ctx, r.Repository, nil, r.Base); err != nil {
+		return 0, err
+	}
 	root := filepath.Join(w.disk.Root, "work", r.RunID, "seed-validation")
 	if e := os.RemoveAll(root); e != nil {
 		return 0, e
@@ -544,6 +565,19 @@ func (w *Workspaces) validateSeed(ctx context.Context, r workspaceRecord, patch 
 		return 0, e
 	}
 	if verifyCheckout {
+		attributes, er := workspaceAttributes(ctx, r)
+		if er != nil {
+			return 0, er
+		}
+		if attributes {
+			changed, er := literalAttributeChanges(ctx, r, env, strings.TrimSpace(string(tree)))
+			if er != nil {
+				return 0, er
+			}
+			if len(changed) != 0 {
+				return 0, &runner.CleanupBlockedError{Reason: "workspace literal bytes differ from retained source; preserve it for inspection"}
+			}
+		}
 		if _, e = git(ctx, r.WorkDir, env, nil, 4096, "diff", "--quiet", "--no-ext-diff", "--no-textconv", "--", ".", ":(exclude).runner-tmp"); e != nil {
 			var exit *exec.ExitError
 			if errors.As(e, &exit) && exit.ExitCode() == 1 {

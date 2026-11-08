@@ -68,6 +68,55 @@ execution blocks. This local process ends at a reviewed candidate and grants no
 publication, merge or production authority. Existing processes and their budgets
 remain available unchanged.
 
+## Onboard a Go repository
+
+Use `develop-planned` for a complete local development task whose required proof
+fits the fixed Go check. Read the repository's own instructions and select a
+full committed base before submission. A small task may have one cohesive card;
+parallel cards are useful only when their write scopes and dependencies allow it.
+
+Copy this example into private operator configuration. Set the project ID and
+owning repository path in `project.json`, and pin compatible Codex, Go and
+`runner-go-check` executables. The repository's `go.mod` and toolchain directive
+must work with that exact Go binary under `GOTOOLCHAIN=local`. Prepare required
+dependencies in an operator-owned immutable module cache before admission;
+configure `codex.go_module_cache`, the check's `GOMODCACHE`, and the helper/cache
+read paths in `codex.command_read_paths`. Keep live credentials, personal runtime
+state and dependency downloads out of the assigned source. Do not configure
+delivery commands or a release operator for this local-only task.
+
+Qualify the actual fixed command and its source/scratch permission boundary
+without model turns before onboarding work. Configuration loading and service
+status alone do not prove dependency availability or test execution. The sample
+storage policy is an example, not a promise that every repository and retained
+task family fits. Keep the selected policy explicit; capacity or unsupported
+checks require a concrete resolution, not an automatic allowance increase.
+
+Start one owner for the private state using the [service ownership
+contract](../service/README.md). Choose an unused loopback endpoint when another
+instance is already running. The following paths and request text are
+placeholders for that qualified instance and the authorized task:
+
+```sh
+cortexium-runner run --data /private/state \
+  --endpoint http://127.0.0.1:8788/mcp --project reviewed-go \
+  --process develop-planned --source-ref FULL_COMMITTED_BASE \
+  --request-id STABLE_AUTHORIZED_REQUEST_ID \
+  --inputs '{"request":"AUTHORIZED_TASK_WITH_EXPLICIT_ACCEPTANCE_AND_WRITE_PATHS","package":"internal/parser","tests":"^TestParseCanonicalPaths$"}'
+cortexium-runner result --data /private/state \
+  --endpoint http://127.0.0.1:8788/mcp --run SAVED_RUN_ID --wait
+```
+
+Keep the saved run identity across disconnects. Runner owns planning, isolated
+cards, checks, combined correction, independent review and local integration.
+Completion returns the local candidate, accepted card manifest and scoped test
+receipt. Confirm selected tests actually ran without missing or skipped proof;
+name required new tests in the request and include them in the fixed selector.
+An internal pin, compile-only check or zero executed tests is not behavioral
+acceptance. Publication and any future merge/deployment remain separate work.
+Node/frontend, browser, generated-app lifecycle or external database obligations
+need their own supported complete process; a Go check cannot waive them.
+
 ## Iterative and planned development
 
 `develop-iterative` adds bounded verification/review corrections, a project-owned

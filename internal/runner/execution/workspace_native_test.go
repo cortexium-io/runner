@@ -98,14 +98,17 @@ func qualifyWorkspacePermissions(t *testing.T, ctx context.Context, root string,
 	if e = os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0600); e != nil {
 		t.Fatal(e)
 	}
-	source := filepath.Join(policy, "source")
-	if e = os.Mkdir(source, 0700); e != nil {
+	source := filepath.Join(disk.Root, "work", "run_permission", "source")
+	if e = os.MkdirAll(source, 0700); e != nil {
 		t.Fatal(e)
 	}
-	for _, file := range append([]string{".git"}, cfg.Instance.Codex.ReadOnlyPaths...) {
+	for _, file := range append([]string{".git", ".gitattributes"}, cfg.Instance.Codex.ReadOnlyPaths...) {
 		if e = os.WriteFile(filepath.Join(source, file), []byte(func() string {
 			if file == "go.mod" {
 				return "module probe\n\ngo 1.26.0\n"
+			}
+			if file == ".gitattributes" {
+				return "* text=auto\n"
 			}
 			return "dummy\n"
 		}()), 0600); e != nil {
@@ -124,19 +127,38 @@ func qualifyWorkspacePermissions(t *testing.T, ctx context.Context, root string,
 	if e != nil {
 		t.Fatal(e)
 	}
-	inputs, e := stagedInputDirectory(source, j.Assignment.AttemptID, true)
-	if e != nil {
-		t.Fatal(e)
-	}
-	evidence := filepath.Join(inputs, "evidence.json")
-	if e = os.WriteFile(evidence, []byte(`{"retained":true}`), 0600); e != nil {
-		t.Fatal(e)
-	}
-	env["RUNNER_EVIDENCE_PROBE"] = evidence
 	if e = disk.Write("artifacts/permission-dummy", []byte("private artifact"), 128); e != nil {
 		t.Fatal(e)
 	}
 	env["RUNNER_ARTIFACT_STORE_PROBE"] = filepath.Join(disk.Root, "artifacts", "permission-dummy")
+	staged := j
+	staged.Assignment = runner.Assignment{
+		RunID:       "run_permission",
+		ProjectID:   "permission",
+		AttemptID:   j.Assignment.AttemptID,
+		Task:        "Use supplied evidence",
+		OutputTypes: map[string]string{"summary": "text"},
+		Outcomes:    []string{"blocked"},
+		Inputs: map[string]runner.Value{
+			"artifact_evidence": {ArtifactID: "permission-dummy"},
+			"inline_evidence":   runner.Text(strings.Repeat("retained evidence; ", 500)),
+		},
+		Setup: runner.ExecutionSetup{Profile: runner.Profile{
+			Harness:   "codex",
+			Model:     "gpt-6.1-sol",
+			Reasoning: "xhigh",
+			Access:    "workspace-write",
+			MaxInput:  4096,
+			MaxOutput: 512,
+		}},
+		Limits: runner.ExecutionLimits{MaxArtifact: disk.Policy.MaxArtifact},
+	}
+	if e = c.workspaceInputs(staged); e != nil {
+		t.Fatal(e)
+	}
+	inputs := filepath.Join(source, ".runner-tmp", "inputs", j.Assignment.AttemptID)
+	env["RUNNER_EVIDENCE_PROBE"] = filepath.Join(inputs, "artifact_evidence")
+	env["RUNNER_INLINE_EVIDENCE_PROBE"] = filepath.Join(inputs, "inline_evidence")
 	probe := filepath.Join(env["TMPDIR"], "access-probe.go")
 	if e = os.WriteFile(probe, []byte(workspaceProbe), 0600); e != nil {
 		t.Fatal(e)

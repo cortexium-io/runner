@@ -18,6 +18,7 @@ type treeInventory struct {
 	total       int64
 	limit       runner.Bytes
 	verifyPaths bool
+	attributes  bool
 	err         error
 }
 
@@ -62,8 +63,15 @@ func (v *treeInventory) addEntry() error {
 	}
 	if v.verifyPaths {
 		path := string(parts[1])
-		if !(bytes.HasPrefix(parts[0], []byte("100644 ")) || bytes.HasPrefix(parts[0], []byte("100755 "))) || filepath.Base(path) == ".gitattributes" || filepath.Base(path) == ".gitmodules" || path == ".runner-tmp" || strings.HasPrefix(path, ".runner-tmp/") || strings.HasPrefix(path, ".codex/") {
-			return errors.New("first writable slice supports regular files without Git attributes/submodules")
+		attributePath := false
+		for _, part := range strings.Split(path, "/") {
+			attributePath = attributePath || strings.EqualFold(part, ".gitattributes")
+		}
+		if !(bytes.HasPrefix(parts[0], []byte("100644 ")) || bytes.HasPrefix(parts[0], []byte("100755 "))) || strings.EqualFold(filepath.Base(path), ".gitmodules") || attributePath && path != ".gitattributes" || path == ".runner-tmp" || strings.HasPrefix(path, ".runner-tmp/") || strings.HasPrefix(path, ".codex/") {
+			return errors.New("source supports regular files and approved immutable root Git attributes, without submodules or protected paths")
+		}
+		if path == ".gitattributes" {
+			v.attributes = true
 		}
 	}
 	size, err := treeEntrySize(parts[0])
@@ -75,6 +83,11 @@ func (v *treeInventory) addEntry() error {
 }
 
 func sourceTreeBytes(ctx context.Context, repository string, environment []string, tree string, limit runner.Bytes, verifyPaths bool) (int64, error) {
+	if verifyPaths {
+		if err := validateAttributeSources(ctx, repository); err != nil {
+			return 0, err
+		}
+	}
 	cmd := gitCommand(ctx, repository, environment, nil, "ls-tree", "-rlz", tree)
 	inventory := &treeInventory{limit: limit, verifyPaths: verifyPaths}
 	diagnostic := &diagnosticTail{limit: 1024}
@@ -88,6 +101,11 @@ func sourceTreeBytes(ctx context.Context, repository string, environment []strin
 	}
 	if len(inventory.entry) != 0 {
 		return 0, errors.New("incomplete source tree record")
+	}
+	if inventory.attributes {
+		if _, _, err := rootAttributes(ctx, repository, environment, tree); err != nil {
+			return 0, err
+		}
 	}
 	return inventory.total, nil
 }

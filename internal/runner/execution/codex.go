@@ -522,12 +522,17 @@ func nativePayload(a runner.Assignment) (string, any, error) {
 }
 
 func nativePayloadAt(a runner.Assignment, now time.Time) (string, any, error) {
+	payload, schema, _, err := nativePayloadPlan(a, now)
+	return payload, schema, err
+}
+
+func nativePayloadPlan(a runner.Assignment, now time.Time) (string, any, map[string][]byte, error) {
 	if strings.TrimSpace(a.Task) == "" {
-		return "", nil, errors.New("an explicit task purpose is required")
+		return "", nil, nil, errors.New("an explicit task purpose is required")
 	}
 	p := a.Setup.Profile
 	if p.Harness != "codex" || (p.Access != "input-only" && p.Access != "workspace-write" && p.Access != "workspace-read") || p.Model == "" || p.Reasoning == "" || p.MaxInput < 128 || p.MaxOutput < 128 {
-		return "", nil, errors.New("incomplete input-only Codex profile")
+		return "", nil, nil, errors.New("incomplete input-only Codex profile")
 	}
 	inputs := map[string]any{}
 	for k, v := range a.Inputs {
@@ -540,35 +545,28 @@ func nativePayloadAt(a runner.Assignment, now time.Time) (string, any, error) {
 			continue
 		}
 		if v.ArtifactID != "" || !json.Valid(v.Inline) {
-			return "", nil, errors.New("Codex inputs must be inline JSON or declared workspace artifacts")
+			return "", nil, nil, errors.New("Codex inputs must be inline JSON or declared workspace artifacts")
 		}
 		inputs[k] = json.RawMessage(v.Inline)
 	}
-	request := struct {
-		Task             string         `json:"task"`
-		Inputs           map[string]any `json:"inputs"`
-		DeadlineUTC      string         `json:"deadline_utc,omitempty"`
-		RemainingSeconds *int64         `json:"remaining_seconds,omitempty"`
-		MaxOutputBytes   runner.Bytes   `json:"max_output_bytes"`
-	}{Task: a.Task, Inputs: inputs, MaxOutputBytes: p.MaxOutput}
+	request := nativePayloadRequest{Task: a.Task, Inputs: inputs, MaxOutputBytes: p.MaxOutput}
 	if !a.Deadline.IsZero() {
 		request.DeadlineUTC = a.Deadline.UTC().Format(time.RFC3339Nano)
 		remaining := max(int64(0), int64(a.Deadline.Sub(now)/time.Second))
 		request.RemainingSeconds = &remaining
 	}
-	payload, _ := json.Marshal(request)
 	props := map[string]any{}
 	required := []string{}
 	for k, kind := range nativeOutputTypes(a) {
 		if kind != "text" {
-			return "", nil, errors.New("only declared text outputs are supported by this adapter")
+			return "", nil, nil, errors.New("only declared text outputs are supported by this adapter")
 		}
 		props[k] = map[string]any{"type": "string"}
 		required = append(required, k)
 	}
 	sort.Strings(required)
 	if len(required) == 0 {
-		return "", nil, errors.New("at least one output is required")
+		return "", nil, nil, errors.New("at least one output is required")
 	}
 	out := map[string]any{"type": "object", "properties": props, "required": required, "additionalProperties": false}
 	outcomes := append([]string{"ready"}, a.Outcomes...)
@@ -604,10 +602,8 @@ func nativePayloadAt(a runner.Assignment, now time.Time) (string, any, error) {
 	} else if p.Access == "workspace-read" {
 		base = reviewBase
 	}
-	if len(payload)+len(base)+len(p.Instructions)+len(sb) > int(p.MaxInput) {
-		return "", nil, errors.New("resolved input/instructions/schema exceed max_input")
-	}
-	return string(payload), schema, nil
+	payload, files, err := renderNativeInputs(a, request, len(base)+len(p.Instructions)+len(sb))
+	return string(payload), schema, files, err
 }
 func checkNativeConfig(ctx context.Context, peer codexPeer) error {
 	var r struct {

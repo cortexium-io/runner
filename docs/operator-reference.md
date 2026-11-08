@@ -298,6 +298,18 @@ native result, respectively. Native harness context is additional: these fields
 are not total model-context/token caps. There is no hard token/cost cap in this
 adapter; supported observations are reported, with missing usage kept unknown.
 
+For workspace-read/write profiles, Runner can keep bulky declared inline inputs
+in its existing protected attempt input directory instead of exceeding this
+assignment limit. The native payload's trusted outer `input_file_keys` lists
+exactly which values are JSON-file descriptors; the worker reads and decodes those
+files to obtain the complete original typed values. Other input objects retain
+their ordinary meaning. Saved assignments and evidence are unchanged, with the
+same artifact, storage and access limits. Selection reserves the widest deadline
+field so observation/restart cannot change file ownership; a few bytes near the
+limit may therefore use files conservatively. Input-only profiles still reject
+oversized input directly. Staging does not limit the total context or tokens
+consumed when a model reads source or evidence files.
+
 Declared inline text/JSON inputs and text outputs are supported. No environment or workspace
 roots are selected. MCP/apps/plugins/hooks, shell/subagent tools, web search and
 automatic skill/instruction discovery are disabled. Required effective settings
@@ -376,6 +388,16 @@ pre-model seed preparation may be rebuilt after interruption. Ready workspaces
 preserve edits on replay. This retains failed work without accepting or publishing it.
 Failed preparation can release an unchanged base or verified retained seed;
 uncaptured source changes remain preserved.
+
+Source may include one immutable tracked root `.gitattributes` containing only
+unquoted patterns with the built-in `text=auto` and `-whitespace` rules, plus
+comments. Runner disables global/system attributes, rejects repository info
+overrides and nested/unsupported attribute rules, and makes the root file
+read-only for native workers. Literal blob comparisons preserve exact source and
+capture bytes even when Git text normalization would consider an edit unchanged.
+That comparison reads the tracked files of attribute-bearing workspaces; it is
+bounded by the existing workspace limits. Filters, custom drivers, encodings,
+macros and submodules remain unsupported.
 
 The check role uses `harness: go-check` / `access: workspace-read`, exactly
 `patch: artifact` input and `check: text` output. It has no model settings and

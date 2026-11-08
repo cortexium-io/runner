@@ -239,6 +239,49 @@ retained privately under
 `~/.codex/jbg31/coordinator/planned-completion-20261106`; coordinator usage is
 additional to reported worker usage.
 
+## Release closure, 8 November 2026
+
+The closure work reuses the existing scheduler, processes and protected decisions.
+`TestFreshRoutineRecoveryRejoinsAcceptedOperationAndPreservesProtectedGates`
+connects the real release adapter to the model-free provider: one positively
+pre-dispatch qualification failure, its accepted replacement with a lost reply,
+restart/rejoin of that same attempt and deadline, then distinct merge and
+production decisions. It finishes in 11 of the original 16 attempts, executes
+each provider effect once, preserves the failed result/publication/definition,
+and releases all resources without a model turn. Separate collector, dependency,
+source-worker and native recovery proofs remain applicable.
+
+Real Genny onboarding exposed an unsupported source boundary before model work:
+its root Git attributes use `text=auto` and `-whitespace`. The workspace now
+admits only this bounded immutable root subset, disables host attribute sources,
+rejects nested rules, info overrides and alternate attribute trees, and verifies
+literal blob bytes where normalized Git comparisons can hide CRLF-only changes.
+SHA1/SHA256 fixtures prove exact capture/restore and retained-source drift
+rejection; driver fixtures prove rejection before checkout, with no driver
+execution. This is not support for arbitrary Git filters or transformations.
+
+The correction-input preflight also reproduced an oversized valid handoff:
+a 512-byte native review result and ordinary public qualification diagnostics
+can exceed the 8 KiB assignment limit together. Workspace profiles now reuse
+protected named-input files for selected bulky inline JSON when the conservative
+assignment budget requires it. The trusted outer `input_file_keys` distinguishes
+those descriptors from ordinary user JSON; complete saved values remain intact.
+Selection is deterministic across deadline observations. Input-only profiles,
+output limits and artifact/storage/access limits remain unchanged. The assignment
+byte bound is not a bound on total model context or evidence-file reading.
+
+Focused staging races passed in 2.141s and native/retained compatibility in
+68.137s. Attribute admission/capture, seed and cleanup races passed, including
+the alternate-attribute-tree regression. The final zero-model permission probe
+passed in 6.041s with explicitly verified Codex 0.164.0 and Go 1.26.7: native
+workspace-write/read profiles can read the actual staged artifact/inline files
+while file writes, rename, deletion and parent replacement remain denied; the
+root attribute file is automatically read-only without a project-specific grant.
+Existing source/scratch/private/Git/symlink/network boundaries remain enforced.
+Private proof is retained under the existing `planned-completion-20261106`
+qualification directory. Full final gates, real-project results and any default
+cutover must be recorded separately; these fixture results do not complete them.
+
 ## Follow the demo
 
 1. `config.Load` resolves instance → project → roles/process. It rejects unknown

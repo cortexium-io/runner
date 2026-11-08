@@ -9,7 +9,8 @@ service with file configuration, SQLite state, MCP/CLI control, a controlled
 deterministic executor, input-only Codex execution and a bounded writable Go
 workflow with model-free checks, bounded correction/measurement routes, read-only
 review, saved approval decisions and retained candidate/delivery artifacts.
-Dependency-ordered task collections expand fixed templates inside the same run.
+Planned task collections expand fixed templates into isolated linked runs, enforce
+dependency/write-scope ordering and join accepted source before combined review.
 Configured synchronous commands support checks, benchmarks, builds and project
 delivery without another model coordinator.
 It does not import legacy Runner state. Qualified pilot installation remains an
@@ -69,12 +70,18 @@ restoration remain separate saved owner decisions.
   artifacts, bounded correction/benchmark repetition, execution retries,
   saved decisions, profile escalation, cancellation and restart reconciliation.
 - Fixed task templates expanded from bounded dependency-aware collections.
-  Items are serial in one owned workspace; independent runs can progress concurrently.
+  Planned groups support up to eight cards and two isolated card actors, sharing
+  one 64-attempt family allowance. Older serial definitions retain their limits.
 - One instance owner, concurrent independent runs, bounded records/history/logs,
   controlled storage admission, retained-output references and repeatable cleanup.
+- Regular source files with literal source/capture ownership, including the
+  supported immutable root text-attribute subset described in the
+  [operator guide](docs/operator-reference.md). Arbitrary Git transformations,
+  submodules and source symlinks are not accepted by this workspace capability.
 - Local owner-only MCP over loopback HTTP; the CLI is a client of that service.
-  Remote control, authentication for multiple users and service installation
-  have not been qualified.
+  The Jack's Break pilot has a qualified macOS user-service installation and an
+  explicitly configured remote release operator. This does not qualify remote
+  multi-user control or general installation on every host.
 
 The Codex adapter has qualified the small text-summary fixture on CLI 0.164.0,
 using Sol / Extra High: success, lost launch acknowledgement/reconnection and
@@ -88,9 +95,18 @@ qualified abrupt Runner owner-process exit, reattachment to the original native
 work, cancellation and preservation of edits on macOS. The
 [complete development qualification](docs/architecture.md#complete-development-workflow-3-november-2026)
 adds real coding, two benchmark rounds, review, approval/restart and a packaged
-website verified headlessly. Task-local parallel execution, nested/dynamically
-amended plans, attention/archive operations and dashboards remain outside this
-qualified implementation. Benchmarks use project commands and ordinary roles.
+website verified headlessly. The subsequent
+[planned workflow qualification](docs/architecture.md#planned-workflows-67-november-2026)
+demonstrates real overlapping Go cards and independently reviewed research.
+Nested/dynamically amended plans, arbitrary role tool catalogs, attention/archive
+operations and dashboards remain outside this qualified implementation. Benchmarks
+use project commands and ordinary roles.
+
+The [release-closure plan](docs/process-core-design.md#release-closure-authorized-8-november-2026)
+records the remaining operational acceptance. The planned Jack's Break frontend
+default cutover is conditional on real native/browser qualification; installation,
+synthetic browser fixtures and a safe blocked result do not establish that acceptance.
+Merge, production and database restoration retain separate owner decisions.
 
 ## Writable Go example
 

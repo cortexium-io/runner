@@ -69,7 +69,7 @@ func TestSourceInventoryBoundsRecordsAndPreservesPathPolicy(t *testing.T) {
 	if v.total != 6 || len(v.entry) != 0 {
 		t.Fatal("incorrect streamed total", v.total)
 	}
-	for _, name := range []string{".gitattributes", "dir/.gitmodules", ".runner-tmp", ".runner-tmp/file", ".codex/config.toml"} {
+	for _, name := range []string{"nested/.gitattributes", ".gitattributes/child", ".GITATTRIBUTES", "dir/.gitmodules", ".runner-tmp", ".runner-tmp/file", ".codex/config.toml"} {
 		v := &treeInventory{limit: 100, verifyPaths: true}
 		if _, err := v.Write([]byte(strings.Replace(entry, "name", name, 1))); err == nil {
 			t.Fatal("protected source inventory path accepted", name)

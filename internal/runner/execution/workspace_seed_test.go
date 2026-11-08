@@ -231,7 +231,7 @@ func TestWorkspaceSeedPreparationReplayPreservesReadyEdits(t *testing.T) {
 }
 
 func TestWorkspaceSeedRejectsUnsafeChanges(t *testing.T) {
-	for _, name := range []string{".git/config", ".codex/config.toml", ".agents/skills/x", ".aws/config", ".runner-tmp/cache", "nested/.gitattributes", ".gitmodules", "locked.txt", "../escape", "/absolute"} {
+	for _, name := range []string{".git/config", ".codex/config.toml", ".agents/skills/x", ".aws/config", ".runner-tmp/cache", ".gitattributes", "nested/.gitattributes", ".gitmodules", "locked.txt", "../escape", "/absolute"} {
 		t.Run(name, func(t *testing.T) {
 			w, a := seedWorkspaceFixture(t, addedSeedFile(name, "100644"))
 			if _, err := w.Prepare(context.Background(), a); err == nil {

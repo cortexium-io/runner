@@ -1,7 +1,9 @@
 package execution
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,91 @@ import (
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
+
+func TestOverflowInlineInputsRejoinAndCleanWithExistingOwnedFiles(t *testing.T) {
+	d := workspaceDisk(t)
+	w := &Workspaces{disk: d}
+	a := sourceAssignment(d, sourceRepository(t), "inline_owner")
+	template := retainedInputAssignment(t)
+	a.Setup, a.Task, a.OutputTypes, a.Outcomes, a.Deadline = template.Setup, template.Task, template.OutputTypes, template.Outcomes, template.Deadline
+	a.Inputs = map[string]runner.Value{
+		"request":       runner.Text(strings.Repeat("bounded request ", 160)),
+		"qualification": {Inline: json.RawMessage(` { "note": "` + strings.Repeat("<", 1500) + `", "count": 2 } `)},
+	}
+	a = runner.Clone(a)
+	before, _ := json.Marshal(a)
+	workspace, err := w.Prepare(t.Context(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := nativeJob{Assignment: a, Workspace: &workspace}
+	c := &Codex{disk: d}
+	if err = c.workspaceInputs(j); err != nil {
+		t.Fatal(err)
+	}
+	files, err := stagedInputData(d, a)
+	if err != nil || len(files) == 0 {
+		t.Fatal("inline evidence was not staged", err)
+	}
+	// A fresh adapter reconstructs the same files from the saved assignment,
+	// without a per-process plan, clock dependency or rewriting complete bytes.
+	j.Stage = "finished"
+	j.End = &runner.ExecutionEnd{Kind: "failed", Reason: "settled model-free staging fixture"}
+	saved, err := json.Marshal(j)
+	if err != nil || json.Unmarshal(saved, &j) != nil {
+		t.Fatal("saved input job cannot be reopened", err)
+	}
+	if err = d.Write(nativeName(a.AttemptID), saved, a.Limits.MaxRecord); err != nil {
+		t.Fatal(err)
+	}
+	c = NewCodex(d, &runner.CodexSettings{StorageLimit: 32 << 20})
+	defer func() { _ = c.Close(context.Background()) }()
+	observation, err := c.Observe(t.Context(), a.AttemptID)
+	if err != nil || observation.State != runner.Finished || observation.End == nil || observation.End.Kind != "failed" || observation.NativeHandle != "" {
+		t.Fatal("observation replaced or dispatched a settled saved input job", observation, err)
+	}
+	if err = c.workspaceInputs(j); err != nil {
+		t.Fatal("restart failed to rejoin typed input files", err)
+	}
+	dir := filepath.Join(workspace.WorkDir, ".runner-tmp", "inputs", a.AttemptID)
+	var selected string
+	for name, want := range files {
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || !bytes.Equal(got, want) || !bytes.Equal(got, a.Inputs[name].Inline) {
+			t.Fatal("inline JSON lost its original bytes/type", name, err)
+		}
+		selected = name
+	}
+	other := filepath.Join(workspace.WorkDir, ".runner-tmp", "inputs", "other-attempt")
+	if err = os.Mkdir(other, 0700); err == nil {
+		err = os.WriteFile(filepath.Join(other, "keep"), []byte("retained"), 0600)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(dir, selected), []byte("changed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if c.workspaceInputs(j) == nil || w.ReleaseAttempt(t.Context(), a) == nil {
+		t.Fatal("changed inline evidence was overwritten or silently removed")
+	}
+	if err = os.WriteFile(filepath.Join(dir, selected), files[selected], 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = w.ReleaseAttempt(t.Context(), a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatal("owned inline input files survived release", err)
+	}
+	if _, err = os.Stat(filepath.Join(other, "keep")); err != nil {
+		t.Fatal("release touched another attempt", err)
+	}
+	after, _ := json.Marshal(a)
+	if !bytes.Equal(before, after) {
+		t.Fatal("staging changed the persisted assignment")
+	}
+}
 
 func TestWritableEvidenceInputsAreExplicitStagedCopiesAndCleanOnlyTheirAttempt(t *testing.T) {
 	d := workspaceDisk(t)

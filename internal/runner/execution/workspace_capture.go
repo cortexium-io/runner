@@ -446,9 +446,25 @@ func capturePaths(ctx context.Context, r workspaceRecord) ([]string, error) {
 	if !info.IsDir() {
 		return nil, errors.New("source root ownership changed during capture")
 	}
-	paths, err := git(ctx, r.WorkDir, nil, nil, 1<<20, "diff-index", "--name-only", "-z", "--no-ext-diff", "--no-textconv", r.Base, "--", ".", ":(exclude).runner-tmp")
+	attributes, err := workspaceAttributes(ctx, r)
 	if err != nil {
 		return nil, err
+	}
+	var paths []byte
+	if attributes {
+		changed, err := literalAttributeChanges(ctx, r, nil, r.Base)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range changed {
+			paths = append(paths, name...)
+			paths = append(paths, 0)
+		}
+	} else {
+		paths, err = git(ctx, r.WorkDir, nil, nil, 1<<20, "diff-index", "--name-only", "-z", "--no-ext-diff", "--no-textconv", r.Base, "--", ".", ":(exclude).runner-tmp")
+		if err != nil {
+			return nil, err
+		}
 	}
 	other, err := git(ctx, r.WorkDir, nil, nil, 1<<20, "ls-files", "--others", "--exclude-standard", "-z", "--", ".", ":(exclude).runner-tmp")
 	if err != nil {

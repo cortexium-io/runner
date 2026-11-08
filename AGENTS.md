@@ -2,6 +2,18 @@
 
 ## Current authority and scope
 
+On 8 November the owner authorized completing the four release-closure packages:
+freeze the supported build and routine policy, finish missing real-work evidence,
+perform the qualified routing/documentation cutover, and verify reuse on another
+configured project. Prepare the plan in the existing design, use bounded
+maintenance subagents and execute product work only through complete Runner
+processes. This authorizes the necessary fresh bounded qualification workflows
+and verified installation/cutover; it does not increase existing run allowances,
+weaken product acceptance, or authorize merge, production or database restoration.
+Reuse passing proof while its relevant inputs remain unchanged. Report a genuine
+remaining capability or product blocker rather than declaring closure from a
+fixture or a safe stop alone.
+
 On 6 November 2026 the owner authorized completing the planner-to-delivery
 workflow, safe parallel task execution and routine recovery, then verifying it
 across real projects without an external chat coordinating stages. Parallel

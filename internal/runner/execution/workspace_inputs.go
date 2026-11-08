@@ -8,11 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
-// Only declared retained artifacts are copied into the protected input subtree.
+// Declared artifacts and overflowed inline JSON use the protected input subtree.
 // The worker never receives access to the artifact store itself. Patch restoration
 // for writable roles remains Workspaces.Prepare's separate source operation.
 func (c *Codex) workspaceInputs(j nativeJob) error {
@@ -52,6 +53,15 @@ func (c *Codex) workspaceInputs(j nativeJob) error {
 
 func stagedInputData(disk *runner.Disk, a runner.Assignment) (map[string][]byte, error) {
 	files := map[string][]byte{}
+	if a.Setup.Profile.Harness == "codex" {
+		_, _, inline, err := nativePayloadPlan(a, time.Time{})
+		if err != nil {
+			return nil, err
+		}
+		for name, data := range inline {
+			files[name] = data
+		}
+	}
 	for name, value := range a.Inputs {
 		if value.ArtifactID == "" || name == "patch" && a.Setup.Profile.Access == "workspace-write" {
 			continue

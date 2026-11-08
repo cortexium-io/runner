@@ -87,8 +87,11 @@ func (c *Codex) nativeConfiguration(ctx context.Context) (string, error) {
 			}
 			config += "\".\"=" + strconv.Quote(mode) + "\n\".runner-tmp\"=\"write\"\n\".runner-tmp/inputs\"=\"read\"\n"
 			for _, p := range c.cfg.ReadOnlyPaths {
-				config += strconv.Quote(p) + "=\"read\"\n"
+				if p != ".gitattributes" {
+					config += strconv.Quote(p) + "=\"read\"\n"
+				}
 			}
+			config += "\".gitattributes\"=\"read\"\n"
 			for _, p := range []string{".git", ".codex", ".agents", ".aws"} {
 				config += strconv.Quote(p) + "=\"deny\"\n"
 			}
@@ -377,8 +380,9 @@ func main(){
  denied:=func(path string){_,err:=os.ReadFile(path);if !errors.Is(err,os.ErrPermission){panic("private/Git/symlink read boundary")}}
  denied(private);denied(filepath.Join(root,".git"));if escape!=""{denied(escape)}
  if artifact:=os.Getenv("RUNNER_ARTIFACT_STORE_PROBE");artifact!=""{denied(artifact)}
- if evidence:=os.Getenv("RUNNER_EVIDENCE_PROBE");evidence!=""{if _,err:=os.ReadFile(evidence);err!=nil{panic("evidence read boundary")};f,err:=os.OpenFile(evidence,os.O_WRONLY,0);if err==nil{f.Close();panic("evidence write boundary")};if !errors.Is(err,os.ErrPermission){panic("evidence write not checked")};if err:=os.Rename(filepath.Dir(evidence),filepath.Dir(evidence)+"-moved");!errors.Is(err,os.ErrPermission){panic("evidence directory rename boundary")}}
+ for _,evidence:=range []string{os.Getenv("RUNNER_EVIDENCE_PROBE"),os.Getenv("RUNNER_INLINE_EVIDENCE_PROBE")}{if evidence!=""{if _,err:=os.ReadFile(evidence);err!=nil{panic("evidence read boundary")};f,err:=os.OpenFile(evidence,os.O_WRONLY,0);if err==nil{f.Close();panic("evidence write boundary")};if !errors.Is(err,os.ErrPermission){panic("evidence write not checked")};if err:=os.Rename(evidence,evidence+"-moved");!errors.Is(err,os.ErrPermission){panic("evidence file rename boundary")};if err:=os.Remove(evidence);!errors.Is(err,os.ErrPermission){panic("evidence delete boundary")};if err:=os.Rename(filepath.Dir(evidence),filepath.Dir(evidence)+"-moved");!errors.Is(err,os.ErrPermission){panic("evidence directory rename boundary")}}}
  for _,name:=range os.Args[5:]{f,err:=os.OpenFile(filepath.Join(root,name),os.O_WRONLY,0);if err==nil{f.Close();panic("protected source write boundary")};if !errors.Is(err,os.ErrPermission){panic("protected source not checked")}}
+ if _,err:=os.Lstat(filepath.Join(root,".gitattributes"));err==nil{f,err:=os.OpenFile(filepath.Join(root,".gitattributes"),os.O_WRONLY,0);if err==nil{f.Close();panic("immutable root attributes write boundary")};if !errors.Is(err,os.ErrPermission){panic("immutable root attributes not checked")}}
  if cache:=os.Getenv("GOMODCACHE");cache!=""{if _,err:=os.ReadDir(cache);err!=nil{panic("module cache read boundary")};target:=filepath.Join(cache,".runner-write-probe");f,err:=os.OpenFile(target,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600);if err==nil{f.Close();os.Remove(target);panic("module cache write boundary")};if !errors.Is(err,os.ErrPermission){panic("module cache not checked")}}
  if reporter:=os.Getenv("RUNNER_GO_CHECK");reporter!=""{if _,err:=os.ReadFile(reporter);err!=nil{panic("Go check runtime read boundary")};f,err:=os.OpenFile(reporter,os.O_WRONLY,0);if err==nil{f.Close();panic("Go check runtime write boundary")};if !errors.Is(err,os.ErrPermission){panic("Go check runtime not checked")}}
  conn,err:=net.DialTimeout("tcp","127.0.0.1:9",time.Second);if conn!=nil{conn.Close()};if !errors.Is(err,syscall.EPERM)&&!errors.Is(err,syscall.EACCES){panic("network boundary")}
@@ -402,6 +406,7 @@ func workspaceFiles(cfg *runner.CodexSettings, name, goRoot string) map[string]a
 		for _, path := range cfg.ReadOnlyPaths {
 			roots[path] = "read"
 		}
+		roots[".gitattributes"] = "read"
 		for _, path := range []string{".git", ".codex", ".agents", ".aws"} {
 			roots[path] = "deny"
 		}

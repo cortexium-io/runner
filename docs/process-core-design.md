@@ -1,10 +1,45 @@
 # Runner process core design
 
-Updated 7 November 2026. **The owner has authorized completing and installing the
+Updated 8 November 2026. **The owner has authorized completing and installing the
 full bounded planner workflow, safe parallelism and routine recovery, verified
 across real projects. Merge and production remain owner-approved actions.**
 
 ## Current completion plan
+
+### Release closure, authorized 8 November 2026
+
+Finish the existing design through four bounded work packages. Main owns
+integration, final gates and installation; maintenance subagents have disjoint
+ownership. Product implementation, checks, correction and review stay in Runner.
+Merge, production and database restoration retain their saved owner decisions.
+
+1. **Supported build and routine policy.** Freeze one qualified Core/helper,
+   execution environment and configured recovery policy. Reuse existing lifecycle,
+   dependency, isolation and protected-release proofs; add regression coverage
+   only for an uncovered seam. Known collection gaps, transient pre-dispatch
+   failures and short observers must use configured bounded recovery. Unknown
+   effects, integrity failures and exhausted limits remain visible blockers.
+2. **Real-work acceptance.** Reuse the completed Go and independently reviewed
+   research evidence where relevant inputs are unchanged. Complete missing strict
+   measurement/review and real frontend qualification through the saved merge
+   decision on a fixed build, without external product repair or allowance changes.
+   Keep bounded algorithm investigation distinct from engine acceptance; neither
+   a negative research conclusion nor a safe delivery stop proves a product fix.
+3. **Operational cutover.** After the required qualification, select the planned
+   process as the appropriate project default and verify fresh restricted intake
+   submits once and rejoins its result. Align README, coordinator/operator guidance
+   and planner instructions with actual qualified capabilities, retention and
+   host/service ownership. Preserve historical definitions and protected gates.
+4. **Project reuse.** Onboard one additional real Go repository through existing
+   configuration and fixed commands, then run a useful bounded complete planned
+   task to an independently reviewed local candidate. No product edits/checks
+   happen outside Runner. Its declared finish grants no push, merge or deployment;
+   other production projects still require their own qualified release tools.
+
+Closure requires recorded evidence for all four packages. A new Runner defect
+reopens only its affected proof. A genuine product or prerequisite blocker remains
+explicit, with preserved evidence and the concrete remaining decision; it does
+not justify more architecture, a limit increase or an acceptance waiver.
 
 This is the active plan for the authorized completion work. Earlier slice limits
 below remain historical qualification boundaries until the new proof is recorded.
