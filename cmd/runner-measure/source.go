@@ -139,9 +139,10 @@ func walkSource(ctx context.Context, root *os.Root, visit func(string, os.FileIn
 				}
 				// A large directory cannot allocate an unbounded listing before
 				// the metadata budget is checked.
-				batch, readErr := file.ReadDir(256)
-				for _, entry := range batch {
-					name := entry.Name()
+				// Root-opened ReadDir eagerly stats entries, including denied
+				// metadata. Read names first so exclusions precede every stat.
+				batch, readErr := file.Readdirnames(256)
+				for _, name := range batch {
 					if pending[i].path != "." {
 						name = pending[i].path + "/" + name
 					}

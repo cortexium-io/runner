@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,6 +112,41 @@ func TestSourceSnapshotExcludesOnlyFixedRootMetadataAndScratch(t *testing.T) {
 			t.Fatal("ordinary source path was excluded", name, err)
 		}
 		after = changed
+	}
+}
+
+func TestSourceSnapshotNamesOnlyBatchesExcludeMetadataBeforeValidation(t *testing.T) {
+	root := t.TempDir()
+	for i := range 520 {
+		sourceWrite(t, root, fmt.Sprintf("source-%03d.go", i), "x")
+	}
+	before, err := takeSourceSnapshot(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	sourceWrite(t, outside, "private", "must not be read\n")
+	if err = syscall.Mkfifo(filepath.Join(root, ".git"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Link(filepath.Join(outside, "private"), filepath.Join(root, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Symlink(outside, filepath.Join(root, ".agents")); err != nil {
+		t.Fatal(err)
+	}
+	sourceWrite(t, root, ".aws/private", "must not be entered\n")
+	if err = os.Chmod(filepath.Join(root, ".aws"), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, ".aws"), 0700) })
+	sourceWrite(t, root, ".runner-tmp/attempt/output", "mutable scratch\n")
+	after, err := takeSourceSnapshot(t.Context(), root)
+	if err != nil || after.Files != 520 || after.Bytes != 520 || after.SHA256 != before.SHA256 {
+		t.Fatal("batched name enumeration included fixed metadata or lost source files", after.Identity, after.Files, after.Bytes, err)
+	}
+	if err = before.verify(t.Context()); err != nil {
+		t.Fatal("excluded metadata changes invalidated the source snapshot", err)
 	}
 }
 

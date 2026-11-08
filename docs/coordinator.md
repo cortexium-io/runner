@@ -162,6 +162,15 @@ outer report retains its method, digest, file/byte counts and post-measurement
 metadata verification. Hashing and verification share the existing ten-minute
 measurement deadline.
 
+Directory enumeration reads bounded name batches before inspecting entries, so
+excluded tooling metadata is never statted through the sandbox. Qualify this
+boundary with `TestNativeBoundMeasurementCommand` and
+`RUNNER_BOUND_MEASURE_PREFLIGHT=1`, supplying explicit Codex, helper-compiler and
+benchmark-Go paths. The zero-model exercise uses the real command permissions,
+nested source and denied metadata, checks report/sidecar binding and reuses the
+source/Git/private-file/symlink/network denial probe. Lifecycle fixtures with a
+sandbox shim do not establish native permission compatibility.
+
 The helper supplies `RUNNER_MEASURE_ROUND`,
 `RUNNER_MEASURE_SOURCE_IDENTITY`, `RUNNER_MEASURE_SOURCE_SHA256` and
 `RUNNER_MEASURE_SOURCE_DIGEST_METHOD`, replacing inherited overrides. Collectors
