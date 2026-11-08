@@ -107,7 +107,7 @@ func plannedMeasurementSnapshot(p runner.Process, project runner.Project, index,
 		if step.ID == measurement {
 			measurementIndex = i
 			profile := taskProfile(project, step)
-			if profile.Harness != "command" || profile.Access != "workspace-read" || project.Roles[step.Role].Outputs["artifact"] != "artifact" || step.Routes["ready"] != (runner.Route{Next: reviewID}) {
+			if profile.Harness != "command" || profile.Access != "workspace-read" || project.Roles[step.Role].Outputs["artifact"] != "artifact" {
 				return false
 			}
 		}
@@ -124,6 +124,17 @@ func plannedMeasurementSnapshot(p runner.Process, project runner.Project, index,
 					return false
 				}
 			}
+		}
+	}
+	if measurementIndex >= 0 && (owner.Inputs["measurement_history"].FromStep != "" || p.Steps[measurementIndex].Routes["ready"] != (runner.Route{Next: reviewID})) {
+		historyIndex := measurementIndex + 1
+		if historyIndex >= reviewIndex || !historyAppendStep(p, project, historyIndex, snapshot.ID, measurement, reviewID) ||
+			p.Steps[measurementIndex].Routes["ready"] != (runner.Route{Next: p.Steps[historyIndex].ID}) ||
+			p.Steps[reviewIndex].Inputs["measurements"] != (runner.Binding{FromStep: p.Steps[historyIndex].ID, Output: "artifact"}) ||
+			!reflect.DeepEqual(owner.Inputs["measurement"], runner.Binding{FromStep: measurement, Output: "artifact", Previous: true, Fallback: &runner.Binding{FromStep: baseline.ID, Output: "artifact"}}) ||
+			!reflect.DeepEqual(owner.Inputs["review"], runner.Binding{FromStep: reviewID, Output: "summary", Previous: true, Fallback: &runner.Binding{FromStep: p.Steps[index-1].ID, Output: "feedback"}}) ||
+			!reflect.DeepEqual(owner.Inputs["measurement_history"], runner.Binding{FromStep: p.Steps[historyIndex].ID, Output: "artifact", Previous: true, Fallback: &runner.Binding{FromStep: baseline.ID, Output: "artifact"}}) {
+			return false
 		}
 	}
 	return incoming == 1 && measurementIndex > index+1 && measurementIndex < reviewIndex && reviewIndex < release-1

@@ -152,6 +152,35 @@ not prove new-case coverage or an original incident's reproduction. This uses th
 existing command/artifact mechanism and unchanged process/model limits. The
 coordinator submits the complete request rather than coordinating these stages.
 
+Complete investigation processes also retain ordered measurement history. Later
+successful measurements append through the fixed `runner-measure-history`
+command; the first complete report and pristine controls remain separate and
+unchanged. Review can compare an intermediate profiled baseline with a later
+experiment. History contains at most eight complete candidate reports within
+16 MiB, preserving their exact JSON bytes, original rounds, source stamps and
+hashes. Failed collection does not enter accepted history. Models should parse
+the history programmatically and inspect the relevant complete reports, without
+copying the entire archive into conversational output.
+
+`deliver-measured-investigation` is the complete handoff for an already measured
+unpublished patch. Its closed thirteen-input contract adds the passing check and
+four ordered measurement artifacts to the existing request/selectors, patch,
+original baseline, manifest and authenticated publication. The authorized
+submitting operator verifies the retained check/measurement producer and source
+records during intake. Runner authenticates publication before materialization,
+recomputes the last report's source snapshot against the restored patch, then
+performs independent read-only review before any new coding. The history command
+preserves the old check as context; it does not manufacture check acceptance.
+
+An approving review permits model-free capture and integration only after exact
+owned seed bytes/tree are verified again. Subsequent correction uses fresh
+checks, measurements, history and review before the ordinary same-PR and
+protected release stages. This process has an eighteen-attempt ceiling and
+preserves its full release/recovery reserve. It grants no additional allowance to
+a failed run; a continuation's combined ceiling must be authorized explicitly.
+The larger root contract changes no native role, model byte, record, artifact,
+storage or access limit. Older frozen definitions and failures remain unchanged.
+
 The strict investigation collector opts into `--bind-source` and
 `--require-evidence`; legacy helper invocations retain their existing behavior.
 Source binding streams a versioned SHA256 snapshot of regular source files,

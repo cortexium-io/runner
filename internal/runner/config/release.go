@@ -106,7 +106,12 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 	}
 	if publicationReference >= 0 {
 		var err error
-		owner, err = retainedInvestigationOwner(p, project, start)
+		if p.ID == measuredInvestigationID {
+			owner, err = measuredInvestigationOwner(p, project, start)
+			readiness = 2
+		} else {
+			owner, err = retainedInvestigationOwner(p, project, start)
+		}
 		if err != nil {
 			return err
 		}
@@ -228,8 +233,12 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 					previous.Default = nil
 					previous.Fallback = &runner.Binding{FromStep: p.Steps[publicationReference].ID, Output: "receipt"}
 				}
+				candidate := runner.Binding{FromStep: p.Steps[start-1].ID, Output: "candidate"}
+				if p.ID == measuredInvestigationID {
+					candidate.Fallback = &runner.Binding{FromStep: "initial-integrate", Output: "candidate"}
+				}
 				if !reflect.DeepEqual(step.Inputs, map[string]runner.Binding{
-					"candidate": {FromStep: p.Steps[start-1].ID, Output: "candidate"},
+					"candidate": candidate,
 					"previous":  previous,
 				}) {
 					return bad

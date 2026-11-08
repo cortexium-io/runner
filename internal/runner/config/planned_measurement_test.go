@@ -38,7 +38,7 @@ func TestPlannedInvestigationRetainsFirstMeasurementWithoutChangingAuthority(t *
 				t.Fatal("measurement retention acquired source writes, model work or arbitrary execution")
 			}
 			reviewer := project.Roles[review.Role]
-			if len(reviewer.Inputs) != 8 || reviewer.Inputs["measurement"] != "" || reviewer.Inputs["before_measurements"] != "artifact" || review.Inputs["before_measurements"] != (runner.Binding{FromStep: copy.ID, Output: "artifact"}) || review.Inputs["measurements"] != (runner.Binding{FromStep: measure.ID, Output: "artifact"}) || review.Inputs["baseline_measurements"] != (runner.Binding{FromStep: "baseline", Output: "artifact"}) {
+			if len(reviewer.Inputs) != 8 || reviewer.Inputs["measurement"] != "" || reviewer.Inputs["before_measurements"] != "artifact" || review.Inputs["before_measurements"] != (runner.Binding{FromStep: copy.ID, Output: "artifact"}) || review.Inputs["measurements"] != (runner.Binding{FromStep: "measurement-history", Output: "artifact"}) || review.Inputs["baseline_measurements"] != (runner.Binding{FromStep: "baseline", Output: "artifact"}) {
 				t.Fatal("review conflated original, first candidate and current measurements")
 			}
 			for _, step := range []runner.Step{*owner, *review} {

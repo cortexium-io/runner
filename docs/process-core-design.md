@@ -36,10 +36,32 @@ Merge, production and database restoration retain their saved owner decisions.
    happen outside Runner. Its declared finish grants no push, merge or deployment;
    other production projects still require their own qualified release tools.
 
+Current evidence: Core `728b90d` passed the full local race/vet gates and
+exact-source macOS/Linux CI. Package 4's approved Genny qualification completed
+with 36 selected tests passing, independent approval, a local unpublished
+candidate and settled root/child cleanup; both runs used twelve of the original
+64 attempts. See the [closure evidence](architecture.md#release-closure-8-november-2026).
+Jack's Break frontend qualification, default cutover and pilot installation
+remain open; the Genny result does not establish those outcomes or migrate its
+existing programme.
+
 Closure requires recorded evidence for all four packages. A new Runner defect
 reopens only its affected proof. A genuine product or prerequisite blocker remains
 explicit, with preserved evidence and the concrete remaining decision; it does
 not justify more architecture, a limit increase or an acceptance waiver.
+
+Live iterative profiling exposed one additional handoff requirement: independent
+review needs intermediate complete reports when instrumentation changes before an
+experiment. Keeping only the first complete report and the latest one is
+insufficient. Retain a bounded ordered history alongside the immutable first
+report and pristine controls; keep failed collections explicitly outside accepted
+history. The saved investigation stopped at 17/35 attempts with all evidence
+preserved. Its measured-source continuation must fit the remaining 18, validate
+the restored source against retained evidence, obtain a new independent review
+before capture/integration, and keep the protected release reserve intact.
+Its closed larger root-input contract is a structural configuration exception;
+native role cardinality, model byte limits, record/artifact/storage bounds and
+the combined attempt allowance remain unchanged.
 
 This is the active plan for the authorized completion work. Earlier slice limits
 below remain historical qualification boundaries until the new proof is recorded.

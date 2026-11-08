@@ -101,6 +101,16 @@ func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scr
 			project.Roles[name] = role
 		}
 	}
+	var history string
+	for _, name := range []string{"initial-measurement-history", "measurement-history"} {
+		if role, exists := project.Roles[name]; exists {
+			if history == "" {
+				history = evidenceBinary(t, "./cmd/runner-measure-history")
+			}
+			role.Execution.Command.Args[0] = history
+			project.Roles[name] = role
+		}
+	}
 	project.Processes, project.DefaultProcess, project.Source = map[string]runner.Process{p.ID: p}, p.ID, &runner.SourceSettings{Ref: head}
 	configure(&project)
 	cfg.Projects["demo"] = project

@@ -71,6 +71,10 @@ func (w *Workspaces) Capture(ctx context.Context, a runner.Assignment) (result *
 		return nil, err
 	}
 	defer w.mu.Unlock()
+	return w.captureLocked(ctx, a)
+}
+
+func (w *Workspaces) captureLocked(ctx context.Context, a runner.Assignment) (result *runner.SourceResult, err error) {
 	if !fs.ValidPath(a.AttemptID) || strings.Contains(a.AttemptID, "/") {
 		return nil, errors.New("invalid capture attempt identity")
 	}

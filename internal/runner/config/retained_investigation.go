@@ -13,6 +13,20 @@ import (
 // never copies an incomplete candidate measurement as pre-correction evidence.
 func retainedInvestigationOwner(p runner.Process, project runner.Project, publication int) (int, error) {
 	bad := errors.New("retained investigation requires authenticated publication, retained source/evidence, complete before measurement and bounded correction before protected delivery")
+	if publication == 11 {
+		if len(p.Steps) <= publication || p.Steps[8].ID != "measurement-history" || !historyAppendStep(p, project, 8, "retain-measurement", "measure", "review") ||
+			p.Steps[7].Routes["ready"] != (runner.Route{Next: "measurement-history"}) ||
+			!reflect.DeepEqual(p.Steps[5].Inputs["measurement_history"], runner.Binding{FromStep: "measurement-history", Output: "artifact", Previous: true, Fallback: &runner.Binding{FromStep: "retained-measure", Output: "artifact"}}) ||
+			p.Steps[9].Inputs["measurements"] != (runner.Binding{FromStep: "measurement-history", Output: "artifact"}) {
+			return 0, bad
+		}
+		p = runner.Clone(p)
+		p.Steps = append(p.Steps[:8], p.Steps[9:]...)
+		p.Steps[7].Routes["ready"] = runner.Route{Next: "review"}
+		p.Steps[8].Inputs["measurements"] = runner.Binding{FromStep: "measure", Output: "artifact"}
+		delete(p.Steps[5].Inputs, "measurement_history")
+		return retainedInvestigationOwner(p, project, 10)
+	}
 	if publication != 10 || len(p.Steps) <= publication || p.MaxAttempts != 35 || p.MaxAttemptsPerStep != 1 || p.InfrastructureRetries != 1 || p.AttemptTimeout != "20m" ||
 		!reflect.DeepEqual(p.Inputs, map[string]string{
 			"request": "text", "package": "text", "tests": "text", "benchmark": "text",

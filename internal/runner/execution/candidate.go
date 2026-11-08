@@ -3,8 +3,11 @@ package execution
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +34,8 @@ type candidateJob struct {
 	Assignment runner.Assignment    `json:"assignment"`
 	End        *runner.ExecutionEnd `json:"end,omitempty"`
 	Stopped    bool                 `json:"stopped,omitempty"`
+	Source     *runner.SourceResult `json:"source,omitempty"`
+	Capture    *captureReference    `json:"capture,omitempty"`
 }
 
 func candidateName(id string) string { return "jobs/" + id + ".candidate.json" }
@@ -67,6 +72,9 @@ func (c *Candidates) save(job candidateJob) error {
 func (c *Candidates) saveLocked(job candidateJob) error {
 	if old, err := c.load(job.Assignment.AttemptID); err == nil {
 		job.Stopped = job.Stopped || old.Stopped
+		if job.Source == nil {
+			job.Source, job.Capture = old.Source, old.Capture
+		}
 	}
 	if job.Stopped && job.End != nil && job.End.Kind == "returned" {
 		var text string
@@ -110,9 +118,10 @@ func (c *Candidates) Observe(ctx context.Context, id string) (runner.Observation
 func candidateObservation(job candidateJob) runner.Observation {
 	zero := int64(0)
 	return runner.Observation{
-		State: runner.Finished,
-		End:   job.End,
-		Usage: runner.Usage{InputTokens: &zero, OutputTokens: &zero, CachedInputTokens: &zero},
+		State:  runner.Finished,
+		End:    job.End,
+		Source: runner.Clone(job.Source),
+		Usage:  runner.Usage{InputTokens: &zero, OutputTokens: &zero, CachedInputTokens: &zero},
 	}
 }
 
@@ -144,7 +153,7 @@ func (c *Candidates) Stop(ctx context.Context, id string) error {
 	return err
 }
 
-func (c *Candidates) Release(_ context.Context, id string) error {
+func (c *Candidates) Release(ctx context.Context, id string) error {
 	c.mu.Lock()
 	if work := c.workers[id]; work != nil {
 		select {
@@ -171,7 +180,7 @@ func (c *Candidates) Release(_ context.Context, id string) error {
 		return err
 	}
 	defer lease.Close()
-	if err = c.releaseScratch(job); err != nil {
+	if err = c.releaseCandidateScratch(ctx, job); err != nil {
 		return err
 	}
 	if err = c.disk.Remove("jobs/" + id + ".candidate.lock"); err != nil {
@@ -192,15 +201,18 @@ func (w *Workspaces) retainCandidate(ctx context.Context, a runner.Assignment) (
 	if err != nil {
 		return "", err
 	}
-	if r.Candidate == nil || r.Candidate.PatchID != a.Inputs["patch"].ArtifactID {
-		return "", errors.New("integration patch differs from the retained run candidate")
+	if r.Candidate == nil {
+		if err = w.captureApprovedSeed(ctx, r, a); err != nil {
+			return "", err
+		}
+		r, err = w.load(a.RunID)
+		if err != nil {
+			return "", err
+		}
 	}
-	patch, err := w.disk.Read("artifacts/"+r.Candidate.PatchID, a.Limits.MaxArtifact)
+	patch, err := w.candidatePatch(ctx, r, a)
 	if err != nil {
 		return "", err
-	}
-	if r.Capture == nil || r.Capture.AttemptID != r.Candidate.AttemptID || r.Capture.PatchSHA == "" || captureDigest(patch) != r.Capture.PatchSHA {
-		return "", errors.New("reviewed candidate patch differs from its committed capture")
 	}
 	if r.CandidatePins == nil {
 		r.CandidatePins = map[string]string{}
@@ -264,6 +276,133 @@ func (w *Workspaces) retainCandidate(ctx context.Context, a runner.Assignment) (
 	}
 	return ref + "\n" + hash + "\nLocal reviewed candidate; not merged, pushed or deployed.", nil
 }
+
+// An independently reviewed, already prepared seed needs no coding turn. Capture
+// it only after approval, without releasing the source lock between validation
+// and capture. A baseline or arbitrary late workspace edit is never a seed.
+func (w *Workspaces) captureApprovedSeed(ctx context.Context, r workspaceRecord, a runner.Assignment) error {
+	var review string
+	repository, err := filepath.EvalSymlinks(a.Repository)
+	if err != nil {
+		return err
+	}
+	if a.Deadline.IsZero() || !a.Deadline.After(time.Now()) || a.Source == nil || a.Source.Ref != r.Base || repository != r.Repository || a.TaskSource != nil ||
+		r.Released || !r.SeedReady || r.SeedPatchID == "" || r.SeedPatchID != a.Inputs["patch"].ArtifactID || r.ReadyGeneration == "" ||
+		r.CleanupIntent != nil || r.SourcePreservation != nil && !r.SourcePreservation.Complete ||
+		r.Capture != nil && r.Capture.AttemptID != a.AttemptID ||
+		json.Unmarshal(a.Inputs["review"].Inline, &review) != nil || strings.TrimSpace(review) == "" {
+		return errors.New("integration requires the exact owned ready seed and independent review")
+	}
+	if err = w.verifyWorkspace(ctx, r); err != nil {
+		return err
+	}
+	patch, _, err := w.retainedCandidate(ctx, r, true)
+	if err != nil {
+		return err
+	}
+	if len(patch) == 0 {
+		return errors.New("integration seed cannot be an unchanged baseline")
+	}
+	if _, err = w.captureLocked(ctx, a); err != nil {
+		return err
+	}
+	current, err := w.load(a.RunID)
+	if err != nil {
+		return err
+	}
+	captured, err := w.candidatePatch(ctx, current, a)
+	if err != nil || !bytes.Equal(captured, patch) {
+		if err != nil {
+			return err
+		}
+		return errors.New("captured source differs from the independently reviewed seed")
+	}
+	// Reconstruct the supplied seed independently against its original base and
+	// compare the resulting tree and literal checkout with the committed capture.
+	_, err = w.validateSeed(ctx, current, patch, a.Limits.MaxArtifact, true)
+	return err
+}
+
+func (w *Workspaces) candidatePatch(ctx context.Context, r workspaceRecord, a runner.Assignment) ([]byte, error) {
+	if r.Candidate == nil {
+		return nil, errors.New("integration has no retained run candidate")
+	}
+	patch, err := w.disk.Read("artifacts/"+r.Candidate.PatchID, a.Limits.MaxArtifact)
+	if err != nil {
+		return nil, err
+	}
+	if r.Capture == nil || r.Capture.AttemptID != r.Candidate.AttemptID || r.Capture.PatchSHA == "" || captureDigest(patch) != r.Capture.PatchSHA {
+		return nil, errors.New("reviewed candidate patch differs from its committed capture")
+	}
+	if r.Candidate.PatchID == a.Inputs["patch"].ArtifactID {
+		return patch, nil // Ordinary captured candidates keep their strict ID rule.
+	}
+	if !r.SeedReady || r.SeedPatchID != a.Inputs["patch"].ArtifactID || r.Candidate.InputPatchID != r.SeedPatchID ||
+		r.Candidate.AttemptID != a.AttemptID || r.Candidate.PatchID != a.AttemptID+"/changes.patch" || r.Candidate.Tree != r.Capture.Tree ||
+		a.Source == nil || a.Source.Ref != r.Base || r.Candidate.Repository != r.Repository || r.Candidate.Base != r.Base || r.Candidate.WorkDir != r.WorkDir {
+		return nil, errors.New("integration patch differs from the retained run candidate")
+	}
+	repository, err := filepath.EvalSymlinks(a.Repository)
+	if err != nil || repository != r.Repository {
+		return nil, errors.New("integration seed repository differs")
+	}
+	seed, err := w.readSeed(ctx, r, a.Limits.MaxArtifact)
+	if err != nil {
+		return nil, err
+	}
+	if len(seed) == 0 || !bytes.Equal(seed, patch) {
+		return nil, errors.New("captured integration patch differs from the reviewed seed")
+	}
+	return patch, nil
+}
+
+// Return a real capture made by this integration attempt, including on a failed
+// or stopped result. Core registers its artifact before releasing any scratch;
+// this is source provenance, not an additional approval.
+func (w *Workspaces) candidateSource(ctx context.Context, a runner.Assignment) (*runner.SourceResult, *captureReference, error) {
+	if _, err := os.Lstat(filepath.Join(w.disk.Root, "work", a.AttemptID, "capture-v1")); errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil
+	} else if err != nil {
+		return nil, nil, err
+	}
+	if err := w.lockContext(ctx); err != nil {
+		return nil, nil, err
+	}
+	defer w.mu.Unlock()
+	r, err := w.load(a.RunID)
+	if err != nil {
+		return nil, nil, err
+	}
+	s := r.Candidate
+	if s == nil || s.AttemptID != a.AttemptID || s.PatchID == a.Inputs["patch"].ArtifactID {
+		return nil, nil, nil
+	}
+	if s.PatchID != a.AttemptID+"/changes.patch" || s.InputPatchID != r.SeedPatchID || s.InputPatchID != a.Inputs["patch"].ArtifactID ||
+		s.Repository != r.Repository || s.Base != r.Base || s.WorkDir != r.WorkDir || r.Capture == nil || r.Capture.AttemptID != a.AttemptID || r.Capture.Tree != s.Tree || r.Capture.PatchSHA == "" {
+		return nil, nil, errors.New("integration capture provenance differs")
+	}
+	patch, err := w.disk.Read("artifacts/"+s.PatchID, a.Limits.MaxArtifact)
+	if err != nil {
+		return nil, nil, err
+	}
+	if captureDigest(patch) != r.Capture.PatchSHA {
+		return nil, nil, errors.New("integration capture patch changed before result collection")
+	}
+	if _, err = w.readCaptureManifest(r, a, "work/"+a.AttemptID+"/capture-v1"); err != nil {
+		return nil, nil, err
+	}
+	return runner.Clone(s), runner.Clone(r.Capture), nil
+}
+
+func (c *Candidates) saveCandidateResult(ctx context.Context, j candidateJob) error {
+	source, capture, err := c.workspaces.candidateSource(ctx, j.Assignment)
+	if err != nil {
+		return err
+	}
+	j.Source, j.Capture = source, capture
+	return c.save(j)
+}
+
 func candidateApproval(a runner.Assignment) error {
 	var verdict string
 	if a.Setup.Profile.Harness != "git-candidate" || a.Setup.Profile.Access != "workspace-read" ||
@@ -409,4 +548,137 @@ func (c *Candidates) releaseScratch(job candidateJob) error {
 		return err
 	}
 	return c.disk.Refresh()
+}
+
+func (c *Candidates) releaseCandidateScratch(ctx context.Context, job candidateJob) error {
+	if job.Source == nil || job.Capture == nil {
+		return c.releaseScratch(job)
+	}
+	a := job.Assignment
+	if job.Source.AttemptID != a.AttemptID || job.Source.PatchID != a.AttemptID+"/changes.patch" || job.Capture.AttemptID != a.AttemptID || job.Source.Tree != job.Capture.Tree {
+		return errors.New("candidate capture cleanup provenance differs; preserve it")
+	}
+	root := filepath.Join(c.disk.Root, "work", a.AttemptID)
+	info, err := os.Lstat(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil || !info.IsDir() {
+		return errors.New("candidate capture scratch ownership changed; preserve it")
+	}
+	if err := c.workspaces.lockContext(ctx); err != nil {
+		return err
+	}
+	defer c.workspaces.mu.Unlock()
+	r, err := c.workspaces.load(a.RunID)
+	if err != nil {
+		return err
+	}
+	r.Candidate, r.Capture = job.Source, job.Capture
+	manifest, err := c.workspaces.readCaptureManifest(r, a, "work/"+a.AttemptID+"/capture-v1")
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() != "candidate" && entry.Name() != "capture-v1" {
+			return errors.New("candidate capture scratch has unknown content; preserve it")
+		}
+		if entry.Name() == "candidate" {
+			if err = candidateScratchFiles(filepath.Join(root, "candidate")); err != nil {
+				return err
+			}
+		}
+	}
+	path := filepath.Join(root, "capture-v1", "lease")
+	before, err := os.Lstat(path)
+	if err != nil || !before.Mode().IsRegular() {
+		return errors.New("candidate capture lease ownership changed; preserve it")
+	}
+	lease, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
+	opened, err := lease.Stat()
+	if err != nil || !os.SameFile(before, opened) {
+		return errors.New("candidate capture lease identity changed; preserve it")
+	}
+	owned, err := tryCaptureLease(lease)
+	if err != nil || !owned {
+		return errors.New("candidate capture writer remains active; preserve it")
+	}
+	if err = c.candidateCaptureFiles(ctx, r, manifest, filepath.Join(root, "capture-v1")); err != nil {
+		return err
+	}
+	return c.disk.Remove("work/" + a.AttemptID)
+}
+
+func (c *Candidates) candidateCaptureFiles(ctx context.Context, r workspaceRecord, manifest captureManifest, root string) error {
+	// Git may read private objects while deriving their allowed identities. Refuse
+	// links throughout that input tree before letting it open any object.
+	if err := filepath.WalkDir(root, func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && !entry.Type().IsRegular() {
+			return errors.New("candidate capture scratch contains links or special files; preserve it")
+		}
+		return ctx.Err()
+	}); err != nil {
+		return err
+	}
+	files := map[string]bool{"lease": true, "manifest.json": true, "index": true, "tree-index": true}
+	dirs := map[string]bool{".": true, "files": true, "objects": true}
+	object := func(hash string) {
+		dirs["objects/"+hash[:2]] = true
+		files["objects/"+hash[:2]+"/"+hash[2:]] = true
+	}
+	for i, file := range manifest.Files {
+		if file.Mode != "0" {
+			files[fmt.Sprintf("files/%06d", i)] = true
+			object(file.Blob)
+		}
+	}
+	common, err := git(ctx, r.Repository, nil, nil, 4096, "rev-parse", "--path-format=absolute", "--git-path", "objects")
+	if err != nil {
+		return err
+	}
+	env := []string{"GIT_OBJECT_DIRECTORY=" + filepath.Join(root, "objects"), "GIT_ALTERNATE_OBJECT_DIRECTORIES=" + strings.TrimSpace(string(common))}
+	trees, err := git(ctx, r.Repository, env, nil, int(manifest.Limit), "ls-tree", "-r", "-d", "-z", r.Capture.Tree)
+	if err != nil {
+		return err
+	}
+	object(r.Capture.Tree)
+	for _, line := range bytes.Split(trees, []byte{0}) {
+		if len(line) == 0 {
+			continue
+		}
+		header, _, found := bytes.Cut(line, []byte{'\t'})
+		fields := strings.Fields(string(header))
+		if !found || len(fields) != 3 || fields[1] != "tree" || len(fields[2]) != len(r.Base) {
+			return errors.New("candidate capture tree inventory is invalid; preserve it")
+		}
+		if _, err := hex.DecodeString(fields[2]); err != nil {
+			return errors.New("candidate capture tree object is invalid; preserve it")
+		}
+		object(fields[2])
+	}
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		name := filepath.ToSlash(rel)
+		if entry.IsDir() && !dirs[name] || !entry.IsDir() && (!entry.Type().IsRegular() || !files[name]) {
+			return errors.New("candidate capture scratch has unknown content; preserve it")
+		}
+		return ctx.Err()
+	})
 }

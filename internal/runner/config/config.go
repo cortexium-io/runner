@@ -660,6 +660,14 @@ func validateProcess(v runner.Process, p runner.Project) error {
 	if err := taskSourcePlacement(v, p); err != nil {
 		return err
 	}
+	if v.ID == measuredInvestigationID {
+		// Authenticate the complete closed graph before admitting its thirteen
+		// artifact/context references. This is not a larger generic contract.
+		if err := validateReleaseProcess(v, p); err != nil {
+			return err
+		}
+		return validateProcessInputs(v, p, 13)
+	}
 	return validateProcessInputs(v, p, 8)
 }
 func validateProcessInputs(v runner.Process, p runner.Project, inputLimit int) error {

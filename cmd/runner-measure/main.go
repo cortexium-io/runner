@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cortexium-io/runner/internal/sourcesnapshot"
 )
 
 type measurement struct {
@@ -40,7 +42,7 @@ type measurement struct {
 	Evidence              map[string]json.RawMessage `json:"evidence,omitempty"`
 	EvidenceStatus        string                     `json:"evidence_status"`
 	EvidenceNote          string                     `json:"evidence_note,omitempty"`
-	Source                *sourceSnapshot            `json:"source,omitempty"`
+	Source                *sourcesnapshot.Snapshot   `json:"source,omitempty"`
 	SourceVerified        bool                       `json:"source_verified,omitempty"`
 }
 
@@ -155,7 +157,7 @@ func run(goBinary, source, scratch, pkg, selector, previous string, mode measure
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		if mode.BindSource {
-			snapshot, err := takeSourceSnapshot(ctx, source)
+			snapshot, err := sourcesnapshot.Take(ctx, source)
 			if err != nil {
 				m.failCollection("source binding failed: " + err.Error())
 			} else {
@@ -192,7 +194,7 @@ func run(goBinary, source, scratch, pkg, selector, previous string, mode measure
 				m.Failed, m.Error = true, "benchmark selector executed no measurement"
 			}
 			if m.Source != nil {
-				if err := m.Source.verify(ctx); err != nil {
+				if err := m.Source.Verify(ctx); err != nil {
 					m.failCollection("source verification failed: " + err.Error())
 				} else {
 					m.SourceVerified = true
@@ -292,7 +294,7 @@ func run(goBinary, source, scratch, pkg, selector, previous string, mode measure
 	return nil
 }
 
-func measurementEnvironment(evidence string, round int, source *sourceSnapshot) []string {
+func measurementEnvironment(evidence string, round int, source *sourcesnapshot.Snapshot) []string {
 	reserved := map[string]bool{
 		"RUNNER_MEASURE_EVIDENCE":             true,
 		"RUNNER_MEASURE_ROUND":                true,

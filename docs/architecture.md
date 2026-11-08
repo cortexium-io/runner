@@ -279,8 +279,68 @@ while file writes, rename, deletion and parent replacement remain denied; the
 root attribute file is automatically read-only without a project-specific grant.
 Existing source/scratch/private/Git/symlink/network boundaries remain enforced.
 Private proof is retained under the existing `planned-completion-20261106`
-qualification directory. Full final gates, real-project results and any default
-cutover must be recorded separately; these fixture results do not complete them.
+qualification directory. Core `728b90d25d7f4eaf2a6e6bbce4aedc15681aacea`
+subsequently passed the full local race suite with its 15-minute timeout
+(execution 757.204s), `go vet ./...`, and exact-source macOS/Linux CI run
+`42476324997`.
+
+The approved [Genny qualification](https://github.com/cortexium-io/genny/issues/615)
+completed through `develop-planned` on exact committed `dev`
+`8085ee65b904557562c3f365864cce9ca4978a92`. The initial test-only run failed after
+three attempts and remains preserved. The owner then approved the focused
+`internal/project/path.go` correction alongside `path_test.go`. The continuation,
+`run_PFI7CPC2AQ542PZMO5YAOD62J4`, completed in nine attempts under its remaining
+61-attempt cap: twelve attempts consumed across both runs within the original 64.
+Its scoped receipt records 36 passes, zero failures and zero skips, including
+`TestCleanRelativePathCanonicalContract` and
+`TestResolveProjectPathParentAndLeafContract`. Independent review returned
+`APPROVE` after examining caller behavior and containment. All root/child attempts
+and resources were released.
+
+The resulting candidate is `43bb70a3d2918b5eee0a92c2910f9fb3d9edc27f`, local,
+unpublished and unmerged. Fresh restricted intake exposed only
+`runner_run`, `runner_result` and `runner_status`, submitted once and waited for
+completion, then cleaned up. Recorded Runner usage was 411,582 tokens, with
+230,021 additional intake tokens; maintenance-chat usage is separate. The private
+`closure-genny-completion-proof-20261108.json` retains the exact source, candidate,
+check digest, review, usage and cleanup facts. Its adjacent
+`genny-closure-cold-20261108` checkpoint preserves state, source, configuration and
+binary; the temporary service is stopped and the actual Genny checkout is
+untouched. This qualifies the bounded local path-contract task, not Genny
+production or migration of its existing Runner programme.
+
+Jack's Break's real frontend qualification, planned default cutover and pilot
+installation remain open. The Genny result and passing maintenance gates do not
+complete those separate obligations.
+
+The live retained investigation then exercised three internal owner/check/measure/
+review visits and stopped at 17/35 attempts: its final review lacked the complete
+intermediate profiled-before report. All four reports, source, checks and the
+failed result remain preserved. Ordered history now keeps every complete report
+as exact JSON bytes with original round/source metadata and a digest; the first
+complete report and pristine baseline remain distinct. The fixed history command
+can recompute the last report's source snapshot against the restored workspace;
+old check context still requires authenticated producer/source intake provenance.
+
+The closed `deliver-measured-investigation` handoff admits thirteen root inputs
+while every native role retains its eight-input and 8 KiB/512-byte limits. It
+authenticates publication, assembles history, checks readiness and independently
+reviews retained source before another coding turn. A real approving review can
+promote only the exact owned prepared seed through the existing candidate
+adapter. Capture, its artifacts, worker replay/Stop and scratch cleanup retain
+the normal provenance and drift checks; unknown scratch content is preserved.
+No control API or store schema was added. Its eighteen-attempt ceiling leaves the
+existing ten-attempt protected reserve after the clean eight-attempt prefix;
+seventeen prior plus eighteen new attempts remain capped at thirty-five.
+
+Focused history/read-only-seed journeys passed in 153.488s and configuration
+races in 5.246s. The actual model-free Core retained-seed journey performs a
+fixed check, one read-only approving review and exact capture/integration in
+three attempts, registering the captured artifact before full resource cleanup.
+Seed, reply-loss/Stop and cleanup regressions passed, including preservation of
+unknown regular files and links. These prove the configured mechanism; final
+packet gates, pilot installation and the real measured continuation remain
+separate acceptance obligations.
 
 ## Follow the demo
 

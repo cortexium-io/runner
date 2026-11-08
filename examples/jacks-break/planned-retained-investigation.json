@@ -267,8 +267,9 @@
           "from_step": "review",
           "output": "summary",
           "previous": true,
-          "default": {
-            "inline": ""
+          "fallback": {
+            "from_step": "join",
+            "output": "feedback"
           }
         },
         "measurement": {
@@ -296,12 +297,17 @@
           "from_step": "join",
           "output": "manifest"
         },
-        "join_feedback": {
-          "from_step": "join",
-          "output": "feedback"
-        },
         "checks": {
           "from_step": "check",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "baseline",
+            "output": "artifact"
+          }
+        },
+        "measurement_history": {
+          "from_step": "measurement-history",
           "output": "artifact",
           "previous": true,
           "fallback": {
@@ -367,7 +373,7 @@
       },
       "routes": {
         "ready": {
-          "next": "review"
+          "next": "measurement-history"
         },
         "continue": {
           "next": "retain-measurement",
@@ -376,6 +382,33 @@
         "changes_requested": {
           "next": "owner",
           "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "measurement-history",
+      "role": "measurement-history",
+      "inputs": {
+        "previous": {
+          "from_step": "measurement-history",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "retain-measurement",
+            "output": "artifact"
+          }
+        },
+        "measurement": {
+          "from_step": "measure",
+          "output": "artifact"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "review"
         },
         "blocked": {
           "next": "$fail"
@@ -400,7 +433,7 @@
           }
         },
         "measurements": {
-          "from_step": "measure",
+          "from_step": "measurement-history",
           "output": "artifact"
         },
         "baseline_measurements": {

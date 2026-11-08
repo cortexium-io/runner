@@ -113,7 +113,11 @@ func BenchmarkRetainedEvidence(b *testing.B){
 			if !bytes.Equal(stagedEvidence(t, dir, "baseline_measurements"), baseline) || !bytes.Equal(stagedEvidence(t, dir, "before_measurements"), before) {
 				t.Error("review lost original or first complete evidence")
 			}
-			check(stagedEvidence(t, dir, "measurements"), "after", 2, false)
+			entries := measurementHistoryReports(t, stagedEvidence(t, dir, "measurements"))
+			if len(entries) != 2 || !bytes.Equal(entries[0], before) {
+				t.Fatal("review lost the initial complete candidate report")
+			}
+			check(entries[1], "after", 2, false)
 		default:
 			t.Error("unexpected model visit", script.starts)
 		}

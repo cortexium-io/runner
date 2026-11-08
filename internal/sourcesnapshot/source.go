@@ -1,4 +1,5 @@
-package main
+// Package sourcesnapshot implements Runner's versioned literal source identity.
+package sourcesnapshot
 
 import (
 	"context"
@@ -16,7 +17,7 @@ import (
 )
 
 const (
-	sourceDigestMethod = "runner-source-snapshot-sha256-v1"
+	Method             = "runner-source-snapshot-sha256-v1"
 	maxSourceEntries   = 1 << 19
 	maxSourcePathBytes = 8 << 20
 )
@@ -24,12 +25,17 @@ const (
 // The digest covers regular source files, not Git metadata or Runner's writable
 // scratch. Paths, executable bits and sizes frame the streamed file contents;
 // checkout location, timestamps and read/write permission bits are not identity.
-type sourceSnapshot struct {
+type Stamp struct {
 	Identity     string `json:"identity"`
 	SHA256       string `json:"sha256"`
 	DigestMethod string `json:"digestMethod"`
 	Files        int    `json:"files"`
 	Bytes        int64  `json:"bytes"`
+}
+
+// Snapshot retains private metadata for bounded post-read verification.
+type Snapshot struct {
+	Stamp
 
 	root    string
 	rootID  os.FileInfo
@@ -41,38 +47,42 @@ type sourceEntry struct {
 	info os.FileInfo
 }
 
-func takeSourceSnapshot(ctx context.Context, root string) (sourceSnapshot, error) {
+func Take(ctx context.Context, root string) (Snapshot, error) {
 	if err := ctx.Err(); err != nil {
-		return sourceSnapshot{}, err
+		return Snapshot{}, err
 	}
 	if !filepath.IsAbs(root) || filepath.Clean(root) != root {
-		return sourceSnapshot{}, errors.New("source snapshot requires a clean absolute directory")
+		return Snapshot{}, errors.New("source snapshot requires a clean absolute directory")
 	}
 	info, err := os.Lstat(root)
 	if err != nil {
-		return sourceSnapshot{}, err
+		return Snapshot{}, err
 	}
 	if !info.IsDir() {
-		return sourceSnapshot{}, errors.New("source snapshot root is not a regular directory")
+		return Snapshot{}, errors.New("source snapshot root is not a regular directory")
 	}
 	dir, err := os.OpenRoot(root)
 	if err != nil {
-		return sourceSnapshot{}, err
+		return Snapshot{}, err
 	}
 	defer dir.Close()
 	opened, err := dir.Stat(".")
 	if err != nil || !os.SameFile(info, opened) {
-		return sourceSnapshot{}, errors.New("source snapshot root changed while opening")
+		return Snapshot{}, errors.New("source snapshot root changed while opening")
 	}
-	s := sourceSnapshot{root: root, rootID: info, DigestMethod: sourceDigestMethod}
+	s := Snapshot{
+		Stamp:  Stamp{DigestMethod: Method},
+		root:   root,
+		rootID: info,
+	}
 	digest := sha256.New()
-	digest.Write([]byte(sourceDigestMethod + "\x00"))
+	digest.Write([]byte(Method + "\x00"))
 	err = walkSource(ctx, dir, func(name string, info os.FileInfo) error {
 		s.entries = append(s.entries, sourceEntry{path: name, info: info})
 		return nil
 	})
 	if err != nil {
-		return sourceSnapshot{}, err
+		return Snapshot{}, err
 	}
 	sort.Slice(s.entries, func(i, j int) bool { return s.entries[i].path < s.entries[j].path })
 	buffer := make([]byte, 64<<10)
@@ -82,15 +92,15 @@ func takeSourceSnapshot(ctx context.Context, root string) (sourceSnapshot, error
 		}
 		frameSourceFile(digest, entry.path, entry.info)
 		if err = hashSourceFile(ctx, dir, entry.path, entry.info, digest, buffer); err != nil {
-			return sourceSnapshot{}, err
+			return Snapshot{}, err
 		}
 		s.Files++
 		s.Bytes += entry.info.Size()
 	}
 	// Catch path, directory and already-read file changes during the first walk,
 	// before a caller can use the stamp for its child process.
-	if err = s.verify(ctx); err != nil {
-		return sourceSnapshot{}, err
+	if err = s.Verify(ctx); err != nil {
+		return Snapshot{}, err
 	}
 	s.SHA256 = hex.EncodeToString(digest.Sum(nil))
 	s.Identity = "sha256:" + s.SHA256
@@ -162,7 +172,7 @@ func walkSource(ctx context.Context, root *os.Root, visit func(string, os.FileIn
 					if err != nil {
 						return err
 					}
-					if !info.IsDir() && (!info.Mode().IsRegular() || !evidenceUnlinked(info)) {
+					if !info.IsDir() && (!info.Mode().IsRegular() || !unlinked(info)) {
 						return fmt.Errorf("source snapshot requires unlinked regular files: %q", name)
 					}
 					if err = visit(name, info); err != nil {
@@ -216,7 +226,7 @@ func (r sourceReader) Read(data []byte) (int, error) {
 func sameSourceFile(before, after os.FileInfo) bool {
 	return before != nil && after != nil && os.SameFile(before, after) &&
 		before.Mode() == after.Mode() && before.Size() == after.Size() &&
-		before.ModTime().Equal(after.ModTime()) && evidenceUnlinked(after)
+		before.ModTime().Equal(after.ModTime()) && unlinked(after)
 }
 
 func hashSourceFile(ctx context.Context, root *os.Root, name string, before os.FileInfo, digest hash.Hash, buffer []byte) error {
@@ -243,7 +253,7 @@ func hashSourceFile(ctx context.Context, root *os.Root, name string, before os.F
 // Source is read-only to the measured child. Verification detects ordinary
 // concurrent host changes using path/inode/mode/size/time metadata; it is not a
 // second byte hash or protection against a hostile owner restoring all metadata.
-func (s sourceSnapshot) verify(ctx context.Context) error {
+func (s Snapshot) Verify(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

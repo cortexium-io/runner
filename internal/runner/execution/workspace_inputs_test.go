@@ -8,9 +8,86 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
+
+func TestReadOnlyReviewStagesOnlyTheSamePreparedOwnedSeed(t *testing.T) {
+	for _, change := range []string{"ready", "tracked drift", "untracked drift", "unprepared", "wrong seed", "generation", "foreign project", "foreign repository", "foreign base"} {
+		t.Run(change, func(t *testing.T) {
+			patch := addedSeedFile("retained.txt", "100644")
+			w, a := seedWorkspaceFixture(t, patch)
+			if err := w.disk.Write("artifacts/"+a.Inputs["patch"].ArtifactID, patch, a.Limits.MaxArtifact); err != nil {
+				t.Fatal(err)
+			}
+			a.Setup.Profile = runner.Profile{Harness: "command", Access: "workspace-read"}
+			r, err := w.Prepare(t.Context(), a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			a.AttemptID, a.ProjectID, a.Source.Ref = "review_seed", "demo", r.Base
+			a.Setup.Profile = runner.Profile{Harness: "codex", Access: "workspace-read", Model: "gpt-6.1-sol", Reasoning: "xhigh", MaxInput: 8192, MaxOutput: 512}
+			a.Task, a.OutputTypes = "Independently review the retained seed", map[string]string{"verdict": "text", "summary": "text"}
+			a.Deadline = time.Now().Add(20 * time.Minute)
+			a = runner.Clone(a)
+			snapshot := runner.Clone(r)
+			j := nativeJob{Assignment: a, Workspace: &snapshot, Stage: "allocated"}
+			c := &Codex{disk: w.disk, workspaces: w, ctx: context.Background(), jobs: map[string]nativeJob{}, changed: make(chan struct{})}
+			if err = c.saveLocked(j); err != nil {
+				t.Fatal(err)
+			}
+			switch change {
+			case "tracked drift", "untracked drift":
+				name := "retained.txt"
+				if change == "untracked drift" {
+					name = "unexpected.txt"
+				}
+				err = os.WriteFile(filepath.Join(r.WorkDir, name), []byte("unique source\n"), 0600)
+			case "unprepared":
+				r.SeedReady = false
+				err = w.save(r)
+			case "wrong seed":
+				r.SeedPatchID = "other/changes.patch"
+				err = w.save(r)
+			case "generation":
+				r.ReadyGeneration = "another-generation"
+				err = w.save(r)
+			case "foreign project":
+				j.Assignment.ProjectID = "foreign"
+			case "foreign repository":
+				j.Workspace = &workspaceRecord{}
+				*j.Workspace = r
+				j.Workspace.Repository = t.TempDir()
+			case "foreign base":
+				j.Workspace = &workspaceRecord{}
+				*j.Workspace = r
+				j.Workspace.Base = strings.Repeat("b", 40)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = c.workspaceInputs(j)
+			if change != "ready" {
+				if err == nil {
+					t.Fatal("unowned, stale or changed source reached read-only review")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal("verified prepared seed could not be reviewed", err)
+			}
+			got, err := os.ReadFile(filepath.Join(r.WorkDir, ".runner-tmp", "inputs", a.AttemptID, "patch"))
+			if err != nil || !bytes.Equal(got, patch) {
+				t.Fatal("review did not retain the supplied literal patch", err)
+			}
+			current, err := w.load(a.RunID)
+			if err != nil || current.Candidate != nil || current.Capture != nil {
+				t.Fatal("read-only seed review created a candidate or capture", err)
+			}
+		})
+	}
+}
 
 func TestOverflowInlineInputsRejoinAndCleanWithExistingOwnedFiles(t *testing.T) {
 	d := workspaceDisk(t)

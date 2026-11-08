@@ -1,0 +1,40 @@
+{
+  "id": "initial-measurement-history",
+  "purpose": "Retain all supplied complete measurements and check context, verifying current source before independent review.",
+  "inputs": {
+    "patch": "artifact",
+    "checks": "artifact",
+    "measurement1": "artifact",
+    "measurement2": "artifact",
+    "measurement3": "artifact",
+    "measurement4": "artifact"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-measure-history",
+        "--source",
+        "{workspace}",
+        "--checks",
+        "{input.checks}",
+        "--measurement",
+        "{input.measurement1}",
+        "--measurement",
+        "{input.measurement2}",
+        "--measurement",
+        "{input.measurement3}",
+        "--measurement",
+        "{input.measurement4}",
+        "--output",
+        "{scratch}/measurement-history.json"
+      ],
+      "artifact": "measurement-history.json"
+    }
+  }
+}

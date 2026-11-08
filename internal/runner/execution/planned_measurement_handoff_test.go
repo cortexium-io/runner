@@ -47,6 +47,7 @@ func BenchmarkFixtureHandoff(b *testing.B){
 	approve.Items[0].Text = `{"outcome":"ready","outputs":{"verdict":"APPROVE","summary":"Original, before and current evidence independently reviewed"},"reason":""}`
 	script := &scriptedPeer{results: []nativeTurn{plan, goodTurn(), goodTurn(), reject, goodTurn(), approve}}
 	var original, before []byte
+	var previousHistory []byte
 	readReport := func(data []byte, stage string, round int, baseline bool) {
 		t.Helper()
 		var report struct {
@@ -95,6 +96,8 @@ func BenchmarkFixtureHandoff(b *testing.B){
 			readReport(current, stage, round, false)
 			if script.starts == 2 {
 				before = bytes.Clone(current)
+			} else if !bytes.Equal(stagedEvidence(t, dir, "measurement_history"), previousHistory) {
+				t.Error("correction owner lost the prior complete measurement history")
 			}
 			if !bytes.Equal(stagedEvidence(t, dir, "baseline"), original) {
 				t.Error("correction replaced the original baseline")
@@ -115,7 +118,24 @@ func BenchmarkFixtureHandoff(b *testing.B){
 			if script.starts == 5 {
 				stage, round = "reviewed", 3
 			}
-			readReport(stagedEvidence(t, dir, "measurements"), stage, round, false)
+			history := stagedEvidence(t, dir, "measurements")
+			entries := measurementHistoryReports(t, history)
+			if len(entries) != round {
+				t.Fatal("measurement history discarded an intermediate report", len(entries), round)
+			}
+			if !bytes.Equal(entries[0], before) {
+				t.Error("history replaced the immutable first measurement")
+			}
+			if previousHistory != nil {
+				old := measurementHistoryReports(t, previousHistory)
+				for i := range old {
+					if !bytes.Equal(old[i], entries[i]) {
+						t.Error("history rewrote a profiled intermediate before report", i)
+					}
+				}
+			}
+			readReport(entries[len(entries)-1], stage, round, false)
+			previousHistory = bytes.Clone(history)
 			if !bytes.Contains(stagedEvidence(t, dir, "checks"), []byte("TestParseSeats")) {
 				t.Error("review lost the full scoped check receipt")
 			}

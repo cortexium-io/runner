@@ -121,7 +121,7 @@ func (c *Candidates) runCandidate(ctx context.Context, work *candidateWork, job 
 				reason, err = c.workspaces.reconcileStoppedCandidate(active, current.Assignment)
 				if err == nil {
 					current.End = &runner.ExecutionEnd{Kind: "stopped", Reason: reason}
-					err = c.save(current)
+					err = c.saveCandidateResult(active, current)
 				}
 			} else {
 				var text string
@@ -136,12 +136,12 @@ func (c *Candidates) runCandidate(ctx context.Context, work *candidateWork, job 
 				}
 				if err == nil {
 					current.End = &runner.ExecutionEnd{Kind: "returned", Result: &runner.StepResult{Outcome: "ready", Outputs: map[string]runner.Value{"candidate": runner.Text(text)}}}
-					err = c.save(current)
+					err = c.saveCandidateResult(active, current)
 				} else if ctx.Err() == nil {
 					var pending *capturePending
 					if !errors.As(err, &pending) {
 						current.End = &runner.ExecutionEnd{Kind: "failed", Reason: runner.Clip(err.Error())}
-						err = c.save(current)
+						err = c.saveCandidateResult(active, current)
 					}
 				}
 			}
@@ -195,15 +195,8 @@ func (w *Workspaces) completedCandidate(ctx context.Context, a runner.Assignment
 	if err = candidateApproval(a); err != nil {
 		return "", false, err
 	}
-	if r.Candidate == nil || r.Candidate.PatchID != a.Inputs["patch"].ArtifactID {
-		return "", false, errors.New("saved integration patch differs from retained candidate")
-	}
-	patch, err := w.disk.Read("artifacts/"+r.Candidate.PatchID, a.Limits.MaxArtifact)
-	if err != nil {
+	if _, err = w.candidatePatch(ctx, r, a); err != nil {
 		return "", false, err
-	}
-	if r.Capture == nil || r.Capture.AttemptID != r.Candidate.AttemptID || r.Capture.PatchSHA == "" || captureDigest(patch) != r.Capture.PatchSHA {
-		return "", false, errors.New("saved integration patch differs from committed capture")
 	}
 	if err = validateCandidateObject(ctx, r, hash); err != nil {
 		return "", false, err
@@ -269,8 +262,8 @@ func (w *Workspaces) reconcileStoppedCandidate(ctx context.Context, a runner.Ass
 	if err = candidateApproval(a); err != nil {
 		return "", err
 	}
-	if r.Candidate == nil || r.Candidate.PatchID != a.Inputs["patch"].ArtifactID {
-		return "", errors.New("cancelled integration source differs from retained candidate")
+	if _, err = w.candidatePatch(ctx, r, a); err != nil {
+		return "", err
 	}
 	if err = validateCandidateObject(ctx, r, hash); err != nil {
 		return "", err

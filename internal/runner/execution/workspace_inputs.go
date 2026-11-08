@@ -2,11 +2,13 @@ package execution
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -18,8 +20,17 @@ import (
 // for writable roles remains Workspaces.Prepare's separate source operation.
 func (c *Codex) workspaceInputs(j nativeJob) error {
 	if j.Assignment.Setup.Profile.Access == "workspace-read" {
-		if id := j.Assignment.Inputs["patch"].ArtifactID; id != "" && (j.Workspace.Candidate == nil || j.Workspace.Candidate.PatchID != id) {
-			return errors.New("review patch differs from the workspace candidate")
+		if id := j.Assignment.Inputs["patch"].ArtifactID; id != "" {
+			if j.Workspace == nil {
+				return errors.New("review source workspace is absent")
+			}
+			if j.Workspace.Candidate == nil {
+				if err := c.verifyReviewSeed(j, id); err != nil {
+					return err
+				}
+			} else if j.Workspace.Candidate.PatchID != id {
+				return errors.New("review patch differs from the workspace candidate")
+			}
 		}
 	}
 	files, err := stagedInputData(c.disk, j.Assignment)
@@ -49,6 +60,63 @@ func (c *Codex) workspaceInputs(j nativeJob) error {
 		}
 	}
 	return nil
+}
+
+// A prepared retained seed may be reviewed before another source writer exists.
+// It grants no candidate, capture or approval: verify the same ready owned source
+// literally, then use the existing read-only input namespace.
+func (c *Codex) verifyReviewSeed(j nativeJob, patchID string) error {
+	bad := errors.New("review patch is not the same ready owned workspace seed")
+	if c.workspaces == nil || j.Workspace == nil || j.Assignment.Source == nil {
+		return bad
+	}
+	c.mu.Lock()
+	saved, err := c.loadLocked(j.Assignment.AttemptID)
+	c.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(saved.Assignment, j.Assignment) {
+		return bad
+	}
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !j.Assignment.Deadline.IsZero() {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, j.Assignment.Deadline)
+		defer cancel()
+	}
+	w := c.workspaces
+	if err := w.lockContext(ctx); err != nil {
+		return err
+	}
+	defer w.mu.Unlock()
+	r, err := w.load(j.Assignment.RunID)
+	if err != nil {
+		return err
+	}
+	snapshot := j.Workspace
+	repository, err := filepath.EvalSymlinks(j.Assignment.Repository)
+	if err != nil {
+		return err
+	}
+	if r.RunID != snapshot.RunID || r.Repository != repository || r.Repository != snapshot.Repository || r.Base != snapshot.Base || r.WorkDir != snapshot.WorkDir || r.Candidate != nil || r.Released || !r.SeedReady || !snapshot.SeedReady || r.SeedPatchID != patchID || snapshot.SeedPatchID != patchID || r.ReadyGeneration != snapshot.ReadyGeneration || r.CleanupIntent != nil || r.SourcePreservation != nil && !r.SourcePreservation.Complete {
+		return bad
+	}
+	base, err := git(ctx, r.Repository, nil, nil, 256, "rev-parse", "--verify", "--end-of-options", j.Assignment.Source.Ref+"^{commit}")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(base)) != r.Base {
+		return bad
+	}
+	if err = w.verifyWorkspace(ctx, r); err != nil {
+		return err
+	}
+	_, _, err = w.retainedCandidate(ctx, r, true)
+	return err
 }
 
 func stagedInputData(disk *runner.Disk, a runner.Assignment) (map[string][]byte, error) {
