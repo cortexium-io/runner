@@ -36,14 +36,27 @@ Merge, production and database restoration retain their saved owner decisions.
    happen outside Runner. Its declared finish grants no push, merge or deployment;
    other production projects still require their own qualified release tools.
 
-Current evidence: Core `728b90d` passed the full local race/vet gates and
-exact-source macOS/Linux CI. Package 4's approved Genny qualification completed
-with 36 selected tests passing, independent approval, a local unpublished
-candidate and settled root/child cleanup; both runs used twelve of the original
-64 attempts. See the [closure evidence](architecture.md#release-closure-8-november-2026).
-Jack's Break frontend qualification, default cutover and pilot installation
-remain open; the Genny result does not establish those outcomes or migrate its
-existing programme.
+Package 1 is qualified and installed from Core/helper/history `26e4d4d`:
+the full Go 1.26.9 race suite on Mega Mini recorded 1,550 passes (execution
+590.289s), vet passed on both hosts, exact-source macOS/Linux CI run `42497461974`
+succeeded, and Black Magic's zero-model native probes passed in 6.943s. The
+128-file staged configuration loaded with zero runs. Installation at 16:19:40 UTC
+preserved all 74 runs present at stop, frozen definitions, five SQLite tables and
+artifact bytes; the default remains `deliver`, with unchanged limits, gates and
+operator policy `f918`. Earlier normal 168-hour expirations are preserved in the
+cold checkpoint and were not caused by installation.
+
+Package 4's approved Genny qualification is complete: 36 selected tests passed,
+independent review approved local unpublished candidate
+`43bb70a3d2918b5eee0a92c2910f9fb3d9edc27f`, and root/child cleanup settled.
+Both runs used twelve of the original 64 attempts;
+this proof is not being rerun and does not migrate Genny's existing programme.
+See the [closure evidence](architecture.md#release-closure-8-november-2026).
+Package 2's real frontend and strict acceptance remain blocked after the retained
+continuation described below; package 3's default cutover is held until real
+qualification. Merge and production remain separately protected. All four
+packages are not yet complete, and the outstanding product failures are not
+proven fixed.
 
 Closure requires recorded evidence for all four packages. A new Runner defect
 reopens only its affected proof. A genuine product or prerequisite blocker remains
@@ -52,8 +65,8 @@ not justify more architecture, a limit increase or an acceptance waiver.
 
 The local verification package watchdog now matches CI's existing twenty minutes.
 The expanded serial workflow suite exceeded the old fifteen-minute watchdog
-while continuing to make progress without assertion failures. Preserve those
-failed verification logs; require a complete passing twenty-minute run. All
+while continuing to make progress without assertion failures. Those failed
+verification logs remain preserved alongside the complete passing run above. All
 Runner/product/model/storage/attempt limits are unchanged.
 
 Model-free orchestration fixtures reuse a compiler cache owned by their parent
@@ -70,9 +83,22 @@ experiment. Keeping only the first complete report and the latest one is
 insufficient. Retain a bounded ordered history alongside the immutable first
 report and pristine controls; keep failed collections explicitly outside accepted
 history. The saved investigation stopped at 17/35 attempts with all evidence
-preserved. Its measured-source continuation must fit the remaining 18, validate
-the restored source against retained evidence, obtain a new independent review
-before capture/integration, and keep the protected release reserve intact.
+preserved. The only prepared measured-source continuation,
+`run_V7ISRXHSAFVYP7OUM43KRVX7ZX`, was submitted at 16:21 UTC on the installed
+qualified build. Its cap is the remaining eighteen attempts: seventeen prior plus
+eighteen new remains thirty-five. Publication authority, assembly of all four
+source-bound reports and readiness passed. Independent review stopped the run at
+four attempts, and cleanup settled at 16:35:51 UTC: no proven timeout fix, matched
+Nonogram 15 hard/Kakuro 30 easy seed 1 still at 10s/408, and the original Nonogram
+25 seed lost. No coding, integration, publication or qualification followed. The
+two runs consumed twenty-one attempts; no new allowance or replay was granted.
+The fresh fixed-helper source binding existed, but its meaning was absent from
+review instructions. The instruction-only clarification is installed for future
+runs and distinguishes identity proof from fresh checks and domain acceptance;
+the failed run remains unchanged. The separately authorized copy investigation
+can now take over through a complete supported process, preserving its own source
+and publication authority. Neither unpublished PR #334 work nor an unrelated
+baseline is automatically integrated into that copy seed.
 Its closed larger root-input contract is a structural configuration exception;
 native role cardinality, model byte limits, record/artifact/storage bounds and
 the combined attempt allowance remain unchanged.

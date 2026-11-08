@@ -247,10 +247,10 @@ func TestPlannedInvestigationFullReviewEvidenceFitsUnchangedNativeBudget(t *test
 		Outcomes:    []string{"ready", "changes_requested", "blocked"},
 		Deadline:    time.Date(2026, 11, 7, 12, 20, 0, 0, time.UTC),
 	}
-	payload, schema, err := nativePayloadAt(a, a.Deadline.Add(-20*time.Minute))
+	payload, schema, files, err := nativePayloadPlan(a, a.Deadline.Add(-20*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
 	encoded := mustJSON(t, schema)
-	t.Logf("full review evidence native input %d/%d bytes", len(payload)+len(encoded)+len(reviewBase)+len(role.Execution.Instructions), role.Execution.MaxInput)
+	t.Logf("full review evidence native input %d/%d bytes; %d protected inline files", len(payload)+len(encoded)+len(reviewBase)+len(role.Execution.Instructions), role.Execution.MaxInput, len(files))
 }

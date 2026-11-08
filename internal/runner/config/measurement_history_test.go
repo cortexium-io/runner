@@ -68,3 +68,28 @@ func TestHistoricalRetainedInvestigationWithoutHistoryRemainsValid(t *testing.T)
 		t.Fatal("historical frozen contract was broadened or invalidated", err)
 	}
 }
+
+func TestInvestigationReviewerSourceIdentityComesFromFixedWorkspaceHistory(t *testing.T) {
+	for _, file := range []string{"planned-investigation.json", "planned-retained-investigation.json", "retained-investigation.json", "measured-investigation.json"} {
+		t.Run(file, func(t *testing.T) {
+			p, project := plannedFixture(t, "jacks-break", file)
+			if err := errors.Join(validateProcess(p, project), validateReleaseProcess(p, project)); err != nil {
+				t.Fatal(err)
+			}
+			for _, id := range []string{"review", "initial-review"} {
+				for _, step := range p.Steps {
+					if step.ID != id {
+						continue
+					}
+					historyID := "measurement-history"
+					if id == "initial-review" {
+						historyID = "initial-history"
+					}
+					if step.Inputs["measurements"] != (runner.Binding{FromStep: historyID, Output: "artifact"}) || !measurementHistoryProfile(project, *plannedStep(t, &p, historyID), id == "initial-review") {
+						t.Fatal("reviewer source identity did not come from the fixed --source workspace helper")
+					}
+				}
+			}
+		})
+	}
+}

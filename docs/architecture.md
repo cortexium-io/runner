@@ -309,9 +309,9 @@ binary; the temporary service is stopped and the actual Genny checkout is
 untouched. This qualifies the bounded local path-contract task, not Genny
 production or migration of its existing Runner programme.
 
-Jack's Break's real frontend qualification, planned default cutover and pilot
-installation remain open. The Genny result and passing maintenance gates do not
-complete those separate obligations.
+Jack's Break's real frontend qualification and planned default cutover remain
+open. The Genny result does not complete those separate obligations; the qualified
+Runner maintenance installation is recorded below.
 
 The live retained investigation then exercised three internal owner/check/measure/
 review visits and stopped at 17/35 attempts: its final review lacked the complete
@@ -338,9 +338,9 @@ races in 5.246s. The actual model-free Core retained-seed journey performs a
 fixed check, one read-only approving review and exact capture/integration in
 three attempts, registering the captured artifact before full resource cleanup.
 Seed, reply-loss/Stop and cleanup regressions passed, including preservation of
-unknown regular files and links. These prove the configured mechanism; final
-packet gates, pilot installation and the real measured continuation remain
-separate acceptance obligations.
+unknown regular files and links. These prove the configured mechanism; the final
+packet qualification and installation are recorded below, while the real measured
+continuation remains a separate acceptance obligation.
 
 Verification also exposed an incomplete default Go environment. Without an
 explicit module-cache setting, workers inherited neither `HOME` nor `GOPATH` and
@@ -361,7 +361,52 @@ source commands away from the user's normal shared build cache. Actual native
 sandbox checks and production per-attempt compiler caches are unchanged. All
 nine delivery and three research cases passed after the environment correction,
 alongside the source-discovery, foreign-path and existing configured-cache races.
-Full-platform gates and pilot installation are still pending.
+Core, helpers and history at
+`26e4d4dd804923961fadf12ba0380b7db557eba9` passed the complete Go 1.26.9 race
+suite on Mega Mini: 1,550 passes, with the execution package taking 590.289s.
+Vet passed on both hosts, and exact-source macOS/Linux CI run `42497461974`
+succeeded. The final Black Magic zero-model native probes passed in 6.943s.
+The staged 128-file configuration loaded with zero runs.
+
+The qualified build was installed at 16:19:40 UTC on 8 November, after checkpoint
+`before-closure-qualified-26e4d4d`. All 74 runs present at service stop, their
+frozen definitions, all five SQLite tables and artifact bytes were unchanged.
+Three normal 168-hour expirations had already occurred before the stop; their
+earlier records remain in the cold history checkpoint. The default remains
+`deliver`; limits, protected gates and remote operator policy `f918` are unchanged.
+
+Only the prepared retained continuation
+`run_V7ISRXHSAFVYP7OUM43KRVX7ZX` was submitted, at 16:21 UTC. Its eighteen-attempt
+cap plus the prior investigation's seventeen stays within the original
+thirty-five. Publication authority, assembly of all four source-bound reports and
+readiness passed. The independent review stopped the run at four attempts and
+cleanup settled at 16:35:51 UTC. It read all four reports and 224 retained scoped
+passes, but found no proven timeout fix: matched profiled Nonogram 15 hard and
+Kakuro 30 easy seed 1 still returned 10s/408, and the original Nonogram 25 seed is
+lost. No new coding, capture/integration, publication, qualification, merge or
+deployment occurred. The two runs consumed twenty-one of their combined
+thirty-five; the failure is preserved and was not replayed.
+
+The review also declined current-source binding. The fixed helper had actually
+recomputed and drift-verified the restored source and emitted a matching
+`source_bindings` entry. The reviewer instructions explained history entries but
+omitted this trust boundary. The role now explicitly validates the last report's
+exact digest and five-field source stamp in the configured fixed `--source`
+output. This establishes source identity only, never fresh checks, matched seeds,
+algorithm correctness or timeout resolution. The instruction-only correction
+passed focused configuration/native-budget races and the exact saved review
+assignment rendered at 6,015/8,192 bytes with all eight inputs and the unchanged
+512-byte response bound. The owner configuration API applied it for future runs;
+the failed run's definition, attempts and complete inspected record are unchanged.
+
+The approved Genny proof is complete and is not being rerun. Closure packages 1
+and 4 are complete. Package 2's real frontend and strict acceptance remain blocked
+on the product investigation; package 3's default cutover is held until real
+qualification. PR #334 remains draft at `c84f9f4`; the separate reviewed copy
+PR #337 remains draft at `6232ed2`. Their work has not been implicitly combined.
+The pilot hold is lifted for a separately authorized complete retained-copy
+investigation. This is not completion of all four packages or evidence that the
+remaining product failures are fixed.
 
 ## Follow the demo
 
