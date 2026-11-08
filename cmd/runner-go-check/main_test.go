@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,6 +45,38 @@ func fakeGo() {
 		PID, PGID int
 	}{os.Args[1:], os.Getenv("GOCACHE"), os.Getpid(), syscall.Getpgrp()})
 	_ = file.Close()
+	if len(os.Args) > 1 && os.Args[1] == "env" {
+		switch string(mode) {
+		case "runtime-invalid":
+			fmt.Fprint(os.Stdout, `{wrong`)
+		case "runtime-overflow":
+			fmt.Fprint(os.Stdout, strings.Repeat("x", maxDiagnostic+1))
+		case "runtime-exit":
+			os.Exit(1)
+		case "runtime-wait":
+			ready, err := os.OpenFile(os.Getenv("GO_CHECK_TEST_READY"), os.O_WRONLY, 0600)
+			if err != nil {
+				os.Exit(1)
+			}
+			_, _ = ready.Write([]byte{1})
+			_ = ready.Close()
+			for {
+				time.Sleep(time.Hour)
+			}
+		default:
+			fmt.Fprint(os.Stdout, `{"GOVERSION":"go1.26.7","GOOS":"fixtureos","GOARCH":"fixturearch"}`)
+		}
+		return
+	}
+	if string(mode) == "patch-change" {
+		_ = os.WriteFile(os.Getenv("GO_CHECK_TEST_PATCH"), []byte("changed prepared patch\n"), 0600)
+	}
+	if string(mode) == "patch-replace" {
+		path := os.Getenv("GO_CHECK_TEST_PATCH")
+		data, _ := os.ReadFile(path)
+		_ = os.WriteFile(path+".replacement", data, 0600)
+		_ = os.Rename(path+".replacement", path)
+	}
 	selector := ""
 	for i, arg := range os.Args {
 		if arg == "-run" {
@@ -236,6 +270,216 @@ func TestSequentialLiteralScopesPreserveChildren(t *testing.T) {
 	}
 }
 
+func preparedFixture(t *testing.T, mode string) options {
+	t.Helper()
+	o := fixture(t, mode)
+	o.selection, o.regression, o.development = "^TestRegression$", "", ""
+	o.sourceBase = strings.Repeat("a", 40)
+	o.inputPatchID = "attempt_owner/changes.patch"
+	o.inputPatch = filepath.Join(o.scratch, "input.patch")
+	if err := os.WriteFile(o.inputPatch, []byte("literal prepared patch\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return o
+}
+
+func TestPreparedInputBindsLiteralPatchAndConfiguredGoRuntime(t *testing.T) {
+	o := preparedFixture(t, "pass")
+	t.Setenv("GOCACHE", filepath.Join(o.scratch, "shared-cache"))
+	if err := validate(o); err != nil {
+		t.Fatal(err)
+	}
+	r := run(context.Background(), o)
+	p := r.PreparedInput
+	wantSHA := fmt.Sprintf("%x", sha256.Sum256([]byte("literal prepared patch\r\n")))
+	if exitCode(r) != 0 || p == nil || !p.InputVerified || p.SourceBase != o.sourceBase || p.InputPatchID != o.inputPatchID || p.InputPatchSHA256 != wantSHA || p.InputPatchBytes != 24 || p.Runtime != (goRuntime{GoVersion: "go1.26.7", GOOS: "fixtureos", GOARCH: "fixturearch"}) {
+		t.Fatalf("prepared input/runtime not bound: %+v %+v", r, p)
+	}
+	got := calls(t, o)
+	if len(got) != 2 || !reflect.DeepEqual(got[0].Args, []string{"env", "-json", "GOVERSION", "GOOS", "GOARCH"}) || got[1].Args[0] != "test" || got[0].Cache != os.Getenv("GOCACHE") || got[0].Cache != got[1].Cache {
+		t.Fatalf("runtime query did not use test Go/environment: %+v", got)
+	}
+	if err := save(o.output, r); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(o.output)
+	var saved receipt
+	if err := json.Unmarshal(data, &saved); err != nil || !reflect.DeepEqual(saved, r) {
+		t.Fatalf("prepared provenance not retained: %s (%v)", data, err)
+	}
+}
+
+func TestPreparedInputFailureCannotProduceGreenOrSourceFeedback(t *testing.T) {
+	for _, mode := range []string{"patch-change", "patch-replace", "runtime-invalid", "runtime-overflow", "runtime-exit"} {
+		t.Run(mode, func(t *testing.T) {
+			o := preparedFixture(t, mode)
+			t.Setenv("GO_CHECK_TEST_PATCH", o.inputPatch)
+			r := run(context.Background(), o)
+			if exitCode(r) != 2 || r.PreparedInput.InputVerified || r.Scope.Status != "failed" || !r.Scope.EvidenceIncomplete {
+				t.Fatalf("unverified input/runtime accepted: %+v %+v", r, r.PreparedInput)
+			}
+			if strings.HasPrefix(mode, "runtime-") && len(calls(t, o)) != 1 {
+				t.Fatal("tests ran after invalid runtime query")
+			}
+			if strings.HasPrefix(mode, "patch-") && (!r.Scope.ChildExited || r.Scope.Passed != 3) {
+				t.Fatalf("settled test facts lost on input drift: %+v", r.Scope)
+			}
+		})
+	}
+}
+
+func TestPreparedInputKeepsConclusiveTestFailureAndMissingProofDistinct(t *testing.T) {
+	for _, mode := range []string{"fail", "no-tests", "incomplete"} {
+		t.Run(mode, func(t *testing.T) {
+			o := preparedFixture(t, mode)
+			r := run(context.Background(), o)
+			want := 2
+			if mode == "fail" {
+				want = 1
+			}
+			if r.PreparedInput == nil || !r.PreparedInput.InputVerified || exitCode(r) != want || !r.Scope.ChildExited {
+				t.Fatalf("prepared provenance changed source/evidence classification: %+v %+v", r, r.PreparedInput)
+			}
+		})
+	}
+}
+
+func TestPreparedInputRuntimeQueryUsesCallerCancellationAndSettles(t *testing.T) {
+	o := preparedFixture(t, "runtime-wait")
+	path := filepath.Join(o.scratch, "ready")
+	if err := syscall.Mkfifo(path, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ready, err := os.OpenFile(path, os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ready.Close()
+	t.Setenv("GO_CHECK_TEST_READY", path)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan receipt, 1)
+	go func() { done <- run(ctx, o) }()
+	started := make(chan error, 1)
+	go func() {
+		var b [1]byte
+		_, err := io.ReadFull(ready, b[:])
+		started <- err
+	}()
+	select {
+	case err := <-started:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runtime query did not reach explicit readiness barrier")
+	}
+	cancel()
+	select {
+	case r := <-done:
+		if exitCode(r) != 2 || r.PreparedInput.InputVerified || r.Scope.ChildExited || r.Scope.Reason != "configured Go runtime could not be verified" || len(calls(t, o)) != 1 {
+			t.Fatalf("cancelled query ran tests or certified input: %+v", r)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runtime query did not settle after caller cancellation")
+	}
+}
+
+func TestPreparedInputRejectsUnsafeMissingAndOverlargePatchBeforeGo(t *testing.T) {
+	for _, kind := range []string{"missing", "symlink", "directory", "overlarge", "cancelled"} {
+		t.Run(kind, func(t *testing.T) {
+			o := preparedFixture(t, "pass")
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if kind == "cancelled" {
+				cancel()
+			} else {
+				if err := os.Remove(o.inputPatch); err != nil {
+					t.Fatal(err)
+				}
+				switch kind {
+				case "symlink":
+					if err := os.Symlink(o.goBinary, o.inputPatch); err != nil {
+						t.Fatal(err)
+					}
+				case "directory":
+					if err := os.Mkdir(o.inputPatch, 0700); err != nil {
+						t.Fatal(err)
+					}
+				case "overlarge":
+					f, err := os.Create(o.inputPatch)
+					if err != nil {
+						t.Fatal(err)
+					}
+					err = f.Truncate(maxInputPatch + 1)
+					_ = f.Close()
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			r := run(ctx, o)
+			if exitCode(r) != 2 || r.PreparedInput.InputVerified || !r.Scope.EvidenceIncomplete || r.Scope.ChildExited {
+				t.Fatalf("unsafe/unsettled provenance accepted: %+v", r)
+			}
+			if _, err := os.Stat(filepath.Join(o.scratch, "calls")); !os.IsNotExist(err) {
+				t.Fatal("Go ran before patch was verified")
+			}
+		})
+	}
+}
+
+func TestPreparedInputOptionsAreAllOrNoneAndLegacyReceiptUnchanged(t *testing.T) {
+	o := preparedFixture(t, "pass")
+	args := []string{
+		"--go", o.goBinary,
+		"--package", o.pkg,
+		"--run", o.selection,
+		"--timeout", o.timeout.String(),
+		"--scratch", o.scratch,
+		"--output", o.output,
+	}
+	for _, flags := range [][]string{
+		{"--source-base", ""},
+		{"--source-base", "", "--input-patch-id", "", "--input-patch", ""},
+		{"--input-patch-id", o.inputPatchID},
+	} {
+		if _, err := parseOptions(append(append([]string{}, args...), flags...)); err == nil {
+			t.Fatalf("explicit empty/partial provenance flags accepted: %q", flags)
+		}
+	}
+	parsed, err := parseOptions(append(args,
+		"--source-base", o.sourceBase,
+		"--input-patch-id", o.inputPatchID,
+		"--input-patch", o.inputPatch,
+	))
+	if err != nil || parsed != o {
+		t.Fatalf("prepared flags changed: %+v %v", parsed, err)
+	}
+	for name, change := range map[string]func(*options){
+		"base absent":         func(o *options) { o.sourceBase = "" },
+		"patch ID absent":     func(o *options) { o.inputPatchID = "" },
+		"patch path absent":   func(o *options) { o.inputPatch = "" },
+		"short base":          func(o *options) { o.sourceBase = "HEAD" },
+		"foreign ID":          func(o *options) { o.inputPatchID = "../changes.patch" },
+		"path aliases output": func(o *options) { o.inputPatch = o.output },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := o
+			change(&bad)
+			if err := validate(bad); err == nil {
+				t.Fatal("partial/invalid provenance arguments accepted")
+			}
+		})
+	}
+	o.sourceBase, o.inputPatchID, o.inputPatch = "", "", ""
+	r := run(context.Background(), o)
+	b, _ := json.Marshal(r)
+	if exitCode(r) != 0 || r.PreparedInput != nil || bytes.Contains(b, []byte("prepared_input")) || len(calls(t, o)) != 1 {
+		t.Fatalf("legacy execution/receipt changed: %s", b)
+	}
+}
+
 // Bare Runner package paths must select the local package offline, rather than
 // making Go resolve an import path and unrelated missing module metadata.
 func TestWorkspaceRelativePackageStaysOffline(t *testing.T) {
@@ -290,13 +534,19 @@ func TestWorkspaceRelativePackageStaysOffline(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := options{
-		goBinary:  filepath.Join(runtime.GOROOT(), "bin", "go"),
-		pkg:       "...",
-		selection: "^TestRegression$",
-		timeout:   45 * time.Second,
+		goBinary:     filepath.Join(runtime.GOROOT(), "bin", "go"),
+		pkg:          "...",
+		selection:    "^TestRegression$",
+		timeout:      45 * time.Second,
+		sourceBase:   strings.Repeat("a", 40),
+		inputPatchID: "attempt_owner/changes.patch",
+		inputPatch:   filepath.Join(root, "prepared.patch"),
+	}
+	if err := os.WriteFile(o.inputPatch, []byte("literal source handoff\n"), 0600); err != nil {
+		t.Fatal(err)
 	}
 	r := run(context.Background(), o)
-	if exitCode(r) != 0 || r.Scope.Passed != 2 || len(r.Scope.Packages) != 3 {
+	if exitCode(r) != 0 || r.Scope.Passed != 2 || len(r.Scope.Packages) != 3 || !r.PreparedInput.InputVerified || r.PreparedInput.Runtime != (goRuntime{GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}) {
 		t.Fatalf("real Go multi-package receipt lost selected proof: %+v", r.Scope)
 	}
 	if err := os.WriteFile(filepath.Join(pkg, "broken_test.go"), []byte("package puzzles\nvar _ = undefinedSourceSymbol\n"), 0600); err != nil {
@@ -304,7 +554,7 @@ func TestWorkspaceRelativePackageStaysOffline(t *testing.T) {
 	}
 	o.pkg = "internal/puzzles"
 	r = run(context.Background(), o)
-	if exitCode(r) != 1 || len(r.Scope.Tests) != 0 || len(r.Scope.BuildFailures) == 0 || !strings.Contains(r.Scope.BuildFailures[0].Diagnostic, "undefinedSourceSymbol") {
+	if exitCode(r) != 1 || !r.PreparedInput.InputVerified || len(r.Scope.Tests) != 0 || len(r.Scope.BuildFailures) == 0 || !strings.Contains(r.Scope.BuildFailures[0].Diagnostic, "undefinedSourceSymbol") {
 		t.Fatalf("real Go build events did not identify settled source failure: %+v", r.Scope)
 	}
 }

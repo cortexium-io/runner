@@ -31,6 +31,39 @@ func TestConfiguredCommandLiteralText(t *testing.T) {
 	}
 }
 
+func TestConfiguredCommandPreparedInputMetadataIsLiteralAndTyped(t *testing.T) {
+	job := commandJob{
+		Workspace: &workspaceRecord{
+			WorkDir: "/owned/source",
+			Base:    strings.Repeat("a", 40),
+		},
+		Assignment: runner.Assignment{
+			AttemptID: "attempt_check",
+			Inputs: map[string]runner.Value{
+				"patch":     {ArtifactID: "attempt_owner/changes.patch"},
+				"selection": runner.Text("{source.base} {artifact_id.patch} $(echo no)"),
+			},
+		},
+	}
+	env := map[string]string{"TMPDIR": "/owned/scratch"}
+	for value, want := range map[string]string{
+		"{source.base}":           strings.Repeat("a", 40),
+		"{artifact_id.patch}":     "attempt_owner/changes.patch",
+		"{input.patch}":           "/owned/source/.runner-tmp/attempt_check/inputs/patch",
+		"{text.selection}":        "{source.base} {artifact_id.patch} $(echo no)",
+		"{source.other}":          "{source.other}",
+		"{artifact_id.selection}": "{artifact_id.selection}",
+	} {
+		if got := commandValue(value, job, env); got != want {
+			t.Fatalf("metadata substitution %q = %q, want %q", value, got, want)
+		}
+	}
+	job.Assignment.Inputs["patch"] = runner.Text("forged/artifact")
+	if got := commandValue("{artifact_id.patch}", job, env); got != "" {
+		t.Fatalf("inline value invented artifact identity: %q", got)
+	}
+}
+
 // A recovered patch may be measured before a writer runs. Keep that seed
 // distinct from a captured candidate, and allow the later writer's new patch.
 func TestConfiguredCommandInitialRetainedPatch(t *testing.T) {

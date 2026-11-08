@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -27,10 +28,12 @@ const (
 	maxDiagnostic   = 2048
 	maxStdoutProof  = 48 << 10
 	settlementGrace = 2 * time.Second
+	maxInputPatch   = 16 << 20
 )
 
 type options struct {
 	goBinary, pkg, selection, regression, development, scratch, output string
+	sourceBase, inputPatchID, inputPatch                               string
 	timeout                                                            time.Duration
 }
 
@@ -72,10 +75,28 @@ type scopeResult struct {
 }
 
 type receipt struct {
-	Package     string       `json:"package"`
-	Scope       *scopeResult `json:"scope,omitempty"`
-	Regression  scopeResult  `json:"regression,omitzero"`
-	Development scopeResult  `json:"development,omitzero"`
+	Package       string         `json:"package"`
+	Scope         *scopeResult   `json:"scope,omitempty"`
+	Regression    scopeResult    `json:"regression,omitzero"`
+	Development   scopeResult    `json:"development,omitzero"`
+	PreparedInput *preparedInput `json:"prepared_input,omitempty"`
+}
+
+// This identifies the declared prepared input, not the complete source tree.
+// Runner authenticates the relationship between that input and the checkout.
+type preparedInput struct {
+	SourceBase       string    `json:"source_base"`
+	InputPatchID     string    `json:"input_patch_id"`
+	InputPatchSHA256 string    `json:"input_patch_sha256"`
+	InputPatchBytes  int64     `json:"input_patch_bytes"`
+	InputVerified    bool      `json:"input_verified"`
+	Runtime          goRuntime `json:"runtime"`
+}
+
+type goRuntime struct {
+	GoVersion string `json:"go_version"`
+	GOOS      string `json:"goos"`
+	GOARCH    string `json:"goarch"`
 }
 
 func main() {
@@ -119,6 +140,9 @@ func parseOptions(args []string) (options, error) {
 	f.StringVar(&o.development, "development-run", "", "exact anchored development function, optionally anchored subtest regexes")
 	f.StringVar(&o.scratch, "scratch", "", "existing caller-owned scratch directory")
 	f.StringVar(&o.output, "output", "", "absolute JSON artifact path under scratch")
+	f.StringVar(&o.sourceBase, "source-base", "", "Runner-prepared full source base; requires both input-patch flags")
+	f.StringVar(&o.inputPatchID, "input-patch-id", "", "literal Runner artifact ID of the prepared patch")
+	f.StringVar(&o.inputPatch, "input-patch", "", "absolute staged prepared patch to verify before and after Go")
 	f.DurationVar(&o.timeout, "timeout", 0, "required Go test timeout; allows 2s settlement grace")
 	if err := f.Parse(args); err != nil {
 		return o, err
@@ -126,10 +150,24 @@ func parseOptions(args []string) (options, error) {
 	if f.NArg() != 0 {
 		return o, errors.New("unexpected positional arguments")
 	}
+	missingPrepared := false
+	f.Visit(func(v *flag.Flag) {
+		if (v.Name == "source-base" || v.Name == "input-patch-id" || v.Name == "input-patch") && (o.sourceBase == "" || o.inputPatchID == "" || o.inputPatch == "") {
+			missingPrepared = true
+		}
+	})
+	if missingPrepared {
+		return o, errors.New("all three nonempty prepared-input flags are required together")
+	}
 	return o, validate(o)
 }
 
 func validate(o options) error {
+	if o.sourceBase != "" || o.inputPatchID != "" || o.inputPatch != "" {
+		if !regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`).MatchString(o.sourceBase) || len(o.inputPatchID) > 1024 || !filepath.IsLocal(o.inputPatchID) || strings.ContainsAny(o.inputPatchID, "\\\x00\r\n") || filepath.ToSlash(filepath.Clean(o.inputPatchID)) != o.inputPatchID || !filepath.IsAbs(o.inputPatch) || filepath.Clean(o.inputPatch) != o.inputPatch || o.inputPatch == o.output {
+			return errors.New("--source-base, --input-patch-id and --input-patch require a full base, literal artifact ID and distinct absolute patch path together")
+		}
+	}
 	if !filepath.IsAbs(o.goBinary) || o.pkg == "" || len(o.pkg) > 1024 || strings.HasPrefix(o.pkg, "-") || strings.ContainsAny(o.pkg, " \t\r\n") || (strings.Contains(o.pkg, "...") && !(o.selection != "" && (o.pkg == "..." || o.pkg == "./..."))) || o.timeout <= 0 || o.timeout > time.Duration(1<<63-1)-settlementGrace {
 		return errors.New("absolute --go, one --package and positive --timeout are required")
 	}
@@ -241,6 +279,13 @@ func run(ctx context.Context, o options) receipt {
 		o.pkg = "./" + o.pkg
 	}
 	env := os.Environ() // Both scopes reuse precisely the same environment/cache.
+	if o.sourceBase != "" {
+		return runPrepared(ctx, o, env)
+	}
+	return runChecks(ctx, o, env)
+}
+
+func runChecks(ctx context.Context, o options, env []string) receipt {
 	if o.selection != "" {
 		scope := runScope(ctx, o, o.selection, env)
 		return receipt{Package: o.pkg, Scope: &scope}
@@ -257,7 +302,126 @@ func run(ctx context.Context, o options) receipt {
 	return r
 }
 
+func runPrepared(parent context.Context, o options, env []string) receipt {
+	// Metadata collection, test execution and final verification share one budget.
+	ctx, cancel := context.WithTimeout(parent, o.timeout+settlementGrace)
+	defer cancel()
+	p := &preparedInput{SourceBase: o.sourceBase, InputPatchID: o.inputPatchID}
+	r := receipt{Package: o.pkg, PreparedInput: p}
+	if o.selection != "" {
+		r.Scope = &scopeResult{Selector: o.selection, Status: "not_run", Tests: []testResult{}}
+	} else {
+		r.Regression = scopeResult{Selector: o.regression, Status: "not_run", Tests: []testResult{}}
+		r.Development = scopeResult{Selector: o.development, Status: "not_run", Tests: []testResult{}}
+	}
+	before, digest, err := hashInputPatch(ctx, o.inputPatch)
+	if err != nil {
+		return incompletePrepared(r, "prepared input could not be verified before Go")
+	}
+	p.InputPatchSHA256, p.InputPatchBytes = digest, before.Size()
+	p.Runtime, err = childGoRuntime(ctx, o, env)
+	if err != nil {
+		return incompletePrepared(r, "configured Go runtime could not be verified")
+	}
+	r = runChecks(ctx, o, env)
+	r.PreparedInput = p
+	after, digest, err := hashInputPatch(ctx, o.inputPatch)
+	if err != nil || ctx.Err() != nil || !os.SameFile(before, after) || before.Mode() != after.Mode() || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) || digest != p.InputPatchSHA256 {
+		return incompletePrepared(r, "prepared input changed or could not be verified after Go")
+	}
+	if (r.Scope != nil && !r.Scope.ChildExited) || (r.Scope == nil && (!r.Regression.ChildExited || (r.Development.Status != "not_run" && !r.Development.ChildExited))) {
+		return incompletePrepared(r, "prepared input execution did not settle")
+	}
+	p.InputVerified = true
+	return r
+}
+
+func incompletePrepared(r receipt, reason string) receipt {
+	if r.Scope != nil {
+		r.Scope.Status, r.Scope.Reason, r.Scope.EvidenceIncomplete = "failed", reason, true
+	} else {
+		r.Regression.Status, r.Regression.Reason, r.Regression.EvidenceIncomplete = "failed", reason, true
+	}
+	return r
+}
+
+func hashInputPatch(ctx context.Context, path string) (os.FileInfo, string, error) {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, "", err
+	}
+	defer root.Close()
+	name := filepath.Base(path)
+	info, err := root.Lstat(name)
+	if err != nil {
+		return nil, "", err
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxInputPatch {
+		return nil, "", errors.New("patch must be a bounded regular file")
+	}
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, "", err
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return nil, "", errors.New("patch identity changed")
+	}
+	h := sha256.New()
+	buf := make([]byte, 64<<10)
+	var n int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
+		count, readErr := f.Read(buf)
+		n += int64(count)
+		if n > maxInputPatch {
+			return nil, "", errors.New("patch exceeds 16MiB")
+		}
+		_, _ = h.Write(buf[:count])
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, "", readErr
+		}
+	}
+	final, err := f.Stat()
+	current, pathErr := root.Lstat(name)
+	if err != nil || pathErr != nil || !current.Mode().IsRegular() || !os.SameFile(info, current) || final.Size() != n || info.Size() != n || info.Mode() != final.Mode() || !info.ModTime().Equal(final.ModTime()) {
+		return nil, "", errors.New("patch changed while hashing")
+	}
+	return info, fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+func childGoRuntime(ctx context.Context, o options, env []string) (goRuntime, error) {
+	cmd := exec.CommandContext(ctx, o.goBinary, "env", "-json", "GOVERSION", "GOOS", "GOARCH")
+	cmd.Env, cmd.WaitDelay = env, settlementGrace
+	stdout := &diagnostic{}
+	cmd.Stdout, cmd.Stderr = stdout, io.Discard
+	if err := cmd.Run(); err != nil || ctx.Err() != nil || stdout.truncated {
+		return goRuntime{}, errors.New("Go runtime query did not complete")
+	}
+	var fields struct{ GOVERSION, GOOS, GOARCH string }
+	if err := json.Unmarshal([]byte(stdout.String()), &fields); err != nil || !regexp.MustCompile(`^go[0-9]+\.[A-Za-z0-9.+-]{1,100}$`).MatchString(fields.GOVERSION) || !regexp.MustCompile(`^[a-z0-9]{1,32}$`).MatchString(fields.GOOS) || !regexp.MustCompile(`^[a-z0-9]{1,32}$`).MatchString(fields.GOARCH) {
+		return goRuntime{}, errors.New("Go runtime query was invalid")
+	}
+	return goRuntime{
+		GoVersion: fields.GOVERSION,
+		GOOS:      fields.GOOS,
+		GOARCH:    fields.GOARCH,
+	}, nil
+}
+
 func exitCode(r receipt) int {
+	if r.PreparedInput != nil && !r.PreparedInput.InputVerified {
+		if r.Scope != nil {
+			return 2
+		}
+		return 1
+	}
 	if r.Scope != nil {
 		s := r.Scope
 		if s.Status == "passed" {

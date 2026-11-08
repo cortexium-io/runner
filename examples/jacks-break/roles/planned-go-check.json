@@ -27,7 +27,13 @@
         "--scratch",
         "{scratch}",
         "--output",
-        "{scratch}/proof.json"
+        "{scratch}/proof.json",
+        "--source-base",
+        "{source.base}",
+        "--input-patch-id",
+        "{artifact_id.patch}",
+        "--input-patch",
+        "{input.patch}"
       ],
       "env": {
         "GOMODCACHE": "/absolute/path/to/module-cache"

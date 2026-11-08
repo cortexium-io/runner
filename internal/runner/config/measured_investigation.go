@@ -108,6 +108,15 @@ func measuredGoCommand(p runner.Profile, measurement bool) bool {
 	want := runner.Command{Env: map[string]string{"GOMODCACHE": c.Env["GOMODCACHE"]}, Artifact: "proof.json", ExitOutcomes: map[int]string{1: "changes_requested", 2: "blocked"}}
 	name := "runner-go-check"
 	want.Args = []string{c.Args[0], "--go", c.Args[2], "--package", "{text.package}", "--run", "{text.tests}", "--timeout", "10m", "--scratch", "{scratch}", "--output", "{scratch}/proof.json"}
+	// Frozen definitions keep their original thirteen arguments. New checks bind
+	// only Runner's resolved base and literal declared patch input.
+	if !measurement && len(c.Args) == 19 {
+		want.Args = append(want.Args,
+			"--source-base", "{source.base}",
+			"--input-patch-id", "{artifact_id.patch}",
+			"--input-patch", "{input.patch}",
+		)
+	}
 	if measurement {
 		name, want.Result, want.Artifact, want.ExitOutcomes = "runner-measure", "domain.json", "measurements.json", nil
 		want.Args = []string{c.Args[0], "--go", c.Args[2], "--source", "{workspace}", "--scratch", "{scratch}", "--package", "{text.package}", "--benchmark", "{text.benchmark}", "--previous", "{text.previous}", "--repair-collection", "--bind-source", "--require-evidence"}

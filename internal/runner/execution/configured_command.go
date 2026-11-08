@@ -452,7 +452,16 @@ func (c *Commands) Release(ctx context.Context, id string) error {
 	return c.disk.Remove(commandName(id))
 }
 func commandValue(value string, job commandJob, env map[string]string) string {
-	bindings := []string{"{workspace}", job.Workspace.WorkDir, "{scratch}", env["TMPDIR"]}
+	bindings := []string{
+		"{workspace}",
+		job.Workspace.WorkDir,
+		"{scratch}",
+		env["TMPDIR"],
+		"{source.base}",
+		job.Workspace.Base,
+		"{artifact_id.patch}",
+		job.Assignment.Inputs["patch"].ArtifactID,
+	}
 	for name, input := range job.Assignment.Inputs {
 		if input.ArtifactID != "" {
 			bindings = append(bindings, "{input."+name+"}", filepath.Join(job.Workspace.WorkDir, ".runner-tmp", job.Assignment.AttemptID, "inputs", name))

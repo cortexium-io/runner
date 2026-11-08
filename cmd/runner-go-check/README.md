@@ -49,6 +49,31 @@ without the supported Go build/package event linkage remains inconclusive.
 The existing two-scope mode retains its exit behavior: 0 only when both pass,
 otherwise 1.
 
+New planned checks also pass all three optional prepared-input flags together:
+
+```sh
+  --source-base <Runner-resolved-full-base> \
+  --input-patch-id <literal-declared-patch-artifact-id> \
+  --input-patch /owned/scratch/inputs/patch
+```
+
+The optional `prepared_input` object records `source_base`, `input_patch_id`,
+`input_patch_sha256`, `input_patch_bytes`, `input_verified`, and
+`runtime.{go_version,goos,goarch}`. The helper hashes the bounded regular patch
+before and after settled Go execution and rejects file identity or byte drift.
+It queries the configured child Go executable with `go env -json GOVERSION GOOS
+GOARCH` in the same environment and shared timeout as the test command. Runtime
+query or input-verification failure cannot produce a green check or conclusive
+source feedback. Legacy invocations omit this object and keep their behavior.
+
+This is prepared-input provenance, not a full source digest or an approval.
+Runner's fixed command supplies the resolved workspace base, the typed literal
+patch artifact ID, and its staged bytes after authenticating that patch against
+the prepared source. A standalone caller can supply its own labels; those labels
+alone do not establish Runner authority or freshness. Retained receipts remain
+context from their original producer and require its owning provenance; no old
+receipt is retroactively certified by the new fields.
+
 The private JSON artifact lists actual terminal test/subtest outcomes and counts,
 including parents, plus passing executed leaf tests, elapsed/exit/settlement facts
 and the first failing test's diagnostic head and tail, at most 2 KiB combined.

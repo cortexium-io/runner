@@ -143,15 +143,7 @@ func retainedInvestigationOwner(p runner.Process, project runner.Project, public
 		return 0, bad
 	}
 	for _, i := range []int{1, 6} {
-		q := profiles[i].Command
-		if len(q.Args) != 13 || !filepath.IsAbs(q.Args[0]) || filepath.Base(q.Args[0]) != "runner-go-check" || !filepath.IsAbs(q.Args[2]) || q.Result != "" || q.Directory != "" || q.Artifact != "proof.json" || !reflect.DeepEqual(q.ExitOutcomes, map[int]string{1: "changes_requested", 2: "blocked"}) || len(q.Env) != 1 || !filepath.IsAbs(q.Env["GOMODCACHE"]) {
-			return 0, bad
-		}
-		if !reflect.DeepEqual(q.Args, []string{
-			q.Args[0], "--go", q.Args[2], "--package", "{text.package}",
-			"--run", "{text.tests}", "--timeout", "10m", "--scratch", "{scratch}",
-			"--output", "{scratch}/proof.json",
-		}) {
+		if !measuredGoCommand(profiles[i], false) {
 			return 0, bad
 		}
 	}
