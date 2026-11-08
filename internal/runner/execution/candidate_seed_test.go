@@ -209,7 +209,7 @@ func TestApprovedSeedCandidateStopAndLostBranchReplyPreserveKnownSource(t *testi
 		t.Run(map[bool]string{false: "lost-reply", true: "stop"}[stop], func(t *testing.T) {
 			c, a, _, _ := candidateSeedFixture(t)
 			gate := candidateGitGate(t, "branch", true)
-			holdCandidate(t, c, a, gate)
+			holdSeedCandidate(t, c, a, gate)
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			if stop {
@@ -237,6 +237,39 @@ func TestApprovedSeedCandidateStopAndLostBranchReplyPreserveKnownSource(t *testi
 				t.Fatal("settled seed capture/ref did not release", err)
 			}
 		})
+	}
+}
+
+func holdSeedCandidate(t *testing.T, c *Candidates, a runner.Assignment, gate *captureGitFixture) {
+	t.Helper()
+	bounded, stop := context.WithDeadline(t.Context(), a.Deadline)
+	defer stop()
+	observer, detach := context.WithCancelCause(bounded)
+	defer detach(context.Canceled)
+	type result struct {
+		observation runner.Observation
+		err         error
+	}
+	done := make(chan result, 1)
+	go func() {
+		o, err := c.Start(captureCutoffContext{observer}, a)
+		done <- result{o, err}
+	}()
+	select {
+	case <-gate.ready:
+	case r := <-done:
+		t.Fatalf("seed candidate ended before branch gate: %+v; %v", r.observation, r.err)
+	case <-bounded.Done():
+		t.Fatal("seed candidate did not reach branch gate within its original deadline", bounded.Err())
+	}
+	detach(context.DeadlineExceeded)
+	select {
+	case r := <-done:
+		if r.err != nil || r.observation.State != runner.Unknown || !r.observation.Reconciling || r.observation.End != nil {
+			t.Fatal("observer ended seed candidate", r.observation, r.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("observer did not detach")
 	}
 }
 

@@ -28,7 +28,7 @@ func retainedInputAssignment(t *testing.T) runner.Assignment {
 		Inputs: map[string]runner.Value{
 			"request": runner.Text(strings.Repeat("r", 1935)), "review": runner.Text(""),
 			"qualification": {Inline: json.RawMessage("{}")},
-			"baseline":      artifact, "measurement": artifact, "manifest": artifact, "checks": artifact,
+			"baseline":      artifact, "measurement": artifact, "measurement_history": artifact, "manifest": artifact, "checks": artifact,
 		},
 		OutputTypes: role.Outputs,
 		Outcomes:    []string{"blocked"},
@@ -154,7 +154,12 @@ func TestNativeInlineObjectCannotImpersonateStagedFile(t *testing.T) {
 
 func TestNativeInlineFilePlanIsDeterministicAndKeepsJSONTypes(t *testing.T) {
 	a := retainedInputAssignment(t)
-	a.Setup.Profile.MaxInput = 5500
+	// This unit proves type-preserving file planning, independently of the
+	// retained product role's evolving prose. Real-role feedback bounds have
+	// separate coverage above. Keep the cap tight enough to require all files.
+	a.Task = "Retain complete typed evidence."
+	a.Setup.Profile.Instructions = "Read every complete typed input without changing it."
+	a.Setup.Profile.MaxInput = 4096
 	a.Inputs = map[string]runner.Value{
 		"text":   runner.Text(strings.Repeat("<", 3000)),
 		"object": {Inline: json.RawMessage(` { "values": ["` + strings.Repeat("o", 3000) + `"] } `)},

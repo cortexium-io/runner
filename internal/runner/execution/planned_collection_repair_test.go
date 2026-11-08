@@ -81,7 +81,12 @@ func BenchmarkFixtureCollection(b *testing.B){
 				t.Error("review lost the pristine or first complete measurement")
 			}
 			check(stagedEvidence(t, dir, "before_measurements"), "before", 1, false)
-			check(stagedEvidence(t, dir, "measurements"), "after", 2, false)
+			entries := measurementHistoryReports(t, stagedEvidence(t, dir, "measurements"))
+			if len(entries) != 2 || !bytes.Equal(entries[0], before) {
+				t.Fatal("history lost the first complete report or retained failed collection")
+			}
+			check(entries[0], "before", 1, false)
+			check(entries[1], "after", 2, false)
 		default:
 			t.Error("unexpected model-protocol visit", script.starts)
 		}
@@ -129,7 +134,7 @@ func BenchmarkFixtureCollection(b *testing.B){
 			}
 		}
 	}
-	if counts["baseline"] != 1 || counts["plan"] != 1 || counts["cards"] != 1 || counts["measure"] != 3 || counts["retain-measurement"] != 1 || counts["owner"] != 2 || counts["review"] != 1 {
+	if counts["baseline"] != 1 || counts["plan"] != 1 || counts["cards"] != 1 || counts["measure"] != 3 || counts["retain-measurement"] != 1 || counts["measurement-history"] != 1 || counts["owner"] != 2 || counts["review"] != 1 {
 		t.Fatal("collection repair repeated accepted work or omitted proof", counts)
 	}
 	calls, _ := os.ReadFile(filepath.Join(operator, "calls"))
