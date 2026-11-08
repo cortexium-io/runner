@@ -191,6 +191,11 @@ func (b *Live) commandWithEnvironment(ctx context.Context, input []byte, environ
 				strings.Contains(text, "stderr=Connection timed out during banner exchange") {
 				return nil, &connectionUnavailable{}
 			}
+			if out.Len() == 0 && diagnostic.Len() < diagnostic.limit && browserStartBeforeAuthentication(args, b.Config.DockerHost, text) {
+				// A private transport fact, not a reconnect grant: an owned
+				// readiness caller must first prove cleanup and absence.
+				return nil, errors.Join(&commandFailure{program: filepath.Base(path), code: exit.ExitCode()}, errStartBeforeAuthentication)
+			}
 		}
 		if ctx.Err() == nil && errors.As(err, &exit) && exit.ExitCode() > 0 && exit.ExitCode() != 255 {
 			return out.Bytes(), &commandFailure{program: filepath.Base(path), code: exit.ExitCode()}
@@ -198,6 +203,16 @@ func (b *Live) commandWithEnvironment(ctx context.Context, input []byte, environ
 		return nil, &commandUncertain{program: filepath.Base(path)}
 	}
 	return out.Bytes(), nil
+}
+
+func browserStartBeforeAuthentication(args []string, host, diagnostic string) bool {
+	if len(args) != 6 || args[0] != "--host" || args[1] != host || !strings.HasPrefix(host, "ssh://") ||
+		args[2] != "start" || args[3] != "--attach" || args[4] != "--interactive" || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(args[5]) {
+		return false
+	}
+	pattern := `^error during connect: Post "http://docker\.example\.com/v[0-9]+\.[0-9]+/containers/` + args[5] +
+		`/start": command \[ssh [^\r\n]+ docker system dial-stdio\] has exited with exit status 255, [^\r\n]*: stderr=Connection timed out during banner exchange(\r?\nConnection to [^\r\n]+ port [0-9]+ timed out)?$`
+	return regexp.MustCompile(pattern).MatchString(diagnostic)
 }
 
 type limitedOutput struct {

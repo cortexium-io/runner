@@ -92,6 +92,10 @@ func TestReadOnlyReviewStagesOnlyTheSamePreparedOwnedSeed(t *testing.T) {
 
 func TestOverflowInlineInputsRejoinAndCleanWithExistingOwnedFiles(t *testing.T) {
 	d := workspaceDisk(t)
+	// This fixture uses the pilot's full retained-owner instructions. Its saved
+	// assignment uses the pilot's existing record budget; the native input
+	// budget and overflow/rejoin behavior below remain independently bounded.
+	d.Policy.Database.MaxRecord = 40 << 10
 	w := &Workspaces{disk: d}
 	a := sourceAssignment(d, sourceRepository(t), "inline_owner")
 	template := retainedInputAssignment(t)

@@ -97,9 +97,10 @@ type browserContainerInspection struct {
 		Labels map[string]string
 	}
 	State struct {
-		Status   string
-		Running  bool
-		ExitCode int
+		Status                string
+		Running               bool
+		ExitCode              int
+		StartedAt, FinishedAt string
 	}
 	Mounts     []struct{ Type, Destination string }
 	HostConfig struct {
@@ -171,10 +172,15 @@ func (b *Live) runBrowserContainer(ctx context.Context, j *Job, network, output 
 		return &commandUncertain{program: "browser container create identity"}
 	}
 	owned, err := b.inspectBrowserDispatch(ctx, j, id, network)
+	retryBeforeAuthentication := false
 	if owned.ID == id && owned.Image == input.Image && owned.Config.Labels["cortexium.runner.run"] == j.Request.RunID && owned.Config.Labels["cortexium.runner.attempt"] == j.Request.Key {
 		defer func() {
 			cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 			defer stop()
+			if retryBeforeAuthentication {
+				err = b.settleReadinessStartFailure(ctx, cleanup, j, owned.ID, err)
+				return
+			}
 			err = errors.Join(err, b.closeBrowserRuntime(cleanup, owned.ID, j, input.Image))
 		}()
 	}
@@ -188,6 +194,9 @@ func (b *Live) runBrowserContainer(ctx context.Context, j *Job, network, output 
 	// retain this attempt and its exact name; cleanup independently checks ownership.
 	data, err := b.reconnect(ctx, payload, b.Config.Docker, "--host", b.Config.DockerHost, "start", "--attach", "--interactive", id)
 	if err != nil {
+		var uncertain *commandUncertain
+		retryBeforeAuthentication = j.Request.Action == "readiness" && input.Mode == "readiness" && network == "none" &&
+			errors.Is(err, errStartBeforeAuthentication) && !errors.As(err, &uncertain)
 		return err
 	}
 	settled, err := b.inspect(ctx, id)
@@ -220,6 +229,30 @@ func (b *Live) runBrowserContainer(ctx context.Context, j *Job, network, output 
 		return err
 	}
 	return failure
+}
+
+func (b *Live) settleReadinessStartFailure(ctx, cleanup context.Context, j *Job, id string, failure error) error {
+	created, inspectErr := b.inspectBrowserDispatch(cleanup, j, id, "none")
+	zero := func(value string) bool {
+		stamp, err := time.Parse(time.RFC3339Nano, value)
+		return err == nil && stamp.IsZero()
+	}
+	if inspectErr != nil || created.State.Running || created.State.ExitCode != 0 || !zero(created.State.StartedAt) || !zero(created.State.FinishedAt) {
+		return errors.Join(failure, inspectErr, &commandUncertain{program: "readiness browser never-started proof; retain " + id})
+	}
+	// Never stop/force-remove a container observed running after the proof.
+	// Plain rm rejects that race, retaining uncertainty rather than retrying.
+	if _, err := b.docker(cleanup, "rm", id); err != nil {
+		return errors.Join(failure, err, &commandUncertain{program: "readiness browser cleanup; retain " + id})
+	}
+	remaining, inspectErr := b.docker(cleanup, "ps", "--all", "--no-trunc", "--filter", "id="+id, "--format", "{{.ID}}")
+	if inspectErr != nil || strings.TrimSpace(string(remaining)) != "" {
+		return errors.Join(failure, inspectErr, &commandUncertain{program: "readiness browser absence; retain " + id})
+	}
+	if ctx.Err() != nil {
+		return errors.Join(failure, ctx.Err())
+	}
+	return errors.Join(failure, &connectionUnavailable{})
 }
 
 func (b *Live) closeBrowserRuntime(ctx context.Context, id string, j *Job, image string) (err error) {

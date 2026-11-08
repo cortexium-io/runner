@@ -20,6 +20,10 @@ type commandFailure struct {
 type commandUncertain struct{ program string }
 type connectionUnavailable struct{}
 
+// This fact cannot authorize reconnect by itself. Only isolated readiness may
+// promote it after proving that its exact container never started and is gone.
+var errStartBeforeAuthentication = errors.New("Docker start failed before SSH authentication")
+
 func (*connectionUnavailable) Error() string { return "SSH connection failed before remote dispatch" }
 
 func (e *commandUncertain) Error() string {
