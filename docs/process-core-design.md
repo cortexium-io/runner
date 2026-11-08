@@ -36,15 +36,16 @@ Merge, production and database restoration retain their saved owner decisions.
    happen outside Runner. Its declared finish grants no push, merge or deployment;
    other production projects still require their own qualified release tools.
 
-Package 1 is qualified and installed from Core/helper/history `26e4d4d`:
-the full Go 1.26.9 race suite on Mega Mini recorded 1,550 passes (execution
-590.289s), vet passed on both hosts, exact-source macOS/Linux CI run `42497461974`
-succeeded, and Black Magic's zero-model native probes passed in 6.943s. The
-128-file staged configuration loaded with zero runs. Installation at 16:19:40 UTC
-preserved all 74 runs present at stop, frozen definitions, five SQLite tables and
-artifact bytes; the default remains `deliver`, with unchanged limits, gates and
-operator policy `f918`. Earlier normal 168-hour expirations are preserved in the
-cold checkpoint and were not caused by installation.
+Package 1 is qualified and installed with Core `deea6ed` and measure/history
+helpers `26e4d4d`. The execution packet at `26e4d4d` passed 1,550 full race tests
+on Mega Mini, vet on both hosts, macOS/Linux CI and Black Magic's zero-model
+native probes. The lower-budget validator update separately passed focused races,
+the actual 128-file configuration at 62/64 attempts, independent review and
+exact-source macOS/Linux CI `42506034660`. Core-only installation at 18:09:30 UTC
+preserved all 76 runs present at stop, frozen definitions, five SQLite tables,
+artifact bytes and the owner token. Helpers, configuration, operator and default
+`deliver` were unchanged. Cold checkpoints retain earlier normal 168-hour
+expirations; they were not caused by installation.
 
 Package 4's approved Genny qualification is complete: 36 selected tests passed,
 independent review approved local unpublished candidate
@@ -66,14 +67,48 @@ publication handle and was correctly refused. Normal cancellation settled both
 attempts on 8 November at 17:25:29 UTC, without model calls or product changes.
 Preserve that record. A corrected restricted-intake continuation must pass the
 original public handle unchanged and use the remaining 62 attempts, keeping the
-combined ceiling at 64. Lower planned ceilings require the validator correction;
-the default remains 64. The committed `BenchmarkRunnerNonogram25Hard` on original
-base `fffff55553904ed4dcfdd538e96058a80155e160` provides the pristine control.
-Main owns this continuation, the separate remaining mobile acceptance and the
-cutover. A qualified copy candidate alone does not qualify PR #334's mobile
-source. Do not submit duplicate work or implicitly join those candidates.
-Cutover follows actual qualification; merge, production and restoration remain
-separate owner decisions.
+combined ceiling at 64. The validator correction now permits smaller positive
+planned delivery ceilings while retaining the 64 default and upper bound.
+Fresh restricted intake submitted the single corrected
+`run_NQAEWQFM42573G54UXY4CYDEMJ`; its saved process differs only by the 62 cap,
+with exact original roles/profiles and the prepared canonical inputs. The
+committed `BenchmarkRunnerNonogram25Hard` on original base
+`fffff55553904ed4dcfdd538e96058a80155e160` supplies the pristine control.
+Baseline, source adoption and readiness passed. All three dependent cards
+completed and joined; 61 scoped checks passed. The first measurement retained
+native counters but its New benchmark omitted the structured instrumentation
+emitted only by excluded tests. The correction owner also required private
+publication authority and later qualification/history outputs prematurely. It
+stopped at nineteen aggregate attempts before review, publication or
+qualification; all source and evidence remain preserved. Future settings had
+already been restored to 64 without altering the saved 62 definition.
+Main owns this continuation, separate mobile acceptance and cutover; the copy
+chat retains PR #337 release ownership. A qualified copy candidate alone does
+not qualify PR #334's mobile source. Do not submit duplicate work or implicitly
+join those candidates. Cutover follows actual qualification; merge, production
+and restoration remain separate owner decisions.
+
+Both investigation-owner roles now distinguish a runnable collector/correction
+handoff from acceptance and later release gates, preserving evidence, access and
+resource bounds. Their exact saved/new-request native preflights passed. Only
+future instruction fields changed; the entire failed NQ record was unchanged.
+The existing `deliver-retained-investigation` continuation
+`run_LUNX2V3PELYHHOO6BYYZOEG4IZ` restores the latest unpublished patch, accepted
+manifest and original baseline without recreating cards. It freshly checks and
+measures, then owns collector correction, review and same-PR qualification.
+Its fixed 35-attempt cap gives a combined maximum of 2 + 19 + 35 = 56 within the
+original 64. It was submitted once through ordinary CLI without another intake
+model turn. Missing matched New controls remain unproved; no threshold or gate
+has been waived.
+
+After this Go/copy candidate is accepted, the existing
+`deliver-planned-retained-frontend` process will use its authenticated PR #337
+source for the approved mobile behavior. This supported route reimplements the
+mobile behavior on that source; it does not fuse PR #334's patch. Keep that patch,
+PR and history as reference. Preserve the accepted Go/copy changes, run frontend
+typecheck/Vitest and independent review, then qualify the cumulative candidate
+through the full native/browser gate. This needs no merge, new Runner process or
+configuration-file allowance. Default cutover follows that cumulative proof.
 
 Closure requires recorded evidence for all four packages. A new Runner defect
 reopens only its affected proof. A genuine product or prerequisite blocker remains

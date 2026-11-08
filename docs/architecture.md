@@ -408,6 +408,60 @@ The pilot hold is lifted for a separately authorized complete retained-copy
 investigation. This is not completion of all four packages or evidence that the
 remaining product failures are fixed.
 
+The owner renewed completion of qualification and planned-default cutover. The
+copy chat's first planned submission added private metadata to its opaque public
+publication handle; strict adoption refused it. Normal cancellation settled
+`run_NT5JSS5EM3KCCFOJGNIFSRTRBG` at two attempts with no model calls. Its frozen
+input remains unchanged. Three configuration guards now allow a smaller positive
+planned delivery ceiling through 64, retaining the default 64 and every source,
+card, actor and protected-release check. Four process variants exercise lower and
+invalid bounds. Actual private configuration checks passed at 62 and 64, alongside
+focused races, vet, independent review and exact macOS/Linux CI `42506034660`.
+
+Core `deea6edc234598c04ef0e06b3d01402bee23e2ec` was installed at 18:09:30 UTC.
+All 76 runs present at stop, frozen definitions, five tables and registered
+artifact bytes were preserved. Helpers/history remain at `26e4d4d`; configuration,
+operator and default `deliver` did not change. The first maintenance attempt
+failed during cold-copy or snapshot validation before binary replacement and
+restarted the old Core. Its exact command error was not retained. The same
+installation intent subsequently passed after adding positive owned-PID shutdown
+settlement, private bounded diagnostics and guarded partial-checkpoint recovery;
+17 pure failure tests and independent review passed. The immutable gate and
+historical installer bytes remain preserved. All 5,847 accepted checkpoint paths
+were byte-identical in the earlier partial copy. Its only unique native
+diagnostics (485,952 bytes) were archived before removing that redundant copy;
+the accepted checkpoint and live state were untouched.
+
+Fresh restricted intake submitted only
+`run_NQAEWQFM42573G54UXY4CYDEMJ`, with the exact six-field accepted public
+publication handle. Its saved definition is unchanged except for a 62-attempt
+ceiling: two earlier attempts plus 62 new stays within the original 64. Source,
+selectors, patch, roles and profiles match the prepared request. Baseline,
+adoption and readiness passed; future configuration was restored to 64 without
+changing the saved run. Its three dependent cards completed and joined, and the
+fixed scoped check recorded 61 passes. The first candidate report reached the
+owner intact, including verified source identity and six sidecars. Native
+counters were retained; structured observed-New receipts existed only in tests
+excluded by the benchmark command's `-run ^$`, while the New benchmark remained
+uninstrumented. No matched instrumented New-before measurement was retained.
+The owner also demanded protected publication authority, history bindings and
+future qualification before their configured stages. It stopped at nineteen
+aggregate attempts, before independent review, publication or qualification.
+
+Instruction-only clarification of both investigation owners now permits a
+runnable authorized collector/control handoff while retaining every unproved
+claim and later gate. It grants no Git or artifact access. Pure exact-assignment
+preflights passed within the unchanged eight-input, 8 KiB/512-byte limits. The
+owner API changed only future instruction fields; the failed NQ inspected record
+remained identical. Existing retained-35 run
+`run_LUNX2V3PELYHHOO6BYYZOEG4IZ` reuses its latest patch, original baseline and
+accepted manifest without replanning, then freshly recollects before correction
+and review. Two plus nineteen plus thirty-five remains bounded at fifty-six of
+the original sixty-four attempts. The ordinary CLI submission adds no intake
+model turn; the earlier restricted intake exited cleanly with separately recorded
+usage. Cumulative frontend qualification and default cutover remain open. No
+merge or production approval is inherited.
+
 ## Follow the demo
 
 1. `config.Load` resolves instance → project → roles/process. It rejects unknown

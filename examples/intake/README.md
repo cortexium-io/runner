@@ -23,6 +23,8 @@ original task and acceptance conditions. Scope-specific process configuration
 belongs in Runner, not in the request's conversational history. Already-specified
 requests can use the ordinary Runner CLI/MCP directly and spend no intake model
 turn. User decisions resume through the owner interface using the saved ID.
+For a published-source continuation, pass the returned public receipt object
+unchanged. Do not reconstruct it from private journal details.
 
 Resolve routing before launching this intake: its empty workspace and disabled
 host skills provide no project/process discovery. For Jack's Break, use the

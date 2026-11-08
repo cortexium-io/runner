@@ -141,6 +141,9 @@ step validates the original journal, live owned PR/ref and accepted source befor
 seeding work. Publication continues that authenticated PR with a head comparison;
 it reuses no old review, qualification, merge or production approval. Supplying a
 PR number or branch name in task data grants no publication authority.
+Pass the returned public receipt JSON unchanged. Do not rebuild or enrich that
+handle from private journal metadata; strict authentication compares it with
+the accepted public output.
 
 Planned investigations retain the first complete candidate measurement as a
 separate artifact before entering the combined correction owner. The fixed copy
