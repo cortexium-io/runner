@@ -259,7 +259,11 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 					if c == nil || len(c.Command) == 0 || len(c.Command) > 16 || !filepath.IsAbs(c.Command[0]) || strings.TrimSpace(role.Purpose) == "" || p.Source == nil || s.Instance.Concurrency != 1 || !outputs {
 						return s, errors.New("release needs a trusted instance command, source, concurrency one, purpose and one JSON receipt output")
 					}
-					if profile.Mode == "source-adopt" {
+					if profile.Mode == "publication-reference" {
+						if c.GitHub == "" || !reflect.DeepEqual(role.Inputs, map[string]string{"receipt": "json"}) {
+							return s, errors.New("publication-reference requires configured GitHub and one publication receipt input")
+						}
+					} else if profile.Mode == "source-adopt" {
 						if c.GitHub == "" || sourceAdoptionContract(role) != nil {
 							return s, errors.New("source-adopt requires configured GitHub and exact publication receipt/patch input and output contracts")
 						}
@@ -564,6 +568,7 @@ func ready(p runner.Profile) error {
 			"publish",
 			"adopt",
 			"source-adopt",
+			"publication-reference",
 			"qualify",
 			"prepare",
 			"merge",

@@ -53,7 +53,7 @@ func measureCollection(t *testing.T, goBinary, source, previous string, repair b
 	}
 	stdout := os.Stdout
 	os.Stdout = writer
-	err = run(goBinary, source, scratch, ".", "^BenchmarkCollection$", previous, false, repair)
+	err = run(goBinary, source, scratch, ".", "^BenchmarkCollection$", previous, measurementMode{RepairCollection: repair})
 	os.Stdout = stdout
 	writer.Close()
 	output, readErr := io.ReadAll(reader)
@@ -155,7 +155,7 @@ func TestCollectionRepairRequiresKnownOverflowAndSafeEvidence(t *testing.T) {
 		{"^BenchmarkCollection$", true},
 		{"none", false},
 	} {
-		if err := run(goBinary, source, t.TempDir(), ".", tc.selector, "", tc.baseline, true); err == nil {
+		if err := run(goBinary, source, t.TempDir(), ".", tc.selector, "", measurementMode{Baseline: tc.baseline, RepairCollection: true}); err == nil {
 			t.Fatal("collection repair granted to baseline or skipped work")
 		}
 	}
@@ -192,7 +192,7 @@ func TestMeasurementDoesNotPublishDomainBeforeRetainingItsReport(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(scratch, "measurements.json"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(goBinary, source, scratch, ".", "^BenchmarkCollection$", "", false, true); err == nil {
+	if err := run(goBinary, source, scratch, ".", "^BenchmarkCollection$", "", measurementMode{RepairCollection: true}); err == nil {
 		t.Fatal("report write failure was ignored")
 	}
 	if _, err := os.Stat(filepath.Join(scratch, "domain.json")); !os.IsNotExist(err) {

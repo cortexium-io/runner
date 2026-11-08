@@ -40,6 +40,23 @@ type measurement struct {
 	Evidence              map[string]json.RawMessage `json:"evidence,omitempty"`
 	EvidenceStatus        string                     `json:"evidence_status"`
 	EvidenceNote          string                     `json:"evidence_note,omitempty"`
+	Source                *sourceSnapshot            `json:"source,omitempty"`
+	SourceVerified        bool                       `json:"source_verified,omitempty"`
+}
+
+type measurementMode struct {
+	Baseline         bool
+	RepairCollection bool
+	BindSource       bool
+	RequireEvidence  bool
+}
+
+func (m *measurement) failCollection(reason string) {
+	m.Failed, m.CollectionFailed = true, true
+	if m.Error != "" {
+		m.Error += "; "
+	}
+	m.Error += reason
 }
 
 func selection(pkg, selector, previous string) (int, error) {
@@ -80,15 +97,23 @@ func main() {
 	selector := flag.String("benchmark", "none", "anchored benchmark selector or none")
 	previous := flag.String("previous", "", "retained prior check")
 	baseline := flag.Bool("baseline", false, "retain an unsuccessful benchmark as investigation feedback")
-	repairCollection := flag.Bool("repair-collection", false, "request bounded source correction for known stdout collection overflow")
+	repairCollection := flag.Bool("repair-collection", false, "request bounded source correction for stdout overflow or missing required evidence")
+	bindSource := flag.Bool("bind-source", false, "bind the benchmark to a verified source snapshot")
+	requireEvidence := flag.Bool("require-evidence", false, "require complete structured candidate collection before continuation")
 	flag.Parse()
-	if err := run(*goBinary, *source, *scratch, *pkg, *selector, *previous, *baseline, *repairCollection); err != nil {
+	mode := measurementMode{
+		Baseline:         *baseline,
+		RepairCollection: *repairCollection,
+		BindSource:       *bindSource,
+		RequireEvidence:  *requireEvidence,
+	}
+	if err := run(*goBinary, *source, *scratch, *pkg, *selector, *previous, mode); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(goBinary, source, scratch, pkg, selector, previous string, baseline, repairCollection bool) error {
+func run(goBinary, source, scratch, pkg, selector, previous string, mode measurementMode) error {
 	round, err := selection(pkg, selector, previous)
 	if err != nil {
 		return err
@@ -96,11 +121,17 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline, re
 	if !filepath.IsAbs(goBinary) || !filepath.IsAbs(source) || !filepath.IsAbs(scratch) {
 		return errors.New("explicit absolute runtime/source/scratch paths required")
 	}
-	if baseline && (selector == "none" || previous != "") {
+	if mode.Baseline && (selector == "none" || previous != "") {
 		return errors.New("baseline needs an actual named benchmark and no preceding round")
 	}
-	if repairCollection && (baseline || selector == "none") {
+	if mode.RepairCollection && (mode.Baseline || selector == "none") {
 		return errors.New("collection repair requires an actual candidate benchmark")
+	}
+	if mode.RequireEvidence && (!mode.BindSource || mode.Baseline || selector == "none") {
+		return errors.New("required evidence needs a source-bound candidate benchmark")
+	}
+	if mode.BindSource && selector == "none" {
+		return errors.New("source binding needs an actual benchmark")
 	}
 	m := measurement{
 		Round:                 round,
@@ -108,7 +139,7 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline, re
 		Selector:              selector,
 		Started:               time.Now().UTC(),
 		Skipped:               selector == "none",
-		Baseline:              baseline,
+		Baseline:              mode.Baseline,
 		EvidenceStatus:        "not_requested",
 		PreviousCompleteRound: round - 1,
 	}
@@ -123,69 +154,89 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline, re
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		// Verbose benchmarks stream B.Log output instead of Go's ten-line
-		// buffered-log preview. The same output ceiling still applies.
-		cmd := exec.CommandContext(ctx, goBinary, "test", "-v", "-mod=readonly", "-run", "^$", "-bench", selector, "-benchtime=1x", "-count=1", "./"+pkg)
-		cmd.Dir = source
-		for _, value := range os.Environ() {
-			if !strings.HasPrefix(value, "RUNNER_MEASURE_EVIDENCE=") {
-				cmd.Env = append(cmd.Env, value)
-			}
-		}
-		cmd.Env = append(cmd.Env, "RUNNER_MEASURE_EVIDENCE="+evidence)
-		var output boundedOutput
-		cmd.Stdout = &output
-		cmd.Stderr = &output
-		err = cmd.Run()
-		m.Output = output.String()
-		m.OutputBytes, m.OutputSHA256, m.OutputComplete = output.total, output.sha256(), !output.exceeded
-		m.Seconds = time.Since(m.Started).Seconds()
-		knownExit := err == nil && cmd.ProcessState != nil && cmd.ProcessState.Exited() && cmd.ProcessState.ExitCode() == 0 && ctx.Err() == nil
-		if err != nil {
-			var exit *exec.ExitError
-			if ctx.Err() != nil || !errors.As(err, &exit) || exit.ExitCode() != 1 {
-				knownExit = false
-				if output.exceeded {
-					m.Failed, m.Error = true, "Go measurement did not exit normally; retained output is incomplete"
-				} else {
-					return errors.New("configured measurement failed; " + m.Output)
-				}
+		if mode.BindSource {
+			snapshot, err := takeSourceSnapshot(ctx, source)
+			if err != nil {
+				m.failCollection("source binding failed: " + err.Error())
 			} else {
-				m.Failed, m.Error = true, "Go benchmark failed; inspect retained output before claiming a performance baseline"
+				m.Source = &snapshot
 			}
-		} else if !output.exceeded && !regexp.MustCompile(`(?m)^Benchmark\S+\s+\d+\s+`).MatchString(m.Output) {
-			m.Failed, m.Error = true, "benchmark selector executed no measurement"
 		}
-		m.Evidence, err = collectEvidence(evidence)
-		switch {
-		case err != nil:
-			m.Failed, m.CollectionFailed, m.EvidenceStatus = true, true, "invalid"
-			if m.Error != "" {
-				m.Error += "; "
+		if !m.CollectionFailed {
+			// Verbose benchmarks stream B.Log output instead of Go's ten-line
+			// buffered-log preview. The same output ceiling still applies.
+			cmd := exec.CommandContext(ctx, goBinary, "test", "-v", "-mod=readonly", "-run", "^$", "-bench", selector, "-benchtime=1x", "-count=1", "./"+pkg)
+			cmd.Dir = source
+			cmd.Env = measurementEnvironment(evidence, round, m.Source)
+			var output boundedOutput
+			cmd.Stdout = &output
+			cmd.Stderr = &output
+			err = cmd.Run()
+			m.Output = output.String()
+			m.OutputBytes, m.OutputSHA256, m.OutputComplete = output.total, output.sha256(), !output.exceeded
+			m.Seconds = time.Since(m.Started).Seconds()
+			knownExit := err == nil && cmd.ProcessState != nil && cmd.ProcessState.Exited() && cmd.ProcessState.ExitCode() == 0 && ctx.Err() == nil
+			if err != nil {
+				var exit *exec.ExitError
+				if ctx.Err() != nil || !errors.As(err, &exit) || exit.ExitCode() != 1 {
+					knownExit = false
+					if output.exceeded || mode.BindSource || mode.RequireEvidence {
+						m.failCollection("Go measurement did not exit normally; no complete candidate measurement is established")
+					} else {
+						return errors.New("configured measurement failed; " + m.Output)
+					}
+				} else {
+					m.Failed, m.Error = true, "Go benchmark failed; inspect retained output before claiming a performance baseline"
+				}
+			} else if !output.exceeded && !regexp.MustCompile(`(?m)^Benchmark\S+\s+\d+\s+`).MatchString(m.Output) {
+				m.Failed, m.Error = true, "benchmark selector executed no measurement"
 			}
-			m.Error += "structured benchmark evidence rejected: " + err.Error()
-		case len(m.Evidence) == 0:
-			m.EvidenceStatus = "incomplete"
-			m.EvidenceNote = "No structured request/phase evidence was provided; stdout may be truncated."
-		default:
-			m.EvidenceStatus = "provided"
-			m.EvidenceNote = "Declared files retained; request/phase completeness and acceptance require review."
-		}
-		if output.exceeded {
-			m.Failed, m.CollectionFailed = true, true
-			if m.Error != "" {
-				m.Error += "; "
+			if m.Source != nil {
+				if err := m.Source.verify(ctx); err != nil {
+					m.failCollection("source verification failed: " + err.Error())
+				} else {
+					m.SourceVerified = true
+				}
 			}
-			m.Error += "measurement output exceeds 256KiB; retained prefix is incomplete"
-		}
-		if m.CollectionFailed {
+			var evidenceErr error
+			m.Evidence, evidenceErr = collectEvidence(evidence)
+			switch {
+			case evidenceErr != nil:
+				m.EvidenceStatus = "invalid"
+				m.failCollection("structured benchmark evidence rejected: " + evidenceErr.Error())
+			case len(m.Evidence) == 0:
+				m.EvidenceStatus = "incomplete"
+				m.EvidenceNote = "No structured request/phase evidence was provided; stdout may be truncated."
+			default:
+				m.EvidenceStatus = "provided"
+				m.EvidenceNote = "Declared files retained; request/phase completeness and acceptance require review."
+			}
+			if output.exceeded {
+				m.failCollection("measurement output exceeds 256KiB; retained prefix is incomplete")
+			}
+			benchmarkMatched := !output.exceeded && regexp.MustCompile(`(?m)^Benchmark\S+\s+\d+\s+`).MatchString(m.Output)
+			if mode.RequireEvidence {
+				if m.Failed {
+					m.CollectionFailed = true
+				}
+				if evidenceErr == nil && len(m.Evidence) == 0 {
+					m.failCollection("required structured benchmark JSON sidecars are missing")
+				}
+			}
+			if m.CollectionFailed {
+				outcome = "blocked"
+				producerGap := output.exceeded || mode.RequireEvidence && benchmarkMatched && len(m.Evidence) == 0
+				sourceVerified := !mode.BindSource || m.SourceVerified
+				if mode.RepairCollection && producerGap && knownExit && evidenceErr == nil && sourceVerified {
+					outcome = "changes_requested"
+				}
+			} else if round == 1 || m.Failed {
+				outcome = "continue"
+			}
+		} else {
 			outcome = "blocked"
-			if repairCollection && output.exceeded && knownExit && err == nil {
-				outcome = "changes_requested"
-			}
-		} else if round == 1 || m.Failed {
-			outcome = "continue"
 		}
+		m.Seconds = time.Since(m.Started).Seconds()
 	}
 	reason := "Bounded measurement; Runner owns the next owner/review stage"
 	if m.Failed {
@@ -222,7 +273,7 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline, re
 	if m.Failed {
 		fmt.Println(m.Error)
 	}
-	if baseline || m.Failed {
+	if mode.Baseline || m.Failed {
 		text := m.Output
 		if len(text) > 1024 {
 			text = text[:512] + "\n[truncated; complete output retained in measurements.json]\n" + text[len(text)-512:]
@@ -239,6 +290,32 @@ func run(goBinary, source, scratch, pkg, selector, previous string, baseline, re
 	// a long cohort cannot erase the round required by the next measurement.
 	fmt.Printf("runner-measure round=%d selector=%s skipped=%t baseline=%t failed=%t seconds=%.6f; actual output retained in measurements.json\n", round, selector, m.Skipped, m.Baseline, m.Failed, m.Seconds)
 	return nil
+}
+
+func measurementEnvironment(evidence string, round int, source *sourceSnapshot) []string {
+	reserved := map[string]bool{
+		"RUNNER_MEASURE_EVIDENCE":             true,
+		"RUNNER_MEASURE_ROUND":                true,
+		"RUNNER_MEASURE_SOURCE_IDENTITY":      true,
+		"RUNNER_MEASURE_SOURCE_SHA256":        true,
+		"RUNNER_MEASURE_SOURCE_DIGEST_METHOD": true,
+	}
+	var env []string
+	for _, value := range os.Environ() {
+		name, _, _ := strings.Cut(value, "=")
+		if !reserved[name] {
+			env = append(env, value)
+		}
+	}
+	env = append(env, "RUNNER_MEASURE_EVIDENCE="+evidence, "RUNNER_MEASURE_ROUND="+strconv.Itoa(round))
+	if source != nil {
+		env = append(env,
+			"RUNNER_MEASURE_SOURCE_IDENTITY="+source.Identity,
+			"RUNNER_MEASURE_SOURCE_SHA256="+source.SHA256,
+			"RUNNER_MEASURE_SOURCE_DIGEST_METHOD="+source.DigestMethod,
+		)
+	}
+	return env
 }
 
 type boundedOutput struct {

@@ -40,7 +40,7 @@ Planned investigation uses the existing `runner-go-check` helper to retain actua
 scoped test execution in full. Configure its absolute runtime paths before use.
 Merge, production and restoration retain their existing separate owner gates.
 
-The first candidate measurement's bounded report is copied once by the fixed
+The first complete candidate measurement's bounded report is copied once by the fixed
 `retain-measurement` command before correction. Its step is anchored before the
 combined owner, so later owner backedges preserve it. Review receives the pristine
 baseline, retained pre-correction measurement and latest measurement explicitly.
@@ -50,13 +50,32 @@ reviewer still judges complete case coverage, matched comparisons and uncertaint
 
 Planned investigation measurement retains at most 256KiB of combined Go console
 output, with a byte count/hash and explicit completeness status. Full structured
-records belong in `RUNNER_MEASURE_EVIDENCE`: at most 64 JSON files and 8MiB total,
-within the unchanged 16MiB report ceiling. Keep console summaries compact; do not
-print full sample JSON with `b.Log`. A known settled stdout overflow can request
-up to three source corrections through the dedicated planned measurement role;
-unsafe evidence or uncertain execution blocks. Incomplete collection never takes
-the before-copy route or advances the last complete measurement round. These
-corrections remain inside the same shared 64-attempt allowance.
+records belong in `RUNNER_MEASURE_EVIDENCE`, an existing directory: write named
+`.json` files inside it, at most 64 files and 8MiB total, within the unchanged
+16MiB report ceiling. Keep console summaries compact; do not print full sample
+JSON with `b.Log`.
+
+The dedicated planned baseline and candidate roles use `--bind-source`. The
+trusted helper hashes the read-only regular source files before running Go,
+excluding only root Git/tool metadata and Runner scratch. It exports
+`RUNNER_MEASURE_ROUND`, `RUNNER_MEASURE_SOURCE_IDENTITY`,
+`RUNNER_MEASURE_SOURCE_SHA256` and `RUNNER_MEASURE_SOURCE_DIGEST_METHOD`, replacing
+any inherited values. Producers copy these values into their JSON evidence.
+The outer report retains the same source stamp and post-run verification status;
+hashing, measurement and verification share the existing ten-minute deadline.
+The stamp is a framed source-content digest, with its method recorded explicitly.
+
+The candidate role also uses `--require-evidence`: only a successful named
+benchmark with complete console output, safe nonempty JSON sidecars and verified
+source may take the before-copy or review route. The pristine baseline still
+retains its original controls honestly without requiring new sidecars; it does
+not establish the candidate's complete case coverage. A known successful Go
+execution with missing sidecars or stdout overflow can request up to three
+producer corrections through the dedicated planned measurement role. Failed Go
+execution, unsafe evidence, source drift or uncertain execution blocks.
+Incomplete collection never takes the before-copy route or advances the last
+complete measurement round. These corrections remain inside the same shared
+64-attempt allowance; sidecar contents still require independent semantic review.
 
 Diagnostic indexing is guaranteed by the updated planned investigation routes.
 Older or frozen measurement/baseline definitions can reject a new `blocked`

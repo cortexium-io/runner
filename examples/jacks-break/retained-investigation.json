@@ -1,0 +1,603 @@
+{
+  "id": "deliver-retained-investigation",
+  "inputs": {
+    "request": "text",
+    "package": "text",
+    "tests": "text",
+    "benchmark": "text",
+    "patch": "artifact",
+    "original_baseline": "artifact",
+    "manifest": "artifact",
+    "publication": "json"
+  },
+  "steps": [
+    {
+      "id": "publication-reference",
+      "role": "delivery-publication-reference",
+      "inputs": {
+        "receipt": {
+          "from_input": "publication"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "retained-check"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "retained-check",
+      "role": "planned-go-check",
+      "inputs": {
+        "patch": {
+          "from_input": "patch"
+        },
+        "package": {
+          "from_input": "package"
+        },
+        "tests": {
+          "from_input": "tests"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "retained-measure"
+        },
+        "changes_requested": {
+          "next": "$fail"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "retained-measure",
+      "role": "planned-investigation-measure",
+      "inputs": {
+        "patch": {
+          "from_input": "patch"
+        },
+        "package": {
+          "from_input": "package"
+        },
+        "benchmark": {
+          "from_input": "benchmark"
+        },
+        "previous": {
+          "from_step": "retained-measure",
+          "output": "check",
+          "previous": true,
+          "default": {
+            "inline": ""
+          }
+        }
+      },
+      "routes": {
+        "continue": {
+          "next": "retain-measurement"
+        },
+        "ready": {
+          "next": "retain-measurement"
+        },
+        "changes_requested": {
+          "next": "admit"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "retain-measurement",
+      "role": "retain-measurement",
+      "inputs": {
+        "measurement": {
+          "from_step": "measure",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "retained-measure",
+            "output": "artifact"
+          }
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "admit"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "admit",
+      "role": "delivery-readiness",
+      "inputs": {},
+      "routes": {
+        "ready": {
+          "next": "owner"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "owner",
+      "role": "retained-investigation-owner",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "review": {
+          "from_step": "review",
+          "output": "summary",
+          "previous": true,
+          "default": {
+            "inline": ""
+          }
+        },
+        "measurement": {
+          "from_step": "measure",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "retained-measure",
+            "output": "artifact"
+          }
+        },
+        "qualification": {
+          "from_step": "qualify",
+          "output": "receipt",
+          "previous": true,
+          "default": {
+            "inline": {}
+          }
+        },
+        "baseline": {
+          "from_input": "original_baseline"
+        },
+        "manifest": {
+          "from_input": "manifest"
+        },
+        "checks": {
+          "from_step": "check",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "retained-check",
+            "output": "artifact"
+          }
+        }
+      },
+      "routes": {
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "check",
+      "role": "planned-go-check",
+      "inputs": {
+        "patch": {
+          "from_candidate": true
+        },
+        "package": {
+          "from_input": "package"
+        },
+        "tests": {
+          "from_input": "tests"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "measure"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "measure",
+      "role": "planned-investigation-measure",
+      "inputs": {
+        "patch": {
+          "from_candidate": true
+        },
+        "package": {
+          "from_input": "package"
+        },
+        "benchmark": {
+          "from_input": "benchmark"
+        },
+        "previous": {
+          "from_step": "measure",
+          "output": "check",
+          "previous": true,
+          "fallback": {
+            "from_step": "retained-measure",
+            "output": "check"
+          }
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "review"
+        },
+        "continue": {
+          "next": "retain-measurement",
+          "max_times": 1
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "review",
+      "role": "planned-investigation-review",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "patch": {
+          "from_candidate": true
+        },
+        "summary": {
+          "from_step": "owner",
+          "output": "summary"
+        },
+        "measurements": {
+          "from_step": "measure",
+          "output": "artifact"
+        },
+        "baseline_measurements": {
+          "from_input": "original_baseline"
+        },
+        "manifest": {
+          "from_input": "manifest"
+        },
+        "checks": {
+          "from_step": "check",
+          "output": "artifact"
+        },
+        "before_measurements": {
+          "from_step": "retain-measurement",
+          "output": "artifact"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "integrate"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "integrate",
+      "role": "delivery-integrate",
+      "inputs": {
+        "patch": {
+          "from_candidate": true
+        },
+        "verdict": {
+          "from_step": "review",
+          "output": "verdict"
+        },
+        "review": {
+          "from_step": "review",
+          "output": "summary"
+        }
+      }
+    },
+    {
+      "id": "publish",
+      "role": "delivery-publish",
+      "inputs": {
+        "candidate": {
+          "from_step": "integrate",
+          "output": "candidate"
+        },
+        "previous": {
+          "from_step": "publish",
+          "output": "receipt",
+          "previous": true,
+          "fallback": {
+            "from_step": "publication-reference",
+            "output": "receipt"
+          }
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "qualify"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "qualify",
+      "role": "delivery-qualify",
+      "inputs": {
+        "receipt": {
+          "from_step": "publish",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "prepare"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "prepare",
+      "role": "delivery-prepare",
+      "inputs": {
+        "receipt": {
+          "from_step": "qualify",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "merge",
+          "approval": true
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "merge",
+      "role": "delivery-merge",
+      "inputs": {
+        "receipt": {
+          "from_step": "prepare",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "backup"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "backup",
+      "role": "delivery-backup",
+      "inputs": {
+        "receipt": {
+          "from_step": "merge",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "stop",
+          "approval": true
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "stop",
+      "role": "delivery-stop",
+      "inputs": {
+        "receipt": {
+          "from_step": "backup",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "migrate"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "migrate",
+      "role": "delivery-migrate",
+      "inputs": {
+        "receipt": {
+          "from_step": "stop",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "pin"
+        },
+        "blocked": {
+          "next": "$fail"
+        },
+        "recovery_required": {
+          "next": "inspect-migration"
+        }
+      }
+    },
+    {
+      "id": "inspect-migration",
+      "role": "delivery-inspect-migration",
+      "inputs": {
+        "receipt": {
+          "from_step": "migrate",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "restore",
+          "approval": true
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "restore",
+      "role": "delivery-restore",
+      "inputs": {
+        "receipt": {
+          "from_step": "inspect-migration",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "restored": {
+          "next": "$fail"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "pin",
+      "role": "delivery-pin",
+      "inputs": {
+        "receipt": {
+          "from_step": "migrate",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "deploy"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "deploy",
+      "role": "delivery-deploy",
+      "inputs": {
+        "receipt": {
+          "from_step": "pin",
+          "output": "receipt"
+        },
+        "recovery": {
+          "from_step": "inspect",
+          "output": "receipt",
+          "previous": true,
+          "default": {
+            "inline": {}
+          }
+        },
+        "previous": {
+          "from_step": "deploy",
+          "output": "receipt",
+          "previous": true,
+          "default": {
+            "inline": {}
+          }
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "verify-live"
+        },
+        "blocked": {
+          "next": "$fail"
+        },
+        "retry_safe": {
+          "next": "deploy",
+          "max_times": 1
+        },
+        "recovery_required": {
+          "next": "inspect"
+        }
+      }
+    },
+    {
+      "id": "inspect",
+      "role": "delivery-inspect",
+      "inputs": {
+        "receipt": {
+          "from_step": "deploy",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "deploy",
+          "approval": true,
+          "max_times": 1
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "verify-live",
+      "role": "delivery-verify",
+      "inputs": {
+        "receipt": {
+          "from_step": "deploy",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "$complete"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    }
+  ],
+  "max_attempts": 35,
+  "max_attempts_per_step": 1,
+  "infrastructure_retries": 1,
+  "attempt_timeout": "20m",
+  "outputs": {
+    "receipt": {
+      "from_step": "verify-live",
+      "output": "receipt"
+    }
+  }
+}

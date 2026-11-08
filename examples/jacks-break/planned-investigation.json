@@ -9,7 +9,7 @@
   "steps": [
     {
       "id": "baseline",
-      "role": "delivery-source-baseline",
+      "role": "planned-investigation-baseline",
       "inputs": {
         "package": {
           "from_input": "package"

@@ -65,7 +65,7 @@ func (r *Releases) load(id string) (releaseJob, error) {
 func (r *Releases) save(j releaseJob) error {
 	r.adoptionMu.Lock()
 	defer r.adoptionMu.Unlock()
-	if releaseSourceMode(j.Assignment.Setup.Profile.Mode) {
+	if releaseSourceMode(j.Assignment.Setup.Profile.Mode) || j.Assignment.Setup.Profile.Mode == "publication-reference" {
 		if old, err := r.load(j.Assignment.AttemptID); err == nil {
 			j.Stopped = j.Stopped || old.Stopped
 			j.LocalPreparationOwned = j.LocalPreparationOwned || old.LocalPreparationOwned
@@ -144,9 +144,18 @@ func (r *Releases) observeRelease(ctx context.Context, id string) (runner.Observ
 			Retry:    j.Assignment.Inputs["previous"].Inline,
 		}
 		sourceAdopt := request.Action == "source-adopt"
-		if sourceAdopt {
+		publicationReference := request.Action == "publication-reference"
+		if publicationReference {
+			if err := publicationReferenceContract(j.Assignment); err != nil {
+				return o, err
+			}
+		}
+		if sourceAdopt || publicationReference {
 			request.Action, request.SourceContinuation = "adopt", true
 			if len(j.AdoptionReceipt) > 0 {
+				if publicationReference {
+					return r.finishPublicationReference(j, o, release.Response{Receipt: j.AdoptionReceipt}, "ready")
+				}
 				return r.finishSourceAdoption(ctx, j, o, release.Response{Receipt: j.AdoptionReceipt}, "ready")
 			}
 		}
@@ -241,6 +250,9 @@ func (r *Releases) observeRelease(ctx context.Context, id string) (runner.Observ
 		}
 		if sourceAdopt {
 			return r.finishSourceAdoption(ctx, j, o, response, outcome)
+		}
+		if publicationReference {
+			return r.finishPublicationReference(j, o, response, outcome)
 		}
 		if request.Action == "publish" && outcome == "ready" && !j.Stopped {
 			if err = r.recordPublication(j, response.Receipt); err != nil {

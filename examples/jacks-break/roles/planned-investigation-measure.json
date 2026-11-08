@@ -1,6 +1,6 @@
 {
   "id": "planned-investigation-measure",
-  "purpose": "Measure one planned investigation round; retain incomplete collection diagnostics and request only bounded stdout-overflow correction.",
+  "purpose": "Collect a source-bound structured candidate measurement; repair only bounded producer gaps and preserve the first complete before report.",
   "inputs": {
     "patch": "artifact",
     "package": "text",
@@ -29,7 +29,9 @@
         "{text.benchmark}",
         "--previous",
         "{text.previous}",
-        "--repair-collection"
+        "--repair-collection",
+        "--bind-source",
+        "--require-evidence"
       ],
       "env": {
         "GOMODCACHE": "/absolute/path/to/module-cache"

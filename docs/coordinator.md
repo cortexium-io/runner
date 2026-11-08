@@ -152,14 +152,35 @@ not prove new-case coverage or an original incident's reproduction. This uses th
 existing command/artifact mechanism and unchanged process/model limits. The
 coordinator submits the complete request rather than coordinating these stages.
 
-New planned investigation collectors route a known stdout overflow to their
-configured owner, for at most three collection-correction uses within the shared
-64-attempt ceiling. This requires settled successful Go execution and safely
-collected sidecars; mixed failures, uncertain execution or malformed evidence
-remain blocked. Console retention stays at 256 KiB, structured sidecars at 8 MiB
-total and the report at 16 MiB. Overflow records bounded output, its digest and
-incompleteness; it never becomes a timing or coverage claim. Source producers
-write complete structured evidence to sidecars and keep console output compact.
+The strict investigation collector opts into `--bind-source` and
+`--require-evidence`; legacy helper invocations retain their existing behavior.
+Source binding streams a versioned SHA256 snapshot of regular source files,
+framing relative paths, executable bits, sizes and bytes. Only root
+`.runner-tmp`, `.git`, `.codex`, `.agents` and `.aws` are excluded. This is a
+content-snapshot identity, not a Git commit or historical incident identity. The
+outer report retains its method, digest, file/byte counts and post-measurement
+metadata verification. Hashing and verification share the existing ten-minute
+measurement deadline.
+
+The helper supplies `RUNNER_MEASURE_ROUND`,
+`RUNNER_MEASURE_SOURCE_IDENTITY`, `RUNNER_MEASURE_SOURCE_SHA256` and
+`RUNNER_MEASURE_SOURCE_DIGEST_METHOD`, replacing inherited overrides. Collectors
+copy these values into their evidence rather than inventing provenance.
+`RUNNER_MEASURE_EVIDENCE` is an existing directory: write named `.json` files
+inside it, not a file at the directory path. Console retention stays at 256 KiB,
+sidecars at 64 files and 8 MiB total, and the report at 16 MiB.
+
+Strict candidate collection requires successful Go execution, verified source,
+safe nonempty JSON sidecars and a benchmark result before continuation. A known
+stdout overflow or missing required sidecars after settled Go exit zero can
+request the configured owner's bounded collector repair, for at most three uses
+within the process ceiling (64 for planned families). Exit one, crashes, uncertain
+execution, unsafe evidence and source-binding failures remain blocked. Failed or
+incomplete collection never enters the before-copy step or proves successful
+timings.
+Retained JSON presence still requires independent semantic and coverage review.
+The source-bound pristine baseline does not require newly invented sidecars;
+its selected controls, unsuccessful samples and absent coverage remain explicit.
 
 An incomplete collection preserves `previous_complete_round` (zero before the
 first complete measurement). Its correction route does not consume the separate
@@ -190,6 +211,31 @@ increases no attempt allowance or other ceiling and bypasses no protected
 approval. Normal dispatch spends the remaining original allowance. Restricted
 intake must not expose or invoke this operation; rejoin the same request after a
 disconnect.
+
+For an owner-approved continuation of already joined investigation work, select
+`deliver-retained-investigation`. Supply the exact unpublished `patch`, preserved
+`original_baseline` and accepted `manifest` artifacts, authenticated `publication`
+handle, original request, package, scoped tests and benchmark, with the patch's
+exact original base as `source_ref`. Its 35-attempt ceiling, one attempt per visit,
+one infrastructure retry and twenty-minute attempt deadline remain fixed.
+
+The input-only `publication-reference` step first invokes the existing operator
+`adopt` action to authenticate project, original journal and live owned PR/head/base.
+It binds publication authority only, without restoring the older published source.
+Runner then seeds the unpublished retained patch and runs its scoped check before
+any model visit; an unexpected check failure stops the handoff. It neither reruns
+the planner/cards nor creates another PR. The supplied original baseline and
+manifest remain separate evidence inputs, without being relabeled or rerun.
+
+If the first collection requests bounded repair, readiness admits the existing
+owner to repair collector/check source only. Behavior or algorithm changes wait
+for a successful complete source-bound cohort. The first complete measurement is
+copied into the stable before artifact before evidence-based correction; later
+checks, measurements and independent review use original/before/current evidence.
+Accepted publication advances the authenticated original PR using its latest
+receipt and head CAS. Full qualification and the same protected merge, production
+and restoration approvals follow. This is a complete handoff, not authorization
+to submit new work or change the default `deliver` process.
 
 For bounded research without release, select
 `research-planned-retained-nonogram`. Supply the pristine `baseline_benchmark`,

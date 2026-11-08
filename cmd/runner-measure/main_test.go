@@ -44,7 +44,7 @@ func BenchmarkOverflow(b *testing.B){b.Log(strings.Repeat("x",400<<10))}
 		t.Fatal(err)
 	}
 	scratch := t.TempDir()
-	if err := run(goBinary, source, scratch, ".", "^BenchmarkOriginal$", "", true, false); err != nil {
+	if err := run(goBinary, source, scratch, ".", "^BenchmarkOriginal$", "", measurementMode{Baseline: true}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(scratch, "measurements.json"))
@@ -58,7 +58,7 @@ func BenchmarkOverflow(b *testing.B){b.Log(strings.Repeat("x",400<<10))}
 		}
 	}
 	scratch = t.TempDir()
-	if err := run(goBinary, source, scratch, ".", "^BenchmarkOverflow$", "", true, false); err != nil {
+	if err := run(goBinary, source, scratch, ".", "^BenchmarkOverflow$", "", measurementMode{Baseline: true}); err != nil {
 		t.Fatal(err)
 	}
 	data, err = os.ReadFile(filepath.Join(scratch, "measurements.json"))
@@ -118,7 +118,7 @@ func TestLongMeasurementKeepsRoundInCommandDiagnosticTail(t *testing.T) {
 	}
 	previous := os.Stdout
 	os.Stdout = writer
-	err = run(goBinary, source, t.TempDir(), ".", "^BenchmarkCohort", "", false, false)
+	err = run(goBinary, source, t.TempDir(), ".", "^BenchmarkCohort", "", measurementMode{})
 	os.Stdout = previous
 	writer.Close()
 	output, readErr := io.ReadAll(reader)
@@ -143,7 +143,7 @@ func TestBaselineRetainsFailureWithoutClaimingSuccess(t *testing.T) {
 	os.WriteFile(filepath.Join(source, "sample_test.go"), []byte("package sample\nimport \"testing\"\nfunc BenchmarkFailure(b *testing.B){b.Fatal(\"observed baseline failure\")}\n"), 0600)
 	for _, selector := range []string{"^BenchmarkFailure$", "^BenchmarkAbsent$"} {
 		scratch := t.TempDir()
-		if err = run(goBinary, source, scratch, ".", selector, "", true, false); err != nil {
+		if err = run(goBinary, source, scratch, ".", selector, "", measurementMode{Baseline: true}); err != nil {
 			t.Fatal(err)
 		}
 		data, _ := os.ReadFile(filepath.Join(scratch, "measurements.json"))
@@ -163,7 +163,7 @@ func TestBaselineRetainsFailureWithoutClaimingSuccess(t *testing.T) {
 	}
 	for _, previous := range []string{"", "runner-measure round=1 selector=^BenchmarkFailure$ skipped=false"} {
 		scratch := t.TempDir()
-		if err = run(goBinary, source, scratch, ".", "^BenchmarkFailure$", previous, false, false); err != nil {
+		if err = run(goBinary, source, scratch, ".", "^BenchmarkFailure$", previous, measurementMode{}); err != nil {
 			t.Fatal(err)
 		}
 		data, _ := os.ReadFile(filepath.Join(scratch, "domain.json"))
@@ -173,10 +173,10 @@ func TestBaselineRetainsFailureWithoutClaimingSuccess(t *testing.T) {
 			t.Fatal("failed candidate measurement advanced to review", domain)
 		}
 	}
-	if err = run(goBinary, source, t.TempDir(), ".", "none", "", true, false); err == nil {
+	if err = run(goBinary, source, t.TempDir(), ".", "none", "", measurementMode{Baseline: true}); err == nil {
 		t.Fatal("baseline skipped the measurement")
 	}
-	if err = run(filepath.Join(source, "absent-go"), source, t.TempDir(), ".", "^BenchmarkFailure$", "", true, false); err == nil {
+	if err = run(filepath.Join(source, "absent-go"), source, t.TempDir(), ".", "^BenchmarkFailure$", "", measurementMode{Baseline: true}); err == nil {
 		t.Fatal("missing runtime was sent to source repair")
 	}
 }
@@ -197,7 +197,7 @@ func TestMeasurementRunsActualBenchmarkAndDoesNotInventMissingSamples(t *testing
 			previous = fmt.Sprintf("runner-measure round=%d selector=^BenchmarkValue$ skipped=false", round-1)
 		}
 		scratch := filepath.Join(root, fmt.Sprint(round))
-		if err = run(goBinary, source, scratch, ".", "^BenchmarkValue$", previous, false, false); err != nil {
+		if err = run(goBinary, source, scratch, ".", "^BenchmarkValue$", previous, measurementMode{}); err != nil {
 			t.Fatal(err)
 		}
 		data, _ := os.ReadFile(filepath.Join(scratch, "domain.json"))
@@ -212,7 +212,7 @@ func TestMeasurementRunsActualBenchmarkAndDoesNotInventMissingSamples(t *testing
 		}
 	}
 	scratch := filepath.Join(root, "missing")
-	if err = run(goBinary, source, scratch, ".", "^BenchmarkAbsent$", "", false, false); err != nil {
+	if err = run(goBinary, source, scratch, ".", "^BenchmarkAbsent$", "", measurementMode{}); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(scratch, "measurements.json"))

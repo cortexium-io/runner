@@ -11,11 +11,19 @@ import (
 func validateReleaseProcess(p runner.Process, project runner.Project) error {
 	start := -1
 	sourceAdopt := -1
+	publicationReference := -1
 	selected := make([]runner.Profile, len(p.Steps))
 	for i, step := range p.Steps {
 		profile, err := project.Roles[step.Role].Profile(project.Profiles[step.Role])
 		if err == nil {
 			selected[i] = profile
+			if profile.Harness == "release" && profile.Mode == "publication-reference" {
+				if publicationReference >= 0 {
+					return errors.New("one authenticated publication reference may precede retained delivery")
+				}
+				publicationReference = i
+				continue
+			}
 			if profile.Harness == "release" && profile.Mode == "source-adopt" {
 				if sourceAdopt >= 0 {
 					return errors.New("one authenticated source adoption may precede planned delivery")
@@ -43,7 +51,12 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 	readiness := 0
 	// An investigation may measure committed source or one explicitly supplied
 	// retained scaffold before admission. Every model turn still follows admission.
-	if sourceAdopt >= 0 {
+	if publicationReference >= 0 {
+		if sourceAdopt >= 0 || !connected || adopted {
+			return bad
+		}
+		readiness = 4
+	} else if sourceAdopt >= 0 {
 		var err error
 		readiness, err = sourceAdoptionPrefix(p, project, sourceAdopt)
 		if err != nil || !connected || adopted {
@@ -69,7 +82,7 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 	// A retained candidate may collect conclusive source assertions after
 	// readiness before another model turn. These fixed offline commands proceed
 	// in order on pass or source rejection; neither can skip to release effects.
-	if connected && !adopted {
+	if connected && !adopted && publicationReference < 0 {
 		for owner < start && selected[owner].Harness == "command" {
 			step, profile := p.Steps[owner], selected[owner]
 			if owner+1 >= start || profile.Access != "workspace-read" || profile.Command == nil || profile.Command.Network ||
@@ -89,6 +102,13 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 			if err != nil {
 				return err
 			}
+		}
+	}
+	if publicationReference >= 0 {
+		var err error
+		owner, err = retainedInvestigationOwner(p, project, start)
+		if err != nil {
+			return err
 		}
 	}
 	if connected {
@@ -203,6 +223,10 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 				if sourceAdopt >= 0 {
 					previous.Default = nil
 					previous.Fallback = &runner.Binding{FromStep: p.Steps[sourceAdopt].ID, Output: "receipt"}
+				}
+				if publicationReference >= 0 {
+					previous.Default = nil
+					previous.Fallback = &runner.Binding{FromStep: p.Steps[publicationReference].ID, Output: "receipt"}
 				}
 				if !reflect.DeepEqual(step.Inputs, map[string]runner.Binding{
 					"candidate": {FromStep: p.Steps[start-1].ID, Output: "candidate"},

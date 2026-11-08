@@ -67,16 +67,21 @@ func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scr
 	}
 	loadRoles(p.Steps)
 	goBinary := cfg.Instance.Codex.GoBinary
-	for _, name := range []string{"delivery-measure", "delivery-source-baseline", "planned-investigation-measure"} {
+	for _, name := range []string{"delivery-measure", "delivery-source-baseline", "planned-investigation-measure", "planned-investigation-baseline"} {
 		if role, exists := project.Roles[name]; exists {
+			original := role.Execution.Command.Args
 			args := []string{measure, "--go", goBinary, "--source", "{workspace}", "--scratch", "{scratch}", "--package", "{text.package}", "--benchmark", "{text.benchmark}"}
-			if name == "delivery-source-baseline" {
+			if name == "delivery-source-baseline" || name == "planned-investigation-baseline" {
 				args = append(args, "--baseline")
 			} else {
 				args = append(args, "--previous", "{text.previous}")
 			}
-			if name == "planned-investigation-measure" {
-				args = append(args, "--repair-collection")
+			for _, flag := range []string{"--repair-collection", "--bind-source", "--require-evidence"} {
+				for _, value := range original {
+					if value == flag {
+						args = append(args, flag)
+					}
+				}
 			}
 			role.Execution.Command = &runner.Command{Args: args, Result: "domain.json", Artifact: "measurements.json"}
 			project.Roles[name] = role

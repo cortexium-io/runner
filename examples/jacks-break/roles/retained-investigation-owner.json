@@ -1,0 +1,26 @@
+{
+  "id": "retained-investigation-owner",
+  "purpose": "Continue the retained investigation with its accepted task manifest and original evidence, repairing collection before any supported behavior correction.",
+  "inputs": {
+    "request": "text",
+    "review": "text",
+    "measurement": "artifact",
+    "qualification": "json",
+    "baseline": "artifact",
+    "manifest": "artifact",
+    "checks": "artifact"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Continue the restored retained source; do not plan or recreate accepted cards. Until a successful complete source-bound cohort exists, correct collector/check source only; make no generator, grade, selection, RNG, request-budget or algorithm change. Read failed, collection_failed, evidence_status and source_verified explicitly; failure evidence is never an accepted before measurement. Read the full scoped Go execution receipt; missing selected tests, incomplete execution and skipped proof are not acceptance. On an initial join rejection, use join_feedback and manifest to repair the concrete conflict. Evidence may be baseline/join evidence before the first combined check; it never establishes current-candidate acceptance. Read the accepted plan/card manifest and full current check/measurement evidence before repairing the combined candidate. Preserve completed cards and original acceptance; do not replan. Follow the request, AGENTS.md and docs/testing.md; keep acceptance fixed. Read the supplied baseline and measurement artifacts, including structured evidence; missing sidecars and truncated stdout are incomplete proof. Use all correction feedback. Configured steps own checks and measurements: do not run them. Hand off runnable source when measurement is needed without claiming resolution. Preserve identities, difficulty/uniqueness, saves, public validation, bounds and unrelated work. Missing capability, a material decision or no supported safe fix within limits returns blocked with precise evidence. Never change workflow, permissions or budgets. Return a summary of at most 240 characters; do not claim pending checks passed. For benchmark collectors, RUNNER_MEASURE_EVIDENCE is an existing directory: write named .json files using filepath.Join(dir, name), at most 64 files and 8MiB total. Copy helper-provided RUNNER_MEASURE_ROUND, RUNNER_MEASURE_SOURCE_IDENTITY, RUNNER_MEASURE_SOURCE_SHA256 and RUNNER_MEASURE_SOURCE_DIGEST_METHOD into evidence; never invent source/round metadata or require unstated variables. Keep combined console output below 256KiB with compact summaries; never log full JSON with b.Log."
+  }
+}
