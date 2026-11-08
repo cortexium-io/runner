@@ -53,6 +53,7 @@ func TestRootAttributesSupportOnlyBoundedBuiltInRules(t *testing.T) {
 func TestBuiltinAttributesRetainLiteralCaptureAndAuthenticateSeedBytes(t *testing.T) {
 	for _, format := range []string{"sha1", "sha256"} {
 		t.Run(format, func(t *testing.T) {
+			t.Parallel()
 			repo, disk := attributeRepository(t, format), workspaceDisk(t)
 			// Host defaults must not rewrite the source materialized by Runner.
 			fixtureGit(t, repo, "config", "core.autocrlf", "true")
@@ -123,6 +124,7 @@ func TestBuiltinAttributesRetainLiteralCaptureAndAuthenticateSeedBytes(t *testin
 func TestWorkspaceAttributesRefuseDriftNestedRulesAndExternalOverrides(t *testing.T) {
 	for _, kind := range []string{"changed root", "removed root", "root link", "nested", "ignored nested", "root mode", "oversized root", "info", "info link"} {
 		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
 			repo, disk := attributeRepository(t, "sha1"), workspaceDisk(t)
 			w := &Workspaces{disk: disk}
 			a := sourceAssignment(disk, repo, "attempt_attribute_drift")
@@ -177,6 +179,7 @@ func TestWorkspaceAttributesRefuseDriftNestedRulesAndExternalOverrides(t *testin
 func TestAttributeAdmissionRejectsDriversBeforeCheckoutAndIgnoresGlobalRules(t *testing.T) {
 	for _, mode := range []string{"root driver", "nested driver", "info driver", "global driver", "tree driver"} {
 		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
 			repo, disk := attributeRepository(t, "sha1"), workspaceDisk(t)
 			base := strings.TrimSpace(string(fixtureGit(t, repo, "rev-parse", "HEAD")))
 			marker := filepath.Join(t.TempDir(), "executed")

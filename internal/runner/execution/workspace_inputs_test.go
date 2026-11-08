@@ -16,6 +16,7 @@ import (
 func TestReadOnlyReviewStagesOnlyTheSamePreparedOwnedSeed(t *testing.T) {
 	for _, change := range []string{"ready", "tracked drift", "untracked drift", "unprepared", "wrong seed", "generation", "foreign project", "foreign repository", "foreign base"} {
 		t.Run(change, func(t *testing.T) {
+			t.Parallel()
 			patch := addedSeedFile("retained.txt", "100644")
 			w, a := seedWorkspaceFixture(t, patch)
 			if err := w.disk.Write("artifacts/"+a.Inputs["patch"].ArtifactID, patch, a.Limits.MaxArtifact); err != nil {

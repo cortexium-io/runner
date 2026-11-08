@@ -147,6 +147,7 @@ func TestSeedCandidateRejectsUnapprovedUnpreparedForeignOrChangedSource(t *testi
 		"baseline",
 	} {
 		t.Run(fault, func(t *testing.T) {
+			t.Parallel()
 			c, a, _, _ := candidateSeedFixture(t)
 			r, err := c.workspaces.load(a.RunID)
 			if err != nil {
@@ -276,6 +277,7 @@ func holdSeedCandidate(t *testing.T, c *Candidates, a runner.Assignment, gate *c
 func TestApprovedSeedCandidateCaptureCleanupPreservesUnknownContent(t *testing.T) {
 	for _, kind := range []string{"regular", "symlink"} {
 		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
 			c, a, _, _ := candidateSeedFixture(t)
 			o, err := c.Start(t.Context(), a)
 			if err != nil || o.End == nil || o.End.Kind != "returned" || o.Source == nil {

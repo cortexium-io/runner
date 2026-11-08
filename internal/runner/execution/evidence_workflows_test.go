@@ -4,27 +4,125 @@ package execution
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
+type evidenceBuildKey struct {
+	compiler, pkg, directory string
+	environment              [sha256.Size]byte
+}
+
+type evidenceExecutable struct {
+	once sync.Once
+	data []byte
+	mode os.FileMode
+	err  error
+}
+
+var evidenceBuilds sync.Map // evidenceBuildKey -> *evidenceExecutable
+
 func evidenceBinary(t *testing.T, pkg string) string {
 	t.Helper()
 	file := filepath.Join(t.TempDir(), "helper")
 	cmd := exec.Command("go", "build", "-o", file, pkg)
 	cmd.Dir = filepath.Join("..", "..", "..")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatal(err, string(out))
+	// Receipt routing belongs to execution, not compilation. Keep every other
+	// environment value (including Go/PATH/Git selectors) in the build identity.
+	for _, entry := range cmd.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		switch name {
+		case "RUNNER_RELEASE_FIXTURE_STATE", "RUNNER_RELEASE_FIXTURE_HEAD", "RUNNER_RELEASE_FIXTURE_CONNECTED", "RUNNER_RELEASE_FIXTURE_MODE":
+		default:
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	key := evidenceBuildKey{cmd.Path, pkg, cmd.Dir, sha256.Sum256([]byte(strings.Join(cmd.Env, "\x00")))}
+	value, _ := evidenceBuilds.LoadOrStore(key, &evidenceExecutable{})
+	built := value.(*evidenceExecutable)
+	built.once.Do(func() {
+		if out, err := cmd.CombinedOutput(); err != nil {
+			built.err = fmt.Errorf("%w: %s", err, out)
+			return
+		}
+		info, err := os.Stat(file)
+		if err != nil {
+			built.err = err
+			return
+		}
+		built.mode = info.Mode().Perm()
+		built.data, built.err = os.ReadFile(file)
+	})
+	if built.err != nil {
+		t.Fatal(built.err)
+	}
+	if err := os.WriteFile(file, built.data, built.mode); err != nil {
+		t.Fatal(err)
 	}
 	return file
+}
+
+func TestEvidenceBinaryReusesBuildWithIndependentExecutables(t *testing.T) {
+	goBinary, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\nprintf 'build\\n' >> " + testShellQuote(calls) + "\nexec " + testShellQuote(goBinary) + " \"$@\"\n"
+	if err = os.WriteFile(filepath.Join(dir, "go"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var first string
+	var want []byte
+	for _, fixture := range []string{"first", "second"} {
+		t.Run(fixture, func(t *testing.T) {
+			for _, name := range []string{"STATE", "HEAD", "CONNECTED", "MODE"} {
+				t.Setenv("RUNNER_RELEASE_FIXTURE_"+name, fixture)
+			}
+			binary := evidenceBinary(t, "./testdata/release-operator")
+			got, err := os.ReadFile(binary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fixture == "first" {
+				first, want = binary, got
+				if err = os.WriteFile(binary, []byte("caller-owned mutation"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if first == binary || !bytes.Equal(got, want) {
+				t.Fatal("helper reuse changed executable bytes or caller isolation")
+			}
+			if info, err := os.Stat(binary); err != nil || info.Mode().Perm()&0111 == 0 {
+				t.Fatal("reused helper lost its executable mode", err)
+			}
+		})
+	}
+	if _, err := os.Stat(first); !os.IsNotExist(err) {
+		t.Fatal("helper reuse changed the first caller's temporary lifetime", err)
+	}
+	if data, err := os.ReadFile(calls); err != nil || string(data) != "build\n" {
+		t.Fatal("identical helper build was repeated", string(data), err)
+	}
+	t.Setenv("GOFLAGS", os.Getenv("GOFLAGS")+" -buildvcs=false")
+	_ = evidenceBinary(t, "./testdata/release-operator")
+	if data, err := os.ReadFile(calls); err != nil || string(data) != "build\nbuild\n" {
+		t.Fatal("different Go build inputs reused the original executable", string(data), err)
+	}
 }
 
 func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scriptedPeer, configure func(*runner.Project), artifactLimit ...runner.Bytes) (*nativeRig, runner.Process, string) {
