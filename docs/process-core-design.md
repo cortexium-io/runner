@@ -58,6 +58,23 @@ qualification. Merge and production remain separately protected. All four
 packages are not yet complete, and the outstanding product failures are not
 proven fixed.
 
+The owner has renewed completion of packages 2 and 3, including coordination
+with the copy-release chat, full Jack's Break qualification and the planned
+default cutover. The copy chat's first planned submission,
+`run_NT5JSS5EM3KCCFOJGNIFSRTRBG`, added private metadata to an opaque public
+publication handle and was correctly refused. Normal cancellation settled both
+attempts on 8 November at 17:25:29 UTC, without model calls or product changes.
+Preserve that record. A corrected restricted-intake continuation must pass the
+original public handle unchanged and use the remaining 62 attempts, keeping the
+combined ceiling at 64. Lower planned ceilings require the validator correction;
+the default remains 64. The committed `BenchmarkRunnerNonogram25Hard` on original
+base `fffff55553904ed4dcfdd538e96058a80155e160` provides the pristine control.
+Main owns this continuation, the separate remaining mobile acceptance and the
+cutover. A qualified copy candidate alone does not qualify PR #334's mobile
+source. Do not submit duplicate work or implicitly join those candidates.
+Cutover follows actual qualification; merge, production and restoration remain
+separate owner decisions.
+
 Closure requires recorded evidence for all four packages. A new Runner defect
 reopens only its affected proof. A genuine product or prerequisite blocker remains
 explicit, with preserved evidence and the concrete remaining decision; it does

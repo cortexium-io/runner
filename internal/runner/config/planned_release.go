@@ -11,7 +11,7 @@ import (
 // suffix still owns qualification, correction and every protected decision.
 func plannedReleaseOwner(p runner.Process, project runner.Project, first, release int) (int, error) {
 	bad := errors.New("planned delivery requires admitted planning, isolated source cards, an owned join and a separate combined correction owner")
-	if first+5 >= release || p.MaxAttempts != 64 {
+	if first+5 >= release || p.MaxAttempts < 1 || p.MaxAttempts > 64 {
 		return 0, bad
 	}
 	plan, cards, join := p.Steps[first], p.Steps[first+1], p.Steps[first+2]
@@ -150,7 +150,7 @@ func plannedBaselineRoutes(p runner.Process, next string) bool {
 		for _, step := range p.Steps {
 			planned = planned || step.ForEach != nil && step.ForEach.Mode == "isolated"
 		}
-		if p.MaxAttempts != 64 || !planned || blocked != (runner.Route{Next: "$fail"}) {
+		if p.MaxAttempts < 1 || p.MaxAttempts > 64 || !planned || blocked != (runner.Route{Next: "$fail"}) {
 			return false
 		}
 		expected["blocked"] = blocked

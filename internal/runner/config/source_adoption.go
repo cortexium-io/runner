@@ -18,7 +18,7 @@ func sourceAdoptionContract(role runner.Role) error {
 // pristine benchmark runs first and cannot see that candidate patch.
 func sourceAdoptionPrefix(p runner.Process, project runner.Project, index int) (int, error) {
 	bad := errors.New("retained planned delivery requires exact source adoption before readiness/models and a pristine optional baseline")
-	if index < 0 || index > 1 || index+1 >= len(p.Steps) || p.MaxAttempts != 64 || p.Inputs["publication"] != "json" || p.Inputs["patch"] != "artifact" {
+	if index < 0 || index > 1 || index+1 >= len(p.Steps) || p.MaxAttempts < 1 || p.MaxAttempts > 64 || p.Inputs["publication"] != "json" || p.Inputs["patch"] != "artifact" {
 		return 0, bad
 	}
 	adopt := p.Steps[index]
