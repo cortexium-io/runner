@@ -1091,6 +1091,12 @@ func (c *Codex) Release(ctx context.Context, id string) error {
 			return err
 		}
 	}
+	if j.Workspace != nil {
+		private, artifact := workspaceProbeFiles(id)
+		if err = errors.Join(c.disk.Remove(private), c.disk.Remove(artifact)); err != nil {
+			return err
+		}
+	}
 	if err = c.disk.Remove("work/" + id); err != nil {
 		return err
 	}

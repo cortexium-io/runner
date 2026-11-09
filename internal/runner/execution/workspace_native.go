@@ -175,6 +175,11 @@ func envCommand(env map[string]string, argv ...string) []string {
 	return append(args, argv...)
 }
 
+func workspaceProbeFiles(attemptID string) (private, artifact string) {
+	name := "permission-dummy-" + attemptID
+	return "jobs/" + name, "artifacts/" + name
+}
+
 // Probe the exact server profiles without requesting a thread or model turn.
 func (c *Codex) workspaceReadiness(ctx context.Context, peer codexPeer, j nativeJob) error {
 	if c.cfg.GoBinary == "" || j.Workspace == nil {
@@ -185,13 +190,13 @@ func (c *Codex) workspaceReadiness(ctx context.Context, peer codexPeer, j native
 		return e
 	}
 	probe := filepath.Join(j.Workspace.WorkDir, ".runner-tmp", j.Assignment.AttemptID, "access-probe.go")
-	// Dummy files stand in for credentials; the probe never reads real secrets.
-	dummy := "jobs/permission-dummy"
+	// Each attempt keeps its denied-read fixtures until its own probes finish.
+	// These files stand in for credentials and private artifacts.
+	dummy, artifactDummy := workspaceProbeFiles(j.Assignment.AttemptID)
 	if e = c.disk.Write(dummy, []byte("dummy"), 128); e != nil {
 		return e
 	}
 	defer c.disk.Remove(dummy)
-	artifactDummy := "artifacts/permission-dummy"
 	if e = c.disk.Write(artifactDummy, []byte("dummy"), 128); e != nil {
 		return e
 	}
@@ -384,9 +389,17 @@ func main(){
  cacheReadOnly,cacheErr:=strconv.ParseBool(os.Args[5]);if cacheErr!=nil{panic("module cache mode boundary")}
  target:=os.Getenv("RUNNER_SOURCE_PROBE");err:=os.WriteFile(target,[]byte("probe"),0600)
  if (err==nil)!=(mode=="write"){panic("source write boundary")};if err==nil{os.Remove(target)}
- denied:=func(path string){_,err:=os.ReadFile(path);if !errors.Is(err,os.ErrPermission){panic("private/Git/symlink read boundary")}}
- denied(private);denied(filepath.Join(root,".git"));if escape!=""{denied(escape)}
- if artifact:=os.Getenv("RUNNER_ARTIFACT_STORE_PROBE");artifact!=""{denied(artifact)}
+ denied:=func(boundary,path string){
+  _,err:=os.ReadFile(path)
+  switch {
+  case errors.Is(err,os.ErrPermission): return
+  case errors.Is(err,os.ErrNotExist): panic(boundary+" probe target missing")
+  case err==nil: panic(boundary+" read was allowed")
+  default: panic(boundary+" read denial not established")
+  }
+ }
+ denied("private state",private);denied("Git metadata",filepath.Join(root,".git"));if escape!=""{denied("symlink escape",escape)}
+ if artifact:=os.Getenv("RUNNER_ARTIFACT_STORE_PROBE");artifact!=""{denied("private artifact",artifact)}
  for _,evidence:=range []string{os.Getenv("RUNNER_EVIDENCE_PROBE"),os.Getenv("RUNNER_INLINE_EVIDENCE_PROBE")}{if evidence!=""{if _,err:=os.ReadFile(evidence);err!=nil{panic("evidence read boundary")};f,err:=os.OpenFile(evidence,os.O_WRONLY,0);if err==nil{f.Close();panic("evidence write boundary")};if !errors.Is(err,os.ErrPermission){panic("evidence write not checked")};if err:=os.Rename(evidence,evidence+"-moved");!errors.Is(err,os.ErrPermission){panic("evidence file rename boundary")};if err:=os.Remove(evidence);!errors.Is(err,os.ErrPermission){panic("evidence delete boundary")};if err:=os.Rename(filepath.Dir(evidence),filepath.Dir(evidence)+"-moved");!errors.Is(err,os.ErrPermission){panic("evidence directory rename boundary")}}}
  for _,name:=range os.Args[6:]{f,err:=os.OpenFile(filepath.Join(root,name),os.O_WRONLY,0);if err==nil{f.Close();panic("protected source write boundary")};if !errors.Is(err,os.ErrPermission){panic("protected source not checked")}}
  if _,err:=os.Lstat(filepath.Join(root,".gitattributes"));err==nil{f,err:=os.OpenFile(filepath.Join(root,".gitattributes"),os.O_WRONLY,0);if err==nil{f.Close();panic("immutable root attributes write boundary")};if !errors.Is(err,os.ErrPermission){panic("immutable root attributes not checked")}}
