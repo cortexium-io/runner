@@ -146,6 +146,13 @@ for diagnostics that identify where the tests spend their time. QVN settled at
 preserved. Across the three runs, 45 of 64 attempts have been used. Independent
 review and full qualification are still pending.
 
+The authorized continuation on the same saved tree then passed all 315 tests
+at the five-second limit. The seven timeouts did not recur. Independent review
+requested a Shikaku touch-panning fix. The run stopped at 27/43 with 16 attempts
+left, two short of the correction and protected completion reserve. Across the
+three runs, 48 of 64 attempts have been used. The default remains `deliver`
+pending full qualification. See the [live recovery evidence](architecture.md#frontend-check-recovery-9-november-2026).
+
 Closure requires recorded evidence for all four packages. A new Runner defect
 reopens only its affected proof. A genuine product or prerequisite blocker remains
 explicit, with preserved evidence and the concrete remaining decision; it does

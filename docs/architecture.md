@@ -565,6 +565,23 @@ with all four pins and resources released. The product still awaits independent
 review and full qualification. The protected release decisions and the default
 `deliver` remain in force.
 
+At 13:35 UTC the owner-authorized timeout continuation resumed QVN from that
+same tree after installing `66219b9`. The paired installation preserved all 70
+runs then present. Local race tests, vet, the pinned macOS sandbox fixture and
+[macOS/Linux CI](https://github.com/cortexium-io/runner/actions/runs/42623463265)
+passed. The disposable SQLite exercise reattached the diagnostic and repair
+attempts across restarts using simulated execution.
+
+The live check ran all 315 original tests with zero failures or skips.
+TypeScript passed, and the seven former timeout cases finished in 707–3,599 ms.
+The timeout did not recur, so no isolated profile or repair ran on Jack's
+Break. Independent review found that zoomed Shikaku blocks touch panning to
+off-screen cells. Runner retained the patch and four card pins and stopped
+before starting that correction at 27/43 attempts. The configured correction
+and protected completion require 18 attempts with 16 available. PR #337
+remains a draft at its original head. Full qualification is pending and the
+default remains `deliver`.
+
 ## Follow the demo
 
 1. `config.Load` resolves instance → project → roles/process. It rejects unknown
