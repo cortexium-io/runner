@@ -582,6 +582,27 @@ and protected completion require 18 attempts with 16 available. PR #337
 remains a draft at its original head. Full qualification is pending and the
 default remains `deliver`.
 
+The approved Shikaku pan repair then passed TypeScript, 320 frontend tests at
+the unchanged five-second limit and independent review. Runner published
+`403cee4bd49847c41e4b3b0332c7ec7182066213` to the existing draft PR #337 and
+verified generated ownership on the authorized publication recheck. Full
+qualification passed the native Nonogram corpus and stopped in desktop Chromium
+when the Binary admission request failed in a fresh browser profile. The old
+receipt lacked the browser error code and observed HTTP status.
+
+Operator `4ff4001` installed the bounded browser diagnostics and a one-attempt
+qualification handoff. The installation preserved the old 81 remote journals,
+66 local runs and the separate PR #334 adoption binding. Local race tests, vet,
+the pinned Chromium/WebKit fixture and
+[macOS/Linux CI](https://github.com/cortexium-io/runner/actions/runs/42656817554)
+passed. The live handoff claimed the existing QVN qualification once.
+The candidate passed the native corpus and loader again. Its runtime HTTP
+probe passed 238 of 239 cases and returned HTTP 408 at 10,001 ms on 25×25 hard
+Nonogram generation. The previous qualification attempt with the same image
+passed that selection in 2,409 ms. The probe blocked before browser
+qualification, so the Binary failure remains unexplained. QVN settled at 36 of
+47 attempts with no protected decision. The default remains `deliver`.
+
 ## Follow the demo
 
 1. `config.Load` resolves instance → project → roles/process. It rejects unknown
