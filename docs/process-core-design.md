@@ -131,6 +131,21 @@ authenticated PR #337 source. Full native and browser qualification is required
 for switching the default from `deliver`. Merge, production and restoration
 retain separate owner decisions.
 
+The approved four-card qualification `run_QVNPEJLXSYZQMMQCW53JH4NTUH` reused
+the authenticated PR #337 source under a frozen cap of 43. Its shared prerequisite
+and overlapping card owners passed native readiness, and all four cards joined.
+The first combined check returned 13 failures, six with a missing Vitest timeout
+message. The correction owner retained its patch and stopped. A checkpointed
+Runner upgrade recovered that patch into the same run's read-only check.
+
+The recheck supplied actual timeout messages and a TypeScript failure. Runner's
+next correction cleared TypeScript. Seven frontend tests still exceeded their
+five-second deadline, and the final correction owner returned a blocker asking
+for diagnostics that identify where the tests spend their time. QVN settled at
+24/43 with all four pins, both new check reports and the last checked tree
+preserved. Across the three runs, 45 of 64 attempts have been used. Independent
+review and full qualification are still pending.
+
 Closure requires recorded evidence for all four packages. A new Runner defect
 reopens only its affected proof. A genuine product or prerequisite blocker remains
 explicit, with preserved evidence and the concrete remaining decision; it does

@@ -535,6 +535,36 @@ The existing PR #337 source awaits full native and browser qualification. The
 default remains `deliver`. Merge, production and restoration retain separate
 owner decisions.
 
+## Frontend check recovery, 9 November 2026
+
+Vitest 4.1.11's JSON reporter can store a placeholder stack where the actual
+failure is a test timeout. The frontend checker now collects JSON and JUnit in
+one invocation. It retains the original JSON evidence and adds the actual message
+only when the selected file, test identity, failure count and duration match.
+Unresolved diagnostics block the check. The existing selectors, deadlines and
+artifact bounds still apply.
+
+The owner action binds the settled blocked attempt, run and card revisions,
+retained patch digest, qualified helper and original draft PR. Runner verifies
+the capture and Git pins, stages verified helper bytes in private attempt
+storage, then queues its existing read-only check. A disposable copy of the
+actual QVN SQLite family reopened the same check attempt after restart and
+replayed the recovery receipt without another start. The macOS sandbox fixture
+ran the staged helper after the original path changed. Full local race tests,
+vet and [macOS/Linux CI](https://github.com/cortexium-io/runner/actions/runs/42614961610)
+passed for `cbfbdab`.
+
+At 12:32 UTC the paired Core and helper installation verified a cold checkpoint
+of all 72 current runs. The one authorized live check ran the saved PSOA patch
+inside QVN's original 43-attempt cap and supplied three named timeouts and a
+TypeScript error to the existing correction route. The next check passed
+TypeScript and reported seven named timeouts among 315 executed tests. The
+correction owner stopped for source-localizing diagnostics and retained the last
+checked tree `f57bf1244c992c0c5268cf1678e866bef9c10f57`. QVN settled at 24 attempts
+with all four pins and resources released. The product still awaits independent
+review and full qualification. The protected release decisions and the default
+`deliver` remain in force.
+
 ## Follow the demo
 
 1. `config.Load` resolves instance → project → roles/process. It rejects unknown
