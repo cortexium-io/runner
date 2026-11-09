@@ -207,6 +207,19 @@ a failed run; a continuation's combined ceiling must be authorized explicitly.
 The larger root contract changes no native role, model byte, record, artifact,
 storage or access limit. Older frozen definitions and failures remain unchanged.
 
+If task admission rejects an entire collection, the planner receives the
+admission error and the saved rejected proposal when both fit the normal input
+and record limits. The rejected cards confer no task or publication authority.
+Card admission uses the same protected input staging limits as dispatch.
+
+For a settled retained investigation whose planner blocked immediately after
+such a rejection, the owner can rejoin the exact run once with
+`recover-planning --data STATE --run RUN --attempt ATTEMPT --revision REVISION`.
+Runner verifies the retained source and baseline, then queues one new planner
+visit with the rejected proposal and unchanged allowances. Recovery admits a
+single observation card, then uses the configured measurement, review,
+qualification and approval stages.
+
 The strict investigation collector opts into `--bind-source` and
 `--require-evidence`; legacy helper invocations retain their existing behavior.
 Source binding streams a versioned SHA256 snapshot of regular source files,

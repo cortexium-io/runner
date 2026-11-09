@@ -36,7 +36,7 @@ func run(ctx context.Context, args []string) error {
 		return execution.RunCommandWorker(ctx, args[1])
 	}
 	if len(args) == 0 {
-		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|recover-corrections|recover-collection|recover-frontend-check|recover-frontend-timeouts|decide|wait|config-set")
+		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|recover-corrections|recover-collection|recover-planning|recover-frontend-check|recover-frontend-timeouts|decide|wait|config-set")
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -55,7 +55,7 @@ func run(ctx context.Context, args []string) error {
 	wait := fs.Bool("wait", false, "wait for completion/Waiting with result")
 	requestID := fs.String("request-id", "", "idempotency key; generated and printed before a write if omitted")
 	attemptID := fs.String("attempt", "", "exact saved failed attempt for owner-authorized recovery")
-	revision := fs.Int64("revision", 0, "exact inspected run revision for frontend check recovery")
+	revision := fs.Int64("revision", 0, "exact inspected run revision for owner-authorized recovery")
 	patchSHA256 := fs.String("patch-sha256", "", "approved retained patch digest for frontend check recovery")
 	helperSHA256 := fs.String("helper-sha256", "", "qualified frontend check helper digest")
 	publicationHead := fs.String("publication-head", "", "exact retained draft publication head for frontend check recovery")
@@ -83,6 +83,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	if command == "recover-collection" && (*runID == "" || *attemptID == "" || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
 		return errors.New("recover-collection requires --run and --attempt; it grants no retry allowance, profile or preservation override")
+	}
+	if command == "recover-planning" && (*runID == "" || *attemptID == "" || *revision < 1 || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
+		return errors.New("recover-planning requires --run, --attempt and --revision; it grants no retry allowance, profile or preservation override")
 	}
 	if command == "recover-frontend-check" && (*runID == "" || *attemptID == "" || *revision < 1 || *patchSHA256 == "" || *helperSHA256 == "" || *publicationHead == "" || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
 		return errors.New("recover-frontend-check requires --run, --attempt, --revision, --patch-sha256, --helper-sha256 and --publication-head; it grants no retry or profile override")
@@ -171,6 +174,13 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
 		method = "runner_recover_collection"
 		a = runner.RecoverCollectionRequest{RequestID: *requestID, RunID: *runID, AttemptID: *attemptID}
+	case "recover-planning":
+		if *requestID == "" {
+			*requestID = rand.Text()
+		}
+		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
+		method = "runner_recover_planning"
+		a = runner.RecoverPlanningRequest{RequestID: *requestID, RunID: *runID, AttemptID: *attemptID, Revision: *revision}
 	case "recover-frontend-check", "recover-frontend-timeouts":
 		if *requestID == "" {
 			*requestID = rand.Text()

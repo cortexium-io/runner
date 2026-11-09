@@ -49,7 +49,17 @@ func (c *Core) admitTaskItems(root Run, state *TaskGroupState) error {
 		if step.AttemptTimeout != "" {
 			timeout, _ = time.ParseDuration(step.AttemptTimeout)
 		}
-		a := Assignment{AttemptID: "attempt_" + strings.Repeat("A", 26), Setup: ExecutionSetup{Profile: profile}, Inputs: inputs, Task: role.Purpose, OutputTypes: role.Outputs, AllowHelp: step.Escalation != nil, Outcomes: stepOutcomes(step), Deadline: time.Now().UTC().Add(timeout)}
+		a := Assignment{
+			AttemptID:   "attempt_" + strings.Repeat("A", 26),
+			Setup:       ExecutionSetup{Profile: profile},
+			Inputs:      inputs,
+			Limits:      c.executionLimits(),
+			Task:        role.Purpose,
+			OutputTypes: role.Outputs,
+			AllowHelp:   step.Escalation != nil,
+			Outcomes:    stepOutcomes(step),
+			Deadline:    time.Now().UTC().Add(timeout),
+		}
 		if err := validator.ValidateAssignment(a); err != nil {
 			return fmt.Errorf("task %s owner input: %w", item.ID, err)
 		}
@@ -135,7 +145,7 @@ func readyNext(p Process, index int) int {
 	return taskStepIndex(p, route.Next)
 }
 
-func (c *Core) taskGroupAdmission(r Run, count int) error {
+func (c *Core) taskGroupAdmission(r Run, count, pendingAttempts int) error {
 	g := r.Process.Steps[r.Step].ForEach
 	if g == nil || g.Mode != "isolated" || g.MaxParallel < 1 || c.snapshot.Instance.TaskConcurrency < 1 {
 		return errors.New("isolated tasks need explicitly configured task concurrency")
@@ -162,7 +172,7 @@ func (c *Core) taskGroupAdmission(r Run, count int) error {
 	if err != nil {
 		return err
 	}
-	if err := c.familyReserve(r, count*minimum+1, tail); err != nil {
+	if err := c.familyReserve(r, count*minimum+1+pendingAttempts, tail); err != nil {
 		return err
 	}
 	// Reserve bounded metadata and one output artifact per isolated source lane.

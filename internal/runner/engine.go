@@ -727,7 +727,7 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		Inputs:      inputs,
 		WorkDir:     filepath.Join(c.disk.Root, "work", a.ID),
 		OutputDir:   filepath.Join(c.disk.Root, "artifacts", a.ID),
-		Limits:      ExecutionLimits{c.disk.Policy.Database.MaxRecord, c.disk.Policy.MaxArtifact, c.disk.Policy.Logs.MaxPerAttempt},
+		Limits:      c.executionLimits(),
 		Task:        r.Roles[step.Role].Purpose,
 		OutputTypes: Clone(r.Roles[step.Role].Outputs),
 		AllowHelp:   step.Escalation != nil,
@@ -761,6 +761,10 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 	assignment.TaskSource, e = c.taskAssignment(r, step)
 	return assignment, e
 }
+func (c *Core) executionLimits() ExecutionLimits {
+	return ExecutionLimits{c.disk.Policy.Database.MaxRecord, c.disk.Policy.MaxArtifact, c.disk.Policy.Logs.MaxPerAttempt}
+}
+
 func bindings(r Run, bs map[string]Binding) (map[string]Value, error) {
 	out := map[string]Value{}
 	for name, b := range bs {

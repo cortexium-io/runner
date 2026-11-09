@@ -87,6 +87,13 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		r, e := c.RecoverCollection(in)
 		return summary(r), e
 	})
+	add(s, "runner_recover_planning", "Owner-authorized one-time recovery of an exact blocked planner after preflight rejected its unadmitted collection. Reuses the retained baseline and adopted source, preserving history, attempt ceilings and protected decisions. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverPlanningRequest) (any, error) {
+		r, e := c.RecoverPlanning(in)
+		if e != nil {
+			return nil, e
+		}
+		return summary(r), nil
+	})
 	add(s, "runner_recover_frontend_check", "Owner-authorized recheck of an exact retained patch from a settled blocked frontend owner. Binds the saved revision, patch, qualified check helper and publication. Preserves attempts, budgets and protected decisions. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverFrontendCheckRequest) (any, error) {
 		r, e := c.RecoverFrontendCheck(in)
 		return summary(r), e

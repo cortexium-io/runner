@@ -363,13 +363,16 @@ func (c *Core) driveTaskGroup(r Run) bool {
 			return true
 		}
 		items, err := decodeTaskItems(r, step.ForEach)
+		if err == nil && r.Step > 0 && r.RouteUses[r.Process.Steps[r.Step-1].ID+"/"+planningRecovery] != 0 && len(items) != 1 {
+			err = errors.New("recovered planning requires one bounded observation card before measurement")
+		}
 		if err != nil {
 			c.rejectTaskPlan(r, err)
 			return true
 		}
 		repository, base, patch, err := frozenTaskSource(r)
 		if err == nil {
-			err = c.taskGroupAdmission(r, len(items))
+			err = c.taskGroupAdmission(r, len(items), 0)
 		}
 		if err != nil {
 			r.Status, r.Reason = "Waiting", Clip(err.Error())
@@ -624,16 +627,29 @@ func (c *Core) rejectTaskPlan(r Run, err error) {
 	}
 	zero := int64(0)
 	now := time.Now().UTC()
+	reason := Clip(err.Error())
+	items := r.Process.Steps[r.Step].ForEach.Items
+	rejected, _ := stepOutput(r, items)
 	r.Attempts = append(r.Attempts, Attempt{
 		ID: "attempt_" + rand.Text(), Step: r.Step, Visit: r.Visit,
 		State: Finished, Released: true, Started: now, FinishedAt: now,
 		Usage: Usage{InputTokens: &zero, OutputTokens: &zero, CachedInputTokens: &zero},
 		End: &ExecutionEnd{Kind: "returned", Result: &StepResult{
-			Outcome: "invalid_plan", Reason: Clip(err.Error()),
-			Outputs: map[string]Value{"feedback": Text(Clip(err.Error()))},
+			Outcome: "invalid_plan", Reason: reason,
+			Outputs: map[string]Value{"feedback": Text(reason)},
 		}},
 	})
 	c.route(&r, &r.Attempts[len(r.Attempts)-1])
+	if r.Status == "Queued" && r.Process.Steps[r.Step].ID == items.FromStep &&
+		r.Roles[r.Process.Steps[r.Step].Role].Inputs["feedback"] == "text" {
+		prior := r.StepInputs["feedback"]
+		if bytes.Equal(prior.Inline, Text(reason).Inline) {
+			r.StepInputs["feedback"] = rejectedPlanFeedback(reason, rejected)
+			if c.validatePlannerInputs(r) != nil {
+				r.StepInputs["feedback"] = prior
+			}
+		}
+	}
 	if c.persist(r, nil, nil) == nil {
 		c.Wake()
 	}

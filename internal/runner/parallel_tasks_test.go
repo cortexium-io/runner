@@ -327,7 +327,8 @@ func TestInvalidPlanCorrectsInternallyBeforeAnyCardStarts(t *testing.T) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if len(p.planFeedback) != 2 || p.planFeedback[0] != "" || !strings.Contains(p.planFeedback[1], "overlap") {
+	if len(p.planFeedback) != 2 || p.planFeedback[0] != "" || !strings.Contains(p.planFeedback[1], "overlap") ||
+		!strings.Contains(p.planFeedback[1], bad) || !strings.Contains(p.planFeedback[1], "No cards from this plan were admitted") {
 		t.Fatal("planner did not receive bounded validation feedback", p.planFeedback)
 	}
 }
@@ -405,34 +406,52 @@ func (p validatedTaskProbe) ValidateAssignment(a runner.Assignment) error {
 	return new(execution.Service).ValidateAssignment(a)
 }
 
-func TestOversizeCardOwnerInputRejectsPlanBeforeAnyChild(t *testing.T) {
+func TestCardOwnerAdmissionUsesDispatchInputLimits(t *testing.T) {
 	items, _ := json.Marshal([]runner.TaskItem{{ID: "large", Inputs: map[string]json.RawMessage{"task": json.RawMessage(`"` + strings.Repeat("x", 5000) + `"`), "paths": json.RawMessage(`["file.go"]`)}}})
-	p := newTaskProbe()
-	s := plannedSnapshot(string(items))
-	s.Instance.Storage.Database.MaxRecord = 40 << 10
-	project := s.Projects["demo"]
-	owner := project.Roles["owner"]
-	owner.Purpose = "Implement the assigned card"
-	owner.Execution = &runner.Profile{Harness: "codex", Access: "workspace-write", Model: "gpt-6.1-sol", Reasoning: "xhigh", MaxInput: 8192, MaxOutput: 512}
-	project.Roles["owner"] = owner
-	process := project.Processes["planned"]
-	process.Steps[0].ForEach.Steps[1].Inputs["request"] = runner.Binding{FromInput: "request"}
-	owner.Inputs["request"] = "text"
-	project.Roles["owner"] = owner
-	project.Processes["planned"] = process
-	s.Projects["demo"] = project
-	r := openRig(t, t.TempDir(), s, func(runner.Executor) runner.Executor { return validatedTaskProbe{p} })
-	defer r.close()
-	root, err := r.core.Start(runner.StartRequest{RequestID: "oversize", Project: "demo", Inputs: map[string]runner.Value{"request": runner.Text(strings.Repeat("q", 4000)), "tasks": {Inline: items}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := await(t, r.core, root.ID, released)
-	if done.Status != "Failed" || len(done.TaskStatuses) != 0 || len(done.Attempts) != 1 || !strings.Contains(done.Attempts[0].End.Result.Reason, "max_input") {
-		t.Fatal("over-budget card accepted", done.Status, done.Reason, done.TaskStatuses)
-	}
-	if r.core.Status().TotalRuns != 1 {
-		t.Fatal("partial child rows created")
+	for _, tc := range []struct {
+		name         string
+		instructions string
+	}{
+		{name: "large stageable inputs"},
+		{name: "irreducible instructions", instructions: strings.Repeat("x", 9000)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newTaskProbe()
+			close(p.allow)
+			s := plannedSnapshot(string(items))
+			s.Instance.Storage.Database.MaxRecord = 40 << 10
+			project := s.Projects["demo"]
+			owner := project.Roles["owner"]
+			owner.Purpose = "Implement the assigned card"
+			owner.Execution = &runner.Profile{
+				Harness: "codex", Mode: "owner", Access: "workspace-write",
+				Model: "gpt-6.1-sol", Reasoning: "xhigh", MaxInput: 8192, MaxOutput: 512, Instructions: tc.instructions,
+			}
+			process := project.Processes["planned"]
+			process.Steps[0].ForEach.Steps[1].Inputs["request"] = runner.Binding{FromInput: "request"}
+			owner.Inputs["request"] = "text"
+			project.Roles["owner"] = owner
+			project.Processes["planned"] = process
+			s.Projects["demo"] = project
+			r := openRig(t, t.TempDir(), s, func(runner.Executor) runner.Executor { return validatedTaskProbe{p} })
+			defer r.close()
+			root, err := r.core.Start(runner.StartRequest{
+				RequestID: "card-inputs", Project: "demo",
+				Inputs: map[string]runner.Value{"request": runner.Text(strings.Repeat("q", 4000)), "tasks": {Inline: items}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			done := await(t, r.core, root.ID, released)
+			if tc.instructions == "" {
+				if done.Status != "Completed" || r.core.Status().TotalRuns != 2 {
+					t.Fatal("preflight rejected inputs that dispatch can stage", done.Status, done.Reason)
+				}
+			} else if done.Status != "Failed" || len(done.TaskStatuses) != 0 || len(done.Attempts) != 1 ||
+				!strings.Contains(done.Attempts[0].End.Result.Reason, "max_input") || r.core.Status().TotalRuns != 1 {
+				t.Fatal("over-budget card created work", done.Status, done.Reason, done.TaskStatuses)
+			}
+		})
 	}
 }
 
