@@ -242,6 +242,14 @@ func TestRestartReconcilesParallelOwnersWithoutDuplicatingTasks(t *testing.T) {
 	first := openRig(t, dir, s, wrap)
 	root := startCards(t, first.core, threeCards)
 	a, b := nextCard(t, p), nextCard(t, p)
+	// The probe signals entry to Start before Core persists its acknowledgement.
+	// Wait for both acknowledgements to test observation of saved running owners.
+	for _, owner := range []runner.Assignment{a, b} {
+		await(t, first.core, owner.RunID, func(r runner.Run) bool {
+			current := r.Current()
+			return current != nil && current.ID == owner.AttemptID && current.State == runner.Running
+		})
+	}
 	before, err := first.core.Get(root.ID)
 	if err != nil {
 		t.Fatal(err)
