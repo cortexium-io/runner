@@ -1,0 +1,15 @@
+{
+  "id": "delivery-backup",
+  "purpose": "Execute the configured backup operation within its saved authority and evidence boundary.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "backup",
+    "access": "input-only"
+  }
+}

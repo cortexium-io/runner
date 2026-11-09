@@ -1,0 +1,15 @@
+{
+  "id": "delivery-verify",
+  "purpose": "Execute the configured verify operation within its saved authority and evidence boundary.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "verify",
+    "access": "input-only"
+  }
+}

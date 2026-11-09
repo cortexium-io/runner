@@ -1,0 +1,23 @@
+{
+  "id": "retain-measurement",
+  "purpose": "Retain the first candidate measurement unchanged for independent before/after review.",
+  "inputs": {
+    "measurement": "artifact"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/bin/cp",
+        "{input.measurement}",
+        "{scratch}/before-measurements.json"
+      ],
+      "artifact": "before-measurements.json"
+    }
+  }
+}

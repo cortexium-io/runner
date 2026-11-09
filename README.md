@@ -1,102 +1,152 @@
 # Cortexium Runner
 
-Runner turns explicitly approved work into reviewed changes. One local coordinator
-and a private transactional store own tasks, approvals, execution policy, evidence
-and recovery. GitHub Projects is not required.
+Runner is a configurable process engine. Ordinary Go code coordinates work;
+roles, skills and tools supply domain judgment. Projects have independent
+processes and runs, subject to explicit shared resource limits.
 
-Enter a **Ready** task for implementation, or a **Plan** request for proposed,
-dependency-aware tasks. Review the exact preview before approval; releasing a
-plan separately authorizes its children. Runner implements in isolated worktrees,
-runs the agreed checks and asks an independent reviewer to assess the result.
+This branch contains the **local process core and complete development workflow**: a runnable local
+service with file configuration, SQLite state, MCP/CLI control, a controlled
+deterministic executor, input-only Codex execution and a bounded writable Go
+workflow with model-free checks, bounded correction/measurement routes, read-only
+review, saved approval decisions and retained candidate/delivery artifacts.
+Planned task collections expand fixed templates into isolated linked runs, enforce
+dependency/write-scope ordering and join accepted source before combined review.
+Configured synchronous commands support checks, benchmarks, builds and project
+delivery without another model coordinator.
+It does not import legacy Runner state. Qualified pilot installation remains an
+explicit operator action.
 
-The replacement is the sole `cortexium-runner` executable. The
-[release checklist](docs/runner-redesign-proposal.md#frozen-first-release-checklist)
-records candidate qualification. Publication and changing an existing installation
-are separate, explicitly authorized actions.
+## Try the two-step process
 
-## Start
-
-Install Git and an authenticated Codex CLI separately. To build, use the Go version
-in `go.mod`:
+Use the Go version in `go.mod`. From this checkout:
 
 ```sh
 go build -o ./cortexium-runner ./cmd/cortexium-runner
-./cortexium-runner --version
-./cortexium-runner --help
+./cortexium-runner serve --config examples/demo/instance.yaml --data /absolute/new/private-state
 ```
 
-Follow the [operator guide](docs/operator-reference.md) and edit the
-[example configuration](examples/runner.config.json) for fresh, non-overlapping
-absolute paths. Preview initialization, approve a repository quality agreement,
-enter work, then start the coordinator. No service is installed automatically.
+In another terminal:
 
 ```sh
-./cortexium-runner --config /absolute/runner/runner.json init
-./cortexium-runner --config /absolute/runner/runner.json status
+./cortexium-runner run --data /absolute/new/private-state --project demo --inputs '{"name":"Hello, Dan"}' --request-id first-demo
 ```
 
-Initialization displays a preview before `init --apply`. Status never creates
-authority. The guide covers the complete flow, configuration editing, limits and
-escalation, interruptions, delivery and same-host backup/restore.
+The first step retains a file. The second consumes that retained artifact and
+returns `Hello, Dan`. No model, GitHub, credentials for a harness or network
+service is needed. The local control endpoint uses a private owner token.
 
-## Supported boundary
+`run` submits once, waits in Go through the configured steps and normal cleanup,
+then returns a compact result. It also returns when work reaches Waiting or has a
+cleanup error. No model coordinates or polls the steps. The result includes
+bounded output previews, artifact references, elapsed time, known token usage and
+settlement/cleanup state, without echoing the request or role configuration.
+Use `result --run RUN_ID` for a compact snapshot, or add `--wait` to rejoin work.
+`inspect` remains available for detailed diagnosis. The MCP equivalents are
+`runner_run` and `runner_result`; existing start/wait operations remain supported.
 
-- Sandboxed Codex handles planning, implementation and independent review.
-  Models, reasoning, timeouts, parallelism and bounded allowances are explicit.
-- Local delivery completes at a verified result branch without GitHub. Optional
-  local base delivery fast-forwards an unoccupied branch under human/default or
-  automatic merge permission. Your working checkout stays untouched.
-- A Plan privately includes dependent work, verifies the combined outcome, then
-  delivers one parent result. Child acceptance alone cannot complete the Plan.
-- Optional GitHub delivery creates one draft, verifies the current base, assesses
-  pinned CI and performs bounded repair. Explicit/automatic hosted merging needs
-  supported protection and an ordinary merge receipt; ready marking and host
-  reviews remain human steps.
-- Optional GitHub Issues supplies a labeled inbox, explicit snapshot import,
-  local owner approval and one public progress overview. It is independent of
-  code delivery and works without GitHub Projects. See the
-  [Issues journey](docs/operator-reference.md#optional-github-issue-requests-and-overview).
-- Other boards, Trello, additional harnesses, autonomous issue intake, CI reruns,
-  background delivery polling, services and self-update are outside this release.
-  Narrow adapter contracts leave room for later integrations.
-- Explicit Go/Node check preparation supports pinned tools, offline dependency
-  copies and ordinary output paths with retained reports. Preparation and quality
-  approval are separate. Typed npm audits use controlled public-registry metadata
-  queries and freshness gates; ordinary checks remain offline. See the
-  [quality journey](docs/operator-reference.md#2-agree-on-quality-before-work).
-- Store format 21 and strict local configuration deliberately break compatibility.
-  Preserve older binaries with their state and backups. Reconcile outstanding
-  remote effects, initialize fresh authority and approve only remaining work.
-  There is no import of old approvals or in-place upgrade.
+Read the [operator guide](docs/operator-reference.md) for configuration, retry,
+cancellation and storage. Read the [code walkthrough](docs/architecture.md) to
+understand the six Go responsibilities and the proof owned by each test suite.
+The [design record](docs/process-core-design.md) preserves agreed direction and
+separates this implementation from later capabilities.
 
-## Local release checks and packaging
+The [reviewed Go process](examples/reviewed-go/README.md) keeps implementation,
+focused verification, read-only review and local candidate integration inside
+Runner. [External coordinators](docs/coordinator.md) submit work and report results
+or decisions; they do not perform missing stages themselves. This process stops
+at a checked, reviewed local branch and does not merge, push or deploy.
+
+The [connected Jack's Break process](examples/jacks-break/README.md) adds product
+packaging, runtime/browser qualification and approved release, with bounded
+correction/measurement and configured recovery. Merge, production and database
+restoration remain separate saved owner decisions.
+
+## Qualified boundary
+
+- YAML and JSON files with explicit project, process and role references.
+  Valid edits reload automatically; invalid edits retain the last valid setup.
+  Active runs retain their selected definitions. Storage changes require restart.
+- Ordered steps and named outcome routes with typed inputs/outputs, retained
+  artifacts, bounded correction/benchmark repetition, execution retries,
+  saved decisions, profile escalation, cancellation and restart reconciliation.
+- Fixed task templates expanded from bounded dependency-aware collections.
+  Planned groups support up to eight cards and two isolated card actors, sharing
+  one 64-attempt family allowance. Older serial definitions retain their limits.
+- One instance owner, concurrent independent runs, bounded records/history/logs,
+  controlled storage admission, retained-output references and repeatable cleanup.
+- Regular source files with literal source/capture ownership, including the
+  supported immutable root text-attribute subset described in the
+  [operator guide](docs/operator-reference.md). Arbitrary Git transformations,
+  submodules and source symlinks are not accepted by this workspace capability.
+- Local owner-only MCP over loopback HTTP; the CLI is a client of that service.
+  The Jack's Break pilot has a qualified macOS user-service installation and an
+  explicitly configured remote release operator. This does not qualify remote
+  multi-user control or general installation on every host.
+
+The Codex adapter has qualified the small text-summary fixture on CLI 0.164.0,
+using Sol / Extra High: success, lost launch acknowledgement/reconnection and
+cancellation followed by a graceful Runner restart. It uses one private native
+service per instance and a fresh thread per coding attempt. The
+[writable qualification fixture](testdata/seats/README.md) additionally qualifies one
+source change, retained patch and fixed Go check. Arbitrary project execution,
+skills and tool catalogs remain outside this qualification. A separate
+[writable recovery exercise](docs/architecture.md#writable-recovery-exercise-29-october-2026)
+qualified abrupt Runner owner-process exit, reattachment to the original native
+work, cancellation and preservation of edits on macOS. The
+[complete development qualification](docs/architecture.md#complete-development-workflow-3-november-2026)
+adds real coding, two benchmark rounds, review, approval/restart and a packaged
+website verified headlessly. The subsequent
+[planned workflow qualification](docs/architecture.md#planned-workflows-67-november-2026)
+demonstrates real overlapping Go cards and independently reviewed research.
+Nested/dynamically amended plans, arbitrary role tool catalogs, attention/archive
+operations and dashboards remain outside this qualified implementation. Benchmarks
+use project commands and ordinary roles.
+
+The [release-closure plan](docs/process-core-design.md#release-closure-authorized-8-november-2026)
+records the remaining operational acceptance. The planned Jack's Break frontend
+default cutover is conditional on real native/browser qualification; installation,
+synthetic browser fixtures and a safe blocked result do not establish that acceptance.
+Merge, production and database restoration retain separate owner decisions.
+
+## Writable Go example
+
+[examples/workspace](examples/workspace/README.md) shows a coding → check process
+accepting a per-run request for your repository. All standalone examples are listed
+in [examples/README.md](examples/README.md); test fixtures live in the root
+`testdata/` directory.
+See the [qualification record](docs/architecture.md#writable-go-qualification-29-october-2026)
+for measured time, usage and remaining limits.
+
+## Input-only Codex example
+
+The [Codex configuration](examples/codex/instance.yaml) uses your existing local
+Codex account. It selects `gpt-6.1-sol`, `xhigh` reasoning and no task environment,
+MCP servers or external tools. Model/reasoning and effective native restrictions
+are checked before a turn is submitted. There is no automatic model fallback.
 
 ```sh
-go test -race -timeout 15m ./...
+./cortexium-runner serve --config examples/codex/instance.yaml --data /absolute/new/codex-state
+```
+
+Starting the service submits no model task. In another terminal, an explicit
+start spends model usage:
+
+```sh
+./cortexium-runner start --data /absolute/new/codex-state --project demo --inputs '{"document":"Booking Desk opens Tuesday at noon. Every reservation requires email confirmation."}' --request-id summary-1
+```
+
+The first native qualification used its three-task allowance. Ordinary tests skip
+it. See the [measured results and limits](docs/architecture.md#codex-adapter-qualification-29-october-2026)
+and [operator instructions](docs/operator-reference.md#input-only-codex-execution).
+
+## Verify
+
+```sh
+go test -race -timeout 20m ./...
 go vet ./...
-sh scripts/release-smoke-test.sh
-sh scripts/build-release.sh v0.0.0-candidate /absolute/empty/release-output
+go build ./cmd/cortexium-runner
 ```
 
-`test-release-readiness.sh` combines the race suite, vet, pinned vulnerability
-scan, module checks, real CLI smoke and four no-CGO archive builds. It makes no
-model calls or GitHub mutations. [Behavior evaluations](docs/model-profile-evaluation.md)
-are separate opt-in calls. R5 additionally requires native macOS/Linux evidence,
-the packaged operator journey and final cutover review.
-
-Archives support macOS/Linux on amd64/arm64 and contain the binary, license,
-README, `OPERATOR.md` and `runner.example.json`; `SHA256SUMS` covers all four.
-For offline instructions, open `OPERATOR.md` from the extracted archive.
-The HTTPS/checksum-verifying installer copies only the verified binary to the
-selected directory. It does not migrate configuration, install skills or change
-services. Follow the [breaking cutover procedure](docs/operator-reference.md#8-breaking-release-and-cutover)
-only after candidate qualification and explicit installation authorization.
-
-Release publication remains an explicitly dispatched, reviewed-source workflow.
-It requires an exact lightweight version tag on the reviewed main commit,
-immutable verified build artifacts and an isolated publication job. Building local
-archives creates no tag, release or installation.
-
-See [architecture](docs/architecture.md), [ADR 0005](docs/decisions/0005-local-runner-core.md),
-the [release checklist](docs/runner-redesign-proposal.md#frozen-first-release-checklist),
-[contribution policy](CONTRIBUTING.md) and [security policy](SECURITY.md).
+There are no model calls in these checks. CI runs the same Go gates on Linux and
+macOS. Release and installer automation from the previous runtime is retired on
+this branch; distribution needs its own qualification and authorization.

@@ -1,0 +1,27 @@
+{
+  "id": "frontend-review",
+  "purpose": "Independently review the frontend change, supplied focused proof and original mobile/touch acceptance before integration.",
+  "inputs": {
+    "request": "text",
+    "patch": "artifact",
+    "summary": "text",
+    "check": "text",
+    "tests": "text",
+    "measurement": "text",
+    "measurements": "artifact",
+    "checks": "artifact"
+  },
+  "outputs": {
+    "verdict": "text",
+    "summary": "text"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Independently review the original scoped frontend request, retained patch, actual focused frontend check artifact and measurement evidence. Follow AGENTS.md and docs/testing.md; read only affected source/contracts needed to judge completeness, correctness, public behavior, generated ownership, unnecessary work and meaningful test purpose/placement. Require a meaningful assertion for each changed interaction or regression. Mobile acceptance covers initial entry, board/control geometry, actual touch edit/Undo/reload and primary/expanded sizes; downstream qualification must prove it against the built image. Source is read-only. Do not edit, retest, use Git, launch agents or perform external work. Downstream packaging, runtime/browser qualification and protected release still must pass. Return ready with verdict exactly APPROVE only for a complete source handoff with sufficient supplied focused proof. A concrete in-scope repair returns changes_requested with verdict BLOCKED. Missing capability, infrastructure uncertainty or a required material decision returns blocked. Do not waive proof or widen scope. Keep findings and any missing proof in a summary of at most 240 characters."
+  }
+}

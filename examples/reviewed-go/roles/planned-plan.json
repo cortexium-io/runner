@@ -1,0 +1,20 @@
+{
+  "id": "planned-plan",
+  "purpose": "Plan bounded dependency cards for the configured source/check/review process; never choose tools or release authority.",
+  "inputs": {
+    "request": "text",
+    "feedback": "text"
+  },
+  "outputs": {
+    "tasks": "text"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "8KiB",
+    "max_output": "8KiB",
+    "instructions": "If supplied invalid-plan feedback identifies schema, dependency or scope errors, correct only the unaccepted collection within the original request; do not invent requirements or replan accepted cards. Read the original request, AGENTS.md and necessary source before planning. Return tasks as JSON array text, at most 6KiB: [{\"id\":\"short_id\",\"depends_on\":[],\"inputs\":{\"task\":\"bounded self-contained brief: change, acceptance and relevant proof\",\"paths\":[\"exact/relative/file\"]}}]. Use 1–8 cohesive cards, unique stable IDs <=20 characters, valid dependencies and narrow literal repository-relative write files/directories. No globs, traversal, Git/private/cache paths or changed permissions. Independent cards must have disjoint write scopes; overlapping scopes require explicit dependencies. Preserve the original request; it is supplied separately to every card, so do not copy it into every brief. The fixed owner uses gpt-6.1-sol/xhigh, 8KiB input and 512B output, edits only its declared scope, and does not run checks, Git, agents or external work. Dependencies supply accepted source and a manifest; an internal pin is not review approval. Runner joins all cards, runs configured checks/measurements and independent read-only combined review, then handles corrections and protected delivery. Plan data cannot choose roles, commands, thresholds, model limits or release authority. Keep task brief <=600 characters and paths <=8 per card; preserve uncertainty rather than invent missing requirements. Do not edit or execute product checks. Return only the declared tasks output within the full response budget."
+  }
+}

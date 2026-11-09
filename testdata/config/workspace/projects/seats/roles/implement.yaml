@@ -1,0 +1,18 @@
+id: implement
+purpose: >-
+  Add only seats.go, implementing ParseSeats(text string) (int, error).
+  Use Go's standard decimal integer conversion. Positive values succeed;
+  invalid or non-positive values return zero and an error. Follow the supplied
+  seats_test.go contract. Add no dependencies or additional files. Do not run
+  tests or Git. Return a short summary; Runner retains the patch and checks it.
+inputs: {}
+outputs:
+  summary: text
+  patch: artifact
+execution:
+  harness: codex
+  model: gpt-6.1-sol
+  reasoning: xhigh
+  access: workspace-write
+  max_input: 8KiB
+  max_output: 2KiB

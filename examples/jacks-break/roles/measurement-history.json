@@ -1,0 +1,30 @@
+{
+  "id": "measurement-history",
+  "purpose": "Append complete source-bound measurements without discarding prior evidence; no semantic approval.",
+  "inputs": {
+    "previous": "artifact",
+    "measurement": "artifact"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-measure-history",
+        "--source",
+        "{workspace}",
+        "--previous",
+        "{input.previous}",
+        "--measurement",
+        "{input.measurement}",
+        "--output",
+        "{scratch}/measurement-history.json"
+      ],
+      "artifact": "measurement-history.json"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "id": "delivery-source-adopt",
+  "purpose": "Authenticate one accepted publication and verify the retained patch equals its exact head/base before source use or same-PR correction.",
+  "inputs": {
+    "receipt": "json",
+    "patch": "artifact"
+  },
+  "outputs": {
+    "receipt": "json",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "source-adopt",
+    "access": "input-only"
+  }
+}

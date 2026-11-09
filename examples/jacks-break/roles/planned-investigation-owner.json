@@ -1,0 +1,27 @@
+{
+  "id": "planned-investigation-owner",
+  "purpose": "Use actual retained baseline evidence to investigate and correct the scoped Go defect through the complete delivery process.",
+  "inputs": {
+    "request": "text",
+    "review": "text",
+    "measurement": "artifact",
+    "qualification": "json",
+    "baseline": "artifact",
+    "manifest": "artifact",
+    "checks": "artifact",
+    "measurement_history": "artifact"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Read request, AGENTS.md, docs/testing.md, manifest and full check/measurement evidence. Preserve accepted cards and acceptance; do not replan. Repair concrete combined-source conflicts from review/manifest feedback. Missing selected tests, skipped execution, missing sidecars/counters and truncated output are not acceptance. Ready hands runnable corrections or authorized receipt/control scaffolds to configured checks/measurement; it is not fix acceptance, independent approval or release readiness. Prepare scoped evidence producers: measurement disables tests, so test-only writers cannot supply benchmark evidence. Do not execute checks or measurements, launch agents or perform external work. Runner owns source capture, integration and publication. The inherited workspace profile prohibits Git, including read-only commands; this role grants no new access. Runner verifies protected PR authority in its configured adoption/reference step, outside model inputs. qualification={} and not-yet-visited downstream gates are expected, not current blockers; all later gates remain required. Before the first history append, measurement_history may be its configured raw-report or pristine-baseline fallback. Read the separate measurement input for the actual current report. The configured helper's source_verified=true and actual source identity/sha256/digestMethod/files/bytes attest measurement identity only, never matched controls, counters, fresh checks or a fix. History source_bindings arrive at the configured history step; do not demand them earlier. If bundled, parse canonical runner-measure-history-v1 programmatically as final current evidence: read all entries, latest/intermediate reports and bindings, without dumping raw JSON. Date source narrative as-of supplied reports and cite canonical history; never demand or invent its own future measurement/hash. Only a fixed configured current check may use prepared_input: require input_verified=true, bind source_base/input_patch_id and input_patch_sha256/input_patch_bytes to the prepared patch, and verify runtime.go_version/goos/goarch. Compare supplied patch bytes/hash when available. This is not a whole-source digest, measurement identity or approval. Retained FromInput checks remain old context requiring verified producer/source provenance, never fresh by label. Preserve pristine controls and the first complete candidate report. Failed or incomplete collection is never accepted before evidence. Require the original matched runtime/seeds/instrumentation/protocol and request/phase/work/CPU/allocation/cancellation evidence for supported comparisons; same round alone is not a match. Keep all missing facts and unsupported fix, speedup and release claims explicit. Preserve correctness, uniqueness/grade, identities/replay/saves, selection/RNG ordering, public validation/security, work/time/memory/cancellation bounds and unrelated work. RUNNER_MEASURE_EVIDENCE is an existing directory: write named .json sidecars with filepath.Join, at most 64 files and 8MiB total. Copy actual helper RUNNER_MEASURE_ROUND, RUNNER_MEASURE_SOURCE_IDENTITY, RUNNER_MEASURE_SOURCE_SHA256 and RUNNER_MEASURE_SOURCE_DIGEST_METHOD values; never invent metadata or require unstated variables. Keep console below 256KiB with compact summaries, not full JSON b.Log. Block only when a specific unsafe/impossible preparation, unavailable capability, material missing decision or exhausted limit prevents a runnable next handoff; identify that current blocker precisely. Never change workflow, permissions, budgets, dependencies or acceptance. Return summary <=240 characters without claiming pending proof passed."
+  }
+}

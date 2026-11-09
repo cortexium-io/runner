@@ -1,0 +1,109 @@
+{
+  "id": "develop",
+  "inputs": {
+    "request": "text",
+    "package": "text",
+    "tests": "text"
+  },
+  "steps": [
+    {
+      "id": "implement",
+      "role": "implement",
+      "attempt_timeout": "20m",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        }
+      }
+    },
+    {
+      "id": "verify",
+      "role": "verify",
+      "attempt_timeout": "10m",
+      "inputs": {
+        "patch": {
+          "from_step": "implement",
+          "output": "patch"
+        },
+        "package": {
+          "from_input": "package"
+        },
+        "tests": {
+          "from_input": "tests"
+        }
+      }
+    },
+    {
+      "id": "review",
+      "role": "review",
+      "attempt_timeout": "8m",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "patch": {
+          "from_step": "implement",
+          "output": "patch"
+        },
+        "summary": {
+          "from_step": "implement",
+          "output": "summary"
+        },
+        "check": {
+          "from_step": "verify",
+          "output": "check"
+        },
+        "package": {
+          "from_input": "package"
+        },
+        "tests": {
+          "from_input": "tests"
+        }
+      }
+    },
+    {
+      "id": "integrate",
+      "role": "integrate",
+      "attempt_timeout": "1m",
+      "inputs": {
+        "patch": {
+          "from_step": "implement",
+          "output": "patch"
+        },
+        "verdict": {
+          "from_step": "review",
+          "output": "verdict"
+        },
+        "review": {
+          "from_step": "review",
+          "output": "summary"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "summary": {
+      "from_step": "implement",
+      "output": "summary"
+    },
+    "check": {
+      "from_step": "verify",
+      "output": "check"
+    },
+    "review": {
+      "from_step": "review",
+      "output": "summary"
+    },
+    "patch": {
+      "from_step": "implement",
+      "output": "patch"
+    },
+    "candidate": {
+      "from_step": "integrate",
+      "output": "candidate"
+    }
+  },
+  "max_attempts": 4,
+  "max_attempts_per_step": 1,
+  "attempt_timeout": "20m"
+}

@@ -1,0 +1,43 @@
+{
+  "id": "planned-investigation-measure",
+  "purpose": "Collect a source-bound structured candidate measurement; repair only bounded producer gaps and preserve the first complete before report.",
+  "inputs": {
+    "patch": "artifact",
+    "package": "text",
+    "benchmark": "text",
+    "previous": "text"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-measure",
+        "--go",
+        "/absolute/path/to/go",
+        "--source",
+        "{workspace}",
+        "--scratch",
+        "{scratch}",
+        "--package",
+        "{text.package}",
+        "--benchmark",
+        "{text.benchmark}",
+        "--previous",
+        "{text.previous}",
+        "--repair-collection",
+        "--bind-source",
+        "--require-evidence"
+      ],
+      "env": {
+        "GOMODCACHE": "/absolute/path/to/module-cache"
+      },
+      "result": "domain.json",
+      "artifact": "measurements.json"
+    }
+  }
+}

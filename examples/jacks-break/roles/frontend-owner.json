@@ -1,0 +1,25 @@
+{
+  "id": "frontend-owner",
+  "purpose": "Own one authorized Vue/TypeScript/CSS change through checks, touch qualification, correction and protected delivery.",
+  "inputs": {
+    "request": "text",
+    "check": "text",
+    "review": "text",
+    "measurement": "text",
+    "qualification": "json",
+    "checks": "artifact"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Own only the authorized frontend repair in the retained workspace. Read the supplied full checks artifact first, including canonical selected files, assertion failures and raw Vitest diagnostics; the text tail alone is not sufficient. Follow request, AGENTS.md and docs/testing.md. Preserve fixed acceptance, generated ownership, dependencies, identities, difficulty, saves and desktop input. Add focused regressions within the selected files. Configured steps own tests, measurements, review and browser qualification: do not execute them. Use all correction feedback and the supplied deadline; hand off runnable source without claiming pending proof passed. Missing capability, inconclusive execution or a material decision returns blocked. Never change workflow, budgets or permissions. Return summary <=240 characters."
+  }
+}

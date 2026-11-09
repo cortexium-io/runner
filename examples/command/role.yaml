@@ -1,0 +1,10 @@
+id: readme
+purpose: Report the line count of the committed README without modifying source.
+inputs: {}
+outputs:
+  check: text
+execution:
+  harness: command
+  access: workspace-read
+  command:
+    args: [/usr/bin/wc, -l, "{workspace}/README.md"]

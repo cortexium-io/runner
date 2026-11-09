@@ -1,0 +1,33 @@
+{
+  "project": "jacks-break",
+  "repository": "owner/repository",
+  "pr": 123,
+  "branch": "main",
+  "head": "QUALIFIED_FULL_HEAD_SHA",
+  "base": "APPROVED_FULL_BASE_SHA",
+  "state_dir": "/private/release/state",
+  "evidence": "/private/qualified/release-qualification.json",
+  "package": "/private/qualified",
+  "report": "/remote/releases/nonogram/held-out.json",
+  "report_sha256": "QUALIFIED_REPORT_SHA256",
+  "gh": "/absolute/path/to/gh",
+  "compose": [
+    "/absolute/path/to/compose-deploy",
+    "--config",
+    "/private/controller.json",
+    "serve"
+  ],
+  "controller_config": "/private/controller.json",
+  "deploy_project": "games-site",
+  "docker": "/absolute/path/to/docker",
+  "docker_host": "ssh://deploy@docker-host",
+  "engine": "OPERATOR_VERIFIED_ENGINE_ID",
+  "ssh": "/usr/bin/ssh",
+  "host": "deploy@docker-host",
+  "environment": "/private/application.env",
+  "data_dir": "/remote/application/data",
+  "backup_helper": "/remote/application/sqlite_backup.py",
+  "backup_dir": "/remote/application/backups",
+  "offsite_backup_dir": "/private/offsite-backups",
+  "public_url": "https://example.com"
+}

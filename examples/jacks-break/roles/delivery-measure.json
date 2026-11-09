@@ -1,0 +1,40 @@
+{
+  "id": "delivery-measure",
+  "purpose": "Execute one explicitly selected Go benchmark or record that measurement is outside this task; Runner owns bounded repetition.",
+  "inputs": {
+    "patch": "artifact",
+    "package": "text",
+    "benchmark": "text",
+    "previous": "text"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-measure",
+        "--go",
+        "/absolute/path/to/go",
+        "--source",
+        "{workspace}",
+        "--scratch",
+        "{scratch}",
+        "--package",
+        "{text.package}",
+        "--benchmark",
+        "{text.benchmark}",
+        "--previous",
+        "{text.previous}"
+      ],
+      "env": {
+        "GOMODCACHE": "/absolute/path/to/module-cache"
+      },
+      "result": "domain.json",
+      "artifact": "measurements.json"
+    }
+  }
+}

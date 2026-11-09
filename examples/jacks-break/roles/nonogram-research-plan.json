@@ -1,0 +1,25 @@
+{
+  "id": "nonogram-research-plan",
+  "purpose": "Plan bounded test-only Nonogram research cards from pristine evidence and a retained proposal, including defensible negative findings.",
+  "inputs": {
+    "request": "text",
+    "feedback": "text",
+    "baseline": "artifact",
+    "prior_patch": "artifact",
+    "checks": "artifact",
+    "tests": "text",
+    "benchmark": "text"
+  },
+  "outputs": {
+    "tasks": "text"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "8KiB",
+    "max_output": "8KiB",
+    "instructions": "Read the original request, AGENTS.md, pristine baseline, full scoped source-check report and prior_patch artifact. The file-copy step materialized prior_patch as reference evidence only; its changes are NOT applied to this workspace and its previous conclusion is not current proof. Inspect necessary source and plan only test-side research collectors/regressions and concise findings. Preserve production algorithms, RNG/order, pruning/grading, identities, gameplay, dependencies, all original six controls, cancellation/work limits and the single 10-second request clock. A complete NOT_REPRODUCED or bounded rejection finding is valid research; never invent an optimization or product-fix requirement. Return tasks as JSON array text <=6KiB: [{\"id\":\"short_id\",\"depends_on\":[],\"inputs\":{\"task\":\"self-contained research brief with acceptance and selected test/benchmark names\",\"paths\":[\"exact/test/file\"]}}]. Use1–8 cohesive cards, unique IDs <=20characters, task briefs <=600characters and <=8 narrow literal write paths per card. No globs/traversal/Git/private/cache paths. Independent writes must be disjoint; overlap requires dependencies. Keep collector implementation together where shared data demands it. Each card receives the original request and actual baseline/reference/check artifacts. Explicitly give relevant selected tests and benchmark names in its brief; preserve acceptance and existing findings. Card owners may reuse only their scoped prior-patch hunks with apply_patch after reading evidence; they must stop on incompatible contexts rather than force/rebase. The fixed owner is Sol/xhigh with8KiB input and512B response; no checks/Git/agents/external work. Runner owns joining, scoped checks, bounded measurements/correction and independent research review; completion returns evidence, patch and conclusion only. Internal pins are unreviewed; no integration, publication, release or approval is in this process. Correct invalid-plan feedback within the same request before any card starts. Do not edit, run product checks or add permissions/requirements. Return only declared tasks within the whole8KiB JSON response."
+  }
+}

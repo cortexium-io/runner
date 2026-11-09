@@ -1,0 +1,11 @@
+id: demo
+name: First Runner process
+workspace: ..
+processes:
+  greeting: processes/greeting.yaml
+default_process: greeting
+roles:
+  prepare:
+    file: roles/prepare.yaml
+  finish:
+    file: roles/finish.json

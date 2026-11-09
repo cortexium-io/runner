@@ -1,0 +1,156 @@
+{
+  "id": "release",
+  "inputs": {},
+  "steps": [
+    {
+      "id": "prepare",
+      "role": "prepare",
+      "inputs": {},
+      "routes": {
+        "ready": {
+          "next": "merge",
+          "approval": true
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "merge",
+      "role": "merge",
+      "inputs": {
+        "receipt": {
+          "from_step": "prepare",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "backup"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "backup",
+      "role": "backup",
+      "inputs": {
+        "receipt": {
+          "from_step": "merge",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "stop",
+          "approval": true
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "stop",
+      "role": "stop",
+      "inputs": {
+        "receipt": {
+          "from_step": "backup",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "migrate"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "migrate",
+      "role": "migrate",
+      "inputs": {
+        "receipt": {
+          "from_step": "stop",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "pin"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "pin",
+      "role": "pin",
+      "inputs": {
+        "receipt": {
+          "from_step": "migrate",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "deploy"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "deploy",
+      "role": "deploy",
+      "inputs": {
+        "receipt": {
+          "from_step": "pin",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "verify"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "verify",
+      "role": "verify",
+      "inputs": {
+        "receipt": {
+          "from_step": "deploy",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "$complete"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "receipt": {
+      "from_step": "verify",
+      "output": "receipt"
+    }
+  },
+  "max_attempts": 8,
+  "max_attempts_per_step": 1,
+  "attempt_timeout": "10m"
+}

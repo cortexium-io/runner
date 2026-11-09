@@ -1,0 +1,15 @@
+{
+  "id": "merge",
+  "purpose": "Perform the configured merge release action, preserving immutable receipts and operator boundaries.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "merge",
+    "access": "input-only"
+  }
+}

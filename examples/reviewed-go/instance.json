@@ -1,0 +1,33 @@
+{
+  "projects": [
+    "project.json"
+  ],
+  "concurrency": 1,
+  "reconcile_interval": "5m",
+  "codex": {
+    "binary": "/absolute/path/to/codex",
+    "go_binary": "/absolute/path/to/go",
+    "read_only_paths": [
+      "AGENTS.md",
+      "go.mod",
+      "go.sum"
+    ],
+    "storage_limit": "32MiB"
+  },
+  "storage": {
+    "max_managed": "1GiB",
+    "min_free": "1GiB",
+    "database": {
+      "max_size": "24MiB",
+      "max_record": "128KiB",
+      "max_runs": 20
+    },
+    "max_artifact": "16MiB",
+    "keep_runs": "168h",
+    "logs": {
+      "max_per_attempt": "64KiB",
+      "keep_for": "168h"
+    }
+  },
+  "task_concurrency": 2
+}

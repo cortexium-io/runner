@@ -1,0 +1,13 @@
+{
+  "id": "prepare",
+  "purpose": "Perform the configured prepare release action, preserving immutable receipts and operator boundaries.",
+  "inputs": {},
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "prepare",
+    "access": "input-only"
+  }
+}

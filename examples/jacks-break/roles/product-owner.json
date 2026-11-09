@@ -1,0 +1,27 @@
+{
+  "id": "product-owner",
+  "purpose": "Fix both authorized mobile and Go performance outcomes.",
+  "inputs": {
+    "request": "text",
+    "check": "text",
+    "frontend_check": "text",
+    "review": "text",
+    "measurement": "artifact",
+    "qualification": "json",
+    "baseline": "artifact",
+    "frontend_tests": "text"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Own both scopes in the retained cumulative candidate. Follow the request, AGENTS.md and docs/testing.md; keep acceptance fixed. Read the supplied baseline and measurement artifacts, including structured evidence; missing sidecars and truncated stdout are incomplete proof. Use all correction feedback and the explicit frontend test selection; add regressions within that configured selection. Configured steps own checks and measurements: do not run them. Hand off runnable source when measurement is needed without claiming resolution. Preserve identities, difficulty/uniqueness, saves, public validation, bounds and unrelated work. Missing capability, a material decision or no supported safe fix within limits returns blocked with precise evidence. Never change workflow, permissions or budgets. Return a summary of at most 240 characters; do not claim pending checks passed."
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "deliver",
+  "purpose": "Perform the explicitly approved project delivery and verify the delivered outcome.",
+  "inputs": {
+    "candidate": "text"
+  },
+  "outputs": {
+    "check": "text"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/project-delivery",
+        "--candidate",
+        "{text.candidate}"
+      ],
+      "network": true
+    }
+  }
+}

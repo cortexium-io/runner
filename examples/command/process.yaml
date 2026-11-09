@@ -1,0 +1,11 @@
+id: check
+inputs: {}
+steps:
+  - id: readme
+    role: readme
+    inputs: {}
+outputs:
+  check: {from_step: readme, output: check}
+max_attempts: 1
+max_attempts_per_step: 1
+attempt_timeout: 1m

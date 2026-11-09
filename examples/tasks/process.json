@@ -1,0 +1,47 @@
+{
+  "id": "tasks",
+  "inputs": {
+    "tasks": "json"
+  },
+  "steps": [
+    {
+      "id": "tasks",
+      "for_each": {
+        "items": {
+          "from_input": "tasks"
+        },
+        "inputs": {
+          "text": "text"
+        },
+        "steps": [
+          {
+            "id": "work",
+            "role": "worker",
+            "inputs": {
+              "text": {
+                "from_item": "text"
+              }
+            }
+          }
+        ],
+        "output": {
+          "from_step": "work",
+          "output": "result"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "results": {
+      "from_step": "tasks",
+      "output": "results"
+    },
+    "last": {
+      "from_step": "tasks",
+      "output": "last"
+    }
+  },
+  "max_attempts": 9,
+  "max_attempts_per_step": 1,
+  "attempt_timeout": "30s"
+}

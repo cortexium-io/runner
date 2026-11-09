@@ -1,0 +1,15 @@
+{
+  "id": "delivery-publication-reference",
+  "purpose": "Authenticate retained publication authority before seeding unpublished source; preserve the existing PR without granting review or release approval.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "publication-reference",
+    "access": "input-only"
+  }
+}

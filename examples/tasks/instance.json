@@ -1,0 +1,7 @@
+{
+  "projects": [
+    "project.json"
+  ],
+  "concurrency": 1,
+  "reconcile_interval": "5m"
+}

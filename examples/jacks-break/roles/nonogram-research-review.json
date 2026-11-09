@@ -1,0 +1,25 @@
+{
+  "id": "nonogram-research-review",
+  "purpose": "Independently judge reproducibility and completeness of Nonogram research evidence, including valid negative findings.",
+  "inputs": {
+    "request": "text",
+    "patch": "artifact",
+    "summary": "text",
+    "baseline": "artifact",
+    "measurements": "artifact",
+    "checks": "artifact"
+  },
+  "outputs": {
+    "conclusion": "text",
+    "summary": "text"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Review research evidence only, not a product fix or release. Read retained patch, full scoped Go receipt artifact, pristine original baseline and candidate measurement/sidecar artifacts. Require selected test/package execution outcomes, not just exit0. Require reproducible synthetic request/selection/exclusions, initial and advanced seeds, attempts, phases/work/nodes/allocations, outcomes/failures and cold timing for all requested cases. evidence_status=provided alone proves retention, not completeness. The pristine baseline may lack collector sidecars if its original six controls and phase/work stdout are complete and source-bound. Missing/truncated original controls remain incomplete. Candidate sidecars must be provided and semantically complete; malformed evidence never completes. Require unchanged single 10-second request clock, work/cancellation/invariant bounds and original controls; reject production algorithm/RNG/order/grade, gameplay, logging, dependency/generated or acceptance changes. A complete supported negative/not-reproduced finding with explicit lost-seed uncertainty is valid. Do not infer an optimization or original-timeout fix. Require fresh engine/generator per sample, no cache hits, actual nonzero bounded work and one deadline across seed rounds; distinguish native work from total request work. Source is read-only; no edits, retesting, Git, agents or external actions. Return ready only for complete defensible evidence, with conclusion REPRODUCED or NOT_REPRODUCED and summary <=240 characters. Concrete in-scope evidence gaps return changes_requested with conclusion INCOMPLETE; capability/material-decision blockers return blocked. Never approve product code or release."
+  }
+}

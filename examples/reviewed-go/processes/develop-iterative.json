@@ -1,0 +1,187 @@
+{
+  "id": "develop-iterative",
+  "inputs": {
+    "request": "text",
+    "package": "text",
+    "tests": "text"
+  },
+  "steps": [
+    {
+      "id": "owner",
+      "role": "owner",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "check": {
+          "from_step": "verify",
+          "output": "check",
+          "default": {
+            "inline": ""
+          },
+          "previous": true
+        },
+        "measurement": {
+          "from_step": "measure",
+          "output": "check",
+          "default": {
+            "inline": ""
+          },
+          "previous": true
+        },
+        "review": {
+          "from_step": "review",
+          "output": "summary",
+          "default": {
+            "inline": ""
+          },
+          "previous": true
+        }
+      }
+    },
+    {
+      "id": "verify",
+      "role": "verify-iterative",
+      "inputs": {
+        "patch": {
+          "from_step": "owner",
+          "output": "patch"
+        },
+        "package": {
+          "from_input": "package"
+        },
+        "tests": {
+          "from_input": "tests"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "measure"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 2
+        }
+      },
+      "reuse": true
+    },
+    {
+      "id": "measure",
+      "role": "measure",
+      "inputs": {
+        "patch": {
+          "from_step": "owner",
+          "output": "patch"
+        },
+        "previous": {
+          "from_step": "measure",
+          "output": "check",
+          "default": {
+            "inline": ""
+          },
+          "previous": true
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "review"
+        },
+        "continue": {
+          "next": "owner",
+          "max_times": 2
+        }
+      }
+    },
+    {
+      "id": "review",
+      "role": "review-iterative",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "patch": {
+          "from_step": "owner",
+          "output": "patch"
+        },
+        "summary": {
+          "from_step": "owner",
+          "output": "summary"
+        },
+        "check": {
+          "from_step": "verify",
+          "output": "check"
+        },
+        "package": {
+          "from_input": "package"
+        },
+        "tests": {
+          "from_input": "tests"
+        },
+        "measurement": {
+          "from_step": "measure",
+          "output": "check"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "integrate"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 2
+        }
+      }
+    },
+    {
+      "id": "integrate",
+      "role": "integrate",
+      "inputs": {
+        "patch": {
+          "from_step": "owner",
+          "output": "patch"
+        },
+        "verdict": {
+          "from_step": "review",
+          "output": "verdict"
+        },
+        "review": {
+          "from_step": "review",
+          "output": "summary"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "deliver",
+          "approval": true
+        }
+      }
+    },
+    {
+      "id": "deliver",
+      "role": "deliver",
+      "inputs": {
+        "candidate": {
+          "from_step": "integrate",
+          "output": "candidate"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "candidate": {
+      "from_step": "integrate",
+      "output": "candidate"
+    },
+    "measurement": {
+      "from_step": "measure",
+      "output": "artifact"
+    },
+    "delivery": {
+      "from_step": "deliver",
+      "output": "check"
+    }
+  },
+  "max_attempts": 24,
+  "max_attempts_per_step": 1,
+  "attempt_timeout": "20m"
+}

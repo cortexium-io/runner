@@ -1,0 +1,15 @@
+{
+  "id": "delivery-adopt",
+  "purpose": "Validate and adopt an existing accepted reviewed publication without editing source, publishing another PR or carrying forward approvals.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "access": "input-only",
+    "mode": "adopt"
+  }
+}

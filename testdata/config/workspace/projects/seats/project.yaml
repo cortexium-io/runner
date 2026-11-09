@@ -1,0 +1,14 @@
+id: seats
+name: Writable Go qualification
+# Placeholder used by configuration tests; no repository is opened.
+workspace: /absolute/path/to/seats-fixture
+source:
+  ref: HEAD
+default_process: implement-and-check
+roles:
+  implement:
+    file: roles/implement.yaml
+  check:
+    file: roles/check.yaml
+processes:
+  implement-and-check: processes/implement-and-check.yaml

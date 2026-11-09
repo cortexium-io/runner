@@ -1,0 +1,38 @@
+{
+  "id": "delivery-baseline",
+  "purpose": "Measure an untrusted retained scaffold before the investigator runs; retain unsuccessful benchmark evidence without claiming candidate success.",
+  "inputs": {
+    "patch": "artifact",
+    "package": "text",
+    "benchmark": "text"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-measure",
+        "--go",
+        "/absolute/path/to/go",
+        "--source",
+        "{workspace}",
+        "--scratch",
+        "{scratch}",
+        "--package",
+        "{text.package}",
+        "--benchmark",
+        "{text.benchmark}",
+        "--baseline"
+      ],
+      "env": {
+        "GOMODCACHE": "/absolute/path/to/module-cache"
+      },
+      "result": "domain.json",
+      "artifact": "measurements.json"
+    }
+  }
+}

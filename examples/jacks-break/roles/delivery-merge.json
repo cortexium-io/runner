@@ -1,0 +1,15 @@
+{
+  "id": "delivery-merge",
+  "purpose": "Execute the configured merge operation within its saved authority and evidence boundary.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "merge",
+    "access": "input-only"
+  }
+}

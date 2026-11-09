@@ -1,0 +1,21 @@
+projects:
+  - projects/seats/project.yaml
+concurrency: 1
+reconcile_interval: 5m
+codex:
+  binary: codex
+  go_binary: go
+  read_only_paths: [go.mod]
+  storage_limit: 32MiB
+storage:
+  max_managed: 512MiB
+  min_free: 1GiB
+  database:
+    max_size: 4MiB
+    max_record: 16KiB
+    max_runs: 20
+  max_artifact: 32KiB
+  keep_runs: 168h
+  logs:
+    max_per_attempt: 8KiB
+    keep_for: 48h

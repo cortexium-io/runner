@@ -1,0 +1,17 @@
+id: summarize
+inputs:
+  document: text
+max_attempts: 2
+max_attempts_per_step: 1
+attempt_timeout: 2m
+steps:
+  - id: summary
+    role: summary
+    inputs:
+      document: {from_input: document}
+  - id: finish
+    role: finish
+    inputs:
+      text: {from_step: summary, output: summary}
+outputs:
+  result: {from_step: finish, output: result}

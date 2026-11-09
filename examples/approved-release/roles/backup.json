@@ -1,0 +1,15 @@
+{
+  "id": "backup",
+  "purpose": "Perform the configured backup release action, preserving immutable receipts and operator boundaries.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "backup",
+    "access": "input-only"
+  }
+}

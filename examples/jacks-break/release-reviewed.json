@@ -1,0 +1,285 @@
+{
+  "id": "release-reviewed",
+  "inputs": {
+    "publication": "json"
+  },
+  "steps": [
+    {
+      "id": "adopt",
+      "role": "delivery-adopt",
+      "inputs": {
+        "receipt": {
+          "from_input": "publication"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "qualify"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "qualify",
+      "role": "delivery-qualify",
+      "inputs": {
+        "receipt": {
+          "from_step": "adopt",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "prepare"
+        },
+        "changes_requested": {
+          "next": "$fail"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "prepare",
+      "role": "delivery-prepare",
+      "inputs": {
+        "receipt": {
+          "from_step": "qualify",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "merge",
+          "approval": true
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "merge",
+      "role": "delivery-merge",
+      "inputs": {
+        "receipt": {
+          "from_step": "prepare",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "backup"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "backup",
+      "role": "delivery-backup",
+      "inputs": {
+        "receipt": {
+          "from_step": "merge",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "stop",
+          "approval": true
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "stop",
+      "role": "delivery-stop",
+      "inputs": {
+        "receipt": {
+          "from_step": "backup",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "migrate"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "migrate",
+      "role": "delivery-migrate",
+      "inputs": {
+        "receipt": {
+          "from_step": "stop",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "pin"
+        },
+        "blocked": {
+          "next": "$fail"
+        },
+        "recovery_required": {
+          "next": "inspect-migration"
+        }
+      }
+    },
+    {
+      "id": "inspect-migration",
+      "role": "delivery-inspect-migration",
+      "inputs": {
+        "receipt": {
+          "from_step": "migrate",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "restore",
+          "approval": true
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "restore",
+      "role": "delivery-restore",
+      "inputs": {
+        "receipt": {
+          "from_step": "inspect-migration",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "restored": {
+          "next": "$fail"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "pin",
+      "role": "delivery-pin",
+      "inputs": {
+        "receipt": {
+          "from_step": "migrate",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "deploy"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "deploy",
+      "role": "delivery-deploy",
+      "inputs": {
+        "receipt": {
+          "from_step": "pin",
+          "output": "receipt"
+        },
+        "recovery": {
+          "from_step": "inspect",
+          "output": "receipt",
+          "previous": true,
+          "default": {
+            "inline": {}
+          }
+        },
+        "previous": {
+          "from_step": "deploy",
+          "output": "receipt",
+          "previous": true,
+          "default": {
+            "inline": {}
+          }
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "verify-live"
+        },
+        "blocked": {
+          "next": "$fail"
+        },
+        "retry_safe": {
+          "next": "deploy",
+          "max_times": 1
+        },
+        "recovery_required": {
+          "next": "inspect"
+        }
+      }
+    },
+    {
+      "id": "inspect",
+      "role": "delivery-inspect",
+      "inputs": {
+        "receipt": {
+          "from_step": "deploy",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "deploy",
+          "approval": true,
+          "max_times": 1
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "verify-live",
+      "role": "delivery-verify",
+      "inputs": {
+        "receipt": {
+          "from_step": "deploy",
+          "output": "receipt"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "$complete"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "receipt": {
+      "from_step": "verify-live",
+      "output": "receipt"
+    }
+  },
+  "max_attempts": 16,
+  "max_attempts_per_step": 1,
+  "attempt_timeout": "20m",
+  "infrastructure_retries": 1
+}

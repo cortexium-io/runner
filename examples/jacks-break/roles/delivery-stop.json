@@ -1,0 +1,15 @@
+{
+  "id": "delivery-stop",
+  "purpose": "Execute the configured stop operation within its saved authority and evidence boundary.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "stop",
+    "access": "input-only"
+  }
+}

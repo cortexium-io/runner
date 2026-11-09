@@ -1,0 +1,41 @@
+{
+  "id": "nonogram-research-source-check",
+  "purpose": "Check pristine committed research source and retain scoped execution receipts before the owner turn.",
+  "inputs": {
+    "package": "text",
+    "tests": "text"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-go-check",
+        "--go",
+        "/absolute/path/to/go",
+        "--package",
+        "{text.package}",
+        "--run",
+        "{text.tests}",
+        "--timeout",
+        "10m",
+        "--scratch",
+        "{scratch}",
+        "--output",
+        "{scratch}/proof.json"
+      ],
+      "env": {
+        "GOMODCACHE": "/absolute/path/to/module-cache"
+      },
+      "artifact": "proof.json",
+      "exit_outcomes": {
+        "1": "changes_requested",
+        "2": "blocked"
+      }
+    }
+  }
+}

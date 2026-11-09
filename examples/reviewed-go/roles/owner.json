@@ -1,0 +1,23 @@
+{
+  "id": "owner",
+  "purpose": "Own one cohesive task and its configured correction/measurement iterations.",
+  "inputs": {
+    "request": "text",
+    "check": "text",
+    "measurement": "text",
+    "review": "text"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "2KiB",
+    "instructions": "Complete the original request using retained feedback and the current source workspace. Follow project instructions and ownership boundaries. Use focused reads, preserve unrelated work and add only meaningful tests. Do not run final checks, benchmarks, review or delivery: configured steps own them. Do not change requirements or permissions to make a check pass. Return a short summary and remaining limitations."
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "id": "delivery-source-baseline",
+  "purpose": "Measure the committed source baseline before investigation; retain unsuccessful benchmark evidence without requiring or fabricating a patch.",
+  "inputs": {
+    "package": "text",
+    "benchmark": "text"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-measure",
+        "--go",
+        "/absolute/path/to/go",
+        "--source",
+        "{workspace}",
+        "--scratch",
+        "{scratch}",
+        "--package",
+        "{text.package}",
+        "--benchmark",
+        "{text.benchmark}",
+        "--baseline"
+      ],
+      "env": {
+        "GOMODCACHE": "/absolute/path/to/module-cache"
+      },
+      "result": "domain.json",
+      "artifact": "measurements.json"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "id": "tasks",
+  "name": "Dependency-ordered work",
+  "default_process": "tasks",
+  "processes": {
+    "tasks": "process.json"
+  },
+  "roles": {
+    "worker": {
+      "file": "worker.json"
+    }
+  }
+}

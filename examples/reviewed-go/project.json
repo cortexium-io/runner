@@ -1,0 +1,71 @@
+{
+  "id": "reviewed-go",
+  "name": "Reviewed Go development",
+  "workspace": "/absolute/path/to/project",
+  "source": {
+    "ref": "HEAD"
+  },
+  "default_process": "develop",
+  "roles": {
+    "implement": {
+      "file": "roles/implement.json"
+    },
+    "verify": {
+      "file": "roles/verify.json"
+    },
+    "review": {
+      "file": "roles/review.json"
+    },
+    "integrate": {
+      "file": "roles/integrate.json"
+    },
+    "owner": {
+      "file": "roles/owner.json"
+    },
+    "verify-iterative": {
+      "file": "roles/verify-iterative.json"
+    },
+    "measure": {
+      "file": "roles/measure.json"
+    },
+    "review-iterative": {
+      "file": "roles/review-iterative.json"
+    },
+    "deliver": {
+      "file": "roles/deliver.json"
+    },
+    "plan": {
+      "file": "roles/plan.json"
+    },
+    "planned-plan": {
+      "file": "roles/planned-plan.json"
+    },
+    "planned-card-owner": {
+      "file": "roles/planned-card-owner.json"
+    },
+    "task-source-seed": {
+      "file": "roles/task-source-seed.json"
+    },
+    "task-source-pin": {
+      "file": "roles/task-source-pin.json"
+    },
+    "task-source-join": {
+      "file": "roles/task-source-join.json"
+    },
+    "planned-check": {
+      "file": "roles/planned-check.json"
+    },
+    "planned-repair": {
+      "file": "roles/planned-repair.json"
+    },
+    "planned-review": {
+      "file": "roles/planned-review.json"
+    }
+  },
+  "processes": {
+    "develop": "processes/develop.json",
+    "develop-iterative": "processes/develop-iterative.json",
+    "develop-tasks": "processes/develop-tasks.json",
+    "develop-planned": "processes/develop-planned.json"
+  }
+}

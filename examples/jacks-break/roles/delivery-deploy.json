@@ -1,0 +1,17 @@
+{
+  "id": "delivery-deploy",
+  "purpose": "Execute the configured deploy operation within its saved authority and evidence boundary.",
+  "inputs": {
+    "receipt": "json",
+    "recovery": "json",
+    "previous": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "deploy",
+    "access": "input-only"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "delivery-restore",
+  "purpose": "Execute the configured restore operation within its saved authority and evidence boundary.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "restore",
+    "access": "input-only"
+  }
+}

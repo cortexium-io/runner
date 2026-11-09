@@ -1,0 +1,20 @@
+projects:
+  - projects/demo/project.yaml
+concurrency: 1
+reconcile_interval: 5m
+codex:
+  binary: codex
+  # auth_file defaults to the existing ~/.codex/auth.json; no login is performed.
+  storage_limit: 16MiB
+storage:
+  max_managed: 64MiB
+  min_free: 32MiB
+  database:
+    max_size: 4MiB
+    max_record: 16KiB
+    max_runs: 20
+  max_artifact: 4KiB
+  keep_runs: 168h
+  logs:
+    max_per_attempt: 2KiB
+    keep_for: 48h

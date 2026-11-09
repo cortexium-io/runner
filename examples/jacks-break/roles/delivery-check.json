@@ -1,0 +1,33 @@
+{
+  "id": "delivery-check",
+  "purpose": "Run only the explicitly selected Go package/test scope against the retained candidate, without a model or network.",
+  "inputs": {
+    "patch": "artifact",
+    "package": "text",
+    "tests": "text"
+  },
+  "outputs": {
+    "check": "text"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/go",
+        "test",
+        "-count=1",
+        "-mod=readonly",
+        "./{text.package}",
+        "-run",
+        "{text.tests}"
+      ],
+      "env": {
+        "GOMODCACHE": "/absolute/path/to/module-cache"
+      },
+      "exit_outcomes": {
+        "1": "changes_requested"
+      }
+    }
+  }
+}

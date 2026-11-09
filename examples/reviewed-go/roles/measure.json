@@ -1,0 +1,27 @@
+{
+  "id": "measure",
+  "purpose": "Run the project-owned bounded benchmark and retain its measurements.",
+  "inputs": {
+    "patch": "artifact",
+    "previous": "text"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/project-benchmark",
+        "--scratch",
+        "{scratch}",
+        "--previous",
+        "{text.previous}"
+      ],
+      "result": "domain.json",
+      "artifact": "measurements.json"
+    }
+  }
+}
