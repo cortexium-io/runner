@@ -34,6 +34,9 @@ func TestImageBuilderReadinessReconcilesLostCleanupAcknowledgement(t *testing.T)
 			b.runCommand = func(_ context.Context, _ []byte, _ string, args ...string) ([]byte, error) {
 				switch {
 				case slices.Contains(args, "build"):
+					if !slices.Contains(args, "--load") {
+						t.Fatal("readiness build must export its probe to the engine image store")
+					}
 					return nil, nil
 				case slices.Contains(args, "inspect"):
 					return []byte(j.Request.Key), nil

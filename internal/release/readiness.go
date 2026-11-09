@@ -91,7 +91,10 @@ func (b *Live) imageBuilderReadiness(ctx context.Context, j *Job) error {
 		return err
 	}
 	tag := "runner-readiness:" + strings.ToLower(j.Request.Key)
-	if _, err := b.docker(ctx, "build", "--network=none", "--platform", "linux/amd64", "--label", "cortexium.runner.run="+j.Request.RunID, "--label", "cortexium.runner.attempt="+j.Request.Key, "--tag", tag, work); err != nil {
+	// The next command inspects the engine's image store, not the builder cache.
+	if _, err := b.docker(ctx, "build", "--network=none", "--platform", "linux/amd64", "--load",
+		"--label", "cortexium.runner.run="+j.Request.RunID,
+		"--label", "cortexium.runner.attempt="+j.Request.Key, "--tag", tag, work); err != nil {
 		return err
 	}
 	owner, err := b.docker(ctx, "image", "inspect", tag, "--format", "{{index .Config.Labels \"cortexium.runner.attempt\"}}")
