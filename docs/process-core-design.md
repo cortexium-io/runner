@@ -113,10 +113,14 @@ The owner approved the cumulative mobile workflow on the reviewed PR #337 copy
 source. Run `run_3AU33ZMT7GPFZ3PMXKWUQQDRUS` authenticated that source and stopped
 at Docker builder readiness after two of 64 attempts, before model execution.
 The installed operator `7baadb9` now exports its readiness probe to the engine
-image store. The remaining 62 attempts can fund a replacement with owner
-authorization. Full native and browser qualification is required for switching
-the default from `deliver`. Merge, production and restoration retain separate
-owner decisions.
+image store. The owner approved a replacement capped at the remaining 62
+attempts. Run `run_KCOXCSSIC7L75PVJDZUZR7EBQJ` passed readiness and the frontend
+baseline, then stopped its card group after a native permission probe failed.
+It used nineteen attempts. Runner retained two accepted card candidates and
+is still reconciling source capture for the interrupted Shikaku attempt. The
+parallel permission probe fix awaits safe installation. Full native and browser
+qualification is required for switching the default from `deliver`. Merge,
+production and restoration retain separate owner decisions.
 
 Closure requires recorded evidence for all four packages. A new Runner defect
 reopens only its affected proof. A genuine product or prerequisite blocker remains

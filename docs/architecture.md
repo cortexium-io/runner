@@ -493,10 +493,25 @@ uses the existing ownership and cleanup checks. The disposable probe passed on
 the actual builder, and the source passed the local race suite, vet and
 [macOS/Linux CI](https://github.com/cortexium-io/runner/actions/runs/42576207757).
 The operator replacement preserved the policy and journals. The stopped run has
-no model calls. Its one readiness visit is exhausted, and a replacement capped
-at 62 would respect the original combined allowance of 64. The default remains
-`deliver` until full qualification. Merge, production and restoration retain
-separate owner decisions.
+no model calls. The approved replacement froze a cap of 62 before restoring the
+future process setting to 64. It passed source adoption, readiness and the
+frontend baseline. Its eight-card group accepted the shared layout and home-entry
+candidates before stopping on the Calcudoku card's private-state probe. Across
+both runs, twenty-one attempts were used.
+
+Concurrent probes shared fixture filenames. The first cleanup could remove the
+second probe's file. The old code reproduces the incident's private-state panic
+when the dummy is missing. The original panic did not record the filesystem
+error. Commit `a36eddb` isolates fixtures by attempt, preserves unexpected file
+types during cleanup, and continues to require permission denial. A deterministic
+overlap test and a model-free macOS permission probe cover the repair. The Core
+update remains gated on safe settlement of the live run.
+
+The Shikaku native turn reported a confirmed stop. Source capture saved its
+manifest, but subsequent calls have timed out before committing the patch. The
+group remains unsettled and the product qualification did not run. The default
+remains `deliver` pending full qualification. Merge, production and restoration
+retain separate owner decisions.
 
 ## Follow the demo
 
