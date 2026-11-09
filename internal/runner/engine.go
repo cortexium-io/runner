@@ -733,6 +733,9 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		Outcomes:    stepOutcomes(step),
 		Deadline:    a.Deadline,
 	}
+	if recovery := r.FrontendCheckRecovery; recovery != nil && recovery.CheckStep == step.ID && recovery.CheckVisit == r.Visit {
+		assignment.FrontendCheckPins = &FrontendCheckPins{HelperSHA256: recovery.HelperSHA256, PatchSHA256: recovery.PatchSHA256}
+	}
 	assignment.TaskSource, e = c.taskAssignment(r, step)
 	return assignment, e
 }

@@ -63,6 +63,17 @@ cortexium-runner recover-corrections --data STATE --run RUN --attempt ATTEMPT \
   --max-uses 3 --request-id AUTHORIZED-STABLE-ID
 ```
 
+An explicitly approved `runner_recover_frontend_check` action can check a patch
+captured by the settled, blocked correction owner in `deliver-planned-retained-frontend`.
+It requires the observed run revision, exact attempt and patch digest, qualified
+frontend helper digest, and authenticated draft publication head. Runner verifies
+the retained capture, prior check and accepted cards before queuing the existing
+read-only check with the original selectors in a new visit. The original blocked
+attempt and earlier check remain in history. This grants no additional attempts
+or release approvals. A fresh actionable result uses the existing correction
+routes. Incomplete evidence stops the run. Restricted intake must not expose or
+call this owner action.
+
 Preserved checkouts live under `STATE/forensics/RUN/ATTEMPT/source`; their sibling
 manifest binds the captured patch hash and ownership identity. These files and
 links count toward the existing storage limit, are never followed as candidate

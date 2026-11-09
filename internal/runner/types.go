@@ -328,23 +328,28 @@ type ExecutionLimits struct {
 	MaxArtifact Bytes `json:"max_artifact"`
 	MaxLog      Bytes `json:"max_log"`
 }
+type FrontendCheckPins struct {
+	HelperSHA256 string `json:"helper_sha256"`
+	PatchSHA256  string `json:"patch_sha256"`
+}
 type Assignment struct {
-	TaskSource  *TaskAssignment   `json:"task_source,omitempty"`
-	ProjectID   string            `json:"project_id,omitempty"`
-	RunID       string            `json:"run_id,omitempty"`
-	Repository  string            `json:"repository,omitempty"`
-	Source      *SourceSettings   `json:"source,omitempty"`
-	AttemptID   string            `json:"attempt_id"`
-	Setup       ExecutionSetup    `json:"setup"`
-	Inputs      map[string]Value  `json:"inputs"`
-	WorkDir     string            `json:"work_dir"`
-	OutputDir   string            `json:"output_dir"`
-	Limits      ExecutionLimits   `json:"limits"`
-	Task        string            `json:"task,omitempty"`
-	OutputTypes map[string]string `json:"output_types,omitempty"`
-	AllowHelp   bool              `json:"allow_help,omitempty"`
-	Outcomes    []string          `json:"outcomes,omitempty"`
-	Deadline    time.Time         `json:"deadline,omitempty"`
+	FrontendCheckPins *FrontendCheckPins `json:"frontend_check_pins,omitempty"`
+	TaskSource        *TaskAssignment    `json:"task_source,omitempty"`
+	ProjectID         string             `json:"project_id,omitempty"`
+	RunID             string             `json:"run_id,omitempty"`
+	Repository        string             `json:"repository,omitempty"`
+	Source            *SourceSettings    `json:"source,omitempty"`
+	AttemptID         string             `json:"attempt_id"`
+	Setup             ExecutionSetup     `json:"setup"`
+	Inputs            map[string]Value   `json:"inputs"`
+	WorkDir           string             `json:"work_dir"`
+	OutputDir         string             `json:"output_dir"`
+	Limits            ExecutionLimits    `json:"limits"`
+	Task              string             `json:"task,omitempty"`
+	OutputTypes       map[string]string  `json:"output_types,omitempty"`
+	AllowHelp         bool               `json:"allow_help,omitempty"`
+	Outcomes          []string           `json:"outcomes,omitempty"`
+	Deadline          time.Time          `json:"deadline,omitempty"`
 }
 type StepResult struct {
 	Outcome string           `json:"outcome"`
@@ -458,40 +463,41 @@ type Attempt struct {
 	Effective       *ExecutionFacts `json:"effective,omitempty"`
 }
 type Run struct {
-	RecordFormat       int                        `json:"record_format,omitempty"`
-	Task               *TaskRunLink               `json:"task,omitempty"`
-	TaskGroups         map[string]*TaskGroupState `json:"task_groups,omitempty"`
-	TaskUsage          []Usage                    `json:"-"`
-	TaskStatuses       []TaskStatus               `json:"-"`
-	Repository         string                     `json:"repository,omitempty"`
-	Source             *SourceSettings            `json:"source,omitempty"`
-	ResourcesReleased  bool                       `json:"resources_released,omitempty"`
-	ID                 string                     `json:"id"`
-	ProjectID          string                     `json:"project_id"`
-	Process            Process                    `json:"process"`
-	Roles              map[string]Role            `json:"roles"`
-	Profiles           map[string]string          `json:"profiles"`
-	Inputs             map[string]Value           `json:"inputs"`
-	Outputs            map[string]Value           `json:"outputs,omitempty"`
-	Attempts           []Attempt                  `json:"attempts,omitempty"`
-	Step               int                        `json:"step"`
-	Visit              int                        `json:"visit,omitempty"`
-	VisitExtraAttempts int                        `json:"visit_extra_attempts,omitempty"`
-	StepInputs         map[string]Value           `json:"step_inputs,omitempty"`
-	RouteUses          map[string]int             `json:"route_uses,omitempty"`
-	CorrectionRecovery *CorrectionRecovery        `json:"correction_recovery,omitempty"`
-	CollectionRecovery *CollectionRecovery        `json:"collection_recovery,omitempty"`
-	Decision           *Decision                  `json:"decision,omitempty"`
-	NextProfile        string                     `json:"next_profile,omitempty"`
-	Escalations        int                        `json:"escalations"`
-	Status             string                     `json:"status"`
-	Reason             string                     `json:"reason,omitempty"`
-	CancelRequested    bool                       `json:"cancel_requested,omitempty"`
-	CleanupError       string                     `json:"cleanup_error,omitempty"`
-	CleanupBlocked     bool                       `json:"cleanup_blocked,omitempty"`
-	Created            time.Time                  `json:"created"`
-	Updated            time.Time                  `json:"updated"`
-	Revision           int64                      `json:"revision"`
+	RecordFormat          int                        `json:"record_format,omitempty"`
+	Task                  *TaskRunLink               `json:"task,omitempty"`
+	TaskGroups            map[string]*TaskGroupState `json:"task_groups,omitempty"`
+	TaskUsage             []Usage                    `json:"-"`
+	TaskStatuses          []TaskStatus               `json:"-"`
+	Repository            string                     `json:"repository,omitempty"`
+	Source                *SourceSettings            `json:"source,omitempty"`
+	ResourcesReleased     bool                       `json:"resources_released,omitempty"`
+	ID                    string                     `json:"id"`
+	ProjectID             string                     `json:"project_id"`
+	Process               Process                    `json:"process"`
+	Roles                 map[string]Role            `json:"roles"`
+	Profiles              map[string]string          `json:"profiles"`
+	Inputs                map[string]Value           `json:"inputs"`
+	Outputs               map[string]Value           `json:"outputs,omitempty"`
+	Attempts              []Attempt                  `json:"attempts,omitempty"`
+	Step                  int                        `json:"step"`
+	Visit                 int                        `json:"visit,omitempty"`
+	VisitExtraAttempts    int                        `json:"visit_extra_attempts,omitempty"`
+	StepInputs            map[string]Value           `json:"step_inputs,omitempty"`
+	RouteUses             map[string]int             `json:"route_uses,omitempty"`
+	CorrectionRecovery    *CorrectionRecovery        `json:"correction_recovery,omitempty"`
+	CollectionRecovery    *CollectionRecovery        `json:"collection_recovery,omitempty"`
+	FrontendCheckRecovery *FrontendCheckRecovery     `json:"frontend_check_recovery,omitempty"`
+	Decision              *Decision                  `json:"decision,omitempty"`
+	NextProfile           string                     `json:"next_profile,omitempty"`
+	Escalations           int                        `json:"escalations"`
+	Status                string                     `json:"status"`
+	Reason                string                     `json:"reason,omitempty"`
+	CancelRequested       bool                       `json:"cancel_requested,omitempty"`
+	CleanupError          string                     `json:"cleanup_error,omitempty"`
+	CleanupBlocked        bool                       `json:"cleanup_blocked,omitempty"`
+	Created               time.Time                  `json:"created"`
+	Updated               time.Time                  `json:"updated"`
+	Revision              int64                      `json:"revision"`
 }
 
 type Decision struct {

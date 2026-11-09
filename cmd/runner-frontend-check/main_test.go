@@ -16,6 +16,8 @@ import (
 	"unicode/utf8"
 )
 
+const fixtureVitestOutput = "for arg do case \"$arg\" in --outputFile.json=*) target=${arg#*=};; esac; done\n"
+
 func TestSelectionsRefuseFlagsPatternsTraversalAndDuplicates(t *testing.T) {
 	for _, raw := range []string{`[]`, `["--passWithNoTests"]`, `["../outside.test.ts"]`, `["src/**/*.test.ts"]`, `["src/a.test.ts","src/a.test.ts"]`, `["/tmp/a.test.ts"]`, `["src/a.ts"]`, `"src/a.test.ts"`} {
 		if _, err := selections(raw); err == nil {
@@ -116,7 +118,7 @@ func TestCheckerRequiresExecutedUnskippedAssertions(t *testing.T) {
 				encoded = []byte(`{"success":`)
 			}
 			node := filepath.Join(root, "node")
-			script := "#!/bin/sh\ncase \"$1\" in */vue-tsc/bin/vue-tsc.js) exit 0;; esac\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --outputFile ]; then shift; target=$1; fi; shift; done\ncat > \"$target\" <<'RUNNER_REPORT'\n" + string(encoded) + "\nRUNNER_REPORT\n"
+			script := "#!/bin/sh\ncase \"$1\" in */vue-tsc/bin/vue-tsc.js) exit 0;; esac\n" + fixtureVitestOutput + "cat > \"$target\" <<'RUNNER_REPORT'\n" + string(encoded) + "\nRUNNER_REPORT\n"
 			if scenario == "missing report" {
 				script = "#!/bin/sh\nexit 0\n"
 			}
@@ -238,6 +240,7 @@ func TestConfiguredVitestRetainsRealReportAndCanonicalIdentity(t *testing.T) {
 	}{
 		{name: "canonical alias", tests: `["src/pass.test.ts"]`, outcome: "ready"},
 		{name: "assertion failure", tests: `["src/fail.test.ts"]`, outcome: "changes_requested"},
+		{name: "assertion and timeout", tests: `["src/timeout.test.ts"]`, outcome: "changes_requested"},
 		{name: "skipped assertion", tests: `["src/skip.test.ts"]`, outcome: "blocked"},
 		{name: "omitted selected file", tests: `["src/pass.test.ts","src/omitted.test.ts"]`, outcome: "blocked"},
 		{name: "unexpected substring match", tests: `["src/collision.test.ts"]`, outcome: "blocked"},
@@ -287,6 +290,21 @@ func TestConfiguredVitestRetainsRealReportAndCanonicalIdentity(t *testing.T) {
 			if scenario.name == "compiler syntax prevents suite loading" {
 				path := filepath.Join(source, "frontend", "src", "pass.test.ts")
 				if err := os.WriteFile(path, []byte("import { expect, test } from 'vitest'\nconst value: = 1\ntest('syntax prevents execution', () => expect(value).toBe(1))\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scenario.name == "assertion and timeout" {
+				if pkg.Version != "4.1.11" || strings.TrimSpace(string(version)) != "v24.21.0" {
+					t.Fatal("timeout qualification requires configured Node 24.21.0 and Vitest 4.1.11")
+				}
+				path := filepath.Join(source, "frontend", "src", "timeout.test.ts")
+				const fixture = `import { describe, expect, test } from 'vitest'
+describe('outer fixture & identity', () => {
+  test('ordinary assertion', () => expect('actual', 'ordinary fixture evidence').toBe('expected'))
+  test('held timer <expected>', async () => { await new Promise<void>(() => {}) }, 25)
+})
+`
+				if err := os.WriteFile(path, []byte(fixture), 0600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -372,6 +390,25 @@ func TestConfiguredVitestRetainsRealReportAndCanonicalIdentity(t *testing.T) {
 					t.Fatal("long real assertion message was truncated or replaced by its summary")
 				}
 			}
+			if scenario.name == "assertion and timeout" {
+				var report vitestReport
+				if json.Unmarshal(retained.Vitest, &report) != nil || len(report.Results) != 1 || len(report.Results[0].Assertions) != 2 {
+					t.Fatal("missing real mixed failure report")
+				}
+				ordinary, timeout := report.Results[0].Assertions[0], report.Results[0].Assertions[1]
+				if len(ordinary.FailureMessages) != 1 || !strings.Contains(ordinary.FailureMessages[0], "ordinary fixture evidence") || !hasVitestPlaceholder(timeout.FailureMessages) || timeout.Duration == nil {
+					t.Fatal("fixture did not reproduce both exact reporter paths", ordinary, timeout)
+				}
+				junit, err := os.ReadFile(filepath.Join(scratch, "vitest-junit.xml"))
+				diagnostics := retained.VitestDiagnostics
+				if err != nil || diagnostics == nil || diagnostics.ReportBytes != len(junit) || diagnostics.ReportSHA256 != fmtDigest(junit) || len(diagnostics.Failures) != 1 {
+					t.Fatal("verified supplemental report identity missing", err, diagnostics)
+				}
+				failure := diagnostics.Failures[0]
+				if failure.File != "src/timeout.test.ts" || failure.FullName != timeout.FullName || failure.DurationMS != *timeout.Duration || failure.ErrorIndex != 0 || !strings.HasPrefix(failure.Message, "Test timed out in 25ms.") || !strings.Contains(failure.Message, `"testTimeout"`) || !strings.Contains(domain["reason"], "Test timed out in 25ms.") || retained.Failed != 2 || retained.Executed != 2 {
+					t.Fatal("timeout message/duration was lost or joined to the wrong assertion", failure, domain)
+				}
+			}
 			if retained.Typecheck == nil || !retained.Typecheck.Complete || retained.Typecheck.Version != "3.3.11" || retained.Typecheck.TypeScriptVersion != "6.0.3" {
 				t.Fatal("pinned compiler receipt is absent or incomplete", retained.Typecheck)
 			}
@@ -438,7 +475,7 @@ func TestCompilerFailureDoesNotBypassVitestIdentityOrRuntimeEvidence(t *testing.
 			if scenario == "compiler passed" {
 				compiler = "exit 0"
 			}
-			script := "#!/bin/sh\ncase \"$1\" in */vue-tsc/bin/vue-tsc.js) " + compiler + ";; esac\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --outputFile ]; then shift; target=$1; fi; shift; done\ncat > \"$target\" <<'RUNNER_REPORT'\n" + string(encoded) + "\nRUNNER_REPORT\nexit 1\n"
+			script := "#!/bin/sh\ncase \"$1\" in */vue-tsc/bin/vue-tsc.js) " + compiler + ";; esac\n" + fixtureVitestOutput + "cat > \"$target\" <<'RUNNER_REPORT'\n" + string(encoded) + "\nRUNNER_REPORT\nexit 1\n"
 			node := filepath.Join(root, "node")
 			if err := os.WriteFile(node, []byte(script), 0700); err != nil {
 				t.Fatal(err)
@@ -666,7 +703,7 @@ func TestTypecheckAndVitestShareDeadlineAndRawEvidenceBounds(t *testing.T) {
 			node := filepath.Join(root, "node")
 			script := "#!/bin/sh\nexec /usr/bin/head -c 8388609 /dev/zero\n"
 			if scenario == "shared raw budget" {
-				script = "#!/bin/sh\ncase \"$1\" in */vue-tsc/bin/vue-tsc.js) printf '%s' \"src/board.test.ts(1,14): error TS2322: \"; /usr/bin/head -c 1048576 /dev/zero | /usr/bin/tr '\\000' x; printf '\\n'; exit 2;; esac\nwhile [ $# -gt 0 ]; do if [ \"$1\" = --outputFile ]; then shift; target=$1; fi; shift; done\n{ printf '%s' '{\"padding\":\"'; /usr/bin/head -c 7340032 /dev/zero | /usr/bin/tr '\\000' x; printf '%s' '\"}'; } > \"$target\"\n"
+				script = "#!/bin/sh\ncase \"$1\" in */vue-tsc/bin/vue-tsc.js) printf '%s' \"src/board.test.ts(1,14): error TS2322: \"; /usr/bin/head -c 1048576 /dev/zero | /usr/bin/tr '\\000' x; printf '\\n'; exit 2;; esac\n" + fixtureVitestOutput + "{ printf '%s' '{\"padding\":\"'; /usr/bin/head -c 7340032 /dev/zero | /usr/bin/tr '\\000' x; printf '%s' '\"}'; } > \"$target\"\n"
 			}
 			if err := os.WriteFile(node, []byte(script), 0700); err != nil {
 				t.Fatal(err)

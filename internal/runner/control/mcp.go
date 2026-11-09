@@ -87,6 +87,10 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		r, e := c.RecoverCollection(in)
 		return summary(r), e
 	})
+	add(s, "runner_recover_frontend_check", "Owner-authorized recheck of an exact retained patch from a settled blocked frontend owner. Binds the saved revision, patch, qualified check helper and publication. Preserves attempts, budgets and protected decisions. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverFrontendCheckRequest) (any, error) {
+		r, e := c.RecoverFrontendCheck(in)
+		return summary(r), e
+	})
 	add(s, "runner_decide", "Approve or reject one saved decision using its exact decision_id. Does not grant extra attempts or approve a different candidate.", func(ctx context.Context, in runner.DecisionRequest) (any, error) {
 		r, e := c.Decide(in)
 		return summary(r), e

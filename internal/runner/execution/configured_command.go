@@ -225,6 +225,9 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 			return errors.New("patch does not identify this workspace's prepared source")
 		}
 	}
+	if pins := a.FrontendCheckPins; pins != nil && (a.Inputs["patch"].ArtifactID == "" || w.Capture == nil || w.Capture.PatchSHA != pins.PatchSHA256) {
+		return errors.New("prepared frontend check patch differs from the authorized capture")
+	}
 	local := &Codex{disk: c.disk, cfg: c.cfg, ctx: ctx}
 	env, err := local.workerEnvironment(nativeJob{Assignment: a, Workspace: &w})
 	if err != nil {
@@ -241,6 +244,9 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 		data, e := c.read(ctx, input.ArtifactID)
 		if e != nil {
 			return e
+		}
+		if pins := a.FrontendCheckPins; pins != nil && name == "patch" && captureDigest(data) != pins.PatchSHA256 {
+			return errors.New("frontend check patch bytes changed before dispatch")
 		}
 		file := filepath.Join("work", a.RunID, "source", ".runner-tmp", a.AttemptID, "inputs", name)
 		if e = c.disk.Write(file, data, a.Limits.MaxArtifact); e != nil {
@@ -259,6 +265,24 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 	var config strings.Builder
 	config.WriteString("default_permissions=\"runner-command\"\n[permissions.runner-command.filesystem]\n\":minimal\"=\"read\"\n")
 	paths := map[string]string{w.WorkDir: "read", baseEnv["TMPDIR"]: "write", goRoot: "read"}
+	control := commandControl(a.AttemptID)
+	if pins := a.FrontendCheckPins; pins != nil {
+		// Stage the verified bytes under this attempt. A replacement at the
+		// configured installation path cannot change the sandboxed command.
+		data, err := frontendCheckHelperBytes(args[0], pins.HelperSHA256)
+		if err != nil {
+			return err
+		}
+		rel := control + "/runner-frontend-check"
+		if err := c.disk.Write(rel, data, a.Limits.MaxArtifact); err != nil {
+			return err
+		}
+		args[0] = filepath.Join(c.disk.Root, rel)
+		if err := os.Chmod(args[0], 0500); err != nil {
+			return err
+		}
+		paths[args[0]] = "read"
+	}
 	for _, p := range c.cfg.CommandReadPaths {
 		paths[p] = "read"
 	}
@@ -269,7 +293,6 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 		fmt.Fprintf(&config, "%s=%s\n", strconv.Quote(p), strconv.Quote(mode))
 	}
 	fmt.Fprintf(&config, "[permissions.runner-command.network]\nenabled=%t\n", spec.Network)
-	control := commandControl(a.AttemptID)
 	if err = c.disk.Write(control+"/config/config.toml", []byte(config.String()), 16384); err != nil {
 		return err
 	}
@@ -285,6 +308,9 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 		Control:   filepath.Join(c.disk.Root, control),
 		Deadline:  a.Deadline,
 		MaxLog:    a.Limits.MaxLog,
+	}
+	if a.FrontendCheckPins != nil {
+		worker.HelperSHA256 = a.FrontendCheckPins.HelperSHA256
 	}
 	data, _ := json.Marshal(worker)
 	if err = c.disk.Write(control+"/spec.json", data, c.disk.Policy.Database.MaxRecord); err != nil {

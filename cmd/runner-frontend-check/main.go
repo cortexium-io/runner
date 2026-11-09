@@ -28,23 +28,24 @@ var errArtifactLimit = errors.New("frontend artifact exceeds its existing 16 MiB
 const evidenceLimit = 8 << 20
 
 type proof struct {
-	Schema            int             `json:"schema"`
-	Status            string          `json:"status"`
-	Tests             []string        `json:"tests"`
-	Executed          int             `json:"executed"`
-	Failed            int             `json:"failed"`
-	Skipped           int             `json:"skipped"`
-	Reason            string          `json:"reason,omitempty"`
-	Output            string          `json:"output,omitempty"`
-	Frontend          string          `json:"frontend,omitempty"`
-	CanonicalFrontend string          `json:"canonical_frontend,omitempty"`
-	ExitCode          *int            `json:"exit_code,omitempty"`
-	ReportBytes       int             `json:"report_bytes,omitempty"`
-	ReportSHA256      string          `json:"report_sha256,omitempty"`
-	Files             []fileProof     `json:"files,omitempty"`
-	Vitest            json.RawMessage `json:"vitest,omitempty"`
-	VitestIncomplete  bool            `json:"vitest_incomplete,omitempty"`
-	Typecheck         *typecheckProof `json:"typecheck,omitempty"`
+	Schema            int                `json:"schema"`
+	Status            string             `json:"status"`
+	Tests             []string           `json:"tests"`
+	Executed          int                `json:"executed"`
+	Failed            int                `json:"failed"`
+	Skipped           int                `json:"skipped"`
+	Reason            string             `json:"reason,omitempty"`
+	Output            string             `json:"output,omitempty"`
+	Frontend          string             `json:"frontend,omitempty"`
+	CanonicalFrontend string             `json:"canonical_frontend,omitempty"`
+	ExitCode          *int               `json:"exit_code,omitempty"`
+	ReportBytes       int                `json:"report_bytes,omitempty"`
+	ReportSHA256      string             `json:"report_sha256,omitempty"`
+	Files             []fileProof        `json:"files,omitempty"`
+	Vitest            json.RawMessage    `json:"vitest,omitempty"`
+	VitestIncomplete  bool               `json:"vitest_incomplete,omitempty"`
+	VitestDiagnostics *vitestDiagnostics `json:"vitest_diagnostics,omitempty"`
+	Typecheck         *typecheckProof    `json:"typecheck,omitempty"`
 }
 
 type typecheckProof struct {
@@ -105,6 +106,9 @@ type vitestFile struct {
 type vitestAssertion struct {
 	Status          string   `json:"status"`
 	FullName        string   `json:"fullName"`
+	Title           string   `json:"title,omitempty"`
+	AncestorTitles  []string `json:"ancestorTitles,omitempty"`
+	Duration        *float64 `json:"duration,omitempty"`
 	FailureMessages []string `json:"failureMessages"`
 }
 
@@ -167,6 +171,7 @@ func runContext(ctx context.Context, o options) error {
 			outcome, p.Status = "blocked", "blocked"
 			p.Reason = "complete frontend evidence could not fit the existing 16 MiB artifact limit; raw evidence was not retained"
 			p.Vitest = nil
+			p.VitestDiagnostics = nil
 			if p.Typecheck != nil {
 				p.Typecheck.Output, p.Typecheck.Diagnostics, p.Typecheck.Complete = "", nil, false
 			}
@@ -240,10 +245,20 @@ func runContext(ctx context.Context, o options) error {
 		return finish("blocked", p.Typecheck.Reason)
 	}
 	report := filepath.Join(o.scratch, "vitest.json")
-	if _, e := os.Lstat(report); !errors.Is(e, os.ErrNotExist) {
-		return finish("blocked", "frontend report output already exists or cannot be identified; refusing stale evidence")
+	junit := filepath.Join(o.scratch, "vitest-junit.xml")
+	for _, file := range []string{report, junit} {
+		if _, e := os.Lstat(file); !errors.Is(e, os.ErrNotExist) {
+			return finish("blocked", "frontend report output already exists or cannot be identified; refusing stale evidence")
+		}
 	}
-	args := append([]string{filepath.Join(deps, "vitest", "vitest.mjs"), "run", "--reporter=json", "--outputFile", report}, tests...)
+	args := append([]string{
+		filepath.Join(deps, "vitest", "vitest.mjs"),
+		"run",
+		"--reporter=json",
+		"--reporter=junit",
+		"--outputFile.json=" + report,
+		"--outputFile.junit=" + junit,
+	}, tests...)
 	command := exec.CommandContext(ctx, o.node, args...)
 	command.Dir = frontend
 	command.WaitDelay = 2 * time.Second
@@ -293,7 +308,7 @@ func runContext(ctx context.Context, o options) error {
 	if executionProblem != "" {
 		return finish("blocked", executionProblem)
 	}
-	outcome, reason := evaluate(&p, code)
+	outcome, reason := evaluate(&p, code, junit, remaining-len(data))
 	if outcome != "blocked" && p.Typecheck.Status == "failed" {
 		if outcome == "changes_requested" {
 			return finish("changes_requested", p.Typecheck.Reason+"; "+reason)
@@ -470,7 +485,7 @@ func (b *completeOutput) ReadFrom(r io.Reader) (int64, error) {
 	return io.Copy(struct{ io.Writer }{b}, r)
 }
 
-func evaluate(p *proof, exitCode int) (string, string) {
+func evaluate(p *proof, exitCode int, junitPath string, remainingEvidence int) (string, string) {
 	var result vitestReport
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(p.Vitest, &result) != nil || json.Unmarshal(p.Vitest, &fields) != nil {
@@ -490,7 +505,8 @@ func evaluate(p *proof, exitCode int) (string, string) {
 		selected[file.Canonical] = i
 	}
 	seen := make(map[string]bool, len(selected))
-	problem, assertionFailure := "", ""
+	problem, assertionFailure, restoredFailure := "", "", ""
+	diagnostics := vitestDiagnosticResolver{path: junitPath, limit: remainingEvidence}
 	transformFailures := 0
 	compilerFailure := p.Typecheck != nil && p.Typecheck.Complete && p.Typecheck.Status == "failed" && len(p.Typecheck.Diagnostics) > 0
 	normalFailure := exitCode == 1 && !result.Success
@@ -557,10 +573,27 @@ func evaluate(p *proof, exitCode int) (string, string) {
 				failed++
 				f.Executed++
 				f.Failed++
+				messages := assertion.FailureMessages
+				if hasVitestPlaceholder(messages) {
+					resolved, err := diagnostics.resolve(f.Selected, file.Assertions, assertion)
+					if err != nil {
+						f.Diagnostic = "unresolved Vitest failure for " + clip(assertion.FullName, 200) + ": " + err.Error()
+						if problem == "" {
+							problem = f.Selected + ": " + f.Diagnostic
+						}
+						continue
+					}
+					p.VitestDiagnostics = &diagnostics.proof
+					messages = resolved
+					if restoredFailure == "" {
+						first := diagnostics.proof.Failures[0]
+						restoredFailure = fmt.Sprintf("%s: failed assertion: %s (%.3fms elapsed): %s", f.Selected, clip(first.FullName, 200), first.DurationMS, clip(first.Message, 500))
+					}
+				}
 				if f.Diagnostic == "" {
 					f.Diagnostic = "failed assertion: " + clip(assertion.FullName, 200)
-					if len(assertion.FailureMessages) > 0 {
-						f.Diagnostic += ": " + clip(assertion.FailureMessages[0], 500)
+					if len(messages) > 0 {
+						f.Diagnostic += ": " + clip(messages[0], 500)
 					}
 				}
 				if assertionFailure == "" {
@@ -615,6 +648,9 @@ func evaluate(p *proof, exitCode int) (string, string) {
 		}
 	}
 	if failed > 0 && !result.Success && exitCode == 1 {
+		if restoredFailure != "" {
+			return "changes_requested", restoredFailure
+		}
 		return "changes_requested", assertionFailure
 	}
 	if failed != 0 || !result.Success || exitCode != 0 {
