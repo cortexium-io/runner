@@ -453,8 +453,7 @@ next investigation, `run_MNYKP6MHS63YW7IFJIKDHWE42Z`, Runner rejoined the same
 readiness operation after an operator disconnect. Both browser readiness probes
 passed without a replacement attempt or chat intervention. This observed rejoin
 is distinct from the new pre-authentication Docker readiness retry, which was
-verified in fixtures. Remote operator `721f9e9` is installed under the unchanged
-policy.
+verified in fixtures and installed in remote operator `721f9e9`.
 
 MNY exhausted its three review corrections at 27/35 attempts and released all
 resources. Round 3 supplies complete unoptimized controls. Round 4 reduced
@@ -486,11 +485,18 @@ cold checkpoint under ordinary retention. Only four future role fields changed
 after installation; the entire stopped MNY record remained unchanged. Paired
 rollback restores the executables without rewinding the database.
 
-Package 4's local Genny proof is complete. Jack's Break mobile and copy
-qualification still requires an explicit new scope and allowance to proceed
-separately from the failed optimization. The default remains `deliver` until
-full qualification; merge, production and restoration retain separate owner
-decisions.
+Package 4's local Genny proof is complete. The approved Jack's Break mobile and
+copy workflow authenticated PR #337 at `6232ed2`. It stopped at readiness after
+two attempts when Docker kept the scratch probe in its build cache. The engine
+could not inspect the resulting tag. Operator `7baadb9` requests `--load`, then
+uses the existing ownership and cleanup checks. The disposable probe passed on
+the actual builder, and the source passed the local race suite, vet and
+[macOS/Linux CI](https://github.com/cortexium-io/runner/actions/runs/42576207757).
+The operator replacement preserved the policy and journals. The stopped run has
+no model calls. Its one readiness visit is exhausted, and a replacement capped
+at 62 would respect the original combined allowance of 64. The default remains
+`deliver` until full qualification. Merge, production and restoration retain
+separate owner decisions.
 
 ## Follow the demo
 

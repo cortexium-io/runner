@@ -106,16 +106,17 @@ Installed Core and Go-check helper `8f970f1` passed full local race testing,
 vet and [macOS/Linux CI](https://github.com/cortexium-io/runner/actions/runs/42535175138).
 The upgrade preserved all 72 current runs, definitions and artifact bytes. It
 activated four future role fields for prepared-input test provenance and clearer
-measurement and review handoffs. The remote operator remains `721f9e9` under
-its unchanged policy. See [qualification details](architecture.md#release-closure-8-november-2026).
+measurement and review handoffs. See
+[qualification details](architecture.md#release-closure-8-november-2026).
 
-The proposed cumulative mobile workflow uses `deliver-planned-retained-frontend`
-on the authenticated, reviewed PR #337 copy source. Runner would implement the
-approved mobile behavior on that source, keeping PR #334 and the unpublished
-optimization as separate evidence. Full native and browser qualification remains
-mandatory, and any backend failure still blocks release. Default `deliver`
-remains until that qualification succeeds. Merge, production and restoration
-retain separate owner decisions.
+The owner approved the cumulative mobile workflow on the reviewed PR #337 copy
+source. Run `run_3AU33ZMT7GPFZ3PMXKWUQQDRUS` authenticated that source and stopped
+at Docker builder readiness after two of 64 attempts, before model execution.
+The installed operator `7baadb9` now exports its readiness probe to the engine
+image store. The remaining 62 attempts can fund a replacement with owner
+authorization. Full native and browser qualification is required for switching
+the default from `deliver`. Merge, production and restoration retain separate
+owner decisions.
 
 Closure requires recorded evidence for all four packages. A new Runner defect
 reopens only its affected proof. A genuine product or prerequisite blocker remains
