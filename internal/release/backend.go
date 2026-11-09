@@ -55,7 +55,8 @@ type Config struct {
 	Delivery               *DeliveryConfig        `json:"delivery,omitempty"`
 	PublicationTransition  *PublicationTransition `json:"publication_transition,omitempty"`
 
-	QualificationTransition *QualificationTransition `json:"qualification_transition,omitempty"`
+	QualificationTransition       *QualificationTransition       `json:"qualification_transition,omitempty"`
+	RetainedPublicationTransition *RetainedPublicationTransition `json:"retained_publication_transition,omitempty"`
 }
 
 func Load(file string) (*Operator, error) {
@@ -78,6 +79,13 @@ func Load(file string) (*Operator, error) {
 	}
 	if err := c.QualificationTransition.validate(c.Delivery != nil && c.Delivery.BrowserImage != ""); err != nil {
 		return nil, err
+	}
+	if err := c.RetainedPublicationTransition.validate(c.Delivery != nil); err != nil {
+		return nil, err
+	}
+	if c.PublicationTransition != nil && c.RetainedPublicationTransition != nil &&
+		*c.PublicationTransition == c.RetainedPublicationTransition.PublicationTransition {
+		return nil, errors.New("publication and retained publication transitions overlap")
 	}
 	paths := []string{
 		c.StateDir,
@@ -111,7 +119,8 @@ func Load(file string) (*Operator, error) {
 		Delivery:              c.Delivery != nil,
 		PublicationTransition: c.PublicationTransition,
 
-		QualificationTransition: c.QualificationTransition,
+		QualificationTransition:       c.QualificationTransition,
+		RetainedPublicationTransition: c.RetainedPublicationTransition,
 	}, nil
 }
 

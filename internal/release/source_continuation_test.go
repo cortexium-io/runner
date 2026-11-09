@@ -1,6 +1,7 @@
 package release
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,11 +18,12 @@ type sourceOperatorFixture struct {
 	branch, head, base, repository, state string
 	reads, creates                        int
 	readError                             error
+	draft                                 bool
 }
 
 func newSourceOperatorFixture(t *testing.T) *sourceOperatorFixture {
 	t.Helper()
-	f := &sourceOperatorFixture{branch: "codex/runner/original", head: strings.Repeat("b", 40), base: strings.Repeat("a", 40), repository: "owner/repo", state: "open"}
+	f := &sourceOperatorFixture{branch: "codex/runner/original", head: strings.Repeat("b", 40), base: strings.Repeat("a", 40), repository: "owner/repo", state: "open", draft: true}
 	dir := filepath.Join(t.TempDir(), "journal")
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -46,7 +48,7 @@ func newSourceOperatorFixture(t *testing.T) *sourceOperatorFixture {
 			if f.readError != nil {
 				return nil, f.readError
 			}
-			return json.Marshal(map[string]any{"state": f.state, "merged": false,
+			return json.Marshal(map[string]any{"state": f.state, "merged": false, "draft": f.draft,
 				"head": map[string]any{"sha": f.head, "ref": f.branch, "repo": map[string]string{"full_name": f.repository}},
 				"base": map[string]any{"sha": f.base, "ref": "main", "repo": map[string]string{"full_name": "owner/repo"}}})
 		}
@@ -182,5 +184,91 @@ func TestSourceContinuationRequiresUnchangedOwnedLivePR(t *testing.T) {
 				t.Fatal("changed PR caused replacement publication")
 			}
 		})
+	}
+}
+
+func retainedPublicationFixture(t *testing.T) *sourceOperatorFixture {
+	t.Helper()
+	f := newSourceOperatorFixture(t)
+	f.publication.Receipt.Policy = transitionOldPolicy
+	if err := writeJSON(filepath.Join(f.op.Directory, "published.json"), f.publication); err != nil {
+		t.Fatal(err)
+	}
+	p := f.publication.Receipt
+	f.request.Previous = mustJSON(t, publicReceipt(p, true))
+	f.op.PublicationTransition = exactPublicationTransition()
+	f.op.RetainedPublicationTransition = &RetainedPublicationTransition{
+		PublicationTransition: PublicationTransition{PreviousPolicy: p.Policy, PR: p.PR, Head: p.Head, Base: p.Base},
+		PreviousRunID:         p.RunID,
+		PreviousKey:           p.Key,
+	}
+	return f
+}
+
+func TestRetainedPublicationTransitionResumesOneClaim(t *testing.T) {
+	f := retainedPublicationFixture(t)
+	path := filepath.Join(f.op.Directory, "published.json")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A crash after claiming and before saving the new journal allows only
+	// the same run and attempt to resume.
+	claim := filepath.Join(f.op.Directory, "retained-publication-published.claim")
+	if err := claimTransition(claim, transitionClaim{Key: f.request.Key, Policy: f.op.PolicyHash, RunID: f.request.RunID}); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []Request{
+		{Project: f.request.Project, RunID: "another", Key: f.request.Key, Action: "adopt", Source: f.base, Previous: f.request.Previous, SourceContinuation: true},
+		{Project: f.request.Project, RunID: f.request.RunID, Key: "another", Action: "adopt", Source: f.base, Previous: f.request.Previous, SourceContinuation: true},
+	} {
+		if _, err := f.op.Call(t.Context(), q); err == nil || f.reads != 0 {
+			t.Fatal("another adoption reused the claim", err)
+		}
+	}
+	out, err := f.op.Call(t.Context(), f.request)
+	var adopted Receipt
+	if err != nil || out.State != "finished" || out.Failed || json.Unmarshal(out.Receipt, &adopted) != nil ||
+		adopted.Policy != f.op.PolicyHash || adopted.RunID != f.request.RunID || adopted.PublicationKey != f.publication.Request.Key {
+		t.Fatal("exact adoption did not issue current-policy source authority", out, err)
+	}
+	if _, err := f.op.Call(t.Context(), f.request); err != nil || f.reads != 1 {
+		t.Fatal("same attempt replayed the live check", err, f.reads)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("prior accepted publication changed", err)
+	}
+}
+
+func TestRetainedPublicationTransitionRejectsOtherAuthority(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*sourceOperatorFixture)
+	}{
+		{"other publish key", func(f *sourceOperatorFixture) { f.op.RetainedPublicationTransition.PreviousKey = "foreign" }},
+		{"other previous run", func(f *sourceOperatorFixture) { f.op.RetainedPublicationTransition.PreviousRunID = "foreign" }},
+		{"other base", func(f *sourceOperatorFixture) { f.op.RetainedPublicationTransition.Base = strings.Repeat("c", 40) }},
+		{"no source continuation", func(f *sourceOperatorFixture) { f.request.SourceContinuation = false }},
+		{"qualification", func(f *sourceOperatorFixture) {
+			f.request.Action, f.request.SourceContinuation, f.request.RunID = "qualify", false, f.publication.Request.RunID
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := retainedPublicationFixture(t)
+			tc.change(f)
+			if _, err := f.op.Call(t.Context(), f.request); err == nil || f.reads != 0 {
+				t.Fatal("unapproved request reached the live repository", err)
+			}
+		})
+	}
+}
+
+func TestRetainedPublicationTransitionRequiresDraft(t *testing.T) {
+	f := retainedPublicationFixture(t)
+	f.draft = false
+	out, err := f.op.Call(t.Context(), f.request)
+	if err != nil || out.State != "finished" || !out.Failed || f.reads != 1 || f.creates != 0 {
+		t.Fatal("open non-draft PR passed the scoped adoption", out, err)
 	}
 }

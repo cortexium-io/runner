@@ -428,6 +428,12 @@ That grant only supports adoption of its authenticated original publication.
 The new run must qualify under the current policy and obtain fresh approvals;
 old qualification, merge, deployment and recovery receipts gain no exception.
 
+A separate `retained_publication_transition` can authorize one retained-source
+adoption of an owned draft. It binds the previous policy and exact PR, head,
+base, run and publication key. The operator durably claims the grant for the
+first new run and attempt. The continuation still needs fresh source checks,
+review, qualification and protected approvals.
+
 A separate `qualification_transition` can authorize one fresh qualification
 attempt on the same run after a settled browser admission failure. It binds the
 old publication, failed attempt and browser report to the exact owned draft.

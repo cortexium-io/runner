@@ -92,7 +92,8 @@ type Job struct {
 	Resume     string  `json:"resume,omitempty"`
 	Retryable  bool    `json:"retryable,omitempty"`
 
-	QualificationHandoff bool `json:"qualification_handoff,omitempty"`
+	QualificationHandoff       bool `json:"qualification_handoff,omitempty"`
+	RetainedPublicationHandoff bool `json:"retained_publication_handoff,omitempty"`
 }
 
 // Backend actions must write intent before mutation and reconcile that intent
@@ -109,7 +110,8 @@ type Operator struct {
 	Delivery              bool
 	PublicationTransition *PublicationTransition
 
-	QualificationTransition *QualificationTransition
+	QualificationTransition       *QualificationTransition
+	RetainedPublicationTransition *RetainedPublicationTransition
 }
 
 type leaseKey struct{}
@@ -224,7 +226,10 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 				job.QualificationHandoff = true
 				job.Receipt = sourcePublicationReceipt(saved.Receipt)
 			} else if !o.acceptsPreviousPolicy(q, p, saved) {
-				return out, errors.New("previous release identity/policy differs")
+				if !o.RetainedPublicationTransition.matches(q, p, saved, o.Delivery) {
+					return out, errors.New("previous release identity/policy differs")
+				}
+				job.RetainedPublicationHandoff = true
 			}
 			if q.Action == "publish" {
 				if !acceptedSourcePredecessor(saved) || !o.sourceOriginAccepted(saved.Receipt, q.Project) || p.Action == "adopt" && !saved.Request.SourceContinuation {
@@ -242,6 +247,13 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 				}
 				if !o.sourceOriginAccepted(job.Receipt, q.Project) {
 					return out, errors.New("accepted publication has no valid source ownership")
+				}
+				if job.RetainedPublicationHandoff {
+					file := filepath.Join(o.Directory, "retained-publication-"+p.Key+".claim")
+					want := transitionClaim{Key: q.Key, Policy: o.PolicyHash, RunID: q.RunID}
+					if err := claimTransition(file, want); err != nil {
+						return out, fmt.Errorf("retained publication transition: %w", err)
+					}
 				}
 			}
 		}

@@ -254,3 +254,34 @@ func TestPublicationTransitionLoadAndValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestRetainedPublicationTransitionRequiresDistinctLegacyGrant(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "examples", "jacks-break", "operator.example.json"))
+	var c Config
+	if err != nil || json.Unmarshal(data, &c) != nil {
+		t.Fatal(err)
+	}
+	c.PublicationTransition = exactPublicationTransition()
+	c.RetainedPublicationTransition = &RetainedPublicationTransition{
+		PublicationTransition: *c.PublicationTransition,
+		PreviousRunID:         "previous",
+		PreviousKey:           "published",
+	}
+	file := filepath.Join(t.TempDir(), "operator.json")
+	if err := writeJSON(file, c); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(file); err == nil || !strings.Contains(err.Error(), "transitions overlap") {
+		t.Fatal("legacy grant bypasses the scoped transition", err)
+	}
+
+	c.RetainedPublicationTransition.PR++
+	if err := writeJSON(file, c); err != nil {
+		t.Fatal(err)
+	}
+	op, err := Load(file)
+	if err != nil || !reflect.DeepEqual(op.PublicationTransition, c.PublicationTransition) ||
+		!reflect.DeepEqual(op.RetainedPublicationTransition, c.RetainedPublicationTransition) {
+		t.Fatal("independent grants were not retained", err)
+	}
+}

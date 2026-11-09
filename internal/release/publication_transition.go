@@ -3,6 +3,7 @@ package release
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -48,6 +49,34 @@ func (p PublicationTransition) matchesPublication(q Request, previous Receipt, s
 	return r.Policy == p.PreviousPolicy && r.Action == "publish" && r.PR == p.PR && r.Head == p.Head && r.Base == p.Base && r.Source == p.Base && q.Source == p.Base &&
 		saved.Request.Key == previous.Key && r.Key == previous.Key && saved.Request.RunID == previous.RunID && r.RunID == previous.RunID &&
 		saved.Request.Action == "publish" && saved.Request.Source == p.Base && saved.Request.Candidate == p.Head
+}
+
+// RetainedPublicationTransition grants one source adoption of an authenticated
+// publication from a previous policy, independently of other adoption grants.
+type RetainedPublicationTransition struct {
+	PublicationTransition
+	PreviousRunID string `json:"previous_run_id"`
+	PreviousKey   string `json:"previous_key"`
+}
+
+func (t *RetainedPublicationTransition) validate(delivery bool) error {
+	if t == nil {
+		return nil
+	}
+	if err := t.PublicationTransition.validate(delivery); err != nil {
+		return err
+	}
+	if !safeID.MatchString(t.PreviousRunID) || !safeID.MatchString(t.PreviousKey) {
+		return errors.New("retained publication transition requires the exact previous run and publication key")
+	}
+	return nil
+}
+
+func (t *RetainedPublicationTransition) matches(q Request, previous Receipt, saved Job, delivery bool) bool {
+	return t != nil && t.validate(delivery) == nil && q.Action == "adopt" && q.SourceContinuation &&
+		previous.RunID == t.PreviousRunID && previous.Key == t.PreviousKey && previous.Policy == t.PreviousPolicy &&
+		q.RunID != previous.RunID && q.Key != previous.Key && q.Candidate == "" && len(q.Retry) == 0 && len(q.Recovery) == 0 &&
+		t.matchesPublication(q, previous, saved)
 }
 
 // QualificationTransition grants one fresh qualification of a previously
@@ -100,9 +129,21 @@ func (o *Operator) claimQualificationTransition(q Request, previous Receipt, sav
 		return errors.New("qualification transition failed browser receipt differs")
 	}
 
-	// Different attempt keys share this lease. Persist the winner before any
-	// worker can launch, including across a crash before the new job is saved.
 	file := filepath.Join(o.Directory, "qualification-"+t.FailedQualificationKey+".claim")
+	if err := claimTransition(file, transitionClaim{Key: q.Key, Policy: o.PolicyHash}); err != nil {
+		return fmt.Errorf("qualification transition: %w", err)
+	}
+	return nil
+}
+
+type transitionClaim struct {
+	Key, Policy string
+	RunID       string `json:",omitempty"`
+}
+
+// Different attempt keys share this lease. Persist the winner before any
+// worker can launch, including across a crash before the new job is saved.
+func claimTransition(file string, want transitionClaim) error {
 	lease, err := os.OpenFile(file+".lock", os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return err
@@ -112,15 +153,13 @@ func (o *Operator) claimQualificationTransition(q Request, previous Receipt, sav
 		return err
 	}
 	defer unlockOperator(lease)
-	type claim struct{ Key, Policy string }
-	want := claim{Key: q.Key, Policy: o.PolicyHash}
-	data, err = readFile(file, 1024)
+	data, err := readFile(file, 1024)
 	if errors.Is(err, os.ErrNotExist) {
 		return writeJSON(file, want)
 	}
-	var existing claim
+	var existing transitionClaim
 	if err != nil || json.Unmarshal(data, &existing) != nil || existing != want {
-		return errors.New("qualification transition was already claimed by another attempt or policy")
+		return errors.New("already claimed by another attempt, run or policy")
 	}
 	return nil
 }
