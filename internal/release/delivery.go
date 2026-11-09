@@ -251,20 +251,7 @@ func RunDeliveryWorker(file string) error {
 			j.Reason = err.Error() + "; retain qualification attempt " + j.Request.Key
 			return writeJSON(filepath.Join(filepath.Dir(file), "result.json"), j)
 		}
-		_ = fail(j, j.Request.Action+" failed; bounded private diagnostics and output retained: "+err.Error())
-		var unavailable *connectionUnavailable
-		// Repeating a fresh isolated qualification/readiness visit is safe only
-		// for a positively established pre-dispatch connection failure. Unknown
-		// effects retain this worker identity above and never authorize replay.
-		j.Retryable = errors.As(err, &unavailable) && (j.Request.Action == "readiness" || j.Request.Action == "qualify")
-		var source *sourceFailure
-		if j.Request.Action == "qualify" && errors.As(err, &source) {
-			j.Failed = false
-			j.Outcome = "changes_requested"
-			j.Reason = source.Error()
-			j.Receipt.BrowserFailure = source.browser
-		}
-		j.Receipt.Note = j.Reason
+		settleDeliveryFailure(j, err)
 	}
 	if j.Done && j.Request.Action == "qualify" {
 		active, checkErr := b.docker(ctx, "ps", "--filter", "label=cortexium.runner.run="+j.Request.RunID, "--format", "{{.ID}}")
@@ -294,6 +281,22 @@ func RunDeliveryWorker(file string) error {
 		}
 	}
 	return writeJSON(filepath.Join(filepath.Dir(file), "result.json"), j)
+}
+
+func settleDeliveryFailure(j *Job, err error) {
+	_ = fail(j, j.Request.Action+" failed; bounded private diagnostics and output retained: "+err.Error())
+	var unavailable *connectionUnavailable
+	// A normal delivery may retry a positively established pre-dispatch
+	// connection failure. The handoff authorizes just its one attempt.
+	j.Retryable = !j.QualificationHandoff && errors.As(err, &unavailable) && (j.Request.Action == "readiness" || j.Request.Action == "qualify")
+	var source *sourceFailure
+	if j.Request.Action == "qualify" && errors.As(err, &source) {
+		j.Receipt.BrowserFailure = source.browser
+		if !j.QualificationHandoff {
+			j.Failed, j.Outcome, j.Reason = false, "changes_requested", source.Error()
+		}
+	}
+	j.Receipt.Note = j.Reason
 }
 
 func (b *Live) publish(ctx context.Context, j *Job, save func() error) error {

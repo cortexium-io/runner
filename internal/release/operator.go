@@ -91,6 +91,8 @@ type Job struct {
 	Outcome    string  `json:"outcome,omitempty"`
 	Resume     string  `json:"resume,omitempty"`
 	Retryable  bool    `json:"retryable,omitempty"`
+
+	QualificationHandoff bool `json:"qualification_handoff,omitempty"`
 }
 
 // Backend actions must write intent before mutation and reconcile that intent
@@ -106,6 +108,8 @@ type Operator struct {
 	Backend               Backend
 	Delivery              bool
 	PublicationTransition *PublicationTransition
+
+	QualificationTransition *QualificationTransition
 }
 
 type leaseKey struct{}
@@ -205,9 +209,6 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 			if json.Unmarshal(previous, &saved) != nil || !saved.Done || saved.Failed || saved.Request.Project != q.Project || saved.Request.RunID != p.RunID || saved.Request.Action != p.Action || publicReceipt(saved.Receipt, o.Delivery) != p {
 				return out, errors.New("previous receipt is not an accepted operator result")
 			}
-			if !o.acceptsPreviousPolicy(q, p, saved) {
-				return out, errors.New("previous release identity/policy differs")
-			}
 			expectedOutcome := ""
 			if q.Action == "inspect" || q.Action == "inspect-migration" {
 				expectedOutcome = "recovery_required"
@@ -216,6 +217,15 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 				return out, errors.New("previous operation did not authorize this route")
 			}
 			job.Receipt = saved.Receipt
+			if q.Action == "qualify" && p.Policy != o.PolicyHash {
+				if err := o.claimQualificationTransition(q, p, saved); err != nil {
+					return out, err
+				}
+				job.QualificationHandoff = true
+				job.Receipt = sourcePublicationReceipt(saved.Receipt)
+			} else if !o.acceptsPreviousPolicy(q, p, saved) {
+				return out, errors.New("previous release identity/policy differs")
+			}
 			if q.Action == "publish" {
 				if !acceptedSourcePredecessor(saved) || !o.sourceOriginAccepted(saved.Receipt, q.Project) || p.Action == "adopt" && !saved.Request.SourceContinuation {
 					return out, errors.New("publication continuation requires its accepted source adoption")

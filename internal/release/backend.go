@@ -54,6 +54,8 @@ type Config struct {
 	RecoverBeforeMigration bool                   `json:"recover_before_migration,omitempty"`
 	Delivery               *DeliveryConfig        `json:"delivery,omitempty"`
 	PublicationTransition  *PublicationTransition `json:"publication_transition,omitempty"`
+
+	QualificationTransition *QualificationTransition `json:"qualification_transition,omitempty"`
 }
 
 func Load(file string) (*Operator, error) {
@@ -72,6 +74,9 @@ func Load(file string) (*Operator, error) {
 		return nil, errors.New("invalid release policy identities")
 	}
 	if err := c.PublicationTransition.validate(c.Delivery != nil); err != nil {
+		return nil, err
+	}
+	if err := c.QualificationTransition.validate(c.Delivery != nil && c.Delivery.BrowserImage != ""); err != nil {
 		return nil, err
 	}
 	paths := []string{
@@ -105,6 +110,8 @@ func Load(file string) (*Operator, error) {
 		Backend:               &Live{Config: c},
 		Delivery:              c.Delivery != nil,
 		PublicationTransition: c.PublicationTransition,
+
+		QualificationTransition: c.QualificationTransition,
 	}, nil
 }
 
@@ -414,6 +421,18 @@ func (b *Live) Advance(ctx context.Context, j *Job, save func() error) (err erro
 		b = &resolved
 		if j.Request.Action == "adopt" {
 			return b.adopt(ctx, j)
+		}
+		if j.QualificationHandoff && j.Worker == "" {
+			if j.Request.Action != "qualify" {
+				return errors.New("qualification handoff cannot authorize another action")
+			}
+			if err := b.continuedPR(ctx, j, j.Receipt.Head, true); err != nil {
+				var proof *proofFailure
+				if errors.As(err, &proof) {
+					return fail(j, err.Error())
+				}
+				return err
+			}
 		}
 		if j.Request.Action == "publish" || j.Request.Action == "qualify" || j.Request.Action == "readiness" {
 			return b.delivery(ctx, j, save)

@@ -424,9 +424,17 @@ a successful retry.
 
 If an authorized verifier upgrade changes the operator policy, an owner-configured
 `publication_transition` can bind one previous policy hash and exact PR/head/base.
-Only adoption of its authenticated original publication may cross that boundary.
+That grant only supports adoption of its authenticated original publication.
 The new run must qualify under the current policy and obtain fresh approvals;
 old qualification, merge, deployment and recovery receipts gain no exception.
+
+A separate `qualification_transition` can authorize one fresh qualification
+attempt on the same run after a settled browser admission failure. It binds the
+old publication, failed attempt and browser report to the exact owned draft.
+The operator claims the allowance durably before dispatch. A successful
+qualification issues a current-policy receipt, and protected approvals stay
+separate. A failed handoff retains its evidence and stops before another
+qualification or source repair. The adoption grant is independent.
 
 For an investigation with a retained benchmark scaffold, select the complete
 `investigate-retained` process and supply that patch as its `patch` artifact

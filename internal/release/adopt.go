@@ -11,7 +11,7 @@ import (
 // complete qualification/release process for that same still-open PR/head/base.
 func (b *Live) adopt(ctx context.Context, j *Job) error {
 	if j.Request.SourceContinuation {
-		if err := b.continuedPR(ctx, j, j.Receipt.Head); err != nil {
+		if err := b.continuedPR(ctx, j, j.Receipt.Head, false); err != nil {
 			var proof *proofFailure
 			if errors.As(err, &proof) {
 				return fail(j, err.Error())

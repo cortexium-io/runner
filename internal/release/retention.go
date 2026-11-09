@@ -78,6 +78,9 @@ func (b *Live) retainedPackages() ([]retainedPackage, []Job, error) {
 		if j.Request.Action != "qualify" || !j.Done {
 			continue
 		}
+		if j.QualificationHandoff && j.Failed && j.Worker == "" && j.Receipt.Package == "" && j.Receipt.Remote == "" {
+			continue // The exact draft was rejected before qualification owned a worker or package.
+		}
 		root := filepath.Join(b.Config.Delivery.Root, j.Request.RunID, key)
 		if j.Worker != filepath.Join(root, "work.json") || j.Receipt.Package != filepath.Join(root, "output") {
 			return nil, nil, errors.New("retained package is outside its owned attempt")

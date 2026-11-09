@@ -54,7 +54,7 @@ func (b *Live) publicationBranch(ctx context.Context, j *Job) (string, error) {
 	if !validPublicationOrigin(j.Receipt) {
 		return "", &proofFailure{reason: "publication continuation ownership is invalid"}
 	}
-	if err := b.continuedPR(ctx, j, j.Request.Candidate); err != nil {
+	if err := b.continuedPR(ctx, j, j.Request.Candidate, false); err != nil {
 		return "", err
 	}
 	return "codex/runner/" + j.Receipt.PublicationRunID, nil
@@ -62,10 +62,11 @@ func (b *Live) publicationBranch(ctx context.Context, j *Job) (string, error) {
 
 // This read validates the actual owning repository/ref as well as PR/head/base.
 // Neither a task nor a compact public handle chooses a different remote branch.
-func (b *Live) continuedPR(ctx context.Context, j *Job, head string) error {
+func (b *Live) continuedPR(ctx context.Context, j *Job, head string, requireDraft bool) error {
 	var pr struct {
 		State  string
 		Merged bool
+		Draft  bool
 		Head   struct {
 			SHA, Ref string
 			Repo     struct {
@@ -82,7 +83,7 @@ func (b *Live) continuedPR(ctx context.Context, j *Job, head string) error {
 	if err := b.gh(ctx, fmt.Sprintf("repos/%s/pulls/%d", b.Config.Repository, j.Receipt.PR), &pr); err != nil {
 		return err
 	}
-	if !validPublicationOrigin(j.Receipt) || pr.State != "open" || pr.Merged || pr.Head.SHA != head || pr.Head.Ref != "codex/runner/"+j.Receipt.PublicationRunID || pr.Head.Repo.FullName != b.Config.Repository || pr.Base.SHA != j.Request.Source || pr.Base.Ref != b.Config.Branch || pr.Base.Repo.FullName != b.Config.Repository {
+	if !validPublicationOrigin(j.Receipt) || pr.State != "open" || pr.Merged || requireDraft && !pr.Draft || pr.Head.SHA != head || pr.Head.Ref != "codex/runner/"+j.Receipt.PublicationRunID || pr.Head.Repo.FullName != b.Config.Repository || pr.Base.SHA != j.Request.Source || pr.Base.Ref != b.Config.Branch || pr.Base.Repo.FullName != b.Config.Repository {
 		return &proofFailure{reason: "continued publication PR/ref/head/base ownership changed; preserve the original source and PR"}
 	}
 	return nil
