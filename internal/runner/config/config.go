@@ -65,9 +65,6 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 		sort.Strings(s.Files)
 	}()
 	read := func(path string, out any) error {
-		if len(files) >= 128 && !files[path] {
-			return errors.New("configuration exceeds 128 files")
-		}
 		files[path] = true
 		var b []byte
 		var e error

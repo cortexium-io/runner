@@ -85,6 +85,59 @@ func write(t *testing.T, path, text string) {
 	}
 }
 
+func TestLoadsAndWatchesMoreThan128ConfigurationFiles(t *testing.T) {
+	l, dir := fixture(t)
+	baseline, err := l.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectDir := filepath.Join(dir, "projects", "demo")
+	projectPath := filepath.Join(projectDir, "project.yaml")
+	data, err := os.ReadFile(projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var project runner.ProjectFile
+	if err := decode(data, &project); err != nil {
+		t.Fatal(err)
+	}
+	writeJSON := func(path string, value any) {
+		data, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, path, string(data))
+	}
+	const fileCount = 131
+	role := baseline.Projects["demo"].Roles["finish"]
+	for i := len(baseline.Files); i < fileCount; i++ {
+		role.ID = fmt.Sprintf("extra-%03d", i)
+		file := filepath.Join("roles", role.ID+".json")
+		project.Roles[role.ID] = runner.RoleBinding{File: file}
+		writeJSON(filepath.Join(projectDir, file), role)
+	}
+	writeJSON(projectPath, project)
+	loaded, err := l.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Files) != fileCount || loaded.Projects["demo"].Roles[role.ID].ID != role.ID {
+		t.Fatalf("expected %d files and role %s, got %d files", fileCount, role.ID, len(loaded.Files))
+	}
+	role.Purpose += " Updated after registration."
+	writeJSON(filepath.Join(projectDir, project.Roles[role.ID].File), role)
+	if !l.Changed() {
+		t.Fatal("did not detect the change to the added role")
+	}
+	loaded, err = l.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Projects["demo"].Roles[role.ID].Purpose; got != role.Purpose {
+		t.Fatalf("reloaded purpose = %q, want %q", got, role.Purpose)
+	}
+}
+
 func TestInfrastructureRecoveryPolicyIsExplicitAndBounded(t *testing.T) {
 	l, _ := fixture(t)
 	if _, err := l.Load(); err != nil {
