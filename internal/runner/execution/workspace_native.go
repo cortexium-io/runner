@@ -196,11 +196,11 @@ func (c *Codex) workspaceReadiness(ctx context.Context, peer codexPeer, j native
 	if e = c.disk.Write(dummy, []byte("dummy"), 128); e != nil {
 		return e
 	}
-	defer c.disk.Remove(dummy)
+	defer c.disk.RemoveFile(dummy)
 	if e = c.disk.Write(artifactDummy, []byte("dummy"), 128); e != nil {
 		return e
 	}
-	defer c.disk.Remove(artifactDummy)
+	defer c.disk.RemoveFile(artifactDummy)
 	env["RUNNER_ARTIFACT_STORE_PROBE"] = filepath.Join(c.disk.Root, filepath.FromSlash(artifactDummy))
 	inputs, e := stagedInputDirectory(j.Workspace.WorkDir, j.Assignment.AttemptID, true)
 	if e != nil {

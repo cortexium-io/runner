@@ -188,6 +188,33 @@ func (d *Disk) Read(name string, limit Bytes) ([]byte, error) {
 	}
 	return os.ReadFile(p)
 }
+
+// RemoveFile releases a managed regular file. A different file type at the
+// reserved path is not owned by the writer and must be preserved.
+func (d *Disk) RemoveFile(name string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	p, err := d.path(name)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("managed target is not a regular file")
+	}
+	if err = os.Remove(p); err != nil {
+		return err
+	}
+	d.used -= info.Size()
+	return nil
+}
+
 func (d *Disk) Remove(name string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

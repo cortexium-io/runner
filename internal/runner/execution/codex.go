@@ -1093,7 +1093,7 @@ func (c *Codex) Release(ctx context.Context, id string) error {
 	}
 	if j.Workspace != nil {
 		private, artifact := workspaceProbeFiles(id)
-		if err = errors.Join(c.disk.Remove(private), c.disk.Remove(artifact)); err != nil {
+		if err = errors.Join(c.disk.RemoveFile(private), c.disk.RemoveFile(artifact)); err != nil {
 			return err
 		}
 	}
