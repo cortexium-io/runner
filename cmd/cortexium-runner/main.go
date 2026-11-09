@@ -36,7 +36,7 @@ func run(ctx context.Context, args []string) error {
 		return execution.RunCommandWorker(ctx, args[1])
 	}
 	if len(args) == 0 {
-		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|recover-corrections|recover-collection|recover-frontend-check|decide|wait|config-set")
+		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|recover-corrections|recover-collection|recover-frontend-check|recover-frontend-timeouts|decide|wait|config-set")
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -59,6 +59,8 @@ func run(ctx context.Context, args []string) error {
 	patchSHA256 := fs.String("patch-sha256", "", "approved retained patch digest for frontend check recovery")
 	helperSHA256 := fs.String("helper-sha256", "", "qualified frontend check helper digest")
 	publicationHead := fs.String("publication-head", "", "exact retained draft publication head for frontend check recovery")
+	checkAttemptID := fs.String("check-attempt", "", "exact prior check attempt for frontend timeout diagnosis")
+	checkSHA256 := fs.String("check-sha256", "", "exact prior check report digest for frontend timeout diagnosis")
 	maxUses := fs.Int("max-uses", 0, "authorized total source-correction uses; recover-corrections requires 3")
 	preserveSource := fs.Bool("preserve-source", false, "preserve a verified owned partial checkout as recovery evidence before restoring its saved candidate")
 	profile := fs.String("profile", "", "named profile for authorized retry")
@@ -84,6 +86,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	if command == "recover-frontend-check" && (*runID == "" || *attemptID == "" || *revision < 1 || *patchSHA256 == "" || *helperSHA256 == "" || *publicationHead == "" || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
 		return errors.New("recover-frontend-check requires --run, --attempt, --revision, --patch-sha256, --helper-sha256 and --publication-head; it grants no retry or profile override")
+	}
+	if command == "recover-frontend-timeouts" && (*runID == "" || *attemptID == "" || *revision < 1 || *patchSHA256 == "" || *helperSHA256 == "" || *publicationHead == "" || *checkAttemptID == "" || *checkSHA256 == "" || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
+		return errors.New("recover-frontend-timeouts requires --run, --attempt, --revision, --patch-sha256, --helper-sha256, --publication-head, --check-attempt and --check-sha256; it grants no retry or profile override")
 	}
 	root, e := filepath.Abs(*data)
 	if e != nil {
@@ -166,13 +171,17 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
 		method = "runner_recover_collection"
 		a = runner.RecoverCollectionRequest{RequestID: *requestID, RunID: *runID, AttemptID: *attemptID}
-	case "recover-frontend-check":
+	case "recover-frontend-check", "recover-frontend-timeouts":
 		if *requestID == "" {
 			*requestID = rand.Text()
 		}
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
-		method = "runner_recover_frontend_check"
-		a = runner.RecoverFrontendCheckRequest{RequestID: *requestID, RunID: *runID, AttemptID: *attemptID, Revision: *revision, PatchSHA256: *patchSHA256, HelperSHA256: *helperSHA256, PublicationHead: *publicationHead}
+		request := runner.RecoverFrontendCheckRequest{RequestID: *requestID, RunID: *runID, AttemptID: *attemptID, Revision: *revision, PatchSHA256: *patchSHA256, HelperSHA256: *helperSHA256, PublicationHead: *publicationHead}
+		method, a = "runner_recover_frontend_check", request
+		if command == "recover-frontend-timeouts" {
+			method = "runner_recover_frontend_timeouts"
+			a = runner.RecoverFrontendTimeoutsRequest{RecoverFrontendCheckRequest: request, CheckAttemptID: *checkAttemptID, CheckSHA256: *checkSHA256}
+		}
 	case "wait":
 		after := int64(0)
 		for {

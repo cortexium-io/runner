@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -736,6 +737,27 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 	if recovery := r.FrontendCheckRecovery; recovery != nil && recovery.CheckStep == step.ID && recovery.CheckVisit == r.Visit {
 		assignment.FrontendCheckPins = &FrontendCheckPins{HelperSHA256: recovery.HelperSHA256, PatchSHA256: recovery.PatchSHA256}
 	}
+	if recovery := r.FrontendTimeoutRecovery; recovery != nil {
+		if recovery.CheckStep == step.ID && recovery.CheckVisit == r.Visit {
+			assignment.FrontendCheckPins = &FrontendCheckPins{
+				HelperSHA256: recovery.HelperSHA256, PatchSHA256: recovery.PatchSHA256, DiagnoseTimeouts: true,
+			}
+		}
+		if recovery.RepairVisit > 0 && recovery.RepairVisit == r.Visit && step.ID == "owner" {
+			id := assignment.Inputs["checks"].ArtifactID
+			if id == "" || id != recovery.RepairEvidenceID {
+				return Assignment{}, errors.New("frontend timeout repair lacks its verified check artifact")
+			}
+			data, err := c.disk.Read("artifacts/"+id, c.disk.Policy.MaxArtifact)
+			if err != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != recovery.RepairEvidenceSHA {
+				return Assignment{}, errors.New("frontend timeout repair evidence changed before dispatch")
+			}
+			assignment.Task += " Use the frontend_timeout_diagnostics in the current checks artifact to localize the timed-out work. Preserve the five-second test limit, selectors, assertions and coverage. Prefer a source or test-fixture correction supported by the measured evidence. If the evidence cannot support a safe correction, report the specific blocker."
+		}
+		if step.ID == "review" {
+			assignment.Task += " Verify that the frontend repair preserves the effective five-second test limit and original coverage, including any tests reorganized during diagnosis. Reject timeout overrides, skipped checks, or reduced assertions or board coverage."
+		}
+	}
 	assignment.TaskSource, e = c.taskAssignment(r, step)
 	return assignment, e
 }
@@ -999,6 +1021,7 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 			saved := c.runs[runID]
 			r.Visit, r.StepInputs, r.RouteUses, r.Decision = saved.Visit, saved.StepInputs, saved.RouteUses, saved.Decision
 			r.VisitExtraAttempts = saved.VisitExtraAttempts
+			r.FrontendTimeoutRecovery = saved.FrontendTimeoutRecovery
 			for i := range saved.Attempts {
 				r.Attempts[i].Superseded = saved.Attempts[i].Superseded
 			}
@@ -1082,6 +1105,9 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 	if a.TimedOut {
 		r.Status = "Failed"
 		r.Reason = "attempt deadline reached"
+		return arts
+	}
+	if c.routeFrontendTimeoutDiagnostic(r, a) {
 		return arts
 	}
 	if end.Kind == "failed" && end.Retryable {

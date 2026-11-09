@@ -74,6 +74,18 @@ or release approvals. A fresh actionable result uses the existing correction
 routes. Incomplete evidence stops the run. Restricted intake must not expose or
 call this owner action.
 
+An explicitly approved `runner_recover_frontend_timeouts` action can diagnose
+conclusive five-second test timeouts after that first recovery. It also binds
+the immediately preceding failed check attempt and report digest. It queues
+the original full check on the same retained tree. When that check times out,
+the helper samples isolated cases within the same attempt and deadline. An
+isolated pass is diagnostic evidence. Acceptance still requires the full
+uninstrumented check. Complete diagnostic evidence can authorize one repair
+visit and a fresh check through the existing workflow. The run must have
+room for both visits and the full protected release reserve before diagnosis.
+The aggregate cap, ordinary correction limits, selectors and release
+approvals are preserved. Restricted intake must not expose or call this action.
+
 Preserved checkouts live under `STATE/forensics/RUN/ATTEMPT/source`; their sibling
 manifest binds the captured patch hash and ownership identity. These files and
 links count toward the existing storage limit, are never followed as candidate

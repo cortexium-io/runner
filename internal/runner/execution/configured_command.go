@@ -258,6 +258,9 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 	for i, arg := range spec.Args {
 		args[i] = commandValue(arg, *job, env)
 	}
+	if pins := a.FrontendCheckPins; pins != nil && pins.DiagnoseTimeouts {
+		args = append(args, "--diagnose-timeouts")
+	}
 	baseEnv := runner.Clone(env)
 	for key, value := range spec.Env {
 		env[key] = commandValue(value, *job, baseEnv)

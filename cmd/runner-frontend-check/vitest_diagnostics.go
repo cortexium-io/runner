@@ -53,6 +53,7 @@ type junitFailure struct {
 
 type vitestDiagnosticResolver struct {
 	path       string
+	root       *os.Root
 	limit      int
 	loaded     bool
 	err        error
@@ -147,7 +148,7 @@ func (r *vitestDiagnosticResolver) resolve(file string, assertions []vitestAsser
 }
 
 func (r *vitestDiagnosticResolver) load() error {
-	data, err := readJUnitEvidence(r.path, r.limit)
+	data, err := readDiagnosticEvidence(r.root, r.path, r.limit, "JUnit diagnostic report")
 	if err != nil {
 		return err
 	}
@@ -178,27 +179,31 @@ func (r *vitestDiagnosticResolver) load() error {
 	return nil
 }
 
-func readJUnitEvidence(path string, limit int) ([]byte, error) {
-	info, err := os.Lstat(path)
+func readDiagnosticEvidence(root *os.Root, path string, limit int, label string) ([]byte, error) {
+	lstat, open := os.Lstat, os.Open
+	if root != nil {
+		lstat, open = root.Lstat, root.Open
+	}
+	info, err := lstat(path)
 	if err != nil || !info.Mode().IsRegular() {
-		return nil, errors.New("regular JUnit diagnostic report is missing")
+		return nil, errors.New("regular " + label + " is missing")
 	}
 	if limit <= 0 || info.Size() > int64(limit) {
-		return nil, errors.New("JUnit diagnostic report exceeds remaining frontend evidence capacity")
+		return nil, errors.New(label + " exceeds remaining frontend evidence capacity")
 	}
-	f, err := os.Open(path)
+	f, err := open(path)
 	if err != nil {
-		return nil, errors.New("JUnit diagnostic report cannot be opened")
+		return nil, errors.New(label + " cannot be opened")
 	}
 	defer f.Close()
 	opened, err := f.Stat()
 	if err != nil || !os.SameFile(info, opened) {
-		return nil, errors.New("JUnit diagnostic report identity changed")
+		return nil, errors.New(label + " identity changed")
 	}
 	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
-	after, statErr := os.Lstat(path)
+	after, statErr := lstat(path)
 	if err != nil || len(data) > limit || statErr != nil || !after.Mode().IsRegular() || !os.SameFile(info, after) || after.Size() != int64(len(data)) || !after.ModTime().Equal(info.ModTime()) {
-		return nil, errors.New("JUnit diagnostic report is unreadable, changed or oversized")
+		return nil, errors.New(label + " is unreadable, changed or oversized")
 	}
 	return data, nil
 }

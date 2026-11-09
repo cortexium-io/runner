@@ -126,7 +126,7 @@ func TestFrontendRecoveryDispatchUsesTheStagedQualifiedHelper(t *testing.T) {
 		return c.disk.Read("artifacts/"+id, c.disk.Policy.MaxArtifact)
 	}
 	helper := filepath.Join(t.TempDir(), "runner-frontend-check")
-	qualified := []byte("#!/bin/sh\n/bin/cat \"$1\"\n")
+	qualified := []byte("#!/bin/sh\n[ \"$2\" = \"--diagnose-timeouts\" ] || exit 8\n/bin/cat \"$1\"\n")
 	if err := os.WriteFile(helper, qualified, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestFrontendRecoveryDispatchUsesTheStagedQualifiedHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a.FrontendCheckPins = &runner.FrontendCheckPins{PatchSHA256: captureDigest(patchBytes), HelperSHA256: captureDigest(qualified)}
+	a.FrontendCheckPins = &runner.FrontendCheckPins{PatchSHA256: captureDigest(patchBytes), HelperSHA256: captureDigest(qualified), DiagnoseTimeouts: true}
 	a.Inputs = map[string]runner.Value{"patch": {ArtifactID: patch.PatchID}}
 	a.Setup.Profile.Command = &runner.Command{Args: []string{helper, "{workspace}/retained.txt"}}
 	a.Deadline = time.Now().Add(15 * time.Second)

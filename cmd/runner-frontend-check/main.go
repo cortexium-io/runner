@@ -21,31 +21,35 @@ import (
 	"unicode/utf8"
 )
 
-type options struct{ node, modules, source, scratch, tests string }
+type options struct {
+	node, modules, source, scratch, tests string
+	diagnoseTimeouts                      bool
+}
 
 var errArtifactLimit = errors.New("frontend artifact exceeds its existing 16 MiB limit")
 
 const evidenceLimit = 8 << 20
 
 type proof struct {
-	Schema            int                `json:"schema"`
-	Status            string             `json:"status"`
-	Tests             []string           `json:"tests"`
-	Executed          int                `json:"executed"`
-	Failed            int                `json:"failed"`
-	Skipped           int                `json:"skipped"`
-	Reason            string             `json:"reason,omitempty"`
-	Output            string             `json:"output,omitempty"`
-	Frontend          string             `json:"frontend,omitempty"`
-	CanonicalFrontend string             `json:"canonical_frontend,omitempty"`
-	ExitCode          *int               `json:"exit_code,omitempty"`
-	ReportBytes       int                `json:"report_bytes,omitempty"`
-	ReportSHA256      string             `json:"report_sha256,omitempty"`
-	Files             []fileProof        `json:"files,omitempty"`
-	Vitest            json.RawMessage    `json:"vitest,omitempty"`
-	VitestIncomplete  bool               `json:"vitest_incomplete,omitempty"`
-	VitestDiagnostics *vitestDiagnostics `json:"vitest_diagnostics,omitempty"`
-	Typecheck         *typecheckProof    `json:"typecheck,omitempty"`
+	Schema             int                         `json:"schema"`
+	Status             string                      `json:"status"`
+	Tests              []string                    `json:"tests"`
+	Executed           int                         `json:"executed"`
+	Failed             int                         `json:"failed"`
+	Skipped            int                         `json:"skipped"`
+	Reason             string                      `json:"reason,omitempty"`
+	Output             string                      `json:"output,omitempty"`
+	Frontend           string                      `json:"frontend,omitempty"`
+	CanonicalFrontend  string                      `json:"canonical_frontend,omitempty"`
+	ExitCode           *int                        `json:"exit_code,omitempty"`
+	ReportBytes        int                         `json:"report_bytes,omitempty"`
+	ReportSHA256       string                      `json:"report_sha256,omitempty"`
+	Files              []fileProof                 `json:"files,omitempty"`
+	Vitest             json.RawMessage             `json:"vitest,omitempty"`
+	VitestIncomplete   bool                        `json:"vitest_incomplete,omitempty"`
+	VitestDiagnostics  *vitestDiagnostics          `json:"vitest_diagnostics,omitempty"`
+	Typecheck          *typecheckProof             `json:"typecheck,omitempty"`
+	TimeoutDiagnostics *frontendTimeoutDiagnostics `json:"frontend_timeout_diagnostics,omitempty"`
 }
 
 type typecheckProof struct {
@@ -119,6 +123,7 @@ func main() {
 	flag.StringVar(&o.source, "source", "", "read-only candidate source")
 	flag.StringVar(&o.scratch, "scratch", "", "owned scratch directory")
 	flag.StringVar(&o.tests, "tests", "", "JSON array of explicit frontend-relative test files")
+	flag.BoolVar(&o.diagnoseTimeouts, "diagnose-timeouts", false, "sample confirmed five-second timeouts in isolated cases after the full check")
 	flag.Parse()
 	if err := run(o); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -164,7 +169,20 @@ func runContext(ctx context.Context, o options) error {
 	finish := func(outcome, reason string) error {
 		p.Status = map[string]string{"ready": "passed", "changes_requested": "failed", "blocked": "blocked"}[outcome]
 		p.Reason = clip(reason, 1000)
-		if err := writeJSON(filepath.Join(o.scratch, "frontend-check.json"), p); err != nil {
+		path := filepath.Join(o.scratch, "frontend-check.json")
+		err := writeJSON(path, p)
+		if errors.Is(err, errArtifactLimit) && p.TimeoutDiagnostics != nil {
+			outcome, p.Status = "blocked", "blocked"
+			p.Reason = "timeout diagnostic summary exceeded the existing 16 MiB artifact limit"
+			p.TimeoutDiagnostics = &frontendTimeoutDiagnostics{
+				Schema: 1,
+				Status: "blocked",
+				Method: timeoutDiagnosticMethod,
+				Reason: p.Reason,
+			}
+			err = writeJSON(path, p)
+		}
+		if err != nil {
 			if !errors.Is(err, errArtifactLimit) {
 				return err
 			}
@@ -172,10 +190,11 @@ func runContext(ctx context.Context, o options) error {
 			p.Reason = "complete frontend evidence could not fit the existing 16 MiB artifact limit; raw evidence was not retained"
 			p.Vitest = nil
 			p.VitestDiagnostics = nil
+			p.TimeoutDiagnostics = nil
 			if p.Typecheck != nil {
 				p.Typecheck.Output, p.Typecheck.Diagnostics, p.Typecheck.Complete = "", nil, false
 			}
-			if err = writeJSON(filepath.Join(o.scratch, "frontend-check.json"), p); err != nil {
+			if err = writeJSON(path, p); err != nil {
 				return err
 			}
 		}
@@ -251,14 +270,8 @@ func runContext(ctx context.Context, o options) error {
 			return finish("blocked", "frontend report output already exists or cannot be identified; refusing stale evidence")
 		}
 	}
-	args := append([]string{
-		filepath.Join(deps, "vitest", "vitest.mjs"),
-		"run",
-		"--reporter=json",
-		"--reporter=junit",
-		"--outputFile.json=" + report,
-		"--outputFile.junit=" + junit,
-	}, tests...)
+	vitest := filepath.Join(deps, "vitest", "vitest.mjs")
+	args := append(vitestArguments(vitest, report, junit), tests...)
 	command := exec.CommandContext(ctx, o.node, args...)
 	command.Dir = frontend
 	command.WaitDelay = 2 * time.Second
@@ -309,6 +322,12 @@ func runContext(ctx context.Context, o options) error {
 		return finish("blocked", executionProblem)
 	}
 	outcome, reason := evaluate(&p, code, junit, remaining-len(data))
+	if o.diagnoseTimeouts && outcome == "changes_requested" && p.VitestDiagnostics != nil && p.Typecheck.Complete && p.Typecheck.Status == "passed" {
+		p.TimeoutDiagnostics = diagnoseFrontendTimeouts(ctx, o, &p, vitest)
+		if p.TimeoutDiagnostics != nil && p.TimeoutDiagnostics.Status != "complete" {
+			return finish("blocked", p.TimeoutDiagnostics.Reason)
+		}
+	}
 	if outcome != "blocked" && p.Typecheck.Status == "failed" {
 		if outcome == "changes_requested" {
 			return finish("changes_requested", p.Typecheck.Reason+"; "+reason)
@@ -316,6 +335,17 @@ func runContext(ctx context.Context, o options) error {
 		return finish("changes_requested", p.Typecheck.Reason)
 	}
 	return finish(outcome, reason)
+}
+
+func vitestArguments(vitest, report, junit string) []string {
+	return []string{
+		vitest,
+		"run",
+		"--reporter=json",
+		"--reporter=junit",
+		"--outputFile.json=" + report,
+		"--outputFile.junit=" + junit,
+	}
 }
 
 func checkTypes(ctx context.Context, o options, frontend, canonicalFrontend string) *typecheckProof {
@@ -485,16 +515,24 @@ func (b *completeOutput) ReadFrom(r io.Reader) (int64, error) {
 	return io.Copy(struct{ io.Writer }{b}, r)
 }
 
-func evaluate(p *proof, exitCode int, junitPath string, remainingEvidence int) (string, string) {
+func parseVitestReport(data []byte) (vitestReport, error) {
 	var result vitestReport
 	var fields map[string]json.RawMessage
-	if json.Unmarshal(p.Vitest, &result) != nil || json.Unmarshal(p.Vitest, &fields) != nil {
-		return "blocked", "frontend report schema is invalid; test completion is not established"
+	if json.Unmarshal(data, &result) != nil || json.Unmarshal(data, &fields) != nil {
+		return result, errors.New("frontend report schema is invalid; test completion is not established")
 	}
 	for _, key := range []string{"success", "numTotalTests", "numPassedTests", "numFailedTests", "numPendingTests", "numTodoTests", "testResults"} {
 		if raw, ok := fields[key]; !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-			return "blocked", "frontend report is missing required field: " + key
+			return result, errors.New("frontend report is missing required field: " + key)
 		}
+	}
+	return result, nil
+}
+
+func evaluate(p *proof, exitCode int, junitPath string, remainingEvidence int) (string, string) {
+	result, err := parseVitestReport(p.Vitest)
+	if err != nil {
+		return "blocked", err.Error()
 	}
 	p.Executed, p.Failed, p.Skipped = result.Passed+result.Failed, result.Failed, result.Pending+result.Todo
 	if result.Total < 0 || result.Passed < 0 || result.Failed < 0 || result.Pending < 0 || result.Todo < 0 || len(result.Results) > 64 {

@@ -91,6 +91,10 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		r, e := c.RecoverFrontendCheck(in)
 		return summary(r), e
 	})
+	add(s, "runner_recover_frontend_timeouts", "Owner-authorized diagnosis of exact saved frontend timeouts after a settled blocked owner. Runs the existing full check and collects bounded diagnostic evidence at the same test limit. Complete evidence can authorize one repair within the frozen cap. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverFrontendTimeoutsRequest) (any, error) {
+		r, e := c.RecoverFrontendTimeouts(in)
+		return summary(r), e
+	})
 	add(s, "runner_decide", "Approve or reject one saved decision using its exact decision_id. Does not grant extra attempts or approve a different candidate.", func(ctx context.Context, in runner.DecisionRequest) (any, error) {
 		r, e := c.Decide(in)
 		return summary(r), e
