@@ -57,6 +57,7 @@ type Config struct {
 
 	QualificationTransition       *QualificationTransition       `json:"qualification_transition,omitempty"`
 	RetainedPublicationTransition *RetainedPublicationTransition `json:"retained_publication_transition,omitempty"`
+	RetainedPublicationFollowup   *RetainedPublicationFollowup   `json:"retained_publication_followup,omitempty"`
 }
 
 func Load(file string) (*Operator, error) {
@@ -81,6 +82,9 @@ func Load(file string) (*Operator, error) {
 		return nil, err
 	}
 	if err := c.RetainedPublicationTransition.validate(c.Delivery != nil); err != nil {
+		return nil, err
+	}
+	if err := c.RetainedPublicationFollowup.validate(c.Delivery != nil, c.RetainedPublicationTransition); err != nil {
 		return nil, err
 	}
 	if c.PublicationTransition != nil && c.RetainedPublicationTransition != nil &&
@@ -121,6 +125,7 @@ func Load(file string) (*Operator, error) {
 
 		QualificationTransition:       c.QualificationTransition,
 		RetainedPublicationTransition: c.RetainedPublicationTransition,
+		RetainedPublicationFollowup:   c.RetainedPublicationFollowup,
 	}, nil
 }
 

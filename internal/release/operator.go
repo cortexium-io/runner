@@ -112,6 +112,7 @@ type Operator struct {
 
 	QualificationTransition       *QualificationTransition
 	RetainedPublicationTransition *RetainedPublicationTransition
+	RetainedPublicationFollowup   *RetainedPublicationFollowup
 }
 
 type leaseKey struct{}
@@ -219,6 +220,7 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 				return out, errors.New("previous operation did not authorize this route")
 			}
 			job.Receipt = saved.Receipt
+			var followup *RetainedPublicationFollowup
 			if q.Action == "qualify" && p.Policy != o.PolicyHash {
 				if err := o.claimQualificationTransition(q, p, saved); err != nil {
 					return out, err
@@ -228,6 +230,10 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 			} else if !o.acceptsPreviousPolicy(q, p, saved) {
 				if !o.RetainedPublicationTransition.matches(q, p, saved, o.Delivery) {
 					return out, errors.New("previous release identity/policy differs")
+				}
+				followup = o.RetainedPublicationFollowup
+				if err := followup.validate(o.Delivery, o.RetainedPublicationTransition); err != nil {
+					return out, err
 				}
 				job.RetainedPublicationHandoff = true
 			}
@@ -249,10 +255,16 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 					return out, errors.New("accepted publication has no valid source ownership")
 				}
 				if job.RetainedPublicationHandoff {
-					file := filepath.Join(o.Directory, "retained-publication-"+p.Key+".claim")
-					want := transitionClaim{Key: q.Key, Policy: o.PolicyHash, RunID: q.RunID}
-					if err := claimTransition(file, want); err != nil {
-						return out, fmt.Errorf("retained publication transition: %w", err)
+					if followup != nil {
+						if err := followup.claim(o.Directory, q, o.PolicyHash); err != nil {
+							return out, err
+						}
+					} else {
+						file := filepath.Join(o.Directory, "retained-publication-"+p.Key+".claim")
+						want := transitionClaim{Key: q.Key, Policy: o.PolicyHash, RunID: q.RunID}
+						if err := claimTransition(file, want); err != nil {
+							return out, fmt.Errorf("retained publication transition: %w", err)
+						}
 					}
 				}
 			}

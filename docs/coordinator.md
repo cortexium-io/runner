@@ -168,6 +168,13 @@ Pass the returned public receipt JSON unchanged. Do not rebuild or enrich that
 handle from private journal metadata; strict authentication compares it with
 the accepted public output.
 
+`deliver-retained-catalogue` uses that same source adoption for a reviewed
+draft with a scoped change to New puzzle availability. It runs separate Go and
+Vue checks and supplies both complete receipts to independent review. It has
+28 attempts and uses the same publication, native and browser qualification,
+and protected release steps. The catalogue change needs direct regressions for
+reopening and importing previously issued puzzles outside New.
+
 Planned investigations retain the first complete candidate measurement as a
 separate artifact before entering the combined correction owner. The fixed copy
 step is anchored before that owner so later correction loops cannot supersede
@@ -446,6 +453,11 @@ adoption of an owned draft. It binds the previous policy and exact PR, head,
 base, run and publication key. The operator durably claims the grant for the
 first new run and attempt. The continuation still needs fresh source checks,
 review, qualification and protected approvals.
+
+An explicit `retained_publication_followup` can grant one more adoption of the
+same exact draft when the first claim matches its configured run, attempt and
+policy. The new claim is separate. It leaves the first claim, prior journals
+and other PR grants intact.
 
 A separate `qualification_transition` can authorize one fresh qualification
 attempt on the same run after a settled browser admission failure. It binds the

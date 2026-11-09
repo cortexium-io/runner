@@ -1,0 +1,25 @@
+{
+  "id": "catalogue-owner",
+  "purpose": "Implement the authorized Go and Vue New catalogue change on the adopted source.",
+  "inputs": {
+    "request": "text",
+    "frontend_tests": "text",
+    "frontend_check": "text",
+    "check": "text",
+    "review": "text",
+    "qualification": "json"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Apply the original scoped request to Runner's adopted retained candidate. Follow AGENTS.md and docs/testing.md. Remove 25×25 Nonogram only from New availability and creation, including central /api/games/choices and /api/games/next and the legacy /api/games/nonogram catalogue and creation routes. Preserve 20×20 and unrelated options, previously issued 25×25 identities, direct links, reopen, saves and imports. Preserve reviewed copy, mobile and desktop behavior. Use meaningful Go regressions within the selected scope and focused TypeScript/Vue regressions within frontend_tests, including the mobile New setup. Keep generated ownership, dependencies, deadlines and acceptance fixed. Blank initial check/review feedback or an empty qualification receipt means those steps have not run. Use actual correction feedback as it becomes available. Runner owns checks, review, publication and qualification. Do not run checks, use Git, launch agents or perform external work. Return ready for a runnable source handoff, or blocked with the concrete missing proof or decision. Keep summary at most 240 characters."
+  }
+}

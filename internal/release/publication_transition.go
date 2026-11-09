@@ -1,6 +1,7 @@
 package release
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -77,6 +78,57 @@ func (t *RetainedPublicationTransition) matches(q Request, previous Receipt, sav
 		previous.RunID == t.PreviousRunID && previous.Key == t.PreviousKey && previous.Policy == t.PreviousPolicy &&
 		q.RunID != previous.RunID && q.Key != previous.Key && q.Candidate == "" && len(q.Retry) == 0 && len(q.Recovery) == 0 &&
 		t.matchesPublication(q, previous, saved)
+}
+
+// RetainedPublicationFollowup permits one fresh adoption of the same publication
+// after its original retained transition was consumed by the named attempt.
+type RetainedPublicationFollowup struct {
+	RetainedPublicationTransition
+	ConsumedRunID  string `json:"consumed_run_id"`
+	ConsumedKey    string `json:"consumed_key"`
+	ConsumedPolicy string `json:"consumed_policy_sha256"`
+}
+
+func (f *RetainedPublicationFollowup) validate(delivery bool, original *RetainedPublicationTransition) error {
+	if f == nil {
+		return nil
+	}
+	if err := f.RetainedPublicationTransition.validate(delivery); err != nil {
+		return err
+	}
+	if original == nil || *original != f.RetainedPublicationTransition {
+		return errors.New("retained publication follow-up must match the original transition")
+	}
+	if !safeID.MatchString(f.ConsumedRunID) || !safeID.MatchString(f.ConsumedKey) ||
+		f.ConsumedRunID == f.PreviousRunID || f.ConsumedKey == f.PreviousKey ||
+		!policyDigest.MatchString(f.ConsumedPolicy) || f.ConsumedPolicy == f.PreviousPolicy {
+		return errors.New("retained publication follow-up requires the exact consumed run, attempt and policy")
+	}
+	return nil
+}
+
+func (f *RetainedPublicationFollowup) claim(directory string, q Request, policy string) error {
+	if q.RunID == f.ConsumedRunID || q.Key == f.ConsumedKey {
+		return errors.New("retained publication follow-up requires a fresh run and attempt")
+	}
+	prior := filepath.Join(directory, "retained-publication-"+f.PreviousKey+".claim")
+	want, err := json.Marshal(transitionClaim{Key: f.ConsumedKey, Policy: f.ConsumedPolicy, RunID: f.ConsumedRunID})
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(prior)
+	if err != nil || !info.Mode().IsRegular() {
+		return errors.New("retained publication follow-up needs the exact original consumed claim")
+	}
+	data, err := readFile(prior, 1024)
+	if err != nil || !bytes.Equal(data, want) {
+		return errors.New("retained publication follow-up needs the exact original consumed claim")
+	}
+	file := filepath.Join(directory, "retained-publication-followup-"+f.PreviousKey+".claim")
+	if err := claimTransition(file, transitionClaim{Key: q.Key, Policy: policy, RunID: q.RunID}); err != nil {
+		return fmt.Errorf("retained publication follow-up: %w", err)
+	}
+	return nil
 }
 
 // QualificationTransition grants one fresh qualification of a previously
