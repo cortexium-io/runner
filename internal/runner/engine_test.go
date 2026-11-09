@@ -107,7 +107,11 @@ func begin(t *testing.T, c *runner.Core, key, project string) runner.Run {
 }
 func await(t *testing.T, c *runner.Core, id string, predicate func(runner.Run) bool) runner.Run {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	return awaitWithin(t, c, id, 4*time.Second, predicate)
+}
+func awaitWithin(t *testing.T, c *runner.Core, id string, timeout time.Duration, predicate func(runner.Run) bool) runner.Run {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 	for {
 		r, e := c.Get(id)

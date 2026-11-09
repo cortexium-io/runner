@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
@@ -100,7 +101,9 @@ func TestWorkflowCorrectionsMeasurementsAndApprovalResume(t *testing.T) {
 	e := &workflowExecutor{counts: map[string]int{}, outcomes: map[string]string{}}
 	r := openRig(t, dir, s, func(backend runner.Executor) runner.Executor { e.Executor = backend; return e })
 	started := begin(t, r.core, "full-workflow", "demo")
-	waiting := await(t, r.core, started.ID, func(r runner.Run) bool { return r.Decision != nil })
+	// The complete correction journey commits many real SQLite transitions
+	// before the approval gate. Give its test observer time under race CI load.
+	waiting := awaitWithin(t, r.core, started.ID, 12*time.Second, func(r runner.Run) bool { return r.Decision != nil })
 	if waiting.Status != "Waiting" || waiting.Active() || waiting.RouteUses["measure/continue"] != 1 || waiting.RouteUses["verify/changes_requested"] != 1 || waiting.RouteUses["review/changes_requested"] != 1 {
 		t.Fatalf("lost routing/allowances: %+v", waiting)
 	}
