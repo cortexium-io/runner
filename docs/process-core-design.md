@@ -116,11 +116,20 @@ The installed operator `7baadb9` now exports its readiness probe to the engine
 image store. The owner approved a replacement capped at the remaining 62
 attempts. Run `run_KCOXCSSIC7L75PVJDZUZR7EBQJ` passed readiness and the frontend
 baseline, then stopped its card group after a native permission probe failed.
-It used nineteen attempts. Runner retained two accepted card candidates and
-is still reconciling source capture for the interrupted Shikaku attempt. The
-parallel permission probe fix awaits safe installation. Full native and browser
-qualification is required for switching the default from `deliver`. Merge,
-production and restoration retain separate owner decisions.
+It used nineteen attempts. After the checkpointed Core `b52ccc5` upgrade, Runner
+recovered and registered the interrupted Shikaku patch against its original
+attempt. It released the attempt on a configured retry, preserved the two accepted
+card pins, and recorded the original Calcudoku failure on the parent. See the
+[recovery verification](architecture.md#stopped-source-recovery-9-november-2026).
+
+The two mobile runs used 21 of the approved 64 attempts. The remaining 43 would
+cover a four-card plan's 35-attempt minimum, including the reserved release tail,
+with eight attempts available for corrections. Repeating the eight-card plan
+would require at least 47. The stopped family's pins remain internal source
+evidence. The configured intake for a fresh retained run starts from the
+authenticated PR #337 source. Full native and browser qualification is required
+for switching the default from `deliver`. Merge, production and restoration
+retain separate owner decisions.
 
 Closure requires recorded evidence for all four packages. A new Runner defect
 reopens only its affected proof. A genuine product or prerequisite blocker remains

@@ -504,14 +504,36 @@ second probe's file. The old code reproduces the incident's private-state panic
 when the dummy is missing. The original panic did not record the filesystem
 error. Commit `a36eddb` isolates fixtures by attempt, preserves unexpected file
 types during cleanup, and continues to require permission denial. A deterministic
-overlap test and a model-free macOS permission probe cover the repair. The Core
-update remains gated on safe settlement of the live run.
+overlap test and a model-free macOS permission probe cover the repair. Core
+`b52ccc5` includes it.
 
-The Shikaku native turn reported a confirmed stop. Source capture saved its
-manifest, but subsequent calls have timed out before committing the patch. The
-group remains unsettled and the product qualification did not run. The default
-remains `deliver` pending full qualification. Merge, production and restoration
-retain separate owner decisions.
+## Stopped source recovery, 9 November 2026
+
+The stopped Shikaku turn had a confirmed native end and a saved 39-file capture
+manifest. Capture kept timing out against the original work deadline. Runner now
+gives it a five-minute cleanup deadline after the native stop. Short observations
+join the same worker, which keeps running through repeated stop requests. Group
+cancellation preserves child reconciliation and waits for release before
+committing the original failure. A cancelled Core stops dispatching to executors.
+
+A model-free two-card journey reproduced the old failure and verified recovery
+through a Core restart with no new attempts. The shutdown regression covers an
+interrupted acknowledgement and a dispatch queued during shutdown. Source
+`b52ccc5` passed the full Go 1.26.9 race suite, vet and
+[macOS/Linux CI](https://github.com/cortexium-io/runner/actions/runs/42597090485).
+
+The Core-only installation at 10:17 UTC verified a cold checkpoint with all 72
+current runs, the exact saved definitions and both accepted card pins. The same
+Shikaku attempt `attempt_BDFYRAJL63K7NGZOIBQZ3JZEZS` registered its 199,454-byte
+patch with SHA-256 `9ec8d0f145da36fca18c5b1a76f54f7a8df79bb38132dc9ac7864d60fe7311fd`.
+Its confirmed stopped result survived cleanup. After Runner retried release, the
+parent `run_KCOXCSSIC7L75PVJDZUZR7EBQJ` recorded the original Calcudoku readiness
+failure with 19 family attempts. By 10:26 UTC all family attempts and workspaces
+were released. The recovery used zero model calls and zero additional attempts.
+
+The existing PR #337 source awaits full native and browser qualification. The
+default remains `deliver`. Merge, production and restoration retain separate
+owner decisions.
 
 ## Follow the demo
 
