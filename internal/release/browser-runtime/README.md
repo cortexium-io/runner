@@ -49,3 +49,8 @@ touch, exact rectangle paint, no page pan, Undo/Redo/reload and fitted large-boa
 editing. It rejects clipping, internal overflow, wrong entry scroll, unreachable
 controls, single/wrong corners, wrong paint and ignored touch. These are runtime
 maintenance fixtures, not product qualification or physical-device evidence.
+
+Failed board-admission requests retain the browser's bounded network error
+code and any observed HTTP status. A failed response body still blocks
+qualification after successful headers. The fixture checks interruptions
+before and after headers without replaying a board request.

@@ -10,6 +10,15 @@ export class BrowserAdmissionError extends Error {
   name = 'BrowserAdmissionError'
 }
 
+// Preserve a bounded engine error code without copying arbitrary browser text.
+export function browserNetworkError(request) {
+  const code = request.failure()?.errorText
+  if (typeof code !== 'string') return 'unavailable'
+  if (/^(?:net::ERR_|NS_ERROR_)[A-Z0-9_]{1,40}$/.test(code) || code === 'NS_BINDING_ABORTED') return code
+  if (['cancelled', 'Cancelled', 'Load request cancelled'].includes(code)) return 'cancelled'
+  return 'unclassified'
+}
+
 // Only the standard delay header is read; its original contents never enter
 // evidence. Missing headers use one conservative second after an explicit 429.
 export function admissionDelay(value, now = Date.now()) {
@@ -107,24 +116,28 @@ export class PageReadiness {
     let resourceRetried = false, rateRetried = false
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0 && this.deadlineMs !== null && Date.now() >= this.deadlineMs) throw new BrowserAdmissionError('browser deadline elapsed before canonical navigation recovery')
-      let admission, signal
-      const requests = new Set()
+      let admission, signal, documentStatus = null
+      const requests = new Map()
       const rejected = new Promise(resolve => { signal = resolve })
       const expected = request => {
         const target = new URL(request.url())
         return match && target.origin === origin && request.frame() === page.mainFrame() && (request.method() === 'GET' && request.resourceType() === 'document' && target.href === canonical.href || request.method() === 'POST' && target.pathname === '/api/games/' + match[1] && !target.search && page.url() === canonical.href)
       }
-      const request = request => { if (expected(request)) requests.add(request) }
+      const request = request => { if (expected(request)) requests.set(request, null) }
       const response = response => {
         const request = response.request()
-        if (!admission && requests.has(request) && response.status() >= 400) {
-          admission = { method: request.method(), path: new URL(request.url()).pathname, status: response.status(), document: request.resourceType() === 'document', delay: response.status() === 429 ? response.headerValue('retry-after').then(value => admissionDelay(value)).catch(() => null) : null }
+        if (!requests.has(request)) return
+        const status = response.status(), document = request.resourceType() === 'document'
+        requests.set(request, status)
+        if (document) documentStatus = status
+        if (!admission && status >= 400) {
+          admission = { method: request.method(), path: new URL(request.url()).pathname, status, document, delay: status === 429 ? response.headerValue('retry-after').then(value => admissionDelay(value)).catch(() => null) : null }
           signal()
         }
       }
       const failed = request => {
         if (!admission && requests.has(request)) {
-          admission = { method: request.method(), path: new URL(request.url()).pathname, status: null }
+          admission = { method: request.method(), path: new URL(request.url()).pathname, status: requests.get(request), network_error: browserNetworkError(request) }
           signal()
         }
       }
@@ -164,8 +177,9 @@ export class PageReadiness {
           continue
         }
       } else if (admission?.status === 429) issue = 'canonical board remains rate limited after one retry'
-      const error = new BrowserAdmissionError(issue + `: ${admission.method} ${admission.path} HTTP ${admission.status ?? 'unavailable'}`)
-      error.browserDiagnostic = { status: 'partial', kind: 'admission', phase: 'canonical navigation', path: canonical.pathname, reload: { status: admission?.status === null ? 'partial' : 'complete', path: canonical.pathname, documentStatus: admission?.document ? admission.status : null, responses: admission ? [{ method: admission.method, path: admission.path, status: admission.status, outcome: admission.status === null ? 'request-failed' : 'http-error' }] : [], backoffs, issue } }
+      const { method, path, status, network_error } = admission
+      const error = new BrowserAdmissionError(issue + `: ${method} ${path} HTTP ${status ?? 'unavailable'}`)
+      error.browserDiagnostic = { status: 'partial', kind: 'admission', phase: 'canonical navigation', path: canonical.pathname, reload: { status: status === null ? 'partial' : 'complete', path: canonical.pathname, documentStatus, responses: [{ method, path, status, outcome: network_error ? 'request-failed' : 'http-error', network_error }], backoffs, issue } }
       throw error
     }
     throw new BrowserAdmissionError('canonical board navigation exhausted its resource/admission recovery bounds')

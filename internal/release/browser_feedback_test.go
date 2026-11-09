@@ -143,6 +143,38 @@ func TestBrowserAdmissionFeedbackKeepsCanonicalNavigationInfrastructureFacts(t *
 	}
 }
 
+func TestBrowserAdmissionFeedbackKeepsTransportFailureAndObservedHTTPStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name, code, want string
+		status           int
+	}{
+		{"before headers", "net::ERR_ABORTED", "net::ERR_ABORTED", 0},
+		{"after headers", "net::ERR_INCOMPLETE_CHUNKED_ENCODING", "net::ERR_INCOMPLETE_CHUNKED_ENCODING", 200},
+		{"untrusted text", "net::ERR_ABORTED private data", "", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			diagnostic := map[string]any{
+				"status": "partial", "kind": "admission", "phase": "canonical navigation", "path": "/binary/fixture",
+				"reload": map[string]any{"status": "partial", "documentStatus": 200, "responses": []BrowserResponseFeedback{
+					{Method: "POST", Path: "/api/games/binary", Status: tc.status, Outcome: "request-failed", NetworkError: tc.code},
+				}},
+			}
+			data, _ := json.Marshal(map[string]any{"failure": "BrowserAdmissionError: request failed", "failureDiagnostic": diagnostic})
+			j := Job{}
+			err := browserReceiptFailure(&j, data, true)
+			var source *sourceFailure
+			f := j.Receipt.BrowserFailure.Reload
+			if err == nil || errors.As(err, &source) || f.DocumentStatus != 200 || f.Response.Status != tc.status || f.Response.NetworkError != tc.want || f.Response.Outcome != "request-failed" {
+				t.Fatal("transport evidence became a source verdict or lost its HTTP facts", err, f)
+			}
+			note := err.Error()
+			if strings.Contains(note, "HTTP 0") || strings.Contains(note, "private data") || tc.want != "" && !strings.Contains(note, tc.want) {
+				t.Fatal("invalid or unbounded request failure note", note)
+			}
+		})
+	}
+}
+
 func browserDiagnosticFixture() map[string]any {
 	return map[string]any{
 		"status": "complete", "kind": "visible-state", "phase": "reload",

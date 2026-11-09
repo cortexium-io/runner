@@ -61,11 +61,14 @@ type BrowserReloadFeedback struct {
 }
 
 type BrowserResponseFeedback struct {
-	Method  string `json:"method,omitempty"`
-	Path    string `json:"path,omitempty"`
-	Status  int    `json:"status,omitempty"`
-	Outcome string `json:"outcome,omitempty"`
+	Method       string `json:"method,omitempty"`
+	Path         string `json:"path,omitempty"`
+	Status       int    `json:"status,omitempty"`
+	Outcome      string `json:"outcome,omitempty"`
+	NetworkError string `json:"network_error,omitempty"`
 }
+
+var browserNetworkErrorCode = regexp.MustCompile(`^(?:(?:net::ERR_|NS_ERROR_)[A-Z0-9_]{1,40}|NS_BINDING_ABORTED|cancelled|unavailable|unclassified)$`)
 
 type browserBox struct{ X, Y, Width, Height float64 }
 type browserGeometry struct {
@@ -209,7 +212,16 @@ func browserReceiptFailure(j *Job, data []byte, allowSource bool) error {
 	}
 	response := feedback.Reload.Response
 	if response.Method != "" {
-		note += fmt.Sprintf("; %s %s HTTP %d", response.Method, response.Path, response.Status)
+		note += fmt.Sprintf("; %s %s", response.Method, response.Path)
+		if response.Status != 0 {
+			note += fmt.Sprintf(" HTTP %d", response.Status)
+		}
+		if response.Outcome == "request-failed" {
+			note += " request failed"
+			if response.NetworkError != "" {
+				note += " (" + response.NetworkError + ")"
+			}
+		}
 	}
 	if feedback.Issue != "" {
 		note += "; " + feedback.Issue
@@ -421,6 +433,9 @@ func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFai
 			switch r.Outcome {
 			case "http-ok", "http-error", "request-failed":
 				f.Reload.Response.Outcome = r.Outcome
+			}
+			if r.Outcome == "request-failed" && browserNetworkErrorCode.MatchString(r.NetworkError) {
+				f.Reload.Response.NetworkError = r.NetworkError
 			}
 			if len(responses) > 1 {
 				f.Status = "truncated"

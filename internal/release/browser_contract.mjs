@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
+import { browserNetworkError } from './browser_render.mjs'
 
 export const contractVersion = 2
 export const games = ['Sudoku', 'Suguru', 'Nonogram', 'Binary', 'Futoshiki', 'Shikaku', 'Hashi', 'Calcudoku', 'Kakuro']
@@ -209,7 +210,13 @@ export async function observeAdmission(page, phase, action) {
     const row = rows.get(res.request())
     if (row) { row.status = res.status(); row.outcome = res.ok() ? 'http-ok' : 'http-error' }
   }
-  const failed = req => { const row = rows.get(req); if (row) row.outcome = 'request-failed' }
+  const failed = req => {
+    const row = rows.get(req)
+    if (row) {
+      row.outcome = 'request-failed'
+      row.network_error = browserNetworkError(req)
+    }
+  }
   page.on('request', request); page.on('response', response); page.on('requestfailed', failed)
   try { return await action() } catch (error) {
     const responses = [...rows.values()], path = new URL(page.url()).pathname.slice(0, 256)

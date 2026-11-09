@@ -37,8 +37,27 @@ if(behavior==='long'){mark.textContent='x'.repeat(1000);mark.style.display='bloc
 }
 
 const admissions = new Map(), documents = new Map()
+let binaryBodySocket
 const server = http.createServer((req, res) => {
   const path = new URL(req.url, 'http://fixture').pathname
+  if (path === '/binary/fresh-profile') {
+    res.setHeader('Content-Type', 'text/html')
+    return res.end(`<!doctype html><link rel="stylesheet" href="/style.css"><div class="player-board-frame" hidden></div><script>
+      fetch('/api/games/binary', { method: 'POST', body: 'reopen' }).then(r => r.text()).then(() => {
+        document.querySelector('.player-board-frame').hidden = false
+      }).catch(() => {})
+    </script>`)
+  }
+  if (path === '/api/games/binary' && req.method === 'POST') {
+    req.resume()
+    req.once('end', () => {
+      binaryBodySocket = req.socket
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': '64' })
+      res.flushHeaders()
+      res.write('{')
+    })
+    return
+  }
   if (req.method === 'POST' && ['/api/games/nonogram', '/api/games/choices'].includes(path)) {
     let body = ''
     req.on('data', chunk => { body += chunk })
@@ -128,6 +147,37 @@ try {
         await editAndRestore(page,'Shikaku',true,engine.name,ready,corners)
         assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('games-site:fixture:'+document.body.dataset.grid)).snapshot.rectangles),[{first:0,last:21}],'large fitted board painted the wrong rectangle')
         await browser.close(); browser = undefined
+      }
+      for (const phase of ['before headers', 'after headers']) {
+        const supportBrowser = await launch()
+        try {
+          const support = await supportBrowser.newContext()
+          const page = await support.newPage()
+          page.setDefaultTimeout(2500)
+          const ready = new PageReadiness({}, Date.now() + 60000)
+          ready.watch(page, origin)
+          let requests = 0
+          await page.route('**/api/games/binary', route => {
+            requests++
+            return phase === 'before headers' ? route.abort('aborted') : route.continue()
+          })
+          const headers = phase === 'after headers' ? page.waitForResponse(row => new URL(row.url()).pathname === '/api/games/binary').then(() => binaryBodySocket.destroy()) : null
+          await Promise.all([headers, assert.rejects(ready.board(page, origin + '/binary/fresh-profile'), error => {
+            assert.ok(error instanceof BrowserAdmissionError)
+            const { documentStatus, responses } = error.browserDiagnostic.reload
+            assert.equal(documentStatus, 200)
+            assert.deepEqual(responses.map(({ method, path, status, outcome }) => ({ method, path, status, outcome })), [
+              { method: 'POST', path: '/api/games/binary', status: phase === 'after headers' ? 200 : null, outcome: 'request-failed' },
+            ])
+            assert.ok(responses[0].network_error && responses[0].network_error !== 'unavailable')
+            if (engine.name === 'chromium' && phase === 'before headers') assert.equal(responses[0].network_error, 'net::ERR_ABORTED')
+            return true
+          })])
+          assert.equal(requests, 1, 'failed board POST was replayed')
+        } finally {
+          binaryBodySocket?.destroy(); binaryBodySocket = undefined
+          await supportBrowser.close()
+        }
       }
       browser = await launch()
       const context = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true })
@@ -334,5 +384,5 @@ try {
     // and the owning Go digest/size/count validation, as well as both engines.
     if (process.argv[2]) saveBrowserReceipt(process.argv[2], { contract: 2, mode: 'readiness' }, audit)
   } finally { fs.rmSync(scratch, { recursive: true, force: true }) }
-  console.log('PASS: both engines; strict touch/state/geometry; bounded canonical backoff; 576 full audit rows in a hashed sidecar within unchanged receipt/archive caps')
+  console.log('PASS: both engines; strict touch/state/geometry; transport failures before and after headers; bounded canonical backoff; 576 full audit rows within unchanged receipt/archive caps')
 } finally { await new Promise(resolve => server.close(resolve)) }
