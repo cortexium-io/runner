@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -293,8 +294,25 @@ func TestApprovedSeedCandidateCaptureCleanupPreservesUnknownContent(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err = c.Release(t.Context(), a.AttemptID); err == nil {
-				t.Fatal("cleanup accepted unknown regular capture content")
+			release := func() error {
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				defer cancel()
+				for {
+					err := c.Release(ctx, a.AttemptID)
+					// A child may still hold the inherited Git lease after the
+					// local result is saved. Await its actual settlement.
+					var pending *capturePending
+					if !errors.As(err, &pending) || !waitAdoption(ctx) {
+						return err
+					}
+				}
+			}
+			want := "candidate capture scratch has unknown content; preserve it"
+			if kind == "symlink" {
+				want = "candidate capture scratch contains links or special files; preserve it"
+			}
+			if err = release(); err == nil || err.Error() != want {
+				t.Fatal("cleanup did not reject the unknown capture entry", err)
 			}
 			for _, path := range []string{unknown, filepath.Join(root, "capture-v1", "manifest.json"), filepath.Join(root, "candidate", "index")} {
 				if _, err = os.Stat(path); err != nil {
@@ -304,8 +322,11 @@ func TestApprovedSeedCandidateCaptureCleanupPreservesUnknownContent(t *testing.T
 			if err = os.Remove(unknown); err != nil {
 				t.Fatal(err)
 			}
-			if err = c.Release(t.Context(), a.AttemptID); err != nil {
+			if err = release(); err != nil {
 				t.Fatal("known capture scratch did not release", err)
+			}
+			if _, err = os.Lstat(root); !os.IsNotExist(err) {
+				t.Fatal("known capture scratch was not removed", err)
 			}
 		})
 	}
