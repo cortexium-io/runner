@@ -414,7 +414,7 @@ func (c *Core) Apply(s Snapshot, err error) {
 }
 func (c *Core) loop() {
 	defer close(c.loopDone)
-	for {
+	for c.ctx.Err() == nil {
 		next := c.tick()
 		timer := time.NewTimer(next)
 		select {
@@ -430,6 +430,9 @@ func (c *Core) loop() {
 func (c *Core) tick() time.Duration {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.ctx.Err() != nil {
+		return 0
+	}
 	fallback, _ := time.ParseDuration(c.snapshot.Instance.ReconcileInterval)
 	next := fallback
 	active := 0
@@ -808,6 +811,12 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 		defer c.wg.Done()
 		ctx, cancel := context.WithTimeout(c.ctx, callTimeout)
 		defer cancel()
+		if ctx.Err() != nil {
+			c.mu.Lock()
+			delete(c.inFlight, id)
+			c.mu.Unlock()
+			return
+		}
 		var obs Observation
 		var err error
 		switch op {
