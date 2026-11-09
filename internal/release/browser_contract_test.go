@@ -114,6 +114,9 @@ func TestBrowserGeometryAndInputContract(t *testing.T) {
 	if err = os.WriteFile(filepath.Join(root, "browser_contract.mjs"), browserContractScript, 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err = os.WriteFile(filepath.Join(root, "browser_render.mjs"), browserRenderScript, 0600); err != nil {
+		t.Fatal(err)
+	}
 	script := `import assert from 'node:assert/strict';import {assertPlayArea,geometryCases,geometryKey,games} from './browser_contract.mjs';
 const good={internalWidth:300,internalHeight:300,clientWidth:300,clientHeight:300,viewport:{width:360,height:640},documentWidth:360,frame:{x:8,y:60,width:344,height:350},board:{x:8,y:60,width:300,height:300},controls:[{x:8,y:370,width:60,height:40,label:'Undo'}]};
 assertPlayArea(good);
