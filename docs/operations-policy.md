@@ -36,6 +36,15 @@ published only after capture completes. This uses the existing attempt and
 storage limits and preserves the original worker result; it grants no new model
 visit or approval.
 
+When a stopped native writer has a settled result, one capture worker retains
+its source for up to five minutes, independent of status calls. Repeated stop
+requests leave that worker active. Service shutdown cancels the worker and
+preserves its checkpoint. A restarted service reuses the saved manifest and
+waits for any inherited writer to release its lease. A retention timeout leaves
+an actionable result for the same attempt. Status calls cannot reset its timer.
+An isolated task group records cancellation once per child and waits for
+settlement and release before recording the original failure.
+
 The private delivery policy may enable:
 
 ```json

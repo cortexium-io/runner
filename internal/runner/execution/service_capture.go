@@ -9,8 +9,12 @@ import (
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
-// One source collector belongs to the saved native attempt. Observers join it;
-// only the original task deadline, explicit Stop or service Close interrupts it.
+// Match the upper bound for Core-owned source cleanup. This budget covers only
+// retention after native settlement and grants no additional task execution.
+const maxSourceRetention = 5 * time.Minute
+
+// One source collector belongs to the saved native attempt. Observers join it.
+// Stop can interrupt ordinary capture, while Close also stops retention.
 type sourceCaptureWork struct {
 	assignment    runner.Assignment
 	done          chan struct{}
@@ -18,10 +22,11 @@ type sourceCaptureWork struct {
 	source        *runner.SourceResult
 	err           error
 	retry         bool
+	retention     bool
 	stopRequested bool
 }
 
-func (s *Service) captureSource(ctx context.Context, a runner.Assignment, cleanup bool) (*runner.SourceResult, error) {
+func (s *Service) captureSource(ctx context.Context, a runner.Assignment, retention bool) (*runner.SourceResult, error) {
 	s.captureMu.Lock()
 	work := s.captures[a.AttemptID]
 	if work != nil {
@@ -37,7 +42,7 @@ func (s *Service) captureSource(ctx context.Context, a runner.Assignment, cleanu
 				s.captureMu.Unlock()
 				return source, err
 			}
-			cleanup = true
+			retention = true
 		default:
 			s.captureMu.Unlock()
 			return s.joinCapture(ctx, work)
@@ -47,55 +52,65 @@ func (s *Service) captureSource(ctx context.Context, a runner.Assignment, cleanu
 		s.captureMu.Unlock()
 		return nil, errors.New("source capture service is closing")
 	}
-	cleanup = cleanup || a.Deadline.IsZero() || !a.Deadline.After(time.Now())
+	retention = retention || a.Deadline.IsZero() || !a.Deadline.After(time.Now())
 	var active context.Context
 	var cancel context.CancelFunc
-	if cleanup {
-		// Preserve the existing observation-bounded partial-work collection
-		// after stop/deadline. No model/task allowance is extended.
-		active, cancel = context.WithCancel(ctx)
+	if retention {
+		active, cancel = context.WithTimeout(context.Background(), maxSourceRetention)
 	} else {
 		active, cancel = context.WithDeadline(context.Background(), a.Deadline)
 	}
 	if s.captures == nil {
 		s.captures = map[string]*sourceCaptureWork{}
 	}
-	work = &sourceCaptureWork{assignment: runner.Clone(a), done: make(chan struct{}), cancel: cancel}
+	work = &sourceCaptureWork{
+		assignment: runner.Clone(a),
+		done:       make(chan struct{}),
+		cancel:     cancel,
+		retention:  retention,
+	}
 	s.captures[a.AttemptID] = work
 	s.captureMu.Unlock()
-	go func() {
-		defer cancel()
-		var source *runner.SourceResult
-		var err error
-		for {
-			source, err = s.workspaces.Capture(active, a)
-			var pending *capturePending
-			if cleanup || !errors.As(err, &pending) || active.Err() != nil {
-				break
-			}
-			// Rejoin an inherited writer's lease inside this same task budget.
-			timer := time.NewTimer(250 * time.Millisecond)
-			select {
-			case <-timer.C:
-			case <-active.Done():
-				timer.Stop()
-			}
-		}
-		s.captureMu.Lock()
-		work.source, work.err = source, err
-		var pending *capturePending
-		interrupted := captureWasInterrupted(active, err)
-		work.retry = err != nil && (cleanup && (errors.As(err, &pending) || interrupted) ||
-			errors.Is(active.Err(), context.DeadlineExceeded) && interrupted ||
-			work.stopRequested && interrupted)
-		close(work.done)
-		wake := s.captureWake
-		s.captureMu.Unlock()
-		if wake != nil {
-			wake(a.AttemptID)
-		}
-	}()
+	go s.runCapture(active, work)
 	return s.joinCapture(ctx, work)
+}
+
+func (s *Service) runCapture(active context.Context, work *sourceCaptureWork) {
+	defer work.cancel()
+	var source *runner.SourceResult
+	var err error
+	for {
+		source, err = s.workspaces.Capture(active, work.assignment)
+		var pending *capturePending
+		if !errors.As(err, &pending) || active.Err() != nil {
+			break
+		}
+		// Rejoin an inherited writer's lease within this collector's own budget.
+		timer := time.NewTimer(250 * time.Millisecond)
+		select {
+		case <-timer.C:
+		case <-active.Done():
+			timer.Stop()
+		}
+	}
+	s.captureMu.Lock()
+	interrupted := captureWasInterrupted(active, err)
+	if work.retention && interrupted {
+		// Cache a settled retention failure, not a pending observation. The
+		// checkpoint stays owned and a later observer cannot reset the budget.
+		err = active.Err()
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = errors.New("source retention deadline reached; preserve the saved capture")
+		}
+	}
+	work.source, work.err = source, err
+	work.retry = !work.retention && interrupted && (errors.Is(active.Err(), context.DeadlineExceeded) || work.stopRequested)
+	close(work.done)
+	wake := s.captureWake
+	s.captureMu.Unlock()
+	if wake != nil {
+		wake(work.assignment.AttemptID)
+	}
 }
 
 func captureWasInterrupted(ctx context.Context, err error) bool {
@@ -129,7 +144,7 @@ func (s *Service) joinCapture(ctx context.Context, work *sourceCaptureWork) (*ru
 func (s *Service) stopCapture(ctx context.Context, id string) error {
 	s.captureMu.Lock()
 	work := s.captures[id]
-	if work == nil {
+	if work == nil || work.retention {
 		s.captureMu.Unlock()
 		return nil
 	}

@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -789,7 +790,7 @@ func TestCaptureServiceJoinsLongPhaseAcrossObservationDeadlines(t *testing.T) {
 	}
 }
 
-func observeCaptureCutoff(t *testing.T, s *Service, a runner.Assignment, gate *captureGitFixture) runner.Observation {
+func observeRetentionCutoff(t *testing.T, s *Service, a runner.Assignment, gate *captureGitFixture) *sourceCaptureWork {
 	t.Helper()
 	base, cancel := context.WithCancelCause(t.Context())
 	defer cancel(context.Canceled)
@@ -802,31 +803,26 @@ func observeCaptureCutoff(t *testing.T, s *Service, a runner.Assignment, gate *c
 	select {
 	case <-gate.ready:
 	case got := <-done:
-		t.Fatal("cleanup did not reach source checkpoint", got)
-	case <-time.After(3 * time.Second):
-		t.Fatal("cleanup source checkpoint missing")
+		t.Fatal("retention did not reach source checkpoint", got)
+	case <-time.After(10 * time.Second):
+		t.Fatal("retention source checkpoint missing")
 	}
 	cancel(context.DeadlineExceeded)
 	got := <-done
-	if got.err != nil || got.o.State != runner.Unknown || got.o.End != nil {
-		t.Fatal("cleanup cutoff did not preserve unfinished source", got)
+	if got.err != nil || got.o.State != runner.Unknown || got.o.End != nil || !got.o.Reconciling || !captureLeaseIsHeld(t, s, a) {
+		t.Fatal("observation cutoff interrupted owned retention", got)
 	}
 	s.captureMu.Lock()
 	work := s.captures[a.AttemptID]
 	s.captureMu.Unlock()
-	select {
-	case <-work.done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("cleanup ignored its observation budget")
+	if work == nil || !work.retention {
+		t.Fatal("stopped work did not start an owned retention collector")
 	}
-	if captureLeaseIsHeld(t, s, a) {
-		t.Fatal("bounded cleanup left its Git writer active")
-	}
-	return got.o
+	return work
 }
 
-func TestCaptureStopPersistsCleanupModeBeforeAndDuringCollection(t *testing.T) {
-	for _, mode := range []string{"before first capture", "active capture", "original deadline expired"} {
+func TestStoppedCaptureSurvivesObservationAndRepeatedStop(t *testing.T) {
+	for _, mode := range []string{"before first capture", "active capture", "original deadline expired", "durable stopped end"} {
 		t.Run(mode, func(t *testing.T) {
 			s, a := savedCaptureService(t)
 			if mode == "active capture" {
@@ -854,8 +850,14 @@ func TestCaptureStopPersistsCleanupModeBeforeAndDuringCollection(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				a.Deadline = time.Now().Add(-time.Second)
-				if err := s.Codex.mutate(a.AttemptID, func(j *nativeJob) { j.Assignment.Deadline = a.Deadline }); err != nil {
+				if err := s.Codex.mutate(a.AttemptID, func(j *nativeJob) {
+					if mode == "original deadline expired" {
+						a.Deadline = time.Now().Add(-time.Second)
+						j.Assignment.Deadline = a.Deadline
+					} else {
+						j.End = &runner.ExecutionEnd{Kind: "stopped", Reason: "native stop confirmed"}
+					}
+				}); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -869,25 +871,123 @@ func TestCaptureStopPersistsCleanupModeBeforeAndDuringCollection(t *testing.T) {
 			reopened.Codex.mu.Lock()
 			j, err := reopened.Codex.loadLocked(a.AttemptID)
 			reopened.Codex.mu.Unlock()
-			if err != nil || mode != "original deadline expired" && !j.StopRequested || j.End.Result.Outcome != "blocked" {
+			stopped := mode == "before first capture" || mode == "active capture"
+			if err != nil || j.StopRequested != stopped || j.End == nil {
 				t.Fatal("restart lost durable stop or changed native End", j, err)
 			}
-			// The restarted collector must obey a short cleanup observation,
-			// even though a stopped assignment's original deadline is future.
-			gate := captureGitGate(t, "tree", false)
-			observeCaptureCutoff(t, reopened, a, gate)
+			// A restarted collector holds its lease after an observer expires.
+			gate := captureGitGate(t, "hash", false)
+			work := observeRetentionCutoff(t, reopened, a, gate)
 			bound, stop := context.WithTimeout(t.Context(), 5*time.Second)
 			defer stop()
-			o, err := reopened.Observe(bound, a.AttemptID)
-			if err != nil || o.State != runner.Finished || o.Source == nil || o.End.Result.Outcome != "blocked" {
-				t.Fatal("bounded partial source retention did not resume", o, err)
+			for i := 0; i < 2; i++ {
+				if err := reopened.Stop(bound, a.AttemptID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !captureLeaseIsHeld(t, reopened, a) {
+				t.Fatal("repeated Stop interrupted post-stop retention")
+			}
+			if err := reopened.Release(bound, a.AttemptID); err == nil {
+				t.Fatal("active retention was released")
+			}
+			short, detach := context.WithTimeout(t.Context(), time.Millisecond)
+			defer detach()
+			if o, err := reopened.Observe(short, a.AttemptID); err != nil || !o.Reconciling || o.State != runner.Unknown {
+				t.Fatal("second observer did not join retention", o, err)
+			}
+			reopened.captureMu.Lock()
+			same := reopened.captures[a.AttemptID] == work
+			reopened.captureMu.Unlock()
+			if !same {
+				t.Fatal("observer or Stop replaced the retention worker")
+			}
+			if _, err := gate.hold.Write([]byte("continue\n")); err != nil {
+				t.Fatal(err)
+			}
+			finish, cancelFinish := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancelFinish()
+			o, err := reopened.Observe(finish, a.AttemptID)
+			patchID := a.AttemptID + "/changes.patch"
+			wantEnd := runner.Clone(j.End)
+			if wantEnd.Kind == "returned" {
+				wantEnd.Result.Outputs["patch"] = runner.Value{ArtifactID: patchID}
+			}
+			if err != nil || o.State != runner.Finished || o.Source == nil || o.Source.PatchID != patchID || !reflect.DeepEqual(o.End, wantEnd) {
+				t.Fatal("retention did not return the same stopped attempt and source", o, err)
+			}
+			patch, err := s.disk.Read("artifacts/"+o.Source.PatchID, a.Limits.MaxArtifact)
+			if err != nil || bytes.Count(patch, []byte("diff --git ")) != 27 || !bytes.Contains(patch, []byte("+literal source 26\n")) {
+				t.Fatal("retained partial patch lost exact source", err)
 			}
 		})
 	}
 }
 
-func TestCaptureCloseSettlesActiveCollectorAndPreservesCheckpoint(t *testing.T) {
+func TestStoppedCaptureExpiryPreservesCheckpointWithoutObserverReplay(t *testing.T) {
 	s, a := savedCaptureService(t)
+	if err := s.Codex.mutate(a.AttemptID, func(j *nativeJob) { j.End = &runner.ExecutionEnd{Kind: "stopped"} }); err != nil {
+		t.Fatal(err)
+	}
+	gate := captureGitGate(t, "hash", false)
+	base, expire := context.WithCancelCause(t.Context())
+	defer expire(context.Canceled)
+	// Drive the worker's own deadline at the checkpoint, without a five-minute
+	// sleep or any test-only execution budget in Service.
+	work := &sourceCaptureWork{
+		assignment: a,
+		done:       make(chan struct{}),
+		cancel:     func() { expire(context.Canceled) },
+		retention:  true,
+	}
+	s.captureMu.Lock()
+	s.captures = map[string]*sourceCaptureWork{a.AttemptID: work}
+	s.captureMu.Unlock()
+	go s.runCapture(captureCutoffContext{base}, work)
+	select {
+	case <-gate.ready:
+	case <-time.After(3 * time.Second):
+		t.Fatal("retention worker did not checkpoint source")
+	}
+	expire(context.DeadlineExceeded)
+	select {
+	case <-work.done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("retention worker did not settle")
+	}
+	if captureLeaseIsHeld(t, s, a) {
+		t.Fatal("expired retention worker left its Git lease active")
+	}
+	if _, err := s.disk.Read("work/"+a.AttemptID+"/capture-v1/manifest.json", 8<<20); err != nil {
+		t.Fatal("expired retention lost its checkpoint", err)
+	}
+	for i := 0; i < 2; i++ {
+		o, err := s.Observe(t.Context(), a.AttemptID)
+		if err != nil || o.State != runner.Unknown || o.Reconciling || o.End != nil || !strings.Contains(o.Reason, "source retention deadline reached") {
+			t.Fatal("expired retention was hidden as active progress", o, err)
+		}
+	}
+	s.captureMu.Lock()
+	same := s.captures[a.AttemptID] == work
+	s.captureMu.Unlock()
+	if !same {
+		t.Fatal("observer reset the expired retention budget")
+	}
+}
+
+func TestCaptureCloseSettlesActiveCollectorAndPreservesCheckpoint(t *testing.T) {
+	t.Run("ordinary capture", func(t *testing.T) { testCaptureCloseAndRestart(t, false) })
+	t.Run("post-stop retention", func(t *testing.T) { testCaptureCloseAndRestart(t, true) })
+}
+
+func testCaptureCloseAndRestart(t *testing.T, stopped bool) {
+	t.Helper()
+	s, a := savedCaptureService(t)
+	if stopped {
+		if err := s.Codex.mutate(a.AttemptID, func(j *nativeJob) { j.End = &runner.ExecutionEnd{Kind: "stopped"} }); err != nil {
+			t.Fatal(err)
+		}
+	}
 	gate := captureGitGate(t, "hash", false)
 	done := make(chan error, 1)
 	go func() { _, err := s.Observe(t.Context(), a.AttemptID); done <- err }()
@@ -908,9 +1008,11 @@ func TestCaptureCloseSettlesActiveCollectorAndPreservesCheckpoint(t *testing.T) 
 		t.Fatal("Close left an active source writer")
 	}
 	reopened := NewService(s.disk, nil, nativeSnapshot().Instance.Codex)
-	defer reopened.Close(ctx)
-	o, err := reopened.Observe(ctx, a.AttemptID)
-	if err != nil || o.State != runner.Finished || o.Source == nil {
+	finish, cancelFinish := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancelFinish()
+	defer reopened.Close(finish)
+	o, err := reopened.Observe(finish, a.AttemptID)
+	if err != nil || o.State != runner.Finished || o.Source == nil || o.Source.PatchID != a.AttemptID+"/changes.patch" || stopped && o.End.Kind != "stopped" {
 		t.Fatal("restart could not resume closed collector's checkpoint", o, err)
 	}
 }

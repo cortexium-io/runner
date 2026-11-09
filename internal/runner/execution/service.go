@@ -224,13 +224,14 @@ func (s *Service) collect(ctx context.Context, id string, o runner.Observation, 
 		return runner.Observation{}, err
 	}
 	if j.Assignment.Setup.Profile.Access == "workspace-write" && j.Workspace != nil {
-		source, err := s.captureSource(ctx, j.Assignment, j.StopRequested)
+		stopped := j.StopRequested || j.End != nil && j.End.Kind == "stopped"
+		source, err := s.captureSource(ctx, j.Assignment, stopped)
 		if err != nil {
 			o.State = runner.Unknown
 			o.End = nil
 			var pending *capturePending
 			if errors.As(err, &pending) {
-				o.Reconciling = j.Assignment.Deadline.IsZero() || j.Assignment.Deadline.After(time.Now())
+				o.Reconciling = true
 				o.NextCheck = time.Now().Add(250 * time.Millisecond)
 			}
 			o.Reason = "source collection: " + runner.Clip(err.Error())

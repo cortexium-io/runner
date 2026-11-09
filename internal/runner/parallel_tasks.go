@@ -476,27 +476,37 @@ func (c *Core) driveTaskGroup(r Run) bool {
 			if !ok {
 				continue
 			}
-			if !child.Terminal() {
+			active := child.Active()
+			// Once cancellation is saved, an active child owns its stop and
+			// reconciliation status until it settles.
+			if !child.Terminal() && (!child.CancelRequested || !active) {
 				child.CancelRequested = true
 				child.Reason = "parent task group is stopping"
-				if !child.Active() {
+				if !active {
 					child.Status = "Cancelled"
 				}
-				_ = c.persist(child, nil, nil)
+				if err := c.persist(child, nil, nil); err != nil {
+					settled = false
+					continue
+				}
 				c.Wake()
 			}
-			if !allAttemptsReleased(child) || child.Active() || c.inFlight[child.ID] {
+			if !allAttemptsReleased(child) || active || c.inFlight[child.ID] {
 				settled = false
 			}
 		}
 		if settled {
-			state.Done = true
-			r.Status, r.Reason = "Failed", state.Failure
-			if r.CancelRequested {
-				r.Status, r.Reason = "Cancelled", "parent cancellation settled all tasks"
+			// The failure record may have been saved earlier in this drive.
+			// Keep its group active until the terminal write succeeds.
+			final := Clone(r)
+			final.TaskGroups[step.ID].Done = true
+			final.Status, final.Reason = "Failed", state.Failure
+			if final.CancelRequested {
+				final.Status, final.Reason = "Cancelled", "parent cancellation settled all tasks"
 			}
-			_ = c.persist(r, nil, nil)
-			c.Wake()
+			if err := c.persist(final, nil, nil); err == nil {
+				c.Wake()
+			}
 		}
 		return true
 	}

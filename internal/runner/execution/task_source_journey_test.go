@@ -21,52 +21,7 @@ func TestTaskSourcesCoreDependentOverlapUsesIsolatedSourcesAndOneJoin(t *testing
 	}
 	fixtureGit(t, repo, "add", "shared.txt")
 	fixtureGit(t, repo, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgSign=false", "commit", "--quiet", "-m", "shared source")
-	repo, err := filepath.EvalSymlinks(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := strings.TrimSpace(string(fixtureGit(t, repo, "rev-parse", "HEAD")))
-	cfg := workspaceSnapshot(t, repo)
-	cfg.Instance.TaskConcurrency = 2
-	cfg.Instance.Storage.Database.MaxRecord = 40 << 10
-	cfg.Instance.Storage.Database.MaxSize = 16 << 20
-	project := cfg.Projects["demo"]
-	owner := project.Roles["implement"]
-	owner.ID, owner.Purpose = "owner", "Implement the accepted card only within its declared paths; read the supplied task manifest."
-	owner.Inputs = map[string]string{"request": "text", "task": "text", "paths": "json", "manifest": "artifact", "feedback": "text"}
-	owner.Execution.MaxOutput = 512
-	role := func(mode string) runner.Role {
-		var role runner.Role
-		data, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "jacks-break", "roles", "task-source-"+mode+".json"))
-		if err != nil || json.Unmarshal(data, &role) != nil {
-			t.Fatal("fixed example role unavailable", mode, err)
-		}
-		return role
-	}
-	seedRole, pinRole, joinRole := role("seed"), role("pin"), role("join")
-	project.Roles = map[string]runner.Role{
-		"owner":     owner,
-		seedRole.ID: seedRole, pinRole.ID: pinRole, joinRole.ID: joinRole,
-	}
-	empty := runner.Text("")
-	children := []runner.Step{
-		{ID: "seed", Role: seedRole.ID, Inputs: map[string]runner.Binding{"dependencies": {FromInput: "_task_dependencies"}}},
-		{ID: "owner", Role: "owner", Inputs: map[string]runner.Binding{
-			"request": {FromInput: "request"}, "task": {FromItem: "task"}, "paths": {FromItem: "paths"},
-			"manifest": {FromStep: "pin", Output: "manifest", Previous: true, Fallback: &runner.Binding{FromStep: "seed", Output: "manifest"}},
-			"feedback": {FromStep: "pin", Output: "feedback", Previous: true, Default: &empty},
-		}},
-		{ID: "pin", Role: pinRole.ID, Inputs: map[string]runner.Binding{"patch": {FromStep: "owner", Output: "patch"}, "summary": {FromStep: "owner", Output: "summary"}}, Routes: map[string]runner.Route{"changes_requested": {Next: "owner", MaxTimes: 3}}},
-	}
-	p := runner.Process{ID: "planned", Inputs: map[string]string{"request": "text", "tasks": "json"}, MaxAttempts: 20, MaxAttemptsPerStep: 1, AttemptTimeout: "1m",
-		Steps: []runner.Step{
-			{ID: "cards", ForEach: &runner.TaskGroup{Mode: "isolated", MaxParallel: 2, ScopeInput: "paths", Items: runner.Binding{FromInput: "tasks"}, Inputs: map[string]string{"task": "text", "paths": "json"}, Steps: children, Output: runner.Binding{FromStep: "pin", Output: "candidate"}}},
-			{ID: "join", Role: joinRole.ID, Inputs: map[string]runner.Binding{"results": {FromStep: "cards", Output: "results"}}},
-		}, Outputs: map[string]runner.Binding{"patch": {FromStep: "join", Output: "patch"}, "manifest": {FromStep: "cards", Output: "results"}},
-	}
-	project.Source = &runner.SourceSettings{Ref: base}
-	project.DefaultProcess, project.Processes = "planned", map[string]runner.Process{"planned": p}
-	cfg.Projects["demo"] = project
+	cfg, repo, base := taskSourceJourneySnapshot(t, repo)
 	dirs := []string{}
 	script := &scriptedPeer{}
 	script.onTurn = func(dir string) {
@@ -136,4 +91,55 @@ func TestTaskSourcesCoreDependentOverlapUsesIsolatedSourcesAndOneJoin(t *testing
 	if !missingCandidateRef(t.Context(), repo, candidateRef(root.ID)) {
 		t.Fatal("unreviewed join created a publication candidate")
 	}
+}
+
+func taskSourceJourneySnapshot(t *testing.T, repo string) (runner.Snapshot, string, string) {
+	t.Helper()
+	repo, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := strings.TrimSpace(string(fixtureGit(t, repo, "rev-parse", "HEAD")))
+	cfg := workspaceSnapshot(t, repo)
+	cfg.Instance.TaskConcurrency = 2
+	cfg.Instance.Storage.Database.MaxRecord = 40 << 10
+	cfg.Instance.Storage.Database.MaxSize = 16 << 20
+	project := cfg.Projects["demo"]
+	owner := project.Roles["implement"]
+	owner.ID, owner.Purpose = "owner", "Implement the accepted card only within its declared paths; read the supplied task manifest."
+	owner.Inputs = map[string]string{"request": "text", "task": "text", "paths": "json", "manifest": "artifact", "feedback": "text"}
+	owner.Execution.MaxOutput = 512
+	role := func(mode string) runner.Role {
+		var role runner.Role
+		data, err := os.ReadFile(filepath.Join("..", "..", "..", "examples", "jacks-break", "roles", "task-source-"+mode+".json"))
+		if err != nil || json.Unmarshal(data, &role) != nil {
+			t.Fatal("fixed example role unavailable", mode, err)
+		}
+		return role
+	}
+	seedRole, pinRole, joinRole := role("seed"), role("pin"), role("join")
+	project.Roles = map[string]runner.Role{
+		"owner":     owner,
+		seedRole.ID: seedRole, pinRole.ID: pinRole, joinRole.ID: joinRole,
+	}
+	empty := runner.Text("")
+	children := []runner.Step{
+		{ID: "seed", Role: seedRole.ID, Inputs: map[string]runner.Binding{"dependencies": {FromInput: "_task_dependencies"}}},
+		{ID: "owner", Role: "owner", Inputs: map[string]runner.Binding{
+			"request": {FromInput: "request"}, "task": {FromItem: "task"}, "paths": {FromItem: "paths"},
+			"manifest": {FromStep: "pin", Output: "manifest", Previous: true, Fallback: &runner.Binding{FromStep: "seed", Output: "manifest"}},
+			"feedback": {FromStep: "pin", Output: "feedback", Previous: true, Default: &empty},
+		}},
+		{ID: "pin", Role: pinRole.ID, Inputs: map[string]runner.Binding{"patch": {FromStep: "owner", Output: "patch"}, "summary": {FromStep: "owner", Output: "summary"}}, Routes: map[string]runner.Route{"changes_requested": {Next: "owner", MaxTimes: 3}}},
+	}
+	p := runner.Process{ID: "planned", Inputs: map[string]string{"request": "text", "tasks": "json"}, MaxAttempts: 20, MaxAttemptsPerStep: 1, AttemptTimeout: "1m",
+		Steps: []runner.Step{
+			{ID: "cards", ForEach: &runner.TaskGroup{Mode: "isolated", MaxParallel: 2, ScopeInput: "paths", Items: runner.Binding{FromInput: "tasks"}, Inputs: map[string]string{"task": "text", "paths": "json"}, Steps: children, Output: runner.Binding{FromStep: "pin", Output: "candidate"}}},
+			{ID: "join", Role: joinRole.ID, Inputs: map[string]runner.Binding{"results": {FromStep: "cards", Output: "results"}}},
+		}, Outputs: map[string]runner.Binding{"patch": {FromStep: "join", Output: "patch"}, "manifest": {FromStep: "cards", Output: "results"}},
+	}
+	project.Source = &runner.SourceSettings{Ref: base}
+	project.DefaultProcess, project.Processes = "planned", map[string]runner.Process{"planned": p}
+	cfg.Projects["demo"] = project
+	return cfg, repo, base
 }
