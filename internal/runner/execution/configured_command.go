@@ -225,8 +225,10 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 			return errors.New("patch does not identify this workspace's prepared source")
 		}
 	}
-	if pins := a.FrontendCheckPins; pins != nil && (a.Inputs["patch"].ArtifactID == "" || w.Capture == nil || w.Capture.PatchSHA != pins.PatchSHA256) {
-		return errors.New("prepared frontend check patch differs from the authorized capture")
+	if pins := a.FrontendCheckPins; pins != nil {
+		if a.Inputs["patch"].ArtifactID == "" || w.Capture == nil || (pins.PatchSHA256 != "" || !pins.Serial) && w.Capture.PatchSHA != pins.PatchSHA256 {
+			return errors.New("prepared frontend check patch differs from the authorized capture")
+		}
 	}
 	local := &Codex{disk: c.disk, cfg: c.cfg, ctx: ctx}
 	env, err := local.workerEnvironment(nativeJob{Assignment: a, Workspace: &w})
@@ -245,7 +247,7 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 		if e != nil {
 			return e
 		}
-		if pins := a.FrontendCheckPins; pins != nil && name == "patch" && captureDigest(data) != pins.PatchSHA256 {
+		if pins := a.FrontendCheckPins; pins != nil && name == "patch" && captureDigest(data) != w.Capture.PatchSHA {
 			return errors.New("frontend check patch bytes changed before dispatch")
 		}
 		file := filepath.Join("work", a.RunID, "source", ".runner-tmp", a.AttemptID, "inputs", name)
@@ -258,8 +260,13 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 	for i, arg := range spec.Args {
 		args[i] = commandValue(arg, *job, env)
 	}
-	if pins := a.FrontendCheckPins; pins != nil && pins.DiagnoseTimeouts {
-		args = append(args, "--diagnose-timeouts")
+	if pins := a.FrontendCheckPins; pins != nil {
+		if pins.DiagnoseTimeouts {
+			args = append(args, "--diagnose-timeouts")
+		}
+		if pins.Serial {
+			args = append(args, "--serial")
+		}
 	}
 	baseEnv := runner.Clone(env)
 	for key, value := range spec.Env {

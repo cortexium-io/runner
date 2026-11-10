@@ -330,8 +330,9 @@ type ExecutionLimits struct {
 }
 type FrontendCheckPins struct {
 	HelperSHA256     string `json:"helper_sha256"`
-	PatchSHA256      string `json:"patch_sha256"`
+	PatchSHA256      string `json:"patch_sha256,omitempty"`
 	DiagnoseTimeouts bool   `json:"diagnose_timeouts,omitempty"`
+	Serial           bool   `json:"serial,omitempty"`
 }
 type Assignment struct {
 	FrontendCheckPins *FrontendCheckPins `json:"frontend_check_pins,omitempty"`

@@ -1,0 +1,34 @@
+{
+  "id": "catalogue-frontend-check",
+  "purpose": "Run the complete selected frontend tests for the retained catalogue candidate with one Vitest worker and the five-second test timeout.",
+  "inputs": {
+    "patch": "artifact",
+    "tests": "text"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-frontend-check",
+        "--node",
+        "/absolute/path/to/node",
+        "--modules",
+        "/absolute/path/to/frontend-node-modules",
+        "--source",
+        "{workspace}",
+        "--scratch",
+        "{scratch}",
+        "--tests",
+        "{text.tests}",
+        "--serial"
+      ],
+      "result": "domain.json",
+      "artifact": "frontend-check.json"
+    }
+  }
+}

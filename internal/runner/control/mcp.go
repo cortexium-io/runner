@@ -94,7 +94,7 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		}
 		return summary(r), nil
 	})
-	add(s, "runner_recover_frontend_check", "Owner-authorized recheck of an exact retained patch from a settled blocked frontend owner. Binds the saved revision, patch, qualified check helper and publication. Preserves attempts, budgets and protected decisions. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverFrontendCheckRequest) (any, error) {
+	add(s, "runner_recover_frontend_check", "Owner-authorized recheck of an exact retained patch from a settled frontend run. Serial mode reopens the exhausted catalogue frontend check with one Vitest worker. Binds the saved revision, patch, qualified checker and publication while preserving the attempt budget and protected decisions. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverFrontendCheckRequest) (any, error) {
 		r, e := c.RecoverFrontendCheck(in)
 		return summary(r), e
 	})

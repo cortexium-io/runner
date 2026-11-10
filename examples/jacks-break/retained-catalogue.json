@@ -93,7 +93,7 @@
     },
     {
       "id": "frontend-check",
-      "role": "frontend-check",
+      "role": "catalogue-frontend-check",
       "inputs": {
         "patch": {
           "from_candidate": true

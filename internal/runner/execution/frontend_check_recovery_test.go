@@ -54,6 +54,24 @@ exec /bin/cat ` + testShellQuote(output) + "\n"
 	publication.Key = "other-publication"
 	run.Inputs["publication"] = runner.Value{Inline: mustReleaseJSON(t, publication)}
 	check(false)
+
+	publication.Key = f.receipt.PublicationKey
+	publication.Policy = strings.Repeat("a", 64)
+	run.Inputs["publication"] = runner.Value{Inline: mustReleaseJSON(t, publication)}
+	check(false)
+	run.Process.ID = "deliver-retained-catalogue"
+	run.Process.Steps = []runner.Step{{ID: "source-adopt"}}
+	check(false)
+	adopted, err := f.r.loadPublication(f.a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Attempts = []runner.Attempt{{ID: adopted.Adoption.Key, End: &runner.ExecutionEnd{Kind: "returned", Result: &runner.StepResult{
+		Outcome: "ready", Outputs: map[string]runner.Value{"receipt": {Inline: mustReleaseJSON(t, adopted.Adoption)}},
+	}}}}
+	check(true)
+	run.Attempts[0].End.Result.Outputs["receipt"] = runner.Value{Inline: mustReleaseJSON(t, publication)}
+	check(false)
 }
 
 func TestFrontendRecoveryWorkerRefusesChangedHelperBeforeDispatch(t *testing.T) {

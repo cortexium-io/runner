@@ -22,6 +22,7 @@ type RecoverFrontendCheckRequest struct {
 	PatchSHA256     string `json:"patch_sha256"`
 	HelperSHA256    string `json:"helper_sha256"`
 	PublicationHead string `json:"publication_head"`
+	Serial          bool   `json:"serial,omitempty"`
 }
 
 // FrontendCheckRecovery is a single owner-authorized handoff from a settled
@@ -37,6 +38,7 @@ type FrontendCheckRecovery struct {
 	HelperSHA256    string    `json:"helper_sha256"`
 	PublicationHead string    `json:"publication_head"`
 	GrantedAt       time.Time `json:"granted_at"`
+	Serial          bool      `json:"serial,omitempty"`
 }
 
 type RecoverFrontendTimeoutsRequest struct {
@@ -76,6 +78,8 @@ type frontendCheckRecoveryPlan struct {
 	source     SourceResult
 	check      Profile
 	priorCheck string
+	checkStep  string
+	tests      Value
 	revisions  map[string]int64
 }
 
@@ -137,10 +141,10 @@ func (c *Core) recoverFrontendCheck(req RecoverFrontendCheckRequest, timeout *Re
 	if timeout != nil {
 		outcome = "frontend_timeout_diagnostic"
 	}
-	c.advance(&r, &StepResult{Outcome: outcome}, Route{Next: "check"})
+	c.advance(&r, &StepResult{Outcome: outcome}, Route{Next: current.checkStep})
 	if r.Status != "Queued" || !reflect.DeepEqual(r.StepInputs, map[string]Value{
 		"patch": {ArtifactID: plan.source.PatchID},
-		"tests": r.Inputs["tests"],
+		"tests": current.tests,
 	}) {
 		return Run{}, errors.New("retained frontend check inputs do not bind the blocked owner's patch and original selectors")
 	}
@@ -148,7 +152,7 @@ func (c *Core) recoverFrontendCheck(req RecoverFrontendCheckRequest, timeout *Re
 	grant := FrontendCheckRecovery{
 		RequestID:       req.RequestID,
 		AttemptID:       req.AttemptID,
-		CheckStep:       "check",
+		CheckStep:       current.checkStep,
 		CheckVisit:      r.Visit,
 		PatchID:         plan.source.PatchID,
 		PatchSHA256:     req.PatchSHA256,
@@ -156,6 +160,7 @@ func (c *Core) recoverFrontendCheck(req RecoverFrontendCheckRequest, timeout *Re
 		HelperSHA256:    req.HelperSHA256,
 		PublicationHead: req.PublicationHead,
 		GrantedAt:       time.Now().UTC(),
+		Serial:          req.Serial,
 	}
 	if timeout == nil {
 		r.FrontendCheckRecovery = &grant
@@ -203,6 +208,12 @@ func (c *Core) planFrontendCheckRecovery(req RecoverFrontendCheckRequest, timeou
 	}
 	if err := c.frontendRecheckSettledAttempts(r); err != nil {
 		return plan, err
+	}
+	if req.Serial {
+		if timeout != nil {
+			return plan, errors.New("serial frontend recovery cannot request timeout diagnostics")
+		}
+		return c.planSerialFrontendRecovery(r, req)
 	}
 	owner := r.Current()
 	if len(r.Attempts) < 2 || owner == nil || owner.ID != req.AttemptID || owner.Superseded || owner.TimedOut || owner.StopRequested || owner.End == nil || owner.End.Kind != "returned" || owner.End.Retryable || owner.End.Result == nil || owner.End.Result.Outcome != "blocked" {
@@ -264,7 +275,60 @@ func (c *Core) planFrontendCheckRecovery(req RecoverFrontendCheckRequest, timeou
 	if err := c.familyReserve(r, 1, need-1); err != nil {
 		return plan, err
 	}
-	return frontendCheckRecoveryPlan{run: r, source: *source, check: check, priorCheck: prior.ArtifactID, revisions: revisions}, nil
+	return frontendCheckRecoveryPlan{run: r, source: *source, check: check, priorCheck: prior.ArtifactID, checkStep: "check", tests: r.Inputs["tests"], revisions: revisions}, nil
+}
+
+func (c *Core) planSerialFrontendRecovery(r Run, req RecoverFrontendCheckRequest) (frontendCheckRecoveryPlan, error) {
+	var plan frontendCheckRecoveryPlan
+	if r.Process.ID != "deliver-retained-catalogue" || len(r.TaskGroups) != 0 || r.Revision != req.Revision ||
+		r.Step < 1 || r.Step >= len(r.Process.Steps) || len(r.Attempts) < 2 || r.CorrectionRecovery == nil {
+		return plan, errors.New("serial frontend recovery requires the exact settled catalogue run after correction recovery")
+	}
+	step := r.Process.Steps[r.Step]
+	failed := r.Current()
+	routeKey := step.ID + "/changes_requested"
+	route, eligible := sourceCorrectionRoute(r, r.Step)
+	if step.ID != "frontend-check" || !eligible || route.Next != "owner" ||
+		r.Reason != "repetition allowance exhausted: "+routeKey || r.RouteUses[routeKey] != routeLimit(r, r.Step, "changes_requested", route) ||
+		failed == nil || failed.ID != req.AttemptID || failed.Superseded || failed.TimedOut || failed.StopRequested ||
+		failed.End == nil || failed.End.Kind != "returned" || failed.End.Retryable || failed.End.Result == nil || failed.End.Result.Outcome != "changes_requested" {
+		return plan, errors.New("serial frontend recovery needs the exact check that exhausted its correction route")
+	}
+	role := r.Roles[step.Role]
+	profile, err := releaseBudgetProfile(r, r.Step)
+	checkedProfile, checkedErr := role.Profile(failed.Profile)
+	tests := r.Inputs["frontend_tests"]
+	if err != nil || checkedErr != nil || !reflect.DeepEqual(profile, checkedProfile) || !frontendRecheckProfile(profile) ||
+		!reflect.DeepEqual(step.Inputs, map[string]Binding{"patch": {FromCandidate: true}, "tests": {FromInput: "frontend_tests"}}) ||
+		ValidateValues(map[string]Value{"tests": tests}, map[string]string{"tests": "text"}) != nil {
+		return plan, errors.New("serial frontend recovery needs the frozen frontend checker and its original selectors")
+	}
+	prior := failed.End.Result.Outputs["artifact"].ArtifactID
+	if ValidateValues(failed.End.Result.Outputs, role.Outputs) != nil || prior != failed.ID+"/result" || c.recoveryArtifact(r, prior) != nil {
+		return plan, errors.New("serial frontend recovery needs the saved check report")
+	}
+	owner := r.Attempts[len(r.Attempts)-2]
+	source := owner.Source
+	if owner.Step != taskStepIndex(r.Process, route.Next) || owner.Superseded || owner.Visit+1 != failed.Visit || owner.End == nil ||
+		owner.End.Kind != "returned" || owner.End.Result == nil || owner.End.Result.Outcome != "ready" || source == nil ||
+		source.AttemptID != owner.ID || source.PatchID != owner.ID+"/changes.patch" || owner.End.Result.Outputs["patch"].ArtifactID != source.PatchID ||
+		source.Repository != r.Repository || source.WorkDir == "" || r.Source == nil || source.Base != r.Source.Ref ||
+		!frontendRecheckHex(source.Base, 40) || !frontendRecheckHex(source.Tree, 40) || c.recoveryArtifact(r, source.PatchID) != nil {
+		return plan, errors.New("serial frontend recovery needs the preceding retained candidate")
+	}
+	if check := failed.Source; check == nil || check.AttemptID != failed.ID || check.InputPatchID != source.PatchID ||
+		check.Base != source.Base || check.Repository != source.Repository || check.WorkDir != source.WorkDir ||
+		!reflect.DeepEqual(r.StepInputs, map[string]Value{"patch": {ArtifactID: source.PatchID}, "tests": tests}) {
+		return plan, errors.New("failed frontend check did not use the retained candidate and original selectors")
+	}
+	need, err := readyTail(r, r.Step)
+	if err != nil {
+		return plan, err
+	}
+	if err = c.familyReserve(r, 1, need-1); err != nil {
+		return plan, err
+	}
+	return frontendCheckRecoveryPlan{run: r, source: *source, check: profile, priorCheck: prior, checkStep: step.ID, tests: tests, revisions: map[string]int64{r.ID: r.Revision}}, nil
 }
 
 func (c *Core) frontendRecheckSettledAttempts(r Run) error {

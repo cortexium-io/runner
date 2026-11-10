@@ -174,6 +174,11 @@ Vue checks and supplies both complete receipts to independent review. It has
 28 attempts and uses the same publication, native and browser qualification,
 and protected release steps. The catalogue change needs direct regressions for
 reopening and importing previously issued puzzles outside New.
+The frontend check runs the complete selection with one Vitest worker and a
+five-second case timeout. An owner can use `recover-frontend-check --serial` to
+reopen the exhausted frontend check of a settled catalogue run once. It pins the
+saved attempt, patch, checker and draft head, then runs a fresh full check inside
+the original attempt cap and protected release reserve.
 
 `frontend-retained-diagnostic` compares a saved patch with earlier frontend
 evidence using one Vitest worker and the five-second case timeout. Supply the

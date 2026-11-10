@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/runner"
@@ -29,7 +30,9 @@ func TestRetainedCatalogueKeepsAdoptionBothChecksAndProtectedRelease(t *testing.
 		}
 		steps[id] = step
 	}
-	if steps["owner"].Role != "catalogue-owner" || steps["review"].Role != "catalogue-review" || steps["check"].Role != "planned-go-check" || steps["frontend-check"].Role != "frontend-check" ||
+	frontend := project.Roles[steps["frontend-check"].Role].Execution
+	if frontend == nil || frontend.Command == nil || !slices.Contains(frontend.Command.Args, "--serial") ||
+		steps["owner"].Role != "catalogue-owner" || steps["review"].Role != "catalogue-review" || steps["check"].Role != "planned-go-check" || steps["frontend-check"].Role != "catalogue-frontend-check" ||
 		steps["frontend-check"].Inputs["tests"] != (runner.Binding{FromInput: "frontend_tests"}) ||
 		steps["check"].Inputs["tests"] != (runner.Binding{FromInput: "tests"}) ||
 		steps["review"].Inputs["go_checks"] != (runner.Binding{FromStep: "check", Output: "artifact"}) ||

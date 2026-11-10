@@ -734,8 +734,11 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		Outcomes:    stepOutcomes(step),
 		Deadline:    a.Deadline,
 	}
-	if recovery := r.FrontendCheckRecovery; recovery != nil && recovery.CheckStep == step.ID && recovery.CheckVisit == r.Visit {
-		assignment.FrontendCheckPins = &FrontendCheckPins{HelperSHA256: recovery.HelperSHA256, PatchSHA256: recovery.PatchSHA256}
+	if recovery := r.FrontendCheckRecovery; recovery != nil && recovery.CheckStep == step.ID && (recovery.CheckVisit == r.Visit || recovery.Serial && r.Visit > recovery.CheckVisit) {
+		assignment.FrontendCheckPins = &FrontendCheckPins{HelperSHA256: recovery.HelperSHA256, Serial: recovery.Serial}
+		if recovery.CheckVisit == r.Visit {
+			assignment.FrontendCheckPins.PatchSHA256 = recovery.PatchSHA256
+		}
 	}
 	if recovery := r.FrontendTimeoutRecovery; recovery != nil {
 		if recovery.CheckStep == step.ID && recovery.CheckVisit == r.Visit {
