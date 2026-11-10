@@ -175,6 +175,14 @@ Vue checks and supplies both complete receipts to independent review. It has
 and protected release steps. The catalogue change needs direct regressions for
 reopening and importing previously issued puzzles outside New.
 
+`frontend-retained-diagnostic` compares a saved patch with earlier frontend
+evidence using one Vitest worker and the five-second case timeout. Supply the
+original source commit, retained `patch`, selected `tests` as a JSON array encoded
+as text, and the `case_file` (a single-file array) and exact `case_name` for the
+isolated check. Both reports are returned when the tests execute, including
+when an assertion fails. The process uses two attempts and has no publication
+stage. Its reports are diagnostic evidence for the delivery workflow.
+
 Planned investigations retain the first complete candidate measurement as a
 separate artifact before entering the combined correction owner. The fixed copy
 step is anchored before that owner so later correction loops cannot supersede

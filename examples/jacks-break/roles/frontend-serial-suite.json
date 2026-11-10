@@ -1,0 +1,34 @@
+{
+  "id": "frontend-serial-suite",
+  "purpose": "Collect diagnostic evidence for every selected frontend test with one Vitest worker and a five-second case timeout.",
+  "inputs": {
+    "patch": "artifact",
+    "tests": "text"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-frontend-check",
+        "--node",
+        "/absolute/path/to/node",
+        "--modules",
+        "/absolute/path/to/frontend-node-modules",
+        "--source",
+        "{workspace}",
+        "--scratch",
+        "{scratch}",
+        "--tests",
+        "{text.tests}",
+        "--serial"
+      ],
+      "result": "domain.json",
+      "artifact": "frontend-check.json"
+    }
+  }
+}

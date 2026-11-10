@@ -24,6 +24,8 @@ import (
 type options struct {
 	node, modules, source, scratch, tests string
 	diagnoseTimeouts                      bool
+	serial                                bool
+	testName                              string
 }
 
 var errArtifactLimit = errors.New("frontend artifact exceeds its existing 16 MiB limit")
@@ -34,6 +36,9 @@ type proof struct {
 	Schema             int                         `json:"schema"`
 	Status             string                      `json:"status"`
 	Tests              []string                    `json:"tests"`
+	TestWorkers        int                         `json:"test_workers,omitempty"`
+	TestTimeoutMS      int                         `json:"test_timeout_ms,omitempty"`
+	TestName           string                      `json:"test_name,omitempty"`
 	Executed           int                         `json:"executed"`
 	Failed             int                         `json:"failed"`
 	Skipped            int                         `json:"skipped"`
@@ -124,6 +129,8 @@ func main() {
 	flag.StringVar(&o.scratch, "scratch", "", "owned scratch directory")
 	flag.StringVar(&o.tests, "tests", "", "JSON array of explicit frontend-relative test files")
 	flag.BoolVar(&o.diagnoseTimeouts, "diagnose-timeouts", false, "sample confirmed five-second timeouts in isolated cases after the full check")
+	flag.BoolVar(&o.serial, "serial", false, "run a diagnostic with one Vitest worker and a five-second test timeout")
+	flag.StringVar(&o.testName, "test-name", "", "exact full test name for a serial diagnostic of one file")
 	flag.Parse()
 	if err := run(o); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -157,6 +164,13 @@ func runContext(ctx context.Context, o options) error {
 	if err != nil {
 		return err
 	}
+	if o.serial && o.diagnoseTimeouts {
+		return errors.New("serial diagnostics cannot be combined with timeout sampling")
+	}
+	if o.testName != "" && (!o.serial || len(tests) != 1 || len(o.testName) > maxDiagnosticNameBytes ||
+		!utf8.ValidString(o.testName) || strings.ContainsAny(o.testName, "\x00\r\n")) {
+		return errors.New("an exact test name requires a serial diagnostic of one file and a bounded single-line name")
+	}
 	for _, p := range []string{o.node, o.modules, o.source, o.scratch} {
 		if !filepath.IsAbs(p) || filepath.Clean(p) != p {
 			return errors.New("configured absolute runtime, dependency, source and scratch paths required")
@@ -166,6 +180,9 @@ func runContext(ctx context.Context, o options) error {
 		return err
 	}
 	p := proof{Schema: 2, Status: "blocked", Tests: tests}
+	if o.serial {
+		p.TestWorkers, p.TestTimeoutMS, p.TestName = 1, frontendTimeoutMS, o.testName
+	}
 	finish := func(outcome, reason string) error {
 		p.Status = map[string]string{"ready": "passed", "changes_requested": "failed", "blocked": "blocked"}[outcome]
 		p.Reason = clip(reason, 1000)
@@ -271,7 +288,14 @@ func runContext(ctx context.Context, o options) error {
 		}
 	}
 	vitest := filepath.Join(deps, "vitest", "vitest.mjs")
-	args := append(vitestArguments(vitest, report, junit), tests...)
+	args := vitestArguments(vitest, report, junit)
+	if o.serial {
+		args = append(args, "--maxWorkers=1", "--testTimeout="+strconv.Itoa(p.TestTimeoutMS))
+		if o.testName != "" {
+			args = append(args, "--testNamePattern=^"+regexp.QuoteMeta(o.testName)+"$")
+		}
+	}
+	args = append(args, tests...)
 	command := exec.CommandContext(ctx, o.node, args...)
 	command.Dir = frontend
 	command.WaitDelay = 2 * time.Second
@@ -549,6 +573,7 @@ func evaluate(p *proof, exitCode int, junitPath string, remainingEvidence int) (
 	compilerFailure := p.Typecheck != nil && p.Typecheck.Complete && p.Typecheck.Status == "failed" && len(p.Typecheck.Diagnostics) > 0
 	normalFailure := exitCode == 1 && !result.Success
 	passed, failed, skipped, assertions := 0, 0, 0, 0
+	named, namedExecuted := 0, 0
 	for _, file := range result.Results {
 		canonical, identityErr := reportedIdentity(p.CanonicalFrontend, file.Name)
 		i, exists := selected[canonical]
@@ -600,6 +625,12 @@ func evaluate(p *proof, exitCode int, junitPath string, remainingEvidence int) (
 		}
 		for _, assertion := range file.Assertions {
 			assertions++
+			if p.TestName != "" && assertion.FullName == p.TestName {
+				named++
+				if assertion.Status == "passed" || assertion.Status == "failed" {
+					namedExecuted++
+				}
+			}
 			if assertion.FullName == "" && problem == "" {
 				problem = f.Selected + ": assertion identity is missing"
 			}
@@ -640,7 +671,7 @@ func evaluate(p *proof, exitCode int, junitPath string, remainingEvidence int) (
 			case "pending", "skipped", "todo", "disabled":
 				skipped++
 				f.Skipped++
-				if f.Diagnostic == "" {
+				if p.TestName == "" && f.Diagnostic == "" {
 					f.Diagnostic = "required assertion did not execute: " + clip(assertion.FullName, 300)
 				}
 			default:
@@ -678,7 +709,10 @@ func evaluate(p *proof, exitCode int, junitPath string, remainingEvidence int) (
 	if result.Total == 0 || assertions != result.Total || passed != result.Passed || failed != result.Failed || skipped != result.Pending+result.Todo || result.Total != passed+failed+skipped {
 		return "blocked", "frontend report assertion counts do not establish complete selected-file execution"
 	}
-	if skipped != 0 {
+	if p.TestName != "" && (named != 1 || namedExecuted != 1 || p.Executed != 1) {
+		return "blocked", "frontend diagnostic did not execute exactly the named test"
+	}
+	if p.TestName == "" && skipped != 0 {
 		for _, file := range p.Files {
 			if file.Skipped != 0 {
 				return "blocked", file.Selected + ": required assertion did not execute; " + file.Diagnostic
@@ -693,6 +727,9 @@ func evaluate(p *proof, exitCode int, junitPath string, remainingEvidence int) (
 	}
 	if failed != 0 || !result.Success || exitCode != 0 {
 		return "blocked", "frontend process exit/report status is inconsistent with executed assertions"
+	}
+	if p.TestWorkers == 1 {
+		return "ready", "Selected frontend diagnostic executed with one Vitest worker"
 	}
 	return "ready", "Explicit frontend tests executed against the retained candidate; browser acceptance follows"
 }

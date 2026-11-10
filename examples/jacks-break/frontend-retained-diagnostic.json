@@ -1,0 +1,43 @@
+{
+  "id": "frontend-retained-diagnostic",
+  "inputs": {
+    "patch": "artifact",
+    "tests": "text",
+    "case_file": "text",
+    "case_name": "text"
+  },
+  "steps": [
+    {
+      "id": "serial-suite",
+      "role": "frontend-serial-suite",
+      "inputs": {
+        "patch": {"from_input": "patch"},
+        "tests": {"from_input": "tests"}
+      },
+      "routes": {
+        "changes_requested": {"next": "isolated-case"},
+        "blocked": {"next": "$fail"}
+      }
+    },
+    {
+      "id": "isolated-case",
+      "role": "frontend-serial-diagnostic",
+      "inputs": {
+        "patch": {"from_input": "patch"},
+        "tests": {"from_input": "case_file"},
+        "test_name": {"from_input": "case_name"}
+      },
+      "routes": {
+        "changes_requested": {"next": "$complete"},
+        "blocked": {"next": "$fail"}
+      }
+    }
+  ],
+  "outputs": {
+    "serial_suite": {"from_step": "serial-suite", "output": "artifact"},
+    "isolated_case": {"from_step": "isolated-case", "output": "artifact"}
+  },
+  "max_attempts": 2,
+  "max_attempts_per_step": 1,
+  "attempt_timeout": "10m"
+}
