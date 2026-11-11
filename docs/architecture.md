@@ -155,6 +155,30 @@ No further review, publication, qualification, protected release approval or
 default cutover occurred. Further source work requires an owner recovery-policy
 decision; spare aggregate attempts do not replenish a correction route.
 
+The owner then authorized a scoped budget-bounded correction policy for the
+remaining 20 attempts. Commit `12cf9e6` extends the existing recovery action,
+without a new tool or workflow: only the exhausted source backedge receives a
+finite upper bound, and every repair reserves the full checked/protected tail.
+Independent review, focused tests, full race checks (execution 769.572 seconds)
+and vet passed. Core
+`5535c4b5c113c3f5c1a9a94f14310205fd469690519b7b2a3a203aff7764eab1`
+was installed at 14:47 UTC with all 96 runs and the exact stopped root preserved.
+
+Runner handled two correction/check cycles internally. The first fresh check
+passed 214 of 215 cases, then automatically returned to the owner. Check
+`attempt_F7BAE4XGZJDEFR7E5JS2MWZ4MF` subsequently passed all 216 assertions and
+TypeScript without skips. Measurement completed and independent review
+`attempt_RGUFOUZ3MM6HT5253ST6BMFHHS` rejected narrowed Shikaku coverage:
+keyboard assertions covered only 10×10, while scrolled pan/touch covered only
+25×25. Both original assertion sets must cover both sizes within 5,000 ms.
+
+The normal review correction routed back to the owner, where the reserve guard
+stopped dispatch: one owner attempt plus 17 completion attempts are needed,
+but only 14 remain. No further model visit was launched. The same root is
+settled `Waiting` with 25 root plus three child attempts used, the candidate
+retained and cleanup complete. The 42/combined 65 ceilings remain unchanged.
+Full qualification, same-PR publication and default cutover remain pending.
+
 Admission required a separately approved exception retiring only the superseded
 `abb56de` raw archive (849,161,983 bytes). Existing retention code verified ownership,
 hash, reproduction and settlement; all 94 compiled artifacts remained unchanged.
