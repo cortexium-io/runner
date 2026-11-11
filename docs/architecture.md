@@ -135,6 +135,26 @@ empty, missing or tampered inputs stop before helper launch. An explicitly
 authorized within-budget retry can finish the already approved check without
 another source-owner visit or an increase to the frozen 42/combined 65 ceiling.
 
+The pin correction and within-budget retry contract in `8cc76b7` passed focused
+race tests, independent review, full race checks (execution 738.034 seconds) and
+vet. Core `580eda737ab84fa3597423441f1a4b50728e1db5d6d17537fc8a4433e5442a6d`
+was installed at 14:04 UTC, preserving all 96 runs and the exact stopped root.
+One audited current-visit retry then ran the real full check without increasing
+the total ceiling or launching another coding turn. Check
+`attempt_LPQTCIFU2ELBQKC72CXHOBBH7L` executed 214 assertions: 213 passed, none
+were skipped or timed out, and TypeScript passed. The CSS regression progressed
+past its former comparison but failed a later boolean assertion (`false` versus
+`true`) at `player-shell.test.ts:206`.
+
+The run is settled with cleanup complete, 19 root plus three child attempts used
+and 20 left within 42. Its retained owner patch SHA-256 is
+`86d22a5870013089c2ce4bffabe12e29825fb8432f74b5396c57ff54a47fec76`; the full
+check report is `0b731b757f0d8452b3dedf459f6057cb6e5b312038b87eb0beb20c02e2916bfa`.
+The ordinary correction route and the single assertion repair grant are spent.
+No further review, publication, qualification, protected release approval or
+default cutover occurred. Further source work requires an owner recovery-policy
+decision; spare aggregate attempts do not replenish a correction route.
+
 Admission required a separately approved exception retiring only the superseded
 `abb56de` raw archive (849,161,983 bytes). Existing retention code verified ownership,
 hash, reproduction and settlement; all 94 compiled artifacts remained unchanged.
