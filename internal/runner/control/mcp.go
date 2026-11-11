@@ -2,11 +2,15 @@
 package control
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -18,6 +22,49 @@ import (
 )
 
 type ConfigureFunc func(file, field string, value json.RawMessage) error
+
+// RecoverBrowserErrorsArgs keeps the full report inside the existing 64KiB
+// authenticated envelope. The Core receives only the exact decompressed bytes.
+type RecoverBrowserErrorsArgs struct {
+	RequestID       string `json:"request_id"`
+	RunID           string `json:"run_id"`
+	AttemptID       string `json:"attempt_id"`
+	Revision        int64  `json:"revision"`
+	PublicationHead string `json:"publication_head"`
+	ReportGZIP      string `json:"report_gzip"`
+}
+
+func (in RecoverBrowserErrorsArgs) request() (runner.RecoverBrowserErrorsRequest, error) {
+	var out runner.RecoverBrowserErrorsRequest
+	const compressedLimit = 32 << 10
+	if len(in.ReportGZIP) == 0 || len(in.ReportGZIP) > base64.StdEncoding.EncodedLen(compressedLimit) {
+		return out, errors.New("browser-error gzip report exceeds its base64 envelope")
+	}
+	compressed, err := base64.StdEncoding.DecodeString(in.ReportGZIP)
+	if err != nil || len(compressed) == 0 || len(compressed) > compressedLimit {
+		return out, errors.New("browser-error gzip report must contain 1..32768 bytes")
+	}
+	input := bytes.NewReader(compressed)
+	reader, err := gzip.NewReader(input)
+	if err != nil {
+		return out, errors.New("browser-error gzip report is invalid")
+	}
+	reader.Multistream(false)
+	data, readErr := io.ReadAll(io.LimitReader(reader, (128<<10)+1))
+	closeErr := reader.Close()
+	if readErr != nil || closeErr != nil || len(data) == 0 || len(data) > 128<<10 || input.Len() != 0 {
+		return out, errors.New("browser-error gzip report is invalid, trailing, empty or exceeds 128KiB")
+	}
+	return runner.RecoverBrowserErrorsRequest{
+		RequestID:       in.RequestID,
+		RunID:           in.RunID,
+		AttemptID:       in.AttemptID,
+		Revision:        in.Revision,
+		PublicationHead: in.PublicationHead,
+		Report:          data,
+	}, nil
+}
+
 type StartArgs struct {
 	SourceRef string            `json:"source_ref,omitempty"`
 	RequestID string            `json:"request_id"`
@@ -100,6 +147,14 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 	})
 	add(s, "runner_recover_frontend_timeouts", "Owner-authorized diagnosis after a settled blocked owner or exhausted frontend check. Preserves assertion failures while sampling confirmed timeouts at the same test limit. Complete evidence can authorize one repair within the frozen cap. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverFrontendTimeoutsRequest) (any, error) {
 		r, e := c.RecoverFrontendTimeouts(in)
+		return summary(r), e
+	})
+	add(s, "runner_recover_browser_errors", "Owner-authorized authenticated saved browser page-error handoff for the exact run, attempt, revision and publication. report_gzip is one base64-encoded gzip member, at most 32KiB compressed and 128KiB decompressed. Preserves the historical receipt without dispatching work or granting attempts. Restricted intake must not invoke this action.", func(ctx context.Context, in RecoverBrowserErrorsArgs) (any, error) {
+		request, e := in.request()
+		if e != nil {
+			return nil, e
+		}
+		r, e := c.RecoverBrowserErrors(request)
 		return summary(r), e
 	})
 	add(s, "runner_decide", "Approve or reject one saved decision using its exact decision_id. Does not grant extra attempts or approve a different candidate.", func(ctx context.Context, in runner.DecisionRequest) (any, error) {

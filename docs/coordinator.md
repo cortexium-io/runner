@@ -135,6 +135,23 @@ qualification remain required within the original completion reserve and cap.
 This mode cannot combine with serial execution or timeout diagnosis; restricted
 intake must not expose or call it.
 
+An explicitly authorized `recover-browser-errors` action can repair the evidence
+handoff after a retained frontend qualification has already returned to its
+settled source owner. Bind the observed revision, exact qualification attempt and
+current draft publication head, and supply the complete saved browser report with
+`--report-file`. Runner checks its digest against the original failed receipt,
+accepted source and cards, and live publication ownership. Only complete standard
+ResizeObserver assertion evidence is admitted. Unknown or incomplete errors stay
+blocked. The current owner's diagnostic gains classified error counts and hashes;
+the original attempt, opaque handle, frozen process, status, limits and route uses
+remain unchanged. The action records an idempotent audit but dispatches no work;
+any subsequent retry still requires its existing authorization and reserve.
+The full report stays private. Bounded gzip transport preserves the existing
+64 KiB control envelope, with 32 KiB compressed and 128 KiB raw report bounds.
+The ordinary release operator now derives the same safe feedback from known
+legacy page-error assertions, without changing browser acceptance or its driver.
+Restricted intake must not expose or invoke this owner action.
+
 Preserved checkouts live under `STATE/forensics/RUN/ATTEMPT/source`; their sibling
 manifest binds the captured patch hash and ownership identity. These files and
 links count toward the existing storage limit, are never followed as candidate

@@ -481,6 +481,14 @@ func (c *Core) frontendRecheckCards(r Run) (map[string]int64, error) {
 }
 
 func frontendRecheckPath(r Run) (Profile, error) {
+	current := r.Current()
+	if current == nil {
+		return Profile{}, errors.New("frontend recovery requires a current source owner")
+	}
+	return frontendRecheckOwnerPath(r, current.Profile)
+}
+
+func frontendRecheckOwnerPath(r Run, profileName string) (Profile, error) {
 	bad := errors.New("frontend recovery requires the frozen owner, fixed check and protected retained delivery path")
 	path := []struct{ id, harness, mode, access string }{
 		{"owner", "codex", "", "workspace-write"},
@@ -506,7 +514,7 @@ func frontendRecheckPath(r Run) (Profile, error) {
 	}
 	ownerRole, checkRole := r.Roles[steps[0].Role], r.Roles[steps[1].Role]
 	owner, _ := releaseBudgetProfile(r, r.Step)
-	actual, err := ownerRole.Profile(r.Current().Profile)
+	actual, err := ownerRole.Profile(profileName)
 	check, _ := releaseBudgetProfile(r, r.Step+1)
 	patch := Binding{FromCandidate: true}
 	if err != nil || !reflect.DeepEqual(owner, actual) || !reflect.DeepEqual(ownerRole.Outputs, map[string]string{"summary": "text", "patch": "artifact"}) || !frontendRecheckProfile(check) ||

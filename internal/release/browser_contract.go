@@ -22,20 +22,31 @@ var browserGames = []string{"Sudoku", "Suguru", "Nonogram", "Binary", "Futoshiki
 const maxBrowserFeedback = 768
 
 type BrowserFailureFeedback struct {
-	Status       string                 `json:"status"`
-	Kind         string                 `json:"kind,omitempty"`
-	Phase        string                 `json:"phase,omitempty"`
-	Path         string                 `json:"path,omitempty"`
-	Selector     string                 `json:"selector,omitempty"`
-	Cell         string                 `json:"cell,omitempty"`
-	Expected     BrowserStateFeedback   `json:"expected,omitzero"`
-	Actual       BrowserStateFeedback   `json:"actual,omitzero"`
-	Differences  int                    `json:"differences,omitempty"`
-	Reload       BrowserReloadFeedback  `json:"reload,omitzero"`
-	Layout       BrowserLayoutFeedback  `json:"layout,omitzero"`
-	Gesture      BrowserGestureFeedback `json:"gesture,omitzero"`
-	ReportSHA256 string                 `json:"report_sha256"`
-	Issue        string                 `json:"issue,omitempty"`
+	Status       string                    `json:"status"`
+	Kind         string                    `json:"kind,omitempty"`
+	Phase        string                    `json:"phase,omitempty"`
+	Path         string                    `json:"path,omitempty"`
+	Selector     string                    `json:"selector,omitempty"`
+	Cell         string                    `json:"cell,omitempty"`
+	Expected     BrowserStateFeedback      `json:"expected,omitzero"`
+	Actual       BrowserStateFeedback      `json:"actual,omitzero"`
+	Differences  int                       `json:"differences,omitempty"`
+	Reload       BrowserReloadFeedback     `json:"reload,omitzero"`
+	Layout       BrowserLayoutFeedback     `json:"layout,omitzero"`
+	Gesture      BrowserGestureFeedback    `json:"gesture,omitzero"`
+	PageErrors   BrowserPageErrorsFeedback `json:"page_errors,omitzero"`
+	ReportSHA256 string                    `json:"report_sha256"`
+	Issue        string                    `json:"issue,omitempty"`
+}
+
+// Only standard browser classifications are public. Unknown error text and
+// stacks stay private; their count and digest make that missing detail explicit.
+type BrowserPageErrorsFeedback struct {
+	Count                     int64  `json:"count"`
+	ResizeObserverUndelivered int64  `json:"resize_observer_undelivered,omitempty"`
+	ResizeObserverLoopLimit   int64  `json:"resize_observer_loop_limit,omitempty"`
+	Unclassified              int64  `json:"unclassified,omitempty"`
+	SHA256                    string `json:"sha256"`
 }
 
 type BrowserStateFeedback struct {
@@ -353,6 +364,114 @@ func browserGestureFeedback(raw json.RawMessage) (BrowserGestureFeedback, string
 	return g, status, issue
 }
 
+func pageErrorFeedback(report []byte, counts BrowserPageErrorsFeedback, path, status string) BrowserFailureFeedback {
+	sum := sha256.Sum256(report)
+	f := BrowserFailureFeedback{Status: "complete", Kind: "page-errors", Phase: "page errors", ReportSHA256: hex.EncodeToString(sum[:])}
+	validCount := func(n int64) bool { return n >= 0 && n <= counts.Count }
+	_, hashErr := hex.DecodeString(counts.SHA256)
+	if counts.Count < 1 || counts.Count > 1<<32-1 || !validCount(counts.ResizeObserverUndelivered) ||
+		!validCount(counts.ResizeObserverLoopLimit) || !validCount(counts.Unclassified) ||
+		counts.ResizeObserverUndelivered+counts.ResizeObserverLoopLimit+counts.Unclassified != counts.Count ||
+		len(counts.SHA256) != 64 || hashErr != nil {
+		f.Status, f.Issue = "partial", "invalid page error counts or digest"
+		return f
+	}
+	f.PageErrors = counts
+	if len(path) > 80 || !browserPageErrorPath.MatchString(path) {
+		f.Status, f.Issue = "partial", "missing or invalid page error path"
+	} else {
+		f.Path = path
+	}
+	if counts.Unclassified > 0 {
+		f.Status, f.Issue = "partial", "unclassified page errors"
+	}
+	if status != "complete" {
+		f.Status, f.Issue = "partial", "incomplete page error diagnostic"
+		if status == "truncated" {
+			f.Status, f.Issue = "truncated", "page error diagnostic truncated"
+		}
+	}
+	return f
+}
+
+var browserPageErrorPath = regexp.MustCompile(`^/(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)/[A-Za-z0-9_-]+$`)
+var browserPageErrorStack = regexp.MustCompile(`^    at PageReadiness\.assertNoErrors \(file:///runner/browser_render\.mjs:[0-9]{1,6}:[0-9]{1,6}\)$`)
+
+// RecoverBrowserErrorFeedback derives evidence from an authenticated legacy
+// browser report. The caller must first verify its ownership and saved digest.
+// Only a complete canonical assertion diff containing standard ResizeObserver
+// messages is admitted. Unknown, omitted or abbreviated entries are not guessed.
+func RecoverBrowserErrorFeedback(report []byte) (BrowserFailureFeedback, error) {
+	var receipt struct {
+		Contract          int
+		Complete          *bool
+		Headless          *bool
+		MockedResponses   *bool
+		Failure           string
+		FailureDiagnostic json.RawMessage
+		FailureContext    *struct {
+			Engine, Device, Game, Path, Phase string
+			Width, Height                     int
+		}
+	}
+	reject := func() (BrowserFailureFeedback, error) {
+		return BrowserFailureFeedback{}, errors.New("browser page-error recovery requires a complete owned legacy assertion and valid context")
+	}
+	if len(report) == 0 || len(report) > 128<<10 || json.Unmarshal(report, &receipt) != nil || receipt.Contract != 2 ||
+		receipt.Complete == nil || *receipt.Complete || receipt.Headless == nil || !*receipt.Headless ||
+		receipt.MockedResponses == nil || *receipt.MockedResponses || receipt.FailureContext == nil ||
+		len(receipt.FailureDiagnostic) != 0 && string(receipt.FailureDiagnostic) != "null" {
+		return reject()
+	}
+	c := receipt.FailureContext
+	if c.Engine != "chromium" && c.Engine != "webkit" || c.Device != "desktop" && c.Device != "mobile" ||
+		!slices.Contains(browserGames, c.Game) || c.Width < 1 || c.Width > 10000 || c.Height < 1 || c.Height > 10000 ||
+		len(c.Path) > 80 || !browserPageErrorPath.MatchString(c.Path) || !strings.HasPrefix(c.Path, "/"+strings.ToLower(c.Game)+"/") ||
+		!slices.Contains([]string{"screenshot", "print preview", "advertised geometry and readable fit/zoom", "large Shikaku exact touch paint, no page pan, Undo/Redo/reload"}, c.Phase) {
+		return reject()
+	}
+	const prefix = "AssertionError [ERR_ASSERTION]: browser errors\n+ actual - expected\n\n+ [\n"
+	const end = "\n+ ]\n- []\n\n"
+	if !strings.HasPrefix(receipt.Failure, prefix) {
+		return reject()
+	}
+	body, stack, found := strings.Cut(strings.TrimPrefix(receipt.Failure, prefix), end)
+	frames := strings.Split(stack, "\n")
+	if !found || len(frames) == 0 || !browserPageErrorStack.MatchString(frames[0]) {
+		return reject()
+	}
+	for _, frame := range frames[1:] {
+		if !strings.HasPrefix(frame, "    at ") || strings.ContainsAny(frame, "\x00\r") {
+			return reject()
+		}
+	}
+	rows := strings.Split(body, "\n")
+	counts := BrowserPageErrorsFeedback{Count: int64(len(rows))}
+	messages := make([]string, 0, len(rows))
+	for i, row := range rows {
+		if i < len(rows)-1 {
+			if !strings.HasSuffix(row, ",") {
+				return reject()
+			}
+			row = strings.TrimSuffix(row, ",")
+		}
+		switch row {
+		case "+   'ResizeObserver loop completed with undelivered notifications.'":
+			counts.ResizeObserverUndelivered++
+			messages = append(messages, "ResizeObserver loop completed with undelivered notifications.")
+		case "+   'ResizeObserver loop limit exceeded'":
+			counts.ResizeObserverLoopLimit++
+			messages = append(messages, "ResizeObserver loop limit exceeded")
+		default:
+			return reject()
+		}
+	}
+	data, _ := json.Marshal(messages)
+	sum := sha256.Sum256(data)
+	counts.SHA256 = hex.EncodeToString(sum[:])
+	return pageErrorFeedback(report, counts, c.Path, "complete"), nil
+}
+
 func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFailureFeedback {
 	sum := sha256.Sum256(report)
 	f := BrowserFailureFeedback{Status: "missing", ReportSHA256: hex.EncodeToString(sum[:])}
@@ -362,6 +481,7 @@ func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFai
 		Differences                               int
 		Layout                                    BrowserLayoutFeedback
 		Gesture                                   json.RawMessage
+		PageErrors                                BrowserPageErrorsFeedback `json:"page_errors"`
 		Reload                                    struct {
 			Status, Path   string
 			DocumentStatus int
@@ -369,12 +489,18 @@ func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFai
 		}
 	}
 	if len(raw) == 0 || string(raw) == "null" {
+		if recovered, err := RecoverBrowserErrorFeedback(report); err == nil {
+			return recovered
+		}
 		f.Issue = "diagnostic not collected"
 		return f
 	}
 	if json.Unmarshal(raw, &d) != nil {
 		f.Issue = "invalid diagnostic"
 		return f
+	}
+	if d.Kind == "page-errors" {
+		return pageErrorFeedback(report, d.PageErrors, path, d.Status)
 	}
 	f.Status = "complete"
 	if d.Status != "complete" {

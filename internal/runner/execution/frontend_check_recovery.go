@@ -129,6 +129,10 @@ func (r *Releases) validateFrontendCheckPublication(ctx context.Context, run run
 	if originRun != b.Adoption.PublicationRunID || originKey != b.Adoption.PublicationKey {
 		return errors.New("frontend check recovery publication origin changed")
 	}
+	return r.validateFrontendDraft(ctx, run, b.Adoption)
+}
+
+func (r *Releases) validateFrontendDraft(ctx context.Context, run runner.Run, expected release.Receipt) error {
 	origin, err := git(ctx, run.Repository, nil, nil, 1024, "remote", "get-url", "origin")
 	if err != nil {
 		return err
@@ -137,14 +141,14 @@ func (r *Releases) validateFrontendCheckPublication(ctx context.Context, run run
 	if repository == nil {
 		return errors.New("frontend check recovery requires the owned HTTPS GitHub origin")
 	}
-	cmd := exec.CommandContext(ctx, r.cfg.GitHub, "pr", "view", strconv.Itoa(b.Adoption.PR), "--repo", "github.com/"+repository[1], "--json", "state,isDraft,isCrossRepository,headRefName,headRefOid,baseRefOid")
+	cmd := exec.CommandContext(ctx, r.cfg.GitHub, "pr", "view", strconv.Itoa(expected.PR), "--repo", "github.com/"+repository[1], "--json", "state,isDraft,isCrossRepository,headRefName,headRefOid,baseRefOid")
 	cmd.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=/usr/bin:/bin", "GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1"}
 	output := &diagnosticTail{limit: 4096}
 	cmd.Stdout = output
 	if err := cmd.Run(); err != nil {
 		return errors.New("frontend check recovery could not verify the live draft publication")
 	}
-	return verifyFrontendCheckDraft(output.bytes(), b.Adoption)
+	return verifyFrontendCheckDraft(output.bytes(), expected)
 }
 
 func verifyFrontendCheckDraft(data []byte, adopted release.Receipt) error {

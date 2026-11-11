@@ -491,6 +491,7 @@ type Run struct {
 	FrontendCheckRecovery     *FrontendCheckRecovery     `json:"frontend_check_recovery,omitempty"`
 	FrontendTimeoutRecovery   *FrontendTimeoutRecovery   `json:"frontend_timeout_recovery,omitempty"`
 	FrontendAssertionRecovery *FrontendAssertionRecovery `json:"frontend_assertion_recovery,omitempty"`
+	BrowserErrorRecovery      *BrowserErrorRecovery      `json:"browser_error_recovery,omitempty"`
 	Decision                  *Decision                  `json:"decision,omitempty"`
 	NextProfile               string                     `json:"next_profile,omitempty"`
 	Escalations               int                        `json:"escalations"`

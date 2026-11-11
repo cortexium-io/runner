@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -36,7 +40,7 @@ func run(ctx context.Context, args []string) error {
 		return execution.RunCommandWorker(ctx, args[1])
 	}
 	if len(args) == 0 {
-		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|recover-corrections|recover-collection|recover-planning|recover-frontend-check|recover-frontend-timeouts|decide|wait|config-set")
+		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|recover-corrections|recover-collection|recover-planning|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -58,7 +62,8 @@ func run(ctx context.Context, args []string) error {
 	revision := fs.Int64("revision", 0, "exact inspected run revision for owner-authorized recovery")
 	patchSHA256 := fs.String("patch-sha256", "", "approved retained patch digest for frontend check recovery")
 	helperSHA256 := fs.String("helper-sha256", "", "qualified frontend check helper digest")
-	publicationHead := fs.String("publication-head", "", "exact retained draft publication head for frontend check recovery")
+	publicationHead := fs.String("publication-head", "", "exact retained draft publication head for owner-authorized recovery")
+	reportFile := fs.String("report-file", "", "bounded saved browser-error report for owner-authorized handoff")
 	serial := fs.Bool("serial", false, "recheck a settled catalogue candidate with one Vitest worker")
 	assertionSHA256 := fs.String("assertion-sha256", "", "exact failed full-check report digest for one authorized assertion correction after diagnostic repair")
 	checkAttemptID := fs.String("check-attempt", "", "exact prior check attempt for frontend timeout diagnosis")
@@ -80,6 +85,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	if *data == "" {
 		return errors.New("--data is required")
+	}
+	if *reportFile != "" && command != "recover-browser-errors" {
+		return errors.New("--report-file requires recover-browser-errors")
 	}
 	if *serial && command != "recover-frontend-check" {
 		return errors.New("--serial requires recover-frontend-check")
@@ -104,6 +112,20 @@ func run(ctx context.Context, args []string) error {
 	}
 	if command == "recover-frontend-timeouts" && (*runID == "" || *attemptID == "" || *revision < 1 || *patchSHA256 == "" || *helperSHA256 == "" || *publicationHead == "" || *checkAttemptID == "" || *checkSHA256 == "" || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
 		return errors.New("recover-frontend-timeouts requires --run, --attempt, --revision, --patch-sha256, --helper-sha256, --publication-head, --check-attempt and --check-sha256; it grants no retry or profile override")
+	}
+	if command == "recover-browser-errors" && (*runID == "" || *attemptID == "" || *revision < 1 || *publicationHead == "" || *reportFile == "" || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
+		return errors.New("recover-browser-errors requires --run, --attempt, --revision, --publication-head and --report-file; it grants no attempts or profile override")
+	}
+	var browserReportGZIP []byte
+	if command == "recover-browser-errors" {
+		browserReport, err := readBrowserErrorReport(*reportFile)
+		if err != nil {
+			return err
+		}
+		browserReportGZIP, err = compressBrowserErrorReport(browserReport)
+		if err != nil {
+			return err
+		}
 	}
 	root, e := filepath.Abs(*data)
 	if e != nil {
@@ -230,6 +252,20 @@ func run(ctx context.Context, args []string) error {
 			request.AssertionSHA256 = *assertionSHA256
 			a = request
 		}
+	case "recover-browser-errors":
+		if *requestID == "" {
+			*requestID = rand.Text()
+		}
+		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
+		method = "runner_recover_browser_errors"
+		a = control.RecoverBrowserErrorsArgs{
+			RequestID:       *requestID,
+			RunID:           *runID,
+			AttemptID:       *attemptID,
+			Revision:        *revision,
+			PublicationHead: *publicationHead,
+			ReportGZIP:      base64.StdEncoding.EncodeToString(browserReportGZIP),
+		}
 	case "wait":
 		after := int64(0)
 		for {
@@ -262,6 +298,50 @@ func run(ctx context.Context, args []string) error {
 	}
 	return printJSON(b)
 }
+
+func readBrowserErrorReport(path string) ([]byte, error) {
+	const limit = 128 << 10
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > limit {
+		return nil, errors.New("browser-error report must be a nonempty regular file without a symlink, at most 128KiB")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open browser-error report: %w", err)
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) || !opened.Mode().IsRegular() {
+		return nil, errors.New("browser-error report changed while opening")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	after, statErr := os.Lstat(path)
+	if err != nil || len(data) > limit || statErr != nil || !after.Mode().IsRegular() || !os.SameFile(info, after) ||
+		int64(len(data)) != info.Size() || after.Size() != info.Size() || !after.ModTime().Equal(info.ModTime()) {
+		return nil, errors.New("browser-error report changed, exceeded 128KiB or could not be read")
+	}
+	return data, nil
+}
+
+func compressBrowserErrorReport(data []byte) ([]byte, error) {
+	if len(data) == 0 || len(data) > 128<<10 {
+		return nil, errors.New("browser-error report must contain 1..131072 bytes")
+	}
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err := writer.Write(data); err != nil {
+		writer.Close()
+		return nil, err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	if compressed.Len() > 32<<10 {
+		return nil, errors.New("browser-error gzip report exceeds the 32KiB handoff bound")
+	}
+	return compressed.Bytes(), nil
+}
+
 func printJSON(b []byte) error {
 	var v any
 	if e := json.Unmarshal(b, &v); e != nil {

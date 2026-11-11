@@ -118,6 +118,11 @@ func TestBrowserGeometryAndInputContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := `import assert from 'node:assert/strict';import {assertPlayArea,geometryCases,geometryKey,games} from './browser_contract.mjs';
+import {PageReadiness} from './browser_render.mjs';
+const errorPage={},readiness=new PageReadiness({}),pageErrors=['ResizeObserver loop completed with undelivered notifications.','ResizeObserver loop completed with undelivered notifications.'];
+readiness.errors.set(errorPage,pageErrors);
+assert.throws(()=>readiness.assertNoErrors(errorPage),error=>error instanceof assert.AssertionError&&error.actual===pageErrors,'page errors were ignored');
+assert.deepEqual(readiness.errors.get(errorPage),pageErrors,'assertion cleared browser errors');
 const good={internalWidth:300,internalHeight:300,clientWidth:300,clientHeight:300,viewport:{width:360,height:640},documentWidth:360,frame:{x:8,y:60,width:344,height:350},board:{x:8,y:60,width:300,height:300},controls:[{x:8,y:370,width:60,height:40,label:'Undo'}]};
 assertPlayArea(good);
 for(const bad of [{...good,board:{...good.board,width:420}},{...good,board:{...good.board,y:-500}},{...good,controls:[...good.controls,{x:8,y:700,width:100,height:40,label:'Add rectangle'}]},{...good,documentWidth:500},{...good,internalWidth:420}])assert.throws(()=>assertPlayArea(bad),assert.AssertionError);

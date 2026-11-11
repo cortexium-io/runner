@@ -2,6 +2,14 @@
 
 ## Current authority and scope
 
+On 11 November the owner authorized focused browser-error handoff maintenance,
+including audited recovery from the hash-verified saved Kakuro report, verification
+and installation, then completion of the same PR #338 run. Keep that root within
+64 attempts and its two-workflow family within 87; preserve history, assertions,
+the five-second test limit and model settings. No replacement workflow or duplicate
+PR. Merge, production and restoration retain separate owner decisions. Switch the
+planned default only after full qualification.
+
 On 8 November the owner authorized completing the four release-closure packages:
 freeze the supported build and routine policy, finish missing real-work evidence,
 perform the qualified routing/documentation cutover, and verify reuse on another
