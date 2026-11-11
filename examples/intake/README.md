@@ -28,8 +28,8 @@ unchanged. Do not reconstruct it from private journal details.
 
 Resolve routing before launching this intake: its empty workspace and disabled
 host skills provide no project/process discovery. For Jack's Break, use the
-[pilot routing and qualification contract](../../docs/coordinator.md). After the
-qualified frontend default cutover, supply `deliver-planned-frontend` explicitly
+[pilot routing and qualification contract](../../docs/coordinator.md). The
+qualified frontend default cutover is active; supply `deliver-planned-frontend` explicitly
 for new Vue/mobile delivery; use `research-planned-retained-nonogram` for its
 bounded retained research request. The latter returns reviewed evidence without
 release stages. The intake must not translate either request into legacy board

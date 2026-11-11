@@ -289,7 +289,7 @@ func TestNativeReviewPreflight(t *testing.T) {
 	}
 }
 
-func qualifyCoordinatorTools(t *testing.T, ctx context.Context, root, binary, home string) {
+func qualifyCoordinatorTools(t *testing.T, ctx context.Context, root, binary, home string, rejoin ...intakeRejoinProof) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -379,6 +379,9 @@ func qualifyCoordinatorTools(t *testing.T, ctx context.Context, root, binary, ho
 	}
 	if err := peer.Call(ctx, "mcpServer/tool/call", map[string]any{"threadId": thread.Thread.ID, "server": "runner", "tool": "runner_configure", "arguments": map[string]any{"file": "not-selected", "field": "concurrency", "value": 1}}, &result); err == nil && !result.IsError {
 		t.Fatal("coordinator invoked an unavailable configuration tool")
+	}
+	if len(rejoin) == 1 {
+		qualifyCoordinatorRejoin(t, ctx, peer, thread.Thread.ID, rejoin[0])
 	}
 	t.Log("coordinator exposes only run/result/status; native status call passed; zero model turns")
 }

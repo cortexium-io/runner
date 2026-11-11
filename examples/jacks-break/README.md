@@ -1,8 +1,8 @@
 # Connected Jack's Break delivery
 
 Use the [coordinator routing contract](../../docs/coordinator.md) for the current
-pilot default and qualification gate. Once planned mobile delivery is qualified
-and the operator cuts over the default, new Vue/mobile work selects
+pilot default and qualification gate. Planned mobile delivery passed qualification
+and the pilot default switched on 11 November 2026. New Vue/mobile work selects
 `deliver-planned-frontend`. Bounded retained Nonogram research selects
 `research-planned-retained-nonogram`, whose endpoint is reviewed evidence. Submit
 one complete process; external chats do not coordinate cards, product checks or

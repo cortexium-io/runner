@@ -1,6 +1,6 @@
 # Runner process core design
 
-Updated 9 November 2026. **The owner has authorized completing and installing the
+Updated 11 November 2026. **The owner has authorized completing and installing the
 full bounded planner workflow, safe parallelism and routine recovery, verified
 across real projects. Merge and production remain owner-approved actions.**
 
@@ -53,11 +53,20 @@ independent review approved local unpublished candidate
 Both runs used twelve of the original 64 attempts;
 this proof is not being rerun and does not migrate Genny's existing programme.
 See the [closure evidence](architecture.md#release-closure-8-november-2026).
-Package 2's real frontend and strict acceptance remain blocked after the retained
-continuation described below; package 3's default cutover is held until real
-qualification. Merge and production remain separately protected. All four
-packages are not yet complete, and the outstanding product failures are not
-proven fixed.
+Packages 2 and 3 reached their authorized retained-work finish on 11 November:
+PR #338 head `24cb06d` passed 222 frontend cases, TypeScript, independent review,
+native qualification and complete Chromium/WebKit acceptance, then stopped at
+the saved merge decision. The pilot default and restricted intake routing are
+now planned frontend delivery. A fresh zero-model native session replayed the
+original request and rejoined that same protected result, preserving all 96 runs
+and 54 aggregate attempts. See the
+[qualified cutover](architecture.md#qualified-planned-frontend-default-11-november-2026).
+This closes the four bounded implementation/operational packages through the
+declared owner gate; merge and production are still unapproved. The retained
+journey used explicit recovery and allowance amendments, not a fresh
+zero-intervention benchmark. Fresh natural-language routing was not separately
+benchmarked, and these results do not establish every project's release readiness
+or prove the earlier intermittent Nonogram failures impossible.
 
 The owner has renewed completion of packages 2 and 3, including coordination
 with the copy-release chat, full Jack's Break qualification and the planned

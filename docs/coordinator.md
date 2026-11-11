@@ -191,19 +191,18 @@ Jack's Break dispatch is owned by the process-core instance at
 local MCP service; Mega Mini owns the remote release operator. From another host,
 use the configured SSH connection to Black Magic for the existing Runner CLI
 run/result/status commands. Do not copy `owner.token` or guess a network endpoint.
-Its live default remains `deliver` while the planned mobile journey awaits
-qualification. The current retained-mobile continuation on draft PR #338 restored
-the Shikaku coverage required by independent review and corrected the Futoshiki
-overflow. It passed all 221 cases, TypeScript and independent review, then
-published head `e1e9a42` to the same PR. Native qualification passed, but WebKit's
-Kakuro journey reported two ResizeObserver errors. The complete report retains
-them; the compact correction handoff drops their detail, and an ordinary retry
-cannot restore it. The settled run is held before further source work; see the
-[qualification record](architecture.md).
-Planned processes are selectable explicitly
-for authorized qualification; their installation alone is not a default cutover.
-After that qualification and operator cutover, new Vue/mobile delivery selects
-`deliver-planned-frontend`. Bounded retained Nonogram research selects
+Its live default is `deliver-planned-frontend` after full native/browser
+qualification and operator cutover on 11 November 2026. The retained-mobile
+continuation on PR #338 passed 222 frontend cases, TypeScript, independent review,
+native qualification, 36 Chromium/WebKit journeys and 456 geometry checks at
+head `24cb06d`. It is held at the saved merge approval gate; it is not merged or
+deployed. The matching restricted intake profile is active. A fresh native
+session replayed the exact original request and rejoined the same result with
+zero model turns or new product attempts. See the
+[qualification record](architecture.md#qualified-planned-frontend-default-11-november-2026).
+New Vue/mobile delivery selects `deliver-planned-frontend`; Go/backend
+investigation delivery selects `deliver-planned-investigation` explicitly.
+Bounded retained Nonogram research selects
 `research-planned-retained-nonogram`, which ends with reviewed evidence rather
 than release. Keep the older processes for history, compatibility and their
 explicitly supported handoffs. Do not infer Jack's Break dispatch or current work

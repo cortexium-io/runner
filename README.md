@@ -103,9 +103,12 @@ operations and dashboards remain outside this qualified implementation. Benchmar
 use project commands and ordinary roles.
 
 The [release-closure plan](docs/process-core-design.md#release-closure-authorized-8-november-2026)
-records the remaining operational acceptance. The planned Jack's Break frontend
-default cutover is conditional on real native/browser qualification; installation,
-synthetic browser fixtures and a safe blocked result do not establish that acceptance.
+records the bounded pilot's operational acceptance. On 11 November, Jack's Break
+passed real native/browser qualification and switched its frontend default to
+`deliver-planned-frontend`. A fresh restricted native session verified exact
+request replay and same-run result rejoin without a model turn or new product work.
+See the [qualified cutover](docs/architecture.md#qualified-planned-frontend-default-11-november-2026)
+for identities, evidence and limits.
 Merge, production and database restoration retain separate owner decisions.
 
 ## Writable Go example

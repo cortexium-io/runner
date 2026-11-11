@@ -25,6 +25,52 @@ Start with the example configuration, then `types.go`, then follow a run through
 handling. They do not form a second scheduling or storage service. The core
 imports no MCP SDK, configuration parser, SQLite driver or execution adapter.
 
+## Qualified planned frontend default, 11 November 2026
+
+The pilot completed its retained frontend qualification through the saved owner
+merge gate. Same run `run_MNRD6RIYN4CGBSU3G5I6VUFYFU` used 54 of its approved
+64 aggregate attempts, within the two-workflow ceiling of 87. All 96 run records
+remain preserved. PR #338's qualified head is
+`24cb06d9942f33f8d1353bafab030ea974b4035e`, based on main
+`fffff55553904ed4dcfdd538e96058a80155e160`, with image
+`sha256:eda1f428f41fcdb81342b4cd8154f0422d41c25fcddea3479b508a9b015b929b`.
+Merge decision `decision_UXRTMXT3FV2TVLTB22FFJETYGI` remains pending. Nothing
+has been merged or deployed by this qualification.
+
+Runner's fit/observer correction passed all 222 selected frontend cases and
+TypeScript, then independent review. Native acceptance passed 120 development
+and 480 held-out Nonogram cases, all 236 advertised runtime choices with identical
+reopen, and the database rehearsal. Headless Chromium/WebKit completed 36 player
+journeys and 456 geometry checks, without mocked responses or browser errors.
+The five-second frontend limit, both Shikaku sizes and original assertions remain.
+
+The enabling maintenance is Core `5345f2b` (binary `436e3ca7`) and operator
+`7f2a4bc` (binary `f6b6916a`). It restores only hash-verified bounded page-error
+feedback to an already settled owner, with immutable failed history and an
+idempotent audit. Live preflight exposed and corrected the distinction between
+retained workspace ownership and released attempt resources. Source/card/live-PR
+validation still precedes recovery. Full race gates, vet and independent review
+passed. The browser driver `d31e287c`, image `bae9c536`, operator policy `255f54e6`,
+model settings and acceptance thresholds stayed unchanged.
+
+At 18:46 UTC the Core default switched from `deliver` to
+`deliver-planned-frontend`; the restricted intake's matching routing instructions
+were promoted without changing its tools or model settings. Fresh native wire
+verification exposed exactly `runner_run`, `runner_result` and `runner_status`,
+rejected configuration access, replayed the canonical original request and
+rejoined the same saved decision. Run count, attempts, revision, usage and release
+identities remained unchanged. No model turn or new product work occurred.
+Evidence is under the private pilot's
+`coordinator/gesture-diagnostic-20261111/browser-error-recovery` and
+`coordinator/gesture-diagnostic-20261111/intake-cutover-rejoin` directories.
+
+This proves the bounded retained journey and installed restricted wire contract.
+It does not separately benchmark fresh natural-language routing or promise that
+all future projects are issue-free. The Genny reuse proof and reviewed research
+remain valid within their declared scope. Merge, production and restoration each
+retain their saved owner decisions. The following dated records preserve the
+earlier failures and recovery boundaries.
+
 ## Frontend correction evidence, 11 November 2026
 
 Candidate frontend checks union the explicit selection with new or modified test
