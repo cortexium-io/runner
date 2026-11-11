@@ -48,6 +48,16 @@ remain in history, while fresh downstream checks, review and qualification are
 required. Same-run publication advances the existing owned PR with its normal
 head comparison.
 
+An explicitly authorized `runner_retry` can grant another current root-visit
+attempt from its existing aggregate budget with `--within-budget --extra-attempts 1`.
+This leaves the frozen total ceiling unchanged, preserves
+history and reserves the finite ready/protected completion tail. The allowance
+ends at the current visit; it does not replenish source-correction routes or
+grant release approval. Model execution still needs its existing authorization.
+Child work, cleanup-only retries and incomplete
+completion reserves cannot use this mode. Omitting `--within-budget` retains
+the older retry contract, which also increases the total ceiling.
+
 This recovery requires settled execution and the retained candidate's normal
 ownership/source validation. Cleanup normally must be complete. An explicitly
 authorized `--preserve-source` recovery can preserve an incomplete owned checkout

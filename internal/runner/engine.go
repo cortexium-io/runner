@@ -29,6 +29,7 @@ type RetryRequest struct {
 	Profile       string `json:"profile,omitempty"`
 	ExtraAttempts int    `json:"extra_attempts,omitempty"`
 	CleanupOnly   bool   `json:"cleanup_only,omitempty"`
+	WithinBudget  bool   `json:"within_budget,omitempty"`
 }
 type Summary struct {
 	ID          string    `json:"id"`
@@ -338,6 +339,9 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 		return r, ErrNotFound
 	}
 	r = Clone(r)
+	if req.WithinBudget && (req.ExtraAttempts < 1 || req.CleanupOnly || r.Task != nil) {
+		return Run{}, errors.New("within_budget requires a positive root-visit allowance without cleanup_only")
+	}
 	if c.inFlight[r.ID] {
 		return Run{}, errors.New("run resource cleanup is active; wait before retrying")
 	}
@@ -359,7 +363,7 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 	if (r.Status != "Waiting" && r.Status != "Failed") || r.Active() {
 		return Run{}, errors.New("retry needs settled failed/waiting work; unknown execution must be reconciled first")
 	}
-	if req.ExtraAttempts < 0 || req.ExtraAttempts > 4 || r.Process.MaxAttempts+req.ExtraAttempts > 128 {
+	if req.ExtraAttempts < 0 || req.ExtraAttempts > 4 || !req.WithinBudget && r.Process.MaxAttempts+req.ExtraAttempts > 128 {
 		return Run{}, errors.New("extra_attempts exceeds the per-operation or run allowance")
 	}
 	if req.Profile != "" {
@@ -369,14 +373,29 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 		}
 		r.NextProfile = req.Profile
 	}
-	if len(r.Attempts) >= r.Process.MaxAttempts+req.ExtraAttempts {
+	total := r.Process.MaxAttempts
+	if !req.WithinBudget {
+		total += req.ExtraAttempts
+	}
+	if len(r.Attempts) >= total {
 		return Run{}, errors.New("attempt allowance exhausted; explicitly grant extra_attempts")
 	}
 	stepAttempts := visitAttempts(r)
 	if stepAttempts >= visitAttemptLimit(r)+req.ExtraAttempts {
 		return Run{}, errors.New("step attempt allowance exhausted; explicitly grant extra_attempts")
 	}
-	r.Process.MaxAttempts += req.ExtraAttempts
+	if req.WithinBudget {
+		need, err := readyTail(r, r.Step)
+		if err != nil {
+			return Run{}, err
+		}
+		requested := max(0, visitAttemptLimit(r)-stepAttempts) + req.ExtraAttempts
+		if err := c.familyReserve(r, requested, need-1); err != nil {
+			return Run{}, err
+		}
+	} else {
+		r.Process.MaxAttempts += req.ExtraAttempts
+	}
 	r.VisitExtraAttempts += req.ExtraAttempts
 	r.Status = "Queued"
 	r.ResourcesReleased = false
@@ -775,7 +794,18 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 			assignment.Task += " Focus on the single assertion in the full checks artifact. Diagnose its cause before selecting the smallest supported source or test-fixture correction, and report that cause and evidence in the summary. Preserve the intended behavior, assertions, full coverage and five-second test limit. If the evidence cannot support a safe correction, report the specific blocker."
 		}
 		if step.ID == "check" && r.Visit == recovery.RepairVisit+1 {
-			assignment.FrontendCheckPins = &FrontendCheckPins{HelperSHA256: recovery.HelperSHA256}
+			id := assignment.Inputs["patch"].ArtifactID
+			if id == "" || c.recoveryArtifact(r, id) != nil {
+				return Assignment{}, errors.New("frontend assertion check lacks its owned corrected patch")
+			}
+			patch, err := c.disk.Read("artifacts/"+id, c.disk.Policy.MaxArtifact)
+			if err != nil {
+				return Assignment{}, err
+			}
+			assignment.FrontendCheckPins = &FrontendCheckPins{
+				HelperSHA256: recovery.HelperSHA256,
+				PatchSHA256:  fmt.Sprintf("%x", sha256.Sum256(patch)),
+			}
 		}
 	}
 	assignment.TaskSource, e = c.taskAssignment(r, step)

@@ -164,7 +164,8 @@ func TestRecoverFrontendAssertionUsesOneBoundRepairAndNormalCheck(t *testing.T) 
 	}
 	owner.Source = Clone(before.Attempts[len(before.Attempts)-2].Source)
 	owner.Source.AttemptID, owner.Source.InputPatchID, owner.Source.PatchID = owner.ID, grant.PatchID, owner.ID+"/changes.patch"
-	if err := c.disk.Write("artifacts/"+owner.Source.PatchID, []byte("focused CSS correction"), c.disk.Policy.MaxArtifact); err != nil {
+	freshPatch := []byte("focused CSS correction")
+	if err := c.disk.Write("artifacts/"+owner.Source.PatchID, freshPatch, c.disk.Policy.MaxArtifact); err != nil {
 		t.Fatal(err)
 	}
 	owner.End = &ExecutionEnd{
@@ -178,13 +179,23 @@ func TestRecoverFrontendAssertionUsesOneBoundRepairAndNormalCheck(t *testing.T) 
 		},
 	}
 	r.Attempts = append(r.Attempts, owner)
-	c.finish(&r, len(r.Attempts)-1)
+	for _, artifact := range c.finish(&r, len(r.Attempts)-1) {
+		store.artifacts[artifact.ID] = artifact
+	}
 	if r.Status != "Queued" || r.Process.Steps[r.Step].ID != "check" || r.Decision != nil || r.Visit != grant.RepairVisit+1 {
 		t.Fatal("assertion correction skipped its fresh normal check", r.Status, r.Reason)
 	}
 	assignment, err = c.assignment(r, Attempt{ID: "attempt_css_full_check", Step: r.Step, Visit: r.Visit})
-	if err != nil || assignment.FrontendCheckPins == nil || assignment.FrontendCheckPins.HelperSHA256 != request.HelperSHA256 || assignment.FrontendCheckPins.DiagnoseTimeouts || assignment.FrontendCheckPins.PatchSHA256 != "" {
-		t.Fatal("fresh check did not retain its qualified helper without reusing old patch or isolated acceptance", err, assignment.FrontendCheckPins)
+	if err != nil || assignment.FrontendCheckPins == nil || assignment.FrontendCheckPins.HelperSHA256 != request.HelperSHA256 || assignment.FrontendCheckPins.DiagnoseTimeouts ||
+		assignment.FrontendCheckPins.Serial || assignment.FrontendCheckPins.PatchSHA256 != fmt.Sprintf("%x", sha256.Sum256(freshPatch)) || assignment.Inputs["patch"].ArtifactID != owner.Source.PatchID {
+		t.Fatal("fresh normal check did not bind its qualified helper and newly captured patch", err, assignment.FrontendCheckPins)
+	}
+	for _, missing := range []Value{{}, {ArtifactID: "attempt_missing/changes.patch"}} {
+		changed := Clone(r)
+		changed.StepInputs["patch"] = missing
+		if _, err := c.assignment(changed, Attempt{ID: "attempt_css_full_check", Step: changed.Step, Visit: changed.Visit}); err == nil {
+			t.Fatal("fresh check accepted an absent or unreadable current patch")
+		}
 	}
 	check := Attempt{
 		ID:       "attempt_css_full_check",

@@ -67,6 +67,7 @@ func run(ctx context.Context, args []string) error {
 	preserveSource := fs.Bool("preserve-source", false, "preserve a verified owned partial checkout as recovery evidence before restoring its saved candidate")
 	profile := fs.String("profile", "", "named profile for authorized retry")
 	extra := fs.Int("extra-attempts", 0, "additional explicitly authorized retry allowance")
+	withinBudget := fs.Bool("within-budget", false, "grant current-visit retry allowance from the existing total attempt budget")
 	cleanupOnly := fs.Bool("cleanup-only", false, "retry retained terminal cleanup without execution or allowance changes")
 	file := fs.String("file", "", "selected configuration file")
 	field := fs.String("field", "", "dot-separated configuration field")
@@ -85,6 +86,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	if *assertionSHA256 != "" && (command != "recover-frontend-check" || *serial) {
 		return errors.New("--assertion-sha256 requires recover-frontend-check without --serial")
+	}
+	if *withinBudget && (command != "retry" || *extra <= 0 || *cleanupOnly) {
+		return errors.New("--within-budget requires retry with positive --extra-attempts and without --cleanup-only")
 	}
 	if command == "recover-corrections" && (*runID == "" || *attemptID == "" || *maxUses != 3 || *profile != "" || *extra != 0 || *cleanupOnly) {
 		return errors.New("recover-corrections requires --run, --attempt and --max-uses 3; retry allowances/profiles are separate")
@@ -167,7 +171,14 @@ func run(ctx context.Context, args []string) error {
 		}
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
 		method = "runner_retry"
-		a = runner.RetryRequest{RequestID: *requestID, RunID: *runID, Profile: *profile, ExtraAttempts: *extra, CleanupOnly: *cleanupOnly}
+		a = runner.RetryRequest{
+			RequestID:     *requestID,
+			RunID:         *runID,
+			Profile:       *profile,
+			ExtraAttempts: *extra,
+			WithinBudget:  *withinBudget,
+			CleanupOnly:   *cleanupOnly,
+		}
 	case "recover-corrections":
 		if *requestID == "" {
 			*requestID = rand.Text()

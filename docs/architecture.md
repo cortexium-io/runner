@@ -102,6 +102,39 @@ No new publication, independent review, full qualification or protected release
 decision was produced. The diagnostic repair grant is spent; further recovery
 needs an owner decision. The live default remains `deliver`.
 
+The owner separately approved one focused assertion correction in that same run.
+The existing frontend-check recovery command now accepts an exact
+`assertion_sha256` for this handoff. It requires the spent diagnostic repair's
+immediately following full check, one assertion failure without timeouts, and
+unchanged full-suite identities/compiler evidence. Existing retained-source,
+publication, revision, accepted-card and completion-reserve validation remains
+in force. A distinct one-use audit passes the full report to the owner, verifies
+report/patch digests again at dispatch and pins the following normal check's
+helper. It preserves the old grant, ordinary correction counter and frozen cap.
+
+Runner commit `4ea9f55` passed focused race tests, independent review, the full
+race suite (execution 759.493 seconds) and vet. Core
+`527decc565f1ca50ec48ab67aec91d7a66cc6077f4c64325924218c55eba2aa5`
+was installed at 13:34 UTC with all 96 run IDs and the exact stopped root
+preserved; helper `fd871d94b23043da72a548eec319e1819237b464b868cd18bb122a01c843c0d1`
+is unchanged. An immediate launchd bootstrap initially failed with code 5; the
+previous service was restored before the successful activation observed its
+process exit. Production was unaffected. The saved authorization resumed the
+same root at 13:35 UTC in owner `attempt_IE7ETBDQPZNFX3F3IXFOCK7CLS`, with 20
+aggregate attempts used and 22 left. Fresh checks, review and full qualification
+remain pending; this maintenance is not product acceptance or a default cutover.
+
+That owner finished its captured correction. Its following check
+`attempt_YBJ5JZETZJQURGSKP7POFASJIW` stopped before frontend execution because the
+new Core supplied a helper-only pin, while normal command preparation requires
+the corrected patch's exact digest. The failed attempt and patch remain saved;
+21 aggregate attempts are used and 21 remain. The correction binds that fresh
+owned patch digest without relaxing the adapter. A model-free `Commands.Start`
+regression exercises two successive captures: the fresh digest runs, and stale,
+empty, missing or tampered inputs stop before helper launch. An explicitly
+authorized within-budget retry can finish the already approved check without
+another source-owner visit or an increase to the frozen 42/combined 65 ceiling.
+
 Admission required a separately approved exception retiring only the superseded
 `abb56de` raw archive (849,161,983 bytes). Existing retention code verified ownership,
 hash, reproduction and settlement; all 94 compiled artifacts remained unchanged.

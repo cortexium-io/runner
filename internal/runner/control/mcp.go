@@ -75,7 +75,7 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 	add(s, "runner_status", "Compact current status, storage accounting and configuration errors; at most 100 run summaries.", func(context.Context, struct{}) (any, error) { return c.Status(), nil })
 	add(s, "runner_inspect", "Inspect one bounded run record, including selected setup, attempts and result references.", func(ctx context.Context, in RunArgs) (any, error) { return c.Get(in.RunID) })
 	add(s, "runner_cancel", "Request cancellation. Terminal cancellation requires observed execution settlement.", func(ctx context.Context, in RunArgs) (any, error) { r, e := c.Cancel(in.RunID); return summary(r), e })
-	add(s, "runner_retry", "Retry settled failed work, retaining consumed attempts. extra_attempts explicitly grants additional allowance. cleanup_only revalidates retained terminal cleanup without executing work or changing allowances.", func(ctx context.Context, in runner.RetryRequest) (any, error) {
+	add(s, "runner_retry", "Retry settled failed work, retaining consumed attempts. extra_attempts explicitly grants additional allowance. With within_budget, positive extra_attempts grants current-visit retries from the unchanged aggregate attempt budget, preserving the completion reserve. cleanup_only revalidates retained terminal cleanup without executing work or changing allowances and cannot combine with within_budget.", func(ctx context.Context, in runner.RetryRequest) (any, error) {
 		r, e := c.Retry(in)
 		return summary(r), e
 	})
