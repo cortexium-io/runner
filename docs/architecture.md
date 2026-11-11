@@ -49,7 +49,8 @@ Its immutable browser image is
 bound to driver
 `d31e287cdd206296f7b72b2dbd404837989796f7e50c04d361218df1bc0e23fb`.
 Both-engine synthetic qualification passed in 65.27 seconds. The full race suite
-passed (execution 715.016 seconds), as did vet. The live Core is unchanged.
+passed (execution 715.016 seconds), as did vet. That operator installation did
+not change the Core.
 
 One retained-image replay reproduced the failed PR #338 Shikaku gesture in
 73.04 seconds with complete 495-byte feedback. The board changed from 221.4 square
@@ -67,16 +68,39 @@ TypeScript passed. The planned frontend default cutover remains pending full
 qualification. Merge, production and restoration remain separate owner decisions.
 
 That continuation completed one isolated Shikaku fit-stability card and three
-configured combined corrections. It then stopped at the check route's three-use
+configured combined corrections. It first stopped at the check route's three-use
 limit: 214 assertions executed, 212 passed, one CSS transition assertion failed
 and one legacy total-30 Kakuro first-focus case reached its unchanged 5,000 ms
-timeout. TypeScript passed. Its 13 root and three child attempts are settled and
-released, leaving 26 within the frozen 42; the unpublished correction patch and
-full reports remain retained. No new publication, review, full qualification or
-protected release decision was produced. The older diagnostic recovery requires
-a blocked owner after its earlier seven-timeout incident and cannot admit this
-saved exhausted check. Extending that bounded recovery requires an owner decision;
-the original limits and failed history remain unchanged.
+timeout. TypeScript passed. At that stop it had used 13 root and three child
+attempts, leaving 26 within the frozen 42.
+
+The owner approved extending the existing bounded diagnostic recovery to that
+exact exhausted check. It validates the current failure, retained source, helper,
+publication and accepted cards, preserves ordinary assertion failures, and
+profiles only conclusive timeout cases. Passed duplicate test names retain their
+multiplicity; failed ambiguous names cannot be isolated. The verified Core
+`b274bca576e5567e3248663578ffbccc5d6c4b7ab9d9e253c73b64727390eb22`
+and frontend helper
+`fd871d94b23043da72a548eec319e1819237b464b868cd18bb122a01c843c0d1`
+were installed with all 96 run records preserved. Full race checks passed
+(execution 740.088 seconds), as did vet and pinned pure/mixed timeout fixtures.
+
+The same run's diagnostic check retained the CSS assertion and profiled two
+current timeouts. Both passed in isolation within 5,000 ms; those results granted
+only the single approved correction. Its fresh ordinary full check
+`attempt_VOGV2QMVZRUBKONADLKWZ5RO3S` executed 214 assertions: 213 passed, no cases
+were skipped or timed out, and TypeScript passed. Kakuro total-30 finished in
+2,796 ms. The same CSS transition assertion still observed `all` instead of the
+expected paint-only properties, so the run stopped at its exhausted ordinary
+correction route. Source capture reconciled automatically before that check.
+
+All 16 root and three child attempts are settled and released, leaving 23 within
+42 and preserving the combined ceiling of 65. The latest unpublished patch is
+`attempt_HEM7JE5C7DLGPJYCZMADBYYJPL/changes.patch`, SHA-256
+`7ee6dcbdcea9843f9698f535f6804c707f3212c68ad34d272d573f0587a435e1`.
+No new publication, independent review, full qualification or protected release
+decision was produced. The diagnostic repair grant is spent; further recovery
+needs an owner decision. The live default remains `deliver`.
 
 Admission required a separately approved exception retiring only the superseded
 `abb56de` raw archive (849,161,983 bytes). Existing retention code verified ownership,

@@ -140,9 +140,10 @@ local MCP service; Mega Mini owns the remote release operator. From another host
 use the configured SSH connection to Black Magic for the existing Runner CLI
 run/result/status commands. Do not copy `owner.token` or guess a network endpoint.
 Its live default remains `deliver` while the planned mobile journey awaits
-qualification. The latest complete retained-mobile run published to the existing
-draft PR, then stopped on three native HTTP 408 failures before browser
-qualification; see the [qualification record](architecture.md).
+qualification. The current retained-mobile continuation on draft PR #338 is
+settled at an exhausted correction route: its fresh check passed 213 of 214
+assertions and TypeScript, with one CSS transition assertion remaining. Its
+approved diagnostic repair is spent; see the [qualification record](architecture.md).
 Planned processes are selectable explicitly
 for authorized qualification; their installation alone is not a default cutover.
 After that qualification and operator cutover, new Vue/mobile delivery selects
