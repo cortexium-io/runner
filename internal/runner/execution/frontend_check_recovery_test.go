@@ -72,6 +72,15 @@ exec /bin/cat ` + testShellQuote(output) + "\n"
 	check(true)
 	run.Attempts[0].End.Result.Outputs["receipt"] = runner.Value{Inline: mustReleaseJSON(t, publication)}
 	check(false)
+	run.Process.ID = "deliver-planned-retained-frontend"
+	check(false)
+	run.Attempts[0].End.Result.Outputs["receipt"] = runner.Value{Inline: mustReleaseJSON(t, adopted.Adoption)}
+	check(true)
+	run.Attempts[0].Superseded = true
+	check(false)
+	run.Attempts[0].Superseded = false
+	run.Attempts[0].ID = "different-adoption"
+	check(false)
 }
 
 func TestFrontendRecoveryWorkerRefusesChangedHelperBeforeDispatch(t *testing.T) {

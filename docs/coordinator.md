@@ -86,6 +86,20 @@ room for both visits and the full protected release reserve before diagnosis.
 The aggregate cap, ordinary correction limits, selectors and release
 approvals are preserved. Restricted intake must not expose or call this action.
 
+The same operation also admits a settled `deliver-planned-retained-frontend`
+check that exhausted its configured correction route immediately after a ready
+source owner. In that case `attempt_id` and `check_attempt_id` name the same
+failed check; the patch digest names its preceding captured owner. Exact report,
+helper, publication, accepted cards and observed revision remain required.
+The diagnostic preserves ordinary assertion failures while sampling only the
+confirmed five-second timeout subset, up to the existing eight-case bound.
+Complete fresh full-suite evidence can earn one distinct repair visit, including
+when the prior timeout no longer reproduces and an ordinary assertion still fails.
+Every current timeout requires its matched complete profile evidence. Neither an
+isolated pass nor diagnosis grants acceptance; a fresh normal full check, review
+and qualification remain required. The original correction counter and total
+attempt ceiling do not change.
+
 Preserved checkouts live under `STATE/forensics/RUN/ATTEMPT/source`; their sibling
 manifest binds the captured patch hash and ownership identity. These files and
 links count toward the existing storage limit, are never followed as candidate

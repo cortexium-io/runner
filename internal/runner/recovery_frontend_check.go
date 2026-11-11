@@ -140,6 +140,11 @@ func (c *Core) recoverFrontendCheck(req RecoverFrontendCheckRequest, timeout *Re
 	outcome := "frontend_recheck"
 	if timeout != nil {
 		outcome = "frontend_timeout_diagnostic"
+		if r.Process.Steps[r.Step].ID == current.checkStep {
+			// Recheck the accepted owner capture through its forward edge. The
+			// exhausted check remains an unchanged historical result.
+			r.Step--
+		}
 	}
 	c.advance(&r, &StepResult{Outcome: outcome}, Route{Next: current.checkStep})
 	if r.Status != "Queued" || !reflect.DeepEqual(r.StepInputs, map[string]Value{
@@ -167,7 +172,7 @@ func (c *Core) recoverFrontendCheck(req RecoverFrontendCheckRequest, timeout *Re
 	} else {
 		r.FrontendTimeoutRecovery = &FrontendTimeoutRecovery{
 			RequestID:           grant.RequestID,
-			OwnerAttemptID:      grant.AttemptID,
+			OwnerAttemptID:      plan.source.AttemptID,
 			PriorCheckAttemptID: timeout.CheckAttemptID,
 			PriorCheckID:        grant.PriorCheckID,
 			PriorCheckSHA256:    timeout.CheckSHA256,
@@ -203,7 +208,7 @@ func (c *Core) planFrontendCheckRecovery(req RecoverFrontendCheckRequest, timeou
 		return plan, ErrNotFound
 	}
 	r := Clone(saved)
-	if r.Task != nil || r.Status != "Failed" || r.CancelRequested || r.Active() || r.Decision != nil || c.inFlight[r.ID] || r.CleanupBlocked || r.CleanupError != "" || !r.ResourcesReleased || r.FrontendTimeoutRecovery != nil || (r.FrontendCheckRecovery != nil) != (timeout != nil) {
+	if r.Task != nil || r.Status != "Failed" || r.CancelRequested || r.Active() || r.Decision != nil || c.inFlight[r.ID] || r.CleanupBlocked || r.CleanupError != "" || !r.ResourcesReleased || r.FrontendTimeoutRecovery != nil || timeout == nil && r.FrontendCheckRecovery != nil {
 		return plan, errors.New("frontend recovery needs ungranted settled failed root work and confirmed cleanup")
 	}
 	if err := c.frontendRecheckSettledAttempts(r); err != nil {
@@ -214,6 +219,9 @@ func (c *Core) planFrontendCheckRecovery(req RecoverFrontendCheckRequest, timeou
 			return plan, errors.New("serial frontend recovery cannot request timeout diagnostics")
 		}
 		return c.planSerialFrontendRecovery(r, req)
+	}
+	if timeout != nil && r.Step >= 0 && r.Step < len(r.Process.Steps) && r.Process.Steps[r.Step].ID == "check" {
+		return c.planExhaustedFrontendTimeoutRecovery(r, *timeout)
 	}
 	owner := r.Current()
 	if len(r.Attempts) < 2 || owner == nil || owner.ID != req.AttemptID || owner.Superseded || owner.TimedOut || owner.StopRequested || owner.End == nil || owner.End.Kind != "returned" || owner.End.Retryable || owner.End.Result == nil || owner.End.Result.Outcome != "blocked" {
@@ -276,6 +284,86 @@ func (c *Core) planFrontendCheckRecovery(req RecoverFrontendCheckRequest, timeou
 		return plan, err
 	}
 	return frontendCheckRecoveryPlan{run: r, source: *source, check: check, priorCheck: prior.ArtifactID, checkStep: "check", tests: r.Inputs["tests"], revisions: revisions}, nil
+}
+
+// The current exhausted check is already bound to a ready owner capture. This
+// handoff needs no earlier blocked-owner recovery and grants no ordinary route.
+func (c *Core) planExhaustedFrontendTimeoutRecovery(r Run, req RecoverFrontendTimeoutsRequest) (frontendCheckRecoveryPlan, error) {
+	var plan frontendCheckRecoveryPlan
+	bad := errors.New("frontend timeout recovery requires the exact exhausted check and preceding ready owner")
+	if r.Process.ID != "deliver-planned-retained-frontend" || r.Step < 1 || len(r.Attempts) < 2 || r.FrontendCheckRecovery != nil {
+		return plan, bad
+	}
+	failed := r.Current()
+	route, eligible := sourceCorrectionRoute(r, r.Step)
+	if failed == nil || failed.ID != req.AttemptID || req.CheckAttemptID != failed.ID || failed.Superseded || failed.TimedOut || failed.StopRequested ||
+		failed.End == nil || failed.End.Kind != "returned" || failed.End.Retryable || failed.End.Result == nil || failed.End.Result.Outcome != "changes_requested" ||
+		!eligible || route.Next != "owner" || r.Reason != "repetition allowance exhausted: check/changes_requested" ||
+		r.RouteUses["check/changes_requested"] != routeLimit(r, r.Step, "changes_requested", route) || !frontendRecheckHex(req.CheckSHA256, 64) {
+		return plan, bad
+	}
+	owner := r.Attempts[len(r.Attempts)-2]
+	if owner.Step != r.Step-1 || owner.Superseded || owner.TimedOut || owner.StopRequested || owner.Visit+1 != failed.Visit ||
+		owner.End == nil || owner.End.Kind != "returned" || owner.End.Retryable || owner.End.Result == nil || owner.End.Result.Outcome != "ready" {
+		return plan, bad
+	}
+	view := Clone(r)
+	view.Step, view.Visit, view.Attempts = owner.Step, owner.Visit, view.Attempts[:len(view.Attempts)-1]
+	check, err := frontendRecheckPath(view)
+	if err != nil {
+		return plan, err
+	}
+	actual, err := r.Roles[r.Process.Steps[r.Step].Role].Profile(failed.Profile)
+	if err != nil || !reflect.DeepEqual(actual, check) {
+		return plan, bad
+	}
+	source := owner.Source
+	if source == nil || source.AttemptID != owner.ID || source.PatchID != owner.ID+"/changes.patch" || source.Repository != r.Repository || source.WorkDir == "" ||
+		r.Source == nil || source.Base != r.Source.Ref || !frontendRecheckHex(source.Base, 40) || !frontendRecheckHex(source.Tree, 40) || source.InputPatchID == "" ||
+		ValidateValues(owner.End.Result.Outputs, r.Roles[r.Process.Steps[owner.Step].Role].Outputs) != nil || owner.End.Result.Outputs["patch"].ArtifactID != source.PatchID ||
+		c.recoveryArtifact(r, source.PatchID) != nil || c.recoveryArtifact(r, source.InputPatchID) != nil {
+		return plan, errors.New("frontend timeout recovery lacks the retained ready owner capture")
+	}
+	tests := r.Inputs["tests"]
+	if checked := failed.Source; checked == nil || checked.AttemptID != failed.ID || checked.InputPatchID != source.PatchID || checked.PatchID != "" ||
+		checked.Repository != source.Repository || checked.Base != source.Base || checked.WorkDir != source.WorkDir || checked.Tree != "" && checked.Tree != source.Tree ||
+		ValidateValues(map[string]Value{"tests": tests}, map[string]string{"tests": "text"}) != nil ||
+		!reflect.DeepEqual(r.StepInputs, map[string]Value{"patch": {ArtifactID: source.PatchID}, "tests": tests}) {
+		return plan, errors.New("exhausted frontend check did not use the exact retained source and original selection")
+	}
+	prior := failed.End.Result.Outputs["artifact"].ArtifactID
+	if ValidateValues(failed.End.Result.Outputs, r.Roles[r.Process.Steps[r.Step].Role].Outputs) != nil || prior != failed.ID+"/result" || c.recoveryArtifact(r, prior) != nil {
+		return plan, errors.New("frontend timeout recovery lacks its owned failed-check report")
+	}
+	_, timeouts, err := c.readPriorFrontendTimeouts(r, prior, req.CheckSHA256)
+	if err != nil || len(timeouts) < 1 || len(timeouts) > 8 {
+		return plan, errors.New("the exact frontend report does not establish one to eight 5000ms timeouts")
+	}
+	manifest := Binding{FromStep: "join", Output: "manifest"}
+	if r.Process.Steps[owner.Step].Inputs["manifest"] != manifest {
+		return plan, bad
+	}
+	view.StepInputs = map[string]Value{}
+	view.StepInputs["manifest"], _ = stepOutput(r, manifest)
+	revisions, err := c.frontendRecheckCards(view)
+	if err != nil {
+		return plan, err
+	}
+	var revision int64
+	for _, n := range revisions {
+		revision += n
+	}
+	if revision != req.Revision {
+		return plan, errors.New("frontend run or accepted card revision differs; inspect before recovery")
+	}
+	need, err := readyTail(r, r.Step)
+	if err != nil {
+		return plan, err
+	}
+	if err := c.familyReserve(r, 1, need+1); err != nil {
+		return plan, err
+	}
+	return frontendCheckRecoveryPlan{run: r, source: *source, check: check, priorCheck: prior, checkStep: "check", tests: tests, revisions: revisions}, nil
 }
 
 func (c *Core) planSerialFrontendRecovery(r Run, req RecoverFrontendCheckRequest) (frontendCheckRecoveryPlan, error) {
@@ -479,28 +567,38 @@ func (c *Core) validatePriorFrontendTimeout(r Run, req RecoverFrontendTimeoutsRe
 		return bad
 	}
 	_, cases, err := c.readPriorFrontendTimeouts(r, check.ID+"/result", req.CheckSHA256)
-	if err != nil || len(cases) != 7 {
-		return errors.New("the exact preceding frontend report does not establish seven 5000ms timeouts")
+	if err != nil || len(cases) < 1 || len(cases) > 8 {
+		return errors.New("the exact preceding frontend report does not establish one to eight 5000ms timeouts")
 	}
 	return nil
 }
 
 type frontendTimeoutCaseKey struct{ file, name string }
 
+type frontendTimeoutCompiler struct {
+	Status            string `json:"status"`
+	Complete          bool   `json:"complete"`
+	ExitCode          *int   `json:"exit_code"`
+	Node              string `json:"node"`
+	Tool              string `json:"tool"`
+	ToolSHA256        string `json:"tool_sha256"`
+	Version           string `json:"version"`
+	TypeScriptVersion string `json:"typescript_version"`
+	Project           string `json:"project"`
+	ProjectSHA256     string `json:"project_sha256"`
+}
+
 type frontendTimeoutReport struct {
-	Schema           int      `json:"schema"`
-	Status           string   `json:"status"`
-	Tests            []string `json:"tests"`
-	Executed         int      `json:"executed"`
-	Failed           int      `json:"failed"`
-	Skipped          int      `json:"skipped"`
-	ExitCode         *int     `json:"exit_code"`
-	VitestIncomplete bool     `json:"vitest_incomplete"`
-	Typecheck        struct {
-		Status   string `json:"status"`
-		Complete bool   `json:"complete"`
-	} `json:"typecheck"`
-	Files []struct {
+	Schema           int                     `json:"schema"`
+	Status           string                  `json:"status"`
+	Tests            []string                `json:"tests"`
+	Executed         int                     `json:"executed"`
+	Failed           int                     `json:"failed"`
+	Skipped          int                     `json:"skipped"`
+	ExitCode         *int                    `json:"exit_code"`
+	VitestIncomplete bool                    `json:"vitest_incomplete"`
+	Typecheck        frontendTimeoutCompiler `json:"typecheck"`
+	Files            []struct {
 		Selected string   `json:"selected"`
 		Reported []string `json:"reported"`
 	} `json:"files"`
@@ -561,24 +659,35 @@ type frontendTimeoutDiagnostics struct {
 	} `json:"cases"`
 }
 
-func (c *Core) readPriorFrontendTimeouts(r Run, id, digest string) (map[frontendTimeoutCaseKey]bool, map[frontendTimeoutCaseKey]float64, error) {
-	data, err := c.disk.Read("artifacts/"+id, c.disk.Policy.MaxArtifact)
-	if err != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != digest {
-		return nil, nil, errors.New("retained frontend timeout report digest differs")
-	}
-	var report frontendTimeoutReport
-	if err := json.Unmarshal(data, &report); err != nil {
+func (c *Core) readPriorFrontendTimeouts(r Run, id, digest string) (map[frontendTimeoutCaseKey]int, map[frontendTimeoutCaseKey]float64, error) {
+	report, err := c.readFrontendTimeoutReport(id, digest)
+	if err != nil {
 		return nil, nil, err
 	}
 	return report.execution(r.Inputs["tests"])
 }
 
-func (p frontendTimeoutReport) execution(selection Value) (map[frontendTimeoutCaseKey]bool, map[frontendTimeoutCaseKey]float64, error) {
+func (c *Core) readFrontendTimeoutReport(id, digest string) (frontendTimeoutReport, error) {
+	var report frontendTimeoutReport
+	data, err := c.disk.Read("artifacts/"+id, c.disk.Policy.MaxArtifact)
+	if err != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != digest {
+		return report, errors.New("retained frontend timeout report digest differs")
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
+func (p frontendTimeoutReport) execution(selection Value) (map[frontendTimeoutCaseKey]int, map[frontendTimeoutCaseKey]float64, error) {
 	bad := errors.New("frontend timeout report does not establish complete matching full-suite execution")
 	var selectedJSON string
 	var selected []string
 	if json.Unmarshal(selection.Inline, &selectedJSON) != nil || json.Unmarshal([]byte(selectedJSON), &selected) != nil || len(selected) == 0 || !reflect.DeepEqual(selected, p.Tests) ||
 		p.Schema != 2 || p.Executed < 1 || p.Failed < 0 || p.Skipped != 0 || p.ExitCode == nil || p.VitestIncomplete || p.Typecheck.Status != "passed" || !p.Typecheck.Complete ||
+		p.Typecheck.ExitCode == nil || *p.Typecheck.ExitCode != 0 || !filepath.IsAbs(p.Typecheck.Node) || !filepath.IsAbs(p.Typecheck.Tool) ||
+		!frontendRecheckHex(p.Typecheck.ToolSHA256, 64) || !frontendRecheckHex(p.Typecheck.ProjectSHA256, 64) || p.Typecheck.Project != "tsconfig.json" ||
+		p.Typecheck.Version == "" || p.Typecheck.TypeScriptVersion == "" ||
 		p.Vitest.Total != p.Executed || p.Vitest.Passed != p.Executed-p.Failed || p.Vitest.Failed != p.Failed || p.Vitest.Pending != 0 || p.Vitest.Todo != 0 ||
 		(p.Failed == 0 && (p.Status != "passed" || *p.ExitCode != 0 || !p.Vitest.Success)) || (p.Failed > 0 && (p.Status != "failed" || *p.ExitCode != 1 || p.Vitest.Success)) {
 		return nil, nil, bad
@@ -601,17 +710,35 @@ func (p frontendTimeoutReport) execution(selection Value) (map[frontendTimeoutCa
 		}
 	}
 	const timeoutMessage = "Test timed out in 5000ms."
-	restored := map[frontendTimeoutCaseKey]float64{}
+	type restoredFailure struct {
+		duration float64
+		message  string
+	}
+	classify := func(message string) string {
+		first, _, _ := strings.Cut(message, "\n")
+		first = strings.TrimPrefix(first, "Error: ")
+		switch {
+		case first == timeoutMessage:
+			return "timeout"
+		case strings.HasPrefix(first, "AssertionError:") || strings.HasPrefix(first, "AssertionError ["):
+			return "assertion"
+		}
+		return ""
+	}
+	restored := map[frontendTimeoutCaseKey]restoredFailure{}
 	for _, f := range p.Diagnostics.Failures {
 		key := frontendTimeoutCaseKey{f.File, f.FullName}
-		first, _, _ := strings.Cut(f.Message, "\n")
-		if !files[f.File] || f.FullName == "" || restored[key] != 0 || f.DurationMS <= 0 || f.ErrorIndex != 0 || strings.TrimPrefix(first, "Error: ") != timeoutMessage {
+		if !files[f.File] || f.FullName == "" || restored[key].message != "" || f.DurationMS <= 0 || f.ErrorIndex != 0 || classify(f.Message) == "" {
 			return nil, nil, bad
 		}
-		restored[key] = f.DurationMS
+		restored[key] = restoredFailure{duration: f.DurationMS, message: f.Message}
 	}
-	executed := map[frontendTimeoutCaseKey]bool{}
+	// Parameterized cases can legitimately share a fullName. Preserve their
+	// exact multiplicity; a failed duplicate remains ambiguous for sampling.
+	executed := map[frontendTimeoutCaseKey]int{}
+	failedNames := map[frontendTimeoutCaseKey]bool{}
 	timeouts := map[frontendTimeoutCaseKey]float64{}
+	count, failed := 0, 0
 	for _, result := range p.Vitest.Results {
 		file := byPath[result.Name]
 		if file == "" || len(result.Assertions) == 0 {
@@ -620,27 +747,47 @@ func (p frontendTimeoutReport) execution(selection Value) (map[frontendTimeoutCa
 		delete(byPath, result.Name)
 		for _, assertion := range result.Assertions {
 			key := frontendTimeoutCaseKey{file, assertion.FullName}
-			if assertion.FullName == "" || executed[key] || assertion.Status != "passed" && assertion.Status != "failed" {
+			if assertion.FullName == "" || assertion.Status != "passed" && assertion.Status != "failed" {
 				return nil, nil, bad
 			}
-			executed[key] = true
+			executed[key]++
+			count++
 			if assertion.Status == "passed" {
+				if len(assertion.Messages) != 0 {
+					return nil, nil, bad
+				}
 				continue
 			}
+			failed++
+			failedNames[key] = true
 			if assertion.Duration == nil || *assertion.Duration <= 0 || len(assertion.Messages) != 1 {
 				return nil, nil, bad
 			}
-			first, _, _ := strings.Cut(assertion.Messages[0], "\n")
-			first = strings.TrimPrefix(first, "Error: ")
-			if first != timeoutMessage && (first != "STACK_TRACE_ERROR" || restored[key] != *assertion.Duration) {
+			message := assertion.Messages[0]
+			first, _, _ := strings.Cut(message, "\n")
+			if strings.TrimPrefix(first, "Error: ") == "STACK_TRACE_ERROR" {
+				if restored[key].duration != *assertion.Duration {
+					return nil, nil, bad
+				}
+				message = restored[key].message
+				delete(restored, key)
+			}
+			switch classify(message) {
+			case "timeout":
+				timeouts[key] = *assertion.Duration
+			case "assertion":
+			default:
 				return nil, nil, bad
 			}
-			delete(restored, key)
-			timeouts[key] = *assertion.Duration
 		}
 	}
-	if len(executed) != p.Executed || len(timeouts) != p.Failed || len(restored) != 0 {
+	if count != p.Executed || failed != p.Failed || len(restored) != 0 {
 		return nil, nil, bad
+	}
+	for key := range failedNames {
+		if executed[key] != 1 {
+			return nil, nil, bad
+		}
 	}
 	return executed, timeouts, nil
 }
@@ -730,17 +877,22 @@ func (c *Core) routeFrontendTimeoutDiagnostic(r *Run, a *Attempt) bool {
 		return stop("frontend timeout diagnostic result is unreadable or incomplete")
 	}
 	executed, timeouts, err := report.execution(r.Inputs["tests"])
-	priorExecuted, oldTimeouts, priorErr := c.readPriorFrontendTimeouts(*r, grant.PriorCheckID, grant.PriorCheckSHA256)
-	if err != nil || priorErr != nil || len(oldTimeouts) != 7 {
+	prior, priorErr := c.readFrontendTimeoutReport(grant.PriorCheckID, grant.PriorCheckSHA256)
+	priorExecuted, oldTimeouts, priorExecutionErr := prior.execution(r.Inputs["tests"])
+	if err != nil || priorErr != nil || priorExecutionErr != nil || len(oldTimeouts) < 1 || len(oldTimeouts) > 8 || !reflect.DeepEqual(report.Typecheck, prior.Typecheck) {
 		return stop("frontend timeout diagnostic could not verify full-suite execution and its retained prior report")
 	}
 	if !maps.Equal(executed, priorExecuted) {
 		return stop("frontend timeout diagnostic changed the retained full-suite assertion identities")
 	}
-	if result.Outcome == "ready" && len(timeouts) == 0 {
+	if result.Outcome == "ready" && report.Failed == 0 {
 		return false
 	}
-	if result.Outcome != "changes_requested" || grant.RepairVisit != 0 || !report.Timeouts.complete(timeouts) {
+	profilesComplete := report.Timeouts.complete(timeouts)
+	if len(timeouts) == 0 {
+		profilesComplete = report.Timeouts.Schema == 0 && report.Timeouts.Status == "" && report.Timeouts.Method == "" && len(report.Timeouts.Cases) == 0
+	}
+	if result.Outcome != "changes_requested" || report.Failed == 0 || grant.RepairVisit != 0 || !profilesComplete {
 		return stop("frontend timeout diagnostic lacks complete matched profile evidence for repair")
 	}
 	route, ok := sourceCorrectionRoute(*r, a.Step)

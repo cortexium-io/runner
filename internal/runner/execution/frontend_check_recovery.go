@@ -106,18 +106,18 @@ func (r *Releases) validateFrontendCheckPublication(ctx context.Context, run run
 	if b.AuthorityOnly || b.Latest != b.Adoption || b.Adoption.Head != expectedHead || json.Unmarshal(run.Inputs["publication"].Inline, &original) != nil || original.Action != "publish" || original.Head != b.Adoption.Head || original.Source != b.Base {
 		return errors.New("frontend check recovery does not own the original adopted publication")
 	}
-	if run.Process.ID == "deliver-retained-catalogue" {
-		// Catalogue source adoption can cross policies. Authenticate the accepted
+	if run.Process.ID == "deliver-retained-catalogue" || run.Process.ID == "deliver-planned-retained-frontend" {
+		// Retained source adoption can cross policies. Authenticate the accepted
 		// adoption under the current policy from both durable records.
 		if len(run.Attempts) == 0 || len(run.Process.Steps) == 0 || run.Process.Steps[0].ID != "source-adopt" {
-			return errors.New("frontend check recovery lacks the saved catalogue adoption")
+			return errors.New("frontend check recovery lacks the saved source adoption")
 		}
 		attempt := run.Attempts[0]
 		var receipt release.Receipt
 		if attempt.Step != 0 || attempt.ID != b.Adoption.Key || attempt.Superseded || attempt.End == nil || attempt.End.Kind != "returned" ||
 			attempt.End.Result == nil || attempt.End.Result.Outcome != "ready" ||
 			json.Unmarshal(attempt.End.Result.Outputs["receipt"].Inline, &receipt) != nil || receipt != b.Adoption {
-			return errors.New("frontend check recovery catalogue adoption differs from its saved receipt")
+			return errors.New("frontend check recovery source adoption differs from its saved receipt")
 		}
 	} else if original.Policy != b.Adoption.Policy {
 		return errors.New("frontend check recovery does not own the original adopted publication")

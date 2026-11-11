@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -18,6 +19,19 @@ func TestConfiguredVitestSamplesConfirmedFiveSecondTimeouts(t *testing.T) {
 	if node == "" || modules == "" {
 		t.Skip("set RUNNER_FRONTEND_NODE and RUNNER_FRONTEND_MODULES to qualify Node24/Vitest CPU sampling")
 	}
+	for _, mixed := range []bool{false, true} {
+		name := "timeouts only"
+		if mixed {
+			name = "timeout and ordinary assertion failures"
+		}
+		t.Run(name, func(t *testing.T) {
+			configuredVitestTimeoutFixture(t, node, modules, mixed)
+		})
+	}
+}
+
+func configuredVitestTimeoutFixture(t *testing.T, node, modules string, mixed bool) {
+	t.Helper()
 	source, scratch, _ := frontendFixture(t, t.TempDir())
 	frontend := filepath.Join(source, "frontend")
 	test := `import { expect, test } from 'vitest';
@@ -41,6 +55,9 @@ test('passes in isolation [5s]', async ({ signal }) => {
   else controlledHotspot(200);
 });
 `
+	if mixed {
+		test += "test('retains ordinary CSS assertion', () => { expect('all').toBe('color'); });\n"
+	}
 	for name, data := range map[string]string{
 		"src/timeout.test.ts": test,
 		"vitest.config.ts":    "import { defineConfig } from 'vitest/config'; export default defineConfig({ test: { testTimeout: 5000 } });\n",
@@ -59,7 +76,11 @@ test('passes in isolation [5s]', async ({ signal }) => {
 		t.Fatal("frontend diagnostic proof unavailable", err)
 	}
 	d := p.TimeoutDiagnostics
-	if p.Status != "failed" || p.Executed != 3 || p.Failed != 2 || p.Skipped != 0 || d == nil || d.Schema != 1 || d.Status != "complete" || d.Method != timeoutDiagnosticMethod || len(d.Cases) != 2 {
+	executed, failed := 3, 2
+	if mixed {
+		executed, failed = 4, 3
+	}
+	if p.Status != "failed" || p.Executed != executed || p.Failed != failed || p.Skipped != 0 || d == nil || d.Schema != 1 || d.Status != "complete" || d.Method != timeoutDiagnosticMethod || len(d.Cases) != 2 {
 		if p.Typecheck != nil && p.Typecheck.Status != "passed" {
 			t.Logf("fixture compiler output: %s", clip(p.Typecheck.Output, 1200))
 		}
@@ -85,6 +106,14 @@ test('passes in isolation [5s]', async ({ signal }) => {
 	if err != nil || p.ReportBytes != len(primary) || p.ReportSHA256 != digest(primary) || !sameJSON(p.Vitest, primary) {
 		t.Fatal("diagnostics replaced the original full-check report", err)
 	}
+	if mixed {
+		var report vitestReport
+		if json.Unmarshal(p.Vitest, &report) != nil || len(report.Results) != 1 || !slices.ContainsFunc(report.Results[0].Assertions, func(a vitestAssertion) bool {
+			return a.FullName == "retains ordinary CSS assertion" && a.Status == "failed" && len(a.FailureMessages) == 1 && strings.Contains(a.FailureMessages[0], "AssertionError")
+		}) {
+			t.Fatal("timeout sampling erased the ordinary CSS assertion from the full-check evidence")
+		}
+	}
 	var domain map[string]string
 	data, err = os.ReadFile(filepath.Join(scratch, "domain.json"))
 	if err != nil || json.Unmarshal(data, &domain) != nil || domain["outcome"] != "changes_requested" || !strings.Contains(domain["reason"], "Test timed out in 5000ms.") {
@@ -92,6 +121,112 @@ test('passes in isolation [5s]', async ({ signal }) => {
 	}
 	if remaining, err := filepath.Glob(filepath.Join(scratch, "timeout-diagnostic-*")); err != nil || len(remaining) != 0 {
 		t.Fatal("settled diagnostic scratch was not removed", remaining, err)
+	}
+}
+
+func TestMixedTimeoutDiagnosticsKeepsFailuresWhenProfileEvidenceIsMissing(t *testing.T) {
+	root := t.TempDir()
+	source, scratch, modules := frontendFixture(t, root)
+	frontend, err := filepath.EvalSymlinks(filepath.Join(source, "frontend"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(scratch, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(filepath.Join(modules, "vitest"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(modules, "vitest/package.json"), []byte(`{"version":"4.1.11"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(frontend, "src/board.test.ts")
+	identity, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duration := 5100.0
+	original, err := json.Marshal(vitestReport{
+		Success: false,
+		Total:   2,
+		Failed:  2,
+		Results: []vitestFile{{Name: file, Status: "failed", Assertions: []vitestAssertion{
+			{Status: "failed", FullName: "ordinary CSS assertion", FailureMessages: []string{"AssertionError: expected all to be color"}},
+			{Status: "failed", FullName: "confirmed timeout", Duration: &duration, FailureMessages: []string{"Error: STACK_TRACE_ERROR"}},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := proof{
+		Status:            "failed",
+		Tests:             []string{"src/board.test.ts"},
+		Executed:          2,
+		Failed:            2,
+		Frontend:          frontend,
+		CanonicalFrontend: frontend,
+		ReportBytes:       len(original),
+		ReportSHA256:      digest(original),
+		Vitest:            original,
+		Files:             []fileProof{{Selected: "src/board.test.ts", identity: identity}},
+		VitestDiagnostics: &vitestDiagnostics{Failures: []vitestFailureDiagnostic{{
+			File: "src/board.test.ts", FullName: "confirmed timeout", DurationMS: duration, Message: "Test timed out in 5000ms.\n",
+		}}},
+	}
+	before, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	isolatedDuration := 10.0
+	isolated, err := json.Marshal(vitestReport{
+		Success: true,
+		Total:   2,
+		Passed:  1,
+		Pending: 1,
+		Results: []vitestFile{{Name: file, Status: "passed", Assertions: []vitestAssertion{
+			{Status: "pending", FullName: "ordinary CSS assertion"},
+			{Status: "passed", FullName: "confirmed timeout", Duration: &isolatedDuration},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(scratch, "sampler.log")
+	t.Setenv("RUNNER_TIMEOUT_FIXTURE_LOG", log)
+	node := filepath.Join(root, "node")
+	script := `#!/bin/sh
+if [ "$1" = --version ]; then printf 'v24.21.0\n'; exit 0; fi
+for arg do
+  case "$arg" in
+    --outputFile.json=*) report=${arg#*=};;
+    --outputFile.junit=*) junit=${arg#*=};;
+    --testNamePattern=*) pattern=${arg#*=};;
+  esac
+done
+printf '%s\n' "$pattern" >> "$RUNNER_TIMEOUT_FIXTURE_LOG"
+test "$pattern" = '^confirmed timeout$(?![\s\S])' || exit 2
+cat > "$report" <<'ISOLATED_REPORT'
+` + string(isolated) + `
+ISOLATED_REPORT
+printf '<testsuites/>' > "$junit"
+`
+	if err = os.WriteFile(node, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	d := diagnoseFrontendTimeouts(t.Context(), options{node: node, modules: modules, scratch: scratch}, &p, filepath.Join(modules, "vitest/vitest.mjs"))
+	if d == nil || d.Status != "blocked" || len(d.Cases) != 1 || d.Cases[0].FullName != "confirmed timeout" || d.Cases[0].Status != "blocked" || !strings.Contains(d.Reason, "profile") {
+		t.Fatal("mixed failure did not reach the bounded sampler or accepted missing CPU evidence", d)
+	}
+	invocations, err := os.ReadFile(log)
+	if err != nil || string(invocations) != "^confirmed timeout$(?![\\s\\S])\n" {
+		t.Fatal("ordinary assertion was sampled or confirmed timeout was omitted", string(invocations), err)
+	}
+	after, err := json.Marshal(p)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("diagnosis changed the complete mixed-failure report", err)
+	}
+	if remaining, err := filepath.Glob(filepath.Join(scratch, "timeout-diagnostic-*")); err != nil || len(remaining) != 0 {
+		t.Fatal("failed sampler retained owned temporary evidence", remaining, err)
 	}
 }
 

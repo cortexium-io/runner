@@ -66,8 +66,14 @@ func diagnoseFrontendTimeouts(ctx context.Context, o options, p *proof, vitest s
 			Status:             "blocked",
 		})
 	}
-	if len(d.Cases) == 0 || len(d.Cases) != p.Failed {
+	if len(d.Cases) == 0 {
 		return nil
+	}
+	// Ordinary assertion failures remain in the full report; only confirmed
+	// timeouts enter the isolated sampler.
+	if len(d.Cases) > p.Failed {
+		d.Reason = "confirmed timeout count exceeds full-check failures"
+		return d
 	}
 	modules, err := timeoutDiagnosticRuntime(ctx, o)
 	if err != nil {

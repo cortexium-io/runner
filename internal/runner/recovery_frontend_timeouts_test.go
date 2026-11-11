@@ -40,8 +40,12 @@ func timeoutReportFixture(t *testing.T, fails int, diagnose bool) map[string]any
 	}
 	p := map[string]any{
 		"schema": 2, "status": status, "tests": []string{file}, "executed": len(assertions), "failed": failed, "skipped": 0, "exit_code": exit,
-		"typecheck": map[string]any{"status": "passed", "complete": true},
-		"files":     []map[string]any{{"selected": file, "reported": []string{path}}},
+		"typecheck": map[string]any{
+			"status": "passed", "complete": true, "exit_code": 0, "node": "/owned/node", "tool": "/owned/modules/vue-tsc/bin/vue-tsc.js",
+			"tool_sha256": strings.Repeat("a", 64), "version": "3.3.11", "typescript_version": "6.0.3",
+			"project": "tsconfig.json", "project_sha256": strings.Repeat("b", 64),
+		},
+		"files": []map[string]any{{"selected": file, "reported": []string{path}}},
 		"vitest": map[string]any{"numTotalTests": len(assertions), "numPassedTests": len(assertions) - failed, "numFailedTests": failed, "success": failed == 0,
 			"testResults": []map[string]any{{"name": path, "assertionResults": assertions}},
 		},
@@ -105,7 +109,15 @@ func frontendTimeoutRecoveryFixture(t *testing.T) (*Core, *frontendRecheckStore,
 
 func finishFrontendDiagnosticFixture(t *testing.T, c *Core, r *Run, outcome string, proof map[string]any) {
 	t.Helper()
-	owner := r.Attempts[len(r.Attempts)-1].Source
+	var owner *SourceResult
+	for _, a := range r.Attempts {
+		if a.ID == r.FrontendTimeoutRecovery.OwnerAttemptID {
+			owner = a.Source
+		}
+	}
+	if owner == nil {
+		t.Fatal("diagnostic fixture lacks its authorized owner capture")
+	}
 	a := Attempt{ID: "attempt_diagnostic", Step: r.Step, Visit: r.Visit, State: Finished, Released: true}
 	a.Source = &SourceResult{AttemptID: a.ID, InputPatchID: owner.PatchID, Repository: owner.Repository, Base: owner.Base, WorkDir: owner.WorkDir}
 	if outcome == "failed" {
@@ -186,6 +198,23 @@ func TestRecoverFrontendTimeoutsRejectsUnboundEvidenceAndInsufficientReserve(t *
 				t.Fatal("ineligible diagnostic recovery changed the saved run", err, store.saves, exec.calls)
 			}
 		})
+	}
+}
+
+func TestLegacyFrontendTimeoutRecoveryAcceptsOneThroughEightTimeouts(t *testing.T) {
+	for _, mask := range []int{1, 255} {
+		c, store, _, req := frontendTimeoutRecoveryFixture(t)
+		r := c.runs[req.RunID]
+		raw, _ := json.Marshal(timeoutReportFixture(t, mask, false))
+		id := req.CheckAttemptID + "/result"
+		if err := c.disk.Write("artifacts/"+id, raw, c.disk.Policy.MaxArtifact); err != nil {
+			t.Fatal(err)
+		}
+		store.artifacts[id] = Artifact{ID: id, RunID: r.ID, ProjectID: r.ProjectID, Bytes: int64(len(raw))}
+		req.CheckSHA256 = fmt.Sprintf("%x", sha256.Sum256(raw))
+		if _, err := c.RecoverFrontendTimeouts(req); err != nil {
+			t.Fatal("legacy recovery still required exactly seven failures", mask, err)
+		}
 	}
 }
 
