@@ -66,6 +66,18 @@ are required. The baseline passed 209 assertions with no failures/skips and
 TypeScript passed. The planned frontend default cutover remains pending full
 qualification. Merge, production and restoration remain separate owner decisions.
 
+That continuation completed one isolated Shikaku fit-stability card and three
+configured combined corrections. It then stopped at the check route's three-use
+limit: 214 assertions executed, 212 passed, one CSS transition assertion failed
+and one legacy total-30 Kakuro first-focus case reached its unchanged 5,000 ms
+timeout. TypeScript passed. Its 13 root and three child attempts are settled and
+released, leaving 26 within the frozen 42; the unpublished correction patch and
+full reports remain retained. No new publication, review, full qualification or
+protected release decision was produced. The older diagnostic recovery requires
+a blocked owner after its earlier seven-timeout incident and cannot admit this
+saved exhausted check. Extending that bounded recovery requires an owner decision;
+the original limits and failed history remain unchanged.
+
 Admission required a separately approved exception retiring only the superseded
 `abb56de` raw archive (849,161,983 bytes). Existing retention code verified ownership,
 hash, reproduction and settlement; all 94 compiled artifacts remained unchanged.
