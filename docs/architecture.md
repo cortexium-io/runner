@@ -193,6 +193,25 @@ All 27 root plus three child attempts are settled, cleanup is complete and the
 patch is retained. Review acceptance, full qualification and default cutover
 are still pending; this timeout has not been diagnosed or fixed.
 
+The owner approved another four attempts, retaining the same run at a ceiling of
+50 and 73 combined. The unchanged-source full rerun
+`attempt_2ZA7KGALWM2T75377IB5EVCYCV` passed all 218 cases and TypeScript; the
+25×25 keyboard case finished in 3,531 ms. The earlier timeout's cause remains
+unproven. Measurement and independent review accepted the restored coverage.
+Runner integrated and published the candidate to existing PR #338 at
+`e0baf1c8e19e8d48b19236f0eb159b0b8c5d97f8`, based on unchanged main
+`fffff55553904ed4dcfdd538e96058a80155e160`.
+
+Full qualification `attempt_WDJW3X2WIQSYTZ2SC4HGZHDETN` reached browser
+acceptance and rejected Futoshiki 6×6 at 320×568: the board's 294×294 client
+size had a 294×298 internal size. Complete layout receipt
+`f19c75f107a4521b2f8ad3393a8cf67bcfdd91a0b6eb79ea91c45d63394ef9dd`
+binds the failure. The normal correction returned to the owner, where the
+reserve guard stopped dispatch: 18 attempts are needed and 14 remain. All
+33 root plus three child attempts are settled, with the candidate retained.
+PR #338 is published but unqualified. No merge/production decision or default
+cutover occurred.
+
 Admission required a separately approved exception retiring only the superseded
 `abb56de` raw archive (849,161,983 bytes). Existing retention code verified ownership,
 hash, reproduction and settlement; all 94 compiled artifacts remained unchanged.
