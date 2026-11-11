@@ -1,6 +1,6 @@
 {
   "id": "frontend-check",
-  "purpose": "Run explicit frontend unit/regression files against the retained candidate in owned scratch with immutable configured dependencies.",
+  "purpose": "Run the explicit and changed frontend unit/regression files against the retained candidate in owned scratch with immutable configured dependencies.",
   "inputs": {
     "patch": "artifact",
     "tests": "text"
@@ -24,7 +24,7 @@
         "--scratch",
         "{scratch}",
         "--tests",
-        "{text.tests}"
+        "{frontend.tests}"
       ],
       "result": "domain.json",
       "artifact": "frontend-check.json"

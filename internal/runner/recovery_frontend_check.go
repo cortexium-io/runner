@@ -442,8 +442,13 @@ func frontendRecheckProfile(p Profile) bool {
 	}
 	args := cmd.Args
 	return len(args) == 11 && filepath.IsAbs(args[0]) && filepath.Base(args[0]) == "runner-frontend-check" && filepath.IsAbs(args[2]) && filepath.IsAbs(args[4]) && args[1] == "--node" && args[3] == "--modules" &&
-		reflect.DeepEqual(args[5:], []string{"--source", "{workspace}", "--scratch", "{scratch}", "--tests", "{text.tests}"})
+		reflect.DeepEqual(args[5:10], []string{"--source", "{workspace}", "--scratch", "{scratch}", "--tests"}) &&
+		(args[10] == "{text.tests}" || args[10] == FrontendCandidateTests)
 }
+
+// FrontendCandidateTests expands an explicit test selection with changed tests
+// from the owned candidate before the read-only verifier is dispatched.
+const FrontendCandidateTests = "{frontend.tests}"
 
 func frontendRecheckHex(value string, length int) bool {
 	if len(value) != length || strings.ToLower(value) != value {

@@ -239,6 +239,7 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 	if err != nil {
 		return err
 	}
+	var sourcePatch []byte
 	for name, input := range a.Inputs {
 		if input.ArtifactID == "" {
 			continue
@@ -250,6 +251,9 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 		if pins := a.FrontendCheckPins; pins != nil && name == "patch" && captureDigest(data) != w.Capture.PatchSHA {
 			return errors.New("frontend check patch bytes changed before dispatch")
 		}
+		if name == "patch" {
+			sourcePatch = data
+		}
 		file := filepath.Join("work", a.RunID, "source", ".runner-tmp", a.AttemptID, "inputs", name)
 		if e = c.disk.Write(file, data, a.Limits.MaxArtifact); e != nil {
 			return e
@@ -258,6 +262,13 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 	spec := a.Setup.Profile.Command
 	args := make([]string, len(spec.Args))
 	for i, arg := range spec.Args {
+		if arg == runner.FrontendCandidateTests {
+			args[i], err = frontendCandidateTests(ctx, w, a.Inputs["tests"], sourcePatch)
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		args[i] = commandValue(arg, *job, env)
 	}
 	if pins := a.FrontendCheckPins; pins != nil {

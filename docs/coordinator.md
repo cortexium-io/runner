@@ -159,9 +159,10 @@ patches; those, along with history and artifacts, remain until normal retention.
 Failed, unaccepted or ambiguous work keeps the existing preservation boundary.
 
 For an already published retained candidate, the planned retained variants accept
-the exact saved patch and authenticated publication handle. Their source-adopt
-step validates the original journal, live owned PR/ref and accepted source before
-seeding work. Publication continues that authenticated PR with a head comparison;
+the exact saved patch of the published draft and its authenticated publication
+handle. Their source-adopt step validates the original journal, live owned PR/ref
+and accepted source before seeding work. A newer unpublished patch cannot satisfy
+this exact-source adoption check. Publication continues the authenticated PR with a head comparison;
 it reuses no old review, qualification, merge or production approval. Supplying a
 PR number or branch name in task data grants no publication authority.
 Pass the returned public receipt JSON unchanged. Do not rebuild or enrich that
@@ -403,6 +404,9 @@ or truncated diagnostics remain explicit.
 
 Frontend delivery checks the admitted source before the first coding visit and
 supplies the complete bounded check artifact to both correction and review.
+The candidate check adds new and modified frontend test files from the owned
+source to the explicit selection and records the combined list in its receipt.
+The baseline and isolated diagnostic roles still use their explicit selections.
 The artifact retains the actual Vitest report, file identities and assertion
 diagnostics, together with the existing project's TypeScript check in owned
 scratch. A complete compiler failure and assertion failure are retained together

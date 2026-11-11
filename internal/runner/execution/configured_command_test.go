@@ -4,6 +4,7 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -121,6 +122,59 @@ func TestConfiguredCommandInitialRetainedPatch(t *testing.T) {
 	a.Inputs["patch"] = runner.Value{ArtifactID: candidate.PatchID}
 	check("corrected")
 	if err := c.workspaces.ForgetRun(ctx, a.RunID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConfiguredCommandSelectsTestsFromPrivateCapture(t *testing.T) {
+	c, a := commandFixture(t)
+	defer c.Close()
+	c.read = func(_ context.Context, id string) ([]byte, error) {
+		return c.disk.Read("artifacts/"+id, c.disk.Policy.MaxArtifact)
+	}
+	c.workspaces.read = c.read
+	writer := a
+	writer.Setup.Profile = runner.Profile{Harness: "codex", Access: "workspace-write"}
+	w, err := c.workspaces.Prepare(t.Context(), writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(w.WorkDir, "frontend", "src")
+	if err = os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(dir, "captured.test.ts"), []byte("// captured regression\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := c.workspaces.Capture(t.Context(), writer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = git(t.Context(), w.Repository, nil, nil, 4096, "cat-file", "-e", source.Tree); err == nil {
+		t.Fatal("regression requires a private capture tree")
+	}
+	a.AttemptID = "attempt_capture_check"
+	a.Inputs = map[string]runner.Value{
+		"patch": {ArtifactID: source.PatchID},
+		"tests": runner.Text(`["src/selected.test.ts"]`),
+	}
+	a.Setup.Profile.Command = &runner.Command{Args: []string{"/bin/echo", runner.FrontendCandidateTests}}
+	a.Deadline = time.Now().Add(6 * time.Second)
+	if _, err = c.Start(t.Context(), a); err != nil {
+		t.Fatal(err)
+	}
+	end := waitCommandEnd(t, c, a.AttemptID)
+	if end.End.Kind != "returned" || end.End.Result == nil {
+		t.Fatalf("configured private capture check failed: %+v", end.End)
+	}
+	var output string
+	if err = json.Unmarshal(end.End.Result.Outputs["check"].Inline, &output); err != nil || !strings.Contains(output, `["src/selected.test.ts","src/captured.test.ts"]`) {
+		t.Fatalf("configured private capture check = %q, error %v", output, err)
+	}
+	if err = c.Release(t.Context(), a.AttemptID); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.workspaces.ForgetRun(t.Context(), a.RunID); err != nil {
 		t.Fatal(err)
 	}
 }
