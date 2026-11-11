@@ -23,6 +23,7 @@ type RecoverFrontendCheckRequest struct {
 	HelperSHA256    string `json:"helper_sha256"`
 	PublicationHead string `json:"publication_head"`
 	Serial          bool   `json:"serial,omitempty"`
+	AssertionSHA256 string `json:"assertion_sha256,omitempty"`
 }
 
 // FrontendCheckRecovery is a single owner-authorized handoff from a settled
@@ -134,6 +135,9 @@ func (c *Core) recoverFrontendCheck(req RecoverFrontendCheckRequest, timeout *Re
 	if err != nil || !maps.Equal(current.revisions, plan.revisions) {
 		return Run{}, errors.New("frontend run or accepted cards changed during validation; inspect before recovery")
 	}
+	if req.AssertionSHA256 != "" {
+		return c.recoverFrontendAssertion(current, req, operation, args)
+	}
 	r := current.run
 	// This is a forward handoff. The blocked owner result and every earlier
 	// attempt remain as recorded. Normal check outcomes choose the next step.
@@ -208,11 +212,23 @@ func (c *Core) planFrontendCheckRecovery(req RecoverFrontendCheckRequest, timeou
 		return plan, ErrNotFound
 	}
 	r := Clone(saved)
-	if r.Task != nil || r.Status != "Failed" || r.CancelRequested || r.Active() || r.Decision != nil || c.inFlight[r.ID] || r.CleanupBlocked || r.CleanupError != "" || !r.ResourcesReleased || r.FrontendTimeoutRecovery != nil || timeout == nil && r.FrontendCheckRecovery != nil {
+	assertion := req.AssertionSHA256 != ""
+	if r.Task != nil || r.Status != "Failed" || r.CancelRequested || r.Active() || r.Decision != nil || c.inFlight[r.ID] || r.CleanupBlocked || r.CleanupError != "" || !r.ResourcesReleased ||
+		r.FrontendAssertionRecovery != nil || r.FrontendTimeoutRecovery != nil && !assertion || timeout == nil && r.FrontendCheckRecovery != nil {
 		return plan, errors.New("frontend recovery needs ungranted settled failed root work and confirmed cleanup")
 	}
 	if err := c.frontendRecheckSettledAttempts(r); err != nil {
 		return plan, err
+	}
+	if assertion {
+		if timeout != nil || req.Serial || !frontendRecheckHex(req.AssertionSHA256, 64) {
+			return plan, errors.New("frontend assertion recovery requires its exact report digest without serial or timeout overrides")
+		}
+		return c.planExhaustedFrontendRecovery(r, RecoverFrontendTimeoutsRequest{
+			RecoverFrontendCheckRequest: req,
+			CheckAttemptID:              req.AttemptID,
+			CheckSHA256:                 req.AssertionSHA256,
+		})
 	}
 	if req.Serial {
 		if timeout != nil {
@@ -221,7 +237,7 @@ func (c *Core) planFrontendCheckRecovery(req RecoverFrontendCheckRequest, timeou
 		return c.planSerialFrontendRecovery(r, req)
 	}
 	if timeout != nil && r.Step >= 0 && r.Step < len(r.Process.Steps) && r.Process.Steps[r.Step].ID == "check" {
-		return c.planExhaustedFrontendTimeoutRecovery(r, *timeout)
+		return c.planExhaustedFrontendRecovery(r, *timeout)
 	}
 	owner := r.Current()
 	if len(r.Attempts) < 2 || owner == nil || owner.ID != req.AttemptID || owner.Superseded || owner.TimedOut || owner.StopRequested || owner.End == nil || owner.End.Kind != "returned" || owner.End.Retryable || owner.End.Result == nil || owner.End.Result.Outcome != "blocked" {
@@ -288,7 +304,7 @@ func (c *Core) planFrontendCheckRecovery(req RecoverFrontendCheckRequest, timeou
 
 // The current exhausted check is already bound to a ready owner capture. This
 // handoff needs no earlier blocked-owner recovery and grants no ordinary route.
-func (c *Core) planExhaustedFrontendTimeoutRecovery(r Run, req RecoverFrontendTimeoutsRequest) (frontendCheckRecoveryPlan, error) {
+func (c *Core) planExhaustedFrontendRecovery(r Run, req RecoverFrontendTimeoutsRequest) (frontendCheckRecoveryPlan, error) {
 	var plan frontendCheckRecoveryPlan
 	bad := errors.New("frontend timeout recovery requires the exact exhausted check and preceding ready owner")
 	if r.Process.ID != "deliver-planned-retained-frontend" || r.Step < 1 || len(r.Attempts) < 2 || r.FrontendCheckRecovery != nil {
@@ -335,9 +351,19 @@ func (c *Core) planExhaustedFrontendTimeoutRecovery(r Run, req RecoverFrontendTi
 	if ValidateValues(failed.End.Result.Outputs, r.Roles[r.Process.Steps[r.Step].Role].Outputs) != nil || prior != failed.ID+"/result" || c.recoveryArtifact(r, prior) != nil {
 		return plan, errors.New("frontend timeout recovery lacks its owned failed-check report")
 	}
-	_, timeouts, err := c.readPriorFrontendTimeouts(r, prior, req.CheckSHA256)
-	if err != nil || len(timeouts) < 1 || len(timeouts) > 8 {
+	report, err := c.readFrontendTimeoutReport(prior, req.CheckSHA256)
+	if err != nil {
+		return plan, err
+	}
+	executed, timeouts, err := report.execution(r.Inputs["tests"])
+	assertion := req.AssertionSHA256 != ""
+	if err != nil || !assertion && (len(timeouts) < 1 || len(timeouts) > 8) {
 		return plan, errors.New("the exact frontend report does not establish one to eight 5000ms timeouts")
+	}
+	if assertion {
+		if err := c.validateFrontendAssertionRecovery(r, req.RecoverFrontendCheckRequest, owner, report, executed, timeouts); err != nil {
+			return plan, err
+		}
 	}
 	manifest := Binding{FromStep: "join", Output: "manifest"}
 	if r.Process.Steps[owner.Step].Inputs["manifest"] != manifest {
@@ -360,7 +386,11 @@ func (c *Core) planExhaustedFrontendTimeoutRecovery(r Run, req RecoverFrontendTi
 	if err != nil {
 		return plan, err
 	}
-	if err := c.familyReserve(r, 1, need+1); err != nil {
+	reserve := need + 1 // Diagnostic check, one repair, then checked/protected completion.
+	if assertion {
+		reserve = need // The current full report directly supports one owner visit.
+	}
+	if err := c.familyReserve(r, 1, reserve); err != nil {
 		return plan, err
 	}
 	return frontendCheckRecoveryPlan{run: r, source: *source, check: check, priorCheck: prior, checkStep: "check", tests: tests, revisions: revisions}, nil

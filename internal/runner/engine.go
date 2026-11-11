@@ -761,6 +761,23 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 			assignment.Task += " Verify that the frontend repair preserves the effective five-second test limit and original coverage, including any tests reorganized during diagnosis. Reject timeout overrides, skipped checks, or reduced assertions or board coverage."
 		}
 	}
+	if recovery := r.FrontendAssertionRecovery; recovery != nil {
+		if step.ID == "owner" && r.Visit == recovery.RepairVisit {
+			id := assignment.Inputs["checks"].ArtifactID
+			data, err := c.disk.Read("artifacts/"+id, c.disk.Policy.MaxArtifact)
+			if id != recovery.CheckID || err != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != recovery.CheckSHA256 {
+				return Assignment{}, errors.New("frontend assertion repair evidence changed before dispatch")
+			}
+			patch, err := c.disk.Read("artifacts/"+recovery.PatchID, c.disk.Policy.MaxArtifact)
+			if err != nil || fmt.Sprintf("%x", sha256.Sum256(patch)) != recovery.PatchSHA256 {
+				return Assignment{}, errors.New("frontend assertion repair patch changed before dispatch")
+			}
+			assignment.Task += " Focus on the single assertion in the full checks artifact. Diagnose its cause before selecting the smallest supported source or test-fixture correction, and report that cause and evidence in the summary. Preserve the intended behavior, assertions, full coverage and five-second test limit. If the evidence cannot support a safe correction, report the specific blocker."
+		}
+		if step.ID == "check" && r.Visit == recovery.RepairVisit+1 {
+			assignment.FrontendCheckPins = &FrontendCheckPins{HelperSHA256: recovery.HelperSHA256}
+		}
+	}
 	assignment.TaskSource, e = c.taskAssignment(r, step)
 	return assignment, e
 }

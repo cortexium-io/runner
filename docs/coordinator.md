@@ -100,6 +100,20 @@ isolated pass nor diagnosis grants acceptance; a fresh normal full check, review
 and qualification remain required. The original correction counter and total
 attempt ceiling do not change.
 
+After that diagnostic repair, a separate owner authorization can permit one
+focused correction of a single remaining ordinary assertion. Use the existing
+`recover-frontend-check` action with `--assertion-sha256` naming the exact failed
+full-report digest, alongside its current attempt, revision, retained patch,
+helper and publication identities. It admits only the diagnostic repair's
+immediately following exhausted full check, with one assertion failure, no
+timeouts, matching full-suite identities and passing compiler evidence. It
+preserves the old grant and original route counter, records a distinct one-use
+repair, and passes the full current report to the owner without repeating the
+unchanged check. A fresh normal full check, independent review and complete
+qualification remain required within the original completion reserve and cap.
+This mode cannot combine with serial execution or timeout diagnosis; restricted
+intake must not expose or call it.
+
 Preserved checkouts live under `STATE/forensics/RUN/ATTEMPT/source`; their sibling
 manifest binds the captured patch hash and ownership identity. These files and
 links count toward the existing storage limit, are never followed as candidate

@@ -60,6 +60,7 @@ func run(ctx context.Context, args []string) error {
 	helperSHA256 := fs.String("helper-sha256", "", "qualified frontend check helper digest")
 	publicationHead := fs.String("publication-head", "", "exact retained draft publication head for frontend check recovery")
 	serial := fs.Bool("serial", false, "recheck a settled catalogue candidate with one Vitest worker")
+	assertionSHA256 := fs.String("assertion-sha256", "", "exact failed full-check report digest for one authorized assertion correction after diagnostic repair")
 	checkAttemptID := fs.String("check-attempt", "", "exact prior check attempt for frontend timeout diagnosis")
 	checkSHA256 := fs.String("check-sha256", "", "exact prior check report digest for frontend timeout diagnosis")
 	maxUses := fs.Int("max-uses", 0, "authorized total source-correction uses; recover-corrections requires 3")
@@ -81,6 +82,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	if *serial && command != "recover-frontend-check" {
 		return errors.New("--serial requires recover-frontend-check")
+	}
+	if *assertionSHA256 != "" && (command != "recover-frontend-check" || *serial) {
+		return errors.New("--assertion-sha256 requires recover-frontend-check without --serial")
 	}
 	if command == "recover-corrections" && (*runID == "" || *attemptID == "" || *maxUses != 3 || *profile != "" || *extra != 0 || *cleanupOnly) {
 		return errors.New("recover-corrections requires --run, --attempt and --max-uses 3; retry allowances/profiles are separate")
@@ -190,11 +194,23 @@ func run(ctx context.Context, args []string) error {
 			*requestID = rand.Text()
 		}
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
-		request := runner.RecoverFrontendCheckRequest{RequestID: *requestID, RunID: *runID, AttemptID: *attemptID, Revision: *revision, PatchSHA256: *patchSHA256, HelperSHA256: *helperSHA256, PublicationHead: *publicationHead, Serial: *serial}
+		request := runner.RecoverFrontendCheckRequest{
+			RequestID:       *requestID,
+			RunID:           *runID,
+			AttemptID:       *attemptID,
+			Revision:        *revision,
+			PatchSHA256:     *patchSHA256,
+			HelperSHA256:    *helperSHA256,
+			PublicationHead: *publicationHead,
+			Serial:          *serial,
+		}
 		method, a = "runner_recover_frontend_check", request
 		if command == "recover-frontend-timeouts" {
 			method = "runner_recover_frontend_timeouts"
 			a = runner.RecoverFrontendTimeoutsRequest{RecoverFrontendCheckRequest: request, CheckAttemptID: *checkAttemptID, CheckSHA256: *checkSHA256}
+		} else {
+			request.AssertionSHA256 = *assertionSHA256
+			a = request
 		}
 	case "wait":
 		after := int64(0)
