@@ -364,3 +364,122 @@ func TestBrowserFeedbackBoundIncludesJSONEscapingAndUTF8(t *testing.T) {
 	}
 	t.Logf("escaped public diagnostic %d/%d bytes", len(encoded), maxBrowserFeedback)
 }
+
+func browserGestureDiagnosticFixture() map[string]any {
+	return map[string]any{
+		"status": "complete", "kind": "gesture", "phase": "touch edit", "path": "/shikaku/fixture",
+		"gesture": map[string]any{
+			"grid": 5, "first": 0, "last": 6,
+			"expected_cells": []int{0, 1, 5, 6}, "actual_cells": []int{5, 6, 10, 11},
+			"expected_count": 4, "actual_count": 4,
+			"intended_xy":       []float64{58.44, 178.44, 109.22, 229.22},
+			"observed_xy":       []float64{58.44, 229.22, 109.22, 280.04},
+			"target_cells":      []int{5, 11},
+			"board_before_xywh": []float64{33, 153, 254, 254},
+			"board_after_xywh":  []float64{33, 153, 254, 254},
+			"scroll_xy":         []float64{0, 0, 0, 0}, "event_count": 12, "events_truncated": false, "terminal": true,
+			"events": []any{map[string]any{"type": "pointerdown", "DOM": "PRIVATE_DOM", "cookie": "PRIVATE_COOKIE"}},
+		},
+	}
+}
+
+func TestBrowserGestureFeedbackRetainsObservedRowOffsetInComparableReceipt(t *testing.T) {
+	for _, phase := range []string{"touch edit", "pointer edit"} {
+		d := browserGestureDiagnosticFixture()
+		d["phase"] = phase
+		failure := browserAssertionFailure(browserFailureFixture(t, d))
+		if failure == nil {
+			t.Fatal("gesture assertion lost source routing")
+		}
+		f, g := failure.browser, failure.browser.Gesture
+		if f.Status != "complete" || f.Kind != "gesture" || f.Phase != phase || f.Path != "/shikaku/fixture" ||
+			g.Grid != 5 || g.Corners != [2]int{0, 6} || g.ExpectedCells != "0,1,5,6" || g.ActualCells != "5,6,10,11" ||
+			g.Counts != [2]int{4, 4} || g.Intended != [4]float64{58.4, 178.4, 109.2, 229.2} ||
+			g.Observed != [4]float64{58.4, 229.2, 109.2, 280} || g.TargetCells != [2]int{5, 11} ||
+			g.Board != [8]float64{33, 153, 254, 254, 33, 153, 254, 254} || g.Events != 12 || !g.Terminal {
+			t.Fatal("actionable intended/observed gesture facts lost", f)
+		}
+		public := publicReceipt(Receipt{Action: "qualify", BrowserFailure: f}, true)
+		encoded, err := json.Marshal(public)
+		var restored Receipt
+		if err != nil || json.Unmarshal(encoded, &restored) != nil || restored != public || bytes.Contains(encoded, []byte("PRIVATE_")) {
+			t.Fatal("comparable receipt changed or private gesture data escaped", string(encoded), err)
+		}
+		feedback, _ := json.Marshal(f)
+		if len(feedback) > maxBrowserFeedback {
+			t.Fatal("gesture summary exceeds existing receipt budget", len(feedback))
+		}
+		t.Logf("gesture feedback %d/%d bytes", len(feedback), maxBrowserFeedback)
+	}
+}
+
+func TestBrowserGestureFeedbackCannotInventCompleteNativeEndpoints(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(map[string]any)
+	}{
+		{"no native events", func(g map[string]any) { g["event_count"] = 0 }},
+		{"one native event", func(g map[string]any) { g["event_count"] = 1 }},
+		{"missing terminal evidence", func(g map[string]any) { delete(g, "terminal") }},
+		{"down and move without terminal event", func(g map[string]any) { g["event_count"], g["terminal"] = 2, false }},
+		{"native pointer missed board", func(g map[string]any) { g["target_cells"] = []int{-1, 11} }},
+		{"missing observed endpoints", func(g map[string]any) { delete(g, "observed_xy") }},
+		{"missing count", func(g map[string]any) { delete(g, "actual_count") }},
+		{"missing first cell", func(g map[string]any) { delete(g, "first") }},
+		{"invalid grid", func(g map[string]any) { g["grid"] = 31 }},
+		{"invalid cell", func(g map[string]any) { g["actual_cells"] = []int{5, 6, 10, 25} }},
+		{"duplicate cell", func(g map[string]any) { g["actual_cells"] = []int{5, 6, 10, 10} }},
+		{"invalid corner", func(g map[string]any) { g["last"] = -1 }},
+		{"invalid native target", func(g map[string]any) { g["target_cells"] = []int{5, 25} }},
+		{"inconsistent cell count", func(g map[string]any) { g["actual_count"] = 3 }},
+		{"out of range coordinate", func(g map[string]any) { g["observed_xy"] = []float64{0, 100001, 0, 0} }},
+		{"invalid box", func(g map[string]any) { g["board_after_xywh"] = []float64{0, 0, 0, 254} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := browserGestureDiagnosticFixture()
+			tc.change(d["gesture"].(map[string]any))
+			failure := browserAssertionFailure(browserFailureFixture(t, d))
+			if failure == nil || failure.browser.Status != "partial" || failure.browser.Issue == "" {
+				t.Fatal("missing or invalid gesture evidence became complete", failure)
+			}
+		})
+	}
+
+	d := browserGestureDiagnosticFixture()
+	raw, _ := json.Marshal(d)
+	raw = bytes.Replace(raw, []byte(`58.44`), []byte(`1e999`), 1)
+	f := browserFailureFeedback([]byte("full report"), raw, "/shikaku/fixture")
+	if f.Status != "partial" || f.Gesture != (BrowserGestureFeedback{}) {
+		t.Fatal("overflowing numeric input was accepted", f)
+	}
+}
+
+func TestBrowserGestureFeedbackMarksPrivateAndPublicTruncation(t *testing.T) {
+	for _, wide := range []bool{false, true} {
+		d := browserGestureDiagnosticFixture()
+		g := d["gesture"].(map[string]any)
+		g["events_truncated"] = true
+		if wide {
+			d["path"] = "/shikaku/" + strings.Repeat("a", 70)
+			g["grid"], g["first"], g["last"] = 30, 899, 898
+			cells := make([]int, 20)
+			for i := range cells {
+				cells[i] = 899 - i
+			}
+			g["expected_cells"], g["actual_cells"] = cells, cells
+			g["expected_count"], g["actual_count"] = 900, 900
+			g["intended_xy"], g["observed_xy"] = []float64{100000, 100000, 100000, 100000}, []float64{100000, 100000, 100000, 100000}
+			g["board_before_xywh"], g["board_after_xywh"] = []float64{100000, 100000, 100000, 100000}, []float64{100000, 100000, 100000, 100000}
+			g["scroll_xy"] = []float64{100000, 100000, 100000, 100000}
+			g["event_count"] = 100000
+		}
+		failure := browserAssertionFailure(browserFailureFixture(t, d))
+		if failure == nil || failure.browser.Status != "truncated" || failure.browser.ReportSHA256 == "" {
+			t.Fatal("gesture truncation lost status or report binding", failure)
+		}
+		encoded, err := json.Marshal(failure.browser)
+		if err != nil || len(encoded) > maxBrowserFeedback || failure.browser.Gesture.Grid == 0 {
+			t.Fatal("bounded summary lost essential gesture endpoints", string(encoded), err)
+		}
+	}
+}

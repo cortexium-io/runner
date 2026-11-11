@@ -56,7 +56,9 @@ try {
     if (typeof input.catalogue !== 'object' || typeof input.cert !== 'string' || typeof input.key !== 'string' || input.cert.length > 10000 || input.key.length > 10000) throw new Error('invalid browser qualification input')
     fs.writeFileSync('/work/runtime-http.json', JSON.stringify(input.catalogue), { mode: 0o600 })
     proxy = https.createServer({ cert: input.cert, key: input.key }, (req, res) => {
-      const upstream = http.request({ host: '127.0.0.1', port: 8080, method: req.method, path: req.url, headers: { ...req.headers, host: '127.0.0.1:9443', 'x-forwarded-proto': 'https', 'x-forwarded-for': '198.18.0.1' } }, response => { res.writeHead(response.statusCode, response.headers); response.pipe(res) })
+      const { 'x-runner-browser-client': rawProfile, ...headers } = req.headers
+      const profile = typeof rawProfile === 'string' && /^[1-9]\d?$/.test(rawProfile) && Number(rawProfile) <= 64 ? rawProfile : '1'
+      const upstream = http.request({ host: '127.0.0.1', port: 8080, method: req.method, path: req.url, headers: { ...headers, host: '127.0.0.1:9443', 'x-forwarded-proto': 'https', 'x-forwarded-for': '198.18.0.' + profile } }, response => { res.writeHead(response.statusCode, response.headers); response.pipe(res) })
       upstream.on('error', () => { res.writeHead(502); res.end('Disposable candidate unavailable') })
       req.pipe(upstream)
     })

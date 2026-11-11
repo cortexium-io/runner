@@ -10,6 +10,11 @@ export class BrowserAdmissionError extends Error {
   name = 'BrowserAdmissionError'
 }
 
+function boardIdentity(url, origin) {
+  return url.origin === origin && !url.search && !url.hash && url.pathname.length <= 256 &&
+    /^\/(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)\/[A-Za-z0-9_-]+$/.exec(url.pathname)
+}
+
 // Preserve a bounded engine error code without copying arbitrary browser text.
 export function browserNetworkError(request) {
   const code = request.failure()?.errorText
@@ -106,22 +111,37 @@ export class PageReadiness {
   goto(page, url) { return this.load(page, () => page.goto(url, { waitUntil: 'load' })) }
   reload(page) { return this.load(page, () => page.reload({ waitUntil: 'load' })) }
 
-  // The initial callback may enter a saved board once. A retry performs only the
-  // identical canonical GET; no caller action or assertion is invoked again.
-  async board(page, url, enter = () => page.goto(url, { waitUntil: 'load' })) {
-    const canonical = new URL(url), origin = this.origins.get(page)
-    const match = canonical.origin === origin && !canonical.search && !canonical.hash && canonical.pathname.length <= 256 && /^\/(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)\/[A-Za-z0-9_-]+$/.exec(canonical.pathname)
+  newBoard(page, game, enter) { return this.board(page, null, enter, undefined, game) }
+
+  // The entry action runs once. A retry opens only the identical canonical URL
+  // and must still pass the saved-state checks before the board is accepted.
+  async board(page, url, enter = () => page.goto(url, { waitUntil: 'load' }), verifyRestored, newGame) {
+    const origin = this.origins.get(page)
+    let canonical = url && new URL(url), match = canonical && boardIdentity(canonical, origin)
     const backoffs = []
     const errorStart = this.errors.get(page).length
     let resourceRetried = false, rateRetried = false
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0 && this.deadlineMs !== null && Date.now() >= this.deadlineMs) throw new BrowserAdmissionError('browser deadline elapsed before canonical navigation recovery')
-      let admission, signal, documentStatus = null
+      let admission, ambiguousAbort, signal, documentStatus = null
       const requests = new Map()
       const rejected = new Promise(resolve => { signal = resolve })
       const expected = request => {
         const target = new URL(request.url())
-        return match && target.origin === origin && request.frame() === page.mainFrame() && (request.method() === 'GET' && request.resourceType() === 'document' && target.href === canonical.href || request.method() === 'POST' && target.pathname === '/api/games/' + match[1] && !target.search && page.url() === canonical.href)
+        if (target.origin !== origin || request.frame() !== page.mainFrame()) return false
+        const document = request.method() === 'GET' && request.resourceType() === 'document'
+        const game = newGame ?? match?.[1]
+        const reopen = request.method() === 'POST' && !target.search && target.pathname === '/api/games/' + game
+        // New does not know the canonical URL until the app navigates. Bind
+        // only the first matching document or reopen on that game's route.
+        if (!canonical && newGame && (document || reopen)) {
+          const candidate = document ? target : new URL(page.url())
+          const identity = boardIdentity(candidate, origin)
+          if (identity?.[1] !== newGame) return false
+          canonical = candidate
+          match = identity
+        }
+        return match && (document && target.href === canonical.href || reopen && page.url() === canonical.href)
       }
       const request = request => { if (expected(request)) requests.set(request, null) }
       const response = response => {
@@ -137,7 +157,14 @@ export class PageReadiness {
       }
       const failed = request => {
         if (!admission && requests.has(request)) {
-          admission = { method: request.method(), path: new URL(request.url()).pathname, status: requests.get(request), network_error: browserNetworkError(request) }
+          const failure = { method: request.method(), path: new URL(request.url()).pathname, status: requests.get(request), network_error: browserNetworkError(request) }
+          // Chromium can report an abort even when the app renders the board.
+          // Check the fresh document or the saved state before accepting it.
+          if ((verifyRestored || newGame || documentStatus === 200) && failure.method === 'POST' && failure.status === 200 && failure.network_error === 'net::ERR_ABORTED') {
+            ambiguousAbort ??= failure
+            return
+          }
+          admission = failure
           signal()
         }
       }
@@ -145,19 +172,36 @@ export class PageReadiness {
       try {
         this.failures.set(page, [])
         await (attempt === 0 ? enter() : page.goto(canonical.href, { waitUntil: 'load' }))
+        if (newGame) {
+          canonical ??= new URL(page.url())
+          match = boardIdentity(canonical, origin)
+          assert.equal(match?.[1], newGame, 'New did not reach its canonical board')
+          assert.equal(page.url(), canonical.href, 'New changed canonical board identity')
+        }
         // A rejected main document need not contain the product stylesheet.
         if (!admission?.document) await this.ready(page)
         if (!admission) await Promise.race([page.locator('.player-board-frame:visible').first().waitFor({ state: 'visible' }), rejected])
         if (!admission) {
-          assert.equal(page.url(), canonical.href, 'board navigation changed canonical identity')
-          return
+          await verifyRestored?.()
+          if (!admission) {
+            assert.equal(page.url(), canonical.href, 'board navigation changed canonical identity')
+            if (ambiguousAbort) {
+              this.receipt.resolvedAdmissionAborts ??= []
+              this.receipt.resolvedAdmissionAborts.push({ canonicalPath: canonical.pathname, ...ambiguousAbort })
+            }
+            return
+          }
         }
       } catch (error) {
-        if (!(error instanceof BrowserResourceError) || resourceRetried || admission || !match || page.url() !== canonical.href || !this.failures.get(page).length) throw error
-        resourceRetried = true
-        this.receipt.resourceRetries ??= []
-        this.receipt.resourceRetries.push({ url: canonical.href, failures: [...this.failures.get(page)], scriptErrors: this.errors.get(page).splice(errorStart) })
-        continue
+        if (!admission && ambiguousAbort && error.name === 'TimeoutError') {
+          admission = ambiguousAbort
+        } else {
+          if (!(error instanceof BrowserResourceError) || resourceRetried || admission || !match || page.url() !== canonical.href || !this.failures.get(page).length) throw error
+          resourceRetried = true
+          this.receipt.resourceRetries ??= []
+          this.receipt.resourceRetries.push({ url: canonical.href, failures: [...this.failures.get(page)], scriptErrors: this.errors.get(page).splice(errorStart) })
+          continue
+        }
       } finally {
         page.off('request', request); page.off('response', response); page.off('requestfailed', failed)
       }

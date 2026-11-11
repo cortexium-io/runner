@@ -13,6 +13,11 @@ fs.mkdirSync(output, { recursive: true })
 const readiness = new PageReadiness(receipt, process.env.RUNNER_BROWSER_DEADLINE_MS ? Number(process.env.RUNNER_BROWSER_DEADLINE_MS) : null)
 const save = () => saveBrowserReceipt(output, receipt, readiness.admissionBackoffs)
 const launch = engine => engine.type.launch({ executablePath: engine.executable, headless: true, args: engine.name === 'chromium' && process.platform === 'darwin' ? ['--disable-gpu', '--single-process', '--no-zygote'] : [] })
+let profile = 0
+const newProfile = (browser, options) => {
+  assert.ok(++profile <= 64, 'browser profile address allocation exhausted')
+  return browser.newContext({ ...options, extraHTTPHeaders: { 'X-Runner-Browser-Client': String(profile) } })
+}
 const instrument = context => context.addInitScript(() => {
   window.runnerInputEvidence={touch:0,keyboard:0}
   document.addEventListener('pointerdown',e=>{if(e.isTrusted&&e.pointerType==='touch')window.runnerInputEvidence.touch++},true)
@@ -28,7 +33,7 @@ try {
       // Restricted macOS Chromium requires single-process mode, which supports
       // only one browser context. Give each isolated profile its own process.
       browser = await launch(engine)
-      const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: device.width, height: device.height }, isMobile: device.touch, hasTouch: device.touch })
+      const context = await newProfile(browser, { ignoreHTTPSErrors: true, viewport: { width: device.width, height: device.height }, isMobile: device.touch, hasTouch: device.touch })
       await instrument(context)
       await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
       const page = await context.newPage(); lastPage = page
@@ -69,15 +74,17 @@ try {
         await activate(page, more.locator('summary'), device.touch)
         record.states.push('valid primary presets and secondary options')
         assert.ok(await play.isEnabled(), 'default unavailable: ' + game)
-        const response = page.waitForResponse(r => r.url() === origin + '/api/games/next')
         receipt.current.phase = 'New entry'
-        await activate(page, play, device.touch)
-        assert.equal((await response).status(), 200, 'New: ' + game)
-        await page.waitForURL(url => url.pathname.startsWith('/' + game.toLowerCase() + '/'))
-        record.path = new URL(page.url()).pathname
-        receipt.current.path = record.path
-        await page.locator('.player-board-frame:visible').first().waitFor({ state: 'visible' })
-        await readiness.ready(page)
+        await observeAdmission(page, 'new-entry', () => readiness.newBoard(page, game.toLowerCase(), async () => {
+          const [response] = await Promise.all([
+            page.waitForResponse(r => r.url() === origin + '/api/games/next' && r.request().method() === 'POST'),
+            activate(page, play, device.touch)
+          ])
+          assert.equal(response.status(), 200, 'New: ' + game)
+          await page.waitForURL(url => url.pathname.startsWith('/' + game.toLowerCase() + '/'))
+          record.path = new URL(page.url()).pathname
+          receipt.current.path = record.path
+        }))
         // This runs before any locator interaction can scroll the board into view.
         receipt.current.phase = 'initial board and controls'
         const initial = await verifyPlayArea(page, device.touch)
@@ -98,11 +105,12 @@ try {
           await readiness.board(page, origin + record.path, async () => {
             await activate(page,resume,device.touch,false)
             await page.waitForURL(url=>url.pathname===record.path)
+          }, async () => {
+            await verifyPlayArea(page,device.touch)
+            const context = { phase: 'home-resume', path: new URL(page.url()).pathname }
+            assertSavedState(await savedState(page),resumeSave,'home resume changed saved puzzle state',context)
+            assertRenderedState(await renderedState(page),resumeView,'home resume did not restore the visible edit',context)
           })
-          await verifyPlayArea(page,device.touch)
-          const context = { phase: 'home-resume', path: new URL(page.url()).pathname }
-          assertSavedState(await savedState(page),resumeSave,'home resume changed saved puzzle state',context)
-          assertRenderedState(await renderedState(page),resumeView,'home resume did not restore the visible edit',context)
         })
         record.resumeInput=await page.evaluate(()=>window.runnerInputEvidence)
         if(device.touch)assert.ok(record.resumeInput.touch>0&&record.resumeInput.keyboard===0,'home resume did not use trusted touch-only input')
@@ -111,7 +119,7 @@ try {
         // making an otherwise valid hint correctly request a recheck first.
         supportBrowser = await launch(engine)
         receipt.current.phase = 'hint and print support profile'
-        const supportContext = await supportBrowser.newContext({ ignoreHTTPSErrors: true, viewport: { width: device.width, height: device.height }, isMobile: device.touch, hasTouch: device.touch })
+        const supportContext = await newProfile(supportBrowser, { ignoreHTTPSErrors: true, viewport: { width: device.width, height: device.height }, isMobile: device.touch, hasTouch: device.touch })
         await supportContext.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
         const support = await supportContext.newPage(); lastPage = support; support.setDefaultTimeout(20000); readiness.watch(support, origin)
         await readiness.board(support, origin + record.path)
@@ -144,7 +152,7 @@ try {
     // difficulty: identities come from the already-passed native catalogue proof.
     for (const viewport of mobileViewports) {
       browser = await launch(engine)
-      const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport, isMobile: true, hasTouch: true })
+      const context = await newProfile(browser, { ignoreHTTPSErrors: true, viewport, isMobile: true, hasTouch: true })
       await instrument(context)
       await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
       const page = await context.newPage(); lastPage = page; page.setDefaultTimeout(20000); readiness.watch(page, origin)

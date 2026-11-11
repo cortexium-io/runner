@@ -60,7 +60,13 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 			r.URL.Host = address
 			r.Host = publicURL.Host
 			r.Header.Set("X-Forwarded-Proto", "https")
-			r.Header.Set("X-Forwarded-For", "198.18.0.1")
+			rawProfile := r.Header.Get("X-Runner-Browser-Client")
+			r.Header.Del("X-Runner-Browser-Client")
+			profile, err := strconv.Atoi(rawProfile)
+			if err != nil || profile < 1 || profile > 64 || strconv.Itoa(profile) != rawProfile {
+				profile = 1
+			}
+			r.Header.Set("X-Forwarded-For", "198.18.0."+strconv.Itoa(profile))
 		}
 		return proxy
 	})

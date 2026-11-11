@@ -154,3 +154,21 @@ func TestBrowserAssertionFeedbackKeepsActionableBoundedContext(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowserLayoutFailureHandoff(t *testing.T) {
+	data := []byte(`{"failure":"AssertionError: actual board is vertically clipped inside its frame\nprivate stack","failureContext":{"engine":"chromium","device":"mobile","game":"Kakuro","width":320,"height":568,"phase":"initial board and controls","path":"/kakuro/fixture"},"failureDiagnostic":{"status":"complete","kind":"layout","layout":{"viewport":[320,568],"frame_xywh":[12,153,296,260],"board_xywh":[13,153,294,294],"controls_xywh":[12,423,296,136],"internal_size":[294,294],"client_size":[294,294],"document_width":320,"min_clue_font_px":11.2}}}`)
+	failure := browserAssertionFailure(data)
+	if failure == nil {
+		t.Fatal("layout assertion lost its source correction route")
+	}
+	f := failure.browser
+	if f.Status != "complete" || f.Kind != "layout" || f.Path != "/kakuro/fixture" ||
+		f.Layout.Frame != [4]float64{12, 153, 296, 260} || f.Layout.Board != [4]float64{13, 153, 294, 294} ||
+		f.Layout.Controls != [4]float64{12, 423, 296, 136} || f.Layout.MinClueFont != 11.2 {
+		t.Fatalf("layout evidence incomplete: %+v", f)
+	}
+	encoded, err := json.Marshal(f)
+	if err != nil || len(encoded) > maxBrowserFeedback || strings.Contains(string(encoded), "private stack") {
+		t.Fatalf("invalid public layout feedback: %s, %v", encoded, err)
+	}
+}

@@ -47,11 +47,13 @@ function within(box, viewport) {
 export function assertPlayArea(metrics, { mobile = true } = {}) {
   assert.ok(metrics.board && metrics.frame, 'missing actual board/frame')
   assert.ok(metrics.documentWidth <= metrics.viewport.width + 1, 'document overflows the viewport')
-  assert.ok(within(metrics.frame, { width: metrics.viewport.width, height: Number.MAX_SAFE_INTEGER }), 'outer frame overflows horizontally')
+  const { x, width, height } = metrics.frame
+  assert.ok(width > 0 && height > 0 && x >= -1 && x + width <= metrics.viewport.width + 1, 'outer frame overflows horizontally')
   assert.ok(metrics.board.x >= metrics.frame.x - 1 && metrics.board.x + metrics.board.width <= metrics.frame.x + metrics.frame.width + 1, 'actual board is clipped inside its frame')
   assert.ok(metrics.board.y >= metrics.frame.y - 1 && metrics.board.y + metrics.board.height <= metrics.frame.y + metrics.frame.height + 1, 'actual board is vertically clipped inside its frame')
   assert.ok(metrics.internalWidth <= metrics.clientWidth + 1 && metrics.internalHeight <= metrics.clientHeight + 1, 'actual board has internal overflow')
   if (mobile) {
+    assert.ok(metrics.frame.y >= -1, 'outer frame starts above the initial play viewport')
     assert.ok(within(metrics.board, metrics.viewport), 'actual board is outside the initial play viewport')
     assert.ok(metrics.controls.some(row => row.label === 'Undo'), 'missing primary Undo control')
     for (const control of metrics.controls) assert.ok(within(control, metrics.viewport), `primary control is offscreen: ${control.label}`)
@@ -90,8 +92,39 @@ export async function activate(page, locator, touch, requireVisible = true) {
   if (touch) await locator.tap(); else await locator.click()
 }
 
+function assertMeasuredPlayArea(metrics, mobile, path) {
+  try {
+    return assertPlayArea(metrics, { mobile })
+  } catch (error) {
+    if (!(error instanceof assert.AssertionError)) throw error
+    const round = value => Math.round(value * 10) / 10
+    const box = value => value && [value.x, value.y, value.width, value.height].map(round)
+    const controls = metrics.controls
+    let controlBounds
+    if (controls.length) {
+      const x = Math.min(...controls.map(row => row.x))
+      const y = Math.min(...controls.map(row => row.y))
+      const right = Math.max(...controls.map(row => row.x + row.width))
+      const bottom = Math.max(...controls.map(row => row.y + row.height))
+      controlBounds = box({ x, y, width: right - x, height: bottom - y })
+    }
+    error.browserDiagnostic = {
+      status: 'complete', kind: 'layout', path,
+      layout: {
+        viewport: [metrics.viewport.width, metrics.viewport.height],
+        frame_xywh: box(metrics.frame), board_xywh: box(metrics.board), controls_xywh: controlBounds,
+        internal_size: [metrics.internalWidth, metrics.internalHeight],
+        client_size: [metrics.clientWidth, metrics.clientHeight],
+        document_width: metrics.documentWidth, min_clue_font_px: round(metrics.minClueFont)
+      }
+    }
+    throw error
+  }
+}
+
 export async function verifyPlayArea(page, touch) {
-  const metrics = assertPlayArea(await playMetrics(page), { mobile: touch })
+  const path = new URL(page.url()).pathname
+  const metrics = assertMeasuredPlayArea(await playMetrics(page), touch, path)
   if (touch && metrics.minClueFont < 12) {
     // A tiny overview is acceptable only with working visible zoom/fit controls.
     const zoom = page.getByRole('button', { name: 'Zoom in', exact: true })
@@ -104,7 +137,7 @@ export async function verifyPlayArea(page, touch) {
     }
     assert.ok(enlarged.minClueFont >= 12 && enlarged.board.width > metrics.board.width, 'zoom did not make actual clues readable')
     await activate(page, fit, true)
-    assertPlayArea(await playMetrics(page))
+    assertMeasuredPlayArea(await playMetrics(page), true, path)
     return { ...metrics, verifiedZoom: true }
   }
   return metrics
@@ -253,22 +286,83 @@ export async function dragRectangle(page, touch, engine, first = 0, last = 6) {
   assert.ok(within(a, viewport) && within(b, viewport), 'rectangle corners are outside the play viewport')
   const start = { x: a.x + a.width / 2, y: a.y + a.height / 2 }, end = { x: b.x + b.width / 2, y: b.y + b.height / 2 }
   for (const [point, cell] of [[start, first], [end, last]]) assert.equal(await page.evaluate(({ point }) => document.elementFromPoint(point.x,point.y)?.closest('[data-cell]')?.getAttribute('data-cell'), { point }),String(cell),'Shikaku corner is clipped or covered')
-  if (touch && engine === 'chromium') {
-    const cdp = await page.context().newCDPSession(page)
-    try {
-      // The browser's native gesture controller completes the drag and prevents
-      // a fling. Raw touch packets can leave subsequent tap clicks suppressed.
-      await cdp.send('Input.synthesizeScrollGesture', { ...start, xDistance: end.x - start.x, yDistance: end.y - start.y, gestureSourceType: 'touch', speed: 400, preventFling: true })
-    } finally { await cdp.detach() }
-  } else if (touch) {
-    // Playwright WebKit has native taps but no public native touch-drag API.
-    // Test its supported complete two-corner path; report the drag limitation.
-    await activate(page, board.locator(`[data-cell="${first}"]`), true)
-    await activate(page, board.locator(`[data-cell="${last}"]`), true)
-    await activate(page, page.getByRole('button', { name: 'Add rectangle', exact: true }), true)
-  } else {
-    await page.mouse.move(start.x, start.y); await page.mouse.down()
-    await page.mouse.move(end.x, end.y, { steps: 8 }); await page.mouse.up()
+  const gesture = await page.evaluate(() => {
+    const board = document.querySelector('.shikaku-board'), rect = board.getBoundingClientRect()
+    const evidence = { events: [], event_count: 0, first: null, last: null }, active = new Set()
+    const cell = node => { const target = node?.closest?.('[data-cell]'); return target && board.contains(target) ? Number(target.dataset.cell) : -1 }
+    const observe = event => {
+      if (!event.isTrusted) return
+      if (event.type === 'pointerdown' && board.contains(event.target)) active.add(event.pointerId)
+      if (!active.has(event.pointerId)) return
+      const sample = { type: event.type, xy: [event.clientX, event.clientY], target_cell: cell(event.target), hit_cell: cell(document.elementFromPoint(event.clientX, event.clientY)), pointer_type: event.pointerType }
+      evidence.event_count++
+      evidence.first ??= sample
+      evidence.last = sample
+      if (evidence.events.length < 32) evidence.events.push(sample)
+      if (event.type === 'pointerup' || event.type === 'pointercancel') active.delete(event.pointerId)
+    }
+    const types = ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']
+    for (const type of types) document.addEventListener(type, observe, { capture: true, passive: true })
+    window.runnerGestureCapture = { evidence, stop() { for (const type of types) document.removeEventListener(type, observe, true); evidence.terminal = active.size === 0 && ['pointerup', 'pointercancel'].includes(evidence.last?.type) } }
+    return { grid: Math.sqrt(board.querySelectorAll('[data-cell]').length), board_before_xywh: [rect.x, rect.y, rect.width, rect.height], scroll_xy: [scrollX, scrollY] }
+  })
+  Object.assign(gesture, { first, last, intended_xy: [start.x, start.y, end.x, end.y] })
+  let failure
+  try {
+    if (touch && engine === 'chromium') {
+      const cdp = await page.context().newCDPSession(page)
+      try {
+        // The browser's native gesture controller completes the drag and prevents
+        // a fling. Raw touch packets can leave subsequent tap clicks suppressed.
+        await cdp.send('Input.synthesizeScrollGesture', { ...start, xDistance: end.x - start.x, yDistance: end.y - start.y, gestureSourceType: 'touch', speed: 400, preventFling: true })
+      } finally { await cdp.detach() }
+    } else if (touch) {
+      // Playwright WebKit has native taps but no public native touch-drag API.
+      // Test its supported complete two-corner path; report the drag limitation.
+      await activate(page, board.locator(`[data-cell="${first}"]`), true)
+      await activate(page, board.locator(`[data-cell="${last}"]`), true)
+      await activate(page, page.getByRole('button', { name: 'Add rectangle', exact: true }), true)
+    } else {
+      await page.mouse.move(start.x, start.y); await page.mouse.down()
+      await page.mouse.move(end.x, end.y, { steps: 8 }); await page.mouse.up()
+    }
+  } catch (error) {
+    failure = error
+  } finally {
+    Object.assign(gesture, await page.evaluate(() => {
+      const capture = window.runnerGestureCapture
+      capture.stop()
+      delete window.runnerGestureCapture
+      const { events, event_count, first, last, terminal } = capture.evidence, rect = document.querySelector('.shikaku-board').getBoundingClientRect()
+      return { events, event_count, terminal, observed_xy: first && last ? [...first.xy, ...last.xy] : [], target_cells: first && last ? [first.hit_cell, last.hit_cell] : [], board_after_xywh: [rect.x, rect.y, rect.width, rect.height], scroll_after: [scrollX, scrollY] }
+    }))
+    // Native coordinates remain distinct from the intended dispatch coordinates.
+    // The complete bounded event trace stays in private browser evidence.
+    gesture.scroll_xy.push(...gesture.scroll_after)
+    gesture.events_truncated = gesture.event_count > gesture.events.length
+    delete gesture.scroll_after
+  }
+  if (failure) {
+    await attachGestureDiagnostic(failure, page, gesture, touch, { first, last })
+    throw failure
+  }
+  return gesture
+}
+
+async function attachGestureDiagnostic(error, page, gesture, touch, corners) {
+  if (error.browserDiagnostic) return
+  const actual = await page.locator('.shikaku-board:visible [data-cell]').evaluateAll(nodes => nodes.filter(node => node.style.getPropertyValue('--rectangle-fill').trim()).map(node => Number(node.dataset.cell)))
+  const grid = gesture.grid, expected = []
+  for (let row = Math.min(Math.floor(corners.first / grid), Math.floor(corners.last / grid)); row <= Math.max(Math.floor(corners.first / grid), Math.floor(corners.last / grid)); row++) {
+    for (let col = Math.min(corners.first % grid, corners.last % grid); col <= Math.max(corners.first % grid, corners.last % grid); col++) expected.push(row * grid + col)
+  }
+  const round = values => values.map(value => Math.round(value * 10) / 10)
+  const complete = gesture.terminal && gesture.event_count >= 2 && gesture.observed_xy.length === 4 && gesture.target_cells.every(cell => cell >= 0)
+  error.browserDiagnostic = {
+    status: gesture.events_truncated || expected.length > 20 || actual.length > 20 ? 'truncated' : complete ? 'complete' : 'partial',
+    kind: 'gesture', phase: touch ? 'touch edit' : 'pointer edit', path: new URL(page.url()).pathname,
+    gesture: { ...gesture, expected_cells: expected.slice(0, 20), actual_cells: actual.slice(0, 20), expected_count: expected.length, actual_count: actual.length,
+      intended_xy: round(gesture.intended_xy), observed_xy: round(gesture.observed_xy), board_before_xywh: round(gesture.board_before_xywh), board_after_xywh: round(gesture.board_after_xywh), scroll_xy: round(gesture.scroll_xy) }
   }
 }
 
@@ -297,10 +391,11 @@ export async function editAndRestore(page, game, touch, engine, readiness, corne
   const before = await savedState(page)
   const inputBefore = await page.evaluate(() => window.runnerInputEvidence)
   const frame = page.locator('.player-board-frame:visible').first()
-  let paint
+  let paint, gesture
   const paintBefore=game==='Shikaku'?await frame.locator('[data-cell]').evaluateAll(nodes=>nodes.map(node=>getComputedStyle(node).backgroundColor)):null
   const scrollBefore=await page.evaluate(()=>[scrollX,scrollY])
-  if (game === 'Shikaku') await dragRectangle(page, touch, engine,corners.first,corners.last)
+  try {
+  if (game === 'Shikaku') gesture = await dragRectangle(page, touch, engine,corners.first,corners.last)
   else if (game === 'Hashi') {
     const pair = await frame.locator('[data-island]').evaluateAll(nodes => {
       const islands = nodes.map(node => { const r = node.getBoundingClientRect(); return { id: node.getAttribute('data-island'), x: r.x + r.width / 2, y: r.y + r.height / 2 } })
@@ -337,6 +432,10 @@ export async function editAndRestore(page, game, touch, engine, readiness, corne
     },{expected,paintBefore}) }catch(error){if(error.name!=='TimeoutError')throw error;const actual=await frame.locator('[data-cell]').evaluateAll(nodes=>nodes.filter(node=>node.style.getPropertyValue('--rectangle-fill').trim()).map(node=>Number(node.dataset.cell)));assert.fail(`Shikaku painted cells differ: expected ${expected.slice(0,20)}; actual ${actual.slice(0,20)}`)}
     paint={grid,...corners,cells:expected,scroll:[...scrollBefore,...scrollAfter]}
   }
+  } catch (error) {
+    if (gesture) await attachGestureDiagnostic(error, page, gesture, touch, corners)
+    throw error
+  }
   const edited = await savedState(page)
   const rendered = await renderedState(page)
   await activate(page, page.getByRole('button', { name: 'Undo', exact: true }), touch, touch)
@@ -346,11 +445,12 @@ export async function editAndRestore(page, game, touch, engine, readiness, corne
   const input = await page.evaluate(() => window.runnerInputEvidence)
   if (touch) assert.ok(input.touch > inputBefore.touch && input.keyboard === 0, 'mobile edit did not use trusted touch-only input')
   await observeAdmission(page, 'reload', async () => {
-    await readiness.board(page, page.url(), () => page.reload({ waitUntil: 'load' }))
-    await verifyPlayArea(page, touch)
-    const context = { phase: 'reload', path: new URL(page.url()).pathname }
-    assertSavedState(await savedState(page), edited, 'reload changed saved puzzle state', context)
-    assertRenderedState(await renderedState(page), rendered, 'reload did not restore the visible board edit', context)
+    await readiness.board(page, page.url(), () => page.reload({ waitUntil: 'load' }), async () => {
+      await verifyPlayArea(page, touch)
+      const context = { phase: 'reload', path: new URL(page.url()).pathname }
+      assertSavedState(await savedState(page), edited, 'reload changed saved puzzle state', context)
+      assertRenderedState(await renderedState(page), rendered, 'reload did not restore the visible board edit', context)
+    })
   })
   return { input, paint, touchDrag: touch && game === 'Shikaku' ? engine === 'chromium' ? 'native-verified' : 'native-taps-verified; WebKit drag API unavailable' : undefined }
 }

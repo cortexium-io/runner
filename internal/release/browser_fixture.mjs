@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
-import { verifyPlayArea, editAndRestore, dragRectangle, activate, prepareShikakuTouch, renderedState, assertRenderedState, observeAdmission } from './browser_contract.mjs'
+import { verifyPlayArea, editAndRestore, dragRectangle, activate, prepareShikakuTouch, savedState, renderedState, assertRenderedState, observeAdmission } from './browser_contract.mjs'
 import { PageReadiness, BrowserAdmissionError, BrowserResourceError, admissionDelay, saveBrowserReceipt } from './browser_render.mjs'
 const { chromium, webkit } = await import(pathToFileURL(process.env.RUNNER_PLAYWRIGHT_MODULE).href)
 const auditRow = index => ({ method: 'POST', path: '/api/games/nonogram', status: 429, retryAfterMs: null, delayMs: 1000, attempt: 1, canonicalPath: '/nonogram/audit_' + index })
@@ -40,6 +40,26 @@ const admissions = new Map(), documents = new Map()
 let binaryBodySocket
 const server = http.createServer((req, res) => {
   const path = new URL(req.url, 'http://fixture').pathname
+  if (path.startsWith('/fixture/new-board/')) {
+    const fault = path.split('/').at(-1)
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    return res.end(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><button type="button">New board</button><script>
+      const fault = ${JSON.stringify(fault)}
+      document.querySelector('button').onclick = async () => {
+        const created = await fetch('/api/games/next', { method: 'POST' })
+        if (!created.ok) return
+        localStorage.setItem('games-site:semantic:' + fault, JSON.stringify({ snapshot: { cells: ['filled', 'blank'] } }))
+        history.pushState(null, '', '/nonogram/' + fault)
+        const reply = await fetch('/api/games/nonogram', { method: 'POST', body: JSON.stringify({ fault, restored: true }) })
+        if (!reply.ok) return
+        document.querySelector('button').insertAdjacentHTML('afterend', '<div class="player-board-frame">New board</div>')
+      }
+    </script>`)
+  }
+  if (path === '/api/games/next' && req.method === 'POST') {
+    res.setHeader('Content-Type', 'application/json')
+    return res.end('{"status":"success"}')
+  }
   if (path === '/binary/fresh-profile') {
     res.setHeader('Content-Type', 'text/html')
     return res.end(`<!doctype html><link rel="stylesheet" href="/style.css"><div class="player-board-frame" hidden></div><script>
@@ -58,11 +78,35 @@ const server = http.createServer((req, res) => {
     })
     return
   }
+  if (path.startsWith('/nonogram/restore-abort-')) {
+    const variant = path.split('-').at(-1)
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    return res.end(`<!doctype html><link rel="stylesheet" href="/style.css"><div class="player-board-frame" hidden><div class="nonogram-board"><button data-cell="0"></button></div></div><script>
+      const variant = ${JSON.stringify(variant)}, pending = new AbortController()
+      const admit = (fault, signal) => fetch('/api/games/nonogram', { method: 'POST', body: JSON.stringify({ fault }), signal })
+      admit('restoration-abort', pending.signal).then(async response => {
+        if (response.status !== 200) return
+        pending.abort()
+        if (variant === 'lost') return
+        const result = await admit('restoration-success').then(reply => reply.json())
+        if (!result.admitted) return
+        localStorage.setItem('games-site:fixture-restore', JSON.stringify({snapshot: {entries: ['filled']}}))
+        document.querySelector('[data-cell]').textContent = variant === 'wrong' ? '×' : '■'
+        document.querySelector('.player-board-frame').hidden = false
+      })
+    </script>`)
+  }
   if (req.method === 'POST' && ['/api/games/nonogram', '/api/games/choices'].includes(path)) {
     let body = ''
     req.on('data', chunk => { body += chunk })
     req.on('end', () => {
       const { fault, restored } = JSON.parse(body), behavior = fault.split('_')[0].replace(/^rate-/, '')
+      if (fault === 'restoration-abort') {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': '64' })
+        res.flushHeaders()
+        res.write('{')
+        return
+      }
       let status = 200
       if (restored) {
         const rows = admissions.get(fault) ?? []; rows.push(Date.now()); admissions.set(fault, rows)
@@ -90,7 +134,7 @@ const server = http.createServer((req, res) => {
   res.end(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><body data-case="${req.url.slice(1)}" data-grid="${gridSize}"><div class="player-board-frame"><div class="shikaku-board">${Array.from({ length: gridSize*gridSize }, (_, i) => `<button data-cell="${i}">${i === 0 ? '4' : ''}</button>`).join('')}</div></div><div class="rectangle-controls"><button id="add">Add rectangle</button><button id="undo">Undo</button><button id="redo">Redo</button></div><button id="zoom">Zoom in</button><button id="fit">Fit board</button><script>
 const n=${gridSize},key='games-site:fixture:'+n,board=document.querySelector('.shikaku-board');let state=JSON.parse(localStorage.getItem(key)||'null')?.snapshot||{rectangles:[]},past=[],future=[],corners=[],dragStart;
 function render(){const r=state.rectangles[0];document.querySelectorAll('[data-cell]').forEach(node=>{const i=Number(node.dataset.cell),inside=r&&Math.floor(i/n)>=Math.floor(r.first/n)&&Math.floor(i/n)<=Math.floor(r.last/n)&&i%n>=r.first%n&&i%n<=r.last%n;node.style.setProperty('--rectangle-fill',inside?'#bbf':'')});localStorage.setItem(key,JSON.stringify({snapshot:state}));}
-function commit(first,last){if(first!=='0'||last!==String(n+1))return;past.push(state);state={rectangles:[{first:0,last:document.body.dataset.case==='wrongpaint'||document.body.dataset.case==='large-bad'?0:n+1}]};future=[];render();}
+function commit(first,last){if(first!=='0'||last!==String(n+1))return;const offset=document.body.dataset.case==='row-offset'?n:0;past.push(state);state={rectangles:[{first:offset,last:document.body.dataset.case==='wrongpaint'||document.body.dataset.case==='large-bad'?0:n+1+offset}]};future=[];render();}
 board.addEventListener('pointerdown',e=>{if(document.body.dataset.case==='ignored')return;dragStart=e.target.dataset.cell;if(dragStart!==undefined)board.setPointerCapture(e.pointerId)});
 board.addEventListener('pointerup',e=>{if(board.hasPointerCapture(e.pointerId))board.releasePointerCapture(e.pointerId);if(document.body.dataset.case==='ignored')return;const target=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-cell]');if(dragStart!==undefined&&target?.dataset.cell!==dragStart)commit(dragStart,target?.dataset.cell);dragStart=undefined;});
 board.addEventListener('pointercancel',e=>{if(board.hasPointerCapture(e.pointerId))board.releasePointerCapture(e.pointerId);corners=[];dragStart=undefined});
@@ -130,17 +174,41 @@ try {
         const ready = new PageReadiness({}); ready.watch(page, origin)
         for (const fault of ['clip', 'entry', 'control', 'internal']) {
           await ready.goto(page, origin + '/' + fault)
-          await assert.rejects(verifyPlayArea(page, true), assert.AssertionError, 'known broken layout passed: ' + fault)
+          await assert.rejects(verifyPlayArea(page, true), error => {
+            assert.ok(error instanceof assert.AssertionError)
+            assert.equal(error.browserDiagnostic?.kind, 'layout')
+            assert.equal(error.browserDiagnostic?.layout.viewport[0], width)
+            assert.ok(error.browserDiagnostic?.layout.frame_xywh[2] > 0)
+            assert.ok(error.browserDiagnostic?.layout.board_xywh[2] > 0)
+            assert.ok(error.browserDiagnostic?.layout.controls_xywh[2] > 0)
+            return true
+          }, 'known broken layout passed: ' + fault)
         }
         await ready.goto(page, origin + '/zoom')
         assert.equal((await verifyPlayArea(page, true)).verifiedZoom, true, 'intentional fit/zoom did not prove readable clues')
         await ready.goto(page, origin + '/valid')
         await verifyPlayArea(page, true)
+        if (width === 320) {
+          // Desktop reload can restore a legitimate scroll position. The same
+          // geometry still fails the initial mobile viewport contract.
+          await page.evaluate(() => {
+            document.body.style.minHeight = '1200px'
+            window.scrollTo(0, 80)
+          })
+          assert.ok((await verifyPlayArea(page, false)).frame.y < 0)
+          await assert.rejects(verifyPlayArea(page, true), /outer frame starts above/)
+          await page.evaluate(() => {
+            document.querySelector('.player-board-frame').style.transform = 'translateX(-50px)'
+          })
+          await assert.rejects(verifyPlayArea(page, false), /outer frame overflows horizontally/)
+          await ready.goto(page, origin + '/valid')
+        }
         try { await editAndRestore(page, 'Shikaku', true, engine.name, ready) } catch(error) {
           console.error(JSON.stringify({engine:engine.name,width,evidence:await page.evaluate(()=>({input:window.runnerInputEvidence,events:window.runnerFixtureEvents,state:localStorage.getItem('games-site:fixture:'+document.body.dataset.grid)}))}))
           throw error
         }
         assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('games-site:fixture:'+document.body.dataset.grid)).snapshot.rectangles),[{first:0,last:6}],'native interaction did not commit the intended start/end cells')
+        assert.equal(await page.evaluate(() => window.runnerGestureCapture === undefined), true, 'successful gesture retained document listeners')
         await ready.goto(page, origin + '/large')
         await verifyPlayArea(page,true)
         const corners=await prepareShikakuTouch(page)
@@ -179,6 +247,37 @@ try {
           await supportBrowser.close()
         }
       }
+      if (engine.name === 'chromium') {
+        const restoreBrowser = await launch()
+        try {
+          const page = await restoreBrowser.newPage()
+          page.setDefaultTimeout(2500)
+          const receipt = {}, ready = new PageReadiness(receipt)
+          ready.watch(page, origin)
+          let calls = 0
+          page.on('request', request => { if (new URL(request.url()).pathname === '/api/games/nonogram') calls++ })
+          const prove = async () => {
+            assert.deepEqual(await savedState(page), [{ key: 'games-site:fixture-restore', snapshot: { entries: ['filled'] } }])
+            assert.equal((await renderedState(page)).cells[0].text, '■', 'visible edit must be restored')
+          }
+          const open = variant => ready.board(page, origin + '/nonogram/restore-abort-' + variant, undefined, prove)
+          await open('ok')
+          assert.equal(calls, 2, 'the browser verifier replayed an admission')
+          const abort = { method: 'POST', path: '/api/games/nonogram', status: 200, network_error: 'net::ERR_ABORTED' }
+          assert.deepEqual(receipt.resolvedAdmissionAborts, [{ canonicalPath: '/nonogram/restore-abort-ok', ...abort }])
+          await assert.rejects(open('lost'), error => error instanceof BrowserAdmissionError && error.browserDiagnostic.reload.responses[0].network_error === 'net::ERR_ABORTED')
+          assert.equal(calls, 3, 'a lost admission was retried')
+          await assert.rejects(open('wrong'), /visible edit must be restored/)
+          assert.equal(calls, 5)
+          assert.equal(receipt.resolvedAdmissionAborts.length, 1, 'an unproved restoration was accepted')
+          await ready.board(page, origin + '/nonogram/restore-abort-fresh')
+          assert.equal(calls, 7, 'fresh canonical entry was replayed')
+          assert.deepEqual(receipt.resolvedAdmissionAborts[1], { canonicalPath: '/nonogram/restore-abort-fresh', ...abort })
+          await assert.rejects(ready.board(page, origin + '/nonogram/restore-abort-lost'), BrowserAdmissionError)
+          assert.equal(calls, 8, 'a lost fresh admission was retried')
+          assert.equal(receipt.resolvedAdmissionAborts.length, 2)
+        } finally { await restoreBrowser.close() }
+      }
       browser = await launch()
       const context = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true })
       await context.addInitScript(() => { window.runnerInputEvidence = { touch: 0, keyboard: 0 }; document.addEventListener('touchstart', e => { if (e.isTrusted) window.runnerInputEvidence.touch++ }) })
@@ -192,12 +291,46 @@ try {
       await activate(page,page.getByRole('button',{name:'Add rectangle',exact:true}),true)
       assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('games-site:fixture:'+document.body.dataset.grid)).snapshot.rectangles),[],'single-corner Add produced a passing fixture edit')
       await ready.goto(page, origin + '/wrongpaint')
-      await assert.rejects(editAndRestore(page,'Shikaku',true,engine.name,ready),error=>error instanceof assert.AssertionError&&error.message.includes('painted cells differ'),'wrong committed rectangle passed exact visible paint proof')
+      await page.evaluate(() => document.querySelector('.shikaku-board').addEventListener('pointerdown', () => {
+        document.querySelector('[data-cell="0"]').dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 1, pointerType: 'touch', clientX: 99999, clientY: 99999 }))
+      }, { once: true }))
+      const gestureFailure = (error, actual) => {
+        assert.ok(error instanceof assert.AssertionError)
+        const diagnostic = error.browserDiagnostic, gesture = diagnostic?.gesture
+        assert.equal(diagnostic.kind, 'gesture')
+        assert.equal(diagnostic.phase, 'touch edit')
+        assert.equal(diagnostic.status, 'complete')
+        assert.equal(gesture.grid, 5)
+        assert.deepEqual([gesture.first, gesture.last], [0, 6])
+        assert.deepEqual(gesture.expected_cells, [0, 1, 5, 6])
+        assert.deepEqual(gesture.actual_cells, actual)
+        assert.deepEqual(gesture.target_cells, [0, 6])
+        assert.ok(gesture.event_count >= 4 && gesture.events.length <= 32)
+        assert.equal(gesture.terminal, true)
+        assert.equal(gesture.events[0].type, 'pointerdown')
+        assert.equal(gesture.events.at(-1).type, 'pointerup')
+        assert.ok(gesture.events.every(event => event.pointer_type === 'touch'))
+        assert.deepEqual(gesture.observed_xy, [...gesture.events[0].xy, ...gesture.events.at(-1).xy].map(value => Math.round(value * 10) / 10), 'diagnostic replaced delivered native coordinates with intended points')
+        assert.ok(gesture.events.every(event => event.xy.every(value => Math.abs(value) < 1000)), 'untrusted scripted coordinates entered gesture evidence')
+        assert.deepEqual(gesture.board_before_xywh, gesture.board_after_xywh)
+        assert.deepEqual(gesture.scroll_xy, [0, 0, 0, 0])
+        return true
+      }
+      await assert.rejects(editAndRestore(page,'Shikaku',true,engine.name,ready),error => gestureFailure(error, [0]),'wrong committed rectangle passed exact visible paint proof')
+      assert.equal(await page.evaluate(() => window.runnerGestureCapture === undefined), true, 'failed gesture retained document listeners')
+      await ready.goto(page, origin + '/row-offset')
+      await page.evaluate(() => {
+        const board = document.querySelector('.shikaku-board')
+        board.style.width = '254px'; board.style.gridTemplateColumns = 'repeat(5,50.8px)'; board.parentElement.style.width = '254px'
+        for (const cell of board.children) { cell.style.width = '50.8px'; cell.style.height = '50.8px' }
+      })
+      await assert.rejects(editAndRestore(page,'Shikaku',true,engine.name,ready),error => gestureFailure(error, [5, 6, 10, 11]), 'row-offset failure lost its native input evidence')
       await ready.goto(page, origin + '/large-bad')
       const badCorners=await prepareShikakuTouch(page)
       await assert.rejects(editAndRestore(page,'Shikaku',true,engine.name,ready,badCorners),error=>error instanceof assert.AssertionError&&error.message.includes('painted cells differ'),'old pixel hit-testing passed fitted large-board proof')
+      await page.evaluate(() => localStorage.removeItem('games-site:fixture:5'))
       await ready.goto(page, origin + '/ignored')
-      await assert.rejects(editAndRestore(page, 'Shikaku', true, engine.name, ready), error => error instanceof assert.AssertionError && error.message.includes('expected saved state'), 'ignored native touch was accepted')
+      await assert.rejects(editAndRestore(page, 'Shikaku', true, engine.name, ready), error => error.message.includes('expected saved state') && gestureFailure(error, []), 'ignored native touch was accepted')
       for (const fault of ['decoration', 'value', 'hidden', 'transparent', 'missing', 'identity', 'other-decoration', 'saved', 'long']) {
         await ready.goto(page, origin + '/semantic/' + fault)
         await page.locator('.player-board-frame:visible').waitFor({ state: 'visible' })
@@ -296,6 +429,35 @@ try {
       await navigation.board(page, canonical, async () => { enters++; await page.goto(canonical, { waitUntil: 'load' }) })
       assert.equal(enters, 1, 'saved-entry action replayed instead of canonical GET')
       assert.equal(documents.get(fault), 3)
+      for (const behavior of ['once', 'persistent']) {
+        const fault = `rate-${behavior}_new_${engine.name}`, path = '/nonogram/' + fault
+        const navigation = new PageReadiness({}, Date.now() + 60000)
+        navigation.watch(page, origin)
+        await navigation.goto(page, origin + '/fixture/new-board/' + fault)
+        let nextCalls = 0
+        const count = request => { if (request.method() === 'POST' && request.url() === origin + '/api/games/next') nextCalls++ }
+        page.on('request', count)
+        const open = () => navigation.newBoard(page, 'nonogram', async () => {
+          const [created] = await Promise.all([
+            page.waitForResponse(reply => reply.url() === origin + '/api/games/next', { timeout: 4000 }),
+            activate(page, page.getByRole('button', { name: 'New board', exact: true }), true)
+          ])
+          assert.equal(created.status(), 200)
+          await page.waitForURL(url => url.pathname === path, { timeout: 4000 })
+        })
+        try {
+          if (behavior === 'once') {
+            await open()
+            assert.equal((await renderedState(page)).cells[0].text, '■')
+          } else {
+            await assert.rejects(open(), error => error instanceof BrowserAdmissionError && /remains rate limited/.test(error.message))
+          }
+        } finally { page.off('request', count) }
+        assert.equal(nextCalls, 1, 'rate-limited New entry replayed generation')
+        assert.equal(documents.get(fault), 1, 'New did not reopen the identical canonical board exactly once')
+        assert.equal(admissions.get(fault).length, 2)
+        assert.equal(navigation.admissionBackoffs[0].canonicalPath, path)
+      }
       for (const persistent of [false, true]) {
         const resourceFault = `rate-resource${persistent ? 'persistent' : 'once'}_${engine.name}`, resourceEvidence = {}, resources = new PageReadiness(resourceEvidence, Date.now() + 60000)
         resources.watch(page, origin)

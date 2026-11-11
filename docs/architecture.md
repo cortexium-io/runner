@@ -25,6 +25,56 @@ Start with the example configuration, then `types.go`, then follow a run through
 handling. They do not form a second scheduling or storage service. The core
 imports no MCP SDK, configuration parser, SQLite driver or execution adapter.
 
+## Frontend correction evidence, 11 November 2026
+
+Candidate frontend checks union the explicit selection with new or modified test
+files from the authenticated retained patch. `git apply --numstat -z` reads that
+patch without applying it; the source-capture tree can live only in its private
+object store and is not resolved through the main repository. The normal command
+dispatch regression exercises that actual private-capture boundary. Existing
+selector bounds and legacy explicit-only roles remain unchanged.
+
+Shikaku failures now carry intended and observed native pointer coordinates,
+hit cells, exact paint samples/counts, before/after board bounds and page scroll.
+Passive listeners retain at most 32 trusted events and are removed after the
+gesture. Missing termination, missing samples and truncation remain explicit.
+The comparable public summary stays within its existing 768-byte budget; richer
+event evidence remains in the private browser receipt. No input action or product
+assertion is waived by this evidence.
+
+The installed operator binary is
+`bbb1e272ad532035024f894d9fa31460867b37cb266b2c7ef13f40db90110d9a`.
+Its immutable browser image is
+`sha256:bae9c5360882a6fa12105dd62d15a8bc19e556f708dbd81edd6289abf4a6d43a`,
+bound to driver
+`d31e287cdd206296f7b72b2dbd404837989796f7e50c04d361218df1bc0e23fb`.
+Both-engine synthetic qualification passed in 65.27 seconds. The full race suite
+passed (execution 715.016 seconds), as did vet. The live Core is unchanged.
+
+One retained-image replay reproduced the failed PR #338 Shikaku gesture in
+73.04 seconds with complete 495-byte feedback. The board changed from 221.4 square
+at (49.3,185.6) to 254 square at (33,153) during input; the intended top-row drag
+hit cells 5 and 11 and painted one row lower. This is diagnostic evidence, not
+candidate acceptance. Failed root `run_KBSQMQTXAOW2W6WTFOCON4WI4I` and its completed
+card retain all 23 aggregate attempts and the unchanged captured source.
+
+The owner approved one complete same-PR continuation,
+`run_MNRD6RIYN4CGBSU3G5I6VUFYFU`, frozen at 42 aggregate attempts, preserving
+65 combined. Its exact published patch and public handle authenticate head
+`06c838b2b186dd31ff0de49709101767ca33a445`; fresh checks, review and qualification
+are required. The baseline passed 209 assertions with no failures/skips and
+TypeScript passed. The planned frontend default cutover remains pending full
+qualification. Merge, production and restoration remain separate owner decisions.
+
+Admission required a separately approved exception retiring only the superseded
+`abb56de` raw archive (849,161,983 bytes). Existing retention code verified ownership,
+hash, reproduction and settlement; all 94 compiled artifacts remained unchanged.
+The 8 GiB ceiling and 4 GiB admission reserve remain unchanged. Routine retention
+still protects the two newest packages, production dependencies and rehearsal
+databases, so accumulated evidence can require a storage decision before admission.
+Private receipts remain under the owning pilot's `gesture-diagnostic-20261111`
+qualification directory.
+
 ## Planned workflows, 6–7 November 2026
 
 The opt-in planned workflow uses this same coordinator. `parallel_tasks.go`

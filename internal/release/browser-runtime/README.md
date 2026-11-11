@@ -28,6 +28,9 @@ network `none`; candidate qualification joins only the exact owned candidate's
 network namespace, which also has network `none`. A synthetic loopback TLS proxy
 exercises the existing origin/forwarded-header contract. The candidate retains
 its existing isolated database/report mounts; the browser cannot mount them.
+The proxy assigns one fixed synthetic client address per browser profile, so
+independent desktop, mobile and support profiles exercise separate per-client
+rate budgets. Requests within one profile share the same budget.
 
 The profile fixes 2 CPUs, 2 GiB memory, 256 PIDs, 256 MiB shared memory, 256 MiB
 temporary storage and 128 MiB work storage. Evidence is at most 64 MiB, with a
@@ -49,8 +52,24 @@ touch, exact rectangle paint, no page pan, Undo/Redo/reload and fitted large-boa
 editing. It rejects clipping, internal overflow, wrong entry scroll, unreachable
 controls, single/wrong corners, wrong paint and ignored touch. These are runtime
 maintenance fixtures, not product qualification or physical-device evidence.
+Desktop geometry checks distinguish restored vertical scrolling from horizontal
+overflow. Mobile still requires the board and primary controls in the viewport.
+Failed layout assertions pass the measured viewport, frame, board and control
+bounds to the correction role, with scroll sizes and minimum clue font size.
+Failed Shikaku edits also retain intended and trusted native pointer coordinates,
+hit cells, before/after board bounds, page scroll and exact expected/painted cell
+counts. Passive observers retain at most 32 events and are removed after each
+gesture. Missing samples and truncation stay explicit; diagnostic evidence does
+not waive touch, paint, Undo/Redo or restored-state assertions.
 
 Failed board-admission requests retain the browser's bounded network error
-code and any observed HTTP status. A failed response body still blocks
-qualification after successful headers. The fixture checks interruptions
-before and after headers without replaying a board request.
+code and any observed HTTP status. For a Chromium POST that reports HTTP 200
+followed by `net::ERR_ABORTED`, the driver requires an interactive board on
+the exact canonical URL. Fresh entry also requires HTTP 200 for the main
+document. Reload and Resume require matching saved and visible state. The
+receipt records resolved aborts. A missing or changed board fails qualification,
+and the driver never replays a puzzle request. The fixture checks interruptions
+before and after headers and a restored board with an incorrect visible edit.
+After New generates a puzzle once, the verifier observes admission on the
+canonical route. A 429 can reopen that exact URL once after the bounded
+server-directed delay, without issuing another New request.

@@ -9,6 +9,7 @@ import (
 	"math"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -21,18 +22,20 @@ var browserGames = []string{"Sudoku", "Suguru", "Nonogram", "Binary", "Futoshiki
 const maxBrowserFeedback = 768
 
 type BrowserFailureFeedback struct {
-	Status       string                `json:"status"`
-	Kind         string                `json:"kind,omitempty"`
-	Phase        string                `json:"phase,omitempty"`
-	Path         string                `json:"path,omitempty"`
-	Selector     string                `json:"selector,omitempty"`
-	Cell         string                `json:"cell,omitempty"`
-	Expected     BrowserStateFeedback  `json:"expected,omitzero"`
-	Actual       BrowserStateFeedback  `json:"actual,omitzero"`
-	Differences  int                   `json:"differences,omitempty"`
-	Reload       BrowserReloadFeedback `json:"reload,omitzero"`
-	ReportSHA256 string                `json:"report_sha256"`
-	Issue        string                `json:"issue,omitempty"`
+	Status       string                 `json:"status"`
+	Kind         string                 `json:"kind,omitempty"`
+	Phase        string                 `json:"phase,omitempty"`
+	Path         string                 `json:"path,omitempty"`
+	Selector     string                 `json:"selector,omitempty"`
+	Cell         string                 `json:"cell,omitempty"`
+	Expected     BrowserStateFeedback   `json:"expected,omitzero"`
+	Actual       BrowserStateFeedback   `json:"actual,omitzero"`
+	Differences  int                    `json:"differences,omitempty"`
+	Reload       BrowserReloadFeedback  `json:"reload,omitzero"`
+	Layout       BrowserLayoutFeedback  `json:"layout,omitzero"`
+	Gesture      BrowserGestureFeedback `json:"gesture,omitzero"`
+	ReportSHA256 string                 `json:"report_sha256"`
+	Issue        string                 `json:"issue,omitempty"`
 }
 
 type BrowserStateFeedback struct {
@@ -66,6 +69,34 @@ type BrowserResponseFeedback struct {
 	Status       int    `json:"status,omitempty"`
 	Outcome      string `json:"outcome,omitempty"`
 	NetworkError string `json:"network_error,omitempty"`
+}
+
+type BrowserLayoutFeedback struct {
+	Viewport      [2]float64 `json:"viewport,omitzero"`
+	Frame         [4]float64 `json:"frame_xywh,omitzero"`
+	Board         [4]float64 `json:"board_xywh,omitzero"`
+	Controls      [4]float64 `json:"controls_xywh,omitzero"`
+	Internal      [2]float64 `json:"internal_size,omitzero"`
+	Client        [2]float64 `json:"client_size,omitzero"`
+	DocumentWidth float64    `json:"document_width,omitempty"`
+	MinClueFont   float64    `json:"min_clue_font_px,omitempty"`
+}
+
+// Keep receipt evidence comparable. The full diagnostic retains arrays and
+// individual events; these validated cell lists are a bounded public summary.
+type BrowserGestureFeedback struct {
+	Grid          int        `json:"grid"`
+	Corners       [2]int     `json:"corners"`
+	ExpectedCells string     `json:"expected_cells"`
+	ActualCells   string     `json:"actual_cells"`
+	Counts        [2]int     `json:"counts"`
+	Intended      [4]float64 `json:"intended_xy"`
+	Observed      [4]float64 `json:"observed_xy"`
+	TargetCells   [2]int     `json:"target_cells"`
+	Board         [8]float64 `json:"board_xywh"`
+	Scroll        [4]float64 `json:"scroll_xy"`
+	Events        int        `json:"events"`
+	Terminal      bool       `json:"terminal"`
 }
 
 var browserNetworkErrorCode = regexp.MustCompile(`^(?:(?:net::ERR_|NS_ERROR_)[A-Z0-9_]{1,40}|NS_BINDING_ABORTED|cancelled|unavailable|unclassified)$`)
@@ -232,6 +263,96 @@ func browserReceiptFailure(j *Job, data []byte, allowSource bool) error {
 	return errors.New(note)
 }
 
+func browserGestureFeedback(raw json.RawMessage) (BrowserGestureFeedback, string, string) {
+	var d struct {
+		Grid, First, Last *int
+		Expected          []int     `json:"expected_cells"`
+		Actual            []int     `json:"actual_cells"`
+		ExpectedCount     *int      `json:"expected_count"`
+		ActualCount       *int      `json:"actual_count"`
+		Intended          []float64 `json:"intended_xy"`
+		Observed          []float64 `json:"observed_xy"`
+		TargetCells       []int     `json:"target_cells"`
+		BoardBefore       []float64 `json:"board_before_xywh"`
+		BoardAfter        []float64 `json:"board_after_xywh"`
+		Scroll            []float64 `json:"scroll_xy"`
+		Events            *int      `json:"event_count"`
+		EventsTruncated   *bool     `json:"events_truncated"`
+		Terminal          *bool     `json:"terminal"`
+	}
+	invalid := func() (BrowserGestureFeedback, string, string) {
+		return BrowserGestureFeedback{}, "partial", "missing or invalid gesture metrics"
+	}
+	if json.Unmarshal(raw, &d) != nil || d.Grid == nil || *d.Grid < 2 || *d.Grid > 30 || d.First == nil || d.Last == nil ||
+		d.ExpectedCount == nil || d.ActualCount == nil || d.Expected == nil || d.Actual == nil || d.Events == nil ||
+		d.EventsTruncated == nil || d.Terminal == nil || len(d.Intended) != 4 || len(d.Observed) != 4 || len(d.TargetCells) != 2 ||
+		len(d.BoardBefore) != 4 || len(d.BoardAfter) != 4 || len(d.Scroll) != 4 {
+		return invalid()
+	}
+	n := *d.Grid * *d.Grid
+	if *d.First < 0 || *d.First >= n || *d.Last < 0 || *d.Last >= n || *d.ExpectedCount < 1 || *d.ExpectedCount > n ||
+		*d.ActualCount < 0 || *d.ActualCount > n || len(d.Expected) != min(*d.ExpectedCount, 20) || len(d.Actual) != min(*d.ActualCount, 20) ||
+		*d.Events < 0 || *d.Events > 100000 || d.BoardBefore[2] <= 0 || d.BoardBefore[3] <= 0 || d.BoardAfter[2] <= 0 || d.BoardAfter[3] <= 0 {
+		return invalid()
+	}
+	for _, values := range [][]float64{d.Intended, d.Observed, d.BoardBefore, d.BoardAfter, d.Scroll} {
+		for _, value := range values {
+			if math.Abs(value) > 100000 || math.IsNaN(value) || math.IsInf(value, 0) {
+				return invalid()
+			}
+		}
+	}
+	for _, values := range [][]int{d.Expected, d.Actual} {
+		seen := map[int]bool{}
+		for _, cell := range values {
+			if cell < 0 || cell >= n || seen[cell] {
+				return invalid()
+			}
+			seen[cell] = true
+		}
+	}
+	for _, cell := range d.TargetCells {
+		if cell < -1 || cell >= n {
+			return invalid()
+		}
+	}
+	list := func(values []int) string {
+		parts := make([]string, len(values))
+		for i, value := range values {
+			parts[i] = strconv.Itoa(value)
+		}
+		return strings.Join(parts, ",")
+	}
+	g := BrowserGestureFeedback{
+		Grid:          *d.Grid,
+		Corners:       [2]int{*d.First, *d.Last},
+		ExpectedCells: list(d.Expected),
+		ActualCells:   list(d.Actual),
+		Counts:        [2]int{*d.ExpectedCount, *d.ActualCount},
+		TargetCells:   [2]int{d.TargetCells[0], d.TargetCells[1]},
+		Events:        *d.Events,
+		Terminal:      *d.Terminal,
+	}
+	copy(g.Intended[:], d.Intended)
+	copy(g.Observed[:], d.Observed)
+	copy(g.Board[:4], d.BoardBefore)
+	copy(g.Board[4:], d.BoardAfter)
+	copy(g.Scroll[:], d.Scroll)
+	for _, values := range [][]float64{g.Intended[:], g.Observed[:], g.Board[:], g.Scroll[:]} {
+		for i, value := range values {
+			values[i] = math.Round(value*10) / 10
+		}
+	}
+	status, issue := "complete", ""
+	if *d.Events < 2 || !*d.Terminal || slices.Contains(d.TargetCells, -1) {
+		status, issue = "partial", "native gesture endpoints incomplete"
+	}
+	if *d.EventsTruncated || *d.ExpectedCount > len(d.Expected) || *d.ActualCount > len(d.Actual) {
+		status, issue = "truncated", "gesture samples truncated"
+	}
+	return g, status, issue
+}
+
 func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFailureFeedback {
 	sum := sha256.Sum256(report)
 	f := BrowserFailureFeedback{Status: "missing", ReportSHA256: hex.EncodeToString(sum[:])}
@@ -239,6 +360,8 @@ func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFai
 		Status, Kind, Phase, Path, Selector, Cell string
 		Expected, Actual                          json.RawMessage
 		Differences                               int
+		Layout                                    BrowserLayoutFeedback
+		Gesture                                   json.RawMessage
 		Reload                                    struct {
 			Status, Path   string
 			DocumentStatus int
@@ -277,12 +400,12 @@ func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFai
 		return clip(value, 80)
 	}
 	switch d.Kind {
-	case "visible-state", "saved-state", "reload", "admission":
+	case "visible-state", "saved-state", "reload", "admission", "layout", "gesture":
 		f.Kind = d.Kind
 	default:
 		f.Status, f.Issue = "partial", "unsupported diagnostic kind"
 	}
-	if d.Phase == "reload" || d.Phase == "home-resume" || d.Phase == "canonical navigation" {
+	if d.Phase == "reload" || d.Phase == "home-resume" || d.Phase == "canonical navigation" || d.Phase == "touch edit" || d.Phase == "pointer edit" {
 		f.Phase = d.Phase
 	}
 	if d.Path != "" {
@@ -293,6 +416,32 @@ func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFai
 	f.Path, f.Selector, f.Cell = publicPath(path), clip(d.Selector, 80), clip(d.Cell, 24)
 	if f.Path == "" && f.Status == "complete" {
 		f.Status = "partial"
+	}
+	if d.Kind == "layout" {
+		f.Layout = d.Layout
+		for _, values := range [][]float64{f.Layout.Viewport[:], f.Layout.Frame[:], f.Layout.Board[:], f.Layout.Controls[:],
+			f.Layout.Internal[:], f.Layout.Client[:], {f.Layout.DocumentWidth, f.Layout.MinClueFont}} {
+			for _, n := range values {
+				if math.Abs(n) > 100000 || math.IsNaN(n) || math.IsInf(n, 0) {
+					f.Layout = BrowserLayoutFeedback{}
+					f.Status, f.Issue = "partial", "invalid layout metrics"
+				}
+			}
+		}
+		if f.Status == "complete" && (f.Layout.Viewport[0] <= 0 || f.Layout.Viewport[1] <= 0 || f.Layout.Frame[2] <= 0 ||
+			f.Layout.Frame[3] <= 0 || f.Layout.Board[2] <= 0 || f.Layout.Board[3] <= 0) {
+			f.Status, f.Issue = "partial", "missing layout metrics"
+		}
+	}
+	if d.Kind == "gesture" {
+		var status string
+		f.Gesture, status, f.Issue = browserGestureFeedback(d.Gesture)
+		if f.Status != "truncated" && status != "complete" {
+			f.Status = status
+		}
+		if f.Phase != "touch edit" && f.Phase != "pointer edit" && f.Status == "complete" {
+			f.Status, f.Issue = "partial", "missing gesture phase"
+		}
 	}
 	state := func(raw json.RawMessage) BrowserStateFeedback {
 		if len(raw) == 0 {
@@ -443,7 +592,7 @@ func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFai
 		} else if f.Status == "complete" {
 			f.Status = "partial"
 		}
-	} else {
+	} else if d.Kind != "layout" && d.Kind != "gesture" {
 		f.Reload.Status = "missing"
 		if f.Status != "truncated" {
 			f.Status = "partial"
@@ -472,6 +621,12 @@ func browserFailureFeedback(report, raw json.RawMessage, path string) BrowserFai
 			return f
 		}
 		f.Status = "truncated"
+		if f.Gesture.ExpectedCells != "" || f.Gesture.ActualCells != "" {
+			// Preserve the endpoint/geometry comparison before optional cell
+			// samples. Counts and the full private report remain available.
+			f.Gesture.ExpectedCells, f.Gesture.ActualCells = "", ""
+			continue
+		}
 		var longest *string
 		for _, value := range fields {
 			if longest == nil || len(*value) > len(*longest) {
