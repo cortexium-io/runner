@@ -133,7 +133,7 @@ func (c *Core) browserErrorRecovery(req RecoverBrowserErrorsRequest, digest stri
 	}
 	if r.Process.ID != "deliver-planned-retained-frontend" || r.Task != nil || r.Source == nil ||
 		r.Status != "Waiting" || r.CancelRequested || r.Active() || r.Decision != nil || c.inFlight[r.ID] ||
-		r.CleanupBlocked || r.CleanupError != "" || !r.ResourcesReleased || r.BrowserErrorRecovery != nil || !frontendRecheckHex(req.PublicationHead, 40) {
+		r.CleanupBlocked || r.CleanupError != "" || r.BrowserErrorRecovery != nil || !frontendRecheckHex(req.PublicationHead, 40) {
 		return reject("browser recovery requires the exact ungranted settled retained frontend root")
 	}
 	if r.Step < 0 || r.Step >= len(r.Process.Steps) || r.Process.Steps[r.Step].ID != "owner" || c.frontendRecheckSettledAttempts(r) != nil {

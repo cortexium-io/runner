@@ -76,7 +76,9 @@ func browserErrorRecoveryFixture(t *testing.T) (*Core, *frontendRecheckStore, *b
 		t.Fatal("fixture did not route qualification rejection into a new owner", r.Status, r.Reason)
 	}
 	r.Status, r.Reason = "Waiting", "frontend correction requires the retained browser error details"
-	r.ResourcesReleased = true
+	// A nonterminal owner retains its owned workspace even after every attempt
+	// has settled and released its execution resources.
+	r.ResourcesReleased = false
 	c.runs[r.ID] = r
 	// The lower-level recovery fixture omits completed-card process metadata.
 	// Public Get also projects their attempt usage, so provide the saved steps.
@@ -124,7 +126,8 @@ func TestBrowserErrorRecoveryOnlyReplacesCurrentOwnerEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Status != "Waiting" || r.BrowserErrorRecovery == nil || store.saves != 1 || exec.calls != 1 || len(c.wake) != 0 || c.familyRemaining(r) != remaining {
+	if r.Status != "Waiting" || r.ResourcesReleased || r.ResourcesReleased != before.ResourcesReleased || r.BrowserErrorRecovery == nil ||
+		store.saves != 1 || exec.calls != 1 || len(c.wake) != 0 || c.familyRemaining(r) != remaining {
 		t.Fatal("evidence recovery dispatched work, changed budget or failed to save its audit", r.Status, store.saves, exec.calls)
 	}
 	var feedback map[string]json.RawMessage
@@ -189,7 +192,7 @@ func TestBrowserErrorRecoveryOnlyReplacesCurrentOwnerEvidence(t *testing.T) {
 }
 
 func TestBrowserErrorRecoveryRejectsChangedScopeWithoutMutation(t *testing.T) {
-	for _, fault := range []string{"report hash", "revision", "raw root revision", "attempt", "not waiting", "active", "cancelled", "approval", "unsettled cleanup", "already granted", "changed compact receipt", "publication", "source artifact"} {
+	for _, fault := range []string{"report hash", "revision", "raw root revision", "attempt", "not waiting", "active", "cancelled", "approval", "unsettled cleanup", "unreleased attempt", "already granted", "changed compact receipt", "publication", "source artifact"} {
 		t.Run(fault, func(t *testing.T) {
 			c, store, exec, request := browserErrorRecoveryFixture(t)
 			r := Clone(c.runs[request.RunID])
@@ -215,7 +218,9 @@ func TestBrowserErrorRecoveryRejectsChangedScopeWithoutMutation(t *testing.T) {
 			case "approval":
 				r.Decision = &Decision{ID: "pending_merge"}
 			case "unsettled cleanup":
-				r.ResourcesReleased = false
+				r.CleanupBlocked, r.CleanupError = true, "owned source cleanup remains blocked"
+			case "unreleased attempt":
+				r.Attempts[len(r.Attempts)-1].Released = false
 			case "already granted":
 				r.BrowserErrorRecovery = &BrowserErrorRecovery{}
 			case "changed compact receipt":
