@@ -179,6 +179,20 @@ settled `Waiting` with 25 root plus three child attempts used, the candidate
 retained and cleanup complete. The 42/combined 65 ceilings remain unchanged.
 Full qualification, same-PR publication and default cutover remain pending.
 
+The owner approved four additional attempts through the existing retry action:
+the same root's ceiling became 46, and the combined ceiling 69. Coverage owner
+`attempt_XACPLE4NOI22B22WA2TPI3M3BJ` completed. Its check waited for the shared
+slot while a separately authorized privacy-disclosure run used the pilot; the
+two owning chats coordinated publication and release ordering.
+
+Fresh check `attempt_2ORXVPSEDF7QPZPWXLYLAF7TVL` executed all 218 cases, with
+217 passing, no skips and passing TypeScript. The restored 25×25 Shikaku keyboard
+reach case hit its unchanged 5,000 ms timeout (6,197 ms recorded elapsed). The
+reserve guard stopped another repair: 18 attempts are needed and 16 remain.
+All 27 root plus three child attempts are settled, cleanup is complete and the
+patch is retained. Review acceptance, full qualification and default cutover
+are still pending; this timeout has not been diagnosed or fixed.
+
 Admission required a separately approved exception retiring only the superseded
 `abb56de` raw archive (849,161,983 bytes). Existing retention code verified ownership,
 hash, reproduction and settlement; all 94 compiled artifacts remained unchanged.
