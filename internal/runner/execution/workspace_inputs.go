@@ -143,6 +143,15 @@ func stagedInputData(disk *runner.Disk, a runner.Assignment) (map[string][]byte,
 		}
 		files[name] = data
 	}
+	if a.Setup.Profile.Mode == "experience-review" {
+		_, evidence, err := experienceData(disk, a)
+		if err != nil {
+			return nil, err
+		}
+		for name, data := range evidence {
+			files["experience-"+name] = data
+		}
+	}
 	return files, nil
 }
 

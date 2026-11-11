@@ -21,6 +21,15 @@ reviewed runtime image and its full resulting image ID, then qualify that ID wit
 `-qualification/` policy. Install/select it only after that proof passes. Changes
 to a baked script require a new image and qualification.
 
+The mobile-evidence source update also binds `browser_experience.mjs` in the
+driver digest and startup hash check. It exports actual viewport PNGs separately
+from full-page diagnostics. Fixed state names are capped at 160 images within
+the same byte ceilings; the declared review artifact remains at most 16MiB.
+The new runtime's disposable browser proofs do not qualify the complete mobile
+process: native Safari remains stopped pending safe host isolation and trusted
+input proof. Do not switch the installed pilot or use this runtime to imply
+native/physical Safari acceptance.
+
 The browser container is nonroot with a read-only root, no added capabilities,
 no new privileges, private IPC/shared memory and bounded tmpfs. It has no host
 mounts, socket, credentials, exposed ports or external network. Readiness uses
@@ -47,8 +56,8 @@ uncertain and takes precedence over source correction. The opt-in
 `TestDeliveryPlatformBrowserContainerCancellation` cancels only after observing
 the owned container running and verifies exact cleanup without replay.
 
-The synthetic fixture covers both engines and 320/360/390 widths, real native
-touch, exact rectangle paint, no page pan, Undo/Redo/reload and fitted large-board
+The synthetic fixture covers both engines and 320/360/390 widths, trusted
+emulated touch, exact rectangle paint, no page pan, Undo/Redo/reload and fitted large-board
 editing. It rejects clipping, internal overflow, wrong entry scroll, unreachable
 controls, single/wrong corners, wrong paint and ignored touch. These are runtime
 maintenance fixtures, not product qualification or physical-device evidence.

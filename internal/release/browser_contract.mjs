@@ -34,7 +34,7 @@ export function geometryCases(runtime) {
     assert.equal(row.identicalReopen, true, 'native publication did not reopen')
     assert.ok(!row.error && typeof row.path === 'string' && new RegExp(`^/${row.choice.game}/[A-Za-z0-9_-]+$`).test(row.path), 'missing source-bound catalogue path')
     const key = geometryKey(row.choice, row.nonogramGeometry)
-    if (!cases.has(key)) cases.set(key, { key, game: row.choice.game, path: row.path, size: row.choice.size })
+    if (!cases.has(key)) cases.set(key, { key, game: row.choice.game, path: row.path, size: row.choice.size, cells:(row.choice.rows||row.choice.size)*(row.choice.columns||row.choice.size) })
   }
   assert.equal(new Set([...cases.values()].map(row => row.game)).size, games.length, 'catalogue omits an interaction family')
   return [...cases.values()]

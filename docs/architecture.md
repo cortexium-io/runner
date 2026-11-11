@@ -27,6 +27,20 @@ imports no MCP SDK, configuration parser, SQLite driver or execution adapter.
 
 ## Qualified planned frontend default, 11 November 2026
 
+The subsequent mobile-evidence enhancement in source is held separately from
+this historical installed default. `release/experience.go` authenticates export
+from an accepted qualification and validates a flat, hash-bound PNG/JSON bundle
+within the existing 16MiB artifact ceiling. `execution/experience.go` stages and
+attaches all images only in the dedicated read-only review mode, carries both
+review summaries to the original owner and blocks native absence before prepare.
+`config/experience.go` closes the stage/binding sequence; `routeUseKey` shares
+visual correction uses with qualification. No production credentials or private
+operator state enter the artifact. The browser driver records viewport crops
+separately from full-page diagnostics. Neither WebKit emulation nor simulator
+Safari is physical-device proof. Native Safari remains unqualified; this source
+does not activate a new complete process. The current status and host incident
+are recorded in the [owning design](process-core-design.md#mobile-evidence-maintenance-11–12-november-2026).
+
 The pilot completed its retained frontend qualification through the saved owner
 merge gate at 54 attempts. After the owner approved merge and production
 separately, same run `run_MNRD6RIYN4CGBSU3G5I6VUFYFU` completed in 61 of its

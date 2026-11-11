@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { verifyPlayArea, editAndRestore, dragRectangle, activate, prepareShikakuTouch, savedState, renderedState, assertRenderedState, observeAdmission } from './browser_contract.mjs'
 import { PageReadiness, BrowserAdmissionError, BrowserResourceError, admissionDelay, saveBrowserReceipt } from './browser_render.mjs'
+import { captureViewport, settleViewport } from './browser_experience.mjs'
 const { chromium, webkit } = await import(pathToFileURL(process.env.RUNNER_PLAYWRIGHT_MODULE).href)
 const auditRow = index => ({ method: 'POST', path: '/api/games/nonogram', status: 429, retryAfterMs: null, delayMs: 1000, attempt: 1, canonicalPath: '/nonogram/audit_' + index })
 
@@ -209,6 +210,21 @@ try {
         }
         assert.deepEqual(await page.evaluate(()=>JSON.parse(localStorage.getItem('games-site:fixture:'+document.body.dataset.grid)).snapshot.rectangles),[{first:0,last:6}],'native interaction did not commit the intended start/end cells')
         assert.equal(await page.evaluate(() => window.runnerGestureCapture === undefined), true, 'successful gesture retained document listeners')
+        if (width===320) {
+          const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'runner-viewport-proof-'))
+          try {
+            const evidence={viewportImages:[],experienceObservations:[]}
+            await page.evaluate(()=>{document.body.style.minHeight='1400px'}) // fixture setup, not a tested user action
+            await settleViewport(page)
+            const name=await captureViewport(evidence,scratch,page,engine.name,'mobile','shikaku','initial')
+            const png=fs.readFileSync(path.join(scratch,name))
+            assert.equal(png.readUInt32BE(16),320)
+            assert.equal(png.readUInt32BE(20),568,'capture silently became full-page evidence')
+            assert.equal(evidence.viewportImages[0].sha256,createHash('sha256').update(png).digest('hex'))
+            assert.deepEqual(evidence.experienceObservations[0].viewport,[320,568])
+            await assert.rejects(captureViewport(evidence,scratch,page,engine.name,'mobile','shikaku','initial'),/fixed matrix/)
+          } finally {fs.rmSync(scratch,{recursive:true,force:true})}
+        }
         await ready.goto(page, origin + '/large')
         await verifyPlayArea(page,true)
         const corners=await prepareShikakuTouch(page)

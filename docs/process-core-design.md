@@ -6,6 +6,53 @@ across real projects. Merge and production remain owner-approved actions.**
 
 ## Current completion plan
 
+### Mobile evidence maintenance, 11–12 November 2026
+
+The owner approved a bounded addition to future `deliver-planned-frontend`
+definitions: built-image qualification, authenticated evidence export, independent
+read-only product-experience review, then a mandatory evidence gate before
+protected merge preparation. This implementation is **held, not an installed or
+qualified complete process**. Existing saved processes and the installed pilot
+remain unchanged. No product repair or new product run is part of maintenance.
+
+The operator exports only fixed viewport PNG names and its bounded browser
+receipt, authenticated against the accepted qualification journal, package
+ownership/reproduction, settled worker lease and exact browser digest. The
+consumer validates the complete archive and hashes before staging it as declared
+artifact input. The dedicated read-only Codex mode attaches these images directly
+without enabling an image tool, browser, operator access or extra model budget.
+The assigned role applies product-experience-review guidance and must inspect
+the images; capture or passing source assertions cannot supply that judgment.
+Missing actionable coverage blocks. Source corrections return to the existing
+combined owner and repeat checks, source review, publication and qualification.
+Visual corrections share qualification's existing three-use counter; the root
+64-attempt limit, eight-card limit and two-card concurrency are unchanged.
+
+The fixed driver adds actual viewport crops of all nine families, initial and
+largest boards, dark chooser, landscape and tablet-to-phone states, with existing
+trusted emulated input/state evidence. It explicitly records missing native,
+physical, preference, overlap/notes, singleton and hint/two-tab proof. These
+observations do not establish F01–F15 product acceptance. Ordinary changed
+frontend regression tests continue through existing frontend-check discovery.
+
+Simulator Safari is unqualified. A native preflight reached Safari 26.5 but did
+not establish trusted input. The installed Appium initializer subsequently wrote
+shared Simulator preferences and quit DeviceHub; four previously booted devices
+were observed shut down. Owned resources were settled, DeviceHub reopened and
+Orchestrator restored those four boot states. App sessions and prior preference
+values remain uncertain. Read-only helper inspection found no supported switch
+that avoids both shared mutations. Native attempts are stopped pending a
+supported isolated host/account/session path; no guessed restoration, Xcode
+setup or runtime download is authorized. The local evidence gate always blocks
+native absence, even after an erroneous model approval. Physical Red Head Safari
+rapid-tap zoom remains a separate unproven acceptance condition.
+
+The independent evidence transport, authentic export, correction routing and
+image judgment are qualified on disposable resources. Canonical private evidence
+is `/Users/dan/.codex/jbg31/coordinator/mobile-qualification-20261111`.
+Installation/default cutover and a product submission must wait for the complete
+required lane. See the [staging and intake contract](coordinator.md#mobile-evidence-intake-held).
+
 ### Release closure, authorized 8 November 2026
 
 Finish the existing design through four bounded work packages. Main owns

@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
+import { captureViewport as captureExperienceViewport, settleViewport } from './browser_experience.mjs'
 import { pathToFileURL } from 'node:url'
 import { PageReadiness, saveBrowserReceipt } from './browser_render.mjs'
 import { contractVersion, games, mobileViewports, geometryCases, verifyPlayArea, activate, editAndRestore, playMetrics, prepareShikakuTouch, savedState, renderedState, assertSavedState, assertRenderedState, observeAdmission } from './browser_contract.mjs'
@@ -9,9 +10,15 @@ const expectedSizes = { Sudoku: [], Suguru: [6, 8, 10, 12], Nonogram: [5, 10, 15
 const cases = geometryCases(JSON.parse(fs.readFileSync(output + '/../runtime-http.json')))
 const largeShikaku = cases.filter(row=>row.game==='shikaku').reduce((a,b)=>a.size>=b.size?a:b)
 const receipt = { contract: contractVersion, origin, mockedResponses: false, headless: true, engines: [], journeys: [], geometry: [], complete: false, limitations: ['Headless touch emulation is not a physical iOS/Android device check.', 'Playwright WebKit exposes native taps but no public native touch-drag API; its complete two-corner Shikaku path is verified.'] }
+receipt.viewportImages = []
+receipt.experienceObservations = []
+receipt.experienceGaps = ['Simulator Safari and physical Red Head rapid-tap zoom are unqualified.', 'System color-scheme emulation is not proof of explicit appearance/preference persistence.', 'Privacy-widget presence/expanded state, overlapping contacts, notes and entry-order persistence, Shikaku singleton commits and hint/two-tab continuity require their own actionable current observations; source tests alone do not establish every browser condition.']
 fs.mkdirSync(output, { recursive: true })
 const readiness = new PageReadiness(receipt, process.env.RUNNER_BROWSER_DEADLINE_MS ? Number(process.env.RUNNER_BROWSER_DEADLINE_MS) : null)
 const save = () => saveBrowserReceipt(output, receipt, readiness.admissionBackoffs)
+const captureViewport = (...args) => captureExperienceViewport(receipt,output,...args)
+const largestCases = new Map()
+for (const sample of cases) if (!largestCases.has(sample.game) || largestCases.get(sample.game).cells < sample.cells) largestCases.set(sample.game, sample)
 const launch = engine => engine.type.launch({ executablePath: engine.executable, headless: true, args: engine.name === 'chromium' && process.platform === 'darwin' ? ['--disable-gpu', '--single-process', '--no-zygote'] : [] })
 let profile = 0
 const newProfile = (browser, options) => {
@@ -49,6 +56,14 @@ try {
         await dialog.waitFor({ state: 'visible' })
         await readiness.bounded(page, '.setup-dialog')
         await page.waitForFunction(() => !document.body.innerText.includes('Checking puzzle settings…'))
+        if (device.touch) {
+          await page.setViewportSize({width:360,height:640}); await settleViewport(page)
+          await page.emulateMedia({colorScheme:'dark'})
+          await settleViewport(page)
+          await captureViewport(page,engine.name,device.name,game,'chooser-dark')
+          await page.emulateMedia({colorScheme:'light'})
+          await page.setViewportSize({width:device.width,height:device.height}); await settleViewport(page)
+        }
         const more = dialog.locator('details.setup-more')
         assert.equal(await more.getAttribute('open'), null, 'default More options should be closed: ' + game)
         const play = dialog.getByRole('button', { name: 'Play ' + game, exact: true })
@@ -87,6 +102,7 @@ try {
         }))
         // This runs before any locator interaction can scroll the board into view.
         receipt.current.phase = 'initial board and controls'
+        if (device.touch) await captureViewport(page,engine.name,device.name,game,'initial')
         const initial = await verifyPlayArea(page, device.touch)
         record.bounds = { viewport: initial.viewport, frame: initial.frame, board: initial.board, internal: [initial.internalWidth, initial.clientWidth, initial.internalHeight, initial.clientHeight], primaryControls: initial.controls.map(row => row.label), minClueFont: initial.minClueFont, verifiedZoom: initial.verifiedZoom === true }
         record.states.push('New enters usable initial play viewport')
@@ -132,6 +148,7 @@ try {
           assert.equal((await response).status(), 200, 'hint HTTP: ' + game)
           await support.getByRole('heading', { name: 'Why this move?', exact: true }).waitFor({ state: 'visible' })
           record.states.push('checked hint reason')
+          if (device.touch) await captureViewport(support,engine.name,device.name,game,'hint')
         }
         receipt.current.phase = 'print preview'
         await activate(support, support.getByRole('button', { name: 'Print board', exact: true }), device.touch, false)
@@ -142,6 +159,19 @@ try {
         readiness.assertNoErrors(support)
         await supportBrowser.close(); supportBrowser = undefined; lastPage = page
         receipt.current.phase = 'screenshot'
+        await captureViewport(page,engine.name,device.name,game)
+        if (device.touch) {
+          const before=await savedState(page)
+          await page.setViewportSize({width:844,height:390}); await settleViewport(page)
+          await captureViewport(page,engine.name,'mobile',game,'landscape')
+          await page.setViewportSize({width:768,height:1024}); await settleViewport(page)
+          const tablet=await playMetrics(page)
+          await page.setViewportSize({width:390,height:844}); await settleViewport(page)
+          await captureViewport(page,engine.name,'mobile',game,'tablet-phone')
+          receipt.experienceObservations.at(-1).tabletBoard=tablet.board
+          assertSavedState(await savedState(page),before,'viewport transitions changed saved progress',{phase:'experience viewport transition',path:record.path})
+          await page.setViewportSize({width:device.width,height:device.height}); await settleViewport(page)
+        }
         await page.screenshot({ path: `${output}/${engine.name}-${device.name}-${game.toLowerCase()}.png`, fullPage: true })
         save()
       }
@@ -159,6 +189,11 @@ try {
       for (const sample of cases) {
         receipt.current = { engine: engine.name, device: 'mobile', game: sample.game, geometry: sample.key, path: sample.path, width: viewport.width, height: viewport.height, phase: 'advertised geometry and readable fit/zoom' }
         await readiness.board(page, origin + sample.path)
+        if (viewport.width===390 && largestCases.get(sample.game)===sample) {
+          await page.emulateMedia({colorScheme:'light'})
+          await settleViewport(page)
+          await captureViewport(page,engine.name,'mobile',sample.game,'largest-light')
+        }
         const metrics = await verifyPlayArea(page, true)
         const proof={ engine: engine.name, width: viewport.width, key: sample.key, path: sample.path, board: metrics.board, verifiedZoom: metrics.verifiedZoom === true }
         receipt.geometry.push(proof)

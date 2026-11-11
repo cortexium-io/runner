@@ -4,6 +4,45 @@ Runner owns the configured delivery process. An external chat owns understanding
 the user's intent, submitting authorized work and reporting results or decisions.
 It must not become a second worker or scheduler when something fails.
 
+## Mobile evidence intake (held)
+
+The mobile-evidence version of `deliver-planned-frontend` is not installed or
+qualified for a fresh product submission. Native Safari trusted input and safe
+host isolation remain blocked. Do not select the older installed definition as
+a substitute, waive the new gate or start the F01–F15 product repair yet.
+
+After complete qualification and operator integration, stage the approved review
+through the declared `stage-review-evidence` command process, then supply its
+returned `review_evidence` artifact ID to the complete frontend process. The
+operator binds the stager executable and read-only reference directory on the
+execution host; restricted intake never receives arbitrary paths, commands or
+artifact-store write access. The pinned report is
+`5a1d26b5c61b08290947e806f3aee234a618688467fd1220cbd7354672c71382`.
+Only that report and its directly linked flat PNG/JSON evidence are staged; the
+archive manifest marks them as historical reference, never candidate proof.
+
+The supported restricted calls, once that profile is qualified and installed,
+are `runner_run` followed by `runner_result(wait: true)` (and optional
+`runner_status`). Submit `stage-review-evidence` once with a stable request ID
+and no inputs. Rejoin its result and use the returned artifact ID, not a private
+filename. Submit `deliver-planned-frontend` once with another stable request ID,
+the exact accepted `source_ref`, and declared inputs `request`, `package`,
+`tests`, `benchmark` and `review_evidence`. The configured frontend checker
+interprets `tests`; the process does not declare a separate `frontend_tests`
+input. These are process
+inputs, not permission to perform product checks in the external coordinator.
+The actual definition declares its required inputs; no old frozen run changes.
+Preserve saved merge/production decisions and rejoin the same run on disconnect.
+
+The portable `runner-intake` launcher still takes `--execute --cli PINNED_CODEX
+--config RESTRICTED_CONFIG --auth LOCAL_AUTH --token LOCAL_OWNER_TOKEN --request
+REQUEST_FILE --deadline RFC3339`. Its restricted config must expose only the
+three control tools above. Local authentication is linked, never copied between
+hosts or staged into review evidence. This maintenance does not execute an
+intake or create a product run.
+
+## Coordinator boundaries
+
 The coordinator may:
 
 - Clarify a material missing decision and resolve the target project/process.

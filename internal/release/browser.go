@@ -25,6 +25,9 @@ var browserRenderScript []byte
 //go:embed browser_contract.mjs
 var browserContractScript []byte
 
+//go:embed browser_experience.mjs
+var browserExperienceScript []byte
+
 func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 	if b.Config.Delivery.BrowserImage != "" {
 		return b.browserContainerCandidate(ctx, j)
@@ -42,6 +45,9 @@ func (b *Live) browserCandidate(ctx context.Context, j *Job) (err error) {
 		return err
 	}
 	if err = writeExclusive(filepath.Join(work, "browser_contract.mjs"), browserContractScript); err != nil {
+		return err
+	}
+	if err = writeExclusive(filepath.Join(work, "browser_experience.mjs"), browserExperienceScript); err != nil {
 		return err
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -209,7 +215,7 @@ func (b *Live) writeQualification(j *Job) error {
 	if err = json.Unmarshal(data, &runtime); err != nil {
 		return err
 	}
-	return writeJSON(filepath.Join(root, "release-qualification.json"), map[string]any{"status": "qualified", "commit": j.Receipt.Head, "image": j.Receipt.Image, "serverSHA256": j.Receipt.ServerSHA, "manifestSHA256": manifest, "evidence": evidence,
+	err = writeJSON(filepath.Join(root, "release-qualification.json"), map[string]any{"status": "qualified", "commit": j.Receipt.Head, "image": j.Receipt.Image, "serverSHA256": j.Receipt.ServerSHA, "manifestSHA256": manifest, "evidence": evidence,
 		"nonogram": map[string]any{
 			"development":         120,
 			"heldOut":             480,
@@ -219,4 +225,8 @@ func (b *Live) writeQualification(j *Job) error {
 		},
 		"migration": map[string]bool{"backupVerified": true, "allApplicationTablesPreserved": true, "restoredBackupStartsPreviousImage": true},
 		"runtime":   map[string]any{"choices": runtime.Choices, "passed": runtime.Passed, "identicalReopen": true}})
+	if err == nil {
+		j.Receipt.BrowserEvidenceSHA256 = evidence["browser"]
+	}
+	return err
 }

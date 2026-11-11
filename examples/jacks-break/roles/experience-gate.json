@@ -1,0 +1,17 @@
+{
+  "id": "experience-gate",
+  "purpose": "Refuse protected merge preparation while required native Safari evidence remains unqualified, independently of the model verdict.",
+  "inputs": {
+    "receipt": "json",
+    "evidence": "artifact",
+    "verdict": "text"
+  },
+  "outputs": {
+    "receipt": "json"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "experience-gate",
+    "access": "input-only"
+  }
+}

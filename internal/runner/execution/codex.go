@@ -467,9 +467,15 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 	var result struct {
 		Turn nativeTurn `json:"turn"`
 	}
+	input := []any{map[string]any{"type": "text", "text": prompt}}
+	images, err := experienceImageInputs(c.disk, j)
+	if err != nil {
+		return err
+	}
+	input = append(input, images...)
 	err = peer.Call(ctx, "turn/start", map[string]any{
 		"threadId":     started.Thread.ID,
-		"input":        []any{map[string]any{"type": "text", "text": prompt}},
+		"input":        input,
 		"model":        p.Model,
 		"effort":       p.Reasoning,
 		"outputSchema": schema,
@@ -531,6 +537,9 @@ func nativePayloadPlan(a runner.Assignment, now time.Time) (string, any, map[str
 		return "", nil, nil, errors.New("an explicit task purpose is required")
 	}
 	p := a.Setup.Profile
+	if p.Mode == "experience-review" && p.Access != "workspace-read" {
+		return "", nil, nil, errors.New("image experience mode requires the dedicated read-only review profile")
+	}
 	if p.Harness != "codex" || (p.Access != "input-only" && p.Access != "workspace-write" && p.Access != "workspace-read") || p.Model == "" || p.Reasoning == "" || p.MaxInput < 128 || p.MaxOutput < 128 {
 		return "", nil, nil, errors.New("incomplete input-only Codex profile")
 	}
@@ -602,7 +611,13 @@ func nativePayloadPlan(a runner.Assignment, now time.Time) (string, any, map[str
 	} else if p.Access == "workspace-read" {
 		base = reviewBase
 	}
-	payload, files, err := renderNativeInputs(a, request, len(base)+len(p.Instructions)+len(sb))
+	overhead := len(base) + len(p.Instructions) + len(sb)
+	if p.Mode == "experience-review" {
+		// Image bytes remain inside the existing declared-artifact limit. Their
+		// captions also consume the ordinary, unchanged text input allowance.
+		overhead += 512
+	}
+	payload, files, err := renderNativeInputs(a, request, overhead)
 	return string(payload), schema, files, err
 }
 func checkNativeConfig(ctx context.Context, peer codexPeer) error {

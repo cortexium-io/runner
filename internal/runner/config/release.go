@@ -17,6 +17,9 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 		profile, err := project.Roles[step.Role].Profile(project.Profiles[step.Role])
 		if err == nil {
 			selected[i] = profile
+			if profile.Harness == "release" && profile.Mode == "experience-feedback" {
+				continue
+			}
 			if profile.Harness == "release" && profile.Mode == "publication-reference" {
 				if publicationReference >= 0 {
 					return errors.New("one authenticated publication reference may precede retained delivery")
@@ -125,6 +128,12 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 			return bad
 		}
 		actions = append([]string{selected[start].Mode, "qualify"}, actions...)
+		if start+2 < len(selected) && selected[start+2].Mode == "experience-evidence" {
+			if err := validateExperienceSuffix(p, project, start, owner); err != nil {
+				return err
+			}
+			actions = append(actions[:2], append([]string{"experience-evidence", "experience-review", "experience-gate"}, actions[2:]...)...)
+		}
 		actions = append(actions[:len(actions)-1], "inspect", "verify")
 		for i, action := range actions {
 			if action == "migrate" {
@@ -168,6 +177,12 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 		}
 		if connected && action == "qualify" {
 			count = 3
+		}
+		if action == "experience-review" {
+			// The dedicated validator also authenticates source feedback and the
+			// shared qualification correction boundary. This is the sole native
+			// read-only stage inside the otherwise credential-bearing suffix.
+			continue
 		}
 		if selected[i].Harness != "release" || selected[i].Mode != action || step.ForEach != nil || step.Reuse || step.Escalation != nil || len(step.Routes) != count || step.Routes["blocked"] != (runner.Route{Next: "$fail"}) {
 			return bad
@@ -248,6 +263,9 @@ func validateReleaseProcess(p runner.Process, project runner.Project) error {
 			}
 		} else {
 			previous := i - 1
+			if action == "experience-gate" {
+				continue // Exact three-input bindings checked by validateExperienceSuffix.
+			}
 			if connected && action == "pin" {
 				previous = i - 3
 			}

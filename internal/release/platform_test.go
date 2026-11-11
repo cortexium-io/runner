@@ -70,7 +70,7 @@ func TestDeliveryPlatformBrowserReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, content := range map[string][]byte{"fixture.mjs": data, "browser_render.mjs": browserRenderScript, "browser_contract.mjs": browserContractScript, "browser_fixture.mjs": browserFixtureScript} {
+	for name, content := range map[string][]byte{"fixture.mjs": data, "browser_render.mjs": browserRenderScript, "browser_contract.mjs": browserContractScript, "browser_fixture.mjs": browserFixtureScript, "browser_experience.mjs": browserExperienceScript} {
 		if err = writeExclusive(filepath.Join(root, name), content); err != nil {
 			t.Fatal(err)
 		}

@@ -1,0 +1,15 @@
+{
+  "id": "review-evidence-stage",
+  "purpose": "Stage only the hash-verified approved mobile review and its directly linked PNG/JSON reference evidence; no candidate acceptance or product work.",
+  "inputs": {},
+  "outputs": {"check": "text", "artifact": "artifact"},
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": ["/private/runner/runner-experience-reference", "--root", "/private/reviews/jacks-break/2026-11-11-mobile", "--report-sha256", "5a1d26b5c61b08290947e806f3aee234a618688467fd1220cbd7354672c71382", "--output", "{scratch}/review-reference.tar.gz"],
+      "artifact": "review-reference.tar.gz",
+      "exit_outcomes": {"1": "blocked"}
+    }
+  }
+}

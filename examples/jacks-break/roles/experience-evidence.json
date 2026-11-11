@@ -1,0 +1,16 @@
+{
+  "id": "experience-evidence",
+  "purpose": "Export only authenticated candidate-bound viewport images and interaction evidence after exact built-image qualification.",
+  "inputs": {
+    "receipt": "json"
+  },
+  "outputs": {
+    "receipt": "json",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "experience-evidence",
+    "access": "input-only"
+  }
+}

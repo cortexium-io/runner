@@ -127,6 +127,12 @@ func (r *Releases) observeRelease(ctx context.Context, id string) (runner.Observ
 		NextCheck: time.Now().Add(3 * time.Second),
 	}
 	if j.End == nil {
+		if j.Assignment.Setup.Profile.Mode == "experience-feedback" {
+			return r.experienceFeedback(j, o)
+		}
+		if j.Assignment.Setup.Profile.Mode == "experience-gate" {
+			return r.experienceGate(j, o)
+		}
 		if j.Stopped && j.LocalPreparationOwned && !j.OperatorDispatched && localSourceMode(j.Assignment.Setup.Profile.Mode) {
 			return releaseSourcePending("release source cancellation is awaiting its owned preparation worker"), nil
 		}
@@ -202,7 +208,11 @@ func (r *Releases) observeRelease(ctx context.Context, id string) (runner.Observ
 		defer cancel()
 		cmd := exec.CommandContext(call, j.Command[0], j.Command[1:]...)
 		cmd.Stdin = bytes.NewReader(input)
-		output := &diagnosticTail{limit: 32 << 10}
+		limit := 32 << 10
+		if request.Action == "experience-evidence" {
+			limit = 24 << 20 // base64 envelope around the unchanged 16MiB artifact bound
+		}
+		output := &diagnosticTail{limit: limit}
 		cmd.Stdout = output
 		cmd.Stderr = &diagnosticTail{limit: 1024}
 		if err = cmd.Run(); err != nil {
@@ -223,6 +233,17 @@ func (r *Releases) observeRelease(ctx context.Context, id string) (runner.Observ
 				o.State = runner.Unknown
 			}
 			return o, nil
+		}
+		if request.Action == "experience-evidence" {
+			if response.Failed {
+				j.End = &runner.ExecutionEnd{Kind: "failed", Reason: o.Reason}
+				if err := r.save(j); err != nil {
+					return o, err
+				}
+				o.State, o.End = runner.Finished, j.End
+				return o, nil
+			}
+			return r.finishExperience(j, o, response)
 		}
 		if j.Stopped && request.Action == "stop" && !response.Failed {
 			var receipt struct {

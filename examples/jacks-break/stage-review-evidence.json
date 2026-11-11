@@ -1,0 +1,9 @@
+{
+  "id": "stage-review-evidence",
+  "inputs": {},
+  "steps": [{"id": "stage", "role": "review-evidence-stage", "inputs": {}, "routes": {"ready": {"next": "$complete"}, "blocked": {"next": "$fail"}}}],
+  "outputs": {"review_evidence": {"from_step": "stage", "output": "artifact"}},
+  "max_attempts": 1,
+  "max_attempts_per_step": 1,
+  "attempt_timeout": "1m"
+}

@@ -1,0 +1,16 @@
+{
+  "id": "experience-feedback",
+  "purpose": "Carry both independent review summaries to the existing combined correction owner without adding model roles or correction allowance.",
+  "inputs": {
+    "source_review": "text",
+    "experience_review": "text"
+  },
+  "outputs": {
+    "summary": "text"
+  },
+  "execution": {
+    "harness": "release",
+    "mode": "experience-feedback",
+    "access": "input-only"
+  }
+}

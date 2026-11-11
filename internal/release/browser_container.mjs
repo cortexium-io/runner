@@ -10,7 +10,7 @@ import { createRequire } from 'node:module'
 const output = '/work/browser'
 fs.mkdirSync(output, { mode: 0o700 })
 let proxy, input
-const driverFiles = ['browser.mjs', 'browser_render.mjs', 'browser_contract.mjs', 'browser_container.mjs', 'browser_fixture.mjs']
+const driverFiles = ['browser.mjs', 'browser_render.mjs', 'browser_contract.mjs', 'browser_container.mjs', 'browser_fixture.mjs', 'browser_experience.mjs']
 const hash = data => crypto.createHash('sha256').update(data).digest('hex')
 const driver = hash(driverFiles.map(name => `${name}:${hash(fs.readFileSync('/runner/' + name))}\n`).join(''))
 const require = createRequire(import.meta.url)
@@ -21,7 +21,7 @@ const runtimeIdentity = () => ({ image: input?.image, driver, playwright: versio
 function archive() {
   const parts = []; let total = 0
   for (const name of fs.readdirSync(output).sort()) {
-    if (!/^(receipt\.json|admission-backoffs\.json|failure\.png|(chromium|webkit)-(desktop|mobile)-(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)\.png)$/.test(name)) throw new Error('unexpected browser evidence filename')
+    if (!/^(receipt\.json|admission-backoffs\.json|failure\.png|(chromium|webkit)-(desktop|mobile)-(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)((-(chooser-dark|initial|largest-light|landscape|tablet-phone|hint))?-viewport)?\.png)$/.test(name)) throw new Error('unexpected browser evidence filename')
     const stat = fs.lstatSync(output + '/' + name)
     if (!stat.isFile() || stat.size > (name === 'receipt.json' ? 128 * 1024 : name === 'admission-backoffs.json' ? 1024 * 1024 : 8 * 1024 * 1024)) throw new Error('browser evidence is not a bounded regular file')
     const body = fs.readFileSync(output + '/' + name)

@@ -1,0 +1,26 @@
+{
+  "id": "experience-review",
+  "purpose": "Independently inspect candidate-bound images and interaction proof after qualification and before protected merge preparation.",
+  "inputs": {
+    "request": "text",
+    "receipt": "json",
+    "evidence": "artifact",
+    "review_evidence": "artifact",
+    "checks": "artifact",
+    "manifest": "artifact"
+  },
+  "outputs": {
+    "verdict": "text",
+    "summary": "text"
+  },
+  "execution": {
+    "harness": "codex",
+    "mode": "experience-review",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Use product-experience-review guidance in this assigned evidence-only stage. The authenticated candidate viewport images are attached explicitly; personally inspect each readable viewport. Read experience-experience.json and experience-browser.json in the protected input directory, the original request, retained canonical review evidence, plan manifest and focused check artifact. Judge user goals, discoverability, operation, layout and visual quality separately. Do not infer usability from a passing assertion. Compare F01-F15 causes and acceptance with current evidence; old reference screenshots describe the original defects and never prove this candidate. Cover all nine families, initial/largest boards, light/dark/system, 320/360/390 portrait, 844x390 landscape, tablet-to-phone, touch/notes/overlap, Shikaku singleton/rectangle commits, preference persistence, Undo/Redo/reload, hints/two-tab behavior and reachable actual viewport screens. Distinguish desktop Safari, simulator Safari, Playwright WebKit emulation and physical-device evidence. Physical Safari on Red Head rapid-tap zoom is unproven; never relabel simulator or WebKit as physical proof. Read-only source and scratch only: do not edit, retest, launch browsers/agents, use Git or external tools. Return changes_requested with verdict BLOCKED for concrete source repairs with actionable observed evidence. Return blocked with verdict BLOCKED for missing actionable captures/interactions, unqualified native Safari or other required acceptance gaps. Missing evidence cannot be waived. Return ready with verdict exactly APPROVE only when every applicable required acceptance condition has sufficient current evidence and every attached viewport was inspected. Give a specific finding or missing observation in at most 240 characters."
+  }
+}

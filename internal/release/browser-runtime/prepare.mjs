@@ -7,7 +7,7 @@ const [output] = process.argv.slice(2)
 if (!output || !path.isAbsolute(output)) throw new Error('absolute new output directory required')
 fs.mkdirSync(output, { mode: 0o700 })
 const own = path.dirname(fileURLToPath(import.meta.url))
-const names = ['browser.mjs', 'browser_render.mjs', 'browser_contract.mjs', 'browser_container.mjs', 'browser_fixture.mjs']
+const names = ['browser.mjs', 'browser_render.mjs', 'browser_contract.mjs', 'browser_container.mjs', 'browser_fixture.mjs', 'browser_experience.mjs']
 const hash = data => crypto.createHash('sha256').update(data).digest('hex')
 let manifest = ''
 for (const name of names) {

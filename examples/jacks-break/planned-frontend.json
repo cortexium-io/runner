@@ -5,7 +5,8 @@
     "request": "text",
     "package": "text",
     "tests": "text",
-    "benchmark": "text"
+    "benchmark": "text",
+    "review_evidence": "artifact"
   },
   "steps": [
     {
@@ -225,7 +226,7 @@
           }
         },
         "review": {
-          "from_step": "review",
+          "from_step": "experience-feedback",
           "output": "summary",
           "previous": true,
           "default": {
@@ -371,7 +372,7 @@
           "next": "integrate"
         },
         "changes_requested": {
-          "next": "owner",
+          "next": "experience-feedback",
           "max_times": 3
         },
         "blocked": {
@@ -379,6 +380,7 @@
         }
       }
     },
+    {"id":"experience-feedback","role":"experience-feedback","inputs":{"source_review":{"from_step":"review","output":"summary","previous":true,"default":{"inline":""}},"experience_review":{"from_step":"experience-review","output":"summary","previous":true,"default":{"inline":""}}},"routes":{"ready":{"next":"owner","max_times":6},"blocked":{"next":"$fail"}}},
     {
       "id": "integrate",
       "role": "delivery-integrate",
@@ -433,7 +435,7 @@
       },
       "routes": {
         "ready": {
-          "next": "prepare"
+          "next": "experience-evidence"
         },
         "changes_requested": {
           "next": "owner",
@@ -444,12 +446,15 @@
         }
       }
     },
+    {"id":"experience-evidence","role":"experience-evidence","inputs":{"receipt":{"from_step":"qualify","output":"receipt"}},"routes":{"ready":{"next":"experience-review"},"blocked":{"next":"$fail"}}},
+    {"id":"experience-review","role":"experience-review","inputs":{"request":{"from_input":"request"},"receipt":{"from_step":"qualify","output":"receipt"},"evidence":{"from_step":"experience-evidence","output":"artifact"},"review_evidence":{"from_input":"review_evidence"},"checks":{"from_step":"check","output":"artifact"},"manifest":{"from_step":"join","output":"manifest"}},"routes":{"ready":{"next":"experience-gate"},"changes_requested":{"next":"experience-feedback","max_times":3},"blocked":{"next":"$fail"}}},
+    {"id":"experience-gate","role":"experience-gate","inputs":{"receipt":{"from_step":"qualify","output":"receipt"},"evidence":{"from_step":"experience-evidence","output":"artifact"},"verdict":{"from_step":"experience-review","output":"verdict"}},"routes":{"ready":{"next":"prepare"},"blocked":{"next":"$fail"}}},
     {
       "id": "prepare",
       "role": "delivery-prepare",
       "inputs": {
         "receipt": {
-          "from_step": "qualify",
+          "from_step": "experience-gate",
           "output": "receipt"
         }
       },

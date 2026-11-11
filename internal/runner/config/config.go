@@ -250,13 +250,27 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 				if profile.Harness == "release" {
 					c := s.Instance.Release
 					outputs := len(role.Outputs) == 1 && role.Outputs["receipt"] == "json"
+					if profile.Mode == "experience-evidence" {
+						outputs = reflect.DeepEqual(role.Outputs, map[string]string{"receipt": "json", "artifact": "artifact"})
+					}
+					if profile.Mode == "experience-feedback" {
+						outputs = reflect.DeepEqual(role.Outputs, map[string]string{"summary": "text"})
+					}
 					if profile.Mode == "source-adopt" {
 						outputs = len(role.Outputs) == 2 && role.Outputs["receipt"] == "json" && role.Outputs["patch"] == "artifact"
 					}
 					if c == nil || len(c.Command) == 0 || len(c.Command) > 16 || !filepath.IsAbs(c.Command[0]) || strings.TrimSpace(role.Purpose) == "" || p.Source == nil || s.Instance.Concurrency != 1 || !outputs {
 						return s, errors.New("release needs a trusted instance command, source, concurrency one, purpose and one JSON receipt output")
 					}
-					if profile.Mode == "publication-reference" {
+					if profile.Mode == "experience-feedback" {
+						if !reflect.DeepEqual(role.Inputs, map[string]string{"source_review": "text", "experience_review": "text"}) {
+							return s, errors.New("experience feedback requires the two declared read-only review summaries")
+						}
+					} else if profile.Mode == "experience-gate" {
+						if !reflect.DeepEqual(role.Inputs, map[string]string{"receipt": "json", "evidence": "artifact", "verdict": "text"}) {
+							return s, errors.New("experience gate requires the exact qualification, exported evidence and independent verdict")
+						}
+					} else if profile.Mode == "publication-reference" {
 						if c.GitHub == "" || !reflect.DeepEqual(role.Inputs, map[string]string{"receipt": "json"}) {
 							return s, errors.New("publication-reference requires configured GitHub and one publication receipt input")
 						}
@@ -567,6 +581,9 @@ func ready(p runner.Profile) error {
 			"source-adopt",
 			"publication-reference",
 			"qualify",
+			"experience-evidence",
+			"experience-gate",
+			"experience-feedback",
 			"prepare",
 			"merge",
 			"backup",
@@ -618,7 +635,7 @@ func ready(p runner.Profile) error {
 		return nil
 	}
 	if p.Harness == "codex" {
-		if p.Model == "" || len(p.Model) > 100 || (p.Access != "input-only" && p.Access != "workspace-write" && p.Access != "workspace-read") || p.Mode != "" || p.Input != "" || p.Output != "" || p.Delay != "" || p.Text != "" || p.LogBytes != 0 {
+		if p.Model == "" || len(p.Model) > 100 || (p.Access != "input-only" && p.Access != "workspace-write" && p.Access != "workspace-read") || p.Mode != "" && (p.Mode != "experience-review" || p.Access != "workspace-read") || p.Input != "" || p.Output != "" || p.Delay != "" || p.Text != "" || p.LogBytes != 0 {
 			return errors.New("codex needs an explicit model and input-only/workspace-write/workspace-read access, without deterministic settings")
 		}
 		switch p.Reasoning {

@@ -1,5 +1,14 @@
 # Connected Jack's Break delivery
 
+The source mobile-evidence update is **held pending safe native Safari
+qualification**. Do not install this future `planned-frontend.json`, switch a
+default or submit product work with it yet. It adds authenticated actual viewport
+evidence and independent image review after built qualification and before
+protected preparation. Its final native-evidence gate remains closed. Existing
+installed and saved definitions are preserved. Read the
+[current maintenance status](../../docs/process-core-design.md#mobile-evidence-maintenance-11–12-november-2026)
+and [review-reference staging contract](../../docs/coordinator.md#mobile-evidence-intake-held).
+
 Use the [coordinator routing contract](../../docs/coordinator.md) for the current
 pilot default and qualification gate. Planned mobile delivery passed qualification
 and the pilot default switched on 11 November 2026. New Vue/mobile work selects

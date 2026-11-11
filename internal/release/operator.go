@@ -33,13 +33,15 @@ type Request struct {
 	SourceContinuation bool            `json:"source_continuation,omitempty"`
 }
 type Response struct {
-	Key       string          `json:"key"`
-	State     string          `json:"state"`
-	Reason    string          `json:"reason,omitempty"`
-	Failed    bool            `json:"failed,omitempty"`
-	Receipt   json.RawMessage `json:"receipt,omitempty"`
-	Outcome   string          `json:"outcome,omitempty"`
-	Retryable bool            `json:"retryable,omitempty"`
+	Key            string          `json:"key"`
+	State          string          `json:"state"`
+	Reason         string          `json:"reason,omitempty"`
+	Failed         bool            `json:"failed,omitempty"`
+	Receipt        json.RawMessage `json:"receipt,omitempty"`
+	Outcome        string          `json:"outcome,omitempty"`
+	Retryable      bool            `json:"retryable,omitempty"`
+	Evidence       []byte          `json:"evidence,omitempty"`
+	EvidenceSHA256 string          `json:"evidence_sha256,omitempty"`
 }
 type Receipt struct {
 	Key               string `json:"key"`
@@ -72,9 +74,10 @@ type Receipt struct {
 	Inspection        string `json:"inspection,omitempty"`
 	DataSHA           string `json:"data_sha256,omitempty"`
 
-	BrowserFailure   BrowserFailureFeedback `json:"browser_failure,omitzero"`
-	PublicationRunID string                 `json:"publication_run_id,omitempty"`
-	PublicationKey   string                 `json:"publication_key,omitempty"`
+	BrowserFailure        BrowserFailureFeedback `json:"browser_failure,omitzero"`
+	BrowserEvidenceSHA256 string                 `json:"browser_evidence_sha256,omitempty"`
+	PublicationRunID      string                 `json:"publication_run_id,omitempty"`
+	PublicationKey        string                 `json:"publication_key,omitempty"`
 }
 type Job struct {
 	Request    Request `json:"request"`
@@ -119,6 +122,17 @@ type leaseKey struct{}
 
 func Digest(data []byte) string { s := sha256.Sum256(data); return hex.EncodeToString(s[:]) }
 func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
+	if q.Action == "experience-evidence" {
+		out, err := o.exportExperience(q)
+		if err != nil {
+			// This operation is read-only. Missing/authentication failures are
+			// conclusive blockers, not uncertain mutations to poll or replay.
+			out.State, out.Failed = "finished", true
+			out.Reason = "Candidate-bound viewport/interaction evidence is missing, changed or not owned; fresh qualification or private operator inspection is required"
+			return out, nil
+		}
+		return out, nil
+	}
 	out := Response{Key: q.Key, State: "unknown"}
 	actions := Actions
 	if o.Delivery {
@@ -362,6 +376,7 @@ func publicReceipt(r Receipt, connected bool) Receipt {
 		compact.Note = r.Note
 		if r.Action == "qualify" {
 			compact.BrowserFailure = r.BrowserFailure
+			compact.BrowserEvidenceSHA256 = r.BrowserEvidenceSHA256
 		}
 	case "prepare":
 		compact.Head, compact.Base, compact.PR = r.Head, r.Base, r.PR

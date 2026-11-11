@@ -84,7 +84,7 @@ func (c *Core) route(r *Run, a *Attempt) {
 			route.Next = r.Process.Steps[r.Step+1].ID
 		}
 	}
-	key := step.ID + "/" + result.Outcome
+	key := routeUseKey(*r, r.Step, result.Outcome)
 	if limit := routeLimit(*r, r.Step, result.Outcome, route); limit > 0 && r.RouteUses[key] >= limit {
 		r.Status, r.Reason = "Failed", "repetition allowance exhausted: "+key
 		return
@@ -117,7 +117,7 @@ func (c *Core) route(r *Run, a *Attempt) {
 }
 
 func (c *Core) advance(r *Run, result *StepResult, route Route) {
-	key := r.Process.Steps[r.Step].ID + "/" + result.Outcome
+	key := routeUseKey(*r, r.Step, result.Outcome)
 	if r.RouteUses == nil {
 		r.RouteUses = map[string]int{}
 	}
@@ -170,6 +170,19 @@ func (c *Core) advance(r *Run, result *StepResult, route Route) {
 	r.Step, r.Visit = next, r.Visit+1
 	r.VisitExtraAttempts = 0
 	r.Status, r.Reason = "Queued", ""
+}
+
+// The closed experience-review stage shares qualification's existing source
+// correction allowance. It cannot create another three-repair budget.
+func routeUseKey(r Run, index int, outcome string) string {
+	step := r.Process.Steps[index]
+	profile, err := r.Roles[step.Role].Profile(r.Profiles[step.Role])
+	if err == nil && profile.Mode == "experience-review" && profile.Harness == "codex" && outcome == "changes_requested" {
+		if receipt := step.Inputs["receipt"]; receipt.FromStep != "" {
+			return receipt.FromStep + "/" + outcome
+		}
+	}
+	return step.ID + "/" + outcome
 }
 
 func visitAttempts(r Run) int {
