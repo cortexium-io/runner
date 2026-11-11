@@ -28,14 +28,21 @@ imports no MCP SDK, configuration parser, SQLite driver or execution adapter.
 ## Qualified planned frontend default, 11 November 2026
 
 The pilot completed its retained frontend qualification through the saved owner
-merge gate. Same run `run_MNRD6RIYN4CGBSU3G5I6VUFYFU` used 54 of its approved
-64 aggregate attempts, within the two-workflow ceiling of 87. All 96 run records
+merge gate at 54 attempts. After the owner approved merge and production
+separately, same run `run_MNRD6RIYN4CGBSU3G5I6VUFYFU` completed in 61 of its
+approved 64 aggregate attempts, within the two-workflow ceiling of 87. All 96 run records
 remain preserved. PR #338's qualified head is
 `24cb06d9942f33f8d1353bafab030ea974b4035e`, based on main
 `fffff55553904ed4dcfdd538e96058a80155e160`, with image
 `sha256:eda1f428f41fcdb81342b4cd8154f0422d41c25fcddea3479b508a9b015b929b`.
-Merge decision `decision_UXRTMXT3FV2TVLTB22FFJETYGI` remains pending. Nothing
-has been merged or deployed by this qualification.
+Merge decision `decision_UXRTMXT3FV2TVLTB22FFJETYGI` was explicitly approved;
+PR #338 merged at 19:49:48 UTC as `e442d17365a4fc551d6f6df80509e61e6d607535`.
+After a fresh off-host backup and separate production decision
+`decision_IG7ENGYFUUD2GZBWQGYBY7SVUY`, Runner completed the final stopped-data
+backup, qualified migration, image/report pinning, deployment and fresh live
+executable/health checks. Deployment job `cc99b3b41b0c5da80c94e25c43155ffc`
+passed at 19:56 UTC. Execution and workspace cleanup settled. No database
+restoration was performed; required production backups remain preserved.
 
 Runner's fit/observer correction passed all 222 selected frontend cases and
 TypeScript, then independent review. Native acceptance passed 120 development

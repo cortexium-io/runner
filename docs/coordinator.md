@@ -195,8 +195,10 @@ Its live default is `deliver-planned-frontend` after full native/browser
 qualification and operator cutover on 11 November 2026. The retained-mobile
 continuation on PR #338 passed 222 frontend cases, TypeScript, independent review,
 native qualification, 36 Chromium/WebKit journeys and 456 geometry checks at
-head `24cb06d`. It is held at the saved merge approval gate; it is not merged or
-deployed. The matching restricted intake profile is active. A fresh native
+head `24cb06d`. After separate owner merge and production approvals, the same run
+completed release and live verification of merged commit `e442d173` in 61 of
+64 attempts, with cleanup settled and no database restoration. The matching
+restricted intake profile is active. A fresh native
 session replayed the exact original request and rejoined the same result with
 zero model turns or new product attempts. See the
 [qualification record](architecture.md#qualified-planned-frontend-default-11-november-2026).

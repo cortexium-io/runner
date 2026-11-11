@@ -62,7 +62,9 @@ original request and rejoined that same protected result, preserving all 96 runs
 and 54 aggregate attempts. See the
 [qualified cutover](architecture.md#qualified-planned-frontend-default-11-november-2026).
 This closes the four bounded implementation/operational packages through the
-declared owner gate; merge and production are still unapproved. The retained
+declared owner gate. The owner then approved merge and production separately;
+Runner completed release of merged commit `e442d173` with fresh backups and live
+verification in 61 of 64 attempts, with settled cleanup and no database restore. The retained
 journey used explicit recovery and allowance amendments, not a fresh
 zero-intervention benchmark. Fresh natural-language routing was not separately
 benchmarked, and these results do not establish every project's release readiness
