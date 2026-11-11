@@ -212,6 +212,28 @@ reserve guard stopped dispatch: 18 attempts are needed and 14 remain. All
 PR #338 is published but unqualified. No merge/production decision or default
 cutover occurred.
 
+The owner then authorized a ceiling of 64 attempts for the same root and 87
+combined, using existing bounded retries. Increments to 54 and then 58 admitted
+the Futoshiki correction and its follow-up. Full check
+`attempt_YGPOGR6FC642JASZVILPPITYVU` passed all 221 cases and TypeScript, with
+no skips or timeouts; both Shikaku board sizes and their original interaction
+assertions remain covered. Independent review accepted the candidate. Runner
+published it to the same PR at `e1e9a42a1857256cda246de0cec724733707badd`.
+
+Qualification `attempt_USINSP7I2EZAU5JWOJIVEOXA7O` passed the native gate for
+image `5ee462d7a2e425a32079bc6730ee36027ff6923231b584dcf34878e3be7a8e8e`.
+Browser qualification got beyond Futoshiki and failed WebKit's Kakuro 320×568
+screenshot check with two `ResizeObserver loop completed with undelivered
+notifications.` errors. Full browser report
+`8cb0c01175a598b5550acd3825923c0dac500c6b41289f6e4381e88760b85b29`
+retains those errors, but the correction receipt contains only the first
+assertion line and a missing diagnostic. Retry has no evidence amendment
+contract, so extra headroom alone cannot supply the saved details to the owner.
+The settled root is held at owner with 46 aggregate attempts used and an applied
+cap of 58; the authorized ceiling is still 64. No further model turn was launched
+without that evidence handoff. Full qualification, default cutover and protected
+release decisions remain pending.
+
 Admission required a separately approved exception retiring only the superseded
 `abb56de` raw archive (849,161,983 bytes). Existing retention code verified ownership,
 hash, reproduction and settlement; all 94 compiled artifacts remained unchanged.

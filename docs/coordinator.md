@@ -176,10 +176,12 @@ use the configured SSH connection to Black Magic for the existing Runner CLI
 run/result/status commands. Do not copy `owner.token` or guess a network endpoint.
 Its live default remains `deliver` while the planned mobile journey awaits
 qualification. The current retained-mobile continuation on draft PR #338 restored
-the Shikaku coverage required by independent review, passed all 218 cases and
-TypeScript, and published reviewed head `e0baf1c` to the same PR. Full browser
-qualification found internal overflow on Futoshiki 6×6 at 320×568. The protected
-completion reserve stopped correction dispatch; see the
+the Shikaku coverage required by independent review and corrected the Futoshiki
+overflow. It passed all 221 cases, TypeScript and independent review, then
+published head `e1e9a42` to the same PR. Native qualification passed, but WebKit's
+Kakuro journey reported two ResizeObserver errors. The complete report retains
+them; the compact correction handoff drops their detail, and an ordinary retry
+cannot restore it. The settled run is held before further source work; see the
 [qualification record](architecture.md).
 Planned processes are selectable explicitly
 for authorized qualification; their installation alone is not a default cutover.
