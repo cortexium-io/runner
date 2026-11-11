@@ -48,6 +48,17 @@ remain in history, while fresh downstream checks, review and qualification are
 required. Same-run publication advances the existing owned PR with its normal
 head comparison.
 
+With a separate owner authorization, `recover-corrections --within-budget`
+uses existing aggregate headroom instead of a new per-route use allowance.
+This mode requires `max_uses: 0`, settled root work and no preservation override.
+It records one finite upper bound only for the currently exhausted source
+backedge, leaving other routes and counters unchanged. Before every repair,
+Runner reserves the full checked/protected completion path. It stops with the
+saved failure when another repair would consume that reserve, even if unused
+aggregate attempts remain. Queued work independently rechecks the reserve.
+Every new candidate still needs its normal checks, independent review and full
+qualification; merge, production and restoration approvals are unaffected.
+
 An explicitly authorized `runner_retry` can grant another current root-visit
 attempt from its existing aggregate budget with `--within-budget --extra-attempts 1`.
 This leaves the frozen total ceiling unchanged, preserves

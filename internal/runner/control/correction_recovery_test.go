@@ -26,7 +26,7 @@ func TestCorrectionRecoveryOwnerToolHasExplicitBoundedContract(t *testing.T) {
 			continue
 		}
 		data, err := json.Marshal(tool.InputSchema)
-		if err != nil || !bytes.Contains(data, []byte(`"attempt_id"`)) || !bytes.Contains(data, []byte(`"max_uses"`)) || !bytes.Contains(data, []byte(`"preserve_source"`)) || bytes.Contains(data, []byte(`"extra_attempts"`)) || bytes.Contains(data, []byte(`"profile"`)) {
+		if err != nil || !bytes.Contains(data, []byte(`"attempt_id"`)) || !bytes.Contains(data, []byte(`"max_uses"`)) || !bytes.Contains(data, []byte(`"within_budget"`)) || !bytes.Contains(data, []byte(`"preserve_source"`)) || bytes.Contains(data, []byte(`"extra_attempts"`)) || bytes.Contains(data, []byte(`"profile"`)) {
 			t.Fatalf("owner recovery schema changes execution allowance or hides preservation: %s; %v", data, err)
 		}
 		return

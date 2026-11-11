@@ -609,7 +609,7 @@ func (c *Core) tick() time.Duration {
 			_ = c.persist(r, nil, nil)
 			continue
 		}
-		if r.Task != nil || len(r.TaskGroups) > 0 {
+		if r.Task != nil || len(r.TaskGroups) > 0 || r.CorrectionRecovery != nil && r.CorrectionRecovery.WithinBudget {
 			reserve, err := c.taskCompletionReserve(r)
 			if err == nil {
 				err = c.familyReserve(r, 1, reserve)
@@ -807,6 +807,9 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 				PatchSHA256:  fmt.Sprintf("%x", sha256.Sum256(patch)),
 			}
 		}
+	}
+	if recovery := r.CorrectionRecovery; recovery != nil && recovery.WithinBudget && p.Harness == "codex" && p.Access == "workspace-write" {
+		assignment.Task += " Complete the authorized regression using the full current checks artifact and the complete failing test, including every assertion clause. Diagnose the source or fixture cause before editing. Preserve intended behavior, selectors, assertions, coverage and time limits; report the cause and evidence. Routine corrections continue only within the saved completion reserve."
 	}
 	assignment.TaskSource, e = c.taskAssignment(r, step)
 	return assignment, e

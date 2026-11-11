@@ -89,6 +89,14 @@ func (c *Core) route(r *Run, a *Attempt) {
 		r.Status, r.Reason = "Failed", "repetition allowance exhausted: "+key
 		return
 	}
+	if recovery := r.CorrectionRecovery; recovery != nil && recovery.WithinBudget && recovery.RouteLimits[key] > 0 && result.Outcome == "changes_requested" {
+		if _, eligible := sourceCorrectionRoute(*r, r.Step); eligible {
+			if err := c.correctionBudgetReserve(*r, taskStepIndex(r.Process, route.Next)); err != nil {
+				r.Status, r.Reason = "Failed", "source correction preserves completion reserve: "+Clip(err.Error())
+				return
+			}
+		}
+	}
 	if route.Approval {
 		if err := releaseApprovalReserve(*r, result.Outcome, route, c.familyAttempts(*r)); err != nil {
 			r.Status, r.Reason = "Waiting", Clip(err.Error())

@@ -73,7 +73,6 @@ func TestRetryCLIRejectsInvalidWithinBudgetUse(t *testing.T) {
 		{"retry", "--extra-attempts", "-1"},
 		{"retry", "--extra-attempts", "1", "--cleanup-only"},
 		{"status", "--extra-attempts", "1"},
-		{"recover-corrections", "--extra-attempts", "1"},
 		{"recover-collection", "--extra-attempts", "1"},
 		{"recover-planning", "--extra-attempts", "1"},
 		{"recover-frontend-check", "--extra-attempts", "1"},

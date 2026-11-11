@@ -67,7 +67,7 @@ func run(ctx context.Context, args []string) error {
 	preserveSource := fs.Bool("preserve-source", false, "preserve a verified owned partial checkout as recovery evidence before restoring its saved candidate")
 	profile := fs.String("profile", "", "named profile for authorized retry")
 	extra := fs.Int("extra-attempts", 0, "additional explicitly authorized retry allowance")
-	withinBudget := fs.Bool("within-budget", false, "grant current-visit retry allowance from the existing total attempt budget")
+	withinBudget := fs.Bool("within-budget", false, "grant retry or source-correction allowance from the existing total attempt budget")
 	cleanupOnly := fs.Bool("cleanup-only", false, "retry retained terminal cleanup without execution or allowance changes")
 	file := fs.String("file", "", "selected configuration file")
 	field := fs.String("field", "", "dot-separated configuration field")
@@ -87,11 +87,11 @@ func run(ctx context.Context, args []string) error {
 	if *assertionSHA256 != "" && (command != "recover-frontend-check" || *serial) {
 		return errors.New("--assertion-sha256 requires recover-frontend-check without --serial")
 	}
-	if *withinBudget && (command != "retry" || *extra <= 0 || *cleanupOnly) {
+	if *withinBudget && command != "recover-corrections" && (command != "retry" || *extra <= 0 || *cleanupOnly) {
 		return errors.New("--within-budget requires retry with positive --extra-attempts and without --cleanup-only")
 	}
-	if command == "recover-corrections" && (*runID == "" || *attemptID == "" || *maxUses != 3 || *profile != "" || *extra != 0 || *cleanupOnly) {
-		return errors.New("recover-corrections requires --run, --attempt and --max-uses 3; retry allowances/profiles are separate")
+	if command == "recover-corrections" && (*runID == "" || *attemptID == "" || !*withinBudget && *maxUses != 3 || *withinBudget && (*maxUses != 0 || *preserveSource) || *profile != "" || *extra != 0 || *cleanupOnly) {
+		return errors.New("recover-corrections requires --run, --attempt and --max-uses 3 or --within-budget without --max-uses; retry allowances/profiles are separate")
 	}
 	if command == "recover-collection" && (*runID == "" || *attemptID == "" || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
 		return errors.New("recover-collection requires --run and --attempt; it grants no retry allowance, profile or preservation override")
@@ -185,7 +185,14 @@ func run(ctx context.Context, args []string) error {
 		}
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
 		method = "runner_recover_corrections"
-		a = runner.RecoverCorrectionsRequest{RequestID: *requestID, RunID: *runID, AttemptID: *attemptID, MaxUses: *maxUses, PreserveSource: *preserveSource}
+		a = runner.RecoverCorrectionsRequest{
+			RequestID:      *requestID,
+			RunID:          *runID,
+			AttemptID:      *attemptID,
+			MaxUses:        *maxUses,
+			WithinBudget:   *withinBudget,
+			PreserveSource: *preserveSource,
+		}
 	case "recover-collection":
 		if *requestID == "" {
 			*requestID = rand.Text()

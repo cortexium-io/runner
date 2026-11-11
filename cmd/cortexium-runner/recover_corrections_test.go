@@ -40,23 +40,51 @@ func TestRecoverCorrectionsCLIUsesExactSavedAttemptAndTotalLimit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(data, "owner.token"), []byte(token), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, preserve := range []bool{false, true} {
-		want.PreserveSource = preserve
-		want.RequestID = "approved-recovery"
-		if preserve {
-			want.RequestID = "approved-preservation"
-		}
-		args := []string{"recover-corrections", "--data", data, "--endpoint", server.URL, "--run", want.RunID, "--attempt", want.AttemptID, "--max-uses", "3", "--request-id", want.RequestID}
-		if preserve {
-			args = append(args, "--preserve-source")
-		}
-		for range 2 { // A disconnect/retry uses the same request identity and payload.
-			if err := run(t.Context(), args); err != nil {
-				t.Fatal(err)
+	for _, within := range []bool{false, true} {
+		for _, preserve := range []bool{false, true} {
+			if within && preserve {
+				continue // Budget mode requires already-settled source.
 			}
-			if got := <-requests; !reflect.DeepEqual(got, want) {
-				t.Fatalf("recovery request changed: %#v", got)
+			want.PreserveSource, want.WithinBudget = preserve, within
+			want.RequestID, want.MaxUses = "approved-recovery", 3
+			if within {
+				want.RequestID, want.MaxUses = "approved-budget-recovery", 0
 			}
+			if preserve {
+				want.RequestID += "-preservation"
+			}
+			args := []string{"recover-corrections", "--data", data, "--endpoint", server.URL, "--run", want.RunID, "--attempt", want.AttemptID, "--request-id", want.RequestID}
+			if within {
+				args = append(args, "--within-budget")
+			} else {
+				args = append(args, "--max-uses", "3")
+			}
+			if preserve {
+				args = append(args, "--preserve-source")
+			}
+			for range 2 { // A disconnect/retry uses the same request identity and payload.
+				if err := run(t.Context(), args); err != nil {
+					t.Fatal(err)
+				}
+				if got := <-requests; !reflect.DeepEqual(got, want) {
+					t.Fatalf("recovery request changed: %#v", got)
+				}
+			}
+		}
+	}
+}
+
+func TestRecoverCorrectionsCLIRejectsConflictingBudgetGrants(t *testing.T) {
+	base := []string{
+		"recover-corrections", "--data", t.TempDir(), "--run", "saved-run", "--attempt", "saved-check", "--within-budget",
+	}
+	for _, extra := range [][]string{
+		{"--max-uses", "3"}, {"--max-uses", "4"}, {"--max-uses", "-1"},
+		{"--extra-attempts", "1"}, {"--profile", "larger"}, {"--cleanup-only"}, {"--preserve-source"}, {"--attempt", ""}, {"--run", ""},
+	} {
+		args := append(append([]string{}, base...), extra...)
+		if err := run(t.Context(), args); err == nil || !strings.Contains(err.Error(), "or --within-budget without --max-uses") {
+			t.Fatalf("conflicting budget recovery reached credentials/service: %v; %v", extra, err)
 		}
 	}
 }

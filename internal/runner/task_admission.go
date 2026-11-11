@@ -185,7 +185,7 @@ func (c *Core) taskGroupAdmission(r Run, count, pendingAttempts int) error {
 
 func (c *Core) taskCompletionReserve(r Run) (int, error) {
 	if r.Task == nil {
-		if len(r.TaskGroups) == 0 {
+		if len(r.TaskGroups) == 0 && (r.CorrectionRecovery == nil || !r.CorrectionRecovery.WithinBudget) {
 			return 0, nil
 		}
 		return readyTail(r, readyNext(r.Process, r.Step))

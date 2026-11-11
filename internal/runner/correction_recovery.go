@@ -16,20 +16,24 @@ type RecoverCorrectionsRequest struct {
 	AttemptID      string `json:"attempt_id"`
 	MaxUses        int    `json:"max_uses"`
 	PreserveSource bool   `json:"preserve_source,omitempty"`
+	WithinBudget   bool   `json:"within_budget,omitempty"`
 }
 
 // CorrectionRecovery is a single owner-authorized operational escalation. The
 // frozen process, cumulative route uses and all original attempt limits remain
-// unchanged. Three is the total allowed uses of each recorded source backedge.
+// unchanged. Legacy recovery permits three total uses per recorded backedge;
+// budget mode extends only the current backedge while protecting completion.
 type CorrectionRecovery struct {
-	RequestID    string                     `json:"request_id"`
-	AttemptID    string                     `json:"attempt_id"`
-	Reason       string                     `json:"reason"`
-	MaxUses      int                        `json:"max_uses"`
-	RouteLimits  map[string]int             `json:"route_limits"`
-	PatchID      string                     `json:"patch_id"`
-	GrantedAt    time.Time                  `json:"granted_at"`
-	Preservation *SourcePreservationReceipt `json:"preservation,omitempty"`
+	RequestID         string                     `json:"request_id"`
+	AttemptID         string                     `json:"attempt_id"`
+	Reason            string                     `json:"reason"`
+	MaxUses           int                        `json:"max_uses"`
+	RouteLimits       map[string]int             `json:"route_limits"`
+	PatchID           string                     `json:"patch_id"`
+	GrantedAt         time.Time                  `json:"granted_at"`
+	Preservation      *SourcePreservationReceipt `json:"preservation,omitempty"`
+	WithinBudget      bool                       `json:"within_budget,omitempty"`
+	RemainingAttempts int                        `json:"remaining_attempts,omitempty"`
 }
 
 type SourcePreservationReceipt struct {
@@ -99,6 +103,10 @@ func (c *Core) RecoverCorrections(req RecoverCorrectionsRequest) (Run, error) {
 		PatchID:      source.PatchID,
 		GrantedAt:    time.Now().UTC(),
 		Preservation: preservation,
+		WithinBudget: req.WithinBudget,
+	}
+	if req.WithinBudget {
+		r.CorrectionRecovery.RemainingAttempts = c.familyRemaining(r)
 	}
 	c.route(&r, r.Current())
 	if r.Status != "Queued" {
@@ -125,7 +133,11 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 	reject := func(reason string) (Run, SourceResult, map[string]int, error) {
 		return Run{}, SourceResult{}, nil, errors.New(reason)
 	}
-	if req.MaxUses != 3 {
+	if req.WithinBudget {
+		if req.MaxUses != 0 || req.PreserveSource || r.Task != nil {
+			return reject("within_budget requires settled root recovery without max_uses or preserve_source")
+		}
+	} else if req.MaxUses != 3 {
 		return reject("max_uses must be three total uses per source-correction route")
 	}
 	if r.Status != "Failed" || r.CancelRequested || r.Active() || r.Decision != nil || r.CorrectionRecovery != nil || c.inFlight[r.ID] {
@@ -140,7 +152,7 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 	}
 	key := r.Process.Steps[r.Step].ID + "/changes_requested"
 	route, eligible := sourceCorrectionRoute(r, r.Step)
-	if !eligible || route.MaxTimes >= 3 || r.RouteUses[key] < route.MaxTimes || r.Reason != "repetition allowance exhausted: "+key {
+	if !eligible || !req.WithinBudget && route.MaxTimes >= 3 || r.RouteUses[key] < route.MaxTimes || r.Reason != "repetition allowance exhausted: "+key {
 		return reject("current failure is not an exhausted eligible source-correction route")
 	}
 	if len(r.Attempts) >= r.Process.MaxAttempts {
@@ -212,6 +224,13 @@ func (c *Core) correctionRecovery(req RecoverCorrectionsRequest) (Run, SourceRes
 		return reject("source rejection provenance differs from the latest retained candidate")
 	}
 	limits := map[string]int{}
+	if req.WithinBudget {
+		if err := c.correctionBudgetReserve(r, taskStepIndex(r.Process, route.Next)); err != nil {
+			return reject(err.Error())
+		}
+		limits[key] = r.RouteUses[key] + c.familyRemaining(r)
+		return r, *source, limits, nil
+	}
 	for i, step := range r.Process.Steps {
 		if route, ok := sourceCorrectionRoute(r, i); ok && route.MaxTimes < 3 {
 			limits[step.ID+"/changes_requested"] = 3
@@ -265,13 +284,28 @@ func sourceCorrectionRoute(r Run, index int) (Route, bool) {
 }
 
 func routeLimit(r Run, index int, outcome string, route Route) int {
-	if outcome == "changes_requested" && r.CorrectionRecovery != nil && r.CorrectionRecovery.MaxUses == 3 {
+	if outcome == "changes_requested" && r.CorrectionRecovery != nil {
 		key := r.Process.Steps[index].ID + "/" + outcome
-		if r.CorrectionRecovery.RouteLimits[key] == 3 {
+		if recovery := r.CorrectionRecovery; recovery.WithinBudget && recovery.MaxUses == 0 {
+			if limit := recovery.RouteLimits[key]; limit > 0 && limit <= r.Process.MaxAttempts {
+				if _, ok := sourceCorrectionRoute(r, index); ok {
+					return limit
+				}
+			}
+		}
+		if r.CorrectionRecovery.MaxUses == 3 && r.CorrectionRecovery.RouteLimits[key] == 3 {
 			if _, ok := sourceCorrectionRoute(r, index); ok {
 				return 3
 			}
 		}
 	}
 	return route.MaxTimes
+}
+
+func (c *Core) correctionBudgetReserve(r Run, ownerIndex int) error {
+	need, err := readyTail(r, ownerIndex)
+	if err != nil {
+		return err
+	}
+	return c.familyReserve(r, 1, need-1)
 }
