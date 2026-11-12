@@ -52,6 +52,7 @@ func (c *Codex) prepareRecoveredCard(ctx context.Context, j nativeJob) error {
 			return
 		}
 		current.Stage = "allocated"
+		current.Reason = ""
 	})
 }
 

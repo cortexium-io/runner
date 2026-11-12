@@ -294,7 +294,7 @@ func TestUnpublishedCardPreparationRestartWaitsForInheritedLease(t *testing.T) {
 		t.Fatal("same durable job failed to rejoin", o.End, calls.Load())
 	}
 	j, e := c.loadForPreparationTest(a.AttemptID)
-	if e != nil || !reflect.DeepEqual(j.Assignment, a) {
+	if e != nil || !reflect.DeepEqual(j.Assignment, a) || j.Reason != "" {
 		t.Fatal("restart changed original assignment/deadline", e)
 	}
 }
