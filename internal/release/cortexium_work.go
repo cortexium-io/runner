@@ -168,7 +168,7 @@ func (b *Live) runCortexiumWork(ctx context.Context, j *Job) error {
 	_ = writeJSON(filepath.Join(work, "storage-peak.json"), map[string]any{
 		"observed_bytes": peak,
 		"managed_cap":    1 << 30,
-		"reserved_bytes": saas.MaxBuildDecoded + saas.MaxBundle + 1<<20,
+		"reserved_bytes": cortexiumLocalWorkBudget,
 	})
 	return writeJSON(filepath.Join(work, "result.json"), j)
 }

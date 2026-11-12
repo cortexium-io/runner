@@ -77,9 +77,13 @@ func verifyCortexiumTar(reader io.Reader, name string, size int64, digest string
 	if err != nil {
 		return fmt.Errorf("Cortexium copied file header: %w", err)
 	}
-	if h.Name != name || h.Size != size || h.Typeflag != tar.TypeReg || h.Mode != mode || h.Uid != 0 || h.Gid != 0 || len(h.PAXRecords) != 0 || size < 1 || size > saas.MaxBuildDecoded {
+	// Moby's archive producer includes POSIX S_IFREG, unlike Go's default
+	// tar writer. Accept only these two exact regular encodings: masking to
+	// permissions alone would silently accept special/unsafe mode bits.
+	regularMode := h.Mode == mode || h.Mode == (0100000|mode)
+	if h.Name != name || h.Size != size || h.Typeflag != tar.TypeReg || !regularMode || h.Uid != 0 || h.Gid != 0 || h.Linkname != "" || h.Devmajor != 0 || h.Devminor != 0 || len(h.PAXRecords) != 0 || size < 1 || size > saas.MaxBuildDecoded {
 		// Preserve bounded metadata facts without weakening the copy contract.
-		return fmt.Errorf("Cortexium copied file metadata differs: name=%.96q size=%d type=%d mode=%#o uid=%d gid=%d pax_records=%d", h.Name, h.Size, h.Typeflag, h.Mode, h.Uid, h.Gid, len(h.PAXRecords))
+		return fmt.Errorf("Cortexium copied file metadata differs: name=%.96q want=%.96q size=%d want_size=%d type=%d mode=%#o want_mode=%#o uid=%d gid=%d link=%t device=%d:%d pax_records=%d", h.Name, name, h.Size, size, h.Typeflag, h.Mode, mode, h.Uid, h.Gid, h.Linkname != "", h.Devmajor, h.Devminor, len(h.PAXRecords))
 	}
 	hash := sha256.New()
 	if n, err := io.Copy(hash, t); err != nil || n != size || hex.EncodeToString(hash.Sum(nil)) != digest {

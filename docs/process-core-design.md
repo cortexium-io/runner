@@ -16,7 +16,7 @@ App/browser startup at strict copied-file metadata verification. All exact owned
 containers/volumes and clients settled, while nonforced removal of the derived
 image timed out and the positively owned image remains. The metadata cause is
 unestablished; bounded received-header diagnostics are prepared without weakening
-acceptance. Operations owns read-only engine triage. No new fixture/removal or
+acceptance. The Moby regular-file mode-bit encoding mismatch is corrected by accepting only either exact regular encoding, with Docker-shaped positive/negative tests. This is a proven source defect and likely cause, not an observation of fixture01's lost header. Operations owns read-only engine triage. No new fixture/removal or
 host repair follows from this blocked preparation. Full nine-journey, adversarial
 isolation, resource and native lifecycle qualification remains missing. Prior
 macOS failures are preserved, not retried. No installed/frozen policy changes.

@@ -9,7 +9,7 @@ that image remains retained. Metadata compatibility, full nine journeys,
 adversarial isolation, aggregate resources and native lifecycle cleanup remain
 unqualified. Operations owns read-only engine triage. Do not install, admit App
 work, retry host cleanup or waive the browser/image gates from this preparation.
-Prior macOS CFT sandbox failures remain historical evidence; that path is removed.
+Prior macOS CFT sandbox failures remain historical evidence; that path is removed. A primary-source Moby regular-file mode-bit incompatibility has since been corrected with positive/negative synthetic tar tests; fixture01's actual header remains unobserved.
 
 This opt-in route implements the protected first-flow brief at docs
 `346656cbbcfc8ac09f120e35d96981c7a33f2cf3`, SHA256
