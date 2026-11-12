@@ -1,0 +1,26 @@
+{
+  "id": "source-review",
+  "purpose": "Independently review generated and app-owned source plus actual network-disabled execution proof before any candidate browser networking.",
+  "inputs": {
+    "request": "text",
+    "manifest": "artifact",
+    "patch": "artifact",
+    "evidence": "artifact",
+    "authority": "artifact",
+    "summary": "text"
+  },
+  "outputs": {
+    "verdict": "text",
+    "summary": "text"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Read AGENTS.md, original request, protected first-flow authority, joined manifest, current patch and authenticated saas-saas.json and saas-reports-*.json. Verify same normal App construction in cmd/runner-local, generated auth/model ownership, session-derived tenant boundaries on custom actions/artifacts/Worker dispatch, frozen versions, exact acceptance, cancellation/receipt recovery and no provider credentials or alternate test-only app. Actual Go/Vue tests/builds are required; source owners cannot supply acceptance. Do not edit or execute checks, Git, agents or external work. Return ready with verdict exactly APPROVE only for complete source/check proof. Concrete scoped findings return changes_requested and BLOCKED; missing capability/material decision returns blocked. Real Worker/model proof is separately unverified, not replaced by fixtures. Summary <=240 characters. Protected authority-brief.md and authority-contract.md, plus exact authority-go.mod/go.sum/package/lock files, are staged in the same read-only input directory as the authority artifact. Read those actual bytes, not only their hashes.",
+    "mode": "saas-source-review"
+  }
+}

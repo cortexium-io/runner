@@ -1,0 +1,50 @@
+{
+  "id": "cortexium-local",
+  "name": "Cortexium reviewed local Go/Vue/Genny candidate",
+  "workspace": "/absolute/path/to/cortexium-app",
+  "source": {
+    "ref": "HEAD"
+  },
+  "default_process": "develop-local",
+  "roles": {
+    "authority": {
+      "file": "roles/authority.json"
+    },
+    "integrate": {
+      "file": "roles/integrate.json"
+    },
+    "local-browser": {
+      "file": "roles/local-browser.json"
+    },
+    "local-check": {
+      "file": "roles/local-check.json"
+    },
+    "local-review": {
+      "file": "roles/local-review.json"
+    },
+    "planned-card-owner": {
+      "file": "roles/planned-card-owner.json"
+    },
+    "planned-plan": {
+      "file": "roles/planned-plan.json"
+    },
+    "planned-repair": {
+      "file": "roles/planned-repair.json"
+    },
+    "source-review": {
+      "file": "roles/source-review.json"
+    },
+    "task-source-join": {
+      "file": "roles/task-source-join.json"
+    },
+    "task-source-pin": {
+      "file": "roles/task-source-pin.json"
+    },
+    "task-source-seed": {
+      "file": "roles/task-source-seed.json"
+    }
+  },
+  "processes": {
+    "develop-local": "processes/develop-local.json"
+  }
+}

@@ -113,13 +113,22 @@ func (r *Releases) experienceGate(j releaseJob, o runner.Observation) (runner.Ob
 // Images are attached explicitly by the trusted adapter; the model gets no
 // image tool, browser, operator command, private artifact store or extra access.
 func experienceImageInputs(disk *runner.Disk, j nativeJob) ([]any, error) {
-	if j.Assignment.Setup.Profile.Mode != "experience-review" {
+	mode := j.Assignment.Setup.Profile.Mode
+	if mode != "experience-review" && mode != "saas-review" {
 		return nil, nil
 	}
 	if j.Workspace == nil {
 		return nil, errors.New("experience images need the prepared read-only workspace")
 	}
-	_, files, err := experienceData(disk, j.Assignment)
+	prefix, manifest := "experience-", "experience-experience.json"
+	var files map[string][]byte
+	var err error
+	if mode == "saas-review" {
+		_, files, err = saasData(disk, j.Assignment)
+		prefix, manifest = "saas-", "saas-saas.json"
+	} else {
+		_, files, err = experienceData(disk, j.Assignment)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -130,14 +139,18 @@ func experienceImageInputs(disk *runner.Disk, j nativeJob) ([]any, error) {
 		}
 	}
 	sort.Strings(names)
+	caption := "Authenticated candidate viewport images follow in lexicographic filename order. Match them to images[].name in the protected " + manifest + " manifest. Historical reference evidence does not establish this candidate's behavior."
+	if mode == "saas-review" {
+		caption += " Local SaaS evidence does not establish real Worker/model execution."
+	}
 	inputs := []any{map[string]any{
 		"type": "text",
-		"text": "Authenticated candidate viewport images follow in lexicographic filename order. Match them to images[].name in the protected experience-experience.json manifest. Historical reference evidence does not establish this candidate's behavior.",
+		"text": caption,
 	}}
 	for _, name := range names {
 		inputs = append(inputs, map[string]any{
 			"type": "localImage",
-			"path": filepath.Join(j.Workspace.WorkDir, ".runner-tmp", "inputs", j.Assignment.AttemptID, "experience-"+name),
+			"path": filepath.Join(j.Workspace.WorkDir, ".runner-tmp", "inputs", j.Assignment.AttemptID, prefix+name),
 		})
 	}
 	return inputs, nil

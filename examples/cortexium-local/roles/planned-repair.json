@@ -1,0 +1,30 @@
+{
+  "id": "planned-repair",
+  "purpose": "Correct the combined Go candidate using full accepted-plan and scoped execution evidence.",
+  "inputs": {
+    "request": "text",
+    "manifest": "artifact",
+    "checks": "artifact",
+    "review": "text",
+    "join_feedback": "text",
+    "authority": "artifact",
+    "experience": "text",
+    "browser": "artifact"
+  },
+  "outputs": {
+    "summary": "text",
+    "patch": "artifact"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "On an initial join rejection, use join_feedback and manifest to repair the concrete conflict. Evidence may be baseline/join evidence before the first combined check; it never establishes current-candidate acceptance. Follow original request, AGENTS.md, accepted plan manifest and full scoped Go proof. Preserve completed cards; repair only the combined candidate within original acceptance. Fix concrete source/check/review findings, preserve public contracts and unrelated work, and add only meaningful regression coverage. Do not run checks, Git, agents or external work. Configured steps own checks and independent review. Missing capability or a material decision returns blocked. Do not change workflow, budgets, dependencies or permissions. Return summary <=240 characters; do not claim pending proof passed. Read the protected authority artifact and local contract. Use the positively pinned generator and compiler for source generation/editing only; do not run checks. Import only the admitted Go/npm reference manifests/locks. Preserve normal Genny generation guards and same-App construction. Do not bypass tenant/session/Worker checks, manufacture outcomes, or claim real Worker/model acceptance from fixtures. Fixed later checks/reviews alone establish proof. Protected authority-brief.md and authority-contract.md, plus exact authority-go.mod/go.sum/package/lock files, are staged in the same read-only input directory as the authority artifact. Read those actual bytes, not only their hashes.",
+    "mode": "genny-source",
+    "generator_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "generator_go_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -130,6 +131,13 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 		}
 		if c.GoBinary != "" && strings.ContainsRune(c.GoBinary, os.PathSeparator) {
 			c.GoBinary = resolve(l.Path, c.GoBinary)
+		}
+		if g := c.Genny; g != nil {
+			g.Binary = resolve(l.Path, g.Binary)
+			g.GoBinary = resolve(l.Path, g.GoBinary)
+			if !filepath.IsAbs(g.Binary) || !filepath.IsAbs(g.GoBinary) || filepath.Dir(filepath.Dir(g.GoBinary)) == string(filepath.Separator) || filepath.Base(g.GoBinary) != "go" || filepath.Base(filepath.Dir(g.GoBinary)) != "bin" || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(g.SHA256) || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(g.GoSHA256) {
+				return s, errors.New("codex.genny requires explicit generator/toolchain paths and SHA256 pins")
+			}
 		}
 		if c.GoModuleCache != "" {
 			path, err := filepath.EvalSymlinks(resolve(l.Path, c.GoModuleCache))
@@ -303,6 +311,9 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 					}
 					if profile.Access != "input-only" && s.Instance.Codex.GoBinary == "" {
 						return s, errors.New("workspace execution requires explicit codex.go_binary")
+					}
+					if profile.Mode == "genny-source" && (s.Instance.Codex.Genny == nil || profile.GeneratorSHA256 != s.Instance.Codex.Genny.SHA256 || profile.GeneratorGoSHA256 != s.Instance.Codex.Genny.GoSHA256) {
+						return s, errors.New("genny-source requires its separately pinned generator and Go runtime")
 					}
 					if profile.Access == "workspace-write" && role.Outputs["patch"] != "artifact" {
 						return s, errors.New("workspace coding needs a patch artifact output owned by Runner")
@@ -567,6 +578,9 @@ func boundedTypes(m map[string]string, limit int) error {
 	return nil
 }
 func ready(p runner.Profile) error {
+	if p.Mode != "genny-source" && (p.GeneratorSHA256 != "" || p.GeneratorGoSHA256 != "") || p.Mode == "genny-source" && (p.Harness != "codex" || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(p.GeneratorSHA256) || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(p.GeneratorGoSHA256)) {
+		return errors.New("generator runtime pins belong only to the explicit genny-source codex profile")
+	}
 	if p.Harness == "task-source" {
 		if p.Access != "workspace-read" || !slices.Contains([]string{"seed", "pin", "join"}, p.Mode) || p.Command != nil || p.Model != "" || p.Reasoning != "" || p.Instructions != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.MaxInput != 0 || p.MaxOutput != 0 {
 			return errors.New("task-source selects fixed seed/pin/join mode with workspace-read access and no model or command settings")
@@ -635,7 +649,8 @@ func ready(p runner.Profile) error {
 		return nil
 	}
 	if p.Harness == "codex" {
-		if p.Model == "" || len(p.Model) > 100 || (p.Access != "input-only" && p.Access != "workspace-write" && p.Access != "workspace-read") || p.Mode != "" && (p.Mode != "experience-review" || p.Access != "workspace-read") || p.Input != "" || p.Output != "" || p.Delay != "" || p.Text != "" || p.LogBytes != 0 {
+		modeOK := p.Mode == "" || (p.Mode == "experience-review" || p.Mode == "saas-review" || p.Mode == "saas-source-review" || p.Mode == "saas-plan") && p.Access == "workspace-read" || p.Mode == "genny-source" && p.Access == "workspace-write"
+		if p.Model == "" || len(p.Model) > 100 || (p.Access != "input-only" && p.Access != "workspace-write" && p.Access != "workspace-read") || !modeOK || p.Input != "" || p.Output != "" || p.Delay != "" || p.Text != "" || p.LogBytes != 0 {
 			return errors.New("codex needs an explicit model and input-only/workspace-write/workspace-read access, without deterministic settings")
 		}
 		switch p.Reasoning {
@@ -671,6 +686,9 @@ func ready(p runner.Profile) error {
 	return nil
 }
 func validateProcess(v runner.Process, p runner.Project) error {
+	if err := validateLocalSaaS(v, p); err != nil {
+		return err
+	}
 	if err := taskSourcePlacement(v, p); err != nil {
 		return err
 	}

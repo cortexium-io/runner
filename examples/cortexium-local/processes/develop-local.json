@@ -1,0 +1,433 @@
+{
+  "id": "develop-local",
+  "inputs": {
+    "request": "text"
+  },
+  "steps": [
+    {
+      "id": "authority",
+      "role": "authority",
+      "inputs": {},
+      "routes": {
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "plan",
+      "role": "planned-plan",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "feedback": {
+          "from_step": "cards",
+          "output": "feedback",
+          "previous": true,
+          "default": {
+            "inline": ""
+          }
+        },
+        "authority": {
+          "from_step": "authority",
+          "output": "artifact"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "cards"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "cards",
+      "for_each": {
+        "mode": "isolated",
+        "max_parallel": 2,
+        "scope_input": "paths",
+        "items": {
+          "from_step": "plan",
+          "output": "tasks"
+        },
+        "inputs": {
+          "task": "text",
+          "paths": "json"
+        },
+        "steps": [
+          {
+            "id": "seed",
+            "role": "task-source-seed",
+            "inputs": {
+              "dependencies": {
+                "from_input": "_task_dependencies"
+              }
+            },
+            "routes": {
+              "blocked": {
+                "next": "$fail"
+              }
+            }
+          },
+          {
+            "id": "owner",
+            "role": "planned-card-owner",
+            "inputs": {
+              "request": {
+                "from_input": "request"
+              },
+              "task": {
+                "from_item": "task"
+              },
+              "paths": {
+                "from_item": "paths"
+              },
+              "manifest": {
+                "from_step": "pin",
+                "output": "manifest",
+                "previous": true,
+                "fallback": {
+                  "from_step": "seed",
+                  "output": "manifest"
+                }
+              },
+              "feedback": {
+                "from_step": "pin",
+                "output": "feedback",
+                "previous": true,
+                "default": {
+                  "inline": ""
+                }
+              },
+              "authority": {
+                "from_input": "_task_evidence_authority"
+              }
+            },
+            "routes": {
+              "blocked": {
+                "next": "$fail"
+              }
+            }
+          },
+          {
+            "id": "pin",
+            "role": "task-source-pin",
+            "inputs": {
+              "patch": {
+                "from_step": "owner",
+                "output": "patch"
+              },
+              "summary": {
+                "from_step": "owner",
+                "output": "summary"
+              }
+            },
+            "routes": {
+              "changes_requested": {
+                "next": "owner",
+                "max_times": 3
+              },
+              "blocked": {
+                "next": "$fail"
+              }
+            }
+          }
+        ],
+        "output": {
+          "from_step": "pin",
+          "output": "candidate"
+        },
+        "evidence": {
+          "authority": {
+            "from_step": "authority",
+            "output": "artifact"
+          }
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "join"
+        },
+        "blocked": {
+          "next": "$fail"
+        },
+        "invalid_plan": {
+          "next": "plan",
+          "max_times": 2
+        }
+      }
+    },
+    {
+      "id": "join",
+      "role": "task-source-join",
+      "inputs": {
+        "results": {
+          "from_step": "cards",
+          "output": "results"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "check"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "owner",
+      "role": "planned-repair",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "manifest": {
+          "from_step": "join",
+          "output": "manifest"
+        },
+        "checks": {
+          "from_step": "check",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "join",
+            "output": "manifest"
+          }
+        },
+        "review": {
+          "from_step": "source-review",
+          "output": "summary",
+          "previous": true,
+          "default": {
+            "inline": ""
+          }
+        },
+        "join_feedback": {
+          "from_step": "join",
+          "output": "feedback"
+        },
+        "authority": {
+          "from_step": "authority",
+          "output": "artifact"
+        },
+        "experience": {
+          "from_step": "local-review",
+          "output": "summary",
+          "previous": true,
+          "default": {
+            "inline": ""
+          }
+        },
+        "browser": {
+          "from_step": "browser",
+          "output": "artifact",
+          "previous": true,
+          "fallback": {
+            "from_step": "join",
+            "output": "manifest"
+          }
+        }
+      },
+      "routes": {
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "check",
+      "role": "local-check",
+      "inputs": {
+        "patch": {
+          "from_candidate": true
+        },
+        "authority": {
+          "from_step": "authority",
+          "output": "artifact"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "source-review"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "source-review",
+      "role": "source-review",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "manifest": {
+          "from_step": "join",
+          "output": "manifest"
+        },
+        "patch": {
+          "from_candidate": true
+        },
+        "summary": {
+          "from_step": "owner",
+          "output": "summary",
+          "default": {
+            "inline": ""
+          }
+        },
+        "evidence": {
+          "from_step": "check",
+          "output": "artifact"
+        },
+        "authority": {
+          "from_step": "authority",
+          "output": "artifact"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "browser"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "browser",
+      "role": "local-browser",
+      "inputs": {
+        "patch": {
+          "from_candidate": true
+        },
+        "authority": {
+          "from_step": "authority",
+          "output": "artifact"
+        },
+        "checks": {
+          "from_step": "check",
+          "output": "artifact"
+        },
+        "verdict": {
+          "from_step": "source-review",
+          "output": "verdict"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "local-review"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "local-review",
+      "role": "local-review",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        },
+        "manifest": {
+          "from_step": "join",
+          "output": "manifest"
+        },
+        "patch": {
+          "from_candidate": true
+        },
+        "summary": {
+          "from_step": "owner",
+          "output": "summary",
+          "default": {
+            "inline": ""
+          }
+        },
+        "evidence": {
+          "from_step": "browser",
+          "output": "artifact"
+        },
+        "authority": {
+          "from_step": "authority",
+          "output": "artifact"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "integrate"
+        },
+        "changes_requested": {
+          "next": "owner",
+          "max_times": 3
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    },
+    {
+      "id": "integrate",
+      "role": "integrate",
+      "inputs": {
+        "patch": {
+          "from_candidate": true
+        },
+        "verdict": {
+          "from_step": "local-review",
+          "output": "verdict"
+        },
+        "review": {
+          "from_step": "local-review",
+          "output": "summary"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "candidate": {
+      "from_step": "integrate",
+      "output": "candidate"
+    },
+    "checks": {
+      "from_step": "check",
+      "output": "artifact"
+    },
+    "manifest": {
+      "from_step": "join",
+      "output": "manifest"
+    },
+    "evidence": {
+      "from_step": "browser",
+      "output": "artifact"
+    },
+    "authority": {
+      "from_step": "authority",
+      "output": "artifact"
+    }
+  },
+  "max_attempts": 64,
+  "max_attempts_per_step": 1,
+  "infrastructure_retries": 1,
+  "attempt_timeout": "20m"
+}

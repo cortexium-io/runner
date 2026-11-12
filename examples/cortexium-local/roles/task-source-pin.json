@@ -1,0 +1,18 @@
+{
+  "id": "task-source-pin",
+  "purpose": "Pin this card source internally without claiming review, integration or publication approval.",
+  "inputs": {
+    "patch": "artifact",
+    "summary": "text"
+  },
+  "outputs": {
+    "candidate": "json",
+    "manifest": "artifact",
+    "feedback": "text"
+  },
+  "execution": {
+    "harness": "task-source",
+    "mode": "pin",
+    "access": "workspace-read"
+  }
+}

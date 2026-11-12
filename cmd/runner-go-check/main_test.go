@@ -669,6 +669,33 @@ func TestMissingOrIncompleteProofDoesNotPass(t *testing.T) {
 	}
 }
 
+func TestSkipDiagnosticsAreBoundedFactsWithoutChangingStrictVerdict(t *testing.T) {
+	var stream eventStream
+	stream.states = map[testID]*testState{}
+	stream.packages = map[string]*packageState{}
+	stream.builds = map[string]*buildState{}
+	for _, event := range []map[string]string{
+		{"Action": "run", "Package": "fixture", "Test": "TestRequired"},
+		{"Action": "output", "Package": "fixture", "Test": "TestRequired", "Output": "    required_test.go:12: required fixture unavailable\n"},
+		{"Action": "skip", "Package": "fixture", "Test": "TestRequired"},
+	} {
+		b, _ := json.Marshal(event)
+		if _, err := stream.Write(append(b, '\n')); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := stream.states[testID{"fixture", "TestRequired"}]
+	if s == nil || s.skipDiagnostic != "    required_test.go:12: required fixture unavailable\n" || s.skipTruncated {
+		t.Fatal("exact skip diagnostic lost", s)
+	}
+	o := fixture(t, "mixed-skip")
+	o.selection, o.regression, o.development = "^Test", "", ""
+	r := run(context.Background(), o)
+	if r.Scope == nil || r.Scope.Status != "failed" || exitCode(r) != 2 {
+		t.Fatal("diagnostic extension waived required skip", r)
+	}
+}
+
 func TestScopeTimeoutSettlesChild(t *testing.T) {
 	o := fixture(t, "wait")
 	o.timeout = time.Second

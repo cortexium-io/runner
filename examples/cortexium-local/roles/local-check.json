@@ -1,0 +1,37 @@
+{
+  "id": "local-check",
+  "purpose": "Run fixed network-disabled Go/Vue/generated-ownership checks and bind the local build to the current candidate.",
+  "inputs": {
+    "patch": "artifact",
+    "authority": "artifact"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-saas-check",
+        "--source",
+        "{workspace}",
+        "--scratch",
+        "{scratch}",
+        "--authority",
+        "{input.authority}",
+        "--base",
+        "{source.base}",
+        "--patch",
+        "{input.patch}",
+        "--runtime",
+        "/absolute/path/to/saas-runtime.json",
+        "--patch-id",
+        "{artifact_id.patch}"
+      ],
+      "artifact": "checks.tar.gz",
+      "result": "domain.json"
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "projects": [
+    "project.json"
+  ],
+  "concurrency": 1,
+  "reconcile_interval": "5m",
+  "codex": {
+    "binary": "/absolute/path/to/codex",
+    "go_binary": "/absolute/path/to/go",
+    "read_only_paths": [
+      "AGENTS.md",
+      "go.mod",
+      "go.sum",
+      "frontend/package.json",
+      "frontend/package-lock.json"
+    ],
+    "storage_limit": "32MiB",
+    "genny": {
+      "binary": "/absolute/path/to/genny",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "go_binary": "/absolute/path/to/go1.27.3/bin/go",
+      "go_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "go_module_cache": "/absolute/path/to/public-go-module-cache",
+    "command_read_paths": [
+      "/absolute/path/to/go1.27.3",
+      "/absolute/path/to/genny",
+      "/absolute/path/to/node-installation",
+      "/absolute/path/to/vue-runtime",
+      "/absolute/path/to/browser-runtime",
+      "/absolute/path/to/chrome-bundle",
+      "/absolute/path/to/runner-go-check",
+      "/absolute/path/to/runner-saas-check",
+      "/absolute/path/to/saas-runtime.json",
+      "/absolute/path/to/admitted-authority.json",
+      "/absolute/path/to/public-go-module-cache"
+    ]
+  },
+  "storage": {
+    "max_managed": "1GiB",
+    "min_free": "1GiB",
+    "database": {
+      "max_size": "24MiB",
+      "max_record": "128KiB",
+      "max_runs": 20
+    },
+    "max_artifact": "16MiB",
+    "keep_runs": "168h",
+    "logs": {
+      "max_per_attempt": "64KiB",
+      "keep_for": "168h"
+    }
+  },
+  "task_concurrency": 2
+}

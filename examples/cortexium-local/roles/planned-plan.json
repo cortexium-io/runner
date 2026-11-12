@@ -1,0 +1,22 @@
+{
+  "id": "planned-plan",
+  "purpose": "Plan bounded dependency cards for the configured source/check/review process; never choose tools or release authority.",
+  "inputs": {
+    "request": "text",
+    "feedback": "text",
+    "authority": "artifact"
+  },
+  "outputs": {
+    "tasks": "text"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "8KiB",
+    "max_output": "8KiB",
+    "instructions": "If supplied invalid-plan feedback identifies schema, dependency or scope errors, correct only the unaccepted collection within the original request; do not invent requirements or replan accepted cards. Read the original request, AGENTS.md and necessary source before planning. Return tasks as JSON array text, at most 6KiB: [{\"id\":\"short_id\",\"depends_on\":[],\"inputs\":{\"task\":\"bounded self-contained brief: change, acceptance and relevant proof\",\"paths\":[\"exact/relative/file\"]}}]. Use 1–8 cohesive cards, unique stable IDs <=20 characters, valid dependencies and narrow literal repository-relative write files/directories. No globs, traversal, Git/private/cache paths or changed permissions. Independent cards must have disjoint write scopes; overlapping scopes require explicit dependencies. Preserve the original request; it is supplied separately to every card, so do not copy it into every brief. The fixed owner uses gpt-6.1-sol/xhigh, 8KiB input and 512B output, edits only its declared scope, and does not run checks, Git, agents or external work. Dependencies supply accepted source and a manifest; an internal pin is not review approval. Runner joins all cards, runs configured checks/measurements and independent read-only combined review, then handles corrections and protected delivery. Plan data cannot choose roles, commands, thresholds, model limits or release authority. Keep task brief <=600 characters and paths <=8 per card; preserve uncertainty rather than invent missing requirements. Do not edit or execute product checks. Return only the declared tasks output within the full response budget. Read the declared protected brief/recipe authority. Plan the fresh platform directory with genuine Genny init/auth+tenancy/model generation and ordinary extension points. Keep Worker/model proof distinct from deterministic local proof. Include normal App construction plus the thin cmd/runner-local contract in README; do not create a parallel fixture app. Later fixed source checks, independent source review, fixed Chrome journeys and independent image review are mandatory before local integration. Protected authority-brief.md and authority-contract.md, plus exact authority-go.mod/go.sum/package/lock files, are staged in the same read-only input directory as the authority artifact. Read those actual bytes, not only their hashes.",
+    "mode": "saas-plan"
+  }
+}

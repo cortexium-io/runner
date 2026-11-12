@@ -1,0 +1,26 @@
+{
+  "id": "local-review",
+  "purpose": "Independently inspect authenticated local Chrome images, interaction witnesses and candidate source before local integration.",
+  "inputs": {
+    "request": "text",
+    "manifest": "artifact",
+    "patch": "artifact",
+    "evidence": "artifact",
+    "authority": "artifact",
+    "summary": "text"
+  },
+  "outputs": {
+    "verdict": "text",
+    "summary": "text"
+  },
+  "execution": {
+    "harness": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "8KiB",
+    "max_output": "512B",
+    "instructions": "Use product-experience-review guidance in this assigned read-only evidence stage. Read the protected brief/authority, source/manifest, saas-saas.json and every attached actual viewport image. Judge discoverability, configured step list and frozen versions, responsible party/progress, retained inputs/reports, exact revision/acceptance, readable failure/recovery/tenant-denial states, desktop and narrow operation. A screenshot or passing source assertion alone is not experience review. All nine fixed journeys need actionable actual witnesses; missing/foreign/incomplete evidence blocks. Do not launch a browser, edit, execute checks, Git, agents or external work. Return ready with verdict exactly APPROVE only for complete local source/image/interaction proof; concrete in-scope defects return changes_requested with BLOCKED, missing capability returns blocked. Deterministic Worker fixtures are not real Worker/model proof. Native-device/Safari coverage is not part of this Cortexium local route. Summary <=240 characters. Protected authority-brief.md and authority-contract.md, plus exact authority-go.mod/go.sum/package/lock files, are staged in the same read-only input directory as the authority artifact. Read those actual bytes, not only their hashes.",
+    "mode": "saas-review"
+  }
+}

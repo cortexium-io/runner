@@ -38,9 +38,11 @@ type options struct {
 }
 
 type testResult struct {
-	Package string `json:"package,omitempty"`
-	Name    string `json:"name"`
-	Outcome string `json:"outcome"`
+	Package             string `json:"package,omitempty"`
+	Name                string `json:"name"`
+	Outcome             string `json:"outcome"`
+	SkipDiagnostic      string `json:"skip_diagnostic,omitempty"`
+	SkipOutputTruncated bool   `json:"skip_output_truncated,omitempty"`
 }
 
 type packageResult struct {
@@ -509,7 +511,7 @@ func runScope(parent context.Context, o options, selector string, env []string) 
 			r.EvidenceIncomplete = true
 		}
 		if state.outcome != "" || o.selection != "" {
-			result := testResult{Name: id.name, Outcome: state.outcome}
+			result := testResult{Name: id.name, Outcome: state.outcome, SkipDiagnostic: state.skipDiagnostic, SkipOutputTruncated: state.skipTruncated}
 			if o.selection != "" {
 				result.Package = id.pkg
 				if result.Outcome == "" {
@@ -601,9 +603,11 @@ func (b *diagnostic) String() string {
 }
 
 type testState struct {
-	ran, child bool
-	outcome    string
-	output     diagnostic
+	ran, child     bool
+	outcome        string
+	output         diagnostic
+	skipDiagnostic string
+	skipTruncated  bool
 }
 
 type testID struct{ pkg, name string }
@@ -746,6 +750,9 @@ func (s *eventStream) finish() {
 		test.outcome = event.Action
 		if event.Action == "fail" && s.failureTest == "" {
 			s.failureTest, s.failurePackage, s.failure = event.Test, event.Package, test.output.String()
+		}
+		if event.Action == "skip" {
+			test.skipDiagnostic, test.skipTruncated = test.output.String(), test.output.truncated
 		}
 		test.output = diagnostic{}
 	}

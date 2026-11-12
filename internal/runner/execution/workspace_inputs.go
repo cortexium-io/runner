@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
+	"github.com/cortexium-io/runner/internal/saas"
 )
 
 // Declared artifacts and overflowed inline JSON use the protected input subtree.
@@ -143,6 +144,20 @@ func stagedInputData(disk *runner.Disk, a runner.Assignment) (map[string][]byte,
 		}
 		files[name] = data
 	}
+	mode := a.Setup.Profile.Mode
+	if mode == "saas-plan" || mode == "saas-review" || mode == "saas-source-review" || mode == "genny-source" && a.Inputs["authority"].ArtifactID != "" {
+		w, err := (&Workspaces{disk: disk}).load(a.RunID)
+		if err != nil {
+			return nil, err
+		}
+		authority, err := saas.DecodeAuthority(files["authority"], w.Base)
+		if err != nil {
+			return nil, err
+		}
+		for name, data := range map[string]string{"authority-brief.md": authority.Brief, "authority-contract.md": authority.Contract, "authority-go.mod": authority.GoMod, "authority-go.sum": authority.GoSum, "authority-package.json": authority.Package, "authority-package-lock.json": authority.Lock} {
+			files[name] = []byte(data)
+		}
+	}
 	if a.Setup.Profile.Mode == "experience-review" {
 		_, evidence, err := experienceData(disk, a)
 		if err != nil {
@@ -150,6 +165,15 @@ func stagedInputData(disk *runner.Disk, a runner.Assignment) (map[string][]byte,
 		}
 		for name, data := range evidence {
 			files["experience-"+name] = data
+		}
+	}
+	if a.Setup.Profile.Mode == "saas-review" || a.Setup.Profile.Mode == "saas-source-review" {
+		_, evidence, err := saasData(disk, a)
+		if err != nil {
+			return nil, err
+		}
+		for name, data := range evidence {
+			files["saas-"+strings.ReplaceAll(name, "/", "-")] = data
 		}
 	}
 	return files, nil

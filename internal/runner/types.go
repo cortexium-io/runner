@@ -109,14 +109,24 @@ type ReleaseSettings struct {
 // CodexSettings selects the instance's native service and command runtime,
 // not model context.
 type CodexSettings struct {
-	Binary           string   `json:"binary"`
-	AuthFile         string   `json:"auth_file"`
-	StorageLimit     Bytes    `json:"storage_limit"`
-	GoBinary         string   `json:"go_binary,omitempty"`
-	GoModuleCache    string   `json:"go_module_cache,omitempty"`
-	GoCheckBinary    string   `json:"go_check_binary,omitempty"`
-	ReadOnlyPaths    []string `json:"read_only_paths,omitempty"`
-	CommandReadPaths []string `json:"command_read_paths,omitempty"`
+	Binary           string        `json:"binary"`
+	AuthFile         string        `json:"auth_file"`
+	StorageLimit     Bytes         `json:"storage_limit"`
+	GoBinary         string        `json:"go_binary,omitempty"`
+	GoModuleCache    string        `json:"go_module_cache,omitempty"`
+	GoCheckBinary    string        `json:"go_check_binary,omitempty"`
+	ReadOnlyPaths    []string      `json:"read_only_paths,omitempty"`
+	CommandReadPaths []string      `json:"command_read_paths,omitempty"`
+	Genny            *GennyRuntime `json:"genny,omitempty"`
+}
+
+// GennyRuntime is an opt-in source-generation runtime. Ordinary source/check
+// profiles keep the instance Go runtime and cannot read these executables.
+type GennyRuntime struct {
+	Binary   string `json:"binary"`
+	SHA256   string `json:"sha256"`
+	GoBinary string `json:"go_binary"`
+	GoSHA256 string `json:"go_sha256"`
 }
 type SourceSettings struct {
 	Ref string `json:"ref"`
@@ -151,20 +161,22 @@ type Snapshot struct {
 }
 
 type Profile struct {
-	Command      *Command `json:"command,omitempty"`
-	Harness      string   `json:"harness"`
-	Mode         string   `json:"mode"`
-	Delay        string   `json:"delay,omitempty"`
-	Input        string   `json:"input,omitempty"`
-	Output       string   `json:"output,omitempty"`
-	Text         string   `json:"text,omitempty"`
-	LogBytes     int64    `json:"log_bytes,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	Reasoning    string   `json:"reasoning,omitempty"`
-	Instructions string   `json:"instructions,omitempty"`
-	Access       string   `json:"access,omitempty"`
-	MaxInput     Bytes    `json:"max_input,omitempty"`
-	MaxOutput    Bytes    `json:"max_output,omitempty"`
+	Command           *Command `json:"command,omitempty"`
+	Harness           string   `json:"harness"`
+	Mode              string   `json:"mode"`
+	Delay             string   `json:"delay,omitempty"`
+	Input             string   `json:"input,omitempty"`
+	Output            string   `json:"output,omitempty"`
+	Text              string   `json:"text,omitempty"`
+	LogBytes          int64    `json:"log_bytes,omitempty"`
+	Model             string   `json:"model,omitempty"`
+	Reasoning         string   `json:"reasoning,omitempty"`
+	Instructions      string   `json:"instructions,omitempty"`
+	Access            string   `json:"access,omitempty"`
+	MaxInput          Bytes    `json:"max_input,omitempty"`
+	MaxOutput         Bytes    `json:"max_output,omitempty"`
+	GeneratorSHA256   string   `json:"generator_sha256,omitempty"`
+	GeneratorGoSHA256 string   `json:"generator_go_sha256,omitempty"`
 }
 
 // Command is a configured argv, never a model-selected shell string. Runtime

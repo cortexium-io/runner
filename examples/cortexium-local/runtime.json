@@ -1,0 +1,9 @@
+{
+  "go": "/absolute/path/to/go1.27.3/bin/go",
+  "genny": "/absolute/path/to/genny",
+  "node": "/absolute/path/to/node",
+  "modules": "/absolute/path/to/vue-runtime/node_modules",
+  "browser_runtime": "/absolute/path/to/browser-runtime",
+  "chrome": "/absolute/path/to/chrome-bundle/chrome",
+  "go_check": "/absolute/path/to/runner-go-check"
+}

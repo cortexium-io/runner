@@ -99,7 +99,11 @@ func (p *scriptedPeer) Call(ctx context.Context, method string, params, out any)
 				return e
 			}
 			profiles := map[string]any{}
-			for _, name := range []string{"runner-input", "runner-edit", "runner-check"} {
+			names := []string{"runner-input", "runner-edit", "runner-check"}
+			if p.config.Genny != nil {
+				names = append(names, "runner-genny-edit")
+			}
+			for _, name := range names {
 				profiles[name] = map[string]any{"filesystem": workspaceFiles(p.config, name, goRoot), "network": map[string]any{"enabled": false}}
 			}
 			result.(map[string]any)["config"].(map[string]any)["permissions"] = profiles
@@ -123,7 +127,7 @@ func (p *scriptedPeer) Call(ctx context.Context, method string, params, out any)
 		permission, _ := args["permissions"].(string)
 		p.permissions = append(p.permissions, permission)
 		p.instructions = append(p.instructions, args["baseInstructions"].(string))
-		if permission == "runner-edit" || permission == "runner-check" {
+		if permission == "runner-edit" || permission == "runner-check" || permission == "runner-genny-edit" {
 			p.workspace = args["cwd"].(string)
 		}
 		p.thread = "native-thread"

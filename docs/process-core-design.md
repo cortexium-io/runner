@@ -6,6 +6,53 @@ across real projects. Merge and production remain owner-approved actions.**
 
 ## Current completion plan
 
+### Cortexium local Go/Vue/Genny route, 12 November 2026
+
+Status: prepared portable source, **unqualified for App admission and unactivated**.
+Genuine generated Go/Vue checks, native generator boundaries, model-free complete
+control/correction gates and owned outside-sandbox CFT failure/cancel proof pass.
+The unchanged outer macOS command sandbox cannot currently start installed CFT,
+including both supported Playwright child sandbox modes. This browser capability
+and the separate primary-host Worker/model proof route remain actual blockers;
+no gate is waived and no installed/frozen policy is changed. Continue through the
+owning Operations review, not an external App worker or guessed host permission.
+
+The next bounded package prepares one complete local-candidate route for the
+protected first-flow brief at docs commit
+`346656cbbcfc8ac09f120e35d96981c7a33f2cf3`, SHA256
+`98b3cd9ea83976986d6f7903c61644d8db721d4d05c07a04b20411bcfb58d59d`.
+Planning, isolated cards, source checks, corrections, independent source/image
+review and local integration stay in Runner. Operations owns installation,
+admission, refreshed App/Worker/Protocol refs and one restricted intake; no App
+implementation, migration, public deployment or live configuration change belongs
+to the maintenance coordinator. Preserve the website owner's preview on port4180 and
+QTP's live work and consumed recovery grants.
+
+The opt-in `genny-source` profile exposes the positively pinned published Genny
+v0.4.0 generator (source `86fe57147760ad741303620610575ba107eead84`, built with
+Go1.27.3). Both generator and separately pinned Go1.27.3 compiler digests are
+frozen in the role. Node, fixed check helper, private state and network remain
+unavailable. Generation uses the real compiler/public cache for Genny's supported
+type resolution, without force or metadata adoption. Source roles are assigned
+generation/editing; their test claims cannot satisfy later gates. This is not an
+OS-level guarantee denying every possible Go test command. Ordinary profiles retain their
+existing runtime, and unavailable optional Genny assets cannot block them.
+The actual selected module and npm manifests must remain bound to the admitted
+recipe wherever they live. A declared fresh `platform` directory is acceptable
+for the first local candidate; it is not a second production runtime or an
+upgrade/migration shim. Application extension work stays in assigned cards.
+
+Fixed later checks use installed Go1.27.3 separately from Runner's Go1.26.9,
+locked Vue dependencies and configured headless Chrome for Testing. Local SaaS
+evidence must bind the exact candidate and cover the protected brief's tenant,
+Worker grant, revision/acceptance, formatter/capability failure and receipt-loss
+journeys. Independent read-only image/source review precedes local candidate
+integration, with fresh checks after correction. This local finish does not use
+Jack's game, WebKit, Safari, publication or production gates. Old processes and
+limits remain frozen; a fixture is capability proof, not App acceptance or real
+Worker/model proof. The latter remains in the future product run after supported
+host prerequisites without account, Keychain or provider-auth changes.
+
 ### Released-root seed installation and read-only attention, 12 November 2026
 
 Dan's reliability request authorizes this bounded engineering continuation. It

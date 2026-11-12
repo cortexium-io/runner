@@ -1,0 +1,28 @@
+{
+  "id": "authority",
+  "purpose": "Authenticate and export the operator-staged immutable first-flow authority before planning.",
+  "inputs": {},
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/absolute/path/to/runner-saas-check",
+        "--reference",
+        "--source",
+        "{workspace}",
+        "--scratch",
+        "{scratch}",
+        "--base",
+        "{source.base}",
+        "--authority",
+        "/absolute/path/to/admitted-authority.json"
+      ],
+      "artifact": "authority.json"
+    }
+  }
+}

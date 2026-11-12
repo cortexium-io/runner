@@ -435,10 +435,10 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 			"cwd":                   j.Workspace.WorkDir,
 			"runtimeWorkspaceRoots": []string{j.Workspace.WorkDir},
 		}}
-		params["permissions"] = "runner-edit"
+		params["permissions"] = sourcePermission(p)
 		params["cwd"] = j.Workspace.WorkDir
 		params["runtimeWorkspaceRoots"] = []string{j.Workspace.WorkDir}
-		params["baseInstructions"] = p.Instructions + workspaceBase
+		params["baseInstructions"] = p.Instructions + sourceInstructions(p)
 		if p.Access == "workspace-read" {
 			params["permissions"] = "runner-check"
 			params["baseInstructions"] = p.Instructions + reviewBase
@@ -477,7 +477,7 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 		var roots []string
 		_ = json.Unmarshal(started.Roots, &roots)
 		rootsOK = len(roots) == 1 && roots[0] == j.Workspace.WorkDir
-		sandboxOK = started.Active.ID == "runner-edit" && started.Sandbox.Type == "workspaceWrite" && !started.Sandbox.Network
+		sandboxOK = started.Active.ID == sourcePermission(p) && started.Sandbox.Type == "workspaceWrite" && !started.Sandbox.Network
 		if p.Access == "workspace-read" {
 			sandboxOK = started.Active.ID == "runner-check" && started.Sandbox.Type == "workspaceWrite" && !started.Sandbox.Network
 		}
@@ -584,7 +584,10 @@ func nativePayloadPlan(a runner.Assignment, now time.Time) (string, any, map[str
 		return "", nil, nil, errors.New("an explicit task purpose is required")
 	}
 	p := a.Setup.Profile
-	if p.Mode == "experience-review" && p.Access != "workspace-read" {
+	if p.Mode == "genny-source" && p.Access != "workspace-write" {
+		return "", nil, nil, errors.New("Genny generation requires its dedicated source profile")
+	}
+	if (p.Mode == "experience-review" || p.Mode == "saas-review" || p.Mode == "saas-source-review" || p.Mode == "saas-plan") && p.Access != "workspace-read" {
 		return "", nil, nil, errors.New("image experience mode requires the dedicated read-only review profile")
 	}
 	if p.Harness != "codex" || (p.Access != "input-only" && p.Access != "workspace-write" && p.Access != "workspace-read") || p.Model == "" || p.Reasoning == "" || p.MaxInput < 128 || p.MaxOutput < 128 {
@@ -654,12 +657,12 @@ func nativePayloadPlan(a runner.Assignment, now time.Time) (string, any, map[str
 	sb, _ := json.Marshal(schema)
 	base := nativeBase
 	if p.Access == "workspace-write" {
-		base = workspaceBase
+		base = sourceInstructions(p)
 	} else if p.Access == "workspace-read" {
 		base = reviewBase
 	}
 	overhead := len(base) + len(p.Instructions) + len(sb)
-	if p.Mode == "experience-review" {
+	if p.Mode == "experience-review" || p.Mode == "saas-review" {
 		// Image bytes remain inside the existing declared-artifact limit. Their
 		// captions also consume the ordinary, unchanged text input allowance.
 		overhead += 512

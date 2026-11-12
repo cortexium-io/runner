@@ -36,7 +36,11 @@ func (c *Codex) goInstallation(ctx context.Context) (string, string, error) {
 	if c.cfg == nil || c.cfg.GoBinary == "" {
 		return "", "", errors.New("workspace execution requires explicit codex.go_binary")
 	}
-	binary, e := exec.LookPath(c.cfg.GoBinary)
+	return goInstallationAt(ctx, c.cfg.GoBinary)
+}
+
+func goInstallationAt(ctx context.Context, configured string) (string, string, error) {
+	binary, e := exec.LookPath(configured)
 	if e != nil {
 		return "", "", e
 	}
@@ -71,18 +75,31 @@ func (c *Codex) nativeConfiguration(ctx context.Context) (string, error) {
 		return "", e
 	}
 	config := strings.Replace(nativeConfig, "sandbox_mode=\"read-only\"", "default_permissions=\"runner-input\"", 1)
-	for _, name := range []string{"runner-input", "runner-edit", "runner-check"} {
-		config += "\n[permissions." + name + ".filesystem]\n\":minimal\"=\"read\"\n" + strconv.Quote(goRoot) + "=\"read\"\n"
+	profiles := []struct{ name, root string }{{"runner-input", goRoot}, {"runner-edit", goRoot}, {"runner-check", goRoot}}
+	if c.cfg.Genny != nil {
+		// Optional paths are inert for ordinary profiles. Validate their bytes
+		// only when a saved genny-source assignment actually selects them.
+		profiles = append(profiles, struct{ name, root string }{"runner-genny-edit", filepath.Dir(filepath.Dir(c.cfg.Genny.GoBinary))})
+	}
+	for _, profile := range profiles {
+		name := profile.name
+		config += "\n[permissions." + name + ".filesystem]\n\":minimal\"=\"read\"\n"
+		if profile.root != "" {
+			config += strconv.Quote(profile.root) + "=\"read\"\n"
+		}
+		if name == "runner-genny-edit" {
+			config += strconv.Quote(c.cfg.Genny.Binary) + "=\"read\"\n"
+		}
 		if name != "runner-input" {
 			if c.cfg.GoModuleCache != "" {
 				config += strconv.Quote(c.cfg.GoModuleCache) + "=\"read\"\n"
 			}
-			if c.cfg.GoCheckBinary != "" {
+			if c.cfg.GoCheckBinary != "" && name != "runner-genny-edit" {
 				config += strconv.Quote(c.cfg.GoCheckBinary) + "=\"read\"\n"
 			}
 			config += "[permissions." + name + ".filesystem.\":workspace_roots\"]\n"
 			mode := "read"
-			if name == "runner-edit" {
+			if name == "runner-edit" || name == "runner-genny-edit" {
 				mode = "write"
 			}
 			config += "\".\"=" + strconv.Quote(mode) + "\n\".runner-tmp\"=\"write\"\n\".runner-tmp/inputs\"=\"read\"\n"
@@ -141,6 +158,29 @@ func (c *Codex) workerEnvironment(j nativeJob) (map[string]string, error) {
 	}
 	if c.cfg.GoCheckBinary != "" {
 		env["RUNNER_GO_CHECK"] = c.cfg.GoCheckBinary
+	}
+	if j.Assignment.Setup.Profile.Mode == "genny-source" {
+		if c.cfg.Genny == nil || j.Assignment.Setup.Profile.GeneratorSHA256 != c.cfg.Genny.SHA256 || j.Assignment.Setup.Profile.GeneratorGoSHA256 != c.cfg.Genny.GoSHA256 {
+			return nil, errors.New("saved Genny source runtime identity differs")
+		}
+		if err := c.validateGennyRuntime(); err != nil {
+			return nil, err
+		}
+		env["RUNNER_GENNY"] = c.cfg.Genny.Binary
+		env["RUNNER_GENNY_SHA256"] = c.cfg.Genny.SHA256
+		// Genny's project-state lock/cache belongs to this admitted attempt,
+		// never the operator's home or provider authentication environment.
+		env["HOME"] = scratch
+		appGo, appRoot, err := goInstallationAt(c.ctx, c.cfg.Genny.GoBinary)
+		if err != nil {
+			return nil, err
+		}
+		if appRoot != filepath.Dir(filepath.Dir(appGo)) {
+			return nil, errors.New("Genny Go toolchain root differs from its pinned installation")
+		}
+		env["PATH"] = filepath.Dir(appGo) + ":/usr/bin:/bin:/usr/sbin:/sbin"
+		env["GOROOT"] = appRoot
+		delete(env, "RUNNER_GO_CHECK")
 	}
 	return env, nil
 }
@@ -221,7 +261,14 @@ func (c *Codex) workspaceReadiness(ctx context.Context, peer codexPeer, j native
 	if e != nil {
 		return e
 	}
-	for _, p := range []struct{ name, write string }{{"runner-edit", "write"}, {"runner-check", "read"}} {
+	probes := []struct{ name, write string }{{"runner-edit", "write"}, {"runner-check", "read"}}
+	if j.Assignment.Setup.Profile.Mode == "genny-source" {
+		probes = probes[:1]
+		probes[0].name = "runner-genny-edit"
+		binary = c.cfg.Genny.GoBinary
+		env["GO111MODULE"] = "off"
+	}
+	for _, p := range probes {
 		target, e := os.CreateTemp(j.Workspace.WorkDir, ".runner-probe-")
 		if e != nil {
 			return e
@@ -234,17 +281,17 @@ func (c *Codex) workspaceReadiness(ctx context.Context, peer codexPeer, j native
 			Stdout string `json:"stdout"`
 			Stderr string `json:"stderr"`
 		}
+		argv := []string{binary, "run", probe}
+		cacheRead := c.cfg.GoModuleCache != ""
+		argv = append(argv,
+			j.Workspace.WorkDir,
+			filepath.Join(c.disk.Root, filepath.FromSlash(dummy)),
+			p.write,
+			"",
+			strconv.FormatBool(cacheRead),
+		)
 		if e = c.command(ctx, j.Assignment.AttemptID, peer, map[string]any{
-			"command": envCommand(env, append([]string{
-				binary,
-				"run",
-				probe,
-				j.Workspace.WorkDir,
-				filepath.Join(c.disk.Root, filepath.FromSlash(dummy)),
-				p.write,
-				"",
-				strconv.FormatBool(c.cfg.GoModuleCache != ""),
-			}, c.cfg.ReadOnlyPaths...)...),
+			"command":           envCommand(env, append(argv, c.cfg.ReadOnlyPaths...)...),
 			"cwd":               j.Workspace.WorkDir,
 			"permissionProfile": p.name,
 			"timeoutMs":         120000,
@@ -426,16 +473,22 @@ func probeModuleCache(cache,scratch string,readOnly bool){
 `
 
 func workspaceFiles(cfg *runner.CodexSettings, name, goRoot string) map[string]any {
+	if name == "runner-genny-edit" && cfg.Genny != nil {
+		goRoot = filepath.Dir(filepath.Dir(cfg.Genny.GoBinary))
+	}
 	files := map[string]any{":minimal": "read", goRoot: "read"}
+	if name == "runner-genny-edit" && cfg.Genny != nil {
+		files[cfg.Genny.Binary] = "read"
+	}
 	if name != "runner-input" {
 		if cfg.GoModuleCache != "" {
 			files[cfg.GoModuleCache] = "read"
 		}
-		if cfg.GoCheckBinary != "" {
+		if cfg.GoCheckBinary != "" && name != "runner-genny-edit" {
 			files[cfg.GoCheckBinary] = "read"
 		}
 		mode := "read"
-		if name == "runner-edit" {
+		if name == "runner-edit" || name == "runner-genny-edit" {
 			mode = "write"
 		}
 		roots := map[string]any{".": mode, ".runner-tmp": "write", ".runner-tmp/inputs": "read"}
@@ -468,10 +521,14 @@ func (c *Codex) checkWorkspaceConfig(ctx context.Context, peer codexPeer) error 
 	if e = peer.Call(ctx, "config/read", map[string]any{"includeLayers": false}, &r); e != nil {
 		return e
 	}
-	if len(r.Config.Permissions) != 3 {
+	names := []string{"runner-input", "runner-edit", "runner-check"}
+	if c.cfg.Genny != nil {
+		names = append(names, "runner-genny-edit")
+	}
+	if len(r.Config.Permissions) != len(names) {
 		return errors.New("native workspace permission catalog differs from the selected configuration")
 	}
-	for _, name := range []string{"runner-input", "runner-edit", "runner-check"} {
+	for _, name := range names {
 		profile, ok := r.Config.Permissions[name]
 		if !ok || profile.Extends != nil || len(profile.Roots) != 0 {
 			return errors.New("native workspace permissions include unexpected inheritance/roots")
