@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cortexium-io/runner/internal/guidesmedia"
 	"github.com/cortexium-io/runner/internal/runner"
 	"go.yaml.in/yaml/v3"
 )
@@ -139,6 +140,9 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 				return s, errors.New("codex.genny requires explicit generator/toolchain paths and SHA256 pins")
 			}
 		}
+		if c.GuidesMediaManifest != "" && c.GuidesMediaManifest != guidesmedia.ManifestSHA256 {
+			return s, errors.New("codex.guides_media_manifest must identify only the approved immutable set")
+		}
 		if c.GoModuleCache != "" {
 			path, err := filepath.EvalSymlinks(resolve(l.Path, c.GoModuleCache))
 			if err != nil {
@@ -232,7 +236,12 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 			if e = types(role.Inputs); e != nil {
 				return s, e
 			}
-			if e = types(role.Outputs); e != nil {
+			if !closedGuidesImportRole(role, b.Profile) {
+				e = types(role.Outputs)
+			} else {
+				e = nil
+			}
+			if e != nil {
 				return s, e
 			}
 			if _, e = role.Profile(b.Profile); e != nil {
@@ -319,6 +328,9 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 					if profile.Access != "input-only" && s.Instance.Codex.GoBinary == "" {
 						return s, errors.New("workspace execution requires explicit codex.go_binary")
 					}
+					if profile.Mode == "guides-source" && s.Instance.Codex.GuidesMediaManifest != guidesmedia.ManifestSHA256 {
+						return s, errors.New("guide source profile requires the explicit approved manifest runtime permission")
+					}
 					if profile.Mode == "genny-source" && (s.Instance.Codex.Genny == nil || profile.GeneratorSHA256 != s.Instance.Codex.Genny.SHA256 || profile.GeneratorGoSHA256 != s.Instance.Codex.Genny.GoSHA256) {
 						return s, errors.New("genny-source requires its separately pinned generator and Go runtime")
 					}
@@ -332,6 +344,12 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 						return s, errors.New("git-candidate needs patch/verdict/review inputs and one candidate text output")
 					}
 					if profile.Harness == "command" {
+						if profile.Mode == "guides-import" {
+							if p.ID != "jacks-break" || !reflect.DeepEqual(role.Inputs, map[string]string{"request": "text"}) || !reflect.DeepEqual(role.Outputs, guidesmedia.OutputContract()) {
+								return s, errors.New("guides-import requires the closed Jack request and complete immutable raw output contract")
+							}
+							continue
+						}
 						for _, kind := range role.Inputs {
 							if kind != "text" && kind != "artifact" {
 								return s, errors.New("command inputs must be text or retained artifacts")
@@ -585,6 +603,9 @@ func boundedTypes(m map[string]string, limit int) error {
 	return nil
 }
 func ready(p runner.Profile) error {
+	if p.GuidesImportSHA256 != "" && (p.Harness != "command" || p.Mode != "guides-import") {
+		return errors.New("guide importer identity requires its closed command mode")
+	}
 	if p.Mode != "genny-source" && (p.GeneratorSHA256 != "" || p.GeneratorGoSHA256 != "") || p.Mode == "genny-source" && (p.Harness != "codex" || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(p.GeneratorSHA256) || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(p.GeneratorGoSHA256)) {
 		return errors.New("generator runtime pins belong only to the explicit genny-source codex profile")
 	}
@@ -623,10 +644,15 @@ func ready(p runner.Profile) error {
 		return nil
 	}
 	if p.Harness == "command" {
-		if p.Access != "workspace-read" || p.Command == nil || p.Model != "" || p.Reasoning != "" || p.Mode != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.Instructions != "" || p.MaxInput != 0 || p.MaxOutput != 0 {
+		if p.Access != "workspace-read" || p.Command == nil || p.Model != "" || p.Reasoning != "" || p.Mode != "" && p.Mode != "guides-import" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.Instructions != "" || p.MaxInput != 0 || p.MaxOutput != 0 {
 			return errors.New("command selects workspace-read access, command settings and no model settings")
 		}
 		cmd := p.Command
+		if p.Mode == "guides-import" {
+			if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(p.GuidesImportSHA256) || len(cmd.Args) != 7 || !reflect.DeepEqual(cmd.Args[1:], []string{"--output", "{scratch}/media", "--run", "{run_id}", "--attempt", "{attempt_id}"}) || cmd.Directory != "" || cmd.Artifact != "" || cmd.Result != "" || len(cmd.Env) != 0 || len(cmd.ExitOutcomes) != 0 || cmd.Network {
+				return errors.New("guides-import requires its exact pinned helper, fixed argv, offline empty scratch and no optional command behavior")
+			}
+		}
 		if len(cmd.Args) == 0 || len(cmd.Args) > 32 || !filepath.IsAbs(cmd.Args[0]) || strings.Contains(cmd.Args[0], "{") || (cmd.Directory != "" && !validRelative(cmd.Directory)) || (cmd.Artifact != "" && !validRelative(cmd.Artifact)) || (cmd.Result != "" && !validRelative(cmd.Result)) || len(cmd.ExitOutcomes) > 8 || (cmd.Result != "" && len(cmd.ExitOutcomes) != 0) || len(cmd.Env) > 32 {
 			return errors.New("command needs an absolute executable, at most 32 args/env entries and relative directory/artifact paths")
 		}
@@ -657,7 +683,7 @@ func ready(p runner.Profile) error {
 		return nil
 	}
 	if p.Harness == "codex" {
-		modeOK := p.Mode == "" || (p.Mode == "experience-review" || p.Mode == "saas-review" || p.Mode == "saas-source-review" || p.Mode == "saas-plan") && p.Access == "workspace-read" || p.Mode == "genny-source" && p.Access == "workspace-write"
+		modeOK := p.Mode == "" || (p.Mode == "experience-review" || p.Mode == "saas-review" || p.Mode == "saas-source-review" || p.Mode == "saas-plan") && p.Access == "workspace-read" || (p.Mode == "genny-source" || p.Mode == "guides-source") && p.Access == "workspace-write"
 		if p.Model == "" || len(p.Model) > 100 || (p.Access != "input-only" && p.Access != "workspace-write" && p.Access != "workspace-read") || !modeOK || p.Input != "" || p.Output != "" || p.Delay != "" || p.Text != "" || p.LogBytes != 0 {
 			return errors.New("codex needs an explicit model and input-only/workspace-write/workspace-read access, without deterministic settings")
 		}
@@ -694,6 +720,9 @@ func ready(p runner.Profile) error {
 	return nil
 }
 func validateProcess(v runner.Process, p runner.Project) error {
+	if err := validateGuidesProcess(v, p); err != nil {
+		return err
+	}
 	if err := validateLocalSaaS(v, p); err != nil {
 		return err
 	}

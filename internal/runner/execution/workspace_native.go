@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cortexium-io/runner/internal/guidesmedia"
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
@@ -81,6 +82,12 @@ func (c *Codex) nativeConfiguration(ctx context.Context) (string, error) {
 		// only when a saved genny-source assignment actually selects them.
 		profiles = append(profiles, struct{ name, root string }{"runner-genny-edit", filepath.Dir(filepath.Dir(c.cfg.Genny.GoBinary))})
 	}
+	if c.cfg.GuidesMediaManifest != "" {
+		if c.cfg.GuidesMediaManifest != guidesmedia.ManifestSHA256 {
+			return "", errors.New("guide source permission manifest differs")
+		}
+		profiles = append(profiles, struct{ name, root string }{"runner-guides-edit", goRoot})
+	}
 	for _, profile := range profiles {
 		name := profile.name
 		config += "\n[permissions." + name + ".filesystem]\n\":minimal\"=\"read\"\n"
@@ -99,7 +106,7 @@ func (c *Codex) nativeConfiguration(ctx context.Context) (string, error) {
 			}
 			config += "[permissions." + name + ".filesystem.\":workspace_roots\"]\n"
 			mode := "read"
-			if name == "runner-edit" || name == "runner-genny-edit" {
+			if name == "runner-edit" || name == "runner-genny-edit" || name == "runner-guides-edit" {
 				mode = "write"
 			}
 			config += "\".\"=" + strconv.Quote(mode) + "\n\".runner-tmp\"=\"write\"\n\".runner-tmp/inputs\"=\"read\"\n"
@@ -107,6 +114,9 @@ func (c *Codex) nativeConfiguration(ctx context.Context) (string, error) {
 				if p != ".gitattributes" {
 					config += strconv.Quote(p) + "=\"read\"\n"
 				}
+			}
+			if name == "runner-guides-edit" {
+				config += strconv.Quote(guideAssetRoot) + "=\"read\"\n"
 			}
 			config += "\".gitattributes\"=\"read\"\n"
 			for _, p := range []string{".git", ".codex", ".agents", ".aws"} {
@@ -158,6 +168,9 @@ func (c *Codex) workerEnvironment(j nativeJob) (map[string]string, error) {
 	}
 	if c.cfg.GoCheckBinary != "" {
 		env["RUNNER_GO_CHECK"] = c.cfg.GoCheckBinary
+	}
+	if j.Assignment.Setup.Profile.Mode == "guides-source" && (c.cfg.GuidesMediaManifest != guidesmedia.ManifestSHA256 || j.Assignment.GuidesMedia == nil || j.Assignment.GuidesMedia.ManifestSHA256 != c.cfg.GuidesMediaManifest) {
+		return nil, errors.New("guide source permission is not enabled for the authenticated whole set")
 	}
 	if j.Assignment.Setup.Profile.Mode == "genny-source" {
 		if c.cfg.Genny == nil || j.Assignment.Setup.Profile.GeneratorSHA256 != c.cfg.Genny.SHA256 || j.Assignment.Setup.Profile.GeneratorGoSHA256 != c.cfg.Genny.GoSHA256 {
@@ -267,6 +280,10 @@ func (c *Codex) workspaceReadiness(ctx context.Context, peer codexPeer, j native
 		probes[0].name = "runner-genny-edit"
 		binary = c.cfg.Genny.GoBinary
 		env["GO111MODULE"] = "off"
+	}
+	if j.Assignment.Setup.Profile.Mode == "guides-source" {
+		probes = probes[:1]
+		probes[0].name = "runner-guides-edit"
 	}
 	for _, p := range probes {
 		target, e := os.CreateTemp(j.Workspace.WorkDir, ".runner-probe-")
@@ -488,12 +505,15 @@ func workspaceFiles(cfg *runner.CodexSettings, name, goRoot string) map[string]a
 			files[cfg.GoCheckBinary] = "read"
 		}
 		mode := "read"
-		if name == "runner-edit" || name == "runner-genny-edit" {
+		if name == "runner-edit" || name == "runner-genny-edit" || name == "runner-guides-edit" {
 			mode = "write"
 		}
 		roots := map[string]any{".": mode, ".runner-tmp": "write", ".runner-tmp/inputs": "read"}
 		for _, path := range cfg.ReadOnlyPaths {
 			roots[path] = "read"
+		}
+		if name == "runner-guides-edit" {
+			roots[guideAssetRoot] = "read"
 		}
 		roots[".gitattributes"] = "read"
 		for _, path := range []string{".git", ".codex", ".agents", ".aws"} {
@@ -524,6 +544,9 @@ func (c *Codex) checkWorkspaceConfig(ctx context.Context, peer codexPeer) error 
 	names := []string{"runner-input", "runner-edit", "runner-check"}
 	if c.cfg.Genny != nil {
 		names = append(names, "runner-genny-edit")
+	}
+	if c.cfg.GuidesMediaManifest != "" {
+		names = append(names, "runner-guides-edit")
 	}
 	if len(r.Config.Permissions) != len(names) {
 		return errors.New("native workspace permission catalog differs from the selected configuration")

@@ -1,0 +1,34 @@
+{
+  "id": "stage-guides-media",
+  "inputs": {
+    "request": "text"
+  },
+  "steps": [
+    {
+      "id": "import",
+      "role": "guides-media-import",
+      "inputs": {
+        "request": {
+          "from_input": "request"
+        }
+      },
+      "routes": {
+        "ready": {
+          "next": "$complete"
+        },
+        "blocked": {
+          "next": "$fail"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "media_index": {
+      "from_step": "import",
+      "output": "media_index"
+    }
+  },
+  "max_attempts": 1,
+  "max_attempts_per_step": 1,
+  "attempt_timeout": "20m"
+}

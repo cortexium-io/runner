@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/cortexium-io/runner/internal/guidesmedia"
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
@@ -179,6 +180,13 @@ func (w *Workspaces) assembleTaskSource(ctx context.Context, a runner.Assignment
 		return "", "", nil, nil, err
 	}
 	defer w.mu.Unlock()
+	if a.GuidesMedia != nil {
+		for _, name := range a.TaskSource.WritePaths {
+			if !guidesmedia.CodePathAllowed(name) {
+				return "", "", nil, nil, errors.New("guide card write scope must name closed media-only code paths")
+			}
+		}
+	}
 	repo, base, err := w.taskRepository(ctx, a)
 	if err != nil {
 		return "", "", nil, nil, err
@@ -195,6 +203,23 @@ func (w *Workspaces) assembleTaskSource(ctx context.Context, a runner.Assignment
 	}
 	env := taskGitEnv(index)
 	head := base
+	mediaRecord := workspaceRecord{RunID: a.RunID, Repository: repo, Base: base, GuidesMedia: runner.Clone(a.GuidesMedia)}
+	if a.GuidesMedia != nil && a.TaskSource.RootPatchID == "" {
+		if _, err := git(ctx, repo, env, nil, 4096, "read-tree", base); err != nil {
+			return "", "", nil, nil, err
+		}
+		if err := w.applyMediaIndexPatch(ctx, mediaRecord, env, nil, a.Limits.MaxArtifact); err != nil {
+			return "", "", nil, nil, err
+		}
+		tree, err := git(ctx, repo, env, nil, 256, "write-tree")
+		if err != nil {
+			return "", "", nil, nil, err
+		}
+		head, err = taskCommit(ctx, repo, env, strings.TrimSpace(string(tree)), "Runner immutable guide input "+a.TaskSource.Identity.RootRunID+" "+a.GuidesMedia.IndexSHA256, base)
+		if err != nil {
+			return "", "", nil, nil, err
+		}
+	}
 	if id := a.TaskSource.RootPatchID; id != "" {
 		if w.read == nil {
 			return "", "", nil, nil, errors.New("root task patch reader missing")
@@ -213,13 +238,20 @@ func (w *Workspaces) assembleTaskSource(ctx context.Context, a runner.Assignment
 		if rootRecord.Repository != repo || rootRecord.Base != base || rootRecord.Candidate == nil || rootRecord.Candidate.PatchID != id || rootRecord.Capture == nil || rootRecord.Capture.AttemptID != rootRecord.Candidate.AttemptID || rootRecord.Capture.Tree != rootRecord.Candidate.Tree || rootRecord.Capture.PatchSHA == "" || captureDigest(patch) != rootRecord.Capture.PatchSHA {
 			return "", "", nil, nil, errors.New("root task patch differs from its retained source capture")
 		}
+		if !sameMediaBinding(rootRecord.GuidesMedia, a.GuidesMedia) || !mediaSourceMatches(rootRecord, rootRecord.Candidate) {
+			return "", "", nil, nil, errors.New("root task guide whole-set authority differs")
+		}
 		if _, e = w.validateSeed(ctx, rootRecord, patch, a.Limits.MaxArtifact, false); e != nil {
 			return "", "", nil, nil, e
 		}
 		if _, e = git(ctx, repo, env, nil, 4096, "read-tree", base); e != nil {
 			return "", "", nil, nil, e
 		}
-		if len(patch) > 0 {
+		if a.GuidesMedia != nil {
+			if err := w.applyMediaIndexPatch(ctx, rootRecord, env, patch, a.Limits.MaxArtifact); err != nil {
+				return "", "", nil, nil, err
+			}
+		} else if len(patch) > 0 {
 			if _, e = git(ctx, repo, env, patch, 4096, "apply", "--cached", "--binary", "--whitespace=nowarn", "-"); e != nil {
 				return "", "", nil, nil, e
 			}
@@ -259,11 +291,16 @@ func (w *Workspaces) assembleTaskSource(ctx context.Context, a runner.Assignment
 	if err != nil {
 		return "", "", nil, nil, err
 	}
-	patch, err := git(ctx, repo, nil, nil, int(a.Limits.MaxArtifact), "diff", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--no-renames", base, tree, "--")
+	var patch []byte
+	if a.GuidesMedia != nil {
+		patch, err = w.mediaSourcePatch(ctx, mediaRecord, nil, tree, false, a.Limits.MaxArtifact)
+	} else {
+		patch, err = git(ctx, repo, nil, nil, int(a.Limits.MaxArtifact), "diff", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--no-renames", base, tree, "--")
+	}
 	if err != nil {
 		return "", "", nil, nil, err
 	}
-	if _, err = w.validateSeed(ctx, workspaceRecord{RunID: a.RunID, Repository: repo, Base: base}, patch, a.Limits.MaxArtifact, false); err != nil {
+	if _, err = w.validateSeed(ctx, mediaRecord, patch, a.Limits.MaxArtifact, false); err != nil {
 		return "", "", nil, nil, err
 	}
 	sort.Strings(conflicts)
@@ -278,6 +315,9 @@ func (w *Workspaces) verifyTaskCandidate(ctx context.Context, a runner.Assignmen
 	r, err := w.load(c.RunID)
 	if err != nil {
 		return err
+	}
+	if !sameMediaBinding(r.GuidesMedia, a.GuidesMedia) || !mediaSourceMatches(r, &runner.SourceResult{MediaIndexID: c.MediaIndexID, MediaIndexSHA256: c.MediaIndexSHA256}) {
+		return errors.New("dependency guide whole-set authority differs")
 	}
 	t := r.TaskSources[identity.GroupStep]
 	if t == nil || t.Authority.Identity != c.Identity || t.PinCommit != c.Commit || r.Candidate == nil || r.Candidate.Tree != c.Tree || r.Candidate.PatchID != c.PatchID || r.Capture == nil || r.Capture.PatchSHA == "" {
@@ -463,8 +503,11 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 	}
 	r, err := w.load(a.RunID)
 	if errors.Is(err, os.ErrNotExist) {
-		r = workspaceRecord{RunID: a.RunID, Repository: repo, Base: base, WorkDir: filepath.Join(w.disk.Root, "work", a.RunID, "source")}
+		r = workspaceRecord{RunID: a.RunID, Repository: repo, Base: base, WorkDir: filepath.Join(w.disk.Root, "work", a.RunID, "source"), GuidesMedia: runner.Clone(a.GuidesMedia)}
 		err = nil
+	}
+	if err == nil && !sameMediaBinding(r.GuidesMedia, a.GuidesMedia) {
+		err = errors.New("task seed guide whole-set authority differs")
 	}
 	if err == nil && (r.CleanupIntent != nil || r.SourcePreservation != nil && !r.SourcePreservation.Complete) {
 		err = errors.New("task seed cannot replace unresolved workspace cleanup or preservation")
@@ -525,6 +568,7 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 			if err == nil {
 				validation := r
 				validation.Candidate = &runner.SourceResult{Tree: tree}
+				mediaSourceFields(validation, validation.Candidate)
 				_, err = w.validateSeed(ctx, validation, patch, a.Limits.MaxArtifact, false)
 			}
 			if err == nil {
@@ -648,6 +692,9 @@ func (w *Workspaces) pinTaskSource(ctx context.Context, a runner.Assignment) (*r
 	if err != nil {
 		return nil, nil, err
 	}
+	if !sameMediaBinding(r.GuidesMedia, a.GuidesMedia) {
+		return nil, nil, errors.New("task pin guide whole-set authority differs")
+	}
 	t := r.TaskSources[a.TaskSource.Identity.GroupStep]
 	if t == nil || !t.Installed || !sameTaskAuthority(t.Authority, *a.TaskSource) || r.Candidate == nil || r.Candidate.PatchID != a.Inputs["patch"].ArtifactID {
 		return nil, nil, errors.New("task pin source or scope differs from its immutable seed")
@@ -676,7 +723,11 @@ func (w *Workspaces) pinTaskSource(ctx context.Context, a runner.Assignment) (*r
 	if _, err = git(ctx, r.Repository, indexEnv, nil, 4096, "read-tree", r.Base); err != nil {
 		return nil, nil, err
 	}
-	if len(patch) > 0 {
+	if r.GuidesMedia != nil {
+		if err := w.applyMediaIndexPatch(ctx, r, indexEnv, patch, a.Limits.MaxArtifact); err != nil {
+			return nil, nil, err
+		}
+	} else if len(patch) > 0 {
 		if _, err = git(ctx, r.Repository, indexEnv, patch, 4096, "apply", "--cached", "--binary", "--whitespace=nowarn", "-"); err != nil {
 			return nil, nil, err
 		}
@@ -736,7 +787,7 @@ func (w *Workspaces) pinTaskSource(ctx context.Context, a runner.Assignment) (*r
 	if err = w.save(r); err != nil {
 		return nil, nil, err
 	}
-	return &runner.TaskCandidate{Identity: a.TaskSource.Identity, RunID: a.RunID, Repository: r.Repository, Base: r.Base, Commit: hash, Tree: r.Candidate.Tree, PatchID: r.Candidate.PatchID}, nil, nil
+	return &runner.TaskCandidate{Identity: a.TaskSource.Identity, RunID: a.RunID, Repository: r.Repository, Base: r.Base, Commit: hash, Tree: r.Candidate.Tree, PatchID: r.Candidate.PatchID, MediaIndexID: r.Candidate.MediaIndexID, MediaIndexSHA256: r.Candidate.MediaIndexSHA256}, nil, nil
 }
 
 func (w *Workspaces) forgetTaskPins(ctx context.Context, id string) error {

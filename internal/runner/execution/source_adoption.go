@@ -51,6 +51,9 @@ func (w *Workspaces) readSeed(ctx context.Context, r workspaceRecord, limit runn
 // This narrow handoff can replace only a pristine pre-model checkout. It cannot
 // turn an arbitrary late patch into a new seed or change the original base.
 func (w *Workspaces) prepareAdoptedSource(ctx context.Context, a runner.Assignment, acceptedHead, acceptedTree, patchSHA string) (*runner.SourceResult, error) {
+	if a.GuidesMedia != nil {
+		return nil, errors.New("guide whole-set sources require their original complete process; retained adoption is unsupported")
+	}
 	if a.Setup.Profile.Harness != "release" || a.Setup.Profile.Mode != "source-adopt" || a.Setup.Profile.Access != "input-only" || a.TaskSource != nil || w.read == nil || !taskComponent(a.RunID) || !taskComponent(a.AttemptID) {
 		return nil, errors.New("source adoption needs its authenticated fixed release role")
 	}

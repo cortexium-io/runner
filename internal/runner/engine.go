@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cortexium-io/runner/internal/guidesmedia"
 )
 
 type StartRequest struct {
@@ -214,6 +216,15 @@ func (c *Core) Start(req StartRequest) (Run, error) {
 		r.Source.Ref = req.SourceRef
 	}
 	selectedRoles(proc.Steps, r.Roles, r.Profiles, p)
+	if proc.GuidesMedia != "" || proc.ID == "publish-guides-media" {
+		return Run{}, errors.New("complete guide media qualification is not available; no product run admitted")
+	}
+	if proc.ID == "stage-guides-media" && req.RequestID != guidesmedia.RequestID+"-media" {
+		return Run{}, errors.New("guide publication/import requires its fixed idempotent request identity")
+	}
+	if e = c.bindGuidesMedia(&r); e != nil {
+		return Run{}, e
+	}
 	if err := admitRunRecord(r, c.disk.Policy.Database.MaxRecord); err != nil {
 		return Run{}, err
 	}
@@ -724,6 +735,7 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		return Assignment{}, e
 	}
 	assignment := Assignment{
+		GuidesMedia: Clone(r.GuidesMedia),
 		ProjectID:   r.ProjectID,
 		RunID:       r.ID,
 		Repository:  r.Repository,
@@ -1030,7 +1042,9 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 		}
 		var arts []Artifact
 		if a.Source != nil && a.Source.PatchID != "" {
-			if !strings.HasPrefix(a.Source.PatchID, a.ID+"/") {
+			if r.GuidesMedia == nil && (a.Source.MediaIndexID != "" || a.Source.MediaIndexSHA256 != "") || r.GuidesMedia != nil && (a.Source.MediaIndexID != r.GuidesMedia.IndexID || a.Source.MediaIndexSHA256 != r.GuidesMedia.IndexSHA256) {
+				obs = Observation{State: Unknown, Reason: "source artifact guide whole-set authority differs"}
+			} else if !strings.HasPrefix(a.Source.PatchID, a.ID+"/") {
 				obs = Observation{State: Unknown, Reason: "source artifact does not belong to this attempt"}
 			} else if n, e := c.disk.ArtifactSize(a.Source.PatchID); e != nil {
 				obs = Observation{State: Unknown, Reason: Clip(e.Error())}

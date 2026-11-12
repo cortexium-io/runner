@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
@@ -31,7 +32,7 @@ func storedAttemptCount(state []byte) (int, error) {
 		}
 		return -1, nil
 	}
-	if (h.Format != 3 && h.Format != 4 && h.Format != 5) || h.Count == nil || *h.Count < 0 || *h.Count > maxStoredAttempts || len(h.Inline) != 0 {
+	if (h.Format != 3 && h.Format != 4 && h.Format != 5 && h.Format != 6) || h.Count == nil || *h.Count < 0 || *h.Count > maxStoredAttempts || len(h.Inline) != 0 {
 		return 0, errors.New("invalid normalized attempt metadata")
 	}
 	return *h.Count, nil
@@ -113,11 +114,19 @@ func (s *Store) saveAttempts(ctx context.Context, tx *sql.Tx, r runner.Run, reco
 		if err = json.Unmarshal(previous, &old); err != nil {
 			return err
 		}
-		if old.RecordFormat >= 4 {
+		if old.RecordFormat == 4 || old.RecordFormat == 5 {
 			before, _ := json.Marshal(old.UnpublishedCardRecovery)
 			after, _ := json.Marshal(r.UnpublishedCardRecovery)
 			if r.RecordFormat != old.RecordFormat || string(before) != string(after) {
 				return errors.New("one-use card recovery audit cannot change or be discarded")
+			}
+		}
+		if (old.RecordFormat == 6 || r.RecordFormat == 6) && old.RecordFormat != r.RecordFormat {
+			return errors.New("guide format cannot migrate a historical run or be downgraded")
+		}
+		if old.RecordFormat == 6 {
+			if r.RecordFormat != 6 || !reflect.DeepEqual(old.GuidesMedia, r.GuidesMedia) || !reflect.DeepEqual(old.Source, r.Source) || old.Repository != r.Repository || !reflect.DeepEqual(old.Inputs["media_index"], r.Inputs["media_index"]) {
+				return errors.New("guide whole-set/original source authority cannot change or be discarded")
 			}
 		}
 	}

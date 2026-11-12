@@ -50,6 +50,7 @@ func (c *Core) admitTaskItems(root Run, state *TaskGroupState) error {
 			timeout, _ = time.ParseDuration(step.AttemptTimeout)
 		}
 		a := Assignment{
+			GuidesMedia: Clone(child.GuidesMedia),
 			AttemptID:   "attempt_" + strings.Repeat("A", 26),
 			Setup:       ExecutionSetup{Profile: profile},
 			Inputs:      inputs,

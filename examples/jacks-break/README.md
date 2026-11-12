@@ -457,3 +457,10 @@ The fixed-image equivalent is `TestDeliveryPlatformBrowserContainerReadiness`;
 it retains the enforced Docker inspection and exact image/driver/version proof.
 `TestDeliveryPlatformBrowserContainerCancellation` separately proves cancellation
 after positively observed dispatch, uncertainty preservation and exact cleanup.
+
+The prepared `stage-guides-media.json`/`guides-media-import` template is the closed
+immutable36-file importer described in the process-core design. Its helper path
+and digest are deployment placeholders, not active configuration. Complete
+`publish-guides-media` intake remains hard-refused while its native producer and
+complete typed qualification suffix are unqualified; do not select a legacy
+process to bypass this boundary.

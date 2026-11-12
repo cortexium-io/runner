@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cortexium-io/runner/internal/guidesmedia"
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
@@ -34,6 +35,13 @@ func frontendCandidateTests(ctx context.Context, w workspaceRecord, input runner
 	// Prepare already authenticated these patch bytes against the owned source.
 	// Captured trees can live in the private capture object store, so inspect
 	// the retained diff without resolving its tree through the repository.
+	if w.GuidesMedia != nil {
+		envelope, err := guidesmedia.DecodePatch(patch, w.Base, *w.GuidesMedia, 16<<20)
+		if err != nil {
+			return "", err
+		}
+		patch = []byte(envelope.Code)
+	}
 	changed, err := git(ctx, w.WorkDir, nil, patch, 1<<20, "apply", "--numstat", "-z", "--allow-empty", "--binary")
 	if err != nil {
 		return "", err

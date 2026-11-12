@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cortexium-io/runner/internal/guidesmedia"
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
@@ -28,6 +29,7 @@ type Workspaces struct {
 	nativeLimit   runner.Bytes
 }
 type workspaceRecord struct {
+	GuidesMedia        *guidesmedia.Binding            `json:"guides_media,omitempty"`
 	RunID              string                          `json:"run_id"`
 	Repository         string                          `json:"repository"`
 	Base               string                          `json:"base"`
@@ -176,6 +178,7 @@ func (w *Workspaces) prepare(ctx context.Context, a runner.Assignment, taskSeed 
 			return r, er
 		}
 		r = workspaceRecord{
+			GuidesMedia: runner.Clone(a.GuidesMedia),
 			RunID:       a.RunID,
 			Repository:  repo,
 			Base:        strings.TrimSpace(string(base)),
@@ -187,6 +190,9 @@ func (w *Workspaces) prepare(ctx context.Context, a runner.Assignment, taskSeed 
 		}
 	} else if e != nil {
 		return r, e
+	}
+	if !sameMediaBinding(r.GuidesMedia, a.GuidesMedia) {
+		return r, errors.New("workspace guide whole-set authority differs from its frozen assignment")
 	}
 	if r.CleanupIntent != nil || r.SourcePreservation != nil && !r.SourcePreservation.Complete {
 		return r, errors.New("workspace cleanup or source preservation is unresolved; reconcile its owned operation before preparation")
@@ -244,6 +250,7 @@ func (w *Workspaces) prepare(ctx context.Context, a runner.Assignment, taskSeed 
 		validation := r
 		if installingTaskSeed {
 			validation.Candidate = &runner.SourceResult{Tree: taskSeed.SeedTree}
+			mediaSourceFields(validation, validation.Candidate)
 		}
 		if patchBytes, e = w.validateSeed(ctx, validation, patch, a.Limits.MaxArtifact, false); e != nil {
 			return r, e
@@ -258,6 +265,9 @@ func (w *Workspaces) prepare(ctx context.Context, a runner.Assignment, taskSeed 
 		sourceBytes, er := sourceTreeBytes(ctx, r.Repository, nil, r.Base, w.disk.Policy.MaxManaged, true)
 		if er != nil {
 			return r, er
+		}
+		if r.GuidesMedia != nil {
+			sourceBytes += guidesmedia.AssetBytes
 		}
 		if e = w.checkoutCapacity(a, max(sourceBytes, patchBytes)); e != nil {
 			return r, e
@@ -283,10 +293,36 @@ func (w *Workspaces) prepare(ctx context.Context, a runner.Assignment, taskSeed 
 	}
 	if restoring || (r.SeedPatchID != "" && !r.SeedReady) {
 		if len(patch) != 0 {
-			if _, e = git(ctx, r.WorkDir, nil, patch, 4096, "apply", "--index", "--binary"); e != nil {
+			code := patch
+			if r.GuidesMedia != nil {
+				code, _, e = w.mediaCode(r, patch, a.Limits.MaxArtifact)
+				if e != nil {
+					return r, e
+				}
+			}
+			if len(code) != 0 {
+				_, e = git(ctx, r.WorkDir, nil, code, 4096, "apply", "--index", "--binary")
+			}
+			if e != nil {
 				return r, e
 			}
 		}
+	}
+	if r.GuidesMedia != nil {
+		installing := restoring || installingTaskSeed || r.Candidate == nil && r.ReadyGeneration == ""
+		if e = w.mediaCheckout(ctx, r, installing); e != nil {
+			return r, e
+		}
+		if installing {
+			if e = w.mediaIndexOverlay(ctx, r, r.WorkDir, nil); e != nil {
+				return r, e
+			}
+		}
+		if e = w.disk.Refresh(); e != nil {
+			return r, e
+		}
+	}
+	if restoring || (r.SeedPatchID != "" && !r.SeedReady) {
 		if restoring {
 			r.Released = false
 			r.ReadyGeneration = ""
@@ -529,7 +565,11 @@ func (w *Workspaces) validateSeedWithinTask(ctx context.Context, r workspaceReco
 	} else if _, e = git(ctx, r.Repository, env, nil, 4096, "read-tree", r.Base); e != nil {
 		return 0, e
 	}
-	if len(patch) != 0 {
+	if r.GuidesMedia != nil {
+		if e = w.applyMediaIndexPatch(ctx, r, env, patch, limit); e != nil {
+			return 0, e
+		}
+	} else if len(patch) != 0 {
 		if _, e = git(ctx, r.Repository, env, patch, 4096, "apply", "--cached", "--binary"); e != nil {
 			return 0, e
 		}
@@ -579,6 +619,9 @@ func (w *Workspaces) validateSeedWithinTask(ctx context.Context, r workspaceReco
 	}
 	if r.Candidate != nil && strings.TrimSpace(string(tree)) != r.Candidate.Tree {
 		return 0, &runner.CleanupBlockedError{Reason: "retained patch does not reconstruct the saved candidate; preserve the workspace"}
+	}
+	if r.Candidate != nil && !mediaSourceMatches(r, r.Candidate) {
+		return 0, errors.New("retained candidate whole-set authority differs")
 	}
 	if task != nil {
 		// Captured trees can live only in this disposable object directory until

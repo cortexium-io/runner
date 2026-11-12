@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/cortexium-io/runner/internal/guidesmedia"
 	"github.com/cortexium-io/runner/internal/runner"
 	_ "modernc.org/sqlite"
 )
@@ -264,6 +265,16 @@ func (s *Store) saveRun(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts
 	}
 	add(r.Inputs)
 	add(r.Outputs)
+	if binding := r.GuidesMedia; binding != nil {
+		index, err := guidesmedia.NewIndex(binding.ImportRunID, binding.ImportAttempt, binding.HelperSHA256)
+		if err != nil {
+			return err
+		}
+		refs[binding.IndexID] = true
+		for _, asset := range index.Assets {
+			refs[asset.ArtifactID] = true
+		}
+	}
 	for _, a := range r.Attempts {
 		if a.End != nil && a.End.Result != nil {
 			add(a.End.Result.Outputs)

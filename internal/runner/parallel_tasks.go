@@ -212,6 +212,7 @@ func childForItem(root Run, state *TaskGroupState, item TaskItem, id string) Run
 		contract["_task_evidence_"+name] = "artifact"
 	}
 	proc := Process{
+		GuidesMedia:           root.Process.GuidesMedia,
 		ID:                    "isolated-card",
 		Inputs:                contract,
 		Steps:                 steps,
@@ -225,8 +226,13 @@ func childForItem(root Run, state *TaskGroupState, item TaskItem, id string) Run
 	for _, step := range steps {
 		roles[step.Role], profiles[step.Role] = Clone(root.Roles[step.Role]), root.Profiles[step.Role]
 	}
+	format := 3
+	if root.GuidesMedia != nil {
+		format = 6
+	}
 	return Run{
-		RecordFormat: 3,
+		RecordFormat: format,
+		GuidesMedia:  Clone(root.GuidesMedia),
 		Task:         &TaskRunLink{Identity: TaskIdentity{RootRunID: root.ID, GroupStep: state.StepID, ItemID: item.ID}},
 		Repository:   state.Repository,
 		Source:       &SourceSettings{Ref: state.Base},
@@ -594,6 +600,9 @@ func (c *Core) driveTaskGroup(r Run) bool {
 }
 
 func (c *Core) validTaskCandidate(child Run, state *TaskGroupState, candidate TaskCandidate) bool {
+	if child.GuidesMedia == nil && (candidate.MediaIndexID != "" || candidate.MediaIndexSHA256 != "") || child.GuidesMedia != nil && (candidate.MediaIndexID != child.GuidesMedia.IndexID || candidate.MediaIndexSHA256 != child.GuidesMedia.IndexSHA256) {
+		return false
+	}
 	if candidate.RunID != child.ID || candidate.Identity != child.Task.Identity || candidate.Base != state.Base || candidate.Repository != state.Repository || len(candidate.Commit) != 40 || len(candidate.Tree) != 40 || strings.Trim(candidate.Commit+candidate.Tree, "0123456789abcdef") != "" {
 		return false
 	}
@@ -604,6 +613,10 @@ func (c *Core) validTaskCandidate(child Run, state *TaskGroupState, candidate Ta
 func (c *Core) finishTaskGroup(r Run, state *TaskGroupState) {
 	definition := r.Process.Steps[r.Step].ForEach
 	manifest := TaskManifest{RootRunID: r.ID, GroupStep: state.StepID, Repository: state.Repository, Base: state.Base, RootPatchID: state.RootPatchID, Evidence: Clone(state.Evidence)}
+	if r.GuidesMedia != nil {
+		manifest.MediaIndexID = r.GuidesMedia.IndexID
+		manifest.MediaIndexSHA256 = r.GuidesMedia.IndexSHA256
+	}
 	_ = json.Unmarshal(r.Inputs["request"].Inline, &manifest.Request)
 	for i, item := range state.Items {
 		paths, _ := taskPaths(item, definition)

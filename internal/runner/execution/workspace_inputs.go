@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cortexium-io/runner/internal/guidesmedia"
 	"github.com/cortexium-io/runner/internal/runner"
 	"github.com/cortexium-io/runner/internal/saas"
 )
@@ -143,6 +144,21 @@ func stagedInputData(disk *runner.Disk, a runner.Assignment) (map[string][]byte,
 			return nil, err
 		}
 		files[name] = data
+	}
+	if a.GuidesMedia != nil {
+		index, err := disk.Read("artifacts/"+a.GuidesMedia.IndexID, 32<<10)
+		if err != nil {
+			return nil, err
+		}
+		if _, err = a.GuidesMedia.Validate(index); err != nil {
+			return nil, err
+		}
+		files["guide-media-index.json"] = index
+		m, err := guidesmedia.ApprovedBytes()
+		if err != nil {
+			return nil, err
+		}
+		files["guide-media-manifest.json"] = m
 	}
 	mode := a.Setup.Profile.Mode
 	if mode == "saas-plan" || mode == "saas-review" || mode == "saas-source-review" || mode == "genny-source" && a.Inputs["authority"].ArtifactID != "" {

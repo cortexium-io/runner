@@ -351,6 +351,9 @@ func validateTaskManifest(a runner.Assignment, m runner.TaskManifest) error {
 	if a.Source == nil || m.RootRunID != t.Identity.RootRunID || m.GroupStep != t.Identity.GroupStep || m.Repository != repo || m.Base != a.Source.Ref || m.RootPatchID != t.RootPatchID || len(m.Items) != len(t.Dependencies) {
 		return errors.New("task manifest identity or source differs from Core authority")
 	}
+	if a.GuidesMedia == nil && (m.MediaIndexID != "" || m.MediaIndexSHA256 != "") || a.GuidesMedia != nil && (m.MediaIndexID != a.GuidesMedia.IndexID || m.MediaIndexSHA256 != a.GuidesMedia.IndexSHA256) {
+		return errors.New("task manifest guide whole-set authority differs")
+	}
 	seen := map[string]bool{}
 	for _, item := range m.Items {
 		if seen[item.ID] || item.ID != item.Candidate.Identity.ItemID || item.RunID != item.Candidate.RunID {

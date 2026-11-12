@@ -6,6 +6,109 @@ across real projects. Merge and production remain owner-approved actions.**
 
 ## Current completion plan
 
+### Approved immutable guide-media publication, 12 November 2026
+
+Dan approved the bounded software slice and resolving applicable Safari proof.
+The same maintenance owner prepares it in the existing worktree; Main owns
+independent integration and any later single restricted intake. No live policy,
+Core, frozen QTP run, product implementation or protected decision changes here.
+Reuse the existing same-origin HTML5 player, public assets, Vite/Go embedding and
+release path. A disposable synthetic source measurement authenticated the exact
+36 files/42,362,476 bytes and reached the full Git tree, but its50,639,773-byte
+binary patch was refused by the unchanged16MiB artifact limit. Per-card fit
+cannot remove that full root/join boundary.
+
+The approved fallback is explicitly opt-in: one authenticated immutable raw
+asset set bound to manifest
+`c14f2f4025774775487a4d80ac5914cfdf488cf7ba5278406261475c286e2388`,
+plus a bounded code patch, retaining the ORIGINAL accepted base and exact FULL
+Git tree. Every source/card/dependency/pin/join/correction/review/integration and
+publication boundary must reconstruct that full tree. Legacy/frozen patch and
+process semantics remain unchanged; no media partitions, hidden omitted bytes,
+new general upload API, source-authority replacement or limit increase belongs
+to this contract. The closed importer uses declared protected artifacts and
+must authenticate the whole set and accepted source/run/profile ownership.
+
+The new complete media-only variant must retain checks, measurement, independent
+source/media experience review, package/image identity, applicable actual desktop
+and simulator Safari media evidence and every protected owner/release/live gate.
+Its trusted scope guard rejects puzzle-engine/controller/entry/zoom/notes/save/
+completion/generation/privacy/CMP changes; unchanged full-puzzle/physical gesture
+obligations do not become false media acceptance claims. Actual candidate proof
+belongs only inside the eventual configured complete process.
+
+Native qualification starts with a self-contained non-product preservation
+fixture using direct Apple SafariDriver, never the prior Appium initializer.
+Existing foreign Safari MCP driver processes make current session exclusivity
+unproven; no native session/device attempt is made without a supported preserving
+path. Missing authorization/ownership is a precise host prerequisite, not another
+software-business approval. No enable/admin/global preference/quit/reset, host
+repair, account/runtime download or foreign-session takeover is authorized.
+The canonical existing HANDOFF/identities own current proof and actual gaps.
+
+
+Current disposition: **preparatory mechanisms qualified; complete guide publication
+UNAVAILABLE, unactivated and not admitted.** Configuration and Core both refuse
+`publish-guides-media`/a nonempty `guides_media` complete-process selector.
+The native producer and its complete typed qualification/export/review/protected
+suffix are not implemented or qualified. This hard refusal cannot be removed by
+an operator flag or by reusing the old full-puzzle suffix. Main must not install
+this package as a complete guide-delivery capability.
+
+The closed `stage-guides-media` template is one20-minute, one-attempt offline
+configured command with fixed request key `jacks-break-guides-publish-20261112-media`.
+Its exact38 outputs are36 bounded raw artifacts, an index and a compact text
+result; ordinary8-name contracts remain unchanged. No source root/URL/script or
+output surface is supplied by a model. The pinned helper is staged immutably and
+revalidated before dispatch. The index is accepted last; replay authenticates
+existing bytes rather than overwriting them. Actual sandbox/worker/Core fixture
+proof used new synthetic source/state, no model, private authentication or product
+source. Normal completed-result replay and restart issued one helper launch.
+
+`runner-guides-assets-v1` binds the accepted import run/attempt/helper and all36
+path/role/MIME/size/hash identities. New record format6 keeps legacy codecs and
+frozen runs unchanged, refuses migration of historical records and retains all37
+artifact references. The qualified old reader refuses6 before service startup;
+its old command worker also rejects the new helper before execution. After any
+future6 record, never roll back by rewinding DB/history/usage; preserve a consistent
+owning-process checkpoint for forensics and use only a compatible reader.
+
+`runner-guides-source-v1` contains the original base, exact full tree, whole-set
+binding and ordinary code diff in one unchanged<=16MiB envelope. Seeds, dependency
+pins, capture, join, changed-test discovery and reviewed candidate construction
+reconstruct/authenticate the complete tree. The closed path allowlist covers only
+the nine guide pages and named guide/player/transcript/a11y source/tests; independent
+source review must additionally reject semantic puzzle/privacy changes in those
+files. Media Git objects remain counted in Core storage, with owned hard links
+into the source object directory; unsupported links or a different pre-existing
+inode refuse without a copy fallback. Actual repository compatibility, current
+base/full-source capacity and candidate package/image peaks remain future admission
+proof, not a conclusion from a small synthetic repository.
+
+The fixed `guides_browser.mjs` observer was calibrated on disposable neutral
+HTML/media through configured headless CFT and installed Playwright WebKit.
+All nine routes exercise trusted mouse/keyboard play/pause/seek, a real seek-caused
+nonzero Range206, presented frames and decoded PCM, captions initiallyOFF/toggled
+ON/OFF with an active cue, transcript/fallback reachability and320/390/1440 actual
+viewport captures. Scoped WebAudio observation uses a zero-gain sink and closes
+with each owned context: it establishes decoded PCM, never speaker output or
+narration quality. Accepted original narration QA is separate. The neutral fixture
+uses a bounded transport barrier to prevent cached data masquerading as seek
+network evidence; the observer never calls that fixture-only hook.
+
+These are observer mechanics, not guide/candidate proof or a container/native
+qualification. The current observer requires uniquely addressable HTML Play,
+Pause, Captions and Seek controls plus a transcript region. It does not establish
+compatibility with the historical native-controls-only player. Its production
+binding/export/independent image-review suffix and genuine Safari controls remain
+unqualified; absence of an actionable interface is a capability blocker, not an
+instruction to repair product code externally. Native desktop Safari, simulator
+portrait/landscape, preserved-host crash/lostACK cleanup and physical-device
+claims remain absent. No native session/device was attempted. Before any such
+fixture, existing owners must establish exclusive session custody through normal
+owned settlement; no global kill/quit, preference guess, account/setup change,
+permission escalation or runtime download follows from software approval.
+
 ### Cortexium local Go/Vue/Genny route, 12 November 2026
 
 Status: prepared portable source, **unqualified for App admission and unactivated**.

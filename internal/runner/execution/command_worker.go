@@ -22,6 +22,7 @@ type commandSpec struct {
 	Control      string            `json:"control"`
 	Deadline     time.Time         `json:"deadline"`
 	MaxLog       runner.Bytes      `json:"max_log"`
+	HelperKind   string            `json:"helper_kind,omitempty"`
 	HelperSHA256 string            `json:"helper_sha256,omitempty"`
 }
 
@@ -72,7 +73,17 @@ func RunCommandWorker(parent context.Context, file string) error {
 	tail := &diagnosticTail{limit: int(spec.MaxLog)}
 	var runErr error
 	if spec.HelperSHA256 != "" && ctx.Err() == nil {
-		runErr = verifyFrontendCheckHelper(spec.Args[0], spec.HelperSHA256)
+		switch spec.HelperKind {
+		case "":
+			runErr = verifyFrontendCheckHelper(spec.Args[0], spec.HelperSHA256)
+		case "guides-import":
+			_, runErr = guidesImportHelperBytes(spec.Args[0], spec.HelperSHA256)
+		default:
+			runErr = errors.New("unknown pinned command helper kind")
+		}
+	}
+	if spec.HelperKind != "" && spec.HelperSHA256 == "" {
+		runErr = errors.New("pinned command helper kind lacks its digest")
 	}
 	if runErr == nil {
 		runErr = runWorkerSandbox(ctx, cancel, spec, tail, stopped)

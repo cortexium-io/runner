@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cortexium-io/runner/internal/guidesmedia"
 )
 
 var (
@@ -109,15 +111,16 @@ type ReleaseSettings struct {
 // CodexSettings selects the instance's native service and command runtime,
 // not model context.
 type CodexSettings struct {
-	Binary           string        `json:"binary"`
-	AuthFile         string        `json:"auth_file"`
-	StorageLimit     Bytes         `json:"storage_limit"`
-	GoBinary         string        `json:"go_binary,omitempty"`
-	GoModuleCache    string        `json:"go_module_cache,omitempty"`
-	GoCheckBinary    string        `json:"go_check_binary,omitempty"`
-	ReadOnlyPaths    []string      `json:"read_only_paths,omitempty"`
-	CommandReadPaths []string      `json:"command_read_paths,omitempty"`
-	Genny            *GennyRuntime `json:"genny,omitempty"`
+	Binary              string        `json:"binary"`
+	AuthFile            string        `json:"auth_file"`
+	StorageLimit        Bytes         `json:"storage_limit"`
+	GoBinary            string        `json:"go_binary,omitempty"`
+	GoModuleCache       string        `json:"go_module_cache,omitempty"`
+	GoCheckBinary       string        `json:"go_check_binary,omitempty"`
+	ReadOnlyPaths       []string      `json:"read_only_paths,omitempty"`
+	CommandReadPaths    []string      `json:"command_read_paths,omitempty"`
+	GuidesMediaManifest string        `json:"guides_media_manifest,omitempty"`
+	Genny               *GennyRuntime `json:"genny,omitempty"`
 }
 
 // GennyRuntime is an opt-in source-generation runtime. Ordinary source/check
@@ -161,22 +164,23 @@ type Snapshot struct {
 }
 
 type Profile struct {
-	Command           *Command `json:"command,omitempty"`
-	Harness           string   `json:"harness"`
-	Mode              string   `json:"mode"`
-	Delay             string   `json:"delay,omitempty"`
-	Input             string   `json:"input,omitempty"`
-	Output            string   `json:"output,omitempty"`
-	Text              string   `json:"text,omitempty"`
-	LogBytes          int64    `json:"log_bytes,omitempty"`
-	Model             string   `json:"model,omitempty"`
-	Reasoning         string   `json:"reasoning,omitempty"`
-	Instructions      string   `json:"instructions,omitempty"`
-	Access            string   `json:"access,omitempty"`
-	MaxInput          Bytes    `json:"max_input,omitempty"`
-	MaxOutput         Bytes    `json:"max_output,omitempty"`
-	GeneratorSHA256   string   `json:"generator_sha256,omitempty"`
-	GeneratorGoSHA256 string   `json:"generator_go_sha256,omitempty"`
+	GuidesImportSHA256 string   `json:"guides_import_sha256,omitempty"`
+	Command            *Command `json:"command,omitempty"`
+	Harness            string   `json:"harness"`
+	Mode               string   `json:"mode"`
+	Delay              string   `json:"delay,omitempty"`
+	Input              string   `json:"input,omitempty"`
+	Output             string   `json:"output,omitempty"`
+	Text               string   `json:"text,omitempty"`
+	LogBytes           int64    `json:"log_bytes,omitempty"`
+	Model              string   `json:"model,omitempty"`
+	Reasoning          string   `json:"reasoning,omitempty"`
+	Instructions       string   `json:"instructions,omitempty"`
+	Access             string   `json:"access,omitempty"`
+	MaxInput           Bytes    `json:"max_input,omitempty"`
+	MaxOutput          Bytes    `json:"max_output,omitempty"`
+	GeneratorSHA256    string   `json:"generator_sha256,omitempty"`
+	GeneratorGoSHA256  string   `json:"generator_go_sha256,omitempty"`
 }
 
 // Command is a configured argv, never a model-selected shell string. Runtime
@@ -274,6 +278,7 @@ type TaskItem struct {
 	Inputs    map[string]json.RawMessage `json:"inputs"`
 }
 type Process struct {
+	GuidesMedia           string             `json:"guides_media,omitempty"`
 	ID                    string             `json:"id"`
 	Inputs                map[string]string  `json:"inputs"`
 	Steps                 []Step             `json:"steps"`
@@ -347,6 +352,7 @@ type FrontendCheckPins struct {
 	Serial           bool   `json:"serial,omitempty"`
 }
 type Assignment struct {
+	GuidesMedia             *guidesmedia.Binding       `json:"guides_media,omitempty"`
 	UnpublishedCardRecovery *UnpublishedCardAssessment `json:"unpublished_card_recovery,omitempty"`
 	FrontendCheckPins       *FrontendCheckPins         `json:"frontend_check_pins,omitempty"`
 	TaskSource              *TaskAssignment            `json:"task_source,omitempty"`
@@ -441,13 +447,15 @@ type CleanupBlockedError struct{ Reason string }
 func (e *CleanupBlockedError) Error() string { return e.Reason }
 
 type SourceResult struct {
-	Tree         string `json:"tree,omitempty"`
-	InputPatchID string `json:"input_patch_id,omitempty"`
-	Repository   string `json:"repository,omitempty"`
-	Base         string `json:"base,omitempty"`
-	WorkDir      string `json:"work_dir,omitempty"`
-	PatchID      string `json:"patch_id,omitempty"`
-	AttemptID    string `json:"attempt_id"`
+	MediaIndexID     string `json:"media_index_id,omitempty"`
+	MediaIndexSHA256 string `json:"media_index_sha256,omitempty"`
+	Tree             string `json:"tree,omitempty"`
+	InputPatchID     string `json:"input_patch_id,omitempty"`
+	Repository       string `json:"repository,omitempty"`
+	Base             string `json:"base,omitempty"`
+	WorkDir          string `json:"work_dir,omitempty"`
+	PatchID          string `json:"patch_id,omitempty"`
+	AttemptID        string `json:"attempt_id"`
 }
 type Attempt struct {
 	Source          *SourceResult   `json:"source,omitempty"`
@@ -478,6 +486,7 @@ type Attempt struct {
 	Effective       *ExecutionFacts `json:"effective,omitempty"`
 }
 type Run struct {
+	GuidesMedia               *guidesmedia.Binding       `json:"guides_media,omitempty"`
 	UnpublishedCardRecovery   *UnpublishedCardRecovery   `json:"unpublished_card_recovery,omitempty"`
 	RecordFormat              int                        `json:"record_format,omitempty"`
 	Task                      *TaskRunLink               `json:"task,omitempty"`

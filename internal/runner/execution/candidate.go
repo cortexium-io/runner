@@ -201,6 +201,9 @@ func (w *Workspaces) retainCandidate(ctx context.Context, a runner.Assignment) (
 	if err != nil {
 		return "", err
 	}
+	if !sameMediaBinding(r.GuidesMedia, a.GuidesMedia) {
+		return "", errors.New("candidate guide whole-set authority differs from its assignment")
+	}
 	if r.Candidate == nil {
 		if err = w.captureApprovedSeed(ctx, r, a); err != nil {
 			return "", err
@@ -453,7 +456,11 @@ func (w *Workspaces) buildCandidate(ctx context.Context, r workspaceRecord, a ru
 	if _, err := git(ctx, r.Repository, env, nil, 1024, "read-tree", r.Base); err != nil {
 		return "", err
 	}
-	if len(patch) != 0 {
+	if r.GuidesMedia != nil {
+		if err := w.applyMediaIndexPatch(ctx, r, env, patch, a.Limits.MaxArtifact); err != nil {
+			return "", err
+		}
+	} else if len(patch) != 0 {
 		if _, err := git(ctx, r.Repository, env, patch, 1024, "apply", "--cached", "--binary", "--whitespace=nowarn", "-"); err != nil {
 			return "", err
 		}

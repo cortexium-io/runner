@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,32 +62,7 @@ func verifyFrontendCheckHelper(path, expected string) error {
 }
 
 func frontendCheckHelperBytes(path, expected string) ([]byte, error) {
-	const maxHelperBytes = 64 << 20
-	if !filepath.IsAbs(path) || filepath.Base(path) != "runner-frontend-check" || !publicationDigest.MatchString(expected) {
-		return nil, errors.New("frontend check recovery requires the configured helper and exact digest")
-	}
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 || info.Size() < 1 || info.Size() > maxHelperBytes {
-		return nil, errors.New("frontend check helper is unavailable or differs from its qualified identity")
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	opened, err := f.Stat()
-	if err != nil || !os.SameFile(info, opened) {
-		return nil, errors.New("frontend check helper changed while opening")
-	}
-	data, err := io.ReadAll(io.LimitReader(f, maxHelperBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	current, err := os.Lstat(path)
-	if err != nil || !os.SameFile(info, current) || int64(len(data)) != info.Size() || current.Size() != info.Size() || !current.ModTime().Equal(info.ModTime()) || captureDigest(data) != expected {
-		return nil, errors.New("frontend check helper differs from its approved digest")
-	}
-	return data, nil
+	return readPinnedCommandHelper(path, expected, "runner-frontend-check", 64<<20)
 }
 
 var githubOrigin = regexp.MustCompile(`^https://github\.com/([A-Za-z0-9_-]+/[A-Za-z0-9_.-]+)$`)

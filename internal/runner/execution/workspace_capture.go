@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/cortexium-io/runner/internal/guidesmedia"
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
@@ -43,15 +44,16 @@ type captureFile struct {
 	Blob string `json:"blob"`
 }
 type captureManifest struct {
-	RunID       string            `json:"run_id"`
-	AttemptID   string            `json:"attempt_id"`
-	Repository  string            `json:"repository"`
-	Base        string            `json:"base"`
-	WorkDir     string            `json:"work_dir"`
-	ParentPatch string            `json:"parent_patch"`
-	Limit       runner.Bytes      `json:"artifact_limit"`
-	Files       []captureFile     `json:"files"`
-	TaskSeed    *taskCaptureScope `json:"task_seed,omitempty"`
+	GuidesMedia *guidesmedia.Binding `json:"guides_media,omitempty"`
+	RunID       string               `json:"run_id"`
+	AttemptID   string               `json:"attempt_id"`
+	Repository  string               `json:"repository"`
+	Base        string               `json:"base"`
+	WorkDir     string               `json:"work_dir"`
+	ParentPatch string               `json:"parent_patch"`
+	Limit       runner.Bytes         `json:"artifact_limit"`
+	Files       []captureFile        `json:"files"`
+	TaskSeed    *taskCaptureScope    `json:"task_seed,omitempty"`
 }
 
 type taskCaptureScope struct {
@@ -80,6 +82,12 @@ func (w *Workspaces) captureLocked(ctx context.Context, a runner.Assignment) (re
 	}
 	r, err := w.load(a.RunID)
 	if err != nil {
+		return nil, err
+	}
+	if !sameMediaBinding(r.GuidesMedia, a.GuidesMedia) {
+		return nil, errors.New("capture guide whole-set authority differs")
+	}
+	if err := w.mediaCheckout(ctx, r, false); err != nil {
 		return nil, err
 	}
 	if info, e := os.Lstat(filepath.Join(r.WorkDir, ".runner-tmp")); e == nil && !info.IsDir() {
@@ -342,7 +350,12 @@ func (w *Workspaces) captureLocked(ctx context.Context, a runner.Assignment) (re
 			return nil, err
 		}
 	}
-	patch, err := git(ctx, r.WorkDir, env, nil, int(a.Limits.MaxArtifact), "diff", "--cached", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--no-renames", r.Base, "--")
+	var patch []byte
+	if r.GuidesMedia != nil {
+		patch, err = w.mediaSourcePatch(ctx, r, env, r.Capture.Tree, true, a.Limits.MaxArtifact)
+	} else {
+		patch, err = git(ctx, r.WorkDir, env, nil, int(a.Limits.MaxArtifact), "diff", "--cached", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--no-renames", r.Base, "--")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -353,6 +366,7 @@ func (w *Workspaces) captureLocked(ctx context.Context, a runner.Assignment) (re
 		return nil, err
 	}
 	result = &runner.SourceResult{Tree: r.Capture.Tree, Repository: r.Repository, Base: r.Base, WorkDir: r.WorkDir, AttemptID: a.AttemptID, InputPatchID: manifest.ParentPatch, PatchID: a.AttemptID + "/changes.patch"}
+	mediaSourceFields(r, result)
 	if prior, e := w.disk.Read("artifacts/"+result.PatchID, a.Limits.MaxArtifact); e == nil && !bytes.Equal(prior, patch) {
 		return nil, errors.New("retained patch differs from the owned snapshot; preserve it")
 	} else if e != nil && !errors.Is(e, os.ErrNotExist) {
@@ -496,6 +510,7 @@ func capturePaths(ctx context.Context, r workspaceRecord) ([]string, error) {
 
 func (w *Workspaces) newCaptureManifest(ctx context.Context, r workspaceRecord, a runner.Assignment) (captureManifest, error) {
 	m := captureManifest{RunID: a.RunID, AttemptID: a.AttemptID, Repository: r.Repository, Base: r.Base, WorkDir: r.WorkDir, Limit: a.Limits.MaxArtifact, ParentPatch: r.SeedPatchID}
+	m.GuidesMedia = runner.Clone(r.GuidesMedia)
 	if a.TaskSource != nil && a.TaskSource.Identity.ItemID != "" {
 		seed := r.TaskSources[a.TaskSource.Identity.GroupStep]
 		if seed == nil || !seed.Installed || !sameTaskAuthority(seed.Authority, *a.TaskSource) {
@@ -559,6 +574,9 @@ func (w *Workspaces) readCaptureManifest(r workspaceRecord, a runner.Assignment,
 	}
 	if captureDigest(data) != r.Capture.Digest || json.Unmarshal(data, &m) != nil || m.RunID != a.RunID || m.AttemptID != a.AttemptID || m.Repository != r.Repository || m.Base != r.Base || m.WorkDir != r.WorkDir || m.Limit != a.Limits.MaxArtifact || len(m.Files) != r.Capture.Files {
 		return m, errors.New("capture manifest identity changed; preserve it")
+	}
+	if !sameMediaBinding(m.GuidesMedia, r.GuidesMedia) || !sameMediaBinding(m.GuidesMedia, a.GuidesMedia) {
+		return m, errors.New("capture manifest guide whole-set authority changed")
 	}
 	var paths int
 	for i, file := range m.Files {

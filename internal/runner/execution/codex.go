@@ -584,6 +584,9 @@ func nativePayloadPlan(a runner.Assignment, now time.Time) (string, any, map[str
 		return "", nil, nil, errors.New("an explicit task purpose is required")
 	}
 	p := a.Setup.Profile
+	if p.Mode == "guides-source" && (p.Access != "workspace-write" || a.GuidesMedia == nil || a.GuidesMedia.ValidateShape() != nil) {
+		return "", nil, nil, errors.New("guide source requires authenticated whole-set authority and its dedicated writable profile")
+	}
 	if p.Mode == "genny-source" && p.Access != "workspace-write" {
 		return "", nil, nil, errors.New("Genny generation requires its dedicated source profile")
 	}
@@ -594,6 +597,10 @@ func nativePayloadPlan(a runner.Assignment, now time.Time) (string, any, map[str
 		return "", nil, nil, errors.New("incomplete input-only Codex profile")
 	}
 	inputs := map[string]any{}
+	if a.GuidesMedia != nil {
+		inputs["guide_media_index"] = filepath.Join(".runner-tmp", "inputs", a.AttemptID, "guide-media-index.json")
+		inputs["guide_media_manifest"] = filepath.Join(".runner-tmp", "inputs", a.AttemptID, "guide-media-manifest.json")
+	}
 	for k, v := range a.Inputs {
 		if p.Access == "workspace-write" && k == "patch" && v.ArtifactID != "" {
 			inputs[k] = "Runner already restored the retained patch into this workspace. Continue from these files; do not reapply the patch."

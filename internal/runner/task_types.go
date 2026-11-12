@@ -26,13 +26,15 @@ type TaskAssignment struct {
 
 // A task candidate is an internal source pin, not an accepted publication.
 type TaskCandidate struct {
-	Identity   TaskIdentity `json:"identity"`
-	RunID      string       `json:"run_id"`
-	Repository string       `json:"repository"`
-	Base       string       `json:"base"`
-	Commit     string       `json:"commit"`
-	Tree       string       `json:"tree"`
-	PatchID    string       `json:"patch_id"`
+	MediaIndexID     string       `json:"media_index_id,omitempty"`
+	MediaIndexSHA256 string       `json:"media_index_sha256,omitempty"`
+	Identity         TaskIdentity `json:"identity"`
+	RunID            string       `json:"run_id"`
+	Repository       string       `json:"repository"`
+	Base             string       `json:"base"`
+	Commit           string       `json:"commit"`
+	Tree             string       `json:"tree"`
+	PatchID          string       `json:"patch_id"`
 }
 
 type TaskManifestItem struct {
@@ -45,14 +47,16 @@ type TaskManifestItem struct {
 }
 
 type TaskManifest struct {
-	RootRunID   string             `json:"root_run_id"`
-	GroupStep   string             `json:"group_step"`
-	Repository  string             `json:"repository"`
-	Base        string             `json:"base"`
-	RootPatchID string             `json:"root_patch_id,omitempty"`
-	Request     string             `json:"request"`
-	Items       []TaskManifestItem `json:"items"`
-	Evidence    map[string]Value   `json:"evidence,omitempty"`
+	MediaIndexID     string             `json:"media_index_id,omitempty"`
+	MediaIndexSHA256 string             `json:"media_index_sha256,omitempty"`
+	RootRunID        string             `json:"root_run_id"`
+	GroupStep        string             `json:"group_step"`
+	Repository       string             `json:"repository"`
+	Base             string             `json:"base"`
+	RootPatchID      string             `json:"root_patch_id,omitempty"`
+	Request          string             `json:"request"`
+	Items            []TaskManifestItem `json:"items"`
+	Evidence         map[string]Value   `json:"evidence,omitempty"`
 }
 
 type TaskChild struct {

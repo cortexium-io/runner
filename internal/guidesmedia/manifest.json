@@ -1,0 +1,353 @@
+{
+  "version": 1,
+  "requestId": "jacks-break-guides-publish-20261112",
+  "createdAt": "2026-11-12T19:18:27.600Z",
+  "sourceRoot": "/Users/dan/Projects/Orchestrator/outputs/jacks-break-tutorials-2026-11-12",
+  "authorization": {
+    "sourceChat": "01a1cf08-5c81-7883-b58c-28902274efdc",
+    "owner": "Dan",
+    "request": "Please publish. I will review later; small editorial bugs or errors are acceptable.",
+    "scope": "Publish these nine narrated how-to-play guides on Jack’s Break; Instagram drafts and standing automation are separate."
+  },
+  "status": "publication-requested-not-live",
+  "guides": [
+    {
+      "game": "sudoku",
+      "howToPlayUrl": "https://jacksbreak.com/how-to-play/sudoku",
+      "durationSeconds": 140,
+      "files": [
+        {
+          "role": "video",
+          "relativePath": "sudoku-master-audio-fixed.mp4",
+          "mimeType": "video/mp4",
+          "bytes": 5072198,
+          "sha256": "0d77a7f8058e203b38dfdcdb38e4697dc04b123c80ad9cf57b436ef62a3e914b"
+        },
+        {
+          "role": "captions",
+          "relativePath": "sudoku-master-audio-fixed.vtt",
+          "mimeType": "text/vtt",
+          "bytes": 4572,
+          "sha256": "3e94e8be19fd41783a043b23ace37a0c3044eb42127142c01abc36ee87d5e28c"
+        },
+        {
+          "role": "transcript",
+          "relativePath": "sudoku-master-audio-fixed-transcript.txt",
+          "mimeType": "text/plain",
+          "bytes": 1398,
+          "sha256": "93727cb0310b4055121dd2b67568a0030fce0fb8edd72b97895050fbfb4a6873"
+        },
+        {
+          "role": "poster",
+          "relativePath": "master-scenes-v3/welcome-native.png",
+          "mimeType": "image/png",
+          "bytes": 381528,
+          "sha256": "3e846e05150fd6992c389b522f2e59d94ed2db98d968790a9a49b23b92648c44"
+        }
+      ]
+    },
+    {
+      "game": "binary",
+      "howToPlayUrl": "https://jacksbreak.com/how-to-play/binary",
+      "durationSeconds": 124,
+      "files": [
+        {
+          "role": "video",
+          "relativePath": "series/binary/binary-tutorial.mp4",
+          "mimeType": "video/mp4",
+          "bytes": 3968624,
+          "sha256": "50338e39ed3887defdebc7828dc9b11cc527a1766b91693b3c673d5c6603e312"
+        },
+        {
+          "role": "captions",
+          "relativePath": "series/binary/binary-tutorial.vtt",
+          "mimeType": "text/vtt",
+          "bytes": 4445,
+          "sha256": "0d6f7a297eb9bfbe969142e06f8dc2dd3d3a4a538b18ae9756505b2ba0b9e7bc"
+        },
+        {
+          "role": "transcript",
+          "relativePath": "series/binary/binary-tutorial-transcript.txt",
+          "mimeType": "text/plain",
+          "bytes": 1496,
+          "sha256": "4111bd87fbe8a865944fbfdd84a6d9a1bfb179916bb2cee2b3748ac92a1cbaf9"
+        },
+        {
+          "role": "poster",
+          "relativePath": "series/binary/encoded-proof/welcome-native.png",
+          "mimeType": "image/png",
+          "bytes": 248440,
+          "sha256": "dc962b6cdaea456af4d001bc01cfae81b0433bc00f5b06aa5769fcea0889098e"
+        }
+      ]
+    },
+    {
+      "game": "suguru",
+      "howToPlayUrl": "https://jacksbreak.com/how-to-play/suguru",
+      "durationSeconds": 143,
+      "files": [
+        {
+          "role": "video",
+          "relativePath": "series/suguru/suguru-tutorial.mp4",
+          "mimeType": "video/mp4",
+          "bytes": 4856408,
+          "sha256": "2c5a18a585bc93120d97e21828ac0ba94849f6e37a644a2a581d52236a3103dd"
+        },
+        {
+          "role": "captions",
+          "relativePath": "series/suguru/suguru-tutorial.vtt",
+          "mimeType": "text/vtt",
+          "bytes": 4993,
+          "sha256": "1950a2d13c8b7bc57559c24f88c78fb19b09e9fb65684f4850b55321e46b10e8"
+        },
+        {
+          "role": "transcript",
+          "relativePath": "series/suguru/suguru-tutorial-transcript.txt",
+          "mimeType": "text/plain",
+          "bytes": 1657,
+          "sha256": "6c20e48000b42a99e363a434b41deb66333aef6140f320e67458af5bc0394287"
+        },
+        {
+          "role": "poster",
+          "relativePath": "series/suguru/encoded-proof/welcome-native.png",
+          "mimeType": "image/png",
+          "bytes": 230861,
+          "sha256": "91ef996c5f0db48799a66d6aaae35972a2605c53d468c9b3d292800bedbd7fde"
+        }
+      ]
+    },
+    {
+      "game": "nonogram",
+      "howToPlayUrl": "https://jacksbreak.com/how-to-play/nonogram",
+      "durationSeconds": 152,
+      "files": [
+        {
+          "role": "video",
+          "relativePath": "series/nonogram/nonogram-tutorial.mp4",
+          "mimeType": "video/mp4",
+          "bytes": 4717005,
+          "sha256": "286a0cf9011dd37edbff80a8f1cd73a6dd8413aa283f83abb7bdfa424e60de65"
+        },
+        {
+          "role": "captions",
+          "relativePath": "series/nonogram/nonogram-tutorial.vtt",
+          "mimeType": "text/vtt",
+          "bytes": 5550,
+          "sha256": "da1d8510a9191610ebd900adc57339d200bbf2fa0eb327e346f8fc069c2b66e8"
+        },
+        {
+          "role": "transcript",
+          "relativePath": "series/nonogram/nonogram-tutorial-transcript.txt",
+          "mimeType": "text/plain",
+          "bytes": 1823,
+          "sha256": "6ebcd63a66198718f35c395bee75e176fb31199f3e7fd8afcb2aa9a13740647c"
+        },
+        {
+          "role": "poster",
+          "relativePath": "series/nonogram/encoded-proof/welcome-native.png",
+          "mimeType": "image/png",
+          "bytes": 232542,
+          "sha256": "2250f61b397a26b4ac961481b5b545cc4c39f78b3b7e0084a930da381a8e6c6d"
+        }
+      ]
+    },
+    {
+      "game": "futoshiki",
+      "howToPlayUrl": "https://jacksbreak.com/how-to-play/futoshiki",
+      "durationSeconds": 123,
+      "files": [
+        {
+          "role": "video",
+          "relativePath": "series/futoshiki/futoshiki-tutorial.mp4",
+          "mimeType": "video/mp4",
+          "bytes": 3832606,
+          "sha256": "6e8cc286ad61515b61e11453bbd8b58559965d70c5ebb17951f3eb1873a9cc54"
+        },
+        {
+          "role": "captions",
+          "relativePath": "series/futoshiki/futoshiki-tutorial.vtt",
+          "mimeType": "text/vtt",
+          "bytes": 4014,
+          "sha256": "5d25cd5851dbf243b2ba86f5a39eb78735bd81475552dbff8ef10c1309043187"
+        },
+        {
+          "role": "transcript",
+          "relativePath": "series/futoshiki/futoshiki-tutorial-transcript.txt",
+          "mimeType": "text/plain",
+          "bytes": 1377,
+          "sha256": "04df1af819ab663bebb3901945b0c2a56ab81086ef62de201d3327c9743515cc"
+        },
+        {
+          "role": "poster",
+          "relativePath": "series/futoshiki/encoded-proof/welcome-native.png",
+          "mimeType": "image/png",
+          "bytes": 270506,
+          "sha256": "5d761f47abe055ede633744a2406308e41c74f291d53529c47774c665a8c7b84"
+        }
+      ]
+    },
+    {
+      "game": "shikaku",
+      "howToPlayUrl": "https://jacksbreak.com/how-to-play/shikaku",
+      "durationSeconds": 123,
+      "files": [
+        {
+          "role": "video",
+          "relativePath": "series/shikaku/shikaku-tutorial.mp4",
+          "mimeType": "video/mp4",
+          "bytes": 4111709,
+          "sha256": "eacf449802ea2e094220576c3e256777ec779a5dad3da4f24937dc733682e186"
+        },
+        {
+          "role": "captions",
+          "relativePath": "series/shikaku/shikaku-tutorial.vtt",
+          "mimeType": "text/vtt",
+          "bytes": 4651,
+          "sha256": "4d8a4085408c467241598ef1c2604bc841d71af27bd162e00ce0796ad25de5fb"
+        },
+        {
+          "role": "transcript",
+          "relativePath": "series/shikaku/shikaku-tutorial-transcript.txt",
+          "mimeType": "text/plain",
+          "bytes": 1466,
+          "sha256": "0dff95310dc185292cb2a2b989d5a785cb7e153b04b134e467b18d794e07a437"
+        },
+        {
+          "role": "poster",
+          "relativePath": "series/shikaku/encoded-proof/welcome-native.png",
+          "mimeType": "image/png",
+          "bytes": 206718,
+          "sha256": "b25d922b8d1827621c0c82533f65d7725eea80ad2d84fc0d5470bcf2b2951617"
+        }
+      ]
+    },
+    {
+      "game": "hashi",
+      "howToPlayUrl": "https://jacksbreak.com/how-to-play/hashi",
+      "durationSeconds": 126,
+      "files": [
+        {
+          "role": "video",
+          "relativePath": "series/hashi/hashi-tutorial.mp4",
+          "mimeType": "video/mp4",
+          "bytes": 4547011,
+          "sha256": "00a9dfe7414c40ce6d69488e255b636fc9efb47525a3d10c3b3beca6f2211c32"
+        },
+        {
+          "role": "captions",
+          "relativePath": "series/hashi/hashi-tutorial.vtt",
+          "mimeType": "text/vtt",
+          "bytes": 4558,
+          "sha256": "e2e1141d9091801f3fd8bfc50c5c043abf9467007e14e99c69ab31160f9b1ac8"
+        },
+        {
+          "role": "transcript",
+          "relativePath": "series/hashi/hashi-tutorial-transcript.txt",
+          "mimeType": "text/plain",
+          "bytes": 1530,
+          "sha256": "086da8497167938d3c7f92fa03c1e265c25ee5548f63126c620c6de7b4358c08"
+        },
+        {
+          "role": "poster",
+          "relativePath": "series/hashi/encoded-proof/welcome-native.png",
+          "mimeType": "image/png",
+          "bytes": 301525,
+          "sha256": "88979333476a1aa246ac64c49176993c74b19cf6122816cf2c24edc1a1b90db7"
+        }
+      ]
+    },
+    {
+      "game": "calcudoku",
+      "howToPlayUrl": "https://jacksbreak.com/how-to-play/calcudoku",
+      "durationSeconds": 138,
+      "files": [
+        {
+          "role": "video",
+          "relativePath": "series/calcudoku/calcudoku-tutorial.mp4",
+          "mimeType": "video/mp4",
+          "bytes": 4574555,
+          "sha256": "aefd1f975b0e8b8ece928733dc92521c32b48340114e138bab7689ef7ceb549a"
+        },
+        {
+          "role": "captions",
+          "relativePath": "series/calcudoku/calcudoku-tutorial.vtt",
+          "mimeType": "text/vtt",
+          "bytes": 4673,
+          "sha256": "0d0fc97fc2bde7e1e4801eda60931f912994d648800203ae068bc93f2921a98c"
+        },
+        {
+          "role": "transcript",
+          "relativePath": "series/calcudoku/calcudoku-tutorial-transcript.txt",
+          "mimeType": "text/plain",
+          "bytes": 1570,
+          "sha256": "a3af4fb2bcdc9913eee9115c94ae96beea2121c36f3325d84dbc514dca1185ca"
+        },
+        {
+          "role": "poster",
+          "relativePath": "series/calcudoku/encoded-proof/welcome-native.png",
+          "mimeType": "image/png",
+          "bytes": 310378,
+          "sha256": "23161cc501ea77164bfa724e3f165e0ea5852c8e9d46aaa6d0e0b34fa34d0fb4"
+        }
+      ]
+    },
+    {
+      "game": "kakuro",
+      "howToPlayUrl": "https://jacksbreak.com/how-to-play/kakuro",
+      "durationSeconds": 131,
+      "files": [
+        {
+          "role": "video",
+          "relativePath": "series/kakuro/kakuro-tutorial.mp4",
+          "mimeType": "video/mp4",
+          "bytes": 4182798,
+          "sha256": "df3ae16481ce38bd229cc0dd3ddee8bfe4cfccf77a7e8faf5f741a107346cb2a"
+        },
+        {
+          "role": "captions",
+          "relativePath": "series/kakuro/kakuro-tutorial.vtt",
+          "mimeType": "text/vtt",
+          "bytes": 4707,
+          "sha256": "2ccb90fd232e703dbb31d75e44c161fd765f1c8e766b15287190227216a15470"
+        },
+        {
+          "role": "transcript",
+          "relativePath": "series/kakuro/kakuro-tutorial-transcript.txt",
+          "mimeType": "text/plain",
+          "bytes": 1526,
+          "sha256": "d9f8d534cd5f3c7d5159bcb11bb66b2905a5356691810c5f27796eb1220d4e8b"
+        },
+        {
+          "role": "poster",
+          "relativePath": "series/kakuro/encoded-proof/welcome-native.png",
+          "mimeType": "image/png",
+          "bytes": 261058,
+          "sha256": "583ec3ec9c8694a5831409f204d9f2eccb72ef9c1dcd1f34b903b0e85f524656"
+        }
+      ]
+    }
+  ],
+  "totalDurationSeconds": 1200,
+  "assetCount": 36,
+  "totalAssetBytes": 42362476,
+  "sourceEvidence": [
+    "review.html",
+    "series-teaching-outlines.json",
+    "series/gallery-checks.json",
+    "review-evidence/independent-v3-audio-fix-review.json",
+    "series/binary/independent-review.json",
+    "series/suguru/independent-review.json",
+    "series/nonogram/independent-review.json",
+    "series/futoshiki/independent-review.json",
+    "series/shikaku/independent-review.json",
+    "series/hashi/independent-review.json",
+    "series/calcudoku/independent-review.json",
+    "series/kakuro/independent-review.json"
+  ],
+  "requirements": [
+    "Use exact hash-bound media; preserve existing site behavior and brand",
+    "Optional English captions initially off, accessible transcript and playable/seekable MP4",
+    "Runner owns integration, product checks and protected release; coordinator does not approve protected decisions",
+    "Do not stage raw source recordings, workflow scripts, historical versions or dependencies into the product"
+  ]
+}

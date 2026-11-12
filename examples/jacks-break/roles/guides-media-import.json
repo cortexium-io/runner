@@ -1,0 +1,64 @@
+{
+  "id": "guides-media-import",
+  "purpose": "Authenticate the single approved immutable nine-guide raw-media set; no product edits, checks, publication or browser control.",
+  "inputs": {
+    "request": "text"
+  },
+  "outputs": {
+    "check": "text",
+    "media_index": "artifact",
+    "sudoku_video": "artifact",
+    "sudoku_captions": "artifact",
+    "sudoku_transcript": "artifact",
+    "sudoku_poster": "artifact",
+    "binary_video": "artifact",
+    "binary_captions": "artifact",
+    "binary_transcript": "artifact",
+    "binary_poster": "artifact",
+    "suguru_video": "artifact",
+    "suguru_captions": "artifact",
+    "suguru_transcript": "artifact",
+    "suguru_poster": "artifact",
+    "nonogram_video": "artifact",
+    "nonogram_captions": "artifact",
+    "nonogram_transcript": "artifact",
+    "nonogram_poster": "artifact",
+    "futoshiki_video": "artifact",
+    "futoshiki_captions": "artifact",
+    "futoshiki_transcript": "artifact",
+    "futoshiki_poster": "artifact",
+    "shikaku_video": "artifact",
+    "shikaku_captions": "artifact",
+    "shikaku_transcript": "artifact",
+    "shikaku_poster": "artifact",
+    "hashi_video": "artifact",
+    "hashi_captions": "artifact",
+    "hashi_transcript": "artifact",
+    "hashi_poster": "artifact",
+    "calcudoku_video": "artifact",
+    "calcudoku_captions": "artifact",
+    "calcudoku_transcript": "artifact",
+    "calcudoku_poster": "artifact",
+    "kakuro_video": "artifact",
+    "kakuro_captions": "artifact",
+    "kakuro_transcript": "artifact",
+    "kakuro_poster": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "mode": "guides-import",
+    "access": "workspace-read",
+    "guides_import_sha256": "REPLACE_WITH_QUALIFIED_HELPER_SHA256",
+    "command": {
+      "args": [
+        "/REPLACE/WITH/QUALIFIED/runner-guides-import",
+        "--output",
+        "{scratch}/media",
+        "--run",
+        "{run_id}",
+        "--attempt",
+        "{attempt_id}"
+      ]
+    }
+  }
+}

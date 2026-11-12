@@ -57,6 +57,9 @@ func (c *Codex) validateGennyRuntime() error {
 }
 
 func sourcePermission(p runner.Profile) string {
+	if p.Mode == "guides-source" && p.Access == "workspace-write" {
+		return "runner-guides-edit"
+	}
 	if p.Mode == "genny-source" && p.Access == "workspace-write" {
 		return "runner-genny-edit"
 	}
@@ -67,6 +70,9 @@ func sourcePermission(p runner.Profile) string {
 }
 
 func sourceInstructions(p runner.Profile) string {
+	if p.Mode == "guides-source" {
+		return workspaceBase + "\nThis is the closed guide/media-only contract. The authenticated36-file media set is already present at frontend/public/assets/learning/guides and is protected read-only. Never regenerate, move, copy or alter these media. Edit only the admitted guide/player/transcript/a11y source paths. Do not modify puzzle/controller/entry/zoom/notes/save/completion/generation/privacy/CMP code. Source edits are not media acceptance: later configured checks, built-image qualification and independent source/image reviews own proof.\n"
+	}
 	if p.Mode != "genny-source" {
 		return workspaceBase
 	}

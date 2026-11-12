@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cortexium-io/runner/internal/guidesmedia"
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
@@ -211,6 +212,11 @@ func (c *Commands) prepare(id string) {
 }
 func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 	a := job.Assignment
+	if a.Setup.Profile.Mode == "guides-import" {
+		if err := validateGuidesImportAssignment(a); err != nil {
+			return err
+		}
+	}
 	w, err := c.workspaces.Prepare(ctx, a)
 	if err != nil {
 		return err
@@ -287,6 +293,32 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 	config.WriteString("default_permissions=\"runner-command\"\n[permissions.runner-command.filesystem]\n\":minimal\"=\"read\"\n")
 	paths := map[string]string{w.WorkDir: "read", baseEnv["TMPDIR"]: "write", goRoot: "read"}
 	control := commandControl(a.AttemptID)
+	if a.Setup.Profile.Mode == "guides-import" {
+		data, err := guidesImportHelperBytes(args[0], a.Setup.Profile.GuidesImportSHA256)
+		if err != nil {
+			return err
+		}
+		rel := control + "/runner-guides-import"
+		prior, err := c.disk.Read(rel, a.Limits.MaxArtifact)
+		if err == nil {
+			if !bytes.Equal(prior, data) {
+				return errors.New("owned guide import helper changed; preserve it")
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		} else if err = c.disk.Write(rel, data, a.Limits.MaxArtifact); err != nil {
+			return err
+		}
+		args[0] = filepath.Join(c.disk.Root, rel)
+		if err := os.Chmod(args[0], 0500); err != nil {
+			return err
+		}
+		paths[args[0]] = "read"
+		paths[guidesmedia.SourceRoot] = "read"
+		if err := os.MkdirAll(filepath.Join(baseEnv["TMPDIR"], "media"), 0700); err != nil {
+			return err
+		}
+	}
 	if pins := a.FrontendCheckPins; pins != nil {
 		// Stage the verified bytes under this attempt. A replacement at the
 		// configured installation path cannot change the sandboxed command.
@@ -332,6 +364,10 @@ func (c *Commands) prepareWorker(ctx context.Context, job *commandJob) error {
 	}
 	if a.FrontendCheckPins != nil {
 		worker.HelperSHA256 = a.FrontendCheckPins.HelperSHA256
+	}
+	if a.Setup.Profile.Mode == "guides-import" {
+		worker.HelperSHA256 = a.Setup.Profile.GuidesImportSHA256
+		worker.HelperKind = "guides-import"
 	}
 	data, _ := json.Marshal(worker)
 	if err = c.disk.Write(control+"/spec.json", data, c.disk.Policy.Database.MaxRecord); err != nil {
@@ -509,6 +545,9 @@ func commandValue(value string, job commandJob, env map[string]string) string {
 		"{artifact_id.patch}",
 		job.Assignment.Inputs["patch"].ArtifactID,
 	}
+	if job.Assignment.Setup.Profile.Mode == "guides-import" {
+		bindings = append(bindings, "{run_id}", job.Assignment.RunID, "{attempt_id}", job.Assignment.AttemptID)
+	}
 	for name, input := range job.Assignment.Inputs {
 		if input.ArtifactID != "" {
 			bindings = append(bindings, "{input."+name+"}", filepath.Join(job.Workspace.WorkDir, ".runner-tmp", job.Assignment.AttemptID, "inputs", name))
@@ -532,6 +571,9 @@ func collectCommand(d *runner.Disk, job commandJob, result commandResult) (*runn
 	}
 	if !mapped {
 		outcome = "ready"
+	}
+	if job.Assignment.Setup.Profile.Mode == "guides-import" {
+		return collectGuidesImport(d, job, result)
 	}
 	reason := ""
 	if cmd.Result != "" {
