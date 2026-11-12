@@ -28,6 +28,21 @@ deadline. Owned local pipe fixtures prove EOF completion, overflow, cancellation
 and deadline settlement while preserving the original metadata error. They
 prove no daemon-side cleanup or cause for fixture01's retained image.
 
+Cortexium cleanup now uses the existing per-operation delivery worker and
+inherited writer lease. An immutable cleanup specification binds the exact
+original work bytes and saves one deadline, at most the existing45-second
+cleanup reserve and never beyond the original execution deadline plus that
+reserve. A durable exclusive claim precedes cleanup effects. Short observations
+can rejoin the same worker while another operation progresses; they do not run
+Docker cleanup synchronously. Restart may launch only an authenticated unclaimed
+cleanup specification within its saved budget. A consumed visit without positive
+settlement, exhausted budget, missing authority or older incomplete work requires
+operator inspection and cannot mint another cleanup visit. Primary execution
+failure and cleanup uncertainty remain separate. Only an owned active writer
+within that budget reports reconciliation; unknown or exhausted cleanup remains
+unsettled. Simulated fixtures qualify this mechanism, not daemon-side settlement
+or the retained fixture's App/browser route. No live-state migration is provided.
+
 The versioned checked-build type alone permits16MiB stored/wire and32MiB decoded
 TOTAL, with ordinary debug Linux/amd64/v1 CGO0 executable, full reports and canonical
 embedded frontend once. All old report/image codecs stay16MiB decoded. Independent

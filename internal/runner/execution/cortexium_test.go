@@ -408,3 +408,69 @@ func TestCortexiumLostAcknowledgementRejoinsSameIdentityAfterOwnerRestart(t *tes
 		t.Fatal("unexpected transport dispatch count", count)
 	}
 }
+
+func TestCortexiumCleanupFactsDistinguishActiveReconciliationAndOperatorAttention(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		state       string
+		reconciling bool
+		reason      string
+	}{
+		{
+			name:        "held-owned-worker",
+			state:       "running",
+			reconciling: true,
+			reason:      "same owned cleanup worker remains active",
+		},
+		{
+			name:   "expired-budget",
+			state:  "unknown",
+			reason: "cleanup deadline exhausted; needs operator",
+		},
+		{
+			name:   "claimed-dead-worker",
+			state:  "unknown",
+			reason: "cleanup visit consumed without settlement; needs operator",
+		},
+		{
+			name:   "old-unknown-budget",
+			state:  "unknown",
+			reason: "old cleanup budget unknown; needs operator",
+		},
+		{
+			name:        "unknown-cannot-claim-activity",
+			state:       "unknown",
+			reconciling: true,
+			reason:      "writer state unknown; needs operator",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, a, _ := cortexiumFixture(t)
+			defer closeCortexium(t, r)
+			response := release.Response{
+				Key:             a.AttemptID,
+				PayloadRetained: true,
+				State:           tc.state,
+				Reconciling:     tc.reconciling,
+				Reason:          tc.reason,
+			}
+			data, err := json.Marshal(response)
+			if err != nil {
+				t.Fatal(err)
+			}
+			program := filepath.Join(t.TempDir(), "fixed-observation")
+			body := "#!/bin/sh\n/bin/cat > /dev/null\nprintf '%s\\n' '" + string(data) + "'\n"
+			if err := os.WriteFile(program, []byte(body), 0700); err != nil {
+				t.Fatal(err)
+			}
+			j := releaseJob{Assignment: a, Command: []string{program}}
+			o, err := r.observeCortexium(t.Context(), j, runner.Observation{State: runner.Running})
+			if err != nil || o.End != nil || o.Reconciling != (tc.state == "running" && tc.reconciling) {
+				t.Fatal("cleanup facts were lost or falsely settled", o, err)
+			}
+			if tc.state == "unknown" && (o.State != runner.Unknown || !strings.Contains(o.Reason, "needs operator")) {
+				t.Fatal("exhausted cleanup concealed attention", o)
+			}
+		})
+	}
+}

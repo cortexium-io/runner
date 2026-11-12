@@ -35,6 +35,7 @@ type Request struct {
 	SourceContinuation bool              `json:"source_continuation,omitempty"`
 }
 type Response struct {
+	Reconciling     bool            `json:"reconciling,omitempty"`
 	PayloadRetained bool            `json:"payload_retained,omitempty"`
 	Key             string          `json:"key"`
 	State           string          `json:"state"`
@@ -84,21 +85,23 @@ type Receipt struct {
 	PublicationKey        string                 `json:"publication_key,omitempty"`
 }
 type Job struct {
-	CortexiumDeadline int64   `json:"cortexium_deadline,omitempty"`
-	Request           Request `json:"request"`
-	Receipt           Receipt `json:"receipt"`
-	Phase             string  `json:"phase,omitempty"`
-	RemoteID          string  `json:"remote_id,omitempty"`
-	Done              bool    `json:"done,omitempty"`
-	Failed            bool    `json:"failed,omitempty"`
-	Reason            string  `json:"reason,omitempty"`
-	StoppedSHA        string  `json:"stopped_sha256,omitempty"`
-	Recovery          string  `json:"recovery,omitempty"`
-	Failure           string  `json:"failure,omitempty"`
-	Worker            string  `json:"worker,omitempty"`
-	Outcome           string  `json:"outcome,omitempty"`
-	Resume            string  `json:"resume,omitempty"`
-	Retryable         bool    `json:"retryable,omitempty"`
+	CortexiumCleanupDeadline int64   `json:"cortexium_cleanup_deadline,omitempty"`
+	CortexiumCleanupFailure  string  `json:"cortexium_cleanup_failure,omitempty"`
+	CortexiumDeadline        int64   `json:"cortexium_deadline,omitempty"`
+	Request                  Request `json:"request"`
+	Receipt                  Receipt `json:"receipt"`
+	Phase                    string  `json:"phase,omitempty"`
+	RemoteID                 string  `json:"remote_id,omitempty"`
+	Done                     bool    `json:"done,omitempty"`
+	Failed                   bool    `json:"failed,omitempty"`
+	Reason                   string  `json:"reason,omitempty"`
+	StoppedSHA               string  `json:"stopped_sha256,omitempty"`
+	Recovery                 string  `json:"recovery,omitempty"`
+	Failure                  string  `json:"failure,omitempty"`
+	Worker                   string  `json:"worker,omitempty"`
+	Outcome                  string  `json:"outcome,omitempty"`
+	Resume                   string  `json:"resume,omitempty"`
+	Retryable                bool    `json:"retryable,omitempty"`
 
 	QualificationHandoff       bool `json:"qualification_handoff,omitempty"`
 	RetainedPublicationHandoff bool `json:"retained_publication_handoff,omitempty"`
@@ -364,10 +367,14 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 	if err != nil {
 		out.State = "unknown"
 	}
+	if o.Cortexium && !job.Done && job.Phase == cortexiumCleanupAttentionPhase {
+		out.State = "unknown"
+	}
 	if job.Done {
 		out.State = "finished"
 	}
 	out.Reason, out.Failed, out.Outcome = job.Reason, job.Failed, job.Outcome
+	out.Reconciling = o.Cortexium && out.State == "running" && job.Phase == cortexiumCleanupActive && job.CortexiumCleanupDeadline != 0 && job.CortexiumCleanupFailure == ""
 	out.Retryable = job.Done && job.Failed && job.Retryable
 	out.Receipt, err = json.Marshal(publicReceipt(job.Receipt, o.Delivery))
 	return out, err

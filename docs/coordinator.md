@@ -309,6 +309,21 @@ reporting adapter supplies `--data` without `--endpoint`, so its configured clie
 wrapper must provide that binding. Separate backend progress does not prove a
 deployed endpoint is correctly bound.
 
+Cortexium's prepared operator cleanup is observed through the same operation
+key and normal control call. Its private immutable specification and inherited
+writer lease preserve one cleanup identity and the original bounded reserve
+across lost acknowledgements and owner restart. A short control call must not
+wait for Docker removal. `reconciling` is positive only for the owned active
+cleanup worker; unknown, expired or consumed cleanup remains unsettled and needs
+operator inspection. It cannot be cleared by polling or replaying the operation.
+Preserve the primary failure independently from cleanup uncertainty. Older
+incomplete Cortexium work has no authenticated cleanup budget and is refused;
+this source change does not upgrade retained private jobs. The preserved older
+operator refuses the new cleanup file, but has no understanding of the new
+phases or budget: never roll it back over operations created by the new operator.
+Retain compatible binaries and all journals instead of rewinding state. This
+prepared source is not activation, App admission or proof of daemon cleanup.
+
 Jack's Break dispatch is owned by the process-core instance at
 `/Users/dan/.codex/jbg31` on Black Magic. Black Magic owns the Core, state and
 local MCP service; Mega Mini owns the remote release operator. From another host,

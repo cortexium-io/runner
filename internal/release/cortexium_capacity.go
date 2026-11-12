@@ -28,7 +28,7 @@ func cortexiumOwnedLocalFile(name string) bool {
 	switch name {
 	case "input-request.json", "input-request.json.partial", "input.tar.gz", "input.tar.gz.partial", "upload.lock", "worker.lock", "work.json", "result.json", "stop", "started", "integrity-lost", "resources-intent", "resources-settled", "owned-image", "owned-anchor", "owned-app", "owned-browser", "owned-builder", "owned-verify", "storage-peak.json", "engine-capacity.json", "partial-export.json", "evidence.tar.gz", "image/server", "image/manifest.json":
 		return true
-	case "resource-usage.json", "app-diagnostics.json", "app-diagnostics.private.log":
+	case "cleanup.json", "cleanup-started", "resource-usage.json", "app-diagnostics.json", "app-diagnostics.private.log":
 		return true
 	}
 	return false

@@ -164,6 +164,7 @@ func (r *Releases) observeCortexium(ctx context.Context, j releaseJob, o runner.
 			return o, err
 		}
 		o.Reason = runner.Clip(response.Reason)
+		o.Reconciling = response.State == "running" && response.Reconciling
 		if response.State != "running" {
 			o.State = runner.Unknown
 		}

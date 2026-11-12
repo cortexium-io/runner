@@ -80,13 +80,18 @@ func (c DeliveryConfig) validate() error {
 }
 
 type deliveryWork struct {
-	Config Config `json:"config"`
-	Job    Job    `json:"job"`
+	Kind    string                   `json:"kind,omitempty"`
+	Cleanup *cortexiumCleanupBinding `json:"cleanup,omitempty"`
+	Config  Config                   `json:"config"`
+	Job     Job                      `json:"job"`
 }
 
 type deliveryDiagnosticKey struct{}
 
 func (b *Live) delivery(ctx context.Context, j *Job, save func() error) error {
+	if b.Config.Cortexium != nil {
+		return b.cortexiumDelivery(j, save)
+	}
 	if j.Request.Action == "publish" {
 		return b.publish(ctx, j, save)
 	}
@@ -135,18 +140,6 @@ func (b *Live) delivery(ctx context.Context, j *Job, save func() error) error {
 	}()
 	data, err := readFile(filepath.Join(filepath.Dir(j.Worker), "result.json"), 32<<10)
 	if errors.Is(err, os.ErrNotExist) {
-		if b.Config.Cortexium != nil {
-			if _, started := os.Stat(filepath.Join(filepath.Dir(j.Worker), "started")); errors.Is(started, os.ErrNotExist) {
-				// No writer holds the inherited lease and no worker claimed this
-				// exact saved specification. Rejoin it without resetting deadline.
-				err = startDeliveryWorker(j.Worker, lease)
-				inherited = err == nil
-				return err
-			} else if started != nil {
-				return started
-			}
-			return b.reconcileCortexiumWork(ctx, j, save)
-		}
 		return errors.New("delivery worker result is not established; retain its dispatch identity")
 	}
 	if err != nil {
@@ -157,9 +150,6 @@ func (b *Live) delivery(ctx context.Context, j *Job, save func() error) error {
 		return errors.New("delivery worker result identity differs")
 	}
 	if !result.Done {
-		if b.Config.Cortexium != nil {
-			return b.reconcileCortexiumWork(ctx, j, save)
-		}
 		return errors.New(result.Reason)
 	}
 	j.Receipt, j.Done, j.Failed, j.Reason, j.Outcome = result.Receipt, result.Done, result.Failed, result.Reason, result.Outcome
@@ -189,7 +179,13 @@ func RunDeliveryWorker(file string) error {
 		return err
 	}
 	var work deliveryWork
-	if json.Unmarshal(data, &work) != nil || !work.Config.validWorkPolicy() || work.Job.Worker != file || filepath.Dir(filepath.Dir(filepath.Dir(file))) != work.Config.workRoot() {
+	if json.Unmarshal(data, &work) != nil || !work.Config.validWorkPolicy() || filepath.Dir(filepath.Dir(filepath.Dir(file))) != work.Config.workRoot() {
+		return errors.New("invalid private delivery work")
+	}
+	if work.Config.Cortexium != nil {
+		return runCortexiumDeliveryFile(file, work)
+	}
+	if work.Job.Worker != file || work.Kind != "" || work.Cleanup != nil {
 		return errors.New("invalid private delivery work")
 	}
 	claim, err := os.OpenFile(filepath.Join(filepath.Dir(file), "started"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
@@ -210,21 +206,10 @@ func RunDeliveryWorker(file string) error {
 	duration, _ := time.ParseDuration(work.Config.workTimeout())
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	if work.Config.Cortexium != nil {
-		if work.Job.CortexiumDeadline == 0 {
-			return errors.New("Cortexium work has no original saved deadline")
-		}
-		bounded, stop := context.WithDeadline(ctx, time.Unix(0, work.Job.CortexiumDeadline))
-		defer stop()
-		ctx = bounded
-	}
 	ctx = context.WithValue(ctx, leaseKey{}, lease)
 	ctx = context.WithValue(ctx, deliveryDiagnosticKey{}, filepath.Dir(file))
 	b := Live{Config: work.Config}
 	j := &work.Job
-	if work.Config.Cortexium != nil {
-		return b.runCortexiumWork(ctx, j)
-	}
 	if j.Request.Action == "readiness" || j.Request.Action == "qualify" {
 		if err = b.collectArchives(ctx); err != nil {
 			_ = fail(j, "owned archive retention could not establish safe collection: "+err.Error())

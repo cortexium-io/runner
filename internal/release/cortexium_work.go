@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"image/png"
 	"io"
 	"os"
@@ -116,61 +115,26 @@ func (b *Live) runCortexiumWork(ctx context.Context, j *Job) error {
 	executionErr = err
 	stop()
 	<-finished
-	if executionErr != nil {
-		j.Failure = executionErr.Error()
-		if len(j.Failure) > 1024 {
-			j.Failure = j.Failure[:1024]
-		}
-	}
 	if size, capErr := b.cortexiumCapacity(); capErr != nil {
 		executionErr = errors.Join(executionErr, capErr)
 	} else {
 		peak = max(peak, size)
 	}
-	// Cleanup reauthenticates the exact engine/image/run/attempt. A failure
-	// retains identities and does not let Core release an unsettled operation.
-	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
-	// The inert anchor retains the producer's bounded tmpfs across failure.
-	// Export before removing any container/volume, preserving the original cause.
-	if executionErr != nil && len(files) > 0 && j.Receipt.BrowserEvidenceSHA256 == "" {
-		partialErr := b.captureCortexiumPartial(cleanup, j, &e, files)
-		_ = writeJSON(filepath.Join(work, "partial-export.json"), map[string]any{
-			"captured":        j.Receipt.BrowserEvidenceSHA256 != "",
-			"error":           fmt.Sprint(partialErr),
-			"primary_failure": j.Failure,
-		})
-	}
-	cleanupErr := b.settleCortexiumResources(cleanup, j)
-	cancel()
 	if executionErr != nil {
-		j.Failure = executionErr.Error()
-		if len(j.Failure) > 1024 {
-			j.Failure = j.Failure[:1024]
-		}
-		e.Status, e.Reason = "incomplete", j.Failure
-		if len(files) > 0 && j.Receipt.BrowserEvidenceSHA256 == "" {
-			if data, packErr := saas.Pack(e, files); packErr == nil {
-				if writeErr := writeExclusive(filepath.Join(work, "evidence.tar.gz"), data); writeErr == nil {
-					j.Receipt.BrowserEvidenceSHA256 = Digest(data)
-				}
-			}
-		}
-		j.Failed, j.Outcome, j.Reason = true, "blocked", "Cortexium runtime/transport prerequisite failed; retained bounded proof"
-	}
-	if _, err := os.Stat(filepath.Join(work, "stop")); err == nil {
-		j.Failed, j.Outcome, j.Reason = false, "blocked", "Cortexium cancellation observed and owned resources settled"
-	}
-	j.Done = cleanupErr == nil
-	if cleanupErr != nil {
-		j.Reason = "Cortexium cleanup remains uncertain; retain this exact operation"
-		j.Failure = fmt.Sprint(executionErr, "; ", cleanupErr)
+		j.Failure = clipCleanupFailure(executionErr)
+		j.Failed, j.Outcome = true, "blocked"
+		j.Reason = "Cortexium runtime/transport prerequisite failed; retained bounded proof"
 	}
 	_ = writeJSON(filepath.Join(work, "storage-peak.json"), map[string]any{
 		"observed_bytes": peak,
 		"managed_cap":    1 << 30,
 		"reserved_bytes": cortexiumLocalWorkBudget,
 	})
-	return writeJSON(filepath.Join(work, "result.json"), j)
+	if _, err := b.prepareCortexiumCleanup(j); err != nil {
+		_ = cortexiumCleanupAttention(j, err)
+		return writeJSON(filepath.Join(work, "result.json"), j)
+	}
+	return b.runCortexiumCleanup(ctx, j)
 }
 
 var cortexiumViewport = regexp.MustCompile(`^chrome-(desktop|narrow)-(setup|run|revision|accepted|failure|tenant-denied|grant-denied|cancelled)-viewport\.png$`)

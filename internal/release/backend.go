@@ -137,9 +137,10 @@ func Load(file string) (*Operator, error) {
 }
 
 type Live struct {
-	Config     Config
-	runCommand func(context.Context, []byte, string, ...string) ([]byte, error)
-	callTool   func(context.Context, string, any, any) error
+	launchDeliveryWorker func(string, *os.File) error
+	Config               Config
+	runCommand           func(context.Context, []byte, string, ...string) ([]byte, error)
+	callTool             func(context.Context, string, any, any) error
 }
 
 func (b *Live) command(ctx context.Context, input []byte, path string, args ...string) ([]byte, error) {
