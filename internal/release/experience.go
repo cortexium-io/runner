@@ -43,7 +43,7 @@ type ExperienceManifest struct {
 	PhysicalSafari   string            `json:"physical_safari"`
 }
 
-var experienceImageName = regexp.MustCompile(`^(chromium|webkit)-(desktop|mobile)-(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)(-(chooser-dark|initial|largest-light|landscape|tablet-phone|hint|preferences|notes|commit|privacy|hint-conflict|solved))?-viewport\.png$`)
+var experienceImageName = regexp.MustCompile(`^(chromium|webkit)-(desktop|mobile)-(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)(-(chooser-dark|initial|largest-light|landscape|tablet-phone|hint|preferences|notes|commit|privacy|hint-conflict|solved|pan-context|chooser-light|chooser-landscape))?-viewport\.png$`)
 
 // DecodeExperienceBundle is also the consumer's authentication boundary: reject
 // links, extra files, duplicates, truncated/oversized archives and changed images

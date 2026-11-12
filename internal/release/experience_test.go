@@ -57,7 +57,7 @@ func TestExperienceBundleRejectsMissingChangedAndForeignEvidence(t *testing.T) {
 	}
 	t.Run("fixed scenario vocabulary", func(t *testing.T) {
 		m, f, _ := DecodeExperienceBundle(data, receipt)
-		for _, state := range []string{"preferences", "notes", "commit", "privacy", "hint-conflict", "solved"} {
+		for _, state := range []string{"preferences", "notes", "commit", "privacy", "hint-conflict", "solved", "pan-context", "chooser-light", "chooser-landscape"} {
 			row := m.Images[0]
 			row.Name = "chromium-mobile-sudoku-" + state + "-viewport.png"
 			f[row.Name] = f[m.Images[0].Name]

@@ -39,15 +39,49 @@ Notes in Sudoku, Suguru, Futoshiki, Calcudoku and Kakuro use two concurrent trus
 Chromium CDP contacts, passive `isTrusted` pointer counts, exact visible/saved
 notes, Undo/Redo and reload. WebKit proves sequential taps only and retains an
 explicit simultaneous-contact capability gap. Existing zoom, drag, cancellation and all advertised geometry journeys are
-retained. These new observations do not establish hold/highlight acceptance.
+retained. The acceptance follow-up additionally observes repeated note removal,
+trusted Chromium hold/highlight/unlock, drag-away and touch cancellation without
+entry. WebKit’s unsupported gesture variants stay explicit.
 
 Fresh Shikaku singleton and rectangle commits use actual two-corner/Add controls
-and verify exact coverage/history/reload. Nonogram reveals an actionable hint,
+and verify exact coverage/history/reload, an additional rectangle after an edit,
+actual replacement/Undo, revision cancellation and remove/Undo. Nonogram reveals an actionable hint,
 observes an unrelated save in a second page in the same browser context and
 requires the revealed content and board to survive. A separately labeled
 page-local write-denial fixture creates dirty local progress; a real competing
 save must retain both copies, expose replacement recovery and retire the stale
 hint. The hook is restored and the owned second page closed in `finally`.
+
+The F01–F15 acceptance follow-up uses only fixed trusted observations in the same
+profiles. All nine choosers are measured in light/dark portrait and landscape,
+including enabled-label contrast, selected/disabled and focus/hover states,
+More options and hit-tested Play/Cancel. Gradients/images unsupported by the
+numeric contrast observer block that proof. Representative Sudoku, Nonogram and
+Kakuro journeys cross phone/tablet/desktop widths in both directions, settings
+open/closed, retained notes/selection/progress, UI Zoom/Fit, controlled 125% root
+text and actual phone/landscape entry/Undo. Root text scaling is not a native
+accessibility setting. Chromium separately attempts intentional trusted pinch;
+contacts without an observed scale change are an explicit capability gap.
+
+Largest boards use explicit overview/Zoom controls, distant and adjacent trusted
+selection, actual scrolling without entries, applicable entry/Undo and Fit. Panned
+Nonogram interior/bottom-right cells require visible, correctly mapped admitted
+row/column clues or selected-cell readouts; a current-viewport crop records that
+context. Chromium uses bounded trusted CDP touch sequences. WebKit positioning
+cannot use wheel input in mobile mode either; unavailable positioning is an
+explicit capability block. Desktop mouse/wheel observations and native taps are
+never described as finger panning.
+
+Fixed historical long-hint codes are data references only. Normal UI admission
+and checked responses must authenticate their current identity and establish the
+actual long condition: Nonogram’s whole row of 25 changes or a multi-step
+Calcudoku/Kakuro chain with at least 12 unique supporting locations. A concise
+leading instruction, initially in-viewport hit-tested Apply/dismiss, every
+supporting location, expandable checked evidence, actual Apply/Undo and dismiss
+without editing are required. An owned one-request abort also exercises explicit
+hint failure/recovery. Short or changed samples block instead of claiming long
+hint proof. Header and control measurements complement current viewport images;
+independent experience review still owns visual hierarchy, discovery and meaning.
 
 Representative completion runs through ordinary Chromium mouse UI in all nine
 families. During a normal reopen in the existing fresh support profile, a bounded
@@ -85,7 +119,7 @@ proof, including vendor and native gaps. The follow-up is prepared separately
 from active `42dc660` / browser `7eee84d4…`; no policy or live runtime cutover is
 part of it. See [the continuation boundary](../../../docs/coordinator.md#producer-upgrade-and-retained-source-boundary-12-november-2026).
 
-Prepared dependency qualified on disposable containers (not activated):
+Earlier d563b42 dependency qualified on disposable containers (not activated):
 `sha256:bca52cb69d0107c789ff0450df4c324bdbb1e2521bb1af747541d1c3afd134b9`,
 driver `86a951b5228a6b98344da705e8e6c26602f4ecb007117bff271eff4cdc5f5dbd`.
 Both-engine readiness passed in 106.91s and observed-dispatch cancellation in
@@ -95,12 +129,33 @@ of unavailable trusted input as a capability gap. Its 31 actual viewport images
 are synthetic maintenance evidence. Existing independent image-review/native
 input proofs are reused; no new model fixture or native-host attempt was made.
 
-The prepared capture matrix has at most 155 images in the existing 46 profiles.
+The final acceptance dependency is prepared separately (not activated):
+`sha256:9e160712f9e22b60dd703ec24de5db6f7ab76e0368807bb0bfa0fd5751c3af93`,
+driver `58b183a60636d3f696bc0712c2afcaf14cb981b0e34a53b81ce9d5c706654cdc`.
+Readiness passed in 168.85s under the same 3-minute watchdog; observed-dispatch
+cancellation and exact cleanup passed in 2.66s. Chromium records 34 retained
+scenario results plus 23 acceptance cases; WebKit records 14 retained scenario
+results plus its explicit scrolling capability refusal. The 38 actual viewport
+PNGs total 815,585 bytes and are synthetic maintenance evidence. Long-chain
+calibration covers Nonogram, Calcudoku placement, Kakuro UI-prepared note removal,
+wrong Apply, every supporting location and exact checked effects/Undo. No candidate
+was executed. The earlier watchdog/uncertain settlement failure remains preserved;
+read-only inspection later established its exact owned container absent.
+
+The acceptance capture matrix has at most 160 images in the existing 46 profiles.
 The final phone crop also records the tablet-to-phone transition; duplicate crops
 and repeated metadata are omitted. PNG dimensions must equal the observed CSS
 viewport before those dimensions are stored once. Fixed scenario witnesses have
-a 12KiB allocation inside the unchanged 128KiB receipt cap. The recorded metadata
-projection is 127,325 bytes, not a candidate execution or universal size guarantee.
+a 12KiB allocation inside the unchanged 128KiB receipt cap. The earlier d563b42
+metadata projection was 127,325 bytes; the acceptance follow-up consolidates repeated
+view fields and bounded state witnesses within that same ceiling. Scenario rows
+use fixed engine/game/case code tables declared in the same receipt; their last
+column is the complete bounded proof. They are data, never executable recipes.
+Observation array position binds to the same viewport-image index. Shared chooser
+contracts are recorded once, with per-journey hashes and measured minimum contrast.
+The conservative 160-image/57-scenario projection is 128,489 bytes, with 11,933
+scenario bytes inside its 12KiB allocation. Projections are not candidate execution
+or universal size guarantees.
 Actual receipt and 16MiB artifact guards remain authoritative; insufficient
 capacity fails without truncation, allowance changes or dropped obligations.
 

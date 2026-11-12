@@ -80,19 +80,40 @@ live owned PR/ref must still match. A configured `retained_publication_transitio
 durably claims one new run/attempt and strips prior build/qualification authority;
 it never reuses approvals. The existing `deliver-planned-retained-frontend`
 definition lacks the independent experience review and mandatory native suffix.
-It cannot replace the current complete mobile process. A gate-preserving retained
-continuation definition would require a separate bounded owner decision and
-qualification; this producer maintenance does not add one.
+It cannot replace the current complete mobile process unchanged. The smallest
+post-publication proposal is a static retained definition using its existing
+`source-adopt` admission, followed by the normal source checks/review/publication,
+fresh built-image qualification, authenticated experience export, independent
+read-only experience review and mandatory native gate before protected preparation.
+It must add the declared `review_evidence` input, the existing feedback bridge and
+shared qualification/visual correction counter. The configuration validator must
+recognize that exact retained definition with the same closed suffix; its current
+ID restriction accepts only `deliver-planned-frontend`. This is bounded template
+and validation work using existing authentication, not a general migration API.
+Routine authoring/qualification of that static definition is within approved
+maintenance; it does not inherently require another human approval merely because
+configuration is involved. This observation change prepares the proposal rather
+than installing or dispatching it. Orchestrator owns the exact settled-state,
+publication-transition and execution/reserve decision under the existing authority.
 
 The existing same-run `qualification_transition` is narrower: a settled,
 nonretryable browser **admission** failure, exact accepted publication, failed
 qualification key and report SHA, original policy and PR/head/base. It cannot
 upgrade a card-stage run or repair missing scenario/vendor/native capability.
-There is currently no general supported policy migration for that active run.
+There is currently no general supported policy migration for that frozen run.
 If publication never occurs, no retained-publication route applies. The minimal
-remaining decision is whether to authorize a bounded gate-preserving continuation
-for the actually retained state once settled; its source preservation and exact
-admission contract must be specified before implementation or execution.
+remaining decision concerns the actually retained state once settled. Existing
+eligible same-run recovery can preserve and continue its exact failure, but cannot
+upgrade policy or skip a card. Without a publication handle, a new admission path
+for unpublished pins would change the authentication/source-transfer contract and
+needs a concrete bounded design/authorization before implementation or execution.
+No receipt reconstruction, private-store writes, automatic fresh budget or general
+migration mechanism follows from a static process proposal.
+A settled card deadline failure with captured but unaccepted source has no
+publication handle and is not one of those eligible recovery states. Remaining
+family headroom alone does not authorize a retry, pin transfer or failure reset.
+Any new bounded preservation/admission contract needs its exact source/ownership,
+spent-budget, idempotence, settlement and downstream-gate rules agreed first.
 
 ## Coordinator boundaries
 

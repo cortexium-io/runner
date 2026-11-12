@@ -39,6 +39,14 @@ normal-UI Chromium completion/reload in all nine families. Its recipes observe
 the candidate UI's existing admitted publication, never execute repository browser
 scripts or inject success. Synthetic fixtures qualify this producer contract;
 actual candidate execution and independent image judgment remain required.
+The acceptance follow-up adds representative all-checkbox/text/scroll settings,
+note removal/hold/cancel, rectangle revision/removal, numeric chooser contrast,
+phone/tablet/desktop Fit and landscape entry, distant/adjacent large-board
+selection and panned Nonogram context, actual long checked hints with reachable
+actions and every supporting location, plus explicit hint request recovery. It
+keeps all byte/image/profile and execution limits. Mobile WebKit lacks both touch
+drag and wheel positioning; Chromium trusted pinch contacts without visual-scale
+change remain an explicit capability gap. See the fixed contracts for sampling.
 WebKit overlap, real vendor privacy, native and physical Safari remain explicit
 capability gaps. Ordinary changed frontend regression tests continue through
 existing frontend-check discovery. No product defect is declared fixed here.

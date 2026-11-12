@@ -21,7 +21,7 @@ const runtimeIdentity = () => ({ image: input?.image, driver, playwright: versio
 function archive() {
   const parts = []; let total = 0
   for (const name of fs.readdirSync(output).sort()) {
-    if (!/^(receipt\.json|admission-backoffs\.json|failure\.png|(chromium|webkit)-(desktop|mobile)-(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)((-(chooser-dark|initial|largest-light|landscape|tablet-phone|hint|preferences|notes|commit|privacy|hint-conflict|solved))?-viewport)?\.png)$/.test(name)) throw new Error('unexpected browser evidence filename')
+    if (!/^(receipt\.json|admission-backoffs\.json|failure\.png|(chromium|webkit)-(desktop|mobile)-(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)((-(chooser-dark|initial|largest-light|landscape|tablet-phone|hint|preferences|notes|commit|privacy|hint-conflict|solved|pan-context|chooser-light|chooser-landscape))?-viewport)?\.png)$/.test(name)) throw new Error('unexpected browser evidence filename')
     const stat = fs.lstatSync(output + '/' + name)
     if (!stat.isFile() || stat.size > (name === 'receipt.json' ? 128 * 1024 : name === 'admission-backoffs.json' ? 1024 * 1024 : 8 * 1024 * 1024)) throw new Error('browser evidence is not a bounded regular file')
     const body = fs.readFileSync(output + '/' + name)

@@ -1,19 +1,23 @@
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
-import { captureViewport as captureExperienceViewport, settleViewport, BrowserCapabilityError, preferenceScenario, appearanceScenario, notesScenario, shikakuScenario, hintContinuityScenario, privacyScenario, completionRecipe, completeRepresentative } from './browser_experience.mjs'
+import { captureViewport as captureExperienceViewport, settleViewport, BrowserCapabilityError, preferenceScenario, appearanceScenario, notesScenario, shikakuScenario, hintContinuityScenario, privacyScenario, completionRecipe, completeRepresentative, chooserObservations, responsiveScenario, largeBoardScenario, longHintScenario, hintRequestRecovery, recordScenario } from './browser_experience.mjs'
 import { pathToFileURL } from 'node:url'
 import { PageReadiness, saveBrowserReceipt } from './browser_render.mjs'
 import { contractVersion, games, mobileViewports, geometryCases, verifyPlayArea, activate, editAndRestore, playMetrics, prepareShikakuTouch, savedState, renderedState, assertSavedState, assertRenderedState, observeAdmission } from './browser_contract.mjs'
 const { chromium, webkit } = await import(pathToFileURL(process.env.RUNNER_PLAYWRIGHT_MODULE).href)
 const [origin, output] = process.argv.slice(2)
+// Historical codes select fixed data only; normal admission/hint responses must
+// establish current identity and the actual long condition before proof.
+const longSamples={Nonogram:'/nonogram/ngm2-25-easy-3047899560',Calcudoku:'/calcudoku/calc2-9-easy-5p2bgz',Kakuro:'/kakuro/kkr2-20-e-00000000ac0fd4b4'}
 const expectedSizes = { Sudoku: [], Suguru: [6, 8, 10, 12], Nonogram: [5, 10, 15], Binary: [6, 8, 10], Futoshiki: [4, 5, 7], Shikaku: [5, 7, 10], Hashi: [7, 9, 10, 15], Calcudoku: [4, 5, 6, 9], Kakuro: [6, 10, 16] }
 const cases = geometryCases(JSON.parse(fs.readFileSync(output + '/../runtime-http.json')))
 const largeShikaku = cases.filter(row=>row.game==='shikaku').reduce((a,b)=>a.size>=b.size?a:b)
 const receipt = { contract: contractVersion, origin, mockedResponses: false, headless: true, engines: [], journeys: [], geometry: [], complete: false, limitations: ['Headless touch emulation is not a physical iOS/Android device check.', 'Playwright WebKit exposes native taps but no public native touch-drag API; its complete two-corner Shikaku path is verified.'] }
 receipt.viewportImages = []
 receipt.experienceObservations = []
-receipt.experienceGaps = ['Simulator Safari and physical Red Head rapid-tap zoom are unqualified.', 'Real CMP/vendor privacy states are not proved by first-party loopback UI or controlled fixtures; canonical origin and restricted vendor egress are unavailable.', 'WebKit trusted simultaneous-contact input is unsupported; sequential notes are separate proof.']
+receipt.experienceGaps = ['Simulator Safari and physical Red Head rapid-tap zoom are unqualified.', 'Real CMP/vendor privacy states are not proved by first-party loopback UI or controlled fixtures; canonical origin and restricted vendor egress are unavailable.', 'WebKit trusted simultaneous-contact/hold/drag/cancel input is unsupported; sequential taps and wheel positioning are separate proof. Controlled 125% root text is not native text-setting verification.']
 receipt.experienceScenarios = []
+receipt.experienceChooserContract={views:'dark/light 360x640 and 844x390; root 125% in light landscape',states:'enabled >=4.5; selected/disabled; hover/focus; More options restored; hit-tested Play/Cancel',input:'mobile trusted taps; Chromium desktop keyboard focus; unavailable mobile WebKit positioning blocks'}
 fs.mkdirSync(output, { recursive: true })
 const readiness = new PageReadiness(receipt, process.env.RUNNER_BROWSER_DEADLINE_MS ? Number(process.env.RUNNER_BROWSER_DEADLINE_MS) : null)
 const save = () => saveBrowserReceipt(output, receipt, readiness.admissionBackoffs)
@@ -25,8 +29,7 @@ const scenario = async (engine,game,name,action) => {
     if(!(error instanceof BrowserCapabilityError))throw error
     proof={status:'blocked',gap:error.message}
   }
-  receipt.experienceScenarios.push({engine,game,case:name,status:'passed',...proof})
-  if(Buffer.byteLength(JSON.stringify(receipt.experienceScenarios))>12*1024)throw new BrowserCapabilityError('fixed scenario witnesses exceed 12 KiB within the receipt bound')
+  recordScenario(receipt,engine,game,name,proof)
 }
 const largestCases = new Map()
 for (const sample of cases) if (!largestCases.has(sample.game) || largestCases.get(sample.game).cells < sample.cells) largestCases.set(sample.game, sample)
@@ -67,8 +70,14 @@ try {
         await dialog.waitFor({ state: 'visible' })
         await readiness.bounded(page, '.setup-dialog')
         await page.waitForFunction(() => !document.body.innerText.includes('Checking puzzle settings…'))
+        if(!device.touch&&engine.name==='chromium')record.chooser=await chooserObservations(page,dialog,engine.name,async()=>{},false)
         if (device.touch) {
           await page.setViewportSize({width:360,height:640}); await settleViewport(page)
+          try{record.chooser=await chooserObservations(page,dialog,engine.name,async(scheme,width)=>{
+            if(engine.name!=='chromium')return
+            if(game==='Suguru'&&scheme==='light')await captureViewport(page,engine.name,device.name,game,width===360?'chooser-light':'chooser-landscape')
+            if(game==='Calcudoku'&&scheme==='dark'&&width===844)await captureViewport(page,engine.name,device.name,game,'chooser-landscape')
+          })}catch(error){if(!(error instanceof BrowserCapabilityError))throw error;record.chooser={status:'blocked',gap:error.message}}
           await page.emulateMedia({colorScheme:'dark'})
           await settleViewport(page)
           await captureViewport(page,engine.name,device.name,game,'chooser-dark')
@@ -160,7 +169,7 @@ try {
           assert.equal((await response).status(), 200, 'hint HTTP: ' + game)
           await support.getByRole('heading', { name: 'Why this move?', exact: true }).waitFor({ state: 'visible' })
           record.states.push('checked hint reason')
-          if (device.touch && game !== 'Nonogram') await captureViewport(support,engine.name,device.name,game,'hint')
+          if (device.touch && !['Nonogram','Calcudoku','Kakuro'].includes(game)) await captureViewport(support,engine.name,device.name,game,'hint')
         }
         receipt.current.phase = 'print preview'
         await activate(support, support.getByRole('button', { name: 'Print board', exact: true }), device.touch, false)
@@ -169,9 +178,8 @@ try {
         await activate(support, support.getByRole('button', { name: 'Close preview', exact: true }), device.touch)
         record.states.push('print preview')
         if(device.touch){
-          if(game==='Nonogram')await scenario(engine.name,game,'hint-continuity',()=>hintContinuityScenario(support,readiness,cases.find(row=>row.game==='binary')?.path,state=>captureViewport(support,engine.name,'mobile',game,state)))
           if(['Sudoku','Suguru'].includes(game))await scenario(engine.name,game,'entry-preferences',async()=>{
-            const proof=await preferenceScenario(support,readiness)
+            const proof=await preferenceScenario(support,readiness,engine.name)
             if(game==='Sudoku')proof.appearance=await appearanceScenario(support,readiness,()=>captureViewport(support,engine.name,'mobile',game,'preferences'))
             else await captureViewport(support,engine.name,'mobile',game,'preferences')
             return proof
@@ -180,6 +188,13 @@ try {
             const proof=await notesScenario(support,engine.name,readiness)
             await captureViewport(support,engine.name,'mobile',game,'notes')
             return proof
+          })
+          if(longSamples[game])await scenario(engine.name,game,'F15',async()=>{
+            await readiness.board(support,origin+longSamples[game])
+            const recovery=game==='Nonogram'?await hintRequestRecovery(support,'nonogram',engine.name):undefined
+            const proof=await longHintScenario(support,game.toLowerCase(),engine.name,readiness,()=>captureViewport(support,engine.name,'mobile',game,'hint'))
+            if(game==='Nonogram')proof.continuity=await hintContinuityScenario(support,readiness,cases.find(row=>row.game==='binary')?.path,state=>state==='hint'?Promise.resolve():captureViewport(support,engine.name,'mobile',game,state),engine.name)
+            return {...proof,...(recovery?{recovery}:{})}
           })
           if(game==='Shikaku')await scenario(engine.name,game,'fresh-commits',async()=>{
             const proof=await shikakuScenario(support,readiness)
@@ -202,7 +217,8 @@ try {
         if (device.touch) {
           const before=await savedState(page)
           await page.setViewportSize({width:844,height:390}); await settleViewport(page)
-          await captureViewport(page,engine.name,'mobile',game,'landscape')
+          if(['Sudoku','Nonogram','Kakuro'].includes(game))await scenario(engine.name,game,'F05/F06/F12/F14',()=>responsiveScenario(page,game.toLowerCase(),engine.name,readiness,()=>captureViewport(page,engine.name,'mobile',game,'landscape')))
+          if(!receipt.viewportImages.some(i=>i.name===engine.name+'-mobile-'+game.toLowerCase()+'-landscape-viewport.png'))await captureViewport(page,engine.name,'mobile',game,'landscape')
           await page.setViewportSize({width:768,height:1024}); await settleViewport(page)
           const tablet=await playMetrics(page)
           await page.setViewportSize({width:390,height:844}); await settleViewport(page)
@@ -238,6 +254,7 @@ try {
         const metrics = await verifyPlayArea(page, true)
         const proof={ engine: engine.name, width: viewport.width, key: sample.key, path: sample.path, board: metrics.board, verifiedZoom: metrics.verifiedZoom === true }
         receipt.geometry.push(proof)
+        if(viewport.width===360&&largestCases.get(sample.game)===sample)await scenario(engine.name,sample.game,'F07/F08',()=>largeBoardScenario(page,sample.game,engine.name,readiness,()=>captureViewport(page,engine.name,'mobile',sample.game,'pan-context')))
         if(sample.path===largeShikaku.path){receipt.current.phase='large Shikaku exact touch paint, no page pan, Undo/Redo/reload';const corners=await prepareShikakuTouch(page);proof.edit=await editAndRestore(page,'Shikaku',true,engine.name,readiness,corners)}
       }
       readiness.assertNoErrors(page)
