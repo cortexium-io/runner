@@ -215,7 +215,7 @@ func (f *taskSourceFixture) pin(t *testing.T, seed runner.Assignment, source *ru
 	}
 	return &candidate
 }
-func (f *taskSourceFixture) join(t *testing.T, candidates []runner.TaskCandidate, outcome string) (runner.Assignment, runner.Observation) {
+func (f *taskSourceFixture) joinAssignment(t *testing.T, candidates []runner.TaskCandidate) runner.Assignment {
 	t.Helper()
 	paths := []string{}
 	m := runner.TaskManifest{RootRunID: "run_plan", GroupStep: "cards", Repository: f.repo, Base: f.base, Request: "Preserve every authorized task"}
@@ -243,6 +243,12 @@ func (f *taskSourceFixture) join(t *testing.T, candidates []runner.TaskCandidate
 		t.Fatal(err)
 	}
 	a.Inputs["results"] = runner.Value{ArtifactID: "attempt_group/results.json"}
+	return a
+}
+
+func (f *taskSourceFixture) join(t *testing.T, candidates []runner.TaskCandidate, outcome string) (runner.Assignment, runner.Observation) {
+	t.Helper()
+	a := f.joinAssignment(t, candidates)
 	o, err := f.service.Start(t.Context(), a)
 	taskReturned(t, o, err, outcome)
 	return a, o

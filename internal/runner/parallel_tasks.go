@@ -350,6 +350,25 @@ func (c *Core) taskAssignment(r Run, step Step) (*TaskAssignment, error) {
 	return &TaskAssignment{Identity: identity, WritePaths: paths, Dependencies: dependencies, RootPatchID: g.RootPatchID}, nil
 }
 
+// A root may retain its originally requested symbolic ref. Joins use the
+// immutable source already admitted for this group, never today's ref target.
+func taskJoinSource(r Run, task TaskAssignment) (*SourceSettings, error) {
+	g := r.TaskGroups[task.Identity.GroupStep]
+	if r.Source == nil || r.Source.Ref == "" || task.Identity.RootRunID != r.ID || task.Identity.ItemID != "" || g == nil || !g.Done || g.StepID != task.Identity.GroupStep {
+		return nil, errors.New("task join source authority is unavailable")
+	}
+	repository, base, _, err := frozenTaskSource(r)
+	if err != nil || g.Repository != repository || g.Base != base {
+		return nil, errors.New("task join group differs from its admitted immutable source")
+	}
+	if len(r.Source.Ref) == 40 && strings.Trim(r.Source.Ref, "0123456789abcdef") == "" && r.Source.Ref != base {
+		return nil, errors.New("task join immutable source ref differs from its admitted base")
+	}
+	source := Clone(r.Source)
+	source.Ref = base
+	return source, nil
+}
+
 // driveTaskGroup advances only retained Core facts. Actual work is dispatched
 // by the ordinary run loop, with its normal persistence and recovery protocol.
 func (c *Core) driveTaskGroup(r Run) bool {

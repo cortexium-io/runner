@@ -383,7 +383,8 @@ func TestUnpublishedCardRecoveryCannotRouteOrRetryAnotherOwner(t *testing.T) {
 	}
 }
 
-func TestUnpublishedCardRecoveryNormalPinGroupAndDownstreamBindings(t *testing.T) {
+func completedCardRecoveryFixture(t *testing.T) (*Core, *cardRecoveryStore, RecoverUnpublishedCardRequest) {
+	t.Helper()
 	c, s, _, q := cardRecoveryFixture(t)
 	a, e := c.CheckUnpublishedCardRecovery(q)
 	if e != nil {
@@ -419,6 +420,12 @@ func TestUnpublishedCardRecoveryNormalPinGroupAndDownstreamBindings(t *testing.T
 	if !root.TaskGroups["cards"].Done || root.Process.Steps[root.Step].ID != "join" || root.Status != "Queued" || root.Decision != nil || !reflect.DeepEqual(root.Process, original) || c.familyAttempts(root) != 31 {
 		t.Fatal("group skipped or changed downstream gates", root.Step, root.Status, c.familyAttempts(root))
 	}
+	return c, s, q
+}
+
+func TestUnpublishedCardRecoveryNormalPinGroupAndDownstreamBindings(t *testing.T) {
+	c, s, q := completedCardRecoveryFixture(t)
+	root := c.runs[q.RunID]
 	assignment, e := c.assignment(root, Attempt{ID: "join-next", Step: root.Step, Visit: root.Visit})
 	if e != nil || assignment.TaskSource == nil || len(assignment.TaskSource.Dependencies) != 8 || assignment.Inputs["results"].ArtifactID != q.GroupAttemptID+"/results" {
 		t.Fatal("join did not bind eight ordinary pins", e)

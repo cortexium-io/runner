@@ -762,3 +762,25 @@ if recovery fails. Do not roll back to a refusing reader, rewind the operational
 database, remove failures, decrement usage or fabricate a publication receipt.
 No browser-producer activation, frozen-policy migration or native/egress waiver
 is part of recovery installation.
+
+After that one-use source owner completed and pinned normally, Dan separately
+approved the resolved-base join correction and one same-root join retry. Main
+must revalidate the exact revision-721 settled failed join, its owned manifest,
+all eight accepted pins and their captured bytes, original immutable group/source
+base, unchanged frozen definitions and full reserve before using existing
+`retry --within-budget --extra-attempts 1` with one stable request ID. This request
+adds one current-visit dispatch without increasing the family ceiling or replaying
+cards. At 32/64 spent it needs one join plus twenty downstream reserved attempts.
+Exact request replay rejoins its receipt; this authorization permits no second
+grant under a different request ID. Retry has no revision/digest precondition
+field, so Main must control the owner invocation and refuse observed drift rather
+than infer an atomic preflight API. No new recovery operation is introduced.
+
+Join assignments use the original admitted group's immutable base while keeping
+the frozen symbolic request ref unchanged. Execution keeps its existing exact
+manifest, source and pin checks. Old immutable assignments remain compatible;
+already saved unresolved symbolic assignments fail closed. Keep corrected Core
+through settlement; older format-5 code can read the records but still has the
+join-construction defect. Older format-3/4 readers refuse the consumed format-5
+root. Never rewind SQLite/history/usage or rewrite a retained assignment to roll
+back. Main retains compatible binaries and consistent owning-process checkpoints.

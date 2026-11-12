@@ -815,6 +815,9 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		assignment.Task += " Complete the authorized regression using the full current checks artifact and the complete failing test, including every assertion clause. Diagnose the source or fixture cause before editing. Preserve intended behavior, selectors, assertions, coverage and time limits; report the cause and evidence. Routine corrections continue only within the saved completion reserve."
 	}
 	assignment.TaskSource, e = c.taskAssignment(r, step)
+	if e == nil && assignment.TaskSource != nil && r.Task == nil {
+		assignment.Source, e = taskJoinSource(r, *assignment.TaskSource)
+	}
 	if e == nil {
 		if grant := c.recoveredCard(r); grant != nil && r.Step == 1 && r.Visit == grant.OwnerVisit {
 			root := c.runs[r.Task.Identity.RootRunID]

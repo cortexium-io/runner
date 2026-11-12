@@ -6,6 +6,27 @@ across real projects. Merge and production remain owner-approved actions.**
 
 ## Current completion plan
 
+### Resolved-base task join correction, 12 November 2026
+
+Dan separately approved the narrow join correction and one existing within-budget
+root-visit retry after the consumed unpublished-card recovery completed and pinned
+normally. Core now clones a join's source settings with the completed group's
+original immutable base, authenticated against its admitted source history.
+The saved symbolic request ref stays unchanged; a moving or absent current ref
+does not choose a new join base. Missing or drifted group/source authority refuses.
+Execution's literal manifest-base, accepted candidate, internal pin/tree, captured
+patch, scope and ownership checks remain unchanged. No new recovery API, record
+field, schema, policy, deadline or allowance is introduced.
+
+The exact failed family is revision 721 at join, with eight completed pins and
+32/64 attempts spent. Its existing within-budget retry requests one root-visit
+attempt and retains twenty downstream completion attempts, leaving eleven spare.
+Main owns independent review, Core-only integration and the single authorized
+retry. An already saved immutable join assignment remains compatible; an old
+unresolved symbolic assignment still refuses and is never rewritten. Retain the
+corrected Core while the join is unsettled. Format-5 audit/history and all frozen
+checks, publication, experience/native and protected owner gates remain required.
+
 ### One-use unpublished card recovery, 12 November 2026
 
 Dan separately approved recovery of the settled deadline-failed mobile
