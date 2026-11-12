@@ -107,7 +107,7 @@ func cardRecoveryFixture(t *testing.T) (*Core, *cardRecoveryStore, *cardRecovery
 	store := &cardRecoveryStore{frontendRecheckStore: frontendRecheckStore{artifacts: map[string]Artifact{}, receipts: map[string]Receipt{}}}
 	executor := &cardRecoveryExecutor{}
 	c := &Core{ctx: t.Context(), store: store, executor: executor, disk: disk, runs: map[string]Run{}, inFlight: map[string]bool{}, wake: make(chan struct{}, 1), changed: make(chan struct{}), snapshot: Snapshot{Instance: Instance{TaskConcurrency: 2}}}
-	root := Run{RecordFormat: 3, ID: "run_card_root", ProjectID: "demo", Revision: 658, Repository: filepath.Join(disk.Root, "repo"), Source: &SourceSettings{Ref: strings.Repeat("a", 40)}, Process: process, Roles: roles, Profiles: map[string]string{}, Step: 3, Visit: 3, Status: "Failed", Reason: "task rendered_matrix: attempt deadline reached", ResourcesReleased: true, Inputs: map[string]Value{"request": Text("original approved repairs"), "package": Text("."), "tests": Text("[]"), "benchmark": Text(""), "review_evidence": {ArtifactID: "attempt_reference/result"}}}
+	root := Run{RecordFormat: 3, ID: "run_card_root", ProjectID: "demo", Revision: 164, Repository: filepath.Join(disk.Root, "repo"), Source: &SourceSettings{Ref: strings.Repeat("a", 40)}, Process: process, Roles: roles, Profiles: map[string]string{}, Step: 3, Visit: 3, Status: "Failed", Reason: "task rendered_matrix: attempt deadline reached", ResourcesReleased: true, Inputs: map[string]Value{"request": Text("original approved repairs"), "package": Text("."), "tests": Text("[]"), "benchmark": Text(""), "review_evidence": {ArtifactID: "attempt_reference/result"}}}
 	add := func(run, id, value string) Value {
 		if e := disk.Write("artifacts/"+id, []byte(value), policy.MaxArtifact); e != nil {
 			t.Fatal(e)
@@ -132,7 +132,7 @@ func cardRecoveryFixture(t *testing.T) (*Core, *cardRecoveryStore, *cardRecovery
 	}
 	for i := range 7 {
 		child := childForItem(root, group, group.Items[i], group.Children[i].RunID)
-		child.Revision = int64(20 + i)
+		child.Revision = []int64{61, 58, 66, 61, 47, 61, 59}[i]
 		child.Status = "Completed"
 		child.ResourcesReleased = true
 		child.Step = 3
@@ -174,7 +174,7 @@ func cardRecoveryFixture(t *testing.T) (*Core, *cardRecoveryStore, *cardRecovery
 		t.Fatal(e)
 	}
 	c.runs[child.ID] = child
-	req := RecoverUnpublishedCardRequest{RequestID: "approved-once", RunID: root.ID, Revision: root.Revision, GroupAttemptID: group.AttemptID, ChildRunID: child.ID, ChildRevision: child.Revision, AttemptID: failed.ID, PatchSHA256: recoveryDigestRaw([]byte("captured unreviewed source"))}
+	req := RecoverUnpublishedCardRequest{RequestID: "approved-once", RunID: root.ID, Revision: c.outputRun(root).Revision, GroupAttemptID: group.AttemptID, ChildRunID: child.ID, ChildRevision: child.Revision, AttemptID: failed.ID, PatchSHA256: recoveryDigestRaw([]byte("captured unreviewed source"))}
 	return c, store, executor, req
 }
 func recoveryDigestRaw(raw []byte) string { // match artifact bytes, not their JSON representation
@@ -490,5 +490,78 @@ func TestUnpublishedCardRecoveryCancellationAndFailedRestartNeverRenewOwner(t *t
 				t.Fatal("restart replayed owner or changed usage", used, exec.starts.Load())
 			}
 		})
+	}
+}
+
+func TestUnpublishedCardRecoveryBindsObservedFamilyRevisionAndFullChildState(t *testing.T) {
+	c, store, exec, q := cardRecoveryFixture(t)
+	before := Clone(c.runs)
+	observed, e := c.Get(q.RunID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var stored int64
+	for _, run := range c.Status().Runs {
+		if run.ID == q.RunID {
+			stored = run.Revision
+		}
+	}
+	if stored != 164 || observed.Revision != 658 || q.Revision != observed.Revision || q.ChildRevision != 81 {
+		t.Fatal("fixture must distinguish status root164 from Get/inspect family658", stored, observed.Revision, q)
+	}
+	wrong := q
+	wrong.Revision = stored
+	if _, e = c.CheckUnpublishedCardRecovery(wrong); e == nil || !strings.Contains(e.Error(), "observed family revision") {
+		t.Fatal("stored status revision accepted as public recovery revision", e)
+	}
+	if exec.calls.Load() != 0 || store.saves != 0 || !reflect.DeepEqual(before, c.runs) {
+		t.Fatal("wrong revision changed state or reached source validation")
+	}
+	assessment, e := c.CheckUnpublishedCardRecovery(q)
+	if e != nil {
+		t.Fatal("unchanged observed family could not preflight", e)
+	}
+	if assessment.Revision != observed.Revision || assessment.StoredRevision != stored || len(assessment.Pins) != 7 {
+		t.Fatal("preflight lost public/stored custody", assessment)
+	}
+	encoded, e := json.Marshal(assessment)
+	var wire struct {
+		Revision       int64 `json:"revision"`
+		StoredRevision int64 `json:"stored_revision"`
+	}
+	if e != nil || json.Unmarshal(encoded, &wire) != nil || wire.Revision != 658 || wire.StoredRevision != 164 {
+		t.Fatal("owner preflight does not expose both revision meanings", e)
+	}
+	q.BindingsSHA256 = assessment.BindingsSHA256
+	first := observed.TaskGroups["cards"].Children[0].RunID
+	child := c.runs[first]
+	child.Revision++
+	c.runs[first] = child
+	if _, e = c.RecoverUnpublishedCard(q); e == nil {
+		t.Fatal("child drift accepted stale family revision")
+	}
+	newer, e := c.Get(q.RunID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	q.Revision = newer.Revision
+	if _, e = c.RecoverUnpublishedCard(q); e == nil || !strings.Contains(e.Error(), "bindings changed") {
+		t.Fatal("fresh revision reused stale full-family digest", e)
+	}
+	// A sum collision must not hide two changed child records.
+	second := observed.TaskGroups["cards"].Children[1].RunID
+	child = c.runs[second]
+	child.Revision--
+	c.runs[second] = child
+	q.Revision = observed.Revision
+	sameSum, e := c.Get(q.RunID)
+	if e != nil || sameSum.Revision != observed.Revision {
+		t.Fatal("fixture did not restore the public revision sum", e)
+	}
+	if _, e = c.RecoverUnpublishedCard(q); e == nil || !strings.Contains(e.Error(), "bindings changed") {
+		t.Fatal("same aggregate revision bypassed immutable child bindings", e)
+	}
+	if store.saves != 0 || len(c.wake) != 0 || c.runs[q.RunID].Revision != stored {
+		t.Fatal("stale binding refusal changed operational state")
 	}
 }

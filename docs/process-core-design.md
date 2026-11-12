@@ -18,6 +18,13 @@ including write scope and configured read-only/generated ownership. No checkout
 is restored by preflight. Ordinary Prepare restores only the authenticated card
 when its single ordinary twenty-minute owner visit dispatches.
 
+The request revision uses the observed family revision exposed by Get/inspect,
+as in existing planned-family owner recovery. Preflight separately reports the
+stored root contribution: the approved state is observed 658 / stored 164, with
+failed child 81. Status's stored root revision is not a recovery input. Both the
+exact public revision and the complete raw root/child bindings are checked;
+compensating child revision changes cannot reuse a stale bindings digest.
+
 Admission charges that visit to the original family ceiling and reserves the
 existing complete tail. Root, child and idempotent receipt commit in one existing
 SQLite transaction. Old attempts, seven completed pins, requests, card scope,

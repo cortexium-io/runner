@@ -33,6 +33,7 @@ type CardRecoveryArtifact struct {
 type UnpublishedCardAssessment struct {
 	RunID              string                 `json:"run_id"`
 	Revision           int64                  `json:"revision"`
+	StoredRevision     int64                  `json:"stored_revision"`
 	ChildRunID         string                 `json:"child_run_id"`
 	ChildRevision      int64                  `json:"child_revision"`
 	GroupAttemptID     string                 `json:"group_attempt_id"`
@@ -198,12 +199,18 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 	if root.UnpublishedCardRecovery != nil {
 		return reject("this family already consumed its one-use unpublished card recovery")
 	}
-	if root.RecordFormat != 3 || root.Task != nil || root.Revision != req.Revision || root.Status != "Failed" || !isolatedStep(root) || len(root.TaskGroups) != 1 || !c.cardRecoverySettled(root) {
-		return reject("exact settled failed task-group root revision required")
+	if root.RecordFormat != 3 || root.Task != nil || root.Status != "Failed" || !isolatedStep(root) || len(root.TaskGroups) != 1 || !c.cardRecoverySettled(root) {
+		return reject("exact settled failed task-group root required")
 	}
 	group := root.TaskGroups[root.Process.Steps[root.Step].ID]
 	if group == nil || !group.Done || group.AttemptID != req.GroupAttemptID || group.Failure == "" || group.Failure != root.Reason || len(group.Children) < 2 || len(group.Children) != len(group.Items) {
 		return reject("exact settled failed group and retained reservations required")
+	}
+	// Like the other planned-family owner recoveries, bind the revision exposed
+	// by Get/inspect/result. Status exposes only the stored root contribution.
+	observedRevision := c.outputRun(root).Revision
+	if req.Revision < 1 || req.Revision != observedRevision {
+		return reject("exact observed family revision from Get/inspect/result required; status exposes the stored root revision")
 	}
 	child, ok := c.runs[req.ChildRunID]
 	if !ok {
@@ -272,7 +279,8 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 	}
 	out = UnpublishedCardAssessment{
 		RunID:          root.ID,
-		Revision:       root.Revision,
+		Revision:       observedRevision,
+		StoredRevision: root.Revision,
 		ChildRunID:     child.ID,
 		ChildRevision:  child.Revision,
 		GroupAttemptID: group.AttemptID,

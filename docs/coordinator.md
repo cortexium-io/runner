@@ -720,6 +720,15 @@ a grant. The CLI is `cortexium-runner recover-unpublished-card` with correspondi
 hyphenated flags; `--preflight` performs observation only. No limit/profile/input
 or policy override is accepted.
 
+For this planned family, `revision` is the observed root-plus-children revision
+from `Get`/inspect/result, matching the other planned-family owner recoveries.
+`status` instead reports the stored root contribution. Preflight returns both
+`revision` and `stored_revision`; neither value is rewritten. The approved saved
+family has observed revision 658, stored root revision 164 and failed-child
+revision 81. Passing 164 as the request revision refuses. The full bindings digest
+also authenticates every individual child record, so changed children cannot
+reuse stale bindings even if their aggregate revision sum stays unchanged.
+
 The atomic grant preserves failed attempts and pins, records the old group/root/
 child failure facts, and requeues only that same owner. Ordinary Runner workspace
 restoration reconstructs its authenticated captured source. Normal pin, group
