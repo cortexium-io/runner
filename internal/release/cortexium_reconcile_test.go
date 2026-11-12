@@ -424,7 +424,10 @@ func TestCortexiumCleanupExhaustionAndCrashNeverMintAnotherVisit(t *testing.T) {
 			o, b, workers := cleanupOperatorFixture(t)
 			j := cleanupSavedJob(t, o, "run_bounded", "attempt_bounded")
 			cleanupEngine(t, workers, []Job{j}, map[string]bool{j.Request.Key: true})
-			work := cleanupBudgetFixture(t, b, j, 2*time.Second)
+			// Use the original cleanup reserve. A pre-spent two-second budget
+			// can expire during cold helper startup on the supported Intel host,
+			// before this test reaches its explicit held-removal barrier.
+			work := cleanupBudgetFixture(t, b, j, cortexiumCleanupTime)
 			path := filepath.Join(filepath.Dir(j.Worker), "cleanup.json")
 			before, _ := os.ReadFile(path)
 			if r, err := o.Call(t.Context(), j.Request); err != nil || r.State != "running" || !r.Reconciling {
