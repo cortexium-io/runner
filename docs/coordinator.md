@@ -812,6 +812,13 @@ return for a child approval while other work continues. `next_action` is a hint,
 never permission to retry, approve or mutate state. Read it with existing
 execution-settled and cleanup facts. No setup or private diagnostic stream is added.
 
+An isolated card group has no parent executor attempt while its children run.
+Core appends the structural group attempt already finished, without an executor
+deadline. The projection skips finished attempts; it needs no timing exemption
+for groups. Actual child executions still require their own saved timing. The
+model-free Core regression covers a healthy active group, an independent saved
+approval, a child with unknown outcome, and the finished group record.
+
 Root owns the already active fifteen-minute native attention monitor and dedupe
 memory. This source adds no watcher, schedule, notification channel or sink.
 Actual unattended delivery still needs independent proof. Stable routine recovery,
