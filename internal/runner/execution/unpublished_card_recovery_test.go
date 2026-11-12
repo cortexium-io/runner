@@ -71,7 +71,7 @@ func unpublishedSourceFixturePins(t *testing.T, count int) (*taskSourceFixture, 
 	return f, a, r, proof
 }
 
-func TestUnpublishedCardSevenPinsFitDispatchObservationAndNativeRecord(t *testing.T) {
+func TestUnpublishedCardSevenPinsAuthenticateAndFitNativeRecord(t *testing.T) {
 	f, a, _, proof := unpublishedSourceFixturePins(t, 7)
 	a.AttemptID = "attempt_qualified_recovery_owner"
 	// Match the admitted process's existing record envelope; the general
@@ -82,14 +82,14 @@ func TestUnpublishedCardSevenPinsFitDispatchObservationAndNativeRecord(t *testin
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	start := time.Now()
-	if err := f.service.validateRecoveredCardStart(ctx, a); err != nil {
+	if err := f.service.validateRecoveredCard(ctx, a, nil); err != nil {
 		t.Fatal(err)
 	}
 	job, err := json.Marshal(nativeJob{Assignment: a, Stage: "allocated"})
 	if err != nil || len(job)+int(a.Setup.Profile.MaxOutput)+2048 > int(a.Limits.MaxRecord) {
 		t.Fatal("bound proof cannot fit ordinary native record", len(job), err)
 	}
-	t.Logf("seven pins/five dependencies dispatch validation=%s native assignment=%d record limit=%d", time.Since(start), len(job), a.Limits.MaxRecord)
+	t.Logf("seven-pin fixture validation=%s native assignment=%d record limit=%d; not real-source dispatch timing", time.Since(start), len(job), a.Limits.MaxRecord)
 }
 
 func TestUnpublishedCardSourceAuthenticatesRestoresAndPinsNormally(t *testing.T) {
@@ -115,7 +115,7 @@ func TestUnpublishedCardSourceAuthenticatesRestoresAndPinsNormally(t *testing.T)
 	a.AttemptID = "attempt_recovery_owner"
 	a.Setup.Profile = runner.Profile{Harness: "codex", Access: "workspace-write"}
 	a.UnpublishedCardRecovery = &proof
-	if err = f.service.validateRecoveredCardStart(t.Context(), a); err != nil {
+	if err = f.service.validateRecoveredCard(t.Context(), a, nil); err != nil {
 		t.Fatal(err)
 	}
 	restored, err := f.service.workspaces.Prepare(t.Context(), a)
@@ -215,22 +215,5 @@ func TestUnpublishedCardSourceRefusesUnownedChangedOrActiveEvidence(t *testing.T
 				t.Fatal("unsafe evidence accepted", kind)
 			}
 		})
-	}
-}
-
-func TestUnpublishedCardPreDispatchDriftIsSettledFailureWithoutNativeJob(t *testing.T) {
-	f, a, _, proof := unpublishedSourceFixture(t)
-	a.AttemptID = "attempt_refused_recovery_owner"
-	a.Setup.Profile = runner.Profile{Harness: "codex", Access: "workspace-write"}
-	a.UnpublishedCardRecovery = &proof
-	if e := f.disk.Write("artifacts/"+proof.Source.PatchID, []byte("changed after grant"), f.disk.Policy.MaxArtifact); e != nil {
-		t.Fatal(e)
-	}
-	o, e := f.service.Start(t.Context(), a)
-	if e != nil || o.State != runner.Finished || o.End == nil || o.End.Kind != "failed" || o.End.Retryable {
-		t.Fatal("known prelaunch refusal became uncertain or retryable", o, e)
-	}
-	if exists, e := f.service.native(a.AttemptID); e != nil || exists {
-		t.Fatal("rejection allocated native work", e)
 	}
 }

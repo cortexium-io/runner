@@ -7,12 +7,44 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
+
+func TestUnpublishedCardRecordFormatsRemainReadable(t *testing.T) {
+	for _, format := range []int{0, 3, 4, 5} {
+		t.Run(strconv.Itoa(format), func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "state")
+			s, err := Open(dir, normalizedPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := normalizedRun(2)
+			r.RecordFormat = format
+			if format >= 4 {
+				r.UnpublishedCardRecovery = &runner.UnpublishedCardRecovery{Spent: 28, ReservedCompletion: 23}
+			}
+			err = s.Save(t.Context(), r, nil, nil)
+			s.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err = Open(dir, normalizedPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			got, err := s.Load(t.Context())
+			if err != nil || len(got) != 1 || !reflect.DeepEqual(got[0], r) {
+				t.Fatal("reader changed historical record/attempts", format, err)
+			}
+		})
+	}
+}
 
 func TestUnpublishedCardRecoveryAtomicAuditAndRestart(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")
@@ -45,7 +77,7 @@ func TestUnpublishedCardRecoveryAtomicAuditAndRestart(t *testing.T) {
 		t.Fatal(e)
 	}
 	receipt := &runner.Receipt{Key: "one-use", Kind: "recover_unpublished_card", Args: json.RawMessage(`{"exact":true}`), RunID: root.ID}
-	root.RecordFormat = 4
+	root.RecordFormat = 5
 	root.UnpublishedCardRecovery = &runner.UnpublishedCardRecovery{Request: runner.RecoverUnpublishedCardRequest{RequestID: receipt.Key, RunID: root.ID, ChildRunID: child.ID}, OriginalRootReason: "deadline", OwnerVisit: 2, Spent: 28, ReservedCompletion: 23}
 	root.Status = "Running"
 	child.Status = "Queued"
@@ -66,11 +98,13 @@ func TestUnpublishedCardRecoveryAtomicAuditAndRestart(t *testing.T) {
 	if e = s.SaveUnpublishedCardRecovery(t.Context(), root, child, receipt); e != nil {
 		t.Fatal(e)
 	}
-	for _, kind := range []string{"downgrade", "drop", "rewrite"} {
+	for _, kind := range []string{"downgrade", "prior-recovery-format", "drop", "rewrite"} {
 		bad := runner.Clone(root)
 		switch kind {
 		case "downgrade":
 			bad.RecordFormat = 3
+		case "prior-recovery-format":
+			bad.RecordFormat = 4
 		case "drop":
 			bad.UnpublishedCardRecovery = nil
 		case "rewrite":

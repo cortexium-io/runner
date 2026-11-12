@@ -23,10 +23,10 @@ type runRecord struct {
 // Format three stores each attempt separately in the same SQLite transaction;
 // public Run values still retain every definition, attempt and source fact.
 func MarshalRunRecord(r Run) (state, definition []byte, err error) {
-	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 {
+	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 && r.RecordFormat != 5 {
 		return nil, nil, errors.New("unsupported run record format")
 	}
-	if r.RecordFormat == 4 && r.UnpublishedCardRecovery == nil {
+	if r.RecordFormat >= 4 && r.UnpublishedCardRecovery == nil {
 		return nil, nil, errors.New("recovery record is missing its one-use audit")
 	}
 	var count *int
@@ -47,13 +47,13 @@ func UnmarshalRunRecord(state, definition []byte) (Run, error) {
 	if err := json.Unmarshal(state, &r); err != nil {
 		return r, err
 	}
-	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 {
+	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 && r.RecordFormat != 5 {
 		return r, errors.New("unsupported run record format")
 	}
 	if r.RecordFormat >= 3 && len(definition) == 0 {
 		return r, errors.New("normalized run definition is missing")
 	}
-	if r.RecordFormat == 4 && r.UnpublishedCardRecovery == nil {
+	if r.RecordFormat >= 4 && r.UnpublishedCardRecovery == nil {
 		return r, errors.New("recovery record is missing its one-use audit")
 	}
 	// Version-one rows retain their original complete JSON. Opening an upgraded

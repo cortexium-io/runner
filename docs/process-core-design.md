@@ -34,12 +34,22 @@ normal pin/manifest/join and every frozen downstream gate. A failed, cancelled o
 pin-rejected recovery never grants another card-owner visit, even after restart.
 No late patch is directly pinned and no completed card is replayed.
 
-Record format 4 adds this mandatory one-use audit to the normalized-attempt
-layout without changing SQL schema version 3. Saving cannot drop or alter its
-audit or downgrade the root. Existing formats 0/3 remain readable. Old format-3
+Full source authentication runs in the existing native job's durable
+`validating_card_recovery` preparation, before workspace restoration or any
+native peer/thread/turn. Short Start/Observe calls rejoin that job; validation
+uses the original twenty-minute owner deadline, not the five-second observation
+deadline. Restart can repeat read-only authentication only for that exact
+undispatched identity and after acquiring the inherited task-source worker lease.
+No successful proof is cached. Cancellation and failure settle before Release;
+neither creates another owner visit. The only unsettled job excluded from the
+source cleanup check is this exact authenticated preparation itself.
+
+Record format 5 protects this preparation lifecycle and mandatory one-use audit
+without changing SQL schema version 3. Saving cannot drop or alter its audit or
+downgrade the root. Existing formats 0/3/4 remain readable. Prior format-3/4
 readers must refuse the new root before Core starts; qualification exercises the
-actual prior binary on disposable SQLite. Before live use, Main retains current
-binary/config identities and a quiesced, consistent forensic checkpoint. After a
+actual installed d0e513ff binary on disposable SQLite. Before live use, Main
+retains current binary/config identities and a quiesced, consistent forensic checkpoint. After a
 grant, rollback retains compatible code and all attempts/results; it never
 rewinds SQLite or product data. See the [owner procedure](coordinator.md#one-use-unpublished-source-card-recovery-12-november-2026).
 

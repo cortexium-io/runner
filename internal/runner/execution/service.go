@@ -47,6 +47,7 @@ func NewService(d *runner.Disk, read func(context.Context, string) ([]byte, erro
 	if cfg != nil {
 		s.Codex = NewCodex(d, cfg)
 		s.Codex.workspaces = s.workspaces
+		s.Codex.validateCardRecovery = s.validateRecoveredCardPreparation
 	}
 	return s
 }
@@ -63,19 +64,11 @@ func (s *Service) SetWake(wake func(string)) {
 	}
 }
 func (s *Service) Start(ctx context.Context, a runner.Assignment) (runner.Observation, error) {
-	if a.UnpublishedCardRecovery != nil {
-		exists, err := s.native(a.AttemptID)
-		if err != nil {
-			return runner.Observation{}, err // Existing job ownership is uncertain.
-		}
-		if !exists {
-			if err = s.validateRecoveredCardStart(ctx, a); err != nil {
-				return runner.Observation{
-					State: runner.Finished,
-					End:   &runner.ExecutionEnd{Kind: "failed", Reason: "readiness: unpublished card recovery: " + runner.Clip(err.Error())},
-				}, nil
-			}
-		}
+	if err := recoveredCardAuthority(a); err != nil {
+		return runner.Observation{
+			State: runner.Finished,
+			End:   &runner.ExecutionEnd{Kind: "failed", Reason: "readiness: " + runner.Clip(err.Error())},
+		}, nil
 	}
 	switch a.Setup.Profile.Harness {
 	case "release":

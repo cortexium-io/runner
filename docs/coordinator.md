@@ -746,9 +746,17 @@ SQLite's backup facility on the closed operational database. Preserve artifact,
 job and Git-ref inventories; keep credentials in place, out of exported evidence.
 This is an operational checkpoint, never permission to restore product data.
 
-No SQL schema migration occurs. The granted root uses record format 4 with an
-immutable one-use audit; the prior format-3 Core refuses it before dispatch.
-Before a grant, the prior Core can reopen unchanged format-3 state. After a grant,
+Full source validation runs in the existing durable native preparation before
+workspace restoration or native dispatch. Start and Observe remain short joins;
+preparation retains the ordinary original twenty-minute owner deadline. A slow
+validation must not be retried as another owner visit. Restart revalidates the
+same undispatched assignment after its worker lease settles; cancellation also
+settles that lease before Release. No successful validation is cached.
+
+No SQL schema migration occurs. New grants use record format 5 with an immutable
+one-use audit; the installed d0e513ff format-4 Core refuses them before dispatch.
+Formats 0/3/4 remain readable by the new Core. Before a grant, d0e513ff can reopen
+unchanged state. After a grant,
 retain a compatible new Core and all later records; settle through normal controls
 if recovery fails. Do not roll back to a refusing reader, rewind the operational
 database, remove failures, decrement usage or fabricate a publication receipt.

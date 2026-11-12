@@ -85,6 +85,8 @@ type Codex struct {
 	tail        *diagnosticTail
 	connect     func(context.Context, string, func(rpcMessage)) (codexPeer, error)
 	subscribed  map[string]codexPeer
+
+	validateCardRecovery func(context.Context, runner.Assignment) error
 }
 
 func NewCodex(d *runner.Disk, cfg *runner.CodexSettings) *Codex {
@@ -202,11 +204,17 @@ func (c *Codex) Start(ctx context.Context, a runner.Assignment) (runner.Observat
 		return runner.Observation{}, errors.New("native executor is shutting down")
 	}
 	if j, err := c.loadLocked(a.AttemptID); err == nil {
-		return observation(j), nil
+		if (j.Assignment.UnpublishedCardRecovery != nil || a.UnpublishedCardRecovery != nil) && !reflect.DeepEqual(j.Assignment, a) {
+			return runner.Observation{}, errors.New("recovered-card assignment differs from its durable attempt")
+		}
+		return c.observationLocked(j), nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return runner.Observation{}, err
 	}
 	j := nativeJob{Assignment: runner.Clone(a), Stage: "allocated"}
+	if a.UnpublishedCardRecovery != nil {
+		j.Stage = cardRecoveryValidationStage
+	}
 	b, _ := json.Marshal(j)
 	if len(b)+int(a.Setup.Profile.MaxOutput)+2048 > int(a.Limits.MaxRecord) {
 		return runner.Observation{
@@ -258,6 +266,18 @@ func observation(j nativeJob) runner.Observation {
 	}
 	return o
 }
+
+// A terminal preparation result is observable only after its worker has settled.
+// Releasing its durable job earlier could race owned validation-index cleanup.
+func (c *Codex) observationLocked(j nativeJob) runner.Observation {
+	o := observation(j)
+	if j.Assignment.UnpublishedCardRecovery != nil && c.preparing[j.Assignment.AttemptID] && j.End != nil {
+		o.State, o.End, o.Reconciling = runner.Running, nil, true
+		o.Reason = "same recovered-card preparation is settling"
+		o.NextCheck = time.Now().Add(250 * time.Millisecond)
+	}
+	return o
+}
 func (c *Codex) launch(id string) {
 	defer c.wg.Done()
 	defer func() { c.mu.Lock(); delete(c.preparing, id); c.mu.Unlock(); c.signal() }()
@@ -266,6 +286,19 @@ func (c *Codex) launch(id string) {
 	if err := c.begin(ctx, id); err != nil {
 		_ = c.mutate(id, func(j *nativeJob) {
 			if j.End != nil {
+				return
+			}
+			if j.Stage == cardRecoveryValidationStage && !recoveryPreparationIdentity(*j) {
+				j.Reason = "recovered-card preparation identity is inconsistent; retain for reconciliation"
+				return
+			}
+			var pending *capturePending
+			if j.Stage == cardRecoveryValidationStage && errors.As(err, &pending) {
+				j.Reason = runner.Clip(err.Error())
+				return
+			}
+			if j.Stage == cardRecoveryValidationStage && (j.StopRequested || c.closing) {
+				j.End = &runner.ExecutionEnd{Kind: "stopped", Reason: "recovered-card validation settled before native dispatch"}
 				return
 			}
 			if j.Stage == "starting_turn" || j.Stage == "active" || j.Stage == "checking" || j.Stage == "checking_readiness" {
@@ -285,6 +318,20 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 	c.mu.Unlock()
 	if err != nil {
 		return err
+	}
+	if j.Stage == cardRecoveryValidationStage {
+		if err = c.prepareRecoveredCard(ctx, j); err != nil {
+			return err
+		}
+		c.mu.Lock()
+		j, err = c.loadLocked(id)
+		c.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		if j.End != nil {
+			return nil
+		}
 	}
 	if j.Assignment.Setup.Profile.Access != "input-only" {
 		if c.workspaces == nil {
@@ -718,12 +765,20 @@ func (c *Codex) Observe(ctx context.Context, id string) (runner.Observation, err
 		return runner.Observation{State: runner.Unknown, Reason: runner.Clip(measureErr.Error())}, nil
 	}
 	if j.End == nil && !c.preparing[id] && !c.probing[id] && !c.closing {
-		c.probing[id] = true
-		c.wg.Add(1)
-		go c.reconcile(id)
+		if j.Stage == cardRecoveryValidationStage {
+			// This phase is read-only and has no thread or native turn. A new
+			// process revalidates the same durable assignment; no proof is cached.
+			c.preparing[id] = true
+			c.wg.Add(1)
+			go c.launch(id)
+		} else {
+			c.probing[id] = true
+			c.wg.Add(1)
+			go c.reconcile(id)
+		}
 	}
 	j.PeakBytes = max(j.PeakBytes, c.disk.NativePeak())
-	return observation(j), nil
+	return c.observationLocked(j), nil
 }
 func (c *Codex) reconcile(id string) {
 	defer c.wg.Done()
@@ -1037,6 +1092,12 @@ func (c *Codex) Stop(ctx context.Context, id string) error {
 	if j.End != nil {
 		return nil
 	}
+	if recoveryPreparationIdentity(j) && !preparing {
+		// A resumed, undispatched validation can stop without opening any
+		// native peer, but must first settle its inherited Git worker lease.
+		c.reconcileRecoveryStop(id)
+		return nil
+	}
 	if (j.Stage == "checking" || j.Stage == "checking_readiness") && !preparing {
 		return c.stopCheck(ctx, id)
 	}
@@ -1077,12 +1138,26 @@ func (c *Codex) reconcileNow(id string) {
 func (c *Codex) Release(ctx context.Context, id string) error {
 	c.mu.Lock()
 	j, err := c.loadLocked(id)
+	preparing := c.preparing[id]
 	c.mu.Unlock()
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
+	}
+	if j.Assignment.UnpublishedCardRecovery != nil && preparing {
+		return errors.New("cannot release unsettled recovered-card preparation")
+	}
+	if j.Assignment.UnpublishedCardRecovery != nil && j.Stage == cardRecoveryValidationStage {
+		if c.workspaces == nil {
+			return errors.New("recovered-card preparation has no workspace lease owner")
+		}
+		_, lease, leaseErr := c.workspaces.taskLease(j.Assignment)
+		if leaseErr != nil {
+			return leaseErr
+		}
+		defer lease.Close()
 	}
 	if j.End == nil {
 		return errors.New("cannot release unsettled native execution")

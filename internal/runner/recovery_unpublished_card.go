@@ -159,9 +159,9 @@ func (c *Core) RecoverUnpublishedCard(req RecoverUnpublishedCardRequest) (Run, e
 		ReservedCompletion:   assessment.ReservedCompletion,
 		GrantedAt:            time.Now().UTC(),
 	}
-	// Format four changes no SQLite schema. Older readers reject this root rather
-	// than silently losing the one-use audit and allowing another card visit.
-	root.RecordFormat = 4
+	// Format five changes no SQLite schema. Prior readers reject this root before
+	// reconciling the new preparation phase or losing its one-use recovery audit.
+	root.RecordFormat = 5
 	group.Done, group.Failure = false, ""
 	root.Status, root.Reason = "Running", "one-use unpublished card recovery"
 	root.ResourcesReleased = false

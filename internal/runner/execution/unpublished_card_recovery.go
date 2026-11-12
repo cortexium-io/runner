@@ -12,7 +12,11 @@ import (
 )
 
 func (s *Service) ValidateUnpublishedCardRecovery(ctx context.Context, child runner.Run, proof runner.UnpublishedCardAssessment) error {
-	if err := s.ValidateSourceRecovery(ctx, child, proof.Source); err != nil {
+	return s.validateUnpublishedCardRecovery(ctx, child, proof, nil)
+}
+
+func (s *Service) validateUnpublishedCardRecovery(ctx context.Context, child runner.Run, proof runner.UnpublishedCardAssessment, preparing *runner.Assignment) error {
+	if err := s.captureReleaseReady(proof.Source.AttemptID); err != nil {
 		return err
 	}
 	w := s.workspaces
@@ -24,12 +28,12 @@ func (s *Service) ValidateUnpublishedCardRecovery(ctx context.Context, child run
 	if err != nil {
 		return err
 	}
-	quiescent, err := w.cleanupQuiescent(r)
+	quiescent, err := w.cleanupQuiescentForRecovery(r, preparing)
 	if err != nil {
 		return err
 	}
 	defer quiescent()
-	if !r.Released {
+	if !r.Released || !child.ResourcesReleased {
 		return errors.New("recovery source must have completed owned checkout cleanup")
 	}
 	if _, err = os.Lstat(r.WorkDir); !errors.Is(err, os.ErrNotExist) {
@@ -117,16 +121,32 @@ func (s *Service) ValidateUnpublishedCardRecovery(ctx context.Context, child run
 	return nil
 }
 
-func (s *Service) validateRecoveredCardStart(ctx context.Context, a runner.Assignment) error {
+func (s *Service) validateRecoveredCardPreparation(ctx context.Context, a runner.Assignment) error {
+	return s.validateRecoveredCard(ctx, a, &a)
+}
+
+func (s *Service) validateRecoveredCard(ctx context.Context, a runner.Assignment, preparing *runner.Assignment) error {
+	if err := recoveredCardAuthority(a); err != nil {
+		return err
+	}
+	if a.UnpublishedCardRecovery == nil {
+		return nil
+	}
+	proof := *a.UnpublishedCardRecovery
+	return s.validateUnpublishedCardRecovery(ctx, runner.Run{ID: a.RunID, Repository: a.Repository, Source: a.Source, ResourcesReleased: true}, proof, preparing)
+}
+
+// This cheap routing guard stays synchronous; source authentication is owned by
+// the durable native preparation and never borrows an observer's deadline.
+func recoveredCardAuthority(a runner.Assignment) error {
 	if a.UnpublishedCardRecovery == nil {
 		return nil
 	}
 	if a.Setup.Profile.Harness != "codex" || a.Setup.Profile.Access != "workspace-write" || a.TaskSource == nil {
 		return errors.New("card recovery cannot change execution profile")
 	}
-	proof := *a.UnpublishedCardRecovery
-	if !sameTaskAuthority(proof.Authority, *a.TaskSource) {
+	if !sameTaskAuthority(a.UnpublishedCardRecovery.Authority, *a.TaskSource) {
 		return errors.New("recovered owner task authority changed before dispatch")
 	}
-	return s.ValidateUnpublishedCardRecovery(ctx, runner.Run{ID: a.RunID, Repository: a.Repository, Source: a.Source, ResourcesReleased: true}, proof)
+	return nil
 }

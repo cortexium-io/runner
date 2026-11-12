@@ -153,10 +153,15 @@ func workspaceGitIdentity(ctx context.Context, r workspaceRecord, path string) (
 }
 
 func (w *Workspaces) cleanupQuiescent(r workspaceRecord) (func(), error) {
+	return w.cleanupQuiescentForRecovery(r, nil)
+}
+
+func (w *Workspaces) cleanupQuiescentForRecovery(r workspaceRecord, preparing *runner.Assignment) (func(), error) {
 	entries, err := os.ReadDir(filepath.Join(w.disk.Root, "jobs"))
 	if err != nil {
 		return nil, err
 	}
+	preparationFound := preparing == nil
 	for _, entry := range entries {
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".codex.json") && !strings.HasSuffix(name, ".command.json") && !strings.HasSuffix(name, ".candidate.json") && !strings.HasSuffix(name, ".release.json") && !strings.HasSuffix(name, ".task-source.json") {
@@ -170,9 +175,19 @@ func (w *Workspaces) cleanupQuiescent(r workspaceRecord) (func(), error) {
 		if err != nil || json.Unmarshal(data, &job) != nil {
 			return nil, cleanupBlocked("workspace execution settlement cannot be established")
 		}
+		if preparing != nil && name == preparing.AttemptID+".codex.json" {
+			if preparing.RunID != r.RunID || !recoveryPreparationOwns(data, *preparing) {
+				return nil, cleanupBlocked("recovered-card durable preparation ownership changed")
+			}
+			preparationFound = true
+			continue
+		}
 		if job.Assignment.RunID == r.RunID && job.End == nil {
 			return nil, cleanupBlocked("workspace still has an unsettled execution")
 		}
+	}
+	if !preparationFound {
+		return nil, cleanupBlocked("recovered-card durable preparation is missing")
 	}
 	if r.Capture == nil {
 		return func() {}, nil

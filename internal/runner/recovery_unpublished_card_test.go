@@ -197,7 +197,7 @@ func TestUnpublishedCardRecoveryPreservesFrozenFamilyAndOneUse(t *testing.T) {
 	}
 	child := c.runs[req.ChildRunID]
 	old := before[child.ID]
-	if root.RecordFormat != 4 || root.Status != "Running" || root.TaskGroups["cards"].Done || root.TaskGroups["cards"].Failure != "" || root.UnpublishedCardRecovery.OriginalGroupFailure != before[root.ID].Reason || child.Status != "Queued" || child.Visit != old.Visit+1 || child.Step != 1 || child.ResourcesReleased || child.Current() != nil || c.familyAttempts(root) != 28 {
+	if root.RecordFormat != 5 || root.Status != "Running" || root.TaskGroups["cards"].Done || root.TaskGroups["cards"].Failure != "" || root.UnpublishedCardRecovery.OriginalGroupFailure != before[root.ID].Reason || child.Status != "Queued" || child.Visit != old.Visit+1 || child.Step != 1 || child.ResourcesReleased || child.Current() != nil || c.familyAttempts(root) != 28 {
 		t.Fatal("wrong recovery transition", root.Status, child.Status)
 	}
 	if !reflect.DeepEqual(child.Attempts, old.Attempts) || !reflect.DeepEqual(child.Process, old.Process) || !reflect.DeepEqual(child.StepInputs, old.StepInputs) || !reflect.DeepEqual(root.Process, before[root.ID].Process) || !reflect.DeepEqual(root.Roles, before[root.ID].Roles) || !reflect.DeepEqual(root.Inputs, before[root.ID].Inputs) {
