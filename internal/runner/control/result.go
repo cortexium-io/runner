@@ -66,9 +66,13 @@ func result(ctx context.Context, c resultReader, in ResultArgs) (Result, error) 
 			return Result{}, err
 		}
 		out := compactResult(r, time.Now())
+		decisionPending := false
+		for _, fact := range out.Progress.Attention {
+			decisionPending = decisionPending || fact.Kind == "human_decision"
+		}
 		// Waiting can still have uncertain execution. Report the actual blocker;
 		// never mistake a client disconnect for permission to stop or retry work.
-		if !in.Wait || r.Status == "Waiting" && !waitingForProgress(r, out) || r.Terminal() && (!out.CleanupPending || out.CleanupError != "") {
+		if !in.Wait || decisionPending || r.Status == "Waiting" && !waitingForProgress(r, out) || r.Terminal() && (!out.CleanupPending || out.CleanupError != "") {
 			return out, nil
 		}
 		if _, err = c.Wait(ctx, r.ID, r.Revision); err != nil {
@@ -133,7 +137,7 @@ func pendingTaskProgress(r runner.Run) bool {
 
 func compactResult(r runner.Run, now time.Time) Result {
 	out := Result{
-		Summary:          summary(r),
+		Summary:          runner.Summarize(r, now),
 		ExecutionSettled: true,
 		CleanupError:     runner.Clip(r.CleanupError),
 		CleanupBlocked:   r.CleanupBlocked,
@@ -189,8 +193,7 @@ func compactResult(r runner.Run, now time.Time) Result {
 		end = r.Updated
 	}
 	for _, task := range r.TaskStatuses {
-		out.Attempts += task.Attempts
-		if task.Active {
+		if task.Active || task.Unsettled {
 			out.ExecutionSettled = false
 		}
 		out.Reconciling = out.Reconciling || task.Reconciling

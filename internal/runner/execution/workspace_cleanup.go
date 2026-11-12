@@ -157,11 +157,19 @@ func (w *Workspaces) cleanupQuiescent(r workspaceRecord) (func(), error) {
 }
 
 func (w *Workspaces) cleanupQuiescentForRecovery(r workspaceRecord, preparing *runner.Assignment) (func(), error) {
+	return w.cleanupQuiescentWithPreparation(r, preparing, nil)
+}
+
+func (w *Workspaces) cleanupQuiescentForTaskSeed(r workspaceRecord, seed taskSourceJob) (func(), error) {
+	return w.cleanupQuiescentWithPreparation(r, nil, &seed)
+}
+
+func (w *Workspaces) cleanupQuiescentWithPreparation(r workspaceRecord, preparing *runner.Assignment, seed *taskSourceJob) (func(), error) {
 	entries, err := os.ReadDir(filepath.Join(w.disk.Root, "jobs"))
 	if err != nil {
 		return nil, err
 	}
-	preparationFound := preparing == nil
+	preparationFound := preparing == nil && seed == nil
 	for _, entry := range entries {
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".codex.json") && !strings.HasSuffix(name, ".command.json") && !strings.HasSuffix(name, ".candidate.json") && !strings.HasSuffix(name, ".release.json") && !strings.HasSuffix(name, ".task-source.json") {
@@ -178,6 +186,14 @@ func (w *Workspaces) cleanupQuiescentForRecovery(r workspaceRecord, preparing *r
 		if preparing != nil && name == preparing.AttemptID+".codex.json" {
 			if preparing.RunID != r.RunID || !recoveryPreparationOwns(data, *preparing) {
 				return nil, cleanupBlocked("recovered-card durable preparation ownership changed")
+			}
+			preparationFound = true
+			continue
+		}
+		if seed != nil && name == seed.Assignment.AttemptID+".task-source.json" {
+			var current taskSourceJob
+			if json.Unmarshal(data, &current) != nil || seed.Assignment.RunID != r.RunID || !reflect.DeepEqual(current.Assignment, seed.Assignment) || current.End != nil || current.Stopped || current.InputSHA != seed.InputSHA || current.Tree != seed.Tree || current.Commit != seed.Commit || current.PatchID != seed.PatchID {
+				return nil, cleanupBlocked("task seed durable preparation ownership changed")
 			}
 			preparationFound = true
 			continue

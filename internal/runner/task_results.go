@@ -22,8 +22,11 @@ func (c *Core) outputRun(r Run) Run {
 		for i, reservation := range group.Children {
 			status := TaskStatus{
 				ID: reservation.ItemID, RunID: reservation.RunID,
-				DependsOn: group.Items[i].DependsOn, Status: "Waiting",
+				Status: "Waiting",
 				Reason: "waiting for retained child creation",
+			}
+			if i < len(group.Items) {
+				status.DependsOn = group.Items[i].DependsOn
 			}
 			if child, exists := c.runs[reservation.RunID]; exists {
 				r.Revision += child.Revision
@@ -31,7 +34,11 @@ func (c *Core) outputRun(r Run) Run {
 					r.Updated = child.Updated
 				}
 				status.Status, status.Reason = child.Status, child.Reason
-				status.Attempts, status.Active = len(child.Attempts), child.Active()
+				status.Attempts = len(child.Attempts)
+				progress := runProgress(child, time.Now())
+				status.Progress = &progress
+				status.Active = progress.Active > 0
+				status.Unsettled = progress.Active+progress.Reconciling+progress.Unknown+progress.Pending > 0
 				_, managesResources := c.executor.(RunResources)
 				status.CleanupPending = managesResources && !child.ResourcesReleased
 				status.CleanupError = child.CleanupError

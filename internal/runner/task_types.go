@@ -62,16 +62,18 @@ type TaskChild struct {
 }
 
 type TaskStatus struct {
-	ID             string   `json:"id"`
-	RunID          string   `json:"run_id"`
-	DependsOn      []string `json:"depends_on,omitempty"`
-	Status         string   `json:"status"`
-	Reason         string   `json:"reason,omitempty"`
-	Attempts       int      `json:"attempts"`
-	Active         bool     `json:"active"`
-	CleanupPending bool     `json:"cleanup_pending,omitempty"`
-	CleanupError   string   `json:"cleanup_error,omitempty"`
-	Reconciling    bool     `json:"reconciling,omitempty"`
+	ID             string    `json:"id"`
+	RunID          string    `json:"run_id"`
+	DependsOn      []string  `json:"depends_on,omitempty"`
+	Status         string    `json:"status"`
+	Reason         string    `json:"reason,omitempty"`
+	Attempts       int       `json:"attempts"`
+	Active         bool      `json:"active"`
+	Unsettled      bool      `json:"execution_unsettled,omitempty"`
+	CleanupPending bool      `json:"cleanup_pending,omitempty"`
+	CleanupError   string    `json:"cleanup_error,omitempty"`
+	Reconciling    bool      `json:"reconciling,omitempty"`
+	Progress       *Progress `json:"-"`
 }
 
 type TaskGroupState struct {

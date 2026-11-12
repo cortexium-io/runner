@@ -42,6 +42,7 @@ type Summary struct {
 	Revision    int64     `json:"revision"`
 	Updated     time.Time `json:"updated"`
 	ParentRunID string    `json:"parent_run_id,omitempty"`
+	Progress    Progress  `json:"progress"`
 }
 type Status struct {
 	Runs                []Summary `json:"runs"`
@@ -245,18 +246,12 @@ func (c *Core) Status() Status {
 	s.TotalRuns = len(c.runs)
 	s.NativeStoreBytes = c.disk.NativeUsed()
 	for _, r := range c.runs {
-		s.Runs = append(s.Runs, Summary{
-			r.ID,
-			r.ProjectID,
-			r.Process.ID,
-			r.Status,
-			r.Reason,
-			r.Step,
-			len(r.Attempts),
-			r.Revision,
-			r.Updated,
-			taskParentID(r),
-		})
+		item := Summarize(c.outputRun(r), time.Now())
+		// Status retains stored root revision/update conventions. Get/result/wait
+		// expose the observed family revision; neither rewrites operational facts.
+		item.Revision = r.Revision
+		item.Updated = r.Updated
+		s.Runs = append(s.Runs, item)
 	}
 	sort.Slice(s.Runs, func(i, j int) bool { return s.Runs[i].Updated.After(s.Runs[j].Updated) })
 	if len(s.Runs) > 100 {
@@ -277,18 +272,7 @@ func (c *Core) Wait(ctx context.Context, id string, after int64) (Summary, error
 			return Summary{}, ErrNotFound
 		}
 		if r.Revision > after {
-			return Summary{
-				r.ID,
-				r.ProjectID,
-				r.Process.ID,
-				r.Status,
-				r.Reason,
-				r.Step,
-				len(r.Attempts),
-				r.Revision,
-				r.Updated,
-				taskParentID(r),
-			}, nil
+			return Summarize(r, time.Now()), nil
 		}
 		select {
 		case <-ctx.Done():

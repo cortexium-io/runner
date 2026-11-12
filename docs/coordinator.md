@@ -784,3 +784,38 @@ through settlement; older format-5 code can read the records but still has the
 join-construction defect. Older format-3/4 readers refuse the consumed format-5
 root. Never rewind SQLite/history/usage or rewrite a retained assignment to roll
 back. Main retains compatible binaries and consistent owning-process checkpoints.
+
+## Released-root seed and attention maintenance, 12 November 2026
+
+The following join retry was consumed and exposed a pending-seed installation
+guard on a released root. Dan's broader reliability request authorizes the owning
+engineering correction, not another live retry. Operations alone handles reviewed
+Core cutover and any separately authorized QTP continuation. Never edit live seed
+flags, accept assembled source directly or repeat the consumed stable request as
+if it granted more work. Preserve format5 history/usage and consistent checkpoints.
+
+`status`, `wait` and `result` now share aggregate-family attempt counts. Child rows
+still count their own attempts; do not sum parent and child rows to calculate
+family usage. Status keeps stored revisions/updates; result/wait keep observed
+family revisions. This additive presentation is not a database migration. Verify
+operational records/frozen settings across cutover, not equality of old and new
+presentation JSON. Older clients may ignore the new `progress` field.
+
+`progress.execution` distinguishes active, pending, bounded reconciliation,
+unknown and idle from saved attempt states. These are last-known executor facts,
+not a fresh OS liveness probe. Per-attempt timing exposes the actual
+deadline, whether it is known/elapsed, and the next configured observation. Missing
+timing remains unknown. `last_progress_at` is a saved lifecycle milestone, not
+the last polling update or a model heartbeat; do not invent a stall interval.
+Attention/decision IDs remain independent of execution, and waiting result calls
+return for a child approval while other work continues. `next_action` is a hint,
+never permission to retry, approve or mutate state. Read it with existing
+execution-settled and cleanup facts. No setup or private diagnostic stream is added.
+
+Root owns the already active fifteen-minute native attention monitor and dedupe
+memory. This source adds no watcher, schedule, notification channel or sink.
+Actual unattended delivery still needs independent proof. Stable routine recovery,
+verified attention, optional one-way GitHub Projects and then the complete
+Cortexium Go/Vue/Genny route remain the existing release-closure programme, not
+claims made from this slice's synthetic fixtures. Product work stays in Runner;
+merge, production and restoration keep their separate owner decisions.

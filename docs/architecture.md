@@ -25,6 +25,35 @@ Start with the example configuration, then `types.go`, then follow a run through
 handling. They do not form a second scheduling or storage service. The core
 imports no MCP SDK, configuration parser, SQLite driver or execution adapter.
 
+## Released task seeds and operational attention, 12 November 2026
+
+`execution/task_workspace.go` owns authenticated seed installation on both fresh
+and released roots, including an already saved pending seed. It revalidates
+dependencies even when the saved job skips assembly and holds known worker and
+capture leases through the handoff. Its private `workspace.prepare` handoff
+verifies the saved intent and expected tree before applying the seed, saving
+SeedReady and clearing Released together. Public Prepare and retained-candidate
+restoration keep their existing integrity refusals. Installation is unreviewed
+source preparation, never product acceptance or permission for another retry.
+
+`progress.go` projects saved lifecycle/execution facts without another store,
+timer or notification dependency. Shared `Summarize` gives status, wait and result
+the same family attempt count; result does not add child attempts again. Status
+preserves its stored revision/update convention. Get/result/wait use the observed
+family revision. Child Running is distinct from unsettled unknown/pending work.
+Compact attention keeps decision IDs visible beside running work; wait returns
+for a saved child approval without cancelling other execution. Timing comes only
+from saved attempt facts; useful-progress time is explicitly a lifecycle milestone
+and does not advance on observation polls. Fact vectors are bounded to nine,
+counts remain complete and truncation is explicit. No setup, credentials, prompts
+or private diagnostic stream enters these facts. Reporting reads no observer/sink
+state and grants no execution, retries, policy changes or cancellation.
+
+The reliability programme and Root-owned existing fifteen-minute monitor remain
+open acceptance work: these fixtures do not prove unattended native notification
+delivery or real product completion. Broader ordering belongs in the existing
+[release closure](process-core-design.md#release-closure-authorized-8-november-2026).
+
 ## Qualified planned frontend default, 11 November 2026
 
 The subsequent mobile-evidence enhancement in source is held separately from

@@ -6,6 +6,38 @@ across real projects. Merge and production remain owner-approved actions.**
 
 ## Current completion plan
 
+### Released-root seed installation and read-only attention, 12 November 2026
+
+Dan's reliability request authorizes this bounded engineering continuation. It
+does not grant another live QTP retry: the source-owner recovery and join retry
+are consumed, and the same root remains failed at join with 33/64 spent.
+Operations owns review/cutover and any separately authorized product continuation.
+
+Task-source installation distinguishes an authenticated pending seed from an
+already retained candidate. The private installer verifies exact saved authority,
+manifest digest, seed bytes/commit/tree/ref and every current dependency pin,
+including pending restarts which skip assembly. It holds owned task/capture
+leases, refuses foreign or unsettled jobs and keeps Released durable until seed
+readiness is saved. General restoration still refuses an unready seed. Existing
+pending intents may be used only through this authenticated path; no operator
+flag edit, late-source acceptance or general recovery framework is introduced.
+
+Status, wait and compact result share bounded read-only progress facts: actual
+running/pending/unknown/bounded-reconciling attempt counts, saved attempt timing,
+independent attention/decision identifiers and a next-action hint. Missing timing
+stays unknown; no grace interval or deadline is inferred. Last progress means
+the latest saved lifecycle milestone (creation/group start/attempt start/finish),
+not a polling heartbeat or proof of model activity. No task store, sink,
+notification action or scheduler is added. A saved child decision can return a
+waiting result while independent execution continues.
+
+The public presentation change is explicit: status and wait now count root plus
+child attempts exactly once, matching result. Status retains stored root revision
+and update conventions; Get/result/wait retain observed family revisions.
+Task `active` now means observed Running; `execution_unsettled` separately covers
+pending/unknown work. These projections do not change operational records,
+admission, correction budgets or execution in response to observer failure.
+
 ### Resolved-base task join correction, 12 November 2026
 
 Dan separately approved the narrow join correction and one existing within-budget
@@ -148,6 +180,20 @@ Finish the existing design through four bounded work packages. Main owns
 integration, final gates and installation; maintenance subagents have disjoint
 ownership. Product implementation, checks, correction and review stay in Runner.
 Merge, production and database restoration retain their saved owner decisions.
+
+Dan's 12 November reliability programme sets the order for the remaining work:
+stable routine recovery with real-work proof, verified attention, optional one-way
+GitHub Projects visibility after reliability, then a qualified complete Cortexium
+Go/Vue/Genny route. Root owns the existing native attention monitor at fifteen
+minutes and its dedupe memory; no second watcher or notification channel belongs
+in this slice. Actual unattended notification delivery remains unverified.
+Cortexium's first-delivery brief is docs commit
+`346656cbbcfc8ac09f120e35d96981c7a33f2cf3`; the chosen foundation is fresh Genny
+v0.4.0, peeled commit `86fe57147760ad741303620610575ba107eead84`, with selective
+reuse. Route qualification follows this engineering handoff through existing
+ownership and need not wait for Jack's separate native/physical or protected
+product decision. No migration/deployment is authorized. Fixtures or a safe stop
+do not complete the reliability programme or Cortexium delivery.
 
 1. **Supported build and routine policy.** Freeze one qualified Core/helper,
    execution environment and configured recovery policy. Reuse existing lifecycle,

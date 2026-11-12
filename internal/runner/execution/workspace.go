@@ -143,6 +143,10 @@ func git(ctx context.Context, dir string, extra []string, input []byte, maxBytes
 	return out.Bytes(), nil
 }
 func (w *Workspaces) Prepare(ctx context.Context, a runner.Assignment) (workspaceRecord, error) {
+	return w.prepare(ctx, a, nil)
+}
+
+func (w *Workspaces) prepare(ctx context.Context, a runner.Assignment, taskSeed *taskWorkspaceRecord) (workspaceRecord, error) {
 	if err := w.lockContext(ctx); err != nil {
 		return workspaceRecord{}, err
 	}
@@ -187,6 +191,13 @@ func (w *Workspaces) Prepare(ctx context.Context, a runner.Assignment) (workspac
 	if r.CleanupIntent != nil || r.SourcePreservation != nil && !r.SourcePreservation.Complete {
 		return r, errors.New("workspace cleanup or source preservation is unresolved; reconcile its owned operation before preparation")
 	}
+	installingTaskSeed := false
+	if taskSeed != nil {
+		if e = w.validateTaskSeedPreparation(ctx, a, r, taskSeed); e != nil {
+			return r, e
+		}
+		installingTaskSeed = !r.SeedReady
+	}
 	// Released stays durable until restoration is ready. An interrupted restore
 	// may rebuild only its owned pre-execution checkout; ready edits are untouched.
 	restoring := r.Released
@@ -217,7 +228,7 @@ func (w *Workspaces) Prepare(ctx context.Context, a runner.Assignment) (workspac
 	}
 	var patch []byte
 	var patchBytes int64
-	if restoring {
+	if restoring && !installingTaskSeed {
 		patch, patchBytes, e = w.retainedCandidate(ctx, r, false)
 		if e != nil {
 			return r, e
@@ -230,7 +241,11 @@ func (w *Workspaces) Prepare(ctx context.Context, a runner.Assignment) (workspac
 		if a.Limits.MaxArtifact < 1 || len(patch) > int(a.Limits.MaxArtifact) {
 			return r, errors.New("workspace seed patch exceeds the artifact limit")
 		}
-		if patchBytes, e = w.validateSeed(ctx, r, patch, a.Limits.MaxArtifact, false); e != nil {
+		validation := r
+		if installingTaskSeed {
+			validation.Candidate = &runner.SourceResult{Tree: taskSeed.SeedTree}
+		}
+		if patchBytes, e = w.validateSeed(ctx, validation, patch, a.Limits.MaxArtifact, false); e != nil {
 			return r, e
 		}
 	}
@@ -275,7 +290,8 @@ func (w *Workspaces) Prepare(ctx context.Context, a runner.Assignment) (workspac
 		if restoring {
 			r.Released = false
 			r.ReadyGeneration = ""
-		} else {
+		}
+		if !restoring || installingTaskSeed {
 			r.SeedReady = true
 		}
 		if e = w.disk.Refresh(); e != nil {

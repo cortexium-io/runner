@@ -445,6 +445,12 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 		return err
 	}
 	seedSHA := captureDigest(patch)
+	_, lease, err := w.taskLease(a)
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
+	ctx = context.WithValue(ctx, captureLeaseKey{}, lease)
 	if err = w.lockContext(ctx); err != nil {
 		return err
 	}
@@ -452,6 +458,44 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 	if errors.Is(err, os.ErrNotExist) {
 		r = workspaceRecord{RunID: a.RunID, Repository: repo, Base: base, WorkDir: filepath.Join(w.disk.Root, "work", a.RunID, "source")}
 		err = nil
+	}
+	if err == nil && (r.CleanupIntent != nil || r.SourcePreservation != nil && !r.SourcePreservation.Complete) {
+		err = errors.New("task seed cannot replace unresolved workspace cleanup or preservation")
+	}
+	if err == nil {
+		settled, settleErr := w.cleanupQuiescentForTaskSeed(r, taskSourceJob{
+			Assignment: a,
+			InputSHA:   inputSHA,
+			Tree:       tree,
+			Commit:     commit,
+			PatchID:    patchID,
+		})
+		if settleErr != nil {
+			err = settleErr
+		} else {
+			defer settled()
+		}
+	}
+	// A saved assembled patch is an intent, not permission to trust stale pins.
+	// Pending restarts skip assembly, so revalidate every dependency before any
+	// seed transition and retain its settled capture lease through installation.
+	if err == nil {
+		for _, candidate := range a.TaskSource.Dependencies {
+			if err = w.verifyTaskCandidate(ctx, a, repo, base, candidate); err != nil {
+				break
+			}
+			var child workspaceRecord
+			child, err = w.load(candidate.RunID)
+			if err != nil {
+				break
+			}
+			var settled func()
+			settled, err = w.cleanupQuiescent(child)
+			if err != nil {
+				break
+			}
+			defer settled()
+		}
 	}
 	if err == nil && r.TaskSources == nil {
 		r.TaskSources = map[string]*taskWorkspaceRecord{}
@@ -470,10 +514,11 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 				err = errors.New("task seed would replace unrelated captured source")
 			}
 			if err == nil {
-				if _, e := os.Lstat(r.WorkDir); e == nil {
-					_, _, err = w.retainedCandidate(ctx, r, true)
-				} else if !errors.Is(e, os.ErrNotExist) {
+				_, e := os.Lstat(r.WorkDir)
+				if e != nil && !errors.Is(e, os.ErrNotExist) {
 					err = e
+				} else if e == nil || r.Candidate != nil || r.SeedPatchID != "" {
+					_, _, err = w.retainedCandidate(ctx, r, e == nil)
 				}
 			}
 			if err == nil {
@@ -498,7 +543,7 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 		prepared.Inputs = map[string]runner.Value{}
 	}
 	prepared.Inputs["patch"] = runner.Value{ArtifactID: r.TaskSources[a.TaskSource.Identity.GroupStep].SeedPatchID}
-	if _, err = w.Prepare(ctx, prepared); err != nil {
+	if _, err = w.prepare(ctx, prepared, runner.Clone(r.TaskSources[a.TaskSource.Identity.GroupStep])); err != nil {
 		return err
 	}
 	if err = w.lockContext(ctx); err != nil {
@@ -519,6 +564,33 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 	}
 	t.Installed = true
 	return w.save(r)
+}
+
+// Only the authenticated task-source installer can use this handoff. Ordinary
+// restoration must continue to refuse an unready seed. Released remains durable
+// until Prepare has applied the exact seed and saved readiness atomically.
+func (w *Workspaces) validateTaskSeedPreparation(ctx context.Context, a runner.Assignment, r workspaceRecord, expected *taskWorkspaceRecord) error {
+	if a.TaskSource == nil || a.Setup.Profile.Harness != "task-source" || a.Setup.Profile.Access != "workspace-read" || (a.Setup.Profile.Mode != "seed" && a.Setup.Profile.Mode != "join") || !sameTaskAuthority(expected.Authority, *a.TaskSource) {
+		return errors.New("task seed installation authority differs")
+	}
+	actual := r.TaskSources[a.TaskSource.Identity.GroupStep]
+	repo, err := filepath.EvalSymlinks(a.Repository)
+	if err != nil || r.Repository != repo || a.Source == nil || r.Base != a.Source.Ref || !reflect.DeepEqual(actual, expected) || r.SeedPatchID != expected.SeedPatchID || a.Inputs["patch"].ArtifactID != r.SeedPatchID {
+		return errors.New("task seed installation differs from its durable intent")
+	}
+	if !r.SeedReady && (expected.Installed || r.Candidate != nil || r.ReadyGeneration != "") {
+		return errors.New("pending task seed conflicts with later source ownership")
+	}
+	tree, err := taskTree(ctx, r.Repository, expected.SeedCommit)
+	if err != nil || tree != expected.SeedTree || expected.SeedSHA == "" || expected.InputSHA == "" {
+		return errors.New("task seed commit/tree or authentication is missing or changed")
+	}
+	ref := taskSeedRef(a.RunID, a.TaskSource.Identity.GroupStep)
+	head, err := git(ctx, r.Repository, nil, nil, 256, "rev-parse", "--verify", ref)
+	if err == nil && strings.TrimSpace(string(head)) != expected.SeedCommit || err != nil && !missingCandidateRef(ctx, r.Repository, ref) {
+		return errors.New("task seed ref changed before installation; preserve it")
+	}
+	return nil
 }
 
 func taskUpdateRef(ctx context.Context, repo, ref, hash, previous string) error {
