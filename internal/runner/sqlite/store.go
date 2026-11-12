@@ -203,6 +203,18 @@ func (s *Store) Load(ctx context.Context) ([]runner.Run, error) {
 	return out, nil
 }
 func (s *Store) Save(ctx context.Context, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = s.saveRun(ctx, tx, r, artifacts, receipt); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) saveRun(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt) error {
 	b, definition, e := runner.MarshalRunRecord(r)
 	if e != nil {
 		return e
@@ -214,11 +226,6 @@ func (s *Store) Save(ctx context.Context, r runner.Run, artifacts []runner.Artif
 	if e != nil {
 		return e
 	}
-	tx, e := s.db.BeginTx(ctx, nil)
-	if e != nil {
-		return e
-	}
-	defer tx.Rollback()
 	var previous []byte
 	e = tx.QueryRowContext(ctx, "SELECT data FROM runs WHERE id=?", r.ID).Scan(&previous)
 	if e != nil && !errors.Is(e, sql.ErrNoRows) {
@@ -296,7 +303,7 @@ func (s *Store) Save(ctx context.Context, r runner.Run, artifacts []runner.Artif
 			return e
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 func (s *Store) FindReceipt(ctx context.Context, key string) (runner.Receipt, error) {
 	var r runner.Receipt

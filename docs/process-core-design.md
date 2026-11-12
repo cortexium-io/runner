@@ -6,6 +6,36 @@ across real projects. Merge and production remain owner-approved actions.**
 
 ## Current completion plan
 
+### One-use unpublished card recovery, 12 November 2026
+
+Dan separately approved recovery of the settled deadline-failed mobile
+`rendered_matrix` source card in its original family. The owner preflight
+and mutation bind exact root/child revisions, group/failed attempt, captured patch
+SHA and a digest of frozen family records, artifact bytes/ownership, dependency
+and source authority and limits. The execution service validates released leases,
+immutable seed/pin refs and captured-tree reconstruction in disposable indexes,
+including write scope and configured read-only/generated ownership. No checkout
+is restored by preflight. Ordinary Prepare restores only the authenticated card
+when its single ordinary twenty-minute owner visit dispatches.
+
+Admission charges that visit to the original family ceiling and reserves the
+existing complete tail. Root, child and idempotent receipt commit in one existing
+SQLite transaction. Old attempts, seven completed pins, requests, card scope,
+model/deadline/resource and correction settings remain unchanged. The old failed
+group/root/child facts remain in an immutable audit; current group state rejoins
+normal pin/manifest/join and every frozen downstream gate. A failed, cancelled or
+pin-rejected recovery never grants another card-owner visit, even after restart.
+No late patch is directly pinned and no completed card is replayed.
+
+Record format 4 adds this mandatory one-use audit to the normalized-attempt
+layout without changing SQL schema version 3. Saving cannot drop or alter its
+audit or downgrade the root. Existing formats 0/3 remain readable. Old format-3
+readers must refuse the new root before Core starts; qualification exercises the
+actual prior binary on disposable SQLite. Before live use, Main retains current
+binary/config identities and a quiesced, consistent forensic checkpoint. After a
+grant, rollback retains compatible code and all attempts/results; it never
+rewinds SQLite or product data. See the [owner procedure](coordinator.md#one-use-unpublished-source-card-recovery-12-november-2026).
+
 ### Mobile evidence maintenance, 11–12 November 2026
 
 The owner approved a bounded addition to future `deliver-planned-frontend`

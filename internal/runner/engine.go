@@ -357,6 +357,9 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 		c.Wake()
 		return Clone(c.runs[r.ID]), nil
 	}
+	if c.recoveredCard(r) != nil || r.UnpublishedCardRecovery != nil && isolatedStep(r) {
+		return Run{}, errors.New("one-use unpublished card recovery cannot be retried; preserve the failed recovery")
+	}
 	if r.Decision != nil {
 		return Run{}, errors.New("pending approval requires decide, not retry")
 	}
@@ -812,6 +815,24 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		assignment.Task += " Complete the authorized regression using the full current checks artifact and the complete failing test, including every assertion clause. Diagnose the source or fixture cause before editing. Preserve intended behavior, selectors, assertions, coverage and time limits; report the cause and evidence. Routine corrections continue only within the saved completion reserve."
 	}
 	assignment.TaskSource, e = c.taskAssignment(r, step)
+	if e == nil {
+		if grant := c.recoveredCard(r); grant != nil && r.Step == 1 && r.Visit == grant.OwnerVisit {
+			root := c.runs[r.Task.Identity.RootRunID]
+			var source SourceResult
+			for _, old := range r.Attempts {
+				if old.ID == grant.Request.AttemptID && old.Source != nil {
+					source = *old.Source
+				}
+			}
+			proof := UnpublishedCardAssessment{Source: source, Authority: *assignment.TaskSource, Artifacts: Clone(grant.Artifacts)}
+			for _, reserved := range root.TaskGroups[r.Task.Identity.GroupStep].Children {
+				if reserved.RunID != r.ID && reserved.Candidate != nil {
+					proof.Pins = append(proof.Pins, *reserved.Candidate)
+				}
+			}
+			assignment.UnpublishedCardRecovery = &proof
+		}
+	}
 	return assignment, e
 }
 func (c *Core) executionLimits() ExecutionLimits {
@@ -1165,6 +1186,10 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 		return arts
 	}
 	if c.routeFrontendTimeoutDiagnostic(r, a) {
+		return arts
+	}
+	if grant := c.recoveredCard(*r); grant != nil && r.Step == 1 && r.Visit == grant.OwnerVisit && end.Kind != "returned" {
+		r.Status, r.Reason = "Failed", "one-use card recovery failed: "+Clip(end.Reason)
 		return arts
 	}
 	if end.Kind == "failed" && end.Retryable {

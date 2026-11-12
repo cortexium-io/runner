@@ -134,6 +134,13 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		r, e := c.RecoverCollection(in)
 		return summary(r), e
 	})
+	add(s, "runner_preflight_unpublished_card_recovery", "Read-only owner preflight for an exact settled unpublished source-card deadline failure. Authenticates the original capture, dependency manifest, every completed pin, scopes and remaining completion reserve. No checkout restoration, grant or dispatch.", func(ctx context.Context, in runner.RecoverUnpublishedCardRequest) (any, error) {
+		return c.CheckUnpublishedCardRecovery(in)
+	})
+	add(s, "runner_recover_unpublished_card", "Owner-authorized one-use recovery of the exact preflight-bound settled deadline-failed source card. Atomically preserves failed history and completed pins and queues one original capped owner visit, followed by normal pin/join/check/review/publication and all frozen gates. No policy migration, extra attempts, replacement run or late-source acceptance. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverUnpublishedCardRequest) (any, error) {
+		r, e := c.RecoverUnpublishedCard(in)
+		return summary(r), e
+	})
 	add(s, "runner_recover_planning", "Owner-authorized one-time recovery of an exact blocked planner after preflight rejected its unadmitted collection. Reuses the retained baseline and adopted source, preserving history, attempt ceilings and protected decisions. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverPlanningRequest) (any, error) {
 		r, e := c.RecoverPlanning(in)
 		if e != nil {

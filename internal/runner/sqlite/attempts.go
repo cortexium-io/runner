@@ -31,14 +31,14 @@ func storedAttemptCount(state []byte) (int, error) {
 		}
 		return -1, nil
 	}
-	if h.Format != 3 || h.Count == nil || *h.Count < 0 || *h.Count > maxStoredAttempts || len(h.Inline) != 0 {
+	if (h.Format != 3 && h.Format != 4) || h.Count == nil || *h.Count < 0 || *h.Count > maxStoredAttempts || len(h.Inline) != 0 {
 		return 0, errors.New("invalid normalized attempt metadata")
 	}
 	return *h.Count, nil
 }
 
 func (s *Store) attemptRecords(r runner.Run) ([][]byte, error) {
-	if r.RecordFormat != 3 {
+	if r.RecordFormat < 3 {
 		return nil, nil
 	}
 	if len(r.Attempts) > maxStoredAttempts {
@@ -106,8 +106,19 @@ func (s *Store) saveAttempts(ctx context.Context, tx *sql.Tx, r runner.Run, reco
 		if err != nil {
 			return err
 		}
-		if (oldCount >= 0) != (r.RecordFormat == 3) {
+		if (oldCount >= 0) != (r.RecordFormat >= 3) {
 			return errors.New("run record format cannot change during save")
+		}
+		var old runner.Run
+		if err = json.Unmarshal(previous, &old); err != nil {
+			return err
+		}
+		if old.RecordFormat == 4 {
+			before, _ := json.Marshal(old.UnpublishedCardRecovery)
+			after, _ := json.Marshal(r.UnpublishedCardRecovery)
+			if r.RecordFormat != 4 || string(before) != string(after) {
+				return errors.New("one-use card recovery audit cannot change or be discarded")
+			}
 		}
 	}
 	rows, err := tx.QueryContext(ctx, "SELECT position,id FROM attempts WHERE run_id=? ORDER BY position", r.ID)
@@ -121,7 +132,7 @@ func (s *Store) saveAttempts(ctx context.Context, tx *sql.Tx, r runner.Run, reco
 		if err = rows.Scan(&position, &id); err != nil {
 			break
 		}
-		if r.RecordFormat != 3 || position != n || position >= len(r.Attempts) || r.Attempts[position].ID != id {
+		if r.RecordFormat < 3 || position != n || position >= len(r.Attempts) || r.Attempts[position].ID != id {
 			err = errors.New("save would discard or replace retained attempt history")
 			break
 		}

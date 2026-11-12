@@ -40,7 +40,7 @@ func run(ctx context.Context, args []string) error {
 		return execution.RunCommandWorker(ctx, args[1])
 	}
 	if len(args) == 0 {
-		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|recover-corrections|recover-collection|recover-planning|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
+		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|recover-corrections|recover-collection|recover-planning|recover-unpublished-card|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -68,6 +68,11 @@ func run(ctx context.Context, args []string) error {
 	assertionSHA256 := fs.String("assertion-sha256", "", "exact failed full-check report digest for one authorized assertion correction after diagnostic repair")
 	checkAttemptID := fs.String("check-attempt", "", "exact prior check attempt for frontend timeout diagnosis")
 	checkSHA256 := fs.String("check-sha256", "", "exact prior check report digest for frontend timeout diagnosis")
+	groupAttempt := fs.String("group-attempt", "", "exact failed isolated group attempt")
+	childRun := fs.String("child-run", "", "exact deadline-failed source child")
+	childRevision := fs.Int64("child-revision", 0, "exact settled child revision")
+	bindingsSHA := fs.String("bindings-sha256", "", "authenticated read-only card recovery preflight digest")
+	preflight := fs.Bool("preflight", false, "read-only unpublished-card recovery preflight; no grant or dispatch")
 	maxUses := fs.Int("max-uses", 0, "authorized total source-correction uses; recover-corrections requires 3")
 	preserveSource := fs.Bool("preserve-source", false, "preserve a verified owned partial checkout as recovery evidence before restoring its saved candidate")
 	profile := fs.String("profile", "", "named profile for authorized retry")
@@ -85,6 +90,34 @@ func run(ctx context.Context, args []string) error {
 	}
 	if *data == "" {
 		return errors.New("--data is required")
+	}
+	if *preflight && command != "recover-unpublished-card" {
+		return errors.New("--preflight requires recover-unpublished-card")
+	}
+	if command == "recover-unpublished-card" {
+		allowed := map[string]bool{
+			"data":            true,
+			"endpoint":        true,
+			"run":             true,
+			"revision":        true,
+			"group-attempt":   true,
+			"child-run":       true,
+			"child-revision":  true,
+			"attempt":         true,
+			"patch-sha256":    true,
+			"bindings-sha256": true,
+			"request-id":      true,
+			"preflight":       true,
+		}
+		bad := ""
+		fs.Visit(func(f *flag.Flag) {
+			if !allowed[f.Name] {
+				bad = f.Name
+			}
+		})
+		if bad != "" || *runID == "" || *revision < 1 || *groupAttempt == "" || *childRun == "" || *childRevision < 1 || *attemptID == "" || *patchSHA256 == "" || !*preflight && *bindingsSHA == "" {
+			return errors.New("recover-unpublished-card requires exact run/revision, group-attempt, child-run/child-revision, attempt and patch-sha256; admission also requires bindings-sha256; no overrides")
+		}
 	}
 	if *reportFile != "" && command != "recover-browser-errors" {
 		return errors.New("--report-file requires recover-browser-errors")
@@ -222,6 +255,26 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
 		method = "runner_recover_collection"
 		a = runner.RecoverCollectionRequest{RequestID: *requestID, RunID: *runID, AttemptID: *attemptID}
+	case "recover-unpublished-card":
+		method = "runner_preflight_unpublished_card_recovery"
+		if !*preflight {
+			method = "runner_recover_unpublished_card"
+			if *requestID == "" {
+				*requestID = rand.Text()
+			}
+			fmt.Fprintln(os.Stderr, "request_id="+*requestID)
+		}
+		a = runner.RecoverUnpublishedCardRequest{
+			RequestID:      *requestID,
+			RunID:          *runID,
+			Revision:       *revision,
+			GroupAttemptID: *groupAttempt,
+			ChildRunID:     *childRun,
+			ChildRevision:  *childRevision,
+			AttemptID:      *attemptID,
+			PatchSHA256:    *patchSHA256,
+			BindingsSHA256: *bindingsSHA,
+		}
 	case "recover-planning":
 		if *requestID == "" {
 			*requestID = rand.Text()

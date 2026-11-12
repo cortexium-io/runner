@@ -84,6 +84,10 @@ func (c *Core) route(r *Run, a *Attempt) {
 			route.Next = r.Process.Steps[r.Step+1].ID
 		}
 	}
+	if grant := c.recoveredCard(*r); grant != nil && taskStepIndex(r.Process, route.Next) == 1 && r.Visit >= grant.OwnerVisit {
+		r.Status, r.Reason = "Failed", "one-use recovered card pin rejected source; owner visit already consumed"
+		return
+	}
 	key := routeUseKey(*r, r.Step, result.Outcome)
 	if limit := routeLimit(*r, r.Step, result.Outcome, route); limit > 0 && r.RouteUses[key] >= limit {
 		r.Status, r.Reason = "Failed", "repetition allowance exhausted: "+key

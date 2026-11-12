@@ -335,23 +335,24 @@ type FrontendCheckPins struct {
 	Serial           bool   `json:"serial,omitempty"`
 }
 type Assignment struct {
-	FrontendCheckPins *FrontendCheckPins `json:"frontend_check_pins,omitempty"`
-	TaskSource        *TaskAssignment    `json:"task_source,omitempty"`
-	ProjectID         string             `json:"project_id,omitempty"`
-	RunID             string             `json:"run_id,omitempty"`
-	Repository        string             `json:"repository,omitempty"`
-	Source            *SourceSettings    `json:"source,omitempty"`
-	AttemptID         string             `json:"attempt_id"`
-	Setup             ExecutionSetup     `json:"setup"`
-	Inputs            map[string]Value   `json:"inputs"`
-	WorkDir           string             `json:"work_dir"`
-	OutputDir         string             `json:"output_dir"`
-	Limits            ExecutionLimits    `json:"limits"`
-	Task              string             `json:"task,omitempty"`
-	OutputTypes       map[string]string  `json:"output_types,omitempty"`
-	AllowHelp         bool               `json:"allow_help,omitempty"`
-	Outcomes          []string           `json:"outcomes,omitempty"`
-	Deadline          time.Time          `json:"deadline,omitempty"`
+	UnpublishedCardRecovery *UnpublishedCardAssessment `json:"unpublished_card_recovery,omitempty"`
+	FrontendCheckPins       *FrontendCheckPins         `json:"frontend_check_pins,omitempty"`
+	TaskSource              *TaskAssignment            `json:"task_source,omitempty"`
+	ProjectID               string                     `json:"project_id,omitempty"`
+	RunID                   string                     `json:"run_id,omitempty"`
+	Repository              string                     `json:"repository,omitempty"`
+	Source                  *SourceSettings            `json:"source,omitempty"`
+	AttemptID               string                     `json:"attempt_id"`
+	Setup                   ExecutionSetup             `json:"setup"`
+	Inputs                  map[string]Value           `json:"inputs"`
+	WorkDir                 string                     `json:"work_dir"`
+	OutputDir               string                     `json:"output_dir"`
+	Limits                  ExecutionLimits            `json:"limits"`
+	Task                    string                     `json:"task,omitempty"`
+	OutputTypes             map[string]string          `json:"output_types,omitempty"`
+	AllowHelp               bool                       `json:"allow_help,omitempty"`
+	Outcomes                []string                   `json:"outcomes,omitempty"`
+	Deadline                time.Time                  `json:"deadline,omitempty"`
 }
 type StepResult struct {
 	Outcome string           `json:"outcome"`
@@ -465,6 +466,7 @@ type Attempt struct {
 	Effective       *ExecutionFacts `json:"effective,omitempty"`
 }
 type Run struct {
+	UnpublishedCardRecovery   *UnpublishedCardRecovery   `json:"unpublished_card_recovery,omitempty"`
 	RecordFormat              int                        `json:"record_format,omitempty"`
 	Task                      *TaskRunLink               `json:"task,omitempty"`
 	TaskGroups                map[string]*TaskGroupState `json:"task_groups,omitempty"`

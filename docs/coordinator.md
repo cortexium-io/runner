@@ -700,3 +700,48 @@ The same bounded correction, review and single-publication release path follows.
 Preserve the original failed run. Submission needs fresh owner authorization;
 merge, production and restoration remain separate saved approvals. Limits do not
 increase, and the coordinator performs none of these product checks itself.
+
+## One-use unpublished source-card recovery, 12 November 2026
+
+Dan approved this bounded recovery contract separately from browser maintenance.
+The owner tools `runner_preflight_unpublished_card_recovery` and
+`runner_recover_unpublished_card` preserve the same failed root and child. They
+are outside restricted intake. This operation is for a settled initial
+seed/owner/pin card whose original twenty-minute owner timed out with a captured,
+unaccepted ready patch. It grants one owner visit, never direct source acceptance.
+
+Preflight binds `run_id`, `revision`, `group_attempt_id`, `child_run_id`,
+`child_revision`, `attempt_id` and `patch_sha256`. It authenticates the original
+seed, dependency manifest, every other completed pin, source scope, cleanup and
+writer leases. It returns `bindings_sha256`, spent/ceiling and the unchanged
+completion reserve. Invoke admission with those exact fields, the returned digest
+and one stable `request_id`. Drift or insufficient full reserve refuses without
+a grant. The CLI is `cortexium-runner recover-unpublished-card` with corresponding
+hyphenated flags; `--preflight` performs observation only. No limit/profile/input
+or policy override is accepted.
+
+The atomic grant preserves failed attempts and pins, records the old group/root/
+child failure facts, and requeues only that same owner. Ordinary Runner workspace
+restoration reconstructs its authenticated captured source. Normal pin, group
+manifest, join, checks, measurements, source review, publication, qualification,
+experience/native and protected decisions remain in the frozen process. A failed
+or cancelled recovery cannot receive another card-owner visit, including after
+restart or rejected pin. Existing downstream correction boundaries remain intact.
+The operation creates no new root, publication handle or policy-migration right.
+
+Main owns independent review, installation and live invocation. Before cutover,
+retain the exact current binary/config identities and a consistent private
+forensic checkpoint using the supported upgrade procedure: settle relevant work,
+quiesce the owning Core through its service manager, confirm it exited, and use
+SQLite's backup facility on the closed operational database. Preserve artifact,
+job and Git-ref inventories; keep credentials in place, out of exported evidence.
+This is an operational checkpoint, never permission to restore product data.
+
+No SQL schema migration occurs. The granted root uses record format 4 with an
+immutable one-use audit; the prior format-3 Core refuses it before dispatch.
+Before a grant, the prior Core can reopen unchanged format-3 state. After a grant,
+retain a compatible new Core and all later records; settle through normal controls
+if recovery fails. Do not roll back to a refusing reader, rewind the operational
+database, remove failures, decrement usage or fabricate a publication receipt.
+No browser-producer activation, frozen-policy migration or native/egress waiver
+is part of recovery installation.

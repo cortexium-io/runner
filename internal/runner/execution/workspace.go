@@ -451,6 +451,10 @@ func (w *Workspaces) rebuildSeedWorkspace(ctx context.Context, r workspaceRecord
 // owned worktree. Git supplies decoded paths and modes, including both sides of
 // renames; no patch headers or filenames are interpreted by a shell.
 func (w *Workspaces) validateSeed(ctx context.Context, r workspaceRecord, patch []byte, limit runner.Bytes, verifyCheckout bool) (int64, error) {
+	return w.validateSeedWithinTask(ctx, r, patch, limit, verifyCheckout, nil)
+}
+
+func (w *Workspaces) validateSeedWithinTask(ctx context.Context, r workspaceRecord, patch []byte, limit runner.Bytes, verifyCheckout bool, task *taskWorkspaceRecord) (int64, error) {
 	if err := validateAttributeSources(ctx, r.Repository); err != nil {
 		return 0, err
 	}
@@ -559,6 +563,19 @@ func (w *Workspaces) validateSeed(ctx context.Context, r workspaceRecord, patch 
 	}
 	if r.Candidate != nil && strings.TrimSpace(string(tree)) != r.Candidate.Tree {
 		return 0, &runner.CleanupBlockedError{Reason: "retained patch does not reconstruct the saved candidate; preserve the workspace"}
+	}
+	if task != nil {
+		// Captured trees can live only in this disposable object directory until
+		// normal pinning. Scope inspection must use that same authenticated index.
+		changed, err := git(ctx, r.Repository, env, nil, 1<<20, "diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", task.SeedTree, strings.TrimSpace(string(tree)), "--")
+		if err != nil {
+			return 0, err
+		}
+		for _, name := range bytes.Split(changed, []byte{0}) {
+			if len(name) > 0 && !taskPathOwned(string(name), task.Authority.WritePaths) {
+				return 0, errors.New("captured card changed source outside its frozen write scope")
+			}
+		}
 	}
 	sourceBytes, e := sourceTreeBytes(ctx, r.Repository, env, strings.TrimSpace(string(tree)), w.disk.Policy.MaxManaged, false)
 	if e != nil {
