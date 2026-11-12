@@ -1,4 +1,4 @@
-// runner-saas-check owns the fixed local Go/Vue/Genny first-flow proof. It is
+// runner-saas-check owns fixed Go/Vue/Genny checks and the Linux build handoff. It is
 // invoked only as an existing configured Runner command, never a model tool.
 package main
 
@@ -16,13 +16,11 @@ import (
 )
 
 type options struct {
-	source, scratch, authority, base, patch                         string
-	patchID                                                         string
-	goBinary, genny, node, modules, browserRuntime, chrome, goCheck string
-	checks, verdict                                                 string
-	runtimeFile                                                     string
-	reference                                                       bool
-	browser                                                         bool
+	source, scratch, authority, base, patch string
+	patchID                                 string
+	goBinary, genny, node, modules, goCheck string
+	runtimeFile                             string
+	reference                               bool
 }
 
 func main() {
@@ -38,13 +36,8 @@ func main() {
 	flag.StringVar(&o.genny, "genny", "", "pinned published Genny v0.4.0 executable")
 	flag.StringVar(&o.node, "node", "", "pinned Node executable")
 	flag.StringVar(&o.modules, "modules", "", "locked Vue node_modules")
-	flag.StringVar(&o.browserRuntime, "browser-runtime", "", "configured Playwright runtime")
-	flag.StringVar(&o.chrome, "chrome", "", "configured Chrome for Testing executable")
 	flag.StringVar(&o.goCheck, "go-check", "", "installed fixed runner-go-check")
 	flag.BoolVar(&o.reference, "reference", false, "validate and forward the frozen authority")
-	flag.BoolVar(&o.browser, "browser", false, "execute reviewed-candidate browser journeys only")
-	flag.StringVar(&o.checks, "checks", "", "declared prior network-disabled checks")
-	flag.StringVar(&o.verdict, "source-verdict", "", "independent source review verdict")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -7,8 +7,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/cortexium-io/runner/internal/release"
@@ -29,21 +30,30 @@ func main() {
 		fmt.Fprintln(os.Stderr, "--config is required")
 		os.Exit(2)
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = os.Stdin.Close()
+		case <-done:
+		}
+	}()
+	request, body, err := release.ReadRequest(os.Stdin)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "invalid release request")
+		os.Exit(2)
+	}
 	operator, err := release.Load(*config)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "release policy unavailable or invalid")
 		os.Exit(1)
 	}
-	var request release.Request
-	d := json.NewDecoder(io.LimitReader(os.Stdin, 32<<10))
-	d.DisallowUnknownFields()
-	if err = d.Decode(&request); err != nil {
-		fmt.Fprintln(os.Stderr, "invalid release request")
-		os.Exit(2)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	response, err := operator.Call(ctx, request)
+	response, err := operator.CallInput(ctx, request, body)
 	if err != nil {
 		response = release.Response{
 			Key:    request.Key,

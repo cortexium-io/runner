@@ -28,22 +28,26 @@ type Releases struct {
 }
 
 type releaseJob struct {
-	Assignment            runner.Assignment    `json:"assignment"`
-	Command               []string             `json:"command"`
-	Stopped               bool                 `json:"stopped,omitempty"`
-	End                   *runner.ExecutionEnd `json:"end,omitempty"`
-	GitHub                string               `json:"github,omitempty"`
-	SourcePrepared        bool                 `json:"source_prepared,omitempty"`
-	SourceArchived        bool                 `json:"source_archived,omitempty"`
-	Candidate             string               `json:"candidate,omitempty"`
-	SelectedBase          string               `json:"selected_base,omitempty"`
-	CancelReceipt         json.RawMessage      `json:"cancel_receipt,omitempty"`
-	PublicationPrevious   json.RawMessage      `json:"publication_previous,omitempty"`
-	Source                *runner.SourceResult `json:"source,omitempty"`
-	AdoptionReceipt       json.RawMessage      `json:"adoption_receipt,omitempty"`
-	LocalPreparationOwned bool                 `json:"local_preparation_owned,omitempty"`
-	OperatorDispatched    bool                 `json:"operator_dispatched,omitempty"`
-	PushStarted           bool                 `json:"push_started,omitempty"`
+	CortexiumInput         *release.CortexiumRequest `json:"cortexium_input,omitempty"`
+	CortexiumBase          string                    `json:"cortexium_base,omitempty"`
+	CortexiumIntegrityLost bool                      `json:"cortexium_integrity_lost,omitempty"`
+	CortexiumAcknowledged  bool                      `json:"cortexium_acknowledged,omitempty"`
+	Assignment             runner.Assignment         `json:"assignment"`
+	Command                []string                  `json:"command"`
+	Stopped                bool                      `json:"stopped,omitempty"`
+	End                    *runner.ExecutionEnd      `json:"end,omitempty"`
+	GitHub                 string                    `json:"github,omitempty"`
+	SourcePrepared         bool                      `json:"source_prepared,omitempty"`
+	SourceArchived         bool                      `json:"source_archived,omitempty"`
+	Candidate              string                    `json:"candidate,omitempty"`
+	SelectedBase           string                    `json:"selected_base,omitempty"`
+	CancelReceipt          json.RawMessage           `json:"cancel_receipt,omitempty"`
+	PublicationPrevious    json.RawMessage           `json:"publication_previous,omitempty"`
+	Source                 *runner.SourceResult      `json:"source,omitempty"`
+	AdoptionReceipt        json.RawMessage           `json:"adoption_receipt,omitempty"`
+	LocalPreparationOwned  bool                      `json:"local_preparation_owned,omitempty"`
+	OperatorDispatched     bool                      `json:"operator_dispatched,omitempty"`
+	PushStarted            bool                      `json:"push_started,omitempty"`
 }
 
 func releaseName(id string) string { return "jobs/" + id + ".release.json" }
@@ -65,8 +69,16 @@ func (r *Releases) load(id string) (releaseJob, error) {
 func (r *Releases) save(j releaseJob) error {
 	r.adoptionMu.Lock()
 	defer r.adoptionMu.Unlock()
-	if releaseSourceMode(j.Assignment.Setup.Profile.Mode) || j.Assignment.Setup.Profile.Mode == "publication-reference" {
+	if releaseSourceMode(j.Assignment.Setup.Profile.Mode) || j.Assignment.Setup.Profile.Mode == "publication-reference" || j.Assignment.Setup.Profile.Mode == "cortexium-browser" {
 		if old, err := r.load(j.Assignment.AttemptID); err == nil {
+			if old.CortexiumInput != nil {
+				j.CortexiumInput = old.CortexiumInput
+			}
+			if old.CortexiumBase != "" {
+				j.CortexiumBase = old.CortexiumBase
+			}
+			j.CortexiumAcknowledged = j.CortexiumAcknowledged || old.CortexiumAcknowledged
+			j.CortexiumIntegrityLost = j.CortexiumIntegrityLost || old.CortexiumIntegrityLost
 			j.Stopped = j.Stopped || old.Stopped
 			j.LocalPreparationOwned = j.LocalPreparationOwned || old.LocalPreparationOwned
 			j.OperatorDispatched = j.OperatorDispatched || old.OperatorDispatched
@@ -89,7 +101,7 @@ func (r *Releases) save(j releaseJob) error {
 				j.End = old.End
 			}
 		}
-		if j.Stopped && j.End != nil && j.End.Kind != "stopped" {
+		if j.Stopped && j.End != nil && j.End.Kind != "stopped" && j.Assignment.Setup.Profile.Mode != "cortexium-browser" {
 			j.End = &runner.ExecutionEnd{Kind: "stopped", Reason: "release source operation settled after cancellation"}
 		}
 	}
@@ -127,6 +139,9 @@ func (r *Releases) observeRelease(ctx context.Context, id string) (runner.Observ
 		NextCheck: time.Now().Add(3 * time.Second),
 	}
 	if j.End == nil {
+		if j.Assignment.Setup.Profile.Mode == "cortexium-browser" {
+			return r.observeCortexium(ctx, j, o)
+		}
 		if j.Assignment.Setup.Profile.Mode == "experience-feedback" {
 			return r.experienceFeedback(j, o)
 		}
@@ -321,7 +336,7 @@ func (r *Releases) Stop(ctx context.Context, id string) error {
 	if err = r.save(j); err != nil {
 		return err
 	}
-	if releaseSourceMode(j.Assignment.Setup.Profile.Mode) {
+	if detachedReleaseMode(j.Assignment.Setup.Profile.Mode) {
 		if err = r.stopSourceAdoption(ctx, id); err != nil {
 			return err
 		}
@@ -340,7 +355,7 @@ func (r *Releases) Release(ctx context.Context, id string) error {
 	if j.End == nil {
 		return errors.New("cannot release an unsettled external operation")
 	}
-	if releaseSourceMode(j.Assignment.Setup.Profile.Mode) {
+	if detachedReleaseMode(j.Assignment.Setup.Profile.Mode) {
 		if err = r.releaseSourceAdoption(ctx, j); err != nil {
 			return err
 		}

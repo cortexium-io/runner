@@ -32,44 +32,30 @@ func qualify(ctx context.Context, o options, a saas.Authority, authority, patch 
 		Base:            o.base,
 		PatchSHA256:     saas.Digest(patch),
 		AuthoritySHA256: saas.Digest(authority),
-		ChromeSHA256:    a.ChromeSHA256,
-		DriverSHA256:    a.DriverSHA256,
+		ChromeSHA256:    a.Runtime.ChromeSHA256,
+		DriverSHA256:    a.Runtime.DriverSHA256,
 		GoVersion:       "go1.27.3",
 		ModuleSHA256:    saas.Digest([]byte(a.GoMod)),
 		LockSHA256:      saas.Digest([]byte(a.Lock)),
 		RealWorker:      "unverified",
 	}
 	proof := proofFiles{e: &e, files: map[string][]byte{}, commands: map[string][]commandEvidence{}}
-	if o.browser {
-		if o.verdict != "APPROVE" || !absolute(o.checks) {
-			return errors.New("browser execution requires independent source approval and declared checks")
-		}
-		b, err := boundedFile(o.checks, saas.MaxBundle)
-		if err != nil {
-			return err
-		}
-		var retained map[string][]byte
-		e, retained, err = saas.DecodeCheckBundle(b, o.base, saas.Digest(patch), saas.Digest(authority))
-		if err != nil {
-			return err
-		}
-		for _, r := range e.Reports {
-			proof.files[r.Name] = retained[r.Name]
-		}
-	}
 	finish := func(outcome, reason string) error {
 		if outcome != "ready" {
 			e.Status = "incomplete"
 			e.Reason = reason[:min(len(reason), 1024)]
 		}
-		b, err := saas.Pack(e, proof.files)
+		var b []byte
+		var err error
+		if outcome == "ready" {
+			b, err = saas.PackCheckedBuild(e, proof.files["app/server"], proof.files)
+		} else {
+			b, err = saas.Pack(e, proof.files)
+		}
 		if err != nil {
 			return err
 		}
 		name := "checks.tar.gz"
-		if o.browser {
-			name = "evidence.tar.gz"
-		}
 		if err = os.WriteFile(filepath.Join(o.scratch, name), b, 0600); err != nil {
 			return err
 		}
@@ -94,6 +80,9 @@ func qualify(ctx context.Context, o options, a saas.Authority, authority, patch 
 			"GOWORK=off",
 			"CGO_ENABLED=0",
 			"GOFLAGS=-mod=readonly -buildvcs=false",
+		}
+		if label == "local-build" {
+			cmd.Env = append(cmd.Env, "GOOS=linux", "GOARCH=amd64", "GOAMD64=v1", "GOEXPERIMENT=")
 		}
 		cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 		cmd.WaitDelay = 3 * time.Second
@@ -122,7 +111,7 @@ func qualify(ctx context.Context, o options, a saas.Authority, authority, patch 
 		}
 		return finish(outcome, fmt.Sprintf("%s: %v; inspect declared full reports", label, err))
 	}
-	if !o.browser {
+	{
 		if _, err := invoke("generated", app, o.genny, "refresh", "generated", "--project", app); err != nil {
 			return fail("non-force generated ownership", err)
 		}
@@ -146,7 +135,12 @@ func qualify(ctx context.Context, o options, a saas.Authority, authority, patch 
 	for _, args := range [][]string{
 		{filepath.Join(o.modules, "vue-tsc", "bin", "vue-tsc.js"), "--noEmit"},
 		{filepath.Join(o.modules, "vite", "bin", "vite.js"), "build"},
-		{filepath.Join(o.modules, "vite", "bin", "vite.js"), "build", "--config", "vite.static-pages.ssr.config.gny.ts"},
+		{
+			filepath.Join(o.modules, "vite", "bin", "vite.js"),
+			"build",
+			"--config",
+			"vite.static-pages.ssr.config.gny.ts",
+		},
 		{filepath.Join(front, ".genny", "static-pages", "prerender.gny.mjs")},
 	} {
 		if _, err := invoke("frontend-build", front, o.node, args...); err != nil {
@@ -154,7 +148,7 @@ func qualify(ctx context.Context, o options, a saas.Authority, authority, patch 
 		}
 	}
 	e.VueBuild, e.VueTypecheck = true, true
-	if !o.browser {
+	{
 		goProof := filepath.Join(o.scratch, "go-proof.json")
 		_, goErr := invoke("go", app, o.goCheck, "--go", o.goBinary, "--package", "./...", "--run", ".", "--timeout", "5m", "--scratch", o.scratch, "--output", goProof, "--source-base", o.base, "--input-patch-id", o.patchID, "--input-patch", o.patch)
 		reportErr := proof.jsonReport("reports/go.json", goProof)
@@ -182,7 +176,10 @@ func qualify(ctx context.Context, o options, a saas.Authority, authority, patch 
 			label string
 			args  []string
 			field *bool
-		}{{"go-vet", []string{"vet", "./..."}, &e.GoVet}, {"normal-build", []string{"build", "-trimpath", "./..."}, &e.GoBuild}} {
+		}{
+			{"go-vet", []string{"vet", "./..."}, &e.GoVet},
+			{"normal-build", []string{"build", "-trimpath", "./..."}, &e.GoBuild},
+		} {
 			if _, err := invoke(s.label, app, o.goBinary, s.args...); err != nil {
 				return fail(s.label, err)
 			}
@@ -209,24 +206,60 @@ func qualify(ctx context.Context, o options, a saas.Authority, authority, patch 
 		}
 		e.VueTests = vr.Passed
 	}
-	server := filepath.Join(o.scratch, "local-server")
-	if _, err := invoke("local-build", app, o.goBinary, "build", "-trimpath", "-o", server, "./cmd/runner-local"); err != nil {
-		return fail("same-app local bootstrap build", err)
+	var normal, serverBytes []byte
+	for _, target := range []struct{ name, command string }{
+		{"normal-server", "./cmd/server"},
+		{"local-server", "./cmd/runner-local"},
+	} {
+		file := filepath.Join(o.scratch, target.name)
+		if _, err := invoke("local-build", app, o.goBinary, "build", "-trimpath", "-buildvcs=false", "-o", file, target.command); err != nil {
+			return fail("checked Linux startup build", err)
+		}
+		data, err := boundedFile(file, saas.MaxBuildDecoded)
+		if err != nil {
+			return err
+		}
+		if err = saas.StaticLinux(data); err != nil {
+			return finish("blocked", err.Error())
+		}
+		if target.name == "normal-server" {
+			normal = data
+		} else {
+			serverBytes = data
+		}
 	}
-	serverBytes, err := boundedFile(server, 128<<20)
+	distRoot := filepath.Join(app, "internal", "app", "http", "frontend_dist")
+	dist, err := snapshot(distRoot)
 	if err != nil {
 		return err
 	}
-	dist, err := snapshot(filepath.Join(app, "internal", "app", "http", "frontend_dist"))
+	frontend := map[string][]byte{}
+	for name := range dist {
+		data, err := boundedFile(filepath.Join(distRoot, filepath.FromSlash(name)), 8<<20)
+		if err != nil {
+			return err
+		}
+		frontend[name] = data
+	}
+	assets, frontendSHA, err := saas.EmbeddedFrontend(serverBytes, frontend)
 	if err != nil {
-		return err
+		return finish("blocked", err.Error())
 	}
-	distBytes, _ := json.Marshal(dist)
-	serverSHA, frontendSHA := saas.Digest(serverBytes), saas.Digest(distBytes)
-	if o.browser && (e.ServerSHA256 != serverSHA || e.FrontendSHA256 != frontendSHA) {
-		return finish("blocked", "reproduced local server/frontend differs from the independently reviewed build")
+	e.ServerSHA256, e.FrontendSHA256 = saas.Digest(serverBytes), frontendSHA
+	e.Build = &saas.CheckedBuild{
+		Version:       1,
+		Target:        saas.LinuxTarget,
+		BinaryBytes:   len(serverBytes),
+		NormalSHA256:  saas.Digest(normal),
+		NormalBytes:   len(normal),
+		GoSHA256:      a.GoSHA256,
+		GennySHA256:   a.GennySHA256,
+		NodeSHA256:    a.NodeSHA256,
+		GoCheckSHA256: a.GoCheckSHA256,
+		Runtime:       a.Runtime,
+		Frontend:      assets,
 	}
-	e.ServerSHA256, e.FrontendSHA256 = serverSHA, frontendSHA
+	proof.files["app/server"] = serverBytes
 	after, err := snapshot(app)
 	if err != nil {
 		return err
@@ -236,66 +269,6 @@ func qualify(ctx context.Context, o options, a saas.Authority, authority, patch 
 	if !bytes.Equal(b1, b2) {
 		return finish("blocked", "configured checks/build changed selected source; preserve and inspect owned scratch")
 	}
-	if !o.browser {
-		e.Status = "checked"
-		return finish("ready", "")
-	}
-	driver := filepath.Join(o.scratch, "browser.mjs")
-	if err = os.WriteFile(driver, saas.BrowserDriver, 0500); err != nil {
-		return err
-	}
-	views := filepath.Join(o.scratch, "viewports")
-	_, browserErr := invoke("browser", app, o.node, driver, o.browserRuntime, o.chrome, server, app, o.scratch, views)
-	viewErr := proof.viewports(views) // Preserve actual partial captures before returning any failure.
-	cleanupBytes, cleanupErr := boundedFile(filepath.Join(views, "cleanup.json"), 1<<20)
-	var cleanup struct {
-		ServerPIDs        []int    `json:"server_pids"`
-		ServerSettled     bool     `json:"server_settled"`
-		ChromePID         int      `json:"chrome_pid"`
-		ChromeSettled     bool     `json:"chrome_settled"`
-		Failures          []string `json:"failures"`
-		ServerDiagnostics struct {
-			Bytes     int64 `json:"bytes"`
-			Truncated bool  `json:"truncated"`
-		} `json:"server_diagnostics"`
-		ChromeDiagnostics struct {
-			Truncated bool `json:"truncated"`
-		} `json:"chrome_diagnostics"`
-	}
-	if cleanupErr == nil {
-		cleanupErr = json.Unmarshal(cleanupBytes, &cleanup)
-	}
-	if cleanupErr == nil {
-		b, _ := json.Marshal(map[string]any{"commands": proof.commands["reports/browser.json"], "cleanup": json.RawMessage(cleanupBytes)})
-		complete, truncated := true, cleanup.ServerDiagnostics.Truncated || cleanup.ChromeDiagnostics.Truncated
-		for _, c := range proof.commands["reports/browser.json"] {
-			complete = complete && c.Complete
-			truncated = truncated || c.Truncated
-		}
-		proof.put("reports/browser.json", b, complete, truncated)
-		if !cleanup.ServerSettled || !cleanup.ChromeSettled || cleanup.ChromePID < 1 || len(cleanup.ServerPIDs) != 2 || len(cleanup.Failures) != 0 {
-			cleanupErr = errors.New("owned browser/server cleanup is incomplete")
-		}
-		if !complete || truncated {
-			cleanupErr = errors.New("owned browser/server diagnostics are incomplete or truncated")
-		}
-	}
-	if browserErr != nil {
-		return fail("fixed normal-UI browser journeys", browserErr)
-	}
-	if viewErr != nil {
-		return finish("blocked", viewErr.Error())
-	}
-	if cleanupErr != nil {
-		return finish("blocked", cleanupErr.Error())
-	}
-	e.Status = "passed"
-	b, err := saas.Pack(e, proof.files)
-	if err != nil {
-		return err
-	}
-	if _, _, err = saas.Decode(b, o.base, saas.Digest(patch), saas.Digest(authority)); err != nil {
-		return finish("blocked", err.Error())
-	}
+	e.Status = "checked"
 	return finish("ready", "")
 }

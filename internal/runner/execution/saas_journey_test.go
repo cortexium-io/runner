@@ -76,6 +76,8 @@ func testLocalSaaSRoute(t *testing.T, native bool) {
 	}
 	read("processes/develop-local.json", &process)
 	project := cfg.Projects["demo"]
+	project.ID = "cortexium-local"
+	delete(cfg.Projects, "demo")
 	project.Roles = map[string]runner.Role{}
 	var roles func([]runner.Step)
 	roles = func(steps []runner.Step) {
@@ -105,7 +107,10 @@ func testLocalSaaSRoute(t *testing.T, native bool) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	a := saas.Authority{Version: 1, BriefCommit: saas.BriefCommit, BriefSHA256: saas.BriefSHA256, GennyCommit: saas.GennyCommit, Base: base, AppDirectory: "platform", Module: "fixture.invalid/local", ProjectName: "RunnerFixture", Brief: string(brief), Contract: saas.Contract, GoMod: "module fixture.invalid/local\n\ngo 1.27.0\n\ntoolchain go1.27.3\n", GoSum: "synthetic locked sum\n", Package: `{"private":true,"dependencies":{"vue":"3.5.45"},"devDependencies":{"vite":"8.3.6","vitest":"5.1.0"}}`, Lock: `{"lockfileVersion":3}`, GoSHA256: h, GoCheckSHA256: h, GennySHA256: h, NodeSHA256: h, ChromeSHA256: h, DriverSHA256: h}
+	a := saas.Authority{Version: 1, BriefCommit: saas.BriefCommit, BriefSHA256: saas.BriefSHA256, GennyCommit: saas.GennyCommit, Base: base, AppDirectory: "platform", Module: "fixture.invalid/local", ProjectName: "RunnerFixture", Brief: string(brief), Contract: saas.Contract, GoMod: "module fixture.invalid/local\n\ngo 1.27.0\n\ntoolchain go1.27.3\n", GoSum: "synthetic locked sum\n", Package: `{"private":true,"dependencies":{"vue":"3.5.45"},"devDependencies":{"vite":"8.3.6","vitest":"5.1.0"}}`, Lock: `{"lockfileVersion":3}`, GoSHA256: h, GoCheckSHA256: h, GennySHA256: h, NodeSHA256: h}
+	a.OperatorPolicySHA256 = h
+	a.Runtime = saas.ContainerRuntime{Image: "sha256:" + h, DriverSHA256: h, ChromeSHA256: h, Node: "26.13.1", Playwright: "1.65.0"}
+	cfg.Instance.Release = &runner.ReleaseSettings{Command: []string{op, "--operator"}}
 	if native {
 		data, err := os.ReadFile(os.Getenv("RUNNER_SAAS_AUTHORITY"))
 		if err != nil || json.Unmarshal(data, &a) != nil {
@@ -116,22 +121,26 @@ func testLocalSaaSRoute(t *testing.T, native bool) {
 		cfg.Instance.Codex.Binary = os.Getenv("RUNNER_PREFLIGHT_CODEX")
 		cfg.Instance.Codex.GoModuleCache = os.Getenv("RUNNER_SAAS_MODULE_CACHE")
 		var runtime struct {
-			Go, Genny, Node, Modules, Chrome string
-			BrowserRuntime                   string `json:"browser_runtime"`
-			GoCheck                          string `json:"go_check"`
+			Go, Genny, Node, Modules string
+			GoCheck                  string `json:"go_check"`
 		}
 		data, err = os.ReadFile(os.Getenv("RUNNER_SAAS_RUNTIME"))
 		if err != nil || json.Unmarshal(data, &runtime) != nil {
 			t.Fatal("native runtime", err)
 		}
-		cfg.Instance.Codex.CommandReadPaths = []string{op, runtime.GoCheck, runtime.Genny, filepath.Dir(filepath.Dir(runtime.Go)), filepath.Dir(filepath.Dir(runtime.Node)), filepath.Dir(runtime.Modules), runtime.BrowserRuntime, filepath.Dir(filepath.Dir(filepath.Dir(runtime.Chrome))), os.Getenv("RUNNER_SAAS_RUNTIME"), cfg.Instance.Codex.GoModuleCache}
+		cfg.Instance.Codex.CommandReadPaths = []string{op, runtime.GoCheck, runtime.Genny, filepath.Dir(filepath.Dir(runtime.Go)), filepath.Dir(filepath.Dir(runtime.Node)), filepath.Dir(runtime.Modules), os.Getenv("RUNNER_SAAS_RUNTIME"), cfg.Instance.Codex.GoModuleCache}
+		var operator []string
+		if json.Unmarshal([]byte(os.Getenv("RUNNER_SAAS_OPERATOR_COMMAND")), &operator) != nil || len(operator) == 0 || !filepath.IsAbs(operator[0]) {
+			t.Fatal("explicit isolated trusted operator command required; no simulated browser fallback")
+		}
+		cfg.Instance.Release = &runner.ReleaseSettings{Command: operator}
 	}
 	authority := filepath.Join(owned, "authority.json")
 	ab, _ := json.Marshal(a)
 	if err := os.WriteFile(authority, ab, 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"authority", "local-check", "local-browser"} {
+	for _, name := range []string{"authority", "local-check"} {
 		r := project.Roles[name]
 		r.Execution.Command.Args[0] = op
 		for i, arg := range r.Execution.Command.Args {
@@ -148,7 +157,7 @@ func testLocalSaaSRoute(t *testing.T, native bool) {
 		cfg.Instance.Codex.CommandReadPaths = append(cfg.Instance.Codex.CommandReadPaths, authority)
 	}
 	project.Processes, project.DefaultProcess, project.Source = map[string]runner.Process{process.ID: process}, process.ID, &runner.SourceSettings{Ref: base}
-	cfg.Projects["demo"] = project
+	cfg.Projects["cortexium-local"] = project
 	plan := goodTurn()
 	plan.Items[0].Text = string(mustJSON(t, map[string]any{"outcome": "ready", "outputs": map[string]string{"tasks": `[{"id":"fixture","inputs":{"task":"Change only the synthetic stage marker.","paths":["stage.txt"]}}]`}, "reason": ""}))
 	approve := goodTurn()
@@ -222,6 +231,7 @@ func testLocalSaaSRoute(t *testing.T, native bool) {
 		sandbox = cfg.Instance.Codex.Binary
 	}
 	hook := func(s *Service) {
+		s.releases.cfg = runner.Clone(cfg.Instance.Release)
 		s.commands.cfg.Binary = sandbox
 		s.commands.launchWorker = func(spec string, finished func()) error {
 			timeout := "30s"
@@ -244,7 +254,7 @@ func testLocalSaaSRoute(t *testing.T, native bool) {
 			rig.close()
 		}
 	}()
-	run, err := rig.core.Start(runner.StartRequest{RequestID: "local-saas-control", Project: "demo", Inputs: map[string]runner.Value{"request": runner.Text("Synthetic complete local route control qualification, not product implementation")}})
+	run, err := rig.core.Start(runner.StartRequest{RequestID: "local-saas-control", Project: "cortexium-local", Inputs: map[string]runner.Value{"request": runner.Text("Synthetic complete local route control qualification, not product implementation")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,6 +307,15 @@ func testLocalSaaSRoute(t *testing.T, native bool) {
 		}
 		rig.close()
 		closed = true
+		// Preserve one closed synthetic operational checkpoint for the exact
+		// graph/attempt/authority proof; never copy live state or owner tokens.
+		checkpoint, err := os.ReadFile(filepath.Join(owned, "state", "process-core.sqlite"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(filepath.Join(os.Getenv("RUNNER_SAAS_PROOF"), "fixture.sqlite"), checkpoint, 0600); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.RemoveAll(owned); err != nil {
 			t.Fatal(err)
 		}

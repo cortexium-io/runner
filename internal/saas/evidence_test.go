@@ -103,13 +103,15 @@ func TestSourceChecksAreDistinctFromBrowserAndRealWorkerProof(t *testing.T) {
 
 func TestAuthorityUsesTheActualSelectedManifestAndNoLocalReplaces(t *testing.T) {
 	h := strings.Repeat("a", 64)
-	a := Authority{Version: 1, BriefCommit: BriefCommit, BriefSHA256: BriefSHA256, GennyCommit: GennyCommit, Base: strings.Repeat("b", 40), AppDirectory: "platform", Module: "example.invalid/fixture", GoMod: "module example.invalid/fixture\n\ngo 1.27.0\n\ntoolchain go1.27.3\n", GoSum: "known dependency sum\n", Package: `{"private":true,"dependencies":{"vue":"3.5.45"},"devDependencies":{"vite":"8.3.6","vitest":"5.1.0"}}`, Lock: `{"lockfileVersion":3}`, GoSHA256: h, GennySHA256: h, NodeSHA256: h, ChromeSHA256: h, DriverSHA256: h}
+	a := Authority{Version: 1, BriefCommit: BriefCommit, BriefSHA256: BriefSHA256, GennyCommit: GennyCommit, Base: strings.Repeat("b", 40), AppDirectory: "platform", Module: "example.invalid/fixture", GoMod: "module example.invalid/fixture\n\ngo 1.27.0\n\ntoolchain go1.27.3\n", GoSum: "known dependency sum\n", Package: `{"private":true,"dependencies":{"vue":"3.5.45"},"devDependencies":{"vite":"8.3.6","vitest":"5.1.0"}}`, Lock: `{"lockfileVersion":3}`, GoSHA256: h, GennySHA256: h, NodeSHA256: h}
 	brief, err := os.ReadFile("../../testdata/saas/first-flow-brief.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	a.Brief, a.Contract, a.ProjectName = string(brief), Contract, "RunnerFixture"
 	a.GoCheckSHA256 = h
+	a.OperatorPolicySHA256 = h
+	a.Runtime = ContainerRuntime{Image: "sha256:" + h, DriverSHA256: h, ChromeSHA256: h, Node: "26.13.1", Playwright: "1.65.0"}
 	b, _ := json.Marshal(a)
 	if _, err := DecodeAuthority(b, a.Base); err != nil {
 		t.Fatal(err)

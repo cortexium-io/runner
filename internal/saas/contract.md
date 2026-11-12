@@ -24,12 +24,14 @@ seed isolated users/workspaces and inject a deterministic Worker through ordinar
 extension points. A parallel test application, auth bypass, manufactured success
 or separate business transitions are unacceptable in a product candidate.
 
-The fixed helper builds `./cmd/runner-local` with Go1.27.3 and invokes only:
+The fixed helper cross-builds normal startup and `./cmd/runner-local` with
+Go1.27.3, CGO disabled, Linux/amd64/v1 and ordinary debug information. The
+trusted operator invokes only the exact independently reviewed fixture binary:
 
-`--listen 127.0.0.1:0 --data-dir OWNED --frontend-dir BUILT --ready-file OWNED --fixture`
+`--listen 127.0.0.1:9044 --data-dir /data --ready-file /data/ready.json --fixture`
 
 It must bind its own loopback listener, use only its owned data directory and
-write `{ "pid": OWN_PID, "origin": "http://127.0.0.1:BOUND_PORT" }` to the ready
+write `{ "pid": OWN_PID, "origin": "http://127.0.0.1:9044" }` to the ready
 file after readiness. It must preserve fixture sessions, work and receipts across
 a real restart using that data directory. It must not start another service,
 contact providers or use host accounts. Production mode cannot enable these
@@ -106,12 +108,31 @@ lists where relevant. Missing built shells, another required skip, overflow,
 unfinished or zero-test execution blocks. This does not change the strict Go
 helper's failed selected-scope verdict/exit2 or claim PostgreSQL/page-feature proof.
 
-Network-disabled checks precede independent source review. Only then may the
-browser command opt into the existing OS network permission, reproduce exactly
-the reviewed binary/frontend hashes and serve owned synthetic state. The fixed
-driver restricts browser requests to that origin and disables service workers.
-This is not an OS remote-egress denial. The reviewed App and deterministic
-fixture dependencies must contain no remote/provider path or private host input.
+Network-disabled checks precede independent source review. A new versioned
+checked-build artifact contains the exact Linux executable, canonical embedded
+frontend hashes/offsets and full reports: at most16MiB stored/wire and32MiB decoded
+TOTAL. It exports no source, credentials or host runtime state. Existing
+image/report codecs remain bounded to16MiB decoded. The operator never rebuilds
+source. It copies only the authenticated executable and manifest into a positively
+owned NEVER-STARTED staging container, commits the copy-only layer, and verifies
+the actual final files, modes, ownership, platform and runtime authority before
+any App/browser execution. A mutable tag is not runtime authority.
+
+App and trusted full-CFT producer have separate read-only filesystems and PID
+namespaces. An inert owned anchor provides their network-none namespace and
+retains bounded tmpfs data/proof mounts across process failure. App mounts only
+its own data; it cannot mount/read/write browser proofs, controls or profiles,
+signal browser processes or reach a DevTools TCP endpoint. Playwright uses its
+private CDP pipe. A fixed trusted handshake starts/stops only this same App
+container; its state persists across real restart. No host ports, host mounts,
+Docker access, private account state, arbitrary commands/URLs or remote egress
+are available to the App. The driver also restricts requests to the fixed
+loopback origin and disables service workers. Partial snapshots are exported
+after writer settlement and before resource deletion; incomplete proof blocks.
+
+Aggregate bounds remain1GiB memory,2CPU and256PIDs, reserving both persistent
+tmpfs maxima separately from cgroup memory. All managed/staging storage remains
+within1GiB with reserve; no ceiling or correction/attempt allowance is increased.
 
 All nine journeys and actual desktop1440×900/narrow390×844 viewport captures are
 declared by the fixed producer. Source regressions remain source proof, distinct

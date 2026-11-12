@@ -9,15 +9,41 @@ across real projects. Merge and production remain owner-approved actions.**
 ### Cortexium local Go/Vue/Genny route, 12 November 2026
 
 Status: prepared portable source, **unqualified for App admission and unactivated**.
-Genuine generated Go/Vue checks, native generator boundaries, model-free complete
-control/correction gates and owned outside-sandbox CFT failure/cancel proof pass.
-The unchanged outer macOS command sandbox cannot currently start installed CFT,
-including both supported Playwright child sandbox modes. This browser capability
-and the separate primary-host Worker/model proof route remain actual blockers;
-no gate is waived and no installed/frozen policy is changed. Continue through the
-owning Operations review, not an external App worker or guessed host permission.
+The failed outer-macOS browser path is replaced in this unadmitted source by a
+closed exact-byte Linux operator lane. Its actual full-CFT version smoke passes;
+its first complete Core fixture passed genuine source checks then failed BEFORE
+App/browser startup at strict copied-file metadata verification. All exact owned
+containers/volumes and clients settled, while nonforced removal of the derived
+image timed out and the positively owned image remains. The metadata cause is
+unestablished; bounded received-header diagnostics are prepared without weakening
+acceptance. Operations owns read-only engine triage. No new fixture/removal or
+host repair follows from this blocked preparation. Full nine-journey, adversarial
+isolation, resource and native lifecycle qualification remains missing. Prior
+macOS failures are preserved, not retried. No installed/frozen policy changes.
 
-The next bounded package prepares one complete local-candidate route for the
+The versioned checked-build type alone permits16MiB stored/wire and32MiB decoded
+TOTAL, with ordinary debug Linux/amd64/v1 CGO0 executable, full reports and canonical
+embedded frontend once. All old report/image codecs stay16MiB decoded. Independent
+source APPROVE binds that artifact; the operator never receives/builds source.
+A NEVER-STARTED copy container/commit/readback path retains exact ownership/hash/
+platform authority before execution. Separate App/browser read-only roots, PID/
+IPC namespaces and data/proof volumes use a network-none anchor and private CDP
+pipe. The only lifecycle handshake starts/stops this same App four times in fixed
+order. Source boundaries and simulated refusals are not actual adversarial proof.
+Aggregate1GiB memory/2CPU/256PIDs,1GiB managed/storage reserves,32KiB control,128KiB
+receipt and all original attempt/deadline/correction/image limits are unchanged.
+
+Cortexium's selected placement is a separate owned instance/state/native/source/
+workspaces/service and explicitly bound CLI/MCP endpoint, preserving Jack. One
+active root per instance and two siblings stay unchanged. A real two-Core model-free
+fixture proves disjoint ownership/cleanup only; Main still must verify installed
+bindings and shared-host admission after complete route qualification. Real
+Worker/model proof remains separate later admitted OVERALL first-flow acceptance;
+it does not veto local App source intake after ALL local gates and Main review.
+Neither has been admitted or installed. See the owning example and canonical
+coordinator evidence for exact proof identities, failures and retained resources.
+
+This bounded package prepares one complete local-candidate route for the
 protected first-flow brief at docs commit
 `346656cbbcfc8ac09f120e35d96981c7a33f2cf3`, SHA256
 `98b3cd9ea83976986d6f7903c61644d8db721d4d05c07a04b20411bcfb58d59d`.
@@ -25,8 +51,8 @@ Planning, isolated cards, source checks, corrections, independent source/image
 review and local integration stay in Runner. Operations owns installation,
 admission, refreshed App/Worker/Protocol refs and one restricted intake; no App
 implementation, migration, public deployment or live configuration change belongs
-to the maintenance coordinator. Preserve the website owner's preview on port4180 and
-QTP's live work and consumed recovery grants.
+to the maintenance coordinator. Preserve the website owner's separately finalized preview and
+QTP's records, current owner boundaries and consumed recovery grants.
 
 The opt-in `genny-source` profile exposes the positively pinned published Genny
 v0.4.0 generator (source `86fe57147760ad741303620610575ba107eead84`, built with

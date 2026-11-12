@@ -261,6 +261,9 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 					if profile.Mode == "experience-evidence" {
 						outputs = reflect.DeepEqual(role.Outputs, map[string]string{"receipt": "json", "artifact": "artifact"})
 					}
+					if profile.Mode == "cortexium-browser" {
+						outputs = p.ID == "cortexium-local" && reflect.DeepEqual(role.Outputs, map[string]string{"check": "text", "artifact": "artifact"})
+					}
 					if profile.Mode == "experience-feedback" {
 						outputs = reflect.DeepEqual(role.Outputs, map[string]string{"summary": "text"})
 					}
@@ -270,7 +273,11 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 					if c == nil || len(c.Command) == 0 || len(c.Command) > 16 || !filepath.IsAbs(c.Command[0]) || strings.TrimSpace(role.Purpose) == "" || p.Source == nil || s.Instance.Concurrency != 1 || !outputs {
 						return s, errors.New("release needs a trusted instance command, source, concurrency one, purpose and one JSON receipt output")
 					}
-					if profile.Mode == "experience-feedback" {
+					if profile.Mode == "cortexium-browser" {
+						if !reflect.DeepEqual(role.Inputs, map[string]string{"patch": "artifact", "authority": "artifact", "checks": "artifact", "verdict": "text"}) {
+							return s, errors.New("Cortexium browser requires checked candidate/authority and independent source approval")
+						}
+					} else if profile.Mode == "experience-feedback" {
 						if !reflect.DeepEqual(role.Inputs, map[string]string{"source_review": "text", "experience_review": "text"}) {
 							return s, errors.New("experience feedback requires the two declared read-only review summaries")
 						}
@@ -589,6 +596,7 @@ func ready(p runner.Profile) error {
 	}
 	if p.Harness == "release" {
 		if p.Access != "input-only" || !slices.Contains([]string{
+			"cortexium-browser",
 			"readiness",
 			"publish",
 			"adopt",

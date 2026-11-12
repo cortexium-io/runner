@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"time"
 )
 
 var Actions = []string{"prepare", "merge", "backup", "stop", "migrate", "pin", "deploy", "verify"}
@@ -21,29 +22,32 @@ var DeliveryActions = []string{"publish", "qualify", "prepare", "merge", "backup
 var safeID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,100}$`)
 
 type Request struct {
-	Project            string          `json:"project"`
-	RunID              string          `json:"run_id"`
-	Key                string          `json:"key"`
-	Action             string          `json:"action"`
-	Source             string          `json:"source"`
-	Previous           json.RawMessage `json:"previous,omitempty"`
-	Candidate          string          `json:"candidate,omitempty"`
-	Recovery           json.RawMessage `json:"recovery,omitempty"`
-	Retry              json.RawMessage `json:"retry,omitempty"`
-	SourceContinuation bool            `json:"source_continuation,omitempty"`
+	Cortexium          *CortexiumRequest `json:"cortexium,omitempty"`
+	Project            string            `json:"project"`
+	RunID              string            `json:"run_id"`
+	Key                string            `json:"key"`
+	Action             string            `json:"action"`
+	Source             string            `json:"source"`
+	Previous           json.RawMessage   `json:"previous,omitempty"`
+	Candidate          string            `json:"candidate,omitempty"`
+	Recovery           json.RawMessage   `json:"recovery,omitempty"`
+	Retry              json.RawMessage   `json:"retry,omitempty"`
+	SourceContinuation bool              `json:"source_continuation,omitempty"`
 }
 type Response struct {
-	Key            string          `json:"key"`
-	State          string          `json:"state"`
-	Reason         string          `json:"reason,omitempty"`
-	Failed         bool            `json:"failed,omitempty"`
-	Receipt        json.RawMessage `json:"receipt,omitempty"`
-	Outcome        string          `json:"outcome,omitempty"`
-	Retryable      bool            `json:"retryable,omitempty"`
-	Evidence       []byte          `json:"evidence,omitempty"`
-	EvidenceSHA256 string          `json:"evidence_sha256,omitempty"`
+	PayloadRetained bool            `json:"payload_retained,omitempty"`
+	Key             string          `json:"key"`
+	State           string          `json:"state"`
+	Reason          string          `json:"reason,omitempty"`
+	Failed          bool            `json:"failed,omitempty"`
+	Receipt         json.RawMessage `json:"receipt,omitempty"`
+	Outcome         string          `json:"outcome,omitempty"`
+	Retryable       bool            `json:"retryable,omitempty"`
+	Evidence        []byte          `json:"evidence,omitempty"`
+	EvidenceSHA256  string          `json:"evidence_sha256,omitempty"`
 }
 type Receipt struct {
+	BuildSHA256       string `json:"build_sha256,omitempty"`
 	Key               string `json:"key"`
 	RunID             string `json:"run_id"`
 	Action            string `json:"action"`
@@ -80,20 +84,21 @@ type Receipt struct {
 	PublicationKey        string                 `json:"publication_key,omitempty"`
 }
 type Job struct {
-	Request    Request `json:"request"`
-	Receipt    Receipt `json:"receipt"`
-	Phase      string  `json:"phase,omitempty"`
-	RemoteID   string  `json:"remote_id,omitempty"`
-	Done       bool    `json:"done,omitempty"`
-	Failed     bool    `json:"failed,omitempty"`
-	Reason     string  `json:"reason,omitempty"`
-	StoppedSHA string  `json:"stopped_sha256,omitempty"`
-	Recovery   string  `json:"recovery,omitempty"`
-	Failure    string  `json:"failure,omitempty"`
-	Worker     string  `json:"worker,omitempty"`
-	Outcome    string  `json:"outcome,omitempty"`
-	Resume     string  `json:"resume,omitempty"`
-	Retryable  bool    `json:"retryable,omitempty"`
+	CortexiumDeadline int64   `json:"cortexium_deadline,omitempty"`
+	Request           Request `json:"request"`
+	Receipt           Receipt `json:"receipt"`
+	Phase             string  `json:"phase,omitempty"`
+	RemoteID          string  `json:"remote_id,omitempty"`
+	Done              bool    `json:"done,omitempty"`
+	Failed            bool    `json:"failed,omitempty"`
+	Reason            string  `json:"reason,omitempty"`
+	StoppedSHA        string  `json:"stopped_sha256,omitempty"`
+	Recovery          string  `json:"recovery,omitempty"`
+	Failure           string  `json:"failure,omitempty"`
+	Worker            string  `json:"worker,omitempty"`
+	Outcome           string  `json:"outcome,omitempty"`
+	Resume            string  `json:"resume,omitempty"`
+	Retryable         bool    `json:"retryable,omitempty"`
 
 	QualificationHandoff       bool `json:"qualification_handoff,omitempty"`
 	RetainedPublicationHandoff bool `json:"retained_publication_handoff,omitempty"`
@@ -105,6 +110,7 @@ type Backend interface {
 	Advance(context.Context, *Job, func() error) error
 }
 type Operator struct {
+	Cortexium             bool
 	Directory             string
 	PolicyHash            string
 	Project               string
@@ -149,6 +155,15 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 	if o.Delivery {
 		validSource = regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(q.Source)
 	}
+	if o.Cortexium {
+		index = -1
+		if o.validCortexiumRequest(q) && q.Cortexium.Transport == "" {
+			index = 0
+		}
+		validSource = regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(q.Source)
+	} else if q.Cortexium != nil {
+		return out, errors.New("Cortexium build handoff requires its closed operator policy")
+	}
 	if !safeID.MatchString(q.Key) || !safeID.MatchString(q.RunID) || q.Project != o.Project || !validSource || index < 0 {
 		return out, errors.New("release request is outside the configured project/source/action")
 	}
@@ -182,6 +197,9 @@ func (o *Operator) Call(ctx context.Context, q Request) (Response, error) {
 	data, err := readFile(file, 32<<10)
 	if errors.Is(err, os.ErrNotExist) {
 		job.Request = q
+		if o.Cortexium {
+			job.CortexiumDeadline = min(time.Now().Add(18*time.Minute).UnixNano(), q.Cortexium.Deadline)
+		}
 		if index > 0 || o.Delivery && q.Action == "publish" && len(q.Previous) > 0 && string(q.Previous) != "{}" {
 			if err = json.Unmarshal(q.Previous, &job.Receipt); err != nil {
 				return out, err

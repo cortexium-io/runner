@@ -299,6 +299,16 @@ merged, deployed or fully qualified beyond the actual proof. Coordinator token
 usage remains additional to the Runner result and must be included in any
 end-to-end benchmark.
 
+Independent workspace/project roots require separate owned instances while each
+instance retains concurrency1; task_concurrency2 is sibling-card parallelism.
+The selected Cortexium local placement therefore has separate state, workspaces,
+service and intake from Jack's Break. Bind the CLI/client wrapper explicitly to
+that instance's startup-reported MCP endpoint and verify the same owner through
+restricted intake. `--data STATE` alone does not discover an endpoint; the existing
+reporting adapter supplies `--data` without `--endpoint`, so its configured client
+wrapper must provide that binding. Separate backend progress does not prove a
+deployed endpoint is correctly bound.
+
 Jack's Break dispatch is owned by the process-core instance at
 `/Users/dan/.codex/jbg31` on Black Magic. Black Magic owns the Core, state and
 local MCP service; Mega Mini owns the remote release operator. From another host,

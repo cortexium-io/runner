@@ -1,122 +1,113 @@
 # Cortexium reviewed local candidate
 
-**Prepared and unactivated; UNQUALIFIED FOR APP ADMISSION.** The installed CFT
-works with owned fixtures outside the command sandbox, but both supported
-Playwright launch modes fail inside the unchanged outer macOS command boundary.
-Do not install/admit this process or submit actual App work until a supported
-isolated browser boundary is qualified. The mandatory browser/image gates are
-not waived. Passing generator/check/control fixtures do not close that gap.
+**Prepared, unactivated and UNQUALIFIED FOR APP ADMISSION.** The Linux operator
+replacement has model-free control proofs and a real full-CFT version smoke.
+Its first actual Core fixture passed genuine source checks but stopped before
+App/browser startup at copied-file metadata verification. Containers, volumes
+and clients settled; nonforced removal of its exact derived image timed out and
+that image remains retained. Metadata compatibility, full nine journeys,
+adversarial isolation, aggregate resources and native lifecycle cleanup remain
+unqualified. Operations owns read-only engine triage. Do not install, admit App
+work, retry host cleanup or waive the browser/image gates from this preparation.
+Prior macOS CFT sandbox failures remain historical evidence; that path is removed.
 
-This complete local-candidate route implements the protected first-flow brief at
-docs `346656cbbcfc8ac09f120e35d96981c7a33f2cf3`, SHA256
+This opt-in route implements the protected first-flow brief at docs
+`346656cbbcfc8ac09f120e35d96981c7a33f2cf3`, SHA256
 `98b3cd9ea83976986d6f7903c61644d8db721d4d05c07a04b20411bcfb58d59d`.
-Installation, admission and actual product submission belong to Operations.
-This example changes no installed/frozen process. Preserve the website owner's
-Black Magic port4180 preview and unrelated App/Worker work.
+The graph is authority → plan → isolated cards/pins → join → network-disabled
+checks → independent source review → exact checked-build browser observation →
+independent image review → owned local Git candidate. Corrections repeat checks
+and both reviews. Eight cards/two siblings,64 aggregate attempts,20m owner
+limits, three corrections and existing resource limits remain unchanged. Source
+pins and simulated proof are not product acceptance. No publication, merge,
+production, data migration or restoration follows.
 
-The graph is authority → plan → isolated cards → join → network-disabled checks
-→ independent source review → reviewed-build Chrome → independent image review
-→ owned local Git candidate. Corrections repeat checks and both reviews;
-completed cards are not replayed. Eight cards/two workers,64 shared attempts,
-20-minute owner deadline, three configured corrections and resource limits stay
-fixed. No publication, merge, production, migration or restoration is included.
+## Future admission after complete qualification
 
-## Admission
+Operations materializes a separate Cortexium instance/config/state/workspaces/
+service and restricted intake on Black Magic, preserving Jack's instance and
+history. Concurrency1 limits active root families; task_concurrency2 permits
+siblings only. Use the actual startup-reported MCP endpoint and bind both CLI
+and reporting wrappers explicitly; changing --data alone does not select an
+endpoint. No instance or client wrapper is provisioned by this example.
 
-Materialize paths/digests and pin the actual refreshed App base before admission.
-Refresh App/Worker/Protocol references and stage needed immutable contract source
-through declared evidence; models gain no access to another repository or private
-store. Prepare `admitted-authority.json` using the exact
-[Authority schema](../../internal/saas/authority.go). It contains the actual base,
-selected `platform` module/project name, full protected brief and installed
-[fixed contract](../../internal/saas/contract.md), exact Go/npm manifests/locks and
-SHA256 identities for all selected runtimes/producer. The brief fixture is an
-immutable source copy at [testdata](../../testdata/saas/first-flow-brief.md).
+Refresh and pin actual App/Worker/Protocol references. Stage the protected brief,
+contract and necessary immutable references through declared inputs. Prepare
+`admitted-authority.json` using the [schema](../../internal/saas/authority.go):
+actual immutable App base, fresh `platform` module/project, full brief/contract,
+reference Go/npm manifest bytes, host check runtime hashes, closed normalized
+operator-policy SHA and immutable [container runtime](../../internal/saas/build.go).
+Old Mac authority/runtime forms are rejected. No App run has admitted either form.
 
-Generate reference manifests/locks in a separate empty synthetic Genny recipe,
-using published v0.4.0/source `86fe57147760ad741303620610575ba107eead84` and normal
-dependency preparation. Freeze only necessary declared reuse dependencies from
-the admitted immutable source. No local replaces, forced generation, invented
-adoption metadata, account/provider changes or actual App generation/checks
-outside Runner. Prepare authenticated cached Genny modules and locked Vue
-dependencies before admission; check execution installs/fetches nothing.
+Generate reference manifests in an empty synthetic Genny recipe using published
+v0.4.0/source `86fe57147760ad741303620610575ba107eead84`, with normal dependency
+preparation and no force/adoption fabrication. Keep actual App source/history,
+data and other owners' resources. The website owner separately finalized
+https://cortexium-preview.techba.se/ and retired local4180; this route operates
+neither. Prepare public modules and locked Vue dependencies before admission;
+checks never fetch/install. No local replacements, providers or host accounts.
 
-The named source profile binds both Genny and Go1.27.3 digests. It permits
-generation/editing with the real compiler/public module cache. Network, private
-state, other source, Git, Node and the fixed check helper remain unavailable.
-Source instructions assign editing, not checks; source claims cannot satisfy the
-independent gates. Compiler access is not an OS guarantee denying every possible
-Go test command. Ordinary profiles retain Runner's Go1.26.9 and remain independent
-of optional Genny runtime failure. Keep actual selected Go/npm manifests guarded,
-including when they live in this declared submodule.
+The source profile binds Genny and Go1.27.3. It exposes the real compiler/public
+cache needed for normal generation; Node, check helper, private state, Git and
+network stay unavailable. Source roles edit only. Compiler access is not an OS
+categorical denial of every Go test command; independent later gates own proof.
+Ordinary profiles retain Runner's Go1.26.9 and remain independent of this route.
+`runtime.json` now selects only public Go/Genny/Node/Vue/Go-check paths. Never
+grant a home/coordinator/state directory, credentials or personal browser profile.
 
-`runtime.json` selects public runtime paths only. Command read paths must name
-only required executables/installation directories, public module cache, locked
-Vue/Playwright/CFT runtime and authority/runtime files. Never grant the coordinator
-or state directory, whole home, provider state or a personal browser profile.
-Use positively verified owned Node26.13.1, minimal child environments and
-`OPENSSL_CONF=/dev/null`; change no host configuration. Chrome uses a temporary
-owned profile and mock credential store. Keep binaries/caches/state out of Git.
+## Exact-byte operator and evidence
 
-## Evidence and review
+The fixed network-disabled helper performs generated ownership, type/build/SSR/
+prerender, Go tests/vet/normal startup and Vue tests. It retains full bounded
+reports, including the original strict Go scope failure/exit2 for skips. Only
+four exact generated SQLite/absent-feature cases have separately authenticated
+not-applicable treatment; no other skip, zero-test/incomplete/overflow proof passes.
+Both normal startup and its thin same-App fixture adapter cross-build with
+Go1.27.3, CGO0, Linux/amd64/v1 and ordinary debug information. Canonical frontend
+bytes are embedded once. No duplicate frontend directory or new product solver.
 
-The fixed helper verifies actual selected manifests and non-force generated
-ownership. It follows the pinned frontend build recipe, including public-error/
-SSR documents in `internal/app/http/frontend_dist`, before Go checks. Full bounded
-Go/Vue reports and compiler diagnostics remain available to correction. The
-original strict Go scope verdict is retained intact. This fixed SQLite consumer
-separately records only four exact generated absent-feature/PostgreSQL cases as
-not applicable after verifying complete settled facts, exact reasons, owned
-metadata and empty route ASTs. Another required skip, missing shell, overflow,
-unfinished/zero-test execution or failed Go child blocks.
+A NEW versioned checked-build type permits16MiB STORED/WIRE and32MiB DECODED TOTAL
+including executable, manifest and full reports. All old report/image codecs
+retain16MiB decoded; ordinary control remains32KiB and the existing base64 evidence
+response envelope24MiB. Source APPROVE binds this exact artifact. The closed
+operator consumes authenticated bytes and never receives/builds source. A
+NEVER-STARTED staging container accepts only executable/manifest copies; committed
+image/files/platform/ownership are rechecked before execution. No candidate RUN,
+registry publication, generic command or URL/path/mount selection exists.
 
-After source APPROVE, the browser command reproduces exactly the reviewed local
-server/frontend hashes and exercises normal UI over synthetic state/deterministic
-Worker dependencies. The App's `cmd/runner-local` must be a thin adapter over its
-normal Genny/auth/model/routes/business construction, not a parallel test App,
-auth bypass or source-selected browser script. Normal production startup is also
-built. The fixed [contract](../../internal/saas/contract.md) declares all startup,
-user/tenant, selector, fault, persistence and cleanup observations.
+The declared runtime has public Node26.13.1, Playwright1.65.0 and full CFT
+158.0.8127.18. App and trusted producer have separate read-only roots, PID/IPC
+namespaces and data/proof mounts, with a fixed private four-operation App restart
+handshake. Network-none anchor, nonroot/cap-drop/no-new-privileges and private
+CDP pipe replace the failed host browser lane. App gets no proof/control/profile,
+Docker, host port or remote egress. Actual adversarial denial proof is STILL
+MISSING; source configuration alone cannot establish it.
 
-The existing command network opt-in permits OS networking. The fixed producer
-restricts browser requests to its owned loopback origin and blocks service
-workers; it does not claim OS remote-egress denial. Only reviewed code, owned
-local deterministic Worker fixtures, minimal environment and existing private
-filesystem boundaries are allowed. No providers, real users or vendor calls.
-
-Bundles bind base/current patch/authority, runtime/build identities, all nine
-journeys and actual desktop/narrow images. Source assertions remain source proof.
-Full bounded reports, server/browser diagnostics and available partial images
-accompany failure with explicit truncation/incomplete flags; they cannot pass.
+Aggregate declaration remains1GiB memory,2CPU,256PIDs and1GiB managed storage with
+completion reserve. The selected engine's cgroup-v1/zero-active-swap constraints
+are fail-closed and require actual peak/cleanup proof; declarations and a version
+smoke do not establish fit. Fixed output names export reports/observations/actual
+viewport PNGs only, never SQLite/cookies/profiles/operator state. Partial evidence
+is retained after writer stop and before deletion and cannot pass acceptance.
 Receipt128KiB, artifact16MiB, image8MiB,160images/64profiles remain unchanged.
-Read-only image review follows product-experience-review and actually inspects
-`saas-saas.json`, `saas-reports-*.json` and attached viewport PNGs. Screenshot capture
-alone is insufficient. Brief/contract/reference bytes are staged explicitly for
-planner, owners and reviewers. Final integration creates only a local candidate.
 
-## Fresh restricted intake and remaining proof
+Read-only review uses product-experience-review and actually inspects
+`saas-saas.json`, `saas-reports-*.json` and attached `saas-chrome-*-viewport.png`
+images. Capture alone is not review. All nine normal-UI cases in the
+[contract](../../internal/saas/contract.md) remain mandatory. Only after complete
+qualification and Main review may fresh intake expose runner_run/result/status,
+submit project=cortexium-local/process=develop-local once and retain its one run.
+No outside product implementation/checks, injected artifacts or replacement run.
 
-After qualified installation/admission/staging, restricted intake exposes only
-`runner_run`, `runner_result`, `runner_status`. Submit `project=cortexium-local`,
-`process=develop-local`, one stable new request ID and the authorized request in
-`inputs.request`, using the connector's structured schema. Authority comes from
-the configured validated stage; do not inject private-store artifacts. Retain the
-one returned run ID. No outside repair, replacement run or owner-control tools
-follow from a failure.
+Real primary-host Worker/model execution remains separate later admitted overall
+first-flow acceptance, not a substitute for local gates or a veto after every
+local gate passes. Current fixtures script source/review actors and deterministic
+Worker effects; they prove no actual App auth, tenant or real model acceptance.
+No enrollment, Keychain/provider/auth changes are authorized here. Jack's Safari,
+physical gesture, actual CMP and shared-host incident gaps remain separate.
 
-This finish proves a deterministic local candidate. Separate bounded real local
-Worker/model proof remains required/unverified until performed in its supported
-admitted Runner process after existing host prerequisites. Fixtures do not replace
-real enrollment, dispatch, receipt or model execution. No provider/Keychain/auth
-change is authorized. Native-device/Safari is not a Cortexium gate; historical
-Jack Safari/physical-gesture/vendor gaps stay with Jack's work.
-Current process-core also has no primary-host Worker probe operator route;
-historical Worker/App loop results are relevant evidence, not exact-current/new
-tenant-App qualification. Supported execution capability or formally justified
-retained-result reuse is a separate remaining acceptance prerequisite. No nested
-probe or external product workaround is authorized by this prepared route.
-
-New modes require matching qualified Core/config/helpers. Keep that Core through
-new-mode execution/settlement; an older runtime cannot validate these modes.
-Existing processes remain frozen. No SQL/record-format migration or operational
-database restoration is introduced.
+Matching Core/config/helpers are required; old-reader support for the new modes
+is not established. No SQL/schema/record-format migration occurs. Preserve owning
+checkpoints and compatible Core through any future new-mode history; never
+rewind operational DB, attempts or usage. This package authorizes no activation
+or rollback.

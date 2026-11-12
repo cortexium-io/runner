@@ -27,8 +27,6 @@
       "/absolute/path/to/genny",
       "/absolute/path/to/node-installation",
       "/absolute/path/to/vue-runtime",
-      "/absolute/path/to/browser-runtime",
-      "/absolute/path/to/chrome-bundle",
       "/absolute/path/to/runner-go-check",
       "/absolute/path/to/runner-saas-check",
       "/absolute/path/to/saas-runtime.json",
@@ -51,5 +49,10 @@
       "keep_for": "168h"
     }
   },
-  "task_concurrency": 2
+  "task_concurrency": 2,
+  "release": {
+    "command": [
+      "/absolute/path/to/trusted-cortexium-operator"
+    ]
+  }
 }

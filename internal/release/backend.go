@@ -25,6 +25,7 @@ import (
 // never authentication values. Every newly issued receipt binds this policy;
 // an exact publication transition may bridge one authenticated old publication.
 type Config struct {
+	Cortexium              *CortexiumConfig       `json:"cortexium,omitempty"`
 	Project                string                 `json:"project"`
 	Repository             string                 `json:"repository"`
 	PR                     int                    `json:"pr"`
@@ -70,6 +71,12 @@ func Load(file string) (*Operator, error) {
 	d.DisallowUnknownFields()
 	if err = d.Decode(&c); err != nil {
 		return nil, err
+	}
+	if c.Cortexium != nil {
+		if d.Decode(new(any)) != io.EOF {
+			return nil, errors.New("trailing Cortexium policy data")
+		}
+		return loadCortexium(c)
 	}
 	legacyIdentity := c.PR >= 1 && regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(c.Head) && regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(c.Base)
 	if !safeID.MatchString(c.Project) || !regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`).MatchString(c.Repository) || c.Branch != "main" || (c.Delivery == nil && !legacyIdentity) || len(c.Compose) == 0 || !filepath.IsAbs(c.Compose[0]) || !strings.HasPrefix(c.PublicURL, "https://") {
@@ -161,7 +168,11 @@ func (b *Live) commandWithEnvironment(ctx context.Context, input []byte, environ
 		}
 		cmd.Env = append(cmd.Env, "PATH="+filepath.Dir(binary)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	}
-	out := &limitedOutput{limit: 256 << 20}
+	outputLimit := 256 << 20
+	if ctx.Value(cortexiumOutputKey{}) != nil {
+		outputLimit = 16 << 20
+	}
+	out := &limitedOutput{limit: outputLimit}
 	cmd.Stdout = out
 	diagnostic := &diagnosticOutput{limit: 64 << 10}
 	cmd.Stderr = diagnostic
@@ -412,6 +423,13 @@ func done(j *Job, note string) error {
 func intent(j *Job, phase string, save func() error) error { j.Phase = phase; return save() }
 
 func (b *Live) Advance(ctx context.Context, j *Job, save func() error) (err error) {
+	if b.Config.Cortexium != nil {
+		j.Receipt.Source, j.Receipt.BuildSHA256 = j.Request.Source, j.Request.Cortexium.SHA256
+		if _, err := os.Stat(filepath.Join(b.Config.workRoot(), j.Request.RunID, j.Request.Key, "stop")); err == nil && j.Worker == "" {
+			return done(j, "Cortexium cancelled before runtime dispatch")
+		}
+		return b.delivery(ctx, j, save)
+	}
 	defer func() {
 		if b.Config.RecoverBeforeMigration && j.Request.Action == "migrate" && j.Phase == "" && j.Receipt.DataSHA != "" && (j.Failed || knownFailure(err)) {
 			j.Failure = "migration preparation failed before mutation: " + j.Reason

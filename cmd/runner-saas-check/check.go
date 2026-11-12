@@ -130,6 +130,9 @@ func run(ctx context.Context, o options) error {
 		return err
 	}
 	if o.reference {
+		if !a.Runtime.Valid() {
+			return errors.New("frozen Linux container runtime is required")
+		}
 		return os.WriteFile(filepath.Join(o.scratch, "authority.json"), authority, 0600)
 	}
 	if o.runtimeFile != "" {
@@ -141,33 +144,31 @@ func run(ctx context.Context, o options) error {
 			return err
 		}
 		var r struct {
-			Go             string `json:"go"`
-			Genny          string `json:"genny"`
-			Node           string `json:"node"`
-			Modules        string `json:"modules"`
-			BrowserRuntime string `json:"browser_runtime"`
-			Chrome         string `json:"chrome"`
-			GoCheck        string `json:"go_check"`
+			Go      string `json:"go"`
+			Genny   string `json:"genny"`
+			Node    string `json:"node"`
+			Modules string `json:"modules"`
+			GoCheck string `json:"go_check"`
 		}
 		d := json.NewDecoder(bytes.NewReader(b))
 		d.DisallowUnknownFields()
 		if err = d.Decode(&r); err != nil {
 			return err
 		}
-		o.goBinary, o.genny, o.node, o.modules, o.browserRuntime, o.chrome, o.goCheck = r.Go, r.Genny, r.Node, r.Modules, r.BrowserRuntime, r.Chrome, r.GoCheck
+		o.goBinary, o.genny, o.node, o.modules, o.goCheck = r.Go, r.Genny, r.Node, r.Modules, r.GoCheck
 	}
-	if !absolute(o.patch, o.goBinary, o.genny, o.node, o.modules, o.browserRuntime, o.chrome, o.goCheck) {
+	if !absolute(o.patch, o.goBinary, o.genny, o.node, o.modules, o.goCheck) || !a.Runtime.Valid() {
 		return errors.New("all qualification runtime paths must be explicitly configured")
 	}
 	if !filepath.IsLocal(o.patchID) || strings.ContainsAny(o.patchID, "\\\x00\r\n") || filepath.ToSlash(filepath.Clean(o.patchID)) != o.patchID {
 		return errors.New("literal Runner patch artifact identity required")
 	}
-	for p, h := range map[string]string{o.goBinary: a.GoSHA256, o.goCheck: a.GoCheckSHA256, o.genny: a.GennySHA256, o.node: a.NodeSHA256, o.chrome: a.ChromeSHA256} {
+	for p, h := range map[string]string{o.goBinary: a.GoSHA256, o.goCheck: a.GoCheckSHA256, o.genny: a.GennySHA256, o.node: a.NodeSHA256} {
 		if err = runtimePin(p, h); err != nil {
 			return err
 		}
 	}
-	if saas.Digest(saas.BrowserDriver) != a.DriverSHA256 {
+	if saas.DriverDigest() != a.Runtime.DriverSHA256 {
 		return errors.New("installed fixed browser driver differs from admission")
 	}
 	patch, err := boundedFile(o.patch, saas.MaxBundle)

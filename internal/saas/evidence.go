@@ -65,6 +65,7 @@ type NotApplicable struct {
 var RequiredReports = []string{"reports/generated.json", "reports/frontend-build.json", "reports/go.json", "reports/vue.json", "reports/go-vet.json", "reports/normal-build.json", "reports/local-build.json"}
 
 type Evidence struct {
+	Build              *CheckedBuild   `json:"build,omitempty"`
 	Version            int             `json:"version"`
 	Kind               string          `json:"kind"`
 	Status             string          `json:"status"`

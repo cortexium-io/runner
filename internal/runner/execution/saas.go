@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"encoding/json"
 	"errors"
 
 	"github.com/cortexium-io/runner/internal/runner"
@@ -39,9 +40,13 @@ func saasData(disk *runner.Disk, a runner.Assignment) (saas.Evidence, map[string
 		return empty, nil, err
 	}
 	if a.Setup.Profile.Mode == "saas-source-review" {
-		e, files, err := saas.DecodeCheckBundle(evidence, w.Base, saas.Digest(patch), saas.Digest(authority))
+		e, files, err := saas.DecodeCheckedBuild(evidence, w.Base, saas.Digest(patch), saas.Digest(authority))
 		if err == nil {
 			err = saasRuntimeBinding(e, bound)
+		}
+		if err == nil {
+			delete(files, "app/server")
+			files["saas.json"], err = json.Marshal(e)
 		}
 		return e, files, err
 	}
@@ -53,7 +58,7 @@ func saasData(disk *runner.Disk, a runner.Assignment) (saas.Evidence, map[string
 }
 
 func saasRuntimeBinding(e saas.Evidence, a saas.Authority) error {
-	if e.ChromeSHA256 != a.ChromeSHA256 || e.DriverSHA256 != a.DriverSHA256 || e.ModuleSHA256 != saas.Digest([]byte(a.GoMod)) || e.LockSHA256 != saas.Digest([]byte(a.Lock)) {
+	if e.Build == nil || e.Build.Runtime != a.Runtime || e.Build.GoSHA256 != a.GoSHA256 || e.Build.GennySHA256 != a.GennySHA256 || e.Build.NodeSHA256 != a.NodeSHA256 || e.Build.GoCheckSHA256 != a.GoCheckSHA256 || e.ChromeSHA256 != a.Runtime.ChromeSHA256 || e.DriverSHA256 != a.Runtime.DriverSHA256 || e.ModuleSHA256 != saas.Digest([]byte(a.GoMod)) || e.LockSHA256 != saas.Digest([]byte(a.Lock)) {
 		return errors.New("local SaaS evidence runtime/manifests differ from frozen authority")
 	}
 	return nil

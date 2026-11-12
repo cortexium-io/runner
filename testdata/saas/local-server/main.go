@@ -1,9 +1,12 @@
 // Disposable producer-calibration app, never Cortexium product code. The future
 // App must implement its thin fixture adapter over normal Genny construction;
 // this deliberately small HTTP state machine tests the fixed observer itself.
+// The generated DB/migrations/router and embedded frontend are constructed
+// normally; fixture actors and flow effects remain explicitly simulated.
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,6 +17,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	appdb "example.invalid/runner-saas-fixture/internal/app/db"
+	apphttp "example.invalid/runner-saas-fixture/internal/app/http"
 )
 
 type run struct {
@@ -30,21 +36,29 @@ type state struct {
 }
 type app struct {
 	sync.Mutex
-	s              state
-	file, frontend string
+	s      state
+	file   string
+	normal http.Handler
 }
 
 func main() {
 	listen := flag.String("listen", "127.0.0.1:0", "")
 	data := flag.String("data-dir", "", "")
-	frontend := flag.String("frontend-dir", "", "")
 	ready := flag.String("ready-file", "", "")
 	fixture := flag.Bool("fixture", false, "")
 	flag.Parse()
-	if !*fixture || !strings.HasPrefix(*listen, "127.0.0.1:") || !filepath.IsAbs(*data) || !filepath.IsAbs(*frontend) || !filepath.IsAbs(*ready) {
+	if !*fixture || !strings.HasPrefix(*listen, "127.0.0.1:") || !filepath.IsAbs(*data) || !filepath.IsAbs(*ready) {
 		panic("owned fixture arguments required")
 	}
-	a := &app{file: filepath.Join(*data, "synthetic.json"), frontend: *frontend, s: state{Runs: map[string]*run{}, Workspaces: map[string]string{}, Member: true, Grant: true, Function: "report-v1", Worker: "fixture-review"}}
+	database, err := appdb.OpenFromEnv()
+	if err != nil {
+		panic(err)
+	}
+	defer database.Close()
+	if err = database.ApplyMigrations(context.Background(), "migrations"); err != nil {
+		panic(err)
+	}
+	a := &app{file: filepath.Join(*data, "synthetic.json"), normal: apphttp.NewRouter(database), s: state{Runs: map[string]*run{}, Workspaces: map[string]string{}, Member: true, Grant: true, Function: "report-v1", Worker: "fixture-review"}}
 	if b, e := os.ReadFile(a.file); e == nil {
 		if json.Unmarshal(b, &a.s) != nil {
 			panic("invalid retained fixture")
@@ -65,11 +79,7 @@ func main() {
 
 func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/state" && r.URL.Path != "/action" {
-		if strings.HasPrefix(r.URL.Path, "/assets/") {
-			http.FileServer(http.Dir(a.frontend)).ServeHTTP(w, r)
-			return
-		}
-		http.ServeFile(w, r, filepath.Join(a.frontend, "index.html"))
+		a.normal.ServeHTTP(w, r)
 		return
 	}
 	a.Lock()

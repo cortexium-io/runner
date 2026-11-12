@@ -72,7 +72,7 @@ restoration remain separate saved owner decisions.
 - Fixed task templates expanded from bounded dependency-aware collections.
   Planned groups support up to eight cards and two isolated card actors, sharing
   one 64-attempt family allowance. Older serial definitions retain their limits.
-- One instance owner, concurrent independent runs, bounded records/history/logs,
+- One instance owner, bounded concurrent work, bounded records/history/logs,
   controlled storage admission, retained-output references and repeatable cleanup.
 - Regular source files with literal source/capture ownership, including the
   supported immutable root text-attribute subset described in the
@@ -82,6 +82,12 @@ restoration remain separate saved owner decisions.
   The Jack's Break pilot has a qualified macOS user-service installation and an
   explicitly configured remote release operator. This does not qualify remote
   multi-user control or general installation on every host.
+
+Workspace, task-source, command-check and release delivery currently require one
+active root family per instance. `task_concurrency: 2` permits sibling cards
+inside that family. Independent project roots use separate owned instances,
+state, workspaces, services and intake bindings; verify each CLI/MCP endpoint
+as described in the [coordinator guide](docs/coordinator.md).
 
 The Codex adapter has qualified the small text-summary fixture on CLI 0.164.0,
 using Sol / Extra High: success, lost launch acknowledgement/reconnection and

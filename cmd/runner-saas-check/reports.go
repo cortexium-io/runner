@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -72,34 +71,6 @@ func (p *proofFiles) jsonReport(name, file string) error {
 		return errors.New("declared JSON report is oversized or incomplete; bounded prefix retained")
 	}
 	p.put(name, b, true, false)
-	return nil
-}
-
-func (p *proofFiles) viewports(dir string) error {
-	b, err := boundedFile(filepath.Join(dir, "observations.json"), saas.MaxReceipt)
-	if err != nil {
-		return err
-	}
-	var observed struct {
-		Cases  []saas.Case  `json:"cases"`
-		Images []saas.Image `json:"images"`
-	}
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.DisallowUnknownFields()
-	if d.Decode(&observed) != nil || len(observed.Cases) > 9 || len(observed.Images) > 160 {
-		return errors.New("fixed browser observations invalid")
-	}
-	for _, im := range observed.Images {
-		if filepath.Base(im.Name) != im.Name {
-			return errors.New("foreign viewport path")
-		}
-		b, err := boundedFile(filepath.Join(dir, im.Name), saas.MaxImage)
-		if err != nil {
-			return err
-		}
-		p.files[im.Name] = b
-	}
-	p.e.Cases, p.e.Images = observed.Cases, observed.Images
 	return nil
 }
 

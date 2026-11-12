@@ -1,6 +1,6 @@
 {
   "id": "local-browser",
-  "purpose": "Reproduce the independently reviewed local build and observe the fixed first-flow journeys on owned synthetic state.",
+  "purpose": "Observe the independently checked exact Linux executable and embedded frontend through the fixed local-only trusted container operator.",
   "inputs": {
     "patch": "artifact",
     "authority": "artifact",
@@ -12,34 +12,8 @@
     "artifact": "artifact"
   },
   "execution": {
-    "harness": "command",
-    "access": "workspace-read",
-    "command": {
-      "args": [
-        "/absolute/path/to/runner-saas-check",
-        "--source",
-        "{workspace}",
-        "--scratch",
-        "{scratch}",
-        "--authority",
-        "{input.authority}",
-        "--base",
-        "{source.base}",
-        "--patch",
-        "{input.patch}",
-        "--runtime",
-        "/absolute/path/to/saas-runtime.json",
-        "--browser",
-        "--checks",
-        "{input.checks}",
-        "--source-verdict",
-        "{text.verdict}",
-        "--patch-id",
-        "{artifact_id.patch}"
-      ],
-      "network": true,
-      "artifact": "evidence.tar.gz",
-      "result": "domain.json"
-    }
+    "harness": "release",
+    "mode": "cortexium-browser",
+    "access": "input-only"
   }
 }

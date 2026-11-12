@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"image"
-	"image/png"
 	"io"
 	"os"
 	"path/filepath"
@@ -55,37 +53,6 @@ func TestFailureReportsPreserveCompleteDataAndExplicitOverflow(t *testing.T) {
 	}
 	if _, err := boundedFile(file, 1<<20); err == nil {
 		t.Fatal("unbounded regular input read")
-	}
-}
-
-func TestPartialBrowserFailureRetainsActualViewportWithoutAcceptance(t *testing.T) {
-	e := saas.Evidence{Status: "incomplete", Reason: "fixed browser stopped after first capture"}
-	p := proofFiles{e: &e, files: map[string][]byte{}}
-	dir := t.TempDir()
-	var b bytes.Buffer
-	if err := png.Encode(&b, image.NewRGBA(image.Rect(0, 0, 390, 844))); err != nil {
-		t.Fatal(err)
-	}
-	name := "chrome-narrow-setup-viewport.png"
-	if err := os.WriteFile(filepath.Join(dir, name), b.Bytes(), 0600); err != nil {
-		t.Fatal(err)
-	}
-	obs, _ := json.Marshal(map[string]any{"cases": []saas.Case{}, "images": []saas.Image{{Name: name, SHA256: saas.Digest(b.Bytes()), Width: 390, Height: 844}}})
-	if err := os.WriteFile(filepath.Join(dir, "observations.json"), obs, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.viewports(dir); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(p.files[name], b.Bytes()) || len(e.Images) != 1 {
-		t.Fatal("partial real viewport dropped")
-	}
-	packed, err := saas.Pack(e, p.files)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err = saas.Decode(packed, strings.Repeat("a", 40), strings.Repeat("b", 64), strings.Repeat("c", 64)); err == nil {
-		t.Fatal("partial browser evidence became acceptance")
 	}
 }
 

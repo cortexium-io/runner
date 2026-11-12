@@ -21,6 +21,9 @@ type sourceAdoptionWork struct {
 
 func localSourceMode(mode string) bool   { return mode == "readiness" || mode == "publish" }
 func releaseSourceMode(mode string) bool { return mode == "source-adopt" || localSourceMode(mode) }
+func detachedReleaseMode(mode string) bool {
+	return releaseSourceMode(mode) || mode == "cortexium-browser"
+}
 
 func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, error) {
 	j, err := r.load(id)
@@ -28,7 +31,7 @@ func (r *Releases) Observe(ctx context.Context, id string) (runner.Observation, 
 		return runner.Observation{}, err
 	}
 	mode := j.Assignment.Setup.Profile.Mode
-	if !releaseSourceMode(mode) || j.End != nil {
+	if !detachedReleaseMode(mode) || j.End != nil {
 		return r.observeRelease(ctx, id)
 	}
 	if j.Stopped && mode == "source-adopt" {
@@ -99,7 +102,7 @@ func (r *Releases) joinSourceAdoption(ctx context.Context, j releaseJob) (runner
 	}
 	if work == nil {
 		current, err := r.load(id)
-		if err != nil || current.Stopped && !localSourceMode(current.Assignment.Setup.Profile.Mode) || r.adoptionClosed {
+		if err != nil || current.Stopped && !localSourceMode(current.Assignment.Setup.Profile.Mode) && current.Assignment.Setup.Profile.Mode != "cortexium-browser" || r.adoptionClosed {
 			r.adoptionMu.Unlock()
 			if err != nil {
 				return runner.Observation{}, false, err
@@ -107,6 +110,10 @@ func (r *Releases) joinSourceAdoption(ctx context.Context, j releaseJob) (runner
 			return runner.Observation{}, false, context.Canceled
 		}
 		active, cancel := context.WithCancel(ctx)
+		if current.Stopped && current.Assignment.Setup.Profile.Mode == "cortexium-browser" {
+			cancel()
+			active, cancel = context.WithTimeout(context.Background(), 3*time.Minute)
+		}
 		if !j.Assignment.Deadline.IsZero() && !current.Stopped {
 			cancel()
 			active, cancel = context.WithDeadline(context.Background(), j.Assignment.Deadline)

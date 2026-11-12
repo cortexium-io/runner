@@ -12,22 +12,26 @@ import (
 
 	"github.com/cortexium-io/runner/internal/runner"
 	"github.com/cortexium-io/runner/internal/saas"
+	"github.com/cortexium-io/runner/testdata/saas/proof"
 )
 
 func TestLocalImagesUseSavedCandidateAndFrozenAuthority(t *testing.T) {
 	disk := workspaceDisk(t)
 	base, h := strings.Repeat("a", 40), strings.Repeat("b", 64)
-	authority := saas.Authority{Version: 1, BriefCommit: saas.BriefCommit, BriefSHA256: saas.BriefSHA256, GennyCommit: saas.GennyCommit, Base: base, AppDirectory: "platform", Module: "example.invalid/fixture", GoMod: "module example.invalid/fixture\n\ngo 1.27.0\n\ntoolchain go1.27.3\n", GoSum: "pinned\n", Package: `{"private":true,"dependencies":{"vue":"3.5.45"},"devDependencies":{"vite":"8.3.6","vitest":"5.1.0"}}`, Lock: `{"lockfileVersion":3}`, GoSHA256: h, GennySHA256: h, NodeSHA256: h, ChromeSHA256: h, DriverSHA256: h}
+	authority := saas.Authority{Version: 1, BriefCommit: saas.BriefCommit, BriefSHA256: saas.BriefSHA256, GennyCommit: saas.GennyCommit, Base: base, AppDirectory: "platform", Module: "example.invalid/fixture", GoMod: "module example.invalid/fixture\n\ngo 1.27.0\n\ntoolchain go1.27.3\n", GoSum: "pinned\n", Package: `{"private":true,"dependencies":{"vue":"3.5.45"},"devDependencies":{"vite":"8.3.6","vitest":"5.1.0"}}`, Lock: `{"lockfileVersion":3}`, GoSHA256: h, GennySHA256: h, NodeSHA256: h}
 	brief, err := os.ReadFile("../../../testdata/saas/first-flow-brief.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	authority.Brief, authority.Contract, authority.ProjectName = string(brief), saas.Contract, "RunnerFixture"
 	authority.GoCheckSHA256 = h
+	authority.OperatorPolicySHA256 = h
+	authority.Runtime = saas.ContainerRuntime{Image: "sha256:" + h, DriverSHA256: h, ChromeSHA256: h, Node: "26.13.1", Playwright: "1.65.0"}
 	ab, _ := json.Marshal(authority)
 	patch := []byte("authenticated fixture patch")
 	e := saas.Evidence{Version: 1, Kind: "cortexium-local", Status: "passed", Base: base, PatchSHA256: saas.Digest(patch), AuthoritySHA256: saas.Digest(ab), ServerSHA256: h, FrontendSHA256: h, ChromeSHA256: h, DriverSHA256: h, ModuleSHA256: h, LockSHA256: h, GoVersion: "go1.27.3", GoTests: 1, VueTests: 1, GoVet: true, GoBuild: true, VueTypecheck: true, VueBuild: true, GeneratedOwnership: true, RealWorker: "unverified"}
 	e.ModuleSHA256, e.LockSHA256 = saas.Digest([]byte(authority.GoMod)), saas.Digest([]byte(authority.Lock))
+	server := saasSyntheticBuild(t, &e, authority)
 	for _, name := range saas.RequiredCases {
 		e.Cases = append(e.Cases, saas.Case{Name: name, Passed: true, Actions: 2, Witnesses: []string{"observed input", "observed result"}})
 	}
@@ -94,7 +98,10 @@ func TestLocalImagesUseSavedCandidateAndFrozenAuthority(t *testing.T) {
 	a.Setup.Profile.Mode = "saas-source-review"
 	e.Status, e.Images, e.Cases = "checked", nil, nil
 	e.Reports = e.Reports[:len(e.Reports)-1]
-	checked, _ := saas.Pack(e, files)
+	checked, err := saas.PackCheckedBuild(e, server, files)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err = disk.Write("artifacts/saas/evidence", checked, 16<<20); err != nil {
 		t.Fatal(err)
 	}
@@ -104,4 +111,15 @@ func TestLocalImagesUseSavedCandidateAndFrozenAuthority(t *testing.T) {
 	if inputs, err = experienceImageInputs(disk, nativeJob{Assignment: a, Workspace: &r}); err != nil || len(inputs) != 0 {
 		t.Fatal("source checks became browser proof", err)
 	}
+}
+
+// Non-executable simulated ELF is solely codec/control proof. The separately
+// opted-in container fixture supplies a genuine generated Linux executable.
+func saasSyntheticBuild(t *testing.T, e *saas.Evidence, a saas.Authority) []byte {
+	t.Helper()
+	b, err := proof.Build(e, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

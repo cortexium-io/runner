@@ -91,7 +91,7 @@ func (b *Live) delivery(ctx context.Context, j *Job, save func() error) error {
 		return b.publish(ctx, j, save)
 	}
 	if j.Worker == "" {
-		root := filepath.Join(b.Config.Delivery.Root, j.Request.RunID, j.Request.Key)
+		root := filepath.Join(b.Config.workRoot(), j.Request.RunID, j.Request.Key)
 		if j.Request.Action == "qualify" {
 			j.Receipt.Package = filepath.Join(root, "output")
 			j.Receipt.Remote = filepath.Join(b.Config.BackupDir, "delivery-"+j.Request.RunID+"-"+j.Request.Key)
@@ -106,11 +106,6 @@ func (b *Live) delivery(ctx context.Context, j *Job, save func() error) error {
 		if err := save(); err != nil {
 			return err
 		}
-		binary, err := os.Executable()
-		if err != nil {
-			return err
-		}
-		cmd := exec.Command(binary, "--delivery-worker", j.Worker)
 		lease, err := os.OpenFile(filepath.Join(root, "worker.lock"), os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			return err
@@ -119,14 +114,7 @@ func (b *Live) delivery(ctx context.Context, j *Job, save func() error) error {
 		if err = lockOperator(lease); err != nil {
 			return err
 		}
-		// Parent and worker share this open-file description. Close without
-		// LOCK_UN so ownership survives the SSH client and startup interval.
-		cmd.ExtraFiles = []*os.File{lease}
-		if err = cmd.Start(); err != nil {
-			return err
-		}
-		go func() { _ = cmd.Wait() }()
-		return nil
+		return startDeliveryWorker(j.Worker, lease)
 	}
 	lease, leaseErr := os.OpenFile(filepath.Join(filepath.Dir(j.Worker), "worker.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if leaseErr != nil {
@@ -139,9 +127,26 @@ func (b *Live) delivery(ctx context.Context, j *Job, save func() error) error {
 	} else if leaseErr != nil {
 		return leaseErr
 	}
-	defer unlockOperator(lease)
+	inherited := false
+	defer func() {
+		if !inherited {
+			unlockOperator(lease)
+		}
+	}()
 	data, err := readFile(filepath.Join(filepath.Dir(j.Worker), "result.json"), 32<<10)
 	if errors.Is(err, os.ErrNotExist) {
+		if b.Config.Cortexium != nil {
+			if _, started := os.Stat(filepath.Join(filepath.Dir(j.Worker), "started")); errors.Is(started, os.ErrNotExist) {
+				// No writer holds the inherited lease and no worker claimed this
+				// exact saved specification. Rejoin it without resetting deadline.
+				err = startDeliveryWorker(j.Worker, lease)
+				inherited = err == nil
+				return err
+			} else if started != nil {
+				return started
+			}
+			return b.reconcileCortexiumWork(ctx, j, save)
+		}
 		return errors.New("delivery worker result is not established; retain its dispatch identity")
 	}
 	if err != nil {
@@ -152,10 +157,29 @@ func (b *Live) delivery(ctx context.Context, j *Job, save func() error) error {
 		return errors.New("delivery worker result identity differs")
 	}
 	if !result.Done {
+		if b.Config.Cortexium != nil {
+			return b.reconcileCortexiumWork(ctx, j, save)
+		}
 		return errors.New(result.Reason)
 	}
 	j.Receipt, j.Done, j.Failed, j.Reason, j.Outcome = result.Receipt, result.Done, result.Failed, result.Reason, result.Outcome
 	j.Retryable = result.Retryable
+	return nil
+}
+
+func startDeliveryWorker(file string, lease *os.File) error {
+	binary, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(binary, "--delivery-worker", file)
+	// Parent and worker share this open-file description. Close without
+	// LOCK_UN so ownership survives the SSH client and startup interval.
+	cmd.ExtraFiles = []*os.File{lease}
+	if err = cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
 	return nil
 }
 
@@ -165,7 +189,7 @@ func RunDeliveryWorker(file string) error {
 		return err
 	}
 	var work deliveryWork
-	if json.Unmarshal(data, &work) != nil || work.Config.Delivery == nil || work.Config.Delivery.validate() != nil || work.Job.Worker != file || filepath.Dir(filepath.Dir(filepath.Dir(file))) != work.Config.Delivery.Root {
+	if json.Unmarshal(data, &work) != nil || !work.Config.validWorkPolicy() || work.Job.Worker != file || filepath.Dir(filepath.Dir(filepath.Dir(file))) != work.Config.workRoot() {
 		return errors.New("invalid private delivery work")
 	}
 	claim, err := os.OpenFile(filepath.Join(filepath.Dir(file), "started"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
@@ -183,13 +207,24 @@ func RunDeliveryWorker(file string) error {
 		return errors.New("delivery worker lease identity differs")
 	}
 	defer lease.Close()
-	duration, _ := time.ParseDuration(work.Config.Delivery.Timeout)
+	duration, _ := time.ParseDuration(work.Config.workTimeout())
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
+	if work.Config.Cortexium != nil {
+		if work.Job.CortexiumDeadline == 0 {
+			return errors.New("Cortexium work has no original saved deadline")
+		}
+		bounded, stop := context.WithDeadline(ctx, time.Unix(0, work.Job.CortexiumDeadline))
+		defer stop()
+		ctx = bounded
+	}
 	ctx = context.WithValue(ctx, leaseKey{}, lease)
 	ctx = context.WithValue(ctx, deliveryDiagnosticKey{}, filepath.Dir(file))
 	b := Live{Config: work.Config}
 	j := &work.Job
+	if work.Config.Cortexium != nil {
+		return b.runCortexiumWork(ctx, j)
+	}
 	if j.Request.Action == "readiness" || j.Request.Action == "qualify" {
 		if err = b.collectArchives(ctx); err != nil {
 			_ = fail(j, "owned archive retention could not establish safe collection: "+err.Error())

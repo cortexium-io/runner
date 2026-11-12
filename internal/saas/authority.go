@@ -11,26 +11,26 @@ import (
 // The four reference manifests come from the positively pinned empty Genny
 // recipe. Paths identify the actual selected app, including a declared submodule.
 type Authority struct {
-	Version       int    `json:"version"`
-	BriefCommit   string `json:"brief_commit"`
-	BriefSHA256   string `json:"brief_sha256"`
-	GennyCommit   string `json:"genny_commit"`
-	Base          string `json:"base"`
-	AppDirectory  string `json:"app_directory"`
-	Module        string `json:"module"`
-	ProjectName   string `json:"project_name"`
-	Brief         string `json:"brief"`
-	Contract      string `json:"contract"`
-	GoMod         string `json:"go_mod"`
-	GoSum         string `json:"go_sum"`
-	Package       string `json:"package_json"`
-	Lock          string `json:"package_lock_json"`
-	GoSHA256      string `json:"go_sha256"`
-	GoCheckSHA256 string `json:"go_check_sha256"`
-	GennySHA256   string `json:"genny_sha256"`
-	NodeSHA256    string `json:"node_sha256"`
-	ChromeSHA256  string `json:"chrome_sha256"`
-	DriverSHA256  string `json:"driver_sha256"`
+	OperatorPolicySHA256 string           `json:"operator_policy_sha256"`
+	Runtime              ContainerRuntime `json:"container_runtime"`
+	Version              int              `json:"version"`
+	BriefCommit          string           `json:"brief_commit"`
+	BriefSHA256          string           `json:"brief_sha256"`
+	GennyCommit          string           `json:"genny_commit"`
+	Base                 string           `json:"base"`
+	AppDirectory         string           `json:"app_directory"`
+	Module               string           `json:"module"`
+	ProjectName          string           `json:"project_name"`
+	Brief                string           `json:"brief"`
+	Contract             string           `json:"contract"`
+	GoMod                string           `json:"go_mod"`
+	GoSum                string           `json:"go_sum"`
+	Package              string           `json:"package_json"`
+	Lock                 string           `json:"package_lock_json"`
+	GoSHA256             string           `json:"go_sha256"`
+	GoCheckSHA256        string           `json:"go_check_sha256"`
+	GennySHA256          string           `json:"genny_sha256"`
+	NodeSHA256           string           `json:"node_sha256"`
 }
 
 func DecodeAuthority(b []byte, base string) (Authority, error) {
@@ -39,10 +39,10 @@ func DecodeAuthority(b []byte, base string) (Authority, error) {
 	if len(b) == 0 || len(b) > MaxBundle || strictJSON(b, &a) != nil || a.Version != 1 || a.BriefCommit != BriefCommit || a.BriefSHA256 != BriefSHA256 || a.GennyCommit != GennyCommit || !commit.MatchString(base) || a.Base != base || a.AppDirectory != "platform" || a.Module == "" || strings.ContainsAny(a.Module, " \n\r\t") || strings.Contains(a.Module, "..") || path.Clean(a.Module) != a.Module {
 		return a, bad
 	}
-	if len(a.ProjectName) < 1 || len(a.ProjectName) > 64 || Digest([]byte(a.Brief)) != BriefSHA256 || a.Contract != Contract {
+	if len(a.ProjectName) < 1 || len(a.ProjectName) > 64 || Digest([]byte(a.Brief)) != BriefSHA256 || a.Contract != Contract || !a.Runtime.Valid() || !sha.MatchString(a.OperatorPolicySHA256) {
 		return a, bad
 	}
-	for _, v := range []string{a.GoSHA256, a.GoCheckSHA256, a.GennySHA256, a.NodeSHA256, a.ChromeSHA256, a.DriverSHA256} {
+	for _, v := range []string{a.GoSHA256, a.GoCheckSHA256, a.GennySHA256, a.NodeSHA256} {
 		if !sha.MatchString(v) {
 			return a, bad
 		}

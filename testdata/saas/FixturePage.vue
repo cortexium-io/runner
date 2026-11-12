@@ -2,8 +2,8 @@
 <script setup lang="ts">
 import {ref,onMounted} from 'vue'
 const s=ref<any>({}),email=ref(''),password=ref(''),input=ref(''),flow=ref(''),instruction=ref(''),fn=ref('report-v1'),worker=ref('fixture-review'),denied=ref(false),conflict=ref(false)
-async function load(){const id=location.pathname.startsWith('/run/')?location.pathname.split('/').pop():'';const r=await fetch('/state'+(id?'?run='+id:''));if(r.status===403){denied.value=true;return}if(r.status===401){s.value={};return}s.value=await r.json();fn.value=s.value.Function;worker.value=s.value.Worker;denied.value=false}
-async function action(Action:string,extra:any={}){const r=await fetch('/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({Action,...extra})});if(r.status===409){conflict.value=true;return}if(r.status===403){denied.value=true;return}if(!r.ok)throw Error('fixture request failed');s.value=await r.json();fn.value=s.value.Function;worker.value=s.value.Worker;denied.value=false;if(Action==='new-flow'){history.pushState({},'','/');flow.value=''}if(Action==='run-flow'||Action==='open-run'){history.pushState({},'','/run/'+s.value.Current.ID)}}
+async function load(){const id=new URL(location.href).searchParams.get('run');const r=await fetch('/state'+(id?'?run='+id:''));if(r.status===403){denied.value=true;return}if(r.status===401){s.value={};return}s.value=await r.json();fn.value=s.value.Function;worker.value=s.value.Worker;denied.value=false}
+async function action(Action:string,extra:any={}){const r=await fetch('/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({Action,...extra})});if(r.status===409){conflict.value=true;return}if(r.status===403){denied.value=true;return}if(!r.ok)throw Error('fixture request failed');s.value=await r.json();fn.value=s.value.Function;worker.value=s.value.Worker;denied.value=false;if(Action==='new-flow'){history.pushState({},'','/');flow.value=''}if(Action==='run-flow'||Action==='open-run'){history.pushState({},'','/?run='+s.value.Current.ID)}}
 onMounted(load)
 </script>
 <template>

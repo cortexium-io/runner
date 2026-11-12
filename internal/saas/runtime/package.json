@@ -1,0 +1,7 @@
+{
+  "name": "codex-browser-runtime",
+  "private": true,
+  "dependencies": {
+    "playwright": "1.65.0"
+  }
+}

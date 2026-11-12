@@ -2,18 +2,19 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
 
-const [runtime, chrome, executable, app, scratch, output] = process.argv.slice(2);
+const [runtime, chrome, scratch, output] = process.argv.slice(2);
 const require = createRequire(path.join(runtime, 'package.json'));
 const {chromium} = require('playwright');
-let server, browser, chromeProcess, origin;
-let logBytes = 0, foreignRequests = 0;
-let serverLogBytes=0;
-const serverLogChunks=[];
-let chromeLogBytes=0,chromeKeptBytes=0;
-const chromeLogChunks=[];
+let server, browser, origin;
+let operation=0;
+let phase="startup";
+let foreignRequests=0;
+
+
+
+
 let clickActions=0, lastCaseClicks=0;
 const cases = [], images = [];
 const serverPids=[],serverSettlements=new Set();
@@ -22,77 +23,52 @@ await fs.mkdir(root, {recursive:true, mode:0o700});
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const hash = b => crypto.createHash('sha256').update(b).digest('hex');
 
-async function stopServer() {
-  const owned=server;
-  if(!owned)return;
-  if(owned.exitCode!==null||owned.signalCode!==null){serverSettlements.add(owned.pid);return;}
-  const stopped = new Promise(resolve => owned.once('exit', resolve));
-  owned.kill('SIGTERM');
-  const force = setTimeout(() => { if(owned.exitCode === null) owned.kill('SIGKILL'); }, 2000);
-  try { await stopped; } finally { clearTimeout(force); }
-  serverSettlements.add(owned.pid);
-}
-async function startServer() {
-  const ready = path.join(root, 'ready.json');
-  await fs.rm(ready, {force:true});
-  server = spawn(executable, ['--listen','127.0.0.1:0','--data-dir',root,'--frontend-dir',path.join(app,'internal','app','http','frontend_dist'),'--ready-file',ready,'--fixture'], {
-    cwd:app, detached:false, stdio:['ignore','pipe','pipe'],
-    env:{PATH:process.env.PATH,HOME:root,TMPDIR:root,DB_DRIVER:'sqlite',DATABASE_URL:`file:${path.join(root,'fixture.db')}`},
-  });
-  server.on('error', () => {});
-  serverPids.push(server.pid);
-  for(const pipe of [server.stdout,server.stderr]) pipe.on('data', b => {
-    logBytes += b.length;
-    const kept=b.subarray(0,Math.max(0,65536-serverLogBytes-chromeKeptBytes));
-    if(kept.length){serverLogChunks.push(kept);serverLogBytes+=kept.length;}
-    if(logBytes+chromeLogBytes > 65536 && server.exitCode === null) server.kill('SIGTERM');
-  });
-  const end = Date.now()+15000;
-  while(Date.now()<end) {
-    if(server.exitCode !== null || logBytes>65536) throw Error('local app failed before bounded readiness');
-    try {
-      const b = await fs.readFile(ready);
-      if(b.length>1024) throw Error('oversized startup identity');
-      const r=JSON.parse(b), u=new URL(r.origin);
-      if(r.pid!==server.pid || u.protocol!=='http:' || u.hostname!=='127.0.0.1' || !u.port || u.pathname!=='/' || u.search || u.username || u.password || u.hash) throw Error('foreign local startup identity');
-      origin=u.origin; return;
-    } catch(e) { if(e.code!=='ENOENT') throw e; }
-    await delay(20); // Only bounded owned-process readiness, never a success witness.
-  }
-  throw Error('local app readiness absent');
-}
-async function startChrome() {
-  const profile=path.join(root,'chrome-profile');
-  await fs.mkdir(profile,{recursive:true,mode:0o700});
-  chromeProcess=spawn(chrome,['--headless','--remote-debugging-port=0','--remote-debugging-address=127.0.0.1',`--user-data-dir=${profile}`,'--use-mock-keychain','--password-store=basic','--no-first-run','--no-default-browser-check','--disable-background-networking','--disable-component-update','--disable-sync','--disable-default-apps','about:blank'],{
-    detached:false,stdio:['ignore','pipe','pipe'],env:{PATH:process.env.PATH,HOME:root,TMPDIR:root},
-  });
-  chromeProcess.on('error',()=>{});
-  for(const pipe of [chromeProcess.stdout,chromeProcess.stderr])pipe.on('data',b=>{
-    chromeLogBytes+=b.length;
-    const kept=b.subarray(0,Math.max(0,65536-serverLogBytes-chromeKeptBytes));
-    if(kept.length){chromeLogChunks.push(kept);chromeKeptBytes+=kept.length;}
-    if(logBytes+chromeLogBytes>65536&&chromeProcess.exitCode===null)chromeProcess.kill('SIGTERM');
-  });
-  const end=Date.now()+15000;
-  while(Date.now()<end) {
-    if(chromeProcess.exitCode!==null) throw Error('owned headless Chrome exited before readiness');
-    try {
-      const port=Number((await fs.readFile(path.join(profile,'DevToolsActivePort'),'utf8')).split('\n')[0]);
-      if(!Number.isInteger(port)||port<1||port>65535) throw Error('invalid owned Chrome port');
-      browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`);return;
-    } catch(e) { if(e.code!=='ENOENT') throw e; }
+// Only this trusted UID/filesystem can write the fixed lifecycle handshake.
+// The App has a separate container/PID namespace and no mount of these files.
+async function appOperation(action) {
+  const sequence=++operation,control=path.join(scratch,'control');
+  await fs.mkdir(control,{recursive:true,mode:0o700});
+  const request={version:1,sequence,action};
+  await fs.writeFile(path.join(control,'request.partial'),JSON.stringify(request),{mode:0o600});
+  await fs.rename(path.join(control,'request.partial'),path.join(control,'request.json'));
+  const until=Date.now()+30000;
+  while(Date.now()<until){
+    try{
+      const bytes=await fs.readFile(path.join(control,'reply.json'));
+      if(bytes.length>4096)throw Error('oversized trusted lifecycle reply');
+      const reply=JSON.parse(bytes);
+      if(reply.sequence!==sequence){await delay(20);continue;}
+      if(reply.action!==action||reply.state!==(action==='start'?'running':'stopped')||typeof reply.generation!=='string'||!reply.generation)throw Error('trusted App lifecycle did not settle');
+      if(action==='start'&&reply.origin!=='http://127.0.0.1:9044')throw Error('foreign fixture origin');
+      return reply;
+    }catch(error){if(error.code!=='ENOENT')throw error;}
     await delay(20);
   }
-  throw Error('owned headless Chrome readiness absent');
+  throw Error('owned App lifecycle response absent');
 }
-async function stopChrome() {
-  if(!chromeProcess||chromeProcess.exitCode!==null||chromeProcess.signalCode!==null)return;
-  const stopped=new Promise(resolve=>chromeProcess.once('exit',resolve));
-  chromeProcess.kill('SIGTERM');
-  const force=setTimeout(()=>chromeProcess.kill('SIGKILL'),2000);
-  try{await stopped;}finally{clearTimeout(force);}
+async function stopServer() {
+  if(!server||server.settled)return;
+  if(!server.stopping)server.stopping=(async()=>{
+    const reply=await appOperation('stop');
+    if(reply.generation!==server.generation)throw Error('App stop generation differs');
+    server.settled=true;serverSettlements.add(server.generation);
+  })();
+  await server.stopping;
 }
+async function startServer() {
+  const reply=await appOperation('start');
+  server={generation:reply.generation,settled:false};
+  serverPids.push(reply.generation);
+  origin=reply.origin;
+}
+async function startChrome() {
+  // Supported SDK launch uses its private CDP pipe. No DevTools TCP/WS server
+  // is exposed to the App sharing only the isolated loopback namespace.
+  browser=await chromium.launch({executablePath:chrome,headless:true,chromiumSandbox:false,timeout:15000,
+    env:{PATH:process.env.PATH,HOME:root,TMPDIR:root,OPENSSL_CONF:'/dev/null'},
+  });
+}
+async function stopChrome() { if(browser)await browser.close(); }
 const signalCleanup=()=>{void browser?.close().catch(()=>{});void stopServer().catch(()=>{});void stopChrome().catch(()=>{});};
 process.once('SIGTERM',signalCleanup);
 process.once('SIGINT',signalCleanup);
@@ -120,12 +96,14 @@ async function capture(page,name) {
   if(images.some(im=>im.name===name)) throw Error('duplicate viewport');
   const b=await page.screenshot({fullPage:false,animations:'disabled'});
   if(b.length>8*1024*1024) throw Error('viewport exceeds8MiB');
-  await fs.writeFile(path.join(output,name),b,{mode:0o600});
+  await fs.writeFile(path.join(output,name+'.partial'),b,{mode:0o600});
+  await fs.rename(path.join(output,name+'.partial'),path.join(output,name));
   images.push({name,sha256:hash(b),width:b.readUInt32BE(16),height:b.readUInt32BE(20)});
   await saveObservations();
 }
 async function saveObservations(){
-  await fs.writeFile(path.join(output,'observations.json'),JSON.stringify({cases,images}),{mode:0o600});
+  await fs.writeFile(path.join(output,'observations.partial'),JSON.stringify({cases,images}),{mode:0o600});
+  await fs.rename(path.join(output,'observations.partial'),path.join(output,'observations.json'));
 }
 async function record(name,witnesses) {
   const actions=clickActions-lastCaseClicks;lastCaseClicks=clickActions;
@@ -181,6 +159,7 @@ try {
   await fs.mkdir(output,{recursive:true,mode:0o700});
   await startServer();
   await startChrome();
+  phase="journeys";
   const {page,c}=await context();
   await setup(page,'Runner representative flow');
   await capture(page,'chrome-desktop-setup-viewport.png');
@@ -313,9 +292,8 @@ try {
 } finally {
   const results=await Promise.allSettled([(async()=>{try{if(browser)await browser.close();}finally{await stopChrome();}})(),stopServer()]);
   const failures=results.filter(r=>r.status==='rejected').map(r=>String(r.reason));
-  const settled=process=>!process||process.exitCode!==null||process.signalCode!==null;
-  if(!settled(server)||!settled(chromeProcess))failures.push('owned child settlement is unconfirmed');
-  const cleanup={server_pids:serverPids,server_settled:serverPids.every(pid=>serverSettlements.has(pid)),chrome_pid:chromeProcess?.pid,chrome_settled:settled(chromeProcess),server_diagnostics:{output:Buffer.concat(serverLogChunks).toString('utf8'),bytes:logBytes,kept_bytes:serverLogBytes,truncated:logBytes>serverLogBytes},chrome_diagnostics:{output:Buffer.concat(chromeLogChunks).toString('utf8'),bytes:chromeLogBytes,kept_bytes:chromeKeptBytes,truncated:chromeLogBytes>chromeKeptBytes},failures};
+  if(server&&!server.settled||browser?.isConnected())failures.push('owned child settlement is unconfirmed');
+  const cleanup={phase,primary_failure:primaryFailure?String(primaryFailure).slice(0,1024):'',server_generations:serverPids,server_settled:serverPids.every(id=>serverSettlements.has(id)),chrome_settled:!browser?.isConnected(),failures};
   try{await fs.writeFile(path.join(output,'cleanup.json'),JSON.stringify(cleanup),{mode:0o600});}catch(error){failures.push('cleanup receipt: '+String(error));}
   if(failures.length) {
     if(primaryFailure)console.error('Owned cleanup failed:',failures.join('; '));

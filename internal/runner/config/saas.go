@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"reflect"
-	"slices"
 
 	"github.com/cortexium-io/runner/internal/runner"
 )
@@ -38,10 +37,7 @@ func validateLocalSaaS(p runner.Process, project runner.Project) error {
 	if taskProfile(project, p.Steps[1]).Mode != "saas-plan" || taskProfile(project, p.Steps[4]).Mode != "genny-source" || taskProfile(project, group.Steps[1]).Mode != "genny-source" {
 		return bad
 	}
-	if cp.Harness != "command" || cp.Command == nil || cp.Command.Network || cp.Command.Artifact != "checks.tar.gz" || cp.Command.Result != "domain.json" || sp.Harness != "codex" || sp.Mode != "saas-source-review" || sp.Access != "workspace-read" || bp.Harness != "command" || bp.Command == nil || !bp.Command.Network || bp.Command.Artifact != "evidence.tar.gz" || bp.Command.Result != "domain.json" || rp.Harness != "codex" || rp.Mode != "saas-review" || rp.Access != "workspace-read" || ip.Harness != "git-candidate" {
-		return bad
-	}
-	if !slices.Contains(bp.Command.Args, "--browser") || !slices.Contains(bp.Command.Args, "{input.checks}") || !slices.Contains(bp.Command.Args, "{text.verdict}") {
+	if cp.Harness != "command" || cp.Command == nil || cp.Command.Network || cp.Command.Artifact != "checks.tar.gz" || cp.Command.Result != "domain.json" || sp.Harness != "codex" || sp.Mode != "saas-source-review" || sp.Access != "workspace-read" || bp.Harness != "release" || bp.Mode != "cortexium-browser" || bp.Access != "input-only" || bp.Command != nil || rp.Harness != "codex" || rp.Mode != "saas-review" || rp.Access != "workspace-read" || ip.Harness != "git-candidate" {
 		return bad
 	}
 	if !reflect.DeepEqual(browser.Inputs, map[string]runner.Binding{"patch": {FromCandidate: true}, "authority": {FromStep: "authority", Output: "artifact"}, "checks": {FromStep: "check", Output: "artifact"}, "verdict": {FromStep: "source-review", Output: "verdict"}}) ||
