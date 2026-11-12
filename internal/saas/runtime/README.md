@@ -29,6 +29,13 @@ The first actual derivation stopped at copied metadata validation. Its exact
 owned derived image remains after nonforced cleanup timed out; do not replay
 removal/qualification until the owning engine prerequisite is safely resolved.
 
+
+Readback refusal also drains only the remaining private32MiB-bounded trusted
+archive, within the earlier of the original context or a five-second refusal
+deadline. Owned local pipe fixtures prove EOF completion, overflow, cancellation
+and deadline settlement while preserving the original metadata error. They
+prove no daemon-side cleanup or cause for fixture01's retained image.
+
 Runtime admission keeps the declared combined memory/CPU/PID/storage bounds and
 positive ownership cleanup. The selected engine's cgroup-v1 and zero-active-swap
 restriction is explicit; missing/changed metrics or active swap blocks without

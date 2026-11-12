@@ -22,6 +22,13 @@ limits, three corrections and existing resource limits remain unchanged. Source
 pins and simulated proof are not product acceptance. No publication, merge,
 production, data migration or restoration follows.
 
+
+Readback refusal also drains only the remaining private32MiB-bounded trusted
+archive, within the earlier of the original context or a five-second refusal
+deadline. Owned local pipe fixtures prove EOF completion, overflow, cancellation
+and deadline settlement while preserving the original metadata error. They
+prove no daemon-side cleanup or cause for fixture01's retained image.
+
 ## Future admission after complete qualification
 
 Operations materializes a separate Cortexium instance/config/state/workspaces/

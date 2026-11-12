@@ -21,6 +21,13 @@ host repair follows from this blocked preparation. Full nine-journey, adversaria
 isolation, resource and native lifecycle qualification remains missing. Prior
 macOS failures are preserved, not retried. No installed/frozen policy changes.
 
+
+Readback refusal also drains only the remaining private32MiB-bounded trusted
+archive, within the earlier of the original context or a five-second refusal
+deadline. Owned local pipe fixtures prove EOF completion, overflow, cancellation
+and deadline settlement while preserving the original metadata error. They
+prove no daemon-side cleanup or cause for fixture01's retained image.
+
 The versioned checked-build type alone permits16MiB stored/wire and32MiB decoded
 TOTAL, with ordinary debug Linux/amd64/v1 CGO0 executable, full reports and canonical
 embedded frontend once. All old report/image codecs stay16MiB decoded. Independent

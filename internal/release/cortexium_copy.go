@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/cortexium-io/runner/internal/saas"
 )
@@ -126,15 +127,33 @@ func (b *Live) verifyCortexiumFile(ctx context.Context, id, name string, size in
 	if err = cmd.Start(); err != nil {
 		return err
 	}
-	verified := verifyCortexiumTar(output, name, size, digest, mode)
+	// Share the same private32MiB archive bound with refusal cleanup. An
+	// early metadata rejection must not abandon an otherwise bounded trusted
+	// stream before its producer can release filesystem/archive ownership.
+	bounded := &io.LimitedReader{R: output, N: saas.MaxBuildDecoded + 1}
+	verified := verifyCortexiumTar(bounded, name, size, digest, mode)
+	var drained error
 	if verified != nil {
+		drain, stop := context.WithTimeout(call, 5*time.Second)
+		closeOnStop := context.AfterFunc(drain, func() {
+			cancel()
+			_ = output.Close()
+		})
+		_, drained = io.Copy(io.Discard, bounded)
+		closeOnStop()
+		drained = errors.Join(drained, drain.Err())
+		stop()
+	}
+	if bounded.N == 0 {
+		drained = errors.Join(drained, errors.New("Cortexium copy readback exceeds32MiB"))
 		cancel()
+		_ = output.Close()
 	}
 	waited := cmd.Wait()
 	if !releaseCommandSettled(cmd) {
-		return errors.Join(verified, &commandUncertain{program: "Cortexium exact copy readback"})
+		return errors.Join(verified, drained, &commandUncertain{program: "Cortexium exact copy readback"})
 	}
-	return errors.Join(verified, waited)
+	return errors.Join(verified, drained, waited)
 }
 func (b *Live) copyCortexiumImage(ctx context.Context, j *Job, base cortexiumImage, e *saas.Evidence, files map[string][]byte) (string, error) {
 	work := filepath.Dir(j.Worker)
