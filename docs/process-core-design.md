@@ -21,6 +21,11 @@ leases, refuses foreign or unsettled jobs and keeps Released durable until seed
 readiness is saved. General restoration still refuses an unready seed. Existing
 pending intents may be used only through this authenticated path; no operator
 flag edit, late-source acceptance or general recovery framework is introduced.
+An installed seed's exact unfinished capture is a separate resume point: after
+revalidating authority and dependencies, rejoin Capture's existing manifest/source/
+writer checks without another workspace preparation. Foreign, changed or unready
+captures remain blocked. A durable Stop completes only that claimed source's
+preservation and keeps its stopped result; it cannot become ready acceptance.
 
 Status, wait and compact result share bounded read-only progress facts: actual
 running/pending/unknown/bounded-reconciling attempt counts, saved attempt timing,

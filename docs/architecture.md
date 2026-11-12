@@ -35,6 +35,10 @@ verifies the saved intent and expected tree before applying the seed, saving
 SeedReady and clearing Released together. Public Prepare and retained-candidate
 restoration keep their existing integrity refusals. Installation is unreviewed
 source preparation, never product acceptance or permission for another retry.
+If an installed seed already has this exact job's unfinished literal capture,
+the installer validates its authority and dependencies without preparing the
+checkout again. Capture retains its existing manifest, source and writer-lease
+checks. A durable Stop still settles that owned snapshot as stopped evidence.
 
 `progress.go` projects saved lifecycle/execution facts without another store,
 timer or notification dependency. Shared `Summarize` gives status, wait and result

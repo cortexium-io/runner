@@ -192,7 +192,7 @@ func (w *Workspaces) cleanupQuiescentWithPreparation(r workspaceRecord, preparin
 		}
 		if seed != nil && name == seed.Assignment.AttemptID+".task-source.json" {
 			var current taskSourceJob
-			if json.Unmarshal(data, &current) != nil || seed.Assignment.RunID != r.RunID || !reflect.DeepEqual(current.Assignment, seed.Assignment) || current.End != nil || current.Stopped || current.InputSHA != seed.InputSHA || current.Tree != seed.Tree || current.Commit != seed.Commit || current.PatchID != seed.PatchID {
+			if json.Unmarshal(data, &current) != nil || seed.Assignment.RunID != r.RunID || !reflect.DeepEqual(current.Assignment, seed.Assignment) || current.End != nil || current.InputSHA != seed.InputSHA || current.Tree != seed.Tree || current.Commit != seed.Commit || current.PatchID != seed.PatchID {
 				return nil, cleanupBlocked("task seed durable preparation ownership changed")
 			}
 			preparationFound = true
@@ -204,6 +204,13 @@ func (w *Workspaces) cleanupQuiescentWithPreparation(r workspaceRecord, preparin
 	}
 	if !preparationFound {
 		return nil, cleanupBlocked("recovered-card durable preparation is missing")
+	}
+	if seed != nil && pendingTaskSeedCapture(r, *seed) {
+		// Only this exact saved task-source job may rejoin its own installed
+		// seed's unfinished capture. The installer does no further preparation;
+		// Capture owns manifest/source authentication and writer settlement.
+		// A durable Stop still requires this source-preserving settlement.
+		return func() {}, nil
 	}
 	if r.Capture == nil {
 		return func() {}, nil

@@ -257,3 +257,77 @@ func TestTaskPendingSeedRefusesChangedAuthorityAndPreservesIntent(t *testing.T) 
 		})
 	}
 }
+
+func TestTaskInstalledSeedCaptureRejoinKeepsManifestAndWriterGuards(t *testing.T) {
+	for _, mode := range []string{"foreign capture", "changed manifest", "unready seed", "uninstalled seed", "active own writer"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newTaskSourceFixture(t, false)
+			t.Cleanup(func() { _ = f.service.Close(context.Background()) })
+			gate := captureGitGate(t, "tree", false)
+			a := startBlockedTaskSeed(t, f, gate)
+			if err := f.service.Close(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			r, err := f.service.workspaces.load(a.RunID)
+			if err != nil || !r.SeedReady || !r.TaskSources["cards"].Installed || r.Capture == nil || r.Candidate != nil {
+				t.Fatal("fixture did not stop in its own unfinished literal capture", err)
+			}
+			var lease *os.File
+			switch mode {
+			case "foreign capture":
+				r.Capture.AttemptID = "attempt_foreign"
+			case "changed manifest":
+				if err := f.disk.Write("work/"+a.AttemptID+"/capture-v1/manifest.json", []byte(`{}`), f.disk.Policy.MaxArtifact); err != nil {
+					t.Fatal(err)
+				}
+			case "unready seed":
+				r.SeedReady = false
+			case "uninstalled seed":
+				r.TaskSources["cards"].Installed = false
+			case "active own writer":
+				lease, err = os.OpenFile(filepath.Join(f.disk.Root, "work", a.AttemptID, "capture-v1", "lease"), os.O_RDWR, 0600)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer lease.Close()
+				if owned, err := tryCaptureLease(lease); err != nil || !owned {
+					t.Fatal("fixture did not hold its own capture writer lease", err)
+				}
+			}
+			if err := f.service.workspaces.save(r); err != nil {
+				t.Fatal(err)
+			}
+			before, _ := json.Marshal(r)
+			f.service = NewService(f.disk, func(_ context.Context, id string) ([]byte, error) {
+				return f.disk.Read("artifacts/"+id, f.disk.Policy.MaxArtifact)
+			}, nil)
+			ctx := t.Context()
+			cancel := func() {}
+			if mode == "active own writer" {
+				ctx, cancel = context.WithTimeout(ctx, 30*time.Millisecond)
+			}
+			o, err := f.service.Observe(ctx, a.AttemptID)
+			cancel()
+			if mode == "active own writer" {
+				if err != nil || o.State != runner.Running || !o.Reconciling {
+					t.Fatal("inherited own capture writer was bypassed", o, err)
+				}
+			} else if err != nil || o.End == nil || o.End.Kind != "failed" || o.Source != nil {
+				t.Fatal("untrusted capture was accepted", o, err)
+			}
+			after, err := f.service.workspaces.load(a.RunID)
+			raw, _ := json.Marshal(after)
+			if err != nil || string(before) != string(raw) {
+				t.Fatal("capture refusal/wait changed saved source ownership", err)
+			}
+			if lease != nil {
+				lease.Close()
+				o, err = f.service.Observe(t.Context(), a.AttemptID)
+				taskReturned(t, o, err, "ready")
+				if o.Source == nil || o.Source.AttemptID != a.AttemptID {
+					t.Fatal("settled capture did not rejoin its original attempt", o)
+				}
+			}
+		})
+	}
+}

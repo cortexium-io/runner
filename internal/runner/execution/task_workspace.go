@@ -445,6 +445,13 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 		return err
 	}
 	seedSHA := captureDigest(patch)
+	preparing := taskSourceJob{
+		Assignment: a,
+		InputSHA:   inputSHA,
+		Tree:       tree,
+		Commit:     commit,
+		PatchID:    patchID,
+	}
 	_, lease, err := w.taskLease(a)
 	if err != nil {
 		return err
@@ -463,13 +470,7 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 		err = errors.New("task seed cannot replace unresolved workspace cleanup or preservation")
 	}
 	if err == nil {
-		settled, settleErr := w.cleanupQuiescentForTaskSeed(r, taskSourceJob{
-			Assignment: a,
-			InputSHA:   inputSHA,
-			Tree:       tree,
-			Commit:     commit,
-			PatchID:    patchID,
-		})
+		settled, settleErr := w.cleanupQuiescentForTaskSeed(r, preparing)
 		if settleErr != nil {
 			err = settleErr
 		} else {
@@ -534,15 +535,29 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 			}
 		}
 	}
+	var prepared runner.Assignment
+	resumeCapture := false
+	if err == nil {
+		prepared = runner.Clone(a)
+		if prepared.Inputs == nil {
+			prepared.Inputs = map[string]runner.Value{}
+		}
+		prepared.Inputs["patch"] = runner.Value{ArtifactID: r.TaskSources[a.TaskSource.Identity.GroupStep].SeedPatchID}
+		resumeCapture = pendingTaskSeedCapture(r, preparing)
+		if resumeCapture {
+			err = w.validateTaskSeedPreparation(ctx, prepared, r, r.TaskSources[a.TaskSource.Identity.GroupStep])
+		}
+	}
 	w.mu.Unlock()
 	if err != nil {
 		return err
 	}
-	prepared := runner.Clone(a)
-	if prepared.Inputs == nil {
-		prepared.Inputs = map[string]runner.Value{}
+	if resumeCapture {
+		// The seed is already installed. Rejoin its literal capture through
+		// Capture's existing manifest/source/lease checks, without preparing or
+		// replacing a checkout underneath that unfinished snapshot.
+		return nil
 	}
-	prepared.Inputs["patch"] = runner.Value{ArtifactID: r.TaskSources[a.TaskSource.Identity.GroupStep].SeedPatchID}
 	if _, err = w.prepare(ctx, prepared, runner.Clone(r.TaskSources[a.TaskSource.Identity.GroupStep])); err != nil {
 		return err
 	}
@@ -564,6 +579,15 @@ func (w *Workspaces) prepareTaskSource(ctx context.Context, a runner.Assignment,
 	}
 	t.Installed = true
 	return w.save(r)
+}
+
+func pendingTaskSeedCapture(r workspaceRecord, seed taskSourceJob) bool {
+	a := seed.Assignment
+	if a.TaskSource == nil || r.Capture == nil || r.Capture.AttemptID != a.AttemptID || r.Candidate != nil || r.Released || !r.SeedReady {
+		return false
+	}
+	t := r.TaskSources[a.TaskSource.Identity.GroupStep]
+	return t != nil && t.Installed && sameTaskAuthority(t.Authority, *a.TaskSource) && t.InputSHA == seed.InputSHA && t.SeedTree == seed.Tree && t.SeedCommit == seed.Commit
 }
 
 // Only the authenticated task-source installer can use this handoff. Ordinary
