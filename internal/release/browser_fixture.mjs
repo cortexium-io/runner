@@ -8,9 +8,91 @@ import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { verifyPlayArea, editAndRestore, dragRectangle, activate, prepareShikakuTouch, savedState, renderedState, assertRenderedState, observeAdmission } from './browser_contract.mjs'
 import { PageReadiness, BrowserAdmissionError, BrowserResourceError, admissionDelay, saveBrowserReceipt } from './browser_render.mjs'
-import { captureViewport, settleViewport } from './browser_experience.mjs'
+import { captureViewport, settleViewport, preferenceScenario, appearanceScenario, notesScenario, shikakuScenario, hintContinuityScenario, privacyScenario, reachablePrivacyControls, completionRecipe, completeRepresentative, BrowserCapabilityError } from './browser_experience.mjs'
 const { chromium, webkit } = await import(pathToFileURL(process.env.RUNNER_PLAYWRIGHT_MODULE).href)
 const auditRow = index => ({ method: 'POST', path: '/api/games/nonogram', status: 429, retryAfterMs: null, delayMs: 1000, attempt: 1, canonicalPath: '/nonogram/audit_' + index })
+const fixtureScenarios=[]
+const fixtureCaptures={viewportImages:[],experienceObservations:[]}
+const temporaryOutput=!process.argv[2]
+const output=process.argv[2]||fs.mkdtempSync(path.join(os.tmpdir(),'runner-scenario-proof-'))
+
+// Deliberately synthetic application, isolated from product code and vendors.
+// Its fault variants exercise the same fixed observer/actions as qualification.
+function experienceFixture(game,fault) {
+  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/scenario.css"><style>
+:root{--puzzle-page:#fff}:root[data-appearance=dark]{--puzzle-page:#222}@media(prefers-color-scheme:dark){:root[data-appearance=system]{--puzzle-page:#222}}body{margin:12px;font:15px system-ui;background:var(--puzzle-page)}button,input,summary{touch-action:manipulation}button{min-height:36px;font:15px system-ui}summary{min-height:36px}.player-board-frame{width:200px}.puzzle-board,.nonogram-board,.shikaku-board{display:grid;grid-template-columns:repeat(5,40px)}[data-cell]{height:40px;padding:0;background:var(--rectangle-fill,#eef)}.number-pad,.value-controls{display:flex;gap:8px;margin-top:8px}.play-settings label{display:block;height:32px}.appearance-menu{position:fixed;right:4px;top:4px;background:white;z-index:5}.privacy-panel{position:fixed;right:0;bottom:0;width:100px;background:#ddd}.privacy-choices{margin-top:8px}.recovery{padding:8px}dialog{background:white}</style>
+<button aria-label="Appearance: System" id="appearance">Appearance</button><div role="menu" class="appearance-menu" hidden>${['Light','Dark','System'].map(v=>'<button role="menuitemradio">'+v+'</button>').join('')}</div>
+<div class="player-board-frame"><div class="${game==='shikaku'?'shikaku-board':game==='nonogram'?'nonogram-board':'puzzle-board'}">${Array.from({length:25},(_,i)=>'<button data-cell="'+i+'"><span></span></button>').join('')}</div></div>
+<div class="number-pad"><button data-digit="1">1</button><button data-digit="2">2</button><button id="notes" aria-pressed="false">Notes off</button></div>
+<div class="value-controls"><button id="shade">Shade</button><button id="empty">Empty</button></div>
+<div><button id="add">Add rectangle</button><button id="undo">Undo</button><button id="redo">Redo</button><button id="restart">Restart</button></div>
+<details class="play-settings"><summary>Settings</summary><label><input type="checkbox" id="timer">Show timer</label><label><input type="checkbox" id="auto">Auto-update notes</label><div class="entry-controls"><button>Cell first</button><button>Number first</button></div></details>
+<aside class="checked-hint"><h3>Why this move?</h3><button id="reveal">Show the next move</button><div class="hint-explanation" hidden><p>Shade row 1.</p><button id="apply">Apply 1 change</button></div></aside>
+<div class="recovery" hidden><button>Retry save</button><button id="replace" hidden>Replace saved copy…</button></div>
+<div class="privacy-choices"><a href="/privacy">Privacy</a><button id="privacy">Privacy choices</button></div><div class="privacy-panel" hidden><button id="decline">Decline optional</button><button id="closeprivacy">Close privacy choices</button></div>
+<dialog><button id="confirm">Restart</button></dialog>
+<script>
+const game=${JSON.stringify(game)},fault=${JSON.stringify(fault)},key='games-site:'+game+':fixture',pref='games-site:preferences:'+game+':v1';
+const $=s=>document.querySelector(s),all=s=>[...document.querySelectorAll(s)],copy=x=>JSON.parse(JSON.stringify(x));
+if(fault==='witness')for(const type of ['pointerdown','pointerup'])window.addEventListener(type,e=>e.stopImmediatePropagation(),true);
+const fresh=()=>({entries:Array(25).fill(0),notes:Array.from({length:25},()=>[]),rectangles:[]});
+let state=JSON.parse(localStorage.getItem(key)||'null')?.snapshot||fresh(),past=[],future=[],selected=0,notes=false,corners=[],dirty=false,conflict=false;
+let prefs=JSON.parse(localStorage.getItem(pref)||'null')||{auto:true,timer:false,mode:'Cell first'};
+function render(){
+ all('[data-cell]').forEach((node,i)=>{const clue=game==='shikaku'?(i===0?1:i===6?4:0):0;node.querySelector('span').textContent=clue||state.entries[i]||state.notes[i].join(', ');node.setAttribute('aria-label','Row '+(Math.floor(i/5)+1)+', column '+(i%5+1)+(state.notes[i].length?', notes '+state.notes[i].join(', '):', empty'));node.style.setProperty('--rectangle-fill',state.rectangles.some(r=>r.includes(i))?'#bbf':'')});
+ $('#notes').textContent='Notes '+(notes?'on':'off');$('#notes').setAttribute('aria-pressed',String(notes));
+ $('#timer').checked=prefs.timer;$('#auto').checked=prefs.auto;all('.entry-controls button').forEach(b=>b.setAttribute('aria-pressed',String(b.textContent===prefs.mode)));
+ $('.recovery').hidden=!dirty;$('#replace').hidden=!conflict;
+}
+function persist(){try{localStorage.setItem(key,JSON.stringify({snapshot:state}));dirty=false}catch{dirty=true}render()}
+function edit(fn){past.push(copy(state));future=[];fn();$('.checked-hint')?.remove();persist()}
+function savePrefs(){localStorage.setItem(pref,JSON.stringify(prefs));render()}
+all('[data-cell]').forEach(node=>node.onclick=()=>{selected=Number(node.dataset.cell);corners.push(selected)});
+let pending;
+all('[data-digit]').forEach(node=>{node.onpointerdown=e=>{pending=e.pointerId};node.onpointerup=e=>{if(fault==='lost-note'&&pending!==e.pointerId)return;const n=Number(node.dataset.digit);edit(()=>{if(notes){const values=state.notes[selected];state.notes[selected]=values.includes(n)?values.filter(x=>x!==n):[...values,n].sort()}else state.entries[selected]=n})}});
+$('#notes').onclick=()=>{notes=!notes;render()};
+$('#shade').onclick=()=>edit(()=>{state.entries[selected]=1});$('#empty').onclick=()=>edit(()=>{state.entries[selected]=2});
+$('#undo').onclick=()=>{if(past.length){future.push(copy(state));state=past.pop();persist()}};$('#redo').onclick=()=>{if(future.length){past.push(copy(state));state=future.pop();persist()}};
+$('#add').onclick=()=>{const [a,b]=corners.slice(-2);if(a===undefined||b===undefined)return;const indexes=[];for(let r=Math.min(Math.floor(a/5),Math.floor(b/5));r<=Math.max(Math.floor(a/5),Math.floor(b/5));r++)for(let c=Math.min(a%5,b%5);c<=Math.max(a%5,b%5);c++)indexes.push(r*5+c);corners=[];if(fault==='singleton'&&indexes.length===1)return;edit(()=>{state.rectangles=[indexes]})};
+$('#restart').onclick=()=>document.querySelector('dialog').showModal();$('#confirm').onclick=()=>{state=fresh();past=[];future=[];persist();document.querySelector('dialog').close()};
+all('.entry-controls button').forEach(b=>b.onclick=()=>{prefs.mode=b.textContent;if(fault==='preference')prefs.auto=!prefs.auto;if(fault!=='persistence')savePrefs();else render()});
+$('#timer').onchange=e=>{prefs.timer=e.target.checked;savePrefs()};$('#auto').onchange=e=>{prefs.auto=e.target.checked;savePrefs()};
+function appearance(v){document.documentElement.dataset.appearance=v;$('#appearance').setAttribute('aria-label','Appearance: '+v[0].toUpperCase()+v.slice(1))};appearance(localStorage.getItem('games-site:appearance')||'system');
+$('#appearance').onclick=()=>$('.appearance-menu').hidden=false;all('[role=menuitemradio]').forEach(b=>b.onclick=()=>{const v=b.textContent.toLowerCase();if(fault!=='appearance')localStorage.setItem('games-site:appearance',v);appearance(v);$('.appearance-menu').hidden=true});
+$('#reveal').onclick=()=>{$('#reveal').hidden=true;$('.hint-explanation').hidden=false};
+window.addEventListener('storage',e=>{if(fault==='unrelated')$('.checked-hint')?.remove();if(e.key!==key)return;$('.checked-hint')?.remove();if(dirty&&fault!=='conflict'){conflict=true;render()}else{state=JSON.parse(e.newValue).snapshot;dirty=false;render()}});
+$('#privacy').onclick=()=>$('.privacy-panel').hidden=!$('.privacy-panel').hidden;$('#decline').onclick=()=>{localStorage.setItem('fixture-cmp','declined');$('.privacy-panel').hidden=true};$('#closeprivacy').onclick=()=>$('.privacy-panel').hidden=true;
+if(fault==='privacy'){const r=$('#undo').getBoundingClientRect();$('.privacy-panel').hidden=false;Object.assign($('.privacy-panel').style,{left:r.x+'px',top:r.y+'px',bottom:'auto',width:r.width+'px',height:r.height+'px',zIndex:20})}
+persist();render();
+</script>`
+}
+
+function completionEnvelope(game,fault,request) {
+  const n=game==='hashi'?7:4, identity={game,id:'recipe-'+fault,contentRevision:'1'}
+  const definition=game==='hashi'?{size:n,islands:[{x:0,y:0,degree:1},{x:2,y:0,degree:1}]}:game==='shikaku'?{size:n,clues:[{row:0,col:0,area:n*n}]}:game==='kakuro'?{board:{size:n,cells:Array.from({length:n*n},(_,i)=>({white:i<4}))}}:game==='binary'?{board:{size:n,cells:Array(n*n).fill('blank')}}:{size:n,givens:Array(n*n).fill(0)}
+  const answer=game==='hashi'?[{a:0,b:1,count:1}]:game==='shikaku'?[{top:0,left:0,bottom:n-1,right:n-1}]:Array.from({length:n*n},(_,i)=>game==='nonogram'?i<4?'filled':'empty':game==='binary'?i%2?'one':'zero':game==='kakuro'&&i>=4?0:1+i%2)
+  const publication=['sudoku','suguru'].includes(game)?{puzzle:{...identity,rows:n,columns:n,givens:Array(n*n).fill(0)},answer}:{identity,definition,answer}
+  if(fault==='identity')(['sudoku','suguru'].includes(game)?publication.puzzle:publication.identity).id='different-board'
+  if(fault==='missing')delete publication.answer
+  return {status:'success',request,...(['sudoku','suguru'].includes(game)?{publication}:{result:{publication}})}
+}
+
+function completionFixture(game,fault) {
+  const request={kind:'reopen',identity:{game,id:'recipe-'+fault,contentRevision:'1'}}, envelope=completionEnvelope(game,'ok',request), transfer=envelope.publication||envelope.result.publication
+  const n=game==='hashi'?7:4, indices=game==='hashi'?[0,1]:Array.from({length:game==='kakuro'?4:16},(_,i)=>i)
+  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/scenario.css"><style>button{min-width:40px;height:40px}.player-board-frame{width:280px}.puzzle-board{display:grid;grid-template-columns:repeat(4,40px)}.completion-dialog{background:white}</style>
+${['sudoku','suguru'].includes(game)?'<div class="completion" hidden><h2>Puzzle solved!</h2></div>':'<p class="solved-status" hidden>✓ Solved</p>'}<div class="player-board-frame" hidden><div class="puzzle-board">${indices.map(i=>'<button '+(game==='hashi'?'data-island':'data-cell')+'="'+i+'" aria-label="'+(game==='hashi'?'Island '+(i+1)+', row 1, column '+(i===0?1:3)+', needs 1, has 0 bridges':'Row '+(Math.floor(i/n)+1)+', column '+(i%n+1)+', blank')+'"><span></span></button>').join('')}</div></div>
+<div class="value-controls">${[0,1,2].map(v=>'<button data-digit="'+v+'">'+v+'</button>').join('')}<button id="shade">Shade</button><button id="add">Add rectangle</button><button id="bridge">One bridge</button></div><dialog class="completion-dialog"><h2>Puzzle solved!</h2><button id="view">View board</button></dialog><script>
+const game=${JSON.stringify(game)},fault=${JSON.stringify(fault)},answer=${JSON.stringify(transfer.answer)},key='games-site:'+game+':completion',request=${JSON.stringify(request)},$=s=>document.querySelector(s);
+let state=JSON.parse(localStorage.getItem(key)||'null')?.snapshot||{values:Array(16).fill(0)},selected=0,corners=[],solved=false;
+function isSolved(){return game==='hashi'?state.bridge===1:game==='shikaku'?state.rectangle===true:answer.every((v,i)=>game==='nonogram'?v==='empty'||state.values[i]===1:game==='kakuro'&&i>=4?true:state.values[i]===(game==='binary'?v==='one'?1:0:v))}
+function render(){document.querySelectorAll('[data-cell]').forEach(n=>n.querySelector('span').textContent=state.values[Number(n.dataset.cell)]||'');$('.completion,.solved-status').hidden=!solved}
+function changed(){if(fault==='entry')return;solved=isSolved();localStorage.setItem(key,JSON.stringify({snapshot:state}));render();if(solved&&fault!=='celebration')$('.completion-dialog').showModal()}
+document.querySelectorAll('[data-cell],[data-island]').forEach(n=>n.onclick=()=>{selected=Number(n.dataset.cell??n.dataset.island);corners.push(selected)});
+document.querySelectorAll('[data-digit]').forEach(n=>n.onclick=()=>{if(fault==='entry')return;state.values[selected]=Number(n.dataset.digit);changed()});$('#shade').onclick=()=>{state.values[selected]=1;changed()};$('#add').onclick=()=>{state.rectangle=corners.at(-2)===0&&corners.at(-1)===15;changed()};$('#bridge').onclick=()=>{state.bridge=1;changed()};$('#view').onclick=()=>$('.completion-dialog').close();
+fetch('/api/games/'+(['sudoku','suguru'].includes(game)?'admit':game),{method:'POST',headers:{'Content-Type':'application/json','X-Fixture-Completion':'1'},body:JSON.stringify(request)}).then(r=>r.json()).then(()=>{if(fault==='reload'&&isSolved())state={values:Array(16).fill(0)};solved=isSolved();render();$('.player-board-frame').hidden=false});
+</script>`
+}
 
 function semanticFixture(fault, rate = false) {
   const behavior = fault.split('_')[0].replace(/^rate-/, '')
@@ -41,6 +123,20 @@ const admissions = new Map(), documents = new Map()
 let binaryBodySocket
 const server = http.createServer((req, res) => {
   const path = new URL(req.url, 'http://fixture').pathname
+  if(req.method==='POST'&&req.headers['x-fixture-completion']==='1'){
+    let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
+      const request=JSON.parse(body),game=request.identity.game,fault=request.identity.id.slice(7)
+      res.setHeader('Content-Type','application/json');res.end(JSON.stringify(completionEnvelope(game,fault,request)))
+    });return
+  }
+  const completion=/^\/(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)\/recipe-(ok|identity|missing|entry|celebration|reload)$/.exec(path)
+  if(completion){res.setHeader('Content-Type','text/html');return res.end(completionFixture(completion[1],completion[2]))}
+  if(path==='/scenario.css'){res.setHeader('Content-Type','text/css');return res.end(':root{font-synthesis:none}')}
+  const scenario=/^\/(sudoku|suguru|futoshiki|calcudoku|kakuro|shikaku|nonogram|binary)\/scenario-([a-z-]+)$/.exec(path)
+  if(scenario||path==='/privacy'){
+    res.setHeader('Content-Type','text/html; charset=utf-8')
+    return res.end(experienceFixture(scenario?.[1]||'privacy',scenario?.[2]||'ok'))
+  }
   if (path.startsWith('/fixture/new-board/')) {
     const fault = path.split('/').at(-1)
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
@@ -161,6 +257,102 @@ try {
     const launch = () => engine.type.launch({ executablePath: engine.path, headless: true, args: engine.name === 'chromium' && process.platform === 'darwin' ? ['--disable-gpu', '--single-process', '--no-zygote'] : [] })
     let browser
     try {
+      browser=await launch()
+      const scenarioContext=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true})
+      await scenarioContext.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort())
+      const scenarioPage=await scenarioContext.newPage()
+      scenarioPage.setDefaultTimeout(1500)
+      const scenarioReady=new PageReadiness({});scenarioReady.watch(scenarioPage,origin)
+      const openScenario=async(game,fault='ok')=>{
+        if(!scenarioPage.url().startsWith(origin))await scenarioPage.goto(origin)
+        await scenarioPage.evaluate(()=>localStorage.clear()) // controlled fixture setup only
+        await scenarioReady.goto(scenarioPage,origin+'/'+game+'/scenario-'+fault)
+        await scenarioPage.locator('.player-board-frame:visible').waitFor()
+      }
+      const scenarioProof={engine:engine.name,actual:'trusted emulated browser input; controlled fixture, not product/vendor proof',cases:[],witnesses:{}}
+      for(const game of ['sudoku','suguru']){
+        await openScenario(game)
+        scenarioProof.witnesses[game+'-preferences']=await preferenceScenario(scenarioPage,scenarioReady)
+        await captureViewport(fixtureCaptures,output,scenarioPage,engine.name,'mobile',game,'preferences')
+        scenarioProof.cases.push(game+': entry-order and assistance persist')
+      }
+      scenarioProof.witnesses.appearance=await appearanceScenario(scenarioPage,scenarioReady)
+      scenarioProof.cases.push('explicit light/dark/system persists')
+      for(const game of ['sudoku','suguru','futoshiki','calcudoku','kakuro']){
+        await openScenario(game)
+        const proof=await notesScenario(scenarioPage,engine.name,scenarioReady)
+        scenarioProof.witnesses[game+'-notes']=proof
+        assert.equal(proof.input.contacts,engine.name==='chromium'?2:1)
+        assert.equal(proof.status,engine.name==='chromium'?'passed':'partial')
+        await captureViewport(fixtureCaptures,output,scenarioPage,engine.name,'mobile',game,'notes')
+        scenarioProof.cases.push(game+': '+(engine.name==='chromium'?'overlap notes':'sequential notes; overlap unsupported'))
+      }
+      await openScenario('shikaku')
+      const committed=await shikakuScenario(scenarioPage,scenarioReady)
+      scenarioProof.witnesses.shikaku=committed
+      assert.deepEqual(committed.witnesses.map(w=>w.cells),[1,4])
+      await captureViewport(fixtureCaptures,output,scenarioPage,engine.name,'mobile','shikaku','commit')
+      scenarioProof.cases.push('fresh singleton/rectangle, Undo/Redo/reload')
+      await openScenario('nonogram')
+      scenarioProof.witnesses.hint=await hintContinuityScenario(scenarioPage,scenarioReady,'/binary/scenario-ok',state=>captureViewport(fixtureCaptures,output,scenarioPage,engine.name,'mobile','nonogram',state))
+      assert.equal(await scenarioPage.evaluate(()=>window.runnerScenarioDenied===undefined&&window.runnerScenarioStorage===undefined),true,'scenario retained storage hooks')
+      scenarioProof.cases.push('revealed hint survives unrelated native save; same-board dirty conflict preserves both copies')
+      await openScenario('sudoku')
+      const privacy=await privacyScenario(scenarioPage)
+      scenarioProof.witnesses.privacy=privacy
+      assert.equal(privacy.status,'partial')
+      await captureViewport(fixtureCaptures,output,scenarioPage,engine.name,'mobile','sudoku','privacy')
+      for(const state of ['Decline optional','Privacy choices','Close privacy choices']){
+        await activate(scenarioPage,scenarioPage.getByRole('button',{name:state,exact:true}),true,false)
+        await reachablePrivacyControls(scenarioPage)
+      }
+      await scenarioPage.reload({waitUntil:'load'})
+      await reachablePrivacyControls(scenarioPage)
+      scenarioProof.cases.push('first-party privacy UI and controlled CMP initial/declined/reopened/returning states; vendor unverified')
+      for(const [game,fault,action]of [
+        ['sudoku','preference',()=>preferenceScenario(scenarioPage,scenarioReady)],
+        ['sudoku','persistence',()=>preferenceScenario(scenarioPage,scenarioReady)],
+        ['sudoku','appearance',()=>appearanceScenario(scenarioPage,scenarioReady)],
+        ['shikaku','singleton',()=>shikakuScenario(scenarioPage,scenarioReady)],
+        ['nonogram','unrelated',()=>hintContinuityScenario(scenarioPage,scenarioReady,'/binary/scenario-ok',async()=>{})],
+        ['nonogram','conflict',()=>hintContinuityScenario(scenarioPage,scenarioReady,'/binary/scenario-ok',async()=>{})],
+      ]){
+        await openScenario(game,fault)
+        await assert.rejects(action,error=>error instanceof assert.AssertionError,'known scenario defect was accepted: '+fault)
+        scenarioProof.cases.push('rejected '+fault)
+      }
+      if(engine.name==='chromium'){
+        await openScenario('sudoku','lost-note')
+        await assert.rejects(()=>notesScenario(scenarioPage,engine.name,scenarioReady),assert.AssertionError)
+        scenarioProof.cases.push('rejected lost overlapping note')
+      }
+      await openScenario('sudoku','privacy')
+      await assert.rejects(()=>reachablePrivacyControls(scenarioPage),/privacy surface covers/)
+      scenarioProof.cases.push('rejected controlled privacy occlusion')
+      await openScenario('sudoku','witness')
+      await assert.rejects(()=>preferenceScenario(scenarioPage,scenarioReady),BrowserCapabilityError,'missing trusted input entered a source-repair assertion')
+      scenarioProof.cases.push('blocked missing trusted witness as capability, not source repair')
+      if(engine.name==='chromium'){
+        const complete=async game=>{
+          const recipe=await completionRecipe(scenarioPage,game,scenarioReady)
+          return completeRepresentative(scenarioPage,recipe,scenarioReady,()=>captureViewport(fixtureCaptures,output,scenarioPage,'chromium','mobile',game,'solved'))
+        }
+        for(const game of ['sudoku','suguru','nonogram','binary','futoshiki','shikaku','hashi','calcudoku','kakuro']){
+          await scenarioReady.goto(scenarioPage,origin+'/'+game+'/recipe-ok')
+          const proof=await complete(game)
+          scenarioProof.witnesses[game+'-solved']=proof
+          assert.ok(proof.solved&&proof.reloaded&&proof.clicks>0)
+          scenarioProof.cases.push(game+': normal UI completion/celebration/reload (synthetic recipe)')
+        }
+        for(const fault of ['identity','missing','entry','celebration','reload']){
+          await scenarioPage.evaluate(()=>localStorage.clear()) // fixture reset, never candidate state
+          await scenarioReady.goto(scenarioPage,origin+'/sudoku/recipe-'+fault)
+          await assert.rejects(()=>complete('sudoku'),error=>['identity','missing'].includes(fault)?error instanceof BrowserCapabilityError:error instanceof assert.AssertionError)
+          scenarioProof.cases.push('rejected completion '+fault)
+        }
+      }
+      fixtureScenarios.push(scenarioProof)
+      await browser.close();browser=undefined
       for (const width of [320, 360, 390]) {
         browser = await launch()
         const context = await browser.newContext({ viewport: { width, height: 568 }, isMobile: true, hasTouch: true })
@@ -221,7 +413,7 @@ try {
             assert.equal(png.readUInt32BE(16),320)
             assert.equal(png.readUInt32BE(20),568,'capture silently became full-page evidence')
             assert.equal(evidence.viewportImages[0].sha256,createHash('sha256').update(png).digest('hex'))
-            assert.deepEqual(evidence.experienceObservations[0].viewport,[320,568])
+            assert.deepEqual([evidence.viewportImages[0].width,evidence.viewportImages[0].height],[320,568])
             await assert.rejects(captureViewport(evidence,scratch,page,engine.name,'mobile','shikaku','initial'),/fixed matrix/)
           } finally {fs.rmSync(scratch,{recursive:true,force:true})}
         }
@@ -543,7 +735,7 @@ try {
     assert.equal(empty.admissionBackoffs.bytes, 2)
     assert.equal(fs.readFileSync(scratch + '/admission-backoffs.json', 'utf8'), '[]')
     const audit = Array.from({ length: 576 }, (_, i) => auditRow(i))
-    const receipt = { contract: 2, geometry: Array.from({ length: 462 }, (_, i) => ({ engine: i % 2 ? 'webkit' : 'chromium', width: [320, 360, 390][i % 3], key: 'nonogram:25:0:0:clues:30:13', path: '/nonogram/ngm1-25-hard-' + i, board: { x: 8, y: 80, width: 304, height: 304 }, verifiedZoom: true })) }
+    const receipt = { contract: 2, fixtureScenarios, ...fixtureCaptures, geometry: Array.from({ length: 462 }, (_, i) => ({ engine: i % 2 ? 'webkit' : 'chromium', width: [320, 360, 390][i % 3], key: 'nonogram:25:0:0:clues:30:13', path: '/nonogram/ngm1-25-hard-' + i, board: { x: 8, y: 80, width: 304, height: 304 }, verifiedZoom: true })) }
     assert.ok(Buffer.byteLength(JSON.stringify({ ...receipt, admissionBackoffs: audit })) > 128 * 1024, 'fixture does not exercise the former receipt capacity failure')
     saveBrowserReceipt(scratch, receipt, audit)
     const raw = fs.readFileSync(scratch + '/receipt.json'), sidecar = fs.readFileSync(scratch + '/admission-backoffs.json')
@@ -560,7 +752,7 @@ try {
     assert.equal(maximum.admissionBackoffs.count, 1024, 'maximum admitted audit count was rejected')
     // The container archives this same full synthetic audit to exercise transport
     // and the owning Go digest/size/count validation, as well as both engines.
-    if (process.argv[2]) saveBrowserReceipt(process.argv[2], { contract: 2, mode: 'readiness' }, audit)
+    if (process.argv[2]) saveBrowserReceipt(process.argv[2], { contract: 2, mode: 'readiness', fixtureScenarios, ...fixtureCaptures }, audit)
   } finally { fs.rmSync(scratch, { recursive: true, force: true }) }
   console.log('PASS: both engines; strict touch/state/geometry; transport failures before and after headers; bounded canonical backoff; 576 full audit rows within unchanged receipt/archive caps')
-} finally { await new Promise(resolve => server.close(resolve)) }
+} finally { await new Promise(resolve => server.close(resolve));if(temporaryOutput)fs.rmSync(output,{recursive:true,force:true}) }

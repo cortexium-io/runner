@@ -45,6 +45,55 @@ three control tools above. Local authentication is linked, never copied between
 hosts or staged into review evidence. This maintenance does not execute an
 intake or create a product run.
 
+## Producer upgrade and retained source boundary, 12 November 2026
+
+The mobile run admitted under policy
+`3d5f16c27943b9f1b8ae63a71718478e0f096df611739162e58d875303b41ee0`
+retains that operator policy and its frozen process. A prepared browser-producer
+update is not a supported hot swap. The operator hashes the resolved configuration,
+including its immutable browser image. Reconciliation of an existing operation
+requires its saved policy. Existing predecessor handles authenticate the accepted
+private journal and exact public receipt. Readiness alone is not a migration grant.
+
+Card-owner work is source implementation; its patch/summary and internal source
+pin can accurately report unexecuted browser coverage. Checks, source review and
+built-image qualification belong to later stages. A source-only card may finish,
+but publication is contingent on its normal card and source-review outcomes.
+Before publication, card pins and partial work are preserved inside Runner and
+are not accepted publication handles. No configured operation rewrites or skips
+an accepted card to accommodate a producer change.
+
+For a settled failure, normal configured retries/corrections may apply only to
+their exact eligible failure, within the original completion reserve. An explicit
+within-budget retry is root-only and preserves frozen definitions. Correction
+recovery requires an exhausted eligible returned source rejection; its forensic
+preservation option applies only to positively owned blocked source cleanup.
+Collection recovery applies only to its recognized evidence-collection failure.
+None transfers unpublished card pins to a new policy/process. Do not manufacture
+a receipt or copy source into a substitute worker. A failed run can remain retained
+without losing its accepted pins or authorizing another execution.
+
+After an accepted draft publication exists, retained adoption requires the exact
+unaltered public publication receipt, original run and publication key, policy
+hash, source/patch artifacts and immutable PR/head/base. The owning journal and
+live owned PR/ref must still match. A configured `retained_publication_transition`
+durably claims one new run/attempt and strips prior build/qualification authority;
+it never reuses approvals. The existing `deliver-planned-retained-frontend`
+definition lacks the independent experience review and mandatory native suffix.
+It cannot replace the current complete mobile process. A gate-preserving retained
+continuation definition would require a separate bounded owner decision and
+qualification; this producer maintenance does not add one.
+
+The existing same-run `qualification_transition` is narrower: a settled,
+nonretryable browser **admission** failure, exact accepted publication, failed
+qualification key and report SHA, original policy and PR/head/base. It cannot
+upgrade a card-stage run or repair missing scenario/vendor/native capability.
+There is currently no general supported policy migration for that active run.
+If publication never occurs, no retained-publication route applies. The minimal
+remaining decision is whether to authorize a bounded gate-preserving continuation
+for the actually retained state once settled; its source preservation and exact
+admission contract must be specified before implementation or execution.
+
 ## Coordinator boundaries
 
 The coordinator may:

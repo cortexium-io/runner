@@ -30,6 +30,80 @@ process: native Safari remains stopped pending safe host isolation and trusted
 input proof. Do not switch the installed pilot or use this runtime to imply
 native/physical Safari acceptance.
 
+The prepared 12 November producer follow-up adds fixed observations in those
+same profiles. It does not load repository `*.browser.cjs` or
+`*.runner-browser.js` files. Sudoku/Suguru entry order and unrelated assistance
+settings are exercised in both directions and across reload; explicit
+Light/Dark/System appearance is persisted, with System's media response observed.
+Notes in Sudoku, Suguru, Futoshiki, Calcudoku and Kakuro use two concurrent trusted
+Chromium CDP contacts, passive `isTrusted` pointer counts, exact visible/saved
+notes, Undo/Redo and reload. WebKit proves sequential taps only and retains an
+explicit simultaneous-contact capability gap. Existing zoom, drag, cancellation and all advertised geometry journeys are
+retained. These new observations do not establish hold/highlight acceptance.
+
+Fresh Shikaku singleton and rectangle commits use actual two-corner/Add controls
+and verify exact coverage/history/reload. Nonogram reveals an actionable hint,
+observes an unrelated save in a second page in the same browser context and
+requires the revealed content and board to survive. A separately labeled
+page-local write-denial fixture creates dirty local progress; a real competing
+save must retain both copies, expose replacement recovery and retire the stale
+hint. The hook is restored and the owned second page closed in `finally`.
+
+Representative completion runs through ordinary Chromium mouse UI in all nine
+families. During a normal reopen in the existing fresh support profile, a bounded
+observer reads the same native admission publication the candidate UI consumes.
+It binds request, origin, game, canonical code/revision, definition/answer digest
+and visible geometry. Fixed cell/mark, rectangle and bridge actions enter the
+admitted answer; there is no solver, direct API request, storage/success injection
+or arbitrary recipe input. Actual solved status and celebration must appear,
+View board is activated, and saved plus visible solved progress must survive
+reload. A viewport crop records that actual result. Native-image qualification
+owns answer validity; these observations prove entry and completion behavior.
+Missing or changed admission schemas remain capability gaps. Synthetic recipe
+fixtures qualify the producer, never a candidate's nine solved results.
+
+First-party privacy navigation and absence of optional tags at the ineligible
+loopback origin are observed. Controlled CMP fixtures exercise initial, declined,
+reopened and returning UI plus covered controls. Neither establishes real vendor
+behavior. Current origin-only routing and the candidate's network `none` remain
+unchanged. Real CMP proof additionally requires the application's canonical
+`https://jacksbreak.com` origin, enabled `jacks-google` meta flag and vendor traffic.
+The unenabled proposal is an owned disposable canonical-origin/TLS mapping with
+only GET
+`https://fundingchoicesmessages.google.com/i/pub-6251559185872178?ers=1`
+initially allowed; redirects and other subresources stay denied and their bounded
+host/path/status facts inform an explicit scope decision. Analytics and ads stay
+denied. Required vendor dependencies, region/state coverage and isolated resource
+ownership need approval before implementation. No general egress, production
+identity/data, personal profile or consent bypass follows from the proposal.
+
+Missing contracts emit `BrowserCapabilityError`/blocked scenario facts; they do
+not consume source-repair loops. Proven mismatches in available UI contracts use
+the existing assertion/correction path and require fresh downstream checks and
+qualification. The independent experience reviewer must block absent actionable
+proof, including vendor and native gaps. The follow-up is prepared separately
+from active `42dc660` / browser `7eee84d4…`; no policy or live runtime cutover is
+part of it. See [the continuation boundary](../../../docs/coordinator.md#producer-upgrade-and-retained-source-boundary-12-november-2026).
+
+Prepared dependency qualified on disposable containers (not activated):
+`sha256:bca52cb69d0107c789ff0450df4c324bdbb1e2521bb1af747541d1c3afd134b9`,
+driver `86a951b5228a6b98344da705e8e6c26602f4ecb007117bff271eff4cdc5f5dbd`.
+Both-engine readiness passed in 106.91s and observed-dispatch cancellation in
+3.04s. The retained fixture records 34 Chromium and 19 WebKit case results,
+including nine Chromium completion paths, both solved-status forms and rejection
+of unavailable trusted input as a capability gap. Its 31 actual viewport images
+are synthetic maintenance evidence. Existing independent image-review/native
+input proofs are reused; no new model fixture or native-host attempt was made.
+
+The prepared capture matrix has at most 155 images in the existing 46 profiles.
+The final phone crop also records the tablet-to-phone transition; duplicate crops
+and repeated metadata are omitted. PNG dimensions must equal the observed CSS
+viewport before those dimensions are stored once. Fixed scenario witnesses have
+a 12KiB allocation inside the unchanged 128KiB receipt cap. The recorded metadata
+projection is 127,325 bytes, not a candidate execution or universal size guarantee.
+Actual receipt and 16MiB artifact guards remain authoritative; insufficient
+capacity fails without truncation, allowance changes or dropped obligations.
+
 The browser container is nonroot with a read-only root, no added capabilities,
 no new privileges, private IPC/shared memory and bounded tmpfs. It has no host
 mounts, socket, credentials, exposed ports or external network. Readiness uses

@@ -308,7 +308,7 @@ func extractBrowserEvidence(data []byte, output string) error {
 		} else if h.Name == browserAdmissionFile {
 			limit = maxBrowserAdmissionBytes
 		}
-		if h.Typeflag != tar.TypeReg || len(h.PAXRecords) > 0 || !regexp.MustCompile(`^(receipt\.json|admission-backoffs\.json|failure\.png|(chromium|webkit)-(desktop|mobile)-(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)((-(chooser-dark|initial|largest-light|landscape|tablet-phone|hint))?-viewport)?\.png)$`).MatchString(h.Name) || seen[h.Name] || len(seen) >= MaxExperienceImages+39 || h.Size < 0 || h.Size > limit || total+h.Size > 64<<20 {
+		if h.Typeflag != tar.TypeReg || len(h.PAXRecords) > 0 || !regexp.MustCompile(`^(receipt\.json|admission-backoffs\.json|failure\.png|(chromium|webkit)-(desktop|mobile)-(sudoku|suguru|nonogram|binary|futoshiki|shikaku|hashi|calcudoku|kakuro)((-(chooser-dark|initial|largest-light|landscape|tablet-phone|hint|preferences|notes|commit|privacy|hint-conflict|solved))?-viewport)?\.png)$`).MatchString(h.Name) || seen[h.Name] || len(seen) >= MaxExperienceImages+39 || h.Size < 0 || h.Size > limit || total+h.Size > 64<<20 {
 			return errors.New("browser evidence contains an unexpected, duplicated or oversized entry")
 		}
 		seen[h.Name] = true

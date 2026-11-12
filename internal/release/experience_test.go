@@ -55,6 +55,19 @@ func TestExperienceBundleRejectsMissingChangedAndForeignEvidence(t *testing.T) {
 	if ExperienceAcceptance(manifest, "APPROVE") == nil {
 		t.Fatal("a screenshot verdict waived mandatory native Safari")
 	}
+	t.Run("fixed scenario vocabulary", func(t *testing.T) {
+		m, f, _ := DecodeExperienceBundle(data, receipt)
+		for _, state := range []string{"preferences", "notes", "commit", "privacy", "hint-conflict", "solved"} {
+			row := m.Images[0]
+			row.Name = "chromium-mobile-sudoku-" + state + "-viewport.png"
+			f[row.Name] = f[m.Images[0].Name]
+			m.Images = append(m.Images, row)
+		}
+		f["experience.json"], _ = json.Marshal(m)
+		if _, _, err := DecodeExperienceBundle(experienceArchive(t, f), receipt); err != nil {
+			t.Fatal("declared fixed scenario evidence cannot be consumed", err)
+		}
+	})
 	for _, change := range []string{"foreign receipt", "missing", "changed", "path", "wrong dimensions", "physical claim", "native claim", "truncated", "extra"} {
 		t.Run(change, func(t *testing.T) {
 			m, f, _ := DecodeExperienceBundle(data, receipt)

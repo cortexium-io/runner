@@ -11,9 +11,11 @@ across real projects. Merge and production remain owner-approved actions.**
 The owner approved a bounded addition to future `deliver-planned-frontend`
 definitions: built-image qualification, authenticated evidence export, independent
 read-only product-experience review, then a mandatory evidence gate before
-protected merge preparation. This implementation is **held, not an installed or
-qualified complete process**. Existing saved processes and the installed pilot
-remain unchanged. No product repair or new product run is part of maintenance.
+protected merge preparation. Orchestrator activated the qualified `42dc660`
+runtime and `7eee84d4…` browser image after disposable configuration validation.
+Implementation, checks, source review and draft publication can proceed while
+the mandatory downstream native gate remains closed. This maintenance owner
+started no product work. Saved historical definitions remain frozen.
 
 The operator exports only fixed viewport PNG names and its bounded browser
 receipt, authenticated against the accepted qualification journal, package
@@ -30,10 +32,16 @@ Visual corrections share qualification's existing three-use counter; the root
 
 The fixed driver adds actual viewport crops of all nine families, initial and
 largest boards, dark chooser, landscape and tablet-to-phone states, with existing
-trusted emulated input/state evidence. It explicitly records missing native,
-physical, preference, overlap/notes, singleton and hint/two-tab proof. These
-observations do not establish F01–F15 product acceptance. Ordinary changed
-frontend regression tests continue through existing frontend-check discovery.
+trusted emulated input/state evidence. The separately prepared producer follow-up
+adds fixed preference/reload, overlapping Chromium notes, fresh Shikaku commits,
+hint/two-tab conflict and first-party privacy observations plus representative
+normal-UI Chromium completion/reload in all nine families. Its recipes observe
+the candidate UI's existing admitted publication, never execute repository browser
+scripts or inject success. Synthetic fixtures qualify this producer contract;
+actual candidate execution and independent image judgment remain required.
+WebKit overlap, real vendor privacy, native and physical Safari remain explicit
+capability gaps. Ordinary changed frontend regression tests continue through
+existing frontend-check discovery. No product defect is declared fixed here.
 
 Simulator Safari is unqualified. A native preflight reached Safari 26.5 but did
 not establish trusted input. The installed Appium initializer subsequently wrote
@@ -50,8 +58,13 @@ rapid-tap zoom remains a separate unproven acceptance condition.
 The independent evidence transport, authentic export, correction routing and
 image judgment are qualified on disposable resources. Canonical private evidence
 is `/Users/dan/.codex/jbg31/coordinator/mobile-qualification-20261111`.
-Installation/default cutover and a product submission must wait for the complete
-required lane. See the [staging and intake contract](coordinator.md#mobile-evidence-intake-held).
+The activated evidence lane does not waive native acceptance. The prepared
+producer follow-up changes no live runtime or policy. A new immutable image changes
+the operator policy and cannot silently migrate the active frozen run; publication
+is contingent, and current retained process definitions lack the new gate suffix.
+See the [staging contract](coordinator.md#mobile-evidence-intake-and-native-gate),
+[exact continuation boundary](coordinator.md#producer-upgrade-and-retained-source-boundary-12-november-2026)
+and [fixed producer contracts](../internal/release/browser-runtime/README.md).
 
 ### Release closure, authorized 8 November 2026
 

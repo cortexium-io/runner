@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import assert from 'node:assert/strict'
-import { captureViewport as captureExperienceViewport, settleViewport } from './browser_experience.mjs'
+import { captureViewport as captureExperienceViewport, settleViewport, BrowserCapabilityError, preferenceScenario, appearanceScenario, notesScenario, shikakuScenario, hintContinuityScenario, privacyScenario, completionRecipe, completeRepresentative } from './browser_experience.mjs'
 import { pathToFileURL } from 'node:url'
 import { PageReadiness, saveBrowserReceipt } from './browser_render.mjs'
 import { contractVersion, games, mobileViewports, geometryCases, verifyPlayArea, activate, editAndRestore, playMetrics, prepareShikakuTouch, savedState, renderedState, assertSavedState, assertRenderedState, observeAdmission } from './browser_contract.mjs'
@@ -12,11 +12,22 @@ const largeShikaku = cases.filter(row=>row.game==='shikaku').reduce((a,b)=>a.siz
 const receipt = { contract: contractVersion, origin, mockedResponses: false, headless: true, engines: [], journeys: [], geometry: [], complete: false, limitations: ['Headless touch emulation is not a physical iOS/Android device check.', 'Playwright WebKit exposes native taps but no public native touch-drag API; its complete two-corner Shikaku path is verified.'] }
 receipt.viewportImages = []
 receipt.experienceObservations = []
-receipt.experienceGaps = ['Simulator Safari and physical Red Head rapid-tap zoom are unqualified.', 'System color-scheme emulation is not proof of explicit appearance/preference persistence.', 'Privacy-widget presence/expanded state, overlapping contacts, notes and entry-order persistence, Shikaku singleton commits and hint/two-tab continuity require their own actionable current observations; source tests alone do not establish every browser condition.']
+receipt.experienceGaps = ['Simulator Safari and physical Red Head rapid-tap zoom are unqualified.', 'Real CMP/vendor privacy states are not proved by first-party loopback UI or controlled fixtures; canonical origin and restricted vendor egress are unavailable.', 'WebKit trusted simultaneous-contact input is unsupported; sequential notes are separate proof.']
+receipt.experienceScenarios = []
 fs.mkdirSync(output, { recursive: true })
 const readiness = new PageReadiness(receipt, process.env.RUNNER_BROWSER_DEADLINE_MS ? Number(process.env.RUNNER_BROWSER_DEADLINE_MS) : null)
 const save = () => saveBrowserReceipt(output, receipt, readiness.admissionBackoffs)
 const captureViewport = (...args) => captureExperienceViewport(receipt,output,...args)
+const scenario = async (engine,game,name,action) => {
+  receipt.current.phase='fixed scenario: '+name
+  let proof
+  try { proof=await action() } catch(error) {
+    if(!(error instanceof BrowserCapabilityError))throw error
+    proof={status:'blocked',gap:error.message}
+  }
+  receipt.experienceScenarios.push({engine,game,case:name,status:'passed',...proof})
+  if(Buffer.byteLength(JSON.stringify(receipt.experienceScenarios))>12*1024)throw new BrowserCapabilityError('fixed scenario witnesses exceed 12 KiB within the receipt bound')
+}
 const largestCases = new Map()
 for (const sample of cases) if (!largestCases.has(sample.game) || largestCases.get(sample.game).cells < sample.cells) largestCases.set(sample.game, sample)
 const launch = engine => engine.type.launch({ executablePath: engine.executable, headless: true, args: engine.name === 'chromium' && process.platform === 'darwin' ? ['--disable-gpu', '--single-process', '--no-zygote'] : [] })
@@ -136,6 +147,7 @@ try {
         supportBrowser = await launch(engine)
         receipt.current.phase = 'hint and print support profile'
         const supportContext = await newProfile(supportBrowser, { ignoreHTTPSErrors: true, viewport: { width: device.width, height: device.height }, isMobile: device.touch, hasTouch: device.touch })
+        await instrument(supportContext)
         await supportContext.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort())
         const support = await supportContext.newPage(); lastPage = support; support.setDefaultTimeout(20000); readiness.watch(support, origin)
         await readiness.board(support, origin + record.path)
@@ -148,7 +160,7 @@ try {
           assert.equal((await response).status(), 200, 'hint HTTP: ' + game)
           await support.getByRole('heading', { name: 'Why this move?', exact: true }).waitFor({ state: 'visible' })
           record.states.push('checked hint reason')
-          if (device.touch) await captureViewport(support,engine.name,device.name,game,'hint')
+          if (device.touch && game !== 'Nonogram') await captureViewport(support,engine.name,device.name,game,'hint')
         }
         receipt.current.phase = 'print preview'
         await activate(support, support.getByRole('button', { name: 'Print board', exact: true }), device.touch, false)
@@ -156,10 +168,37 @@ try {
         await support.frameLocator('iframe[title="Printable board preview"]').locator('table, svg').first().waitFor({ state: 'visible' })
         await activate(support, support.getByRole('button', { name: 'Close preview', exact: true }), device.touch)
         record.states.push('print preview')
+        if(device.touch){
+          if(game==='Nonogram')await scenario(engine.name,game,'hint-continuity',()=>hintContinuityScenario(support,readiness,cases.find(row=>row.game==='binary')?.path,state=>captureViewport(support,engine.name,'mobile',game,state)))
+          if(['Sudoku','Suguru'].includes(game))await scenario(engine.name,game,'entry-preferences',async()=>{
+            const proof=await preferenceScenario(support,readiness)
+            if(game==='Sudoku')proof.appearance=await appearanceScenario(support,readiness,()=>captureViewport(support,engine.name,'mobile',game,'preferences'))
+            else await captureViewport(support,engine.name,'mobile',game,'preferences')
+            return proof
+          })
+          if(['Sudoku','Suguru','Futoshiki','Calcudoku','Kakuro'].includes(game))await scenario(engine.name,game,'contact-notes',async()=>{
+            const proof=await notesScenario(support,engine.name,readiness)
+            await captureViewport(support,engine.name,'mobile',game,'notes')
+            return proof
+          })
+          if(game==='Shikaku')await scenario(engine.name,game,'fresh-commits',async()=>{
+            const proof=await shikakuScenario(support,readiness)
+            await captureViewport(support,engine.name,'mobile',game,'commit')
+            return proof
+          })
+          if(game==='Sudoku')await scenario(engine.name,game,'privacy',async()=>{
+            const proof=await privacyScenario(support)
+            await captureViewport(support,engine.name,'mobile',game,'privacy')
+            return proof
+          })
+        }
+        if(engine.name==='chromium'&&!device.touch)await scenario(engine.name,game,'representative-solved',async()=>{
+          const recipe=await completionRecipe(support,game.toLowerCase(),readiness)
+          return completeRepresentative(support,recipe,readiness,()=>captureViewport(support,engine.name,'desktop',game,'solved'))
+        })
         readiness.assertNoErrors(support)
         await supportBrowser.close(); supportBrowser = undefined; lastPage = page
         receipt.current.phase = 'screenshot'
-        await captureViewport(page,engine.name,device.name,game)
         if (device.touch) {
           const before=await savedState(page)
           await page.setViewportSize({width:844,height:390}); await settleViewport(page)
@@ -167,11 +206,13 @@ try {
           await page.setViewportSize({width:768,height:1024}); await settleViewport(page)
           const tablet=await playMetrics(page)
           await page.setViewportSize({width:390,height:844}); await settleViewport(page)
-          await captureViewport(page,engine.name,'mobile',game,'tablet-phone')
+          // The base crop is now the actual final tablet-to-phone viewport;
+          // avoid a second copy of the same screen while reserving case images.
+          await captureViewport(page,engine.name,'mobile',game)
           receipt.experienceObservations.at(-1).tabletBoard=tablet.board
           assertSavedState(await savedState(page),before,'viewport transitions changed saved progress',{phase:'experience viewport transition',path:record.path})
           await page.setViewportSize({width:device.width,height:device.height}); await settleViewport(page)
-        }
+        } else await captureViewport(page,engine.name,device.name,game)
         await page.screenshot({ path: `${output}/${engine.name}-${device.name}-${game.toLowerCase()}.png`, fullPage: true })
         save()
       }

@@ -25,7 +25,7 @@ func browser429DiagnosticFixture() map[string]any {
 }
 
 func TestLegacyBrowserFailureFeedbackKeepsInfrastructureRoutingAndSafeNote(t *testing.T) {
-	for _, failure := range []string{"Error: HTTP429 PRIVATE_FAILURE\nPRIVATE_STACK", "AssertionError: saved board differs"} {
+	for _, failure := range []string{"Error: HTTP429 PRIVATE_FAILURE\nPRIVATE_STACK", "BrowserCapabilityError: missing trusted scenario witness", "AssertionError: saved board differs"} {
 		data, err := json.Marshal(map[string]any{"failure": failure, "failureDiagnostic": browser429DiagnosticFixture(), "failureContext": map[string]any{"engine": "chromium", "device": "mobile", "game": "Shikaku", "path": "/shikaku/fixture"}})
 		if err != nil {
 			t.Fatal(err)
