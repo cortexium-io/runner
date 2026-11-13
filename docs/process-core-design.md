@@ -161,7 +161,9 @@ This adds no dispatcher, replay, timeout, reserve or resource allowance.
 
 The existing short cleanup observations/lost-ACK/restart/claim lifecycle is reused.
 Older e7fc030 workers refuse v2 before claim; v1 cleanup can continue only under
-its existing authenticated reserve and has no fabricated readback record. No
+its existing authenticated reserve and has no fabricated readback record. Busy v1
+writers use the same durable-work classification as v2; an actual held-writer
+reopen regression preserves their exact claim/deadline and proves one settlement. No
 historical work is upgraded or source execution replayed. Preserve matching
 Core/operator and journals/checkpoints; do not downgrade over v2 work or rewind
 usage/state. These local process/stream and simulated-worker proofs establish

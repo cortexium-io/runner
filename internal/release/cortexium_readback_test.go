@@ -405,3 +405,65 @@ func TestCortexiumReadbackHeaderIsDurableBeforeShortObservationReturns(t *testin
 		t.Fatal("cancel/failure facts lost", err, final)
 	}
 }
+
+func TestCortexiumV1ActiveCleanupRejoinsSameWriterClaimAndDeadline(t *testing.T) {
+	o, b, workers := cleanupOperatorFixture(t)
+	j := cleanupSavedJob(t, o, "run_v1_active", "attempt_v1_active")
+	var original deliveryWork
+	data, err := os.ReadFile(j.Worker)
+	if err != nil || json.Unmarshal(data, &original) != nil {
+		t.Fatal(err)
+	}
+	original.Kind = cortexiumLegacyWorkKind
+	if err := writeJSON(j.Worker, original); err != nil {
+		t.Fatal(err)
+	}
+	cleanupEngine(t, workers, []Job{j}, map[string]bool{j.Request.Key: true})
+	r, err := o.Call(t.Context(), j.Request)
+	if err != nil || r.State != "running" || !r.Reconciling {
+		t.Fatal("v1 cleanup did not start within original reserve", r, err)
+	}
+	cleanupWaitFile(t, filepath.Join(workers.root, j.Request.Key+"-entered"))
+	root := filepath.Dir(j.Worker)
+	spec, err := os.ReadFile(filepath.Join(root, "cleanup.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := os.ReadFile(filepath.Join(root, "cleanup-started"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := loadCortexium(b.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened.Backend.(*Live).launchDeliveryWorker = workers.launch
+	for range 3 {
+		short, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		started := time.Now()
+		observed, err := reopened.Call(short, j.Request)
+		cancel()
+		if err != nil || observed.State != "running" || !observed.Reconciling || time.Since(started) > 500*time.Millisecond {
+			t.Fatal("authenticated busy v1 writer was blocked or replaced", observed, err)
+		}
+	}
+	after, _ := os.ReadFile(filepath.Join(root, "cleanup.json"))
+	afterClaim, _ := os.ReadFile(filepath.Join(root, "cleanup-started"))
+	if !bytes.Equal(spec, after) || !bytes.Equal(claim, afterClaim) || workers.count() != 1 {
+		t.Fatal("v1 rejoin renewed reserve/claim or replayed cleanup")
+	}
+	if err := os.WriteFile(filepath.Join(workers.root, j.Request.Key+"-release"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	done := cleanupFinish(t, reopened, j.Request)
+	if !done.Done || !done.Failed || done.Failure != j.Failure || done.Receipt.CortexiumReadbackSHA256 != "" {
+		t.Fatal("v1 settlement changed failure or invented copy proof", done)
+	}
+	if _, err := os.Stat(readbackFile(&done)); !os.IsNotExist(err) {
+		t.Fatal("v1 history gained a readback record", err)
+	}
+	calls, _ := os.ReadFile(filepath.Join(workers.root, j.Request.Key+"-calls"))
+	if string(calls) != "remove\n" {
+		t.Fatal("v1 effects duplicated", string(calls))
+	}
+}

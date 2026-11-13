@@ -189,7 +189,7 @@ func (b *Live) cortexiumDelivery(j *Job, save func() error) error {
 	}
 	defer lease.Close()
 	if err = lockOperator(lease); errors.Is(err, errOperatorBusy) {
-		if original.Kind != cortexiumWorkKind {
+		if !cortexiumDurableWork(original.Kind) {
 			_ = cortexiumCleanupAttention(j, errors.New("older active work has no durable cleanup contract"))
 			j.Reason += "; owned writer lease remains active"
 			return errors.New(j.Reason)
