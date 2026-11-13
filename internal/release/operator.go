@@ -83,6 +83,8 @@ type Receipt struct {
 	BrowserEvidenceSHA256 string                 `json:"browser_evidence_sha256,omitempty"`
 	PublicationRunID      string                 `json:"publication_run_id,omitempty"`
 	PublicationKey        string                 `json:"publication_key,omitempty"`
+
+	CortexiumReadbackSHA256 string `json:"cortexium_readback_sha256,omitempty"`
 }
 type Job struct {
 	CortexiumCleanupDeadline int64   `json:"cortexium_cleanup_deadline,omitempty"`

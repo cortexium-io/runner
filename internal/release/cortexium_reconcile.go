@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	cortexiumWorkKind              = "cortexium-browser-v1"
+	cortexiumWorkKind              = "cortexium-browser-v2"
+	cortexiumLegacyWorkKind        = "cortexium-browser-v1"
 	cortexiumCleanupKind           = "cortexium-cleanup-v1"
 	cortexiumCleanupTime           = 45 * time.Second
 	cortexiumCleanupPending        = "cortexium_cleanup_pending"
@@ -26,6 +27,10 @@ type cortexiumCleanupBinding struct {
 	OriginalSHA256 string `json:"original_sha256"`
 	StartedAt      int64  `json:"started_at"`
 	Deadline       int64  `json:"deadline"`
+}
+
+func cortexiumDurableWork(kind string) bool {
+	return kind == cortexiumWorkKind || kind == cortexiumLegacyWorkKind
 }
 
 func (b *Live) startCortexiumWorker(file string, lease *os.File) error {
@@ -54,7 +59,7 @@ func (b *Live) cortexiumOriginal(j *Job) (deliveryWork, []byte, error) {
 		return original, nil, errors.New("Cortexium saved work is malformed")
 	}
 	observed, _ := json.Marshal(original.Config)
-	if string(config) != string(observed) || original.Kind != "" && original.Kind != cortexiumWorkKind || original.Cleanup != nil || original.Job.Worker != want || !sameCortexiumRequest(original.Job.Request, j.Request) || original.Job.Receipt.Policy != Digest(config) || original.Job.Receipt.Policy != j.Receipt.Policy || original.Job.CortexiumDeadline <= 0 || original.Job.CortexiumDeadline != j.CortexiumDeadline || original.Job.CortexiumDeadline > j.Request.Cortexium.Deadline {
+	if string(config) != string(observed) || original.Kind != "" && !cortexiumDurableWork(original.Kind) || original.Cleanup != nil || original.Job.Worker != want || !sameCortexiumRequest(original.Job.Request, j.Request) || original.Job.Receipt.Policy != Digest(config) || original.Job.Receipt.Policy != j.Receipt.Policy || original.Job.CortexiumDeadline <= 0 || original.Job.CortexiumDeadline != j.CortexiumDeadline || original.Job.CortexiumDeadline > j.Request.Cortexium.Deadline {
 		return original, nil, errors.New("Cortexium saved work ownership differs")
 	}
 	return original, data, nil
@@ -70,7 +75,7 @@ func (b *Live) loadCortexiumCleanup(j *Job) (deliveryWork, []byte, error) {
 	if err != nil {
 		return cleanup, nil, err
 	}
-	if json.Unmarshal(data, &cleanup) != nil || cleanup.Kind != cortexiumCleanupKind || cleanup.Cleanup == nil || original.Kind != cortexiumWorkKind {
+	if json.Unmarshal(data, &cleanup) != nil || cleanup.Kind != cortexiumCleanupKind || cleanup.Cleanup == nil || !cortexiumDurableWork(original.Kind) {
 		return cleanup, nil, errors.New("Cortexium cleanup contract differs")
 	}
 	binding := cleanup.Cleanup
@@ -78,6 +83,14 @@ func (b *Live) loadCortexiumCleanup(j *Job) (deliveryWork, []byte, error) {
 	want, _ := json.Marshal(b.Config)
 	if string(config) != string(want) || binding.OriginalSHA256 != Digest(source) || !sameCortexiumRequest(cleanup.Job.Request, j.Request) || cleanup.Job.Worker != j.Worker || cleanup.Job.Receipt.Policy != j.Receipt.Policy || cleanup.Job.CortexiumDeadline != j.CortexiumDeadline || cleanup.Job.CortexiumCleanupDeadline != binding.Deadline || j.CortexiumCleanupDeadline != 0 && j.CortexiumCleanupDeadline != binding.Deadline || binding.StartedAt <= 0 || binding.StartedAt > time.Now().UnixNano() || binding.Deadline <= binding.StartedAt || binding.Deadline > time.Unix(0, binding.StartedAt).Add(cortexiumCleanupTime).UnixNano() || binding.Deadline > time.Unix(0, j.CortexiumDeadline).Add(cortexiumCleanupTime).UnixNano() {
 		return cleanup, nil, errors.New("Cortexium cleanup identity or original budget differs")
+	}
+	if original.Kind == cortexiumWorkKind {
+		if j.Receipt.CortexiumReadbackSHA256 != "" && j.Receipt.CortexiumReadbackSHA256 != cleanup.Job.Receipt.CortexiumReadbackSHA256 {
+			return cleanup, nil, errors.New("Cortexium cleanup copy digest changed")
+		}
+		if _, err := b.cortexiumReadbackReport(&cleanup.Job); err != nil {
+			return cleanup, nil, err
+		}
 	}
 	return cleanup, data, nil
 }
@@ -88,6 +101,7 @@ func (b *Live) prepareCortexiumCleanup(j *Job) (deliveryWork, error) {
 	cleanup, _, err := b.loadCortexiumCleanup(j)
 	if err == nil {
 		j.CortexiumCleanupDeadline = cleanup.Cleanup.Deadline
+		j.Receipt.CortexiumReadbackSHA256 = cleanup.Job.Receipt.CortexiumReadbackSHA256
 		if j.Failure == "" {
 			j.Failure = cleanup.Job.Failure
 		}
@@ -100,11 +114,14 @@ func (b *Live) prepareCortexiumCleanup(j *Job) (deliveryWork, error) {
 	if err != nil {
 		return cleanup, err
 	}
-	if original.Kind != cortexiumWorkKind || j.CortexiumCleanupDeadline != 0 || j.CortexiumCleanupFailure != "" {
+	if !cortexiumDurableWork(original.Kind) || j.CortexiumCleanupDeadline != 0 || j.CortexiumCleanupFailure != "" {
 		return cleanup, errors.New("Cortexium work has no established unused cleanup budget; needs operator")
 	}
 	if _, err := os.Lstat(filepath.Join(filepath.Dir(j.Worker), "cleanup-started")); !errors.Is(err, os.ErrNotExist) {
 		return cleanup, errors.New("Cortexium cleanup claim exists without its immutable spec; needs operator")
+	}
+	if err := b.sealCortexiumReadback(j); err != nil {
+		return cleanup, err
 	}
 	now := time.Now()
 	deadline := min(now.Add(cortexiumCleanupTime).UnixNano(), time.Unix(0, j.CortexiumDeadline).Add(cortexiumCleanupTime).UnixNano())
@@ -186,6 +203,7 @@ func (b *Live) cortexiumDelivery(j *Job, save func() error) error {
 			}
 			j.CortexiumCleanupDeadline = cleanup.Cleanup.Deadline
 			j.Failure, j.Failed = cleanup.Job.Failure, cleanup.Job.Failed
+			j.Receipt.CortexiumReadbackSHA256 = cleanup.Job.Receipt.CortexiumReadbackSHA256
 			if time.Now().UnixNano() >= cleanup.Cleanup.Deadline {
 				_ = cortexiumCleanupAttention(j, errors.New("saved cleanup deadline exhausted while its writer lease remains active"))
 				j.Reason += "; owned writer lease remains active"
@@ -227,6 +245,11 @@ func (b *Live) cortexiumDelivery(j *Job, save func() error) error {
 		*j = result
 		if j.Done {
 			if original.Kind == cortexiumWorkKind {
+				if _, err := b.cortexiumReadbackReport(j); err != nil {
+					return cortexiumCleanupAttention(j, err)
+				}
+			}
+			if cortexiumDurableWork(original.Kind) {
 				if j.Phase != cortexiumCleanupSettled {
 					return cortexiumCleanupAttention(j, errors.New("Cortexium result lacks settled cleanup phase"))
 				}
@@ -242,7 +265,7 @@ func (b *Live) cortexiumDelivery(j *Job, save func() error) error {
 		_, cleanupSpec := os.Lstat(filepath.Join(root, "cleanup.json"))
 		_, cleanupClaim := os.Lstat(filepath.Join(root, "cleanup-started"))
 		unused := errors.Is(cleanupSpec, os.ErrNotExist) && errors.Is(cleanupClaim, os.ErrNotExist) && j.CortexiumCleanupDeadline == 0
-		if _, started := os.Lstat(filepath.Join(root, "started")); errors.Is(started, os.ErrNotExist) && unused && time.Now().UnixNano() < j.CortexiumDeadline {
+		if _, started := os.Lstat(filepath.Join(root, "started")); errors.Is(started, os.ErrNotExist) && unused && original.Kind == cortexiumWorkKind && time.Now().UnixNano() < j.CortexiumDeadline {
 			err = b.startCortexiumWorker(j.Worker, lease)
 			inherited = err == nil
 			return err
@@ -305,7 +328,7 @@ func runCortexiumDeliveryFile(file string, work deliveryWork) error {
 	b := Live{Config: work.Config}
 	j := &work.Job
 	original, _, err := b.cortexiumOriginal(j)
-	if err != nil || original.Kind != cortexiumWorkKind {
+	if err != nil || !cortexiumDurableWork(original.Kind) {
 		return errors.Join(err, errors.New("unsupported Cortexium work cleanup contract; needs operator"))
 	}
 	lease := os.NewFile(3, "delivery-lease")
@@ -384,6 +407,13 @@ func (b *Live) runCortexiumCleanup(parent context.Context, j *Job) error {
 		})
 		if j.Receipt.BrowserEvidenceSHA256 == "" {
 			e.Status, e.Reason = "incomplete", j.Failure
+			readback, readErr := b.cortexiumReadbackReport(j)
+			if readErr != nil {
+				return readErr
+			}
+			report, _ := json.Marshal(map[string]any{"copy_readback": readback, "operator_failure": j.Failure, "partial_export": true})
+			files["reports/browser.json"] = report
+			e.Reports = append(e.Reports, saas.Report{Name: "reports/browser.json", SHA256: Digest(report), Bytes: len(report), Complete: true})
 			if payload, packErr := saas.Pack(e, files); packErr == nil {
 				if writeErr := writeExclusive(filepath.Join(filepath.Dir(j.Worker), "evidence.tar.gz"), payload); writeErr == nil {
 					j.Receipt.BrowserEvidenceSHA256 = Digest(payload)

@@ -309,6 +309,14 @@ func TestCortexiumCleanupObservationRejoinsOneVisitAndLeavesSiblingFree(t *testi
 	}
 	cleanupWaitFile(t, filepath.Join(workers.root, slow.Request.Key+"-entered"))
 	spec, _ := os.ReadFile(filepath.Join(filepath.Dir(slow.Worker), "cleanup.json"))
+	var sealed deliveryWork
+	if json.Unmarshal(spec, &sealed) != nil || sealed.Job.Receipt.CortexiumReadbackSHA256 == "" {
+		t.Fatal("cleanup did not bind explicit missing-copy outcome")
+	}
+	readbackBefore, err := b.cortexiumReadbackReport(&sealed.Job)
+	if err != nil || !bytes.Contains(readbackBefore, []byte(`"state":"unobserved"`)) {
+		t.Fatal("missing header became invented proof", err)
+	}
 	// Drop the original observer/ACK and reopen the same operator journal. The
 	// inherited per-operation lease, not this Go object, owns the slow visit.
 	reopened, err := loadCortexium(b.Config)
@@ -364,6 +372,10 @@ func TestCortexiumCleanupObservationRejoinsOneVisitAndLeavesSiblingFree(t *testi
 	if done.Failure != slow.Failure || !done.Failed || !done.Done || done.CortexiumCleanupFailure != "" {
 		t.Fatal("stop masked failure or invented uncertainty", done)
 	}
+	readbackAfter, err := b.cortexiumReadbackReport(&done)
+	if err != nil || !bytes.Equal(readbackBefore, readbackAfter) {
+		t.Fatal("restart/cancel lost original readback outcome", err)
+	}
 	for _, j := range []Job{slow, fast} {
 		calls, _ := os.ReadFile(filepath.Join(workers.root, j.Request.Key+"-calls"))
 		if string(calls) != "remove\n" {
@@ -374,6 +386,9 @@ func TestCortexiumCleanupObservationRejoinsOneVisitAndLeavesSiblingFree(t *testi
 
 func cleanupBudgetFixture(t *testing.T, b *Live, j Job, remaining time.Duration) deliveryWork {
 	t.Helper()
+	if err := b.sealCortexiumReadback(&j); err != nil {
+		t.Fatal(err)
+	}
 	data, err := os.ReadFile(j.Worker)
 	if err != nil {
 		t.Fatal(err)

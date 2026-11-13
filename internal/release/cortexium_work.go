@@ -271,7 +271,12 @@ func (b *Live) cortexiumEvidenceMode(j *Job, e *saas.Evidence, files map[string]
 	if appLogErr != nil || json.Unmarshal(appLog, &diagnostic) != nil {
 		appLog = []byte("null")
 	}
+	readback, err := b.cortexiumReadbackReport(j)
+	if err != nil {
+		return err
+	}
 	report, _ := json.Marshal(map[string]any{
+		"copy_readback":    readback,
 		"runtime":          rawJSON("runtime.json"),
 		"cleanup":          rawJSON("cleanup.json"),
 		"partial_export":   partial,

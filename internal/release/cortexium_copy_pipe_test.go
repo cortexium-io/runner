@@ -25,9 +25,31 @@ func TestCortexiumCopyPipeWorker(t *testing.T) {
 	data := bytes.Repeat([]byte("x"), 4<<20)
 	var archive bytes.Buffer
 	w := tar.NewWriter(&archive)
-	_ = w.WriteHeader(&tar.Header{Name: "server", Mode: 0666, Size: int64(len(data)), Typeflag: tar.TypeReg})
+	name, permission := "server", int64(0666)
+	for _, arg := range os.Args {
+		if strings.HasSuffix(arg, ":/app/manifest.json") {
+			name = "manifest.json"
+		}
+	}
+	if mode == "valid" || mode == "partial-failure" {
+		permission = 0555
+		if name == "manifest.json" {
+			permission = 0444
+		}
+	}
+	_ = w.WriteHeader(&tar.Header{Name: name, Mode: permission, Size: int64(len(data)), Typeflag: tar.TypeReg})
 	_, _ = w.Write(data)
 	_ = w.Close()
+	switch mode {
+	case "missing":
+		os.Exit(3)
+	case "malformed":
+		_, _ = os.Stdout.Write(bytes.Repeat([]byte("z"), 512))
+		os.Exit(3)
+	case "partial-failure":
+		_, _ = os.Stdout.Write(archive.Bytes()[:1024])
+		os.Exit(3)
+	}
 	if mode == "stall" || mode == "cancel" {
 		if _, err := os.Stdout.Write(archive.Bytes()[:512]); err != nil {
 			os.Exit(3)

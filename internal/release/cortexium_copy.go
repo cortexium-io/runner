@@ -72,11 +72,23 @@ func (b *Live) inspectCortexiumStaging(ctx context.Context, j *Job, id, image, r
 // the16MiB serialized build/evidence wire type and retains no second executable.
 // Only the new checked-build32MiB decoded bound applies to this internal readback.
 func verifyCortexiumTar(reader io.Reader, name string, size int64, digest string, mode int64) error {
+	return verifyCortexiumTarObserved(reader, &cortexiumCopyFact{Name: name, Size: size, SHA256: digest, Mode: mode}, nil)
+}
+func verifyCortexiumTarObserved(reader io.Reader, observed *cortexiumCopyFact, onHeader func() error) error {
+	name, size, digest, mode := observed.Name, observed.Size, observed.SHA256, observed.Mode
 	limited := &io.LimitedReader{R: reader, N: saas.MaxBuildDecoded + 1}
+	defer func() { observed.ArchiveBytes = saas.MaxBuildDecoded + 1 - limited.N }()
 	t := tar.NewReader(limited)
 	h, err := t.Next()
 	if err != nil {
 		return fmt.Errorf("Cortexium copied file header: %w", err)
+	}
+	observed.Header = copyHeader(h)
+	observed.ArchiveBytes = saas.MaxBuildDecoded + 1 - limited.N
+	if onHeader != nil {
+		if err := onHeader(); err != nil {
+			return err
+		}
 	}
 	// Moby's archive producer includes POSIX S_IFREG, unlike Go's default
 	// tar writer. Accept only these two exact regular encodings: masking to
@@ -87,7 +99,9 @@ func verifyCortexiumTar(reader io.Reader, name string, size int64, digest string
 		return fmt.Errorf("Cortexium copied file metadata differs: name=%.96q want=%.96q size=%d want_size=%d type=%d mode=%#o want_mode=%#o uid=%d gid=%d link=%t device=%d:%d pax_records=%d", h.Name, name, h.Size, size, h.Typeflag, h.Mode, mode, h.Uid, h.Gid, h.Linkname != "", h.Devmajor, h.Devminor, len(h.PAXRecords))
 	}
 	hash := sha256.New()
-	if n, err := io.Copy(hash, t); err != nil || n != size || hex.EncodeToString(hash.Sum(nil)) != digest {
+	n, bodyErr := io.Copy(hash, t)
+	observed.BodyBytes, observed.BodySHA256 = n, hex.EncodeToString(hash.Sum(nil))
+	if bodyErr != nil || n != size || observed.BodySHA256 != digest {
 		return errors.New("Cortexium actual copied bytes differ from reviewed bytes")
 	}
 	if _, err = t.Next(); err != io.EOF {
@@ -99,16 +113,20 @@ func verifyCortexiumTar(reader io.Reader, name string, size int64, digest string
 	if err != nil || limited.N == 0 || readBytes < minimum || len(bytes.Trim(tail, "\x00")) != 0 {
 		return errors.New("Cortexium copy readback overflows or contains foreign data")
 	}
+	observed.EOF = true
 	return nil
 }
 func (b *Live) verifyCortexiumFile(ctx context.Context, id, name string, size int64, digest string, mode int64) error {
-	args := []string{"--host", b.Config.DockerHost, "cp", id + ":/app/" + name, "-"}
+	return b.verifyCortexiumFileObserved(ctx, id, &cortexiumCopyFact{Name: name, Size: size, SHA256: digest, Mode: mode}, nil)
+}
+func (b *Live) verifyCortexiumFileObserved(ctx context.Context, id string, observed *cortexiumCopyFact, onHeader func() error) error {
+	args := []string{"--host", b.Config.DockerHost, "cp", id + ":/app/" + observed.Name, "-"}
 	if b.runCommand != nil {
 		data, err := b.runCommand(ctx, nil, b.Config.Docker, args...)
-		if err != nil {
-			return err
-		}
-		return verifyCortexiumTar(bytes.NewReader(data), name, size, digest, mode)
+		var uncertain *commandUncertain
+		observed.ProcessSettled = !errors.As(err, &uncertain)
+		verified := verifyCortexiumTarObserved(bytes.NewReader(data), observed, onHeader)
+		return errors.Join(verified, err)
 	}
 	call, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -131,7 +149,7 @@ func (b *Live) verifyCortexiumFile(ctx context.Context, id, name string, size in
 	// early metadata rejection must not abandon an otherwise bounded trusted
 	// stream before its producer can release filesystem/archive ownership.
 	bounded := &io.LimitedReader{R: output, N: saas.MaxBuildDecoded + 1}
-	verified := verifyCortexiumTar(bounded, name, size, digest, mode)
+	verified := verifyCortexiumTarObserved(bounded, observed, onHeader)
 	var drained error
 	if verified != nil {
 		drain, stop := context.WithTimeout(call, 5*time.Second)
@@ -140,6 +158,9 @@ func (b *Live) verifyCortexiumFile(ctx context.Context, id, name string, size in
 			_ = output.Close()
 		})
 		_, drained = io.Copy(io.Discard, bounded)
+		if drained == nil && bounded.N > 0 {
+			observed.EOF = true
+		}
 		closeOnStop()
 		drained = errors.Join(drained, drain.Err())
 		stop()
@@ -149,8 +170,10 @@ func (b *Live) verifyCortexiumFile(ctx context.Context, id, name string, size in
 		cancel()
 		_ = output.Close()
 	}
+	observed.ArchiveBytes = saas.MaxBuildDecoded + 1 - bounded.N
 	waited := cmd.Wait()
-	if !releaseCommandSettled(cmd) {
+	observed.ProcessSettled = releaseCommandSettled(cmd)
+	if !observed.ProcessSettled {
 		return errors.Join(verified, drained, &commandUncertain{program: "Cortexium exact copy readback"})
 	}
 	return errors.Join(verified, drained, waited)
@@ -236,10 +259,34 @@ func (b *Live) copyCortexiumImage(ctx context.Context, j *Job, base cortexiumIma
 	if err != nil {
 		return "", err
 	}
-	if err = b.verifyCortexiumFile(ctx, verify, "server", int64(e.Build.BinaryBytes), e.ServerSHA256, 0555); err != nil {
+	_, original, err := b.cortexiumOriginal(j)
+	if err != nil {
 		return "", err
 	}
-	if err = b.verifyCortexiumFile(ctx, verify, "manifest.json", int64(len(manifest)), Digest(manifest), 0444); err != nil {
+	record := cortexiumReadback{
+		Version:    1,
+		State:      "recorded",
+		WorkSHA256: Digest(original),
+		Image:      image,
+		Container:  verify,
+		Files: []cortexiumCopyFact{
+			{Name: "server", Size: int64(e.Build.BinaryBytes), SHA256: e.ServerSHA256, Mode: 0555, State: "pending"},
+			{Name: "manifest.json", Size: int64(len(manifest)), SHA256: Digest(manifest), Mode: 0444, State: "pending"},
+		},
+	}
+	if _, err := os.Lstat(readbackFile(j)); !errors.Is(err, os.ErrNotExist) {
+		return "", errors.New("Cortexium copy observation already exists; no replay")
+	}
+	if err := writeJSON(readbackFile(j), record); err != nil {
+		return "", err
+	}
+	if err = b.verifyCortexiumCopy(ctx, j, &record, 0); err != nil {
+		return "", err
+	}
+	if err = b.verifyCortexiumCopy(ctx, j, &record, 1); err != nil {
+		return "", err
+	}
+	if err := b.sealCortexiumReadback(j); err != nil {
 		return "", err
 	}
 	for _, role := range []string{"verify", "builder"} {

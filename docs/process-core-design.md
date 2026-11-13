@@ -146,6 +146,29 @@ within that budget reports reconciliation; unknown or exhausted cleanup remains
 unsettled. Simulated fixtures qualify this mechanism, not daemon-side settlement
 or the retained fixture's App/browser route. No live-state migration is provided.
 
+The source-only follow-up uses private `cortexium-browser-v2` work, with a
+bounded `copy-readback.json` under the same worker lease. Its original-work digest
+binds request/source/bundle/runtime/policy/deadline; exact image, never-started
+staging container and both expected files are retained. Actual header facts are
+fsynced before body verification/draining. Received body digest/count, archive EOF
+and **local** process-group settlement are saved at return. Raw archive bytes and
+private stderr are excluded. Missing headers remain null; an interrupted pending
+outcome seals as unobserved, preserving any positively received header without
+inventing body/EOF/settlement. One digest is sealed into the existing cleanup
+specification/result and bounded failure report. Missing, altered or inconsistent
+success proof refuses; it cannot become a completed/qualified browser result.
+This adds no dispatcher, replay, timeout, reserve or resource allowance.
+
+The existing short cleanup observations/lost-ACK/restart/claim lifecycle is reused.
+Older e7fc030 workers refuse v2 before claim; v1 cleanup can continue only under
+its existing authenticated reserve and has no fabricated readback record. No
+historical work is upgraded or source execution replayed. Preserve matching
+Core/operator and journals/checkpoints; do not downgrade over v2 work or rewind
+usage/state. These local process/stream and simulated-worker proofs establish
+neither fixture01's irrecoverable original header nor daemon archive settlement,
+image deletion, real nine-journey/adversarial/resource/native qualification or
+App admission. Guides38b1662 remains separate prepared/unactivated software.
+
 The versioned checked-build type alone permits16MiB stored/wire and32MiB decoded
 TOTAL, with ordinary debug Linux/amd64/v1 CGO0 executable, full reports and canonical
 embedded frontend once. All old report/image codecs stay16MiB decoded. Independent
