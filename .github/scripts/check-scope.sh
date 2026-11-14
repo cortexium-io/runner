@@ -35,7 +35,7 @@ else
         all=true
         workflows=true
         ;;
-      *.md|LICENSE|.gitignore|.gitattributes|'') ;;
+      *.md|LICENSE|'') ;;
       *) all=true; workflows=true ;;
     esac
   done <<< "$changed"
