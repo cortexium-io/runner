@@ -40,7 +40,7 @@ func (s *cardRecoveryStore) Save(ctx context.Context, r Run, artifacts []Artifac
 	return s.frontendRecheckStore.Save(ctx, r, artifacts, receipt)
 }
 
-func (s *cardRecoveryStore) SaveUnpublishedCardRecovery(ctx context.Context, root, child Run, receipt *Receipt) error {
+func (s *cardRecoveryStore) SaveUnpublishedCardRecovery(ctx context.Context, root, child Run, unstarted []Run, receipt *Receipt) error {
 	if s.fail {
 		return errors.New("fixture atomic write failed")
 	}
@@ -48,6 +48,9 @@ func (s *cardRecoveryStore) SaveUnpublishedCardRecovery(ctx context.Context, roo
 		s.runs = map[string]Run{}
 	}
 	s.runs[child.ID] = Clone(child)
+	for _, pending := range unstarted {
+		s.runs[pending.ID] = Clone(pending)
+	}
 	return s.Save(ctx, root, nil, receipt)
 }
 
@@ -436,67 +439,73 @@ func TestUnpublishedCardRecoveryNormalPinGroupAndDownstreamBindings(t *testing.T
 }
 
 func TestUnpublishedCardRecoveryCancellationAndFailedRestartNeverRenewOwner(t *testing.T) {
-	for _, cancelled := range []bool{false, true} {
-		t.Run(fmt.Sprint("cancelled-", cancelled), func(t *testing.T) {
-			c, s, exec, q := cardRecoveryFixture(t)
-			a, e := c.CheckUnpublishedCardRecovery(q)
-			if e != nil {
-				t.Fatal(e)
-			}
-			q.BindingsSHA256 = a.BindingsSHA256
-			if _, e = c.RecoverUnpublishedCard(q); e != nil {
-				t.Fatal(e)
-			}
-			if cancelled {
-				if _, e = c.Cancel(q.RunID); e != nil {
+	for _, serial := range []bool{false, true} {
+		for _, cancelled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("serial-%t-cancelled-%t", serial, cancelled), func(t *testing.T) {
+				c, s, exec, q := cardRecoveryFixture(t)
+				if serial {
+					c, s, q = serialCardRecoveryFixture(t)
+					exec = c.executor.(*cardRecoveryExecutor)
+				}
+				a, e := c.CheckUnpublishedCardRecovery(q)
+				if e != nil {
 					t.Fatal(e)
 				}
-			}
-			child := c.runs[q.ChildRunID]
-			old := Clone(child.Attempts)
-			if child.CancelRequested != cancelled {
-				t.Fatal("parent cancellation did not propagate")
-			}
-			end := &ExecutionEnd{Kind: "failed", Retryable: true, Reason: "bounded visit failed"}
-			if cancelled {
-				end = &ExecutionEnd{Kind: "stopped", Reason: "ordinary stop settled"}
-			}
-			child.Attempts = append(child.Attempts, Attempt{ID: "one-recovered-owner", Step: 1, Visit: child.Visit, State: Finished, Released: true, End: end})
-			c.finish(&child, len(child.Attempts)-1)
-			child.ResourcesReleased = true
-			c.runs[child.ID] = child
-			if !child.Terminal() || !reflect.DeepEqual(child.Attempts[:2], old) {
-				t.Fatal("failure/cancellation lost history")
-			}
-			c.driveTaskGroup(Clone(c.runs[q.RunID]))
-			root := c.runs[q.RunID]
-			root.ResourcesReleased = true
-			c.runs[root.ID] = root
-			if !root.Terminal() || !root.TaskGroups["cards"].Done || c.familyAttempts(root) != 29 {
-				t.Fatal("failed visit did not settle exactly once", root.Status)
-			}
-			s.runs = Clone(c.runs)
-			restarted, e := New(t.Context(), s, exec, c.disk, c.snapshot)
-			if e != nil {
-				t.Fatal(e)
-			}
-			defer restarted.Close()
-			for _, id := range []string{root.ID, child.ID} {
-				if _, e = restarted.Retry(RetryRequest{RequestID: "after-restart-" + id, RunID: id, ExtraAttempts: 1}); e == nil {
-					t.Fatal("restart granted another owner", id)
+				q.BindingsSHA256 = a.BindingsSHA256
+				if _, e = c.RecoverUnpublishedCard(q); e != nil {
+					t.Fatal(e)
 				}
-			}
-			replay, e := restarted.RecoverUnpublishedCard(q)
-			if e != nil || replay.ID != root.ID {
-				t.Fatal("restart lost one-use receipt", e)
-			}
-			restarted.mu.Lock()
-			used := restarted.familyAttempts(restarted.runs[root.ID])
-			restarted.mu.Unlock()
-			if used != 29 || exec.starts.Load() != 0 {
-				t.Fatal("restart replayed owner or changed usage", used, exec.starts.Load())
-			}
-		})
+				if cancelled {
+					if _, e = c.Cancel(q.RunID); e != nil {
+						t.Fatal(e)
+					}
+				}
+				child := c.runs[q.ChildRunID]
+				old := Clone(child.Attempts)
+				if child.CancelRequested != cancelled {
+					t.Fatal("parent cancellation did not propagate")
+				}
+				end := &ExecutionEnd{Kind: "failed", Retryable: true, Reason: "bounded visit failed"}
+				if cancelled {
+					end = &ExecutionEnd{Kind: "stopped", Reason: "ordinary stop settled"}
+				}
+				child.Attempts = append(child.Attempts, Attempt{ID: "one-recovered-owner", Step: 1, Visit: child.Visit, State: Finished, Released: true, End: end})
+				c.finish(&child, len(child.Attempts)-1)
+				child.ResourcesReleased = true
+				c.runs[child.ID] = child
+				if !child.Terminal() || !reflect.DeepEqual(child.Attempts[:2], old) {
+					t.Fatal("failure/cancellation lost history")
+				}
+				c.driveTaskGroup(Clone(c.runs[q.RunID]))
+				root := c.runs[q.RunID]
+				root.ResourcesReleased = true
+				c.runs[root.ID] = root
+				if !root.Terminal() || !root.TaskGroups["cards"].Done || c.familyAttempts(root) != a.Spent+1 {
+					t.Fatal("failed visit did not settle exactly once", root.Status)
+				}
+				s.runs = Clone(c.runs)
+				restarted, e := New(t.Context(), s, exec, c.disk, c.snapshot)
+				if e != nil {
+					t.Fatal(e)
+				}
+				defer restarted.Close()
+				for _, id := range []string{root.ID, child.ID} {
+					if _, e = restarted.Retry(RetryRequest{RequestID: "after-restart-" + id, RunID: id, ExtraAttempts: 1}); e == nil {
+						t.Fatal("restart granted another owner", id)
+					}
+				}
+				replay, e := restarted.RecoverUnpublishedCard(q)
+				if e != nil || replay.ID != root.ID {
+					t.Fatal("restart lost one-use receipt", e)
+				}
+				restarted.mu.Lock()
+				used := restarted.familyAttempts(restarted.runs[root.ID])
+				restarted.mu.Unlock()
+				if used != a.Spent+1 || exec.starts.Load() != 0 {
+					t.Fatal("restart replayed owner or changed usage", used, exec.starts.Load())
+				}
+			})
+		}
 	}
 }
 

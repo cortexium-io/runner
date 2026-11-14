@@ -31,7 +31,7 @@ func storedAttemptCount(state []byte) (int, error) {
 		}
 		return -1, nil
 	}
-	if (h.Format != 3 && h.Format != 4 && h.Format != 5) || h.Count == nil || *h.Count < 0 || *h.Count > maxStoredAttempts || len(h.Inline) != 0 {
+	if (h.Format != 3 && h.Format != 4 && h.Format != 5 && h.Format != 6) || h.Count == nil || *h.Count < 0 || *h.Count > maxStoredAttempts || len(h.Inline) != 0 {
 		return 0, errors.New("invalid normalized attempt metadata")
 	}
 	return *h.Count, nil

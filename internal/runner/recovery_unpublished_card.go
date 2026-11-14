@@ -30,28 +30,38 @@ type CardRecoveryArtifact struct {
 	SHA256 string `json:"sha256"`
 }
 
+// These facts retain the cancellation of an admitted reservation that never
+// dispatched. Its original definition remains in the same child record.
+type UnstartedCardRecovery struct {
+	RunID    string    `json:"run_id"`
+	Revision int64     `json:"revision"`
+	Updated  time.Time `json:"updated"`
+}
+
 type UnpublishedCardAssessment struct {
-	RunID              string                 `json:"run_id"`
-	Revision           int64                  `json:"revision"`
-	StoredRevision     int64                  `json:"stored_revision"`
-	ChildRunID         string                 `json:"child_run_id"`
-	ChildRevision      int64                  `json:"child_revision"`
-	GroupAttemptID     string                 `json:"group_attempt_id"`
-	AttemptID          string                 `json:"attempt_id"`
-	Source             SourceResult           `json:"source"`
-	Authority          TaskAssignment         `json:"authority"`
-	Pins               []TaskCandidate        `json:"pins"`
-	Artifacts          []CardRecoveryArtifact `json:"artifacts"`
-	BindingsSHA256     string                 `json:"bindings_sha256"`
-	Spent              int                    `json:"spent"`
-	Ceiling            int                    `json:"ceiling"`
-	ReservedCompletion int                    `json:"reserved_completion"`
-	OwnerVisit         int                    `json:"owner_visit"`
+	RunID              string                  `json:"run_id"`
+	Revision           int64                   `json:"revision"`
+	StoredRevision     int64                   `json:"stored_revision"`
+	ChildRunID         string                  `json:"child_run_id"`
+	ChildRevision      int64                   `json:"child_revision"`
+	GroupAttemptID     string                  `json:"group_attempt_id"`
+	AttemptID          string                  `json:"attempt_id"`
+	Source             SourceResult            `json:"source"`
+	Authority          TaskAssignment          `json:"authority"`
+	Pins               []TaskCandidate         `json:"pins"`
+	Unstarted          []UnstartedCardRecovery `json:"unstarted,omitempty"`
+	Artifacts          []CardRecoveryArtifact  `json:"artifacts"`
+	BindingsSHA256     string                  `json:"bindings_sha256"`
+	Spent              int                     `json:"spent"`
+	Ceiling            int                     `json:"ceiling"`
+	ReservedCompletion int                     `json:"reserved_completion"`
+	OwnerVisit         int                     `json:"owner_visit"`
 }
 
 // This audit retains the failed group facts. Original attempts, definitions and
 // pins remain in their ordinary records; only current operational state rejoins.
 type UnpublishedCardRecovery struct {
+	Unstarted            []UnstartedCardRecovery       `json:"unstarted,omitempty"`
 	Artifacts            []CardRecoveryArtifact        `json:"artifacts"`
 	Request              RecoverUnpublishedCardRequest `json:"request"`
 	OriginalRootReason   string                        `json:"original_root_reason"`
@@ -64,10 +74,10 @@ type UnpublishedCardRecovery struct {
 	GrantedAt            time.Time                     `json:"granted_at"`
 }
 
-// Both records and the one-use receipt must commit together. No private-store
-// patch, partial root reset, replacement child or scheduler is supported.
+// Every changed family record and the one-use receipt must commit together.
+// No private-store patch, partial root reset, replacement child or scheduler is supported.
 type UnpublishedCardRecoveryStore interface {
-	SaveUnpublishedCardRecovery(context.Context, Run, Run, *Receipt) error
+	SaveUnpublishedCardRecovery(context.Context, Run, Run, []Run, *Receipt) error
 }
 type UnpublishedCardRecoveryValidator interface {
 	ValidateUnpublishedCardRecovery(context.Context, Run, UnpublishedCardAssessment) error
@@ -148,6 +158,7 @@ func (c *Core) RecoverUnpublishedCard(req RecoverUnpublishedCardRequest) (Run, e
 	root := Clone(c.runs[req.RunID])
 	group := root.TaskGroups[child.Task.Identity.GroupStep]
 	root.UnpublishedCardRecovery = &UnpublishedCardRecovery{
+		Unstarted:            Clone(assessment.Unstarted),
 		Artifacts:            Clone(assessment.Artifacts),
 		Request:              req,
 		OriginalRootReason:   root.Reason,
@@ -159,9 +170,12 @@ func (c *Core) RecoverUnpublishedCard(req RecoverUnpublishedCardRequest) (Run, e
 		ReservedCompletion:   assessment.ReservedCompletion,
 		GrantedAt:            time.Now().UTC(),
 	}
-	// Format five changes no SQLite schema. Prior readers reject this root before
-	// reconciling the new preparation phase or losing its one-use recovery audit.
+	// Recovery formats change no SQLite schema. Prior readers reject this root
+	// before reconciling preparation or losing its immutable one-use audit.
 	root.RecordFormat = 5
+	if len(assessment.Unstarted) != 0 {
+		root.RecordFormat = 6
+	}
 	group.Done, group.Failure = false, ""
 	root.Status, root.Reason = "Running", "one-use unpublished card recovery"
 	root.ResourcesReleased = false
@@ -175,14 +189,29 @@ func (c *Core) RecoverUnpublishedCard(req RecoverUnpublishedCardRequest) (Run, e
 		return Run{}, err
 	}
 	now := time.Now().UTC()
+	var unstarted []Run
+	for _, original := range assessment.Unstarted {
+		pending := Clone(c.runs[original.RunID])
+		pending.Status, pending.Reason = "Waiting", "waiting for declared task prerequisites"
+		pending.CancelRequested, pending.ResourcesReleased = false, false
+		pending.Revision++
+		pending.Updated = now
+		if err = admitRunRecord(pending, c.disk.Policy.Database.MaxRecord); err != nil {
+			return Run{}, err
+		}
+		unstarted = append(unstarted, pending)
+	}
 	root.Revision++
 	child.Revision++
 	root.Updated, child.Updated = now, now
 	receipt := &Receipt{Key: req.RequestID, Kind: "recover_unpublished_card", Args: args, RunID: root.ID}
-	if err = saver.SaveUnpublishedCardRecovery(c.ctx, root, child, receipt); err != nil {
+	if err = saver.SaveUnpublishedCardRecovery(c.ctx, root, child, unstarted, receipt); err != nil {
 		return Run{}, err
 	}
 	c.runs[root.ID], c.runs[child.ID] = root, child
+	for _, pending := range unstarted {
+		c.runs[pending.ID] = pending
+	}
 	close(c.changed)
 	c.changed = make(chan struct{})
 	c.Wake()
@@ -313,6 +342,12 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 	if err = addArtifact(source.InputPatchID, child.ID); err != nil {
 		return out, Run{}, err
 	}
+	serial := slices.ContainsFunc(group.Children, func(reservation TaskChild) bool {
+		return reservation.RunID != child.ID && reservation.Candidate == nil
+	})
+	if serial && !serialFirstCard(group, child.Task.Identity.ItemID) {
+		return reject("unstarted recovery requires the first card of the unchanged serial plan")
+	}
 	seen := map[string]bool{}
 	for _, reservation := range group.Children {
 		if seen[reservation.RunID] {
@@ -326,6 +361,14 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 			continue
 		}
 		other, exists := c.runs[reservation.RunID]
+		if serial {
+			if !exists || !c.unstartedRecoveryCard(root, group, reservation, other) {
+				return reject("serial recovery requires every other card to be an exact settled never-started parent cancellation")
+			}
+			out.Unstarted = append(out.Unstarted, UnstartedCardRecovery{RunID: other.ID, Revision: other.Revision, Updated: other.Updated})
+			runs = append(runs, other)
+			continue
+		}
 		if !exists || !c.cardRecoverySettled(other) || other.Status != "Completed" || reservation.Candidate == nil || other.Task == nil {
 			return reject("every other reserved card must retain its settled accepted pin")
 		}
@@ -370,6 +413,43 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 		return reject("preflight family/source bindings changed")
 	}
 	return out, Clone(child), nil
+}
+
+func serialFirstCard(group *TaskGroupState, failedItem string) bool {
+	if group.Items[0].ID != failedItem || len(group.Items[0].DependsOn) != 0 {
+		return false
+	}
+	for i, item := range group.Items {
+		if group.Children[i].ItemID != item.ID {
+			return false
+		}
+		if i > 0 && !reflect.DeepEqual(item.DependsOn, []string{group.Items[i-1].ID}) {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Core) unstartedRecoveryCard(root Run, group *TaskGroupState, reservation TaskChild, other Run) bool {
+	if reservation.Candidate != nil || other.Revision < 1 {
+		return false
+	}
+	settled := other
+	settled.CancelRequested = false // Only the exact parent cancellation below is eligible.
+	if !c.cardRecoverySettled(settled) {
+		return false
+	}
+	for _, item := range group.Items {
+		if item.ID != reservation.ItemID {
+			continue
+		}
+		expected := childForItem(root, group, item, reservation.RunID)
+		expected.Revision, expected.Updated = other.Revision, other.Updated
+		expected.Status, expected.Reason = "Cancelled", "parent task group is stopping"
+		expected.CancelRequested, expected.ResourcesReleased = true, true
+		return reflect.DeepEqual(expected, other)
+	}
+	return false
 }
 
 func (c *Core) cardRecoverySettled(r Run) bool {

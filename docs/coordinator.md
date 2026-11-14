@@ -738,6 +738,26 @@ or cancelled recovery cannot receive another card-owner visit, including after
 restart or rejected pin. Existing downstream correction boundaries remain intact.
 The operation creates no new root, publication handle or policy-migration right.
 
+The same operation also covers the first failed card of an unchanged serial
+plan when every other reservation was cancelled by that group before starting.
+The failed first card has no dependencies; each later card depends only on its
+immediate predecessor. Every later child must exactly match its original admitted
+definition, inputs and identity, with zero attempts or visits, no outputs or
+overrides, settled cleanup, and the saved parent-group cancellation. Parallel
+plans, mixed completed/unstarted peers, previously started work and ambiguous
+cancellation are not eligible for this extension.
+
+Read-only preflight additionally returns the original `unstarted` child IDs,
+revisions and update times. Its bindings digest includes every complete child
+record. Admission atomically saves the root, recovered owner, all those original
+reservations and one receipt. The later children return to ordinary prerequisite
+waiting, with their cancellation facts preserved in the immutable audit. They
+receive no extra visits or direct source acceptance. Only normal accepted pins
+make each next child eligible. The full completion reserve includes every
+unfinished card, manifest and protected downstream step at admission and before
+each dispatch. The existing ceiling, profiles and twenty-minute owner deadlines
+remain unchanged. A failed recovery still consumes the sole family recovery.
+
 Main owns independent review, installation and live invocation. Before cutover,
 retain the exact current binary/config identities and a consistent private
 forensic checkpoint using the supported upgrade procedure: settle relevant work,
@@ -753,10 +773,11 @@ validation must not be retried as another owner visit. Restart revalidates the
 same undispatched assignment after its worker lease settles; cancellation also
 settles that lease before Release. No successful validation is cached.
 
-No SQL schema migration occurs. New grants use record format 5 with an immutable
-one-use audit; the installed d0e513ff format-4 Core refuses them before dispatch.
-Formats 0/3/4 remain readable by the new Core. Before a grant, d0e513ff can reopen
-unchanged state. After a grant,
+No SQL schema migration occurs. Completed-peer grants retain record format 5.
+Serial-first-card grants use format 6 so older readers, including d189fcf, refuse
+before dispatch rather than lose the new immutable cancellation audit. Formats
+0/3/4/5 remain readable without rewriting historical records. Before a new grant,
+the previous qualified Core can reopen unchanged state. After a grant,
 retain a compatible new Core and all later records; settle through normal controls
 if recovery fails. Do not roll back to a refusing reader, rewind the operational
 database, remove failures, decrement usage or fabricate a publication receipt.

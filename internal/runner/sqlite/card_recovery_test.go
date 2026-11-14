@@ -85,7 +85,7 @@ func TestUnpublishedCardRecoveryAtomicAuditAndRestart(t *testing.T) {
 	// Fail the second save after the child write, proving transactional rollback.
 	broken := runner.Clone(root)
 	broken.Reason = strings.Repeat("x", int(s.policy.Database.MaxRecord)+1)
-	if e = s.SaveUnpublishedCardRecovery(t.Context(), broken, child, receipt); e == nil {
+	if e = s.SaveUnpublishedCardRecovery(t.Context(), broken, child, nil, receipt); e == nil {
 		t.Fatal("second-write failure committed")
 	}
 	after, e := s.Load(t.Context())
@@ -95,7 +95,7 @@ func TestUnpublishedCardRecoveryAtomicAuditAndRestart(t *testing.T) {
 	if _, e = s.FindReceipt(t.Context(), receipt.Key); e == nil {
 		t.Fatal("receipt survived rollback")
 	}
-	if e = s.SaveUnpublishedCardRecovery(t.Context(), root, child, receipt); e != nil {
+	if e = s.SaveUnpublishedCardRecovery(t.Context(), root, child, nil, receipt); e != nil {
 		t.Fatal(e)
 	}
 	for _, kind := range []string{"downgrade", "prior-recovery-format", "drop", "rewrite"} {

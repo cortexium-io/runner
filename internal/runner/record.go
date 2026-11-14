@@ -23,11 +23,14 @@ type runRecord struct {
 // Format three stores each attempt separately in the same SQLite transaction;
 // public Run values still retain every definition, attempt and source fact.
 func MarshalRunRecord(r Run) (state, definition []byte, err error) {
-	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 && r.RecordFormat != 5 {
+	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 && r.RecordFormat != 5 && r.RecordFormat != 6 {
 		return nil, nil, errors.New("unsupported run record format")
 	}
 	if r.RecordFormat >= 4 && r.UnpublishedCardRecovery == nil {
 		return nil, nil, errors.New("recovery record is missing its one-use audit")
+	}
+	if (r.RecordFormat == 6) != (r.UnpublishedCardRecovery != nil && len(r.UnpublishedCardRecovery.Unstarted) != 0) {
+		return nil, nil, errors.New("serial card recovery requires its format-six cancellation audit")
 	}
 	var count *int
 	if r.RecordFormat >= 3 {
@@ -47,7 +50,7 @@ func UnmarshalRunRecord(state, definition []byte) (Run, error) {
 	if err := json.Unmarshal(state, &r); err != nil {
 		return r, err
 	}
-	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 && r.RecordFormat != 5 {
+	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 && r.RecordFormat != 5 && r.RecordFormat != 6 {
 		return r, errors.New("unsupported run record format")
 	}
 	if r.RecordFormat >= 3 && len(definition) == 0 {
@@ -55,6 +58,9 @@ func UnmarshalRunRecord(state, definition []byte) (Run, error) {
 	}
 	if r.RecordFormat >= 4 && r.UnpublishedCardRecovery == nil {
 		return r, errors.New("recovery record is missing its one-use audit")
+	}
+	if (r.RecordFormat == 6) != (r.UnpublishedCardRecovery != nil && len(r.UnpublishedCardRecovery.Unstarted) != 0) {
+		return r, errors.New("serial card recovery requires its format-six cancellation audit")
 	}
 	// Version-one rows retain their original complete JSON. Opening an upgraded
 	// database does not rewrite or discard any historical record.

@@ -93,14 +93,26 @@ func TestUnpublishedCardSevenPinsAuthenticateAndFitNativeRecord(t *testing.T) {
 }
 
 func TestUnpublishedCardSourceAuthenticatesRestoresAndPinsNormally(t *testing.T) {
-	f, a, r, proof := unpublishedSourceFixture(t)
+	for _, peers := range []int{0, 1} {
+		t.Run(fmt.Sprintf("completed-peers-%d", peers), func(t *testing.T) {
+			testUnpublishedCardSourceRestoration(t, peers)
+		})
+	}
+}
+
+func testUnpublishedCardSourceRestoration(t *testing.T, peers int) {
+	t.Helper()
+	f, a, r, proof := unpublishedSourceFixturePins(t, peers)
 	before, err := f.service.workspaces.load(r.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pinBefore, err := f.service.workspaces.load(proof.Pins[0].RunID)
-	if err != nil {
-		t.Fatal(err)
+	pinBefore := before
+	if peers != 0 {
+		pinBefore, err = f.service.workspaces.load(proof.Pins[0].RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err = f.service.ValidateUnpublishedCardRecovery(t.Context(), r, proof); err != nil {
 		t.Fatal(err)
@@ -137,11 +149,13 @@ func TestUnpublishedCardSourceAuthenticatesRestoresAndPinsNormally(t *testing.T)
 	pinAssignment.UnpublishedCardRecovery = nil
 	pinAssignment.Setup.Profile = runner.Profile{Harness: "task-source", Mode: "pin", Access: "workspace-read"}
 	candidate := f.pin(t, pinAssignment, source, "recovery", "ready")
-	_, join := f.join(t, []runner.TaskCandidate{proof.Pins[0], *candidate}, "ready")
+	_, join := f.join(t, append(runner.Clone(proof.Pins), *candidate), "ready")
 	if join.Source == nil {
 		t.Fatal("normal join lost source")
 	}
-	assertReleasedTaskEvidence(t, f, pinBefore, proof.Pins[0], mustRecoveryPatch(t, f, proof.Pins[0].PatchID))
+	if peers != 0 {
+		assertReleasedTaskEvidence(t, f, pinBefore, proof.Pins[0], mustRecoveryPatch(t, f, proof.Pins[0].PatchID))
+	}
 	// The failed capture stays immutable even after the new ordinary pin.
 	if captureDigest(mustRecoveryPatch(t, f, proof.Source.PatchID)) != proof.Artifacts[0].SHA256 {
 		t.Fatal("failed source replaced")
