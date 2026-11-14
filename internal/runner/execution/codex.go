@@ -443,6 +443,9 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 			params["permissions"] = "runner-check"
 			params["baseInstructions"] = p.Instructions + reviewBase
 		}
+		if j.Assignment.CallerReviewScope != "" {
+			params["baseInstructions"] = params["baseInstructions"].(string) + "\n" + j.Assignment.CallerReviewScope
+		}
 		env, e := c.workerEnvironment(j)
 		if e != nil {
 			return e
@@ -659,6 +662,9 @@ func nativePayloadPlan(a runner.Assignment, now time.Time) (string, any, map[str
 		base = reviewBase
 	}
 	overhead := len(base) + len(p.Instructions) + len(sb)
+	if a.CallerReviewScope != "" {
+		overhead += 1 + len(a.CallerReviewScope)
+	}
 	if p.Mode == "experience-review" {
 		// Image bytes remain inside the existing declared-artifact limit. Their
 		// captions also consume the ordinary, unchanged text input allowance.

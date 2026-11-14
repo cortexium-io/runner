@@ -40,7 +40,7 @@ func run(ctx context.Context, args []string) error {
 		return execution.RunCommandWorker(ctx, args[1])
 	}
 	if len(args) == 0 {
-		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|recover-corrections|recover-collection|recover-planning|recover-unpublished-card|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
+		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|recover-corrections|recover-collection|recover-planning|recover-unpublished-card|adjudicate-source-handoff|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -72,6 +72,7 @@ func run(ctx context.Context, args []string) error {
 	childRun := fs.String("child-run", "", "exact deadline-failed source child")
 	childRevision := fs.Int64("child-revision", 0, "exact settled child revision")
 	bindingsSHA := fs.String("bindings-sha256", "", "authenticated read-only card recovery preflight digest")
+	reasonSHA := fs.String("reason-sha256", "", "exact blocked source reason digest for owner-adjudicated handoff")
 	preflight := fs.Bool("preflight", false, "read-only unpublished-card recovery preflight; no grant or dispatch")
 	maxUses := fs.Int("max-uses", 0, "authorized total source-correction uses; recover-corrections requires 3")
 	preserveSource := fs.Bool("preserve-source", false, "preserve a verified owned partial checkout as recovery evidence before restoring its saved candidate")
@@ -91,10 +92,10 @@ func run(ctx context.Context, args []string) error {
 	if *data == "" {
 		return errors.New("--data is required")
 	}
-	if *preflight && command != "recover-unpublished-card" {
-		return errors.New("--preflight requires recover-unpublished-card")
+	if *preflight && command != "recover-unpublished-card" && command != "adjudicate-source-handoff" {
+		return errors.New("--preflight requires recover-unpublished-card or adjudicate-source-handoff")
 	}
-	if command == "recover-unpublished-card" {
+	if command == "recover-unpublished-card" || command == "adjudicate-source-handoff" {
 		allowed := map[string]bool{
 			"data":            true,
 			"endpoint":        true,
@@ -109,15 +110,21 @@ func run(ctx context.Context, args []string) error {
 			"request-id":      true,
 			"preflight":       true,
 		}
+		if command == "adjudicate-source-handoff" {
+			allowed["reason-sha256"] = true
+		}
 		bad := ""
 		fs.Visit(func(f *flag.Flag) {
 			if !allowed[f.Name] {
 				bad = f.Name
 			}
 		})
-		if bad != "" || *runID == "" || *revision < 1 || *groupAttempt == "" || *childRun == "" || *childRevision < 1 || *attemptID == "" || *patchSHA256 == "" || !*preflight && *bindingsSHA == "" {
+		if bad != "" || *runID == "" || *revision < 1 || *groupAttempt == "" || *childRun == "" || *childRevision < 1 || *attemptID == "" || *patchSHA256 == "" || !*preflight && *bindingsSHA == "" || command == "adjudicate-source-handoff" && *reasonSHA == "" {
 			return errors.New("recover-unpublished-card requires exact run/revision, group-attempt, child-run/child-revision, attempt and patch-sha256; admission also requires bindings-sha256; no overrides")
 		}
+	}
+	if *reasonSHA != "" && command != "adjudicate-source-handoff" {
+		return errors.New("--reason-sha256 requires adjudicate-source-handoff")
 	}
 	if *reportFile != "" && command != "recover-browser-errors" {
 		return errors.New("--report-file requires recover-browser-errors")
@@ -255,7 +262,7 @@ func run(ctx context.Context, args []string) error {
 		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
 		method = "runner_recover_collection"
 		a = runner.RecoverCollectionRequest{RequestID: *requestID, RunID: *runID, AttemptID: *attemptID}
-	case "recover-unpublished-card":
+	case "recover-unpublished-card", "adjudicate-source-handoff":
 		method = "runner_preflight_unpublished_card_recovery"
 		if !*preflight {
 			method = "runner_recover_unpublished_card"
@@ -274,6 +281,13 @@ func run(ctx context.Context, args []string) error {
 			AttemptID:      *attemptID,
 			PatchSHA256:    *patchSHA256,
 			BindingsSHA256: *bindingsSHA,
+		}
+		if command == "adjudicate-source-handoff" {
+			method = "runner_preflight_source_handoff"
+			if !*preflight {
+				method = "runner_adjudicate_source_handoff"
+			}
+			a = runner.AdjudicateSourceHandoffRequest{RecoverUnpublishedCardRequest: a.(runner.RecoverUnpublishedCardRequest), ReasonSHA256: *reasonSHA}
 		}
 	case "recover-planning":
 		if *requestID == "" {

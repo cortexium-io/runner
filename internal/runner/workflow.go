@@ -88,6 +88,10 @@ func (c *Core) route(r *Run, a *Attempt) {
 		r.Status, r.Reason = "Failed", "one-use recovered card pin rejected source; owner visit already consumed"
 		return
 	}
+	if c.sourceHandoffCard(*r) != nil && taskStepIndex(r.Process, route.Next) == 1 {
+		r.Status, r.Reason = "Failed", "adjudicated source handoff cannot grant another editing owner"
+		return
+	}
 	key := routeUseKey(*r, r.Step, result.Outcome)
 	if limit := routeLimit(*r, r.Step, result.Outcome, route); limit > 0 && r.RouteUses[key] >= limit {
 		r.Status, r.Reason = "Failed", "repetition allowance exhausted: "+key

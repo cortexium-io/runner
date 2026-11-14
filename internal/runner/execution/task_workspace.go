@@ -652,7 +652,14 @@ func (w *Workspaces) pinTaskSource(ctx context.Context, a runner.Assignment) (*r
 	if t == nil || !t.Installed || !sameTaskAuthority(t.Authority, *a.TaskSource) || r.Candidate == nil || r.Candidate.PatchID != a.Inputs["patch"].ArtifactID {
 		return nil, nil, errors.New("task pin source or scope differs from its immutable seed")
 	}
-	if _, _, err = w.retainedCandidate(ctx, r, true); err != nil {
+	verifyCheckout := true
+	if a.SourceHandoff != nil && r.Released {
+		if _, err = os.Lstat(r.WorkDir); !errors.Is(err, os.ErrNotExist) {
+			return nil, nil, errors.New("source handoff pin requires its confirmed absent checkout")
+		}
+		verifyCheckout = false // The ordinary pin below reconstructs the captured tree.
+	}
+	if _, _, err = w.retainedCandidate(ctx, r, verifyCheckout); err != nil {
 		return nil, nil, err
 	}
 	root, lease, err := w.taskLease(a)

@@ -17,12 +17,13 @@ import (
 // TaskSources owns local, unreviewed task pins and source assembly. It never
 // publishes a branch or substitutes for the final independent review.
 type TaskSources struct {
-	disk       *runner.Disk
-	workspaces *Workspaces
-	mu         sync.Mutex
-	workers    map[string]*taskSourceWork
-	wake       func(string)
-	closed     bool
+	validateHandoff func(context.Context, taskSourceJob) error
+	disk            *runner.Disk
+	workspaces      *Workspaces
+	mu              sync.Mutex
+	workers         map[string]*taskSourceWork
+	wake            func(string)
+	closed          bool
 }
 
 type taskSourceJob struct {
@@ -369,6 +370,14 @@ func validateTaskManifest(a runner.Assignment, m runner.TaskManifest) error {
 }
 func (s *TaskSources) pin(ctx context.Context, j *taskSourceJob) error {
 	a := j.Assignment
+	if a.SourceHandoff != nil {
+		if s.validateHandoff == nil {
+			return errors.New("source handoff pin lacks its source validator")
+		}
+		if err := s.validateHandoff(ctx, *j); err != nil {
+			return err
+		}
+	}
 	candidate, violations, err := s.workspaces.pinTaskSource(ctx, a)
 	if err != nil {
 		return err

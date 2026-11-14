@@ -39,6 +39,7 @@ func NewService(d *runner.Disk, read func(context.Context, string) ([]byte, erro
 	}
 	s.candidates = &Candidates{disk: d, workspaces: s.workspaces}
 	s.tasks = &TaskSources{disk: d, workspaces: s.workspaces}
+	s.tasks.validateHandoff = s.validateSourceHandoffPin
 	s.commands = NewCommands(d, cfg, s.workspaces, read)
 	s.releases = &Releases{disk: d, workspaces: s.workspaces}
 	if len(release) > 0 {

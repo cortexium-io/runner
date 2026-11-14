@@ -141,6 +141,13 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		r, e := c.RecoverUnpublishedCard(in)
 		return summary(r), e
 	})
+	add(s, "runner_preflight_source_handoff", "Read-only owner preflight for a separately adjudicated blocked source handoff with four accepted serial predecessors and one unstarted final reservation. Binds the exact reason, source, records and completion reserve; grants no acceptance or dispatch.", func(ctx context.Context, in runner.AdjudicateSourceHandoffRequest) (any, error) {
+		return c.CheckSourceHandoff(in)
+	})
+	add(s, "runner_adjudicate_source_handoff", "Separately owner-authorized one-use source handoff. Preserves the blocked completion and earlier recovery audit, queues only normal pinning and restores the original final reservation. All checks/review/qualification remain required; no new edit owner, budget, permissions or release authority. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.AdjudicateSourceHandoffRequest) (any, error) {
+		r, e := c.AdjudicateSourceHandoff(in)
+		return summary(r), e
+	})
 	add(s, "runner_recover_planning", "Owner-authorized one-time recovery of an exact blocked planner after preflight rejected its unadmitted collection. Reuses the retained baseline and adopted source, preserving history, attempt ceilings and protected decisions. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverPlanningRequest) (any, error) {
 		r, e := c.RecoverPlanning(in)
 		if e != nil {

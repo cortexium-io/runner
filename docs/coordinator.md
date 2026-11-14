@@ -701,6 +701,48 @@ Preserve the original failed run. Submission needs fresh owner authorization;
 merge, production and restoration remain separate saved approvals. Limits do not
 increase, and the coordinator performs none of these product checks itself.
 
+## Owner-adjudicated source handoff, 14 November 2026
+
+A separately authorized `adjudicate-source-handoff` owner operation covers a
+normally returned, blocked source completion in the recovered six-card serial
+family: four predecessors retain accepted pins, the fifth card retains its
+complete unaccepted capture and declared outputs, and the sole final reservation
+is an exact settled parent cancellation with no starts. It is not an automatic
+classification of a reason string or a general bypass of blocked outcomes. The
+owner decides that a caller-assigned later review does not prevent this source
+handoff; source quality is still decided by ordinary pin/check/review/qualification.
+
+Read-only `--preflight` binds the existing exact family/child revisions, group
+and source attempts, patch SHA256, `--reason-sha256` (SHA256 of the exact UTF-8
+blocked reason), all four accepted pins and every complete family record. It
+authenticates capture/seed/authority, artifact bytes, cleanup and writer leases,
+and reserves the full unfinished family and protected suffix. Admission requires
+the fresh `--bindings-sha256` and one stable `--request-id`; all other identity
+flags match `recover-unpublished-card`. No input, profile, policy, deadline or
+allowance override is accepted. Restricted intake exposes neither owner action:
+`runner_preflight_source_handoff` nor `runner_adjudicate_source_handoff`.
+
+The single atomic grant preserves the original blocked attempt and the consumed
+serial-recovery audit. It queues only the original ordinary source pin, restores
+the original final reservation to prerequisite waiting, and records the generic
+caller-review scope clarification separately from frozen definitions/inputs.
+Subsequent workspace native assignments receive that clarification within their
+existing input budget. The declared caller review remains required; this grants
+no model editing visit or direct source acceptance. The durable pin worker
+revalidates the handoff and reconstructs the exact captured tree in its ordinary
+disposable index, without creating a writable checkout. A stopped/failed handoff
+cannot renew the owner or receive another grant; lost acknowledgements rejoin
+the saved receipt. Normal accepted pins, manifest/join, checks, independent review,
+publication, qualification and protected decisions remain in control.
+
+This transition uses record format seven with a distinct immutable audit and no
+SQL schema migration. Only its atomic store operation can upgrade the original
+format-six root; generic saves cannot create that transition. The earlier audit
+must remain byte-identical. The installed format-six reader refuses format seven
+before dispatch. Main retains the verified compatible executable and closed-state
+checkpoint through the authorized installation/readback procedure below; after
+a grant, never rewind state or roll back to an incompatible reader.
+
 ## One-use unpublished source-card recovery, 12 November 2026
 
 Dan approved this bounded recovery contract separately from browser maintenance.

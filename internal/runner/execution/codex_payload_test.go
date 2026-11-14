@@ -124,3 +124,22 @@ func TestNativeDeadlineMetadataUsesExistingInputAllowance(t *testing.T) {
 		t.Fatal("deadline-aware payload exceeded its allowance")
 	}
 }
+
+func TestSourceHandoffScopeUsesExistingNativeInputAllowance(t *testing.T) {
+	a := deadlinePayloadAssignment()
+	payload, schema, err := nativePayloadAt(a, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(schema)
+	a.Setup.Profile.MaxInput = runner.Bytes(len(workspaceBase) + len(a.Setup.Profile.Instructions) + len(encoded) + len(payload))
+	a.CallerReviewScope = runner.SourceHandoffScope
+	if _, _, err = nativePayloadAt(a, time.Now()); err == nil || !strings.Contains(err.Error(), "exceed max_input") {
+		t.Fatal("handoff scope expanded the frozen native allowance", err)
+	}
+	a.Setup.Profile.MaxInput += runner.Bytes(1 + len(a.CallerReviewScope))
+	withScope, _, err := nativePayloadAt(a, time.Now())
+	if err != nil || withScope != payload {
+		t.Fatal("scope clarification rewrote original task or inputs", err)
+	}
+}

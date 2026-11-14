@@ -215,6 +215,10 @@ func (s *Store) Save(ctx context.Context, r runner.Run, artifacts []runner.Artif
 }
 
 func (s *Store) saveRun(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt) error {
+	return s.saveRunWithHandoff(ctx, tx, r, artifacts, receipt, false)
+}
+
+func (s *Store) saveRunWithHandoff(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt, handoffUpgrade bool) error {
 	b, definition, e := runner.MarshalRunRecord(r)
 	if e != nil {
 		return e
@@ -243,7 +247,7 @@ func (s *Store) saveRun(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts
 	if _, e = tx.ExecContext(ctx, "INSERT INTO runs(id,project,data,definition) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,definition=excluded.definition", r.ID, r.ProjectID, b, definition); e != nil {
 		return e
 	}
-	if e = s.saveAttempts(ctx, tx, r, attempts, previous); e != nil {
+	if e = s.saveAttempts(ctx, tx, r, attempts, previous, handoffUpgrade); e != nil {
 		return e
 	}
 	for _, a := range artifacts {

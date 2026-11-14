@@ -219,16 +219,23 @@ func (c *Core) RecoverUnpublishedCard(req RecoverUnpublishedCardRequest) (Run, e
 }
 
 func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (UnpublishedCardAssessment, Run, error) {
+	return c.planCardSourceRecovery(req, nil)
+}
+
+func (c *Core) planCardSourceRecovery(req RecoverUnpublishedCardRequest, handoff *AdjudicateSourceHandoffRequest) (UnpublishedCardAssessment, Run, error) {
 	var out UnpublishedCardAssessment
 	reject := func(reason string) (UnpublishedCardAssessment, Run, error) { return out, Run{}, errors.New(reason) }
 	root, ok := c.runs[req.RunID]
 	if !ok {
 		return out, Run{}, ErrNotFound
 	}
-	if root.UnpublishedCardRecovery != nil {
+	if handoff == nil && root.UnpublishedCardRecovery != nil {
 		return reject("this family already consumed its one-use unpublished card recovery")
 	}
-	if root.RecordFormat != 3 || root.Task != nil || root.Status != "Failed" || !isolatedStep(root) || len(root.TaskGroups) != 1 || !c.cardRecoverySettled(root) {
+	if handoff != nil && (root.RecordFormat != 6 || root.UnpublishedCardRecovery == nil || root.SourceHandoff != nil) {
+		return reject("source handoff requires the retained serial recovery audit and no prior handoff")
+	}
+	if (handoff == nil && root.RecordFormat != 3) || root.Task != nil || root.Status != "Failed" || !isolatedStep(root) || len(root.TaskGroups) != 1 || !c.cardRecoverySettled(root) {
 		return reject("exact settled failed task-group root required")
 	}
 	group := root.TaskGroups[root.Process.Steps[root.Step].ID]
@@ -245,7 +252,7 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 	if !ok {
 		return out, Run{}, ErrNotFound
 	}
-	if child.Revision != req.ChildRevision || child.Task == nil || child.Task.Identity.RootRunID != root.ID || child.Task.Identity.GroupStep != group.StepID || child.Status != "Failed" || child.Reason != "attempt deadline reached" || root.Reason != "task "+child.Task.Identity.ItemID+": "+child.Reason || !c.cardRecoverySettled(child) {
+	if child.Revision != req.ChildRevision || child.Task == nil || child.Task.Identity.RootRunID != root.ID || child.Task.Identity.GroupStep != group.StepID || child.Status != "Failed" || handoff == nil && child.Reason != "attempt deadline reached" || root.Reason != "task "+child.Task.Identity.ItemID+": "+child.Reason || !c.cardRecoverySettled(child) {
 		return reject("exact settled deadline-failed child revision required")
 	}
 	if _, err := c.taskRoot(child); err != nil {
@@ -255,8 +262,15 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 		return reject("recovery requires the initial seed/owner/pin card, without prior corrections or overrides")
 	}
 	failed := child.Current()
-	if failed == nil || failed.ID != req.AttemptID || failed.Superseded || !failed.TimedOut || !failed.StopRequested || failed.Source == nil || failed.End == nil || failed.End.Kind != "returned" || failed.End.Result == nil || failed.End.Result.Outcome != "ready" || failed.End.Retryable {
+	if failed == nil || failed.ID != req.AttemptID || failed.Superseded || failed.Source == nil || failed.End == nil || failed.End.Kind != "returned" || failed.End.Result == nil || failed.End.Retryable {
 		return reject("deadline failure must retain its exact unaccepted ready capture")
+	}
+	if handoff == nil {
+		if !failed.TimedOut || !failed.StopRequested || failed.End.Result.Outcome != "ready" {
+			return reject("deadline failure must retain its exact unaccepted ready capture")
+		}
+	} else if failed.TimedOut || failed.StopRequested || failed.End.Result.Outcome != "blocked" || failed.End.Result.Reason == "" || child.Reason != failed.End.Result.Reason || recoveryDigestRawText(child.Reason) != handoff.ReasonSHA256 {
+		return reject("source handoff requires the exact normally returned blocked completion and reason digest")
 	}
 	source := *failed.Source
 	if source.AttemptID != failed.ID || source.PatchID != failed.ID+"/changes.patch" || source.InputPatchID == "" || source.Base != group.Base || source.Repository != group.Repository || failed.End.Result.Outputs["patch"].ArtifactID != source.PatchID {
@@ -320,6 +334,9 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 		Ceiling:        root.Process.MaxAttempts,
 		OwnerVisit:     child.Visit + 1,
 	}
+	if handoff != nil {
+		out.OwnerVisit = child.Visit // Handoff grants no additional editing visit.
+	}
 	runs := []Run{root, child}
 	addArtifact := func(id, owner string) error {
 		a, e := c.store.Artifact(c.ctx, id)
@@ -345,11 +362,24 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 	serial := slices.ContainsFunc(group.Children, func(reservation TaskChild) bool {
 		return reservation.RunID != child.ID && reservation.Candidate == nil
 	})
-	if serial && !serialFirstCard(group, child.Task.Identity.ItemID) {
+	if handoff != nil {
+		if len(group.Items) != 6 || !serialPlan(group) || group.Items[4].ID != child.Task.Identity.ItemID {
+			return reject("source handoff requires four completed serial predecessors and one original final reservation")
+		}
+		prior := root.UnpublishedCardRecovery
+		if prior.Request.RunID != root.ID || prior.Request.GroupAttemptID != group.AttemptID || prior.Request.ChildRunID != group.Children[0].RunID || len(prior.Unstarted) != 5 {
+			return reject("source handoff differs from the original serial recovery audit")
+		}
+		for i, original := range prior.Unstarted {
+			if original.RunID != group.Children[i+1].RunID {
+				return reject("source handoff reservations differ from the retained serial audit")
+			}
+		}
+	} else if serial && !serialFirstCard(group, child.Task.Identity.ItemID) {
 		return reject("unstarted recovery requires the first card of the unchanged serial plan")
 	}
 	seen := map[string]bool{}
-	for _, reservation := range group.Children {
+	for index, reservation := range group.Children {
 		if seen[reservation.RunID] {
 			return reject("duplicate child reservation")
 		}
@@ -361,7 +391,7 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 			continue
 		}
 		other, exists := c.runs[reservation.RunID]
-		if serial {
+		if handoff == nil && serial || handoff != nil && index == 5 {
 			if !exists || !c.unstartedRecoveryCard(root, group, reservation, other) {
 				return reject("serial recovery requires every other card to be an exact settled never-started parent cancellation")
 			}
@@ -400,7 +430,11 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 		return out, Run{}, err
 	}
 	out.ReservedCompletion = reserve
-	if err = c.familyReserve(child, 1, reserve); err != nil {
+	requested := 1
+	if handoff != nil {
+		requested = 0 // The reserve already includes the ordinary pin and final card.
+	}
+	if err = c.familyReserve(child, requested, reserve); err != nil {
 		return out, Run{}, err
 	}
 	out.BindingsSHA256 = recoveryDigest(struct {
@@ -409,6 +443,9 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 		Authority TaskAssignment
 		Limits    ExecutionLimits
 	}{runs, out.Artifacts, *authority, c.executionLimits()})
+	if handoff != nil {
+		out.BindingsSHA256 = recoveryDigest(struct{ Family, Reason, Scope string }{out.BindingsSHA256, handoff.ReasonSHA256, SourceHandoffScope})
+	}
 	if req.BindingsSHA256 != "" && req.BindingsSHA256 != out.BindingsSHA256 {
 		return reject("preflight family/source bindings changed")
 	}
@@ -417,6 +454,13 @@ func (c *Core) planUnpublishedCardRecovery(req RecoverUnpublishedCardRequest) (U
 
 func serialFirstCard(group *TaskGroupState, failedItem string) bool {
 	if group.Items[0].ID != failedItem || len(group.Items[0].DependsOn) != 0 {
+		return false
+	}
+	return serialPlan(group)
+}
+
+func serialPlan(group *TaskGroupState) bool {
+	if len(group.Items) == 0 || len(group.Items) != len(group.Children) || len(group.Items[0].DependsOn) != 0 {
 		return false
 	}
 	for i, item := range group.Items {

@@ -16,6 +16,18 @@ func (s *Service) ValidateUnpublishedCardRecovery(ctx context.Context, child run
 }
 
 func (s *Service) validateUnpublishedCardRecovery(ctx context.Context, child runner.Run, proof runner.UnpublishedCardAssessment, preparing *runner.Assignment) error {
+	return s.validateCardSource(ctx, child, proof, preparing, nil)
+}
+
+func (s *Service) validateSourceHandoffPin(ctx context.Context, job taskSourceJob) error {
+	a := job.Assignment
+	if job.Stopped || a.SourceHandoff == nil || a.TaskSource == nil || a.Setup.Profile.Harness != "task-source" || a.Setup.Profile.Mode != "pin" || a.Setup.Profile.Access != "workspace-read" || !sameTaskAuthority(a.SourceHandoff.Authority, *a.TaskSource) || a.Inputs["patch"].ArtifactID != a.SourceHandoff.Source.PatchID {
+		return errors.New("source handoff pin authority changed")
+	}
+	return s.validateCardSource(ctx, runner.Run{ID: a.RunID, Repository: a.Repository, Source: a.Source, ResourcesReleased: true}, *a.SourceHandoff, nil, &job)
+}
+
+func (s *Service) validateCardSource(ctx context.Context, child runner.Run, proof runner.UnpublishedCardAssessment, preparing *runner.Assignment, handoff *taskSourceJob) error {
 	if err := s.captureReleaseReady(proof.Source.AttemptID); err != nil {
 		return err
 	}
@@ -28,7 +40,12 @@ func (s *Service) validateUnpublishedCardRecovery(ctx context.Context, child run
 	if err != nil {
 		return err
 	}
-	quiescent, err := w.cleanupQuiescentForRecovery(r, preparing)
+	var quiescent func()
+	if handoff == nil {
+		quiescent, err = w.cleanupQuiescentForRecovery(r, preparing)
+	} else {
+		quiescent, err = w.cleanupQuiescentForTaskSeed(r, *handoff)
+	}
 	if err != nil {
 		return err
 	}
@@ -40,8 +57,24 @@ func (s *Service) validateUnpublishedCardRecovery(ctx context.Context, child run
 		return errors.New("recovery requires its settled absent checkout; preserve existing source")
 	}
 	task := r.TaskSources[proof.Authority.Identity.GroupStep]
-	if task == nil || !task.Installed || !sameTaskAuthority(task.Authority, proof.Authority) || task.PinCommit != "" || len(task.Pins) != 0 {
+	if task == nil || !task.Installed || !sameTaskAuthority(task.Authority, proof.Authority) {
 		return errors.New("unpublished card source authority/seed differs or was already pinned")
+	}
+	// A restarted ordinary pin may rejoin only its own durable pin intent. This
+	// is revalidation, never cached source permission or another pin attempt.
+	if handoff == nil || !handoff.PinIntent {
+		if task.PinCommit != "" || len(task.Pins) != 0 {
+			return errors.New("unpublished card source was already pinned")
+		}
+	} else {
+		for id, commit := range task.Pins {
+			if id != handoff.Assignment.AttemptID || len(commit) != 40 {
+				return errors.New("source handoff contains another pin intent")
+			}
+		}
+		if task.PinCommit != "" && task.PinCommit != task.Pins[handoff.Assignment.AttemptID] {
+			return errors.New("source handoff pin checkpoint changed")
+		}
 	}
 	raw, _ := json.Marshal(proof.Authority.Dependencies)
 	if captureDigest(raw) != task.InputSHA || task.SeedPatchID != proof.Source.InputPatchID || r.SeedPatchID != task.SeedPatchID {

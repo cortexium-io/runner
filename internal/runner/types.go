@@ -335,6 +335,8 @@ type FrontendCheckPins struct {
 	Serial           bool   `json:"serial,omitempty"`
 }
 type Assignment struct {
+	SourceHandoff           *UnpublishedCardAssessment `json:"source_handoff,omitempty"`
+	CallerReviewScope       string                     `json:"caller_review_scope,omitempty"`
 	UnpublishedCardRecovery *UnpublishedCardAssessment `json:"unpublished_card_recovery,omitempty"`
 	FrontendCheckPins       *FrontendCheckPins         `json:"frontend_check_pins,omitempty"`
 	TaskSource              *TaskAssignment            `json:"task_source,omitempty"`
@@ -466,6 +468,7 @@ type Attempt struct {
 	Effective       *ExecutionFacts `json:"effective,omitempty"`
 }
 type Run struct {
+	SourceHandoff             *SourceHandoffAudit        `json:"source_handoff,omitempty"`
 	UnpublishedCardRecovery   *UnpublishedCardRecovery   `json:"unpublished_card_recovery,omitempty"`
 	RecordFormat              int                        `json:"record_format,omitempty"`
 	Task                      *TaskRunLink               `json:"task,omitempty"`

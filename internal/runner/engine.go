@@ -341,7 +341,7 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 		c.Wake()
 		return Clone(c.runs[r.ID]), nil
 	}
-	if c.recoveredCard(r) != nil || r.UnpublishedCardRecovery != nil && isolatedStep(r) {
+	if c.recoveredCard(r) != nil || c.sourceHandoffCard(r) != nil || r.UnpublishedCardRecovery != nil && isolatedStep(r) {
 		return Run{}, errors.New("one-use unpublished card recovery cannot be retried; preserve the failed recovery")
 	}
 	if r.Decision != nil {
@@ -803,6 +803,13 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		assignment.Source, e = taskJoinSource(r, *assignment.TaskSource)
 	}
 	if e == nil {
+		if root, err := c.taskRoot(r); err == nil && root.SourceHandoff != nil {
+			assignment.CallerReviewScope = root.SourceHandoff.Scope
+		}
+		if handoff := c.sourceHandoffCard(r); handoff != nil && r.Step == 2 && r.Visit == handoff.Assessment.OwnerVisit+1 {
+			proof := Clone(handoff.Assessment)
+			assignment.SourceHandoff = &proof
+		}
 		if grant := c.recoveredCard(r); grant != nil && r.Step == 1 && r.Visit == grant.OwnerVisit {
 			root := c.runs[r.Task.Identity.RootRunID]
 			var source SourceResult
