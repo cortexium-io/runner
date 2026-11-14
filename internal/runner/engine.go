@@ -803,7 +803,7 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		assignment.Source, e = taskJoinSource(r, *assignment.TaskSource)
 	}
 	if e == nil {
-		if root, err := c.taskRoot(r); err == nil && root.SourceHandoff != nil {
+		if root, err := c.taskRoot(r); err == nil && root.SourceHandoff != nil && p.Harness == "codex" && p.Access == "workspace-write" && assignment.OutputTypes["patch"] == "artifact" {
 			assignment.CallerReviewScope = root.SourceHandoff.Scope
 		}
 		if handoff := c.sourceHandoffCard(r); handoff != nil && r.Step == 2 && r.Visit == handoff.Assessment.OwnerVisit+1 {

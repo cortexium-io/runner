@@ -23,7 +23,6 @@ func TestSourceHandoffReconstructsAndPinsCapturedSourceWithoutEditOwner(t *testi
 	a.Setup.Profile = runner.Profile{Harness: "task-source", Mode: "pin", Access: "workspace-read"}
 	a.Inputs = map[string]runner.Value{"patch": {ArtifactID: proof.Source.PatchID}, "summary": runner.Text("captured completion; acceptance downstream")}
 	a.SourceHandoff = &proof
-	a.CallerReviewScope = runner.SourceHandoffScope
 	job := taskSourceJob{Assignment: a, PinIntent: true}
 	if err = f.service.tasks.save(job); err != nil {
 		t.Fatal(err)

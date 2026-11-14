@@ -143,3 +143,24 @@ func TestSourceHandoffScopeUsesExistingNativeInputAllowance(t *testing.T) {
 		t.Fatal("scope clarification rewrote original task or inputs", err)
 	}
 }
+
+func TestSourceHandoffScopeDoesNotNarrowReadOnlyReview(t *testing.T) {
+	for _, mode := range []string{"", "experience-review"} {
+		a := deadlinePayloadAssignment()
+		a.Setup.Profile.Access, a.Setup.Profile.Mode = "workspace-read", mode
+		before, schema, err := nativePayloadAt(a, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, _ := json.Marshal(schema)
+		a.Setup.Profile.MaxInput = runner.Bytes(len(reviewBase) + len(a.Setup.Profile.Instructions) + len(encoded) + len(before))
+		if mode == "experience-review" {
+			a.Setup.Profile.MaxInput += 512 // Existing image-caption reservation.
+		}
+		a.CallerReviewScope = runner.SourceHandoffScope
+		after, _, err := nativePayloadAt(a, time.Now())
+		if err != nil || before != after {
+			t.Fatal("source handoff changed review payload or its allowance", mode, err)
+		}
+	}
+}

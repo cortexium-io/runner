@@ -125,7 +125,7 @@ func TestSourceHandoffPreservesFailureAndQueuesOnlyNormalPin(t *testing.T) {
 		}
 	}
 	assignment, err := c.assignment(child, Attempt{ID: "ordinary-pin", Step: 2, Visit: 2, Deadline: time.Now().Add(20 * time.Minute)})
-	if err != nil || assignment.SourceHandoff == nil || assignment.Setup.Profile.Harness != "task-source" || assignment.Setup.Profile.Mode != "pin" || assignment.Inputs["patch"].ArtifactID != a.Source.PatchID || assignment.CallerReviewScope != SourceHandoffScope || !reflect.DeepEqual(assignment.SourceHandoff.Authority, *assignment.TaskSource) {
+	if err != nil || assignment.SourceHandoff == nil || assignment.Setup.Profile.Harness != "task-source" || assignment.Setup.Profile.Mode != "pin" || assignment.Inputs["patch"].ArtifactID != a.Source.PatchID || assignment.CallerReviewScope != "" || !reflect.DeepEqual(assignment.SourceHandoff.Authority, *assignment.TaskSource) {
 		t.Fatal("handoff skipped ordinary pin authority", err)
 	}
 	if _, err = c.Retry(RetryRequest{RequestID: "no-owner", RunID: child.ID, ExtraAttempts: 1}); err == nil {
@@ -193,6 +193,43 @@ func TestSourceHandoffRejectsDriftAndFailedCommit(t *testing.T) {
 	}
 }
 
+func TestSourceHandoffScopeOnlyReachesWritableSourceOwners(t *testing.T) {
+	c, _, q := sourceHandoffFixture(t)
+	a, err := c.CheckSourceHandoff(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.BindingsSHA256 = a.BindingsSHA256
+	root, err := c.AdjudicateSourceHandoff(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Later source correction receives the clarification. Configured reviewers
+	// retain their complete original task.
+	seen := map[string]bool{}
+	for i, step := range root.Process.Steps {
+		if step.ID != "owner" && step.ID != "review" && step.ID != "experience-review" && step.ID != "plan" {
+			continue
+		}
+		root.StepInputs = map[string]Value{}
+		assignment, err := c.assignment(root, Attempt{ID: "scope-" + step.ID, Step: i, Visit: root.Visit})
+		if err != nil {
+			t.Fatal(step.ID, err)
+		}
+		want := ""
+		if step.ID == "owner" {
+			want = SourceHandoffScope
+		}
+		if assignment.CallerReviewScope != want || assignment.SourceHandoff != nil || assignment.Task != root.Roles[step.Role].Purpose || !reflect.DeepEqual(assignment.Setup.Profile.Instructions, root.Roles[step.Role].Execution.Instructions) {
+			t.Fatal("handoff changed the assigned role or reviewer obligations", step.ID)
+		}
+		seen[step.ID] = true
+	}
+	if len(seen) != 4 {
+		t.Fatal("missing source, planner or experience reviewer coverage", seen)
+	}
+}
+
 func TestSourceHandoffNormalPinRestoresLastCardAndJoin(t *testing.T) {
 	c, s, q := sourceHandoffFixture(t)
 	a, err := c.CheckSourceHandoff(q)
@@ -216,6 +253,10 @@ func TestSourceHandoffNormalPinRestoresLastCardAndJoin(t *testing.T) {
 				t.Fatal("last original seed lost its predecessor", e)
 			}
 			appendResult(0, &StepResult{Outcome: "ready", Outputs: map[string]Value{"patch": patch, "manifest": {ArtifactID: "seed-manifest"}}})
+			owner, e := c.assignment(child, Attempt{ID: "last-source-owner", Step: 1, Visit: child.Visit})
+			if e != nil || owner.CallerReviewScope != SourceHandoffScope || owner.SourceHandoff != nil {
+				t.Fatal("remaining source owner lost its scope", e)
+			}
 			appendResult(1, &StepResult{Outcome: "ready", Outputs: map[string]Value{"patch": patch, "summary": Text("final card source")}})
 		} else {
 			patch = child.StepInputs["patch"]
@@ -232,8 +273,8 @@ func TestSourceHandoffNormalPinRestoresLastCardAndJoin(t *testing.T) {
 	finish(q.ChildRunID, false)
 	pending := c.runs[a.Unstarted[0].RunID]
 	assignment, err := c.assignment(pending, Attempt{ID: "final-seed", Step: 0, Visit: pending.Visit})
-	if pending.Status != "Queued" || err != nil || assignment.CallerReviewScope != SourceHandoffScope {
-		t.Fatal("final card lost authoritative caller scope", err)
+	if pending.Status != "Queued" || err != nil || assignment.CallerReviewScope != "" {
+		t.Fatal("final seed received source-owner instructions", err)
 	}
 	finish(pending.ID, true)
 	root := c.runs[q.RunID]

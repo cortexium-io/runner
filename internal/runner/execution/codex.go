@@ -443,7 +443,7 @@ func (c *Codex) begin(ctx context.Context, id string) error {
 			params["permissions"] = "runner-check"
 			params["baseInstructions"] = p.Instructions + reviewBase
 		}
-		if j.Assignment.CallerReviewScope != "" {
+		if p.Access == "workspace-write" && j.Assignment.CallerReviewScope != "" {
 			params["baseInstructions"] = params["baseInstructions"].(string) + "\n" + j.Assignment.CallerReviewScope
 		}
 		env, e := c.workerEnvironment(j)
@@ -662,7 +662,7 @@ func nativePayloadPlan(a runner.Assignment, now time.Time) (string, any, map[str
 		base = reviewBase
 	}
 	overhead := len(base) + len(p.Instructions) + len(sb)
-	if a.CallerReviewScope != "" {
+	if p.Access == "workspace-write" && a.CallerReviewScope != "" {
 		overhead += 1 + len(a.CallerReviewScope)
 	}
 	if p.Mode == "experience-review" {

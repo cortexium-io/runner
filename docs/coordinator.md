@@ -726,9 +726,11 @@ The single atomic grant preserves the original blocked attempt and the consumed
 serial-recovery audit. It queues only the original ordinary source pin, restores
 the original final reservation to prerequisite waiting, and records the generic
 caller-review scope clarification separately from frozen definitions/inputs.
-Subsequent workspace native assignments receive that clarification within their
-existing input budget. The declared caller review remains required; this grants
-no model editing visit or direct source acceptance. The durable pin worker
+Only subsequent writable native source-owner assignments receive that
+clarification within their existing input budget; configured source and
+experience reviewers retain their original obligations. The declared caller
+review remains required; this grants no model editing visit or direct source
+acceptance. The durable pin worker
 revalidates the handoff and reconstructs the exact captured tree in its ordinary
 disposable index, without creating a writable checkout. A stopped/failed handoff
 cannot renew the owner or receive another grant; lost acknowledgements rejoin
