@@ -23,6 +23,14 @@ func TestSourceHandoffReconstructsAndPinsCapturedSourceWithoutEditOwner(t *testi
 	a.Setup.Profile = runner.Profile{Harness: "task-source", Mode: "pin", Access: "workspace-read"}
 	a.Inputs = map[string]runner.Value{"patch": {ArtifactID: proof.Source.PatchID}, "summary": runner.Text("captured completion; acceptance downstream")}
 	a.SourceHandoff = &proof
+	if err := f.service.ValidateAssignment(a); err != nil {
+		t.Fatal("normal handoff pin job/completion does not fit", err)
+	}
+	oversized := runner.Clone(a)
+	oversized.SourceHandoff.Artifacts[0].ID = strings.Repeat("x", int(a.Limits.MaxRecord))
+	if err := f.service.ValidateAssignment(oversized); !errors.Is(err, runner.ErrCapacity) {
+		t.Fatal("oversized handoff pin proof passed admission", err)
+	}
 	job := taskSourceJob{Assignment: a, PinIntent: true}
 	if err = f.service.tasks.save(job); err != nil {
 		t.Fatal(err)

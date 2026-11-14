@@ -444,7 +444,10 @@ func (c *Core) planCardSourceRecovery(req RecoverUnpublishedCardRequest, handoff
 		Limits    ExecutionLimits
 	}{runs, out.Artifacts, *authority, c.executionLimits()})
 	if handoff != nil {
-		out.BindingsSHA256 = recoveryDigest(struct{ Family, Reason, Scope string }{out.BindingsSHA256, handoff.ReasonSHA256, SourceHandoffScope})
+		out.BindingsSHA256 = recoveryDigest(struct {
+			Family, Reason, Scope string
+			RecordFormat          int
+		}{out.BindingsSHA256, handoff.ReasonSHA256, SourceHandoffScope, 8})
 	}
 	if req.BindingsSHA256 != "" && req.BindingsSHA256 != out.BindingsSHA256 {
 		return reject("preflight family/source bindings changed")

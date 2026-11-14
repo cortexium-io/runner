@@ -10,11 +10,13 @@ import (
 	"time"
 )
 
-func (s *cardRecoveryStore) SaveSourceHandoff(ctx context.Context, root, child, pending Run, receipt *Receipt) error {
+func (s *cardRecoveryStore) SaveSourceHandoff(ctx context.Context, root, child, pending Run, proof UnpublishedCardAssessment, receipt *Receipt) error {
 	if s.fail {
 		return fmt.Errorf("fixture handoff transaction failed")
 	}
 	s.runs[child.ID], s.runs[pending.ID] = Clone(child), Clone(pending)
+	ref := root.SourceHandoff.Proof
+	s.artifacts[ref.ID] = Artifact{ID: ref.ID, RunID: root.ID, ProjectID: root.ProjectID, Bytes: ref.Bytes}
 	return s.Save(ctx, root, nil, receipt)
 }
 
@@ -116,7 +118,7 @@ func TestSourceHandoffPreservesFailureAndQueuesOnlyNormalPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	child := c.runs[q.ChildRunID]
-	if r.RecordFormat != 7 || r.SourceHandoff == nil || !reflect.DeepEqual(r.UnpublishedCardRecovery, before[r.ID].UnpublishedCardRecovery) || !reflect.DeepEqual(child.Attempts, before[child.ID].Attempts) || child.Step != 2 || child.Visit != 2 || child.Status != "Queued" || c.familyAttempts(r) != 19 {
+	if r.RecordFormat != 8 || r.SourceHandoff == nil || r.SourceHandoff.Assessment != nil || r.SourceHandoff.Proof == nil || !reflect.DeepEqual(r.UnpublishedCardRecovery, before[r.ID].UnpublishedCardRecovery) || !reflect.DeepEqual(child.Attempts, before[child.ID].Attempts) || child.Step != 2 || child.Visit != 2 || child.Status != "Queued" || c.familyAttempts(r) != 19 {
 		t.Fatal("handoff rewrote history or granted an owner")
 	}
 	for _, pin := range a.Pins {
@@ -184,9 +186,19 @@ func TestSourceHandoffRejectsDriftAndFailedCommit(t *testing.T) {
 				t.Fatal("unsafe handoff changed family", err)
 			}
 			if kind == "atomic" {
+				retained, readErr := c.disk.Read("artifacts/"+a.Proof.ID, c.disk.Policy.MaxArtifact)
+				if readErr != nil || recoveryDigestRawText(string(retained)) != a.Proof.SHA256 {
+					t.Fatal("failed commit lost its immutable unregistered proof", readErr)
+				}
+				if _, artifactErr := s.Artifact(t.Context(), a.Proof.ID); artifactErr == nil {
+					t.Fatal("failed commit registered a proof artifact")
+				}
 				s.fail = false
 				if _, err = c.AdjudicateSourceHandoff(q); err != nil {
 					t.Fatal("failed transaction consumed grant", err)
+				}
+				if c.runs[q.RunID].SourceHandoff.Proof.ID != a.Proof.ID {
+					t.Fatal("retry replaced its retained proof")
 				}
 			}
 		})

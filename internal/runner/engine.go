@@ -94,6 +94,12 @@ func New(ctx context.Context, s Store, e Executor, d *Disk, cfg Snapshot) (*Core
 	}
 	c.executionUpdates = map[string]bool{}
 	for _, r := range saved {
+		if r.SourceHandoff != nil && r.RecordFormat == 8 {
+			if _, err := c.readSourceHandoffProof(r); err != nil {
+				cancel()
+				return nil, fmt.Errorf("restore source handoff %s: %w", r.ID, err)
+			}
+		}
 		if a := r.Current(); a != nil && a.State != Finished {
 			a.State = Unknown // Reconcile every restored dispatch before considering Start.
 			a.NextCheck = time.Time{}
@@ -806,8 +812,11 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		if root, err := c.taskRoot(r); err == nil && root.SourceHandoff != nil && p.Harness == "codex" && p.Access == "workspace-write" && assignment.OutputTypes["patch"] == "artifact" {
 			assignment.CallerReviewScope = root.SourceHandoff.Scope
 		}
-		if handoff := c.sourceHandoffCard(r); handoff != nil && r.Step == 2 && r.Visit == handoff.Assessment.OwnerVisit+1 {
-			proof := Clone(handoff.Assessment)
+		if handoff := c.sourceHandoffCard(r); handoff != nil && r.Step == 2 {
+			proof, err := c.readSourceHandoffProof(c.runs[r.Task.Identity.RootRunID])
+			if err != nil || r.Visit != proof.OwnerVisit+1 {
+				return Assignment{}, fmt.Errorf("source handoff pin proof or visit differs: %v", err)
+			}
 			assignment.SourceHandoff = &proof
 		}
 		if grant := c.recoveredCard(r); grant != nil && r.Step == 1 && r.Visit == grant.OwnerVisit {

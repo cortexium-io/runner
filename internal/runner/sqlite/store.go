@@ -268,6 +268,9 @@ func (s *Store) saveRunWithHandoff(ctx context.Context, tx *sql.Tx, r runner.Run
 	}
 	add(r.Inputs)
 	add(r.Outputs)
+	if r.SourceHandoff != nil && r.SourceHandoff.Proof != nil {
+		refs[r.SourceHandoff.Proof.ID] = true
+	}
 	for _, a := range r.Attempts {
 		if a.End != nil && a.End.Result != nil {
 			add(a.End.Result.Outputs)

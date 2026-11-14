@@ -31,7 +31,7 @@ func storedAttemptCount(state []byte) (int, error) {
 		}
 		return -1, nil
 	}
-	if (h.Format != 3 && h.Format != 4 && h.Format != 5 && h.Format != 6 && h.Format != 7) || h.Count == nil || *h.Count < 0 || *h.Count > maxStoredAttempts || len(h.Inline) != 0 {
+	if (h.Format != 3 && h.Format != 4 && h.Format != 5 && h.Format != 6 && h.Format != 7 && h.Format != 8) || h.Count == nil || *h.Count < 0 || *h.Count > maxStoredAttempts || len(h.Inline) != 0 {
 		return 0, errors.New("invalid normalized attempt metadata")
 	}
 	return *h.Count, nil
@@ -116,7 +116,7 @@ func (s *Store) saveAttempts(ctx context.Context, tx *sql.Tx, r runner.Run, reco
 		if old.RecordFormat >= 4 {
 			before, _ := json.Marshal(old.UnpublishedCardRecovery)
 			after, _ := json.Marshal(r.UnpublishedCardRecovery)
-			upgrade := handoffUpgrade && old.RecordFormat == 6 && r.RecordFormat == 7 && old.SourceHandoff == nil && r.SourceHandoff != nil
+			upgrade := handoffUpgrade && old.RecordFormat == 6 && r.RecordFormat == 8 && old.SourceHandoff == nil && r.SourceHandoff != nil
 			if r.RecordFormat != old.RecordFormat && !upgrade || string(before) != string(after) {
 				return errors.New("one-use card recovery audit cannot change or be discarded")
 			}

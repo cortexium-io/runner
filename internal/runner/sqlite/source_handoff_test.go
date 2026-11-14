@@ -2,7 +2,9 @@ package sqlite
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,8 +49,15 @@ func TestSourceHandoffAtomicAuditUpgradeAndPreviousReader(t *testing.T) {
 	}
 	prior := runner.Clone(root.UnpublishedCardRecovery)
 	receipt := &runner.Receipt{Key: "handoff-approved", Kind: "adjudicate_source_handoff", RunID: root.ID, Args: json.RawMessage(`{"bound":true}`)}
-	root.RecordFormat, root.Revision, root.Status = 7, 127, "Running"
-	root.SourceHandoff = &runner.SourceHandoffAudit{Request: runner.AdjudicateSourceHandoffRequest{RecoverUnpublishedCardRequest: runner.RecoverUnpublishedCardRequest{RequestID: receipt.Key, RunID: root.ID, ChildRunID: child.ID}}, Assessment: runner.UnpublishedCardAssessment{StoredRevision: 126, ChildRevision: 61, Unstarted: []runner.UnstartedCardRecovery{{RunID: pending.ID, Revision: 3, Updated: pending.Updated}}}, Scope: runner.SourceHandoffScope}
+	root.RecordFormat, root.Revision, root.Status = 8, 127, "Running"
+	proof := runner.UnpublishedCardAssessment{RunID: root.ID, ChildRunID: child.ID, GroupAttemptID: "original-group", StoredRevision: 126, ChildRevision: 61, Unstarted: []runner.UnstartedCardRecovery{{RunID: pending.ID, Revision: 3, Updated: pending.Updated}}}
+	rawProof, _ := json.Marshal(proof)
+	digest := fmt.Sprintf("%x", sha256.Sum256(rawProof))
+	root.SourceHandoff = &runner.SourceHandoffAudit{
+		Request: runner.AdjudicateSourceHandoffRequest{RecoverUnpublishedCardRequest: runner.RecoverUnpublishedCardRequest{RequestID: receipt.Key, RunID: root.ID, ChildRunID: child.ID, ChildRevision: 61, GroupAttemptID: proof.GroupAttemptID}},
+		Proof:   &runner.CardRecoveryArtifact{ID: "original-group/source-handoff-" + digest + ".json", RunID: root.ID, Bytes: int64(len(rawProof)), SHA256: digest},
+		Scope:   runner.SourceHandoffScope,
+	}
 	child.Revision, child.Step, child.Status = 62, 2, "Queued"
 	pending.Revision, pending.Status, pending.CancelRequested, pending.ResourcesReleased = 4, "Waiting", false, false
 	if err = s.Save(t.Context(), root, nil, receipt); err == nil {
@@ -56,7 +65,7 @@ func TestSourceHandoffAtomicAuditUpgradeAndPreviousReader(t *testing.T) {
 	}
 	broken := runner.Clone(root)
 	broken.Reason = strings.Repeat("x", int(s.policy.Database.MaxRecord)+1)
-	if err = s.SaveSourceHandoff(t.Context(), broken, child, pending, receipt); err == nil {
+	if err = s.SaveSourceHandoff(t.Context(), broken, child, pending, proof, receipt); err == nil {
 		t.Fatal("failed root save committed children")
 	}
 	after, err := s.Load(t.Context())
@@ -66,8 +75,31 @@ func TestSourceHandoffAtomicAuditUpgradeAndPreviousReader(t *testing.T) {
 	if _, err = s.FindReceipt(t.Context(), receipt.Key); err == nil {
 		t.Fatal("failed handoff retained receipt")
 	}
-	if err = s.SaveSourceHandoff(t.Context(), root, child, pending, receipt); err != nil {
+	if _, err = s.Artifact(t.Context(), root.SourceHandoff.Proof.ID); err == nil {
+		t.Fatal("failed handoff registered proof artifact")
+	}
+	if _, err = s.db.Exec("INSERT INTO artifacts(id,run_id,project,bytes) VALUES(?,?,?,?)", root.SourceHandoff.Proof.ID, child.ID, child.ProjectID, len(rawProof)); err != nil {
 		t.Fatal(err)
+	}
+	if err = s.SaveSourceHandoff(t.Context(), root, child, pending, proof, receipt); err == nil {
+		t.Fatal("atomic grant adopted a foreign proof registration")
+	}
+	if _, err = s.db.Exec("DELETE FROM artifacts WHERE id=?", root.SourceHandoff.Proof.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SaveSourceHandoff(t.Context(), root, child, pending, proof, receipt); err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := s.Artifact(t.Context(), root.SourceHandoff.Proof.ID)
+	if err != nil || artifact.RunID != root.ID || artifact.ProjectID != root.ProjectID || artifact.Bytes != int64(len(rawProof)) {
+		t.Fatal("proof artifact registration is not atomic/owned", err)
+	}
+	if err = s.Save(t.Context(), root, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	var uses int
+	if err = s.db.QueryRow("SELECT count(*) FROM artifact_uses WHERE artifact=? AND run_id=?", artifact.ID, root.ID).Scan(&uses); err != nil || uses != 1 {
+		t.Fatal("normal root save lost immutable proof retention", uses, err)
 	}
 	for _, kind := range []string{"old-audit", "handoff-audit", "downgrade"} {
 		bad := runner.Clone(root)
@@ -111,7 +143,7 @@ func TestSourceHandoffAtomicAuditUpgradeAndPreviousReader(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(got, *receipt) {
 		t.Fatal("restart lost receipt", err)
 	}
-	if err = s.SaveSourceHandoff(t.Context(), root, child, pending, receipt); err == nil {
+	if err = s.SaveSourceHandoff(t.Context(), root, child, pending, proof, receipt); err == nil {
 		t.Fatal("store repeated handoff after restart")
 	}
 }

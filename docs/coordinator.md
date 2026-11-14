@@ -722,6 +722,14 @@ flags match `recover-unpublished-card`. No input, profile, policy, deadline or
 allowance override is accepted. Restricted intake exposes neither owner action:
 `runner_preflight_source_handoff` nor `runner_adjudicate_source_handoff`.
 
+Preflight constructs the same proposed root, source child and final reservation
+as admission. Their serialized state must retain the existing half-record
+headroom, and each frozen definition must fit one record. The complete proof and
+ordinary pin job/completion must also fit their existing artifact, record and
+managed/free-space bounds. Preflight writes no artifact or run state. Supplying
+the intended stable request ID lets it size that exact request; without one it
+reserves the maximum supported JSON-escaped request ID.
+
 The single atomic grant preserves the original blocked attempt and the consumed
 serial-recovery audit. It queues only the original ordinary source pin, restores
 the original final reservation to prerequisite waiting, and records the generic
@@ -737,11 +745,17 @@ cannot renew the owner or receive another grant; lost acknowledgements rejoin
 the saved receipt. Normal accepted pins, manifest/join, checks, independent review,
 publication, qualification and protected decisions remain in control.
 
-This transition uses record format seven with a distinct immutable audit and no
-SQL schema migration. Only its atomic store operation can upgrade the original
-format-six root; generic saves cannot create that transition. The earlier audit
-must remain byte-identical. The installed format-six reader refuses format seven
-before dispatch. Main retains the verified compatible executable and closed-state
+This transition uses record format eight with a compact immutable audit and no
+SQL schema migration. Full assessment/source/pin proof is a content-addressed,
+hash-bound artifact owned by the original root group attempt. Its registration,
+root/child/final records and receipt commit atomically; a failed commit retains
+only identical unregistered proof bytes for safe retry. Normal saves retain the
+artifact reference, and restart/pin dispatch authenticate its ownership and hash.
+Only this atomic operation can upgrade the original format-six root; generic
+saves cannot create that transition. Earlier audits remain byte-identical, and
+format-seven inline histories remain readable. Both format-six and format-seven
+readers refuse format eight before dispatch. Main retains the verified compatible
+executable and closed-state
 checkpoint through the authorized installation/readback procedure below; after
 a grant, never rewind state or roll back to an incompatible reader.
 
