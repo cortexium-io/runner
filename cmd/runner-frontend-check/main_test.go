@@ -19,12 +19,26 @@ import (
 const fixtureVitestOutput = "for arg do case \"$arg\" in --outputFile.json=*) target=${arg#*=};; esac; done\n"
 
 func TestSelectionsRefuseFlagsPatternsTraversalAndDuplicates(t *testing.T) {
-	for _, raw := range []string{`[]`, `["--passWithNoTests"]`, `["../outside.test.ts"]`, `["src/**/*.test.ts"]`, `["src/a.test.ts","src/a.test.ts"]`, `["/tmp/a.test.ts"]`, `["src/a.ts"]`, `"src/a.test.ts"`} {
+	for _, raw := range []string{
+		`[]`,
+		`["--passWithNoTests"]`,
+		`["../outside.test.ts"]`,
+		`["src/**/*.test.ts"]`,
+		`["src/a.test.ts","src/a.test.ts"]`,
+		`["/tmp/a.test.ts"]`,
+		`["src/a.ts"]`,
+		`"src/a.test.ts"`,
+		`["private/../outside.test.ts"]`,
+		`["private/**/*.test.ts"]`,
+		`["private/a.test.ts","private/a.test.ts"]`,
+		`["private//a.test.ts"]`,
+		`["private/a.test.ts --passWithNoTests"]`,
+	} {
 		if _, err := selections(raw); err == nil {
 			t.Fatal("unsafe selection accepted", raw)
 		}
 	}
-	if x, err := selections(`["src/pages/board.test.ts","scripts/assets.test.js"]`); err != nil || len(x) != 2 {
+	if x, err := selections(`["src/pages/board.test.ts","scripts/assets.test.js","private/games/sudoku/home-note-keys.test.ts"]`); err != nil || len(x) != 3 {
 		t.Fatal(x, err)
 	}
 }

@@ -51,3 +51,54 @@ test('fits a board one', () => expect(1).toBe(2));
 		})
 	}
 }
+
+func TestConfiguredVitestPrivateSelection(t *testing.T) {
+	node, modules := os.Getenv("RUNNER_FRONTEND_NODE"), os.Getenv("RUNNER_FRONTEND_MODULES")
+	if node == "" || modules == "" {
+		t.Skip("set RUNNER_FRONTEND_NODE and RUNNER_FRONTEND_MODULES to qualify private test selections with Vitest")
+	}
+	source, scratch, _ := frontendFixture(t, t.TempDir())
+	const selected = "private/games/sudoku/board.test.ts"
+	const testSource = `import { expect, test } from 'vitest';
+import { value } from '../../../src/board';
+test('private test imports source', () => expect(value).toBe('unchanged'));
+`
+	for name, contents := range map[string]string{
+		"frontend/" + selected:  testSource,
+		"frontend/src/board.ts": "export const value = 'unchanged';\n",
+	} {
+		path := filepath.Join(source, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := run(options{
+		node:    node,
+		modules: modules,
+		source:  source,
+		scratch: scratch,
+		tests:   `["` + selected + `"]`,
+		serial:  true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(scratch, "frontend-check.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got proof
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "passed" || got.Executed != 1 || got.Failed != 0 || got.Skipped != 0 ||
+		got.TestWorkers != 1 || got.TestTimeoutMS != 5000 || len(got.Files) != 1 || got.Files[0].Selected != selected {
+		t.Fatalf("private selection did not produce complete serial proof: %+v", got)
+	}
+	data, err = os.ReadFile(filepath.Join(source, "frontend", selected))
+	if err != nil || string(data) != testSource {
+		t.Fatal("read-only private test source changed", err)
+	}
+}

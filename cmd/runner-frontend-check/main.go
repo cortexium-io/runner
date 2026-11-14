@@ -145,8 +145,8 @@ func selections(raw string) ([]string, error) {
 	}
 	seen := map[string]bool{}
 	for _, name := range tests {
-		if !regexp.MustCompile(`^(src|scripts)/[A-Za-z0-9_./-]+\.test\.(ts|js)$`).MatchString(name) || strings.Contains(name, "..") || filepath.ToSlash(filepath.Clean(name)) != name || seen[name] {
-			return nil, errors.New("frontend test selections must be unique frontend-relative src/scripts test files, without patterns or flags")
+		if !regexp.MustCompile(`^(src|scripts|private)/[A-Za-z0-9_./-]+\.test\.(ts|js)$`).MatchString(name) || strings.Contains(name, "..") || filepath.ToSlash(filepath.Clean(name)) != name || seen[name] {
+			return nil, errors.New("frontend test selections must be unique frontend-relative src/scripts/private test files, without patterns or flags")
 		}
 		seen[name] = true
 	}
