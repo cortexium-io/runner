@@ -814,10 +814,12 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		}
 		if handoff := c.sourceHandoffCard(r); handoff != nil && r.Step == 2 {
 			proof, err := c.readSourceHandoffProof(c.runs[r.Task.Identity.RootRunID])
-			if err != nil || r.Visit != proof.OwnerVisit+1 {
-				return Assignment{}, fmt.Errorf("source handoff pin proof or visit differs: %v", err)
+			if err != nil {
+				return Assignment{}, fmt.Errorf("source handoff pin proof: %w", err)
 			}
-			assignment.SourceHandoff = &proof
+			if r.Visit == proof.OwnerVisit+1 {
+				assignment.SourceHandoff = &proof
+			}
 		}
 		if grant := c.recoveredCard(r); grant != nil && r.Step == 1 && r.Visit == grant.OwnerVisit {
 			root := c.runs[r.Task.Identity.RootRunID]

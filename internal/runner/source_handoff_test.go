@@ -294,6 +294,87 @@ func TestSourceHandoffNormalPinRestoresLastCardAndJoin(t *testing.T) {
 	if root.Status != "Queued" || root.Process.Steps[root.Step].ID != "join" || c.familyAttempts(root) != 24 || err != nil || join.TaskSource == nil || len(join.TaskSource.Dependencies) != 6 {
 		t.Fatal("handoff bypassed normal six-pin join", root.Status, c.familyAttempts(root), err)
 	}
+	exerciseSourceHandoffRootCorrection(t, c, root)
+}
+
+// The frozen process corrects downstream check/review findings through the root
+// owner and back to root checks; it does not renew this child handoff grant.
+func exerciseSourceHandoffRootCorrection(t *testing.T, c *Core, root Run) {
+	t.Helper()
+	audit := Clone(root.SourceHandoff)
+	joinPatch := Value{ArtifactID: "ordinary-join/changes.patch"}
+	root.Attempts = append(root.Attempts, Attempt{
+		ID: "ordinary-join", Step: root.Step, Visit: root.Visit, State: Finished, Released: true,
+		Source: &SourceResult{PatchID: joinPatch.ArtifactID},
+		End: &ExecutionEnd{Kind: "returned", Result: &StepResult{Outcome: "ready", Outputs: map[string]Value{
+			"manifest": {ArtifactID: "ordinary-join/manifest"}, "feedback": Text(""),
+		}}},
+	})
+	c.route(&root, root.Current())
+	if root.Status != "Queued" || root.Process.Steps[root.Step].ID != "check" {
+		t.Fatal("ordinary join lost its check route", root.Reason)
+	}
+	root.Attempts = append(root.Attempts, Attempt{
+		ID: "ordinary-check", Step: root.Step, Visit: root.Visit, State: Finished, Released: true,
+		End: &ExecutionEnd{Kind: "returned", Result: &StepResult{Outcome: "changes_requested", Outputs: map[string]Value{
+			"check": Text("focused correction required"), "artifact": {ArtifactID: "ordinary-check/result"},
+		}}},
+	})
+	c.route(&root, root.Current())
+	if root.Status != "Queued" || root.Process.Steps[root.Step].ID != "owner" {
+		t.Fatal("frozen check correction did not reach root owner", root.Reason)
+	}
+	owner, err := c.assignment(root, Attempt{ID: "ordinary-root-owner", Step: root.Step, Visit: root.Visit})
+	if err != nil || owner.SourceHandoff != nil || owner.CallerReviewScope != SourceHandoffScope || owner.Inputs["checks"].ArtifactID != "ordinary-check/result" {
+		t.Fatal("root correction changed its ordinary source inputs", err)
+	}
+	patch := Value{ArtifactID: "ordinary-root-owner/changes.patch"}
+	root.Attempts = append(root.Attempts, Attempt{
+		ID: "ordinary-root-owner", Step: root.Step, Visit: root.Visit, State: Finished, Released: true,
+		Source: &SourceResult{PatchID: patch.ArtifactID},
+		End: &ExecutionEnd{Kind: "returned", Result: &StepResult{Outcome: "ready", Outputs: map[string]Value{
+			"patch": patch, "summary": Text("ordinary focused root correction"),
+		}}},
+	})
+	c.route(&root, root.Current())
+	check, err := c.assignment(root, Attempt{ID: "ordinary-corrected-check", Step: root.Step, Visit: root.Visit})
+	if root.Status != "Queued" || root.Process.Steps[root.Step].ID != "check" || err != nil || check.SourceHandoff != nil || check.Inputs["patch"].ArtifactID != patch.ArtifactID || !reflect.DeepEqual(root.SourceHandoff, audit) {
+		t.Fatal("root correction lost its new candidate or changed the handoff audit", root.Reason, err)
+	}
+}
+
+func TestSourceHandoffProofOnlyAttachesToOriginalPinVisit(t *testing.T) {
+	c, _, q := sourceHandoffFixture(t)
+	a, err := c.CheckSourceHandoff(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.BindingsSHA256 = a.BindingsSHA256
+	if _, err = c.AdjudicateSourceHandoff(q); err != nil {
+		t.Fatal(err)
+	}
+	child := c.runs[q.ChildRunID]
+	original := Clone(child.Attempts)
+	first, err := c.assignment(child, Attempt{ID: "original-pin", Step: 2, Visit: child.Visit})
+	if err != nil || first.SourceHandoff == nil {
+		t.Fatal("original handoff pin lost its authenticated proof", err)
+	}
+	// Model an already-authorized later ordinary owner completion. This protects
+	// assignment compatibility; it does not grant a visit or bypass routing.
+	patch := Value{ArtifactID: "later-owner/changes.patch"}
+	child.Attempts = append(child.Attempts, Attempt{
+		ID: "later-owner", Step: 1, Visit: child.Visit + 1, State: Finished, Released: true,
+		Source: &SourceResult{PatchID: patch.ArtifactID},
+		End: &ExecutionEnd{Kind: "returned", Result: &StepResult{Outcome: "ready", Outputs: map[string]Value{
+			"patch": patch, "summary": Text("later ordinary completion"),
+		}}},
+	})
+	child.Visit += 2
+	child.StepInputs = nil
+	later, err := c.assignment(child, Attempt{ID: "later-pin", Step: 2, Visit: child.Visit})
+	if err != nil || later.SourceHandoff != nil || later.Inputs["patch"].ArtifactID != patch.ArtifactID || later.Setup.Profile.Harness != "task-source" || !reflect.DeepEqual(child.Attempts[:2], original) {
+		t.Fatal("later ordinary pin inherited the old handoff proof or lost its source", err)
+	}
 }
 
 func TestSourceHandoffRejectedPinRestartCannotRenewOwner(t *testing.T) {
