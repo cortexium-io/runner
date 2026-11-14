@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -100,5 +101,49 @@ test('private test imports source', () => expect(value).toBe('unchanged'));
 	data, err = os.ReadFile(filepath.Join(source, "frontend", selected))
 	if err != nil || string(data) != testSource {
 		t.Fatal("read-only private test source changed", err)
+	}
+}
+
+func TestConfiguredVitestProcessErrorKeepsFailureAndBoundedLog(t *testing.T) {
+	node, modules := os.Getenv("RUNNER_FRONTEND_NODE"), os.Getenv("RUNNER_FRONTEND_MODULES")
+	if node == "" || modules == "" {
+		t.Skip("set RUNNER_FRONTEND_NODE and RUNNER_FRONTEND_MODULES to qualify process-error logging with Vitest")
+	}
+	source, scratch, _ := frontendFixture(t, t.TempDir())
+	const sentinel = "runner process-level error sentinel"
+	const testSource = `import { expect, test } from 'vitest';
+test('passing assertion with an unhandled rejection', async () => {
+  void Promise.reject(new Error('runner process-level error sentinel'));
+  await new Promise(resolve => setImmediate(resolve));
+  expect(1).toBe(1);
+});
+`
+	if err := os.WriteFile(filepath.Join(source, "frontend/src/board.test.ts"), []byte(testSource), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(options{
+		node:    node,
+		modules: modules,
+		source:  source,
+		scratch: scratch,
+		tests:   `["src/board.test.ts"]`,
+		serial:  true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(scratch, "frontend-check.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got proof
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "blocked" || got.ExitCode == nil || *got.ExitCode != 1 ||
+		got.Executed != 1 || got.Failed != 0 || got.Skipped != 0 {
+		t.Fatalf("process-level error was accepted or changed assertion evidence: %+v", got)
+	}
+	if !strings.Contains(got.Output, sentinel) || len(got.Output) > 16<<10 {
+		t.Fatalf("bounded log lacks the process-level cause: %q", got.Output)
 	}
 }

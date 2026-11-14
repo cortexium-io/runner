@@ -365,6 +365,8 @@ func vitestArguments(vitest, report, junit string) []string {
 	return []string{
 		vitest,
 		"run",
+		// JSON/JUnit omit run-level errors; keep their cause in the bounded log.
+		"--reporter=default",
 		"--reporter=json",
 		"--reporter=junit",
 		"--outputFile.json=" + report,
