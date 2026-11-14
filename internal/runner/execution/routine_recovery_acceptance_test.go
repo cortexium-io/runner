@@ -100,7 +100,7 @@ func routineRecoveryOperator() error {
 	return err
 }
 
-func TestFreshRoutineRecoveryRejoinsAcceptedOperationAndPreservesProtectedGates(t *testing.T) {
+func TestWorkflowFreshRoutineRecoveryRejoinsAcceptedOperationAndPreservesProtectedGates(t *testing.T) {
 	provider := evidenceBinary(t, "./testdata/release-operator")
 	binary, err := os.Executable()
 	if err != nil {

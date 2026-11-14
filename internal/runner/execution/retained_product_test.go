@@ -16,23 +16,14 @@ import (
 
 // Real source restoration, commands, measurements, bindings and release gates;
 // only model judgments and remote effects are scripted. No product is executed.
-func TestRetainedProductRestoresBeforeReadinessAndMeasuresBeforeModel(t *testing.T) {
+func TestWorkflowRetainedProductRestoresBeforeReadinessAndMeasuresBeforeModel(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
-	build := func(name, pkg string) string {
-		t.Helper()
-		binary := filepath.Join(t.TempDir(), name)
-		command := exec.Command("go", "build", "-o", binary, pkg)
-		command.Dir = root
-		if output, err := command.CombinedOutput(); err != nil {
-			t.Fatal(err, string(output))
-		}
-		return binary
-	}
-	provider, measureBinary := build("provider", "./testdata/release-operator"), build("measure", "./cmd/runner-measure")
+	provider, measureBinary := evidenceBinary(t, "./testdata/release-operator"), evidenceBinary(t, "./cmd/runner-measure")
 	goBinary, err := exec.LookPath("go")
 	if err != nil {
 		t.Fatal(err)
 	}
+	goBinary, moduleCache := modelFreeFixtureGo(t, goBinary, "")
 	repo := sourceRepository(t)
 	benchmark := `package seats
 import("encoding/json";"os";"path/filepath";"testing")
@@ -66,6 +57,7 @@ func BenchmarkFixtureEvidence(b *testing.B){
 	fixtureGit(t, repo, "remote", "add", "origin", remote)
 	fixtureGit(t, repo, "push", "origin", "HEAD:refs/heads/main")
 	cfg := workspaceSnapshot(t, repo)
+	cfg.Instance.Codex.GoBinary, cfg.Instance.Codex.GoModuleCache = goBinary, moduleCache
 	cfg.Instance.Storage.Database.MaxRecord = 40 << 10
 	cfg.Instance.Storage.Database.MaxSize = 48 << 20
 	cfg.Instance.Storage.Database.MaxRuns = 128

@@ -20,7 +20,7 @@ import (
 // Real Core/SQLite/workspaces/commands/artifacts/native contracts and Git CAS;
 // source assertions, native judgments and remote provider effects are fixtures.
 // This is one old frozen run, not adoption, a replacement run or a new PR.
-func TestGovernedSourceRecoveryPreservesRunAndAdvancesExistingDraftWithin35(t *testing.T) {
+func TestWorkflowGovernedSourceRecoveryPreservesRunAndAdvancesExistingDraftWithin35(t *testing.T) {
 	measure := evidenceBinary(t, "./cmd/runner-measure")
 	provider := evidenceBinary(t, "./testdata/correction-recovery-provider")
 	for _, tc := range []struct {

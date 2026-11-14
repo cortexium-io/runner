@@ -14,7 +14,7 @@ import (
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
-func TestPlannedCollectionRepairRetainsFirstCompleteMeasurementAndStopsAtMerge(t *testing.T) {
+func TestWorkflowPlannedCollectionRepairRetainsFirstCompleteMeasurementAndStopsAtMerge(t *testing.T) {
 	measure, provider := evidenceBinary(t, "./cmd/runner-measure"), evidenceBinary(t, "./testdata/release-operator")
 	repo := sourceRepository(t)
 	benchmark := `package seats
@@ -146,7 +146,7 @@ func BenchmarkFixtureCollection(b *testing.B){
 	}
 }
 
-func TestPlannedBaselineOverflowRetainsBlockedDiagnosticBeforeModelWork(t *testing.T) {
+func TestWorkflowPlannedBaselineOverflowRetainsBlockedDiagnosticBeforeModelWork(t *testing.T) {
 	measure, provider := evidenceBinary(t, "./cmd/runner-measure"), evidenceBinary(t, "./testdata/release-operator")
 	repo := sourceRepository(t)
 	if err := os.WriteFile(filepath.Join(repo, "seats.go"), []byte(seatsImplementation), 0600); err != nil {

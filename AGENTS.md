@@ -243,16 +243,26 @@ The deterministic core suite owns lifecycle/recovery/storage; config tests own
 file/edit semantics; MCP tests own the wire/access boundary. Do not repeat the
 whole failure matrix per transport or adapter.
 
-Required implementation gates:
+Select verification from the changed behavior. Routine checks must name affected
+packages and, where useful, specific regression tests. Do not run unrelated suites
+or repeat passing checks whose relevant inputs are unchanged. For example:
 
 ```sh
-go test -race -timeout 20m ./...
-go vet ./...
+make check PACKAGES=./cmd/runner-frontend-check TESTS='^TestSelections'
 ```
 
-The package watchdog matches CI and accommodates the complete lifecycle and
-workflow fixtures. It changes no Runner command, process, model, attempt or
-storage allowance.
+Full model-free workflow journeys have the `TestWorkflow` prefix. They are
+excluded from routine checks and run separately with `make check-workflows`.
+When a batch changes workflow behavior or its shared fixtures, finish the related
+edits and pass their focused checks first, then run that workflow suite once.
+Use `make check-full` once at final verification when whole-repository coverage
+is relevant; do not run it after each helper, card or intermediate fix. CI's fast
+and workflow stages retain the full ordinary test coverage without rerunning the
+fast tests in the workflow stage. Native qualification remains separately opt-in.
+
+Trusted model-free fixtures reuse the normal Go build/module caches; cache
+isolation tests request their own caches explicitly. Do not change real worker
+permissions, isolation, assertions, process limits or test timeouts to speed tests.
 
 Run broader platform or real harness qualification only when relevant. Review the
 complete diff before finishing and report actual verification and limitations.

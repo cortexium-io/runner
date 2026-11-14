@@ -14,7 +14,7 @@ import (
 // Real Core family dispatch, SQLite, scopes, source adapter and Git ancestry
 // meet at this seam. Only the two coding turns are scripted; no model or
 // product test is invoked.
-func TestTaskSourcesCoreDependentOverlapUsesIsolatedSourcesAndOneJoin(t *testing.T) {
+func TestWorkflowTaskSourcesCoreDependentOverlapUsesIsolatedSourcesAndOneJoin(t *testing.T) {
 	repo := sourceRepository(t)
 	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("original\n"), 0600); err != nil {
 		t.Fatal(err)

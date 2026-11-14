@@ -39,18 +39,13 @@ func TestInvestigationPayloadFitsExistingLimit(t *testing.T) {
 
 // The core/native/command/Git/provider boundary is real; judgments and remote
 // effects are scripted. The provider never contacts GitHub or production.
-func TestConnectedDeliveryCorrectionAndRecoveryDecisions(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "provider")
-	build := exec.Command("go", "build", "-o", binary, "./testdata/release-operator")
-	build.Dir = filepath.Join("..", "..", "..")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatal(err, string(output))
-	}
+func TestWorkflowConnectedDeliveryCorrectionAndRecoveryDecisions(t *testing.T) {
+	binary := evidenceBinary(t, "./testdata/release-operator")
 	goBinary, err := exec.LookPath("go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	goBinary, moduleCache := modelFreeFixtureGo(t, goBinary, filepath.Join(filepath.Dir(binary), "compiler-cache"))
+	goBinary, moduleCache := modelFreeFixtureGo(t, goBinary, "")
 	for _, mode := range []string{"complete", "qa", "backup", "migration", "retry", "approval", "uncertain", "all", "baseline"} {
 		t.Run(mode, func(t *testing.T) {
 			repo := sourceRepository(t)

@@ -369,10 +369,11 @@ func TestApprovedSeedCandidateReplayRejectsChangedProof(t *testing.T) {
 	}
 }
 
-func TestRetainedSeedReviewIntegratesThroughCoreWithoutCoding(t *testing.T) {
+func TestWorkflowRetainedSeedReviewIntegratesThroughCoreWithoutCoding(t *testing.T) {
 	repo := sourceRepository(t)
 	base, tree, patch := retainedCandidateSeed(t, repo)
 	cfg := workspaceSnapshot(t, repo)
+	cfg.Instance.Codex.GoBinary, cfg.Instance.Codex.GoModuleCache = modelFreeFixtureGo(t, cfg.Instance.Codex.GoBinary, "")
 	p := cfg.Projects["demo"]
 	p.Source = &runner.SourceSettings{Ref: base}
 	p.Roles["retain-seed"] = runner.Role{

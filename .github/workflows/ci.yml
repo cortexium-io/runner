@@ -8,8 +8,27 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    name: Select affected checks
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.scope.outputs.packages }}
+      workflows: ${{ steps.scope.outputs.workflows }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Select affected packages and workflow coverage
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.sha }}
+        run: bash .github/scripts/check-scope.sh "$BASE" "$HEAD" >> "$GITHUB_OUTPUT"
   core:
     name: Process core (${{ matrix.os }})
+    needs: scope
+    if: always()
     strategy:
       fail-fast: false
       matrix:
@@ -17,17 +36,29 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
+      - name: Require successful check selection
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+        run: test "$SCOPE_RESULT" = success
       - name: Check out repository
+        if: needs.scope.outputs.packages != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
+        if: needs.scope.outputs.packages != ''
         uses: ./.github/actions/setup-go
         with:
           workload: race
-      - name: Test
-        # Real command journeys compile isolated fixtures with fresh caches.
-        # This package watchdog leaves Runner's command/process limits intact.
-        run: go test -race -timeout 20m ./...
-      - name: Vet
-        run: go vet ./...
+      - name: Fast tests
+        if: needs.scope.outputs.packages != ''
+        env:
+          PACKAGES: ${{ needs.scope.outputs.packages }}
+        run: |
+          read -r -a selected <<< "$PACKAGES"
+          go test -race -timeout 20m -skip '^TestWorkflow' "${selected[@]}"
+          go vet "${selected[@]}"
+      - name: Full model-free workflow tests
+        if: needs.scope.outputs.workflows == 'true'
+        run: make check-workflows
       - name: Build
+        if: needs.scope.outputs.workflows == 'true'
         run: go build ./cmd/cortexium-runner

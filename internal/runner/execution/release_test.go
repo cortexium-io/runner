@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -82,13 +81,8 @@ func TestReleaseAdapterReconcilesTransportButSurfacesExplicitUnknown(t *testing.
 	}
 }
 
-func TestReleaseCompleteWorkflowApprovalsRestartAndFailure(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "release-fixture")
-	build := exec.Command("go", "build", "-o", binary, "./testdata/release-operator")
-	build.Dir = filepath.Join("..", "..", "..")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatal(err, string(out))
-	}
+func TestWorkflowReleaseCompleteWorkflowApprovalsRestartAndFailure(t *testing.T) {
+	binary := evidenceBinary(t, "./testdata/release-operator")
 	for _, failure := range []bool{false, true} {
 		t.Run(map[bool]string{false: "complete", true: "migration failure"}[failure], func(t *testing.T) {
 			repo := sourceRepository(t)
@@ -195,12 +189,7 @@ func TestReleaseCompleteWorkflowApprovalsRestartAndFailure(t *testing.T) {
 }
 
 func TestCancelledStopResultUsesConfiguredRecoveryOnce(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "release-fixture")
-	build := exec.Command("go", "build", "-o", binary, "./testdata/release-operator")
-	build.Dir = filepath.Join("..", "..", "..")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatal(err, string(out))
-	}
+	binary := evidenceBinary(t, "./testdata/release-operator")
 	root := t.TempDir()
 	journal := filepath.Join(root, "operations")
 	os.Mkdir(journal, 0700)

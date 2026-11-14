@@ -14,7 +14,7 @@ import (
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
-func TestPlannedInvestigationRetainsFirstMeasurementAcrossCorrectionAndReview(t *testing.T) {
+func TestWorkflowPlannedInvestigationRetainsFirstMeasurementAcrossCorrectionAndReview(t *testing.T) {
 	measure, provider := evidenceBinary(t, "./cmd/runner-measure"), evidenceBinary(t, "./testdata/release-operator")
 	repo := sourceRepository(t)
 	benchmark := `package seats

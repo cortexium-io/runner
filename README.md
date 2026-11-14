@@ -145,11 +145,23 @@ and [operator instructions](docs/operator-reference.md#input-only-codex-executio
 ## Verify
 
 ```sh
-go test -race -timeout 20m ./...
-go vet ./...
-go build ./cmd/cortexium-runner
+make check PACKAGES=./cmd/runner-frontend-check TESTS='^TestSelections'
 ```
 
-There are no model calls in these checks. CI runs the same Go gates on Linux and
-macOS. Release and installer automation from the previous runtime is retired on
-this branch; distribution needs its own qualification and authorization.
+Select the packages and regressions affected by the change. Routine checks
+exclude the `TestWorkflow` integration journeys. After related edits and focused
+checks pass, run `make check-workflows` once if workflow behavior or its shared
+fixtures changed. `make check-full` is the explicit final whole-repository gate;
+do not repeat it after each intermediate fix. Trusted model-free fixtures share
+normal Go compiler caches while still executing their checks with `-count=1`.
+Real worker cache isolation and native qualification remain unchanged.
+
+There are no model calls in these checks. CI runs complementary fast and workflow
+stages on Linux and macOS, preserving the ordinary full suite. Release and
+installer automation from the previous runtime is retired on this branch;
+distribution needs its own qualification and authorization.
+
+CI selects changed command packages for helper-only changes and omits workflow
+qualification for them. Shared runtime, fixture, process or test-infrastructure
+changes select the broader coverage; a manual CI run selects the full suite.
+Documentation-only changes do not launch Go tests.

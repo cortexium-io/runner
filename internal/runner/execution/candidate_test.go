@@ -14,7 +14,7 @@ import (
 
 // One process proof owns coding -> check -> read-only review -> candidate
 // integration. A rejected review must not publish a candidate or redo checks.
-func TestReviewedCandidateProcess(t *testing.T) {
+func TestWorkflowReviewedCandidateProcess(t *testing.T) {
 	for _, tc := range []struct {
 		name, verdict string
 		checkedOut    bool

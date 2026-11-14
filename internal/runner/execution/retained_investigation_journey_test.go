@@ -16,7 +16,7 @@ import (
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
-func TestRetainedInvestigationRepairsCollectionAndPreservesOriginalPRAndEvidence(t *testing.T) {
+func TestWorkflowRetainedInvestigationRepairsCollectionAndPreservesOriginalPRAndEvidence(t *testing.T) {
 	measure, provider := evidenceBinary(t, "./cmd/runner-measure"), evidenceBinary(t, "./testdata/release-operator")
 	repo := sourceRepository(t)
 	benchmark := `package seats

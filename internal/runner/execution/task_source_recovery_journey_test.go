@@ -84,7 +84,7 @@ func (s *stoppedCardExecutor) Stop(ctx context.Context, id string) error {
 	return s.Service.Stop(ctx, id)
 }
 
-func TestTaskGroupRetainsStoppedCardAcrossObservationAndRestart(t *testing.T) {
+func TestWorkflowTaskGroupRetainsStoppedCardAcrossObservationAndRestart(t *testing.T) {
 	cfg, _, _ := taskSourceJourneySnapshot(t, sourceRepository(t))
 	dir := filepath.Join(t.TempDir(), "state")
 	open := func(exec *stoppedCardExecutor) *nativeRig {

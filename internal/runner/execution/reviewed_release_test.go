@@ -3,7 +3,6 @@ package execution
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,13 +11,8 @@ import (
 	"github.com/cortexium-io/runner/internal/runner"
 )
 
-func TestReviewedReleaseRunsWithoutModelsAndKeepsBothApprovals(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "operator")
-	build := exec.Command("go", "build", "-o", binary, "./testdata/release-operator")
-	build.Dir = filepath.Join("..", "..", "..")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatal(err, string(out))
-	}
+func TestWorkflowReviewedReleaseRunsWithoutModelsAndKeepsBothApprovals(t *testing.T) {
+	binary := evidenceBinary(t, "./testdata/release-operator")
 	repo := sourceRepository(t)
 	base := strings.TrimSpace(string(fixtureGit(t, repo, "rev-parse", "HEAD")))
 	head := strings.Repeat("b", 40)

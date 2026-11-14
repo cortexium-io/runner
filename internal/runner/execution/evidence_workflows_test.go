@@ -126,15 +126,26 @@ func TestEvidenceBinaryReusesBuildWithIndependentExecutables(t *testing.T) {
 	}
 }
 
-// Normal test builds keep their shared Go cache. These simulated worker commands
-// run behind a host shim, so their source must only write fixture-owned caches.
-// Reuse compiler objects within one parent fixture; real tests still run each
-// time. Explicit module roots also keep Go's immutable-module index away from
-// mutable source when the worker environment has no HOME/GOPATH. Native cache
-// probes and the production per-attempt cache policy do not use this forwarder.
+// Trusted, model-free fixtures reuse the caller's normal Go caches. An explicit
+// cache keeps cache-isolation probes independent. Only compiler objects are
+// reused: fixture checks still use -count=1. Real worker permissions and cache
+// isolation are unchanged; native qualification does not use this forwarder.
 func modelFreeFixtureGo(t *testing.T, binary, cache string) (string, string) {
 	t.Helper()
-	modules := filepath.Join(filepath.Dir(cache), "module-cache")
+	var modules string
+	if cache == "" {
+		output, err := exec.CommandContext(t.Context(), binary, "env", "GOCACHE", "GOMODCACHE").Output()
+		if err != nil {
+			t.Fatal("locate shared fixture compiler caches", err)
+		}
+		paths := strings.Split(strings.TrimSpace(string(output)), "\n")
+		if len(paths) != 2 || !filepath.IsAbs(paths[0]) || !filepath.IsAbs(paths[1]) {
+			t.Fatal("fixture compiler requires absolute build/module caches", string(output))
+		}
+		cache, modules = paths[0], paths[1]
+	} else {
+		modules = filepath.Join(filepath.Dir(cache), "module-cache")
+	}
 	for _, path := range []string{cache, modules} {
 		if err := os.MkdirAll(path, 0700); err != nil {
 			t.Fatal(err)
@@ -146,6 +157,47 @@ func modelFreeFixtureGo(t *testing.T, binary, cache string) (string, string) {
 		t.Fatal(err)
 	}
 	return forwarder, modules
+}
+
+func TestModelFreeFixtureSharedCacheKeepsFreshSourceResults(t *testing.T) {
+	binary, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, firstModules := modelFreeFixtureGo(t, binary, "")
+	second, secondModules := modelFreeFixtureGo(t, binary, "")
+	if first == second || firstModules != secondModules {
+		t.Fatal("fixture compilers lost independent lifetime or shared module cache")
+	}
+	want, err := exec.Command(binary, "env", "GOCACHE", "GOMODCACHE").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, compiler := range []string{first, second} {
+		cmd := exec.Command(compiler, "env", "GOCACHE", "GOMODCACHE")
+		cmd.Env = append(os.Environ(), "GOMODCACHE="+firstModules)
+		if got, err := cmd.Output(); err != nil || !bytes.Equal(got, want) {
+			t.Fatal("fixture did not reuse the caller's Go caches", string(got), err)
+		}
+	}
+	repo := sourceRepository(t)
+	for _, tc := range []struct {
+		compiler, source string
+		pass             bool
+	}{
+		{first, seatsImplementation, true},
+		{second, strings.ReplaceAll(seatsImplementation, "n<=0", "n<0"), false},
+		{first, seatsImplementation, true},
+	} {
+		if err := os.WriteFile(filepath.Join(repo, "seats.go"), []byte(tc.source), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.CommandContext(t.Context(), tc.compiler, "test", "-count=1", "./...")
+		cmd.Dir = repo
+		if output, err := cmd.CombinedOutput(); (err == nil) != tc.pass {
+			t.Fatalf("shared compiler cache reused a stale test result: %v; %s", err, output)
+		}
+	}
 }
 
 func TestModelFreeFixtureCompilerCacheKeepsFreshSourceResults(t *testing.T) {
@@ -253,7 +305,7 @@ func evidenceRig(t *testing.T, repo, file, measure, provider string, script *scr
 		}
 	}
 	loadRoles(p.Steps)
-	goBinary, moduleCache := modelFreeFixtureGo(t, cfg.Instance.Codex.GoBinary, filepath.Join(filepath.Dir(measure), "compiler-cache"))
+	goBinary, moduleCache := modelFreeFixtureGo(t, cfg.Instance.Codex.GoBinary, "")
 	cfg.Instance.Codex.GoBinary, cfg.Instance.Codex.GoModuleCache = goBinary, moduleCache
 	for _, name := range []string{"delivery-measure", "delivery-source-baseline", "planned-investigation-measure", "planned-investigation-baseline"} {
 		if role, exists := project.Roles[name]; exists {
@@ -343,7 +395,7 @@ func stagedEvidence(t *testing.T, dir, name string) []byte {
 // The producer's Vitest interpretation is tested by runner-frontend-check.
 // Here assertions are scripted from disposable source state; real command,
 // artifact, correction, review and protected-release boundaries are exercised.
-func TestFrontendFullReportReachesFirstOwnerAndCorrection(t *testing.T) {
+func TestWorkflowFrontendFullReportReachesFirstOwnerAndCorrection(t *testing.T) {
 	measure, provider := evidenceBinary(t, "./cmd/runner-measure"), evidenceBinary(t, "./testdata/release-operator")
 	for _, mode := range []string{"fresh", "retained", "blocked"} {
 		t.Run(mode, func(t *testing.T) {
@@ -453,7 +505,7 @@ printf 'generic check summary only: %s\n' "$outcome"`}, Result: "domain.json", A
 	}
 }
 
-func TestResearchNegativeEvidenceCompletesOnlyAfterIndependentReview(t *testing.T) {
+func TestWorkflowResearchNegativeEvidenceCompletesOnlyAfterIndependentReview(t *testing.T) {
 	measure, provider := evidenceBinary(t, "./cmd/runner-measure"), evidenceBinary(t, "./testdata/release-operator")
 	for _, tc := range []struct {
 		name                 string
