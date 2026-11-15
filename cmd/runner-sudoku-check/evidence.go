@@ -21,6 +21,107 @@ type browserCase struct {
 	Failure  string `json:"failure"`
 }
 
+func recordBrowserReport(p *report, data []byte, executionErr error) error {
+	var browser struct {
+		Schema        int               `json:"schema"`
+		Status        string            `json:"status"`
+		Complete      bool              `json:"complete"`
+		BrowserClosed bool              `json:"browser_closed"`
+		Failure       string            `json:"failure"`
+		Engines       []json.RawMessage `json:"engines"`
+		Geometry      []browserCase     `json:"geometry"`
+		Journeys      []browserCase     `json:"journeys"`
+		Neighbors     []browserCase     `json:"neighbors"`
+		Prerequisites []browserCase     `json:"prerequisites"`
+		Screenshots   []json.RawMessage `json:"screenshots"`
+		Coverage      struct {
+			Complete         bool `json:"complete"`
+			RequiredEngines  int  `json:"required_engines"`
+			ObservedEngines  int  `json:"observed_engines"`
+			RequiredGeometry int  `json:"required_geometry"`
+			ObservedGeometry int  `json:"observed_geometry"`
+			RequiredJourneys int  `json:"required_journeys"`
+			MissingJourneys  []struct {
+				Engine string `json:"engine"`
+				ID     string `json:"id"`
+			} `json:"missing_journeys"`
+			RequiredNeighbors int `json:"required_neighbors"`
+			ObservedNeighbors int `json:"observed_neighbors"`
+		} `json:"coverage"`
+		Unrun []struct {
+			Engine    string   `json:"engine"`
+			BlockedBy string   `json:"blocked_by"`
+			Scope     string   `json:"scope"`
+			Journeys  []string `json:"journeys"`
+		} `json:"unrun"`
+		DocumentFailures []struct {
+			Engine  string `json:"engine"`
+			Path    string `json:"path"`
+			Type    string `json:"type"`
+			Status  int    `json:"status"`
+			Message string `json:"message"`
+		} `json:"document_failures"`
+		Errors []struct {
+			Message string `json:"message"`
+			Path    string `json:"path"`
+			Status  int    `json:"status"`
+			Cleanup string `json:"cleanup"`
+		} `json:"errors"`
+	}
+	if json.Unmarshal(data, &browser) != nil || browser.Schema != 1 || (browser.Status != "passed" && browser.Status != "failed" && browser.Status != "blocked") {
+		return errors.New("browser evidence schema is invalid")
+	}
+	groups, failedGeometry, failedJourneys := browserFailureGroups(browser.Geometry, browser.Journeys)
+	var prerequisites []map[string]string
+	for _, row := range browser.Prerequisites {
+		prerequisites = append(prerequisites, map[string]string{"engine": row.Engine, "id": row.ID, "status": row.Status, "failure": clip(row.Failure, 250)})
+	}
+	var unrun []map[string]any
+	for _, row := range browser.Unrun {
+		unrun = append(unrun, map[string]any{"engine": row.Engine, "blocked_by": row.BlockedBy, "scope": row.Scope, "journeys": len(row.Journeys)})
+	}
+	p.Browser = map[string]any{
+		"file": "browser.json", "sha256": digest(data), "schema": browser.Schema, "status": browser.Status, "complete": browser.Complete,
+		"engines": len(browser.Engines), "geometry": len(browser.Geometry), "geometry_failed": failedGeometry, "journeys": len(browser.Journeys), "journeys_failed": failedJourneys,
+		"images": len(browser.Screenshots), "errors": len(browser.Errors), "failure_groups": groups,
+		"prerequisites": prerequisites, "unrun": unrun, "coverage": browser.Coverage,
+	}
+	var neighborFailures []map[string]string
+	for _, row := range browser.Neighbors {
+		if row.Status != "passed" {
+			neighborFailures = append(neighborFailures, map[string]string{"id": row.ID, "engine": row.Engine, "failure": clip(row.Failure, 250)})
+		}
+	}
+	p.Browser["neighbors"], p.Browser["neighbors_failed"], p.Browser["neighbor_failures"] = len(browser.Neighbors), len(neighborFailures), neighborFailures
+	for _, rows := range [][]browserCase{browser.Prerequisites, browser.Journeys, browser.Neighbors, browser.Geometry} {
+		for _, row := range rows {
+			if row.Status != "passed" && row.Failure != "" && p.Browser["first_failure"] == nil {
+				p.Browser["first_failure"] = map[string]string{"id": row.ID, "engine": row.Engine, "failure": clip(row.Failure, 1400)}
+			}
+		}
+	}
+	if len(browser.Errors) > 0 {
+		first := browser.Errors[0]
+		p.Browser["first_error"] = map[string]any{"message": clip(first.Message, 1400), "path": first.Path, "status": first.Status, "cleanup": clip(first.Cleanup, 250)}
+	}
+	if len(browser.DocumentFailures) > 0 {
+		first := browser.DocumentFailures[0]
+		p.Browser["first_document_failure"] = map[string]any{"engine": first.Engine, "path": first.Path, "type": first.Type, "status": first.Status, "message": clip(first.Message, 500)}
+	}
+	p.Cleanup.BrowserClosed, p.Status, p.Failure = browser.BrowserClosed, browser.Status, clip(browser.Failure, 1500)
+	// A valid partial checkpoint is useful evidence. Preserve its hash, rows and
+	// first failure before blocking acceptance for incomplete collection.
+	if !browser.Complete {
+		p.Status, p.Failure = "blocked", "browser collection is incomplete; "+p.Failure
+	} else if browser.Status == "passed" && (!browser.Coverage.Complete || len(browser.Unrun) != 0) {
+		p.Status, p.Failure = "blocked", "browser pass lacks the complete fixed coverage"
+	}
+	if executionErr != nil {
+		p.Status, p.Failure = "blocked", "browser command did not finish normally: "+clip(executionErr.Error(), 750)+"; "+p.Failure
+	}
+	return nil
+}
+
 func browserFailureGroups(geometry, journeys []browserCase) ([]map[string]any, int, int) {
 	var groups []map[string]any
 	seen := map[string]int{}

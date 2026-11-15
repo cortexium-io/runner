@@ -17,3 +17,9 @@ and input/Undo, plus a small Nonogram and Shikaku input/Undo/geometry check.
 Nonogram reopens its normal public 5×5 catalogue code; it does not waive or claim
 New-generation qualification. These are separate from the Sudoku matrix and do
 not multiply themes, viewports or engine benchmarks for neighboring games.
+
+The browser contract fixtures also protect native-DOM versus Playwright selector
+boundaries, bounded locator diagnostics, and one shared public-code reopen before
+the viewport matrix. A failed prerequisite leaves dependent work explicitly unrun.
+Partial collection retains its canonical browser evidence and first failure while
+remaining blocked; absent acceptance rows are never counted as passing.

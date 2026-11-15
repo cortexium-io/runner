@@ -34,6 +34,9 @@ var browserScript []byte
 //go:embed geometry.mjs
 var geometryScript []byte
 
+//go:embed browser-contract.mjs
+var browserContractScript []byte
+
 const evidenceLimit int64 = 16 << 20
 
 type options struct {
@@ -129,7 +132,7 @@ func run(ctx context.Context, o options) (err error) {
 		Schema: 1, Status: "blocked", Base: o.base,
 		SourceMethod: "sha256 of canonical sorted file-proof JSON (name,sha256,bytes,git_blob_sha1,executable) for tracked and ordinary untracked candidate files; only .runner-source-handoff.json excluded",
 		Scope:        "Sudoku agreed layouts: functional journeys and measured geometry, plus three affected shared-shell neighbor smokes; screenshots require independent visual review",
-		Checker:      map[string]string{"browser_sha256": digest(browserScript), "geometry_sha256": digest(geometryScript)},
+		Checker:      map[string]string{"browser_sha256": digest(browserScript), "geometry_sha256": digest(geometryScript), "browser_contract_sha256": digest(browserContractScript)},
 		Runtime:      map[string]string{},
 		Limitations: []string{
 			"Headless Chrome for Testing and Playwright WebKit use emulated viewport/input profiles; this is not native Safari or physical device proof.",
@@ -183,7 +186,7 @@ func run(ctx context.Context, o options) (err error) {
 			}
 		}
 		// Delete regenerable source/build/database before collecting the one archive.
-		for _, name := range []string{"source", "server", "browser.mjs", "geometry.mjs", "browser-options.json"} {
+		for _, name := range []string{"source", "server", "browser.mjs", "geometry.mjs", "browser-contract.mjs", "browser-options.json"} {
 			if e := os.RemoveAll(filepath.Join(work, name)); e != nil {
 				p.Failure = clip(p.Failure+"; scratch cleanup: "+e.Error(), 3000)
 			}
@@ -300,7 +303,7 @@ func run(ctx context.Context, o options) (err error) {
 	if err != nil {
 		return err
 	}
-	for name, data := range map[string][]byte{"browser.mjs": browserScript, "geometry.mjs": geometryScript} {
+	for name, data := range map[string][]byte{"browser.mjs": browserScript, "geometry.mjs": geometryScript, "browser-contract.mjs": browserContractScript} {
 		if err = os.WriteFile(filepath.Join(work, name), data, 0400); err != nil {
 			return err
 		}
@@ -315,48 +318,7 @@ func run(ctx context.Context, o options) (err error) {
 	if err != nil {
 		return fmt.Errorf("browser evidence completion is unestablished: %w; %v", err, browserErr)
 	}
-	var browser struct {
-		Schema        int               `json:"schema"`
-		Status        string            `json:"status"`
-		Complete      bool              `json:"complete"`
-		BrowserClosed bool              `json:"browser_closed"`
-		Engines       []json.RawMessage `json:"engines"`
-		Geometry      []browserCase     `json:"geometry"`
-		Journeys      []browserCase     `json:"journeys"`
-		Neighbors     []browserCase     `json:"neighbors"`
-		Screenshots   []json.RawMessage `json:"screenshots"`
-		Errors        []struct {
-			Message string `json:"message"`
-			Path    string `json:"path"`
-			Status  int    `json:"status"`
-			Cleanup string `json:"cleanup"`
-		} `json:"errors"`
-	}
-	if err = json.Unmarshal(data, &browser); err != nil || browser.Schema != 1 || !browser.Complete || (browser.Status != "passed" && browser.Status != "failed" && browser.Status != "blocked") {
-		return errors.New("browser evidence schema/completion is invalid")
-	}
-	groups, failedGeometry, failedJourneys := browserFailureGroups(browser.Geometry, browser.Journeys)
-	p.Browser = map[string]any{
-		"file": "browser.json", "sha256": digest(data), "schema": browser.Schema, "status": browser.Status, "complete": browser.Complete,
-		"engines": len(browser.Engines), "geometry": len(browser.Geometry), "geometry_failed": failedGeometry, "journeys": len(browser.Journeys), "journeys_failed": failedJourneys,
-		"images": len(browser.Screenshots), "errors": len(browser.Errors), "failure_groups": groups,
-	}
-	var neighborFailures []map[string]string
-	for _, row := range browser.Neighbors {
-		if row.Status != "passed" {
-			neighborFailures = append(neighborFailures, map[string]string{"id": row.ID, "engine": row.Engine, "failure": clip(row.Failure, 250)})
-		}
-	}
-	p.Browser["neighbors"], p.Browser["neighbors_failed"], p.Browser["neighbor_failures"] = len(browser.Neighbors), len(neighborFailures), neighborFailures
-	if len(browser.Errors) > 0 {
-		first := browser.Errors[0]
-		p.Browser["first_error"] = map[string]any{"message": clip(first.Message, 250), "path": first.Path, "status": first.Status, "cleanup": clip(first.Cleanup, 250)}
-	}
-	p.Cleanup.BrowserClosed, p.Status = browser.BrowserClosed, browser.Status
-	if browserErr != nil {
-		p.Status, p.Failure = "blocked", "browser command did not finish normally: "+clip(browserErr.Error(), 1000)
-	}
-	return nil
+	return recordBrowserReport(&p, data, browserErr)
 }
 
 func (o options) validate() error {

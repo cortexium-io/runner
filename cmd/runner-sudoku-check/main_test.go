@@ -363,7 +363,7 @@ func TestGeometryContractFixtures(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, node, "--test", "../../testdata/sudoku-check/geometry.test.mjs")
+	cmd := exec.CommandContext(ctx, node, "--test", "../../testdata/sudoku-check/geometry.test.mjs", "../../testdata/sudoku-check/browser-contract.test.mjs")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("geometry contract fixture: %v\n%s", err, out)
 	}

@@ -4,11 +4,12 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {viewports,assertGeometry,assertNeighborGeometry,measure} from './geometry.mjs';
+import {neighborSelectors,stableBoardGeometry,boundedFailure,reopenSudoku,afterReopen} from './browser-contract.mjs';
 
 const options=JSON.parse(await readFile(process.argv[2],'utf8'));
 const {chromium,webkit}=await import(pathToFileURL(options.playwright).href);
 const hash=value=>createHash('sha256').update(typeof value==='string'||Buffer.isBuffer(value)?value:JSON.stringify(value)).digest('hex');
-const report={schema:1,status:'failed',complete:false,browser_closed:false,engines:[],geometry:[],journeys:[],neighbors:[],screenshots:[],errors:[],limits:[
+const report={schema:1,status:'failed',complete:false,browser_closed:false,engines:[],prerequisites:[],unrun:[],geometry:[],journeys:[],neighbors:[],screenshots:[],errors:[],document_failures:[],limits:[
   'Viewport/device input is headless emulation, not physical Duo/iPad/iPhone or native Safari.',
   'Chromium hold/cancel uses trusted CDP touch; WebKit exposes trusted taps but no public hold/cancel touch API, so its hold/move cancellation uses a trusted mouse pointer and Options pinning.',
   'Secondary offscreen actions use browser scrolling before trusted clicks/taps; primary touch geometry is checked without automatic scrolling.',
@@ -16,16 +17,17 @@ const report={schema:1,status:'failed',complete:false,browser_closed:false,engin
 ],input:{touch:0,mouse:0,keyboard:0},input_scope:'Sampled trusted event counters from the explicit entry/keyboard journeys; document navigation resets page counters.',viewport_contract:viewports};
 report.playwright_version=JSON.parse(await readFile(path.join(path.dirname(options.playwright),'package.json'),'utf8')).version;
 let activeBrowser,current,stopping=false,imageBytes=0,profile=0;
+const functionalJourneys=['entry-pin-cancel-history','touch-in-progress-resize','desktop-in-progress-resize','side-swap-persistence','hint-explanation-apply-undo','completion-new-resume','touch-completion-new-resume','desktop-keyboard-focus','appearance-controls'];
 const save=()=>writeFile(path.join(options.evidence,'browser.json'),JSON.stringify(report,null,2)+'\n',{mode:0o600});
 const pauseForHold=()=>new Promise(resolve=>setTimeout(resolve,900)); // Actual gesture duration exceeds the app's 750ms touch threshold; never a readiness sleep.
-const bounded=message=>String(message??'').split('\n')[0].slice(0,1000);
-const failures=()=>report.journeys.filter(row=>row.status!=='passed').length+report.neighbors.filter(row=>row.status!=='passed').length+report.geometry.filter(row=>row.status!=='passed').length+report.errors.length;
+const bounded=boundedFailure;
+const failures=()=>[report.journeys,report.neighbors,report.geometry,report.prerequisites].reduce((n,rows)=>n+rows.filter(row=>row.status!=='passed').length,0)+report.errors.length;
 
-async function check(engine,id,action,{rows=report.journeys}={}) {
+async function check(engine,id,action,{rows=report.journeys,failureStatus='failed'}={}) {
   const row={engine,id,status:'failed'};
   rows.push(row);
   try {if(stopping)throw new Error('checker cancellation requested');row.proof=await action();row.status='passed';}
-  catch(error){row.failure=bounded(error.message);if(current&&!current.isClosed())try{await capture(current,engine,id+'-failure')}catch{}}
+  catch(error){row.status=failureStatus;row.failure=bounded(error);if(current&&!current.isClosed())try{await capture(current,engine,id+'-failure')}catch{}}
   await save();
   return row.status==='passed';
 }
@@ -35,17 +37,7 @@ async function settle(page,boardSelector='.sudoku-play .puzzle-board') {
     await document.fonts.ready;
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
   });
-  await page.waitForFunction(boardSelector=>{
-    const board=[...document.querySelectorAll(boardSelector)].find(n=>n.getClientRects().length);
-    if(!board)return false;
-    const region=board.closest('.player-board-region')??board.parentElement;
-    const fields=[board,...region.querySelectorAll('.number-pad,.input-tools,.value-controls,.rectangle-controls,.player-actions')].filter(n=>n.getClientRects().length).map(n=>{
-      const r=n.getBoundingClientRect();return [r.x,r.y,r.width,r.height];
-    });
-    const key=JSON.stringify(fields),same=window.runnerSudokuGeometry===key;
-    window.runnerSudokuGeometry=key;
-    return same;
-  },boardSelector,{timeout:5000,polling:'raf'});
+  await page.waitForFunction(stableBoardGeometry,boardSelector,{timeout:5000,polling:'raf'});
 }
 
 async function capture(page,engine,state) {
@@ -82,8 +74,15 @@ async function contextFor(browser,viewport,scheme='light') {
   page.on('pageerror',error=>{if(report.errors.length<30)report.errors.push({engine:browser.browserType().name(),message:bounded(error.message)})});
   page.on('response',response=>{
     const url=new URL(response.url());
+    if(url.origin===options.origin&&response.status()>=400&&['document','script','stylesheet'].includes(response.request().resourceType())&&report.document_failures.length<12)
+      report.document_failures.push({engine:browser.browserType().name(),path:url.pathname,type:response.request().resourceType(),status:response.status()});
     if(url.origin===options.origin&&response.status()>=400&&url.pathname.startsWith('/api/')&&report.errors.length<30)
       report.errors.push({engine:browser.browserType().name(),path:url.pathname,status:response.status()});
+  });
+  page.on('requestfailed',request=>{
+    const url=new URL(request.url());
+    if(url.origin===options.origin&&['document','script','stylesheet'].includes(request.resourceType())&&report.document_failures.length<12)
+      report.document_failures.push({engine:browser.browserType().name(),path:url.pathname,type:request.resourceType(),message:boundedFailure(request.failure()?.errorText,500)});
   });
   return {context,page};
 }
@@ -126,9 +125,9 @@ function samePlay(actual,expected,{focus=true,pin=true}={}) {
 }
 
 async function load(page,boardPath) {
-  await page.goto(options.origin+boardPath,{waitUntil:'domcontentloaded'});
-  await page.locator('.sudoku-play .puzzle-board [data-cell="80"]').waitFor({state:'visible'});
+  const proof=await reopenSudoku(page,options.origin,boardPath);
   await settle(page);
+  return proof;
 }
 
 async function createBoard(page,touch) {
@@ -146,7 +145,8 @@ async function createBoard(page,touch) {
   page.on('response',observe);
   try {
     await page.goto(options.origin+'/',{waitUntil:'domcontentloaded'});
-    const choose=page.getByRole('link',{name:'Choose Sudoku',exact:true});
+    const choose=page.getByRole('link',{name:'Play Sudoku',exact:true});
+    await choose.scrollIntoViewIfNeeded();
     if(touch)await choose.tap();else await choose.click();
     const dialog=page.getByRole('dialog',{name:'New Sudoku',exact:true});
     await dialog.waitFor({state:'visible'});
@@ -502,8 +502,7 @@ async function neighborPaint(page,boardSelector) {
 async function neighborSmoke(browser,game) {
   const viewport=viewports.find(v=>v.id==='desktop'),{context,page}=await contextFor(browser,viewport);
   const title={suguru:'Suguru',nonogram:'Nonogram',shikaku:'Shikaku'}[game];
-  const root=game==='suguru'?'.suguru-play':`.${game}-workspace:visible`;
-  const selector=root+(game==='suguru'?' .puzzle-board':` .${game}-board`);
+  const {root,board:selector,domBoard}=neighborSelectors(game);
   try {
     if(game==='nonogram') {
       // Normal public reopening is independent of New's executable-bound
@@ -520,10 +519,10 @@ async function neighborSmoke(browser,game) {
       await dialog.getByRole('button',{name:'Play '+title,exact:true}).click();
       await page.waitForURL(url=>new RegExp(`^/${game}/[A-Za-z0-9_-]+$`).test(url.pathname));
     }
-    const board=page.locator(selector);await board.locator('[data-cell]').last().waitFor({state:'visible'});await settle(page,selector);
+    const board=page.locator(selector);await board.locator('[data-cell]').last().waitFor({state:'visible'});await settle(page,domBoard);
     const geometry=await neighborMetrics(page,selector),composition=assertNeighborGeometry(geometry,{underBoard:game==='suguru'});
     const before=await snapshots(page),paint=await neighborPaint(page,selector);
-    const click=locator=>action(page,locator,false,{boardSelector:selector});
+    const click=locator=>action(page,locator,false,{boardSelector:domBoard});
     if(game==='shikaku') {
       const count=await board.locator('[data-cell]').count(),n=Math.sqrt(count);
       assert.ok(Number.isInteger(n)&&n>=5&&n<=7,'neighbor smoke must stay on a small Shikaku board');
@@ -565,7 +564,11 @@ try {
       report.engines.push({name:engine.name,version:activeBrowser.version(),executable:engine.executable,input:'headless emulation'});
       const {context,page}=await contextFor(activeBrowser,viewports.find(v=>v.id==='phone-390'));
       try{await check(engine.name,'normal-ui-admission',async()=>{recipe=await createBoard(page,true);return {path:recipe.boardPath,identity:recipe.identity,publication:recipe.publication}})}finally{await context.close()}
-      if(recipe) {
+      const ready=recipe&&await afterReopen(async()=>{
+        const {context,page}=await contextFor(activeBrowser,viewports.find(v=>v.id==='phone-390'));
+        try{return await check(engine.name,'public-code-reopen',()=>load(page,recipe.boardPath),{rows:report.prerequisites,failureStatus:'blocked'})}
+        finally{await context.close()}
+      },async()=>{
         await freshGeometry(activeBrowser,engine.name,recipe);
         await check(engine.name,'entry-pin-cancel-history',()=>entryJourney(activeBrowser,engine.name,recipe));
         await check(engine.name,'touch-in-progress-resize',()=>resizeJourney(activeBrowser,engine.name,recipe,true));
@@ -576,18 +579,19 @@ try {
         await check(engine.name,'touch-completion-new-resume',()=>completionJourney(activeBrowser,engine.name,recipe,true));
         await check(engine.name,'desktop-keyboard-focus',()=>keyboardJourney(activeBrowser,engine.name,recipe));
         await check(engine.name,'appearance-controls',()=>appearanceJourney(activeBrowser,engine.name,recipe));
-      }
+      });
+      if(!ready)report.unrun.push({engine:engine.name,blocked_by:recipe?'public-code-reopen':'normal-ui-admission',scope:'Sudoku fresh/in-progress geometry and functional journeys',journeys:functionalJourneys});
       if(engine.name==='chromium')for(const game of ['suguru','nonogram','shikaku'])
         await check(engine.name,'shared-'+game+'-smoke',()=>neighborSmoke(activeBrowser,game),{rows:report.neighbors});
     } catch(error){report.journeys.push({engine:engine.name,id:'runtime',status:'failed',failure:bounded(error.message)})}
     finally {if(activeBrowser){await activeBrowser.close();activeBrowser=undefined}}
   }
   const expectedGeometry=2*(viewports.length*2+viewports.filter(v=>v.touch).length*2+viewports.filter(v=>!v.touch).length);
-  assert.equal(report.engines.length,2,'both real configured browser engines must run');
-  assert.equal(report.geometry.length,expectedGeometry,'fixed fresh/in-progress geometry matrix is incomplete');
-  assert.equal(report.journeys.filter(row=>row.status==='passed').length,20,'fixed functional journey contract is incomplete');
-  assert.equal(report.neighbors.length,3,'fixed shared-shell neighbor smoke contract is incomplete');
-  report.status=failures()===0?'passed':'failed';
+  const missingJourneys=['chromium','webkit'].flatMap(engine=>['normal-ui-admission',...functionalJourneys].filter(id=>!report.journeys.some(row=>row.engine===engine&&row.id===id)).map(id=>({engine,id})));
+  report.coverage={required_engines:2,observed_engines:report.engines.length,required_geometry:expectedGeometry,observed_geometry:report.geometry.length,
+    required_journeys:20,missing_journeys:missingJourneys,required_neighbors:3,observed_neighbors:report.neighbors.length};
+  report.coverage.complete=report.engines.length===2&&report.geometry.length===expectedGeometry&&missingJourneys.length===0&&report.neighbors.length===3;
+  report.status=report.unrun.length||!report.coverage.complete?'blocked':failures()===0?'passed':'failed';
 } catch(error){report.failure=bounded(error.message)}
 finally {
   if(activeBrowser)try{await activeBrowser.close();activeBrowser=undefined}catch(error){report.errors.push({cleanup:bounded(error.message)})}
