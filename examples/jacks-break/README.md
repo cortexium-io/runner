@@ -457,3 +457,18 @@ The fixed-image equivalent is `TestDeliveryPlatformBrowserContainerReadiness`;
 it retains the enforced Docker inspection and exact image/driver/version proof.
 `TestDeliveryPlatformBrowserContainerCancellation` separately proves cancellation
 after positively observed dispatch, uncertainty preservation and exact cleanup.
+
+`retained-frontend-repair.json` selects `deliver-retained-frontend-repair` for an
+explicitly authorized frontend repair of a retained, unpublished patch with an
+already captured failed diagnostic. Its inputs are `request`, `tests`, `patch`
+and `baseline_checks`. Workspace preparation authenticates/restores the patch;
+an offline copy stages the prior diagnostic before the first owner. That report
+is evidence of failure, never acceptance. Each owner candidate must pass the
+normal frontend checker and independent read-only review. Corrections receive
+the current full check artifact. This frontend-only route has no Go engine
+measurement stage; the existing build/runtime/browser qualification, generated
+ownership and protected merge/production/recovery suffix remains unchanged.
+The new run is capped at 35 aggregate attempts with the existing model settings,
+step timeout and correction limits. It neither resets nor resumes an older run.
+The caller's separately authorized puzzle experience review remains required;
+this variant does not claim the planned process's specialized experience stage.

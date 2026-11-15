@@ -1,0 +1,19 @@
+{
+  "id": "frontend-retained-seed",
+  "purpose": "Restore the explicit retained frontend patch through the normal authenticated workspace preparation before readiness; no tests or measurements.",
+  "inputs": {
+    "patch": "artifact"
+  },
+  "outputs": {
+    "check": "text"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/usr/bin/true"
+      ]
+    }
+  }
+}

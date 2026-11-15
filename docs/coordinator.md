@@ -905,3 +905,19 @@ verified attention, optional one-way GitHub Projects and then the complete
 Cortexium Go/Vue/Genny route remain the existing release-closure programme, not
 claims made from this slice's synthetic fixtures. Product work stays in Runner;
 merge, production and restoration keep their separate owner decisions.
+
+### Retained frontend repair with an established diagnostic
+
+For an explicitly owner-authorized fresh repair continuation, select
+`deliver-retained-frontend-repair` with the exact original base, saved `patch`,
+full `baseline_checks` artifact, original acceptance and new observed findings in
+`request`, and the relevant `tests` selection. Preserve the original run identity,
+result and consumed allowance. This additive 35-attempt process restores source
+before readiness, stages the failed diagnostic and starts with the source owner.
+It does not reinterpret the failed diagnostic as a passing baseline. The normal
+frontend checker, independent source review, candidate integration, publication,
+build/browser qualification and protected release gates remain mandatory.
+No unrelated Go engine benchmark is required for frontend-only repair. Rejoin
+this new run by its saved request/run identity; do not submit replacements after
+client interruption. Separately authorized caller experience review remains
+separate evidence and cannot waive configured qualification or owner decisions.

@@ -1,0 +1,23 @@
+{
+  "id": "frontend-baseline-report",
+  "purpose": "Stage the retained failed diagnostic as initial owner evidence; this is provenance, never a passing candidate check.",
+  "inputs": {
+    "evidence": "artifact"
+  },
+  "outputs": {
+    "check": "text",
+    "artifact": "artifact"
+  },
+  "execution": {
+    "harness": "command",
+    "access": "workspace-read",
+    "command": {
+      "args": [
+        "/bin/cp",
+        "{input.evidence}",
+        "{scratch}/baseline-checks.json"
+      ],
+      "artifact": "baseline-checks.json"
+    }
+  }
+}
