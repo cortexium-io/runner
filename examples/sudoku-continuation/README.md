@@ -67,15 +67,11 @@ reports into every retained task specification. Core performs
 the authoritative full-family, capture/pin, evidence, revision and budget checks
 again during the atomic continuation. A setup fingerprint is not execution proof.
 
-The single native lead delegates this initial DAG in one action:
+The single native lead first delegates only import and baseline evidence:
 
 ```mermaid
 flowchart LR
   import[Trusted fixed import] --> baseline[Protected fixed check]
-  baseline --> source[Independent source review]
-  baseline --> visual[Independent visual review]
-  import --> source
-  import --> visual
 ```
 
 The fixed importer first authenticates the complete original base-plus-patch tree.
@@ -95,21 +91,29 @@ authenticated original report. Models cannot choose either path or mint another
 artifact. Reviewers also depend on import and receive its protected proof through
 their task context. Every native role returns text only.
 
-If actual evidence requires a correction, the lead admits at most four cycles
-within actual remaining task/attempt capacity:
-`repair-N → check-N → source-(N+1)/visual-(N+1)`. Rechecks also depend on the
-original import; import is never repeated. Developer claims are only
+After the actual reports arrive, the lead admits only necessary work whose
+dependencies and evidence are ready. Code edits require concrete product
+findings. Source review needs inspectable current source and authenticated
+frontend proof; visual review needs inspectable images and interaction evidence.
+Independent reviews can overlap when ready. A collector failure is not itself
+a product defect, and a blocked report cannot be reused as approval. New work
+uses stable unique IDs; there is no prescribed repair sequence or review pairing.
+Rechecks also depend on the original import; import is never repeated. Developer claims are only
 `frontend/src` and `docs/sudoku-interface.md`. Generated files, dependencies,
 configuration, other puzzles and existing proof are protected. Fixed checks own
 all product testing/build/browser work; source and visual reviewers perform
 independent assessment without repeating tests. The original 393-pass proof is
 reused for the unchanged imported candidate; changed source gets fresh relevant
 frontend proof. The documented interface-note exception stays included in the
-whole-candidate source identity. Twenty child slots and the ordinary parent
-returns permit twenty-six new executions, leaving two of the original twenty-eight
-for transport/protocol retries. Repeating the same failure twice calls for
-reassessing the cause and approach within the agreement, not asking a human or
-layering on case patches. Actual resource limits still govern every admission.
+whole-candidate source identity. The unchanged ceilings remain twenty child
+slots and 64 attempts including the 36 historical attempts. Parent returns and
+retries consume the same remainder. Repeating a failure calls for reassessing
+the cause and approach within the agreement; the lead reserves capacity for the
+necessary correction and assessments rather than following a fixed cycle count.
+Source review owns source quality and authenticated frontend proof; the lead
+owns complete goal acceptance and the UX role owns visual assessment. Valid
+unchanged proof is reused without treating browser or visual gaps as automatic
+source defects. All current-source acceptance requirements still apply.
 
 All model roles use `gpt-6.1-sol`, lean context, native built-in tools and
 `skills:none`; lead reasoning is medium and developer/source/visual reasoning is

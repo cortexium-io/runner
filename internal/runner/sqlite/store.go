@@ -99,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 9 {
+	if version < 0 || version > 10 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -188,6 +188,14 @@ PRAGMA user_version=4; COMMIT;`); e != nil {
 		// Same-generation maintenance recovery has an immutable audit. Older
 		// services must not overwrite it while interpreting rearmed failures.
 		if _, e = db.Exec("PRAGMA user_version=9"); e != nil {
+			return nil, e
+		}
+		version = 9
+	}
+	if version == 9 {
+		// Root task briefs can now derive from canonical inputs on load. An
+		// older reader must not expose an empty goal or persist it as authority.
+		if _, e = db.Exec("PRAGMA user_version=10"); e != nil {
 			return nil, e
 		}
 	}

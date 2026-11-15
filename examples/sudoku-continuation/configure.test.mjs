@@ -92,7 +92,7 @@ test('new instance references old project files without changing policy or crede
   assert.throws(() => resolveInstance({...original, concurrency: 2}, '/old/instance.json', '/new/project.json'));
 });
 
-test('fixed setup exposes one bounded role DAG and authenticated dependency file bindings', async () => {
+test('setup exposes bounded adaptive roles and authenticated dependency file bindings', async () => {
   const process = JSON.parse(await readFile(path.join(path.dirname(fileURLToPath(import.meta.url)), 'process.json'), 'utf8'));
   assert.equal(process.steps.length, 1);
   assert.equal(process.max_attempts, 64);
@@ -142,13 +142,29 @@ test('fixed setup exposes one bounded role DAG and authenticated dependency file
       }
     }
   }
-  assert.doesNotMatch(byID['sudoku-lead'].execution.instructions, /inputs request:text|feedback:text/);
-  assert.match(byID['sudoku-lead'].execution.instructions, /brief must be at most 400 characters/);
-  assert.match(byID['sudoku-lead'].execution.instructions, /browser\.neighbors===3/);
-  assert.match(byID['sudoku-lead'].execution.instructions, /browser\.neighbors_failed===0/);
-  assert.match(byID['sudoku-lead'].execution.instructions, /never dump the whole patch or raw check report/);
+  const lead = byID['sudoku-lead'].execution.instructions;
+  assert.doesNotMatch(lead, /inputs request:text|feedback:text/);
+  assert.match(lead, /first visit admit only two children/);
+  assert.match(lead, /choose only the necessary next tasks whose evidence and dependencies are ready/);
+  assert.match(lead, /Admit code edits only for concrete product findings/);
+  assert.match(lead, /Independent reviews may run in parallel when ready/);
+  assert.doesNotMatch(lead, /source-N|visual-N|repair-N|check-N|source-1|visual-1|four cycles|exactly four children/);
+  assert.match(lead, /brief must be at most 400 characters/);
+  assert.match(lead, /acceptance must be two compact observable conditions/);
+  assert.match(lead, /browser\.neighbors===3/);
+  assert.match(lead, /browser\.neighbors_failed===0/);
+  assert.match(lead, /two engines, 146 geometry rows and 20 journeys passed/);
+  assert.match(lead, /frontend\.status passed with typecheck_passed true/);
+  assert.match(lead, /cleanup\.browser_closed, server_stopped, database_removed and build_scratch_removed all true/);
+  assert.match(lead, /preview\.running false/);
+  assert.match(lead, /independent source and visual reports to approve that SAME source_sha256/);
+  assert.match(lead, /twenty child slots and 64 total attempts including 36 prior attempts/);
+  assert.match(lead, /never dump the whole patch or raw check report/);
   assert.match(byID['sudoku-source-review'].execution.instructions, /targeted relevant hunks/);
+  assert.match(byID['sudoku-source-review'].execution.instructions, /not whole-goal or visual acceptance/);
+  assert.match(byID['sudoku-source-review'].execution.instructions, /browser or visual gap.*does not by itself negate valid source\/frontend proof/);
+  assert.match(byID['sudoku-source-review'].execution.instructions, /Never reinterpret an older blocked report as approval/);
   for (const id of ['shared-suguru-smoke', 'shared-nonogram-smoke', 'shared-shikaku-smoke']) {
-    assert.ok(byID['sudoku-lead'].execution.instructions.includes(id));
+    assert.ok(lead.includes(id));
   }
 });

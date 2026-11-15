@@ -8,12 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -337,14 +341,20 @@ func build(ctx context.Context, o options, source, server, identity string) ([]c
 	commands := []invocation{
 		{"frontend client build", frontend, o.node, []string{filepath.Join(o.modules, "vite/bin/vite.js"), "build", "--configLoader", "runner"}},
 		{"frontend static SSR build", frontend, o.node, []string{filepath.Join(o.modules, "vite/bin/vite.js"), "build", "--configLoader", "runner", "--config", "vite.static-pages.ssr.config.gny.ts"}},
-		{"frontend prerender", frontend, o.node, []string{filepath.Join(frontend, ".genny/static-pages/prerender.gny.mjs")}},
-		{"native SSR graph audit", frontend, o.node, []string{filepath.Join(frontend, "scripts/audit-native-ssr.mjs")}},
+		{"frontend prerender", frontend, o.node, []string{".genny/static-pages/prerender.gny.mjs"}},
+		{"native SSR graph audit", frontend, o.node, []string{"scripts/audit-native-ssr.mjs"}},
 		{"native preview build", source, o.goBinary, []string{"build", "-mod=readonly", "-trimpath", "-buildvcs=false", "-ldflags", "-s -w -buildid= -X main.buildIdentity=source-sha256:" + identity, "-o", server, "./cmd/server"}},
 	}
 	var proof []commandProof
 	for _, command := range commands {
 		started := time.Now()
 		output, err := execute(ctx, command.directory, env, command.binary, command.args...)
+		if err == nil && command.name == "frontend prerender" {
+			err = verifyServerDocuments(source)
+			if err != nil {
+				output = append(output, []byte("\n"+err.Error())...)
+			}
+		}
 		row := commandProof{Name: command.name, DurationMS: time.Since(started).Milliseconds(), Passed: err == nil}
 		if err != nil {
 			row.Diagnostic = clip(string(output), 4000)
@@ -355,4 +365,64 @@ func build(ctx context.Context, o options, source, server, identity string) ([]c
 		}
 	}
 	return proof, nil
+}
+
+// The generated Go registry is the serving contract. Every declared shell must
+// be materialized before compilation embeds frontend_dist; exit zero alone does
+// not prove that a Node main guard actually ran through a scratch path alias.
+func verifyServerDocuments(source string) error {
+	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(source, "internal/app/http/generated_routes.gny.go"), nil, 0)
+	if err != nil {
+		return fmt.Errorf("read native SSR serving contract: %w", err)
+	}
+	for _, declaration := range file.Decls {
+		decl, ok := declaration.(*ast.GenDecl)
+		if !ok || decl.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range decl.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok || len(value.Names) != 1 || value.Names[0].Name != "generatedServerDocumentRoutes" || len(value.Values) != 1 {
+				continue
+			}
+			routes, ok := value.Values[0].(*ast.CompositeLit)
+			if !ok || len(routes.Elts) == 0 {
+				return errors.New("native SSR serving contract has no literal declared routes")
+			}
+			for _, element := range routes.Elts {
+				route, ok := element.(*ast.CompositeLit)
+				if !ok {
+					return errors.New("native SSR serving contract requires literal route entries")
+				}
+				var shell string
+				for _, field := range route.Elts {
+					pair, ok := field.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					key, ok := pair.Key.(*ast.Ident)
+					if !ok || key.Name != "ShellHTML" {
+						continue
+					}
+					literal, ok := pair.Value.(*ast.BasicLit)
+					if !ok || literal.Kind != token.STRING {
+						return errors.New("native SSR shell path is not a literal string")
+					}
+					shell, err = strconv.Unquote(literal.Value)
+					if err != nil {
+						return err
+					}
+				}
+				if !fs.ValidPath(shell) || shell == "." {
+					return errors.New("native SSR shell path is empty or outside embedded frontend assets")
+				}
+				info, err := os.Lstat(filepath.Join(source, "internal/app/http/frontend_dist", filepath.FromSlash(shell)))
+				if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+					return fmt.Errorf("declared native SSR shell was not generated as a nonempty regular file: %s", shell)
+				}
+			}
+			return nil
+		}
+	}
+	return errors.New("native SSR serving contract registry is absent")
 }

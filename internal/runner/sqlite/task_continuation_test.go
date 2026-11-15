@@ -84,6 +84,8 @@ func storedTaskContinuation(t *testing.T) (*Store, runner.Run, runner.Run, []run
 		},
 		TaskGraph: &runner.TaskGraphState{RootRunID: "continued-root", TaskID: "root", Lineage: &lineage},
 	}
+	goal, _ := json.Marshal(target.Inputs)
+	target.TaskGraph.Brief = string(goal)
 	request := runner.ContinueTaskRequest{
 		RequestID: "owner-continuation", RunID: original.ID, Revision: original.Revision + child.Revision,
 		Project: target.ProjectID, Process: target.Process.ID, SourceAttemptID: source.ID, PatchSHA256: lineage.PatchSHA256,
@@ -249,7 +251,7 @@ func TestTaskContinuationSchemaBoundaryPreservesOlderStoredRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 9 {
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 10 {
 		t.Fatal("older binaries can ignore continuation debit/freeze", version, err)
 	}
 	var after []byte

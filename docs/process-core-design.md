@@ -73,6 +73,24 @@ fixed shared command stop immediately; its configured safe infrastructure retry
 policy remains applicable. Qualify transaction rollback, restart, stale revisions,
 settlement, acceptance boundaries and the unchanged historical debit before use.
 
+Further live qualification found two representation/build defects. A root stored
+the full goal in both immutable inputs and its derived brief, rejecting ordinary
+task proposals at the unchanged half-record admission boundary. Persist the goal
+once and restore the public brief on load; schema ten protects that interpretation.
+Keep explicit different briefs and child briefs unchanged. The regression proposal
+fits in 15,451 bytes instead of 21,195, within the same 20,480-byte boundary.
+
+The protected build invoked the authored prerender entry through an absolute
+scratch alias. Node's canonical module URL then failed the entry's main guard,
+silently skipping generated serving documents. Use the owning cwd-relative command
+and check its declared serving outputs before embedding them. Normal touch uses
+trusted input at a freshly hit-tested target; DOM scrolling avoids substituting
+Playwright's stability heuristic for actual actionability. The future example
+plans only necessary ready tasks rather than imposing repeated repair quartets.
+All product acceptance, frozen run settings and the original 64-attempt ceiling
+remain unchanged. The interrupted live run is paused at 57/64 until these verified
+maintenance changes are installed and normal goal execution resumes.
+
 ### Same-execution output recovery, authorized 15 November 2026
 
 Replace the native worker's anonymous stdout pipe for new executions with an

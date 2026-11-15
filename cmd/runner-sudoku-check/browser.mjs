@@ -87,15 +87,27 @@ async function contextFor(browser,viewport,scheme='light') {
   return {context,page};
 }
 
-async function action(page,locator,touch,{secondary=false,boardSelector}={}) {
+async function scrollTarget(locator) {
+  await locator.evaluate(node=>node.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'}));
+}
+
+async function activate(page,locator,touch,{secondary=false}={}) {
   assert.equal(await locator.count(),1,'one actual UI target is required');
-  if(secondary)await locator.scrollIntoViewIfNeeded();
+  await locator.waitFor({state:'visible'});
+  if(secondary)await scrollTarget(locator);
   const point=await locator.evaluate(node=>{
     const r=node.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
-    return {x,y,hit:r.width>0&&r.height>0&&x>=0&&x<innerWidth&&y>=0&&y<innerHeight&&node.contains(document.elementFromPoint(x,y))};
+    return {x,y,enabled:!node.disabled&&node.getAttribute('aria-disabled')!=='true',hit:r.width>0&&r.height>0&&x>=0&&x<innerWidth&&y>=0&&y<innerHeight&&node.contains(document.elementFromPoint(x,y))};
   });
+  assert.equal(point.enabled,true,'UI action target is disabled');
   assert.equal(point.hit,true,'UI action centre is offscreen or covered');
-  if(touch)await locator.tap();else await locator.click();
+  // A human can tap a moving target. Keep real trusted touch and a fresh centre
+  // hit test, without depending on Playwright's multi-frame stability heuristic.
+  if(touch)await page.touchscreen.tap(point.x,point.y);else await locator.click();
+}
+
+async function action(page,locator,touch,{secondary=false,boardSelector}={}) {
+  await activate(page,locator,touch,{secondary});
   await settle(page,boardSelector);
 }
 
@@ -146,15 +158,14 @@ async function createBoard(page,touch) {
   try {
     await page.goto(options.origin+'/',{waitUntil:'domcontentloaded'});
     const choose=page.getByRole('link',{name:'Play Sudoku',exact:true});
-    await choose.scrollIntoViewIfNeeded();
-    if(touch)await choose.tap();else await choose.click();
+    await activate(page,choose,touch,{secondary:true});
     const dialog=page.getByRole('dialog',{name:'New Sudoku',exact:true});
     await dialog.waitFor({state:'visible'});
     const easy=dialog.getByRole('button',{name:'Easy',exact:true});
-    if(await easy.count())await easy.click();
+    if(await easy.count())await activate(page,easy,touch,{secondary:true});
     const play=dialog.getByRole('button',{name:'Play Sudoku',exact:true});
     await page.waitForFunction(()=>[...document.querySelectorAll('dialog[open] button')].some(n=>n.textContent.trim()==='Play Sudoku'&&!n.disabled));
-    if(touch)await play.tap();else await play.click();
+    await activate(page,play,touch,{secondary:true});
     await page.waitForURL(url=>/^\/sudoku\/[A-Za-z0-9_-]+$/.test(url.pathname));
     await page.locator('.sudoku-play .puzzle-board [data-cell="80"]').waitFor({state:'visible'});
     await settle(page);
@@ -201,7 +212,7 @@ async function setOptions(page,touch,operation) {
   if(await details.getAttribute('open')===null)await action(page,optionsSummary(page),touch,{secondary:true});
   await operation(details);
   await action(page,optionsSummary(page),touch,{secondary:true});
-  await page.locator('.sudoku-play .player-board-frame').scrollIntoViewIfNeeded();await settle(page);
+  await scrollTarget(page.locator('.sudoku-play .player-board-frame'));await settle(page);
 }
 
 async function pinOption(page,touch,value) {
@@ -325,7 +336,7 @@ async function entryJourney(browser,engine,recipe) {
     assert.deepEqual(await snapshots(page),saved,'in-progress reload changed saved progress');
     assert.deepEqual((await state(page)).rendered,visible,'in-progress reload changed visible entries/notes');
     await page.goto(options.origin+'/',{waitUntil:'domcontentloaded'});
-    const resume=page.getByRole('button',{name:/^Resume Sudoku/});await resume.waitFor({state:'visible'});await resume.tap();await settle(page);
+    const resume=page.getByRole('button',{name:/^Resume Sudoku/});await activate(page,resume,true,{secondary:true});await settle(page);
     assert.deepEqual((await state(page)).rendered,visible,'home Resume did not restore in-progress entries/notes');
     await action(page,page.locator('.sudoku-play .more-puzzle-actions').getByRole('button',{name:'Redo',exact:true}),true,{secondary:true});
     assert.equal((await state(page)).rendered[index].notes.filter(Boolean).length,0,'secondary Redo did not restore erase');

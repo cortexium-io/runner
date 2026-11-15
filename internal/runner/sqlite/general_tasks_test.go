@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -26,13 +27,13 @@ func TestGeneralTaskHistoryExceedsLegacy128WithoutChangingLegacyBound(t *testing
 		t.Fatal("new general-task storage range silently widened the legacy attempt allowance")
 	}
 	var version int
-	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 9 {
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 10 {
 		t.Fatalf("general task physical attempt range lacks its versioned schema: %d %v", version, err)
 	}
 }
 
 func TestGeneralTaskSchemaUpgradePreservesRetainedBytes(t *testing.T) {
-	for _, version := range []int{3, 4, 5, 6, 7, 8} {
+	for _, version := range []int{3, 4, 5, 6, 7, 8, 9} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			r := normalizedRun(2)
 			s := openNormalized(t, r)
@@ -74,9 +75,51 @@ PRAGMA user_version=3; COMMIT;`); err != nil {
 				t.Fatalf("schema migration rewrote retained data: %v", err)
 			}
 			var marker int
-			if err := s.db.QueryRow("PRAGMA user_version").Scan(&marker); err != nil || marker != 9 {
+			if err := s.db.QueryRow("PRAGMA user_version").Scan(&marker); err != nil || marker != 10 {
 				t.Fatalf("native-policy downgrade guard missing: version=%d error=%v", marker, err)
 			}
 		})
 	}
+}
+
+func TestGeneralTaskCanonicalRootGoalReloadAndOrdinarySave(t *testing.T) {
+	r := normalizedRun(2)
+	r.RecordFormat = 9
+	r.Process.Tasks = &runner.TaskPolicy{Roles: []string{"owner"}, MaxTasks: 4, MaxDepth: 2, MaxConcurrent: 2}
+	r.Inputs = map[string]runner.Value{"request": runner.Text("The complete immutable agreement")}
+	r.TaskGraph = &runner.TaskGraphState{RootRunID: r.ID, TaskID: "root", Brief: "The complete immutable agreement"}
+	s := openNormalized(t, r)
+	check := func() {
+		t.Helper()
+		var state []byte
+		if err := s.db.QueryRow("SELECT data FROM runs WHERE id=?", r.ID).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		var stored runner.Run
+		if err := json.Unmarshal(state, &stored); err != nil || stored.TaskGraph.Brief != "" {
+			t.Fatal("SQLite retained another root-goal copy", err)
+		}
+		loaded, err := s.Load(t.Context())
+		if err != nil || len(loaded) != 1 || !reflect.DeepEqual(loaded[0], r) {
+			t.Fatal("SQLite reload lost public root-goal state", err)
+		}
+		if err := s.Save(t.Context(), loaded[0], nil, nil); err != nil {
+			t.Fatal("ordinary save rejected the reconstituted root", err)
+		}
+	}
+	check()
+	var name string
+	if err := s.db.QueryRow("SELECT file FROM pragma_database_list WHERE name='main'").Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	s, err = Open(filepath.Dir(name), normalizedPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	check()
 }

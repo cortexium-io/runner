@@ -50,6 +50,13 @@ func MarshalRunRecord(r Run) (state, definition []byte, err error) {
 		count = &n
 		r.Attempts = nil
 	}
+	// A root's default brief is already retained in its immutable inputs. Keep
+	// one canonical copy on disk; public Run values retain the complete brief.
+	if g := r.TaskGraph; g != nil && g.ParentRunID == "" && g.RootRunID == r.ID && g.Brief == graphGoal(r.Inputs) {
+		graph := *g
+		graph.Brief = ""
+		r.TaskGraph = &graph
+	}
 	state, err = json.Marshal(runRecord{runAlias: runAlias(r), AttemptCount: count})
 	if err == nil {
 		definition, err = json.Marshal(runDefinition{r.Process, r.Roles, r.Profiles})
@@ -88,6 +95,9 @@ func UnmarshalRunRecord(state, definition []byte) (Run, error) {
 			return r, err
 		}
 		r.Process, r.Roles, r.Profiles = d.Process, d.Roles, d.Profiles
+	}
+	if g := r.TaskGraph; g != nil && g.ParentRunID == "" && g.RootRunID == r.ID && g.Brief == "" {
+		g.Brief = graphGoal(r.Inputs)
 	}
 	if err := taskContinuationRecord(r); err != nil {
 		return r, err
