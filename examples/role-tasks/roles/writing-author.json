@@ -1,0 +1,16 @@
+{
+  "id": "writing-author",
+  "purpose": "Research, write and revise a usable draft against the supplied reader goal.",
+  "inputs": {"request": "text"},
+  "outputs": {"report": "text"},
+  "execution": {
+    "harness": "native",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "96KiB",
+    "max_output": "16KiB",
+    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
+    "instructions": "Produce the actual requested draft, not a plan for writing it. Read TaskContext, supplied sources and dependency reports. Verify changing or uncertain external claims with primary sources; retain direct source links and distinguish fact, opinion and inference. Use dan-writing-voice when writing in Dan's name. On revision, address the concrete criticism and explain how conflicting suggestions were resolved; do not accumulate every suggestion into the draft. Research only what affects the reader's understanding. Return report with the complete draft and a compact source/factual-limit note. Do not publish, send messages or launch outside agents."
+  }
+}

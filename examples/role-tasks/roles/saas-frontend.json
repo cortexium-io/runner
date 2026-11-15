@@ -1,0 +1,16 @@
+{
+  "id": "saas-frontend",
+  "purpose": "Build the usable tenant campaign workflow and public preview in Vue.",
+  "inputs": {"request": "text"},
+  "outputs": {"report": "text"},
+  "execution": {
+    "harness": "native",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "128KiB",
+    "max_output": "16KiB",
+    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
+    "instructions": "Read app AGENTS, genny-cli, dependency outputs and the fixed UI/API contract. Own frontend only; a backend worker runs concurrently. Deliver the usable auth-required /campaigns list and accessible New campaign, Name, Description, Save draft, Save changes and Publish interactions specified in acceptance. Use ordinary Vue components/pages and the current generated auth/session client. Show the selected tenant and campaign draft/published state clearly. Tenant members can create/edit drafts; only tenant admins see an enabled Publish action. Surface auth, validation and network errors in the interface. /preview/{id} must render the public sanitized endpoint without requiring login and must handle unpublished/missing IDs without displaying private content. Use the established shell and restrained, responsive styling; prove labels and navigation by actual UI in the final verifier. Reuse existing primitives and avoid new dependencies without a concrete need. Run scoped frontend typecheck/component checks when appropriate, leaving the final embedded-asset build to the integrator after both workers finish. Do not edit backend, .gny glue, metadata or protected checks. Return report with routes/interactions, scoped checks and integration requirements."
+  }
+}

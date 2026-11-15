@@ -2,6 +2,23 @@
 
 ## Current authority and scope
 
+On 15 November 2026 Dan authorized updating the existing Runner design and its
+implementation plan, then implementing and verifying the general roles-and-tasks
+model with real writing tasks and a new Genny SaaS project. This includes bounded
+maintenance subagents, a separate development branch, nested role-based planning,
+dependency-aware parallel execution, proportionate verification and evidence reuse,
+within-scope correction/replanning, native harness capability profiles and observed
+provenance, optional model deliberation, and scoped human intervention. The current
+completion plan in `docs/process-core-design.md` owns this work. Earlier first-slice
+card/model/qualification allowances are historical, not limits on these newly
+authorized isolated qualifications. Preserve all existing runs and their limits.
+Use the existing Core, transactional store and execution lifecycle; do not create
+a second scheduler or task ledger. Keep product qualification inside the new
+Runner path. Do not change the installed pilot, publish the writing, merge product
+work or deploy the SaaS as part of this authorization. Native qualifications must
+retain actual task outcomes, usage/limits, intervention and cleanup evidence;
+fixtures or generated scaffolding alone do not establish completion.
+
 On 11 November the owner authorized focused browser-error handoff maintenance,
 including audited recovery from the hash-verified saved Kakuro report, verification
 and installation, then completion of the same PR #338 run. Keep that root within
@@ -41,7 +58,7 @@ workflow for Nonogram 15/25 hard and Kakuro 30 easy, preserving PR #334's mobile
 changes. Model, process-attempt and storage ceilings stay unchanged; no merge,
 production or restoration action is approved by this authorization.
 
-The current implementation defaults for new planned processes are at most eight
+The 6 November source-card defaults for new planned processes were at most eight
 cards, two concurrent isolated card executions and 64 aggregate attempts shared
 by the root and its cards, with the protected release reserve included. Existing
 processes retain their limits. A new bounded planner role may return up to 8 KiB
@@ -256,7 +273,9 @@ excluded from routine checks and run separately with `make check-workflows`.
 When a batch changes workflow behavior or its shared fixtures, finish the related
 edits and pass their focused checks first, then run that workflow suite once.
 Use `make check-full` once at final verification when whole-repository coverage
-is relevant; do not run it after each helper, card or intermediate fix. CI's fast
+is relevant; it already includes the workflow suite, so do not also repeat the
+separate workflow gate for unchanged inputs. Do not run the full gate after each
+helper, card or intermediate fix. CI's fast
 and workflow stages retain the full ordinary test coverage without rerunning the
 fast tests in the workflow stage. Native qualification remains separately opt-in.
 

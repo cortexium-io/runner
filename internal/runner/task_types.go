@@ -62,6 +62,9 @@ type TaskChild struct {
 }
 
 type TaskStatus struct {
+	ParentRunID    string    `json:"parent_run_id,omitempty"`
+	Role           string    `json:"role,omitempty"`
+	Retired        bool      `json:"retired,omitempty"`
 	ID             string    `json:"id"`
 	RunID          string    `json:"run_id"`
 	DependsOn      []string  `json:"depends_on,omitempty"`

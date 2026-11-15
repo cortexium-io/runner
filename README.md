@@ -13,6 +13,10 @@ Planned task collections expand fixed templates into isolated linked runs, enfor
 dependency/write-scope ordering and join accepted source before combined review.
 Configured synchronous commands support checks, benchmarks, builds and project
 delivery without another model coordinator.
+General role tasks add nested planning, configured native harness profiles,
+dependency-aware parallel work, selective revision and scoped human intervention.
+They share one owned project workspace instead of copying source per task; simple
+writing can use one ordinary role without a task graph.
 It does not import legacy Runner state. Qualified pilot installation remains an
 explicit operator action.
 
@@ -69,7 +73,7 @@ restoration remain separate saved owner decisions.
 - Ordered steps and named outcome routes with typed inputs/outputs, retained
   artifacts, bounded correction/benchmark repetition, execution retries,
   saved decisions, profile escalation, cancellation and restart reconciliation.
-- Fixed task templates expanded from bounded dependency-aware collections.
+- Legacy fixed task templates expanded from bounded dependency-aware collections.
   Planned groups support up to eight cards and two isolated card actors, sharing
   one 64-attempt family allowance. Older serial definitions retain their limits.
 - One instance owner, concurrent independent runs, bounded records/history/logs,
@@ -88,8 +92,8 @@ using Sol / Extra High: success, lost launch acknowledgement/reconnection and
 cancellation followed by a graceful Runner restart. It uses one private native
 service per instance and a fresh thread per coding attempt. The
 [writable qualification fixture](testdata/seats/README.md) additionally qualifies one
-source change, retained patch and fixed Go check. Arbitrary project execution,
-skills and tool catalogs remain outside this qualification. A separate
+source change, retained patch and fixed Go check. That legacy restricted-adapter
+qualification does not cover native project tools or skills. A separate
 [writable recovery exercise](docs/architecture.md#writable-recovery-exercise-29-october-2026)
 qualified abrupt Runner owner-process exit, reattachment to the original native
 work, cancellation and preservation of edits on macOS. The
@@ -98,9 +102,17 @@ adds real coding, two benchmark rounds, review, approval/restart and a packaged
 website verified headlessly. The subsequent
 [planned workflow qualification](docs/architecture.md#planned-workflows-67-november-2026)
 demonstrates real overlapping Go cards and independently reviewed research.
-Nested/dynamically amended plans, arbitrary role tool catalogs, attention/archive
-operations and dashboards remain outside this qualified implementation. Benchmarks
-use project commands and ordinary roles.
+The general role-task path is separate from those legacy source-card limits.
+[Its examples](examples/role-tasks/README.md) exercise native writing, model
+deliberation and a Genny SaaS; the current implementation and acceptance criteria
+are in the [design record](docs/process-core-design.md#general-role-tasks-authorized-15-november-2026).
+The [real qualification record](docs/architecture.md#real-qualification-evidence)
+includes successful writing, parallel Genny implementation and a final fixed
+22-API/seven-UI check, together with earlier failed runtime and model-led
+verification attempts and measured context costs. It does not establish unattended
+reliability for arbitrary projects or authorize replacing an installed pilot.
+Attention/archive operations and dashboards remain outside this implementation.
+Benchmarks use project commands and ordinary roles.
 
 The [release-closure plan](docs/process-core-design.md#release-closure-authorized-8-november-2026)
 records the bounded pilot's operational acceptance. On 11 November, Jack's Break
@@ -151,8 +163,9 @@ make check PACKAGES=./cmd/runner-frontend-check TESTS='^TestSelections'
 Select the packages and regressions affected by the change. Routine checks
 exclude the `TestWorkflow` integration journeys. After related edits and focused
 checks pass, run `make check-workflows` once if workflow behavior or its shared
-fixtures changed. `make check-full` is the explicit final whole-repository gate;
-do not repeat it after each intermediate fix. Trusted model-free fixtures share
+fixtures changed. `make check-full` is the explicit final whole-repository gate
+and already covers those workflows; do not also repeat the separate gate for
+unchanged inputs or run the full suite after each intermediate fix. Trusted model-free fixtures share
 normal Go compiler caches while still executing their checks with `-count=1`.
 Real worker cache isolation and native qualification remain unchanged.
 

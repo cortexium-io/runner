@@ -45,6 +45,8 @@ type Summary struct {
 	Progress    Progress  `json:"progress"`
 }
 type Status struct {
+	MaxActiveAttempts   int       `json:"max_active_attempts"`
+	ActiveAttempts      int       `json:"active_attempts"`
 	Runs                []Summary `json:"runs"`
 	TotalRuns           int       `json:"total_runs"`
 	ConfigError         string    `json:"config_error,omitempty"`
@@ -105,6 +107,17 @@ func New(ctx context.Context, s Store, e Executor, d *Disk, cfg Snapshot) (*Core
 			a.NextCheck = time.Time{}
 		}
 		c.runs[r.ID] = r
+	}
+	restoredGraphs := map[string]bool{}
+	for _, r := range c.runs {
+		if r.TaskGraph == nil || restoredGraphs[r.TaskGraph.RootRunID] {
+			continue
+		}
+		if _, _, _, err := c.graphFamily(r); err != nil {
+			cancel()
+			return nil, fmt.Errorf("restore general task %s: %w", r.ID, err)
+		}
+		restoredGraphs[r.TaskGraph.RootRunID] = true
 	}
 	go c.loop()
 	c.Wake()
@@ -182,6 +195,9 @@ func (c *Core) Start(req StartRequest) (Run, error) {
 	if !ok {
 		return Run{}, errors.New("process is not configured for project")
 	}
+	if proc.Tasks != nil && req.SourceRef != "" {
+		return Run{}, errors.New("source_ref branch selection is unsupported for general tasks; they use the configured shared project workspace")
+	}
 	if e := ValidateValues(req.Inputs, proc.Inputs); e != nil {
 		return Run{}, e
 	}
@@ -220,6 +236,29 @@ func (c *Core) Start(req StartRequest) (Run, error) {
 		r.Source.Ref = req.SourceRef
 	}
 	selectedRoles(proc.Steps, r.Roles, r.Profiles, p)
+	if proc.Tasks != nil {
+		r.Repository, e = graphWorkspace(p.Workspace)
+		if e != nil {
+			return Run{}, e
+		}
+		r.RecordFormat = 9
+		r.Source = nil // The opt-in native graph uses the configured shared workspace.
+		r.TaskGraph = &TaskGraphState{
+			RootRunID: r.ID,
+			TaskID:    "root",
+			Brief:     graphGoal(r.Inputs),
+		}
+		for _, name := range proc.Tasks.Roles {
+			r.Roles[name], r.Profiles[name] = Clone(p.Roles[name]), p.Profiles[name]
+		}
+		if len(proc.Steps) > 0 {
+			r.TaskGraph.Role = proc.Steps[0].Role
+			profile, _ := r.Roles[r.TaskGraph.Role].Profile(r.Profiles[r.TaskGraph.Role])
+			if profile.Access == "workspace-write" {
+				r.TaskGraph.WritePaths = []string{"."}
+			}
+		}
+	}
 	if err := admitRunRecord(r, c.disk.Policy.Database.MaxRecord); err != nil {
 		return Run{}, err
 	}
@@ -243,6 +282,8 @@ func (c *Core) Status() Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	s := Status{
+		MaxActiveAttempts:   c.snapshot.Instance.MaxActiveAttempts,
+		ActiveAttempts:      c.activeAttempts(),
 		ConfigError:         c.configError,
 		MaintenanceError:    c.maintenanceError,
 		ManagedFiles:        c.disk.Used(),
@@ -296,6 +337,13 @@ func (c *Core) Cancel(id string) (Run, error) {
 	}
 	r = Clone(r)
 	if r.Terminal() {
+		if r.TaskGraph != nil {
+			if err := c.cancelGraphChildren(r, true); err != nil {
+				return Run{}, err
+			}
+			c.Wake()
+			return c.outputRun(r), nil
+		}
 		return r, nil
 	}
 	r.CancelRequested = true
@@ -315,6 +363,12 @@ func (c *Core) Cancel(id string) (Run, error) {
 	if err := c.renewTaskStops(r); err != nil {
 		return Run{}, err
 	}
+	if r.TaskGraph != nil {
+		if err := c.cancelGraphChildren(r, true); err != nil {
+			return Run{}, err
+		}
+		return c.outputRun(c.runs[id]), nil
+	}
 	return Clone(c.runs[id]), nil
 }
 func (c *Core) Retry(req RetryRequest) (Run, error) {
@@ -322,6 +376,9 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 	defer c.mu.Unlock()
 	args, _ := json.Marshal(req)
 	if r, ok, e := c.replay(req.RequestID, "retry", args); ok || e != nil {
+		if ok && r.TaskGraph != nil {
+			return c.outputRun(r), e
+		}
 		return r, e
 	}
 	r, ok := c.runs[req.RunID]
@@ -345,7 +402,13 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 			return Run{}, err
 		}
 		c.Wake()
+		if r.TaskGraph != nil {
+			return c.outputRun(c.runs[r.ID]), nil
+		}
 		return Clone(c.runs[r.ID]), nil
+	}
+	if r.TaskGraph != nil {
+		return c.retryGraph(r, req, args)
 	}
 	if c.recoveredCard(r) != nil || c.sourceHandoffCard(r) != nil || r.UnpublishedCardRecovery != nil && isolatedStep(r) {
 		return Run{}, errors.New("one-use unpublished card recovery cannot be retried; preserve the failed recovery")
@@ -448,12 +511,8 @@ func (c *Core) tick() time.Duration {
 	}
 	fallback, _ := time.ParseDuration(c.snapshot.Instance.ReconcileInterval)
 	next := fallback
-	active := 0
-	for _, r := range c.runs {
-		if a := r.Current(); a != nil && a.State != Finished {
-			active++
-		}
-	}
+	active := c.activeAttempts()
+	pendingRequests := c.pendingNativeRequestBytes()
 	ids := make([]string, 0, len(c.runs))
 	for id := range c.runs {
 		ids = append(ids, id)
@@ -478,6 +537,9 @@ func (c *Core) tick() time.Duration {
 			}
 		}
 		if c.driveTaskGroup(r) {
+			continue
+		}
+		if c.driveGraph(r) {
 			continue
 		}
 		if r.Terminal() {
@@ -575,7 +637,7 @@ func (c *Core) tick() time.Duration {
 			_ = c.persist(r, nil, nil)
 			continue
 		}
-		if r.Status != "Queued" || !c.taskDispatchAllowed(r) {
+		if r.Status != "Queued" || !c.taskDispatchAllowed(r, active) {
 			continue
 		}
 		if r.Process.Steps[r.Step].ForEach != nil {
@@ -596,6 +658,13 @@ func (c *Core) tick() time.Duration {
 			r.Reason = "run attempt allowance exhausted"
 			_ = c.persist(r, nil, nil)
 			continue
+		}
+		if r.TaskGraph != nil {
+			if err := c.graphReserve(r, 1, false); err != nil {
+				r.Status, r.Reason = "Waiting", Clip(err.Error())
+				_ = c.persist(r, nil, nil)
+				continue
+			}
 		}
 		if err := releaseStopReserve(r, c.familyAttempts(r)); err != nil {
 			r.Status, r.Reason = "Waiting", Clip(err.Error())
@@ -620,6 +689,7 @@ func (c *Core) tick() time.Duration {
 		if profileName == "" {
 			profileName = r.Profiles[step.Role]
 		}
+		var requestReserve int64
 		if profile, err := role.Profile(profileName); err == nil && profile.Harness == "command" {
 			reserve += int64(c.disk.Policy.Database.MaxRecord) + 16384
 			for _, kind := range role.Inputs {
@@ -635,12 +705,14 @@ func (c *Core) tick() time.Duration {
 				}
 			}
 			reserve += int64(max(0, artifacts-1)) * int64(c.disk.Policy.MaxArtifact)
+		} else if err == nil && profile.Harness == "native" {
+			requestReserve = int64(profile.MaxInput + c.disk.Policy.Database.MaxRecord)
 		}
 		var nativeReserve int64
 		if cfg := c.snapshot.Instance.Codex; cfg != nil {
 			nativeReserve = max(0, int64(cfg.StorageLimit)-c.disk.NativeUsed())
 		}
-		if c.disk.Used()+nativeReserve+int64(active+1)*reserve > int64(c.disk.Policy.MaxManaged-c.disk.Policy.Database.MaxSize)-4096 {
+		if c.disk.Used()+nativeReserve+pendingRequests+requestReserve+int64(active+1)*reserve > int64(c.disk.Policy.MaxManaged-c.disk.Policy.Database.MaxSize)-4096 {
 			if r.Reason != "waiting for managed storage; cleanup or increase the instance allowance" {
 				r.Reason = "waiting for managed storage; cleanup or increase the instance allowance"
 				_ = c.persist(r, nil, nil)
@@ -648,7 +720,7 @@ func (c *Core) tick() time.Duration {
 			continue
 		}
 		free, spaceErr := FreeBytes(c.disk.Root)
-		if spaceErr != nil || free < int64(c.disk.Policy.MinFree)+nativeReserve+int64(active+1)*reserve {
+		if spaceErr != nil || free < int64(c.disk.Policy.MinFree)+nativeReserve+pendingRequests+requestReserve+int64(active+1)*reserve {
 			if r.Reason != "waiting for free-space recovery reserve" {
 				r.Reason = "waiting for free-space recovery reserve"
 				_ = c.persist(r, nil, nil)
@@ -708,6 +780,7 @@ func (c *Core) tick() time.Duration {
 		r.Reason = "dispatching saved attempt"
 		if c.persist(r, nil, nil) == nil {
 			active++
+			pendingRequests += requestReserve
 			c.launch(id, a2.ID, "start", ass)
 		}
 	}
@@ -721,6 +794,9 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 	p, e := r.Roles[step.Role].Profile(a.Profile)
 	if e != nil {
 		return Assignment{}, e
+	}
+	if p.Harness == "command" && p.Mode == "shared" && r.TaskGraph == nil {
+		return Assignment{}, errors.New("shared command execution requires a general role-task workspace context")
 	}
 	inputs := Clone(r.StepInputs)
 	if inputs == nil {
@@ -745,6 +821,26 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		AllowHelp:   step.Escalation != nil,
 		Outcomes:    stepOutcomes(step),
 		Deadline:    a.Deadline,
+	}
+	if r.TaskGraph != nil {
+		if err := graphProfile(p, r.TaskGraph.WritePaths); err != nil {
+			return Assignment{}, err
+		}
+		assignment.TaskContext, e = c.graphContext(r)
+		if e != nil {
+			return Assignment{}, e
+		}
+		known := false
+		for _, saved := range r.Attempts {
+			known = known || saved.ID == a.ID
+		}
+		if !known {
+			assignment.TaskContext.RemainingAttempts = max(0, assignment.TaskContext.RemainingAttempts-1)
+		}
+		if p.Access == "workspace-read" || p.Access == "workspace-write" {
+			assignment.WorkDir = r.Repository
+		}
+		return assignment, nil
 	}
 	if recovery := r.FrontendCheckRecovery; recovery != nil && recovery.CheckStep == step.ID && (recovery.CheckVisit == r.Visit || recovery.Serial && r.Visit > recovery.CheckVisit) {
 		assignment.FrontendCheckPins = &FrontendCheckPins{HelperSHA256: recovery.HelperSHA256, Serial: recovery.Serial}
@@ -1092,6 +1188,7 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 			a.NextCheck = time.Time{}
 			a.FinishedAt = time.Now().UTC()
 			arts = append(arts, c.finish(&r, index)...)
+			a = &r.Attempts[index]
 		default:
 			a.State = Unknown
 			r.Status = "Waiting"
@@ -1105,6 +1202,7 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 			r.Visit, r.StepInputs, r.RouteUses, r.Decision = saved.Visit, saved.StepInputs, saved.RouteUses, saved.Decision
 			r.VisitExtraAttempts = saved.VisitExtraAttempts
 			r.FrontendTimeoutRecovery = saved.FrontendTimeoutRecovery
+			r.TaskGraph = Clone(saved.TaskGraph)
 			for i := range saved.Attempts {
 				r.Attempts[i].Superseded = saved.Attempts[i].Superseded
 			}
@@ -1135,11 +1233,25 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 	step := r.Process.Steps[a.Step]
 	var arts []Artifact
 	end := a.End
+	if a.Effective != nil && a.Effective.Provenance != "" {
+		id := a.Effective.Provenance
+		if !strings.HasPrefix(id, a.ID+"/") {
+			end = &ExecutionEnd{Kind: "failed", Reason: "execution provenance does not belong to this attempt"}
+		} else if size, err := c.disk.ArtifactSize(id); err != nil {
+			end = &ExecutionEnd{Kind: "failed", Reason: "execution provenance is unavailable: " + Clip(err.Error())}
+		} else {
+			arts = append(arts, Artifact{ID: id, RunID: r.ID, ProjectID: r.ProjectID, Bytes: size})
+		}
+	}
 	if end.Kind == "returned" && end.Result != nil {
 		result := end.Result
 		b, _ := json.Marshal(result)
 		if len(b) > int(c.disk.Policy.Database.MaxRecord)/2 {
 			end = &ExecutionEnd{Kind: "failed", Reason: "result exceeds bounded result allowance"}
+		} else if result.TaskAction != nil {
+			if r.TaskGraph == nil || len(result.Outputs) != 0 {
+				end = &ExecutionEnd{Kind: "failed", Reason: "task actions require an opted-in task process without final outputs"}
+			}
 		} else if result.Outcome == "ready" || step.Routes[result.Outcome].Next != "" {
 			if e := ValidateValues(result.Outputs, r.Roles[step.Role].Outputs); e != nil {
 				end = &ExecutionEnd{Kind: "failed", Reason: Clip(e.Error())}
@@ -1147,6 +1259,9 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 				for _, v := range result.Outputs {
 					if v.ArtifactID != "" {
 						if !strings.HasPrefix(v.ArtifactID, a.ID+"/") {
+							if r.TaskGraph != nil && c.graphArtifactAllowed(*r, v.ArtifactID) {
+								continue
+							}
 							// A generated task join forwards a selected, already committed
 							// input reference; it never manufactures artifact ownership.
 							profile, _ := r.Roles[step.Role].Profile(a.Profile)
@@ -1189,6 +1304,15 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 		r.Status = "Failed"
 		r.Reason = "attempt deadline reached"
 		return arts
+	}
+	if end.Kind == "returned" && end.Result.TaskAction != nil {
+		if err := c.graphAction(r, end.Result); err != nil {
+			a = &r.Attempts[index]
+			a.End = &ExecutionEnd{Kind: "failed", Reason: "task proposal rejected: " + Clip(err.Error()), Result: Clone(end.Result)}
+			end = a.End
+		} else {
+			return arts
+		}
 	}
 	if c.routeFrontendTimeoutDiagnostic(r, a) {
 		return arts

@@ -1,0 +1,16 @@
+{
+  "id": "saas-integrator",
+  "purpose": "Integrate parallel changes and produce one runnable accepted-source build.",
+  "inputs": {"request": "text"},
+  "outputs": {"report": "text"},
+  "execution": {
+    "harness": "native",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "128KiB",
+    "max_output": "16KiB",
+    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
+    "instructions": "Read both feature outputs and the fixed contract. Integrate in the same canonical app, preserving other workers' source. Resolve concrete API, route, type or asset mismatches coherently. Use the selected installed Genny CLI and generated app's required Go version from runtime context. Run genny inspect, genny doctor --verify-generated, the app's relevant required Go/frontend checks and one genny build --install after source settles. Reuse already valid focused test evidence and do not rerun tests for stage changes alone. Produce .qualification/server as the one accepted executable and report its source/build identity. Do not create a second source checkout, isolated Go cache or copied node_modules. Do not alter protected acceptance/checkers, weaken assertions, deploy or claim independent final verification. Clean owned regenerable intermediates when safe while keeping the accepted binary/source. Return report with actual commands/results and what the independent verifier must run."
+  }
+}

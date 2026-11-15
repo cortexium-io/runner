@@ -23,17 +23,20 @@ type runRecord struct {
 // Format three stores each attempt separately in the same SQLite transaction;
 // public Run values still retain every definition, attempt and source fact.
 func MarshalRunRecord(r Run) (state, definition []byte, err error) {
-	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 && r.RecordFormat != 5 && r.RecordFormat != 6 && r.RecordFormat != 7 && r.RecordFormat != 8 {
+	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 && r.RecordFormat != 5 && r.RecordFormat != 6 && r.RecordFormat != 7 && r.RecordFormat != 8 && r.RecordFormat != 9 {
 		return nil, nil, errors.New("unsupported run record format")
 	}
-	if r.RecordFormat >= 4 && r.UnpublishedCardRecovery == nil {
+	if r.RecordFormat >= 4 && r.RecordFormat <= 8 && r.UnpublishedCardRecovery == nil {
 		return nil, nil, errors.New("recovery record is missing its one-use audit")
 	}
-	if (r.RecordFormat >= 6) != (r.UnpublishedCardRecovery != nil && len(r.UnpublishedCardRecovery.Unstarted) != 0) {
+	if (r.RecordFormat >= 6 && r.RecordFormat <= 8) != (r.UnpublishedCardRecovery != nil && len(r.UnpublishedCardRecovery.Unstarted) != 0) {
 		return nil, nil, errors.New("serial card recovery requires its format-six cancellation audit")
 	}
 	if err := sourceHandoffRecord(r); err != nil {
 		return nil, nil, err
+	}
+	if (r.RecordFormat == 9) != (r.TaskGraph != nil) {
+		return nil, nil, errors.New("general task state requires its version-nine record")
 	}
 	var count *int
 	if r.RecordFormat >= 3 {
@@ -53,20 +56,23 @@ func UnmarshalRunRecord(state, definition []byte) (Run, error) {
 	if err := json.Unmarshal(state, &r); err != nil {
 		return r, err
 	}
-	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 && r.RecordFormat != 5 && r.RecordFormat != 6 && r.RecordFormat != 7 && r.RecordFormat != 8 {
+	if r.RecordFormat != 0 && r.RecordFormat != 3 && r.RecordFormat != 4 && r.RecordFormat != 5 && r.RecordFormat != 6 && r.RecordFormat != 7 && r.RecordFormat != 8 && r.RecordFormat != 9 {
 		return r, errors.New("unsupported run record format")
 	}
 	if r.RecordFormat >= 3 && len(definition) == 0 {
 		return r, errors.New("normalized run definition is missing")
 	}
-	if r.RecordFormat >= 4 && r.UnpublishedCardRecovery == nil {
+	if r.RecordFormat >= 4 && r.RecordFormat <= 8 && r.UnpublishedCardRecovery == nil {
 		return r, errors.New("recovery record is missing its one-use audit")
 	}
-	if (r.RecordFormat >= 6) != (r.UnpublishedCardRecovery != nil && len(r.UnpublishedCardRecovery.Unstarted) != 0) {
+	if (r.RecordFormat >= 6 && r.RecordFormat <= 8) != (r.UnpublishedCardRecovery != nil && len(r.UnpublishedCardRecovery.Unstarted) != 0) {
 		return r, errors.New("serial card recovery requires its format-six cancellation audit")
 	}
 	if err := sourceHandoffRecord(r); err != nil {
 		return r, err
+	}
+	if (r.RecordFormat == 9) != (r.TaskGraph != nil) {
+		return r, errors.New("general task state requires its version-nine record")
 	}
 	// Version-one rows retain their original complete JSON. Opening an upgraded
 	// database does not rewrite or discard any historical record.
@@ -81,7 +87,7 @@ func UnmarshalRunRecord(state, definition []byte) (Run, error) {
 }
 
 func sourceHandoffRecord(r Run) error {
-	if (r.RecordFormat >= 7) != (r.SourceHandoff != nil) {
+	if (r.RecordFormat >= 7 && r.RecordFormat <= 8) != (r.SourceHandoff != nil) {
 		return errors.New("source handoff requires its versioned immutable audit")
 	}
 	if a := r.SourceHandoff; a != nil {

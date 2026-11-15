@@ -522,10 +522,14 @@ func commandValue(value string, job commandJob, env map[string]string) string {
 	return strings.NewReplacer(bindings...).Replace(value)
 }
 func collectCommand(d *runner.Disk, job commandJob, result commandResult) (*runner.ExecutionEnd, error) {
+	return collectCommandResult(d, job.Assignment, result, filepath.Join(job.Workspace.WorkDir, ".runner-tmp", job.Assignment.AttemptID))
+}
+
+func collectCommandResult(d *runner.Disk, assignment runner.Assignment, result commandResult, scratch string) (*runner.ExecutionEnd, error) {
 	if result.Kind == "stopped" {
 		return &runner.ExecutionEnd{Kind: "stopped", Reason: "command worker confirmed its process group stopped"}, nil
 	}
-	cmd := job.Assignment.Setup.Profile.Command
+	cmd := assignment.Setup.Profile.Command
 	outcome, mapped := cmd.ExitOutcomes[result.ExitCode]
 	if result.ExitCode != 0 && !mapped {
 		return &runner.ExecutionEnd{Kind: "failed", Reason: fmt.Sprintf("command exited %d: %s", result.ExitCode, runner.Clip(result.Diagnostic))}, nil
@@ -535,7 +539,7 @@ func collectCommand(d *runner.Disk, job commandJob, result commandResult) (*runn
 	}
 	reason := ""
 	if cmd.Result != "" {
-		data, err := commandArtifact(filepath.Join(job.Workspace.WorkDir, ".runner-tmp", job.Assignment.AttemptID), cmd.Result, job.Assignment.Limits.MaxRecord/2)
+		data, err := commandArtifact(scratch, cmd.Result, assignment.Limits.MaxRecord/2)
 		if err != nil {
 			return &runner.ExecutionEnd{Kind: "failed", Reason: "command result: " + runner.Clip(err.Error())}, nil
 		}
@@ -551,13 +555,13 @@ func collectCommand(d *runner.Disk, job commandJob, result commandResult) (*runn
 		outcome, reason = domain.Outcome, domain.Reason
 	}
 	outputs := map[string]runner.Value{"check": runner.Text(fmt.Sprintf("command exited %d\n%s", result.ExitCode, runner.Clip(result.Diagnostic)))}
-	if file := job.Assignment.Setup.Profile.Command.Artifact; file != "" {
-		data, err := commandArtifact(filepath.Join(job.Workspace.WorkDir, ".runner-tmp", job.Assignment.AttemptID), file, job.Assignment.Limits.MaxArtifact)
+	if file := assignment.Setup.Profile.Command.Artifact; file != "" {
+		data, err := commandArtifact(scratch, file, assignment.Limits.MaxArtifact)
 		if err != nil {
 			return &runner.ExecutionEnd{Kind: "failed", Reason: "command artifact: " + runner.Clip(err.Error())}, nil
 		}
-		artifact := job.Assignment.AttemptID + "/result"
-		if err = d.Write("artifacts/"+artifact, data, job.Assignment.Limits.MaxArtifact); err != nil {
+		artifact := assignment.AttemptID + "/result"
+		if err = d.Write("artifacts/"+artifact, data, assignment.Limits.MaxArtifact); err != nil {
 			return nil, err
 		}
 		outputs["artifact"] = runner.Value{ArtifactID: artifact}

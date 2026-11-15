@@ -48,7 +48,7 @@ func (c *Core) collectionIDs(intent familyCollectionIntent) ([]string, error) {
 		seenRuns[run.ID] = true
 		ids = append(ids, run.ID)
 		for _, id := range run.Attempts {
-			if !collectionID(id) || seenAttempts[id] || len(seenAttempts) >= 128+64 {
+			if !collectionID(id) || seenAttempts[id] || len(seenAttempts) >= MaxGeneralTaskAttempts {
 				return nil, errors.New("invalid or duplicate family collection attempt")
 			}
 			seenAttempts[id] = true
@@ -127,15 +127,28 @@ func (c *Core) reconcileFamilyCollection(store FamilyStore, name string, intent 
 	}
 	if present != 0 {
 		root := c.runs[intent.Root]
-		if present != len(ids) || root.Task != nil || len(root.TaskGroups) == 0 || c.familyAttempts(root) == invalidFamilyAttempts {
+		if present != len(ids) || root.Task != nil || root.TaskGraph == nil && len(root.TaskGroups) == 0 || c.familyAttempts(root) == invalidFamilyAttempts {
 			return errors.New("family collection membership is not intact")
 		}
 		memberCount := 1
-		for _, group := range root.TaskGroups {
-			for _, child := range group.Children {
-				memberCount++
-				if !members[child.RunID] {
-					return errors.New("family collection omitted an owned child")
+		if root.TaskGraph != nil {
+			_, family, reserved, err := c.graphFamily(root)
+			if err != nil || reserved != 0 {
+				return errors.New("family collection graph ownership differs")
+			}
+			memberCount = len(family)
+			for _, child := range family {
+				if !members[child.ID] {
+					return errors.New("family collection omitted an owned general task")
+				}
+			}
+		} else {
+			for _, group := range root.TaskGroups {
+				for _, child := range group.Children {
+					memberCount++
+					if !members[child.RunID] {
+						return errors.New("family collection omitted an owned child")
+					}
 				}
 			}
 		}
@@ -226,7 +239,7 @@ func (c *Core) collectTaskFamilies(expired func(Run) bool) (map[string]bool, err
 		return handled, err
 	}
 	for id, r := range c.runs {
-		if r.Task != nil || len(r.TaskGroups) > 0 {
+		if r.TaskGraph != nil || r.Task != nil || len(r.TaskGroups) > 0 {
 			handled[id] = true
 		}
 	}
@@ -234,13 +247,24 @@ func (c *Core) collectTaskFamilies(expired func(Run) bool) (map[string]bool, err
 		return handled, nil
 	} // An older store must preserve linked history.
 	for _, root := range c.runs {
-		if root.Task != nil || len(root.TaskGroups) == 0 || c.familyAttempts(root) == invalidFamilyAttempts {
+		if root.Task != nil || root.TaskGraph != nil && root.TaskGraph.ParentRunID != "" || root.TaskGraph == nil && len(root.TaskGroups) == 0 || c.familyAttempts(root) == invalidFamilyAttempts {
 			continue
 		}
 		ids := []string{root.ID}
-		for _, group := range root.TaskGroups {
-			for _, child := range group.Children {
-				ids = append(ids, child.RunID)
+		if root.TaskGraph != nil {
+			_, family, reserved, err := c.graphFamily(root)
+			if err != nil || reserved != 0 {
+				continue
+			}
+			ids = ids[:0]
+			for _, child := range family {
+				ids = append(ids, child.ID)
+			}
+		} else {
+			for _, group := range root.TaskGroups {
+				for _, child := range group.Children {
+					ids = append(ids, child.RunID)
+				}
 			}
 		}
 		ready := true

@@ -14,6 +14,10 @@ import (
 // also applies when loading state, before trusting its configured definition.
 const maxStoredAttempts = 128
 
+// General-task processes have a separately configured aggregate allowance. Rows
+// remain normalized and individually bounded; old process formats keep 128.
+const maxGeneralTaskAttempts = runner.MaxGeneralTaskAttempts
+
 type attemptRecordHeader struct {
 	Format int             `json:"record_format"`
 	Count  *int            `json:"attempt_count"`
@@ -31,7 +35,11 @@ func storedAttemptCount(state []byte) (int, error) {
 		}
 		return -1, nil
 	}
-	if (h.Format != 3 && h.Format != 4 && h.Format != 5 && h.Format != 6 && h.Format != 7 && h.Format != 8) || h.Count == nil || *h.Count < 0 || *h.Count > maxStoredAttempts || len(h.Inline) != 0 {
+	maximum := maxStoredAttempts
+	if h.Format == 9 {
+		maximum = maxGeneralTaskAttempts
+	}
+	if (h.Format != 3 && h.Format != 4 && h.Format != 5 && h.Format != 6 && h.Format != 7 && h.Format != 8 && h.Format != 9) || h.Count == nil || *h.Count < 0 || *h.Count > maximum || len(h.Inline) != 0 {
 		return 0, errors.New("invalid normalized attempt metadata")
 	}
 	return *h.Count, nil
@@ -41,8 +49,12 @@ func (s *Store) attemptRecords(r runner.Run) ([][]byte, error) {
 	if r.RecordFormat < 3 {
 		return nil, nil
 	}
-	if len(r.Attempts) > maxStoredAttempts {
-		return nil, fmt.Errorf("%w: normalized attempt count exceeds %d", runner.ErrCapacity, maxStoredAttempts)
+	maximum := maxStoredAttempts
+	if r.RecordFormat == 9 {
+		maximum = maxGeneralTaskAttempts
+	}
+	if len(r.Attempts) > maximum {
+		return nil, fmt.Errorf("%w: normalized attempt count exceeds %d", runner.ErrCapacity, maximum)
 	}
 	records := make([][]byte, len(r.Attempts))
 	seen := map[string]bool{}

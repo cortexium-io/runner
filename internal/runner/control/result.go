@@ -33,6 +33,24 @@ type Result struct {
 	Decision          *runner.Decision    `json:"decision,omitempty"`
 	DecisionOutputs   map[string]Output   `json:"decision_outputs,omitempty"`
 	Tasks             []runner.TaskStatus `json:"tasks,omitempty"`
+	TaskCount         int                 `json:"task_count,omitempty"`
+	TasksTruncated    bool                `json:"tasks_truncated,omitempty"`
+	TaskGraph         *TaskGraph          `json:"task_graph,omitempty"`
+}
+
+// TaskGraph exposes coordination facts without copying child reports, original
+// task inputs or the capability catalog into every status response.
+type TaskGraph struct {
+	RootRunID   string `json:"root_run_id"`
+	ParentRunID string `json:"parent_run_id,omitempty"`
+	TaskID      string `json:"task_id"`
+	Role        string `json:"role,omitempty"`
+	Phase       string `json:"phase,omitempty"`
+	Paused      bool   `json:"paused,omitempty"`
+	Question    string `json:"question,omitempty"`
+	Revisions   int    `json:"revisions"`
+	Children    int    `json:"children"`
+	Retired     int    `json:"retired_children,omitempty"`
 }
 
 type Usage struct {
@@ -66,13 +84,17 @@ func result(ctx context.Context, c resultReader, in ResultArgs) (Result, error) 
 			return Result{}, err
 		}
 		out := compactResult(r, time.Now())
-		decisionPending := false
+		attentionPending := false
 		for _, fact := range out.Progress.Attention {
-			decisionPending = decisionPending || fact.Kind == "human_decision"
+			attentionPending = attentionPending || fact.Kind == "human_decision"
+			if r.TaskGraph != nil {
+				attentionPending = attentionPending || fact.Kind == "task_question" || fact.Kind == "task_paused" || fact.Kind == "blocked" || fact.Kind == "cleanup_blocked"
+			}
 		}
+		attentionPending = attentionPending || r.TaskGraph != nil && out.Progress.Unknown > 0
 		// Waiting can still have uncertain execution. Report the actual blocker;
 		// never mistake a client disconnect for permission to stop or retry work.
-		if !in.Wait || decisionPending || r.Status == "Waiting" && !waitingForProgress(r, out) || r.Terminal() && (!out.CleanupPending || out.CleanupError != "") {
+		if !in.Wait || attentionPending || r.Status == "Waiting" && !waitingForProgress(r, out) || r.Terminal() && (!out.CleanupPending || out.CleanupError != "") {
 			return out, nil
 		}
 		if _, err = c.Wait(ctx, r.ID, r.Revision); err != nil {
@@ -84,6 +106,9 @@ func result(ctx context.Context, c resultReader, in ResultArgs) (Result, error) 
 func waitingForProgress(r runner.Run, out Result) bool {
 	if r.Decision != nil {
 		return false
+	}
+	if r.TaskGraph != nil {
+		return runner.TaskGraphWaiting(r)
 	}
 	if r.Task == nil && r.Step >= 0 && r.Step < len(r.Process.Steps) {
 		step := r.Process.Steps[r.Step]
@@ -143,7 +168,22 @@ func compactResult(r runner.Run, now time.Time) Result {
 		CleanupBlocked:   r.CleanupBlocked,
 		Outputs:          map[string]Output{},
 		Decision:         runner.Clone(r.Decision),
-		Tasks:            r.TaskStatuses,
+		TaskCount:        len(r.TaskStatuses),
+	}
+	out.Tasks, out.TasksTruncated = resultTasks(r.TaskStatuses)
+	if g := r.TaskGraph; g != nil {
+		out.TaskGraph = &TaskGraph{
+			RootRunID: g.RootRunID, ParentRunID: g.ParentRunID,
+			TaskID: g.TaskID, Role: g.Role, Phase: g.Phase,
+			Paused: g.Paused, Question: runner.Clip(g.Question), Revisions: g.Revisions,
+		}
+		for _, child := range g.Children {
+			if child.Retired {
+				out.TaskGraph.Retired++
+			} else {
+				out.TaskGraph.Children++
+			}
+		}
 	}
 	if a := r.Current(); r.Status == "Waiting" && r.Decision == nil && a != nil && a.State == runner.Unknown && a.Reconciling && a.Deadline.After(now) {
 		out.Reconciling = true
@@ -183,7 +223,7 @@ func compactResult(r runner.Run, now time.Time) Result {
 		}
 		step := r.Process.Steps[a.Step]
 		profile, err := r.Roles[step.Role].Profile(a.Profile)
-		if err != nil || profile.Harness == "codex" {
+		if err != nil || profile.Harness == "codex" || profile.Harness == "native" {
 			if a.Usage.InputTokens == nil || a.Usage.OutputTokens == nil || a.Usage.CachedInputTokens == nil {
 				out.Usage.IncompleteAttempts++
 			}
@@ -226,6 +266,24 @@ func compactResult(r runner.Run, now time.Time) Result {
 	}
 	out.Outputs = previewOutputs(r.Outputs, 1024)
 	return out
+}
+
+func resultTasks(tasks []runner.TaskStatus) ([]runner.TaskStatus, bool) {
+	const limit = 64 // Presentation bound; task admission remains configured policy.
+	out := make([]runner.TaskStatus, 0, min(limit, len(tasks)))
+	important := func(task runner.TaskStatus) bool {
+		return task.Active || task.Unsettled || task.CleanupError != "" || task.Progress != nil && len(task.Progress.Attention) > 0
+	}
+	for _, attention := range []bool{true, false} {
+		for _, task := range tasks {
+			if important(task) != attention || len(out) == limit {
+				continue
+			}
+			task.Reason = runner.Clip(task.Reason)
+			out = append(out, task)
+		}
+	}
+	return out, len(out) < len(tasks)
 }
 
 func previewOutputs(values map[string]runner.Value, perOutput int) map[string]Output {

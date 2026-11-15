@@ -1,0 +1,16 @@
+{
+  "id": "saas-backend",
+  "purpose": "Implement tenant-isolated campaign behaviour and publication authorization.",
+  "inputs": {"request": "text"},
+  "outputs": {"report": "text"},
+  "execution": {
+    "harness": "native",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "128KiB",
+    "max_output": "16KiB",
+    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
+    "instructions": "Read app AGENTS, genny-cli, dependency outputs and fixed acceptance. Own only assigned internal Go paths; another worker is changing frontend concurrently. Implement ordinary project-owned services/routes through supported Genny extension hooks. Member draft create/edit and tenant-admin publish must be enforced on the server across all supported CRUD and custom routes. Tenant scope comes from the authenticated session; reject or safely ignore tenant_id spoofing without permitting cross-tenant writes. Prevent creating/pushing published status through generic POST/PUT/PATCH. Public JSON returns only published name/description/status/id, with no tenant, user or private metadata. Foreign IDs and unpublished public IDs must be denied without leaking content. Add focused meaningful Go regression cases for these authorization invariants, using existing app conventions; run only relevant Go checks with the required generated-app toolchain and shared cache. Do not edit .gny glue, frontend, metadata, go.mod or protected checker. Do not run a full frontend build while its worker is editing. On a common class of failures fix the ownership/service design instead of piling on route exceptions. Return report with implementation, tests and integration requirements."
+  }
+}

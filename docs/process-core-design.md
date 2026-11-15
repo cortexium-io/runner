@@ -1,10 +1,203 @@
 # Runner process core design
 
-Updated 11 November 2026. **The owner has authorized completing and installing the
-full bounded planner workflow, safe parallelism and routine recovery, verified
-across real projects. Merge and production remain owner-approved actions.**
+Updated 15 November 2026. **The owner authorized implementing the general
+roles-and-tasks design below, including real writing and a new Genny SaaS
+qualification. Existing pilot runs, their authority and limits remain unchanged.
+Merge, publication and production remain separately authorized actions.**
 
 ## Current completion plan
+
+### General role tasks, authorized 15 November 2026
+
+The current implementation owner is the Runner review/implementation chat on
+`codex/runner-role-tasks`, based on `ecafb92`. This section is the maintained plan
+and accepted contract for that work; the dated pilot records below remain history.
+It supersedes the first slice's one-level, eight-source-card template as the model
+for new general work. It does not migrate, replay or amend an existing run.
+
+#### Required outcome
+
+A request produces useful, verified work through configured roles and tasks.
+Small requests stay small. A writing request can return a researched, reviewed
+draft without acquiring Git or release machinery. A larger software request can
+delegate specialist planning, admit further tasks, run compatible work concurrently,
+integrate outputs and evaluate the complete product against the original goal.
+A generated scaffold or a source pin completes only its own task, not the goal.
+
+Keep one instance-owned Core, one transactional SQLite store and the existing
+Start/Observe/Stop/Release lifecycle. An ordinary retained Run/Attempt remains the
+execution primitive. General task ownership and policy are explicit and separate
+from the legacy source-card compatibility fields. Domain adapters own Git, Genny,
+research, writing, rendering and executable verification. No second scheduler,
+task service, parallel ledger or general expression language is required.
+
+#### Task, role and plan contracts
+
+- A task has a stable identity, parent/root goal, purpose, acceptance conditions,
+  selected permitted role/profile, inputs and dependency results, output contract,
+  resource policy and observed state. The parent relationship gives responsibility;
+  dependencies give execution order. A task need not have a repository.
+- Roles own domain judgment, guidance and declared capabilities. A planner is a
+  role: it may propose permitted specialist planning or implementation tasks.
+  Runner validates and records proposals before scheduling them. Task data cannot
+  invent executable commands, models, roles, permissions or additional allowance.
+- Task expansion may be nested. Apply configurable record/task/concurrency bounds
+  as resource admission, not a universal eight-item definition of a project.
+  Reject cycles, unavailable roles/inputs and conflicting execution scopes with
+  actionable feedback. Independent eligible work continues when another branch waits.
+- Parents receive accepted child outputs and resume under their own role contract.
+  Keep the original request and authorized amendments as the source of intent;
+  supply task-relevant context instead of duplicating every conversation/catalog.
+- General source tasks share one explicitly owned project workspace. Literal
+  write-path claims serialize conflicting writers; dependency completion makes
+  integrated source available to consumers. These are scheduler claims, not a
+  per-file security sandbox: native execution's enforced boundary is the project
+  workspace. Generated outputs have one Genny owner. Legacy source cards retain
+  their existing branch isolation and uncertain-execution checks. Source checking
+  is not automatically a requirement of writing or other artifact tasks.
+- A supported plan revision may replace affected future work within the authorized
+  goal. Preserve old attempts, decisions and outputs, invalidate only results whose
+  inputs/assumptions changed, and retain unaffected completed work. Local repair,
+  design/plan revision, missing input and infrastructure retry are distinct outcomes.
+  Repeated symptoms can request a design review rather than another single-case patch.
+
+#### Capabilities, provenance and decisions
+
+The role/profile selects restricted, selected or native harness tools and skills
+where the executor can actually enforce that selection. Native means the harness's
+normal discovery and capabilities, not mandatory injection of its complete catalog
+into every prompt. Availability, permission and actual observed use are separate.
+Capabilities do not grant publication, deployment, extra spending or wider data access.
+
+Record the machine, harness/version, requested/reported model/settings, effective
+profile, supplied instructions/context, available/permitted capability manifest,
+observable calls/skill reads, relevant sources/results and meaningful decisions.
+Store shared non-secret manifests once and reference them from attempts. Bound logs
+and evidence, redact credentials and distinguish observed use, agent-reported use
+and unavailable telemetry. Do not retain private model reasoning. Short decision
+rationales cite evidence; a manifest difference is diagnostic provenance, not a
+blanket reapproval gate or proof of causation between machines.
+
+Optional deliberation is a composition of ordinary tasks and roles. Participants
+can use different configured model/harness profiles. Give them a common brief and
+criteria; obtain independent proposals before criticism, investigate material
+disagreements and let the accountable lead decide within authority. Retain options,
+objections, evidence, uncertainty and the decision. A third judging model is optional.
+Bound deliberation by its task allowance and useful progress; agreement is not proof.
+
+Routine choices and repairs within the accepted goal use configured decision
+authority. Evidence gathering, specialist advice and affected-plan revision precede
+human escalation where they can resolve a technical question. A human is needed
+for an actual missing preference/authority, material scope change, protected external
+action or resource decision, not automatically for model disagreement or an internal
+bookkeeping counter.
+
+#### Intervention, budgets and resource closure
+
+CLI and MCP expose the same scoped operations: inspect, supply input/decision,
+steer constraints/priorities, pause new dispatch, resume, reassign future execution,
+and cancel affected task branches or a whole goal. Save actor, target, changes and
+effective boundary. Changes to active incompatible work stop/reconcile it before
+replacement. Acknowledging a request does not falsely establish process settlement.
+Permission revocation follows the executor's actual enforcement capability.
+
+The root owns a coherent request allowance across delegated model work, retries and
+deliberation. Bookkeeping must not masquerade as another expensive model call.
+Retain existing attempt accounting, with explicit model/time/resource observations
+and limitations. A continuation does not reset consumed usage. Every new resource
+has known ownership and retention: retain accepted results and required diagnostics,
+release disposable scratch/processes/checkouts after settlement, and reconcile
+uncertain work through a supported path. Native profiles must report any external
+harness state outside the owned cleanup boundary.
+
+#### Verification economy
+
+Each implementation assignment states the behaviour/risk to prove and the smallest
+relevant verification scope. Permit timely focused checks through the selected
+execution profile. Independent evaluation judges the task and original goal;
+it does not equate test count, an exit code or a source pin with product acceptance.
+Reuse sufficient passing proof while its actual relevant inputs remain unchanged.
+Broaden for changed shared behaviour, integration/security risk or observed failure.
+Run workflow and whole-repository gates once after the related batch is coherent,
+not after every helper or subtask. Native qualifications are separately invoked.
+
+#### Implementation sequence and ownership
+
+1. **Contracts and compatibility (main/Core owner).** Add opt-in general-task
+   policy, structured delegation/control results and persisted parent/root context
+   to existing runs. Preserve frozen legacy examples and prove stored history loads
+   unchanged; older binaries must refuse unsupported new operational records.
+2. **Scheduling and intervention (Core owner; main wires CLI/MCP/config).** Admit
+   nested role tasks, validate dependencies/capabilities, resume parents with child
+   outputs and account the whole root. Implement scoped steering/pause/input/cancel
+   and affected-plan revision using ordinary durable operations. Prove restart,
+   no duplicate dispatch, isolated waits and meaningful failure/cancellation.
+3. **Native profiles and provenance (native adapter owner).** Add opt-in native
+   execution without weakening the existing restricted adapter. Retain bounded,
+   non-secret manifests/observations and supported control. Prove actual capability
+   use and honest telemetry limits. Wire all paths through the existing service.
+4. **Examples and real verification (qualification owner; main integrates).** Add
+   maintained general-role examples, then run real writing tasks and a new Genny
+   campaign SaaS through Runner. Prove specialist planning, compatible concurrent
+   work, goal-level evaluation, correction/deliberation and human steering. Update
+   architecture/operator guidance with exact results and unverified boundaries.
+5. **Final qualification (main).** Review the whole diff; run affected regression
+   checks, the relevant workflow suite once and the final required full gate.
+   Inspect owned outputs, remove regenerable intermediates, preserve canonical
+   accepted artifacts and report native costs, elapsed time, cleanup and actual gaps.
+
+All workers have bounded file ownership and share the same checkout. The main
+session owns integration, final verification and the complete requested outcome.
+Do not promote the live pilot or publish/deploy qualification products in this task.
+
+#### Real acceptance cases and current status
+
+- **Writing:** real native research/writing produces usable drafts and a factual/
+  editorial decision against the brief, with sources, tool/profile evidence and
+  no coding/release stages forced onto it. Publication is outside this task.
+- **Genny SaaS:** create a new usable campaign-management app using the suitable
+  installed Genny. Include login, multiple users and tenants, tenant-scoped campaign
+  create/edit/publish plus a public preview. Prove ordinary UI/API journeys and
+  negative tenant/member/admin access. A scaffold, fixture or mocked application
+  response is insufficient. This qualifies Runner's project journey; it is not a
+  claim to have cloned every feature of Scratcher.
+- **Planning and decisions:** retain a real nested planning hierarchy, dependency
+  outputs and observed overlap of independent work. Demonstrate an in-scope
+  correction or revision and a recorded scoped human steering/input operation.
+  Demonstrate configured deliberation; distinguish model diversity actually run
+  from profile/fixture support. Do not claim GPT/Opus proof without executing it.
+- **Lifecycle:** actual attempts have settled identities, bounded usage/evidence and
+  owned-resource cleanup. Restart/intervention/unsafe replacement boundaries use
+  focused deterministic regression proof; do not spend native turns repeating a
+  complete crash matrix when those inputs are unchanged.
+
+Status: implemented and qualified on the isolated branch. Real small writing,
+researched GPT/Opus editorial work, nested SaaS planning and concurrent coding
+produced retained deliverables. The final fixed SaaS verification completed with
+22 API checks, seven UI checks and a real-user/tenant fixture, in one 6.077-second
+attempt without a model call. The [architecture record](architecture.md#real-qualification-evidence)
+contains identities, measured costs, failed qualifications and remaining limits.
+The installed pilot remains intact; no default or production cutover is included.
+
+Real qualification exposed a capability boundary: Codex's macOS filesystem/network
+profile cannot grant the browser IPC needed by the configured headless Chrome.
+The app passed all fixed API checks before Chrome aborted. The implementation
+therefore adds an explicit configured `command` / `shared` capability for trusted
+checks on the canonical read-only project, with narrowly writable scratch/output/
+runtime roots and browser IPC. Model tasks cannot supply its executable or argv.
+It reuses execution ownership, receipts, artifact retention and the existing Core;
+it does not copy a source checkout, weaken assertions or bypass source protection.
+Full delivery retains a lead's assessment against the goal. Verification-only
+continuations execute the fixed role directly: the earlier extra assessment model
+requested repeated checks instead of evaluating its saved failure and exhausted
+its unchanged allowance. Removing that loop, rather than enlarging its allowance,
+produced the accepted check. A protected browser-checker navigation race was fixed
+with explicit route/form/value synchronization; product assertions were preserved.
+Existing frozen profiles and failed results remain intact. The coding root was
+paused at its capability checkpoint and cancelled after the same hash-pinned
+executable passed the final continuation. This is real end-product qualification,
+not a claim that the initial coding run completed uninterrupted or that arbitrary
+native projects now have unattended reliability.
 
 ### Released-root seed installation and read-only attention, 12 November 2026
 

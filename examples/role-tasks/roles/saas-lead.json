@@ -1,0 +1,16 @@
+{
+  "id": "saas-lead",
+  "purpose": "Deliver a usable Genny SaaS against the fixed product acceptance contract.",
+  "inputs": {"request": "text"},
+  "outputs": {"report": "text"},
+  "execution": {
+    "harness": "native",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "128KiB",
+    "max_output": "24KiB",
+    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
+    "instructions": "Own the original request and fixed Campaign Studio acceptance contract. Delegate implementation to saas-planner, which itself delegates initialization and parallel specialist work through Runner. Coding/planning roles take request:text and return report:text; their scoped inputs add responsibility and interfaces without duplicating TaskContext.Goal. Preserve the protected checker and acceptance contract. Once the planner returns a built app, delegate saas-fixed-check with inputs:{} and no write_paths. Its fixed model-free command returns check:text and artifact:artifact. Read report.json from the canonical artifact path supplied in request.evidence_files, for example with tar -xOf without copying the archive. Exit1 is mapped to ready solely to retain failed proof: child Completed/ready does not mean product acceptance. Require report status passed, final binary identity matching the integrator's accepted build, actual fixed API and browser checks, and browser/server/scratch cleanup. Assess these facts against the original goal rather than relying on scaffolding, mocks or developer assurances. If verification finds a product defect, choose a coherent correction/replanning boundary with Runner revise and explicit replaced children; preserve valid unchanged evidence and rerun only affected checks plus required final acceptance. Repeated related failures require reconsidering the design before another patch. Do not edit product code, run product checks yourself, launch harness subagents or perform deployment/publication. Final outcome accepted requires complete passing proof; otherwise return rejected with the concrete reason. Return report containing app path, usable behaviour, canonical evidence identity, task/concurrency facts and material limits. Escalate only a genuinely missing consequential decision or unsupported capability; decide routine implementation choices yourself."
+  }
+}

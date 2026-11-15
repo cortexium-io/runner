@@ -16,6 +16,7 @@ type Service struct {
 	candidates    *Candidates
 	tasks         *TaskSources
 	commands      *Commands
+	harnesses     *Native
 	releases      *Releases
 	disk          *runner.Disk
 	deterministic *Deterministic
@@ -41,6 +42,7 @@ func NewService(d *runner.Disk, read func(context.Context, string) ([]byte, erro
 	s.tasks = &TaskSources{disk: d, workspaces: s.workspaces}
 	s.tasks.validateHandoff = s.validateSourceHandoffPin
 	s.commands = NewCommands(d, cfg, s.workspaces, read)
+	s.harnesses = NewNative(d, cfg, s.workspaces, read)
 	s.releases = &Releases{disk: d, workspaces: s.workspaces}
 	if len(release) > 0 {
 		s.releases.cfg = runner.Clone(release[0])
@@ -57,6 +59,7 @@ func (s *Service) SetWake(wake func(string)) {
 	s.captureWake = wake
 	s.captureMu.Unlock()
 	s.commands.SetWake(wake)
+	s.harnesses.SetWake(wake)
 	s.tasks.SetWake(wake)
 	s.releases.SetWake(wake)
 	s.candidates.SetWake(wake)
@@ -72,6 +75,9 @@ func (s *Service) Start(ctx context.Context, a runner.Assignment) (runner.Observ
 		}, nil
 	}
 	switch a.Setup.Profile.Harness {
+	case "native":
+		o, e := s.harnesses.Start(ctx, a)
+		return s.collectHarness(ctx, a.AttemptID, o, e)
 	case "release":
 		return s.releases.Start(ctx, a)
 	case "git-candidate":
@@ -79,6 +85,10 @@ func (s *Service) Start(ctx context.Context, a runner.Assignment) (runner.Observ
 	case "task-source":
 		return s.tasks.Start(ctx, a)
 	case "command":
+		if a.Setup.Profile.Mode == "shared" {
+			o, e := s.harnesses.Start(ctx, a)
+			return s.collectHarness(ctx, a.AttemptID, o, e)
+		}
 		return s.commands.Start(ctx, a)
 	case "deterministic":
 		return s.deterministic.Start(ctx, a)
@@ -101,6 +111,10 @@ func (s *Service) native(id string) (bool, error) {
 	return true, err
 }
 func (s *Service) Observe(ctx context.Context, id string) (runner.Observation, error) {
+	if s.harnesses.Owns(id) {
+		o, e := s.harnesses.Observe(ctx, id)
+		return s.collectHarness(ctx, id, o, e)
+	}
 	if s.tasks.Owns(id) {
 		return s.tasks.Observe(ctx, id)
 	}
@@ -130,6 +144,9 @@ func (s *Service) Observe(ctx context.Context, id string) (runner.Observation, e
 	return s.deterministic.Observe(ctx, id)
 }
 func (s *Service) Stop(ctx context.Context, id string) error {
+	if s.harnesses.Owns(id) {
+		return errors.Join(s.harnesses.Stop(ctx, id), s.stopCapture(ctx, id))
+	}
 	if s.tasks.Owns(id) {
 		return s.tasks.Stop(ctx, id)
 	}
@@ -155,6 +172,12 @@ func (s *Service) Stop(ctx context.Context, id string) error {
 	return s.deterministic.Stop(ctx, id)
 }
 func (s *Service) Release(ctx context.Context, id string) error {
+	if s.harnesses.Owns(id) {
+		if err := s.captureReleaseReady(id); err != nil {
+			return err
+		}
+		return s.harnesses.Release(ctx, id)
+	}
 	if s.tasks.Owns(id) {
 		return s.tasks.Release(ctx, id)
 	}
@@ -184,6 +207,7 @@ func (s *Service) Release(ctx context.Context, id string) error {
 }
 func (s *Service) Close(ctx context.Context) error {
 	s.commands.Close()
+	s.harnesses.Close()
 	releaseErr := s.releases.Close(ctx)
 	captureErr := s.closeCaptures(ctx)
 	taskErr := s.tasks.Close(ctx)
@@ -232,24 +256,47 @@ func (s *Service) collect(ctx context.Context, id string, o runner.Observation, 
 		return runner.Observation{}, err
 	}
 	if j.Assignment.Setup.Profile.Access == "workspace-write" && j.Workspace != nil {
-		stopped := j.StopRequested || j.End != nil && j.End.Kind == "stopped"
-		source, err := s.captureSource(ctx, j.Assignment, stopped)
-		if err != nil {
-			o.State = runner.Unknown
-			o.End = nil
-			var pending *capturePending
-			if errors.As(err, &pending) {
-				o.Reconciling = true
-				o.NextCheck = time.Now().Add(250 * time.Millisecond)
-			}
-			o.Reason = "source collection: " + runner.Clip(err.Error())
-			return o, nil
+		return s.collectNativeSource(ctx, j.Assignment, o, j.StopRequested || j.End != nil && j.End.Kind == "stopped")
+	}
+	return o, nil
+}
+
+func (s *Service) collectHarness(ctx context.Context, id string, o runner.Observation, e error) (runner.Observation, error) {
+	if e != nil || o.State != runner.Finished {
+		return o, e
+	}
+	s.harnesses.mu.Lock()
+	j, err := s.harnesses.load(id)
+	s.harnesses.mu.Unlock()
+	if errors.Is(err, os.ErrNotExist) && o.NativeHandle == "" {
+		return o, nil
+	}
+	if err != nil {
+		return runner.Observation{}, err
+	}
+	if j.Workspace != nil && j.Assignment.Setup.Profile.Access == "workspace-write" {
+		return s.collectNativeSource(ctx, j.Assignment, o, j.StopRequested || j.End != nil && j.End.Kind == "stopped")
+	}
+	return o, nil
+}
+
+func (s *Service) collectNativeSource(ctx context.Context, a runner.Assignment, o runner.Observation, stopped bool) (runner.Observation, error) {
+	source, err := s.captureSource(ctx, a, stopped)
+	if err != nil {
+		o.State = runner.Unknown
+		o.End = nil
+		var pending *capturePending
+		if errors.As(err, &pending) {
+			o.Reconciling = true
+			o.NextCheck = time.Now().Add(250 * time.Millisecond)
 		}
-		o.Source = source
-		if o.End != nil && o.End.Kind == "returned" && o.End.Result != nil && o.End.Result.Outcome != "needs_help" && source.PatchID != "" {
-			o.End = runner.Clone(o.End)
-			o.End.Result.Outputs["patch"] = runner.Value{ArtifactID: source.PatchID}
-		}
+		o.Reason = "source collection: " + runner.Clip(err.Error())
+		return o, nil
+	}
+	o.Source = source
+	if o.End != nil && o.End.Kind == "returned" && o.End.Result != nil && o.End.Result.Outcome != "needs_help" && source.PatchID != "" {
+		o.End = runner.Clone(o.End)
+		o.End.Result.Outputs["patch"] = runner.Value{ArtifactID: source.PatchID}
 	}
 	return o, nil
 }

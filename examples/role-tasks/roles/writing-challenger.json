@@ -1,0 +1,16 @@
+{
+  "id": "writing-challenger",
+  "purpose": "Challenge the draft's central idea and offer a reasoned alternative perspective.",
+  "inputs": {"request": "text"},
+  "outputs": {"report": "text"},
+  "execution": {
+    "harness": "native",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "96KiB",
+    "max_output": "8KiB",
+    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
+    "instructions": "Use the actual draft and goal from TaskContext. Take a different perspective: test the central argument, assumptions and implied promises, then propose the strongest useful alternative framing. State where the original is stronger, where the alternative is stronger and what evidence would change your mind. Keep the critique bounded and grounded in the supplied material; read or search primary sources when a consequential factual disagreement needs resolution. Do not manufacture disagreement. Return report with reasons the lead can use for an editorial decision. Do not publish, run commands or create outside agents."
+  }
+}

@@ -99,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 3 {
+	if version < 0 || version > 4 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -135,16 +135,28 @@ PRIMARY KEY(run_id,position));
 PRAGMA user_version=3; COMMIT;`); e != nil {
 			return nil, e
 		}
+		version = 3
+	}
+	if version == 3 {
+		// The record-format validator retains the old 128-attempt contract.
+		// Widen only the physical normalized row range for opted-in format nine.
+		if _, e = db.Exec(`BEGIN;
+CREATE TABLE attempts_v4(run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+position INTEGER NOT NULL CHECK(position>=0 AND position<32768), id TEXT NOT NULL UNIQUE, data BLOB NOT NULL,
+PRIMARY KEY(run_id,position));
+INSERT INTO attempts_v4(run_id,position,id,data) SELECT run_id,position,id,data FROM attempts;
+DROP TABLE attempts;
+ALTER TABLE attempts_v4 RENAME TO attempts;
+PRAGMA user_version=4; COMMIT;`); e != nil {
+			return nil, e
+		}
 	}
 	if e = os.Chmod(path, 0600); e != nil {
 		return nil, e
 	}
-	byCapacity := (int64(p.Database.MaxSize)/3 - 128*1024) / (3 * int64(p.Database.MaxRecord))
-	if byCapacity < 1 {
+	s.maxRuns = p.RetainedRunCapacity()
+	if s.maxRuns < 1 {
 		return nil, errors.New("database allowance cannot reserve one run plus recovery space")
-	}
-	if int64(s.maxRuns) > byCapacity {
-		s.maxRuns = int(byCapacity)
 	}
 	ok = true
 	return s, nil
@@ -268,10 +280,24 @@ func (s *Store) saveRunWithHandoff(ctx context.Context, tx *sql.Tx, r runner.Run
 	}
 	add(r.Inputs)
 	add(r.Outputs)
+	if r.TaskGraph != nil {
+		for _, child := range r.TaskGraph.Children {
+			add(child.Spec.Inputs)
+		}
+	}
 	if r.SourceHandoff != nil && r.SourceHandoff.Proof != nil {
 		refs[r.SourceHandoff.Proof.ID] = true
 	}
 	for _, a := range r.Attempts {
+		if a.State == runner.Finished && a.Effective != nil && a.Effective.Provenance != "" {
+			var exists int
+			if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM artifacts WHERE id=? AND run_id=?", a.Effective.Provenance, r.ID).Scan(&exists); e != nil {
+				return e
+			}
+			if exists == 1 {
+				refs[a.Effective.Provenance] = true
+			}
+		}
 		if a.End != nil && a.End.Result != nil {
 			add(a.End.Result.Outputs)
 		}
@@ -303,7 +329,7 @@ func (s *Store) saveRunWithHandoff(ctx context.Context, tx *sql.Tx, r runner.Run
 		if e = tx.QueryRowContext(ctx, "SELECT count(*) FROM requests WHERE run_id=?", r.ID).Scan(&n); e != nil {
 			return e
 		}
-		if n >= 17 {
+		if r.TaskGraph == nil && n >= 17 {
 			return fmt.Errorf("%w: run request receipt limit reached", runner.ErrCapacity)
 		}
 		if _, e = tx.ExecContext(ctx, "INSERT INTO requests(key,kind,args,run_id) VALUES(?,?,?,?)", receipt.Key, receipt.Kind, receipt.Args, r.ID); e != nil {

@@ -6,6 +6,7 @@ import "time"
 // LastProgressAt is the latest saved lifecycle milestone. Updated may also
 // change on reconciliation polls and must not be relabeled as useful progress.
 type Progress struct {
+	factLimit      int
 	Execution      string          `json:"execution"`
 	Active         int             `json:"active_attempts"`
 	Reconciling    int             `json:"reconciling_attempts"`
@@ -37,7 +38,14 @@ type Attention struct {
 	DecisionID string `json:"decision_id,omitempty"`
 }
 
-const maxProgressFacts = 9 // One root and at most eight simultaneously owned cards.
+const maxProgressFacts = 9 // Legacy presentation bound, independent of execution limits.
+
+func (p *Progress) limit() int {
+	if p.factLimit > 0 {
+		return p.factLimit
+	}
+	return maxProgressFacts
+}
 
 func (p *Progress) milestone(at time.Time) {
 	if at.After(p.LastProgressAt) {
@@ -51,14 +59,14 @@ func (p *Progress) attention(a Attention) {
 			return
 		}
 	}
-	if a.Kind == "human_decision" {
+	if a.Kind == "human_decision" || a.Kind == "task_question" {
 		p.Attention = append([]Attention{a}, p.Attention...)
-		if len(p.Attention) > maxProgressFacts {
-			p.Attention, p.Truncated = p.Attention[:maxProgressFacts], true
+		if len(p.Attention) > p.limit() {
+			p.Attention, p.Truncated = p.Attention[:p.limit()], true
 		}
 		return
 	}
-	if len(p.Attention) < maxProgressFacts {
+	if len(p.Attention) < p.limit() {
 		p.Attention = append(p.Attention, a)
 	} else {
 		p.Truncated = true
@@ -66,7 +74,7 @@ func (p *Progress) attention(a Attention) {
 }
 
 func (p *Progress) timing(a AttemptTiming) {
-	if len(p.Attempts) < maxProgressFacts {
+	if len(p.Attempts) < p.limit() {
 		p.Attempts = append(p.Attempts, a)
 	} else {
 		p.Truncated = true
@@ -75,6 +83,9 @@ func (p *Progress) timing(a AttemptTiming) {
 
 func ownProgress(r Run, now time.Time) Progress {
 	p := Progress{}
+	if r.TaskGraph != nil && r.Process.Tasks != nil {
+		p.factLimit = min(64, max(maxProgressFacts, r.Process.Tasks.MaxTasks+1))
+	}
 	p.milestone(r.Created)
 	for _, group := range r.TaskGroups {
 		if group != nil {
@@ -128,6 +139,14 @@ func ownProgress(r Run, now time.Time) Progress {
 		// Independent of execution: another child can still be running.
 		p.attention(Attention{RunID: r.ID, Kind: "human_decision", DecisionID: r.Decision.ID})
 	}
+	if r.TaskGraph != nil && !r.Terminal() {
+		if r.TaskGraph.Phase == TaskWaitingInput {
+			p.attention(Attention{RunID: r.ID, Kind: "task_question"})
+		}
+		if r.TaskGraph.Paused {
+			p.attention(Attention{RunID: r.ID, Kind: "task_paused"})
+		}
+	}
 	return p
 }
 
@@ -148,9 +167,10 @@ func (p *Progress) finish(r Run) {
 		p.Execution = "pending"
 	}
 	prerequisite := len(r.Attempts) == 0 && r.Reason == "waiting for declared task prerequisites"
+	automaticTask := TaskGraphWaiting(r) || r.TaskGraph != nil && (r.TaskGraph.Phase == TaskWaitingInput || r.TaskGraph.Paused)
 	if r.CleanupError != "" || r.CleanupBlocked {
 		p.attention(Attention{RunID: r.ID, Kind: "cleanup_blocked"})
-	} else if r.Status == "Failed" || r.Status == "Waiting" && r.Decision == nil && !prerequisite && p.Reconciling == 0 && p.Unknown == 0 {
+	} else if r.Status == "Failed" || r.Status == "Waiting" && r.Decision == nil && !prerequisite && !automaticTask && p.Reconciling == 0 && p.Unknown == 0 {
 		p.attention(Attention{RunID: r.ID, Kind: "blocked"})
 	}
 	p.NextAction = "none"
@@ -158,6 +178,10 @@ func (p *Progress) finish(r Run) {
 		p.NextAction = "wait_for_execution"
 	} else if p.Pending > 0 || r.Status == "Queued" {
 		p.NextAction = "wait_for_dispatch"
+	} else if TaskGraphWaiting(r) {
+		// Queued children may not own an Attempt yet. Do not invent pending
+		// attempts or present an automatic dependency/capacity wait as idle.
+		p.NextAction = "wait_for_tasks"
 	}
 	if p.Unknown > 0 {
 		p.NextAction = "reconcile_execution"
@@ -174,6 +198,11 @@ func (p *Progress) finish(r Run) {
 		if fact.Kind == "human_decision" {
 			p.NextAction = "decide_saved_approval"
 			break
+		}
+		if fact.Kind == "task_question" {
+			p.NextAction = "answer_task_question"
+		} else if fact.Kind == "task_paused" {
+			p.NextAction = "resume_task"
 		}
 	}
 }
@@ -221,6 +250,13 @@ func Summarize(r Run, now time.Time) Summary {
 			p.timing(a)
 		}
 		for _, a := range child.Attention {
+			if r.TaskGraph != nil && task.Status == "Failed" && a.Kind == "blocked" {
+				// A settled child failure is input to its parent's evaluation or
+				// replan, not an automatic request for the owner to intervene.
+				// Root completion/cancellation also supersedes this old attention;
+				// a root failure supplies its own actionable blocker below.
+				continue
+			}
 			p.attention(a)
 		}
 	}

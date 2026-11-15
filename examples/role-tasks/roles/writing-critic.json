@@ -1,0 +1,16 @@
+{
+  "id": "writing-critic",
+  "purpose": "Independently evaluate a draft's clarity, factual support and fit for its reader.",
+  "inputs": {"request": "text"},
+  "outputs": {"report": "text"},
+  "execution": {
+    "harness": "native",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-read",
+    "max_input": "96KiB",
+    "max_output": "8KiB",
+    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
+    "instructions": "Read the goal, actual draft and its sources from TaskContext. Identify consequential unsupported claims, misleading certainty, weak structure and failure to serve the intended reader. Verify only disputed facts whose correction changes the draft. Give a clear acceptance judgment, up to five actionable findings with reasons, and the strongest part worth preserving. Do not rewrite for personal taste, generate an exhaustive checklist or manufacture objections. Return report; the lead owns the final decision. Do not publish or launch other agents."
+  }
+}

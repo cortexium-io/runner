@@ -39,8 +39,11 @@ func run(ctx context.Context, args []string) error {
 	if len(args) == 2 && args[0] == "command-worker" {
 		return execution.RunCommandWorker(ctx, args[1])
 	}
+	if len(args) == 2 && args[0] == "native-worker" {
+		return execution.RunNativeWorker(ctx, args[1])
+	}
 	if len(args) == 0 {
-		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|recover-corrections|recover-collection|recover-planning|recover-unpublished-card|adjudicate-source-handoff|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
+		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|intervene|recover-corrections|recover-collection|recover-planning|recover-unpublished-card|adjudicate-source-handoff|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -83,6 +86,8 @@ func run(ctx context.Context, args []string) error {
 	file := fs.String("file", "", "selected configuration file")
 	field := fs.String("field", "", "dot-separated configuration field")
 	value := fs.String("value", "null", "JSON value for config-set")
+	action := fs.String("action", "", "task intervention: pause, resume, steer, answer or reassign")
+	text := fs.String("text", "", "task steering directive or human answer")
 	if e := fs.Parse(args[1:]); e != nil {
 		return e
 	}
@@ -240,6 +245,23 @@ func run(ctx context.Context, args []string) error {
 			ExtraAttempts: *extra,
 			WithinBudget:  *withinBudget,
 			CleanupOnly:   *cleanupOnly,
+		}
+	case "intervene":
+		if *runID == "" || *revision < 1 || *action == "" {
+			return errors.New("intervene requires --run, exact --revision and --action")
+		}
+		if *requestID == "" {
+			*requestID = rand.Text()
+		}
+		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
+		method = "runner_intervene"
+		a = runner.TaskInterventionRequest{
+			RequestID: *requestID,
+			RunID:     *runID,
+			Revision:  *revision,
+			Action:    *action,
+			Text:      *text,
+			Profile:   *profile,
 		}
 	case "recover-corrections":
 		if *requestID == "" {

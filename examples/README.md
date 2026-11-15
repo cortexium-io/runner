@@ -10,6 +10,7 @@ Each directory contains one example and its configuration:
 | [command](command/README.md) | An explicit model-free command on committed, read-only source. |
 | [reviewed-go](reviewed-go/README.md) | Implementation, focused check, read-only review and local candidate integration. |
 | [tasks](tasks/README.md) | Dependency-ordered template expansion and joined results without models. |
+| [role-tasks](role-tasks/README.md) | Nested native roles, concurrent work, model deliberation, human intervention, writing and protected Genny SaaS qualification. |
 
 Select an example's `instance.yaml` or `instance.json` with `serve --config`. Examples are not loaded
 automatically. Test fixtures live under the repository-root

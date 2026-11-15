@@ -188,6 +188,9 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 	if s.Instance.TaskConcurrency < 0 || s.Instance.TaskConcurrency > 8 {
 		return s, errors.New("task_concurrency must be zero (disabled) or between one and eight")
 	}
+	if s.Instance.MaxActiveAttempts < 0 || s.Instance.MaxActiveAttempts > 32 {
+		return s, errors.New("max_active_attempts must be zero (legacy/default) or between one and 32")
+	}
 	for _, pf := range s.Instance.Projects {
 		path := resolve(l.Path, pf)
 		var f runner.ProjectFile
@@ -237,6 +240,21 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 			for _, profile := range profiles {
 				if e = ready(profile); e != nil {
 					return s, fmt.Errorf("role %s: %w", name, e)
+				}
+				if profile.Harness == "native" {
+					if strings.TrimSpace(role.Purpose) == "" {
+						return s, fmt.Errorf("role %s: native execution needs an explicit purpose", name)
+					}
+					if profile.MaxOutput > s.Instance.Storage.Database.MaxRecord/2 {
+						return s, fmt.Errorf("role %s: native max_output must fit half database.max_record", name)
+					}
+					continue
+				}
+				if profile.Harness == "command" && profile.Mode == "shared" {
+					if e = commandRoleContract(role, profile); e != nil {
+						return s, e
+					}
+					continue
 				}
 				if profile.Harness == "task-source" {
 					if strings.TrimSpace(role.Purpose) == "" || p.Source == nil || s.Instance.Concurrency != 1 || s.Instance.Codex == nil || s.Instance.Codex.GoBinary == "" {
@@ -314,20 +332,8 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 						return s, errors.New("git-candidate needs patch/verdict/review inputs and one candidate text output")
 					}
 					if profile.Harness == "command" {
-						for _, kind := range role.Inputs {
-							if kind != "text" && kind != "artifact" {
-								return s, errors.New("command inputs must be text or retained artifacts")
-							}
-						}
-						want := 1
-						if profile.Command.Artifact != "" {
-							want = 2
-							if role.Outputs["artifact"] != "artifact" {
-								return s, errors.New("command artifact needs a declared artifact output")
-							}
-						}
-						if len(role.Outputs) != want || role.Outputs["check"] != "text" {
-							return s, errors.New("command needs a check text output and only its optional artifact output")
+						if e = commandRoleContract(role, profile); e != nil {
+							return s, e
 						}
 					}
 					if profile.Harness == "codex" {
@@ -380,6 +386,9 @@ func (l *Loader) load(override string, data []byte) (s runner.Snapshot, err erro
 				return s, fmt.Errorf("process %s: %w", name, e)
 			}
 			p.Processes[name] = process
+			if process.Tasks != nil && s.Instance.MaxActiveAttempts == 0 {
+				s.Instance.MaxActiveAttempts = s.Instance.Concurrency
+			}
 		}
 		if _, ok := p.Processes[p.DefaultProcess]; !ok {
 			return s, fmt.Errorf("project %s has no default process %q", p.ID, p.DefaultProcess)
@@ -567,6 +576,12 @@ func boundedTypes(m map[string]string, limit int) error {
 	return nil
 }
 func ready(p runner.Profile) error {
+	if p.Harness == "native" {
+		return nativeReady(p)
+	}
+	if p.Native != nil {
+		return errors.New("native settings require the native harness")
+	}
 	if p.Harness == "task-source" {
 		if p.Access != "workspace-read" || !slices.Contains([]string{"seed", "pin", "join"}, p.Mode) || p.Command != nil || p.Model != "" || p.Reasoning != "" || p.Instructions != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.MaxInput != 0 || p.MaxOutput != 0 {
 			return errors.New("task-source selects fixed seed/pin/join mode with workspace-read access and no model or command settings")
@@ -601,10 +616,30 @@ func ready(p runner.Profile) error {
 		return nil
 	}
 	if p.Harness == "command" {
-		if p.Access != "workspace-read" || p.Command == nil || p.Model != "" || p.Reasoning != "" || p.Mode != "" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.Instructions != "" || p.MaxInput != 0 || p.MaxOutput != 0 {
+		if p.Access != "workspace-read" || p.Command == nil || p.Model != "" || p.Reasoning != "" || p.Mode != "" && p.Mode != "shared" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.Instructions != "" || p.MaxInput != 0 || p.MaxOutput != 0 {
 			return errors.New("command selects workspace-read access, command settings and no model settings")
 		}
 		cmd := p.Command
+		if p.Mode == "shared" {
+			if cmd.Directory != "" {
+				return errors.New("shared commands run at the frozen project root; directory must be empty")
+			}
+			if err := runner.ValidateRuntimeWritePaths(cmd.RuntimeWritePaths); err != nil {
+				return err
+			}
+			for _, arg := range cmd.Args {
+				if unsupportedSharedBinding(arg) {
+					return errors.New("shared command arguments support configured source/workspace and scratch substitutions only")
+				}
+			}
+			for _, value := range cmd.Env {
+				if unsupportedSharedBinding(value) {
+					return errors.New("shared command environment supports configured source/workspace and scratch substitutions only")
+				}
+			}
+		} else if len(cmd.RuntimeWritePaths) != 0 {
+			return errors.New("command runtime_write_paths requires shared mode")
+		}
 		if len(cmd.Args) == 0 || len(cmd.Args) > 32 || !filepath.IsAbs(cmd.Args[0]) || strings.Contains(cmd.Args[0], "{") || (cmd.Directory != "" && !validRelative(cmd.Directory)) || (cmd.Artifact != "" && !validRelative(cmd.Artifact)) || (cmd.Result != "" && !validRelative(cmd.Result)) || len(cmd.ExitOutcomes) > 8 || (cmd.Result != "" && len(cmd.ExitOutcomes) != 0) || len(cmd.Env) > 32 {
 			return errors.New("command needs an absolute executable, at most 32 args/env entries and relative directory/artifact paths")
 		}
@@ -671,6 +706,9 @@ func ready(p runner.Profile) error {
 	return nil
 }
 func validateProcess(v runner.Process, p runner.Project) error {
+	if err := validateRoleTasks(v, p); err != nil {
+		return err
+	}
 	if err := taskSourcePlacement(v, p); err != nil {
 		return err
 	}
@@ -693,8 +731,12 @@ func validateProcessInputs(v runner.Process, p runner.Project, inputLimit int) e
 	if e := boundedTypes(v.Inputs, inputLimit); e != nil {
 		return e
 	}
-	if len(v.Steps) < 1 || len(v.Steps) > 64 || len(v.Outputs) > 8 || v.MaxAttempts < 1 || v.MaxAttempts > 128 || v.MaxAttemptsPerStep < 1 || v.MaxAttemptsPerStep > 4 {
-		return errors.New("process exceeds step/attempt/output bounds (64 steps, 128 attempts, 4 attempts per visit)")
+	maxAttempts := 128
+	if v.Tasks != nil {
+		maxAttempts = runner.MaxGeneralTaskAttempts
+	}
+	if len(v.Steps) < 1 || len(v.Steps) > 64 || len(v.Outputs) > 8 || v.MaxAttempts < 1 || v.MaxAttempts > maxAttempts || v.MaxAttemptsPerStep < 1 || v.MaxAttemptsPerStep > 4 {
+		return fmt.Errorf("process exceeds step/attempt/output bounds (64 steps, %d attempts, 4 attempts per visit)", maxAttempts)
 	}
 	if v.InfrastructureRetries < 0 || v.InfrastructureRetries > 2 {
 		return errors.New("infrastructure_retries must be between zero and two per visit")
@@ -774,6 +816,17 @@ func validateProcessInputs(v runner.Process, p runner.Project, inputLimit int) e
 		role, ok := p.Roles[step.Role]
 		if !ok {
 			return fmt.Errorf("missing role %q", step.Role)
+		}
+		if v.Tasks == nil {
+			profiles := role.Profiles
+			if role.Execution != nil {
+				profiles = map[string]runner.Profile{"default": *role.Execution}
+			}
+			for _, profile := range profiles {
+				if profile.Harness == "command" && profile.Mode == "shared" {
+					return errors.New("shared command execution requires a general role-task process and its current workspace context")
+				}
+			}
 		}
 		if step.Reuse {
 			profile, err := role.Profile(p.Profiles[step.Role])

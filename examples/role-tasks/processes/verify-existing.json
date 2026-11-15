@@ -1,0 +1,29 @@
+{
+  "id": "verify-existing",
+  "inputs": {"request": "text"},
+  "tasks": {
+    "roles": ["saas-fixed-check"],
+    "max_tasks": 1,
+    "max_depth": 1,
+    "max_revisions": 0,
+    "max_concurrent": 1
+  },
+  "max_attempts": 1,
+  "max_attempts_per_step": 1,
+  "attempt_timeout": "10m",
+  "steps": [
+    {
+      "id": "check",
+      "role": "saas-fixed-check",
+      "inputs": {},
+      "routes": {
+        "ready": {"next": "$complete"},
+        "rejected": {"next": "$fail"}
+      }
+    }
+  ],
+  "outputs": {
+    "check": {"from_step": "check", "output": "check"},
+    "artifact": {"from_step": "check", "output": "artifact"}
+  }
+}

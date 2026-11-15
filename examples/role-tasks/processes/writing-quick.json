@@ -1,0 +1,16 @@
+{
+  "id": "write-quick",
+  "inputs": {"request": "text"},
+  "max_attempts": 2,
+  "max_attempts_per_step": 1,
+  "infrastructure_retries": 1,
+  "attempt_timeout": "5m",
+  "steps": [
+    {
+      "id": "write",
+      "role": "writing-quick",
+      "inputs": {"request": {"from_input": "request"}}
+    }
+  ],
+  "outputs": {"result": {"from_step": "write", "output": "report"}}
+}

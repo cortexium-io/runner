@@ -25,6 +25,146 @@ Start with the example configuration, then `types.go`, then follow a run through
 handling. They do not form a second scheduling or storage service. The core
 imports no MCP SDK, configuration parser, SQLite driver or execution adapter.
 
+## General role tasks, 15 November 2026
+
+The [current design and implementation sequence](process-core-design.md#general-role-tasks-authorized-15-november-2026)
+adds a general task path to the same Core and SQLite store. `task_graph_types.go`
+defines the task/proposal/context contracts; `task_graph.go` handles family
+ownership, context and dispatch, and `task_graph_actions.go` validates delegation,
+selective revision and scoped human intervention. Child reservations are persisted
+before dispatch. A parent resumes with accepted child/dependency results and the
+same original goal; invalid proposals return bounded feedback to the same visit.
+No separate planner daemon, scheduler, event store or product task ledger is added.
+
+A general process has one root role. Its selected permitted roles can delegate
+further tasks. Configured depth/task/revision/attempt bounds are admission policy,
+not a universal eight-card plan. The family shares one attempt allowance and
+reserves the admitted work needed to return results. Control updates and waiting
+do not spend model attempts. An instance-wide active-attempt ceiling prevents
+per-root concurrency from multiplying into unbounded simultaneous harnesses;
+excess work queues without consuming allowance. Revisions retain old attempts and unaffected work;
+replacement workers must coherently supersede the affected source, since revising
+a plan does not automatically undo files in the shared project.
+
+Source tasks use one canonical project workspace. Absolute physical claims
+serialize overlapping writers and readers, including nested roots, existing
+symlink prefixes and case-insensitive host identity. Disjoint writers can overlap.
+Claims are cooperation between roles, while the native filesystem sandbox covers
+the project. Legacy source cards retain their existing worktree and recovery
+contracts and cannot silently be selected as general-task executors.
+
+General records use format nine; normalized attempts remain individually bounded.
+SQLite schema four widens their physical attempt positions and preserves existing
+row bytes. Old run formats retain their earlier bounds and old binaries refuse
+the new schema/format. Fresh qualification state is separate from the installed
+pilot; this work does not install a new default or migrate live state.
+
+`execution/native*.go` adds opt-in Codex/Claude CLI profiles through the existing
+executor service. It uses ephemeral native sessions, a durable dispatch claim,
+lease and bounded receipt. Available/permitted/observed tools are distinct facts.
+Provenance retains machine/harness/model/context fingerprints, observed calls,
+timing and decision evidence as an ordinary referenced artifact, surviving log
+expiry. Raw tool output, credentials and private reasoning are not audit storage.
+Incomplete native telemetry remains a declared gap. Native MCP effects retain
+their harness permissions; a shell sandbox is not a remote-tool security boundary.
+
+The focused general-task suites own dependency, budget, revision, intervention,
+restart, scope and artifact-family regressions. Native suites own structured
+handoffs, provenance bounds, capability enforcement, process ownership and worker
+settlement. These are model-free proofs. The protected product checker remains
+outside app write paths and evaluates an actual final executable, real users,
+sessions and a headless browser; developer test success alone is insufficient.
+
+### Real qualification evidence
+
+Qualification ran on Black Magic with Runner Go 1.26.9, Codex 0.169.0,
+Claude 2.1.314, installed Genny 0.4.1, generated-app Go 1.27.4 and the configured
+Chrome for Testing 158.0.8127.18. No stale generator checkout or local module
+replacement is used.
+
+| Case | Observed result |
+| --- | --- |
+| Short note, inherited Codex profile | Completed in one attempt, no child tasks, 39.0s, 24,856 input tokens. |
+| Same short brief, Opus without tools/skills | Completed in one ordinary attempt, 17.5s, 3,641 input tokens. Different models prevent attributing the difference to tools alone. |
+| Researched Pi article | Completed in eight attempts: author, concurrent independent GPT/Opus critiques, substantive author revision and final lead decision. The article is 626 words; the retained complete deliverable includes editorial evidence and limitations. |
+| Human intervention | Paused the writing root while its author settled, saved an operator steering directive and resumed the same run. No attempts or previous outputs were reset. |
+| First SaaS setup | Stopped before source generation because the native profile omitted Genny's required project-lock cache. Preserved and cancelled that run; the corrected fresh setup grants four observed narrow runtime cache roots. |
+| Nested SaaS implementation | Lead → planner → initializer, disjoint backend/frontend workers, then integration. The two native worker visits overlapped for 700.907s. The initializer ran once in one canonical project; no per-task source/dependency copies. |
+| Built SaaS, first independent check | All 22 fixed API checks passed with real tenants/users. The configured headless Chrome aborted before UI assertions because Codex's macOS shell sandbox lacks required browser IPC. Failed evidence is retained; API coverage is not full product acceptance. |
+| Verification continuation with a model lead | A fixed shared-command capability exposed a Go SQLite metadata permission and then a checker navigation race. The model requested another check instead of assessing the retained failure, exhausting six attempts/two tasks. Its failure and frozen limits remain unchanged. |
+| Final direct fixed verification | Completed one attempt in 6.077s with zero model tokens: one fixture, all 22 API checks and seven UI checks passed. The same executable was checked at desktop and 390px widths; browser, server and temporary database/scratch were removed. |
+
+The inherited environment is an explicit opt-in cost: the short note's large
+context is not evidence of efficient minimal execution. The deliberation brief
+explicitly requested two critics; its cumulative input includes cached repeated
+context. One older Opus attempt predates complete Claude cache accounting and
+remains incomplete rather than being silently repaired from unrelated totals.
+The 13-attempt coding family used 9,460,553 known input tokens, including 8,757,760
+cached, and 160,292 output tokens. These heavy native profiles are evidence of a
+working project path, not a low-cost baseline or proof that catalog/context costs
+are solved. Recorded root elapsed times include operator pauses and runtime
+maintenance; they are not clean project-speed benchmarks.
+
+The canonical qualification project is
+`/Users/dan/Projects/runner-qualifications/20261115/campaign-studio`. Writing and
+the first blocked attempt are retained in the sibling `role-tasks` directory;
+the corrected runtime qualification is in `role-tasks-runtimes-v2`. Private
+credentials/state stay outside Git. The accepted writing export is
+`role-tasks/accepted/pi-harness-draft.md`.
+
+The retained identities distinguish useful source work from acceptance:
+
+| Identity | Result |
+| --- | --- |
+| `run_SV5VNA63TG22GASZZYL2IU7EPH` | Short Codex writing, Completed. |
+| `run_OD7LDON6RJVCESGFJ5OH6CX6TW` | Minimal Opus writing, Completed. |
+| `run_DZYUUJMUCJY3L7UTUTNFIT4DT2` | Researched article with GPT/Opus critiques and recorded pause/steer/resume, Completed. |
+| `run_EDHO4CI7LE34GNIJDXI6LCLRH5` | SaaS coding/integration and initial native check; paused at the browser capability checkpoint, then operator-cancelled after final acceptance. Its root is not Completed. |
+| `run_QDEYXMHWBKOSPTDI7BA4E6G6QM` | Earlier model-led verification continuation, Failed at its unchanged allowance. |
+| `run_OTLWZL4QLEIGXTR2IVSK2WSQKQ` | Final direct verification, Completed; execution settled and cleanup clear. |
+
+The accepted app has real password sessions, multiple users/tenants, scoped draft
+CRUD, admin publication and a public preview. Runner's integrator passed generated
+ownership (58 files), 118 frontend tests, the Genny build and the Go suite. Its one
+canonical executable is `.qualification/server`, 23,333,666 bytes, SHA-256
+`257a4552e437952a192eb8d1e8b2a8bc3d1996e25c17f89acec91da09286be69`.
+`LOCAL_RUN.md` in the project describes local provisioning/start/stop; no fixture
+passwords are built into the app. This is a SQLite campaign SaaS qualification,
+not full Scratcher parity, PostgreSQL, billing, SMTP, deployment, load testing or
+an exhaustive security review.
+
+The canonical final archive is
+`role-tasks-final-verification/state/artifacts/attempt_X4IGUXDCC3Y3RAFRZVZG7COY2L/result`
+under the same qualification parent. Its 130,683 bytes contain the report and
+three screenshots; SHA-256
+`4e355024ff674f1d9aa45dc9baefa4d5f2270d0413888898fd9323af3da3418f`.
+The small `role-tasks-final-verification/accepted/qualification-summary.json`
+records all case identities, usage, timing, executable/checker identity, cleanup
+and limitations without copying private credentials or transcripts.
+
+Repository verification ran the full race/workflow suite once. All packages and
+long workflows passed except a new Darwin process-inventory test whose fixture
+incorrectly treated sibling test processes as owned. The fixture was isolated to
+its exact child; it passed 20 repetitions with an unrelated sibling present.
+The final affected Core/config/control/execution/SQLite race batch and vet passed;
+whole-repository vet also passed. Unchanged expensive workflows were not rerun.
+The navigation synchronization regression and configuration smoke checks passed,
+followed by the real final browser/API check above.
+
+Native cleanup assurance is `cooperative-known-processes`: process identity,
+markers and retained observations cover known descendants, not arbitrary hostile
+process containment. A fast double-fork that hides its marker before observation
+can escape that assurance on macOS. External MCP effects and shared harness caches
+retain their own ownership boundary. Actual native/browser qualification is macOS;
+Linux cross-compilation/model-free checks do not establish native Linux acceptance.
+All owned qualification services were stopped after evidence collection. Accepted
+source, one app executable, its normal dependency tree and compact failed/accepted
+evidence remain; disposable Runner binaries and loose inspection copies were removed.
+That cleanup removed 69,497,728 bytes. The app occupies about 211MiB of allocated
+disk, chiefly its single development dependency tree and 22.3MiB executable;
+retaining it supports running and extending the accepted project. Shared Go-cache
+maintenance reported below its 10GiB ceiling, so no wholesale cache reset was made.
+
 ## Released task seeds and operational attention, 12 November 2026
 
 `execution/task_workspace.go` owns authenticated seed installation on both fresh

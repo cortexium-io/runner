@@ -73,6 +73,18 @@ func DefaultStorage() StoragePolicy {
 	p.KeepRuns = "168h"
 	return p
 }
+
+// RetainedRunCapacity applies the same recovery headroom to admission and the
+// store. A configured max_runs larger than physical record capacity is a ceiling,
+// not a promise that fan-out can consume reserved database recovery space.
+func (p StoragePolicy) RetainedRunCapacity() int {
+	if p.Database.MaxRecord <= 0 {
+		return 0
+	}
+	byCapacity := (int64(p.Database.MaxSize)/3 - 128*1024) / (3 * int64(p.Database.MaxRecord))
+	return min(p.Database.MaxRuns, max(0, int(byCapacity)))
+}
+
 func (p StoragePolicy) Validate() error {
 	if p.Database.MaxRecord < 4096 || p.Database.MaxRecord > 1<<20 || p.Database.MaxSize < 1<<20 || p.Database.MaxRuns < 1 || p.Database.MaxRuns > 10000 {
 		return errors.New("database needs a 4KiB–1MiB record limit, at least 1MiB capacity and 1–10000 retained runs")
@@ -92,6 +104,7 @@ func (p StoragePolicy) Validate() error {
 type Instance struct {
 	Projects          []string         `json:"projects"`
 	Concurrency       int              `json:"concurrency"`
+	MaxActiveAttempts int              `json:"max_active_attempts,omitempty"`
 	TaskConcurrency   int              `json:"task_concurrency,omitempty"`
 	ReconcileInterval string           `json:"reconcile_interval"`
 	Storage           StoragePolicy    `json:"storage"`
@@ -151,30 +164,32 @@ type Snapshot struct {
 }
 
 type Profile struct {
-	Command      *Command `json:"command,omitempty"`
-	Harness      string   `json:"harness"`
-	Mode         string   `json:"mode"`
-	Delay        string   `json:"delay,omitempty"`
-	Input        string   `json:"input,omitempty"`
-	Output       string   `json:"output,omitempty"`
-	Text         string   `json:"text,omitempty"`
-	LogBytes     int64    `json:"log_bytes,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	Reasoning    string   `json:"reasoning,omitempty"`
-	Instructions string   `json:"instructions,omitempty"`
-	Access       string   `json:"access,omitempty"`
-	MaxInput     Bytes    `json:"max_input,omitempty"`
-	MaxOutput    Bytes    `json:"max_output,omitempty"`
+	Native       *NativeProfile `json:"native,omitempty"`
+	Command      *Command       `json:"command,omitempty"`
+	Harness      string         `json:"harness"`
+	Mode         string         `json:"mode"`
+	Delay        string         `json:"delay,omitempty"`
+	Input        string         `json:"input,omitempty"`
+	Output       string         `json:"output,omitempty"`
+	Text         string         `json:"text,omitempty"`
+	LogBytes     int64          `json:"log_bytes,omitempty"`
+	Model        string         `json:"model,omitempty"`
+	Reasoning    string         `json:"reasoning,omitempty"`
+	Instructions string         `json:"instructions,omitempty"`
+	Access       string         `json:"access,omitempty"`
+	MaxInput     Bytes          `json:"max_input,omitempty"`
+	MaxOutput    Bytes          `json:"max_output,omitempty"`
 }
 
 // Command is a configured argv, never a model-selected shell string. Runtime
 // paths belong to the instance; only source/scratch substitutions are supported.
 type Command struct {
-	Args      []string          `json:"args"`
-	Directory string            `json:"directory,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	Artifact  string            `json:"artifact,omitempty"`
-	Network   bool              `json:"network,omitempty"`
+	Args              []string          `json:"args"`
+	Directory         string            `json:"directory,omitempty"`
+	Env               map[string]string `json:"env,omitempty"`
+	Artifact          string            `json:"artifact,omitempty"`
+	Network           bool              `json:"network,omitempty"`
+	RuntimeWritePaths []string          `json:"runtime_write_paths,omitempty"`
 	// Result is a scratch JSON file containing only outcome/reason. Expected
 	// nonzero exits can instead be mapped to domain outcomes explicitly.
 	Result       string         `json:"result,omitempty"`
@@ -262,6 +277,7 @@ type TaskItem struct {
 	Inputs    map[string]json.RawMessage `json:"inputs"`
 }
 type Process struct {
+	Tasks                 *TaskPolicy        `json:"tasks,omitempty"`
 	ID                    string             `json:"id"`
 	Inputs                map[string]string  `json:"inputs"`
 	Steps                 []Step             `json:"steps"`
@@ -335,6 +351,7 @@ type FrontendCheckPins struct {
 	Serial           bool   `json:"serial,omitempty"`
 }
 type Assignment struct {
+	TaskContext             *TaskContext               `json:"task_context,omitempty"`
 	SourceHandoff           *UnpublishedCardAssessment `json:"source_handoff,omitempty"`
 	CallerReviewScope       string                     `json:"caller_review_scope,omitempty"`
 	UnpublishedCardRecovery *UnpublishedCardAssessment `json:"unpublished_card_recovery,omitempty"`
@@ -357,9 +374,10 @@ type Assignment struct {
 	Deadline                time.Time                  `json:"deadline,omitempty"`
 }
 type StepResult struct {
-	Outcome string           `json:"outcome"`
-	Outputs map[string]Value `json:"outputs,omitempty"`
-	Reason  string           `json:"reason,omitempty"`
+	TaskAction *TaskAction      `json:"task_action,omitempty"`
+	Outcome    string           `json:"outcome"`
+	Outputs    map[string]Value `json:"outputs,omitempty"`
+	Reason     string           `json:"reason,omitempty"`
 }
 type ExecutionState string
 
@@ -399,10 +417,12 @@ type Observation struct {
 	Effective       *ExecutionFacts `json:"effective,omitempty"`
 }
 type ExecutionFacts struct {
-	Model       string `json:"model"`
-	Reasoning   string `json:"reasoning"`
-	Access      string `json:"access"`
-	HistoryMode string `json:"history_mode"`
+	Model            string `json:"model"`
+	Reasoning        string `json:"reasoning"`
+	Access           string `json:"access"`
+	HistoryMode      string `json:"history_mode"`
+	Provenance       string `json:"provenance,omitempty"`
+	CleanupAssurance string `json:"cleanup_assurance,omitempty"`
 }
 type Executor interface {
 	Start(context.Context, Assignment) (Observation, error)
@@ -468,6 +488,7 @@ type Attempt struct {
 	Effective       *ExecutionFacts `json:"effective,omitempty"`
 }
 type Run struct {
+	TaskGraph                 *TaskGraphState            `json:"task_graph,omitempty"`
 	SourceHandoff             *SourceHandoffAudit        `json:"source_handoff,omitempty"`
 	UnpublishedCardRecovery   *UnpublishedCardRecovery   `json:"unpublished_card_recovery,omitempty"`
 	RecordFormat              int                        `json:"record_format,omitempty"`

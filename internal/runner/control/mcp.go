@@ -126,6 +126,10 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		r, e := c.Retry(in)
 		return summary(r), e
 	})
+	add(s, "runner_intervene", "Owner intervention on a general role task or subtree. Pause/resume dispatch, steer future work, answer a saved human question, or reassign a settled future visit to a configured role profile. Requires exact observed revision and idempotent request_id; preserves attempts, usage and unaffected work. Active effects must settle before incompatible replacement.", func(ctx context.Context, in runner.TaskInterventionRequest) (any, error) {
+		r, err := c.InterveneTask(in)
+		return summary(r), err
+	})
 	add(s, "runner_recover_corrections", "Owner-authorized recovery of an exhausted saved source rejection. Normally max_uses must be three total uses per eligible source-correction route. With within_budget, max_uses must be zero and only the currently exhausted root route receives a finite limit from existing aggregate headroom; every owner visit preserves the completion reserve. Legacy preserve_source explicitly preserves a verified owned partial checkout as evidence; budget mode requires settled source without preservation. Frozen definitions, attempts, total budget and protected approvals are unchanged. Routes the saved result without repeating its check.", func(ctx context.Context, in runner.RecoverCorrectionsRequest) (any, error) {
 		r, e := c.RecoverCorrections(in)
 		return summary(r), e

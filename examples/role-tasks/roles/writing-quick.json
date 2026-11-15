@@ -1,0 +1,21 @@
+{
+  "id": "writing-quick",
+  "purpose": "Write the supplied short note directly using a minimal native profile.",
+  "inputs": {"request": "text"},
+  "outputs": {"report": "text"},
+  "execution": {
+    "harness": "native",
+    "model": "opus",
+    "reasoning": "high",
+    "access": "input-only",
+    "max_input": "4KiB",
+    "max_output": "4KiB",
+    "native": {
+      "harness": "claude",
+      "tools": {"mode": "none"},
+      "skills": {"mode": "none"},
+      "network": false
+    },
+    "instructions": "Write the requested short explanatory note directly, using only the supplied request. Aim for about 150 words and respect its stated length. Return the finished usable note as report. Do not plan, research, delegate, add an editorial process note or invent factual claims."
+  }
+}

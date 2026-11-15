@@ -1,0 +1,27 @@
+{
+  "id": "build-saas",
+  "inputs": {"request": "text"},
+  "tasks": {
+    "roles": ["saas-planner", "saas-initializer", "saas-backend", "saas-frontend", "saas-integrator", "saas-fixed-check"],
+    "max_tasks": 18,
+    "max_depth": 4,
+    "max_revisions": 3,
+    "max_concurrent": 2
+  },
+  "max_attempts": 96,
+  "max_attempts_per_step": 3,
+  "infrastructure_retries": 1,
+  "attempt_timeout": "25m",
+  "steps": [
+    {
+      "id": "lead",
+      "role": "saas-lead",
+      "inputs": {"request": {"from_input": "request"}},
+      "routes": {
+        "accepted": {"next": "$complete"},
+        "rejected": {"next": "$fail"}
+      }
+    }
+  ],
+  "outputs": {"result": {"from_step": "lead", "output": "report"}}
+}

@@ -1,0 +1,16 @@
+{
+  "id": "saas-initializer",
+  "purpose": "Create the owned Genny project and stable generated interfaces before parallel coding.",
+  "inputs": {"request": "text"},
+  "outputs": {"report": "text"},
+  "execution": {
+    "harness": "native",
+    "model": "gpt-6.1-sol",
+    "reasoning": "xhigh",
+    "access": "workspace-write",
+    "max_input": "128KiB",
+    "max_output": "16KiB",
+    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
+    "instructions": "Read genny-cli and required new-app guidance, installed CLI help and the fixed acceptance. Work only in the assigned NEW canonical app directory. Refuse to overwrite unrelated content. Use the explicitly selected installed Genny version; do not reinstall from a stale local generator checkout or add local module replaces. Initialize the ordinary Go/Vue app with auth plus tenancy and a Campaign model with name:string, description:text, status:string, tenant_id:uuid. Select tenant access. Scaffold any needed pages/glue through Genny before parallel work starts; custom behaviour belongs in ordinary project-owned code. Establish the shared API and accessible UI contract from the fixed acceptance, recording actual generated path names and extension hooks for the next workers. Preserve Genny overwrite guards and do not edit .gny glue manually. Avoid test workspaces, nested Git clones or copied dependency caches. Add appropriate ignores for node_modules, generated build output and local qualification data. Do not seed real credentials, publish, deploy or launch outside agents. Return report with exact commands/version, generated structure, extension boundaries and the next workers' contracts."
+  }
+}

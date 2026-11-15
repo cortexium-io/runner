@@ -11,6 +11,17 @@ import (
 const invalidFamilyAttempts = math.MaxInt / 2
 
 func (c *Core) familyAttempts(r Run) int {
+	if r.TaskGraph != nil {
+		_, members, _, err := c.graphFamily(r)
+		if err != nil {
+			return invalidFamilyAttempts
+		}
+		n := 0
+		for _, member := range members {
+			n += len(member.Attempts)
+		}
+		return n
+	}
 	root, err := c.taskRoot(r)
 	if err != nil {
 		return invalidFamilyAttempts
@@ -101,6 +112,13 @@ func (c *Core) reservedTaskChild(root Run, groupID string, entry TaskChild) bool
 }
 
 func (c *Core) familyRemaining(r Run) int {
+	if r.TaskGraph != nil {
+		root, err := c.graphRoot(r)
+		if err != nil {
+			return 0
+		}
+		return max(0, root.Process.MaxAttempts-c.familyAttempts(r))
+	}
 	root, err := c.taskRoot(r)
 	if err != nil {
 		return 0
@@ -116,6 +134,9 @@ func (c *Core) familyReserve(r Run, requestedAttempts, reservedRootTail int) err
 		return errors.New("shared task attempt reserve: costs must be nonnegative")
 	}
 	root, err := c.taskRoot(r)
+	if r.TaskGraph != nil {
+		root, err = c.graphRoot(r)
+	}
 	if err != nil {
 		return fmt.Errorf("shared task attempt reserve: %w", err)
 	}

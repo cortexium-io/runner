@@ -1,9 +1,9 @@
 # Process-core operator guide
 
-This branch is a clean first slice. Use a new private state directory. Do not point
+Use a new private state directory for the general role-task path. Do not point
 it at an installed Runner database, migrate old approvals or replace a service.
 The executable supports `serve`, `run`, `result`, `start`, `status`, `inspect`,
-`wait`, `cancel`, `retry` and `config-set`. Each command accepts `--help`.
+`wait`, `cancel`, `retry`, `intervene` and `config-set`. Each command accepts `--help`.
 
 ## Service and control
 
@@ -37,9 +37,18 @@ runtime schema. Each file is limited to 16KiB, one document, with at most 128 fi
 and 16 projects per instance.
 
 An instance sets `projects`, `concurrency`, `reconcile_interval` and `storage`.
+`concurrency` limits active root families. Optional `max_active_attempts` is a
+shared ceiling on all admitted unfinished attempts, including pending/unknown
+effects. It defaults to `concurrency` when general role tasks are configured;
+legacy-only configurations retain zero (no additional ceiling). A full ceiling
+queues new work without spending attempts or asking for approval. Status reports
+the effective ceiling and actual global active count. Legacy `task_concurrency`
+still limits isolated source-card actors; `tasks.max_concurrent` limits each
+general root within the shared ceiling.
 A project sets `id`, `name`, `workspace`, `processes`, `default_process` and role
 bindings (`file`, optional `profile`). Optional `source: {ref: HEAD}` enables
-a local Git source baseline; without it, workspace is descriptive. A role sets `id`, optional `purpose`, named `inputs`/
+a local Git source baseline. Native profiles can instead use the explicitly
+configured project workspace directly. A role sets `id`, optional `purpose`, named `inputs`/
 `outputs` and either `execution` or named `profiles` with a `default_profile`.
 
 The `harness: deterministic` modes are `echo`, `file`, `fail`,
@@ -52,8 +61,11 @@ A process declares inputs, an ordered `steps` list, named final output bindings,
 `max_attempts`, `max_attempts_per_step` and `attempt_timeout`. A step binds role
 inputs to `{from_input: name}` or `{from_step: earlier, output: name}`. Types are
 `text`, `json` or `artifact`; the current deterministic transformations consume
-text/artifact only. Up to eight steps, eight named values per contract and sixteen
-total attempts are supported. Automatic per-step attempts are bounded at four.
+text/artifact only. There are at most 64 steps and eight named values per contract.
+Legacy processes permit up to 128 configured total attempts. General role-task
+processes permit up to 32,768, shared across the whole root family; the configured
+allowance should match the job. Automatic execution retries per visit remain
+bounded at four. Internal task reservation and status updates do not spend attempts.
 
 `attempt_timeout` limits each admitted attempt, including executor setup and
 execution. A step may override the process default with its own `attempt_timeout`
@@ -90,6 +102,163 @@ Control editing is restricted to selected files. The field path uses dots and
 zero-based sequence indexes. YAML comments are preserved where possible; JSON
 stays JSON. The full configuration is validated before atomic replacement. There
 is no separate apply action, task checksum or automatic modification of active runs.
+
+## General role tasks
+
+A process opts into role-assigned work with a `tasks` policy. These fields select
+existing project roles and resource bounds; they do not define executable tools.
+It has one root role step; compose the work through its child task graph.
+General tasks use native, deterministic or explicit `command` / `shared` profiles.
+Legacy source, command mode `""` and release adapters keep their own workspace contracts:
+
+```yaml
+tasks:
+  roles: [lead, planner, developer, reviewer]
+  max_tasks: 40
+  max_depth: 6
+  max_revisions: 6
+  max_concurrent: 3
+```
+
+An ordinary step can return a `task_action` instead of final outputs. `delegate`
+reserves child identities and dependencies; `revise` names affected settled child
+IDs in `replace` and supplies their replacements. A change cannot leave a retained
+dependent using superseded inputs. Unrelated accepted work and all old attempts
+remain retained. `ask_human` saves a concrete question without inventing an answer.
+Each child chooses an allowed `role`, a local `id`, a `brief`, typed `inputs`,
+`acceptance`, optional sibling `depends_on` and literal relative `write_paths`.
+The same contract supports specialist planners delegating further work.
+
+Runner resumes parents with child/dependency results and the frozen original
+goal. The task context includes remaining family attempts/tasks and configured
+limits. Pending ancestors and admitted children reserve the work needed to return
+their results; expansion cannot consume the allowance already needed to finish.
+Execution retries, plan revision and a question for the owner are distinct actions.
+
+Native source tasks share the configured project workspace. A workspace writer
+must declare its owned paths; `.` claims the whole project. Overlapping writers
+serialize, as do source readers against active writers. Disjoint writers may run
+concurrently. Claims coordinate trusted roles; the native sandbox boundary is the
+project, not each claimed path. Use one exclusive Genny initializer/regenerator
+before disjoint feature work. Writing and research tasks need no Git checkout.
+
+Use `inspect` for the full task definition, retained outputs, attempts and selected
+roles. `result` exposes bounded coordination facts, including the current question,
+phase, child status, family usage and cleanup. `result --wait` joins automatic child
+progress and returns for an actual human question or pause.
+
+### Fixed checks on shared source
+
+`harness: command`, `mode: shared` selects configured argv on the canonical
+read-only project without copying a Git checkout or invoking a model. It requires
+general task context. Executable, arguments, environment and optional runtime
+write roots come from configuration; task output cannot invent them. Substitutions
+are limited to the configured source/workspace and owned scratch. The output
+contract is `check: text` and, when configured, `artifact: artifact`.
+
+On macOS this capability permits the browser IPC needed by configured headless
+Chrome while restricting filesystem writes to scratch/output and explicit runtime
+roots. Native AI shell permissions remain unchanged. Browser-specific temporary
+and Core Foundation home overrides stay owned by the attempt; the account HOME
+is preserved. It uses the same durable worker, process ownership and provisional
+settlement rules. Linux has a separate sandbox path; compilation/model-free
+coverage is distinct from actual native Linux qualification.
+
+An expected nonzero checker exit may be mapped to a completed checking task so
+its failed report/artifact survives. That is not product acceptance: an assessment
+role must read the actual report and reject a failed check. The maintained SaaS
+example explicitly routes accepted/rejected assessment outcomes. A verification
+continuation references existing source, credentials and binary identity; it does
+not rewrite a frozen earlier run or authorize new coding. Pure mechanical
+verification needs no model assessment loop: the maintained verification-only
+process runs the fixed checking role once and maps exit 1 directly to failure,
+retaining the report. Full delivery still evaluates the original project goal.
+
+### Native harness profiles
+
+`harness: native` opts into the installed account and ordinary harness discovery.
+It requires a purpose, explicit model/access, bounded input/output and a `native`
+policy. It does not change the existing restricted `harness: codex` adapter:
+
+```yaml
+execution:
+  harness: native
+  model: gpt-6.1-sol
+  reasoning: high
+  access: workspace-write
+  max_input: 64KiB
+  max_output: 16KiB
+  native:
+    harness: codex
+    tools: {mode: native}
+    skills: {mode: native}
+    network: true
+```
+
+Use named role profiles to permit alternate configured models/harnesses. Codex
+native tool inheritance supports its enforced filesystem/network sandbox. Claude
+supports an enforced selected read-only tool set (`Read`, `Glob`, `Grep`, `WebFetch`,
+`WebSearch`) or no tools; its print adapter does not support workspace writes/full
+command tools. Web tools need explicit network permission. Skill selection is
+`native` or `none`; an unenforceable selected-skill allowlist is rejected. Access
+to a tool does not authorize publication, deployment or another protected action.
+
+`native.runtime_write_paths` grants up to sixteen explicit absolute runtime/cache
+directories in addition to the task's source, scratch and output roots. Use
+observed narrow tool cache locations, including required project-lock caches;
+the adapter rejects source/coordinator-state overlap. These directories remain
+shared runtime resources with their own maintenance policy. They are recorded
+permissions, not model-selected paths or copies made per task.
+
+`max_input` bounds the request supplied by Runner, including its task context.
+It does not cap context injected by the native harness or each internal provider
+call. An attempt is one executor visit; that visit can make several model/tool
+calls before returning. Known token usage and native timing describe the actual
+visit, with missing telemetry marked incomplete. Choose tools, model and effort
+for the role; inheriting a complete catalog has a measured context cost.
+
+Native cleanup positively identifies owned processes using inherited markers and
+supported process identity/ancestry. It checks identities before stopping helpers,
+preserves unrelated sessions, and keeps bounded provisional output/usage during
+uncertain settlement so the same execution can resume without another model call.
+The reported assurance is `cooperative-known-processes`, not arbitrary process
+containment. On macOS, a fast detached descendant with hidden/cleared environment
+and an unseen intermediate parent can be unobservable. A lost observer for a
+known open output pipe remains Unknown and requires operator resolution; an empty
+process inventory is not permission to claim it settled. The configured free-space
+reserve is monitored during execution as a soft stop, including the source volume;
+it is not an OS quota on third-party tools and shared caches.
+
+Attempt provenance distinguishes permitted policy, observed availability and
+observed calls, with machine/harness/model/context fingerprints and bounded result
+decisions. Missing harness telemetry remains an explicit gap. A capability listed
+in configuration is not proof that the model used it. Reports and provenance stay
+with the accepted attempt; transient prompts and scratch belong to its cleanup.
+
+### Human intervention
+
+The owner can intervene on an exact inspected task revision. The `request_id`
+makes replay idempotent. For example:
+
+```sh
+./cortexium-runner intervene --data /absolute/new/state --run RUN_ID --revision 12 --action pause --request-id pause-1
+./cortexium-runner intervene --data /absolute/new/state --run RUN_ID --revision 13 --action steer --text 'Use a shorter technical article aimed at experienced developers.' --request-id steer-1
+./cortexium-runner intervene --data /absolute/new/state --run RUN_ID --revision 14 --action resume --request-id resume-1
+```
+
+`pause` stops new subtree dispatch while active effects settle; it does not claim
+to undo them. `steer` updates future work and `answer` resolves the saved question.
+`reassign --profile NAME` selects a permitted named profile for a settled future
+visit. Incompatible active changes are rejected until effects settle. `cancel`
+propagates through the subtree and preserves uncertainty and cleanup obligations.
+Interventions preserve attempts, usage, old decisions and unaffected work.
+
+Explicit `steer` can also reopen a failed general task after its affected work
+and cleanup have settled. It requires a valid current step and remaining original
+family allowance; the directive and reopening are one idempotent operation.
+It does not extend the allowance or alter profiles. Completed and cancelled tasks
+stay closed. This supports a justified recheck after an observed runtime repair
+without racing a retry against a separate steering request or creating a new goal.
 
 ## Runs, retries and cancellation
 

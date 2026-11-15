@@ -97,6 +97,11 @@ func TestMCPControlRoundTrip(t *testing.T) {
 	if _, err = Call(ctx, session, "runner_start", invalid); err == nil || !strings.Contains(err.Error(), "project is not configured") {
 		t.Fatalf("tool failure lost its reason: %v", err)
 	}
+	if _, err = Call(ctx, session, "runner_intervene", runner.TaskInterventionRequest{
+		RequestID: "wire-intervention", RunID: "missing", Revision: 1, Action: "pause",
+	}); err == nil {
+		t.Fatal("intervention wire accepted an absent task")
+	}
 	call := func(name string, args, out any) {
 		t.Helper()
 		b, err := Call(ctx, session, name, args)

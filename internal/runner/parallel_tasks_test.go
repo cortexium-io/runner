@@ -180,6 +180,9 @@ func TestIsolatedTasksOverlapAndWaitForAcceptedDependencies(t *testing.T) {
 	if len(projected.TaskStatuses) != 3 {
 		t.Fatal("parent omitted card statuses", projected)
 	}
+	if status := r.core.Status(); status.MaxActiveAttempts != 0 || status.ActiveAttempts != 2 {
+		t.Fatal("legacy zero limit changed isolated task concurrency or double-counted family projections", status.ActiveAttempts)
+	}
 	close(p.allow)
 	dependent := nextCard(t, p)
 	if dependent.TaskSource.Identity.ItemID != "dependent" || len(dependent.TaskSource.Dependencies) != 2 {

@@ -226,7 +226,15 @@ func (c *Core) taskCompletionReserve(r Run) (int, error) {
 	return tail, nil
 }
 
-func (c *Core) taskDispatchAllowed(r Run) bool {
+// The tick supplies its actual persisted count and increments it immediately
+// after every successful reservation, before another run can be admitted.
+func (c *Core) taskDispatchAllowed(r Run, activeAttempts int) bool {
+	if limit := c.snapshot.Instance.MaxActiveAttempts; limit > 0 && activeAttempts >= limit {
+		return false
+	}
+	if r.TaskGraph != nil && !c.graphDispatchAllowed(r) {
+		return false
+	}
 	activeRoots := map[string]bool{}
 	activeTasks, activeGroup := 0, 0
 	for _, current := range c.runs {
@@ -234,7 +242,9 @@ func (c *Core) taskDispatchAllowed(r Run) bool {
 		if a == nil || a.State == Finished {
 			continue
 		}
-		if current.Task == nil {
+		if current.TaskGraph != nil {
+			activeRoots[current.TaskGraph.RootRunID] = true
+		} else if current.Task == nil {
 			activeRoots[current.ID] = true
 		} else {
 			activeRoots[current.Task.Identity.RootRunID] = true
@@ -245,7 +255,9 @@ func (c *Core) taskDispatchAllowed(r Run) bool {
 		}
 	}
 	rootID := r.ID
-	if r.Task != nil {
+	if r.TaskGraph != nil {
+		rootID = r.TaskGraph.RootRunID
+	} else if r.Task != nil {
 		rootID = r.Task.Identity.RootRunID
 	}
 	if !activeRoots[rootID] && len(activeRoots) >= c.snapshot.Instance.Concurrency {
@@ -262,7 +274,49 @@ func (c *Core) taskDispatchAllowed(r Run) bool {
 	return index >= 0 && activeGroup < root.Process.Steps[index].ForEach.MaxParallel
 }
 
+// Unknown and saved NotStarted identities still own execution capacity. Count
+// rows once, rather than summing family projections that contain descendants.
+func (c *Core) activeAttempts() int {
+	active := 0
+	for _, r := range c.runs {
+		for _, attempt := range r.Attempts {
+			if attempt.State != Finished {
+				active++
+			}
+		}
+	}
+	return active
+}
+
+// Native assignments have one canonical request file bounded independently of
+// SQLite records. Keep its full bound available while a dispatch is unsettled.
+func (c *Core) pendingNativeRequestBytes() int64 {
+	var reserved int64
+	for _, r := range c.runs {
+		for _, attempt := range r.Attempts {
+			if attempt.State == Finished || attempt.Step < 0 || attempt.Step >= len(r.Process.Steps) {
+				continue
+			}
+			role := r.Roles[r.Process.Steps[attempt.Step].Role]
+			profile, err := role.Profile(attempt.Profile)
+			if err == nil && profile.Harness == "native" {
+				reserved += int64(profile.MaxInput + c.disk.Policy.Database.MaxRecord)
+			}
+		}
+	}
+	return reserved
+}
+
 func (c *Core) holdTaskResources(r Run) bool {
+	if r.TaskGraph != nil {
+		for _, link := range r.TaskGraph.Children {
+			child, exists := c.runs[link.RunID]
+			if !exists || !child.Terminal() || !c.graphSubtreeSettled(child) || !child.ResourcesReleased && implementsRunResources(c.executor) {
+				return true
+			}
+		}
+		return false
+	}
 	if r.Task == nil {
 		if len(r.TaskGroups) == 0 || !r.Terminal() {
 			return false
@@ -300,4 +354,9 @@ func (c *Core) holdTaskResources(r Run) bool {
 		}
 	}
 	return true
+}
+
+func implementsRunResources(executor Executor) bool {
+	_, ok := executor.(RunResources)
+	return ok
 }

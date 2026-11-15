@@ -1,0 +1,17 @@
+{
+  "id": "saas-fixed-check",
+  "purpose": "Run protected real API and headless UI assertions as a fixed model-free command.",
+  "inputs": {},
+  "outputs": {"check": "text", "artifact": "artifact"},
+  "execution": {
+    "harness": "command",
+    "mode": "shared",
+    "access": "workspace-read",
+    "command": {
+      "args": ["/absolute/configured/node", "/absolute/configured/qualify-saas.mjs"],
+      "network": true,
+      "artifact": "evidence.tar.gz",
+      "exit_outcomes": {"1": "ready"}
+    }
+  }
+}
