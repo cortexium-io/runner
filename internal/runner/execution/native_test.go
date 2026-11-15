@@ -555,7 +555,18 @@ func TestHarnessLargeContextUsesOneCanonicalRequest(t *testing.T) {
 		a.TaskContext.Results = append(a.TaskContext.Results, runner.RoleTaskResult{ID: id, Outputs: map[string]runner.Value{"report": runner.Text(strings.Repeat("x", 12<<10))}})
 	}
 	binary := filepath.Join(t.TempDir(), "fake-codex")
-	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then printf 'fixture 1\\n'; exit 0; fi\ncat >/dev/null\nprintf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"outcome\\\":\\\"ready\\\",\\\"outputs\\\":{\\\"article\\\":\\\"Complete\\\"},\\\"reason\\\":\\\"\\\",\\\"task_action\\\":null}\"}}'\n"
+	progress, _ := json.Marshal(map[string]any{
+		"type": "item.completed",
+		"item": map[string]string{"type": "agent_message", "text": strings.Repeat("progress ", 1024)},
+	})
+	script := `#!/bin/sh
+if [ "$1" = --version ]; then printf 'fixture 1\n'; exit 0; fi
+cat >/dev/null
+cat <<'RUNNER_EVENTS'
+` + string(progress) + `
+{"type":"item.completed","item":{"type":"agent_message","text":"{\"outcome\":\"ready\",\"outputs\":{\"article\":\"Complete\"},\"reason\":\"\",\"task_action\":null}"}}
+RUNNER_EVENTS
+`
 	if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}

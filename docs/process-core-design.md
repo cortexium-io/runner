@@ -7,6 +7,28 @@ Merge, publication and production remain separately authorized actions.**
 
 ## Current completion plan
 
+### Lifecycle correction after Atlas review, authorized 15 November 2026
+
+Correct the five reproduced native/task lifecycle defects together, using the
+existing Core and executor. A small durable job record must own staged inputs
+before they are written and remain until release finishes. Read that ownership
+independently of disposable assignment data; preserve legacy inline inputs. An
+allocated job cannot have launched a worker, and only a persisted dispatch phase
+permits launch. Persist the release phase after assignment-dependent cleanup and
+before removing inputs, so restart can finish deletion from the same identity.
+Only successful process inventories establish settlement. Final-message overflow
+belongs to the selected candidate, while terminal harness errors remain terminal.
+A failed parent continuation reopens its retained wait and reserves its next
+visit, without replaying children or silently enlarging the family allowance.
+
+The implementation owner maintains this branch. Extend the owning focused suites
+with allocation/storage failure, interrupted release, inventory-error ordering,
+final-message selection and parent resumption/retry coverage. Preserve old run
+bytes and refuse older operational readers of the new lifecycle. Finish relevant
+repository gates and a new Atlas comparison at exact committed hashes. No native
+generation, installed-service changes, product rerun or deployment is needed for
+this control-state correction.
+
 ### General role tasks, authorized 15 November 2026
 
 The current implementation owner is the Runner review/implementation chat on

@@ -99,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 5 {
+	if version < 0 || version > 6 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -156,6 +156,14 @@ PRAGMA user_version=4; COMMIT;`); e != nil {
 		// Older workers ignore native context policy and result-file references.
 		// Mark the operational boundary without rewriting retained run bytes.
 		if _, e = db.Exec("PRAGMA user_version=5"); e != nil {
+			return nil, e
+		}
+		version = 5
+	}
+	if version == 5 {
+		// Native ownership now precedes disposable inputs and outlives their
+		// release. Older readers cannot interpret these interrupted phases.
+		if _, e = db.Exec("PRAGMA user_version=6"); e != nil {
 			return nil, e
 		}
 	}

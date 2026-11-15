@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -104,25 +105,67 @@ func (n *Native) Owns(id string) bool {
 	return !errors.Is(err, os.ErrNotExist)
 }
 
-func (n *Native) load(id string) (harnessJob, error) {
+// The small job record owns the attempt independently of its disposable input.
+// Only a missing record means the adapter does not own the attempt.
+func (n *Native) loadJob(id string) (harnessJob, error) {
 	var job harnessJob
 	data, err := n.disk.Read(harnessName(id), n.disk.Policy.Database.MaxRecord)
-	if err == nil {
-		err = json.Unmarshal(data, &job)
+	if err != nil {
+		return job, err
 	}
-	if err == nil && job.AssignmentFile != "" {
-		if job.AttemptID != id || job.AssignmentFile != harnessControl(id)+"/assignment.json" || job.AssignmentLimit < 1 || job.AssignmentLimit > n.disk.Policy.MaxManaged {
+	if err := json.Unmarshal(data, &job); err != nil {
+		return job, err
+	}
+	if job.AttemptID == "" {
+		job.AttemptID = job.Assignment.AttemptID // Older inline assignments.
+	}
+	if !validStagedInputName(id) || job.AttemptID != id {
+		return job, errors.New("native identity differs from saved attempt")
+	}
+	if job.AssignmentFile != "" {
+		if job.AssignmentFile != harnessControl(id)+"/assignment.json" || job.AssignmentLimit < 1 || job.AssignmentLimit > n.disk.Policy.MaxManaged {
 			return job, errors.New("native assignment reference differs from saved attempt")
 		}
-		data, err = n.disk.Read(job.AssignmentFile, job.AssignmentLimit)
+	}
+	return job, nil
+}
+
+func (n *Native) loadAssignment(job harnessJob) (harnessJob, error) {
+	if job.AssignmentFile != "" {
+		data, err := n.disk.Read(job.AssignmentFile, job.AssignmentLimit)
 		if err == nil {
 			err = json.Unmarshal(data, &job.Assignment)
 		}
+		if err != nil {
+			return job, fmt.Errorf("native assignment unavailable: %w", err)
+		}
 	}
-	if err == nil && job.Assignment.AttemptID != id {
-		err = errors.New("native identity differs from saved attempt")
+	if job.Assignment.AttemptID != job.AttemptID {
+		return job, errors.New("native assignment identity differs from saved attempt")
 	}
-	return job, err
+	return job, nil
+}
+
+func (n *Native) load(id string) (harnessJob, error) {
+	job, err := n.loadJob(id)
+	if err != nil {
+		return job, err
+	}
+	return n.loadAssignment(job)
+}
+
+func (n *Native) saveJob(job harnessJob) error {
+	if job.AttemptID == "" {
+		job.AttemptID = job.Assignment.AttemptID
+	}
+	if job.AssignmentFile != "" {
+		job.Assignment = runner.Assignment{}
+	}
+	data, err := json.Marshal(job)
+	if err != nil {
+		return err
+	}
+	return n.disk.Write(harnessName(job.AttemptID), data, n.disk.Policy.Database.MaxRecord)
 }
 
 func (n *Native) save(job harnessJob) error {
@@ -142,18 +185,17 @@ func (n *Native) save(job harnessJob) error {
 			return err
 		}
 	}
-	job.Assignment = runner.Assignment{}
-	data, err := json.Marshal(job)
-	if err != nil {
-		return err
-	}
-	return n.disk.Write(harnessName(id), data, n.disk.Policy.Database.MaxRecord)
+	return n.saveJob(job)
 }
 
 func harnessObservation(job harnessJob) runner.Observation {
-	o := runner.Observation{State: runner.Running, NativeHandle: "harness/" + job.Assignment.AttemptID, Reason: "native " + job.Stage, NextCheck: time.Now().Add(time.Second), Effective: job.Effective, Usage: job.Usage}
+	id := job.AttemptID
+	if id == "" {
+		id = job.Assignment.AttemptID
+	}
+	o := runner.Observation{State: runner.Running, NativeHandle: "harness/" + id, Reason: "native " + job.Stage, NextCheck: time.Now().Add(time.Second), Effective: job.Effective, Usage: job.Usage}
 	if job.Workspace != nil {
-		o.Source = &runner.SourceResult{Repository: job.Workspace.Repository, Base: job.Workspace.Base, WorkDir: job.Workspace.WorkDir, AttemptID: job.Assignment.AttemptID}
+		o.Source = &runner.SourceResult{Repository: job.Workspace.Repository, Base: job.Workspace.Base, WorkDir: job.Workspace.WorkDir, AttemptID: id}
 	}
 	if job.End != nil {
 		o.State = runner.Finished
@@ -172,14 +214,20 @@ func (n *Native) Start(ctx context.Context, a runner.Assignment) (runner.Observa
 	if n.closed {
 		return runner.Observation{}, errors.New("native executor is closed")
 	}
-	if old, err := n.load(a.AttemptID); err == nil {
+	if old, err := n.loadJob(a.AttemptID); err == nil {
 		return harnessObservation(old), nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return runner.Observation{}, err
 	}
 	var err error
 	a.OutputDir = filepath.Join(n.disk.Root, "artifacts", a.AttemptID)
-	job := harnessJob{Assignment: runner.Clone(a), Stage: "allocated"}
+	job := harnessJob{
+		Assignment:      runner.Clone(a),
+		AttemptID:       a.AttemptID,
+		AssignmentFile:  harnessControl(a.AttemptID) + "/assignment.json",
+		AssignmentLimit: a.Setup.Profile.MaxInput + n.disk.Policy.Database.MaxRecord,
+		Stage:           "allocated",
+	}
 	var resultBytes []byte
 	if sharedCommand(a) {
 		a, err = sharedAssignment(a)
@@ -193,20 +241,35 @@ func (n *Native) Start(ctx context.Context, a runner.Assignment) (runner.Observa
 	if err != nil {
 		return runner.Observation{State: runner.Finished, End: &runner.ExecutionEnd{Kind: "failed", Reason: "native readiness: " + runner.Clip(err.Error())}}, nil
 	}
+	// Publish ownership before writing any inputs. No worker can launch until
+	// all inputs exist and prepareWorker durably records dispatching.
+	if err = n.saveJob(job); err != nil {
+		return runner.Observation{State: runner.Finished, End: &runner.ExecutionEnd{Kind: "failed", Reason: "native allocation: " + runner.Clip(err.Error())}}, nil
+	}
 	if job.ResultsFile != nil {
 		if err = n.disk.Write(harnessControl(a.AttemptID)+"/results.json", resultBytes, a.Limits.MaxArtifact); err != nil {
-			return runner.Observation{}, err
+			return n.allocationFailed(job, err)
 		}
 		if err = os.Chmod(job.ResultsFile.Path, 0400); err != nil {
-			return runner.Observation{}, err
+			return n.allocationFailed(job, err)
 		}
 	}
 	if err = n.save(job); err != nil {
-		return runner.Observation{}, err
+		return n.allocationFailed(job, err)
 	}
 	n.preparing[a.AttemptID] = true
 	n.setup.Add(1)
 	go n.prepare(a.AttemptID)
+	return harnessObservation(job), nil
+}
+
+func (n *Native) allocationFailed(job harnessJob, cause error) (runner.Observation, error) {
+	job.End = &runner.ExecutionEnd{Kind: "failed", Reason: "native allocation failed before dispatch: " + runner.Clip(cause.Error())}
+	if err := n.saveJob(job); err != nil {
+		// The initial allocated record still owns the inputs. Observation can
+		// settle this known pre-dispatch failure once storage recovers.
+		return runner.Observation{}, err
+	}
 	return harnessObservation(job), nil
 }
 
@@ -427,13 +490,24 @@ func (n *Native) Observe(ctx context.Context, id string) (runner.Observation, er
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	job, err := n.load(id)
+	job, err := n.loadJob(id)
 	if err != nil {
 		return runner.Observation{}, err
 	}
 	o := harnessObservation(job)
 	if job.End != nil {
 		return o, nil
+	}
+	if job.Stage == "allocated" && !n.preparing[id] {
+		job.End = &runner.ExecutionEnd{Kind: "failed", Reason: "native setup interrupted before dispatch"}
+		if err = n.saveJob(job); err != nil {
+			return runner.Observation{}, err
+		}
+		return harnessObservation(job), nil
+	}
+	job, err = n.loadAssignment(job)
+	if err != nil {
+		return runner.Observation{}, err
 	}
 	data, err := n.disk.Read(harnessControl(id)+"/result.json", n.disk.Policy.Database.MaxRecord)
 	if err == nil {
@@ -497,13 +571,6 @@ func (n *Native) Observe(ctx context.Context, id string) (runner.Observation, er
 	}
 	if n.preparing[id] {
 		return o, nil
-	}
-	if job.Stage == "allocated" {
-		job.End = &runner.ExecutionEnd{Kind: "failed", Reason: "native setup interrupted before dispatch"}
-		if err = n.save(job); err != nil {
-			return runner.Observation{}, err
-		}
-		return harnessObservation(job), nil
 	}
 	lease, leaseErr := os.OpenFile(filepath.Join(n.disk.Root, harnessControl(id), "lease"), os.O_RDWR, 0600)
 	locked := false
@@ -578,7 +645,7 @@ func (n *Native) stop(job harnessJob, reason ...string) error {
 	if len(reason) > 0 {
 		job.StopReason = reason[0]
 	}
-	file := filepath.Join(n.disk.Root, harnessControl(job.Assignment.AttemptID), "stop")
+	file := filepath.Join(n.disk.Root, harnessControl(job.AttemptID), "stop")
 	f, err := os.OpenFile(file, os.O_WRONLY, 0600)
 	if err == nil {
 		_, err = f.WriteAt([]byte{1}, 0)
@@ -592,7 +659,7 @@ func (n *Native) stop(job harnessJob, reason ...string) error {
 	if err != nil {
 		return err
 	}
-	return n.save(job)
+	return n.saveJob(job)
 }
 
 func (n *Native) Stop(ctx context.Context, id string) error {
@@ -601,7 +668,7 @@ func (n *Native) Stop(ctx context.Context, id string) error {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	job, err := n.load(id)
+	job, err := n.loadJob(id)
 	if err != nil || job.End != nil {
 		return err
 	}
@@ -614,7 +681,7 @@ func (n *Native) Release(ctx context.Context, id string) error {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	job, err := n.load(id)
+	job, err := n.loadJob(id)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -624,34 +691,46 @@ func (n *Native) Release(ctx context.Context, id string) error {
 	if job.End == nil {
 		return errors.New("cannot release unsettled native work")
 	}
-	if job.Workspace != nil {
-		if err = n.workspaces.ReleaseAttempt(ctx, job.Assignment); err != nil {
-			return err
-		}
-	}
-	if err := removeSharedScratch(job.ScratchDir); err != nil {
-		return err
-	}
-	keep := map[string]bool{"provenance.json": true}
-	if job.End.Result != nil {
-		for _, output := range job.End.Result.Outputs {
-			if filepath.Dir(output.ArtifactID) == id {
-				keep[filepath.Base(output.ArtifactID)] = true
-			}
-		}
-	}
-	if job.Workspace != nil {
-		keep["changes.patch"] = true
-	}
-	entries, err := os.ReadDir(job.Assignment.OutputDir)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	for _, entry := range entries {
-		if !keep[entry.Name()] {
-			if err = n.disk.Remove("artifacts/" + id + "/" + entry.Name()); err != nil {
+	if job.Stage != "releasing" {
+		if job.Workspace != nil {
+			job, err = n.loadAssignment(job)
+			if err != nil {
 				return err
 			}
+			if err = n.workspaces.ReleaseAttempt(ctx, job.Assignment); err != nil {
+				return err
+			}
+		}
+		if err := removeSharedScratch(job.ScratchDir); err != nil {
+			return err
+		}
+		keep := map[string]bool{"provenance.json": true}
+		if job.End.Result != nil {
+			for _, output := range job.End.Result.Outputs {
+				if filepath.Dir(output.ArtifactID) == id {
+					keep[filepath.Base(output.ArtifactID)] = true
+				}
+			}
+		}
+		if job.Workspace != nil {
+			keep["changes.patch"] = true
+		}
+		entries, err := os.ReadDir(filepath.Join(n.disk.Root, "artifacts", id))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		for _, entry := range entries {
+			if !keep[entry.Name()] {
+				if err = n.disk.Remove("artifacts/" + id + "/" + entry.Name()); err != nil {
+					return err
+				}
+			}
+		}
+		// All assignment-dependent cleanup is complete. Keep its terminal
+		// ownership record until the disposable inputs and job are gone.
+		job.Stage = "releasing"
+		if err = n.saveJob(job); err != nil {
+			return err
 		}
 	}
 	if err = n.disk.Remove("work/" + id); err != nil {

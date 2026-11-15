@@ -415,6 +415,11 @@ func RunNativeWorker(parent context.Context, file string) (returnErr error) {
 			}
 			if overflow {
 				events.Proof.Dropped++
+				if !sharedCommand(a) {
+					// The skipped event might contain a newer final message. Only
+					// a later bounded result can restore final-result authority.
+					events.Final, events.FinalOverflow = nil, true
+				}
 			} else if len(line) > 0 && !sharedCommand(a) {
 				events.accept(line)
 			}
@@ -562,8 +567,11 @@ func completedHarnessReceipt(a runner.Assignment, events harnessEvents, stopped 
 		if result.Reason == "" {
 			result.Reason = "native worker reached its configured deadline"
 		}
-	} else if runErr != nil || events.Failed != "" {
+	} else if runErr != nil || events.Failed != "" || events.FinalOverflow {
 		result.Kind, result.Reason = "failed", events.Failed
+		if result.Reason == "" && events.FinalOverflow {
+			result.Reason = "native final message exceeds max_output or the stream event bound"
+		}
 		if result.Reason == "" {
 			result.Reason = "native executable exited unsuccessfully; inspect the permitted harness configuration"
 		}

@@ -56,7 +56,8 @@ contracts and cannot silently be selected as general-task executors.
 General records use format nine; normalized attempts remain individually bounded.
 SQLite schema four widened their physical attempt positions; schema five adds
 the native-context/result-file worker compatibility boundary without rewriting
-existing rows. Old run formats retain their earlier bounds and old binaries refuse
+existing rows. Schema six adds the native allocation/release compatibility boundary.
+Old run formats retain their earlier bounds and old binaries refuse
 the new schema/format. Fresh qualification state is separate from the installed
 pilot; this work does not install a new default or migrate live state.
 
@@ -75,6 +76,30 @@ handoffs, provenance bounds, capability enforcement, process ownership and worke
 settlement. These are model-free proofs. The protected product checker remains
 outside app write paths and evaluates an actual final executable, real users,
 sessions and a headless browser; developer test success alone is insufficient.
+
+### Lifecycle correction after Atlas review, 15 November 2026
+
+Native job descriptors now carry ownership independently of the larger disposable
+assignment. Allocation persists that descriptor before staging inputs. A retained
+allocated descriptor proves no dispatch occurred; restart can fail and release it
+even when staging stopped before the assignment existed. Dispatch still requires
+the persisted dispatch phase and the worker's existing claim/lease. Missing inputs
+after dispatch preserve uncertainty and cannot authorize replacement or release.
+
+Release performs assignment-dependent workspace cleanup before persisting
+`releasing`, then deletes disposable work and finally its job descriptor. A restarted
+release reads the terminal descriptor directly and finishes deletion. Descriptor
+updates preserve older inline assignments until their input has been normalized.
+Process settlement requires successful empty inventories; inventory errors take
+precedence over confirmation. Model final-message overflow invalidates only that
+candidate; a later valid final clears it while terminal harness errors remain.
+
+Failed task-parent continuation retry reopens its existing wait, reserves the next
+visit, and lets the ordinary graph drive gather retained child results once. Root
+and nested planners share that behavior. Budget exhaustion still rejects the retry
+without changing state; only an explicit root grant enlarges the family allowance.
+The focused suites own these failure/recovery sequences; accepted product evidence,
+installed services and their frozen run settings remain unchanged.
 
 ### Real qualification evidence
 

@@ -266,7 +266,10 @@ func (s *Service) collectHarness(ctx context.Context, id string, o runner.Observ
 		return o, e
 	}
 	s.harnesses.mu.Lock()
-	j, err := s.harnesses.load(id)
+	j, err := s.harnesses.loadJob(id)
+	if err == nil && j.Workspace != nil && j.Stage != "releasing" {
+		j, err = s.harnesses.loadAssignment(j)
+	}
 	s.harnesses.mu.Unlock()
 	if errors.Is(err, os.ErrNotExist) && o.NativeHandle == "" {
 		return o, nil
@@ -274,7 +277,7 @@ func (s *Service) collectHarness(ctx context.Context, id string, o runner.Observ
 	if err != nil {
 		return runner.Observation{}, err
 	}
-	if j.Workspace != nil && j.Assignment.Setup.Profile.Access == "workspace-write" {
+	if j.Stage != "releasing" && j.Workspace != nil && j.Assignment.Setup.Profile.Access == "workspace-write" {
 		return s.collectNativeSource(ctx, j.Assignment, o, j.StopRequested || j.End != nil && j.End.Kind == "stopped")
 	}
 	return o, nil

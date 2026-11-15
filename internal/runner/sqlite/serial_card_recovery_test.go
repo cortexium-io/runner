@@ -137,7 +137,7 @@ func TestSerialCardRecoveryAtomicFamilyAndReaderBoundary(t *testing.T) {
 		t.Fatal("serial recovery receipt lost", err)
 	}
 	var version int
-	if err = s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 5 {
+	if err = s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 6 {
 		t.Fatal("schema changed", version, err)
 	}
 }

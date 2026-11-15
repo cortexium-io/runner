@@ -437,13 +437,23 @@ func (c *Core) retryGraph(r Run, req RetryRequest, args []byte) (Run, error) {
 		r.Process.MaxAttempts += req.ExtraAttempts
 	}
 	if r.TaskGraph.Phase == TaskWaitingChildren {
-		if r.ID != root.ID || req.WithinBudget || req.ExtraAttempts == 0 {
+		if req.WithinBudget {
+			return Run{}, errors.New("a task continuation has no role visit to extend; retry without within_budget")
+		}
+		if r.Status != "Failed" && (r.ID != root.ID || req.ExtraAttempts == 0) {
 			return Run{}, errors.New("pending role tasks resume automatically; only an explicit root goal allowance grant applies while waiting for children")
 		}
+		// A failed continuation has not created its next role visit yet.
+		// Reopen the wait, reserving that visit before the ordinary graph
+		// drive gathers the same retained child results exactly once.
+		r.Status = "Waiting"
 		if err := c.graphReserve(r, 0, true); err != nil {
 			return Run{}, err
 		}
 		r.Reason = "authorized root goal allowance grant"
+		if req.ExtraAttempts == 0 {
+			r.Reason = "retrying retained task continuation"
+		}
 	} else {
 		stepAttempts := visitAttempts(r)
 		if stepAttempts >= visitAttemptLimit(r)+req.ExtraAttempts {
@@ -458,8 +468,8 @@ func (c *Core) retryGraph(r Run, req RetryRequest, args []byte) (Run, error) {
 		}
 		r.VisitExtraAttempts += req.ExtraAttempts
 		r.Status, r.Reason = "Queued", "authorized task retry"
-		r.ResourcesReleased, r.CleanupBlocked, r.CleanupError = false, false, ""
 	}
+	r.ResourcesReleased, r.CleanupBlocked, r.CleanupError = false, false, ""
 	receipt := Receipt{Key: req.RequestID, Kind: "retry", Args: args, RunID: r.ID}
 	if err := c.persist(r, nil, &receipt); err != nil {
 		return Run{}, err

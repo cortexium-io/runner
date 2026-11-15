@@ -253,10 +253,20 @@ the canonical child outputs are not truncated. The private result file is bounde
 by `max_artifact`, reserved by its actual JSON byte count and removed on release.
 A Claude role without `Read` cannot use this overflow path.
 
-SQLite operational schema five prevents older workers from ignoring lean policy
-or result-file references. Opening supported earlier state preserves its saved
+SQLite operational schema six prevents older services from misreading native
+allocation/release phases, in addition to the schema-five native-policy boundary.
+Opening supported earlier state preserves its saved
 run/definition/attempt bytes; older binaries refuse the upgraded operational marker.
 Use new private qualification state, leaving an installed pilot's cutover explicit.
+
+The small native job record owns an attempt before any assignment/result files
+are staged. An interrupted allocation settles as a pre-dispatch failure. Once
+dispatch identity is persisted, missing inputs cannot authorize replacement or
+cleanup. Release records completion of assignment-dependent cleanup before deleting
+those inputs, retains its terminal ownership record until all deletion finishes,
+and resumes safely after interruption. A failed parent resumption can be retried
+within its existing completion reserve, retaining accepted children; only an
+explicit root grant changes the family's attempt allowance.
 
 Native cleanup positively identifies owned processes using inherited markers and
 supported process identity/ancestry. It checks identities before stopping helpers,

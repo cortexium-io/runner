@@ -89,11 +89,12 @@ func harnessProvenance(a runner.Assignment, binary, work string) runner.NativePr
 // harnessEvents reduces streaming notifications to bounded public facts. It
 // never saves raw stdout: those events can contain secrets or private reasoning.
 type harnessEvents struct {
-	Proof  runner.NativeProvenance
-	Final  []byte
-	Usage  runner.Usage
-	Limit  int
-	Failed string
+	Proof         runner.NativeProvenance
+	Final         []byte
+	FinalOverflow bool
+	Usage         runner.Usage
+	Limit         int
+	Failed        string
 }
 
 func (e *harnessEvents) available(name string) {
@@ -116,8 +117,9 @@ func (e *harnessEvents) use(kind, name, status, evidence string) {
 }
 
 func (e *harnessEvents) final(text []byte) {
-	if len(text) > e.Limit {
-		e.Failed = "native final message exceeds max_output"
+	e.FinalOverflow = len(text) > e.Limit
+	if e.FinalOverflow {
+		e.Final = nil
 		return
 	}
 	e.Final = append(e.Final[:0], text...)
