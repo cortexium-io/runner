@@ -43,7 +43,7 @@ func run(ctx context.Context, args []string) error {
 		return execution.RunNativeWorker(ctx, args[1])
 	}
 	if len(args) == 0 {
-		return errors.New("usage: cortexium-runner serve|run|result|start|continue-task|status|inspect|cancel|retry|intervene|recover-corrections|recover-collection|recover-planning|recover-unpublished-card|adjudicate-source-handoff|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
+		return errors.New("usage: cortexium-runner serve|run|result|start|continue-task|status|inspect|cancel|retry|intervene|recover-tasks|recover-corrections|recover-collection|recover-planning|recover-unpublished-card|adjudicate-source-handoff|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -89,6 +89,8 @@ func run(ctx context.Context, args []string) error {
 	value := fs.String("value", "null", "JSON value for config-set")
 	action := fs.String("action", "", "task intervention: pause, resume, steer, answer or reassign")
 	text := fs.String("text", "", "task steering directive or human answer")
+	taskIDs := fs.String("task-ids", "", "JSON array of current failed child IDs for same-generation maintenance recovery")
+	maintenanceReason := fs.String("reason", "", "explicit maintenance repair enabling the same failed task generation")
 	if e := fs.Parse(args[1:]); e != nil {
 		return e
 	}
@@ -97,6 +99,21 @@ func run(ctx context.Context, args []string) error {
 	}
 	if *data == "" {
 		return errors.New("--data is required")
+	}
+	if command == "recover-tasks" {
+		allowed := map[string]bool{"data": true, "endpoint": true, "run": true, "revision": true, "request-id": true, "task-ids": true, "reason": true}
+		bad := ""
+		fs.Visit(func(f *flag.Flag) {
+			if !allowed[f.Name] {
+				bad = f.Name
+			}
+		})
+		if bad != "" || *runID == "" || *revision < 1 || *taskIDs == "" || *maintenanceReason == "" {
+			return errors.New("recover-tasks requires --run, exact --revision, --task-ids JSON and --reason; no command/profile/policy/allowance override")
+		}
+	}
+	if command != "recover-tasks" && (*taskIDs != "" || *maintenanceReason != "") {
+		return errors.New("--task-ids and --reason require recover-tasks")
 	}
 	if command == "continue-task" {
 		allowed := map[string]bool{
@@ -215,6 +232,17 @@ func run(ctx context.Context, args []string) error {
 	var method string
 	var a any
 	switch command {
+	case "recover-tasks":
+		var ids []string
+		if err := json.Unmarshal([]byte(*taskIDs), &ids); err != nil || len(ids) == 0 {
+			return errors.New("--task-ids requires a nonempty JSON array of child task IDs")
+		}
+		if *requestID == "" {
+			*requestID = rand.Text()
+		}
+		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
+		method = "runner_recover_tasks"
+		a = runner.RecoverTasksRequest{RequestID: *requestID, RunID: *runID, Revision: *revision, TaskIDs: ids, Reason: *maintenanceReason}
 	case "continue-task":
 		var inputs map[string]any
 		var refs map[string]string

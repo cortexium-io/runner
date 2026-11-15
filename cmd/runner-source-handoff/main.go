@@ -22,7 +22,10 @@ import (
 	"strings"
 )
 
-const markerName = ".runner-source-handoff.json"
+const (
+	markerName   = ".runner-source-handoff.json"
+	receiptLimit = 16 << 10
+)
 
 type sourceSpec struct {
 	Repository  string `json:"repository"`
@@ -44,6 +47,9 @@ type sourceReceipt struct {
 	Source           sourceSpec `json:"source"`
 	Commit           string     `json:"initial_commit,omitempty"`
 	MaterializedTree string     `json:"materialized_tree"`
+	RetainedChanges  []string   `json:"retained_changes,omitempty"`
+	RetainedCount    int        `json:"retained_changes_count,omitempty"`
+	RetainedSHA256   string     `json:"retained_changes_sha256,omitempty"`
 	Files            int        `json:"files"`
 	Bytes            int64      `json:"bytes"`
 }
@@ -123,7 +129,7 @@ func materialize(ctx context.Context, spec sourceSpec, output string, limit int6
 	}
 	identity := digest(encoded)
 	marker := filepath.Join(spec.Destination, markerName)
-	if data, readErr := regularInput(marker, 16<<10); readErr == nil {
+	if data, readErr := regularInput(marker, receiptLimit); readErr == nil {
 		if json.Unmarshal(data, &receipt) != nil || receipt.Identity != identity || receipt.Source != spec {
 			return receipt, errors.New("workspace handoff ownership differs; preserve existing files")
 		}
@@ -175,15 +181,11 @@ func materialize(ctx context.Context, spec sourceSpec, output string, limit int6
 	if err != nil || strings.TrimSpace(string(tree)) != spec.Tree {
 		return receipt, errors.New("retained patch does not reconstruct its authenticated tree")
 	}
-	changed, err := git(ctx, spec.Repository, env, nil, 2<<20, "diff", "--cached", "--name-only", "-z", "--no-ext-diff", "--no-textconv", spec.Base)
+	changed, err := git(ctx, spec.Repository, env, nil, 2<<20, "diff", "--cached", "--name-only", "--diff-filter=ACMRT", "-z", "--no-ext-diff", "--no-textconv", spec.Base)
 	if err != nil {
 		return receipt, err
 	}
-	for _, name := range bytes.Split(changed, []byte{0}) {
-		if !selection.keeps(string(name)) {
-			return receipt, errors.New("historical exclusions would omit retained changes; preserve the full source")
-		}
-	}
+	retainChangedFiles(changed, &selection, &receipt)
 	listing, err := git(ctx, spec.Repository, env, nil, 4<<20, "ls-tree", "-r", "-z", "--long", spec.Tree)
 	if err != nil {
 		return receipt, err
@@ -213,6 +215,12 @@ func materialize(ctx context.Context, spec sourceSpec, output string, limit int6
 			return receipt, err
 		}
 		materializedTree = strings.TrimSpace(string(projected))
+	}
+	ready := receipt
+	ready.Phase, ready.Commit = "ready", strings.Repeat("0", len(spec.Tree))
+	ready.MaterializedTree, ready.Files, ready.Bytes = materializedTree, len(files), total
+	if _, err := boundedJSON(ready); err != nil {
+		return receipt, err // Prove the final receipt fits before installing source.
 	}
 	if err := validatePartial(spec.Destination, files); err != nil {
 		return receipt, err
@@ -359,6 +367,30 @@ func sourceFiles(listing []byte, limit int64, selections ...sourceSelection) ([]
 type sourceSelection struct {
 	exclude []string
 	include map[string]bool
+}
+
+func retainChangedFiles(changed []byte, selection *sourceSelection, receipt *sourceReceipt) {
+	hash := sha256.New()
+	previewBytes := 0
+	for _, name := range bytes.Split(changed, []byte{0}) {
+		if len(name) == 0 || selection.keeps(string(name)) {
+			continue
+		}
+		// Exclusions reduce unchanged history, never accepted work. Keep all
+		// changed files, but only a bounded name sample in the replay receipt.
+		selection.include[string(name)] = true
+		receipt.RetainedCount++
+		hash.Write(name)
+		hash.Write([]byte{0})
+		encoded, _ := json.Marshal(string(name))
+		if previewBytes+len(encoded)+8 <= 4<<10 {
+			receipt.RetainedChanges = append(receipt.RetainedChanges, string(name))
+			previewBytes += len(encoded) + 8
+		}
+	}
+	if receipt.RetainedCount > 0 {
+		receipt.RetainedSHA256 = hex.EncodeToString(hash.Sum(nil))
+	}
 }
 
 func projectionSelection(excluded, included string) (sourceSelection, error) {
@@ -553,7 +585,7 @@ func writeOutputs(output string, receipt sourceReceipt) error {
 }
 
 func writeJSON(path string, value any) error {
-	data, err := json.MarshalIndent(value, "", "  ")
+	data, err := boundedJSON(value)
 	if err != nil {
 		return err
 	}
@@ -564,7 +596,7 @@ func writeJSON(path string, value any) error {
 	defer os.Remove(file.Name())
 	defer file.Close()
 	if err = file.Chmod(0600); err == nil {
-		_, err = file.Write(append(data, '\n'))
+		_, err = file.Write(data)
 	}
 	if err == nil {
 		err = file.Sync()
@@ -584,6 +616,17 @@ func writeJSON(path string, value any) error {
 	}
 	defer dir.Close()
 	return dir.Sync()
+}
+
+func boundedJSON(value any) ([]byte, error) {
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if len(data)+1 > receiptLimit {
+		return nil, errors.New("source handoff receipt exceeds its replay-safe 16KiB limit")
+	}
+	return append(data, '\n'), nil
 }
 
 func overlapping(a, b string) bool {

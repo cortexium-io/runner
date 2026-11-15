@@ -99,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 8 {
+	if version < 0 || version > 9 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -180,6 +180,14 @@ PRAGMA user_version=4; COMMIT;`); e != nil {
 		// Retained task continuations freeze an old family and debit its spent
 		// allowance into a new root. Older services must not ignore this audit.
 		if _, e = db.Exec("PRAGMA user_version=8"); e != nil {
+			return nil, e
+		}
+		version = 8
+	}
+	if version == 8 {
+		// Same-generation maintenance recovery has an immutable audit. Older
+		// services must not overwrite it while interpreting rearmed failures.
+		if _, e = db.Exec("PRAGMA user_version=9"); e != nil {
 			return nil, e
 		}
 	}
@@ -263,10 +271,10 @@ func (s *Store) saveRun(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts
 }
 
 func (s *Store) saveRunWithHandoff(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt, handoffUpgrade bool) error {
-	return s.saveRunAuthorized(ctx, tx, r, artifacts, receipt, handoffUpgrade, false)
+	return s.saveRunAuthorized(ctx, tx, r, artifacts, receipt, handoffUpgrade, false, false)
 }
 
-func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt, handoffUpgrade, continuation bool) error {
+func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt, handoffUpgrade, continuation, recovery bool) error {
 	b, definition, e := runner.MarshalRunRecord(r)
 	if e != nil {
 		return e
@@ -284,6 +292,9 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 		return e
 	}
 	if err := s.guardTaskContinuationSave(ctx, tx, r, previous, continuation); err != nil {
+		return err
+	}
+	if err := guardTaskRecoverySave(r, previous, recovery); err != nil {
 		return err
 	}
 	if errors.Is(e, sql.ErrNoRows) {

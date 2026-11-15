@@ -83,7 +83,9 @@ It materializes the bounded source projection, retaining four unchanged historic
 directories at their canonical origin while including eighteen exact JSON files
 imported by runtime source. Its protected `handoff.json` records the full and
 materialized trees. It refuses exclusions that would discard retained changes.
-The new workspace is created empty by the builder; only Runner's configured
+Every nondeleted accepted change is retained automatically, including documents
+inside historical directories; these derived exceptions appear in the protected
+handoff receipt. The new workspace is created empty by the builder; only Runner's configured
 import task materializes it. A ready importer replay preserves later edits.
 
 The checker has only a declared `checks:artifact` input. Its immutable command

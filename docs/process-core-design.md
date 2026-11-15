@@ -54,6 +54,25 @@ the allowance. Schema eight prevents older readers from ignoring this authority.
    cleanup. Complete relevant repository gates and Atlas review after the coherent
    maintenance batch. Keep one implementation owner and bounded read-only advisors.
 
+The first live continuation retained the original 36-attempt debit and admitted
+the four-role graph, but source import stopped before materialization: the accepted
+patch includes an agreement document inside the historical evidence directory.
+Projection must derive exceptions for every accepted changed file, retaining that
+work alongside the eighteen explicit runtime fixtures. Unchanged bulk history
+stays canonical at origin. The four identical fixed-command failures and two lead
+visits remain recorded: the same root has spent 42/64, with no fresh budget.
+
+That failure exposed a general lifecycle gap after a parent has assessed failed
+dependencies. Add an owner-authorized, revision-checked atomic recovery of selected
+failed children, their never-executed dependency-failed closure and failed owning
+assessments. Preserve identities, specifications, roles, limits, all prior attempts
+and completed work; reserve the full remaining chain and parent returns before
+admission. The normal Core then dispatches and evaluates the same graph. Recovery
+is distinct from changing the plan or granting attempts. Ordinary failures of a
+fixed shared command stop immediately; its configured safe infrastructure retry
+policy remains applicable. Qualify transaction rollback, restart, stale revisions,
+settlement, acceptance boundaries and the unchanged historical debit before use.
+
 ### Same-execution output recovery, authorized 15 November 2026
 
 Replace the native worker's anonymous stdout pipe for new executions with an

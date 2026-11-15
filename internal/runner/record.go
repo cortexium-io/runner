@@ -41,6 +41,9 @@ func MarshalRunRecord(r Run) (state, definition []byte, err error) {
 	if err := taskContinuationRecord(r); err != nil {
 		return nil, nil, err
 	}
+	if err := taskRecoveryRecord(r); err != nil {
+		return nil, nil, err
+	}
 	var count *int
 	if r.RecordFormat >= 3 {
 		n := len(r.Attempts)
@@ -87,6 +90,9 @@ func UnmarshalRunRecord(state, definition []byte) (Run, error) {
 		r.Process, r.Roles, r.Profiles = d.Process, d.Roles, d.Profiles
 	}
 	if err := taskContinuationRecord(r); err != nil {
+		return r, err
+	}
+	if err := taskRecoveryRecord(r); err != nil {
 		return r, err
 	}
 	return r, nil

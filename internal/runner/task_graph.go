@@ -272,6 +272,9 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 	if err != nil {
 		return nil, err
 	}
+	if audits := root.TaskGraph.Recoveries; len(audits) != 0 {
+		ctx.Maintenance = Clone(&audits[len(audits)-1])
+	}
 	ancestors := []Run{}
 	for current := r; current.TaskGraph.ParentRunID != ""; {
 		current = c.runs[current.TaskGraph.ParentRunID]

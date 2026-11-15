@@ -163,6 +163,10 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 		r, err := c.InterveneTask(in)
 		return summary(r), err
 	})
+	add(s, "runner_recover_tasks", "Owner-only same-generation recovery after a reported runtime maintenance repair. Requires an exact failed owning goal revision and current failed child task IDs, with the whole family settled and released. Atomically reopens those failed visits and only their never-executed dependency-failed closure, then resumes ordinary parent evaluation. Preserves accepted work, all history, task IDs/specs, roles, profiles, revision policy and aggregate attempt ceiling. Grants no allowance or approval. Restricted intake must not invoke this action.", func(ctx context.Context, in runner.RecoverTasksRequest) (any, error) {
+		r, err := c.RecoverTasks(in)
+		return compactResult(r, time.Now()), err
+	})
 	add(s, "runner_recover_corrections", "Owner-authorized recovery of an exhausted saved source rejection. Normally max_uses must be three total uses per eligible source-correction route. With within_budget, max_uses must be zero and only the currently exhausted root route receives a finite limit from existing aggregate headroom; every owner visit preserves the completion reserve. Legacy preserve_source explicitly preserves a verified owned partial checkout as evidence; budget mode requires settled source without preservation. Frozen definitions, attempts, total budget and protected approvals are unchanged. Routes the saved result without repeating its check.", func(ctx context.Context, in runner.RecoverCorrectionsRequest) (any, error) {
 		r, e := c.RecoverCorrections(in)
 		return summary(r), e

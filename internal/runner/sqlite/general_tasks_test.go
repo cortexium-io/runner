@@ -26,13 +26,13 @@ func TestGeneralTaskHistoryExceedsLegacy128WithoutChangingLegacyBound(t *testing
 		t.Fatal("new general-task storage range silently widened the legacy attempt allowance")
 	}
 	var version int
-	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 8 {
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 9 {
 		t.Fatalf("general task physical attempt range lacks its versioned schema: %d %v", version, err)
 	}
 }
 
 func TestGeneralTaskSchemaUpgradePreservesRetainedBytes(t *testing.T) {
-	for _, version := range []int{3, 4, 5, 6, 7} {
+	for _, version := range []int{3, 4, 5, 6, 7, 8} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			r := normalizedRun(2)
 			s := openNormalized(t, r)
@@ -74,7 +74,7 @@ PRAGMA user_version=3; COMMIT;`); err != nil {
 				t.Fatalf("schema migration rewrote retained data: %v", err)
 			}
 			var marker int
-			if err := s.db.QueryRow("PRAGMA user_version").Scan(&marker); err != nil || marker != 8 {
+			if err := s.db.QueryRow("PRAGMA user_version").Scan(&marker); err != nil || marker != 9 {
 				t.Fatalf("native-policy downgrade guard missing: version=%d error=%v", marker, err)
 			}
 		})

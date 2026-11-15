@@ -66,6 +66,7 @@ type TaskResultRef struct {
 }
 
 type TaskGraphState struct {
+	Recoveries  []TaskRecoveryAudit      `json:"recoveries,omitempty"`
 	Lineage     *TaskContinuationLineage `json:"lineage,omitempty"`
 	RootRunID   string                   `json:"root_run_id"`
 	ParentRunID string                   `json:"parent_run_id,omitempty"`
@@ -103,6 +104,7 @@ type TaskRoleContract struct {
 }
 
 type TaskContext struct {
+	Maintenance       *TaskRecoveryAudit       `json:"maintenance,omitempty"`
 	Lineage           *TaskContinuationLineage `json:"lineage,omitempty"`
 	RootRunID         string                   `json:"root_run_id"`
 	ParentRunID       string                   `json:"parent_run_id,omitempty"`

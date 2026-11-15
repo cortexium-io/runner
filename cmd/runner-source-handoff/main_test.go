@@ -209,7 +209,7 @@ func TestSourceListingRejectsUnsafeOrOversizedEntries(t *testing.T) {
 	}
 }
 
-func TestMaterializeProjectionKeepsImportedFixtureAndRejectsLostChanges(t *testing.T) {
+func TestMaterializeProjectionKeepsImportedFixturesAndAllRetainedChanges(t *testing.T) {
 	spec, scratch := sourceFixture(t, true)
 	spec.Exclude = "docs/evidence"
 	spec.Include = "docs/evidence/fixture.json"
@@ -228,7 +228,45 @@ func TestMaterializeProjectionKeepsImportedFixtureAndRejectsLostChanges(t *testi
 	}
 	other, scratch := sourceFixture(t)
 	other.Exclude = "frontend" // The accepted patch added this source.
-	if _, err := materialize(t.Context(), other, scratch, 1<<20); err == nil {
-		t.Fatal("projection silently omitted accepted source changes")
+	retained, err := materialize(t.Context(), other, scratch, 1<<20)
+	if err != nil || len(retained.RetainedChanges) != 1 || retained.RetainedChanges[0] != "frontend/with spaces.ts" {
+		t.Fatal("projection did not derive its accepted-change exception", retained, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(other.Destination, "frontend", "with spaces.ts")); err != nil || !bytes.Equal(data, []byte{0, 1, 2, 255}) {
+		t.Fatal("projection lost accepted source changes", string(data), err)
+	}
+}
+
+func TestChangedFileReceiptRemainsReplayableForLargeInventories(t *testing.T) {
+	selection, err := projectionSelection("docs/evidence", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names bytes.Buffer
+	for i := 0; i < 200; i++ {
+		name := "docs/evidence/" + strings.Repeat("long-name-", 10) + string(rune('一'+i)) + ".md"
+		names.WriteString(name)
+		names.WriteByte(0)
+	}
+	var receipt sourceReceipt
+	retainChangedFiles(names.Bytes(), &selection, &receipt)
+	if receipt.RetainedCount != 200 || len(receipt.RetainedChanges) >= 200 || receipt.RetainedSHA256 != digest(names.Bytes()) {
+		t.Fatal("full change inventory was not bound independently of its bounded name sample", receipt)
+	}
+	for _, name := range bytes.Split(names.Bytes(), []byte{0}) {
+		if len(name) != 0 && !selection.keeps(string(name)) {
+			t.Fatal("an accepted change was lost outside the receipt sample")
+		}
+	}
+	filename := filepath.Join(t.TempDir(), "handoff.json")
+	if err := writeJSON(filename, receipt); err != nil {
+		t.Fatal(err)
+	}
+	data, err := regularInput(filename, receiptLimit)
+	if err != nil || json.Unmarshal(data, &receipt) != nil || receipt.RetainedCount != 200 {
+		t.Fatal("bounded receipt cannot be reopened", err)
+	}
+	if _, err := boundedJSON(strings.Repeat("x", receiptLimit)); err == nil {
+		t.Fatal("writer accepted metadata its replay reader cannot consume")
 	}
 }

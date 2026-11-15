@@ -1398,6 +1398,14 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 		}
 		return arts
 	}
+	profile, _ := r.Roles[step.Role].Profile(a.Profile)
+	if end.Kind == "failed" && r.TaskGraph != nil && profile.Harness == "command" && profile.Mode == "shared" {
+		// An unchanged fixed argv cannot repair an ordinary command failure.
+		// Trusted Retryable infrastructure failures were handled above; reported
+		// domain outcomes still follow the normal configured routes.
+		r.Status, r.Reason = "Failed", end.Reason
+		return arts
+	}
 	if end.Kind == "failed" && attempts < visitAttemptLimit(*r) && c.familyRemaining(*r) > 0 {
 		r.Status = "Queued"
 		r.Reason = "bounded execution retry"
