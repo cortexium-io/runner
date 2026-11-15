@@ -261,6 +261,33 @@ func copyVerified(source, destination, expected string, size int64) error {
 	return nil
 }
 
+// Keep installed packages shared and read-only while giving build tools their
+// own node_modules cache namespace. Linking the whole directory redirects
+// Vite's default config bundle cache into the immutable installed dependencies.
+func stageModules(modules, destination string) error {
+	canonical, err := filepath.EvalSymlinks(modules)
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(canonical)
+	if err != nil {
+		return err
+	}
+	if err := os.Mkdir(destination, 0700); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") && name != ".bin" && name != ".package-lock.json" {
+			continue // Existing shared .vite, .vite-temp and other caches stay out.
+		}
+		if err := os.Symlink(filepath.Join(canonical, name), filepath.Join(destination, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validateModules(source, modules string, facts map[string]string) error {
 	candidate, err := readBounded(filepath.Join(source, "frontend/package-lock.json"), 4<<20)
 	if err != nil {

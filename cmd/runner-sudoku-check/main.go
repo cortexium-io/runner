@@ -281,9 +281,10 @@ func run(ctx context.Context, o options) (err error) {
 	if err = stageSource(o.source, source, buildFiles); err != nil {
 		return err
 	}
-	if err = os.Symlink(o.modules, filepath.Join(source, "frontend", "node_modules")); err != nil {
+	if err = stageModules(o.modules, filepath.Join(source, "frontend", "node_modules")); err != nil {
 		return err
 	}
+	p.Runtime["frontend_modules_staging"] = "owned directory; installed package links; private tooling caches"
 	serverPath = filepath.Join(work, "server")
 	p.Build, err = build(ctx, o, source, serverPath, p.SourceSHA256)
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +63,104 @@ func TestStageSourceExcludesRegenerableCopiesAndAuthenticatesInputs(t *testing.T
 	if err = stageSource(source, filepath.Join(t.TempDir(), "changed"), files); err == nil {
 		t.Fatal("changed candidate bytes were staged under the old identity")
 	}
+}
+
+func TestStageModulesOwnsToolCachesAndPreservesSharedDependencies(t *testing.T) {
+	modules, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := map[string]string{
+		"vite/package.json":      "installed package",
+		"@scope/plugin/index.js": "installed scoped package",
+		".bin/vite":              "installed executable",
+		".package-lock.json":     "installed lock",
+		".vite/prior":            "shared cache",
+		".vite-temp/prior":       "shared config cache",
+		".cache/prior":           "another shared cache",
+	}
+	for name, body := range shared {
+		fixtureFile(t, modules, name, body)
+	}
+	staging := filepath.Join(t.TempDir(), "node_modules")
+	if err := stageModules(modules, staging); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(staging); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("staged node_modules is not an owned real directory", err)
+	}
+	for _, name := range []string{"vite", "@scope", ".bin", ".package-lock.json"} {
+		link, err := os.Readlink(filepath.Join(staging, name))
+		if err != nil || link != filepath.Join(modules, name) {
+			t.Fatalf("installed dependency entry was copied or lost: %s %s %v", name, link, err)
+		}
+	}
+	for _, name := range []string{".vite", ".vite-temp", ".cache"} {
+		if _, err := os.Lstat(filepath.Join(staging, name)); !os.IsNotExist(err) {
+			t.Fatalf("shared cache entered the build wrapper: %s %v", name, err)
+		}
+		fixtureFile(t, staging, name+"/owned", "private regenerable cache")
+		if _, err := os.Stat(filepath.Join(modules, name, "owned")); !os.IsNotExist(err) {
+			t.Fatalf("build cache escaped into installed dependencies: %s %v", name, err)
+		}
+	}
+	if err := stageModules(modules, staging); err == nil {
+		t.Fatal("existing staging directory was replaced")
+	}
+	if err := os.RemoveAll(staging); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range shared {
+		data, err := os.ReadFile(filepath.Join(modules, name))
+		if err != nil || string(data) != body {
+			t.Fatalf("owned cache cleanup changed shared dependency bytes: %s %v", name, err)
+		}
+	}
+}
+
+// This optional installed-tool proof loads only a tiny synthetic Vite config.
+// It never builds or imports a product and grants writes only to owned scratch.
+func TestInstalledViteConfigUsesOwnedModuleCache(t *testing.T) {
+	modules := os.Getenv("RUNNER_SUDOKU_MODULES_PREFLIGHT")
+	if modules == "" {
+		t.Skip("set RUNNER_SUDOKU_MODULES_PREFLIGHT for the installed Vite synthetic config proof")
+	}
+	if runtime.GOOS != "darwin" {
+		t.Skip("installed tool proof uses the qualified macOS seatbelt sandbox")
+	}
+	node := os.Getenv("RUNNER_SUDOKU_NODE_PREFLIGHT")
+	if node == "" || !filepath.IsAbs(node) || !filepath.IsAbs(modules) {
+		t.Fatal("installed proof requires absolute configured Node and modules paths")
+	}
+	work, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stageModules(modules, filepath.Join(work, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	fixtureFile(t, work, "vite.config.mts", `import {defineConfig} from 'vite';
+export default defineConfig({define:{__RUNNER_FIXTURE__:'"owned-cache"'}});
+`)
+	fixtureFile(t, work, "probe.mjs", `import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import {loadConfigFromFile} from 'vite';
+const loaded=await loadConfigFromFile({command:'build',mode:'production'},'vite.config.mts',process.cwd());
+assert.equal(loaded?.config.define.__RUNNER_FIXTURE__,'"owned-cache"');
+assert.equal((await fs.lstat('node_modules/.vite-temp')).isDirectory(),true);
+assert.equal((await fs.lstat('node_modules/.vite-temp')).isSymbolicLink(),false);
+console.log('synthetic Vite config loaded with owned temporary cache');
+`)
+	policy := "(version 1)\n(allow default)\n(deny file-write* (require-not (subpath " + strconv.Quote(work) + ")))\n"
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/usr/bin/sandbox-exec", "-p", policy, node, filepath.Join(work, "probe.mjs"))
+	cmd.Dir, cmd.WaitDelay = work, 2*time.Second
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("synthetic installed Vite config failed: %v %s", err, output)
+	}
+	t.Log(strings.TrimSpace(string(output)))
 }
 
 func TestInventoryRejectsSourceSymlinksAndEscapingFixtures(t *testing.T) {
