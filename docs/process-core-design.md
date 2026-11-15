@@ -7,6 +7,39 @@ Merge, publication and production remain separately authorized actions.**
 
 ## Current completion plan
 
+### Same-execution output recovery, authorized 15 November 2026
+
+Replace the native worker's anonymous stdout pipe for new executions with an
+attempt-owned private FIFO. Persist its device/inode before dispatch; share one
+exclusive reader lease between the worker and recovery. Keep raw model output
+off disk. A terminal harness event freezes the bounded result and usage. Before
+the original observer exits, commit that checkpoint and its provenance, then
+close the reader and advertise the handoff. A failed checkpoint write must keep
+the original reader alive. Incomplete output retains its original reader.
+
+Normal Observe recovers the same FIFO after restart. Only actual kernel EOF,
+followed by successful owned-process settlement, permits result collection and
+release. Empty inventories and idle writers cannot stand in for EOF. Preserve
+the existing dispatch claim, attempt identity, accepted artifacts and limits;
+recovery must not invoke another model turn or rerun the command. Record primary
+execution completion separately from cleanup so timely work can finish recovery
+after its unchanged deadline. Genuine execution timeouts still fail.
+
+The single implementation owner adds focused checkpoint-failure, reader-lease,
+EOF/identity, terminal-result, deadline/restart and cleanup regressions. Exercise
+the real observer expiry with a model-free CLI, including output/usage/artifact
+retention and no redispatch. Verify actual sandbox access with zero model calls,
+run the final repository gate once and compare exact committed hashes in Atlas.
+Schema seven protects this execution/transport contract from older services
+without rewriting retained run bytes. No installed-service cutover is included.
+
+Existing anonymous streams whose observer already disappeared lack a recoverable
+EOF witness. A worker killed before a terminal checkpoint can also have consumed
+uncommitted output. Preserve uncertainty in both cases; do not fabricate results
+or replay the task. Shared-command diagnostics remain bounded tails, not a
+lossless transcript: late bytes read immediately before a failed checkpoint write
+can be absent after a crash. The committed command outcome stays authoritative.
+
 ### Lifecycle correction after Atlas review, authorized 15 November 2026
 
 Correct the five reproduced native/task lifecycle defects together, using the

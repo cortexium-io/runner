@@ -97,38 +97,47 @@ func ValidateRuntimeWritePaths(paths []string) error {
 // inventory; Permitted is policy; Used contains observed calls. None is inferred
 // from another. Missing harness telemetry is stated in Gaps.
 type NativeProvenance struct {
-	Machine          string              `json:"machine"`
-	Platform         string              `json:"platform"`
-	Harness          string              `json:"harness"`
-	Version          string              `json:"version,omitempty"`
-	Binary           string              `json:"binary"`
-	Model            string              `json:"requested_model"`
-	ReportedModel    string              `json:"reported_model,omitempty"`
-	RequestDigest    string              `json:"request_sha256"`
-	PromptBytes      int                 `json:"runner_prompt_bytes"`
-	SchemaBytes      int                 `json:"output_schema_bytes"`
-	UsageScope       string              `json:"usage_scope"`
-	Context          *NativeContextFacts `json:"context,omitempty"`
-	ResultsInput     *NativeInputFile    `json:"results_input,omitempty"`
-	Reasoning        string              `json:"requested_reasoning,omitempty"`
-	Access           string              `json:"access"`
-	Permitted        NativeProfile       `json:"permitted"`
-	Configuration    []NativeFingerprint `json:"configuration,omitempty"`
-	Available        []string            `json:"available,omitempty"`
-	Used             []NativeUse         `json:"used,omitempty"`
-	Decision         string              `json:"decision,omitempty"`
-	Gaps             []string            `json:"gaps,omitempty"`
-	Dropped          int                 `json:"dropped_events,omitempty"`
-	DiagnosticEvents int                 `json:"diagnostic_events,omitempty"`
-	StartedAt        time.Time           `json:"worker_started_at"`
-	LaunchedAt       time.Time           `json:"model_launched_at"`
-	FirstEventAt     time.Time           `json:"first_event_at,omitempty"`
-	CompletedAt      time.Time           `json:"completed_at,omitempty"`
-	VersionMillis    int64               `json:"version_probe_ms"`
-	ContextMillis    int64               `json:"context_probe_ms"`
-	StartupMillis    int64               `json:"startup_ms"`
-	ExecutionMillis  int64               `json:"execution_ms"`
-	CleanupAssurance string              `json:"cleanup_assurance"`
+	OutputRecovery   *NativeOutputRecovery `json:"output_recovery,omitempty"`
+	Machine          string                `json:"machine"`
+	Platform         string                `json:"platform"`
+	Harness          string                `json:"harness"`
+	Version          string                `json:"version,omitempty"`
+	Binary           string                `json:"binary"`
+	Model            string                `json:"requested_model"`
+	ReportedModel    string                `json:"reported_model,omitempty"`
+	RequestDigest    string                `json:"request_sha256"`
+	PromptBytes      int                   `json:"runner_prompt_bytes"`
+	SchemaBytes      int                   `json:"output_schema_bytes"`
+	UsageScope       string                `json:"usage_scope"`
+	Context          *NativeContextFacts   `json:"context,omitempty"`
+	ResultsInput     *NativeInputFile      `json:"results_input,omitempty"`
+	Reasoning        string                `json:"requested_reasoning,omitempty"`
+	Access           string                `json:"access"`
+	Permitted        NativeProfile         `json:"permitted"`
+	Configuration    []NativeFingerprint   `json:"configuration,omitempty"`
+	Available        []string              `json:"available,omitempty"`
+	Used             []NativeUse           `json:"used,omitempty"`
+	Decision         string                `json:"decision,omitempty"`
+	Gaps             []string              `json:"gaps,omitempty"`
+	Dropped          int                   `json:"dropped_events,omitempty"`
+	DiagnosticEvents int                   `json:"diagnostic_events,omitempty"`
+	StartedAt        time.Time             `json:"worker_started_at"`
+	LaunchedAt       time.Time             `json:"model_launched_at"`
+	FirstEventAt     time.Time             `json:"first_event_at,omitempty"`
+	CompletedAt      time.Time             `json:"completed_at,omitempty"`
+	VersionMillis    int64                 `json:"version_probe_ms"`
+	ContextMillis    int64                 `json:"context_probe_ms"`
+	StartupMillis    int64                 `json:"startup_ms"`
+	ExecutionMillis  int64                 `json:"execution_ms"`
+	CleanupAssurance string                `json:"cleanup_assurance"`
+}
+
+// NativeOutputRecovery is bounded settlement evidence, independent of the
+// expendable observed-tool sample. It contains no raw stream data.
+type NativeOutputRecovery struct {
+	Transport        string    `json:"transport"`
+	ExecutionEndedAt time.Time `json:"execution_ended_at"`
+	EOFAt            time.Time `json:"eof_at"`
 }
 
 // NativeContextFacts records generated policy and its configuration-only

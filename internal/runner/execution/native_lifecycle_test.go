@@ -75,10 +75,31 @@ func TestHarnessFinalSelectionPreservesTerminalFailures(t *testing.T) {
 				end, err := harnessResult(a, receipt.Final, t.TempDir(), nil)
 				accepted = err == nil && end.Kind == "returned"
 			}
-			if accepted != tc.accepted || events.FinalOverflow && len(events.Final) != 0 || tc.terminal && events.Failed == "" {
+			if accepted != tc.accepted || receipt.OutputFinalized != tc.terminal || events.FinalOverflow && len(events.Final) != 0 || tc.terminal && events.Failed == "" {
 				t.Fatalf("wrong final-result authority: accepted=%v receipt=%+v", accepted, receipt)
 			}
 		})
+	}
+}
+
+func TestHarnessTerminalCheckpointIgnoresLateEvents(t *testing.T) {
+	for _, terminal := range []string{
+		`{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":3}}`,
+		`{"type":"result","result":"saved","usage":{"input_tokens":12,"output_tokens":3,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}`,
+	} {
+		events := harnessEvents{Limit: 128, Final: []byte("saved")}
+		events.accept([]byte(terminal))
+		checkpoint := runner.Clone(events)
+		for _, late := range []string{
+			`{"type":"item.completed","item":{"type":"agent_message","text":"replacement"}}`,
+			`{"type":"turn.completed","usage":{"input_tokens":999,"output_tokens":999}}`,
+			`{"type":"error","message":"late descendant error"}`,
+		} {
+			events.accept([]byte(late))
+		}
+		if !events.Terminal || string(events.Final) != string(checkpoint.Final) || events.Failed != checkpoint.Failed || *events.Usage.InputTokens != *checkpoint.Usage.InputTokens || *events.Usage.OutputTokens != *checkpoint.Usage.OutputTokens {
+			t.Fatal("late stream bytes replaced terminal result or usage", events)
+		}
 	}
 }
 

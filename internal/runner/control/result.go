@@ -185,7 +185,7 @@ func compactResult(r runner.Run, now time.Time) Result {
 			}
 		}
 	}
-	if a := r.Current(); r.Status == "Waiting" && r.Decision == nil && a != nil && a.State == runner.Unknown && a.Reconciling && a.Deadline.After(now) {
+	if a := r.Current(); r.Status == "Waiting" && r.Decision == nil && a != nil && a.Recovering(now) {
 		out.Reconciling = true
 	}
 	end := now

@@ -253,8 +253,9 @@ the canonical child outputs are not truncated. The private result file is bounde
 by `max_artifact`, reserved by its actual JSON byte count and removed on release.
 A Claude role without `Read` cannot use this overflow path.
 
-SQLite operational schema six prevents older services from misreading native
-allocation/release phases, in addition to the schema-five native-policy boundary.
+SQLite operational schema seven prevents older services from misreading native
+output recovery and primary completion, in addition to the schema-six
+allocation/release and schema-five native-policy boundaries.
 Opening supported earlier state preserves its saved
 run/definition/attempt bytes; older binaries refuse the upgraded operational marker.
 Use new private qualification state, leaving an installed pilot's cutover explicit.
@@ -274,9 +275,23 @@ preserves unrelated sessions, and keeps bounded provisional output/usage during
 uncertain settlement so the same execution can resume without another model call.
 The reported assurance is `cooperative-known-processes`, not arbitrary process
 containment. On macOS, a fast detached descendant with hidden/cleared environment
-and an unseen intermediate parent can be unobservable. A lost observer for a
-known open output pipe remains Unknown and requires operator resolution; an empty
-process inventory is not permission to claim it settled. The configured free-space
+and an unseen intermediate parent can be unobservable.
+
+New attempts use a private attempt-owned FIFO and an exclusive output reader
+lease. A terminal checkpoint preserves the result/usage before observer handoff;
+normal reconciliation automatically recovers that same execution, including
+after service restart. It requires verified original-stream EOF and successful
+process settlement before collecting output or removing scratch. Recovery spends
+no new attempt and does not rerun the model or command. Primary completion time
+keeps cleanup beyond the deadline from failing work that finished on time.
+The canonical provenance records recovered EOF; raw model streams are not saved.
+
+An already-expired legacy anonymous pipe, or loss before a complete terminal
+checkpoint, remains Unknown when the evidence cannot establish the result and
+closure. An empty process inventory does not establish stream EOF. Shared command
+diagnostics are bounded tails; a crash between a late read and its checkpoint
+write can lose those late diagnostic bytes. The committed exit outcome remains
+authoritative. The configured free-space
 reserve is monitored during execution as a soft stop, including the source volume;
 it is not an OS quota on third-party tools and shared caches.
 

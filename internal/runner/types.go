@@ -415,6 +415,9 @@ type Observation struct {
 	DroppedLogBytes int64           `json:"dropped_log_bytes,omitempty"`
 	NativePeakBytes int64           `json:"native_peak_bytes,omitempty"`
 	Effective       *ExecutionFacts `json:"effective,omitempty"`
+	// ExecutionEndedAt is trusted adapter evidence that primary work ended;
+	// output/process cleanup may still be pending after its execution deadline.
+	ExecutionEndedAt time.Time `json:"execution_ended_at,omitzero"`
 }
 type ExecutionFacts struct {
 	Model            string `json:"model"`
@@ -460,33 +463,41 @@ type SourceResult struct {
 	AttemptID    string `json:"attempt_id"`
 }
 type Attempt struct {
-	Source          *SourceResult   `json:"source,omitempty"`
-	ID              string          `json:"id"`
-	Step            int             `json:"step"`
-	Visit           int             `json:"visit,omitempty"`
-	Superseded      bool            `json:"superseded,omitempty"`
-	EvidenceKey     string          `json:"evidence_key,omitempty"`
-	ReusedFrom      string          `json:"reused_from,omitempty"`
-	Profile         string          `json:"profile,omitempty"`
-	State           ExecutionState  `json:"state"`
-	Started         time.Time       `json:"started"`
-	Deadline        time.Time       `json:"deadline"`
-	NextCheck       time.Time       `json:"next_check,omitzero"`
-	Reconciling     bool            `json:"reconciling,omitempty"`
-	End             *ExecutionEnd   `json:"end,omitempty"`
-	Usage           Usage           `json:"usage"`
-	Reason          string          `json:"reason,omitempty"`
-	StopRequested   bool            `json:"stop_requested,omitempty"`
-	TimedOut        bool            `json:"timed_out,omitempty"`
-	Released        bool            `json:"released,omitempty"`
-	FinishedAt      time.Time       `json:"finished_at,omitempty"`
-	DroppedLogBytes int64           `json:"dropped_log_bytes,omitempty"`
-	StopAttempts    int             `json:"stop_attempts,omitempty"`
-	StopAllowance   int             `json:"stop_allowance,omitempty"`
-	NativeHandle    string          `json:"native_handle,omitempty"`
-	NativePeakBytes int64           `json:"native_peak_bytes,omitempty"`
-	Effective       *ExecutionFacts `json:"effective,omitempty"`
+	Source           *SourceResult   `json:"source,omitempty"`
+	ID               string          `json:"id"`
+	Step             int             `json:"step"`
+	Visit            int             `json:"visit,omitempty"`
+	Superseded       bool            `json:"superseded,omitempty"`
+	EvidenceKey      string          `json:"evidence_key,omitempty"`
+	ReusedFrom       string          `json:"reused_from,omitempty"`
+	Profile          string          `json:"profile,omitempty"`
+	State            ExecutionState  `json:"state"`
+	Started          time.Time       `json:"started"`
+	Deadline         time.Time       `json:"deadline"`
+	NextCheck        time.Time       `json:"next_check,omitzero"`
+	Reconciling      bool            `json:"reconciling,omitempty"`
+	End              *ExecutionEnd   `json:"end,omitempty"`
+	Usage            Usage           `json:"usage"`
+	Reason           string          `json:"reason,omitempty"`
+	StopRequested    bool            `json:"stop_requested,omitempty"`
+	TimedOut         bool            `json:"timed_out,omitempty"`
+	Released         bool            `json:"released,omitempty"`
+	FinishedAt       time.Time       `json:"finished_at,omitempty"`
+	ExecutionEndedAt time.Time       `json:"execution_ended_at,omitzero"`
+	DroppedLogBytes  int64           `json:"dropped_log_bytes,omitempty"`
+	StopAttempts     int             `json:"stop_attempts,omitempty"`
+	StopAllowance    int             `json:"stop_allowance,omitempty"`
+	NativeHandle     string          `json:"native_handle,omitempty"`
+	NativePeakBytes  int64           `json:"native_peak_bytes,omitempty"`
+	Effective        *ExecutionFacts `json:"effective,omitempty"`
 }
+
+// Recovering includes cleanup of work completed within its execution deadline.
+// That deadline must not turn an automatic output rejoin into an owner decision.
+func (a Attempt) Recovering(now time.Time) bool {
+	return a.State == Unknown && a.Reconciling && (a.Deadline.After(now) || !a.ExecutionEndedAt.IsZero() && !a.ExecutionEndedAt.After(a.Deadline))
+}
+
 type Run struct {
 	TaskGraph                 *TaskGraphState            `json:"task_graph,omitempty"`
 	SourceHandoff             *SourceHandoffAudit        `json:"source_handoff,omitempty"`

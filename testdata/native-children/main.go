@@ -65,6 +65,9 @@ func spawnLeaf() {
 	if strings.HasSuffix(os.Getenv("RUNNER_CHILD_FIXTURE"), "-stdout") {
 		cmd.Stdout = os.Stdout
 	}
+	if os.Getenv("RUNNER_CHILD_FIXTURE") == "stderr" {
+		cmd.Stderr = os.Stderr
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		panic(err)

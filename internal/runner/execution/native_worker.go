@@ -36,23 +36,28 @@ type harnessSpec struct {
 	Shared           bool                    `json:"shared,omitempty"`
 	ContextOverrides []string                `json:"-"`
 	ResultsFile      *runner.NativeInputFile `json:"results_file,omitempty"`
+	Output           *nativeOutputIdentity   `json:"output,omitempty"`
 }
 
 type harnessReceipt struct {
-	AttemptID             string          `json:"attempt_id"`
-	Kind                  string          `json:"kind"`
-	Final                 []byte          `json:"final,omitempty"`
-	Usage                 runner.Usage    `json:"usage"`
-	Reason                string          `json:"reason,omitempty"`
-	ModelLaunched         bool            `json:"model_launched,omitempty"`
-	ChildrenSettled       bool            `json:"children_settled"`
-	Owner                 string          `json:"owner,omitempty"`
-	Since                 time.Time       `json:"since,omitempty"`
-	Known                 map[string]bool `json:"known_processes,omitempty"`
-	CleanupReason         string          `json:"cleanup_reason,omitempty"`
-	EmptyObservedAt       time.Time       `json:"empty_observed_at,omitempty"`
-	OutputWritersPending  bool            `json:"output_writers_pending,omitempty"`
-	OutputObserverExpired bool            `json:"output_observer_expired,omitempty"`
+	AttemptID             string                `json:"attempt_id"`
+	Kind                  string                `json:"kind"`
+	Final                 []byte                `json:"final,omitempty"`
+	Usage                 runner.Usage          `json:"usage"`
+	Reason                string                `json:"reason,omitempty"`
+	ModelLaunched         bool                  `json:"model_launched,omitempty"`
+	ChildrenSettled       bool                  `json:"children_settled"`
+	Owner                 string                `json:"owner,omitempty"`
+	Since                 time.Time             `json:"since,omitempty"`
+	Known                 map[string]bool       `json:"known_processes,omitempty"`
+	CleanupReason         string                `json:"cleanup_reason,omitempty"`
+	EmptyObservedAt       time.Time             `json:"empty_observed_at,omitempty"`
+	OutputWritersPending  bool                  `json:"output_writers_pending,omitempty"`
+	OutputObserverExpired bool                  `json:"output_observer_expired,omitempty"`
+	OutputFinalized       bool                  `json:"output_finalized,omitempty"`
+	ExecutionEndedAt      time.Time             `json:"execution_ended_at,omitzero"`
+	Output                *nativeOutputIdentity `json:"output,omitempty"`
+	OutputRecoveredAt     time.Time             `json:"output_recovered_at,omitzero"`
 }
 
 func harnessArgs(spec harnessSpec, schemaFile string, schema []byte) []string {
@@ -324,6 +329,9 @@ func RunNativeWorker(parent context.Context, file string) (returnErr error) {
 		return err
 	}
 	proofLimit := min(a.Limits.MaxLog, 64<<10)
+	if spec.Output != nil {
+		proofLimit -= nativeOutputRecoveryReserve
+	}
 	proofBytes, err := boundedHarnessProof(proof, proofLimit)
 	if err != nil {
 		return err
@@ -350,11 +358,22 @@ func RunNativeWorker(parent context.Context, file string) (returnErr error) {
 	cmd.Dir = spec.Directory
 	cmd.Stdin = strings.NewReader(prompt)
 	cmd.ExtraFiles = []*os.File{lease}
-	cmd.Stderr = io.Discard // Tool diagnostics can contain credentials.
+	cmd.Stderr = nil // DevNull, without a second anonymous pipe or retained diagnostics.
 	setNativeProcessGroup(cmd)
 	cmd.Cancel = func() error { return killNativeProcess(cmd) }
 	cmd.WaitDelay = 2 * time.Second
-	stdout, output, err := os.Pipe()
+	var stdout io.ReadCloser
+	var output *os.File
+	if spec.Output != nil {
+		readerLease, locked, leaseErr := nativeOutputLease(spec.Control)
+		if leaseErr != nil || !locked {
+			return errors.New("native output observer is already active or unavailable")
+		}
+		defer readerLease.Close()
+		stdout, output, err = openNativeOutput(spec.Control, spec.Output)
+	} else {
+		stdout, output, err = os.Pipe() // Existing anonymous-pipe assignments.
+	}
 	if err != nil {
 		return err
 	}
@@ -415,7 +434,7 @@ func RunNativeWorker(parent context.Context, file string) (returnErr error) {
 			}
 			if overflow {
 				events.Proof.Dropped++
-				if !sharedCommand(a) {
+				if !sharedCommand(a) && !events.Terminal {
 					// The skipped event might contain a newer final message. Only
 					// a later bounded result can restore final-result authority.
 					events.Final, events.FinalOverflow = nil, true
@@ -446,17 +465,27 @@ func RunNativeWorker(parent context.Context, file string) (returnErr error) {
 			}
 		}
 	}()
-	waitDone := make(chan error, 1)
-	go func() { waitDone <- cmd.Wait() }()
+	type primaryExit struct {
+		err     error
+		at      time.Time
+		stopped bool
+	}
+	waitDone := make(chan primaryExit, 1)
+	go func() {
+		err := cmd.Wait()
+		waitDone <- primaryExit{err: err, at: time.Now().UTC(), stopped: ctx.Err() != nil}
+	}()
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	spaceCheck := time.Now().Add(time.Second)
 	var runErr error
+	var exited primaryExit
 	stopReason := ""
 running:
 	for {
 		select {
-		case runErr = <-waitDone:
+		case exited = <-waitDone:
+			runErr = exited.err
 			break running
 		case <-ticker.C:
 			if stopped() {
@@ -480,49 +509,79 @@ running:
 		}
 	}
 	if errors.Is(runErr, exec.ErrWaitDelay) {
-		return errors.New("native descendants did not settle")
+		runErr = errors.New("native executable I/O did not settle within the wait bound")
 	}
-	executionStopped := ctx.Err() != nil
+	executionStopped := exited.stopped
+	eventMu.Lock()
+	events.ExecutionEndedAt = exited.at
+	eventMu.Unlock()
 	var terminated []nativeChild
 	cleanupErr := settleNativeChildren(spec.Owner, proof.StartedAt, knownProcesses, func(child nativeChild) {
 		if len(terminated) < maxNativeFacts {
 			terminated = append(terminated, child)
 		}
 	})
+	completedEvents := func() harnessEvents {
+		e := snapshot()
+		if sharedCommand(a) {
+			e = sharedCommandEvents(a, e, runErr, commandLog.bytes())
+		}
+		return e
+	}
+	receiptErr := runErr
+	if sharedCommand(a) {
+		receiptErr = nil // The command result retains its configured exit status.
+	}
+	savePending := func(e harnessEvents, expired bool) error {
+		pending := completedHarnessReceipt(a, e, executionStopped, receiptErr, stopReason)
+		pending.ChildrenSettled, pending.OutputWritersPending = false, true
+		pending.OutputObserverExpired = expired
+		pending.Since = proof.StartedAt
+		pending.CleanupReason = "waiting for native output writers to close"
+		if expired {
+			pending.CleanupReason = "native output observer handed off its terminal checkpoint"
+		}
+		data, err := boundedHarnessProof(e.Proof, proofLimit)
+		if err != nil {
+			return err
+		}
+		if err := workerWrite(proofFile, data); err != nil {
+			return err
+		}
+		return writeHarnessReceipt(spec, pending, knownProcesses)
+	}
 	var streamErr error
 	select {
 	case streamErr = <-streamDone:
 	case <-time.After(2 * time.Second):
-		pendingEvents := snapshot()
-		pendingErr := runErr
-		if sharedCommand(a) {
-			pendingEvents = sharedCommandEvents(a, pendingEvents, runErr, commandLog.bytes())
-			pendingErr = nil
+		delay := 30 * time.Second
+		if err := savePending(completedEvents(), false); err != nil {
+			delay = time.Second // Retain the reader and bounded state while storage recovers.
 		}
-		pending := completedHarnessReceipt(a, pendingEvents, executionStopped, pendingErr, stopReason)
-		pending.ChildrenSettled, pending.OutputWritersPending = false, true
-		pending.Since, pending.CleanupReason = proof.StartedAt, "waiting for native output writers to close"
-		if err := writeHarnessReceipt(spec, pending, knownProcesses); err != nil {
-			return err
-		}
-		if data, err := boundedHarnessProof(pendingEvents.Proof, proofLimit); err == nil {
-			_ = workerWrite(proofFile, data)
-		}
-		// Keep the original pipe/lease observer for a bounded cleanup period.
-		// A coordinator restart can observe this saved execution without a turn.
-		select {
-		case streamErr = <-streamDone:
-		case <-time.After(30 * time.Second):
-			_ = stdout.Close()
-			_ = <-streamDone
-			pendingEvents = snapshot()
-			if sharedCommand(a) {
-				pendingEvents = sharedCommandEvents(a, pendingEvents, runErr, commandLog.bytes())
+		for waiting := true; waiting; {
+			select {
+			case streamErr = <-streamDone:
+				waiting = false
+			case <-time.After(delay):
+				e := completedEvents()
+				checkpoint := completedHarnessReceipt(a, e, executionStopped, receiptErr, stopReason)
+				delay = 30 * time.Second
+				if spec.Output != nil && !checkpoint.OutputFinalized {
+					// A partial frame cannot be recovered without retaining raw
+					// model output. Keep its original bounded reader until EOF.
+					if err := savePending(e, false); err != nil {
+						delay = time.Second
+					}
+					continue
+				}
+				closed, err := handoffNativeOutput(stdout, streamDone, func(expired bool) error {
+					return savePending(e, expired)
+				})
+				if closed {
+					return err
+				}
+				delay = time.Second
 			}
-			pending = completedHarnessReceipt(a, pendingEvents, executionStopped, pendingErr, stopReason)
-			pending.ChildrenSettled, pending.OutputWritersPending, pending.OutputObserverExpired = false, true, true
-			pending.Since, pending.CleanupReason = proof.StartedAt, "native output-close observer expired; saved result retained for owner recovery"
-			return writeHarnessReceipt(spec, pending, knownProcesses)
 		}
 	}
 	for _, child := range terminated {
@@ -561,7 +620,15 @@ running:
 }
 
 func completedHarnessReceipt(a runner.Assignment, events harnessEvents, stopped bool, runErr error, stopReason string) harnessReceipt {
-	result := harnessReceipt{AttemptID: a.AttemptID, Kind: "returned", Final: events.Final, Usage: events.Usage, ModelLaunched: true, ChildrenSettled: true}
+	result := harnessReceipt{
+		AttemptID:        a.AttemptID,
+		Kind:             "returned",
+		Final:            events.Final,
+		Usage:            events.Usage,
+		ModelLaunched:    true,
+		ChildrenSettled:  true,
+		ExecutionEndedAt: events.ExecutionEndedAt,
+	}
 	if stopped {
 		result.Kind, result.Reason = "stopped", stopReason
 		if result.Reason == "" {
@@ -576,10 +643,12 @@ func completedHarnessReceipt(a runner.Assignment, events harnessEvents, stopped 
 			result.Reason = "native executable exited unsuccessfully; inspect the permitted harness configuration"
 		}
 	}
+	result.OutputFinalized = events.Terminal || sharedCommand(a) || stopped || runErr != nil
 	return result
 }
 
 func writeHarnessReceipt(spec harnessSpec, result harnessReceipt, known map[string]bool) error {
+	result.Output = spec.Output
 	if !result.ModelLaunched {
 		if err := settleNativeChildren(spec.Owner, time.Now().Add(-time.Minute), known, func(nativeChild) {}); err != nil {
 			result.CleanupReason = runner.Clip(err.Error())

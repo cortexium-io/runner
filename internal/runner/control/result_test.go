@@ -163,15 +163,17 @@ func TestCompactResultDecisionOutputs(t *testing.T) {
 func TestResultDistinguishesBoundedReconciliationFromOwnerWaiting(t *testing.T) {
 	now := time.Now()
 	for _, tc := range []struct {
-		name     string
-		trusted  bool
-		expired  bool
-		decision bool
-		want     bool
+		name      string
+		trusted   bool
+		expired   bool
+		decision  bool
+		completed bool
+		want      bool
 	}{
 		{name: "same operation reconnect", trusted: true, want: true},
 		{name: "unresolved effect"},
 		{name: "deadline reached", trusted: true, expired: true},
+		{name: "output cleanup after primary completed", trusted: true, expired: true, completed: true, want: true},
 		{name: "owner decision", trusted: true, decision: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -182,6 +184,9 @@ func TestResultDistinguishesBoundedReconciliationFromOwnerWaiting(t *testing.T) 
 			}
 			if tc.expired {
 				r.Attempts[0].Deadline = now
+			}
+			if tc.completed {
+				r.Attempts[0].ExecutionEndedAt = r.Attempts[0].Deadline.Add(-time.Second)
 			}
 			if tc.decision {
 				r.Decision = &runner.Decision{ID: "protected"}

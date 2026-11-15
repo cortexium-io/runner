@@ -99,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 6 {
+	if version < 0 || version > 7 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -164,6 +164,14 @@ PRAGMA user_version=4; COMMIT;`); e != nil {
 		// Native ownership now precedes disposable inputs and outlives their
 		// release. Older readers cannot interpret these interrupted phases.
 		if _, e = db.Exec("PRAGMA user_version=6"); e != nil {
+			return nil, e
+		}
+		version = 6
+	}
+	if version == 6 {
+		// FIFO capture identity and primary completion timestamps are part of
+		// recovery. An older service must not ignore either proof boundary.
+		if _, e = db.Exec("PRAGMA user_version=7"); e != nil {
 			return nil, e
 		}
 	}

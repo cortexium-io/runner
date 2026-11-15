@@ -121,7 +121,7 @@ func ownProgress(r Run, now time.Time) Progress {
 		case NotStarted:
 			p.Pending++
 		case Unknown:
-			if a.Reconciling && known && !elapsed {
+			if a.Recovering(now) {
 				p.Reconciling++
 			} else {
 				p.Unknown++
@@ -131,7 +131,7 @@ func ownProgress(r Run, now time.Time) Progress {
 		}
 		if !known {
 			p.attention(Attention{RunID: r.ID, Kind: "timing_unknown"})
-		} else if elapsed {
+		} else if elapsed && (a.ExecutionEndedAt.IsZero() || a.ExecutionEndedAt.After(a.Deadline)) {
 			p.attention(Attention{RunID: r.ID, Kind: "deadline_elapsed"})
 		}
 	}

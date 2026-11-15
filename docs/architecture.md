@@ -57,6 +57,7 @@ General records use format nine; normalized attempts remain individually bounded
 SQLite schema four widened their physical attempt positions; schema five adds
 the native-context/result-file worker compatibility boundary without rewriting
 existing rows. Schema six adds the native allocation/release compatibility boundary.
+Schema seven adds recoverable output transport and primary-completion semantics.
 Old run formats retain their earlier bounds and old binaries refuse
 the new schema/format. Fresh qualification state is separate from the installed
 pilot; this work does not install a new default or migrate live state.
@@ -109,6 +110,42 @@ and 221 nearby call relationships without hitting those output caps; source/test
 review found no further actionable issue. The canonical logs and Atlas identities
 are retained at
 `/Users/dan/Projects/runner-qualifications/20261115/lifecycle-correction-6169725/`.
+
+### Same-execution output recovery, 15 November 2026
+
+New native attempts persist a private FIFO's device/inode before dispatch. Its
+initial write end is inherited only by the primary command; the worker closes
+its own copy after Start. The FIFO is made read-only before launch and receives
+no extra worker filesystem grant. Model stderr goes directly to the null device;
+shared commands send both streams to the FIFO. No unbounded raw spool is created.
+
+An independent exclusive reader lease serializes reduction and recovery. The
+original bounded reducer freezes final output/usage at the harness terminal
+event. If writers outlive its existing observation bound, it commits the reduced
+terminal checkpoint and proof before closing its reader. Storage failure retains
+the reader and retries persistence. An incomplete model frame retains its reader
+until EOF rather than discarding data needed for the result.
+
+Observe acquires that lease after handoff, verifies the original FIFO identity
+and drains a bounded batch. EAGAIN means an open writer; only read returning zero
+establishes EOF. Positive EOF and two successful empty owned-process inventories
+permit the same receipt to settle. The original dispatch claim stays in force,
+with no new attempt or model invocation. Normal collection preserves canonical
+artifacts; Release removes the FIFO, checkpoint and owned scratch. A mandatory
+bounded provenance field records primary completion and recovered EOF, surviving
+tool-fact trimming and release.
+
+The trusted primary completion timestamp is persisted independently of settlement
+and used by Core/status/result. Finishing cleanup after the deadline cannot turn
+timely primary work into a timeout or an automatic owner escalation. Actual late
+completion and legacy records without completion evidence retain deadline rules.
+
+Already-expired anonymous streams have no reconstructable EOF witness. A worker
+lost before any complete terminal checkpoint can also have consumed uncommitted
+bytes. These cases remain uncertain, with replacement and release refused. Shared
+command diagnostics are bounded tails; late bytes consumed just before a failed
+checkpoint write can be lost across a crash, while the saved exit outcome stays
+authoritative. This is result recovery, not a raw-console transcript guarantee.
 
 ### Real qualification evidence
 

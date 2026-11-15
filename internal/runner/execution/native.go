@@ -19,20 +19,21 @@ import (
 )
 
 type harnessJob struct {
-	Assignment      runner.Assignment       `json:"assignment,omitzero"`
-	AttemptID       string                  `json:"attempt_id,omitempty"`
-	AssignmentFile  string                  `json:"assignment_file,omitempty"`
-	AssignmentLimit runner.Bytes            `json:"assignment_limit,omitempty"`
-	Directory       string                  `json:"directory,omitempty"`
-	Workspace       *workspaceRecord        `json:"workspace,omitempty"`
-	Stage           string                  `json:"stage"`
-	StopRequested   bool                    `json:"stop_requested,omitempty"`
-	StopReason      string                  `json:"stop_reason,omitempty"`
-	ScratchDir      string                  `json:"scratch_dir,omitempty"`
-	ResultsFile     *runner.NativeInputFile `json:"results_file,omitempty"`
-	End             *runner.ExecutionEnd    `json:"end,omitempty"`
-	Usage           runner.Usage            `json:"usage"`
-	Effective       *runner.ExecutionFacts  `json:"effective,omitempty"`
+	Assignment       runner.Assignment       `json:"assignment,omitzero"`
+	AttemptID        string                  `json:"attempt_id,omitempty"`
+	AssignmentFile   string                  `json:"assignment_file,omitempty"`
+	AssignmentLimit  runner.Bytes            `json:"assignment_limit,omitempty"`
+	Directory        string                  `json:"directory,omitempty"`
+	Workspace        *workspaceRecord        `json:"workspace,omitempty"`
+	Stage            string                  `json:"stage"`
+	StopRequested    bool                    `json:"stop_requested,omitempty"`
+	StopReason       string                  `json:"stop_reason,omitempty"`
+	ScratchDir       string                  `json:"scratch_dir,omitempty"`
+	ResultsFile      *runner.NativeInputFile `json:"results_file,omitempty"`
+	End              *runner.ExecutionEnd    `json:"end,omitempty"`
+	Usage            runner.Usage            `json:"usage"`
+	Effective        *runner.ExecutionFacts  `json:"effective,omitempty"`
+	ExecutionEndedAt time.Time               `json:"execution_ended_at,omitzero"`
 }
 
 // Native is the explicit opt-in CLI adapter. The existing restricted Codex
@@ -193,7 +194,7 @@ func harnessObservation(job harnessJob) runner.Observation {
 	if id == "" {
 		id = job.Assignment.AttemptID
 	}
-	o := runner.Observation{State: runner.Running, NativeHandle: "harness/" + id, Reason: "native " + job.Stage, NextCheck: time.Now().Add(time.Second), Effective: job.Effective, Usage: job.Usage}
+	o := runner.Observation{State: runner.Running, NativeHandle: "harness/" + id, Reason: "native " + job.Stage, NextCheck: time.Now().Add(time.Second), Effective: job.Effective, Usage: job.Usage, ExecutionEndedAt: job.ExecutionEndedAt}
 	if job.Workspace != nil {
 		o.Source = &runner.SourceResult{Repository: job.Workspace.Repository, Base: job.Workspace.Base, WorkDir: job.Workspace.WorkDir, AttemptID: id}
 	}
@@ -427,6 +428,13 @@ func (n *Native) prepareWorker(ctx context.Context, job *harnessJob) error {
 	if err = n.disk.Write(control+"/stop", []byte{0}, 1); err != nil {
 		return err
 	}
+	output, err := createNativeOutput(filepath.Join(n.disk.Root, control))
+	if err != nil {
+		return err
+	}
+	if err := n.disk.Write(control+"/output.lease", nil, 1); err != nil {
+		return err
+	}
 	spec := harnessSpec{
 		AttemptID:      a.AttemptID,
 		AssignmentFile: filepath.Join(n.disk.Root, control, "assignment.json"),
@@ -440,6 +448,7 @@ func (n *Native) prepareWorker(ctx context.Context, job *harnessJob) error {
 		ScratchDir:     job.ScratchDir,
 		Shared:         sharedCommand(*a),
 		ResultsFile:    job.ResultsFile,
+		Output:         output,
 	}
 	data, err := json.Marshal(spec)
 	if err != nil {
@@ -517,13 +526,14 @@ func (n *Native) Observe(ctx context.Context, id string) (runner.Observation, er
 			return o, nil
 		}
 		if !receipt.ChildrenSettled {
-			settled, err := n.reconcileReceipt(id, &receipt)
+			settled, err := n.reconcileReceipt(job.Assignment, &receipt)
 			if err != nil {
 				return runner.Observation{}, err
 			}
 			if !settled {
 				o.State, o.Reason, o.Reconciling, o.Usage = runner.Unknown, "native owned-process settlement unconfirmed: "+runner.Clip(receipt.CleanupReason), true, receipt.Usage
-				if receipt.OutputObserverExpired {
+				o.ExecutionEndedAt = receipt.ExecutionEndedAt
+				if receipt.OutputWritersPending && receipt.OutputObserverExpired && (receipt.Output == nil || !receipt.OutputFinalized) {
 					o.Reconciling = false
 				}
 				if !receipt.EmptyObservedAt.IsZero() {
@@ -533,6 +543,7 @@ func (n *Native) Observe(ctx context.Context, id string) (runner.Observation, er
 			}
 		}
 		job.Usage = receipt.Usage
+		job.ExecutionEndedAt = receipt.ExecutionEndedAt
 		if !receipt.ModelLaunched && receipt.Kind != "returned" && job.Effective != nil {
 			if _, err := n.disk.ArtifactSize(job.Effective.Provenance); err != nil {
 				job.Effective.Provenance = ""
@@ -605,15 +616,29 @@ func (n *Native) Observe(ctx context.Context, id string) (runner.Observation, er
 
 // Reconcile the same saved execution. The model result and usage stay durable
 // while cleanup is pending; neither an owner restart nor cancellation reruns it.
-func (n *Native) reconcileReceipt(id string, receipt *harnessReceipt) (bool, error) {
-	if receipt.OutputWritersPending {
-		return false, nil
-	}
+func (n *Native) reconcileReceipt(a runner.Assignment, receipt *harnessReceipt) (bool, error) {
+	id := a.AttemptID
 	var spec harnessSpec
 	data, err := n.disk.Read(harnessControl(id)+"/spec.json", n.disk.Policy.Database.MaxRecord)
-	if err != nil || json.Unmarshal(data, &spec) != nil || len(receipt.Owner) < 16 || receipt.Owner != spec.Owner || receipt.Known == nil {
+	if err != nil || json.Unmarshal(data, &spec) != nil || len(receipt.Owner) < 16 || receipt.Owner != spec.Owner || receipt.Known == nil || spec.Root != n.disk.Root || spec.Control != filepath.Join(n.disk.Root, harnessControl(id)) {
 		receipt.CleanupReason = "saved native ownership identity is unavailable"
 		return false, nil
+	}
+	spec.Assignment = a
+	var outputLease *os.File
+	if receipt.OutputWritersPending && spec.Output != nil {
+		var locked bool
+		outputLease, locked, err = nativeOutputLease(spec.Control)
+		if err != nil {
+			return false, err
+		}
+		if locked {
+			defer outputLease.Close()
+			if _, err := recoverNativeOutput(spec, receipt); err != nil {
+				receipt.CleanupReason = runner.Clip(err.Error())
+				return false, nil
+			}
+		}
 	}
 	children, inventoryErr := ownedNativeProcesses(receipt.Owner, receipt.Since, receipt.Known)
 	if inventoryErr != nil {
@@ -627,11 +652,23 @@ func (n *Native) reconcileReceipt(id string, receipt *harnessReceipt) (bool, err
 				break
 			}
 		}
+	} else if receipt.OutputWritersPending {
+		receipt.EmptyObservedAt = time.Time{}
 	} else if receipt.EmptyObservedAt.IsZero() {
 		receipt.EmptyObservedAt = time.Now()
 	} else if time.Since(receipt.EmptyObservedAt) >= 20*time.Millisecond {
 		receipt.ChildrenSettled = true
 		receipt.Owner, receipt.Known, receipt.CleanupReason = "", nil, ""
+	}
+	if receipt.OutputWritersPending && outputLease == nil {
+		// The original reader still owns the checkpoint, or the legacy stream
+		// has no durable identity. Neither permits a competing receipt writer.
+		return false, nil
+	}
+	if !receipt.OutputRecoveredAt.IsZero() {
+		if err := n.recordOutputRecovery(spec, *receipt); err != nil {
+			return false, err
+		}
 	}
 	data, err = json.Marshal(receipt)
 	if err == nil {

@@ -50,7 +50,7 @@ func (c *Core) outputRun(r Run) Run {
 				status.CleanupPending = managesResources && !child.ResourcesReleased
 				status.CleanupError = child.CleanupError
 				if a := child.Current(); a != nil {
-					status.Reconciling = a.State == Unknown && a.Reconciling && a.Deadline.After(time.Now())
+					status.Reconciling = a.Recovering(time.Now())
 				}
 				for _, attempt := range child.Attempts {
 					usage := Clone(attempt.Usage)

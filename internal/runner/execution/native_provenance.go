@@ -89,12 +89,14 @@ func harnessProvenance(a runner.Assignment, binary, work string) runner.NativePr
 // harnessEvents reduces streaming notifications to bounded public facts. It
 // never saves raw stdout: those events can contain secrets or private reasoning.
 type harnessEvents struct {
-	Proof         runner.NativeProvenance
-	Final         []byte
-	FinalOverflow bool
-	Usage         runner.Usage
-	Limit         int
-	Failed        string
+	Proof            runner.NativeProvenance
+	Final            []byte
+	FinalOverflow    bool
+	Usage            runner.Usage
+	Limit            int
+	Failed           string
+	Terminal         bool
+	ExecutionEndedAt time.Time
 }
 
 func (e *harnessEvents) available(name string) {
@@ -126,6 +128,10 @@ func (e *harnessEvents) final(text []byte) {
 }
 
 func (e *harnessEvents) accept(line []byte) {
+	if e.Terminal {
+		e.Proof.Dropped++ // The completed CLI turn owns its final result.
+		return
+	}
 	if e.Proof.FirstEventAt.IsZero() {
 		e.Proof.FirstEventAt = time.Now().UTC()
 	}
@@ -204,9 +210,11 @@ func (e *harnessEvents) accept(line []byte) {
 		}
 	case "turn.completed":
 		e.Usage = runner.Usage{InputTokens: event.Usage.Input, OutputTokens: event.Usage.Output, CachedInputTokens: event.Usage.Cached}
+		e.Terminal = true
 	case "turn.failed", "error":
 		e.Proof.DiagnosticEvents++
 		e.Failed = "native harness reported an error; raw error omitted because it may contain tool credentials"
+		e.Terminal = true
 	case "system":
 		if event.Subtype == "init" {
 			e.Proof.ReportedModel = runner.Clip(event.Model)
@@ -235,6 +243,7 @@ func (e *harnessEvents) accept(line []byte) {
 			}
 		}
 	case "result":
+		e.Terminal = true
 		if event.IsError {
 			e.Proof.DiagnosticEvents++
 			e.Failed = "Claude reported an unsuccessful result"

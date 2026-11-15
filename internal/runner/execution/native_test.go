@@ -107,6 +107,7 @@ func TestHarnessClaudeUsageIncludesCache(t *testing.T) {
 	if e.Usage.InputTokens == nil || *e.Usage.InputTokens != 10012 || e.Usage.CachedInputTokens == nil || *e.Usage.CachedInputTokens != 4000 || *e.Usage.OutputTokens != 8135 {
 		t.Fatal("Claude cached input was omitted", e.Usage)
 	}
+	e = harnessEvents{Limit: 1024}
 	e.accept([]byte(`{"type":"result","usage":{"input_tokens":12,"output_tokens":8135}}`))
 	if e.Usage.InputTokens != nil || e.Usage.CachedInputTokens != nil || e.Usage.OutputTokens == nil {
 		t.Fatal("missing Claude cache telemetry was treated as zero", e.Usage)
@@ -280,7 +281,7 @@ func TestHarnessSettlesDetachedChildren(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("fixture build: %v %s", err, output)
 	}
-	for _, mode := range []string{"detached", "double-fork", "double-fork-stdout", "cancel"} {
+	for _, mode := range []string{"detached", "double-fork", "double-fork-stdout", "stderr", "cancel"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Setenv("RUNNER_CHILD_FIXTURE", mode)
 			d := workspaceDisk(t)

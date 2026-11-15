@@ -568,7 +568,7 @@ func (c *Core) tick() time.Duration {
 				a.NextCheck = time.Time{}
 				delete(c.executionUpdates, a.ID)
 			}
-			if !a.Deadline.After(time.Now()) && !a.StopRequested {
+			if a.ExecutionEndedAt.IsZero() && !a.Deadline.After(time.Now()) && !a.StopRequested {
 				a.TimedOut = true
 			}
 			if (r.CancelRequested || a.TimedOut) && !a.StopRequested {
@@ -1129,6 +1129,14 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 			}
 		}
 		old := Clone(*a)
+		if !obs.ExecutionEndedAt.IsZero() {
+			if obs.ExecutionEndedAt.Before(a.Started) || obs.ExecutionEndedAt.After(time.Now()) {
+				obs = Observation{State: Unknown, Reason: "invalid primary execution completion time"}
+			} else {
+				a.ExecutionEndedAt = obs.ExecutionEndedAt
+				a.TimedOut = a.ExecutionEndedAt.After(a.Deadline)
+			}
+		}
 		a.State = obs.State
 		a.Usage = obs.Usage
 		if obs.NativeHandle != "" {
