@@ -101,6 +101,15 @@ without changing state; only an explicit root grant enlarges the family allowanc
 The focused suites own these failure/recovery sequences; accepted product evidence,
 installed services and their frozen run settings remain unchanged.
 
+Qualification: focused lifecycle/continuation/schema tests passed with race and
+vet on Go 1.26.9, followed by the full model-free repository gate once. Two fake
+worker cases additionally prove the 256 KiB stream boundary in both orders.
+The post-correction Atlas comparison covers all 23 edited production functions
+and 221 nearby call relationships without hitting those output caps; source/test
+review found no further actionable issue. The canonical logs and Atlas identities
+are retained at
+`/Users/dan/Projects/runner-qualifications/20261115/lifecycle-correction-6169725/`.
+
 ### Real qualification evidence
 
 Qualification ran on Black Magic with Runner Go 1.26.9, Codex 0.169.0,

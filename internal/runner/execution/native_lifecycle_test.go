@@ -82,6 +82,62 @@ func TestHarnessFinalSelectionPreservesTerminalFailures(t *testing.T) {
 	}
 }
 
+func TestHarnessStreamOverflowCannotSelectStaleFinal(t *testing.T) {
+	event := func(text string) string {
+		data, _ := json.Marshal(map[string]any{
+			"type": "item.completed",
+			"item": map[string]string{"type": "agent_message", "text": text},
+		})
+		return string(data)
+	}
+	final := event(`{"outcome":"ready","outputs":{"article":"Complete"},"reason":"Done"}`)
+	oversized := event(strings.Repeat("x", 300<<10))
+	for _, tc := range []struct {
+		name   string
+		events []string
+		kind   string
+	}{
+		{name: "oversized last event", events: []string{final, oversized}, kind: "failed"},
+		{name: "bounded final after overflow", events: []string{oversized, final}, kind: "returned"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			disk := workspaceDisk(t)
+			a := harnessAssignment(t)
+			a.Setup.Profile.MaxOutput = 4 << 10
+			binary := filepath.Join(t.TempDir(), "fake-codex")
+			script := `#!/bin/sh
+if [ "$1" = --version ]; then printf 'fixture 1\n'; exit 0; fi
+cat >/dev/null
+cat <<'NATIVE_EVENTS'
+` + strings.Join(tc.events, "\n") + "\nNATIVE_EVENTS\n"
+			if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			a.Setup.Profile.Native.Binary = binary
+			native := NewNative(disk, nil, nil, nil)
+			defer native.Close()
+			done := make(chan error, 1)
+			native.launchWorker = func(file string, finished func()) error {
+				go func() { done <- RunNativeWorker(context.Background(), file); finished() }()
+				return nil
+			}
+			if _, err := native.Start(t.Context(), a); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			o, err := native.Observe(t.Context(), a.AttemptID)
+			if err != nil || o.State != runner.Finished || o.End == nil || o.End.Kind != tc.kind {
+				t.Fatal("stream overflow selected the wrong final result", o, err)
+			}
+			if err := native.Release(t.Context(), a.AttemptID); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestHarnessAllocationFailureRetainsOwnershipThroughRecovery(t *testing.T) {
 	disk := workspaceDisk(t)
 	disk.Policy.MinFree = 0

@@ -90,25 +90,43 @@ func TestGeneralTaskResumptionPersistenceFailureDoesNotAutoWaitForever(t *testin
 				t.Fatal(err)
 			}
 			root := Run{
-				ID: "root", RecordFormat: 9, ProjectID: "demo", Status: "Waiting",
+				ID:           "root",
+				RecordFormat: 9,
+				ProjectID:    "demo",
+				Status:       "Waiting",
 				Process: Process{
-					MaxAttempts: 8, MaxAttemptsPerStep: 3,
-					Steps: []Step{{ID: "lead", Role: "planner"}}, Tasks: &TaskPolicy{},
+					MaxAttempts:        8,
+					MaxAttemptsPerStep: 3,
+					Steps:              []Step{{ID: "lead", Role: "planner"}},
+					Tasks:              &TaskPolicy{},
 				},
 				TaskGraph: &TaskGraphState{
-					RootRunID: "root", TaskID: "root", Phase: TaskWaitingChildren,
-					Children: []RoleTaskLink{{Spec: RoleTask{ID: "child", Role: "worker"}, RunID: "child-run"}},
+					RootRunID: "root",
+					TaskID:    "root",
+					Phase:     TaskWaitingChildren,
+					Children:  []RoleTaskLink{{Spec: RoleTask{ID: "child", Role: "worker"}, RunID: "child-run"}},
 				},
 			}
 			child := Run{
-				ID: "child-run", RecordFormat: 9, ProjectID: "demo", Status: "Completed",
-				TaskGraph: &TaskGraphState{RootRunID: root.ID, ParentRunID: root.ID, TaskID: "child", Role: "worker"},
+				ID:           "child-run",
+				RecordFormat: 9,
+				ProjectID:    "demo",
+				Status:       "Completed",
+				TaskGraph: &TaskGraphState{
+					RootRunID:   root.ID,
+					ParentRunID: root.ID,
+					TaskID:      "child",
+					Role:        "worker",
+				},
 			}
 			store := &rejectedResumptionStore{}
 			c := &Core{
-				ctx: t.Context(), disk: disk, store: store,
-				changed: make(chan struct{}), wake: make(chan struct{}, 1),
-				runs: map[string]Run{root.ID: root, child.ID: child},
+				ctx:     t.Context(),
+				disk:    disk,
+				store:   store,
+				changed: make(chan struct{}),
+				wake:    make(chan struct{}, 1),
+				runs:    map[string]Run{root.ID: root, child.ID: child},
 			}
 			if tc.nested {
 				outer := Clone(root)
