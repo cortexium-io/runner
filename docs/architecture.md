@@ -147,6 +147,18 @@ command diagnostics are bounded tails; late bytes consumed just before a failed
 checkpoint write can be lost across a crash, while the saved exit outcome stays
 authoritative. This is result recovery, not a raw-console transcript guarantee.
 
+Qualification: focused affected-package race tests and vet passed, followed by
+the immutable-handoff regression rerun and the full model-free repository gate
+once (execution/workflow package 987.103s). The real expiry test crosses the
+unchanged 2s + 30s observer bound, restarts its owner, refuses an idle open writer,
+and finishes the same launch with document/artifact/usage retained and owned
+scratch removed. Actual Codex sandbox FIFO access passed without additional
+coordinator writes or model calls; Linux amd64 compilation passed. Atlas returned
+all 35 changed functions and 300 of 328 nearby relationships; source review filled
+sampled/dynamic gaps and found no remaining actionable issue. The canonical
+bounded proof is retained at
+`/Users/dan/Projects/runner-qualifications/20261115/output-observer-recovery-750b3d9/`.
+
 ### Real qualification evidence
 
 Qualification ran on Black Magic with Runner Go 1.26.9, Codex 0.169.0,

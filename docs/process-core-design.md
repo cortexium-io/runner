@@ -40,6 +40,15 @@ or replay the task. Shared-command diagnostics remain bounded tails, not a
 lossless transcript: late bytes read immediately before a failed checkpoint write
 can be absent after a crash. The committed command outcome stays authoritative.
 
+Status: completed on the isolated branch. Focused race/vet regressions, including
+the real 32-second observer handoff and same-execution restart, passed. The full
+model-free repository race/workflow/vet gate passed once on Go 1.26.9. Installed
+Codex sandbox access passed with zero model calls; Linux amd64 was compile-checked.
+Atlas-assisted source review found no remaining actionable issue. Its 300/328
+relationship cap and static/sample limits remain explicit in the canonical record:
+`/Users/dan/Projects/runner-qualifications/20261115/output-observer-recovery-750b3d9/result.md`.
+No model generation, product rerun or installed-service cutover was performed.
+
 ### Lifecycle correction after Atlas review, authorized 15 November 2026
 
 Correct the five reproduced native/task lifecycle defects together, using the
