@@ -32,7 +32,27 @@ func (s *Service) ValidateFrontendCheckRecovery(ctx context.Context, run runner.
 			return err
 		}
 	}
+	if run.Process.ID == "deliver-planned-frontend" {
+		return s.releases.validateUnpublishedFrontend(run, publicationHead)
+	}
 	return s.releases.validateFrontendCheckPublication(ctx, run, publicationHead)
+}
+
+// Fresh planned delivery has no draft to authenticate yet. Its source and card
+// pins were checked above; require positive absence of publication authority.
+func (r *Releases) validateUnpublishedFrontend(run runner.Run, expectedHead string) error {
+	publication := run.Inputs["publication"]
+	if expectedHead != "" || publication.ArtifactID != "" || len(publication.Inline) != 0 {
+		return errors.New("unpublished frontend recovery cannot carry publication authority")
+	}
+	name, err := publicationBindingName(run.ID)
+	if err != nil {
+		return err
+	}
+	if _, err = os.Lstat(filepath.Join(r.disk.Root, name)); !errors.Is(err, os.ErrNotExist) {
+		return errors.New("planned frontend recovery requires an absent publication binding")
+	}
+	return nil
 }
 
 func verifyFrontendCheckCardPins(ctx context.Context, run runner.Run) error {

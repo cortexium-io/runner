@@ -366,6 +366,22 @@ reopen the exhausted frontend check of a settled catalogue run once. It pins the
 saved attempt, patch, checker and draft head, then runs a fresh full check inside
 the original attempt cap and protected release reserve.
 
+The same owner-authorized serial recovery supports an unpublished
+`deliver-planned-frontend` run whose frontend correction route is exhausted.
+Use the exact failed check attempt, observed run-and-card revision, retained patch
+digest and qualified checker digest; omit `publication_head`. Every accepted
+card and its Git pin must still match, all cleanup must be confirmed, and no
+integration/publication attempt or publication binding may exist. Recovery
+queues only the existing check with one worker, original selectors (including
+candidate-added tests) and the five-second limit. It replenishes no correction
+counter or total cap, reserves the normal completion path, and preserves source review,
+qualification, visual review and all protected approvals. Later frontend checks
+in the same run retain the qualified one-worker setting.
+Source review receives Core-authenticated scheduling provenance bound to the
+passing check report and its exact candidate. This distinguishes the legacy
+helper's diagnostic summary label from isolated sampling without granting any
+source, browser, visual or release approval.
+
 `frontend-retained-diagnostic` compares a saved patch with earlier frontend
 evidence using one Vitest worker and the five-second case timeout. Supply the
 original source commit, retained `patch`, selected `tests` as a JSON array encoded

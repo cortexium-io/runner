@@ -854,6 +854,13 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 			assignment.FrontendCheckPins.PatchSHA256 = recovery.PatchSHA256
 		}
 	}
+	if recovery := r.FrontendCheckRecovery; recovery != nil && recovery.Serial && r.Process.ID == "deliver-planned-frontend" && step.ID == "review" {
+		provenance, err := c.serialFrontendReviewProvenance(r, assignment.Inputs)
+		if err != nil {
+			return Assignment{}, err
+		}
+		assignment.Task += provenance
+	}
 	if recovery := r.FrontendTimeoutRecovery; recovery != nil {
 		if recovery.CheckStep == step.ID && recovery.CheckVisit == r.Visit {
 			assignment.FrontendCheckPins = &FrontendCheckPins{

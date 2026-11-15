@@ -65,7 +65,7 @@ func run(ctx context.Context, args []string) error {
 	revision := fs.Int64("revision", 0, "exact inspected run revision for owner-authorized recovery")
 	patchSHA256 := fs.String("patch-sha256", "", "approved retained patch digest for frontend check recovery")
 	helperSHA256 := fs.String("helper-sha256", "", "qualified frontend check helper digest")
-	publicationHead := fs.String("publication-head", "", "exact retained draft publication head for owner-authorized recovery")
+	publicationHead := fs.String("publication-head", "", "exact retained draft head; omit for unpublished planned serial recovery")
 	reportFile := fs.String("report-file", "", "bounded saved browser-error report for owner-authorized handoff")
 	serial := fs.Bool("serial", false, "recheck a settled catalogue candidate with one Vitest worker")
 	assertionSHA256 := fs.String("assertion-sha256", "", "exact failed full-check report digest for one authorized assertion correction after diagnostic repair")
@@ -152,8 +152,8 @@ func run(ctx context.Context, args []string) error {
 	if command == "recover-planning" && (*runID == "" || *attemptID == "" || *revision < 1 || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
 		return errors.New("recover-planning requires --run, --attempt and --revision; it grants no retry allowance, profile or preservation override")
 	}
-	if command == "recover-frontend-check" && (*runID == "" || *attemptID == "" || *revision < 1 || *patchSHA256 == "" || *helperSHA256 == "" || *publicationHead == "" || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
-		return errors.New("recover-frontend-check requires --run, --attempt, --revision, --patch-sha256, --helper-sha256 and --publication-head; it grants no retry or profile override")
+	if command == "recover-frontend-check" && (*runID == "" || *attemptID == "" || *revision < 1 || *patchSHA256 == "" || *helperSHA256 == "" || *publicationHead == "" && !*serial || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
+		return errors.New("recover-frontend-check requires --run, --attempt, --revision, --patch-sha256 and --helper-sha256, plus --publication-head unless serial; it grants no retry or profile override")
 	}
 	if command == "recover-frontend-timeouts" && (*runID == "" || *attemptID == "" || *revision < 1 || *patchSHA256 == "" || *helperSHA256 == "" || *publicationHead == "" || *checkAttemptID == "" || *checkSHA256 == "" || *maxUses != 0 || *profile != "" || *extra != 0 || *cleanupOnly || *preserveSource) {
 		return errors.New("recover-frontend-timeouts requires --run, --attempt, --revision, --patch-sha256, --helper-sha256, --publication-head, --check-attempt and --check-sha256; it grants no retry or profile override")

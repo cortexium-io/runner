@@ -180,3 +180,43 @@ func TestFrontendRecoveryDispatchUsesTheStagedQualifiedHelper(t *testing.T) {
 		t.Fatalf("staged checker did not execute against the retained patch: %+v", end)
 	}
 }
+
+func TestPlannedFrontendRecoveryAuthenticatesSourceCardsAndAbsenceOfPublication(t *testing.T) {
+	w, _, run, source := sourceRecoveryFixture(t)
+	run.Process.ID = "deliver-planned-frontend"
+	run.TaskGroups = map[string]*runner.TaskGroupState{"cards": {
+		Children: []runner.TaskChild{{RunID: "run_card", Candidate: &runner.TaskCandidate{Commit: source.Base}}},
+	}}
+	ref := taskPinRef("run_card")
+	fixtureGit(t, run.Repository, "update-ref", ref, source.Base)
+	s := &Service{workspaces: w, releases: &Releases{disk: w.disk}}
+	helper := filepath.Join(t.TempDir(), "runner-frontend-check")
+	content := []byte("qualified frontend helper")
+	if err := os.WriteFile(helper, content, 0700); err != nil {
+		t.Fatal(err)
+	}
+	profile := runner.Profile{Command: &runner.Command{Args: []string{helper}}}
+	validate := func(head string, want bool) {
+		t.Helper()
+		err := s.ValidateFrontendCheckRecovery(t.Context(), run, source, profile, captureDigest(content), head)
+		if (err == nil) != want {
+			t.Fatalf("planned source validation wanted %t, got %v", want, err)
+		}
+	}
+	validate("", true)
+	validate(source.Base, false)
+	run.Inputs = map[string]runner.Value{"publication": runner.Text("{}")}
+	validate("", false)
+	run.Inputs = nil
+	fixtureGit(t, run.Repository, "update-ref", "-d", ref)
+	validate("", false)
+	fixtureGit(t, run.Repository, "update-ref", ref, source.Base)
+	name, err := publicationBindingName(run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.disk.Write(name, []byte("existing publication authority"), w.disk.Policy.Database.MaxRecord); err != nil {
+		t.Fatal(err)
+	}
+	validate("", false)
+}

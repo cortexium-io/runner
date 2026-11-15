@@ -39,7 +39,7 @@ func TestFrontendRecoveryCLIUsesExactSavedEvidence(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(data, "owner.token"), []byte(token), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"ordinary", "serial", "assertion"} {
+	for _, mode := range []string{"ordinary", "serial", "unpublished-serial", "assertion"} {
 		t.Run(mode, func(t *testing.T) {
 			want := runner.RecoverFrontendCheckRequest{
 				RequestID:       "approved-" + mode,
@@ -59,6 +59,9 @@ func TestFrontendRecoveryCLIUsesExactSavedEvidence(t *testing.T) {
 			case "serial":
 				want.Serial = true
 				args = append(args, "--serial")
+			case "unpublished-serial":
+				want.Serial, want.PublicationHead = true, ""
+				args = append(args[:len(args)-2], "--serial")
 			case "assertion":
 				want.AssertionSHA256 = strings.Repeat("d", 64)
 				args = append(args, "--assertion-sha256", want.AssertionSHA256)
