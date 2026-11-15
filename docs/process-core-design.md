@@ -91,6 +91,40 @@ All product acceptance, frozen run settings and the original 64-attempt ceiling
 remain unchanged. The interrupted live run is paused at 57/64 until these verified
 maintenance changes are installed and normal goal execution resumes.
 
+Qualification result: the same run subsequently completed the test-coverage
+correction, fresh 393-test/typecheck gate, all five native build stages and the
+complete two-engine browser matrix. It was rejected at 63/64 attempts: protected
+evidence failed 72/146 geometry cases, 4/20 journeys and all three neighboring-game
+smokes. Independent review identified the prominent phone New puzzle action as an
+agreement mismatch and unresolved in-progress landscape clipping. It also found
+that fresh disabled Undo controls invalidate the checker's blanket hit-test
+assumption; missing-target and completion failures need action-specific diagnosis.
+These failures must not all be treated as product defects or waived as tooling.
+
+The source and passing proof are preserved; browsers, server, database and build
+scratch settled. There is no accepted preview executable or running URL. The
+continuation required operator maintenance and therefore does not qualify as
+unattended delivery. Its 27 new executions include eleven lead visits, five import
+attempts, four checks, six reviews and one scoped developer task. Cumulative native
+usage was 7,556,769 tokens, including 6,661,888 cached input tokens; these are summed
+harness requests, not unique prompt text. Source reviews were the largest input
+consumer. The future example removes compulsory repair quartets and delays reviews
+until relevant evidence exists; that policy change is not a new successful live
+qualification.
+
+Current authority leaves only one execution, which cannot admit a complete repair,
+check and independent reassessment. Further execution needs an explicit owner
+decision on the frozen allowance; do not silently reset it, create an unlinked
+budget or spend the last execution on an incomplete cycle. The recommended bounded
+continuation is to correct verifier semantics and failure attribution, then run
+one complete in-process product correction and independent assessment, reusing
+applicable passing evidence. A ceiling of 72, with all 63 spent attempts retained,
+would leave room for that complete cycle and limited recovery. This is a proposal,
+not an applied allowance or authorization.
+
+Canonical qualification, identities, usage and remaining limitations:
+`/Users/dan/Projects/runner-qualifications/20261115/sudoku-handoff/result.md`.
+
 ### Same-execution output recovery, authorized 15 November 2026
 
 Replace the native worker's anonymous stdout pipe for new executions with an
