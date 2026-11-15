@@ -24,6 +24,47 @@ delegate specialist planning, admit further tasks, run compatible work concurren
 integrate outputs and evaluate the complete product against the original goal.
 A generated scaffold or a source pin completes only its own task, not the goal.
 
+#### Unattended fresh project and context economy, authorized 15 November
+
+The follow-up closes the gap left by the first qualification's runtime repairs.
+It must produce a new Genny campaign SaaS from a description in a new empty owned
+workspace, through automatic nested planning, compatible parallel coding,
+integration, protected fixed API/browser checks and final goal assessment. The
+accepted root must complete with settled execution/cleanup and zero operator
+steering, answers, allowance/profile edits or external stage coordination. Preserve
+failed experiments; repairing Runner during an experiment is not unattended proof.
+
+The same continuation addresses the observed inherited-context cost. Keep full
+native tools/skills as opt-in capabilities, add a lean profile only where its
+catalog boundary is enforceable, preserve necessary project guidance/authentication
+and record the actual selected settings and usage. Measure a matched workload with
+the same model/effort; different-model comparisons do not isolate context effects.
+Do not claim cumulative cached token accounting is the size of a single prompt.
+
+Implementation sequence for this continuation:
+
+1. Native owner inspects installed harness support, implements explicit lean/full
+   discovery and context measurements, and proves enforcement model-free. Main
+   audits Core resumption/revision behavior; qualification owner simplifies the
+   full-process prompts, preserving acceptance and configured repair.
+2. Run a matched bounded native context comparison, then submit one complete fresh
+   SaaS request through the prepared Runner configuration. Observe through normal
+   status/result only. Product edits, checks and repair remain in Runner.
+3. Fix demonstrated Runner defects with focused regression proof, retaining failed
+   identities. Repeat fresh qualification only when a relevant correction requires
+   it. Finish with exact native costs, an uninterrupted completed goal, resource
+   closure, whole-diff review and proportionate required repository checks.
+
+Status: completed. Two new empty-workspace Genny goals reached explicit accepted
+results without operator intervention. The final tightened runtime completed
+`run_ALJVR47LXUIPPIY7FV2QBR2FMU` in 1,660.590 seconds and 13 attempts, including
+one automatically corrected task-protocol error and one autonomous product
+repair/recheck pair. All 22 API checks, seven UI checks and the fixture passed;
+execution and cleanup settled. The final native writing comparison reduced
+cumulative input 33.0% against full catalogs on the same runtime, and 40.7%
+against the earlier full baseline. See the [evidence and remaining boundaries](architecture.md#fresh-unattended-goals-and-context-economy-15-november-2026).
+The installed pilot remains unchanged; no publication or deployment was performed.
+
 Keep one instance-owned Core, one transactional SQLite store and the existing
 Start/Observe/Stop/Release lifecycle. An ordinary retained Run/Attempt remains the
 execution primitive. General task ownership and policy are explicit and separate

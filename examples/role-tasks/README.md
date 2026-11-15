@@ -9,6 +9,15 @@ lead's assessment against the original goal.
 Outputs are actual model work, not fixture text. No writing publication, product
 merge or deployment is included.
 
+The full SaaS lead admits implementation and its dependent fixed check together.
+The nested planner admits one scaffold → parallel backend/frontend → build DAG.
+Parents inspect settled task IDs on resumption, rather than submitting those
+stages again. A passing fixed report ends the work. At most two repair/recheck
+pairs may fix a concrete failure in the same workspace; the repair writer uses
+the completed check's typed artifact dependency, or the actual build failure when
+no artifact exists. Failed children are never required dependencies. There is no
+extra model verifier or planner for a repair.
+
 Use a freshly built Runner containing native role-task support. Do not point
 these examples at an installed pilot or existing state. Configuration has explicit
 per-request task/revision/attempt bounds and records the selected runtime;
@@ -20,6 +29,8 @@ Run configure.mjs with absolute paths to installed, already qualified runtimes:
 node examples/role-tasks/configure.mjs \
   --root /absolute/new/qualification \
   --app-workspace /absolute/new/campaign-studio \
+  --project-name "Campaign Studio" \
+  --native-context lean \
   --codex /absolute/path/to/codex \
   --genny /absolute/path/to/genny \
   --go /absolute/path/to/required/generated-app/go \
@@ -44,6 +55,22 @@ Codex cache-maintenance lock directory. It creates missing
 runtime directories with mode 0700 and explicitly grants those narrow roots to
 SaaS roles. It refuses whole-home or whole-user-cache grants and preserves
 existing directory permissions. Keep its output directory out of Git.
+
+New SaaS roles explicitly use lean Codex context with built-in tools and no
+inherited MCP/app/plugin/skill catalogs. Project instructions remain applicable;
+coding roles read the configured Genny skill file directly. Use --genny-skill
+with an absolute path when its standard location differs, or --native-context
+native to deliberately inherit the full harness capabilities. The writing
+profiles are unchanged. Lead/planner reasoning is medium, coding/integration/
+repair reasoning high, all on gpt-6.1-sol. runtime.json records the exact selected
+profiles; native provenance records actual exposure, usage and timing.
+
+The product description contains the fixed acceptance once. Each role receives
+only its relevant runtime paths and compact dependency reports. Full delivery is
+bounded by ten tasks, 48 aggregate attempts and two repair pairs; these are this
+qualification's settings, not universal project limits. An explicit ready→fail
+route prevents a default model outcome from bypassing the lead's accepted or
+rejected decision.
 
 For the current qualification, the selected installed generator is Genny v0.4.1.
 Its generated app requires Go 1.27.4; Runner itself uses Go 1.26.9. Use the separate

@@ -32,6 +32,7 @@ func harnessProvenance(a runner.Assignment, binary, work string) runner.NativePr
 		Permitted:        *runner.Clone(p.Native),
 		StartedAt:        time.Now().UTC(),
 		CleanupAssurance: "cooperative-known-processes",
+		UsageScope:       "cli-turn-cumulative",
 		Gaps: []string{
 			"Requested model and effort are recorded; CLI telemetry may not attest the resolved provider/model.",
 			"Tool arguments, outputs, private reasoning and credentials are deliberately not retained.",
@@ -47,6 +48,11 @@ func harnessProvenance(a runner.Assignment, binary, work string) runner.NativePr
 	}
 	if p.Native.Harness == "codex" {
 		proof.Gaps = append(proof.Gaps, "Codex exec does not report a complete available tool/skill inventory; observed calls are a partial inventory.")
+		if p.Native.Context == "lean" {
+			proof.Gaps = append(proof.Gaps, "Lean context keeps normal account/configuration and project guidance, disables apps/plugins/skill discovery and verifies per-configured-MCP enabled=false overrides. Configuration changed after readiness can introduce a new MCP server; this CLI has no global deny switch.")
+		}
+	} else {
+		proof.UsageScope = "cli-result-cumulative"
 	}
 	home, _ := os.UserHomeDir()
 	codexHome := os.Getenv("CODEX_HOME")
@@ -139,15 +145,10 @@ func (e *harnessEvents) accept(line []byte) {
 			Server    string `json:"server"`
 			Tool      string `json:"tool"`
 			Status    string `json:"status"`
+			Message   string `json:"message"`
 		} `json:"item"`
-		Message struct {
-			Content []struct {
-				Type string `json:"type"`
-				Name string `json:"name"`
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"message"`
-		Usage struct {
+		Message json.RawMessage `json:"message"`
+		Usage   struct {
 			Input        *int64 `json:"input_tokens"`
 			Output       *int64 `json:"output_tokens"`
 			Cached       *int64 `json:"cached_input_tokens"`
@@ -166,7 +167,19 @@ func (e *harnessEvents) accept(line []byte) {
 		case "agent_message":
 			e.final([]byte(item.Text))
 		case "reasoning": // Never retain reasoning text.
+		case "error":
+			e.Proof.DiagnosticEvents++
+			evidence := ""
+			if item.Message != "" {
+				digest := sha256.Sum256([]byte(item.Message))
+				evidence = "message_sha256 " + hex.EncodeToString(digest[:])
+			}
+			e.use("diagnostic", "harness_error", "reported", evidence)
 		default:
+			kind := "event"
+			if slices.Contains([]string{"command_execution", "mcp_tool_call", "function_call", "web_search", "file_change", "tool_call"}, item.Type) {
+				kind = "tool"
+			}
 			name := item.Type
 			if item.Tool != "" {
 				name = item.Server + "/" + item.Tool
@@ -185,11 +198,12 @@ func (e *harnessEvents) accept(line []byte) {
 					e.skillRead(item.Command, item.Status)
 				}
 			}
-			e.use("tool", name, item.Status, evidence)
+			e.use(kind, name, item.Status, evidence)
 		}
 	case "turn.completed":
 		e.Usage = runner.Usage{InputTokens: event.Usage.Input, OutputTokens: event.Usage.Output, CachedInputTokens: event.Usage.Cached}
 	case "turn.failed", "error":
+		e.Proof.DiagnosticEvents++
 		e.Failed = "native harness reported an error; raw error omitted because it may contain tool credentials"
 	case "system":
 		if event.Subtype == "init" {
@@ -202,7 +216,14 @@ func (e *harnessEvents) accept(line []byte) {
 			}
 		}
 	case "assistant":
-		for _, item := range event.Message.Content {
+		var message struct {
+			Content []struct {
+				Type string `json:"type"`
+				Name string `json:"name"`
+			} `json:"content"`
+		}
+		_ = json.Unmarshal(event.Message, &message)
+		for _, item := range message.Content {
 			if item.Type == "tool_use" {
 				kind := "tool"
 				if item.Name == "StructuredOutput" {
@@ -213,6 +234,7 @@ func (e *harnessEvents) accept(line []byte) {
 		}
 	case "result":
 		if event.IsError {
+			e.Proof.DiagnosticEvents++
 			e.Failed = "Claude reported an unsuccessful result"
 		}
 		if len(event.Structured) > 0 {

@@ -455,8 +455,8 @@ func TestGeneralTasksExposeSelectedRoleCapabilitiesWithoutPrivateConfiguration(t
 	role.Profiles = map[string]runner.Profile{"selected": {
 		Harness: "native", Model: "writer-model", Access: "workspace-write", Reasoning: "high", Instructions: "PRIVATE_ROLE_INSTRUCTIONS",
 		Native: &runner.NativeProfile{
-			Harness: "codex", Network: true,
-			Tools: runner.CapabilitySelection{Mode: "native"}, Skills: runner.CapabilitySelection{Mode: "native"},
+			Harness: "codex", Context: "lean", Network: true,
+			Tools: runner.CapabilitySelection{Mode: "native"}, Skills: runner.CapabilitySelection{Mode: "none"},
 			RuntimeWritePaths: []string{"/private/runtime-cache"},
 		},
 	}}
@@ -482,7 +482,7 @@ func TestGeneralTasksExposeSelectedRoleCapabilitiesWithoutPrivateConfiguration(t
 		contracts[role.ID] = role
 	}
 	writer := contracts["writer"]
-	if writer.Profile != "selected" || writer.Harness != "codex" || writer.Model != "writer-model" || writer.Access != "workspace-write" || writer.Tools == nil || writer.Tools.Mode != "native" || !writer.Network {
+	if writer.Profile != "selected" || writer.Harness != "codex" || writer.Context != "lean" || writer.Model != "writer-model" || writer.Access != "workspace-write" || writer.Tools == nil || writer.Tools.Mode != "native" || !writer.Network {
 		t.Fatalf("planner did not receive selected writer execution facts: %+v", writer)
 	}
 	if got := contracts["reviewer"]; got.Harness != "claude" || got.Model != "review-model" || got.Access != "workspace-read" || got.Tools == nil || !slices.Equal(got.Tools.Names, []string{"Read", "Grep"}) || got.Skills.Mode != "none" {

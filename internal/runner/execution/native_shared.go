@@ -123,6 +123,7 @@ func sharedProvenance(a runner.Assignment, binary string) runner.NativeProvenanc
 	return runner.NativeProvenance{
 		Machine: host, Platform: runtime.GOOS + "/" + runtime.GOARCH,
 		Harness: "command/shared", Binary: binary, Access: "workspace-read",
+		UsageScope:    "none",
 		StartedAt:     time.Now().UTC(),
 		Permitted:     runner.NativeProfile{Harness: "command/shared", Tools: runner.CapabilitySelection{Mode: "selected", Names: []string{filepath.Base(binary)}}, Skills: runner.CapabilitySelection{Mode: "none"}, Network: a.Setup.Profile.Command.Network, RuntimeWritePaths: runner.Clone(a.Setup.Profile.Command.RuntimeWritePaths)},
 		RequestDigest: hex.EncodeToString(digest[:]), CleanupAssurance: "cooperative-known-processes",

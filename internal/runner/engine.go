@@ -655,13 +655,19 @@ func (c *Core) tick() time.Duration {
 		}
 		if c.familyRemaining(r) <= 0 {
 			r.Status = "Waiting"
+			if r.TaskGraph != nil {
+				r.Status = "Failed"
+			}
 			r.Reason = "run attempt allowance exhausted"
 			_ = c.persist(r, nil, nil)
 			continue
 		}
 		if r.TaskGraph != nil {
 			if err := c.graphReserve(r, 1, false); err != nil {
-				r.Status, r.Reason = "Waiting", Clip(err.Error())
+				// Automatic retries cannot consume a parent's reserved return.
+				// Deliver this failure so that parent can evaluate it instead of
+				// leaving both tasks waiting for an operator allowance grant.
+				r.Status, r.Reason = "Failed", Clip(err.Error())
 				_ = c.persist(r, nil, nil)
 				continue
 			}
@@ -706,7 +712,7 @@ func (c *Core) tick() time.Duration {
 			}
 			reserve += int64(max(0, artifacts-1)) * int64(c.disk.Policy.MaxArtifact)
 		} else if err == nil && profile.Harness == "native" {
-			requestReserve = int64(profile.MaxInput + c.disk.Policy.Database.MaxRecord)
+			requestReserve = c.nativeRequestBytes(r, profile)
 		}
 		var nativeReserve int64
 		if cfg := c.snapshot.Instance.Codex; cfg != nil {

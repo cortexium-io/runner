@@ -54,8 +54,9 @@ the project. Legacy source cards retain their existing worktree and recovery
 contracts and cannot silently be selected as general-task executors.
 
 General records use format nine; normalized attempts remain individually bounded.
-SQLite schema four widens their physical attempt positions and preserves existing
-row bytes. Old run formats retain their earlier bounds and old binaries refuse
+SQLite schema four widened their physical attempt positions; schema five adds
+the native-context/result-file worker compatibility boundary without rewriting
+existing rows. Old run formats retain their earlier bounds and old binaries refuse
 the new schema/format. Fresh qualification state is separate from the installed
 pilot; this work does not install a new default or migrate live state.
 
@@ -164,6 +165,124 @@ That cleanup removed 69,497,728 bytes. The app occupies about 211MiB of allocate
 disk, chiefly its single development dependency tree and 22.3MiB executable;
 retaining it supports running and extending the accepted project. Shared Go-cache
 maintenance reported below its 10GiB ceiling, so no wholesale cache reset was made.
+
+## Fresh unattended goals and context economy, 15 November 2026
+
+The follow-up uses new empty Genny project workspaces and complete frozen
+processes. The first uninterrupted functional qualification,
+`run_VN6SOJUNUYBEKR3TT6XZDKELD3`, completed in 1,002.633 seconds: nine aggregate
+attempts, no execution retry, no repair pair and no operator intervention.
+The lead predeclared implementation and acceptance; the nested planner admitted
+one scaffold/backend/frontend/build DAG. Both specialists actually overlapped,
+then the configured fixed checker and lead's goal assessment completed. The final
+outcome was explicitly `accepted`; implicit `ready` now routes to failure.
+
+All 22 API checks, seven UI checks and the real-user/tenant fixture passed. The
+accepted binary at
+`/Users/dan/Projects/runner-qualifications/20261115/campaign-studio-unattended/.qualification/server`
+has SHA-256 `8578cba5815d41b43419f9137e50232125e593bf8783b267e879620c9872a5c0`.
+The canonical checker artifact is
+`unattended-saas/state/artifacts/attempt_VQNDNJUGETPHGOEGDJTZIOBSD4/result` under
+the same qualification parent. Its report confirms browser/server/scratch cleanup.
+`unattended-saas/accepted/qualification-summary.json` records exact task timings,
+usage, proof identity and unchanged configuration/request/checker/runtime hashes.
+The family used 4,150,387 input tokens, including 3,737,216 cached, and 44,601 output
+tokens. This is a complete observed run, not a controlled speed comparison with
+the earlier qualification that included pauses and operator runtime maintenance.
+
+This work fixed a real capacity deadlock: an automatic child retry could consume
+the only remaining parent completion reserve, be refused admission and leave both
+nonterminal. Such general-task exhaustion now produces a failed child result for
+the parent to evaluate; legacy behavior is unchanged. Tight-budget execution and
+infrastructure retry regressions cover both refusal and sufficient-budget recovery.
+Large accepted child reports now have a bounded, complete, hash-bound private file
+when inline prompt/assignment bounds would overflow. The owning file is readable
+but not writable by the role, retains exact artifact authority, survives restart
+and is removed after release. Reservation uses the actual results-array bytes;
+the sizing path avoids rebuilding the role catalog and planning context.
+
+The native context audit found two separate costs. Inherited app/plugin/MCP/skill
+catalogs were unnecessary for local coding roles. Also, disabling feature flags
+did not remove newer native agent handlers selected by model metadata. Supported
+agent/direct-question settings now remove those handlers and their descriptions,
+keeping all task delegation and human input in Core. Installed-CLI previews prove
+removal of 11,787 bytes of tool definitions and 2,671 bytes of agent guidance.
+Normal authentication, provider configuration, shell/editing tools, model base
+instructions and user/project AGENTS guidance are preserved.
+
+Matched ordinary writing uses the same `gpt-6.1-sol` / high effort, request and
+2,825-byte Runner prompt plus 329-byte output schema. Cumulative measurements are:
+
+| Native configuration | Input tokens | Observed elapsed |
+| --- | ---: | ---: |
+| Earlier full catalogs and incomplete native-handler disabling | 23,567 | 18.946s |
+| Corrected common handler controls, full catalogs | 20,875 | 17.096s |
+| Corrected common controls, lean catalogs | 13,980 | 13.950s |
+
+Lean reduced input by 33.0% against the corrected full profile, and the combined
+changes reduced it by 40.7% against the earlier full baseline. These few samples
+do not establish a general latency improvement or the size of a provider's first
+prompt. An error-shaped CLI item was matched by SHA to the public startup warning
+for an experimental feature; it was not a failed tool call or retry. Provenance
+now classifies it as a diagnostic instead of inventing a tool use. Complete case
+identities/settings/usage remain in `context-economy/accepted/comparison-*.json`.
+
+The final tightened runtime also completed a separate fresh project:
+`run_ALJVR47LXUIPPIY7FV2QBR2FMU`, 1,660.590 seconds and 13 attempts. Native agent
+and direct-question handlers were disabled throughout, with verified lean MCP
+settings on every model attempt. Backend/frontend visits overlapped for 451.530
+seconds. The fixed checker caught an invented draft-only deletion restriction:
+an authenticated own-tenant published DELETE incorrectly returned 403. The lead
+automatically delegated `repair-1` with the failed canonical evidence, queued
+`recheck-1`, and accepted only the passing rebuilt executable. The repair removed
+the redundant draft-only delete helper and added focused published-delete tests;
+it preserved publication/edit/tenant protections and unchanged frontend evidence.
+
+One repair proposal initially paired `task_action: delegate` with outcome
+`rejected`. Core rejected that inconsistent control result; the next bounded
+visit corrected it without a human. This consumed one recorded attempt and is
+included in the total, rather than hidden as bookkeeping. Future lead guidance
+now states the control-versus-final outcome rule explicitly. Only the first of
+two configured repair pairs was used. Original limits, model settings, configuration, request,
+checker/tool and runtime hashes remained unchanged. The receipt table contains
+one `start` and zero interventions. No external session edited product source,
+ran product checks or coordinated intermediate stages.
+
+All 22 API checks, seven UI checks and the fixture passed on the final binary:
+`/Users/dan/Projects/runner-qualifications/20261115/campaign-studio-unattended-final/.qualification/server`,
+23,343,906 bytes, SHA-256
+`0aebb217e37b8a1e17ac357308039261ac140303a5b14ea8f12fe2f5b2979cf2`.
+Passing evidence is
+`unattended-saas-final/state/artifacts/attempt_5G3BNFQEECLC3PI3EXNVIWPEDV/result`,
+138,139 bytes, SHA-256
+`cb14727e593649861ea81baee394643b638f5ca9eaaf1e092052e36b4f28f951`.
+Failed proof `attempt_6GNXGLHUNZQR5FK4UUTDM67KFD/result` remains retained.
+The final summary under `unattended-saas-final/accepted/` records every native
+attempt, settings, usage, parallel overlap, exact identities and cleanup.
+Known input was 5,353,401 tokens, including 4,846,208 cached; output was 67,300.
+This repaired run was slower than the first uninterrupted pass. Lower catalog
+input is not a general speed guarantee; model work and repairs still dominate.
+
+Targeted Core/config/native/SQLite race regressions and installed-CLI sandbox/
+configuration proofs passed, as did whole-repository vet. The unchanged legacy
+workflow suite was reused from the preceding qualification rather than rerun for
+general-only changes. The final source review found no further blocker. Two
+redundant qualification Runner binaries were removed (46,505,732 bytes). Both
+qualification services and comparison services stopped cleanly. The final app's
+repair removed installed dependencies, prerender intermediates, backups and Node
+cache, retaining source, package lock, embedded assets, compact evidence and one
+executable in about 24.2MiB allocated disk. One ignored temporary Python smoke
+helper, excluded from the source manifest, was removed during owned-output
+cleanup; future role runtime guidance now states the Go/JavaScript stack policy
+explicitly. The accepted executable and reports were unchanged.
+
+Shared Go-cache maintenance trimmed 2,431,766,528 bytes of eligible old entries
+during the batch; the final check reported 8,733,650,944 bytes, below 10GiB.
+Native Go workers could not inspect processes for maintenance under the sandbox;
+the operator performed the required final shared-cache housekeeping. This did
+not steer or unblock product delivery. Shared caches retain their existing
+ownership boundary and are not an OS quota. SQLite-only, macOS-native and
+cooperative-process cleanup limits above still apply. The pilot is unchanged.
 
 ## Released task seeds and operational attention, 12 November 2026
 

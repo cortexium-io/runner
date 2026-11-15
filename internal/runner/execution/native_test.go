@@ -415,6 +415,11 @@ func TestHarnessWorkerSurvivesOwnerAndCleansScratch(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(d.Root, "artifacts", a.AttemptID, "provenance.json")); err != nil {
 				t.Fatal("provenance was lost", err)
 			}
+			data, err := os.ReadFile(filepath.Join(d.Root, "artifacts", a.AttemptID, "provenance.json"))
+			var proof runner.NativeProvenance
+			if err != nil || json.Unmarshal(data, &proof) != nil || proof.PromptBytes == 0 || proof.SchemaBytes == 0 || proof.UsageScope != "cli-turn-cumulative" || proof.Context == nil || proof.Context.Mode != "native" {
+				t.Fatal("prompt/schema measurement or cumulative usage scope missing", err)
+			}
 		})
 	}
 }
@@ -772,12 +777,20 @@ func TestHarnessCodexReadOnlySourceWritableScratch(t *testing.T) {
 		}
 	}
 	spec := harnessSpec{Assignment: a, Root: root, Directory: source, Control: control}
+	resultsPath, privatePath := filepath.Join(control, "results.json"), filepath.Join(root, "private")
+	if err := os.WriteFile(resultsPath, []byte("complete read-only results"), 0400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(privatePath, []byte("private coordinator contents"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	spec.ResultsFile = &runner.NativeInputFile{Path: resultsPath}
 	config := "default_permissions=\"runner-native\"\n[permissions.runner-native]\nfilesystem=" + harnessFilesystem(spec) + "\n[permissions.runner-native.network]\nenabled=false\n"
 	if err := os.WriteFile(filepath.Join(root, "home", "config.toml"), []byte(config), 0600); err != nil {
 		t.Fatal(err)
 	}
-	script := `if printf denied > "$1/forbidden" 2>/dev/null; then exit 91; fi; printf scratch > "$2/allowed"; printf output > "$3/retained"`
-	cmd := exec.CommandContext(t.Context(), binary, "sandbox", "-P", "runner-native", "-C", source, "--", "/bin/sh", "-c", script, "sh", source, filepath.Join(control, "tmp"), a.OutputDir)
+	script := `if printf denied > "$1/forbidden" 2>/dev/null; then exit 91; fi; printf scratch > "$2/allowed"; printf output > "$3/retained"; cat "$4" > "$2/results-read"; if chmod 0600 "$4" 2>/dev/null; then exit 92; fi; if cat "$5" >/dev/null 2>&1; then exit 93; fi`
+	cmd := exec.CommandContext(t.Context(), binary, "sandbox", "-P", "runner-native", "-C", source, "--", "/bin/sh", "-c", script, "sh", source, filepath.Join(control, "tmp"), a.OutputDir, resultsPath, privatePath)
 	cmd.Env = append(os.Environ(), "CODEX_HOME="+filepath.Join(root, "home"))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -787,6 +800,9 @@ func TestHarnessCodexReadOnlySourceWritableScratch(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatal("owned output was not writable", err)
 		}
+	}
+	if data, err := os.ReadFile(filepath.Join(control, "tmp", "results-read")); err != nil || string(data) != "complete read-only results" {
+		t.Fatal("exact task-results read grant was unusable", err)
 	}
 }
 

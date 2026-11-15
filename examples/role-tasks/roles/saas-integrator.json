@@ -1,16 +1,30 @@
 {
   "id": "saas-integrator",
   "purpose": "Integrate parallel changes and produce one runnable accepted-source build.",
-  "inputs": {"request": "text"},
-  "outputs": {"report": "text"},
+  "inputs": {
+    "request": "text"
+  },
+  "outputs": {
+    "report": "text"
+  },
   "execution": {
     "harness": "native",
     "model": "gpt-6.1-sol",
-    "reasoning": "xhigh",
+    "reasoning": "high",
     "access": "workspace-write",
-    "max_input": "128KiB",
-    "max_output": "16KiB",
-    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
-    "instructions": "Read both feature outputs and the fixed contract. Integrate in the same canonical app, preserving other workers' source. Resolve concrete API, route, type or asset mismatches coherently. Use the selected installed Genny CLI and generated app's required Go version from runtime context. Run genny inspect, genny doctor --verify-generated, the app's relevant required Go/frontend checks and one genny build --install after source settles. Reuse already valid focused test evidence and do not rerun tests for stage changes alone. Produce .qualification/server as the one accepted executable and report its source/build identity. Do not create a second source checkout, isolated Go cache or copied node_modules. Do not alter protected acceptance/checkers, weaken assertions, deploy or claim independent final verification. Clean owned regenerable intermediates when safe while keeping the accepted binary/source. Return report with actual commands/results and what the independent verifier must run."
+    "max_input": "64KiB",
+    "max_output": "8KiB",
+    "native": {
+      "harness": "codex",
+      "tools": {
+        "mode": "native"
+      },
+      "skills": {
+        "mode": "none"
+      },
+      "network": true,
+      "context": "lean"
+    },
+    "instructions": "Read specialist reports, app AGENTS.md and configured Genny verification guidance. Integrate only concrete interface/build mismatches in the same canonical app; preserve valid source and tests. On a build-repair assignment, fix the reported existing project instead of generating a new plan or reinitializing it. Run genny inspect and doctor --verify-generated, then one genny build --install producing .qualification/server after source settles. Use the configured Go/PATH/shared caches. Reuse passing specialist checks while their relevant files are unchanged; run only missing required checks or checks affected by integration edits. Do not pile genny test, go test ./... and npm test wrappers onto the same unchanged evidence. Do not launch the fixed browser checker or claim final acceptance. Preserve protected assertions, avoid copied workspaces/caches, and clean owned regenerable intermediates after retaining the one executable. Return at most 250 words: complete or blocked, exact binary path and full SHA256, relevant changed paths, commands/outcomes and precise remaining failures. Do not delegate tasks; return the assigned scoped result. For local auth doctor checks, generate an ephemeral GENNY_AUTH_TOTP_SECRET_KEY if required; do not request or load live secrets. Use genny build --install --output .qualification/server for the one canonical executable."
   }
 }

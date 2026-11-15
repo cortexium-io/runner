@@ -19,6 +19,17 @@ work or deploy the SaaS as part of this authorization. Native qualifications mus
 retain actual task outcomes, usage/limits, intervention and cleanup evidence;
 fixtures or generated scaffolding alone do not establish completion.
 
+Later on 15 November Dan authorized a fresh Genny SaaS qualification from a
+description through final verified result without manual intervention, fixing
+Runner failures and reducing excessive native context overhead. Keep failed runs
+and their frozen limits. Prepare and test repairs before the final fresh run;
+its acceptance requires automatic planning, coding, configured verification and
+goal assessment without operator steering, permission changes or stage handoffs.
+Measure context/usage changes with matched profiles where feasible. Native/full
+capabilities remain an explicit option; do not silently remove needed guidance
+or substitute models. Existing installed pilot and publication/deployment authority
+remain unchanged. Bounded maintenance subagents remain authorized.
+
 On 11 November the owner authorized focused browser-error handoff maintenance,
 including audited recovery from the hash-verified saved Kakuro report, verification
 and installation, then completion of the same PR #338 run. Keep that root within

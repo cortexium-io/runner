@@ -203,6 +203,31 @@ command tools. Web tools need explicit network permission. Skill selection is
 `native` or `none`; an unenforceable selected-skill allowlist is rejected. Access
 to a tool does not authorize publication, deployment or another protected action.
 
+For a Codex role that needs ordinary local coding tools without inherited
+catalogs, explicitly select `native.context: lean` and `native.skills: {mode: none}`.
+Empty context or `native` preserves normal native discovery. Lean keeps the
+normal account, configuration/provider and project instructions. It disables
+app/plugin/automatic-skill discovery, enumerates configured MCP servers with a
+model-free CLI read, explicitly disables each name and verifies zero enabled
+servers before launch. Unsupported settings or failed discovery reject readiness;
+they do not fall back to a larger catalog. The current CLI has no global MCP deny
+switch, so a configuration change after readiness can introduce a new server.
+The manifest records the overrides, names, verification and probe time.
+
+All Codex native profiles also disable native agent and direct-question handlers
+with `agents.enabled=false` and
+`tools.experimental_request_user_input.enabled=false`. Feature flags alone do not
+disable agents when model metadata selects the newer agent implementation.
+Delegation and human requests use Runner's task protocol; the corresponding native
+tool descriptions are removed as well. Provenance records these common controls
+under `context.runner_overrides`, including for full native discovery.
+
+`skills: none` disables the harness's skill discovery/catalog; permitted file tools
+can still read specific guidance named in the role instructions. The lean Genny
+roles use that explicit path for the small relevant skill rather than advertising
+every installed skill. Full native profiles remain available for research/design
+roles that need connected capabilities.
+
 `native.runtime_write_paths` grants up to sixteen explicit absolute runtime/cache
 directories in addition to the task's source, scratch and output roots. Use
 observed narrow tool cache locations, including required project-lock caches;
@@ -216,6 +241,22 @@ call. An attempt is one executor visit; that visit can make several model/tool
 calls before returning. Known token usage and native timing describe the actual
 visit, with missing telemetry marked incomplete. Choose tools, model and effort
 for the role; inheriting a complete catalog has a measured context cost.
+
+Provenance separately records `runner_prompt_bytes`, `output_schema_bytes` and
+the CLI's cumulative usage scope. Cumulative input can include repeated internal
+calls and cached context; it is not the initial prompt size. Exact duplicate
+goal/brief/input text is supplied once with explicit wire references. If complete
+child results exceed the inline request or assignment bound, a file-reading role
+receives one bounded, hash-bound read-only `results.json` with their complete
+contents. Compact inline facts retain child identities and exact artifact IDs;
+the canonical child outputs are not truncated. The private result file is bounded
+by `max_artifact`, reserved by its actual JSON byte count and removed on release.
+A Claude role without `Read` cannot use this overflow path.
+
+SQLite operational schema five prevents older workers from ignoring lean policy
+or result-file references. Opening supported earlier state preserves its saved
+run/definition/attempt bytes; older binaries refuse the upgraded operational marker.
+Use new private qualification state, leaving an installed pilot's cutover explicit.
 
 Native cleanup positively identifies owned processes using inherited markers and
 supported process identity/ancestry. It checks identities before stopping helpers,

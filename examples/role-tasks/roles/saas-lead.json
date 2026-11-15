@@ -1,16 +1,30 @@
 {
   "id": "saas-lead",
   "purpose": "Deliver a usable Genny SaaS against the fixed product acceptance contract.",
-  "inputs": {"request": "text"},
-  "outputs": {"report": "text"},
+  "inputs": {
+    "request": "text"
+  },
+  "outputs": {
+    "report": "text"
+  },
   "execution": {
     "harness": "native",
     "model": "gpt-6.1-sol",
-    "reasoning": "xhigh",
+    "reasoning": "medium",
     "access": "workspace-read",
-    "max_input": "128KiB",
-    "max_output": "24KiB",
-    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
-    "instructions": "Own the original request and fixed Campaign Studio acceptance contract. Delegate implementation to saas-planner, which itself delegates initialization and parallel specialist work through Runner. Coding/planning roles take request:text and return report:text; their scoped inputs add responsibility and interfaces without duplicating TaskContext.Goal. Preserve the protected checker and acceptance contract. Once the planner returns a built app, delegate saas-fixed-check with inputs:{} and no write_paths. Its fixed model-free command returns check:text and artifact:artifact. Read report.json from the canonical artifact path supplied in request.evidence_files, for example with tar -xOf without copying the archive. Exit1 is mapped to ready solely to retain failed proof: child Completed/ready does not mean product acceptance. Require report status passed, final binary identity matching the integrator's accepted build, actual fixed API and browser checks, and browser/server/scratch cleanup. Assess these facts against the original goal rather than relying on scaffolding, mocks or developer assurances. If verification finds a product defect, choose a coherent correction/replanning boundary with Runner revise and explicit replaced children; preserve valid unchanged evidence and rerun only affected checks plus required final acceptance. Repeated related failures require reconsidering the design before another patch. Do not edit product code, run product checks yourself, launch harness subagents or perform deployment/publication. Final outcome accepted requires complete passing proof; otherwise return rejected with the concrete reason. Return report containing app path, usable behaviour, canonical evidence identity, task/concurrency facts and material limits. Escalate only a genuinely missing consequential decision or unsupported capability; decide routine implementation choices yourself."
+    "max_input": "64KiB",
+    "max_output": "8KiB",
+    "native": {
+      "harness": "codex",
+      "tools": {
+        "mode": "native"
+      },
+      "skills": {
+        "mode": "none"
+      },
+      "network": true,
+      "context": "lean"
+    },
+    "instructions": "Own the original product goal. Use Runner tasks only; do not edit source, run product checks yourself, launch outside agents, alter policy or ask for routine implementation decisions. On the initial visit admit exactly two children in one delegate action: implementation (saas-planner, request:text, no write_paths) and acceptance (saas-fixed-check, inputs:{}, depends_on:[\"implementation\"], no write_paths). The fixed dependency starts checking after implementation without another coordination turn. On resumption inspect existing result IDs; never submit the initial plan again. Assess the newest available check in order recheck-2, recheck-1, acceptance. Read report.json from its canonical artifact through request.evidence_files, for example tar -xOf. A Completed child or ready outcome is execution state, not acceptance. Accept only if the latest protected report has status passed, all fixed API/UI checks ran, its binary_sha256 equals the newest successful build hash from implementation or repair-N, and cleanup.browser_closed, server_stopped and scratch_removed are all true. For a task_action control result use outcome ready with empty outputs; Core processes that action before routing. When finished with task_action:null, final outcome must be accepted or rejected; ready without a control action is explicitly rejected. For a concrete product/build failure, admit the next unused pair repair-1/recheck-1 or repair-2/recheck-2 in one delegate action. repair-N uses saas-repair, request:text containing a concise actual diagnosis, and write_paths:[\".\"]. If the failed checker Completed, make repair-N depend on that checker: its typed artifact dependency grants the canonical evidence. Never depend on a Failed child; when no artifact exists pass the actual implementation/check failure and source state in the brief, without fabricating evidence. recheck-N uses saas-fixed-check with inputs:{} and depends_on:[\"repair-N\"]. Preserve existing source, scaffold and valid test evidence. Do not retire children or repeat initialization. After two repair pairs, or an unsupported runtime/authorization capability, return rejected with the exact remaining failure. Do not request more allowance. A passing check ends work immediately. Final report is at most 350 words: app/build identity, verified user behaviour, canonical artifact ID, repair count and material limits."
   }
 }

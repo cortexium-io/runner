@@ -18,6 +18,12 @@ func TestNativeRoleConfiguration(t *testing.T) {
 	if err := ready(base); err != nil {
 		t.Fatal(err)
 	}
+	lean := runner.Clone(base)
+	lean.Native.Context = "lean"
+	lean.Native.Skills = runner.CapabilitySelection{Mode: "none"}
+	if err := ready(lean); err != nil {
+		t.Fatal("explicit lean Codex profile rejected", err)
+	}
 	for _, tc := range []struct {
 		name string
 		edit func(*runner.Profile)
@@ -26,6 +32,11 @@ func TestNativeRoleConfiguration(t *testing.T) {
 		{"missing model", func(p *runner.Profile) { p.Model = "" }},
 		{"competing command", func(p *runner.Profile) { p.Command = &runner.Command{} }},
 		{"invented access", func(p *runner.Profile) { p.Access = "all" }},
+		{"invented context", func(p *runner.Profile) { p.Native.Context = "automatic" }},
+		{"lean inherited skills", func(p *runner.Profile) { p.Native.Context = "lean" }},
+		{"unsupported Claude lean", func(p *runner.Profile) {
+			p.Native = &runner.NativeProfile{Harness: "claude", Context: "lean", Tools: runner.CapabilitySelection{Mode: "none"}, Skills: runner.CapabilitySelection{Mode: "none"}}
+		}},
 		{"oversized output", func(p *runner.Profile) { p.MaxOutput = 256 << 10 }},
 		{"unenforced skill filter", func(p *runner.Profile) {
 			p.Native.Skills = runner.CapabilitySelection{Mode: "selected", Names: []string{"genny-cli"}}

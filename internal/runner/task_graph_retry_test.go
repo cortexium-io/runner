@@ -197,3 +197,60 @@ func TestGeneralTasksRetryRetainsCompletionReserve(t *testing.T) {
 		})
 	}
 }
+
+func TestGeneralTasksAutomaticRetryPreservesParentEvaluation(t *testing.T) {
+	for _, retryable := range []bool{false, true} {
+		for _, total := range []int{3, 4} {
+			t.Run(fmt.Sprintf("infrastructure=%t/total=%d", retryable, total), func(t *testing.T) {
+				s := graphSnapshot(t)
+				project := s.Projects["demo"]
+				proc := project.Processes["demo"]
+				proc.MaxAttempts = total
+				proc.MaxAttemptsPerStep = 2
+				proc.InfrastructureRetries = 1
+				project.Processes["demo"] = proc
+				s.Projects["demo"] = project
+				var mu sync.Mutex
+				childCalls := 0
+				var evaluated runner.RoleTaskResult
+				r := openRig(t, t.TempDir(), s, func(e runner.Executor) runner.Executor {
+					return graphExecutor{e, func(a runner.Assignment) runner.Observation {
+						mu.Lock()
+						defer mu.Unlock()
+						if a.TaskContext.TaskID == "root" {
+							if len(a.TaskContext.Results) == 0 {
+								return graphAction("delegate", graphTask("child", "writer"))
+							}
+							evaluated = a.TaskContext.Results[0]
+							return graphFinal("evaluated actual child outcome")
+						}
+						childCalls++
+						if childCalls == 1 {
+							return runner.Observation{State: runner.Finished, End: &runner.ExecutionEnd{
+								Kind:      "failed",
+								Reason:    "child execution failed",
+								Retryable: retryable,
+							}}
+						}
+						return graphFinal("recovered within available allowance")
+					}}
+				})
+				defer r.close()
+				root := begin(t, r.core, "automatic-reserve", "demo")
+				done := await(t, r.core, root.ID, released)
+				mu.Lock()
+				defer mu.Unlock()
+				wantChildStatus, wantChildCalls := "Failed", 1
+				if total == 4 {
+					wantChildStatus, wantChildCalls = "Completed", 2
+				}
+				if done.Status != "Completed" || evaluated.Status != wantChildStatus || childCalls != wantChildCalls || runner.Summarize(done, time.Now()).Attempts != total {
+					t.Fatalf("automatic retry stranded parent or consumed its reserve: status=%s child=%s calls=%d total=%d", done.Status, evaluated.Status, childCalls, runner.Summarize(done, time.Now()).Attempts)
+				}
+				if total == 3 && !strings.Contains(evaluated.Reason, "completion attempts") {
+					t.Fatalf("child failure lost the completion-reserve reason: %s", evaluated.Reason)
+				}
+			})
+		}
+	}
+}

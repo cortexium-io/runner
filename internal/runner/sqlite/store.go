@@ -99,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 4 {
+	if version < 0 || version > 5 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -148,6 +148,14 @@ INSERT INTO attempts_v4(run_id,position,id,data) SELECT run_id,position,id,data 
 DROP TABLE attempts;
 ALTER TABLE attempts_v4 RENAME TO attempts;
 PRAGMA user_version=4; COMMIT;`); e != nil {
+			return nil, e
+		}
+		version = 4
+	}
+	if version == 4 {
+		// Older workers ignore native context policy and result-file references.
+		// Mark the operational boundary without rewriting retained run bytes.
+		if _, e = db.Exec("PRAGMA user_version=5"); e != nil {
 			return nil, e
 		}
 	}

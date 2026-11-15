@@ -215,6 +215,37 @@ func graphResult(r Run) RoleTaskResult {
 	}
 }
 
+func (c *Core) graphResults(r Run) ([]RoleTaskResult, error) {
+	root, err := c.graphRoot(r)
+	if err != nil {
+		return nil, err
+	}
+	g := r.TaskGraph
+	results := []RoleTaskResult{}
+	links := make(map[string]string, len(g.Children))
+	for _, link := range g.Children {
+		links[link.RunID] = link.Spec.ID
+	}
+	seen := map[string]bool{}
+	for _, ref := range g.Results {
+		child, exists := c.runs[ref.RunID]
+		id, linked := links[ref.RunID]
+		if !exists || !linked || id != ref.ID || seen[ref.RunID] || child.TaskGraph == nil || child.ProjectID != r.ProjectID || child.TaskGraph.RootRunID != root.ID || child.TaskGraph.ParentRunID != r.ID || child.TaskGraph.TaskID != ref.ID || !child.Terminal() {
+			return nil, errors.New("retained task result does not identify an accepted owned child")
+		}
+		seen[ref.RunID] = true
+		results = append(results, graphResult(child))
+	}
+	for _, id := range g.DependsOn {
+		dep, ok := c.runs[id]
+		if !ok || dep.TaskGraph == nil || dep.TaskGraph.ParentRunID != g.ParentRunID || dep.Status != "Completed" {
+			return nil, errors.New("declared task dependency has no accepted result")
+		}
+		results = append(results, graphResult(dep))
+	}
+	return results, nil
+}
+
 func (c *Core) graphContext(r Run) (*TaskContext, error) {
 	root, err := c.graphRoot(r)
 	if err != nil {
@@ -236,18 +267,9 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 		RemainingAttempts: c.familyRemaining(r),
 		AvailableRunSlots: max(0, c.disk.Policy.RetainedRunCapacity()-len(c.runs)-c.graphReservations()),
 	}
-	seenResults := map[string]bool{}
-	for _, ref := range g.Results {
-		child, exists := c.runs[ref.RunID]
-		linked := false
-		for _, link := range g.Children {
-			linked = linked || link.RunID == ref.RunID && link.Spec.ID == ref.ID
-		}
-		if !exists || !linked || seenResults[ref.RunID] || child.TaskGraph == nil || child.ProjectID != r.ProjectID || child.TaskGraph.RootRunID != root.ID || child.TaskGraph.ParentRunID != r.ID || child.TaskGraph.TaskID != ref.ID || !child.Terminal() {
-			return nil, errors.New("retained task result does not identify an accepted owned child")
-		}
-		seenResults[ref.RunID] = true
-		ctx.Results = append(ctx.Results, graphResult(child))
+	ctx.Results, err = c.graphResults(r)
+	if err != nil {
+		return nil, err
 	}
 	ancestors := []Run{}
 	for current := r; current.TaskGraph.ParentRunID != ""; {
@@ -277,13 +299,6 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 			ctx.PreviousFailure = Clip(last.End.Reason)
 		}
 	}
-	for _, id := range g.DependsOn {
-		dep, ok := c.runs[id]
-		if !ok || dep.TaskGraph == nil || dep.TaskGraph.ParentRunID != g.ParentRunID || dep.Status != "Completed" {
-			return nil, errors.New("declared task dependency has no accepted result")
-		}
-		ctx.Results = append(ctx.Results, graphResult(dep))
-	}
 	for _, name := range root.Process.Tasks.Roles {
 		role := root.Roles[name]
 		profile, err := role.Profile(root.Profiles[name])
@@ -311,6 +326,7 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 		}
 		if profile.Native != nil {
 			contract.Harness = profile.Native.Harness
+			contract.Context = profile.Native.Context
 			contract.Tools, contract.Skills = Clone(&profile.Native.Tools), Clone(&profile.Native.Skills)
 			contract.Network = profile.Native.Network
 		}

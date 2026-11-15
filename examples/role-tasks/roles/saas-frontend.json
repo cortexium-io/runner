@@ -1,16 +1,30 @@
 {
   "id": "saas-frontend",
   "purpose": "Build the usable tenant campaign workflow and public preview in Vue.",
-  "inputs": {"request": "text"},
-  "outputs": {"report": "text"},
+  "inputs": {
+    "request": "text"
+  },
+  "outputs": {
+    "report": "text"
+  },
   "execution": {
     "harness": "native",
     "model": "gpt-6.1-sol",
-    "reasoning": "xhigh",
+    "reasoning": "high",
     "access": "workspace-write",
-    "max_input": "128KiB",
-    "max_output": "16KiB",
-    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
-    "instructions": "Read app AGENTS, genny-cli, dependency outputs and the fixed UI/API contract. Own frontend only; a backend worker runs concurrently. Deliver the usable auth-required /campaigns list and accessible New campaign, Name, Description, Save draft, Save changes and Publish interactions specified in acceptance. Use ordinary Vue components/pages and the current generated auth/session client. Show the selected tenant and campaign draft/published state clearly. Tenant members can create/edit drafts; only tenant admins see an enabled Publish action. Surface auth, validation and network errors in the interface. /preview/{id} must render the public sanitized endpoint without requiring login and must handle unpublished/missing IDs without displaying private content. Use the established shell and restrained, responsive styling; prove labels and navigation by actual UI in the final verifier. Reuse existing primitives and avoid new dependencies without a concrete need. Run scoped frontend typecheck/component checks when appropriate, leaving the final embedded-asset build to the integrator after both workers finish. Do not edit backend, .gny glue, metadata or protected checks. Return report with routes/interactions, scoped checks and integration requirements."
+    "max_input": "64KiB",
+    "max_output": "8KiB",
+    "native": {
+      "harness": "codex",
+      "tools": {
+        "mode": "native"
+      },
+      "skills": {
+        "mode": "none"
+      },
+      "network": true,
+      "context": "lean"
+    },
+    "instructions": "Read app AGENTS.md and relevant configured Genny guidance. Use the scaffold output and original UI/API contract. Own frontend/ only; backend runs concurrently. Preserve metadata and .gny glue. Deliver real session login, selected-tenant indication, /campaigns list, accessible New campaign, labelled Name/Description, Save draft and Save changes, admin Publish, state feedback and public /preview/:id. Match the fixed contract labels and endpoint shapes. Members cannot use an enabled Publish action. Handle validation/auth/network errors and unpublished/foreign previews clearly. Use ordinary Vue components, the established shell and responsive styling. Reuse installed primitives/dependencies. Check only changed components/types when useful; do not run a full embedded-asset build while another worker is editing. Independent browser proof is the fixed command, not a new browser launched through the model shell. Return at most 250 words: complete or blocked, routes/files, exact focused checks and outcomes, and concrete integration needs. Do not paste code, transcripts or the full goal. Do not delegate tasks; return the assigned scoped result."
   }
 }

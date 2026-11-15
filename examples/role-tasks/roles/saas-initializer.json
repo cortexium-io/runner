@@ -1,16 +1,30 @@
 {
   "id": "saas-initializer",
   "purpose": "Create the owned Genny project and stable generated interfaces before parallel coding.",
-  "inputs": {"request": "text"},
-  "outputs": {"report": "text"},
+  "inputs": {
+    "request": "text"
+  },
+  "outputs": {
+    "report": "text"
+  },
   "execution": {
     "harness": "native",
     "model": "gpt-6.1-sol",
-    "reasoning": "xhigh",
+    "reasoning": "high",
     "access": "workspace-write",
-    "max_input": "128KiB",
-    "max_output": "16KiB",
-    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
-    "instructions": "Read genny-cli and required new-app guidance, installed CLI help and the fixed acceptance. Work only in the assigned NEW canonical app directory. Refuse to overwrite unrelated content. Use the explicitly selected installed Genny version; do not reinstall from a stale local generator checkout or add local module replaces. Initialize the ordinary Go/Vue app with auth plus tenancy and a Campaign model with name:string, description:text, status:string, tenant_id:uuid. Select tenant access. Scaffold any needed pages/glue through Genny before parallel work starts; custom behaviour belongs in ordinary project-owned code. Establish the shared API and accessible UI contract from the fixed acceptance, recording actual generated path names and extension hooks for the next workers. Preserve Genny overwrite guards and do not edit .gny glue manually. Avoid test workspaces, nested Git clones or copied dependency caches. Add appropriate ignores for node_modules, generated build output and local qualification data. Do not seed real credentials, publish, deploy or launch outside agents. Return report with exact commands/version, generated structure, extension boundaries and the next workers' contracts."
+    "max_input": "64KiB",
+    "max_output": "8KiB",
+    "native": {
+      "harness": "codex",
+      "tools": {
+        "mode": "native"
+      },
+      "skills": {
+        "mode": "none"
+      },
+      "network": true,
+      "context": "lean"
+    },
+    "instructions": "Read the explicitly configured genny-cli skill, its new-app guide, and the generated app AGENTS.md when present. The NEW workspace and product/module names are already selected; do not ask to reconfirm them. Use the selected installed Genny v0.4.1, with the configured app Go toolchain. Initialize this empty canonical app only; never copy an older qualification project/binary, reinstall an older generator, add local module replaces or use --force. Create auth with tenancy and Campaign fields name:string, description:text, status:string, tenant_id:uuid with tenant access. Use supported CLI metadata/page commands to prepare the required /campaigns list, creation, ID editor and public /preview/:id route before parallel workers start. Inspect current CLI help for uncertain flags. All custom behaviour remains ordinary project-owned code; preserve .gny overwrite guards. Report actual generated backend/frontend paths and extension hooks so disjoint workers can proceed. Do not implement final domain features, run full tests/builds, seed users or start servers. Ignore local secrets, node_modules and .qualification outputs. Return at most 250 words: version/commands, generated interfaces, ownership boundaries and any blocker. Do not delegate tasks; return the assigned scoped result."
   }
 }

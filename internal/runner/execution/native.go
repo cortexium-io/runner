@@ -18,19 +18,20 @@ import (
 )
 
 type harnessJob struct {
-	Assignment      runner.Assignment      `json:"assignment,omitzero"`
-	AttemptID       string                 `json:"attempt_id,omitempty"`
-	AssignmentFile  string                 `json:"assignment_file,omitempty"`
-	AssignmentLimit runner.Bytes           `json:"assignment_limit,omitempty"`
-	Directory       string                 `json:"directory,omitempty"`
-	Workspace       *workspaceRecord       `json:"workspace,omitempty"`
-	Stage           string                 `json:"stage"`
-	StopRequested   bool                   `json:"stop_requested,omitempty"`
-	StopReason      string                 `json:"stop_reason,omitempty"`
-	ScratchDir      string                 `json:"scratch_dir,omitempty"`
-	End             *runner.ExecutionEnd   `json:"end,omitempty"`
-	Usage           runner.Usage           `json:"usage"`
-	Effective       *runner.ExecutionFacts `json:"effective,omitempty"`
+	Assignment      runner.Assignment       `json:"assignment,omitzero"`
+	AttemptID       string                  `json:"attempt_id,omitempty"`
+	AssignmentFile  string                  `json:"assignment_file,omitempty"`
+	AssignmentLimit runner.Bytes            `json:"assignment_limit,omitempty"`
+	Directory       string                  `json:"directory,omitempty"`
+	Workspace       *workspaceRecord        `json:"workspace,omitempty"`
+	Stage           string                  `json:"stage"`
+	StopRequested   bool                    `json:"stop_requested,omitempty"`
+	StopReason      string                  `json:"stop_reason,omitempty"`
+	ScratchDir      string                  `json:"scratch_dir,omitempty"`
+	ResultsFile     *runner.NativeInputFile `json:"results_file,omitempty"`
+	End             *runner.ExecutionEnd    `json:"end,omitempty"`
+	Usage           runner.Usage            `json:"usage"`
+	Effective       *runner.ExecutionFacts  `json:"effective,omitempty"`
 }
 
 // Native is the explicit opt-in CLI adapter. The existing restricted Codex
@@ -177,10 +178,14 @@ func (n *Native) Start(ctx context.Context, a runner.Assignment) (runner.Observa
 		return runner.Observation{}, err
 	}
 	var err error
+	a.OutputDir = filepath.Join(n.disk.Root, "artifacts", a.AttemptID)
+	job := harnessJob{Assignment: runner.Clone(a), Stage: "allocated"}
+	var resultBytes []byte
 	if sharedCommand(a) {
 		a, err = sharedAssignment(a)
+		job.Assignment = a
 	} else {
-		_, _, err = harnessPayload(a)
+		job.Assignment, job.ResultsFile, resultBytes, err = planHarnessAssignment(a, filepath.Join(n.disk.Root, harnessControl(a.AttemptID)), a.Setup.Profile.MaxInput+n.disk.Policy.Database.MaxRecord)
 	}
 	if err == nil && (!commandGroupsSupported || a.Deadline.IsZero() || a.Limits.MaxLog < 1 || a.Limits.MaxRecord < 1 || !sharedCommand(a) && a.Setup.Profile.MaxOutput > a.Limits.MaxRecord/2) {
 		err = errors.New("native execution needs a supported platform, deadline, bounded logs and max_output at most half max_record")
@@ -188,7 +193,14 @@ func (n *Native) Start(ctx context.Context, a runner.Assignment) (runner.Observa
 	if err != nil {
 		return runner.Observation{State: runner.Finished, End: &runner.ExecutionEnd{Kind: "failed", Reason: "native readiness: " + runner.Clip(err.Error())}}, nil
 	}
-	job := harnessJob{Assignment: runner.Clone(a), Stage: "allocated"}
+	if job.ResultsFile != nil {
+		if err = n.disk.Write(harnessControl(a.AttemptID)+"/results.json", resultBytes, a.Limits.MaxArtifact); err != nil {
+			return runner.Observation{}, err
+		}
+		if err = os.Chmod(job.ResultsFile.Path, 0400); err != nil {
+			return runner.Observation{}, err
+		}
+	}
 	if err = n.save(job); err != nil {
 		return runner.Observation{}, err
 	}
@@ -239,6 +251,17 @@ func (n *Native) prepareWorker(ctx context.Context, job *harnessJob) error {
 	}
 	job.Directory = filepath.Join(n.disk.Root, control, "workspace")
 	a.OutputDir = filepath.Join(n.disk.Root, "artifacts", a.AttemptID)
+	if err := validateHarnessResults(*a, filepath.Join(n.disk.Root, control), job.ResultsFile); err != nil {
+		return err
+	}
+	if job.ResultsFile != nil && a.Setup.Profile.Native.Harness == "claude" {
+		if err := n.disk.Write(control+"/evidence/.keep", nil, 1); err != nil {
+			return err
+		}
+		if err := os.Link(job.ResultsFile.Path, harnessResultsReadPath(*a, job.ResultsFile)); err != nil {
+			return errors.New("Claude task-results input could not be linked into its private read root")
+		}
+	}
 	if a.Setup.Profile.Access != "input-only" {
 		if a.TaskContext != nil {
 			path, err := filepath.EvalSymlinks(a.WorkDir)
@@ -353,6 +376,7 @@ func (n *Native) prepareWorker(ctx context.Context, job *harnessJob) error {
 		Owner:          rand.Text(),
 		ScratchDir:     job.ScratchDir,
 		Shared:         sharedCommand(*a),
+		ResultsFile:    job.ResultsFile,
 	}
 	data, err := json.Marshal(spec)
 	if err != nil {

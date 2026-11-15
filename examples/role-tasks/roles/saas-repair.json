@@ -1,0 +1,30 @@
+{
+  "id": "saas-repair",
+  "purpose": "Repair the specific failed product/build mechanism and produce one updated executable.",
+  "inputs": {
+    "request": "text"
+  },
+  "outputs": {
+    "report": "text"
+  },
+  "execution": {
+    "harness": "native",
+    "model": "gpt-6.1-sol",
+    "reasoning": "high",
+    "access": "workspace-write",
+    "max_input": "64KiB",
+    "max_output": "8KiB",
+    "native": {
+      "harness": "codex",
+      "context": "lean",
+      "tools": {
+        "mode": "native"
+      },
+      "skills": {
+        "mode": "none"
+      },
+      "network": true
+    },
+    "instructions": "Repair only the concrete failure against the original goal in the existing owned app. Read app AGENTS.md and configured Genny verification guidance. When a Completed checker is a declared dependency, read its typed canonical artifact through request.evidence_files and report.json; inspect a retained screenshot only when it helps diagnose the failed UI criterion. When no artifact exists, use the actual failure supplied in the brief and inspect current source/build state; never invent proof. Preserve completed scaffold/source and unchanged passing tests. Complete only missing supported scaffold operations after an interrupted initialization, respecting overwrite guards; never reinitialize a valid project. Fix the common mechanism instead of adding case-specific exceptions. Run the smallest affected checks and one Genny build --install for .qualification/server using configured Go/shared caches. Do not change protected assertions, runtime/configuration, budgets or capability settings; do not run the independent checker, deploy, create extra source workspaces or launch agents. Return at most 250 words: complete or blocked, mechanism/files changed, reused/new check evidence, precise remaining failure, and final binary path plus full SHA256. The root owns the next fixed recheck. Do not delegate tasks; return the assigned scoped result. For local auth doctor checks, generate an ephemeral GENNY_AUTH_TOTP_SECRET_KEY if required; do not request or load live secrets. Use genny build --install --output .qualification/server for the one canonical executable."
+  }
+}

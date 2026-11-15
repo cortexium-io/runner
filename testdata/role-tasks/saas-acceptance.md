@@ -55,10 +55,19 @@ The fixed UI is:
 The initializer owns all paths while scaffolding. Backend and frontend work must
 then actually run concurrently in disjoint internal/ and frontend/ paths. A
 subsequent integrator builds one final .qualification/server using the app's
-required Go toolchain. The root lead independently assigns saas-fixed-check after
-the planner's implementation succeeds, then assesses its actual report against
+required Go toolchain. The root lead independently admits saas-fixed-check as a
+dependent of implementation; it runs after the planner settles. The lead then
+assesses its actual report against
 the goal. No external chat writes app source or performs product qualification
 outside Runner.
+
+For this full delivery qualification, a failed product/build result permits at
+most two autonomous repair/recheck pairs against the same source and goal. Reuse
+passing evidence whose inputs did not change. Do not repeat a completed
+initializer, introduce another planning/review ceremony or request more allowance.
+Success requires the newest fixed report, the newest build's exact binary hash
+and completed browser/server/scratch cleanup; an execution-completed child alone
+does not satisfy acceptance.
 
 Run the protected qualify-saas.mjs through the configured fixed command role
 without weakening it. It owns one temporary

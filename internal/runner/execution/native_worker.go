@@ -22,18 +22,20 @@ import (
 )
 
 type harnessSpec struct {
-	Assignment     runner.Assignment    `json:"assignment,omitzero"`
-	AttemptID      string               `json:"attempt_id,omitempty"`
-	AssignmentFile string               `json:"assignment_file,omitempty"`
-	MaxInput       runner.Bytes         `json:"max_input,omitempty"`
-	Binary         string               `json:"binary"`
-	Directory      string               `json:"directory"`
-	Control        string               `json:"control"`
-	Root           string               `json:"root"`
-	Storage        runner.StoragePolicy `json:"storage"`
-	Owner          string               `json:"owner"`
-	ScratchDir     string               `json:"scratch_dir,omitempty"`
-	Shared         bool                 `json:"shared,omitempty"`
+	Assignment       runner.Assignment       `json:"assignment,omitzero"`
+	AttemptID        string                  `json:"attempt_id,omitempty"`
+	AssignmentFile   string                  `json:"assignment_file,omitempty"`
+	MaxInput         runner.Bytes            `json:"max_input,omitempty"`
+	Binary           string                  `json:"binary"`
+	Directory        string                  `json:"directory"`
+	Control          string                  `json:"control"`
+	Root             string                  `json:"root"`
+	Storage          runner.StoragePolicy    `json:"storage"`
+	Owner            string                  `json:"owner"`
+	ScratchDir       string                  `json:"scratch_dir,omitempty"`
+	Shared           bool                    `json:"shared,omitempty"`
+	ContextOverrides []string                `json:"-"`
+	ResultsFile      *runner.NativeInputFile `json:"results_file,omitempty"`
 }
 
 type harnessReceipt struct {
@@ -71,7 +73,7 @@ func harnessArgs(spec harnessSpec, schemaFile string, schema []byte) []string {
 		if p.Native.Skills.Mode == "none" {
 			args = append(args, "--disable-slash-commands")
 		}
-		if len(harnessArtifactFiles(spec.Assignment)) > 0 && p.Native.Tools.Mode == "selected" {
+		if (len(harnessArtifactFiles(spec.Assignment)) > 0 || spec.ResultsFile != nil) && p.Native.Tools.Mode == "selected" {
 			args = append(args, "--add-dir", filepath.Join(spec.Control, "evidence"))
 		}
 		if p.Reasoning != "" {
@@ -83,22 +85,29 @@ func harnessArgs(spec harnessSpec, schemaFile string, schema []byte) []string {
 		"exec", "--json", "--ephemeral", "--color", "never", "--skip-git-repo-check",
 		"--model", p.Model, "--output-schema", schemaFile,
 		"-c", "approval_policy=\"never\"",
-		"-c", "features.multi_agent=false",
-		"-c", "features.hooks=false",
 		"-c", "shell_environment_policy.set." + nativeOwnerVariable + "=" + strconv.Quote(spec.Owner),
 		"-c", "default_permissions=\"runner-native\"",
 		"-c", "permissions.runner-native.filesystem=" + harnessFilesystem(spec),
 		"-c", "permissions.runner-native.network.enabled=" + strconv.FormatBool(p.Native.Network),
 	}
+	for _, override := range runnerCodexOverrides {
+		args = append(args, "-c", override)
+	}
+	if p.Native.Context == "lean" {
+		args = append(args, "--strict-config")
+	}
 	if p.Reasoning != "" {
 		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(p.Reasoning))
 	}
-	if p.Native.Skills.Mode == "none" {
+	if p.Native.Skills.Mode == "none" && p.Native.Context != "lean" {
 		args = append(args,
 			"-c", "skills.include_instructions=false",
 			"-c", "skills.bundled.enabled=false",
 			"-c", "features.skip_host_skill_discovery=true",
 		)
+	}
+	for _, override := range spec.ContextOverrides {
+		args = append(args, "-c", override)
 	}
 	return append(args, "-")
 }
@@ -121,6 +130,9 @@ func harnessFilesystem(spec harnessSpec) string {
 	}
 	for _, path := range harnessArtifactFiles(spec.Assignment) {
 		paths[path] = "read"
+	}
+	if spec.ResultsFile != nil {
+		paths[harnessResultsReadPath(spec.Assignment, spec.ResultsFile)] = "read"
 	}
 	if spec.ScratchDir != "" {
 		paths[spec.ScratchDir] = "write"
@@ -179,6 +191,9 @@ func readHarnessSpec(file string) (harnessSpec, error) {
 			return spec, errors.New("native worker assignment identity differs")
 		}
 	}
+	if err := validateHarnessResults(spec.Assignment, spec.Control, spec.ResultsFile); err != nil {
+		return spec, err
+	}
 	return spec, nil
 }
 
@@ -209,7 +224,7 @@ func RunNativeWorker(parent context.Context, file string) (returnErr error) {
 	if sharedCommand(a) {
 		a, err = sharedAssignment(a)
 	} else {
-		prompt, schema, err = harnessPayload(a, filepath.Join(spec.Control, "tmp"))
+		prompt, schema, err = harnessPayload(a, harnessPayloadOptions{Scratch: filepath.Join(spec.Control, "tmp"), Results: spec.ResultsFile})
 	}
 	if err != nil {
 		return err
@@ -267,6 +282,11 @@ func RunNativeWorker(parent context.Context, file string) (returnErr error) {
 	digest := sha256.Sum256([]byte(prompt))
 	if !sharedCommand(a) {
 		proof.RequestDigest = hex.EncodeToString(digest[:])
+		proof.PromptBytes, proof.SchemaBytes = len(prompt), len(schema)
+		proof.ResultsInput = runner.Clone(spec.ResultsFile)
+		if spec.ResultsFile != nil {
+			proof.Gaps = append(proof.Gaps, "The complete task-results array is an immutable temporary input, removed on Release. Its canonical accepted outputs remain owned by the referenced child runs.")
+		}
 	}
 	if !sharedCommand(a) {
 		versionCtx, versionCancel := context.WithTimeout(ctx, 3*time.Second)
@@ -289,6 +309,15 @@ func RunNativeWorker(parent context.Context, file string) (returnErr error) {
 		}
 		versionCancel()
 		proof.VersionMillis = time.Since(versionStarted).Milliseconds()
+	}
+	if !sharedCommand(a) && a.Setup.Profile.Native.Harness == "codex" {
+		started := time.Now()
+		proof.Context, err = prepareCodexContext(ctx, spec, knownProcesses)
+		proof.ContextMillis = time.Since(started).Milliseconds()
+		if err != nil {
+			return err
+		}
+		spec.ContextOverrides = proof.Context.Overrides
 	}
 	proofFile := filepath.Join(spec.Root, "artifacts", a.AttemptID, "provenance.json")
 	if err = os.MkdirAll(filepath.Dir(proofFile), 0700); err != nil {

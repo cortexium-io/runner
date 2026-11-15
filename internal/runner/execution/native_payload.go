@@ -20,10 +20,11 @@ const harnessInstructions = `Complete this one role assignment against the origi
 Runner owns delegation, dependencies and revisions: never spawn agents or start another Runner. Return the declared JSON result.
 Text outputs contain the requested deliverable: complete writing when requested, or a concise evidence-rich handoff for source work. JSON outputs contain JSON encoded as a string. Artifact outputs name a regular file relative to output_dir, or forward one exact artifact ID already supplied in inputs or task_context results. Never invent artifact IDs.
 Only declared artifact outputs and Runner's audit manifest are retained. Other files in output_dir and scratch_dir are removed after collection; do not link them or claim them as retained evidence. Return evidence needed later through a declared artifact output.
-Use task_action=null when finished. Delegate or revise only through task_action; task inputs are [{name,kind,value}], with kind=text, json (JSON encoded as a string), or artifact (an ID already supplied by Runner). A control action has empty outputs.
-Task write_paths are literal paths relative to the product source, or "." for the whole project. Never use absolute paths or claim runtime/cache directories. Planning, writing without source edits, and read-only roles normally use []. Configured runtime permissions already exist and are not task write claims or permission requests.
 Explain consequential decisions and evidence in the deliverable; do not disclose private reasoning. Avoid repeating verification of unchanged inputs. After recurring failures, reassess the design rather than layering another special case.
 The sandbox covers the project workspace: write_paths are cooperative ownership claims, not per-file security isolation. Preserve other tasks' edits and stay within your assigned paths. Skills and tools follow the explicit native profile. MCP side effects are governed by the harness, not its shell filesystem sandbox.`
+
+const harnessTaskInstructions = `Use task_action=null when finished. Delegate or revise only through task_action; task inputs are [{name,kind,value}], with kind=text, json (JSON encoded as a string), or artifact (an ID already supplied by Runner). A control action has empty outputs.
+Task write_paths are literal paths relative to the product source, or "." for the whole project. Never use absolute paths or claim runtime/cache directories. Planning, writing without source edits, and read-only roles normally use []. Configured runtime permissions already exist and are not task write claims or permission requests.`
 
 func objectSchema(properties map[string]any) map[string]any {
 	required := make([]string, 0, len(properties))
@@ -34,7 +35,7 @@ func objectSchema(properties map[string]any) map[string]any {
 	return map[string]any{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
 }
 
-func harnessPayload(a runner.Assignment, scratchOverride ...string) (string, []byte, error) {
+func harnessPayload(a runner.Assignment, options ...harnessPayloadOptions) (string, []byte, error) {
 	p := a.Setup.Profile
 	if p.Native == nil || p.Native.Validate() != nil || strings.TrimSpace(a.Task) == "" || p.Model == "" || p.MaxInput < 128 || p.MaxOutput < 128 {
 		return "", nil, errors.New("incomplete native profile or task")
@@ -61,19 +62,72 @@ func harnessPayload(a runner.Assignment, scratchOverride ...string) (string, []b
 		}
 	}
 	scratch := filepath.Join(a.WorkDir, "harness", "tmp")
-	if len(scratchOverride) > 0 {
-		scratch = scratchOverride[0]
+	var resultsFile *runner.NativeInputFile
+	if len(options) > 0 {
+		if options[0].Scratch != "" {
+			scratch = options[0].Scratch
+		}
+		resultsFile = options[0].Results
+	}
+	instructions := harnessInstructions
+	type taskContext struct {
+		*runner.TaskContext
+		BriefRef    string                  `json:"brief_ref,omitempty"`
+		ResultsFile *runner.NativeInputFile `json:"results_file,omitempty"`
+	}
+	var context *taskContext
+	task, taskRef := a.Task, ""
+	var inputRefs map[string]string
+	if a.TaskContext != nil {
+		instructions += "\n" + harnessTaskInstructions
+		context = &taskContext{TaskContext: runner.Clone(a.TaskContext), ResultsFile: runner.Clone(resultsFile)}
+		if resultsFile != nil {
+			context.ResultsFile.Path = harnessResultsReadPath(a, resultsFile)
+			instructions += "\nTask result entries retain identities, reasons and exact artifact IDs. Read task_context.results_file for complete child/dependency outputs before judging them; complete text was moved, never truncated. The file is a read-only Results array with size and SHA256, and is not an artifact output ID."
+		}
+		if context.Goal != "" && context.Brief == context.Goal {
+			context.Brief, context.BriefRef = "", "task_context.goal"
+		}
+		reference := func(text string) string {
+			if text != "" && text == a.TaskContext.Goal {
+				return "task_context.goal"
+			}
+			if text != "" && text == a.TaskContext.Brief {
+				return "task_context.brief"
+			}
+			return ""
+		}
+		if taskRef = reference(task); taskRef != "" {
+			task = ""
+		}
+		for name, value := range a.Inputs {
+			var text string
+			if value.ArtifactID == "" && json.Unmarshal(value.Inline, &text) == nil {
+				if ref := reference(text); ref != "" {
+					if inputRefs == nil {
+						inputRefs = map[string]string{}
+					}
+					inputRefs[name] = ref
+					delete(inputs, name)
+				}
+			}
+		}
+		if taskRef != "" || len(inputRefs) > 0 || context.BriefRef != "" {
+			instructions += "\nA task_ref, brief_ref or input_references value names the path holding that complete text once. Resolve these references as the task, brief or named input; no value is missing or truncated."
+		}
 	}
 	request := struct {
-		Task         string              `json:"task"`
-		Inputs       map[string]any      `json:"inputs"`
-		Context      *runner.TaskContext `json:"task_context,omitempty"`
-		MaxOutput    runner.Bytes        `json:"max_output_bytes"`
-		OutputDir    string              `json:"output_dir"`
-		ScratchDir   string              `json:"scratch_dir"`
-		Evidence     map[string]string   `json:"evidence_files,omitempty"`
-		Instructions string              `json:"instructions"`
-	}{a.Task, inputs, a.TaskContext, p.MaxOutput, a.OutputDir, scratch, harnessArtifactFiles(a), harnessInstructions + "\n" + p.Instructions + "\nWrite retained files into output_dir; artifact output paths are relative to output_dir. Use scratch_dir for temporary checks. Source access and read-only verification are enforced separately from these two writable roots."}
+		Task            string            `json:"task,omitempty"`
+		TaskRef         string            `json:"task_ref,omitempty"`
+		Inputs          map[string]any    `json:"inputs"`
+		InputReferences map[string]string `json:"input_references,omitempty"`
+		Context         *taskContext      `json:"task_context,omitempty"`
+		MaxOutput       runner.Bytes      `json:"max_output_bytes"`
+		OutputDir       string            `json:"output_dir"`
+		ScratchDir      string            `json:"scratch_dir"`
+		Evidence        map[string]string `json:"evidence_files,omitempty"`
+		Instructions    string            `json:"instructions"`
+	}{task, taskRef, inputs, inputRefs, context, p.MaxOutput, a.OutputDir, scratch, harnessArtifactFiles(a), instructions + "\n" + p.Instructions + "\nWrite retained files into output_dir; artifact output paths are relative to output_dir. Use scratch_dir for temporary checks. Source access and read-only verification are enforced separately from these two writable roots."}
 	props := map[string]any{}
 	for name, kind := range a.OutputTypes {
 		if name == "patch" && p.Access == "workspace-write" && a.TaskContext == nil {
@@ -131,7 +185,7 @@ func harnessPayload(a runner.Assignment, scratchOverride ...string) (string, []b
 		return "", nil, err
 	}
 	if int64(len(prompt)+len(schema)) > int64(p.MaxInput) {
-		return "", nil, errors.New("native instructions, task context and inputs exceed max_input; nothing was truncated")
+		return "", nil, errHarnessInputBudget
 	}
 	return string(prompt), schema, nil
 }

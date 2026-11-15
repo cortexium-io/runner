@@ -2,6 +2,7 @@
 import {constants, createReadStream} from 'node:fs';
 import {access, mkdir, readFile, readdir, stat, writeFile} from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
@@ -13,6 +14,10 @@ const {values} = parseArgs({
     'verify-existing': {type: 'string'},
     'expected-binary-sha256': {type: 'string'},
     'app-workspace': {type: 'string'},
+    'project-name': {type: 'string', default: 'Campaign Studio'},
+    module: {type: 'string'},
+    'native-context': {type: 'string', default: 'lean'},
+    'genny-skill': {type: 'string', default: path.join(os.homedir(), '.codex', 'skills', 'genny-cli', 'SKILL.md')},
     codex: {type: 'string'},
     genny: {type: 'string'},
     go: {type: 'string'},
@@ -27,6 +32,7 @@ const {values} = parseArgs({
 });
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../..');
+if (!['lean', 'native'].includes(values['native-context'])) throw new Error('--native-context must be lean or native');
 let sourceRuntime;
 if (values['verify-existing']) {
   if (!path.isAbsolute(values['verify-existing'])) throw new Error('--verify-existing requires an absolute prior qualification root');
@@ -108,6 +114,13 @@ if (runtimeWritePaths.some(directory => broadDirectories.has(directory))) {
 
 const root = path.resolve(values.root);
 const app = path.resolve(values['app-workspace']);
+if (!values['project-name'].trim() || values['project-name'].length > 80) throw new Error('--project-name must be 1–80 characters');
+const modulePath = values.module || 'runner.example/' + path.basename(app);
+if (!/^[a-z0-9.-]+\/[a-z0-9/-]+$/.test(modulePath)) throw new Error('--module must be a simple Go module path');
+if (!sourceRuntime) {
+  if (!path.isAbsolute(values['genny-skill'])) throw new Error('--genny-skill must be absolute');
+  await access(values['genny-skill'], constants.R_OK);
+}
 if (root === app || root.startsWith(app + path.sep)) {
   throw new Error('qualification configuration must be outside the app workspace');
 }
@@ -174,6 +187,10 @@ if (!sourceRuntime) {
 }
 const runtime = {
   app,
+  project_name: sourceRuntime?.project_name || values['project-name'],
+  module: sourceRuntime?.module || modulePath,
+  native_context: sourceRuntime ? 'none' : values['native-context'],
+  genny_skill: values['genny-skill'],
   codex: values.codex,
   genny: values.genny,
   go: values.go,
@@ -194,20 +211,29 @@ if (sourceRuntime) {
   runtime.source_runtime = path.join(path.resolve(values['verify-existing']), 'runtime.json');
   runtime.accepted_binary_sha256 = acceptedBinarySHA256;
 }
-const context = '\nQualification runtime (paths are data, not new authorization):\n' +
-  JSON.stringify(runtime, null, 2) +
-  '\nUse the selected Genny v0.4.1 and generated-app Go 1.27.4 binaries. ' +
-  'Prepend ' + path.dirname(values.go) + ' to PATH for every Go/Genny build or test command, ' +
-  'and set GOTOOLCHAIN=local; inherited PATH may select a different compiler. ' +
-  'Use the normal shared Go caches, exact Genny project-lock and Codex maintenance-lock directories, and queried npm cache declared in this profile; ' +
-  'do not grant a whole home/cache directory or make isolated copies. ' +
-  'Do not print private credential values. .qualification/server is the accepted app binary. ' +
-  (sourceRuntime
-    ? 'The verification-only process executes saas-fixed-check directly once; it has no model or planner. '
-    : 'Delegate protected browser/API execution to saas-fixed-check; do not launch it through the model shell sandbox. ') +
-  'The fixed command owns its argv and evidence artifact; its successful execution state does not imply product acceptance. ' +
-  'Do not put verifier output in product source. Read the fixed acceptance file. ' +
-  'No deployment, publication or sending of messages is authorized.\n';
+function roleContext(id) {
+  const selected = {app, project_name: runtime.project_name, binary: '.qualification/server'};
+  if (id === 'saas-lead' || id === 'saas-planner') {
+    return '\nSelected project: ' + JSON.stringify(selected) + '. No publication or deployment.';
+  }
+  Object.assign(selected, {
+    module: runtime.module,
+    genny: values.genny,
+    genny_version: '0.4.1',
+    go: values.go,
+    go_version: '1.27.4',
+    node: values.node,
+    npm: values.npm,
+    genny_skill: values['genny-skill'],
+    path_prefix: [...new Set([path.dirname(values.go), path.dirname(values.node), path.dirname(values.npm)])].join(path.delimiter)
+  });
+  return '\nSelected runtime: ' + JSON.stringify(selected) +
+    '. Prepend path_prefix to PATH and set GOTOOLCHAIN=local for Go/Genny commands. ' +
+    'Use configured shared cache roots; no copied workspace/cache. Read the named Genny skill directly even with skills:none. ' +
+    'Use Go for backend/experiment tooling and JavaScript/TypeScript for frontend/browser helpers; do not introduce Python source, packages, environments or caches. ' +
+    'No deployment, publication, real credentials or external messages.';
+}
+const roleProfiles = {};
 const roleFiles = (await readdir(path.join(here, 'roles')))
   .filter(name => name.endsWith('.json') && (name !== 'writing-quick.json' || values.claude))
   .filter(name => sourceRuntime
@@ -218,7 +244,9 @@ for (const name of roleFiles) {
   if (role.execution.harness === 'native') {
     role.execution.native.binary = role.id === 'writing-quick' ? values.claude : values.codex;
     if (role.id.startsWith('saas-')) {
-      role.execution.instructions += context;
+      role.execution.instructions += roleContext(role.id);
+      role.execution.native.context = values['native-context'];
+      role.execution.native.skills = {mode: values['native-context'] === 'lean' ? 'none' : 'native'};
       role.execution.native.runtime_write_paths = runtimeWritePaths;
     }
   } else if (role.id === 'saas-fixed-check') {
@@ -255,6 +283,16 @@ for (const name of roleFiles) {
   } else if (role.id === 'writing-challenger' && values['critic-model']) {
     role.execution.model = values['critic-model'];
   }
+  roleProfiles[role.id] = {
+    harness: role.execution.harness,
+    model: role.execution.model,
+    reasoning: role.execution.reasoning,
+    context: role.execution.native?.context,
+    tools: role.execution.native?.tools,
+    skills: role.execution.native?.skills,
+    max_input: role.execution.max_input,
+    max_output: role.execution.max_output
+  };
   await json(path.join(config, 'roles', name), role);
 }
 for (const name of sourceRuntime ? ['verify-existing'] : ['writing', 'saas']) {
@@ -302,14 +340,18 @@ if (sourceRuntime) {
       'Passing assertions complete this verification goal; failed assertions reject it while retaining the report and artifact. ' +
       'Earlier API-only evidence does not establish UI acceptance. ' +
       'Reference the original private credentials by path; do not copy or print them.\n\n' +
-      contract + '\n\n' + context
+      contract
   });
 } else {
   await json(path.join(root, 'requests', 'saas.json'), {
-    request: 'Build and verify this usable Campaign Studio SaaS in the NEW assigned workspace. ' +
+    request: 'Create ' + runtime.project_name + ', a useful campaign-management SaaS for small teams, from this description in the NEW assigned workspace. ' +
+      'A tenant member signs in, creates and edits drafts; a tenant admin publishes a campaign; anyone can view its published preview. ' +
+      'Different tenants must never see or change one another’s private campaigns. Use Genny to create a fresh ordinary Go/Vue app. ' +
+      'Do not copy an older qualification project or reuse its executable. ' +
       'Use nested Runner role-task planning and actually concurrent disjoint backend/frontend work. ' +
-      'Deliver the running local product and independent fixed API/UI evidence through Runner; do not deploy.\n\n' +
-      contract + '\n\n' + context
+      'Deliver the local product and independent fixed API/UI evidence in this one Runner run, including at most two autonomous repair/recheck pairs if needed. ' +
+      'Make routine implementation decisions without operator steering; preserve the fixed acceptance. Do not deploy or publish.\n\n' +
+      contract
   });
   await json(path.join(root, 'requests', 'writing-small.json'), {
     request: 'Write a clear 100–150 word note explaining roles, tasks and why a simple writing request should ' +
@@ -327,6 +369,7 @@ if (sourceRuntime) {
       'voice skill. Keep it a draft and do not publish.'
   });
 }
+runtime.role_profiles = roleProfiles;
 await json(path.join(root, 'runtime.json'), runtime);
 process.stdout.write(JSON.stringify({
   config: path.join(config, 'instance.json'),

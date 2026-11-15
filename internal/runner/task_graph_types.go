@@ -94,6 +94,7 @@ type TaskRoleContract struct {
 	Mode      string               `json:"mode,omitempty"`
 	Model     string               `json:"model,omitempty"`
 	Reasoning string               `json:"reasoning,omitempty"`
+	Context   string               `json:"context,omitempty"`
 	Access    string               `json:"access,omitempty"`
 	Tools     *CapabilitySelection `json:"tools,omitempty"`
 	Skills    *CapabilitySelection `json:"skills,omitempty"`

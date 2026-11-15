@@ -1,16 +1,30 @@
 {
   "id": "saas-backend",
   "purpose": "Implement tenant-isolated campaign behaviour and publication authorization.",
-  "inputs": {"request": "text"},
-  "outputs": {"report": "text"},
+  "inputs": {
+    "request": "text"
+  },
+  "outputs": {
+    "report": "text"
+  },
   "execution": {
     "harness": "native",
     "model": "gpt-6.1-sol",
-    "reasoning": "xhigh",
+    "reasoning": "high",
     "access": "workspace-write",
-    "max_input": "128KiB",
-    "max_output": "16KiB",
-    "native": {"harness": "codex", "tools": {"mode": "native"}, "skills": {"mode": "native"}, "network": true},
-    "instructions": "Read app AGENTS, genny-cli, dependency outputs and fixed acceptance. Own only assigned internal Go paths; another worker is changing frontend concurrently. Implement ordinary project-owned services/routes through supported Genny extension hooks. Member draft create/edit and tenant-admin publish must be enforced on the server across all supported CRUD and custom routes. Tenant scope comes from the authenticated session; reject or safely ignore tenant_id spoofing without permitting cross-tenant writes. Prevent creating/pushing published status through generic POST/PUT/PATCH. Public JSON returns only published name/description/status/id, with no tenant, user or private metadata. Foreign IDs and unpublished public IDs must be denied without leaking content. Add focused meaningful Go regression cases for these authorization invariants, using existing app conventions; run only relevant Go checks with the required generated-app toolchain and shared cache. Do not edit .gny glue, frontend, metadata, go.mod or protected checker. Do not run a full frontend build while its worker is editing. On a common class of failures fix the ownership/service design instead of piling on route exceptions. Return report with implementation, tests and integration requirements."
+    "max_input": "64KiB",
+    "max_output": "8KiB",
+    "native": {
+      "harness": "codex",
+      "tools": {
+        "mode": "native"
+      },
+      "skills": {
+        "mode": "none"
+      },
+      "network": true,
+      "context": "lean"
+    },
+    "instructions": "Read the app AGENTS.md and relevant Genny ownership/verification guidance from the configured skill. Use the original contract and scaffold output. Own internal/ only; frontend work runs concurrently. Do not change generator metadata, go.mod, frontend or .gny glue. Implement session-derived tenant scope and member draft CRUD through ordinary Genny services/routes. Only tenant admins publish via the dedicated action. Guard generic POST/PUT/PATCH against published-status bypass, and guard foreign read/edit/delete/publish and tenant-field spoofing. Public JSON exposes only published id/name/description/status; draft/unknown previews are 404 without private data. Add meaningful focused Go tests for the authorization invariants and run the smallest relevant checks with configured Go/shared caches. Do not run unrelated generator suites or a frontend build. If the same defect spans routes, fix the common service/authorization design. Return at most 250 words: complete or blocked, files/interfaces, exact checks and outcomes, and concrete integration needs. Do not paste code, transcripts, source documents or repeated goal text. Do not delegate tasks; return the assigned scoped result."
   }
 }

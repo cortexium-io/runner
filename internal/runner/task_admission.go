@@ -288,8 +288,30 @@ func (c *Core) activeAttempts() int {
 	return active
 }
 
-// Native assignments have one canonical request file bounded independently of
-// SQLite records. Keep its full bound available while a dispatch is unsettled.
+// Native assignments can materialize complete child results separately from the
+// bounded prompt. Reserve those actual JSON bytes as well as the request bound.
+func (c *Core) nativeRequestBytes(r Run, profile Profile) int64 {
+	reserved := int64(profile.MaxInput + c.disk.Policy.Database.MaxRecord)
+	if r.TaskGraph == nil {
+		return reserved
+	}
+	results, err := c.graphResults(r)
+	if err == nil && len(results) == 0 {
+		return reserved
+	}
+	if err == nil {
+		var data []byte
+		data, err = json.Marshal(results)
+		if err == nil {
+			return reserved + int64(len(data))
+		}
+	}
+	// Preserve the full possible reservation while a retained assignment's
+	// context cannot be resolved. Assignment validation still reports the error.
+	return reserved + int64(c.disk.Policy.MaxArtifact)
+}
+
+// Keep the complete request reservation while a dispatch remains unsettled.
 func (c *Core) pendingNativeRequestBytes() int64 {
 	var reserved int64
 	for _, r := range c.runs {
@@ -300,7 +322,7 @@ func (c *Core) pendingNativeRequestBytes() int64 {
 			role := r.Roles[r.Process.Steps[attempt.Step].Role]
 			profile, err := role.Profile(attempt.Profile)
 			if err == nil && profile.Harness == "native" {
-				reserved += int64(profile.MaxInput + c.disk.Policy.Database.MaxRecord)
+				reserved += c.nativeRequestBytes(r, profile)
 			}
 		}
 	}
