@@ -66,24 +66,25 @@ type TaskResultRef struct {
 }
 
 type TaskGraphState struct {
-	Recoveries  []TaskRecoveryAudit      `json:"recoveries,omitempty"`
-	Lineage     *TaskContinuationLineage `json:"lineage,omitempty"`
-	RootRunID   string                   `json:"root_run_id"`
-	ParentRunID string                   `json:"parent_run_id,omitempty"`
-	TaskID      string                   `json:"task_id"`
-	Role        string                   `json:"role,omitempty"`
-	Brief       string                   `json:"brief"`
-	Acceptance  []string                 `json:"acceptance,omitempty"`
-	DependsOn   []string                 `json:"depends_on,omitempty"`
-	WritePaths  []string                 `json:"write_paths,omitempty"`
-	Children    []RoleTaskLink           `json:"children,omitempty"`
-	Results     []TaskResultRef          `json:"results,omitempty"`
-	Phase       string                   `json:"phase,omitempty"`
-	Question    string                   `json:"question,omitempty"`
-	Answer      string                   `json:"answer,omitempty"`
-	Directive   string                   `json:"directive,omitempty"`
-	Paused      bool                     `json:"paused,omitempty"`
-	Revisions   int                      `json:"revisions"`
+	AllowanceGrants []TaskAllowanceGrant     `json:"allowance_grants,omitempty"`
+	Recoveries      []TaskRecoveryAudit      `json:"recoveries,omitempty"`
+	Lineage         *TaskContinuationLineage `json:"lineage,omitempty"`
+	RootRunID       string                   `json:"root_run_id"`
+	ParentRunID     string                   `json:"parent_run_id,omitempty"`
+	TaskID          string                   `json:"task_id"`
+	Role            string                   `json:"role,omitempty"`
+	Brief           string                   `json:"brief"`
+	Acceptance      []string                 `json:"acceptance,omitempty"`
+	DependsOn       []string                 `json:"depends_on,omitempty"`
+	WritePaths      []string                 `json:"write_paths,omitempty"`
+	Children        []RoleTaskLink           `json:"children,omitempty"`
+	Results         []TaskResultRef          `json:"results,omitempty"`
+	Phase           string                   `json:"phase,omitempty"`
+	Question        string                   `json:"question,omitempty"`
+	Answer          string                   `json:"answer,omitempty"`
+	Directive       string                   `json:"directive,omitempty"`
+	Paused          bool                     `json:"paused,omitempty"`
+	Revisions       int                      `json:"revisions"`
 }
 
 type TaskRoleContract struct {
@@ -104,6 +105,8 @@ type TaskRoleContract struct {
 }
 
 type TaskContext struct {
+	AttemptBudget     *TaskAttemptBudget       `json:"attempt_budget,omitempty"`
+	AllowanceGrant    *TaskAllowanceGrant      `json:"allowance_grant,omitempty"`
 	Maintenance       *TaskRecoveryAudit       `json:"maintenance,omitempty"`
 	Lineage           *TaskContinuationLineage `json:"lineage,omitempty"`
 	RootRunID         string                   `json:"root_run_id"`

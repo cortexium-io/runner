@@ -67,6 +67,15 @@ func recordBrowserReport(p *report, data []byte, executionErr error) error {
 			Status  int    `json:"status"`
 			Cleanup string `json:"cleanup"`
 		} `json:"errors"`
+		Diagnostics []struct {
+			Classification string `json:"classification"`
+			Contract       string `json:"contract"`
+			Method         string `json:"method"`
+			Path           string `json:"path"`
+			Status         int    `json:"status"`
+			EventName      string `json:"event_name"`
+			ProductArea    string `json:"product_area"`
+		} `json:"diagnostics"`
 	}
 	if json.Unmarshal(data, &browser) != nil || browser.Schema != 1 || (browser.Status != "passed" && browser.Status != "failed" && browser.Status != "blocked") {
 		return errors.New("browser evidence schema is invalid")
@@ -83,7 +92,7 @@ func recordBrowserReport(p *report, data []byte, executionErr error) error {
 	p.Browser = map[string]any{
 		"file": "browser.json", "sha256": digest(data), "schema": browser.Schema, "status": browser.Status, "complete": browser.Complete,
 		"engines": len(browser.Engines), "geometry": len(browser.Geometry), "geometry_failed": failedGeometry, "journeys": len(browser.Journeys), "journeys_failed": failedJourneys,
-		"images": len(browser.Screenshots), "errors": len(browser.Errors), "failure_groups": groups,
+		"images": len(browser.Screenshots), "errors": len(browser.Errors), "diagnostics": len(browser.Diagnostics), "failure_groups": groups,
 		"prerequisites": prerequisites, "unrun": unrun, "coverage": browser.Coverage,
 	}
 	var neighborFailures []map[string]string
@@ -107,6 +116,18 @@ func recordBrowserReport(p *report, data []byte, executionErr error) error {
 	if len(browser.DocumentFailures) > 0 {
 		first := browser.DocumentFailures[0]
 		p.Browser["first_document_failure"] = map[string]any{"engine": first.Engine, "path": first.Path, "type": first.Type, "status": first.Status, "message": clip(first.Message, 500)}
+	}
+	if len(browser.Diagnostics) > 0 {
+		first := browser.Diagnostics[0]
+		p.Browser["first_diagnostic"] = map[string]any{
+			"classification": clip(first.Classification, 80),
+			"contract":       clip(first.Contract, 350),
+			"method":         clip(first.Method, 12),
+			"path":           clip(first.Path, 120),
+			"status":         first.Status,
+			"event_name":     clip(first.EventName, 50),
+			"product_area":   clip(first.ProductArea, 30),
+		}
 	}
 	p.Cleanup.BrowserClosed, p.Status, p.Failure = browser.BrowserClosed, browser.Status, clip(browser.Failure, 1500)
 	// A valid partial checkpoint is useful evidence. Preserve its hash, rows and

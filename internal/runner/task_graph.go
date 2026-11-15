@@ -252,7 +252,9 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 		return nil, err
 	}
 	g := r.TaskGraph
+	budget := c.graphAttemptBudget(r)
 	ctx := &TaskContext{
+		AttemptBudget:     budget,
 		Lineage:           Clone(root.TaskGraph.Lineage),
 		RootRunID:         root.ID,
 		ParentRunID:       g.ParentRunID,
@@ -265,7 +267,7 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 		Answer:            g.Answer,
 		Revision:          g.Revisions,
 		Policy:            Clone(*root.Process.Tasks),
-		RemainingAttempts: c.familyRemaining(r),
+		RemainingAttempts: budget.Remaining,
 		AvailableRunSlots: max(0, c.disk.Policy.RetainedRunCapacity()-len(c.runs)-c.graphReservations()),
 	}
 	ctx.Results, err = c.graphResults(r)
@@ -274,6 +276,9 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 	}
 	if audits := root.TaskGraph.Recoveries; len(audits) != 0 {
 		ctx.Maintenance = Clone(&audits[len(audits)-1])
+	}
+	if grants := root.TaskGraph.AllowanceGrants; len(grants) != 0 {
+		ctx.AllowanceGrant = Clone(&grants[len(grants)-1])
 	}
 	ancestors := []Run{}
 	for current := r; current.TaskGraph.ParentRunID != ""; {

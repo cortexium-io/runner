@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,sudokuBoardSelector} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,classifyFailure,telemetryDimensions,neighborGeometry} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
 
 test('Playwright visibility selectors stay outside native DOM geometry queries',()=>{
   const selectors=neighborSelectors('shikaku');
@@ -71,4 +71,103 @@ test('bounded diagnostics retain the Playwright call log instead of only the fir
   assert.match(boundedFailure(new Error(message)),/Call log:[\s\S]*never becomes stable/);
   assert.equal(boundedFailure(new Error('x'.repeat(5000))).length,1400);
   assert.equal(boundedFailure('\u001b[31mfailed\u001b[0m'),'failed');
+});
+
+function actionFixture({matches=1,enabled=true,inViewport=true,hit=true}={}) {
+  const events=[],observed=[];
+  const facts={path:'/sudoku/sdk6-e-fixture',viewport:{width:390,height:844},scroll:{x:0,y:0},selected:'0',focus:{tag:'BUTTON',cell:'0'},board:{x:10,y:100,width:300,height:300}};
+  const target={tag:'BUTTON',label:'Undo',enabled,in_viewport:inViewport,hit,centre:{x:50,y:420},cover:{tag:'BUTTON',label:hit?'Undo':'Options'}};
+  const locator={toString:()=>"locator('.input-tools button').filter({ hasText: 'Undo' })",count:async()=>matches,waitFor:async()=>{},evaluate:async fn=>{
+    if(fn===targetFacts){events.push('hit-test');return structuredClone(target)}
+    events.push('scroll');facts.scroll.y=200;facts.board.y=-100;target.in_viewport=true;
+  }};
+  const point=async(x,y)=>{assert.deepEqual({x,y},target.centre);events.push('pointer');facts.focus={tag:'BUTTON',label:'Undo'}};
+  const page={evaluate:async fn=>fn===interactionFacts?structuredClone(facts):events.push('layout'),mouse:{click:point},touchscreen:{tap:point}};
+  return {page,locator,target,facts,events,observed,settings:{observe:row=>observed.push(row)}};
+}
+
+test('target facts distinguish disabled pointer-transparent layout from an actionable control',()=>{
+  const cover={tagName:'DIV',textContent:'',getAttribute:()=>null};
+  const node={tagName:'BUTTON',textContent:'Undo',getAttribute:()=>null,matches:selector=>{assert.equal(selector,':disabled');return true},contains:other=>other===node,getBoundingClientRect:()=>({x:10,y:20,width:60,height:40})};
+  const previous={document:globalThis.document,innerWidth:globalThis.innerWidth,innerHeight:globalThis.innerHeight};
+  try {
+    globalThis.document={elementFromPoint:()=>cover};globalThis.innerWidth=390;globalThis.innerHeight=844;
+    const facts=targetFacts(node);assert.equal(facts.enabled,false);assert.equal(facts.hit,false);assert.equal(facts.in_viewport,true);
+    assert.deepEqual(facts.centre,{x:40,y:40});assert.equal(facts.cover.tag,'DIV');assert.equal(facts.label,'Undo');
+  } finally {
+    for(const [name,value] of Object.entries(previous))if(value===undefined)delete globalThis[name];else globalThis[name]=value;
+  }
+});
+
+test('one action contract refuses missing, ambiguous, disabled, offscreen and covered targets with bounded context',async()=>{
+  for(const [settings,phase,reason] of [
+    [{matches:0},'locate','one actual UI target'],[{matches:2},'locate','one actual UI target'],
+    [{enabled:false},'hit-test','disabled'],[{inViewport:false},'hit-test','offscreen'],[{hit:false},'hit-test','covered'],
+  ]) {
+    const f=actionFixture(settings);
+    await assert.rejects(activateTarget(f.page,f.locator,true,f.settings),error=>{
+      assert.match(error.message,new RegExp(reason));assert.match(error.message,/input-tools/);
+      assert.equal(error.interaction.phase,phase);assert.deepEqual(error.interaction.before.viewport,{width:390,height:844});
+      assert.equal(error.interaction.after.selected,'0');assert.equal(error.interaction.before.focus.cell,'0');
+      return true;
+    });
+    assert.equal(f.events.includes('pointer'),false);assert.equal(f.events.includes('scroll'),false);
+    assert.equal(f.observed.length,1);
+  }
+});
+
+test('ordinary secondary scrolling precedes a fresh hit-test and trusted input and preserves transition facts',async()=>{
+  for(const touch of [true,false]) {
+    const f=actionFixture({inViewport:false});
+    await activateTarget(f.page,f.locator,touch,{...f.settings,secondary:true});
+    assert.deepEqual(f.events,['scroll','layout','hit-test','pointer','layout']);
+    const proof=f.observed[0];assert.equal(proof.phase,'complete');
+    assert.equal(proof.before.scroll.y,0);assert.equal(proof.scrolled.scroll.y,200);
+    assert.equal(proof.scrolled.board.y,-100);assert.equal(proof.after.focus.label,'Undo');
+  }
+});
+
+test('home continuation targets the admitted board and accepts its authored unloaded-save action',()=>{
+  const identities=[],names=[];
+  const page={locator:selector=>{identities.push(selector);return {getByRole:(role,options)=>{assert.equal(role,'button');names.push(options.name);return options}}}};
+  savedBoardAction(page,'sudoku:sdk7-9-9-easy-fixture');
+  assert.equal(identities[0],'.saved-row[data-board-id="sudoku:sdk7-9-9-easy-fixture"]');
+  assert.ok(names[0].test('Resume Sudoku easy 9 by 9'));
+  assert.ok(names[0].test('Open to check Sudoku easy 9 by 9'));
+  assert.equal(names[0].test('View board Sudoku easy 9 by 9'),false);
+  savedBoardAction(page,'sudoku:sdk7-9-9-easy-fixture',{complete:true});
+  assert.ok(names[1].test('View board Sudoku easy 9 by 9'));
+  assert.equal(names[1].test('Resume Sudoku easy 9 by 9'),false);
+  assert.throws(()=>savedBoardAction(page,'bad" selector'),/invalid admitted/);
+});
+
+test('only authored best-effort telemetry 4xx are nonblocking and retain their policy and safe dimensions',()=>{
+  const optional=classifyFailure({kind:'http',method:'POST',path:'/api/analytics/events',status:400});
+  assert.equal(optional.blocking,false);assert.match(optional.contract,/analytics-tracker/);
+  assert.equal(optional.status,400);assert.equal(optional.path,'/api/analytics/events');
+  for(const failure of [
+    {kind:'http',method:'POST',path:'/api/games/admit',status:400},
+    {kind:'http',method:'POST',path:'/api/unknown',status:404},
+    {kind:'http',method:'POST',path:'/api/analytics/events',status:500},
+    {kind:'http',method:'GET',path:'/api/analytics/events',status:400},
+    {kind:'pageerror',message:'uncaught error'},
+  ])assert.equal(classifyFailure(failure).blocking,true);
+  assert.deepEqual(telemetryDimensions({event_name:'hint_apply',product_area:'sudoku',token:'secret',route:'/sudoku/private',snapshot:{entries:[1]}}),{event_name:'hint_apply',product_area:'sudoku'});
+  assert.deepEqual(telemetryDimensions({event_name:'secret-identifier',product_area:'secret-identifier'}),{event_name:'unregistered',product_area:'unregistered'});
+});
+
+test('neighbor measurement omits hidden/zero-area nodes and retains only primary controls plus Undo',()=>{
+  const make=(label,r,visibility='visible')=>({textContent:label,getBoundingClientRect:()=>r,getClientRects:()=>[r],visibility});
+  const visible=make('Undo',{x:10,y:950,width:60,height:40}),zero=make('hidden',{x:0,y:0,width:0,height:0}),hidden=make('hidden',{x:10,y:10,width:60,height:40},'hidden');
+  const frame=make('',{x:0,y:0,width:300,height:300}),region={querySelectorAll:selector=>{
+    assert.ok(selector.includes('[data-action="undo"]'));assert.equal(selector.includes('.player-actions button'),false);return [visible,zero,hidden];
+  }};
+  const board={...frame,closest:selector=>selector==='.player-board-frame'?frame:region,scrollWidth:300,scrollHeight:300,clientWidth:300,clientHeight:300};
+  const previous={document:globalThis.document,getComputedStyle:globalThis.getComputedStyle,innerWidth:globalThis.innerWidth,innerHeight:globalThis.innerHeight};
+  try {
+    globalThis.document={documentElement:{scrollWidth:1440}};globalThis.getComputedStyle=node=>({visibility:node.visibility});globalThis.innerWidth=1440;globalThis.innerHeight=900;
+    const m=neighborGeometry(board);assert.equal(m.controls.length,1);assert.equal(m.controls[0].label,'Undo');assert.equal(m.controls[0].y,950);
+  } finally {
+    for(const [name,value] of Object.entries(previous))if(value===undefined)delete globalThis[name];else globalThis[name]=value;
+  }
 });

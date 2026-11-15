@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -49,13 +50,19 @@ func TestRetryCLIUsesAuthorizedBudgetMode(t *testing.T) {
 		}
 		if within {
 			want.RequestID = "authorized-within-budget-retry"
+		} else {
+			want.ExtraAttempts = 8
+			want.Reason = "Owner approved finishing the retained goal"
+			want.Directive = "Use the repaired verifier to finish the existing goal"
 		}
 		args := []string{
 			"retry", "--data", data, "--endpoint", server.URL, "--request-id", want.RequestID,
-			"--run", want.RunID, "--profile", want.Profile, "--extra-attempts", "1",
+			"--run", want.RunID, "--profile", want.Profile, "--extra-attempts", fmt.Sprint(want.ExtraAttempts),
 		}
 		if within {
 			args = append(args, "--within-budget")
+		} else {
+			args = append(args, "--reason", want.Reason, "--text", want.Directive)
 		}
 		if err := run(t.Context(), args); err != nil {
 			t.Fatal(err)

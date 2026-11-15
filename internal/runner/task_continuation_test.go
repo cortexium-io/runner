@@ -399,8 +399,9 @@ func TestTaskContinuationFreezesEveryOldFamilyMutationAndExtraBudget(t *testing.
 	}
 	continued.Status, continued.Reason = "Failed", "explicit test failure"
 	c.runs[continued.ID] = continued
-	if _, err = c.Retry(RetryRequest{RequestID: "new-extra", RunID: continued.ID, ExtraAttempts: 1}); err == nil || !strings.Contains(err.Error(), "original family allowance") {
-		t.Fatal("new root obtained an extra goal allowance", err)
+	granted, err := c.Retry(RetryRequest{RequestID: "new-extra", RunID: continued.ID, ExtraAttempts: 1})
+	if err != nil || granted.Process.MaxAttempts != 65 || granted.TaskGraph.Lineage.MaxAttempts != 64 || len(granted.TaskGraph.AllowanceGrants) != 1 {
+		t.Fatal("owner grant failed to preserve original authority while amending its effective ceiling", err)
 	}
 }
 

@@ -2,6 +2,16 @@
 
 ## Current authority and scope
 
+Dan subsequently approved raising the retained Sudoku continuation's ceiling from
+64 to 72, preserving all 63 spent attempts, work and evidence, and completing the
+repair/check/review cycle without further stage coordination. Record this as an
+explicit owner allowance amendment on the same root, retaining the immutable
+original 64-attempt lineage and old-family freeze; do not reset spending or create
+an unlinked run. Correct verifier actionability, transition and diagnostic contracts
+coherently before resuming product work. Product correction and independent
+verification remain inside Runner. This approval does not authorize merge,
+production deployment, restoration or additional allowance beyond 72.
+
 Later on 15 November Dan authorized handing the retained Sudoku work to the new
 Runner, preserving its candidate, failed history and passing evidence, and
 finishing a visibly better verified result without external stage coordination.

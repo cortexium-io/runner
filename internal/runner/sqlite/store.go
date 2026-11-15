@@ -99,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 10 {
+	if version < 0 || version > 11 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -198,6 +198,14 @@ PRAGMA user_version=4; COMMIT;`); e != nil {
 		if _, e = db.Exec("PRAGMA user_version=10"); e != nil {
 			return nil, e
 		}
+		version = 10
+	}
+	if version == 10 {
+		// Root owner grants amend the effective ceiling while preserving the
+		// original continuation authority. Older readers cannot interpret them.
+		if _, e = db.Exec("PRAGMA user_version=11"); e != nil {
+			return nil, e
+		}
 	}
 	if e = os.Chmod(path, 0600); e != nil {
 		return nil, e
@@ -294,8 +302,8 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 	if e != nil {
 		return e
 	}
-	var previous []byte
-	e = tx.QueryRowContext(ctx, "SELECT data FROM runs WHERE id=?", r.ID).Scan(&previous)
+	var previous, previousDefinition []byte
+	e = tx.QueryRowContext(ctx, "SELECT data,definition FROM runs WHERE id=?", r.ID).Scan(&previous, &previousDefinition)
 	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return e
 	}
@@ -303,6 +311,9 @@ func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run,
 		return err
 	}
 	if err := guardTaskRecoverySave(r, previous, recovery); err != nil {
+		return err
+	}
+	if err := s.guardTaskAllowanceSave(ctx, tx, r, previous, previousDefinition, receipt); err != nil {
 		return err
 	}
 	if errors.Is(e, sql.ErrNoRows) {

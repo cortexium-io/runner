@@ -14,6 +14,11 @@ approval is inferred.
 Three focused Chromium desktop neighbor smokes protect the changed shared
 PlayerLayout/PlaySettings/PlayerActions boundary: Suguru's under-board controls
 and input/Undo, plus a small Nonogram and Shikaku input/Undo/geometry check.
+Only rendered primary controls and Undo enter that geometry check; secondary
+Redo/Check/Restart do not become primary targets. Desktop vertical scrolling is
+allowed, while target size, horizontal containment, frame clipping, under-board
+placement and non-overlap remain required. Every actual action scrolls normally
+when allowed, then independently checks its fresh enabled/hit-tested centre.
 Nonogram reopens its normal public 5×5 catalogue code; it does not waive or claim
 New-generation qualification. These are separate from the Sudoku matrix and do
 not multiply themes, viewports or engine benchmarks for neighboring games.
@@ -23,3 +28,21 @@ boundaries, bounded locator diagnostics, and one shared public-code reopen befor
 the viewport matrix. A failed prerequisite leaves dependent work explicitly unrun.
 Partial collection retains its canonical browser evidence and first failure while
 remaining blocked; absent acceptance rows are never counted as passing.
+
+Disabled tools retain all geometry obligations without being required to receive
+pointer events. The real entry/Undo/Redo journeys exercise their enabled state.
+History is tested before reload; the authored reload contract persists progress
+and starts fresh history. Home continuation binds the exact admitted board and
+accepts the authored “Open to check” action when a discovered save is unloaded.
+
+Actions and resizes retain bounded before/after viewport, scroll, geometry,
+selection and focus facts. Resize setup does not force cell focus or reset page
+scroll after Options. Failure images are captured before the owning context closes;
+the 76 planned images leave four diagnostic slots within the existing 80-image
+limit. Repeated geometry failures identify a representative image and retain each
+failed state's own metrics; omitted images are explicit, never passing evidence.
+
+Authored best-effort event-ingestion 4xx are visible diagnostics with their source
+contract and safe low-cardinality event dimensions. Gameplay/unrecognized API
+errors, all 5xx and page exceptions still block acceptance. This classification
+does not claim telemetry works or weaken any journey/geometry assertion.

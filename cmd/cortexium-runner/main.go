@@ -88,9 +88,9 @@ func run(ctx context.Context, args []string) error {
 	field := fs.String("field", "", "dot-separated configuration field")
 	value := fs.String("value", "null", "JSON value for config-set")
 	action := fs.String("action", "", "task intervention: pause, resume, steer, answer or reassign")
-	text := fs.String("text", "", "task steering directive or human answer")
+	text := fs.String("text", "", "task steering directive, human answer or replacement directive with a root retry grant")
 	taskIDs := fs.String("task-ids", "", "JSON array of current failed child IDs for same-generation maintenance recovery")
-	maintenanceReason := fs.String("reason", "", "explicit maintenance repair enabling the same failed task generation")
+	maintenanceReason := fs.String("reason", "", "owner reason for a root goal allowance grant or same-generation maintenance recovery")
 	if e := fs.Parse(args[1:]); e != nil {
 		return e
 	}
@@ -112,8 +112,11 @@ func run(ctx context.Context, args []string) error {
 			return errors.New("recover-tasks requires --run, exact --revision, --task-ids JSON and --reason; no command/profile/policy/allowance override")
 		}
 	}
-	if command != "recover-tasks" && (*taskIDs != "" || *maintenanceReason != "") {
-		return errors.New("--task-ids and --reason require recover-tasks")
+	if command != "recover-tasks" && *taskIDs != "" {
+		return errors.New("--task-ids requires recover-tasks")
+	}
+	if *maintenanceReason != "" && command != "recover-tasks" && command != "retry" {
+		return errors.New("--reason requires recover-tasks or retry")
 	}
 	if command == "continue-task" {
 		allowed := map[string]bool{
@@ -314,6 +317,8 @@ func run(ctx context.Context, args []string) error {
 			ExtraAttempts: *extra,
 			WithinBudget:  *withinBudget,
 			CleanupOnly:   *cleanupOnly,
+			Reason:        *maintenanceReason,
+			Directive:     *text,
 		}
 	case "intervene":
 		if *runID == "" || *revision < 1 || *action == "" {

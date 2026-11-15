@@ -73,7 +73,7 @@ func admitRunRecord(r Run, limit Bytes) error {
 		return err
 	}
 	if len(state) > int(limit)/2 || len(definition) > int(limit) {
-		return errors.New("run state needs half-record recovery headroom and its frozen definition must fit one record; use declared artifacts for large inputs")
+		return fmt.Errorf("run state needs half-record recovery headroom (%d/%d bytes) and its frozen definition must fit one record (%d/%d bytes); use declared artifacts for large inputs", len(state), int(limit)/2, len(definition), limit)
 	}
 	return nil
 }

@@ -30,6 +30,8 @@ type RetryRequest struct {
 	ExtraAttempts int    `json:"extra_attempts,omitempty"`
 	CleanupOnly   bool   `json:"cleanup_only,omitempty"`
 	WithinBudget  bool   `json:"within_budget,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	Directive     string `json:"directive,omitempty"`
 }
 type Summary struct {
 	AttemptBudget *TaskAttemptBudget `json:"attempt_budget,omitempty"`
@@ -411,6 +413,9 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 		return Run{}, err
 	}
 	r = Clone(r)
+	if (req.Reason != "" || req.Directive != "") && (r.TaskGraph == nil || req.CleanupOnly) {
+		return Run{}, errors.New("retry reason and directive apply only to a root goal allowance grant")
+	}
 	if req.WithinBudget && (req.ExtraAttempts < 1 || req.CleanupOnly || r.Task != nil) {
 		return Run{}, errors.New("within_budget requires a positive root-visit allowance without cleanup_only")
 	}
@@ -870,6 +875,10 @@ func (c *Core) assignment(r Run, a Attempt) (Assignment, error) {
 		}
 		if !known {
 			assignment.TaskContext.RemainingAttempts = max(0, assignment.TaskContext.RemainingAttempts-1)
+			if budget := assignment.TaskContext.AttemptBudget; budget != nil {
+				budget.Spent++
+				budget.Remaining = max(0, budget.Remaining-1)
+			}
 		}
 		if p.Access == "workspace-read" || p.Access == "workspace-write" {
 			assignment.WorkDir = r.Repository

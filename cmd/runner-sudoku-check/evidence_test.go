@@ -42,3 +42,21 @@ func TestBrowserPassCannotOmitTheFixedCoverage(t *testing.T) {
 		t.Fatal("missing acceptance rows were reported as passed")
 	}
 }
+
+func TestBrowserBestEffortDiagnosticsRemainVisibleWithoutChangingAcceptance(t *testing.T) {
+	data := []byte(`{
+  "schema":1,"status":"passed","complete":true,"browser_closed":true,"coverage":{"complete":true},
+  "diagnostics":[{"classification":"best-effort-telemetry","contract":"authored trackAnalyticsEvent boundary","method":"POST","path":"/api/analytics/events","status":400,"event_name":"hint_apply","product_area":"sudoku"}]
+}`)
+	var p report
+	if err := recordBrowserReport(&p, data, nil); err != nil {
+		t.Fatal(err)
+	}
+	if p.Status != "passed" || p.Browser["errors"] != 0 || p.Browser["diagnostics"] != 1 {
+		t.Fatal("optional telemetry diagnostic changed functional acceptance or disappeared", p.Status, p.Browser)
+	}
+	first := p.Browser["first_diagnostic"].(map[string]any)
+	if first["status"] != 400 || first["event_name"] != "hint_apply" || first["contract"] != "authored trackAnalyticsEvent boundary" {
+		t.Fatal("protected summary lost diagnostic attribution", first)
+	}
+}

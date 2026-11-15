@@ -51,9 +51,6 @@ func (s *Store) guardTaskContinuationSave(ctx context.Context, tx *sql.Tx, r run
 	if !continuation && (r.ContinuedBy != nil || !reflect.DeepEqual(before, after)) {
 		return errors.New("retained task lineage can only be introduced atomically and cannot change or be discarded")
 	}
-	if after != nil && r.Process.MaxAttempts != after.MaxAttempts {
-		return errors.New("retained task continuation cannot increase or reset its original allowance")
-	}
 	return nil
 }
 

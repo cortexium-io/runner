@@ -31,22 +31,25 @@ const overlaps = (a,b) => Math.min(right(a),right(b))-Math.max(a.x,b.x)>1 && Mat
 const equal = (a,b) => Math.abs(a-b)<=1.5;
 const horizontal = keys => keys.every((key,i)=>equal(key.y,keys[0].y) && (!i || key.x>=right(keys[i-1])-1));
 
-// Affected shared-shell smoke only. These are not complete neighbor-game gates.
+// Affected desktop shared-shell smoke only. Under-board controls may require
+// ordinary vertical scrolling, as on Sudoku desktop; touch viewport fitting is
+// a separate contract. These are not complete neighbor-game gates.
 export function assertNeighborGeometry(m,{underBoard=false}={}) {
   assert.ok(valid(m.board)&&valid(m.frame),'neighbor board/frame is absent');
   assert.ok(m.documentWidth<=m.viewport.width+1,'neighbor page overflows horizontally');
   assert.ok(m.board.x>=m.frame.x-1&&right(m.board)<=right(m.frame)+1&&m.board.y>=m.frame.y-1&&bottom(m.board)<=bottom(m.frame)+1,'neighbor board is clipped by its shared frame');
-  assert.ok(m.board.x>=-1&&right(m.board)<=m.viewport.width+1&&m.board.y>=-1&&bottom(m.board)<=m.viewport.height+1,'small neighbor board is outside the fresh desktop viewport');
+  assert.ok(m.board.x>=-1&&right(m.board)<=m.viewport.width+1,'neighbor board overflows the desktop viewport horizontally');
   assert.ok(m.internalWidth<=m.clientWidth+1&&m.internalHeight<=m.clientHeight+1,'neighbor board has internal overflow');
   assert.ok(m.controls.length>0,'neighbor primary controls are absent');
   for(const control of m.controls) {
-    assert.ok(valid(control)&&control.width>=24&&control.height>=24,'neighbor primary target is too small');
-    assert.ok(control.x>=-1&&right(control)<=m.viewport.width+1&&control.y>=-1&&bottom(control)<=m.viewport.height+1,'neighbor control is outside the fresh desktop viewport');
-    assert.ok(!overlaps(control,m.board),'neighbor primary controls overlap the board');
-    if(underBoard)assert.ok(control.y>=bottom(m.board)-1,'Suguru desktop controls must remain under its board');
+    const label=control.label??'unlabelled primary control';
+    assert.ok(valid(control)&&control.width>=24&&control.height>=24,`neighbor primary target is too small: ${label}`);
+    assert.ok(control.x>=-1&&right(control)<=m.viewport.width+1,`neighbor primary control is horizontally clipped: ${label}`);
+    assert.ok(!overlaps(control,m.board),`neighbor primary control overlaps the board: ${label}`);
+    if(underBoard)assert.ok(control.y>=bottom(m.board)-1,`Suguru desktop controls must remain under its board: ${label}`);
   }
-  for(let i=0;i<m.controls.length;i++)for(let j=i+1;j<m.controls.length;j++)assert.ok(!overlaps(m.controls[i],m.controls[j]),'neighbor primary control footprints overlap');
-  return {board:m.board,frame:m.frame,controls:m.controls.length,under_board:underBoard};
+  for(let i=0;i<m.controls.length;i++)for(let j=i+1;j<m.controls.length;j++)assert.ok(!overlaps(m.controls[i],m.controls[j]),`neighbor primary control footprints overlap: ${m.controls[i].label} / ${m.controls[j].label}`);
+  return {board:m.board,frame:m.frame,controls:m.controls.length,under_board:underBoard,scrolling_required:[m.board,...m.controls].some(r=>r.y<0||bottom(r)>m.viewport.height)};
 }
 
 export function assertGeometry(m, viewport, {hint=false}={}) {
@@ -81,7 +84,10 @@ export function assertGeometry(m, viewport, {hint=false}={}) {
     assert.ok(!target.textOverflow,`key/caption overflows its footprint: ${target.name??target.value}`);
     if(viewport.touch) {
       assert.ok(target.y>=-1&&bottom(target)<=viewport.height+1,`touch target is offscreen: ${target.name??target.value}`);
-      assert.equal(target.hit,true,`target centre is covered: ${target.name??target.value}`);
+      // A disabled button may intentionally use pointer-events:none. Its
+      // geometry, visibility and overlap still count; hit testing becomes an
+      // obligation when enabled, including Undo immediately after a real edit.
+      if(target.enabled!==false)assert.equal(target.hit,true,`target centre is covered: ${target.name??target.value}`);
     }
   }
   for(let i=0;i<targets.length;i++)for(let j=i+1;j<targets.length;j++)assert.ok(!overlaps(targets[i],targets[j]),'primary target footprints overlap');
@@ -130,7 +136,7 @@ export async function measure(page) {
       const r=box(n),span=[...n.querySelectorAll('span')].find(s=>s.textContent.trim()),icon=n.querySelector('svg,img');
       const centre={x:r.x+r.width/2,y:r.y+r.height/2};
       const text=span??n,scale=text.offsetWidth?text.getBoundingClientRect().width/text.offsetWidth:1,font=parseFloat(getComputedStyle(text).fontSize)*scale;
-      return {...r,font,hit:!!n.contains(document.elementFromPoint(centre.x,centre.y)),textOverflow:n.scrollWidth>n.clientWidth+1||n.scrollHeight>n.clientHeight+1,iconWidth:icon?.getBoundingClientRect().width??0,captionFont:font};
+      return {...r,font,enabled:!n.matches(':disabled')&&n.getAttribute('aria-disabled')!=='true',hit:!!n.contains(document.elementFromPoint(centre.x,centre.y)),textOverflow:n.scrollWidth>n.clientWidth+1||n.scrollHeight>n.clientHeight+1,iconWidth:icon?.getBoundingClientRect().width??0,captionFont:font};
     };
     const digits=[...document.querySelectorAll('.sudoku-play .number-pad button')].filter(visible).map(n=>({...record(n),value:Number(n.textContent.trim())}));
     const tools=[...document.querySelectorAll('.sudoku-play .input-tools button')].filter(visible).map(n=>({...record(n),name:(n.textContent.trim().match(/Undo|Erase|Notes|Hint/)??[])[0]}));
@@ -144,7 +150,7 @@ export async function measure(page) {
       selected:board?.querySelector('.selected')?.getAttribute('data-cell'),
       pinned:[...document.querySelectorAll('.sudoku-play .number-pad button')].filter(n=>n.getAttribute('aria-pressed')==='true').map(n=>Number(n.textContent.trim())),
       notesMode:find('.sudoku-play .input-tools button[aria-pressed]')?.getAttribute('aria-pressed'),
-      focus:document.activeElement?.getAttribute('data-cell')??document.activeElement?.getAttribute('aria-label')??document.activeElement?.tagName,
+      focus:document.activeElement?.getAttribute('data-cell')??document.activeElement?.getAttribute('aria-label')??(document.activeElement?`${document.activeElement.tagName}:${document.activeElement.getAttribute('data-action')??document.activeElement.textContent.trim().slice(0,80)}`:null),
     };
   });
 }

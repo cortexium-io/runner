@@ -112,15 +112,32 @@ consumer. The future example removes compulsory repair quartets and delays revie
 until relevant evidence exists; that policy change is not a new successful live
 qualification.
 
-Current authority leaves only one execution, which cannot admit a complete repair,
+At that rejection, authority left only one execution, which could not admit a complete repair,
 check and independent reassessment. Further execution needs an explicit owner
 decision on the frozen allowance; do not silently reset it, create an unlinked
 budget or spend the last execution on an incomplete cycle. The recommended bounded
 continuation is to correct verifier semantics and failure attribution, then run
 one complete in-process product correction and independent assessment, reusing
 applicable passing evidence. A ceiling of 72, with all 63 spent attempts retained,
-would leave room for that complete cycle and limited recovery. This is a proposal,
-not an applied allowance or authorization.
+would leave room for that complete cycle and limited recovery.
+
+The owner subsequently explicitly approved that 72-attempt ceiling, retaining all
+63 spent attempts and evidence, and requested the complete repair/check/review
+cycle without further babysitting. Apply one audited root allowance amendment
+through the existing owner retry/control path; preserve immutable original lineage,
+failed history, completed tasks, source ownership and accepted proof. Ordinary
+saves must not mint grants or change the cap, and children cannot grant themselves
+goal allowance. Restart/idempotence and transaction rollback must retain the exact
+grant/debit. Expose the effective budget in task context alongside historical
+lineage so frozen old guidance cannot be mistaken for current owner authority.
+
+Correct the verifier's shared semantics before the next native cycle: distinguish
+rendered disabled controls from enabled target actionability, retain precise
+action/transition context and failed-state images, and test persistence/history
+only across boundaries promised by the application contract. Keep viewport,
+coverage, genuine-input and cleanup requirements. The lead owns the minimum
+complete correction and independent assessment in the existing role graph; no
+outside product implementation, proof waiver or second task ledger is introduced.
 
 Canonical qualification, identities, usage and remaining limitations:
 `/Users/dan/Projects/runner-qualifications/20261115/sudoku-handoff/result.md`.

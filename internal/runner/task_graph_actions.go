@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 func (c *Core) graphAction(r *Run, result *StepResult) error {
@@ -414,16 +415,20 @@ func (c *Core) retryGraph(r Run, req RetryRequest, args []byte) (Run, error) {
 	if r.Step >= len(r.Process.Steps) {
 		return Run{}, errors.New("task has no current role visit to retry")
 	}
-	if req.ExtraAttempts < 0 || req.ExtraAttempts > 4 {
+	goalGrant := !req.WithinBudget && req.ExtraAttempts > 0 && r.ID == root.ID
+	if req.Reason != "" && (!goalGrant || strings.TrimSpace(req.Reason) == "" || len(req.Reason) > 2048) {
+		return Run{}, errors.New("retry reason needs a root goal allowance grant and 1–2048 nonblank bytes")
+	}
+	if req.Directive != "" && (!goalGrant || strings.TrimSpace(req.Directive) == "" || len(req.Directive) > 2048) {
+		return Run{}, errors.New("retry directive needs a root goal allowance grant and 1–2048 nonblank bytes")
+	}
+	if req.ExtraAttempts < 0 || !goalGrant && req.ExtraAttempts > 4 {
 		return Run{}, errors.New("extra_attempts exceeds the per-operation allowance")
 	}
 	if !req.WithinBudget && req.ExtraAttempts > 0 && r.ID != root.ID {
 		return Run{}, fmt.Errorf("goal attempt allowance belongs to root %s; grant it on that root or use within_budget for this task visit", root.ID)
 	}
-	if root.TaskGraph.Lineage != nil && !req.WithinBudget && req.ExtraAttempts > 0 {
-		return Run{}, errors.New("retained task continuation preserves its original family allowance; extra goal attempts are not permitted")
-	}
-	if !req.WithinBudget && root.Process.MaxAttempts+req.ExtraAttempts > MaxGeneralTaskAttempts {
+	if !req.WithinBudget && req.ExtraAttempts > MaxGeneralTaskAttempts-root.Process.MaxAttempts {
 		return Run{}, errors.New("extra_attempts exceeds the general goal allowance")
 	}
 	if req.Profile != "" {
@@ -436,8 +441,23 @@ func (c *Core) retryGraph(r Run, req RetryRequest, args []byte) (Run, error) {
 		}
 		r.NextProfile = req.Profile
 	}
-	if !req.WithinBudget {
+	if goalGrant {
+		spent := c.familyAttempts(r)
+		if spent == invalidFamilyAttempts {
+			return Run{}, errors.New("goal allowance grant requires intact family ownership")
+		}
+		r.TaskGraph.AllowanceGrants = append(r.TaskGraph.AllowanceGrants, TaskAllowanceGrant{
+			RequestID:     req.RequestID,
+			PreviousLimit: r.Process.MaxAttempts,
+			Limit:         r.Process.MaxAttempts + req.ExtraAttempts,
+			Spent:         spent,
+			Reason:        taskAllowanceGrantReason(req),
+			GrantedAt:     time.Now().UTC(),
+		})
 		r.Process.MaxAttempts += req.ExtraAttempts
+		if req.Directive != "" {
+			r.TaskGraph.Directive = req.Directive
+		}
 	}
 	if r.TaskGraph.Phase == TaskWaitingChildren {
 		if req.WithinBudget {
@@ -459,8 +479,12 @@ func (c *Core) retryGraph(r Run, req RetryRequest, args []byte) (Run, error) {
 		}
 	} else {
 		stepAttempts := visitAttempts(r)
-		if stepAttempts >= visitAttemptLimit(r)+req.ExtraAttempts {
-			return Run{}, errors.New("step attempt allowance exhausted; explicitly grant extra_attempts")
+		visitExtra := 0
+		if req.WithinBudget {
+			visitExtra = req.ExtraAttempts
+		}
+		if stepAttempts >= visitAttemptLimit(r)+visitExtra {
+			return Run{}, errors.New("step attempt allowance exhausted; explicitly grant extra_attempts with within_budget")
 		}
 		requested := 1
 		if req.WithinBudget {
@@ -469,10 +493,13 @@ func (c *Core) retryGraph(r Run, req RetryRequest, args []byte) (Run, error) {
 		if err := c.graphReserve(r, requested, false); err != nil {
 			return Run{}, err
 		}
-		r.VisitExtraAttempts += req.ExtraAttempts
+		r.VisitExtraAttempts += visitExtra
 		r.Status, r.Reason = "Queued", "authorized task retry"
 	}
 	r.ResourcesReleased, r.CleanupBlocked, r.CleanupError = false, false, ""
+	if err := admitRunRecord(r, c.disk.Policy.Database.MaxRecord); err != nil {
+		return Run{}, err
+	}
 	receipt := Receipt{Key: req.RequestID, Kind: "retry", Args: args, RunID: r.ID}
 	if err := c.persist(r, nil, &receipt); err != nil {
 		return Run{}, err

@@ -345,7 +345,7 @@ func taskContinuationRecord(r Run) error {
 	}
 	if graph := r.TaskGraph; graph != nil && graph.Lineage != nil {
 		lineage := graph.Lineage
-		if graph.RootRunID != r.ID || graph.ParentRunID != "" || lineage.OriginRunID == "" || lineage.OriginRunID == r.ID || lineage.OriginProjectID == "" || lineage.OriginRevision < 1 || lineage.PriorAttempts < 1 || lineage.PriorAttempts >= lineage.MaxAttempts || lineage.Source.WorkDir != "" || !frontendRecheckHex(lineage.PatchSHA256, 64) || !frontendRecheckHex(lineage.CheckSHA256, 64) || r.Process.MaxAttempts != 0 && r.Process.MaxAttempts != lineage.MaxAttempts {
+		if graph.RootRunID != r.ID || graph.ParentRunID != "" || lineage.OriginRunID == "" || lineage.OriginRunID == r.ID || lineage.OriginProjectID == "" || lineage.OriginRevision < 1 || lineage.PriorAttempts < 1 || lineage.PriorAttempts >= lineage.MaxAttempts || lineage.Source.WorkDir != "" || !frontendRecheckHex(lineage.PatchSHA256, 64) || !frontendRecheckHex(lineage.CheckSHA256, 64) {
 			return errors.New("retained task lineage differs from its general-task root")
 		}
 	}
@@ -371,7 +371,7 @@ func (c *Core) validateTaskContinuationLinks() error {
 		}
 		if r.TaskGraph != nil && r.TaskGraph.Lineage != nil {
 			origin, exists := c.runs[r.TaskGraph.Lineage.OriginRunID]
-			if !exists || origin.ContinuedBy == nil || origin.ContinuedBy.RunID != r.ID || !reflect.DeepEqual(origin.ContinuedBy.Lineage, *r.TaskGraph.Lineage) || r.Process.MaxAttempts != origin.Process.MaxAttempts {
+			if !exists || origin.ContinuedBy == nil || origin.ContinuedBy.RunID != r.ID || !reflect.DeepEqual(origin.ContinuedBy.Lineage, *r.TaskGraph.Lineage) || r.TaskGraph.Lineage.MaxAttempts != origin.Process.MaxAttempts {
 				return errors.New("general-task continuation origin is unavailable or its allowance differs")
 			}
 		}

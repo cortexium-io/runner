@@ -13,7 +13,7 @@ const invalidFamilyAttempts = math.MaxInt / 2
 func (c *Core) familyAttempts(r Run) int {
 	if r.TaskGraph != nil {
 		root, members, _, err := c.graphFamily(r)
-		if err != nil {
+		if err != nil || taskAllowanceRecord(root) != nil {
 			return invalidFamilyAttempts
 		}
 		n := 0
@@ -21,7 +21,7 @@ func (c *Core) familyAttempts(r Run) int {
 			n += len(member.Attempts)
 		}
 		if lineage := root.TaskGraph.Lineage; lineage != nil {
-			if lineage.PriorAttempts < 1 || root.Process.MaxAttempts != lineage.MaxAttempts || n > invalidFamilyAttempts-lineage.PriorAttempts {
+			if lineage.PriorAttempts < 1 || n > invalidFamilyAttempts-lineage.PriorAttempts {
 				return invalidFamilyAttempts
 			}
 			n += lineage.PriorAttempts

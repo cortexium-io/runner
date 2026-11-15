@@ -1,12 +1,12 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {assertGeometry,assertNeighborGeometry,viewports} from '../../cmd/runner-sudoku-check/geometry.mjs';
+import {assertGeometry,assertNeighborGeometry,viewports,measure} from '../../cmd/runner-sudoku-check/geometry.mjs';
 
 const fixtures=JSON.parse(await readFile(new URL('./layouts.json',import.meta.url),'utf8'));
 function metrics(name) {
   const f=structuredClone(fixtures[name]),p=f.pad,t=f.tools;
-  const key={font:30,hit:true,textOverflow:false,iconWidth:24,captionFont:12};
+  const key={font:30,enabled:true,hit:true,textOverflow:false,iconWidth:24,captionFont:12};
   return {
     viewport:{width:f.viewport.width,height:f.viewport.height},documentWidth:f.viewport.width,
     board:f.board,frame:f.frame,controls:f.controls,
@@ -56,6 +56,18 @@ test('offscreen, covered, overlapping and clipped captions are real failures',()
   }
 });
 
+test('disabled Undo retains geometry obligations while enabled Undo must receive the action',()=>{
+  const m=metrics('portrait'),undo=m.tools[0];
+  undo.enabled=false;undo.hit=false;
+  assert.equal(assertGeometry(m,fixtures.portrait.viewport).composition,'under-board');
+  undo.enabled=true;
+  assert.throws(()=>assertGeometry(m,fixtures.portrait.viewport),/centre is covered: Undo/);
+  undo.enabled=false;undo.width=20;
+  assert.throws(()=>assertGeometry(m,fixtures.portrait.viewport),/target too small: Undo/);
+  undo.width=60;undo.y=600;
+  assert.throws(()=>assertGeometry(m,fixtures.portrait.viewport),/intact controls panel|offscreen/);
+});
+
 test('shrinking the product controls panel cannot waive the explicit spacious landscape target',()=>{
   const m=metrics('landscape');m.controls.width=318;m.controls.height=230;
   m.digits.forEach((key,i)=>{key.x=450+(i%3)*81;key.y=120+Math.floor(i/3)*56;key.width=75;key.height=50;key.font=20});
@@ -83,4 +95,29 @@ test('shared-shell neighbor smoke detects Suguru beside-board controls and clipp
   assert.throws(()=>assertNeighborGeometry(beside,{underBoard:true}),/under its board/);
   const clipped=structuredClone(m);clipped.frame.width-=20;
   assert.throws(()=>assertNeighborGeometry(clipped),/clipped/);
+});
+
+test('neighbor desktop permits ordinary vertical scrolling while preserving primary target layout',()=>{
+  const fixture=metrics('portrait');
+  const m={...fixture,viewport:{width:1440,height:400},documentWidth:1440,controls:[...fixture.digits,...fixture.tools].map((target,i)=>({...target,label:i<9?String(i+1):target.name}))};
+  assert.equal(assertNeighborGeometry(m,{underBoard:true}).scrolling_required,true);
+  m.controls[0].x=-10;
+  assert.throws(()=>assertNeighborGeometry(m),/horizontally clipped: 1/);
+  m.controls[0].x=10;m.controls[0].width=20;
+  assert.throws(()=>assertNeighborGeometry(m),/too small: 1/);
+});
+
+test('focus evidence distinguishes primary tools and settings while preserving keyboard cell identity',async()=>{
+  const previous={document:globalThis.document,innerWidth:globalThis.innerWidth,innerHeight:globalThis.innerHeight};
+  const node=(tagName,textContent,attributes={})=>({tagName,textContent,getAttribute:name=>attributes[name]??null});
+  try {
+    globalThis.document={documentElement:{scrollWidth:390},querySelectorAll:()=>[]};globalThis.innerWidth=390;globalThis.innerHeight=844;
+    const page={evaluate:async fn=>fn()},identities=[];
+    for(const focus of [node('BUTTON','Undo',{'data-action':'undo'}),node('BUTTON','Notes'),node('SUMMARY','Options'),node('SUMMARY','More actions'),node('BUTTON','',{'data-cell':'7'})]) {
+      document.activeElement=focus;identities.push((await measure(page)).focus);
+    }
+    assert.deepEqual(identities,['BUTTON:undo','BUTTON:Notes','SUMMARY:Options','SUMMARY:More actions','7']);
+  } finally {
+    for(const [name,value] of Object.entries(previous))if(value===undefined)delete globalThis[name];else globalThis[name]=value;
+  }
 });

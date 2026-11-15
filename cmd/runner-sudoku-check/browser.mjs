@@ -4,19 +4,22 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {viewports,assertGeometry,assertNeighborGeometry,measure} from './geometry.mjs';
-import {neighborSelectors,stableBoardGeometry,boundedFailure,reopenSudoku,afterReopen} from './browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boundedFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,classifyFailure,telemetryDimensions,neighborGeometry} from './browser-contract.mjs';
 
 const options=JSON.parse(await readFile(process.argv[2],'utf8'));
 const {chromium,webkit}=await import(pathToFileURL(options.playwright).href);
 const hash=value=>createHash('sha256').update(typeof value==='string'||Buffer.isBuffer(value)?value:JSON.stringify(value)).digest('hex');
-const report={schema:1,status:'failed',complete:false,browser_closed:false,engines:[],prerequisites:[],unrun:[],geometry:[],journeys:[],neighbors:[],screenshots:[],errors:[],document_failures:[],limits:[
+const report={schema:1,status:'failed',complete:false,browser_closed:false,engines:[],prerequisites:[],unrun:[],geometry:[],journeys:[],neighbors:[],screenshots:[],errors:[],diagnostics:[],document_failures:[],limits:[
   'Viewport/device input is headless emulation, not physical Duo/iPad/iPhone or native Safari.',
   'Chromium hold/cancel uses trusted CDP touch; WebKit exposes trusted taps but no public hold/cancel touch API, so its hold/move cancellation uses a trusted mouse pointer and Options pinning.',
   'Secondary offscreen actions use browser scrolling before trusted clicks/taps; primary touch geometry is checked without automatic scrolling.',
   'Metrics do not judge branding, hierarchy, icon style, spacing or visual quality. Independent full viewport image review is mandatory.',
+  'At most four additional failure-state images supplement the 76 planned images; repeated failures keep their measured facts and identify any representative image or capture omission.',
+  'Authored best-effort event-ingestion 4xx remain explicit diagnostics; required/unclassified API errors, every 5xx and page exceptions block acceptance.',
 ],input:{touch:0,mouse:0,keyboard:0},input_scope:'Sampled trusted event counters from the explicit entry/keyboard journeys; document navigation resets page counters.',viewport_contract:viewports};
 report.playwright_version=JSON.parse(await readFile(path.join(path.dirname(options.playwright),'package.json'),'utf8')).version;
-let activeBrowser,current,stopping=false,imageBytes=0,profile=0;
+let activeBrowser,current,activeCase,stopping=false,imageBytes=0,profile=0;
+const observations=new WeakMap(),failureImages=new Map();
 const functionalJourneys=['entry-pin-cancel-history','touch-in-progress-resize','desktop-in-progress-resize','side-swap-persistence','hint-explanation-apply-undo','completion-new-resume','touch-completion-new-resume','desktop-keyboard-focus','appearance-controls'];
 const save=()=>writeFile(path.join(options.evidence,'browser.json'),JSON.stringify(report,null,2)+'\n',{mode:0o600});
 const pauseForHold=()=>new Promise(resolve=>setTimeout(resolve,900)); // Actual gesture duration exceeds the app's 750ms touch threshold; never a readiness sleep.
@@ -26,23 +29,22 @@ const failures=()=>[report.journeys,report.neighbors,report.geometry,report.prer
 async function check(engine,id,action,{rows=report.journeys,failureStatus='failed'}={}) {
   const row={engine,id,status:'failed'};
   rows.push(row);
+  const previous=activeCase;activeCase=row;
   try {if(stopping)throw new Error('checker cancellation requested');row.proof=await action();row.status='passed';}
-  catch(error){row.status=failureStatus;row.failure=bounded(error);if(current&&!current.isClosed())try{await capture(current,engine,id+'-failure')}catch{}}
+  catch(error){row.status=failureStatus;row.failure=bounded(error);if(error.interaction)row.interaction=error.interaction;if(current&&!current.isClosed())await failedState(current,row,id)}
+  finally {activeCase=previous}
   await save();
   return row.status==='passed';
 }
 
 async function settle(page,boardSelector='.sudoku-play .puzzle-board') {
-  await page.evaluate(async()=>{
-    await document.fonts.ready;
-    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-  });
+  await layoutReady(page);
   await page.waitForFunction(stableBoardGeometry,boardSelector,{timeout:5000,polling:'raf'});
 }
 
 async function capture(page,engine,state) {
   const id=state.replace(/[^a-z0-9-]/g,'-').slice(0,90),name=`${engine}-${id}.png`;
-  if(report.screenshots.some(row=>row.name===name))return;
+  if(report.screenshots.some(row=>row.name===name))return name;
   assert.ok(report.screenshots.length<80,'fixed viewport image count exceeded');
   const appearance=await palette(page);
   if(state.endsWith('-dark'))assert.ok(appearance.choice==='dark'||appearance.choice==='system'&&appearance.systemDark,'dark capture is not using an actual dark palette');
@@ -52,6 +54,41 @@ async function capture(page,engine,state) {
   imageBytes+=data.length;
   await writeFile(path.join(options.evidence,name),data,{flag:'wx',mode:0o600});
   report.screenshots.push({name,sha256:hash(data),bytes:data.length,...page.viewportSize(),path:new URL(page.url()).pathname,state,full_viewport:true,appearance});
+  return name;
+}
+
+async function failedState(page,row,key,{planned}={}) {
+  row.observations=structuredClone(observations.get(page)??[]);
+  try {row.failure_state=await page.evaluate(interactionFacts,'.sudoku-play .puzzle-board')}catch{}
+  if(row.failure_image)return;
+  const group=`${row.engine}/${key}`;
+  if(!planned&&failureImages.has(group)){row.failure_image={representative:failureImages.get(group)};return}
+  if(!planned&&failureImages.size>=4){row.failure_image={omitted:'four additional failure images already retained'};return}
+  try {
+    const name=await capture(page,row.engine,planned??key+'-failure');
+    row.failure_image={name,viewport:page.viewportSize(),phase:row.phase??row.id};
+    if(!planned)failureImages.set(group,row.failure_image);
+  } catch(error){row.failure_image={omitted:bounded(error,250)}}
+}
+
+function observe(page,facts) {
+  const rows=observations.get(page)??[];
+  rows.push(facts);if(rows.length>6)rows.shift();observations.set(page,rows);
+}
+
+async function transition(page,label,operation) {
+  const before=await page.evaluate(interactionFacts,'.sudoku-play .puzzle-board');
+  await operation();await settle(page);
+  observe(page,{phase:label,before,after:await page.evaluate(interactionFacts,'.sudoku-play .puzzle-board')});
+}
+
+async function inContext(browser,engine,viewport,operation) {
+  const {context,page}=await contextFor(browser,viewport);
+  try {return await operation(page)}
+  catch(error) {
+    if(activeCase){if(error.interaction)activeCase.interaction=error.interaction;await failedState(page,activeCase,activeCase.id)}
+    throw error;
+  } finally {await context.close()}
 }
 
 async function palette(page) {
@@ -76,8 +113,14 @@ async function contextFor(browser,viewport,scheme='light') {
     const url=new URL(response.url());
     if(url.origin===options.origin&&response.status()>=400&&['document','script','stylesheet'].includes(response.request().resourceType())&&report.document_failures.length<12)
       report.document_failures.push({engine:browser.browserType().name(),path:url.pathname,type:response.request().resourceType(),status:response.status()});
-    if(url.origin===options.origin&&response.status()>=400&&url.pathname.startsWith('/api/')&&report.errors.length<30)
-      report.errors.push({engine:browser.browserType().name(),path:url.pathname,status:response.status()});
+    if(url.origin===options.origin&&response.status()>=400&&url.pathname.startsWith('/api/')) {
+      const request=response.request(),failure=classifyFailure({kind:'http',engine:browser.browserType().name(),method:request.method(),path:url.pathname,status:response.status(),status_text:response.statusText().slice(0,80)});
+      if(failure.classification==='best-effort-telemetry') {
+        try{Object.assign(failure,telemetryDimensions(request.postDataJSON()))}catch{}
+      }
+      const rows=failure.blocking?report.errors:report.diagnostics;
+      if(rows.length<30)rows.push(failure);
+    }
   });
   page.on('requestfailed',request=>{
     const url=new URL(request.url());
@@ -87,29 +130,8 @@ async function contextFor(browser,viewport,scheme='light') {
   return {context,page};
 }
 
-async function scrollTarget(locator) {
-  await locator.evaluate(node=>node.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'}));
-}
-
-async function activate(page,locator,touch,{secondary=false}={}) {
-  assert.equal(await locator.count(),1,'one actual UI target is required');
-  await locator.waitFor({state:'visible'});
-  if(secondary)await scrollTarget(locator);
-  const point=await locator.evaluate(node=>{
-    const r=node.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
-    return {x,y,enabled:!node.disabled&&node.getAttribute('aria-disabled')!=='true',hit:r.width>0&&r.height>0&&x>=0&&x<innerWidth&&y>=0&&y<innerHeight&&node.contains(document.elementFromPoint(x,y))};
-  });
-  assert.equal(point.enabled,true,'UI action target is disabled');
-  assert.equal(point.hit,true,'UI action centre is offscreen or covered');
-  // A human can tap a moving target. Keep real trusted touch and a fresh centre
-  // hit test, without depending on Playwright's multi-frame stability heuristic.
-  if(touch)await page.touchscreen.tap(point.x,point.y);else await locator.click();
-}
-
-async function action(page,locator,touch,{secondary=false,boardSelector}={}) {
-  await activate(page,locator,touch,{secondary});
-  await settle(page,boardSelector);
-}
+const activate=(page,locator,touch,settings={})=>activateTarget(page,locator,touch,{...settings,observe:facts=>observe(page,facts)});
+const action=(page,locator,touch,settings={})=>activate(page,locator,touch,{...settings,after:()=>settle(page,settings.boardSelector)});
 
 const cell=(page,index)=>page.locator(`.sudoku-play .puzzle-board [data-cell="${index}"]`);
 const digit=(page,value)=>page.locator('.sudoku-play .number-pad button').filter({has:page.locator('span').filter({hasText:new RegExp(`^${value}$`)})});
@@ -180,11 +202,11 @@ async function createBoard(page,touch) {
   return {boardPath,answer,identity:definition.id,publication:hash(transfer)};
 }
 
-async function geometryCase(page,engine,viewport,phase,scheme) {
+async function geometryCase(page,engine,viewport,phase,scheme,plannedImage) {
   const row={engine,viewport:viewport.id,width:viewport.width,height:viewport.height,touch:viewport.touch,phase,scheme,status:'failed'};
   report.geometry.push(row);
   try {await settle(page);row.metrics=await measure(page);row.proof=assertGeometry(row.metrics,viewport);row.status='passed'}
-  catch(error){row.failure=bounded(error.message)}
+  catch(error){row.failure=bounded(error.message);await failedState(page,row,'geometry',{planned:plannedImage})}
   await save();
   return row;
 }
@@ -194,13 +216,14 @@ async function freshGeometry(browser,engine,recipe) {
     const {context,page}=await contextFor(browser,viewport);
     try {
       await load(page,recipe.boardPath);
-      await geometryCase(page,engine,viewport,'fresh','light');
+      await geometryCase(page,engine,viewport,'fresh','light',viewport.id+'-initial-light');
       await capture(page,engine,viewport.id+'-initial-light');
       const before=await state(page);
       await page.emulateMedia({colorScheme:'dark'});await settle(page);
       samePlay(await state(page),before);
-      await geometryCase(page,engine,viewport,'fresh','dark');
-      if(['phone-390','duo-inner-landscape','tablet-portrait','desktop'].includes(viewport.id))await capture(page,engine,viewport.id+'-initial-dark');
+      const darkImage=['phone-390','duo-inner-landscape','tablet-portrait','desktop'].includes(viewport.id)?viewport.id+'-initial-dark':undefined;
+      await geometryCase(page,engine,viewport,'fresh','dark',darkImage);
+      if(darkImage)await capture(page,engine,darkImage);
     } catch(error) {
       report.journeys.push({engine,id:'fresh-'+viewport.id,status:'failed',failure:bounded(error.message)});
     } finally {await context.close()}
@@ -208,11 +231,12 @@ async function freshGeometry(browser,engine,recipe) {
 }
 
 async function setOptions(page,touch,operation) {
-  const details=page.locator('.sudoku-play .play-settings');
-  if(await details.getAttribute('open')===null)await action(page,optionsSummary(page),touch,{secondary:true});
-  await operation(details);
-  await action(page,optionsSummary(page),touch,{secondary:true});
-  await scrollTarget(page.locator('.sudoku-play .player-board-frame'));await settle(page);
+  await transition(page,'Options',async()=>{
+    const details=page.locator('.sudoku-play .play-settings');
+    if(await details.getAttribute('open')===null)await action(page,optionsSummary(page),touch,{secondary:true});
+    await operation(details);
+    await action(page,optionsSummary(page),touch,{secondary:true});
+  });
 }
 
 async function pinOption(page,touch,value) {
@@ -237,8 +261,7 @@ async function firstEmpty(page) {
 
 async function resizeJourney(browser,engine,recipe,touch) {
   const cases=viewports.filter(v=>v.touch===touch),initial=cases.find(v=>v.id===(touch?'phone-390':'desktop'));
-  const {context,page}=await contextFor(browser,initial);
-  try {
+  return inContext(browser,engine,initial,async page=>{
     await load(page,recipe.boardPath);
     const index=await firstEmpty(page);
     await action(page,cell(page,index),touch);
@@ -247,16 +270,18 @@ async function resizeJourney(browser,engine,recipe,touch) {
     const denseNotes=(await state(page)).rendered[index].notes.filter(Boolean).length;
     assert.ok(denseNotes>=6,'dense-note setup lacks six actual UI note entries');
     await pinOption(page,touch,recipe.answer[index]);
-    await cell(page,index).focus();
     const before=await state(page);
     for(const side of touch?['right','left']:['latent']) {
       if(touch) {
         await setOptions(page,true,async()=>{await action(page,page.locator('.sudoku-play .controls-side').getByRole('button',{name:side==='left'?'Left':'Right',exact:true}),true,{secondary:true})});
-        await cell(page,index).focus();
+        samePlay(await state(page),before,{focus:false});
       }
       for(const viewport of cases) {
-      await page.setViewportSize({width:viewport.width,height:viewport.height});await settle(page);
-      samePlay(await state(page),before);
+      const beforeResize=await state(page);
+      await transition(page,'resize '+viewport.id,()=>page.setViewportSize({width:viewport.width,height:viewport.height}));
+      // Options and Undo own their real browser focus. Test preservation of the
+      // actual focused control, without manufacturing cell focus/scroll here.
+      samePlay(await state(page),beforeResize);
       const row=await geometryCase(page,engine,viewport,'in-progress-'+side,'light');
       if(touch&&viewport.width>viewport.height&&row.status==='passed')assert.equal(row.proof.side,side,'panel side preference changed during resize');
       // Use actual post-resize hit coordinates, then restore through Undo.
@@ -267,13 +292,12 @@ async function resizeJourney(browser,engine,recipe,touch) {
       assert.notEqual(changed.rendered[index].notes[recipe.answer[index]-1],before.rendered[index].notes[recipe.answer[index]-1],'post-resize touch did not toggle the intended pinned note');
       await action(page,tool(page,'Undo'),touch,{secondary:!touch});
       samePlay(await state(page),before,{focus:false});
-      await cell(page,index).focus();
       }
     }
     await page.setViewportSize({width:initial.width,height:initial.height});await settle(page);
     for(const scheme of ['light','dark']){await page.emulateMedia({colorScheme:scheme});await settle(page);await capture(page,engine,(touch?'phone':'desktop')+'-dense-notes-'+scheme)}
-    return {transitions:cases.length*(touch?2:1),retained:hash(before),tap_and_undo_each:true,notes:denseNotes,pinned:recipe.answer[index],focus_retained:true,sides:touch?['right','left']:['latent']};
-  } finally {await context.close()}
+    return {transitions:cases.length*(touch?2:1),retained:hash(before),tap_and_undo_each:true,notes:denseNotes,pinned:recipe.answer[index],focus_retained:true,focus_scope:'actual focused control before each resize; Options/Undo retain their normal focus ownership',sides:touch?['right','left']:['latent']};
+  });
 }
 
 async function hold(page,engine,value,{cancel=false,move=false}={}) {
@@ -295,8 +319,8 @@ async function hold(page,engine,value,{cancel=false,move=false}={}) {
 }
 
 async function entryJourney(browser,engine,recipe) {
-  const viewport=viewports.find(v=>v.id==='phone-390'),{context,page}=await contextFor(browser,viewport);
-  try {
+  const viewport=viewports.find(v=>v.id==='phone-390');
+  return inContext(browser,engine,viewport,async page=>{
     await load(page,recipe.boardPath);
     const index=await firstEmpty(page),value=recipe.answer[index];
     await action(page,cell(page,index),true);
@@ -331,25 +355,27 @@ async function entryJourney(browser,engine,recipe) {
     await setOptions(page,true,async()=>{});
     const more=page.locator('.sudoku-play .more-puzzle-actions > summary');
     await action(page,more,true,{secondary:true});
+    await action(page,page.locator('.sudoku-play .more-puzzle-actions').getByRole('button',{name:'Redo',exact:true}),true,{secondary:true});
+    assert.equal((await state(page)).rendered[index].notes.filter(Boolean).length,0,'secondary Redo did not restore erase');
+    await action(page,tool(page,'Undo'),true,{secondary:true});
+    assert.equal((await state(page)).rendered[index].notes[value-1],String(value),'Undo after secondary Redo did not restore note');
+    await action(page,more,true,{secondary:true});
     const saved=await snapshots(page),visible=(await state(page)).rendered;
     await page.reload({waitUntil:'domcontentloaded'});await settle(page);
     assert.deepEqual(await snapshots(page),saved,'in-progress reload changed saved progress');
     assert.deepEqual((await state(page)).rendered,visible,'in-progress reload changed visible entries/notes');
     await page.goto(options.origin+'/',{waitUntil:'domcontentloaded'});
-    const resume=page.getByRole('button',{name:/^Resume Sudoku/});await activate(page,resume,true,{secondary:true});await settle(page);
+    await action(page,savedBoardAction(page,recipe.identity),true,{secondary:true});
     assert.deepEqual((await state(page)).rendered,visible,'home Resume did not restore in-progress entries/notes');
-    await action(page,page.locator('.sudoku-play .more-puzzle-actions').getByRole('button',{name:'Redo',exact:true}),true,{secondary:true});
-    assert.equal((await state(page)).rendered[index].notes.filter(Boolean).length,0,'secondary Redo did not restore erase');
-    await action(page,more,true,{secondary:true});
     const input=await page.evaluate(()=>window.runnerSudokuInput);report.input.touch+=input.touch;report.input.mouse+=input.mouse;report.input.keyboard+=input.keyboard;
     assert.ok(input.touch>0,'entry journey did not produce trusted touches');
     return {cell_first:true,hold:engine==='chromium'?'trusted-touch':'trusted-mouse-WebKit-limitation',cancel_and_move:true,options_pin:true,escape:true,notes_erase_undo_redo:true,reload:true,home_resume:true,input};
-  } finally {await context.close()}
+  });
 }
 
 async function sideJourney(browser,engine,recipe) {
-  const viewport=viewports.find(v=>v.id==='duo-inner-landscape'),{context,page}=await contextFor(browser,viewport);
-  try {
+  const viewport=viewports.find(v=>v.id==='duo-inner-landscape');
+  return inContext(browser,engine,viewport,async page=>{
     await load(page,recipe.boardPath);
     const index=await firstEmpty(page),value=recipe.answer[index];
     const initial=await measure(page);assert.ok(initial.controls.x>initial.frame.x,'touch side must initially be right');
@@ -373,12 +399,12 @@ async function sideJourney(browser,engine,recipe) {
     assert.ok((await measure(page)).controls.x<(await measure(page)).frame.x,'side preference did not survive a new puzzle');
     const freshSaved=await snapshots(page);for(const old of saved)assert.deepEqual(freshSaved.find(row=>row.key===old.key),old,'New puzzle lost the prior saved board');
     return {right_initially:true,left_swap:true,progress_pin_notes_retained:true,portrait_return:true,persisted_reload:true,persisted_new_puzzle:true};
-  } finally {await context.close()}
+  });
 }
 
 async function hintJourney(browser,engine,recipe) {
-  const viewport=viewports.find(v=>v.id==='phone-390'),{context,page}=await contextFor(browser,viewport);
-  try {
+  const viewport=viewports.find(v=>v.id==='phone-390');
+  return inContext(browser,engine,viewport,async page=>{
     await load(page,recipe.boardPath);
     const index=await firstEmpty(page),value=recipe.answer[index];
     await action(page,cell(page,index),true);await notesOn(page,true);await action(page,digit(page,value),true);await pinOption(page,true,value);
@@ -410,12 +436,12 @@ async function hintJourney(browser,engine,recipe) {
     await action(page,tool(page,'Undo'),true);
     assert.deepEqual(await snapshots(page),before,'Undo did not restore hint entries/notes');
     return {requested:true,explanation:true,board_visible:true,read_only_until_apply:true,apply_undo:true};
-  } finally {await context.close()}
+  });
 }
 
 async function completionJourney(browser,engine,recipe,touch=false) {
-  const viewport=viewports.find(v=>v.id===(touch?'phone-390':'desktop')),{context,page}=await contextFor(browser,viewport);
-  try {
+  const viewport=viewports.find(v=>v.id===(touch?'phone-390':'desktop'));
+  return inContext(browser,engine,viewport,async page=>{
     await load(page,recipe.boardPath);
     const rows=(await state(page)).rendered;
     for(const row of rows.filter(row=>!row.given)) {
@@ -431,19 +457,19 @@ async function completionJourney(browser,engine,recipe,touch=false) {
     assert.deepEqual((await state(page)).rendered,rendered,'solved visible values did not survive reload');
     await page.locator('.sudoku-play .completion').waitFor({state:'visible'});
     await page.goto(options.origin+'/',{waitUntil:'domcontentloaded'});
-    const view=page.getByRole('button',{name:/^View board Sudoku/});await view.waitFor({state:'visible'});await view.click();await settle(page);
+    await action(page,savedBoardAction(page,recipe.identity,{complete:true}),touch,{secondary:true});
     assert.deepEqual((await state(page)).rendered,rendered,'home result view did not restore solved board');
     const oldPath=new URL(page.url()).pathname;
     const fresh=page.getByRole('button',{name:'New puzzle',exact:true});await action(page,fresh,touch,{secondary:true});
     await page.waitForURL(url=>/^\/sudoku\//.test(url.pathname)&&url.pathname!==oldPath);await settle(page);
     assert.equal(await page.locator('.sudoku-play .completion:visible').count(),0,'New puzzle retained completed state');
     return {publication:recipe.publication,normal_UI_entries:rows.filter(row=>!row.given).length,solved:true,result_light_dark:true,reload:true,home_view:true,new_puzzle:true};
-  } finally {await context.close()}
+  });
 }
 
 async function keyboardJourney(browser,engine,recipe) {
-  const viewport=viewports.find(v=>v.id==='desktop-short'),{context,page}=await contextFor(browser,viewport);
-  try {
+  const viewport=viewports.find(v=>v.id==='desktop-short');
+  return inContext(browser,engine,viewport,async page=>{
     await load(page,recipe.boardPath);
     const index=await firstEmpty(page),value=recipe.answer[index];
     await action(page,cell(page,index),false,{secondary:true});
@@ -464,12 +490,12 @@ async function keyboardJourney(browser,engine,recipe) {
     const input=await page.evaluate(()=>window.runnerSudokuInput);report.input.keyboard+=input.keyboard;
     assert.ok(input.keyboard>=8,'desktop keyboard proof lacks trusted key events');
     return {short_window:[viewport.width,viewport.height],digit:true,undo:true,arrows_focus:true,notes_erase:true,givens_protected:true,tab_exit:true,input};
-  } finally {await context.close()}
+  });
 }
 
 async function appearanceJourney(browser,engine,recipe) {
-  const viewport=viewports.find(v=>v.id==='phone-390'),{context,page}=await contextFor(browser,viewport);
-  try {
+  const viewport=viewports.find(v=>v.id==='phone-390');
+  return inContext(browser,engine,viewport,async page=>{
     await load(page,recipe.boardPath);
     const before=await snapshots(page),seen={};
     for(const choice of ['dark','light','system']) {
@@ -486,19 +512,11 @@ async function appearanceJourney(browser,engine,recipe) {
     for(const scheme of ['dark','light']){await page.emulateMedia({colorScheme:scheme});await settle(page);system.push(await palette(page))}
     assert.ok(system.every(p=>p.choice==='system'&&p.page)&&system[0].page!==system[1].page,'System appearance did not follow the actual emulated preference');
     return {explicit_controls:true,persisted_reload:true,system_follows_media:true,progress_unchanged:true,palettes:seen};
-  } finally {await context.close()}
+  });
 }
 
 async function neighborMetrics(page,boardSelector) {
-  return page.locator(boardSelector).evaluate(board=>{
-    const rect=node=>{const r=node.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}};
-    const frame=board.closest('.player-board-frame'),region=board.closest('.player-board-region');
-    const controls=[...region.querySelectorAll('.number-pad button,.input-tools button,.value-controls button,.rectangle-controls button,.player-actions button')]
-      .filter(node=>node.getClientRects().length&&getComputedStyle(node).visibility==='visible')
-      .map(node=>({...rect(node),label:node.textContent.trim().slice(0,60)}));
-    return {viewport:{width:innerWidth,height:innerHeight},documentWidth:document.documentElement.scrollWidth,board:rect(board),frame:rect(frame),
-      internalWidth:board.scrollWidth,internalHeight:board.scrollHeight,clientWidth:board.clientWidth,clientHeight:board.clientHeight,controls};
-  });
+  return page.locator(boardSelector).evaluate(neighborGeometry);
 }
 
 async function neighborPaint(page,boardSelector) {
@@ -511,29 +529,30 @@ async function neighborPaint(page,boardSelector) {
 }
 
 async function neighborSmoke(browser,game) {
-  const viewport=viewports.find(v=>v.id==='desktop'),{context,page}=await contextFor(browser,viewport);
+  const viewport=viewports.find(v=>v.id==='desktop');
   const title={suguru:'Suguru',nonogram:'Nonogram',shikaku:'Shikaku'}[game];
   const {root,board:selector,domBoard}=neighborSelectors(game);
-  try {
+  return inContext(browser,'chromium',viewport,async page=>{
+    const click=locator=>action(page,locator,false,{secondary:true,boardSelector:domBoard});
     if(game==='nonogram') {
       // Normal public reopening is independent of New's executable-bound
       // engine qualification. This tiny shared-shell smoke never waives New.
       await page.goto(options.origin+'/nonogram/ngm1-5-easy-101',{waitUntil:'domcontentloaded'});
     } else {
       await page.goto(options.origin+'/',{waitUntil:'domcontentloaded'});
-      await page.getByRole('link',{name:'Choose '+title,exact:true}).click();
+      await activate(page,page.getByRole('link',{name:'Choose '+title,exact:true}),false,{secondary:true,boardSelector:domBoard});
       const dialog=page.getByRole('dialog',{name:'New '+title,exact:true});await dialog.waitFor({state:'visible'});
       const sizes=dialog.getByRole('group',{name:'Board size',exact:true});
-      if(await sizes.count())await sizes.locator('button:not([disabled])').first().click();
-      const easy=dialog.getByRole('button',{name:'Easy',exact:true});if(await easy.count())await easy.click();
+      if(await sizes.count())await activate(page,sizes.locator('button:not([disabled])').first(),false,{secondary:true,boardSelector:domBoard});
+      const easy=dialog.getByRole('button',{name:'Easy',exact:true});if(await easy.count())await activate(page,easy,false,{secondary:true,boardSelector:domBoard});
       await page.waitForFunction(label=>[...document.querySelectorAll('dialog[open] button')].some(n=>n.textContent.trim()===label&&!n.disabled),'Play '+title);
-      await dialog.getByRole('button',{name:'Play '+title,exact:true}).click();
+      await activate(page,dialog.getByRole('button',{name:'Play '+title,exact:true}),false,{secondary:true,boardSelector:domBoard});
       await page.waitForURL(url=>new RegExp(`^/${game}/[A-Za-z0-9_-]+$`).test(url.pathname));
     }
     const board=page.locator(selector);await board.locator('[data-cell]').last().waitFor({state:'visible'});await settle(page,domBoard);
-    const geometry=await neighborMetrics(page,selector),composition=assertNeighborGeometry(geometry,{underBoard:game==='suguru'});
+    const geometry=await neighborMetrics(page,selector);activeCase.geometry=geometry;
+    const composition=assertNeighborGeometry(geometry,{underBoard:game==='suguru'});
     const before=await snapshots(page),paint=await neighborPaint(page,selector);
-    const click=locator=>action(page,locator,false,{boardSelector:domBoard});
     if(game==='shikaku') {
       const count=await board.locator('[data-cell]').count(),n=Math.sqrt(count);
       assert.ok(Number.isInteger(n)&&n>=5&&n<=7,'neighbor smoke must stay on a small Shikaku board');
@@ -562,7 +581,7 @@ async function neighborSmoke(browser,game) {
     }
     return {game,scope:'affected shared-shell smoke only',entry:game==='nonogram'?'normal public catalogue-code reopen; no New-generation qualification':'small normal UI New',
       path:new URL(page.url()).pathname,geometry:composition,input_undo:true,settings_default:game==='suguru'?'checked':'not repeated',before:hash(before),edited:hash(edited),source_bound:true};
-  } finally {await context.close()}
+  });
 }
 
 async function stop() {stopping=true;if(activeBrowser)try{await activeBrowser.close()}catch{}}

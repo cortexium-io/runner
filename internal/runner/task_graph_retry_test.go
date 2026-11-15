@@ -17,6 +17,8 @@ func TestGeneralTasksRootRetryAbove128AndProfileGuards(t *testing.T) {
 	p := s.Projects["demo"]
 	proc := p.Processes["demo"]
 	proc.MaxAttempts = 256
+	proc.MaxAttemptsPerStep = 2
+	proc.Steps[0].Routes = map[string]runner.Route{"blocked": {Next: "$fail"}}
 	p.Processes["demo"] = proc
 	role := p.Roles["planner"]
 	good := *role.Execution
@@ -37,7 +39,7 @@ func TestGeneralTasksRootRetryAbove128AndProfileGuards(t *testing.T) {
 			defer mu.Unlock()
 			calls++
 			if calls == 1 {
-				return runner.Observation{State: runner.Finished, End: &runner.ExecutionEnd{Kind: "failed", Reason: "first approach failed"}}
+				return graphReturned(runner.StepResult{Outcome: "blocked", Reason: "first approach failed", Outputs: map[string]runner.Value{"result": runner.Text("blocked")}})
 			}
 			return graphFinal("accepted retry")
 		}}

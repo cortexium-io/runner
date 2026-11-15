@@ -41,6 +41,9 @@ func MarshalRunRecord(r Run) (state, definition []byte, err error) {
 	if err := taskContinuationRecord(r); err != nil {
 		return nil, nil, err
 	}
+	if err := taskAllowanceRecord(r); err != nil {
+		return nil, nil, err
+	}
 	if err := taskRecoveryRecord(r); err != nil {
 		return nil, nil, err
 	}
@@ -100,6 +103,9 @@ func UnmarshalRunRecord(state, definition []byte) (Run, error) {
 		g.Brief = graphGoal(r.Inputs)
 	}
 	if err := taskContinuationRecord(r); err != nil {
+		return r, err
+	}
+	if err := taskAllowanceRecord(r); err != nil {
 		return r, err
 	}
 	if err := taskRecoveryRecord(r); err != nil {
