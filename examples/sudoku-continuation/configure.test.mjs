@@ -158,7 +158,8 @@ test('setup exposes bounded adaptive roles and authenticated dependency file bin
   assert.match(lead, /cleanup\.browser_closed, server_stopped, database_removed and build_scratch_removed all true/);
   assert.match(lead, /preview\.running false/);
   assert.match(lead, /independent source and visual reports to approve that SAME source_sha256/);
-  assert.match(lead, /twenty child slots and 64 total attempts including 36 prior attempts/);
+  assert.match(lead, /twenty child slots and an initial 64-attempt ceiling including 36 prior attempts/);
+  assert.match(lead, /effective attempt_budget.limit reflects explicit owner grants/);
   assert.match(lead, /never dump the whole patch or raw check report/);
   assert.match(byID['sudoku-source-review'].execution.instructions, /targeted relevant hunks/);
   assert.match(byID['sudoku-source-review'].execution.instructions, /not whole-goal or visual acceptance/);

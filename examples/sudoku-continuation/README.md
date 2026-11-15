@@ -100,13 +100,18 @@ a product defect, and a blocked report cannot be reused as approval. New work
 uses stable unique IDs; there is no prescribed repair sequence or review pairing.
 Rechecks also depend on the original import; import is never repeated. Developer claims are only
 `frontend/src` and `docs/sudoku-interface.md`. Generated files, dependencies,
-configuration, other puzzles and existing proof are protected. Fixed checks own
-all product testing/build/browser work; source and visual reviewers perform
+configuration, other puzzles and existing proof are protected. Developers can run
+necessary focused tests through the qualified helper before returning, and update
+test drivers/expectations for approved behavior while preserving their guarantees.
+Fixed checks own independent acceptance testing/build/browser work; source and visual reviewers perform
 independent assessment without repeating tests. The original 393-pass proof is
 reused for the unchanged imported candidate; changed source gets fresh relevant
 frontend proof. The documented interface-note exception stays included in the
-whole-candidate source identity. The unchanged ceilings remain twenty child
-slots and 64 attempts including the 36 historical attempts. Parent returns and
+whole-candidate source identity. Reviews are admitted after the relevant proof or
+images actually exist, rather than speculatively behind an unfinished checker.
+The initial ceilings are twenty child slots and 64 attempts including the 36
+historical attempts; explicit owner grants change only the effective aggregate
+ceiling and are exposed alongside immutable lineage. Parent returns and
 retries consume the same remainder. Repeating a failure calls for reassessing
 the cause and approach within the agreement; the lead reserves capacity for the
 necessary correction and assessments rather than following a fixed cycle count.

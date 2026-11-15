@@ -14,6 +14,13 @@ import (
 // Exercise the real example and loader without invoking any configured worker.
 // All selected executables are this test binary, which the loader only stats.
 func TestGeneratedSudokuContinuationLoadsWithPreservedLegacyProject(t *testing.T) {
+	// Node reads these fixtures, so register them with Go's test cache too.
+	// Otherwise a changed role/process can reuse a previous loader result.
+	for _, name := range []string{"roles.mjs", "process.json"} {
+		if _, err := os.ReadFile(name); err != nil {
+			t.Fatal(err)
+		}
+	}
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("Node is required to generate the example configuration")

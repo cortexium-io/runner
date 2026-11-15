@@ -15,6 +15,10 @@ import (
 )
 
 func ownedNativeProcesses(owner string, since time.Time, known map[string]bool) ([]nativeChild, error) {
+	return ownedDarwinNativeProcesses(owner, since, known, nativeProcessHasMarker)
+}
+
+func ownedDarwinNativeProcesses(owner string, since time.Time, known map[string]bool, marker func(int, string) (bool, error)) ([]nativeChild, error) {
 	processes, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {
 		return nil, err
@@ -36,18 +40,17 @@ func ownedNativeProcesses(owner string, since time.Time, known map[string]bool) 
 		}
 		pid := int(process.Proc.P_pid)
 		unique, parent, uniqueErr := darwinNativeUnique(pid)
-		if errors.Is(uniqueErr, unix.ESRCH) || errors.Is(uniqueErr, unix.EINVAL) {
-			continue
-		}
-		matched, err := nativeProcessHasMarker(pid, owner)
-		if errors.Is(err, unix.ESRCH) || errors.Is(err, unix.ENOENT) || errors.Is(err, unix.EINVAL) {
-			continue // It exited during inventory.
-		}
-		if uniqueErr != nil {
-			if matched || known["birth:"+darwinNativeIdentity(&process)] {
-				return nil, uniqueErr
+		matched, markerErr := marker(pid, owner)
+		knownUnique := uniqueErr == nil && (known[fmt.Sprint(unique)] || known[fmt.Sprint(parent)])
+		if uniqueErr != nil || markerErr != nil && !knownUnique {
+			if !matched && !known["birth:"+darwinNativeIdentity(&process)] {
+				continue // No positive ownership: unrelated host activity is not ours.
 			}
-			continue // No positive ownership: unrelated host activity is not ours.
+			current, probeErr := darwinNativeProcess(pid)
+			if probeErr == nil && !darwinNativeProcessMatches(current, nativeChild{PID: pid, Identity: darwinNativeIdentity(&process)}) {
+				continue // Positive exit/replacement proof for the inventoried identity.
+			}
+			return nil, errors.Join(uniqueErr, markerErr, probeErr)
 		}
 		key, parentKey := fmt.Sprint(unique), fmt.Sprint(parent)
 		candidates = append(candidates, candidate{process, key, parentKey})
@@ -136,31 +139,59 @@ func nativeProcessHasMarker(pid int, owner string) (bool, error) {
 }
 
 func killOwnedNativeProcess(child nativeChild, owner string, known map[string]bool) error {
-	process, err := unix.SysctlKinfoProc("kern.proc.pid", child.PID)
-	if errors.Is(err, unix.ESRCH) || errors.Is(err, unix.ENOENT) {
-		return nil
+	return killDarwinNativeProcess(child, owner, known, nativeProcessHasMarker)
+}
+
+func darwinNativeProcess(pid int) (*unix.KinfoProc, error) {
+	// A successful empty PID query proves absence. The single-record helper
+	// instead reports a short result as an error, obscuring an ordinary exit.
+	processes, err := unix.SysctlKinfoProcSlice("kern.proc.pid", pid)
+	if err != nil {
+		return nil, err
 	}
+	if len(processes) == 0 {
+		return nil, nil
+	}
+	if len(processes) != 1 || processes[0].Proc.P_pid != int32(pid) {
+		return nil, errors.New("process PID query returned an unexpected identity")
+	}
+	return &processes[0], nil
+}
+
+func darwinNativeProcessMatches(process *unix.KinfoProc, child nativeChild) bool {
+	return process != nil && process.Eproc.Ucred.Uid == uint32(os.Getuid()) && darwinNativeIdentity(process) == child.Identity && process.Proc.P_stat != 5
+}
+
+func killDarwinNativeProcess(child nativeChild, owner string, known map[string]bool, marker func(int, string) (bool, error)) error {
+	process, err := darwinNativeProcess(child.PID)
 	if err != nil {
 		return err
 	}
-	if process.Eproc.Ucred.Uid != uint32(os.Getuid()) || darwinNativeIdentity(process) != child.Identity || process.Proc.P_stat == 5 {
+	if !darwinNativeProcessMatches(process, child) {
 		return nil // Original process exited; never signal a reused PID.
 	}
-	owned, err := nativeProcessHasMarker(child.PID, owner)
+	owned, err := marker(child.PID, owner)
 	if !owned {
 		unique, _, uniqueErr := darwinNativeUnique(child.PID)
 		if uniqueErr == nil && known[fmt.Sprint(unique)] {
 			owned, err = true, nil
 		}
 	}
-	if err != nil {
-		if errors.Is(err, unix.ESRCH) || errors.Is(err, unix.ENOENT) {
+	if err != nil || !owned {
+		if err == nil {
+			err = errors.New("owned process marker changed before termination")
+		}
+		// Ownership metadata can disappear between inventory and termination.
+		// Its errno alone proves nothing about liveness: recheck the exact
+		// birth identity and preserve uncertainty if that query also fails.
+		current, probeErr := darwinNativeProcess(child.PID)
+		if probeErr != nil {
+			return errors.Join(err, fmt.Errorf("process identity recheck: %w", probeErr))
+		}
+		if !darwinNativeProcessMatches(current, child) {
 			return nil
 		}
 		return err
-	}
-	if !owned {
-		return errors.New("owned process marker changed before termination")
 	}
 	err = unix.Kill(child.PID, unix.SIGKILL)
 	if errors.Is(err, unix.ESRCH) {

@@ -139,6 +139,34 @@ coverage, genuine-input and cleanup requirements. The lead owns the minimum
 complete correction and independent assessment in the existing role graph; no
 outside product implementation, proof waiver or second task ledger is introduced.
 
+The approved amendment was applied once. The same root completed the cycle at
+69/72, retaining the original 36-attempt debit and every prior result. Repair-4
+moved the touch-play New puzzle action into More actions, but the protected gate
+stopped at five frontend failures (388/393 passed; typecheck passed). Independent
+source review identified obsolete header/all-button-preservation assumptions and
+a first-text-match driver that activates a closed completion dialog. Visual review
+had no new images and withheld approval. No accepted preview was produced; all
+resources settled. Three remaining attempts cannot admit a complete evaluated
+correction, so no partial cycle or further allowance was started.
+
+This also exposed policy defects: the frozen recipe pre-admitted reviews before
+required evidence existed, and forbade even focused developer tests/legitimate
+expectation updates for approved behavior. The future example now waits for
+observed review inputs and permits focused checks through the qualified helper,
+while preserving regression guarantees and independent acceptance. It reads
+effective budget authority rather than treating historical 64 as permanent.
+These changes do not retroactively qualify the failed run. The example loader
+test explicitly tracks its Node-read fixtures in Go's test cache.
+
+The final full model-free race suite passed every case except a Darwin cancellation
+exit race: ownership probes could return EINVAL after an inventoried process
+exited. Positive PID/birth rechecks now distinguish confirmed absence, replacement
+or zombie state from live uncertainty, preserving qualified unique-identity
+ownership and unrelated-process exclusions. The focused deterministic, original
+cancellation and nearby cleanup/restart tests passed (6.442s), followed by package
+and repository vet. Unchanged passing full-suite cases were not repeated. This
+maintenance evidence is separate from the incomplete product qualification.
+
 Canonical qualification, identities, usage and remaining limitations:
 `/Users/dan/Projects/runner-qualifications/20261115/sudoku-handoff/result.md`.
 
