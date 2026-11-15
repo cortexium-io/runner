@@ -253,6 +253,7 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 	}
 	g := r.TaskGraph
 	ctx := &TaskContext{
+		Lineage:           Clone(root.TaskGraph.Lineage),
 		RootRunID:         root.ID,
 		ParentRunID:       g.ParentRunID,
 		TaskID:            g.TaskID,
@@ -340,10 +341,25 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 
 func (c *Core) graphArtifactAllowed(r Run, id string) bool {
 	artifact, err := c.store.Artifact(c.ctx, id)
-	if err != nil || artifact.ProjectID != r.ProjectID {
+	if err != nil || artifact.ProjectID != r.ProjectID && !c.taskContinuationArtifact(r, artifact) {
 		return false
 	}
 	for _, input := range r.Inputs {
+		if input.ArtifactID == id {
+			return true
+		}
+	}
+	// A configured root preparation step can supply an authenticated artifact
+	// to the current role. Delegation may forward that exact assigned input,
+	// rather than granting access to every earlier root output.
+	inputs := r.StepInputs
+	if inputs == nil && r.Step >= 0 && r.Step < len(r.Process.Steps) {
+		inputs, err = bindings(r, r.Process.Steps[r.Step].Inputs)
+		if err != nil {
+			return false
+		}
+	}
+	for _, input := range inputs {
 		if input.ArtifactID == id {
 			return true
 		}

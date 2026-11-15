@@ -1,0 +1,279 @@
+package main
+
+import (
+	"archive/tar"
+	"compress/gzip"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+)
+
+var evidenceName = regexp.MustCompile(`^(report\.json|summary\.json|browser\.json|frontend-check\.json|(chromium|webkit)-[a-z0-9-]+\.png)$`)
+
+type browserCase struct {
+	Engine   string `json:"engine"`
+	ID       string `json:"id"`
+	Viewport string `json:"viewport"`
+	Status   string `json:"status"`
+	Failure  string `json:"failure"`
+}
+
+func browserFailureGroups(geometry, journeys []browserCase) ([]map[string]any, int, int) {
+	var groups []map[string]any
+	seen := map[string]int{}
+	failed := []int{0, 0}
+	for kind, rows := range [][]browserCase{geometry, journeys} {
+		for _, row := range rows {
+			if row.Status == "passed" {
+				continue
+			}
+			failed[kind]++
+			key := row.Failure
+			if index, ok := seen[key]; ok {
+				groups[index]["count"] = groups[index]["count"].(int) + 1
+				continue
+			}
+			if len(groups) >= 6 {
+				continue
+			}
+			seen[key] = len(groups)
+			groups = append(groups, map[string]any{"reason": clip(row.Failure, 250), "count": 1, "sample": row.Engine + "/" + row.Viewport + row.ID})
+		}
+	}
+	return groups, failed[0], failed[1]
+}
+
+func writeSummary(directory string, p report) error {
+	hash, err := hashFile(filepath.Join(directory, "report.json"), 2<<20)
+	if err != nil {
+		return err
+	}
+	summary := map[string]any{
+		"schema": 1, "status": p.Status, "base": p.Base, "source_sha256": p.SourceSHA256, "source_after_sha256": p.SourceAfter,
+		"report": map[string]string{"file": "report.json", "sha256": hash}, "browser": p.Browser, "cleanup": p.Cleanup, "preview": p.Preview,
+		"failure": clip(p.Failure, 750), "gaps": p.Limitations,
+	}
+	if f := p.Frontend; f != nil {
+		summary["frontend"] = map[string]any{"mode": f.Mode, "status": f.Status, "proof": f.Proof, "sha256": f.SHA256, "executed": f.Executed, "file_count": len(f.Files), "workers": f.Workers, "case_timeout_ms": f.CaseTimeoutMS, "typecheck_passed": f.Typecheck, "reuse_exclusions": f.ReuseExclusions, "handoff_sha256": f.HandoffSHA256}
+	}
+	data, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		return err
+	}
+	if len(data) > 16<<10 {
+		return errors.New("bounded Sudoku summary exceeds 16KiB; full report remains separate")
+	}
+	return os.WriteFile(filepath.Join(directory, "summary.json"), append(data, '\n'), 0600)
+}
+
+type boundedWriter struct {
+	io.Writer
+	remaining int64
+}
+
+func (w *boundedWriter) Write(p []byte) (int, error) {
+	if int64(len(p)) > w.remaining {
+		return 0, errors.New("canonical evidence archive exceeds 16MiB")
+	}
+	n, err := w.Writer.Write(p)
+	w.remaining -= int64(n)
+	return n, err
+}
+
+func archiveEvidence(directory, target string, limit int64) (err error) {
+	output, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, output.Close())
+		if err != nil {
+			_ = os.Remove(target)
+		}
+	}()
+	z := gzip.NewWriter(&boundedWriter{Writer: output, remaining: limit})
+	t := tar.NewWriter(z)
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+	if len(entries) < 1 || len(entries) > 84 {
+		return errors.New("evidence file count exceeds its fixed contract")
+	}
+	var total int64
+	for _, entry := range entries {
+		info, e := entry.Info()
+		if e != nil {
+			return e
+		}
+		if !info.Mode().IsRegular() || !evidenceName.MatchString(entry.Name()) || info.Size() > 2<<20 {
+			return errors.New("evidence contains an unbounded, unexpected or nonregular file")
+		}
+		total += info.Size()
+		if total > 14<<20 {
+			return errors.New("uncompressed evidence exceeds its 14MiB bound")
+		}
+		f, e := os.Open(filepath.Join(directory, entry.Name()))
+		if e != nil {
+			return e
+		}
+		opened, e := f.Stat()
+		if e != nil || !os.SameFile(info, opened) {
+			_ = f.Close()
+			return errors.New("evidence identity changed while opening")
+		}
+		if e = t.WriteHeader(&tar.Header{Name: entry.Name(), Mode: 0600, Size: info.Size(), Typeflag: tar.TypeReg}); e == nil {
+			var n int64
+			n, e = io.Copy(t, io.LimitReader(f, info.Size()+1))
+			if n != info.Size() {
+				e = errors.New("evidence changed while archiving")
+			}
+		}
+		e = errors.Join(e, f.Close())
+		if e != nil {
+			return e
+		}
+	}
+	return errors.Join(t.Close(), z.Close())
+}
+
+const previewOwner = "runner-sudoku-check-preview-v1\n"
+
+var previewServerName = regexp.MustCompile(`^server-([a-f0-9]{64})$`)
+
+func retainPreview(directory, binary, source, base, request, status string) (*previewProof, error) {
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(directory)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("preview root must be an owned real directory")
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		if err = os.WriteFile(filepath.Join(directory, ".runner-sudoku-preview"), []byte(previewOwner), 0600); err != nil {
+			return nil, err
+		}
+	} else {
+		marker, err := readBounded(filepath.Join(directory, ".runner-sudoku-preview"), 100)
+		if err != nil || string(marker) != previewOwner {
+			return nil, errors.New("refusing to replace a preview directory without exact Runner ownership")
+		}
+		for _, entry := range entries {
+			if entry.Name() != ".runner-sudoku-preview" && entry.Name() != "manifest.json" && entry.Name() != "README.txt" && entry.Name() != ".manifest-next" && entry.Name() != ".server-next" && !previewServerName.MatchString(entry.Name()) {
+				return nil, errors.New("preview directory contains unrelated files")
+			}
+			if !entry.Type().IsRegular() {
+				return nil, errors.New("preview contains an unexpected symlink or directory")
+			}
+		}
+		// A prior owner marker alone cannot authorize replacing a valid preview:
+		// authenticate its manifest-selected immutable executable first.
+		data, err := readBounded(filepath.Join(directory, "manifest.json"), 16<<10)
+		var prior struct {
+			Schema  int    `json:"schema"`
+			Owner   string `json:"owner"`
+			Server  string `json:"server_sha256"`
+			File    string `json:"server_file"`
+			Base    string `json:"base"`
+			Request string `json:"request_sha256"`
+		}
+		if err == nil {
+			if json.Unmarshal(data, &prior) != nil || prior.Schema != 1 || prior.Owner != "runner-sudoku-check" || prior.File != "server-"+prior.Server || !previewServerName.MatchString(prior.File) {
+				return nil, errors.New("previous preview manifest is invalid")
+			}
+			if prior.Base != base || prior.Request != request {
+				return nil, errors.New("previous preview belongs to another source base or goal")
+			}
+			hash, err := hashFile(filepath.Join(directory, prior.File), 128<<20)
+			if err != nil || hash != prior.Server {
+				return nil, errors.New("previous preview executable differs from its manifest")
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		// Interrupted pointer promotion leaves the prior manifest valid. Every
+		// content-named candidate must still authenticate before any cleanup.
+		for _, entry := range entries {
+			if match := previewServerName.FindStringSubmatch(entry.Name()); match != nil {
+				hash, err := hashFile(filepath.Join(directory, entry.Name()), 128<<20)
+				if err != nil || hash != match[1] {
+					return nil, errors.New("owned preview candidate differs from its content identity")
+				}
+			}
+		}
+	}
+	for _, name := range []string{".manifest-next", ".server-next"} {
+		if err = os.Remove(filepath.Join(directory, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+	}
+	hash, err := hashFile(binary, 128<<20)
+	if err != nil {
+		return nil, err
+	}
+	info, err = os.Stat(binary)
+	if err != nil {
+		return nil, err
+	}
+	serverName := "server-" + hash
+	staging := filepath.Join(directory, ".server-next")
+	defer os.Remove(staging)
+	if err = copyVerified(binary, staging, hash, info.Size()); err != nil {
+		return nil, err
+	}
+	if err = os.Chmod(staging, 0700); err != nil {
+		return nil, err
+	}
+	if err = os.Rename(staging, filepath.Join(directory, serverName)); err != nil {
+		return nil, err
+	}
+	manifest := map[string]any{
+		"schema": 1, "owner": "runner-sudoku-check", "source_sha256": source, "base": base, "request_sha256": request,
+		"server_sha256": hash, "server_file": serverName, "check_status": status, "running": false, "acceptance": "independent visual review pending; no release authority",
+	}
+	if err = writeJSON(filepath.Join(directory, ".manifest-next"), manifest); err != nil {
+		return nil, err
+	}
+	readme := "Stopped Sudoku preview. All frontend assets and migrations are embedded in manifest.server_file.\n" +
+		"Launch only after the owning Runner goal's Completed decision and this exact manifest/server identity are verified.\n" +
+		"The Runner-owned preview operator must verify manifest.json and its selected executable SHA256, use an owned disposable SQLite database and loopback ADDR, and stop/clean that server on release.\n" +
+		"This native executable is for the current host. It carries no database, dependencies, credentials or release approval.\n\n" +
+		"From this preview directory, the operator invokes the stopped server directly (there is no preview mode in the protected checker):\n" +
+		"GENNY_ENV=development DB_DRIVER=sqlite DATABASE_URL=/absolute/owned-preview-data/games.db ADDR=127.0.0.1:PORT GAMES_PUBLIC_ORIGIN='' GAMES_TRUSTED_PROXIES='' GENNY_TRUST_PROXY_HEADERS=0 GAMES_GOOGLE_ENABLED=0 GENNY_AUTH_ACCEPT_NOOP_MAILER=1 GENNY_AUTH_ACCEPT_LOCAL_RATE_LIMITER=1 ./" + serverName + " --migrate\n" +
+		"Choose the owned database directory and unused loopback port; retain exact process ownership and remove that database only after the process is stopped.\n"
+	if err = os.WriteFile(filepath.Join(directory, "README.txt"), []byte(readme), 0600); err != nil {
+		return nil, err
+	}
+	// This single atomic pointer switch preserves the old valid preview until
+	// the complete new executable and manifest have both been prepared.
+	if err = os.Rename(filepath.Join(directory, ".manifest-next"), filepath.Join(directory, "manifest.json")); err != nil {
+		return nil, err
+	}
+	entries, err = os.ReadDir(directory)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if match := previewServerName.FindStringSubmatch(entry.Name()); match != nil && entry.Name() != serverName {
+			got, e := hashFile(filepath.Join(directory, entry.Name()), 128<<20)
+			if e != nil || got != match[1] {
+				return nil, errors.New("obsolete preview ownership changed before cleanup")
+			}
+			if err = os.Remove(filepath.Join(directory, entry.Name())); err != nil {
+				return nil, err
+			}
+		}
+	}
+	manifestHash, err := hashFile(filepath.Join(directory, "manifest.json"), 16<<10)
+	if err != nil {
+		return nil, err
+	}
+	return &previewProof{Directory: directory, ServerPath: filepath.Join(directory, serverName), ServerSHA256: hash, ManifestSHA256: manifestHash}, nil
+}

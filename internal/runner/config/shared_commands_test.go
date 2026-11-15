@@ -51,6 +51,12 @@ func TestSharedCommandConfigurationNeedsNoLegacySourceOrModelRuntime(t *testing.
 	if _, err := loader.Set("projects/demo/processes/greeting.yaml", "tasks", json.RawMessage("null")); err == nil || !strings.Contains(err.Error(), "general role-task process") {
 		t.Fatal("shared command silently entered an ordinary source-ref process", err)
 	}
+	if _, err := loader.Set("projects/demo/roles/prepare.yaml", "execution.access", json.RawMessage(`"workspace-write"`)); err != nil {
+		t.Fatal("trusted shared initializer could not select explicit project writes", err)
+	}
+	if _, err := loader.Set("projects/demo/roles/prepare.yaml", "execution.mode", json.RawMessage(`""`)); err == nil {
+		t.Fatal("legacy configured command acquired workspace-write access")
+	}
 }
 
 func TestSharedCommandConfigurationPreservesFixedAuthority(t *testing.T) {
@@ -63,7 +69,6 @@ func TestSharedCommandConfigurationPreservesFixedAuthority(t *testing.T) {
 		value       any
 	}{
 		{"model injection", "execution.model", "arbitrary-model"},
-		{"source write", "execution.access", "workspace-write"},
 		{"ignored shared directory", "execution.command.directory", "frontend"},
 		{"unknown mode", "execution.mode", "arbitrary"},
 		{"legacy with ignored cache grant", "execution.mode", ""},
@@ -72,6 +77,10 @@ func TestSharedCommandConfigurationPreservesFixedAuthority(t *testing.T) {
 		{"unbounded cache roots", "execution.command.runtime_write_paths", make([]string, 17)},
 		{"model supplied argv", "execution.command.args", []string{"/usr/bin/true", "{text.name}"}},
 		{"model supplied input path", "execution.command.args", []string{"/usr/bin/true", "{input.report}"}},
+		{"undeclared retained input", "execution.command.args", []string{"/usr/bin/true", "{artifact.report}"}},
+		{"inline input is not a retained file", "execution.command.args", []string{"/usr/bin/true", "{artifact.name}"}},
+		{"compound artifact path", "execution.command.args", []string{"/usr/bin/true", "/tmp/{artifact.name}"}},
+		{"compound dependency path", "execution.command.args", []string{"/usr/bin/true", "{dependency.import.artifact}/../secret"}},
 		{"old source identity", "execution.command.env", map[string]string{"REF": "{source.base}"}},
 		{"wrong output contract", "outputs.check", "json"},
 		{"missing purpose", "purpose", ""},
@@ -82,6 +91,18 @@ func TestSharedCommandConfigurationPreservesFixedAuthority(t *testing.T) {
 				t.Fatal("unsupported shared-command authority was accepted")
 			}
 		})
+	}
+}
+
+func TestSharedCommandAcceptsOnlyWholeDeclaredArtifactFiles(t *testing.T) {
+	role := runner.Role{
+		Purpose: "Read a declared canonical artifact",
+		Inputs:  map[string]string{"report": "artifact"},
+		Outputs: map[string]string{"check": "text"},
+	}
+	profile := runner.Profile{Command: &runner.Command{Args: []string{"/usr/bin/cat", "{artifact.report}", "{dependency.import.artifact}"}}}
+	if err := commandRoleContract(role, profile); err != nil {
+		t.Fatal("declared artifact file authority was rejected", err)
 	}
 }
 

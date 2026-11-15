@@ -99,7 +99,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 7 {
+	if version < 0 || version > 8 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -172,6 +172,14 @@ PRAGMA user_version=4; COMMIT;`); e != nil {
 		// FIFO capture identity and primary completion timestamps are part of
 		// recovery. An older service must not ignore either proof boundary.
 		if _, e = db.Exec("PRAGMA user_version=7"); e != nil {
+			return nil, e
+		}
+		version = 7
+	}
+	if version == 7 {
+		// Retained task continuations freeze an old family and debit its spent
+		// allowance into a new root. Older services must not ignore this audit.
+		if _, e = db.Exec("PRAGMA user_version=8"); e != nil {
 			return nil, e
 		}
 	}
@@ -255,6 +263,10 @@ func (s *Store) saveRun(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts
 }
 
 func (s *Store) saveRunWithHandoff(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt, handoffUpgrade bool) error {
+	return s.saveRunAuthorized(ctx, tx, r, artifacts, receipt, handoffUpgrade, false)
+}
+
+func (s *Store) saveRunAuthorized(ctx context.Context, tx *sql.Tx, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt, handoffUpgrade, continuation bool) error {
 	b, definition, e := runner.MarshalRunRecord(r)
 	if e != nil {
 		return e
@@ -270,6 +282,9 @@ func (s *Store) saveRunWithHandoff(ctx context.Context, tx *sql.Tx, r runner.Run
 	e = tx.QueryRowContext(ctx, "SELECT data FROM runs WHERE id=?", r.ID).Scan(&previous)
 	if e != nil && !errors.Is(e, sql.ErrNoRows) {
 		return e
+	}
+	if err := s.guardTaskContinuationSave(ctx, tx, r, previous, continuation); err != nil {
+		return err
 	}
 	if errors.Is(e, sql.ErrNoRows) {
 		var n int
@@ -305,6 +320,9 @@ func (s *Store) saveRunWithHandoff(ctx context.Context, tx *sql.Tx, r runner.Run
 	add(r.Inputs)
 	add(r.Outputs)
 	if r.TaskGraph != nil {
+		if lineage := r.TaskGraph.Lineage; lineage != nil {
+			refs[lineage.Source.PatchID], refs[lineage.CheckID] = true, true
+		}
 		for _, child := range r.TaskGraph.Children {
 			add(child.Spec.Inputs)
 		}
@@ -389,6 +407,9 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return e
 	}
 	defer tx.Rollback()
+	if e = guardTaskContinuationDelete(ctx, tx, []string{id}); e != nil {
+		return e
+	}
 	if _, e = tx.ExecContext(ctx, "DELETE FROM artifact_uses WHERE run_id=?", id); e != nil {
 		return e
 	}

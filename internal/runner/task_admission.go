@@ -229,6 +229,9 @@ func (c *Core) taskCompletionReserve(r Run) (int, error) {
 // The tick supplies its actual persisted count and increments it immediately
 // after every successful reservation, before another run can be admitted.
 func (c *Core) taskDispatchAllowed(r Run, activeAttempts int) bool {
+	if c.taskContinuationFrozen(r) != nil {
+		return false
+	}
 	if limit := c.snapshot.Instance.MaxActiveAttempts; limit > 0 && activeAttempts >= limit {
 		return false
 	}

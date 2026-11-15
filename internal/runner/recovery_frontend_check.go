@@ -208,6 +208,9 @@ func (c *Core) planFrontendCheckRecovery(req RecoverFrontendCheckRequest, timeou
 	if !exists {
 		return plan, ErrNotFound
 	}
+	if err := c.taskContinuationFrozen(saved); err != nil {
+		return plan, err
+	}
 	unpublished := req.Serial && saved.Process.ID == "deliver-planned-frontend"
 	if req.Revision < 1 || !frontendRecheckHex(req.PatchSHA256, 64) || !frontendRecheckHex(req.HelperSHA256, 64) ||
 		unpublished && req.PublicationHead != "" || !unpublished && !frontendRecheckHex(req.PublicationHead, 40) {

@@ -7,6 +7,53 @@ Merge, publication and production remain separately authorized actions.**
 
 ## Current completion plan
 
+### Retained Sudoku runtime handoff, authorized 15 November 2026
+
+The new Runner owns continuation of settled Sudoku root
+`run_FNR3X224USDKLFCMAKXCGD754R`. Preserve its frozen process, original base
+`f1dd06a18660940d27980077f88e765351e91daa`, accepted cumulative patch
+`attempt_W5RH764QVM43P33C4F7F7QKFOU/changes.patch`, captured tree, full 393-test
+serial gate and all failed attempts. Thirty-six of the original 64 aggregate
+attempts are spent. A binary-only upgrade would retain the old fixed execution
+model and its browser contract omits the agreed Duo views. Implement one audited
+continuation in the existing Core/store: authenticate all old family revisions,
+settlement and source/check identities; atomically freeze further old-family
+spending, admit the configured general task root, retain canonical artifact uses
+and charge the 36 historical attempts against its unchanged 64 total. Replays
+join the same continuation. Ordinary starts cannot mint artifact grants or reset
+the allowance. Schema eight prevents older readers from ignoring this authority.
+
+1. Carry the old pilot's bounded serial-review provenance/recovery correction
+   (`7b22294`) into the qualified new runtime. Run affected Core/execution/control
+   regressions and independently review the combined compatibility boundary.
+2. Add a fixed source materializer using the general task worker's explicit
+   project-write access. Reconstruct base plus patch through a disposable Git
+   index/object directory, verify the captured tree, and import only bounded
+   tracked files into the owned external workspace. Never modify old source or
+   overwrite later edits on replay. With no active/unsettled work, quiesce the owning service, save one consistent
+   closed operational checkpoint and inventories, and qualify configuration and
+   history loading privately. Install only the verified combined runtime. Retain
+   compatible recovery material; never rewind history or lower the schema marker.
+3. Submit the owner-authorized continuation once, leaving the separately approved
+   legacy review retry unspent. The single native lead admits one dependency graph:
+   fixed source import, protected browser proof, then parallel independent source
+   and experience review. Preserve the 393-test pass for unchanged inputs; repairs obtain the
+   relevant fresh gate. A bounded repair/check/review DAG executes without caller
+   stage handoffs. External chats report results and maintain Runner itself.
+4. Judge the actual agreed Sudoku layouts and meaningful play states across the
+   declared phone/Duo/tablet/desktop coverage. Produce an inspectable candidate
+   and canonical evidence, with explicit emulated/native/physical coverage. Keep
+   merge/deployment/restoration held and preserve the existing native-Safari gate
+   until qualified evidence can satisfy it. The general preview process has no
+   release capability; its completion does not complete or approve the old frozen
+   release process. The protected checker records exact source/runtime identities,
+   owns build/browser/database scratch cleanup and retains one inspectable preview.
+5. Fix demonstrated Runner defects with focused regressions, preserve meaningful
+   failed evidence, and reuse unchanged passing proof. Record exact runtime/run/
+   candidate identities, actual usage/interventions, retained preview/evidence and
+   cleanup. Complete relevant repository gates and Atlas review after the coherent
+   maintenance batch. Keep one implementation owner and bounded read-only advisors.
+
 ### Same-execution output recovery, authorized 15 November 2026
 
 Replace the native worker's anonymous stdout pipe for new executions with an

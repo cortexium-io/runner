@@ -127,6 +127,9 @@ func (c *Core) browserErrorRecovery(req RecoverBrowserErrorsRequest, digest stri
 	if !ok {
 		return Run{}, SourceResult{}, nil, ErrNotFound
 	}
+	if err := c.taskContinuationFrozen(r); err != nil {
+		return Run{}, SourceResult{}, nil, err
+	}
 	r = Clone(r)
 	reject := func(reason string) (Run, SourceResult, map[string]int64, error) {
 		return Run{}, SourceResult{}, nil, errors.New(reason)

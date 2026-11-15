@@ -41,16 +41,17 @@ type Result struct {
 // TaskGraph exposes coordination facts without copying child reports, original
 // task inputs or the capability catalog into every status response.
 type TaskGraph struct {
-	RootRunID   string `json:"root_run_id"`
-	ParentRunID string `json:"parent_run_id,omitempty"`
-	TaskID      string `json:"task_id"`
-	Role        string `json:"role,omitempty"`
-	Phase       string `json:"phase,omitempty"`
-	Paused      bool   `json:"paused,omitempty"`
-	Question    string `json:"question,omitempty"`
-	Revisions   int    `json:"revisions"`
-	Children    int    `json:"children"`
-	Retired     int    `json:"retired_children,omitempty"`
+	Lineage     *runner.TaskContinuationLineage `json:"lineage,omitempty"`
+	RootRunID   string                          `json:"root_run_id"`
+	ParentRunID string                          `json:"parent_run_id,omitempty"`
+	TaskID      string                          `json:"task_id"`
+	Role        string                          `json:"role,omitempty"`
+	Phase       string                          `json:"phase,omitempty"`
+	Paused      bool                            `json:"paused,omitempty"`
+	Question    string                          `json:"question,omitempty"`
+	Revisions   int                             `json:"revisions"`
+	Children    int                             `json:"children"`
+	Retired     int                             `json:"retired_children,omitempty"`
 }
 
 type Usage struct {
@@ -173,6 +174,7 @@ func compactResult(r runner.Run, now time.Time) Result {
 	out.Tasks, out.TasksTruncated = resultTasks(r.TaskStatuses)
 	if g := r.TaskGraph; g != nil {
 		out.TaskGraph = &TaskGraph{
+			Lineage:   runner.Clone(g.Lineage),
 			RootRunID: g.RootRunID, ParentRunID: g.ParentRunID,
 			TaskID: g.TaskID, Role: g.Role, Phase: g.Phase,
 			Paused: g.Paused, Question: runner.Clip(g.Question), Revisions: g.Revisions,

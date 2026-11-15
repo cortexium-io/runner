@@ -53,30 +53,69 @@ exit 1`, "shared-check", "{workspace}", filepath.Join(d.Root, "work", "private-s
 	}
 }
 
-func TestHarnessSharedCommandHeadlessChrome(t *testing.T) {
+func TestHarnessSharedWriterRequiresClaimsAndPreservesCoordinatorBoundary(t *testing.T) {
+	d := workspaceDisk(t)
+	a := sharedCommandAssignment(t)
+	a.Setup.Profile.Access = "workspace-write"
+	outside := filepath.Join(t.TempDir(), "forbidden")
+	private := filepath.Join(d.Root, "work", "private-secret")
+	if err := d.Write("work/private-secret", []byte("coordinator-private"), 128); err != nil {
+		t.Fatal(err)
+	}
+	a.Setup.Profile.Command = &runner.Command{
+		Args: []string{"/bin/sh", "-c", `set -eu
+printf materialized > "$1/owned-source"
+if printf forbidden > "$2" 2>/dev/null; then exit 91; fi
+if printf forbidden > "$3" 2>/dev/null; then exit 92; fi
+if cat "$3" >/dev/null 2>&1; then exit 93; fi
+printf isolated > "$4/evidence.txt"
+`, "shared-initializer", "{workspace}", outside, private, "{scratch}"},
+		Artifact: "evidence.txt",
+	}
+	if _, err := sharedAssignment(a); err == nil {
+		t.Fatal("shared writer acquired a project without write claims")
+	}
+	a.TaskContext.WritePaths = []string{"."}
+	proof := runSharedCommandProof(t, d, a)
+	if proof.Access != "workspace-write" {
+		t.Fatal("writer provenance reported read-only access", proof.Access)
+	}
+	if data, err := os.ReadFile(filepath.Join(a.WorkDir, "owned-source")); err != nil || string(data) != "materialized" {
+		t.Fatal("fixed initializer could not write its owned project", string(data), err)
+	}
+	if _, err := os.Stat(outside); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("shared writer escaped its project", err)
+	}
+}
+
+func TestHarnessSharedCommandHeadlessBrowsers(t *testing.T) {
 	if os.Getenv("RUNNER_NATIVE_BROWSER_CHECK") != "1" {
-		t.Skip("set RUNNER_NATIVE_BROWSER_CHECK=1 for installed headless CFT proof")
+		t.Skip("set RUNNER_NATIVE_BROWSER_CHECK=1 for installed headless CFT and WebKit proof")
 	}
 	d := workspaceDisk(t)
 	a := sharedCommandAssignment(t)
 	a.Deadline = time.Now().Add(30 * time.Second)
 	script := filepath.Join(t.TempDir(), "headless-proof.mjs")
 	data := `import fs from 'node:fs/promises';
-import {chromium} from '/Users/dan/.codex/tools/browser-runtime/node_modules/playwright/index.mjs';
+import {chromium,webkit} from '/Users/dan/.codex/tools/browser-runtime/node_modules/playwright/index.mjs';
 const [source,scratch,expectedHome]=process.argv.slice(2);
 if(process.env.HOME!==expectedHome)throw new Error('HOME changed');
 let denied=false;
 try{await fs.writeFile(source+'/forbidden','must not write');}catch(e){denied=['EPERM','EACCES','EROFS'].includes(e.code);}
 if(!denied)throw new Error('source write was allowed');
-let browser;
-try{
- browser=await chromium.launch({headless:true,executablePath:'/Users/dan/.codex/tools/browser-runtime/chrome'});
- const page=await browser.newPage();
- await page.goto('data:text/html,<title>Runner headless proof</title>');
- if(await page.title()!=='Runner headless proof')throw new Error('headless navigation failed');
- await fs.writeFile(scratch+'/evidence.txt','source-readonly; headless CFT '+browser.version()+'; HOME preserved');
- console.log('source-readonly headless CFT completed');
-}finally{await browser?.close();}
+const versions=[];
+for(const [engine,executablePath] of [[chromium,'/Users/dan/.codex/tools/browser-runtime/chrome'],[webkit,'/Users/dan/Library/Caches/ms-playwright/webkit-2388/pw_run.sh']]){
+ let browser;
+ try{
+  browser=await engine.launch({headless:true,executablePath});
+  const page=await browser.newPage();
+  await page.goto('data:text/html,<title>Runner headless proof</title>');
+  if(await page.title()!=='Runner headless proof')throw new Error('headless navigation failed');
+  versions.push(engine.name()+' '+browser.version());
+ }finally{await browser?.close();}
+}
+await fs.writeFile(scratch+'/evidence.txt','source-readonly; '+versions.join('; ')+'; HOME preserved');
+console.log('source-readonly headless CFT and WebKit completed');
 `
 	if err := os.WriteFile(script, []byte(data), 0600); err != nil {
 		t.Fatal(err)

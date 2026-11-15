@@ -73,6 +73,31 @@ type StartArgs struct {
 	Inputs    map[string]any    `json:"inputs,omitempty"`
 	Artifacts map[string]string `json:"artifacts,omitempty"`
 }
+
+type ContinueTaskArgs struct {
+	RequestID       string            `json:"request_id"`
+	RunID           string            `json:"run_id"`
+	Revision        int64             `json:"revision"`
+	Project         string            `json:"project"`
+	Process         string            `json:"process"`
+	SourceAttemptID string            `json:"source_attempt_id"`
+	PatchSHA256     string            `json:"patch_sha256"`
+	CheckAttemptID  string            `json:"check_attempt_id"`
+	CheckSHA256     string            `json:"check_sha256"`
+	Inputs          map[string]any    `json:"inputs,omitempty"`
+	Artifacts       map[string]string `json:"artifacts,omitempty"`
+}
+
+func (in ContinueTaskArgs) Request() (runner.ContinueTaskRequest, error) {
+	values, err := inputValues(in.Inputs, in.Artifacts)
+	return runner.ContinueTaskRequest{
+		RequestID: in.RequestID, RunID: in.RunID, Revision: in.Revision,
+		Project: in.Project, Process: in.Process, SourceAttemptID: in.SourceAttemptID,
+		PatchSHA256: in.PatchSHA256, CheckAttemptID: in.CheckAttemptID, CheckSHA256: in.CheckSHA256,
+		Inputs: values,
+	}, err
+}
+
 type RunArgs struct {
 	RunID string `json:"run_id"`
 }
@@ -102,6 +127,14 @@ func add[In any](s *mcp.Server, name, description string, f func(context.Context
 }
 func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 	s := mcp.NewServer(&mcp.Implementation{Name: "cortexium-runner", Version: "0.1.0-core"}, nil)
+	add(s, "runner_continue_task", "Owner-only audited continuation of exact settled retained source and serial full-check evidence into a configured general-task process. Atomically freezes the old family and carries every consumed attempt into the unchanged original ceiling. Requires observed revision, exact source/check attempts and digests, and declared patch/checks artifact inputs. Transfers no release or acceptance approval. Restricted intake must not invoke this action.", func(ctx context.Context, in ContinueTaskArgs) (any, error) {
+		req, err := in.Request()
+		if err != nil {
+			return nil, err
+		}
+		r, err := c.ContinueTask(req)
+		return compactResult(r, time.Now()), err
+	})
 	add(s, "runner_start", "Start an explicitly selected project process. Reuse request_id after an uncertain response.", func(ctx context.Context, in StartArgs) (any, error) {
 		r, e := start(c, in)
 		if e != nil {
@@ -238,19 +271,9 @@ func Handler(c *runner.Core, token string, set ConfigureFunc) http.Handler {
 	})
 }
 func start(c *runner.Core, in StartArgs) (runner.Run, error) {
-	values := map[string]runner.Value{}
-	for k, v := range in.Inputs {
-		b, err := json.Marshal(v)
-		if err != nil {
-			return runner.Run{}, err
-		}
-		values[k] = runner.Value{Inline: b}
-	}
-	for k, id := range in.Artifacts {
-		if _, ok := values[k]; ok {
-			return runner.Run{}, fmt.Errorf("input %s is both inline and artifact", k)
-		}
-		values[k] = runner.Value{ArtifactID: id}
+	values, err := inputValues(in.Inputs, in.Artifacts)
+	if err != nil {
+		return runner.Run{}, err
 	}
 	return c.Start(runner.StartRequest{
 		RequestID: in.RequestID,
@@ -259,6 +282,24 @@ func start(c *runner.Core, in StartArgs) (runner.Run, error) {
 		SourceRef: in.SourceRef,
 		Inputs:    values,
 	})
+}
+
+func inputValues(inputs map[string]any, artifacts map[string]string) (map[string]runner.Value, error) {
+	values := map[string]runner.Value{}
+	for k, v := range inputs {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		values[k] = runner.Value{Inline: b}
+	}
+	for k, id := range artifacts {
+		if _, ok := values[k]; ok {
+			return nil, fmt.Errorf("input %s is both inline and artifact", k)
+		}
+		values[k] = runner.Value{ArtifactID: id}
+	}
+	return values, nil
 }
 func summary(r runner.Run) runner.Summary {
 	return runner.Summarize(r, time.Now())

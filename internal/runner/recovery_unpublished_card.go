@@ -229,6 +229,9 @@ func (c *Core) planCardSourceRecovery(req RecoverUnpublishedCardRequest, handoff
 	if !ok {
 		return out, Run{}, ErrNotFound
 	}
+	if err := c.taskContinuationFrozen(root); err != nil {
+		return out, Run{}, err
+	}
 	if handoff == nil && root.UnpublishedCardRecovery != nil {
 		return reject("this family already consumed its one-use unpublished card recovery")
 	}

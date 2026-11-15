@@ -130,30 +130,14 @@ func (c *Core) reconcileFamilyCollection(store FamilyStore, name string, intent 
 		if present != len(ids) || root.Task != nil || root.TaskGraph == nil && len(root.TaskGroups) == 0 || c.familyAttempts(root) == invalidFamilyAttempts {
 			return errors.New("family collection membership is not intact")
 		}
-		memberCount := 1
-		if root.TaskGraph != nil {
-			_, family, reserved, err := c.graphFamily(root)
-			if err != nil || reserved != 0 {
-				return errors.New("family collection graph ownership differs")
-			}
-			memberCount = len(family)
-			for _, child := range family {
-				if !members[child.ID] {
-					return errors.New("family collection omitted an owned general task")
-				}
-			}
-		} else {
-			for _, group := range root.TaskGroups {
-				for _, child := range group.Children {
-					memberCount++
-					if !members[child.RunID] {
-						return errors.New("family collection omitted an owned child")
-					}
-				}
-			}
-		}
-		if memberCount != len(ids) {
+		family, err := c.retainedTaskFamily(root)
+		if err != nil || len(family) != len(ids) {
 			return errors.New("family collection contains an unrelated run")
+		}
+		for _, member := range family {
+			if !members[member.ID] {
+				return errors.New("family collection omitted owned or continued history")
+			}
 		}
 	}
 	// Atomic deletion rechecks outside consumers. No evidence/resource cleanup
@@ -239,7 +223,7 @@ func (c *Core) collectTaskFamilies(expired func(Run) bool) (map[string]bool, err
 		return handled, err
 	}
 	for id, r := range c.runs {
-		if r.TaskGraph != nil || r.Task != nil || len(r.TaskGroups) > 0 {
+		if r.TaskGraph != nil || r.Task != nil || len(r.TaskGroups) > 0 || r.ContinuedBy != nil {
 			handled[id] = true
 		}
 	}
@@ -247,25 +231,16 @@ func (c *Core) collectTaskFamilies(expired func(Run) bool) (map[string]bool, err
 		return handled, nil
 	} // An older store must preserve linked history.
 	for _, root := range c.runs {
-		if root.Task != nil || root.TaskGraph != nil && root.TaskGraph.ParentRunID != "" || root.TaskGraph == nil && len(root.TaskGroups) == 0 || c.familyAttempts(root) == invalidFamilyAttempts {
+		if root.ContinuedBy != nil || root.Task != nil || root.TaskGraph != nil && root.TaskGraph.ParentRunID != "" || root.TaskGraph == nil && len(root.TaskGroups) == 0 || c.familyAttempts(root) == invalidFamilyAttempts {
 			continue
 		}
-		ids := []string{root.ID}
-		if root.TaskGraph != nil {
-			_, family, reserved, err := c.graphFamily(root)
-			if err != nil || reserved != 0 {
-				continue
-			}
-			ids = ids[:0]
-			for _, child := range family {
-				ids = append(ids, child.ID)
-			}
-		} else {
-			for _, group := range root.TaskGroups {
-				for _, child := range group.Children {
-					ids = append(ids, child.RunID)
-				}
-			}
+		family, err := c.retainedTaskFamily(root)
+		if err != nil {
+			continue
+		}
+		ids := make([]string, 0, len(family))
+		for _, member := range family {
+			ids = append(ids, member.ID)
 		}
 		ready := true
 		for _, id := range ids {
@@ -322,4 +297,29 @@ func (c *Core) collectTaskFamilies(expired func(Run) bool) (map[string]bool, err
 		}
 	}
 	return handled, nil
+}
+
+// Continued source history and its new general family expire as one unit. The
+// ordinary artifact references pin evidence; this link also retains the old
+// failed attempts and audit after the new root has completed or been cancelled.
+func (c *Core) retainedTaskFamily(root Run) ([]Run, error) {
+	if root.TaskGraph == nil {
+		return c.legacyContinuationFamily(root)
+	}
+	_, family, reserved, err := c.graphFamily(root)
+	if err != nil || reserved != 0 {
+		return nil, errors.New("family collection graph ownership differs")
+	}
+	if lineage := root.TaskGraph.Lineage; lineage != nil {
+		origin, exists := c.runs[lineage.OriginRunID]
+		if !exists || origin.ContinuedBy == nil || origin.ContinuedBy.RunID != root.ID {
+			return nil, errors.New("family collection continuation origin differs")
+		}
+		prior, err := c.legacyContinuationFamily(origin)
+		if err != nil {
+			return nil, err
+		}
+		family = append(family, prior...)
+	}
+	return family, nil
 }

@@ -616,8 +616,9 @@ func ready(p runner.Profile) error {
 		return nil
 	}
 	if p.Harness == "command" {
-		if p.Access != "workspace-read" || p.Command == nil || p.Model != "" || p.Reasoning != "" || p.Mode != "" && p.Mode != "shared" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.Instructions != "" || p.MaxInput != 0 || p.MaxOutput != 0 {
-			return errors.New("command selects workspace-read access, command settings and no model settings")
+		access := p.Access == "workspace-read" || p.Mode == "shared" && p.Access == "workspace-write"
+		if !access || p.Command == nil || p.Model != "" || p.Reasoning != "" || p.Mode != "" && p.Mode != "shared" || p.Input != "" || p.Output != "" || p.Text != "" || p.Delay != "" || p.LogBytes != 0 || p.Instructions != "" || p.MaxInput != 0 || p.MaxOutput != 0 {
+			return errors.New("command needs workspace-read access (or explicit shared workspace-write), command settings and no model settings")
 		}
 		cmd := p.Command
 		if p.Mode == "shared" {
@@ -629,12 +630,12 @@ func ready(p runner.Profile) error {
 			}
 			for _, arg := range cmd.Args {
 				if unsupportedSharedBinding(arg) {
-					return errors.New("shared command arguments support configured source/workspace and scratch substitutions only")
+					return errors.New("shared command arguments support configured workspace/scratch and declared canonical artifact files only")
 				}
 			}
 			for _, value := range cmd.Env {
 				if unsupportedSharedBinding(value) {
-					return errors.New("shared command environment supports configured source/workspace and scratch substitutions only")
+					return errors.New("shared command environment supports configured workspace/scratch and declared canonical artifact files only")
 				}
 			}
 		} else if len(cmd.RuntimeWritePaths) != 0 {

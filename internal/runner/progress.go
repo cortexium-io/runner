@@ -194,6 +194,10 @@ func (p *Progress) finish(r Run) {
 			p.NextAction = "wait_for_settlement"
 		}
 	}
+	if r.ContinuedBy != nil {
+		p.Attention = nil
+		p.NextAction = "follow_task_continuation"
+	}
 	for _, fact := range p.Attention {
 		if fact.Kind == "human_decision" {
 			p.NextAction = "decide_saved_approval"
@@ -217,17 +221,24 @@ func runProgress(r Run, now time.Time) Progress {
 // compact result. It reads no diagnostics or external observer/sink state.
 func Summarize(r Run, now time.Time) Summary {
 	out := Summary{
-		ID:          r.ID,
-		Project:     r.ProjectID,
-		Process:     r.Process.ID,
-		Status:      r.Status,
-		Reason:      r.Reason,
-		Step:        r.Step,
-		Attempts:    len(r.Attempts),
-		Revision:    r.Revision,
-		Updated:     r.Updated,
-		ParentRunID: taskParentID(r),
-		Progress:    ownProgress(r, now),
+		AttemptBudget: Clone(r.TaskBudget),
+		ID:            r.ID,
+		Project:       r.ProjectID,
+		Process:       r.Process.ID,
+		Status:        r.Status,
+		Reason:        r.Reason,
+		Step:          r.Step,
+		Attempts:      len(r.Attempts),
+		Revision:      r.Revision,
+		Updated:       r.Updated,
+		ParentRunID:   taskParentID(r),
+		Progress:      ownProgress(r, now),
+	}
+	if r.TaskBudget != nil && r.TaskGraph != nil && r.TaskGraph.ParentRunID == "" {
+		out.Attempts += r.TaskBudget.PriorAttempts
+	}
+	if r.ContinuedBy != nil {
+		out.ContinuedBy = r.ContinuedBy.RunID
 	}
 	p := &out.Progress
 	for _, task := range r.TaskStatuses {

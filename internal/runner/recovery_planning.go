@@ -103,6 +103,9 @@ func (c *Core) planPlanningRecovery(req RecoverPlanningRequest) (Run, SourceResu
 	if !ok {
 		return Run{}, SourceResult{}, ErrNotFound
 	}
+	if err := c.taskContinuationFrozen(r); err != nil {
+		return Run{}, SourceResult{}, err
+	}
 	r = Clone(r)
 	reject := func(reason string) (Run, SourceResult, error) {
 		return Run{}, SourceResult{}, errors.New(reason)

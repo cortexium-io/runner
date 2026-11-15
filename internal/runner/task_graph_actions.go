@@ -375,13 +375,13 @@ func ValidateRoleTaskProfile(profile Profile) error {
 	if profile.Harness == "native" || profile.Harness == "deterministic" {
 		return nil
 	}
-	if profile.Harness == "command" && profile.Mode == "shared" && profile.Access == "workspace-read" && profile.Command != nil {
+	if profile.Harness == "command" && profile.Mode == "shared" && (profile.Access == "workspace-read" || profile.Access == "workspace-write") && profile.Command != nil {
 		if profile.Command.Directory != "" {
 			return errors.New("shared commands run at the frozen project root; directory must be empty")
 		}
 		return nil
 	}
-	return errors.New("general task roles require native, deterministic or shared read-only command execution; legacy source adapters do not consume shared task context")
+	return errors.New("general task roles require native, deterministic or shared command execution; legacy source adapters do not consume shared task context")
 }
 
 // General task retries use the root's aggregate allowance. A child can receive
@@ -419,6 +419,9 @@ func (c *Core) retryGraph(r Run, req RetryRequest, args []byte) (Run, error) {
 	}
 	if !req.WithinBudget && req.ExtraAttempts > 0 && r.ID != root.ID {
 		return Run{}, fmt.Errorf("goal attempt allowance belongs to root %s; grant it on that root or use within_budget for this task visit", root.ID)
+	}
+	if root.TaskGraph.Lineage != nil && !req.WithinBudget && req.ExtraAttempts > 0 {
+		return Run{}, errors.New("retained task continuation preserves its original family allowance; extra goal attempts are not permitted")
 	}
 	if !req.WithinBudget && root.Process.MaxAttempts+req.ExtraAttempts > MaxGeneralTaskAttempts {
 		return Run{}, errors.New("extra_attempts exceeds the general goal allowance")

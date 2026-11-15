@@ -2,6 +2,22 @@
 
 ## Current authority and scope
 
+Later on 15 November Dan authorized handing the retained Sudoku work to the new
+Runner, preserving its candidate, failed history and passing evidence, and
+finishing a visibly better verified result without external stage coordination.
+Necessary Runner repairs and a qualified runtime handoff are authorized. Preserve
+the old frozen process/history and its 36/64 spent allowance. An audited linked
+continuation in the same Core/store may transfer the exact source and passing
+evidence into the new general role/task preview process, atomically freezing old
+family spending and charging its 36 historical attempts against the unchanged
+64-attempt total. Product work and checks stay inside Runner. Do not use an
+unlinked fresh budget, waive the legacy native/release boundaries, merge or
+deploy. The old chat has ceded ownership and is holding its prepared review retry;
+its later separate approval remains unspent. One owner handles continuation,
+request-specific browser/visual proof and an inspectable preview, explicitly
+distinguishing emulated evidence from native/physical coverage. Bounded
+maintenance subagents remain authorized.
+
 On 15 November 2026 Dan authorized updating the existing Runner design and its
 implementation plan, then implementing and verifying the general roles-and-tasks
 model with real writing tasks and a new Genny SaaS project. This includes bounded

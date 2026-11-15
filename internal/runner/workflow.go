@@ -28,6 +28,9 @@ func (c *Core) Decide(req DecisionRequest) (Run, error) {
 	if !ok {
 		return Run{}, ErrNotFound
 	}
+	if err := c.taskContinuationFrozen(r); err != nil {
+		return Run{}, err
+	}
 	r = Clone(r)
 	if r.Status != "Waiting" || r.Active() || r.Decision == nil || r.Decision.ID != req.DecisionID {
 		return Run{}, errors.New("decision is not pending for this run/candidate")

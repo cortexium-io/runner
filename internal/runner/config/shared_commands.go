@@ -16,6 +16,22 @@ func commandRoleContract(role runner.Role, profile runner.Profile) error {
 			return errors.New("command inputs must be text or retained artifacts")
 		}
 	}
+	values := append([]string{}, profile.Command.Args...)
+	for _, value := range profile.Command.Env {
+		values = append(values, value)
+	}
+	for _, value := range values {
+		if _, _, err := runner.CommandDependencyInput(value); err != nil {
+			return err
+		}
+		name, err := runner.CommandArtifactInput(value)
+		if err != nil {
+			return err
+		}
+		if name != "" && role.Inputs[name] != "artifact" {
+			return errors.New("command artifact file bindings require declared artifact inputs")
+		}
+	}
 	want := 1
 	if profile.Command.Artifact != "" {
 		want = 2

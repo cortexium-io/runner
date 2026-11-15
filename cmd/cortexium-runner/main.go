@@ -43,7 +43,7 @@ func run(ctx context.Context, args []string) error {
 		return execution.RunNativeWorker(ctx, args[1])
 	}
 	if len(args) == 0 {
-		return errors.New("usage: cortexium-runner serve|run|result|start|status|inspect|cancel|retry|intervene|recover-corrections|recover-collection|recover-planning|recover-unpublished-card|adjudicate-source-handoff|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
+		return errors.New("usage: cortexium-runner serve|run|result|start|continue-task|status|inspect|cancel|retry|intervene|recover-corrections|recover-collection|recover-planning|recover-unpublished-card|adjudicate-source-handoff|recover-frontend-check|recover-frontend-timeouts|recover-browser-errors|decide|wait|config-set")
 	}
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
@@ -62,6 +62,7 @@ func run(ctx context.Context, args []string) error {
 	wait := fs.Bool("wait", false, "wait for completion/Waiting with result")
 	requestID := fs.String("request-id", "", "idempotency key; generated and printed before a write if omitted")
 	attemptID := fs.String("attempt", "", "exact saved failed attempt for owner-authorized recovery")
+	sourceAttemptID := fs.String("source-attempt", "", "exact retained source attempt for owner-authorized general-task continuation")
 	revision := fs.Int64("revision", 0, "exact inspected run revision for owner-authorized recovery")
 	patchSHA256 := fs.String("patch-sha256", "", "approved retained patch digest for frontend check recovery")
 	helperSHA256 := fs.String("helper-sha256", "", "qualified frontend check helper digest")
@@ -96,6 +97,26 @@ func run(ctx context.Context, args []string) error {
 	}
 	if *data == "" {
 		return errors.New("--data is required")
+	}
+	if command == "continue-task" {
+		allowed := map[string]bool{
+			"data": true, "endpoint": true, "run": true, "revision": true,
+			"request-id": true, "project": true, "process": true,
+			"source-attempt": true, "patch-sha256": true,
+			"check-attempt": true, "check-sha256": true, "inputs": true, "artifacts": true,
+		}
+		bad := ""
+		fs.Visit(func(f *flag.Flag) {
+			if !allowed[f.Name] {
+				bad = f.Name
+			}
+		})
+		if bad != "" || *runID == "" || *revision < 1 || *project == "" || *process == "" || *sourceAttemptID == "" || *patchSHA256 == "" || *checkAttemptID == "" || *checkSHA256 == "" {
+			return errors.New("continue-task requires exact --run/--revision, --project/--process, --source-attempt/--patch-sha256 and --check-attempt/--check-sha256; it grants no command, profile, allowance or approval override")
+		}
+	}
+	if *sourceAttemptID != "" && command != "continue-task" {
+		return errors.New("--source-attempt requires continue-task")
 	}
 	if *preflight && command != "recover-unpublished-card" && command != "adjudicate-source-handoff" {
 		return errors.New("--preflight requires recover-unpublished-card or adjudicate-source-handoff")
@@ -194,6 +215,26 @@ func run(ctx context.Context, args []string) error {
 	var method string
 	var a any
 	switch command {
+	case "continue-task":
+		var inputs map[string]any
+		var refs map[string]string
+		if e = json.Unmarshal([]byte(*input), &inputs); e != nil {
+			return e
+		}
+		if e = json.Unmarshal([]byte(*artifacts), &refs); e != nil {
+			return e
+		}
+		if *requestID == "" {
+			*requestID = rand.Text()
+		}
+		fmt.Fprintln(os.Stderr, "request_id="+*requestID)
+		method = "runner_continue_task"
+		a = control.ContinueTaskArgs{
+			RequestID: *requestID, RunID: *runID, Revision: *revision,
+			Project: *project, Process: *process, SourceAttemptID: *sourceAttemptID,
+			PatchSHA256: *patchSHA256, CheckAttemptID: *checkAttemptID, CheckSHA256: *checkSHA256,
+			Inputs: inputs, Artifacts: refs,
+		}
 	case "start", "run":
 		var inputs map[string]any
 		var refs map[string]string

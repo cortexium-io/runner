@@ -32,17 +32,19 @@ type RetryRequest struct {
 	WithinBudget  bool   `json:"within_budget,omitempty"`
 }
 type Summary struct {
-	ID          string    `json:"id"`
-	Project     string    `json:"project"`
-	Process     string    `json:"process"`
-	Status      string    `json:"status"`
-	Reason      string    `json:"reason,omitempty"`
-	Step        int       `json:"step"`
-	Attempts    int       `json:"attempts"`
-	Revision    int64     `json:"revision"`
-	Updated     time.Time `json:"updated"`
-	ParentRunID string    `json:"parent_run_id,omitempty"`
-	Progress    Progress  `json:"progress"`
+	AttemptBudget *TaskAttemptBudget `json:"attempt_budget,omitempty"`
+	ContinuedBy   string             `json:"continued_by,omitempty"`
+	ID            string             `json:"id"`
+	Project       string             `json:"project"`
+	Process       string             `json:"process"`
+	Status        string             `json:"status"`
+	Reason        string             `json:"reason,omitempty"`
+	Step          int                `json:"step"`
+	Attempts      int                `json:"attempts"`
+	Revision      int64              `json:"revision"`
+	Updated       time.Time          `json:"updated"`
+	ParentRunID   string             `json:"parent_run_id,omitempty"`
+	Progress      Progress           `json:"progress"`
 }
 type Status struct {
 	MaxActiveAttempts   int       `json:"max_active_attempts"`
@@ -119,6 +121,10 @@ func New(ctx context.Context, s Store, e Executor, d *Disk, cfg Snapshot) (*Core
 		}
 		restoredGraphs[r.TaskGraph.RootRunID] = true
 	}
+	if err := c.validateTaskContinuationLinks(); err != nil {
+		cancel()
+		return nil, err
+	}
 	go c.loop()
 	c.Wake()
 	return c, nil
@@ -145,6 +151,9 @@ func (c *Core) ExecutionChanged(id string) {
 	c.Wake()
 }
 func (c *Core) persist(r Run, arts []Artifact, receipt *Receipt) error {
+	if err := c.taskContinuationFrozen(r); err != nil {
+		return err
+	}
 	r.Revision++
 	r.Updated = time.Now().UTC()
 	if e := c.store.Save(c.ctx, r, arts, receipt); e != nil {
@@ -180,6 +189,21 @@ func (c *Core) Start(req StartRequest) (Run, error) {
 	if r, ok, e := c.replay(req.RequestID, "start", args); ok || e != nil {
 		return r, e
 	}
+	r, e := c.newRun(req, nil)
+	if e != nil {
+		return Run{}, e
+	}
+	rec := Receipt{Key: req.RequestID, Kind: "start", Args: args, RunID: r.ID}
+	if e = c.persist(r, nil, &rec); e != nil {
+		return Run{}, e
+	}
+	c.Wake()
+	return Clone(c.runs[r.ID]), nil
+}
+
+// newRun freezes the ordinary configured process. Continuation can supply only
+// its two separately authenticated imports; Start has no cross-project grant.
+func (c *Core) newRun(req StartRequest, imports map[string]Artifact) (Run, error) {
 	p, ok := c.snapshot.Projects[req.Project]
 	if !ok {
 		return Run{}, errors.New("project is not configured")
@@ -204,7 +228,7 @@ func (c *Core) Start(req StartRequest) (Run, error) {
 	for _, v := range req.Inputs {
 		if v.ArtifactID != "" {
 			a, e := c.store.Artifact(c.ctx, v.ArtifactID)
-			if e != nil || a.ProjectID != p.ID {
+			if e != nil || a.ProjectID != p.ID && imports[a.ID] != a {
 				return Run{}, errors.New("input artifact is unavailable in this project")
 			}
 			if _, e = c.disk.ArtifactSize(a.ID); e != nil {
@@ -262,12 +286,7 @@ func (c *Core) Start(req StartRequest) (Run, error) {
 	if err := admitRunRecord(r, c.disk.Policy.Database.MaxRecord); err != nil {
 		return Run{}, err
 	}
-	rec := Receipt{Key: req.RequestID, Kind: "start", Args: args, RunID: r.ID}
-	if e = c.persist(r, nil, &rec); e != nil {
-		return Run{}, e
-	}
-	c.Wake()
-	return Clone(c.runs[r.ID]), nil
+	return r, nil
 }
 func (c *Core) Get(id string) (Run, error) {
 	c.mu.Lock()
@@ -335,6 +354,9 @@ func (c *Core) Cancel(id string) (Run, error) {
 	if !ok {
 		return r, ErrNotFound
 	}
+	if err := c.taskContinuationFrozen(r); err != nil {
+		return Run{}, err
+	}
 	r = Clone(r)
 	if r.Terminal() {
 		if r.TaskGraph != nil {
@@ -384,6 +406,9 @@ func (c *Core) Retry(req RetryRequest) (Run, error) {
 	r, ok := c.runs[req.RunID]
 	if !ok {
 		return r, ErrNotFound
+	}
+	if err := c.taskContinuationFrozen(r); err != nil {
+		return Run{}, err
 	}
 	r = Clone(r)
 	if req.WithinBudget && (req.ExtraAttempts < 1 || req.CleanupOnly || r.Task != nil) {
@@ -520,6 +545,9 @@ func (c *Core) tick() time.Duration {
 	sort.Slice(ids, func(i, j int) bool { return c.runs[ids[i]].Created.Before(c.runs[ids[j]].Created) })
 	for _, id := range ids {
 		r := Clone(c.runs[id])
+		if c.taskContinuationFrozen(r) != nil {
+			continue // The atomic continuation proved every old resource settled.
+		}
 		a := r.Current()
 		if c.retireUnsafeReleaseDecision(r) {
 			continue

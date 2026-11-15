@@ -1,0 +1,32 @@
+{
+  "id": "continue-sudoku-preview",
+  "inputs": {"request": "text", "patch": "artifact", "checks": "artifact"},
+  "tasks": {
+    "roles": ["sudoku-materialize", "sudoku-check", "sudoku-developer", "sudoku-source-review", "sudoku-ux-review"],
+    "max_tasks": 20,
+    "max_depth": 2,
+    "max_revisions": 0,
+    "max_concurrent": 2
+  },
+  "max_attempts": 64,
+  "max_attempts_per_step": 4,
+  "infrastructure_retries": 1,
+  "attempt_timeout": "20m",
+  "steps": [
+    {
+      "id": "lead",
+      "role": "sudoku-lead",
+      "inputs": {
+        "request": {"from_input": "request"},
+        "patch": {"from_input": "patch"},
+        "checks": {"from_input": "checks"}
+      },
+      "routes": {
+        "accepted": {"next": "$complete"},
+        "rejected": {"next": "$fail"},
+        "ready": {"next": "$fail"}
+      }
+    }
+  ],
+  "outputs": {"result": {"from_step": "lead", "output": "report"}}
+}

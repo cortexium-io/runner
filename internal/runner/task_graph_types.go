@@ -66,22 +66,23 @@ type TaskResultRef struct {
 }
 
 type TaskGraphState struct {
-	RootRunID   string          `json:"root_run_id"`
-	ParentRunID string          `json:"parent_run_id,omitempty"`
-	TaskID      string          `json:"task_id"`
-	Role        string          `json:"role,omitempty"`
-	Brief       string          `json:"brief"`
-	Acceptance  []string        `json:"acceptance,omitempty"`
-	DependsOn   []string        `json:"depends_on,omitempty"`
-	WritePaths  []string        `json:"write_paths,omitempty"`
-	Children    []RoleTaskLink  `json:"children,omitempty"`
-	Results     []TaskResultRef `json:"results,omitempty"`
-	Phase       string          `json:"phase,omitempty"`
-	Question    string          `json:"question,omitempty"`
-	Answer      string          `json:"answer,omitempty"`
-	Directive   string          `json:"directive,omitempty"`
-	Paused      bool            `json:"paused,omitempty"`
-	Revisions   int             `json:"revisions"`
+	Lineage     *TaskContinuationLineage `json:"lineage,omitempty"`
+	RootRunID   string                   `json:"root_run_id"`
+	ParentRunID string                   `json:"parent_run_id,omitempty"`
+	TaskID      string                   `json:"task_id"`
+	Role        string                   `json:"role,omitempty"`
+	Brief       string                   `json:"brief"`
+	Acceptance  []string                 `json:"acceptance,omitempty"`
+	DependsOn   []string                 `json:"depends_on,omitempty"`
+	WritePaths  []string                 `json:"write_paths,omitempty"`
+	Children    []RoleTaskLink           `json:"children,omitempty"`
+	Results     []TaskResultRef          `json:"results,omitempty"`
+	Phase       string                   `json:"phase,omitempty"`
+	Question    string                   `json:"question,omitempty"`
+	Answer      string                   `json:"answer,omitempty"`
+	Directive   string                   `json:"directive,omitempty"`
+	Paused      bool                     `json:"paused,omitempty"`
+	Revisions   int                      `json:"revisions"`
 }
 
 type TaskRoleContract struct {
@@ -102,23 +103,24 @@ type TaskRoleContract struct {
 }
 
 type TaskContext struct {
-	RootRunID         string             `json:"root_run_id"`
-	ParentRunID       string             `json:"parent_run_id,omitempty"`
-	TaskID            string             `json:"task_id"`
-	Goal              string             `json:"goal"`
-	Brief             string             `json:"brief"`
-	Acceptance        []string           `json:"acceptance,omitempty"`
-	WritePaths        []string           `json:"write_paths,omitempty"`
-	Results           []RoleTaskResult   `json:"results,omitempty"`
-	Directive         string             `json:"directive,omitempty"`
-	Answer            string             `json:"answer,omitempty"`
-	PreviousFailure   string             `json:"previous_failure,omitempty"`
-	Revision          int                `json:"revision"`
-	AllowedRoles      []TaskRoleContract `json:"allowed_roles"`
-	Policy            TaskPolicy         `json:"policy"`
-	RemainingAttempts int                `json:"remaining_attempts"`
-	RemainingTasks    int                `json:"remaining_tasks"`
-	AvailableRunSlots int                `json:"available_run_slots"`
+	Lineage           *TaskContinuationLineage `json:"lineage,omitempty"`
+	RootRunID         string                   `json:"root_run_id"`
+	ParentRunID       string                   `json:"parent_run_id,omitempty"`
+	TaskID            string                   `json:"task_id"`
+	Goal              string                   `json:"goal"`
+	Brief             string                   `json:"brief"`
+	Acceptance        []string                 `json:"acceptance,omitempty"`
+	WritePaths        []string                 `json:"write_paths,omitempty"`
+	Results           []RoleTaskResult         `json:"results,omitempty"`
+	Directive         string                   `json:"directive,omitempty"`
+	Answer            string                   `json:"answer,omitempty"`
+	PreviousFailure   string                   `json:"previous_failure,omitempty"`
+	Revision          int                      `json:"revision"`
+	AllowedRoles      []TaskRoleContract       `json:"allowed_roles"`
+	Policy            TaskPolicy               `json:"policy"`
+	RemainingAttempts int                      `json:"remaining_attempts"`
+	RemainingTasks    int                      `json:"remaining_tasks"`
+	AvailableRunSlots int                      `json:"available_run_slots"`
 }
 
 type TaskInterventionRequest struct {

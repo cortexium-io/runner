@@ -1,0 +1,26 @@
+{
+  "portrait": {
+    "viewport": {"id":"fixture-phone","width":320,"height":568,"touch":true},
+    "board": {"x":10,"y":80,"width":300,"height":300},
+    "frame": {"x":10,"y":80,"width":300,"height":300},
+    "controls": {"x":10,"y":390,"width":300,"height":112},
+    "pad": {"x":10,"y":390,"width":30,"height":48,"gap":3.75,"columns":9},
+    "tools": {"x":10,"y":446,"width":69,"height":52,"gap":8}
+  },
+  "landscape": {
+    "viewport": {"id":"fixture-duo","width":951,"height":585,"touch":true},
+    "board": {"x":30,"y":100,"width":400,"height":400},
+    "frame": {"x":30,"y":100,"width":400,"height":400},
+    "controls": {"x":450,"y":120,"width":386,"height":306},
+    "pad": {"x":499,"y":120,"width":92,"height":72,"gap":6,"columns":3},
+    "tools": {"x":450,"y":354,"width":92,"height":72,"gap":6}
+  },
+  "desktop": {
+    "viewport": {"id":"fixture-desktop","width":1440,"height":580,"touch":false},
+    "board": {"x":180,"y":100,"width":480,"height":480},
+    "frame": {"x":180,"y":100,"width":480,"height":480},
+    "controls": {"x":180,"y":590,"width":480,"height":120},
+    "pad": {"x":180,"y":590,"width":48,"height":52,"gap":6,"columns":9},
+    "tools": {"x":180,"y":650,"width":114,"height":52,"gap":8}
+  }
+}

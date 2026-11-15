@@ -38,6 +38,9 @@ func MarshalRunRecord(r Run) (state, definition []byte, err error) {
 	if (r.RecordFormat == 9) != (r.TaskGraph != nil) {
 		return nil, nil, errors.New("general task state requires its version-nine record")
 	}
+	if err := taskContinuationRecord(r); err != nil {
+		return nil, nil, err
+	}
 	var count *int
 	if r.RecordFormat >= 3 {
 		n := len(r.Attempts)
@@ -82,6 +85,9 @@ func UnmarshalRunRecord(state, definition []byte) (Run, error) {
 			return r, err
 		}
 		r.Process, r.Roles, r.Profiles = d.Process, d.Roles, d.Profiles
+	}
+	if err := taskContinuationRecord(r); err != nil {
+		return r, err
 	}
 	return r, nil
 }

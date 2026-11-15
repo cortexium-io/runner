@@ -57,6 +57,9 @@ func (s *Store) DeleteFamily(ctx context.Context, ids []string) error {
 		return err
 	}
 	defer tx.Rollback()
+	if err = guardTaskContinuationDelete(ctx, tx, ids); err != nil {
+		return err
+	}
 	var external int
 	if err = tx.QueryRowContext(ctx, selection+externalFamilyConsumers, args...).Scan(&external); err != nil {
 		return err
