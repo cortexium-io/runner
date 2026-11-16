@@ -4,7 +4,7 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {viewports,assertGeometry,assertNeighborGeometry,measure} from './geometry.mjs';
-import {neighborSelectors,stableBoardGeometry,boundedFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,feedbackLayoutFacts,assertFeedbackLayout,lockedDigitFacts,assertExhaustedHighlight,elapsedSeconds,assertFocusClock} from './browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boundedFailure,reopenSudoku,afterReopen,activateTarget,interactionFacts,layoutReady,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,feedbackLayoutFacts,assertFeedbackLayout,paintedLockedDigitFacts,assertExhaustedHighlight,elapsedSeconds,focusDriverCapability,chromiumFocusDriver,assertFocusClock,assertFocusCoverage} from './browser-contract.mjs';
 
 const options=JSON.parse(await readFile(process.argv[2],'utf8'));
 const {chromium,webkit}=await import(pathToFileURL(options.playwright).href);
@@ -18,8 +18,9 @@ const report={schema:1,status:'failed',complete:false,browser_closed:false,engin
   'Both authored best-effort telemetry POST channels retain 4xx/transport diagnostics; every API5xx, required/unclassified HTTP error and page exception still blocks acceptance. Diagnostics do not establish analytics health.',
   'HTTP diagnostic bodies are read only with an uncompressed declared size at most1KiB; raw bodies, puzzle codes, queries and full referrers are never retained.',
   'Diagnostic-body capture timeouts retain unavailable facts and a count; they do not establish analytics health or fail gameplay. Real cleanup failures remain blocking.',
+  'Trusted visible blur/focus is exercised through Chromium page activation with its focus override disabled. Public Playwright WebKit focus activation is unsupported; its browser focus behavior and native Safari/physical window activation remain unverified. Candidate-bound play-clock regressions are also required.',
 ],input:{touch:0,mouse:0,keyboard:0},input_scope:'Sampled trusted event counters from the explicit entry/keyboard journeys; document navigation resets page counters.',viewport_contract:viewports};
-report.owner_feedback={contract:'sudoku-owner-feedback-2026-11-16',layout_observations:0,locked_exhausted:[],desktop_hints:[],focus_timer:[]};
+report.owner_feedback={contract:'sudoku-owner-feedback-2026-11-16',layout_observations:0,locked_exhausted:[],desktop_hints:[],focus_timer:[],focus_capabilities:[]};
 report.telemetry_contract=telemetryContract;
 report.playwright_version=JSON.parse(await readFile(path.join(path.dirname(options.playwright),'package.json'),'utf8')).version;
 let activeBrowser,current,activeCase,stopping=false,imageBytes=0,profile=0;
@@ -473,13 +474,13 @@ async function completionJourney(browser,engine,recipe,touch=false) {
     await page.keyboard.down('Shift');
     try{await page.keyboard.press(String(locked))}finally{await page.keyboard.up('Shift')}
     await settle(page);
-    const beforeLocked=await digit(page,locked).evaluate(lockedDigitFacts);
+    const beforeLocked=await paintedLockedDigitFacts(digit(page,locked));
     const copies=editable.filter(row=>recipe.answer[row.index]===locked);
     for(const row of copies) {
       await action(page,cell(page,row.index),touch,{secondary:!touch});
       await page.keyboard.press(String(locked));await settle(page);
     }
-    const completeDigit=assertExhaustedHighlight(beforeLocked,await digit(page,locked).evaluate(lockedDigitFacts),(await state(page)).rendered.filter(row=>Number(row.value)===locked).length);
+    const completeDigit=assertExhaustedHighlight(beforeLocked,await paintedLockedDigitFacts(digit(page,locked)),(await state(page)).rendered.filter(row=>Number(row.value)===locked).length);
     assertFeedbackLayout(await page.evaluate(feedbackLayoutFacts));
     if(touch)completeDigit.image=await capture(page,engine,'phone-exhausted-locked-light');
     report.owner_feedback.locked_exhausted.push({engine,viewport:viewport.id,digit:locked,activation:'trusted Shift+digit keyboard; normal cell entries',proof:completeDigit});
@@ -538,7 +539,7 @@ async function keyboardJourney(browser,engine,recipe) {
   });
 }
 
-async function focusClock(browser,engine,page) {
+async function focusClock(engine,page) {
   const play=page.locator('.sudoku-play'),timer=play.locator('.elapsed-time:visible');
   let originalTimer;
   await setOptions(page,true,async settings=>{
@@ -546,52 +547,41 @@ async function focusClock(browser,engine,page) {
     if(!originalTimer)await action(page,setting,true,{secondary:true});
   });
   const clockState=async()=>({...(await page.evaluate(()=>({focused:document.hasFocus(),visibility:document.visibilityState}))),elapsed:elapsedSeconds(await timer.innerText())});
-  await page.bringToFront();
-  const initial=await clockState();
-  await page.clock.runFor(2100);
-  const before=await clockState();
-  assert.ok(before.elapsed>=initial.elapsed+2,'focused timer did not advance');
-  await page.evaluate(()=>{
-    window.runnerFocusEvents=[];
-    for(const type of ['blur','focus'])window.addEventListener(type,event=>{window.runnerFocusEvents.push({type,trusted:event.isTrusted,visibility:document.visibilityState,focused:document.hasFocus()});if(window.runnerFocusEvents.length>12)window.runnerFocusEvents.shift()});
-  });
-  let other,cdp,targetId;
-  const away=async()=>{
-    if(engine==='chromium') {
-      cdp??=await browser.newBrowserCDPSession();
-      ({targetId}=await cdp.send('Target.createTarget',{url:'about:blank',newWindow:true,background:false}));
-      await cdp.send('Target.activateTarget',{targetId});
-    } else {other=await page.context().newPage();await other.bringToFront()}
-  };
-  const back=async()=>{
-    if(targetId){await cdp.send('Target.closeTarget',{targetId});targetId=undefined}
-    if(other){await other.close();other=undefined}
-    await page.bringToFront();
-  };
+  assert.equal(engine,'chromium','browser focus proof requires the qualified Chromium driver');
+  const driver=await chromiumFocusDriver(page);
+  const facts={clock:'Playwright controlled clock',focus_driver:focusDriverCapability(engine).driver};
   try {
-    await away();const lost=await clockState();
-    await page.clock.runFor(5100);const backgroundEnd=(await clockState()).elapsed;
-    await back();const returned=await clockState();
-    await page.clock.runFor(2100);const resumed=(await clockState()).elapsed;
+    facts.initial=await clockState();
+    await page.clock.runFor(2100);facts.before=await clockState();
+    assert.ok(facts.before.elapsed>=facts.initial.elapsed+2,'focused timer did not advance');
+    await page.evaluate(()=>{
+      window.runnerFocusEvents=[];
+      for(const type of ['blur','focus'])window.addEventListener(type,event=>{window.runnerFocusEvents.push({type,trusted:event.isTrusted,visibility:document.visibilityState,focused:document.hasFocus()});if(window.runnerFocusEvents.length>12)window.runnerFocusEvents.shift()});
+    });
+    await driver.away();facts.lost=await clockState();
+    await page.clock.runFor(5100);facts.background_end=(await clockState()).elapsed;
+    await driver.back();facts.returned=await clockState();
+    await page.clock.runFor(2100);facts.resumed=(await clockState()).elapsed;
     await action(page,play.getByRole('button',{name:'Pause',exact:true}),true,{secondary:true});
-    const manualBefore=(await clockState()).elapsed;
-    await away();await page.clock.runFor(3100);await back();await page.clock.runFor(2100);
-    const manualAfter=(await clockState()).elapsed,manualResume=await play.getByRole('button',{name:'Resume',exact:true}).isVisible();
+    facts.manual_before=(await clockState()).elapsed;
+    await driver.away();await page.clock.runFor(3100);await driver.back();await page.clock.runFor(2100);
+    facts.manual_after=(await clockState()).elapsed;facts.manual_resume_visible=await play.getByRole('button',{name:'Resume',exact:true}).isVisible();
     await action(page,play.getByRole('button',{name:'Resume',exact:true}),true,{secondary:true});
     await setOptions(page,true,async settings=>{await action(page,settings.getByRole('checkbox',{name:'Show timer',exact:true}),true,{secondary:true})});
-    await away();await page.clock.runFor(2100);await back();
-    let timerSettingPreserved;
+    await driver.away();await page.clock.runFor(2100);await driver.back();
     await setOptions(page,true,async settings=>{
-      const setting=settings.getByRole('checkbox',{name:'Show timer',exact:true});timerSettingPreserved=!(await setting.isChecked());
+      const setting=settings.getByRole('checkbox',{name:'Show timer',exact:true});facts.timer_setting_preserved=!(await setting.isChecked());
       if(originalTimer)await action(page,setting,true,{secondary:true});
     });
-    const events=await page.evaluate(()=>window.runnerFocusEvents);
-    assert.ok(events.some(row=>row.type==='blur'&&row.trusted),'no actual trusted blur event was observed');
-    const proof=assertFocusClock({initial,before,lost,background_end:backgroundEnd,returned,resumed,manual_before:manualBefore,manual_after:manualAfter,
-      manual_resume_visible:manualResume,timer_setting_preserved:timerSettingPreserved,events,clock:'Playwright controlled clock',focus_driver:engine==='chromium'?'owned CDP newWindow target':'owned WebKit page'});
+    facts.events=await page.evaluate(()=>window.runnerFocusEvents);
+    const proof=assertFocusClock(facts);
     report.owner_feedback.focus_timer.push({engine,...proof});
     return proof;
-  } finally {await back();if(cdp)await cdp.detach()}
+  } catch(error) {
+    try{facts.events=await page.evaluate(()=>window.runnerFocusEvents??[])}catch{}
+    if(activeCase)activeCase.focus_timer=facts;
+    throw error;
+  } finally {await driver.close()}
 }
 
 async function appearanceJourney(browser,engine,recipe) {
@@ -613,7 +603,8 @@ async function appearanceJourney(browser,engine,recipe) {
     const system=[];
     for(const scheme of ['dark','light']){await page.emulateMedia({colorScheme:scheme});await settle(page);system.push(await palette(page))}
     assert.ok(system.every(p=>p.choice==='system'&&p.page)&&system[0].page!==system[1].page,'System appearance did not follow the actual emulated preference');
-    const focusTimer=await focusClock(browser,engine,page);
+    const capability=focusDriverCapability(engine);report.owner_feedback.focus_capabilities.push(capability);
+    const focusTimer=capability.status==='supported'?await focusClock(engine,page):capability;
     return {explicit_controls:true,persisted_reload:true,system_follows_media:true,progress_unchanged:true,palettes:seen,focus_timer:focusTimer};
   });
 }
@@ -723,7 +714,9 @@ try {
   const missingJourneys=['chromium','webkit'].flatMap(engine=>['normal-ui-admission',...functionalJourneys].filter(id=>!report.journeys.some(row=>row.engine===engine&&row.id===id)).map(id=>({engine,id})));
   report.coverage={required_engines:2,observed_engines:report.engines.length,required_geometry:expectedGeometry,observed_geometry:report.geometry.length,
     required_journeys:20,missing_journeys:missingJourneys,required_neighbors:3,observed_neighbors:report.neighbors.length};
-  report.owner_feedback.complete=report.owner_feedback.layout_observations===expectedGeometry&&report.owner_feedback.locked_exhausted.length===4&&report.owner_feedback.desktop_hints.length===2&&report.owner_feedback.focus_timer.length===2;
+  try{report.owner_feedback.focus_complete=assertFocusCoverage(report.owner_feedback)}
+  catch(error){report.owner_feedback.focus_complete=false;report.owner_feedback.focus_failure=bounded(error)}
+  report.owner_feedback.complete=report.owner_feedback.layout_observations===expectedGeometry&&report.owner_feedback.locked_exhausted.length===4&&report.owner_feedback.desktop_hints.length===2&&report.owner_feedback.focus_complete;
   report.coverage.complete=report.engines.length===2&&report.geometry.length===expectedGeometry&&missingJourneys.length===0&&report.neighbors.length===3&&report.owner_feedback.complete;
   report.status=report.unrun.length||!report.coverage.complete?'blocked':failures()===0?'passed':'failed';
 } catch(error){report.failure=bounded(error.message)}

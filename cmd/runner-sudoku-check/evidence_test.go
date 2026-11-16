@@ -71,3 +71,52 @@ func TestBrowserBestEffortDiagnosticsRemainVisibleWithoutChangingAcceptance(t *t
 		t.Fatal("protected summary lost diagnostic attribution", first)
 	}
 }
+
+func TestOwnerFocusProofRequiresFrontendClockRegressionAndRetainsLimits(t *testing.T) {
+	const limitation = "WebKit public automation keeps pages focused; browser focus coverage is unverified."
+	data := []byte(`{"schema":1,"status":"passed","complete":true,"browser_closed":true,"coverage":{"complete":true},"owner_feedback":{"complete":true},"limits":["` + limitation + `"]}`)
+	for _, tc := range []struct {
+		name     string
+		frontend *frontendEvidence
+		want     string
+	}{
+		{name: "missing proof", want: "blocked"},
+		{
+			name: "other passing selections",
+			frontend: &frontendEvidence{
+				Status:    "passed",
+				Typecheck: true,
+				Files:     []string{"src/pages/home/entry-controls.test.ts"},
+			},
+			want: "blocked",
+		},
+		{
+			name: "failed clock proof",
+			frontend: &frontendEvidence{
+				Status:    "failed",
+				Typecheck: true,
+				Files:     []string{focusClockRegression},
+			},
+			want: "blocked",
+		},
+		{
+			name: "passing clock proof",
+			frontend: &frontendEvidence{
+				Status:    "passed",
+				Typecheck: true,
+				Files:     []string{focusClockRegression},
+			},
+			want: "passed",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := report{Frontend: tc.frontend, Limitations: []string{limitation}}
+			if err := recordBrowserReport(&p, data, nil); err != nil {
+				t.Fatal(err)
+			}
+			if p.Status != tc.want || len(p.Limitations) != 1 || p.Limitations[0] != limitation {
+				t.Fatal("focus evidence was accepted without its frontend proof or lost its capability limit", p.Status, p.Failure, p.Limitations)
+			}
+		})
+	}
+}

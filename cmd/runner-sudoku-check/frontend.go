@@ -69,6 +69,8 @@ type sourceHandoff struct {
 
 const historicalExclusions = "docs/evidence,docs/benchmarks,docs/design,mobile/evidence"
 
+const focusClockRegression = "src/pages/home/play-clock.test.ts"
+
 func authenticatedHandoff(o options, initial, checkHash string) (sourceHandoff, error) {
 	var h sourceHandoff
 	data, err := readBounded(o.handoff, 64<<10)

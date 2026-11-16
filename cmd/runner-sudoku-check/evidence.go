@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 )
 
 var evidenceName = regexp.MustCompile(`^(report\.json|summary\.json|browser\.json|frontend-check\.json|(chromium|webkit)-[a-z0-9-]+\.png)$`)
@@ -35,6 +36,7 @@ func recordBrowserReport(p *report, data []byte, executionErr error) error {
 		Prerequisites []browserCase     `json:"prerequisites"`
 		Screenshots   []json.RawMessage `json:"screenshots"`
 		OwnerFeedback map[string]any    `json:"owner_feedback"`
+		Limits        []string          `json:"limits"`
 		Coverage      struct {
 			Complete         bool `json:"complete"`
 			RequiredEngines  int  `json:"required_engines"`
@@ -99,6 +101,11 @@ func recordBrowserReport(p *report, data []byte, executionErr error) error {
 	if browser.OwnerFeedback != nil {
 		p.Browser["owner_feedback"] = browser.OwnerFeedback
 	}
+	for _, limitation := range browser.Limits {
+		if !slices.Contains(p.Limitations, limitation) {
+			p.Limitations = append(p.Limitations, limitation)
+		}
+	}
 	var neighborFailures []map[string]string
 	for _, row := range browser.Neighbors {
 		if row.Status != "passed" {
@@ -142,6 +149,9 @@ func recordBrowserReport(p *report, data []byte, executionErr error) error {
 		p.Status, p.Failure = "blocked", "browser pass lacks the complete fixed coverage"
 	} else if browser.Status == "passed" && browser.OwnerFeedback != nil && browser.OwnerFeedback["complete"] != true {
 		p.Status, p.Failure = "blocked", "browser pass lacks the complete current owner-feedback proof"
+	} else if browser.Status == "passed" && browser.OwnerFeedback != nil &&
+		(p.Frontend == nil || p.Frontend.Status != "passed" || !p.Frontend.Typecheck || !slices.Contains(p.Frontend.Files, focusClockRegression)) {
+		p.Status, p.Failure = "blocked", "owner-feedback focus proof lacks the passing candidate-bound frontend clock regression"
 	}
 	if executionErr != nil {
 		p.Status, p.Failure = "blocked", "browser command did not finish normally: "+clip(executionErr.Error(), 750)+"; "+p.Failure

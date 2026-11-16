@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,telemetryDimensions,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,assertFeedbackLayout,assertExhaustedHighlight,elapsedSeconds,assertFocusClock} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
+import {neighborSelectors,stableBoardGeometry,boardDocumentFacts,reopenSudoku,afterReopen,boundedFailure,sudokuBoardSelector,activateTarget,targetFacts,interactionFacts,savedBoardAction,newSudokuFromPlay,classifyFailure,telemetryContract,telemetryDimensions,apiRequestFacts,apiResponseFacts,closeAfterResponses,neighborGeometry,assertFeedbackLayout,assertExhaustedHighlight,elapsedSeconds,focusDriverCapability,chromiumFocusDriver,assertFocusClock,assertFocusCoverage} from '../../cmd/runner-sudoku-check/browser-contract.mjs';
 
 test('Playwright visibility selectors stay outside native DOM geometry queries',()=>{
   const selectors=neighborSelectors('shikaku');
@@ -226,17 +226,44 @@ test('a locked completed digit must retain lime while visibly and semantically d
   assert.throws(()=>assertExhaustedHighlight(before,after,8),/all nine/);
 });
 
-test('focus-clock acceptance rejects charged blur time, resume jumps and manual-pause loss',()=>{
+function focusFacts() {
+  return {before:{focused:true,visibility:'visible',elapsed:3},lost:{focused:false,visibility:'visible',elapsed:3},background_end:3,
+    returned:{focused:true,visibility:'visible',elapsed:3},resumed:5,manual_before:5,manual_after:5,manual_resume_visible:true,timer_setting_preserved:true,
+    events:[{type:'blur',trusted:true,focused:false,visibility:'visible'},{type:'focus',trusted:true,focused:true,visibility:'visible'}]};
+}
+
+test('focus-clock acceptance requires actual trusted visible transitions and rejects charged time or state loss',()=>{
   assert.equal(elapsedSeconds('Elapsed 1:23'),83);assert.equal(elapsedSeconds('1:02:03'),3723);
-  const facts={before:{focused:true,elapsed:3},lost:{focused:false,visibility:'visible',elapsed:3},background_end:3,
-    returned:{focused:true,elapsed:3},resumed:5,manual_before:5,manual_after:5,manual_resume_visible:true,timer_setting_preserved:true};
+  const facts=focusFacts();
   assert.match(assertFocusClock(facts).scope,/while visible/);
-  assert.match(assertFocusClock({...facts,lost:{...facts.lost,visibility:'hidden'}}).scope,/visible-blur frontend regression/);
+  assert.throws(()=>assertFocusClock({...facts,lost:{...facts.lost,visibility:'hidden'}}),/document is not visible/);
+  assert.throws(()=>assertFocusClock({...facts,events:[]}),/no trusted visible blur/);
+  assert.throws(()=>assertFocusClock({...facts,events:facts.events.map(row=>({...row,trusted:false}))}),/no trusted visible blur/);
+  assert.throws(()=>assertFocusClock({...facts,events:[facts.events[0]]}),/no trusted visible focus/);
   assert.throws(()=>assertFocusClock({...facts,background_end:8}),/advanced while unfocused/);
-  assert.throws(()=>assertFocusClock({...facts,returned:{focused:true,elapsed:8}}),/charged when focus returned/);
+  assert.throws(()=>assertFocusClock({...facts,returned:{...facts.returned,elapsed:8}}),/charged when focus returned/);
   assert.throws(()=>assertFocusClock({...facts,resumed:3}),/did not resume/);
   assert.throws(()=>assertFocusClock({...facts,manual_after:7}),/overrode manual pause/);
   assert.throws(()=>assertFocusClock({...facts,timer_setting_preserved:false}),/Show timer/);
+});
+
+test('focus coverage distinguishes the known WebKit capability gap from missing or failed Chromium proof',()=>{
+  const feedback={focus_timer:[{engine:'chromium',...focusFacts()}],focus_capabilities:['chromium','webkit'].map(focusDriverCapability)};
+  assert.equal(assertFocusCoverage(feedback),true);
+  assert.equal(feedback.focus_capabilities[1].status,'unsupported');
+  assert.equal(feedback.focus_capabilities[1].required_frontend_regression,'src/pages/home/play-clock.test.ts');
+  assert.throws(()=>focusDriverCapability('unknown'),/unknown browser/);
+  assert.throws(()=>assertFocusCoverage({...feedback,focus_timer:[]}),/actual Chromium focus receipt/);
+  assert.throws(()=>assertFocusCoverage({...feedback,focus_timer:[{engine:'webkit',...focusFacts()}]}),/qualified Chromium driver/);
+  assert.throws(()=>assertFocusCoverage({...feedback,focus_timer:[{...feedback.focus_timer[0],lost:{focused:true,visibility:'visible'}}]}),/did not blur/);
+  assert.throws(()=>assertFocusCoverage({...feedback,focus_capabilities:[feedback.focus_capabilities[0],{engine:'webkit',status:'failed'}]}),/explicit WebKit limitation/);
+});
+
+test('focus driver setup errors propagate and detach the owned session',async()=>{
+  let detached=0;
+  const page={context:()=>({newCDPSession:async()=>({send:async()=>{throw Error('CDP unavailable')},detach:async()=>{detached++}})})};
+  await assert.rejects(chromiumFocusDriver(page),/CDP unavailable/);
+  assert.equal(detached,1);
 });
 
 test('the complete owned tracker contract keeps both POST 4xx visible while unknown/private errors and all 5xx block',()=>{

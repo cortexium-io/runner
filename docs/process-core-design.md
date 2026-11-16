@@ -44,6 +44,50 @@ assessment, copy its task history/workspace or route product edits outside Runne
 Canonical owner intake and qualification:
 `/Users/dan/Projects/runner-qualifications/20261116/sudoku-followup/`.
 
+The maintenance was qualified and installed from
+`e5abb9a16e6b3085ab6697ccebae0528f652bfd6` on 16 November. Core, SQLite,
+control, CLI, configuration, fixed-command goal binding and the Sudoku checker
+passed their affected race/vet and contract suites. The complete model-free
+workflow suite passed once in 365.014 seconds. Actual Darwin sandbox proof covers
+exact goal-file read, denied mutation and cleanup; Linux rules were inspected,
+without claiming actual Linux execution. Independent review corrected complete
+parent-family retention and recovery of a lost start acknowledgement. Atlas
+compared the exact base/candidate; its structural output is not a defect verdict.
+
+An exact private preflight and cold installation preserved all 106 current runs,
+610 attempts, 95 request receipts, 508 artifacts and 689 artifact uses, with matching
+table hashes. Schema 14 adds indexes without rewriting those rows. Seven-day
+retention had already collected older unrelated records before this checkpoint;
+the earlier 115-row installation inventory was not used to rewind live state.
+The two historical cleanup holds remain preserved. Total-work caps stay disabled,
+and the configured native profiles, local retries, timeouts and storage limits
+remain unchanged. The canonical maintenance and installation receipts are under
+`evidence/` in the qualification directory above.
+
+Linked root `run_EWT4YUD2ZHZ2NPVBSLRWURPIFK` started from the exact completed
+parent at revision 6322. Its configured source admission passed before development;
+product edits, checks, corrections and independent judgment belong to that root.
+The qualification report records its actual outcome separately from the passing
+maintenance proofs.
+
+The first protected browser run exposed an unqualified focus-driver assumption:
+headless new-window activation delivered no blur, and the public Playwright WebKit
+driver keeps pages active and focused. A browser-only fixture qualified ordinary
+same-context Chromium page activation with focus emulation disabled: trusted blur
+and focus occur while the puzzle remains visible. Current focus acceptance requires
+that actual Chromium receipt and passing candidate-bound `play-clock.test.ts`
+evidence; WebKit browser focus remains an explicit unsupported capability, alongside
+native Safari/physical-window gaps. It must not be reported as a successful second
+focus receipt. All other two-engine geometry, journey and neighbor obligations
+remain. The verifier also observes completed CSS transitions before comparing the
+locked digit's lime paint. Failed product geometry and hit-testing assertions stay
+actionable rather than being reclassified by these verifier corrections.
+The opt-in browser-runtime regression uses only disposable HTML fixtures, the
+configured headless runtimes and the same controlled-clock/touch context. It passed
+three actual visible focus cycles, failed-operation cleanup and completed-paint
+checks on both engines, with all owned contexts/browsers closed. It performs no
+product edits or product qualification outside Runner.
+
 ### Optional total-work limits, authorized 16 November 2026
 
 The owner explicitly chose to disable both aggregate execution and total

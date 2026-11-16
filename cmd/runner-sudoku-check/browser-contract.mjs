@@ -179,6 +179,15 @@ export function lockedDigitFacts(node) {
     background:style.backgroundColor,color:style.color,opacity:span?Number(getComputedStyle(span).opacity):Number(style.opacity)};
 }
 
+// Geometry can settle before a button's color/opacity transitions finish.
+// Observe the authored final paint without cancelling or advancing animations.
+export async function paintedLockedDigitFacts(locator) {
+  await locator.evaluate(async node=>{
+    await Promise.allSettled(node.getAnimations({subtree:true}).map(animation=>animation.finished));
+  });
+  return locator.evaluate(lockedDigitFacts);
+}
+
 export function assertExhaustedHighlight(before,after,copies) {
   assert.equal(copies,9,'exhausted-digit proof requires all nine actual placements');
   assert.equal(before.highlighted,true,'digit must be locked before exhaustion');
@@ -198,8 +207,47 @@ export function elapsedSeconds(text) {
   return fields.reduce((seconds,value)=>seconds*60+value,0);
 }
 
+export function focusDriverCapability(engine) {
+  if(engine==='chromium')return {engine,status:'supported',driver:'owned same-context page; Chromium focus emulation disabled'};
+  assert.equal(engine,'webkit','unknown browser focus capability');
+  return {engine,status:'unsupported',reason:'The public Playwright WebKit driver keeps pages active and focused; bringing another page forward does not deliver blur.',
+    required_frontend_regression:'src/pages/home/play-clock.test.ts',native_window_proof:false};
+}
+
+// Playwright normally keeps every Chromium page focused. Its public CDP API
+// lets us remove that override; ordinary same-context page activation then
+// produces browser-generated trusted events while the puzzle stays visible.
+export async function chromiumFocusDriver(page) {
+  const context=page.context(),session=await context.newCDPSession(page);
+  let other;
+  const back=async()=>{
+    if(other){await other.close();other=undefined}
+    await page.bringToFront();
+    await page.waitForFunction(()=>document.hasFocus()&&document.visibilityState==='visible',undefined,{timeout:5000});
+  };
+  try {
+    await session.send('Emulation.setFocusEmulationEnabled',{enabled:false});
+    await back();
+  } catch(error){await session.detach();throw error}
+  return {
+    async away() {
+      assert.equal(other,undefined,'focus target is already active');
+      other=await context.newPage();
+      const otherSession=await context.newCDPSession(other);
+      try {
+        await otherSession.send('Emulation.setFocusEmulationEnabled',{enabled:false});
+        await other.bringToFront();
+        await page.waitForFunction(()=>!document.hasFocus()&&document.visibilityState==='visible',undefined,{timeout:5000});
+      } finally {await otherSession.detach()}
+    },
+    back,
+    async close(){try{await back()}finally{await session.detach()}},
+  };
+}
+
 export function assertFocusClock(facts) {
   assert.equal(facts.before.focused,true,'timer did not start in a focused document');
+  for(const boundary of ['before','lost','returned'])assert.equal(facts[boundary].visibility,'visible',`focus proof ${boundary} document is not visible`);
   assert.equal(facts.lost.focused,false,'owned focus target did not blur the puzzle');
   assert.equal(facts.background_end,facts.lost.elapsed,'elapsed timer advanced while unfocused');
   assert.equal(facts.returned.focused,true,'puzzle did not regain focus');
@@ -208,7 +256,17 @@ export function assertFocusClock(facts) {
   assert.equal(facts.manual_after,facts.manual_before,'focus transition overrode manual pause');
   assert.equal(facts.manual_resume_visible,true,'manual pause was cleared on focus');
   assert.equal(facts.timer_setting_preserved,true,'focus transition changed Show timer preference');
-  return {...facts,scope:facts.lost.visibility==='visible'?'emulated window-focus loss while visible':'emulated background-document focus loss; visible-blur frontend regression remains required',native_window_proof:false};
+  for(const [type,focused] of [['blur',false],['focus',true]])assert.ok(facts.events?.some(row=>row.type===type&&row.trusted&&row.focused===focused&&row.visibility==='visible'),`no trusted visible ${type} event was observed`);
+  return {...facts,scope:'browser-generated focus loss while visible in headless Chromium; native window activation unverified',native_window_proof:false};
+}
+
+export function assertFocusCoverage(feedback) {
+  assert.equal(feedback.focus_timer.length,1,'one actual Chromium focus receipt is required');
+  const [proof]=feedback.focus_timer;
+  assert.equal(proof.engine,'chromium','focus receipt must use the qualified Chromium driver');
+  assertFocusClock(proof);
+  assert.deepEqual(feedback.focus_capabilities,['chromium','webkit'].map(focusDriverCapability),'browser focus capabilities must retain the explicit WebKit limitation');
+  return true;
 }
 
 // Complete ownership boundary of the authored best-effort tracker. Fields are
