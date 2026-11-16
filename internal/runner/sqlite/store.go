@@ -100,7 +100,7 @@ func Open(dir string, p runner.StoragePolicy) (*Store, error) {
 	if e = db.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
 		return nil, e
 	}
-	if version < 0 || version > 15 {
+	if version < 0 || version > 16 {
 		return nil, errors.New("unsupported process-core database format")
 	}
 	if version == 0 {
@@ -248,6 +248,14 @@ PRAGMA user_version=14; COMMIT;`); e != nil {
 		// Role-only amendments preserve the attempt allowance and a paused
 		// root's source ownership. Older writers cannot interpret this audit.
 		if _, e = db.Exec("PRAGMA user_version=15"); e != nil {
+			return nil, e
+		}
+		version = 15
+	}
+	if version == 15 {
+		// Settled command diagnostics are retained attempt evidence. Older
+		// writers would silently discard the additive JSON field on save.
+		if _, e = db.Exec("PRAGMA user_version=16"); e != nil {
 			return nil, e
 		}
 	}

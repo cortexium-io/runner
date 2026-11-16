@@ -20,7 +20,7 @@ func TestGeneralTaskSavedRetryPreservesOnlyLatestSettledSameVisitFailure(t *test
 		Visit:    3,
 		State:    Finished,
 		Released: true,
-		End:      &ExecutionEnd{Kind: "failed", Reason: "native final JSON is 8193 UTF-8 bytes; max_output_bytes=8192"},
+		End:      &ExecutionEnd{Kind: "failed", Reason: "native final JSON is 8193 UTF-8 bytes; max_output_bytes=8192", Diagnostic: "latest bounded failure facts"},
 	}
 	pending := Attempt{
 		ID:    "saved-retry",
@@ -32,12 +32,13 @@ func TestGeneralTaskSavedRetryPreservesOnlyLatestSettledSameVisitFailure(t *test
 	oldVisit.Visit, otherStep.Step = 2, 1
 	returned.ID, returned.End = "returned", &ExecutionEnd{Kind: "returned"}
 	for _, tc := range []struct {
-		name     string
-		attempts []Attempt
-		want     string
+		name       string
+		attempts   []Attempt
+		want       string
+		diagnostic string
 	}{
-		{name: "fresh dispatch", attempts: []Attempt{failure}, want: failure.End.Reason},
-		{name: "saved NotStarted retry", attempts: []Attempt{failure, pending}, want: failure.End.Reason},
+		{name: "fresh dispatch", attempts: []Attempt{failure}, want: failure.End.Reason, diagnostic: failure.End.Diagnostic},
+		{name: "saved NotStarted retry", attempts: []Attempt{failure, pending}, want: failure.End.Reason, diagnostic: failure.End.Diagnostic},
 		{name: "different visit", attempts: []Attempt{oldVisit, pending}},
 		{name: "different step", attempts: []Attempt{otherStep, pending}},
 		{name: "newer settled outcome", attempts: []Attempt{failure, returned, pending}},
@@ -88,7 +89,7 @@ func TestGeneralTaskSavedRetryPreservesOnlyLatestSettledSameVisitFailure(t *test
 			before := Clone(saved)
 			c := &Core{disk: disk, runs: map[string]Run{saved.ID: saved}}
 			ctx, err := c.graphContext(saved)
-			if err != nil || ctx.PreviousFailure != tc.want || !reflect.DeepEqual(saved, before) {
+			if err != nil || ctx.PreviousFailure != tc.want || ctx.PreviousDiagnostic != tc.diagnostic || !reflect.DeepEqual(saved, before) {
 				t.Fatal("saved retry lost or invented prior-visit feedback, or rewrote history", ctx, err)
 			}
 		})

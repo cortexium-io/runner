@@ -51,6 +51,24 @@ func TestNativeResultDoesNotTreatUnreportedUsageAsZero(t *testing.T) {
 	}
 }
 
+func TestCompactResultRetainsBoundedFailureDiagnostic(t *testing.T) {
+	diagnostic := runner.DiagnosticTail(strings.Repeat("old ", 200) + "stage=browser")
+	r := runner.Run{
+		Status: "Failed", Process: runner.Process{Steps: []runner.Step{{Role: "check"}}},
+		Roles:        map[string]runner.Role{"check": {Execution: &runner.Profile{Harness: "command"}}},
+		Attempts:     []runner.Attempt{{State: runner.Finished, Released: true, End: &runner.ExecutionEnd{Kind: "stopped", Diagnostic: diagnostic}}},
+		TaskStatuses: []runner.TaskStatus{{ID: "check", RunID: "child", Status: "Failed", Diagnostic: diagnostic}},
+	}
+	out := compactResult(r, time.Now())
+	if out.Diagnostic != diagnostic || len(out.Tasks) != 1 || out.Tasks[0].Diagnostic != diagnostic || !out.ExecutionSettled || out.CleanupPending || out.Status != "Failed" {
+		t.Fatal("compact result lost failure facts or changed settlement/status", out)
+	}
+	r.Attempts = append(r.Attempts, runner.Attempt{State: runner.Finished, Released: true, End: &runner.ExecutionEnd{Kind: "returned"}})
+	if compactResult(r, time.Now()).Diagnostic != "" {
+		t.Fatal("later success revived the previous diagnostic")
+	}
+}
+
 func TestRoleTaskWaitReturnsDescendantAttention(t *testing.T) {
 	for _, kind := range []string{"task_question", "task_paused", "blocked", "cleanup_blocked"} {
 		t.Run(kind, func(t *testing.T) {

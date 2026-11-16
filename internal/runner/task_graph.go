@@ -206,12 +206,13 @@ func (c *Core) graphChild(parent, root Run, link RoleTaskLink) Run {
 
 func graphResult(r Run) RoleTaskResult {
 	return RoleTaskResult{
-		ID:      r.TaskGraph.TaskID,
-		RunID:   r.ID,
-		Role:    r.TaskGraph.Role,
-		Status:  r.Status,
-		Reason:  r.Reason,
-		Outputs: Clone(r.Outputs),
+		ID:         r.TaskGraph.TaskID,
+		RunID:      r.ID,
+		Role:       r.TaskGraph.Role,
+		Status:     r.Status,
+		Reason:     r.Reason,
+		Diagnostic: r.LatestDiagnostic(),
+		Outputs:    Clone(r.Outputs),
 	}
 }
 
@@ -319,8 +320,9 @@ func (c *Core) graphContext(r Run) (*TaskContext, error) {
 		if last.Step != r.Step || last.Visit != r.Visit || last.End == nil {
 			continue
 		}
-		if last.End.Kind == "failed" {
+		if last.End.Kind == "failed" || last.End.Kind == "stopped" {
 			ctx.PreviousFailure = Clip(last.End.Reason)
+			ctx.PreviousDiagnostic = DiagnosticTail(last.End.Diagnostic)
 		}
 		break
 	}

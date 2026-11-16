@@ -205,6 +205,89 @@ func sharedCommandAssignment(t *testing.T) runner.Assignment {
 	return a
 }
 
+func TestHarnessSharedStoppedDiagnosticSurvivesReopenAndRelease(t *testing.T) {
+	for _, cancellation := range []bool{false, true} {
+		name := "watchdog"
+		if cancellation {
+			name = "cancellation"
+		}
+		t.Run(name, func(t *testing.T) {
+			d := workspaceDisk(t)
+			a := sharedCommandAssignment(t)
+			readyRoot := t.TempDir()
+			ready := filepath.Join(readyRoot, "ready")
+			a.Setup.Profile.Command = &runner.Command{
+				Args: []string{"/bin/sh", "-c", `printf unaccepted > "$1/evidence.txt"
+printf 'LATEST_DIAGNOSTIC stage=waiting\n'
+printf ready > "$2"
+exec /bin/sleep 30`, "stopped-check", "{scratch}", ready},
+				Artifact: "evidence.txt", RuntimeWritePaths: []string{readyRoot},
+			}
+			a.Deadline = time.Now().Add(3 * time.Second)
+			if cancellation {
+				a.Deadline = time.Now().Add(15 * time.Second)
+			}
+			n := NewNative(d, nil, nil, nil)
+			owner := n
+			done := make(chan error, 1)
+			finished := false
+			launches := 0
+			defer func() {
+				_ = owner.Stop(context.Background(), a.AttemptID)
+				if !finished {
+					select {
+					case <-done:
+					case <-time.After(5 * time.Second):
+						t.Error("owned command failed to settle during fixture cleanup")
+					}
+				}
+				if o, err := owner.Observe(context.Background(), a.AttemptID); err == nil && o.End != nil {
+					_ = owner.Release(context.Background(), a.AttemptID)
+				}
+				owner.Close()
+			}()
+			n.launchWorker = func(file string, complete func()) error {
+				launches++
+				go func() { done <- RunNativeWorker(context.Background(), file); complete() }()
+				return nil
+			}
+			if _, err := n.Start(t.Context(), a); err != nil {
+				finished = true // No worker was admitted.
+				t.Fatal(err)
+			}
+			waitCommandFile(t, ready)
+			if cancellation {
+				if err := n.Stop(t.Context(), a.AttemptID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			select {
+			case err := <-done:
+				finished = true
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("stopped fixed command did not settle")
+			}
+			n.Close()
+			reopened := NewNative(d, nil, nil, nil)
+			owner = reopened
+			reopened.launchWorker = func(string, func()) error { launches++; return errors.New("replacement forbidden") }
+			o, err := reopened.Observe(t.Context(), a.AttemptID)
+			if err != nil || o.State != runner.Finished || o.End == nil || o.End.Kind != "stopped" || o.End.Result != nil || !strings.Contains(o.End.Diagnostic, "LATEST_DIAGNOSTIC") || launches != 1 {
+				t.Fatal("same stopped execution lost diagnostics or acquired result authority", o, err, launches)
+			}
+			if _, err := d.ArtifactSize(a.AttemptID + "/result"); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("stopped execution accepted its product artifact", err)
+			}
+			if err := reopened.Release(t.Context(), a.AttemptID); err != nil || reopened.Owns(a.AttemptID) {
+				t.Fatal("same execution did not release safely", err)
+			}
+		})
+	}
+}
+
 func runSharedCommandProof(t *testing.T, d *runner.Disk, a runner.Assignment) runner.NativeProvenance {
 	t.Helper()
 	s := NewService(d, nil, nil)

@@ -574,6 +574,14 @@ func (n *Native) Observe(ctx context.Context, id string) (runner.Observation, er
 			if receipt.Kind == "stopped" && job.StopReason != "" {
 				job.End.Reason = job.StopReason
 			}
+			// A settled command can retain failure facts without accepting its
+			// domain result or collecting any product artifacts after a stop.
+			if sharedCommand(job.Assignment) {
+				var result commandResult
+				if json.Unmarshal(receipt.Final, &result) == nil && result.AttemptID == id && (result.Kind == "returned" || result.Kind == "stopped") {
+					job.End.Diagnostic = runner.DiagnosticTail(result.Diagnostic)
+				}
+			}
 		}
 		if err != nil {
 			return runner.Observation{}, err

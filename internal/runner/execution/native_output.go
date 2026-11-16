@@ -79,7 +79,7 @@ func recoverNativeOutput(spec harnessSpec, receipt *harnessReceipt) (bool, error
 		log := &diagnosticTail{limit: int(spec.Assignment.Limits.MaxLog)}
 		_, _ = log.Write([]byte(result.Diagnostic))
 		_, _ = log.Write(tail)
-		result.Diagnostic = runner.Clip(string(log.bytes()))
+		result.Diagnostic = runner.DiagnosticTail(string(log.bytes()))
 		receipt.Final, err = json.Marshal(result)
 		if err != nil {
 			return false, err

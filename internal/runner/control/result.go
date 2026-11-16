@@ -30,6 +30,7 @@ type Result struct {
 	WorkspaceRetained bool                        `json:"workspace_retained"`
 	Usage             Usage                       `json:"usage"`
 	Outputs           map[string]Output           `json:"outputs,omitempty"`
+	Diagnostic        string                      `json:"diagnostic,omitempty"`
 	Candidate         *Candidate                  `json:"candidate,omitempty"`
 	Decision          *runner.Decision            `json:"decision,omitempty"`
 	DecisionOutputs   map[string]Output           `json:"decision_outputs,omitempty"`
@@ -172,6 +173,7 @@ func compactResult(r runner.Run, now time.Time) Result {
 		Outputs:          map[string]Output{},
 		Decision:         runner.Clone(r.Decision),
 		TaskCount:        len(r.TaskStatuses),
+		Diagnostic:       r.LatestDiagnostic(),
 	}
 	out.Tasks, out.TasksTruncated = resultTasks(r.TaskStatuses)
 	if g := r.TaskGraph; g != nil {
@@ -284,6 +286,7 @@ func resultTasks(tasks []runner.TaskStatus) ([]runner.TaskStatus, bool) {
 				continue
 			}
 			task.Reason = runner.Clip(task.Reason)
+			task.Diagnostic = runner.DiagnosticTail(task.Diagnostic)
 			out = append(out, task)
 		}
 	}

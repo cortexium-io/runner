@@ -51,12 +51,13 @@ type RoleTaskLink struct {
 }
 
 type RoleTaskResult struct {
-	ID      string           `json:"id"`
-	RunID   string           `json:"run_id"`
-	Role    string           `json:"role"`
-	Status  string           `json:"status"`
-	Reason  string           `json:"reason,omitempty"`
-	Outputs map[string]Value `json:"outputs,omitempty"`
+	ID         string           `json:"id"`
+	RunID      string           `json:"run_id"`
+	Role       string           `json:"role"`
+	Status     string           `json:"status"`
+	Reason     string           `json:"reason,omitempty"`
+	Diagnostic string           `json:"diagnostic,omitempty"`
+	Outputs    map[string]Value `json:"outputs,omitempty"`
 }
 
 // TaskResultRef retains identity only. The child run owns its accepted outputs
@@ -106,29 +107,30 @@ type TaskRoleContract struct {
 }
 
 type TaskContext struct {
-	Followup          *TaskFollowupLineage     `json:"followup,omitempty"`
-	UnlimitedTasks    bool                     `json:"unlimited_tasks,omitempty"`
-	AttemptBudget     *TaskAttemptBudget       `json:"attempt_budget,omitempty"`
-	AllowanceGrant    *TaskAllowanceGrant      `json:"allowance_grant,omitempty"`
-	Maintenance       *TaskRecoveryAudit       `json:"maintenance,omitempty"`
-	Lineage           *TaskContinuationLineage `json:"lineage,omitempty"`
-	RootRunID         string                   `json:"root_run_id"`
-	ParentRunID       string                   `json:"parent_run_id,omitempty"`
-	TaskID            string                   `json:"task_id"`
-	Goal              string                   `json:"goal"`
-	Brief             string                   `json:"brief"`
-	Acceptance        []string                 `json:"acceptance,omitempty"`
-	WritePaths        []string                 `json:"write_paths,omitempty"`
-	Results           []RoleTaskResult         `json:"results,omitempty"`
-	Directive         string                   `json:"directive,omitempty"`
-	Answer            string                   `json:"answer,omitempty"`
-	PreviousFailure   string                   `json:"previous_failure,omitempty"`
-	Revision          int                      `json:"revision"`
-	AllowedRoles      []TaskRoleContract       `json:"allowed_roles"`
-	Policy            TaskPolicy               `json:"policy"`
-	RemainingAttempts int                      `json:"remaining_attempts"`
-	RemainingTasks    int                      `json:"remaining_tasks"`
-	AvailableRunSlots int                      `json:"available_run_slots"`
+	Followup           *TaskFollowupLineage     `json:"followup,omitempty"`
+	UnlimitedTasks     bool                     `json:"unlimited_tasks,omitempty"`
+	AttemptBudget      *TaskAttemptBudget       `json:"attempt_budget,omitempty"`
+	AllowanceGrant     *TaskAllowanceGrant      `json:"allowance_grant,omitempty"`
+	Maintenance        *TaskRecoveryAudit       `json:"maintenance,omitempty"`
+	Lineage            *TaskContinuationLineage `json:"lineage,omitempty"`
+	RootRunID          string                   `json:"root_run_id"`
+	ParentRunID        string                   `json:"parent_run_id,omitempty"`
+	TaskID             string                   `json:"task_id"`
+	Goal               string                   `json:"goal"`
+	Brief              string                   `json:"brief"`
+	Acceptance         []string                 `json:"acceptance,omitempty"`
+	WritePaths         []string                 `json:"write_paths,omitempty"`
+	Results            []RoleTaskResult         `json:"results,omitempty"`
+	Directive          string                   `json:"directive,omitempty"`
+	Answer             string                   `json:"answer,omitempty"`
+	PreviousFailure    string                   `json:"previous_failure,omitempty"`
+	PreviousDiagnostic string                   `json:"previous_diagnostic,omitempty"`
+	Revision           int                      `json:"revision"`
+	AllowedRoles       []TaskRoleContract       `json:"allowed_roles"`
+	Policy             TaskPolicy               `json:"policy"`
+	RemainingAttempts  int                      `json:"remaining_attempts"`
+	RemainingTasks     int                      `json:"remaining_tasks"`
+	AvailableRunSlots  int                      `json:"available_run_slots"`
 }
 
 type TaskInterventionRequest struct {

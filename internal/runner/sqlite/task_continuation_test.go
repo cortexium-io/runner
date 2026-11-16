@@ -251,7 +251,7 @@ func TestTaskContinuationSchemaBoundaryPreservesOlderStoredRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 15 {
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 16 {
 		t.Fatal("older binaries can ignore continuation debit/freeze", version, err)
 	}
 	var after []byte

@@ -1,12 +1,16 @@
 package runner_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cortexium-io/runner/internal/runner"
+	"github.com/cortexium-io/runner/internal/runner/sqlite"
 )
 
 func canonicalReport(id string) string {
@@ -107,4 +111,99 @@ func TestGeneralTaskOldDevelopmentResultSnapshotsDecodeAsReferences(t *testing.T
 	if err != nil || strings.Contains(string(canonical), "obsolete copied child report") {
 		t.Fatal("old copied report survived normalization to canonical child references", err)
 	}
+}
+
+func TestGeneralTaskRepairOwnerReceivesSettledFailureDiagnostic(t *testing.T) {
+	s := graphSnapshot(t)
+	diagnostic := "stage=browser; last observed command failed"
+	var ownerFailure string
+	r := openRig(t, t.TempDir(), s, func(e runner.Executor) runner.Executor {
+		return graphExecutor{e, func(a runner.Assignment) runner.Observation {
+			if a.TaskContext.TaskID != "root" {
+				return runner.Observation{State: runner.Finished, End: &runner.ExecutionEnd{Kind: "stopped", Reason: "configured stop", Diagnostic: diagnostic}}
+			}
+			if len(a.TaskContext.Results) == 0 {
+				return graphAction("delegate", graphTask("check", "writer"))
+			}
+			result := a.TaskContext.Results[0]
+			if result.Status != "Failed" || result.Diagnostic != diagnostic || len(result.Outputs) != 0 {
+				ownerFailure = "failure diagnostic was lost or became accepted product output"
+			}
+			return graphFinal("failure evidence received")
+		}}
+	})
+	defer r.close()
+	root := begin(t, r.core, "failure-diagnostic", "demo")
+	done := await(t, r.core, root.ID, released)
+	if ownerFailure != "" || done.Status != "Completed" || len(done.TaskStatuses) != 1 || done.TaskStatuses[0].Diagnostic != diagnostic || done.TaskStatuses[0].Status != "Failed" {
+		t.Fatal("repair/status projection lost canonical failure facts", ownerFailure, done.TaskStatuses)
+	}
+}
+
+type rejectTerminalDiagnosticStore struct {
+	runner.Store
+	rejected atomic.Bool
+}
+
+func (s *rejectTerminalDiagnosticStore) Save(ctx context.Context, r runner.Run, artifacts []runner.Artifact, receipt *runner.Receipt) error {
+	if r.TaskGraph != nil && r.TaskGraph.TaskID == "check" && r.Terminal() && s.rejected.CompareAndSwap(false, true) {
+		return errors.New("fixture transient terminal write refusal")
+	}
+	return s.Store.Save(ctx, r, artifacts, receipt)
+}
+
+func TestGeneralTaskFailedTerminalSaveRetainsDiagnosticThroughCleanupAndReopen(t *testing.T) {
+	s := graphSnapshot(t)
+	dir := t.TempDir()
+	r := openRig(t, dir, s, nil)
+	r.core.Close()
+	store := &rejectTerminalDiagnosticStore{Store: r.store}
+	diagnostic := "stage=browser; output observed before terminal save"
+	var received bool
+	e := graphExecutor{r.backend, func(a runner.Assignment) runner.Observation {
+		if a.TaskContext.TaskID != "root" {
+			return runner.Observation{State: runner.Finished, End: &runner.ExecutionEnd{Kind: "stopped", Reason: "deadline", Diagnostic: diagnostic}}
+		}
+		if len(a.TaskContext.Results) == 0 {
+			return graphAction("delegate", graphTask("check", "writer"))
+		}
+		result := a.TaskContext.Results[0]
+		received = result.Status == "Failed" && result.Diagnostic == diagnostic && strings.Contains(result.Reason, "result persistence rejected") && len(result.Outputs) == 0
+		return graphFinal("failure evidence received")
+	}}
+	core, err := runner.New(t.Context(), store, e, r.disk, s)
+	if err != nil {
+		r.close()
+		t.Fatal(err)
+	}
+	r.core = core
+	defer r.close()
+	root := begin(t, core, "diagnostic-save-refusal", "demo")
+	done := await(t, core, root.ID, released)
+	if !store.rejected.Load() || !received || done.Status != "Completed" || len(done.TaskStatuses) != 1 || done.TaskStatuses[0].Attempts != 1 || done.TaskStatuses[0].CleanupPending {
+		t.Fatal("terminal fallback lost facts, replaced work, or failed cleanup", done)
+	}
+	core.Close()
+	if err := r.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := sqlite.Open(dir, s.Instance.Storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	rows, err := reopened.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, child := range rows {
+		if child.TaskGraph.TaskID != "check" {
+			continue
+		}
+		if len(child.Attempts) != 1 || !child.Attempts[0].Released || child.Attempts[0].End.Diagnostic != diagnostic || child.Attempts[0].End.Kind != "failed" || len(child.Outputs) != 0 {
+			t.Fatal("fallback/release/reopen changed canonical failure evidence", child)
+		}
+		return
+	}
+	t.Fatal("same failed child was not retained")
 }

@@ -151,3 +151,36 @@ func TestHarnessResultsFileChecksDigestAndArtifactAuthority(t *testing.T) {
 		t.Fatal("file introduced artifact authority absent from authorized compact assignment")
 	}
 }
+
+func TestHarnessDiagnosticHeavyResultsUseCompleteResultsFile(t *testing.T) {
+	a := harnessAssignment(t)
+	a.Setup.Profile.MaxInput = 8 << 10
+	a.TaskContext = &runner.TaskContext{Goal: "Diagnose failed child work"}
+	for i := range 24 {
+		a.TaskContext.Results = append(a.TaskContext.Results, runner.RoleTaskResult{
+			ID: fmt.Sprint(i), RunID: fmt.Sprint("run_", i), Status: "Failed",
+			Diagnostic: runner.DiagnosticTail(strings.Repeat("old-stage ", 100) + fmt.Sprint("final-stage-", i)),
+		})
+	}
+	complete, _ := json.Marshal(a.TaskContext.Results)
+	control := t.TempDir()
+	compact, file, data, err := planHarnessAssignment(a, control, 64<<10)
+	if err != nil || file == nil || !bytes.Equal(data, complete) {
+		t.Fatal("failure facts caused an input halt or were truncated", err)
+	}
+	for _, result := range compact.TaskContext.Results {
+		if result.Diagnostic != "" {
+			t.Fatal("diagnostics duplicated in compact context")
+		}
+	}
+	if err := os.WriteFile(file.Path, data, 0400); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateHarnessResults(compact, control, file); err != nil {
+		t.Fatal("exact failure results file was not readable", err)
+	}
+	compact.TaskContext.Results[0].Diagnostic = "duplicated"
+	if err := validateHarnessResults(compact, control, file); err == nil {
+		t.Fatal("duplicate inline diagnostics bypassed the compact context contract")
+	}
+}

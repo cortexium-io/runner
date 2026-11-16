@@ -534,6 +534,14 @@ func collectCommand(d *runner.Disk, job commandJob, result commandResult) (*runn
 }
 
 func collectCommandResult(d *runner.Disk, assignment runner.Assignment, result commandResult, scratch string) (*runner.ExecutionEnd, error) {
+	end, err := collectCommandOutput(d, assignment, result, scratch)
+	if end != nil && end.Kind != "returned" {
+		end.Diagnostic = runner.DiagnosticTail(result.Diagnostic)
+	}
+	return end, err
+}
+
+func collectCommandOutput(d *runner.Disk, assignment runner.Assignment, result commandResult, scratch string) (*runner.ExecutionEnd, error) {
 	if result.Kind == "stopped" {
 		return &runner.ExecutionEnd{Kind: "stopped", Reason: "command worker confirmed its process group stopped"}, nil
 	}

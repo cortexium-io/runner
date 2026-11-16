@@ -157,6 +157,16 @@ pending reservations block amendment; it neither resumes nor dispatches work.
 SQLite schema 15 rejects readers that cannot validate this distinct receipt.
 Normal resume makes the amended instructions available to future children.
 
+Settled command failure facts use optional `ExecutionEnd.Diagnostic`, independently
+of kind, reason and accepted outputs. One UTF-8/JSON-bounded tail policy covers
+configured/shared commands and late-output recovery. A stopped command cannot
+publish product artifacts; malformed optional facts cannot revoke confirmed
+settlement. Core validation and persistence fallback retain the fact. Parent task,
+retry and compact result projections expose current diagnostics, while the existing
+results-file fallback removes duplicate inline text for large histories. SQLite
+schema 16 protects this retained evidence from older writers; existing rows remain
+unchanged. This does not recover diagnostics already removed by historical cleanup.
+
 SQLite schema four widened their physical attempt positions; schema five adds
 the native-context/result-file worker compatibility boundary without rewriting
 existing rows. Schema six adds the native allocation/release compatibility boundary.

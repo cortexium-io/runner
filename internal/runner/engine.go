@@ -1318,7 +1318,11 @@ func (c *Core) launch(runID, id, op string, ass Assignment) {
 				c.Wake()
 				return
 			}
-			a.End = &ExecutionEnd{Kind: "failed", Reason: "result persistence rejected: " + Clip(e.Error())}
+			a.End = &ExecutionEnd{
+				Kind:       "failed",
+				Reason:     "result persistence rejected: " + Clip(e.Error()),
+				Diagnostic: a.End.Diagnostic,
+			}
 			r.Step = a.Step
 			r.Status = "Failed"
 			r.Reason = a.End.Reason
@@ -1333,6 +1337,7 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 	step := r.Process.Steps[a.Step]
 	var arts []Artifact
 	end := a.End
+	diagnostic := DiagnosticTail(end.Diagnostic)
 	if a.Effective != nil && a.Effective.Provenance != "" {
 		id := a.Effective.Provenance
 		if !strings.HasPrefix(id, a.ID+"/") {
@@ -1393,6 +1398,11 @@ func (c *Core) finish(r *Run, index int) []Artifact {
 		}
 	} else if end.Kind != "failed" && end.Kind != "stopped" {
 		end = &ExecutionEnd{Kind: "failed", Reason: "invalid terminal observation"}
+	}
+	if end.Kind != "returned" {
+		end.Diagnostic = diagnostic
+	} else {
+		end.Diagnostic = ""
 	}
 	a.End = end
 	if r.CancelRequested {

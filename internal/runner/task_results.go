@@ -42,6 +42,7 @@ func (c *Core) outputRun(r Run) Run {
 					r.Updated = child.Updated
 				}
 				status.Status, status.Reason = child.Status, child.Reason
+				status.Diagnostic = child.LatestDiagnostic()
 				status.Attempts = len(child.Attempts)
 				progress := runProgress(child, time.Now())
 				status.Progress = &progress
@@ -96,6 +97,7 @@ func (c *Core) outputGraph(out *Run, parent Run, retired bool) {
 				out.Updated = child.Updated
 			}
 			status.Status, status.Reason, status.Attempts = child.Status, child.Reason, len(child.Attempts)
+			status.Diagnostic = child.LatestDiagnostic()
 			progress := runProgress(child, time.Now())
 			if status.Retired {
 				progress.Attention = nil

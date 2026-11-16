@@ -70,6 +70,7 @@ type TaskStatus struct {
 	DependsOn      []string  `json:"depends_on,omitempty"`
 	Status         string    `json:"status"`
 	Reason         string    `json:"reason,omitempty"`
+	Diagnostic     string    `json:"diagnostic,omitempty"`
 	Attempts       int       `json:"attempts"`
 	Active         bool      `json:"active"`
 	Unsettled      bool      `json:"execution_unsettled,omitempty"`

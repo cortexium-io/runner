@@ -52,6 +52,7 @@ func planHarnessAssignment(a runner.Assignment, control string, assignmentLimit 
 	a = runner.Clone(a)
 	for i := range a.TaskContext.Results {
 		result := &a.TaskContext.Results[i]
+		result.Diagnostic = ""
 		for name, value := range result.Outputs {
 			if value.ArtifactID == "" {
 				delete(result.Outputs, name)
@@ -108,7 +109,10 @@ func validateHarnessResults(a runner.Assignment, control string, file *runner.Na
 	// The file may contain complete text, but cannot introduce artifact IDs
 	// omitted from the compact, Core-authorized assignment.
 	allowed := harnessArtifactFiles(a)
-	for _, result := range results {
+	for i, result := range results {
+		if result.Diagnostic != runner.DiagnosticTail(result.Diagnostic) || a.TaskContext.Results[i].Diagnostic != "" {
+			return errors.New("native task-results diagnostic bound or compact context differs")
+		}
 		for _, value := range result.Outputs {
 			if value.ArtifactID != "" && allowed[value.ArtifactID] == "" {
 				return errors.New("native task-results artifact authority differs")

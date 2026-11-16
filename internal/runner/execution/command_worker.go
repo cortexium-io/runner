@@ -80,14 +80,11 @@ func RunCommandWorker(parent context.Context, file string) error {
 	if errors.Is(runErr, exec.ErrWaitDelay) {
 		return errors.New("command descendants did not settle")
 	}
-	diagnostic := tail.bytes()
-	if len(diagnostic) > 480 {
-		diagnostic = diagnostic[len(diagnostic)-480:]
-	}
+	diagnostic := runner.DiagnosticTail(string(tail.bytes()))
 	result := commandResult{
 		AttemptID:  spec.AttemptID,
 		Kind:       "returned",
-		Diagnostic: string(diagnostic),
+		Diagnostic: diagnostic,
 	}
 	if ctx.Err() != nil {
 		result.Kind = "stopped"
@@ -98,7 +95,7 @@ func RunCommandWorker(parent context.Context, file string) error {
 			result.ExitCode = exit.ExitCode()
 		}
 		if result.Diagnostic == "" {
-			result.Diagnostic = runner.Clip(runErr.Error())
+			result.Diagnostic = runner.DiagnosticTail(runErr.Error())
 		}
 	}
 	if err = workerWrite(filepath.Join(spec.Control, "log"), tail.bytes()); err != nil {

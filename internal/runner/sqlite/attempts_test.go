@@ -115,6 +115,42 @@ func TestNormalizedAttemptHistorySurvives64AttemptsAndRestart(t *testing.T) {
 	}
 }
 
+func TestNormalizedFailureDiagnosticSurvivesReleaseAndRestart(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	s, err := Open(root, normalizedPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := normalizedRun(2)
+	r.Status = "Failed"
+	a := &r.Attempts[1]
+	a.Released = false
+	a.End = &runner.ExecutionEnd{Kind: "stopped", Reason: "deadline", Diagnostic: "stage=browser; last command facts"}
+	if err := s.Save(t.Context(), r, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(root, normalizedPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	loaded, err := s.Load(t.Context())
+	if err != nil || len(loaded) != 1 || !reflect.DeepEqual(loaded[0], r) {
+		t.Fatal("reopen lost the same stopped attempt and diagnostic", err)
+	}
+	loaded[0].Attempts[1].Released = true
+	if err := s.Save(t.Context(), loaded[0], nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.Load(t.Context())
+	if err != nil || len(after) != 1 || after[0].Attempts[1].End.Diagnostic != a.End.Diagnostic || after[0].Attempts[1].End.Kind != "stopped" || len(after[0].Attempts) != 2 {
+		t.Fatal("release lost failure facts or replaced execution", err)
+	}
+}
+
 func TestAttemptSchemaUpgradePreservesVersionTwoBytes(t *testing.T) {
 	root := t.TempDir()
 	r := normalizedRun(2)

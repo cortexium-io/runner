@@ -408,9 +408,10 @@ type Usage struct {
 	CachedInputTokens *int64 `json:"cached_input_tokens,omitempty"`
 }
 type ExecutionEnd struct {
-	Kind   string      `json:"kind"`
-	Result *StepResult `json:"result,omitempty"`
-	Reason string      `json:"reason,omitempty"`
+	Kind       string      `json:"kind"`
+	Result     *StepResult `json:"result,omitempty"`
+	Reason     string      `json:"reason,omitempty"`
+	Diagnostic string      `json:"diagnostic,omitempty"`
 	// Retryable is trusted adapter evidence of a settled, safe infrastructure
 	// failure. Task output and candidate code cannot grant this classification.
 	Retryable bool `json:"retryable,omitempty"`

@@ -317,7 +317,7 @@ func sharedCommandFinal(a runner.Assignment, runErr error, diagnostic []byte) []
 			code = exit.ExitCode()
 		}
 	}
-	result, _ := json.Marshal(commandResult{AttemptID: a.AttemptID, Kind: "returned", ExitCode: code, Diagnostic: runner.Clip(string(diagnostic))})
+	result, _ := json.Marshal(commandResult{AttemptID: a.AttemptID, Kind: "returned", ExitCode: code, Diagnostic: runner.DiagnosticTail(string(diagnostic))})
 	return result
 }
 

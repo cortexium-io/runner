@@ -1,6 +1,6 @@
 # Runner process core design
 
-Updated 16 November 2026. **The owner authorized implementing the general
+Updated 17 November 2026. **The owner authorized implementing the general
 roles-and-tasks design below, including real writing and a new Genny SaaS
 qualification. Existing pilot runs, their authority and limits remain unchanged.
 Merge, publication and production remain separately authorized actions.**
@@ -250,6 +250,40 @@ retained command tail, not the browser timeout's cause; a child may also have
 emitted no useful stage output. Any correction must preserve stopped/cancelled
 authority and settlement while making bounded failure facts available to the
 repair owner. No live observer change or product acceptance is established here.
+
+After the third deadline, the same root stopped at 56 executions with an explicit
+diagnostic capability blocker. Complete the authorised fixed-executor correction
+at the failure-fact boundary: retain the existing bounded command diagnostic on
+the settled execution end, independently of terminal kind and domain result.
+Project artifacts from stopped commands must never become accepted outputs.
+Carry the fact through SQLite/restart, general child and retry context, and
+compact results; retain absent historical evidence as unknown. Cover ordinary
+command collection failures and the shared worker's stopped/failed receipts,
+including recovery/release, with focused model-free regressions and independent
+review before installation. Preserve the same root, candidate, spending and old
+results; use normal configured recovery only after qualification. This slice
+changes no timeout, model, permission, work allowance or product assertion. CPU
+monitoring and cross-project scheduling are outside this correction.
+
+The correction adds one optional canonical `ExecutionEnd.Diagnostic`. It keeps
+the latest 480 UTF-8 bytes within a 512-byte encoded JSON string allowance;
+invalid text is normalized before selecting the tail. Ordinary command rejection,
+shared stopped/failed receipts and late-output recovery use the same bound.
+Receipt identity still authenticates optional facts; missing or malformed facts
+do not undo observed settlement. Stopped executions never collect domain outputs.
+Core terminal validation and a transient terminal-save fallback preserve the
+fact without granting retryability or changing cancellation/watchdog policy.
+Parent/retry context and compact status project the latest settled diagnostic;
+later success clears stale feedback. Existing results-file externalization keeps
+complete diagnostics in its hash-bound file and removes duplicate inline text.
+SQLite marker 16 prevents older writers silently dropping this retained evidence;
+the migration changes no existing table row or definition.
+
+Focused race/vet checks and actual model-free Darwin command watchdog,
+cancellation, same-attempt reopen/release, SQLite fallback/restart and context
+budget proofs pass. Independent review has no remaining P1/P2. Broader workflow
+qualification and installation remain pending; historical lost diagnostics and
+Sudoku acceptance are not reconstructed by these proofs.
 
 ### Linked accepted-task follow-up, authorized 16 November 2026
 
