@@ -82,7 +82,7 @@ function actionFixture({matches=1,enabled=true,inViewport=true,hit=true}={}) {
     events.push('scroll');facts.scroll.y=200;facts.board.y=-100;target.in_viewport=true;
   }};
   const point=async(x,y)=>{assert.deepEqual({x,y},target.centre);events.push('pointer');facts.focus={tag:'BUTTON',label:'Undo'}};
-  const page={evaluate:async fn=>fn===interactionFacts?structuredClone(facts):events.push('layout'),mouse:{click:point},touchscreen:{tap:point}};
+  const page={evaluate:async fn=>fn===interactionFacts?structuredClone(facts):events.push('layout'),mouse:{move:async()=>{events.push('move')},click:point},touchscreen:{tap:point}};
   return {page,locator,target,facts,events,observed,settings:{observe:row=>observed.push(row)}};
 }
 
@@ -120,10 +120,36 @@ test('ordinary secondary scrolling precedes a fresh hit-test and trusted input a
   for(const touch of [true,false]) {
     const f=actionFixture({inViewport:false});
     await activateTarget(f.page,f.locator,touch,{...f.settings,secondary:true});
-    assert.deepEqual(f.events,['scroll','layout','hit-test','pointer','layout']);
+    assert.deepEqual(f.events,touch?['scroll','layout','hit-test','pointer','layout']:['scroll','layout','hit-test','move','layout','hit-test','pointer','layout']);
     const proof=f.observed[0];assert.equal(proof.phase,'complete');
     assert.equal(proof.before.scroll.y,0);assert.equal(proof.scrolled.scroll.y,200);
     assert.equal(proof.scrolled.board.y,-100);assert.equal(proof.after.focus.label,'Undo');
+  }
+});
+
+test('mouse movement renders ordinary prior-hover dismissal before the fresh hit-test',async()=>{
+  const f=actionFixture({hit:false});
+  f.target.cover={tag:'DIV',label:'Previous digit hover helper'};
+  f.page.mouse.move=async(x,y)=>{
+    assert.deepEqual({x,y},f.target.centre);f.events.push('move');
+    f.target.hit=true;f.target.cover={tag:'BUTTON',label:'Undo'};f.target.centre={x:x+5,y:y+5};
+  };
+  await activateTarget(f.page,f.locator,false,f.settings);
+  assert.deepEqual(f.events,['hit-test','move','layout','hit-test','pointer','layout']);
+  const evidence=f.observed[0];
+  assert.equal(evidence.pointer_before.hit,false);assert.equal(evidence.pointer_before.cover.label,'Previous digit hover helper');
+  assert.notDeepEqual(evidence.target.centre,evidence.pointer_before.centre);
+  assert.equal(evidence.target.hit,true);assert.equal(evidence.phase,'complete');
+});
+
+test('mouse preparation still rejects persistent overlays and offscreen targets without clicking',async()=>{
+  for(const settings of [{hit:false},{inViewport:false}]) {
+    const f=actionFixture(settings);
+    await assert.rejects(activateTarget(f.page,f.locator,false,f.settings),settings.hit===false?/centre is covered/:/centre is offscreen/);
+    assert.equal(f.events.includes('pointer'),false);
+    assert.equal(f.events.includes('move'),settings.inViewport!==false);
+    assert.equal(f.observed[0].phase,'hit-test');
+    assert.equal(f.observed[0].pointer_before.hit,settings.hit!==false);
   }
 });
 

@@ -19,6 +19,9 @@ Redo/Check/Restart do not become primary targets. Desktop vertical scrolling is
 allowed, while target size, horizontal containment, frame clipping, under-board
 placement and non-overlap remain required. Every actual action scrolls normally
 when allowed, then independently checks its fresh enabled/hit-tested centre.
+Mouse actions first move the pointer normally and allow hover rendering before
+that final hit test. A previous hover may disappear; a persistent overlay still
+fails. Touch actions do not gain a mouse move or a coverage exemption.
 Nonogram reopens its normal public 5×5 catalogue code; it does not waive or claim
 New-generation qualification. These are separate from the Sudoku matrix and do
 not multiply themes, viewports or engine benchmarks for neighboring games.

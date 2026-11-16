@@ -74,6 +74,18 @@ export async function activateTarget(page,locator,touch,{secondary=false,boardSe
       await layoutReady(page);
       evidence.scrolled=await page.evaluate(interactionFacts,boardSelector);
     }
+    if(!touch) {
+      evidence.phase='pointer-prepare';
+      evidence.pointer_before=await locator.evaluate(targetFacts);
+      if(evidence.pointer_before.in_viewport) {
+        // A mouse approaches its target before clicking. That ordinary move
+        // can dismiss the previous control's hover UI or reveal new hover UI;
+        // judge the actual resulting target rather than the parked pointer.
+        const {x,y}=evidence.pointer_before.centre;
+        await page.mouse.move(x,y);
+        await layoutReady(page);
+      }
+    }
     evidence.phase='hit-test';
     evidence.target=await locator.evaluate(targetFacts);
     assert.equal(evidence.target.enabled,true,'UI action target is disabled');
